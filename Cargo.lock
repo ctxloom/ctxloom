@@ -1117,6 +1117,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "daemon-api"
+version = "0.1.0"
+dependencies = [
+ "angzarr-diagnostic",
+ "angzarr-embedded",
+ "daemon-ports",
+ "daemon-proto",
+ "exit-code",
+ "mutants",
+ "prost",
+ "run-ports",
+ "session-index",
+ "sessions",
+ "sessions-proto",
+ "tokio",
+]
+
+[[package]]
 name = "daemon-application"
 version = "0.1.0"
 dependencies = [
@@ -1154,12 +1172,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "daemon-ports"
+version = "0.1.0"
+dependencies = [
+ "angzarr-diagnostic",
+ "daemon-proto",
+ "prost",
+ "prost-types",
+]
+
+[[package]]
 name = "daemon-proto"
 version = "0.1.0"
 dependencies = [
  "angzarr-build",
  "prost",
  "prost-types",
+ "tonic",
+ "tonic-prost",
+ "tonic-prost-build",
 ]
 
 [[package]]

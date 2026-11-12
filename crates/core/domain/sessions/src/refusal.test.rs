@@ -34,6 +34,24 @@ fn table() -> Vec<(TypedRefusal, SessionRejection)> {
         ),
         (TypedRefusal::of(&NoClaim {}), SessionRejection::NoClaim),
         (
+            TypedRefusal::of(&crate::UnnamedProject {
+                project_id: "p".to_string(),
+            }),
+            SessionRejection::ProjectNotNamed {
+                project_id: "p".to_string(),
+            },
+        ),
+        (
+            TypedRefusal::of(&crate::ProjectHarpMismatch {
+                project: "projects/owl".to_string(),
+                expected: "hen".to_string(),
+            }),
+            SessionRejection::ProjectHarpMismatch {
+                project: "projects/owl".to_string(),
+                expected: "hen".to_string(),
+            },
+        ),
+        (
             TypedRefusal::of(&NotHolder { harp: harp() }),
             SessionRejection::NotHolder { harp: harp() },
         ),

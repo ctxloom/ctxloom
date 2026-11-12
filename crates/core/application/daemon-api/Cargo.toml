@@ -1,0 +1,33 @@
+[package]
+name = "daemon-api"
+version = "0.1.0"
+description = "The daemon's API (slice 2 step 5): the Ctxloom service's use cases the daemon serves from its warm read models, the projects' register-or-recheck, the refusals they answer, and the client's version-skew rule (M3) over the daemon-ports API"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+angzarr-diagnostic.workspace = true
+angzarr-embedded.workspace = true
+daemon-ports.workspace = true
+daemon-proto.workspace = true
+exit-code.workspace = true
+prost.workspace = true
+run-ports.workspace = true
+session-index.workspace = true
+sessions.workspace = true
+sessions-proto.workspace = true
+
+[dev-dependencies]
+angzarr-embedded = { workspace = true, features = ["test-support"] }
+mutants.workspace = true
+run-ports = { workspace = true, features = ["test-support"] }
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[features]
+# `diagnostic_samples`, for other crates' catalog tests.
+test-support = []
+
+[lints]
+workspace = true

@@ -99,6 +99,10 @@ embedded-edge = { path = "crates/adapters/driven/embedded-edge" }
 session-ports = { path = "crates/core/ports/session-ports" }
 sessions-proto = { path = "crates/core/wire/sessions-proto" }
 daemon-proto = { path = "crates/core/wire/daemon-proto" }
+daemon-ports = { path = "crates/core/ports/daemon-ports" }
+daemon-api = { path = "crates/core/application/daemon-api" }
+daemon-api-grpc = { path = "crates/adapters/driving/daemon-api-grpc" }
+daemon-client = { path = "crates/adapters/driven/daemon-client" }
 sessions = { path = "crates/core/domain/sessions" }
 session-index = { path = "crates/core/read-model/session-index" }
 session-policies = { path = "crates/core/application/session-policies" }

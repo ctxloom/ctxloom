@@ -1,0 +1,10 @@
+daemon-api-refused = the daemon refused with { $ext_err_txt }
+daemon-api-failed = the daemon could not answer: { $ext_err_txt }
+daemon-api-name-invalid = { $name } is not a resource name: { $reason }
+daemon-api-session-not-found = no session is named { $name }
+daemon-api-project-not-found = no project is named { $name }
+daemon-api-project-unknown = { $cwd } is in no ctxloom project
+daemon-api-daemon-hosting = the daemon hosts { $runs } live run(s): { $harps }
+daemon-api-daemon-hosting-fix = wait for them to end, or end them with it: ctxloom daemon stop --even-if-live
+daemon-api-version-skew-busy = the serving daemon is ctxloom { $daemon }, not this ctxloom { $own }, and it hosts live runs: { $harps }
+daemon-api-version-skew-busy-fix = ctxloom daemon stop --even-if-live

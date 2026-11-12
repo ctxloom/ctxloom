@@ -1,0 +1,21 @@
+[package]
+name = "daemon-ports"
+version = "0.1.0"
+description = "The daemon's API as its clients reach it (M7): the Ctxloom service's methods as a port, and what a call can come to; daemon-client implements it"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+angzarr-diagnostic.workspace = true
+daemon-proto.workspace = true
+prost.workspace = true
+prost-types.workspace = true
+
+[features]
+# `diagnostic_samples`, for other crates' catalog tests.
+test-support = []
+
+[lints]
+workspace = true

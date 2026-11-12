@@ -95,6 +95,18 @@ pub struct SessionRecord {
     pub name: String,
 }
 
+/// A project as its stream says it (S54, and its registration, owner
+/// 2026-11-12): its id, the harp it was named with, and the root and VCS
+/// identity a daemon client registered it from (empty until registered).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProjectRow {
+    pub project_id: String,
+    pub harp: String,
+    pub root: String,
+    pub git_common_dir: String,
+    pub root_commit: String,
+}
+
 /// One index of a project's sessions.
 #[derive(Default)]
 pub struct SessionIndex {
@@ -106,7 +118,7 @@ pub struct SessionIndex {
     transcripts: BTreeMap<Vec<u8>, Folded>,
     /// Each project's harp (S54), by its project stream's root: its id and
     /// the harp it was named with.
-    projects: BTreeMap<Vec<u8>, (String, String)>,
+    projects: BTreeMap<Vec<u8>, ProjectRow>,
 }
 
 /// A session's transcript as folded so far.
@@ -137,11 +149,17 @@ impl SessionIndex {
     pub fn project_harp(&self, project_id: &str) -> Option<&str> {
         self.projects
             .values()
-            .find(|(id, _)| id == project_id)
-            .map(|(_, harp)| harp.as_str())
+            .find(|row| row.project_id == project_id && !row.harp.is_empty())
+            .map(|row| row.harp.as_str())
     }
 
-    /// Fold a project stream's `book`: the harp it names its project with.
+    /// The project named `harp`, as its stream says it.
+    pub fn project_named_by(&self, harp: &str) -> Option<ProjectRow> {
+        self.projects.values().find(|row| row.harp == harp).cloned()
+    }
+
+    /// Fold a project stream's `book`: the harp it names its project with,
+    /// and its registration.
     fn project_named(&mut self, root: Vec<u8>, book: &EventBook) -> Result<(), PayloadError> {
         if book.pages.is_empty() && book.next_sequence == 0 {
             self.projects.remove(&root);
@@ -150,13 +168,21 @@ impl SessionIndex {
             let Some(event_page::Body::Event(event)) = &page.body else {
                 continue;
             };
-            // A registration (owner, 2026-11-12) names nothing.
-            let ProjectEvent::ProjectNamed(named) = ProjectEvent::from_any(event)? else {
-                continue;
-            };
-            self.projects
-                .entry(root.clone())
-                .or_insert((named.project_id, named.harp));
+            let row = self.projects.entry(root.clone()).or_default();
+            match ProjectEvent::from_any(event)? {
+                ProjectEvent::ProjectNamed(named) if row.harp.is_empty() => {
+                    row.project_id = named.project_id;
+                    row.harp = named.harp;
+                }
+                ProjectEvent::ProjectNamed(_) => {}
+                ProjectEvent::ProjectRegistered(registered) if row.root.is_empty() => {
+                    row.project_id = registered.project_id;
+                    row.root = registered.root;
+                    row.git_common_dir = registered.git_common_dir;
+                    row.root_commit = registered.root_commit;
+                }
+                ProjectEvent::ProjectRegistered(_) => {}
+            }
         }
         Ok(())
     }

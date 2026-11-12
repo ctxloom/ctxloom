@@ -290,16 +290,37 @@ message StopDaemonRequest {
 
 // region projects
 
+// Register-or-recheck (owner, 2026-11-12, project registration): every
+// daemon client calls it first, with what IT resolved of its working
+// directory (S6): the project id (taskloom's project-registry identity, so a
+// worktree is its primary checkout's project), the root, the repository's
+// git common directory and its root commit (`git rev-list --max-parents=0
+// HEAD`; of several, the lexically least). The first call names the project
+// (its harp minted, S54) and records the rest in the `projects` aggregate;
+// every later one recomputes and compares: a changed root commit is refused
+// `ctxloom.sessions.v1.ProjectIdentityChanged`, a `name` that is not the
+// registered project's `ProjectHarpMismatch`, each naming the registered
+// project. Outside git the two VCS fields are empty (an empty identity).
 message ResolveProjectRequest {
+  // `projects/{project}` the client expects (its session's), or empty.
+  string name = 1;
   string cwd = 2;
+  string project_id = 3;
+  string root = 4;
+  string git_common_dir = 5;
+  string root_commit = 6;
 }
 
 message Project {
   // `projects/{project}`, the project's permanent harp (S42).
   string name = 1;
+  // The root it was first registered from.
   string root = 2;
   // The project id (the store's, and a session's claim namespace).
   string uid = 3;
+  // Its registered VCS identity (empty outside git).
+  string git_common_dir = 4;
+  string root_commit = 5;
 }
 
 message GetProjectRequest {
@@ -966,12 +987,41 @@ message HandOffMissing {
   string harp = 1;
 }
 
-// `StopDaemon` while it hosts live runs (S12).
+// A resource name that is not one (`projects/{p}` or
+// `projects/{p}/sessions/{s}`, each segment a harp); `reason` is `shape`
+// or the harp grammar's.
+message NameInvalid {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+
+  string name = 1;
+  string reason = 2;
+}
+
+// A session's resource name no session holds.
+message SessionNotFound {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_NOT_FOUND;
+
+  string name = 1;
+}
+
+// A project's resource name no project holds.
+message ProjectNotFound {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_NOT_FOUND;
+
+  string name = 1;
+}
+
+// `StopDaemon` while it hosts live runs (S12), unless `even_if_live`: how
+// many, and their sessions' harps.
 message DaemonHosting {
   option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
 
   uint64 runs = 1;
   repeated string harps = 2;
 }
+
+// A registration's recheck is refused with the projects aggregate's own
+// typed refusals (`ctxloom.sessions.v1.ProjectIdentityChanged`,
+// `ProjectHarpMismatch`), answered as every refusal is (S11).
 
 // endregion

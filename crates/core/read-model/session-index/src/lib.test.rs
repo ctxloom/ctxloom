@@ -933,3 +933,46 @@ fn a_filled_model_reads_a_gap_through_its_fill() {
     .unwrap();
     assert_eq!(*fill.0.lock().unwrap(), [(0, 2)]);
 }
+
+// Project registration (owner, 2026-11-12): the index finds a project by its
+// harp, with the root and VCS identity it was registered from, for the
+// daemon's GetProject.
+#[test]
+fn a_project_is_found_by_its_harp_with_its_registration() {
+    use angzarr_embedded::v1::{event_page, EventPage};
+    let index = SessionIndexes::default();
+    let mut book = project_book(Some("calm-quiet-heron"), 2);
+    book.pages.push(EventPage {
+        sequence: 1,
+        body: Some(event_page::Body::Event(
+            sessions::ProjectEvent::ProjectRegistered(sessions::ProjectRegistered {
+                project_id: "calm-otter".to_string(),
+                root: "/work/calm".to_string(),
+                git_common_dir: "/work/calm/.git".to_string(),
+                root_commit: "c0ffee".to_string(),
+            })
+            .to_any(),
+        )),
+        meta: None,
+    });
+    hand(&index, book);
+    let row = index
+        .index()
+        .project_named_by("calm-quiet-heron")
+        .expect("found by its harp");
+    assert_eq!(
+        row,
+        crate::ProjectRow {
+            project_id: "calm-otter".to_string(),
+            harp: "calm-quiet-heron".to_string(),
+            root: "/work/calm".to_string(),
+            git_common_dir: "/work/calm/.git".to_string(),
+            root_commit: "c0ffee".to_string(),
+        }
+    );
+    assert_eq!(
+        index.index().project_harp("calm-otter"),
+        Some("calm-quiet-heron")
+    );
+    assert!(index.index().project_named_by("far-heron").is_none());
+}

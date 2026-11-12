@@ -64,6 +64,24 @@ pub fn session_profile(home: &str, caller: &BTreeMap<String, String>) -> Vec<(St
         .collect()
 }
 
+/// Whether `path` is absolute on `os`: on unix it starts with `/`; on
+/// Windows it has a drive and a root (`C:\x`, `C:/x`) or is a UNC path
+/// (`\\server\share`, `//server/share`). A drive without a root (`C:x`) is
+/// relative to that drive's working directory, and a root without a drive
+/// (`\x`) to the working drive: neither is absolute, as Rust's
+/// `Path::is_absolute` reads them on Windows.
+pub fn is_absolute(os: &str, path: &str) -> bool {
+    if os != WINDOWS {
+        return path.starts_with('/');
+    }
+    let slash = |c: u8| c == b'\\' || c == b'/';
+    match path.as_bytes() {
+        [first, second, ..] if slash(*first) && slash(*second) => true,
+        [drive, b':', root, ..] => drive.is_ascii_alphabetic() && slash(*root),
+        _ => false,
+    }
+}
+
 /// The separator of `PATH`'s directories on `os`: `;` on Windows, `:`
 /// elsewhere (`os::Flavor::split_search_path` splits at the same).
 pub fn search_path_separator(os: &str) -> char {

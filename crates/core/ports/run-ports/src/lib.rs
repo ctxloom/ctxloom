@@ -38,8 +38,8 @@ pub use hook::{
     SESSION_VARIABLE, TLS_CERT_VARIABLE,
 };
 pub use host::{
-    search_path_led_by, search_path_separator, session_profile, WINDOWS, WINDOWS_PROFILE_VARIABLES,
-    WINDOWS_STARTUP_VARIABLES,
+    is_absolute, search_path_led_by, search_path_separator, session_profile, WINDOWS,
+    WINDOWS_PROFILE_VARIABLES, WINDOWS_STARTUP_VARIABLES,
 };
 pub use launcher::{
     Exit, Launch, LaunchEvent, LaunchFailure, Limits, RunnerLauncher, Running, TurnCommand,

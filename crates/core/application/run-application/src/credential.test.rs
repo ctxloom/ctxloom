@@ -576,9 +576,9 @@ fn every_notice_says_the_engines_own_way_to_sign_in() {
 // anything else is under the home.
 #[test]
 fn a_login_path_is_resolved_against_the_home_only_where_it_is_not_absolute() {
-    assert_eq!(resolve("/h", "~/a/b"), "/h/a/b");
-    assert_eq!(resolve("/h", "/etc/c.json"), "/etc/c.json");
-    assert_eq!(resolve("/h", ".acme/c.json"), "/h/.acme/c.json");
+    assert_eq!(resolve("/h", "~/a/b", "linux"), "/h/a/b");
+    assert_eq!(resolve("/h", "/etc/c.json", "linux"), "/etc/c.json");
+    assert_eq!(resolve("/h", ".acme/c.json", "linux"), "/h/.acme/c.json");
 }
 
 // The login is found under the home the composition root resolved (on
@@ -604,4 +604,45 @@ fn the_login_is_found_under_the_home_given_not_the_environment_s_home() {
             "/users/her/.local/share/opencode/auth.json".to_string(),
         )]
     );
+}
+
+// On Windows a configured login file is absolute with a drive and a root, or
+// as a UNC path, and is itself; anything else is under the home.
+#[test]
+fn on_windows_a_login_path_with_a_drive_or_a_share_is_itself() {
+    let home = r"C:\Users\u";
+    assert_eq!(
+        resolve(home, r"D:\team\auth.json", "windows"),
+        r"D:\team\auth.json"
+    );
+    assert_eq!(
+        resolve(home, "D:/team/auth.json", "windows"),
+        "D:/team/auth.json"
+    );
+    assert_eq!(
+        resolve(home, r"\\server\share\auth.json", "windows"),
+        r"\\server\share\auth.json"
+    );
+    assert_eq!(
+        resolve(home, "team/auth.json", "windows"),
+        r"C:\Users\u/team/auth.json"
+    );
+}
+
+// On Windows an XDG_DATA_HOME with a drive is absolute, so the login is found
+// where it moves opencode's data directory, not under the home.
+#[test]
+fn on_windows_a_data_home_with_a_drive_moves_the_login() {
+    let mut links = Links::with_opencode_login(r"D:\data/opencode/auth.json");
+    let notice = share_login(
+        &mut links,
+        &OPENCODE.into(),
+        &env(&[("XDG_DATA_HOME", r"D:\data")]),
+        Some(r"C:\Users\u"),
+        "windows",
+        "amber-swift-owl",
+    );
+    assert!(notice.is_none(), "{notice:?}");
+    assert_eq!(links.made.len(), 1, "{:?}", links.made);
+    assert_eq!(links.made[0].2, r"D:\data/opencode/auth.json");
 }

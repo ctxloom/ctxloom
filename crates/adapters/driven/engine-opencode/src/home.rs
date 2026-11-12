@@ -66,10 +66,14 @@ pub const MODEL_SEED: &str = "xdg/state/opencode/model.json";
 const USER_STATE_DIR: &str = ".local/state/opencode";
 
 /// The user's own `model.json`: in `$XDG_STATE_HOME/opencode` when that is an
-/// absolute path (as the login's directory is read), else under her `home`;
-/// none when she has neither.
-pub fn user_model_file(home: Option<&str>, xdg_state_home: Option<&str>) -> Option<String> {
-    match xdg_state_home.filter(|dir| dir.starts_with('/')) {
+/// absolute path on `os` ([`run_ports::is_absolute`], as the login's
+/// directory is read), else under her `home`; none when she has neither.
+pub fn user_model_file(
+    home: Option<&str>,
+    xdg_state_home: Option<&str>,
+    os: &str,
+) -> Option<String> {
+    match xdg_state_home.filter(|dir| run_ports::is_absolute(os, dir)) {
         Some(dir) => Some(format!("{dir}/opencode/model.json")),
         None => home
             .filter(|home| !home.is_empty())

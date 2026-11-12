@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use super::{
-    search_path_led_by, search_path_separator, session_profile, WINDOWS_PROFILE_VARIABLES,
-    WINDOWS_STARTUP_VARIABLES,
+    is_absolute, search_path_led_by, search_path_separator, session_profile,
+    WINDOWS_PROFILE_VARIABLES, WINDOWS_STARTUP_VARIABLES,
 };
 
 #[test]
@@ -87,5 +87,31 @@ fn test_a_caller_without_a_windows_profile_is_given_none() {
 fn test_no_profile_variable_is_a_startup_one() {
     for (name, _) in WINDOWS_PROFILE_VARIABLES {
         assert!(!WINDOWS_STARTUP_VARIABLES.contains(name), "{name}");
+    }
+}
+
+#[test]
+fn test_on_windows_a_drive_with_a_root_and_a_unc_path_are_absolute() {
+    for path in [
+        r"C:\x",
+        "C:/x",
+        r"c:\x",
+        r"\\server\share",
+        "//server/share",
+    ] {
+        assert!(is_absolute("windows", path), "{path}");
+    }
+    for path in ["C:x", r"\x", "/x", "x", "", "C:", r"1:\x"] {
+        assert!(!is_absolute("windows", path), "{path}");
+    }
+}
+
+#[test]
+fn test_on_unix_a_path_from_the_root_is_absolute() {
+    for os in ["linux", "macos"] {
+        assert!(is_absolute(os, "/x"), "{os}");
+        assert!(!is_absolute(os, r"C:\x"), "{os}");
+        assert!(!is_absolute(os, "x"), "{os}");
+        assert!(!is_absolute(os, ""), "{os}");
     }
 }

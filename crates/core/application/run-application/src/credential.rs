@@ -103,24 +103,30 @@ pub fn credential_evidence(
 }
 
 /// Where a configured login file is: `~/` is the caller's home, a relative
-/// path is under it, an absolute path is itself.
-fn resolve(home: &str, path: &str) -> String {
+/// path is under it, an absolute path (as `os` reads one,
+/// [`run_ports::is_absolute`]) is itself.
+fn resolve(home: &str, path: &str, os: &str) -> String {
     match path.strip_prefix("~/") {
         Some(rest) => format!("{home}/{rest}"),
-        None if path.starts_with('/') => path.to_string(),
+        None if run_ports::is_absolute(os, path) => path.to_string(),
         None => format!("{home}/{path}"),
     }
 }
 
 /// The user's own directory for the engine: where its variable moves it (an
-/// absolute path, as XDG reads one), else under her home.
-fn user_dir(credentials: &CredentialPolicy, env: &BTreeMap<String, String>, home: &str) -> String {
+/// absolute path on `os`, as XDG reads one), else under her home.
+fn user_dir(
+    credentials: &CredentialPolicy,
+    env: &BTreeMap<String, String>,
+    home: &str,
+    os: &str,
+) -> String {
     let moved = credentials
         .user_dir_variable
         .as_ref()
         .and_then(|(variable, dir)| {
             env.get(variable)
-                .filter(|value| value.starts_with('/'))
+                .filter(|value| run_ports::is_absolute(os, value))
                 .map(|value| format!("{value}/{dir}"))
         });
     moved.unwrap_or_else(|| format!("{home}/{}", credentials.user_dir))
@@ -161,8 +167,8 @@ pub fn share_login(
     }
     let home = home.filter(|home| !home.is_empty());
     let target = home.map(|home| match &credentials.login_source {
-        Some(source) => resolve(home, source),
-        None => format!("{}/{file}", user_dir(credentials, env, home)),
+        Some(source) => resolve(home, source, os),
+        None => format!("{}/{file}", user_dir(credentials, env, home, os)),
     });
     let target = match target {
         Some(target) if links.present(&target) => target,

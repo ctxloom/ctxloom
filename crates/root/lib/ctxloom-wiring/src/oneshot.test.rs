@@ -882,6 +882,25 @@ mod opencode_recent_models {
         );
     }
 
+    // On Windows a state home is absolute with a drive (`C:\\...`), as the
+    // Windows flavor's OS name says: there, not under her profile.
+    #[test]
+    fn test_on_windows_a_state_home_with_a_drive_is_where_opencode_keeps_it() {
+        let wiring = Wiring::new(Arc::new(
+            EnvSnapshot::of([("USERPROFILE", r"C:\Users\u"), ("XDG_STATE_HOME", r"D:\s")])
+                .with_flavor(os::Flavor::Windows),
+        ))
+        .unwrap();
+        assert_eq!(wiring.os_name(), "windows");
+        // Nothing is there to read; the file asked for is the state home's.
+        assert_eq!(opencode_recent_models(&wiring), None);
+        assert_eq!(
+            engine_opencode::user_model_file(Some(r"C:\Users\u"), Some(r"D:\s"), wiring.os_name())
+                .as_deref(),
+            Some(r"D:\s/opencode/model.json")
+        );
+    }
+
     #[test]
     fn test_one_that_does_not_read_is_none() {
         let dir = root();

@@ -207,27 +207,27 @@ fn test_under_a_host_home_nothing_is_seeded() {
 #[test]
 fn test_her_model_json_is_where_opencode_keeps_it() {
     assert_eq!(
-        user_model_file(Some("/home/u"), None).as_deref(),
+        user_model_file(Some("/home/u"), None, "linux").as_deref(),
         Some("/home/u/.local/state/opencode/model.json")
     );
     assert_eq!(
-        user_model_file(Some("/home/u"), Some("/xdg/state")).as_deref(),
+        user_model_file(Some("/home/u"), Some("/xdg/state"), "linux").as_deref(),
         Some("/xdg/state/opencode/model.json")
     );
     assert_eq!(
-        user_model_file(None, Some("/xdg/state")).as_deref(),
+        user_model_file(None, Some("/xdg/state"), "linux").as_deref(),
         Some("/xdg/state/opencode/model.json")
     );
     assert_eq!(
-        user_model_file(Some("/home/u"), Some("relative")).as_deref(),
+        user_model_file(Some("/home/u"), Some("relative"), "linux").as_deref(),
         Some("/home/u/.local/state/opencode/model.json")
     );
     assert_eq!(
-        user_model_file(Some("/home/u"), Some("")).as_deref(),
+        user_model_file(Some("/home/u"), Some(""), "linux").as_deref(),
         Some("/home/u/.local/state/opencode/model.json")
     );
-    assert_eq!(user_model_file(None, None), None);
-    assert_eq!(user_model_file(Some(""), None), None);
+    assert_eq!(user_model_file(None, None, "linux"), None);
+    assert_eq!(user_model_file(Some(""), None, "linux"), None);
 }
 
 // The probe: opencode installs `@opencode-ai/plugin` into a config directory
@@ -548,4 +548,17 @@ fn test_the_plugin_for_another_program_spawns_that_program() {
     );
     let (args, _, _) = delivered(&dir, 0);
     assert_eq!(args, "hook opencode execute chat.message");
+}
+
+// On Windows an XDG_STATE_HOME with a drive is absolute, and moves it.
+#[test]
+fn test_on_windows_a_state_home_with_a_drive_is_where_it_is() {
+    assert_eq!(
+        user_model_file(Some(r"C:\Users\u"), Some(r"D:\state"), "windows").as_deref(),
+        Some(r"D:\state/opencode/model.json")
+    );
+    assert_eq!(
+        user_model_file(Some(r"C:\Users\u"), Some("/state"), "windows").as_deref(),
+        Some(r"C:\Users\u/.local/state/opencode/model.json")
+    );
 }

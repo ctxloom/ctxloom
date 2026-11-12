@@ -288,6 +288,17 @@ impl Wiring {
         self.env.home().map(PathBuf::from)
     }
 
+    /// The operating system's name the run's platform rules are keyed by
+    /// (`std::env::consts::OS`), as the environment's flavor says: `windows`
+    /// for a Windows flavor (so a test can give one on any host), the host's
+    /// own name otherwise.
+    pub(crate) fn os_name(&self) -> &'static str {
+        match self.env.flavor() {
+            os::Flavor::Windows => run_ports::WINDOWS,
+            os::Flavor::Unix => std::env::consts::OS,
+        }
+    }
+
     /// The environment the process was launched in.
     pub(crate) fn env(&self) -> &Arc<EnvSnapshot> {
         &self.env

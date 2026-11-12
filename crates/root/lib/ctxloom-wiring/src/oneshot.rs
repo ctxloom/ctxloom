@@ -186,7 +186,7 @@ impl<'a> OneShots<'a> {
             },
             env: run_env(env, wiring.home()),
             links: Box::new(SessionDirs::new(wiring.fs(), project_dir.clone())),
-            os: std::env::consts::OS.to_string(),
+            os: wiring.os_name().to_string(),
             hooks,
             certs: Box::new(hook_tls::Minter::new(hook_tls::SystemClock)),
             locks: Box::new(liveness::LockFiles::new(wiring.fs(), project_dir.clone())),
@@ -252,7 +252,7 @@ pub(crate) fn opencode_recent_models(wiring: &Wiring) -> Option<Vec<u8>> {
     let state = env.non_empty("XDG_STATE_HOME").and_then(|v| v.to_str());
     let home = wiring.user_home();
     let home = home.as_deref().and_then(Path::to_str);
-    let file = engine_opencode::user_model_file(home, state)?;
+    let file = engine_opencode::user_model_file(home, state, wiring.os_name())?;
     wiring.fs().read(Path::new(&file)).ok()
 }
 

@@ -233,6 +233,7 @@ impl Remotes for GitRemotes {
         &self,
         repo: &Repository,
         files: &BTreeMap<String, Vec<u8>>,
+        executable: &std::collections::BTreeSet<String>,
         message: &str,
     ) -> Result<String, Why> {
         publish::publish(
@@ -241,6 +242,7 @@ impl Remotes for GitRemotes {
             &self.cache,
             &repo.url,
             files,
+            executable,
             message,
         )
     }

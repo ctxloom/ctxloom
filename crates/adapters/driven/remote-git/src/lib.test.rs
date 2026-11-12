@@ -54,6 +54,11 @@ fn identity() -> Vec<(&'static str, OsString)> {
 /// The repository at `url`, cached where the application would say: its host
 /// (none for a file address) and path, `.git` dropped. Any other place would
 /// do to the adapter; this one is only a plausible one.
+/// Nothing committed executable.
+fn none() -> std::collections::BTreeSet<String> {
+    Default::default()
+}
+
 fn repo(url: &str) -> Repository {
     let path = url.split_once("://").map_or(url, |(_, rest)| rest);
     let path = path.strip_suffix(".git").unwrap_or(path);
@@ -622,7 +627,12 @@ fn test_a_publish_lands_files_as_one_commit_beside_the_history() {
     ]);
     let commit = c
         .remotes
-        .publish(&repo(&origin.url()), &files, "Update bundle: authored")
+        .publish(
+            &repo(&origin.url()),
+            &files,
+            &none(),
+            "Update bundle: authored",
+        )
         .expect("publishes");
     assert_eq!(git(&origin.bare, &["rev-parse", "main"]), commit);
     assert_eq!(
@@ -660,13 +670,47 @@ fn test_a_publish_lands_files_as_one_commit_beside_the_history() {
     // Nothing to change is nothing to publish: the tip stands.
     let again = c
         .remotes
-        .publish(&repo(&origin.url()), &files, "again")
+        .publish(&repo(&origin.url()), &files, &none(), "again")
         .expect("publishes");
     assert_eq!(again, commit);
     assert_eq!(git(&origin.bare, &["rev-list", "--count", "main"]), "2");
     // No working clone is left in the cache.
     let leftovers = names(c.dir.root());
     assert!(leftovers.is_empty(), "{leftovers:?}");
+}
+
+// Owner ruling 2026-11-12: the files the sidecars declare are committed
+// 100755 and every other 100644, on every OS (Windows keeps no mode on disk,
+// so the mode is the index's, set as each file is added).
+#[test]
+fn test_a_publish_commits_executable_the_files_it_is_told_and_no_others() {
+    let origin = Origin::new();
+    demo(&origin);
+    let c = cache_with(crate::fixtures::env_with(&identity()));
+    let script = format!("{BUNDLE}/authored/skills/s/run.sh");
+    let plain = format!("{BUNDLE}/authored/skills/s/SKILL.md");
+    let files: BTreeMap<String, Vec<u8>> = BTreeMap::from([
+        (script.clone(), b"#!/bin/sh\n".to_vec()),
+        (plain.clone(), b"---\nname: s\n---\n".to_vec()),
+    ]);
+    let told = std::collections::BTreeSet::from([script.clone()]);
+    c.remotes
+        .publish(
+            &repo(&origin.url()),
+            &files,
+            &told,
+            "Update bundle: authored",
+        )
+        .expect("publishes");
+    let mode = |path: &str| {
+        git(&origin.bare, &["ls-tree", "main", "--", path])
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .to_string()
+    };
+    assert_eq!(mode(&script), "100755");
+    assert_eq!(mode(&plain), "100644");
 }
 
 #[test]
@@ -677,7 +721,10 @@ fn test_a_publish_to_a_repository_that_cannot_be_reached_fails_and_leaves_no_clo
     let url = origin.url();
     origin.vanish();
     let files = BTreeMap::from([("a.txt".to_string(), b"a".to_vec())]);
-    assert!(c.remotes.publish(&repo(&url), &files, "m").is_err());
+    assert!(c
+        .remotes
+        .publish(&repo(&url), &files, &none(), "m")
+        .is_err());
     let leftovers = names(c.dir.root()).len();
     assert_eq!(leftovers, 0);
 }
@@ -969,7 +1016,7 @@ mod hung_git {
         let (_stub, remotes) = hung(&c);
         let files = BTreeMap::from([("a.txt".to_string(), b"a".to_vec())]);
         let why = remotes
-            .publish(&repo(&origin.url()), &files, "msg")
+            .publish(&repo(&origin.url()), &files, &none(), "msg")
             .unwrap_err();
         assert_eq!(why, format!("git clone: {TIMED_OUT}"));
         let left = names(c.dir.root());

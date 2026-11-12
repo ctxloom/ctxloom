@@ -92,11 +92,14 @@ pub trait Remotes {
 
     /// Commit `files` (paths in the repository, with their bytes) to the
     /// default branch as one commit with `message` and push it; the commit now
-    /// at the tip (the same one where nothing changed).
+    /// at the tip (the same one where nothing changed). The files of
+    /// `executable` (what the sidecars declare) are committed 100755, every
+    /// other 100644, on every OS.
     fn publish(
         &self,
         repo: &Repository,
         files: &BTreeMap<String, Vec<u8>>,
+        executable: &BTreeSet<String>,
         message: &str,
     ) -> Result<String, Why>;
 }
@@ -136,6 +139,9 @@ pub struct PullRequest {
     pub body: String,
     /// Paths in the repository, with their bytes.
     pub files: BTreeMap<String, Vec<u8>>,
+    /// The paths of `files` committed 100755 (what the sidecars declare);
+    /// every other is 100644.
+    pub executable: BTreeSet<String>,
 }
 
 /// What opening a pull request did.

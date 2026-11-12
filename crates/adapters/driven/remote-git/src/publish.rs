@@ -2,7 +2,7 @@
 //! the user's own git, which owns their identity and credentials. ctxloom
 //! supplies neither.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use deps_ports::Why;
@@ -18,8 +18,10 @@ pub(crate) fn publish(
     cache: &Path,
     url: &str,
     files: &BTreeMap<String, Vec<u8>>,
+    executable: &BTreeSet<String>,
     message: &str,
 ) -> Result<String, Why> {
+    let _ = executable;
     fs.create_dir_all(cache, Mode::from_bits(0o755))
         .map_err(|e| format!("cannot make {}: {e}", cache.display()))?;
     let work = fs

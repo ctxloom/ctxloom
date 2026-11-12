@@ -119,9 +119,13 @@ impl Remotes for Spy {
         &self,
         repo: &Repository,
         files: &BTreeMap<String, Vec<u8>>,
+        executable: &std::collections::BTreeSet<String>,
         message: &str,
     ) -> Result<String, Why> {
-        self.note(&format!("publish {} {message}", files.len()), repo);
+        self.note(
+            &format!("publish {} {} {message}", files.len(), executable.len()),
+            repo,
+        );
         Ok("commit".to_string())
     }
 }
@@ -144,7 +148,10 @@ fn test_every_call_to_the_remotes_hands_over_the_place_worked_out_from_the_addre
     );
     assert_eq!(remotes.list_bundles(url), Ok(vec!["b".to_string()]));
     assert_eq!(remotes.has_bundle(url, "b"), Ok(true));
-    assert_eq!(remotes.publish(url, &files, "m"), Ok("commit".to_string()));
+    assert_eq!(
+        remotes.publish(url, &files, &Default::default(), "m"),
+        Ok("commit".to_string())
+    );
     let place = format!("{url} github.com/o/r");
     let expected: Vec<String> = [
         "ensure",
@@ -156,7 +163,7 @@ fn test_every_call_to_the_remotes_hands_over_the_place_worked_out_from_the_addre
         "read_bundle sha b",
         "list_bundles",
         "has_bundle b",
-        "publish 1 m",
+        "publish 1 0 m",
     ]
     .iter()
     .map(|what| format!("{what} {place}"))
@@ -182,7 +189,7 @@ fn test_an_address_that_names_no_repository_never_reaches_the_remotes() {
     assert_eq!(remotes.list_bundles("bundles"), Err(refused.clone()));
     assert_eq!(remotes.has_bundle("bundles", "b"), Err(refused.clone()));
     assert_eq!(
-        remotes.publish("bundles", &BTreeMap::new(), "m"),
+        remotes.publish("bundles", &BTreeMap::new(), &Default::default(), "m"),
         Err(refused)
     );
     assert!(spy.seen().is_empty());

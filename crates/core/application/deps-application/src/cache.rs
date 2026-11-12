@@ -70,9 +70,11 @@ impl ByAddress<'_> {
         &self,
         url: &str,
         files: &BTreeMap<String, Vec<u8>>,
+        executable: &std::collections::BTreeSet<String>,
         message: &str,
     ) -> Result<String, Why> {
-        self.0.publish(&repository(url)?, files, message)
+        self.0
+            .publish(&repository(url)?, files, executable, message)
     }
 }
 

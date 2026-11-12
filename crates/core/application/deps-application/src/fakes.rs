@@ -62,9 +62,19 @@ pub struct FakeRemotes {
     repos: Mutex<BTreeMap<String, Repo>>,
     /// Every `refresh` and `ensure`, in order, as `refresh <url>`.
     calls: Mutex<Vec<String>>,
+    /// The files each publish was told to commit executable, in order.
+    published_executable: Mutex<Vec<BTreeSet<String>>>,
 }
 
 impl FakeRemotes {
+    /// The files each publish was told to commit executable, in order.
+    pub fn published_executable(&self) -> Vec<BTreeSet<String>> {
+        self.published_executable
+            .lock()
+            .expect("the published")
+            .clone()
+    }
+
     fn repos(&self) -> MutexGuard<'_, BTreeMap<String, Repo>> {
         self.repos.lock().expect("the repositories")
     }
@@ -303,9 +313,14 @@ impl Remotes for FakeRemotes {
         &self,
         repo: &Repository,
         files: &BTreeMap<String, Vec<u8>>,
+        executable: &BTreeSet<String>,
         _message: &str,
     ) -> Result<String, Why> {
         let url = repo.url.as_str();
+        self.published_executable
+            .lock()
+            .expect("the published")
+            .push(executable.clone());
         {
             let repos = self.repos();
             let repo = repos.get(url).ok_or("no such repository")?;

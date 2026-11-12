@@ -118,13 +118,14 @@ impl Deps {
                         title: fitted,
                         body: pull_request_body(&body, &overflow, &request.bundle, &target),
                         files: in_repository,
+                        executable: Default::default(),
                     },
                 )
                 .map_err(published)?;
             ("pr-created", opened.commit, opened.url)
         } else {
             let commit = ByAddress(self.remotes.as_ref())
-                .publish(&remote.url, &in_repository, &message)
+                .publish(&remote.url, &in_repository, &Default::default(), &message)
                 .map_err(published)?;
             ("pushed", commit, String::new())
         };

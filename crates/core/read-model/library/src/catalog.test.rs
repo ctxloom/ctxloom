@@ -452,3 +452,59 @@ fn test_a_shadowed_built_in_name_is_not_added() {
     assert!(!cat.is_builtin("ctxloom"));
     assert!(cat.lookup("ctxloom").is_err());
 }
+
+// A reference that selects an item (`#<kind>/<name>`) names no bundle:
+// `lookup` refuses it in every spelling (it once dropped the selector of a
+// canonical reference and answered the whole bundle, the trap behind handtest
+// D1), saying it is an item reference; `lookup_item` is its own path.
+#[test]
+fn test_lookup_refuses_an_item_reference_in_every_spelling() {
+    let cat = installed_catalog();
+    for ask in [
+        "alpha#fragments/rules",
+        "ctxloom+local:alpha#fragments/rules",
+        "ctxloom+file:///srv/o.git//bundles/kit#fragments/x",
+        "ctxloom+file:///srv/o.git//bundles/kit@v1.0.0#mcp/db",
+    ] {
+        let err = cat.lookup(ask).expect_err(ask);
+        assert_eq!(
+            angzarr_diagnostic::Diagnostic::code(&err),
+            "library-catalog-item-not-bundle",
+            "{ask}"
+        );
+    }
+}
+
+// An item reference's own path: the bundle it reaches, its kind and name, in
+// every spelling; a reference that selects nothing is no item reference.
+#[test]
+fn test_lookup_item_reaches_the_items_bundle_kind_and_name() {
+    let cat = installed_catalog();
+    for (ask, bundle) in [
+        ("alpha#fragments/rules", "alpha"),
+        ("ctxloom+local:alpha#fragments/rules", "alpha"),
+        (
+            "ctxloom+file:///srv/o.git//bundles/kit@v1.0.0#fragments/rules",
+            "origin/kit",
+        ),
+    ] {
+        let (entry, kind, name) = cat.lookup_item(ask).expect(ask);
+        assert_eq!(
+            (entry.name.as_str(), kind, name.as_str()),
+            (bundle, ItemKind::Fragment, "rules"),
+            "{ask}"
+        );
+    }
+    let (_, kind, name) = cat.lookup_item("alpha#mcp/db").unwrap();
+    assert_eq!((kind, name.as_str()), (ItemKind::Mcp, "db"));
+    for ask in ["alpha", "alpha#widgets/x"] {
+        assert!(
+            matches!(cat.lookup_item(ask), Err(CatalogError::ItemSyntax { .. })),
+            "{ask}"
+        );
+    }
+    assert!(matches!(
+        cat.lookup_item("ghost#fragments/x"),
+        Err(CatalogError::BundleNotFound { .. })
+    ));
+}

@@ -214,7 +214,10 @@ fn test_the_wiring_is_read_off_the_files_not_the_record() {
 // hook; the old `hook hud` is stale and is not ctxloom's wiring any more.
 #[test]
 fn test_the_statusline_is_the_engines_statusline_hook() {
-    assert_eq!(STATUSLINE, "ctxloom hook claude-code execute statusline");
+    assert_eq!(
+        statusline("ctxloom"),
+        "ctxloom hook claude-code execute statusline"
+    );
     let old = Files(BTreeMap::from([(
         ".claude/settings.json".to_string(),
         br#"{"statusLine":{"type":"command","command":"ctxloom hook hud"}}"#.to_vec(),
@@ -232,4 +235,58 @@ fn test_the_engine_carries_every_kind_under_its_name() {
 #[test]
 fn test_claude_takes_its_context_at_launch() {
     assert!(Claude::new().context_rides_launch());
+}
+
+// Owner ruling 163: what claude is told to run at rest (the hooks a profile
+// carries and the statusline) is the running binary, by its file name, and
+// only that binary's entries are its wiring.
+#[test]
+fn test_a_claude_calling_another_program_installs_and_reads_that_programs_callbacks() {
+    let claude = Claude::calling("ctxloom-other");
+    let mut hooks = BTreeMap::new();
+    hooks.insert(
+        "session_start".to_string(),
+        vec![Hook {
+            command: "ctxloom".to_string(),
+            args: vec!["hook".to_string(), "session-start".to_string()],
+            ..Hook::default()
+        }],
+    );
+    let inputs = Inputs {
+        hooks,
+        statusline: true,
+        ..Inputs::default()
+    };
+    let hooked = ops(&claude.plan(Kind::Hooks, &inputs).unwrap());
+    let [JsonOp::HookEntry { value, .. }] = hooked.as_slice() else {
+        panic!("{hooked:?}")
+    };
+    assert_eq!(
+        value.get("command").and_then(Json::as_str),
+        Some("ctxloom-other")
+    );
+    let set = ops(&claude.plan(Kind::Settings, &inputs).unwrap());
+    let [JsonOp::SetCommand { value, .. }] = set.as_slice() else {
+        panic!("{set:?}")
+    };
+    assert_eq!(
+        value.get("command").and_then(Json::as_str),
+        Some("ctxloom-other hook claude-code execute statusline")
+    );
+    assert_eq!(
+        statusline("ctxloom-other"),
+        "ctxloom-other hook claude-code execute statusline"
+    );
+    let settings = r#"{"statusLine":{"type":"command","command":"ctxloom-other hook claude-code execute statusline"},"hooks":{"SessionStart":[{"hooks":[{"command":"ctxloom-other","args":["hook","claude-code","execute","SessionStart"]}]}]}}"#;
+    let files = Files(BTreeMap::from([(
+        ".claude/settings.json".to_string(),
+        settings.as_bytes().to_vec(),
+    )]));
+    let wiring = claude.wiring(&files, "t").unwrap();
+    assert!(wiring.hooks_present && wiring.statusline, "{wiring:?}");
+    let theirs = Claude::new().wiring(&files, "t").unwrap();
+    assert!(
+        !theirs.hooks_present && !theirs.statusline,
+        "another binary's entries are not ctxloom's wiring: {theirs:?}"
+    );
 }

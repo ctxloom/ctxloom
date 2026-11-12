@@ -338,6 +338,16 @@ fn home_file(w: &mut World, step: &Step, rel: String) {
         .write_home(&rel, &format!("{}\n", doc(step)));
 }
 
+/// `CTXLOOM_HOME` set to `rel` in her home (made): ctxloom's home is not her
+/// `HOME`.
+#[given(expr = "ctxloom's home is {string} in her home")]
+fn ctxloom_home(w: &mut World, rel: String) {
+    let dir = w.common.project.home().join(rel);
+    files::mkdirs(&dir);
+    let dir = dir.to_str().expect("utf-8").to_string();
+    w.common.set_env("CTXLOOM_HOME", dir);
+}
+
 #[given("a malformed ctxloom config")]
 fn malformed(w: &mut World) {
     w.common.project.write(
@@ -485,6 +495,12 @@ fn home_absent(w: &mut World, rel: String) {
         !files::exists(w.common.project.home().join(&rel)),
         "{rel} should not exist"
     );
+}
+
+#[then(expr = "the home file {string} contains {string}")]
+fn home_holds(w: &mut World, rel: String, text: String) {
+    let held = w.common.project.read_home(&rel).expect("a home file");
+    assert!(held.contains(&text), "{rel}: {held}");
 }
 
 #[then(expr = "the home file {string} does not contain {string}")]
@@ -751,7 +767,8 @@ fn still_registered(w: &mut World) {
 
 common_steps!();
 
-/// Run one feature file with this World; whether it passed.
-pub(super) fn run(file: &std::path::Path) -> bool {
+/// Run one feature file with this World: whether it passed, and each
+/// scenario's outcome.
+pub(super) fn run(file: &std::path::Path) -> super::gherkin_common::FeatureRun {
     super::gherkin_common::run_feature::<World>(file)
 }

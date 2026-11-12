@@ -28,7 +28,7 @@ fn test_a_config_using_every_key_correctly_has_no_violation() {
 fn test_an_unknown_top_level_key_is_named_with_the_keys_there_are() {
     assert_eq!(
         texts("schema_version: 8\nzzz: 1\n"),
-        ["unknown key `zzz` in config.yaml: ctxloom does not know it (known keys at the top level: agents, companions, config, default_agent, delegation, editor, engines, isolation_base, isolation_devcontainer_service, isolation_engines, isolation_images, isolation_memory_limit, isolation_pids_limit, non_tty_format, output, runtime, schema_version, session_purge_age, session_reap_age, session_transcript_retention, shell_timeout, sync, ui, workspace)"]
+        ["unknown key `zzz` in config.yaml: ctxloom does not know it (known keys at the top level: agents, companions, config, default_agent, delegation, editor, engines, isolation_base, isolation_devcontainer_service, isolation_engines, isolation_images, isolation_memory_limit, isolation_pids_limit, legacy, non_tty_format, output, runtime, schema_version, session_purge_age, session_reap_age, session_transcript_retention, shell_timeout, sync, ui, workspace)"]
     );
     // The inline profiles block, the native mcp block and the retired turn cap
     // are keys the schema does not describe.
@@ -702,4 +702,24 @@ fn test_no_key_of_the_schema_is_a_boolean() {
         let path: Vec<String> = path.split('.').map(String::from).collect();
         assert_eq!(scalar_kind(&path), ScalarKind::Str, "{path:?}");
     }
+}
+
+// Owner ruling 162: `legacy.go` is taken out of a project layer (and named),
+// the section with it when nothing else is left; nothing else is touched.
+#[test]
+fn test_home_only_keys_are_taken_out_of_a_layer() {
+    let mut layer = parse("schema_version: 9\nlegacy:\n  go: retired\nsync:\n  on_run: none\n");
+    assert_eq!(take_home_only(&mut layer), ["legacy.go"]);
+    assert_eq!(layer, parse("schema_version: 9\nsync:\n  on_run: none\n"));
+    let mut kept = parse("legacy:\n  go: present\n  other: x\n");
+    assert_eq!(take_home_only(&mut kept), ["legacy.go"]);
+    assert_eq!(kept, parse("legacy:\n  other: x\n"));
+    let mut none = parse("legacy:\n  other: x\nworkspace: none\n");
+    assert!(take_home_only(&mut none).is_empty());
+    assert_eq!(none, parse("legacy:\n  other: x\nworkspace: none\n"));
+    let mut scalar = parse("legacy: retired\n");
+    assert!(take_home_only(&mut scalar).is_empty());
+    assert!(validate(&parse("legacy:\n  go: present\n")).is_empty());
+    assert!(validate(&parse("legacy:\n  go: retired\n")).is_empty());
+    assert_eq!(validate(&parse("legacy:\n  go: true\n")).len(), 1);
 }

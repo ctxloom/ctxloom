@@ -337,14 +337,58 @@ macro_rules! common_steps {
 }
 pub(crate) use common_steps;
 
-/// Run one feature file with the World `W`, its pending scenarios left out;
-/// whether it passed.
-pub(crate) fn run_feature<W>(file: &Path) -> bool
+/// What one feature's run showed: whether it passed, and each scenario it ran
+/// by its stable id ([`scenario_id`]) with whether that scenario passed.
+pub(crate) struct FeatureRun {
+    pub(crate) passed: bool,
+    pub(crate) scenarios: Vec<(String, bool)>,
+}
+
+/// The id of what failed in a feature outside any scenario (it did not
+/// parse, a hook failed, it has no World): `<feature> :: (outside a
+/// scenario)`.
+pub(crate) fn outside_id(feature: &str) -> String {
+    format!("{feature} :: (outside a scenario)")
+}
+
+/// Run one feature file with the World `W`, its pending scenarios left out:
+/// whether it passed, and each scenario's outcome. A failure no scenario
+/// owns is the feature's [`outside_id`].
+pub(crate) fn run_feature<W>(file: &Path) -> FeatureRun
 where
     W: cucumber::World + cucumber::codegen::WorldInventory + fmt::Debug,
 {
+    use cucumber::event::ScenarioFinished;
+    use futures::FutureExt as _;
+    let feature = file
+        .strip_prefix(features_dir())
+        .unwrap_or(file)
+        .display()
+        .to_string();
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let record = std::sync::Arc::clone(&seen);
+    let named = feature.clone();
     let writer = futures::executor::block_on(
         W::cucumber()
+            .after(move |feature, rule, scenario, finished, _| {
+                let passed = match finished {
+                    ScenarioFinished::StepPassed => true,
+                    // `fail_on_skipped`: a skipped step fails the scenario
+                    // unless it allows one.
+                    ScenarioFinished::StepSkipped => [&feature.tags, &scenario.tags]
+                        .into_iter()
+                        .chain(rule.map(|r| &r.tags))
+                        .any(|tags| tags.iter().any(|t| t == "allow.skipped")),
+                    ScenarioFinished::BeforeHookFailed(_) | ScenarioFinished::StepFailed(..) => {
+                        false
+                    }
+                };
+                record
+                    .lock()
+                    .expect("not poisoned")
+                    .push((scenario_id(&named, rule, scenario), passed));
+                async {}.boxed_local()
+            })
             // The test harness's own arguments (`--exact`) are not ours.
             .with_cli(cucumber::cli::Opts::<_, _, _, cucumber::cli::Empty>::default())
             .max_concurrent_scenarios(4)
@@ -353,7 +397,38 @@ where
                 !is_pending(feature, rule, scenario)
             }),
     );
-    !cucumber::writer::Stats::execution_has_failed(&writer)
+    let passed = !cucumber::writer::Stats::execution_has_failed(&writer);
+    let mut scenarios = std::mem::take(&mut *seen.lock().expect("not poisoned"));
+    if !passed && scenarios.iter().all(|(_, ok)| *ok) {
+        scenarios.push((outside_id(&feature), false));
+    }
+    FeatureRun { passed, scenarios }
+}
+
+/// A scenario's stable id: `<feature> :: [<rule> :: ]<scenario>`, the
+/// feature's path under `features/`, and for an outline's example the row it
+/// ran, `:: | v1 | v2 |` (cucumber names each example by the outline, its
+/// `<placeholders>` filled, and puts it at its Examples' line plus the row's
+/// index plus 2).
+pub(crate) fn scenario_id(feature: &str, rule: Option<&Rule>, scenario: &Scenario) -> String {
+    let mut id = feature.to_string();
+    if let Some(rule) = rule {
+        id.push_str(" :: ");
+        id.push_str(&rule.name);
+    }
+    id.push_str(" :: ");
+    id.push_str(&scenario.name);
+    let line = scenario.position.line;
+    let row = scenario
+        .examples
+        .iter()
+        .filter(|ex| ex.position.line + 2 <= line)
+        .max_by_key(|ex| ex.position.line)
+        .and_then(|ex| ex.table.as_ref()?.rows.get(line - ex.position.line - 1));
+    if let Some(row) = row {
+        id.push_str(&format!(" :: | {} |", row.join(" | ")));
+    }
+    id
 }
 
 /// The features directory.

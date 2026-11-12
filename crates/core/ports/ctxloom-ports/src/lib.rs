@@ -124,6 +124,17 @@ pub trait Executables {
     fn find(&self, name: &str) -> Option<String>;
 }
 
+/// The identity git commits with where ctxloom was run: `user.name` and
+/// `user.email` as git resolves them there, in the user's own environment (her
+/// `HOME`, the repository's configuration, includes followed), never in
+/// ctxloom's home, which `CTXLOOM_HOME` may put elsewhere. The identity a
+/// session home is seeded with (owner ruling 112).
+pub trait GitIdentity {
+    /// Whether git knows both `user.name` and `user.email` there; false
+    /// when it knows either not, or cannot be asked.
+    fn is_known(&self) -> bool;
+}
+
 /// The environment ctxloom was launched in, as far as credentials go: whether
 /// a variable is exported with a value, and nothing more. The value is not on
 /// offer, so no use case can print or store it.

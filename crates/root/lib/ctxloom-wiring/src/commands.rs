@@ -169,19 +169,22 @@ impl ProjectRefresh for SetupRefresh<'_> {
 
 /// The engines composed in: claude (the default), then opencode. Under
 /// `test-support` the mock and its home-keyed, lossy and skill-less variants
-/// follow them; a build without it registers no mock (ruling 52).
+/// follow them; a build without it registers no mock (ruling 52). Each one's
+/// callbacks run the running binary, by its file name (owner ruling 163).
 pub fn engines() -> Engines {
+    let program = &crate::program::running().name;
     #[cfg_attr(not(feature = "test-support"), expect(unused_mut))]
     let mut composed: Vec<Box<dyn surface_ports::EngineSurfaces>> = vec![
-        Box::new(engine_claude::Claude::new()),
-        Box::new(engine_opencode::Opencode::new()),
+        Box::new(engine_claude::Claude::calling(program)),
+        Box::new(engine_opencode::Opencode::calling(program)),
     ];
     #[cfg(feature = "test-support")]
     composed.extend([
-        Box::new(engine_mock::Mock::standard()) as Box<dyn surface_ports::EngineSurfaces>,
-        Box::new(engine_mock::Mock::home_keyed()),
-        Box::new(engine_mock::Mock::lossy()),
-        Box::new(engine_mock::Mock::no_skills()),
+        Box::new(engine_mock::Mock::standard().calling(program))
+            as Box<dyn surface_ports::EngineSurfaces>,
+        Box::new(engine_mock::Mock::home_keyed().calling(program)),
+        Box::new(engine_mock::Mock::lossy().calling(program)),
+        Box::new(engine_mock::Mock::no_skills().calling(program)),
     ]);
     Engines::new(composed)
 }

@@ -14,8 +14,22 @@ pub const CONTEXT_FILE: &str = "AGENTS.md";
 /// `{plugin,plugins}/*.{ts,js}` of every config directory.
 pub const PLUGIN_FILE: &str = "plugins/ctxloom.js";
 
-/// The plugin: the same text in every session.
+/// The plugin as written, calling [`surface_ports::CALLBACK_PROGRAM`]: the
+/// same text in every session but for the program it runs ([`plugin`]).
 pub const PLUGIN: &str = include_str!("plugin.js");
+
+/// The plugin's line that names the program it runs for each event.
+const COMMAND_LINE: &str = "const COMMAND = \"ctxloom\"";
+
+/// The plugin, running `program` (the running binary's file name, owner
+/// ruling 163) for each event, the name a JSON string (a JavaScript one).
+pub fn plugin(program: &str) -> String {
+    PLUGIN.replacen(
+        COMMAND_LINE,
+        &format!("const COMMAND = {}", Json::text(program).pretty()),
+        1,
+    )
+}
 
 /// The lock that tells opencode's install its plugin package is already
 /// there (opencode 1.18.4 reifies a config directory without `node_modules/`,
@@ -52,17 +66,17 @@ pub(crate) fn config(permissions: Option<&Json>) -> String {
     format!("{}\n", doc.pretty())
 }
 
-/// The files of a session home, `context` its `AGENTS.md` and `config` its
-/// `opencode.json`: the same for a child's turn and the human's session (each
-/// is heard through the plugin).
-pub(crate) fn files(context: &str, config: &str) -> Vec<HomeFile> {
+/// The files of a session home, `context` its `AGENTS.md`, `config` its
+/// `opencode.json` and its plugin running `program`: the same for a child's
+/// turn and the human's session (each is heard through the plugin).
+pub(crate) fn files(context: &str, config: &str, program: &str) -> Vec<HomeFile> {
     let file = |rel: String, bytes: &[u8]| HomeFile {
         rel,
         bytes: bytes.to_vec(),
     };
     let mut files = vec![
         file(CONTEXT_FILE.to_string(), context.as_bytes()),
-        file(PLUGIN_FILE.to_string(), PLUGIN.as_bytes()),
+        file(PLUGIN_FILE.to_string(), plugin(program).as_bytes()),
         file(CONFIG_FILE.to_string(), config.as_bytes()),
     ];
     for dir in ["", GLOBAL_CONFIG] {

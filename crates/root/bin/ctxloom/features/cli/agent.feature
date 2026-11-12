@@ -797,6 +797,30 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the output does not contain "approver"
       And the output does not contain "effectivePermissions"
 
+  # A profile's `bundles:` may name ONE fragment of a bundle
+  # (`<bundle>#fragments/<name>`): it selects that fragment and names no
+  # bundle to bring servers, hooks or requirements from, so it contributes
+  # none and is no finding (Go's `reportBundleRefLoadFailure`,
+  # internal/core/config/config_bundles.go).
+  Rule: An agent whose profile names one fragment of a bundle launches on that fragment alone
+
+    Scenario: An agent whose profile names one fragment of a bundle launches without a finding
+      # new: the owner's first use found every such agent refused by a fatal
+      # finding (the reference was looked up as a whole bundle); Go's
+      # acceptance suite has no scenario for it.
+      Given an initialized ctxloom project
+      And a bundle "roles" exists
+      And a fragment "developer" in bundle "roles" exists
+      And a profile "dev" with bundle "roles#fragments/developer"
+      And I run "ctxloom agent create developer --engine claude-code --profiles dev"
+      When I run "ctxloom run --dry-run --agent developer hello --format json"
+      Then the command succeeds
+      And the output contains "FRAGMENT-BODY-developer"
+      And the output does not contain "failed to load bundle"
+      When I run "ctxloom agent show developer --format json"
+      Then the command succeeds
+      And the output does not contain "for its requirements"
+
   @pending
   Rule: The default agent is what a bare run binds
 

@@ -229,7 +229,7 @@ fn an_interactive_home_gets_settings_whose_hooks_call_ctxloom_execute() {
         .find(|f| f.rel == HOOKS_FILE)
         .expect("ctxloom's hooks file in the home");
     let doc = surface_ports::Json::parse(std::str::from_utf8(&settings.bytes).unwrap()).unwrap();
-    assert!(crate::hooks::has_callback(&doc), "{doc:?}");
+    assert!(crate::hooks::has_callback(&doc, "ctxloom"), "{doc:?}");
     let hooks = doc.get("hooks").unwrap();
     for event in [
         "SessionStart",
@@ -630,7 +630,7 @@ fn the_permissions_document_is_the_user_settings_and_never_the_hooks_file() {
         );
         let hooks = surface_ports::Json::parse(&hooks).unwrap();
         assert!(hooks.get("permissions").is_none(), "{hooks:?}");
-        assert!(crate::hooks::has_callback(&hooks), "{hooks:?}");
+        assert!(crate::hooks::has_callback(&hooks, "ctxloom"), "{hooks:?}");
     }
 }
 
@@ -679,7 +679,7 @@ fn with_no_document_the_settings_hold_no_permissions() {
         let hooks = file_of(&prepared, HOOKS_FILE).expect("the hooks file");
         let doc = surface_ports::Json::parse(&hooks).unwrap();
         assert!(doc.get("permissions").is_none(), "{hooks}");
-        assert!(crate::hooks::has_callback(&doc), "{hooks}");
+        assert!(crate::hooks::has_callback(&doc, "ctxloom"), "{hooks}");
     }
 }
 
@@ -1078,7 +1078,7 @@ fn under_a_host_home_the_block_stays_in_the_hooks_file_and_no_user_settings_are_
             doc.get("permissions"),
             Some(&surface_ports::Json::parse(DOCUMENT).unwrap())
         );
-        assert!(crate::hooks::has_callback(&doc), "{hooks}");
+        assert!(crate::hooks::has_callback(&doc, "ctxloom"), "{hooks}");
     }
     for home in [SessionHome::Session, SessionHome::Host] {
         let refused = Claude::new().prepare(&PrepareRequest {
@@ -1095,5 +1095,37 @@ fn under_a_host_home_the_block_stays_in_the_hooks_file_and_no_user_settings_are_
             matches!(&refused, Err(EngineError::BadPermissions { .. })),
             "{home:?}: {refused:?}"
         );
+    }
+}
+
+// Owner ruling 163: a session home's hooks call the running binary by its file
+// name, the terminal's and a child's turn's alike.
+#[test]
+fn a_home_prepared_by_a_claude_calling_another_program_calls_that_program() {
+    for interactive in [true, false] {
+        let prepared = Claude::calling("ctxloom-other")
+            .prepare(&PrepareRequest {
+                home: "/h".to_string(),
+                context: "the context".to_string(),
+                offered: Vec::new(),
+                interactive,
+                cwd: None,
+                existing: Default::default(),
+                permissions: None,
+                session_home: run_ports::SessionHome::Session,
+            })
+            .unwrap();
+        let settings = prepared
+            .files
+            .iter()
+            .find(|f| f.rel == HOOKS_FILE)
+            .expect("ctxloom's hooks file in the home");
+        let text = std::str::from_utf8(&settings.bytes).unwrap();
+        let doc = surface_ports::Json::parse(text).unwrap();
+        assert!(
+            crate::hooks::has_callback(&doc, "ctxloom-other"),
+            "{interactive}: {text}"
+        );
+        assert!(!text.contains(r#""command": "ctxloom""#), "{text}");
     }
 }

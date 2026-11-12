@@ -54,7 +54,7 @@ fn private_state_git_can_see_warns_naming_it() {
 fn a_launched_ctxloom_mcp_server_is_named_with_the_by_hand_remedy() {
     let bad =
         r#"{"mcpServers":{"ctxloom":{"command":"/usr/local/bin/ctxloom","args":["mcp","serve"]}}}"#;
-    let check = checks::mcp_invocation(&files(".mcp.json", bad));
+    let check = checks::mcp_invocation(&files(".mcp.json", bad), "ctxloom");
     assert_eq!(check.status, Status::Warn);
     assert!(check.detail.contains(".mcp.json") && check.detail.contains("entry from"));
     assert!(check.remedy.contains("by hand"));
@@ -69,16 +69,16 @@ fn a_launched_ctxloom_mcp_server_is_named_with_the_by_hand_remedy() {
 fn an_endpoint_url_launches_nothing() {
     let good = r#"{"mcpServers":{"ctxloom":{"type":"http","url":"http://127.0.0.1:4242/mcp"}}}"#;
     assert_eq!(
-        checks::mcp_invocation(&files(".mcp.json", good)).status,
+        checks::mcp_invocation(&files(".mcp.json", good), "ctxloom").status,
         Status::Ok
     );
     let other = r#"{"mcpServers":{"ctxloom":{"command":"other","args":["mcp","serve"]}}}"#;
     assert_eq!(
-        checks::mcp_invocation(&files(".mcp.json", other)).status,
+        checks::mcp_invocation(&files(".mcp.json", other), "ctxloom").status,
         Status::Ok
     );
     assert_eq!(
-        checks::mcp_invocation(&files(".mcp.json", "not json")).status,
+        checks::mcp_invocation(&files(".mcp.json", "not json"), "ctxloom").status,
         Status::Ok
     );
 }
@@ -137,20 +137,12 @@ fn the_setup_check_is_named_for_the_config_it_reads() {
 // doctor.feature: --deps "binaries on PATH and git identity".
 #[test]
 fn deps_want_git_and_an_identity() {
-    assert_eq!(checks::deps(false, None).status, Status::Warn);
-    assert_eq!(checks::deps(true, None).status, Status::Warn);
-    let identity = "[core]\n\tbare = false\n[user]\n\tname = A\n\temail = a@b.c\n";
-    assert_eq!(checks::deps(true, Some(identity)).status, Status::Ok);
-    let half = "[user]\n\tname = A\n";
-    assert_eq!(checks::deps(true, Some(half)).status, Status::Warn);
-    // Each key is needed on its own, and as a key with a value.
-    let only_email = "[user]\n\temail = a@b.c\n";
-    assert_eq!(checks::deps(true, Some(only_email)).status, Status::Warn);
-    let bare_name = "[user]\n\tname\n\temail = a@b.c\n";
-    assert_eq!(checks::deps(true, Some(bare_name)).status, Status::Warn);
-    // The keys count only inside [user].
-    let elsewhere = "[alias]\n\tname = x\n\temail = y\n";
-    assert_eq!(checks::deps(true, Some(elsewhere)).status, Status::Warn);
+    assert_eq!(checks::deps(false, false).status, Status::Warn);
+    assert_eq!(checks::deps(false, true).status, Status::Warn);
+    assert!(checks::deps(false, true).detail.contains("not on the PATH"));
+    assert_eq!(checks::deps(true, false).status, Status::Warn);
+    assert!(checks::deps(true, false).detail.contains("has no identity"));
+    assert_eq!(checks::deps(true, true).status, Status::Ok);
 }
 
 #[test]
@@ -190,6 +182,45 @@ fn the_stale_hooks_row_names_the_event_the_subcommand_and_the_fix() {
     }
 }
 
+// Owner ruling 162: under `legacy.go: present` each Go-era entry is an info
+// row of its own, naming its event, its subcommand and its file.
+#[test]
+fn each_go_era_entry_is_an_info_row_left_alone() {
+    let entry = |event: &str, sub: &str| Stale {
+        event: event.to_string(),
+        sub: sub.to_string(),
+    };
+    let entries = vec![
+        (
+            "~/.claude/settings.json".to_string(),
+            entry("PostToolUse", "stamp-plan"),
+        ),
+        (
+            ".claude/settings.json".to_string(),
+            entry("SessionStart", "session-bind"),
+        ),
+    ];
+    let rows = checks::go_era_hooks(&entries);
+    assert_eq!(rows.len(), 2);
+    for row in &rows {
+        assert_eq!(row.marker, "DOCTOR-CHECK-GO-ERA-HOOK-n6");
+        assert_eq!(row.status, Status::Info);
+        assert!(
+            row.detail.starts_with("Go-era hook, left alone: "),
+            "{}",
+            row.detail
+        );
+        assert!(row.remedy.contains("legacy.go: retired"), "{}", row.remedy);
+    }
+    assert!(rows[0]
+        .detail
+        .contains("PostToolUse runs `ctxloom hook stamp-plan` (~/.claude/settings.json)"));
+    assert!(rows[1]
+        .detail
+        .contains("SessionStart runs `ctxloom hook session-bind` (.claude/settings.json)"));
+    assert!(checks::go_era_hooks(&[]).is_empty());
+}
+
 #[test]
 fn the_version_row_says_the_version() {
     assert!(checks::version("1.2.3").detail.contains("1.2.3"));
@@ -201,8 +232,8 @@ fn registered_hooks_are_ok_and_none_is_info() {
         ".claude/settings.json",
         r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"ctxloom hook claude-code execute SessionStart"}]}]}}"#,
     );
-    assert_eq!(checks::hooks(&on).status, Status::Ok);
-    assert_eq!(checks::hooks(&[]).status, Status::Info);
+    assert_eq!(checks::hooks(&on, "ctxloom").status, Status::Ok);
+    assert_eq!(checks::hooks(&[], "ctxloom").status, Status::Info);
 }
 
 /// The variables a launch exports.

@@ -399,6 +399,17 @@ pub struct ResolvedProfile {
 }
 
 impl ResolvedProfile {
+    /// The `bundles` entries that name a WHOLE bundle, in order: those whose
+    /// servers, hooks, commands, skills and requirements the profile brings.
+    /// An item-scoped entry (`<bundle>#fragments/<name>`) selects its item
+    /// alone and brings nothing else of its bundle (Go's
+    /// `reportBundleRefLoadFailure`, internal/core/config/config_bundles.go).
+    pub fn whole_bundles(&self) -> impl Iterator<Item = &String> {
+        self.bundles
+            .iter()
+            .filter(|reference| refs::item_selector(reference).is_none())
+    }
+
     /// Fold `other` in after what is here: lists union (first spelling
     /// kept), a variable already here is kept, exclusions and denials accumulate.
     pub fn merge(&mut self, other: &ResolvedProfile) {

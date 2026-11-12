@@ -87,8 +87,10 @@ pub fn setup_marker(
     }
 }
 
-/// `DEPS-a1`: what the machine needs whatever the project is.
-pub fn deps(git_found: bool, gitconfig: Option<&str>) -> Check {
+/// `DEPS-a1`: what the machine needs whatever the project is: git, and the
+/// identity it commits with (as git resolves it where ctxloom runs, in her
+/// own environment: `ctxloom_ports::GitIdentity`).
+pub fn deps(git_found: bool, identity_known: bool) -> Check {
     const M: &str = "DOCTOR-CHECK-DEPS-a1";
     const N: &str = "system dependencies";
     if !git_found {
@@ -100,7 +102,7 @@ pub fn deps(git_found: bool, gitconfig: Option<&str>) -> Check {
             "install git",
         );
     }
-    if !has_identity(gitconfig.unwrap_or_default()) {
+    if !identity_known {
         return row(
             M,
             N,
@@ -116,25 +118,6 @@ pub fn deps(git_found: bool, gitconfig: Option<&str>) -> Check {
         "git is on the PATH and has an identity",
         "",
     )
-}
-
-/// Whether a git config text sets `user.name` and `user.email`.
-fn has_identity(gitconfig: &str) -> bool {
-    let (mut in_user, mut name, mut email) = (false, false, false);
-    for line in gitconfig.lines().map(str::trim) {
-        if let Some(section) = line.strip_prefix('[') {
-            in_user = section
-                .trim_end_matches(']')
-                .trim()
-                .eq_ignore_ascii_case("user");
-        } else if in_user {
-            let key = line.split('=').next().unwrap_or_default().trim();
-            let set = line.contains('=');
-            name |= set && key.eq_ignore_ascii_case("name");
-            email |= set && key.eq_ignore_ascii_case("email");
-        }
-    }
-    name && email
 }
 
 /// `AGENTS-b2`: every configured agent names the engine it runs, or the
@@ -279,13 +262,14 @@ pub fn version(version: &str) -> Check {
     )
 }
 
-/// `HOOKS-TRUST-d4`: whether ctxloom's hooks are registered with the engine.
-pub fn hooks(settings: &[(String, String)]) -> Check {
+/// `HOOKS-TRUST-d4`: whether ctxloom's hooks (by `ctxloom` or by `name`, the
+/// running binary's file name) are registered with the engine.
+pub fn hooks(settings: &[(String, String)], name: &str) -> Check {
     const M: &str = "DOCTOR-CHECK-HOOKS-TRUST-d4";
     const N: &str = "hooks";
     let registered = settings
         .iter()
-        .any(|(_, text)| crate::hooks::registered(text));
+        .any(|(_, text)| crate::hooks::registered(text, name));
     if registered {
         return row(
             M,
@@ -362,12 +346,13 @@ pub fn gitignore(text: Option<&str>, unignored: &[&str]) -> Check {
 /// server. ctxloom ships no stdio MCP server, so the engine waits on a
 /// handshake that never arrives. No record of this machine writing the entry
 /// is read yet (S9 ports the records): the remedy is the by-hand one.
-pub fn mcp_invocation(files: &[(String, String)]) -> Check {
+/// ctxloom is `ctxloom` or `name`, the running binary's file name.
+pub fn mcp_invocation(files: &[(String, String)], name: &str) -> Check {
     const M: &str = "DOCTOR-CHECK-MCP-INVOCATION-g7";
     const N: &str = "MCP invocation";
     let bad: Vec<&str> = files
         .iter()
-        .filter(|(_, text)| crate::hooks::launches_ctxloom_mcp(text))
+        .filter(|(_, text)| crate::hooks::launches_ctxloom_mcp(text, name))
         .map(|(path, _)| path.as_str())
         .collect();
     let Some(first) = bad.first() else {
@@ -393,7 +378,7 @@ pub fn mcp_invocation(files: &[(String, String)]) -> Check {
 }
 
 /// `STALE-HOOKS-n5`: hook entries running a `ctxloom hook` subcommand this
-/// ctxloom does not have.
+/// ctxloom does not have: the Go-era ones, once Go ctxloom is retired.
 pub fn stale_hooks(stale: &[(String, Stale)]) -> Check {
     const M: &str = "DOCTOR-CHECK-STALE-HOOKS-n5";
     const N: &str = "stale hook entries";
@@ -414,6 +399,27 @@ pub fn stale_hooks(stale: &[(String, Stale)]) -> Check {
         detail.push_str(&format!("; {} entries in all", stale.len()));
     }
     row(M, N, Status::Warn, &detail, "ctxloom doctor --fix")
+}
+
+/// `GO-ERA-HOOK-n6` (owner ruling 162): while Go ctxloom is present
+/// (`legacy.go`), each Go-era hook entry is its own `info` row, left alone:
+/// it may be a live hook of the Go ctxloom that shares the user's settings.
+pub fn go_era_hooks(entries: &[(String, Stale)]) -> Vec<Check> {
+    entries
+        .iter()
+        .map(|(file, entry)| {
+            row(
+                "DOCTOR-CHECK-GO-ERA-HOOK-n6",
+                "Go-era hook",
+                Status::Info,
+                &format!(
+                    "Go-era hook, left alone: {} runs `ctxloom hook {}` ({file}); Go ctxloom is present (legacy.go), and the hook is its own",
+                    entry.event, entry.sub
+                ),
+                "once Go ctxloom is gone, set `legacy.go: retired` in the home config; then `ctxloom doctor --fix` removes it",
+            )
+        })
+        .collect()
 }
 
 /// `INGESTION-q7`: the one thing no check can confirm.

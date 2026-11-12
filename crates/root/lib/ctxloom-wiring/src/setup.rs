@@ -9,7 +9,7 @@ use cache_files::CacheFiles;
 use config_files::{ConfigFilesFs, ScaffoldFs};
 use content_fs::UserFilesFs;
 use deps_application::Deps;
-use doctor_checks::Doctor;
+use doctor_checks::{Doctor, GitIdentity};
 use init_application::{Create, Failure, Init};
 use library_application::Library;
 use reclaim_application::Cleaner;
@@ -52,6 +52,21 @@ impl Create for ConfigCreate {
     }
 }
 
+/// The identity git commits with in the directory ctxloom was run in, asked
+/// of git as a session home's is (`oneshot::identity_git`: her environment,
+/// her `HOME`), never read from a `.gitconfig` in ctxloom's home.
+struct GitIdentityIn {
+    git: worktree_git::Git,
+    dir: std::path::PathBuf,
+}
+
+impl GitIdentity for GitIdentityIn {
+    fn is_known(&self) -> bool {
+        let user = self.git.user(&self.dir);
+        !user.name.is_empty() && !user.email.is_empty()
+    }
+}
+
 /// The setup use cases, built together.
 pub(crate) struct SetupUseCases {
     pub(crate) auth: Auth,
@@ -73,10 +88,18 @@ impl SetupUseCases {
             Arc::new(config),
             user.clone(),
             Arc::new(binaries),
+            Arc::new(GitIdentityIn {
+                git: crate::oneshot::identity_git(wiring),
+                dir: around.cwd.clone(),
+            }),
             Auth::new(Arc::new(ProcessEnv::from_snapshot(wiring.env()))),
-            &home.display().to_string(),
+            // Her own HOME for her files, never ctxloom's home.
+            wiring.env().home().and_then(std::ffi::OsStr::to_str),
             env!("CARGO_PKG_VERSION"),
-        );
+        )
+        // An entry running this binary, by its file name, is ctxloom's too
+        // (owner ruling 163).
+        .calling(&crate::program::running().name);
         let init = Init::new(
             Arc::new(ScaffoldFs::new(Arc::clone(&fs), &around.cwd)),
             user,

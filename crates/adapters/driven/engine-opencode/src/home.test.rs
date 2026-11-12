@@ -10,7 +10,9 @@ use os::Mode;
 use run_ports::{Engine, PrepareRequest};
 use surface_ports::{HookCodec, Json};
 
-use crate::{Codec, Opencode, CONFIG_FILE, CONTEXT_FILE, PLUGIN, PLUGIN_FILE, PRESEED_LOCK};
+use crate::{
+    plugin, Codec, Opencode, CONFIG_FILE, CONTEXT_FILE, PLUGIN, PLUGIN_FILE, PRESEED_LOCK,
+};
 
 const HOME: &str = "/p/.ctxloom/sessions/h/home";
 
@@ -374,4 +376,89 @@ fn test_the_plugin_forwards_each_event_that_records_once_in_order_and_drains_on_
         "the prompt of a part is the plugin's: its step message's parent, else the session's last prompt"
     );
     let _ = Path::new(HOME);
+}
+
+// Owner ruling 163: the plugin runs the running binary by its file name; the
+// rest of it is the plugin as written.
+#[test]
+fn test_a_home_prepared_by_an_opencode_calling_another_program_runs_that_program() {
+    let home = Opencode::calling("ctxloom-other")
+        .prepare(&PrepareRequest {
+            home: HOME.to_string(),
+            context: "the project's context".to_string(),
+            offered: Vec::new(),
+            interactive: true,
+            cwd: None,
+            existing: Default::default(),
+            permissions: None,
+            session_home: run_ports::SessionHome::Session,
+        })
+        .unwrap();
+    let written = home
+        .files
+        .iter()
+        .find(|f| f.rel == PLUGIN_FILE)
+        .expect("the plugin in the home");
+    let text = std::str::from_utf8(&written.bytes).unwrap();
+    assert_eq!(text, plugin("ctxloom-other"));
+    assert_eq!(
+        text,
+        PLUGIN.replace(
+            r#"const COMMAND = "ctxloom""#,
+            r#"const COMMAND = "ctxloom-other""#
+        )
+    );
+    assert_eq!(
+        plugin("ctxloom"),
+        PLUGIN,
+        "the authored name is the plugin as written"
+    );
+    // A name is a JavaScript string, whatever it holds.
+    assert!(
+        plugin(r#"odd"name\"#).contains(r#"const COMMAND = "odd\"name\\""#),
+        "{}",
+        plugin(r#"odd"name\"#)
+    );
+}
+
+// Needs node on PATH. The plugin for another program spawns THAT program, as
+// it finds it on its PATH.
+#[test]
+fn test_the_plugin_for_another_program_spawns_that_program() {
+    let dir = Rooted::temp().unwrap();
+    let plugin = put(&dir, "/home/plugins/ctxloom.js", &plugin("ctxloom-other"));
+    let prompt = Json::parse(&fixture("chat_message")).unwrap();
+    let props = prompt.get("properties").unwrap();
+    let steps = put(
+        &dir,
+        "/steps.json",
+        &format!(
+            r#"[{{"prompt":{{"input":{{"sessionID":"{S}"}},"output":{{"message":{},"parts":{}}}}}}}]"#,
+            props.get("message").unwrap().pretty(),
+            props.get("parts").unwrap().pretty()
+        ),
+    );
+    let driver = put(&dir, "/driver.mjs", DRIVER);
+    dir.create_dir_all(&os::fixture("/bin"), Mode::DIR).unwrap();
+    let fake =
+        fixture_program::install_program(&dir, &os::fixture("/bin/ctxloom-other"), FAKE_CTXLOOM)
+            .unwrap();
+    dir.create_dir_all(&os::fixture("/got"), Mode::DIR).unwrap();
+    let got = dir.real_path(&os::fixture("/got")).unwrap();
+    let out = Command::new("sh")
+        .arg("-c")
+        .arg(r#"PATH="$FAKE_BIN:$PATH" exec node "$@""#)
+        .arg("sh")
+        .args([&driver, &plugin, &steps, &got])
+        .env("FAKE_BIN", fake.parent().unwrap())
+        .env_remove("OPENCODE_CONFIG_DIR")
+        .output()
+        .expect("sh runs");
+    assert!(
+        out.status.success(),
+        "node ran the plugin (is node on PATH?): {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let (args, _, _) = delivered(&dir, 0);
+    assert_eq!(args, "hook opencode execute chat.message");
 }

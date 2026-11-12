@@ -4,7 +4,9 @@
 //! its process. ctxloom writes one into each session home (`plugins/ctxloom.js`,
 //! found through `OPENCODE_CONFIG_DIR`, [`home`]), and it forwards what
 //! opencode's bus says of the session, one event at a time and in order, by
-//! running `ctxloom hook opencode execute <Event>` with the event on stdin.
+//! running `ctxloom hook opencode execute <Event>` with the event on stdin
+//! (`ctxloom` being the running binary's file name, owner ruling 163:
+//! [`Opencode::calling`]).
 //! [`Codec`] reads those payloads into the unified hook event.
 //!
 //! The drive half (`drive`) runs a child's turn as `opencode run --format
@@ -29,20 +31,41 @@ use surface_ports::{
 
 pub use codec::Codec;
 pub use drive::{ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST, LOGIN_FILE, PROVIDER_KEYS, SIGN_IN};
-pub use home::{CONFIG_FILE, CONTEXT_FILE, PLUGIN, PLUGIN_FILE, PRESEED_LOCK};
+pub use home::{plugin, CONFIG_FILE, CONTEXT_FILE, PLUGIN, PLUGIN_FILE, PRESEED_LOCK};
 
 /// The engine's name.
 pub const NAME: &str = "opencode";
 
 /// opencode.
-#[derive(Default)]
 pub struct Opencode {
     codec: Codec,
+    /// The program the plugin runs for each event: the running binary's file
+    /// name (owner ruling 163), told by the composition root.
+    program: String,
+}
+
+impl Default for Opencode {
+    fn default() -> Opencode {
+        Opencode {
+            codec: Codec,
+            program: surface_ports::CALLBACK_PROGRAM.to_string(),
+        }
+    }
 }
 
 impl Opencode {
+    /// opencode, its plugin calling [`surface_ports::CALLBACK_PROGRAM`].
     pub fn new() -> Opencode {
         Opencode::default()
+    }
+
+    /// opencode, its plugin calling `program`: the running binary's file
+    /// name, as the composition root resolved it.
+    pub fn calling(program: &str) -> Opencode {
+        Opencode {
+            program: program.to_string(),
+            ..Opencode::default()
+        }
     }
 }
 

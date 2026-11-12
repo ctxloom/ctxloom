@@ -21,7 +21,7 @@ import 'gates/dev-local.just'
 # from the same ctxloom-lib commit the workspace pins (arch_lint_rev, kept
 # equal to Cargo.toml's by `_arch-lint-ready`'s check) and installed once per
 # commit into the user's cache, shared by every worktree.
-arch_lint_rev := "466132c72e28c9b04915ed967526ad51eeb2572e"
+arch_lint_rev := "f69993d37d0aff16704b1e6fb03b0154a4797f5d"
 arch_lint_root := env_var_or_default("XDG_CACHE_HOME", env_var("HOME") / ".cache") / "ctxloom-arch-lint" / arch_lint_rev
 arch_lint := arch_lint_root / "bin/arch-lint"
 
@@ -80,6 +80,54 @@ build:
         bash -c 'cargo build "${@:3}" --manifest-path "$1/Cargo.toml" --workspace &&
             "$1/scripts/plain-engines-check.sh" "$2/debug/ctxloom" &&
             "$1/scripts/plain-destroy-check.sh" "$2/debug/ctxloom"' build {{TOP}} "$target" "${terse[@]}"
+
+# Install the Rust ctxloom beside the Go one (owner ruling 164): the PLAIN
+# binary (no test-support, no session-destroy; held to that by the same two
+# checks `just build` runs), in the profile `just build` uses (the workspace
+# defines no release profile of its own), as
+# ~/.local/lib/ctxloom-rs/ctxloom-rs, and the wrapper ~/.local/bin/ctxloom-rs
+# that runs it with its own home, ~/.ctxloom-rs. Its hooks call `ctxloom-rs`,
+# the running binary's file name (ruling 163), which leads the engine's PATH.
+# Idempotent: a file already as it should be is left alone and said so. One
+# line per action.
+[group('install')]
+[doc("Build the plain binary and install it as ~/.local/bin/ctxloom-rs (home ~/.ctxloom-rs)")]
+[no-exit-message]
+install-rs:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    terse=(-q --message-format=short)
+    [ "${VERBOSE:-}" = 1 ] && terse=()
+    target=${CARGO_TARGET_DIR:-{{TOP}}/target}
+    built="$target/debug/ctxloom"
+    just --justfile {{TOP}}/justfile _run install-rs-build ctxloom cargo \
+        bash -c 'cargo build "${@:4}" --manifest-path "$1/Cargo.toml" --package ctxloom --bin ctxloom &&
+            "$1/scripts/plain-engines-check.sh" "$2" &&
+            "$1/scripts/plain-destroy-check.sh" "$2"' install-rs {{TOP}} "$built" "${terse[@]}"
+    lib="$HOME/.local/lib/ctxloom-rs"
+    program="$lib/ctxloom-rs"
+    wrapper="$HOME/.local/bin/ctxloom-rs"
+    mkdir -p "$lib" "$HOME/.local/bin"
+    if cmp -s "$built" "$program"; then
+        echo "ok   unchanged $program"
+    else
+        # Beside it, then renamed over it: a running ctxloom-rs keeps its file.
+        install -m 0755 "$built" "$program.new"
+        mv -f "$program.new" "$program"
+        echo "ok   installed $program"
+    fi
+    text='#!/bin/sh
+    export CTXLOOM_HOME="$HOME/.ctxloom-rs"
+    exec "$HOME/.local/lib/ctxloom-rs/ctxloom-rs" "$@"'
+    text=$(sed 's/^    //' <<< "$text")
+    if [ -f "$wrapper" ] && [ "$(cat "$wrapper")" = "$text" ] && [ "$(stat -c %a "$wrapper")" = 755 ]; then
+        echo "ok   unchanged $wrapper"
+    else
+        printf '%s\n' "$text" > "$wrapper.new"
+        chmod 0755 "$wrapper.new"
+        mv -f "$wrapper.new" "$wrapper"
+        echo "ok   wrote $wrapper"
+    fi
 
 # Install the arch-lint binary at the pinned ctxloom-lib commit, unless it is
 # there; and refuse a pin that differs from the one Cargo.toml has.
@@ -171,6 +219,25 @@ mutants-batch base="" head="HEAD":
 closeout base="":
     @{{TOP}}/scripts/closeout.sh '{{base}}'
 
+# The close-out of a slice landing on an integration branch that carries a
+# red spec (owner ruling 165): closeout's gates, but the feature runner may
+# fail where the base's does, and nowhere else (scripts/closeout-ratchet.sh;
+# the verdict is scripts/ratchet-judge.sh).
+[group('closeout')]
+[doc("Close-out on an integration branch with a red spec: closeout-ratchet <base>")]
+[no-exit-message]
+closeout-ratchet base:
+    @{{TOP}}/scripts/closeout-ratchet.sh '{{base}}'
+
+# The base's scenario list for the ratchet, cached by its sha
+# (scripts/ratchet-base.sh): the feature runner on the base's tip in a
+# throwaway worktree.
+[group('closeout')]
+[doc("The red and green scenarios of a base commit: ratchet-base <base>")]
+[no-exit-message]
+ratchet-base base:
+    @{{TOP}}/scripts/ratchet-base.sh '{{base}}'
+
 # Delete target/ (the only sanctioned `cargo clean`; ltk blocks the raw one).
 [group('setup')]
 [doc("Delete target/ (what `cargo clean` would)")]
@@ -179,12 +246,13 @@ clean-target:
 
 # The self-tests of this repository's scripts against fixture trees.
 [group('check')]
-[doc("Self-tests of the scripts: mutants-batch, closeout, ltk rules, output budget, exec-mode check, path deps")]
+[doc("Self-tests of the scripts: mutants-batch, closeout, closeout-ratchet, ltk rules, output budget, exec-mode check, path deps")]
 [no-exit-message]
 selftest:
     @{{TOP}}/scripts/mutants-batch.selftest.sh
     @{{TOP}}/scripts/mutants-verdict.selftest.sh
     @{{TOP}}/scripts/closeout.selftest.sh
+    @{{TOP}}/scripts/closeout-ratchet.selftest.sh
     @{{TOP}}/scripts/ltk-rules-check.sh
     @{{TOP}}/scripts/output-budget.selftest.sh
     @{{TOP}}/scripts/tests-exit.selftest.sh

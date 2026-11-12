@@ -113,6 +113,7 @@ check.
 | `GITIGNORE-f6` | `gitignore` |
 | `MCP-INVOCATION-g7` | `mcp-invocation` |
 | `STALE-HOOKS-n5` | `stale-hooks` |
+| `GO-ERA-HOOK-n6` (ruling 162) | `go-era-hooks` |
 | `INGESTION-q7` | `engine-ingestion` |
 
 ## 6. Confirmation (owner ruling: every destructive command confirms)

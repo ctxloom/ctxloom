@@ -116,7 +116,11 @@ impl Engine for Opencode {
             None => None,
         };
         Ok(Prepared {
-            files: home::files(&request.context, &home::config(permissions.as_ref())),
+            files: home::files(
+                &request.context,
+                &home::config(permissions.as_ref()),
+                &self.program,
+            ),
             // Nothing of the user's own opencode configuration crosses.
             copy_in: Vec::new(),
             context_path: format!("{}/{CONTEXT_FILE}", request.home),

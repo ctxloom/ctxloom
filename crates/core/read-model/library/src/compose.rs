@@ -59,7 +59,8 @@ pub struct Selection {
     /// Curated command and skill asks.
     pub commands: Vec<String>,
     pub skills: Vec<String>,
-    /// The profiles' bundle references, first occurrence kept.
+    /// The profiles' whole-bundle references, first occurrence kept (an
+    /// item-scoped one brings its item alone: `ResolvedProfile::whole_bundles`).
     pub bundles: Vec<String>,
     /// The MCP server names the profiles veto.
     pub exclusions: BTreeSet<String>,
@@ -141,7 +142,7 @@ impl Selector<'_> {
                 self.selection.skills.push(reference.clone());
             }
         }
-        for reference in &profile.bundles {
+        for reference in profile.whole_bundles() {
             if self.once(format!("bundle:{reference}")) {
                 self.selection.bundles.push(reference.clone());
             }

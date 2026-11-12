@@ -5,7 +5,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use auth_application::Auth;
-use ctxloom_ports::{ConfigFiles, Executables, Failure, Scope, Source, UserFiles};
+use ctxloom_ports::{ConfigFiles, Executables, Failure, GitIdentity, Scope, Source, UserFiles};
+use library_application::LegacyGo;
 use serde::Serialize;
 
 use crate::checks::{self, Check, Status};
@@ -37,9 +38,16 @@ pub struct Doctor {
     config: Arc<dyn ConfigFiles>,
     files: Arc<dyn UserFiles>,
     executables: Arc<dyn Executables>,
+    identity: Arc<dyn GitIdentity>,
     auth: Auth,
-    home: String,
+    /// The user's own `HOME`, where her engine files are (never ctxloom's
+    /// home, which `CTXLOOM_HOME` may put elsewhere); none when unset, and
+    /// then none of her files is read.
+    user_home: Option<String>,
     version: String,
+    /// The running binary's file name (owner ruling 163): a hook or server
+    /// entry running it is ctxloom's, as one running `ctxloom` is.
+    program: String,
 }
 
 impl Doctor {
@@ -47,17 +55,30 @@ impl Doctor {
         config: Arc<dyn ConfigFiles>,
         files: Arc<dyn UserFiles>,
         executables: Arc<dyn Executables>,
+        identity: Arc<dyn GitIdentity>,
         auth: Auth,
-        home: &str,
+        user_home: Option<&str>,
         version: &str,
     ) -> Doctor {
         Doctor {
             config,
             files,
             executables,
+            identity,
             auth,
-            home: home.to_string(),
+            user_home: user_home.map(str::to_string),
             version: version.to_string(),
+            program: "ctxloom".to_string(),
+        }
+    }
+
+    /// This doctor, reading an entry that runs `program` (the running
+    /// binary's file name, as the composition root resolved it) as
+    /// ctxloom's, besides one that runs `ctxloom`.
+    pub fn calling(self, program: &str) -> Doctor {
+        Doctor {
+            program: program.to_string(),
+            ..self
         }
     }
 
@@ -98,10 +119,12 @@ impl Doctor {
                 paths.push((name.to_string(), format!("{root}/{name}")));
             }
         }
-        paths.push((
-            "~/.claude/settings.json".to_string(),
-            format!("{}/.claude/settings.json", self.home),
-        ));
+        if let Some(home) = &self.user_home {
+            paths.push((
+                "~/.claude/settings.json".to_string(),
+                format!("{home}/.claude/settings.json"),
+            ));
+        }
         paths
     }
 
@@ -111,18 +134,17 @@ impl Doctor {
         if let Some(root) = self.root() {
             paths.push((".mcp.json".to_string(), format!("{root}/.mcp.json")));
         }
-        paths.push((
-            "~/.claude.json".to_string(),
-            format!("{}/.claude.json", self.home),
-        ));
+        if let Some(home) = &self.user_home {
+            paths.push(("~/.claude.json".to_string(), format!("{home}/.claude.json")));
+        }
         paths
     }
 
     /// The report; with `deps_only`, the machine-capability probes alone
     /// (true or false whether anything is configured).
     pub fn report(&self, deps_only: bool) -> Report {
-        let gitconfig = self.text(&format!("{}/.gitconfig", self.home));
-        let deps = checks::deps(self.executables.find("git").is_some(), gitconfig.as_deref());
+        let git = self.executables.find("git").is_some();
+        let deps = checks::deps(git, git && self.identity.is_known());
         if deps_only {
             return Report { checks: vec![deps] };
         }
@@ -134,10 +156,20 @@ impl Doctor {
             .map(|layer| layer.text);
         let layers = self.layer_texts();
         let settings = self.present(&self.settings_paths());
-        let mut stale = Vec::new();
+        let mut go_era = Vec::new();
         for (file, text) in &settings {
-            stale.extend(hooks::stale(text).into_iter().map(|s| (file.clone(), s)));
+            go_era.extend(
+                hooks::go_era(text, &self.program)
+                    .into_iter()
+                    .map(|s| (file.clone(), s)),
+            );
         }
+        // Ruling 162: a Go-era entry is Go ctxloom's while it is present, and
+        // stale once it is retired.
+        let (stale, left_alone) = match self.legacy_go() {
+            LegacyGo::Retired => (go_era, Vec::new()),
+            LegacyGo::Present => (Vec::new(), go_era),
+        };
         let mcp = self.present(&self.mcp_paths());
         let mcp_and_settings: Vec<(String, String)> =
             mcp.into_iter().chain(settings.iter().cloned()).collect();
@@ -154,7 +186,7 @@ impl Doctor {
             None => Vec::new(),
         };
         let refused = self.refusal();
-        Report {
+        let mut report = Report {
             checks: vec![
                 checks::setup_marker(
                     root.is_some(),
@@ -165,13 +197,32 @@ impl Doctor {
                 checks::agents(config.as_deref()),
                 checks::credentials(&layers, &self.auth),
                 checks::version(&self.version),
-                checks::hooks(&settings),
+                checks::hooks(&settings, &self.program),
                 checks::gitignore(gitignore.as_deref(), &unignored),
-                checks::mcp_invocation(&mcp_and_settings),
+                checks::mcp_invocation(&mcp_and_settings, &self.program),
                 checks::stale_hooks(&stale),
                 checks::ingestion(),
             ],
-        }
+        };
+        // The Go-era rows follow the stale row; the stated limit stays last.
+        let at = report.checks.len() - 1;
+        report
+            .checks
+            .splice(at..at, checks::go_era_hooks(&left_alone));
+        report
+    }
+
+    /// Whether Go ctxloom still runs here (`legacy.go`), read as a run reads
+    /// the config; a config no run can read retires nothing, so Go is then
+    /// present and its hooks are never removed.
+    fn legacy_go(&self) -> LegacyGo {
+        library_application::load_config(
+            self.config.as_ref(),
+            &[],
+            &library_application::Flags::default(),
+            &mut Vec::new(),
+        )
+        .map_or(LegacyGo::Present, |config| config.legacy_go())
     }
 
     /// What every run would refuse the config with, read as a run reads it
@@ -215,14 +266,19 @@ impl Doctor {
     }
 
     /// `--fix`: take every stale hook entry out of the engine's project and
-    /// user settings, and nothing else; what went.
+    /// user settings, and nothing else; what went. A Go-era entry is stale
+    /// only once Go ctxloom is retired (ruling 162): while it is present,
+    /// nothing is touched.
     pub fn fix(&self) -> Result<Vec<Removed>, Failure> {
         let mut removed = Vec::new();
+        if self.legacy_go() == LegacyGo::Present {
+            return Ok(removed);
+        }
         for (shown, path) in self.settings_paths() {
             let Some(text) = self.text(&path) else {
                 continue;
             };
-            let Some((fixed, gone)) = hooks::strip(&text) else {
+            let Some((fixed, gone)) = hooks::strip(&text, &self.program) else {
                 continue;
             };
             self.files.write_file(&path, fixed.as_bytes(), true)?;

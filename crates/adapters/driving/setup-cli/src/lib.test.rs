@@ -9,7 +9,8 @@ use auth_application::ExportedVars;
 use clap::Command;
 use deps_application::fakes::Fixture;
 use doctor_checks::{
-    ConfigFiles, Executables, Failure as PortFailure, LayerText, Put, Scope, Source, UserFiles,
+    ConfigFiles, Executables, Failure as PortFailure, GitIdentity, LayerText, Put, Scope, Source,
+    UserFiles,
 };
 use init_application::{Ended, LaunchFailure, Scaffold};
 use reclaim_application::ProjectCache;
@@ -227,6 +228,12 @@ impl Executables for Git {
     }
 }
 
+impl GitIdentity for Git {
+    fn is_known(&self) -> bool {
+        true
+    }
+}
+
 struct Run {
     exit: Result<Exit, Failure>,
     out: String,
@@ -274,8 +281,9 @@ fn go_with(
         world.clone(),
         world.clone(),
         Arc::new(Git),
+        Arc::new(Git),
         Auth::new(world.clone()),
-        "/home/u",
+        Some("/home/u"),
         "0.1.0",
     );
     let deps = Rc::new(fixture.deps);
@@ -427,6 +435,11 @@ fn doctor_fix_removes_a_stale_entry_and_names_it_on_the_error_stream() {
         r#"{"hooks":{"SessionStart":[{"hooks":[{"command":"ctxloom hook inject-context abc"}]}]}}"#;
     let r = go(&["doctor", "--fix"], Format::Text, |w, f| {
         token(w, f);
+        // Ruling 162: a Go-era entry is stale once Go ctxloom is retired.
+        w.config
+            .lock()
+            .unwrap()
+            .push("schema_version: 9\nlegacy:\n  go: retired\n".to_string());
         w.files
             .lock()
             .unwrap()
@@ -708,8 +721,9 @@ fn a_noun_the_line_does_not_carry_is_a_usage_failure() {
         world.clone(),
         world.clone(),
         Arc::new(Git),
+        Arc::new(Git),
         Auth::new(world.clone()),
-        "/h",
+        Some("/h"),
         "0",
     );
     let deps = Rc::new(fixture.deps);

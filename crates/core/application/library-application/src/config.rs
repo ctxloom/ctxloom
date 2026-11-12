@@ -41,6 +41,17 @@ pub enum OnRun {
     Missing,
 }
 
+/// Whether Go ctxloom still runs on this machine (`legacy.go`, owner ruling
+/// 162), beside this one: doctor leaves its Go-era hooks alone until it is
+/// retired.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LegacyGo {
+    /// Go ctxloom is installed (the default): its hooks are live.
+    Present,
+    /// Go ctxloom is gone: its hooks are stale.
+    Retired,
+}
+
 /// The configuration, read.
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -77,7 +88,20 @@ pub fn load(
                 )));
             }
         }
-        let found = judged(layer, &value, flags.degraded, notices);
+        let mut home_only = Vec::new();
+        if project_path.as_deref() == Some(layer.path.as_str()) {
+            // Ruling 162: refused, never merged (under --degraded, dropped).
+            for path in schema::take_home_only(&mut value) {
+                home_only.push(Violation::Breaks {
+                    path,
+                    detail: format!(
+                        "a project's config cannot set it: only the home config ({}) says whether Go ctxloom runs on this machine",
+                        files.layer_path(Scope::Home)
+                    ),
+                });
+            }
+        }
+        let found = judged(layer, &value, home_only, flags.degraded, notices);
         shape_failure |= found.iter().any(Violation::is_shape);
         if flags.degraded {
             drop_unknown_keys(&mut value, &found);
@@ -152,10 +176,12 @@ fn read_layer(layer: &LayerText, notices: &mut Vec<Notice>) -> Result<Value, App
 fn judged(
     layer: &LayerText,
     value: &Value,
+    home_only: Vec<Violation>,
     degraded: bool,
     notices: &mut Vec<Notice>,
 ) -> Vec<Violation> {
-    let found = schema::validate(value);
+    let mut found = schema::validate(value);
+    found.extend(home_only);
     if !degraded {
         return found;
     }
@@ -397,6 +423,15 @@ impl Config {
         match self.text("sync.on_run").as_str() {
             "none" => OnRun::None,
             _ => OnRun::Missing,
+        }
+    }
+
+    /// Whether Go ctxloom still runs on this machine: `legacy.go` is
+    /// `present` unless it says `retired` (owner ruling 162).
+    pub fn legacy_go(&self) -> LegacyGo {
+        match self.text("legacy.go").as_str() {
+            "retired" => LegacyGo::Retired,
+            _ => LegacyGo::Present,
         }
     }
 

@@ -55,6 +55,7 @@ library-catalog-command-not-found = command not found: "{ $item }" in bundle "{ 
 library-catalog-command-name-not-found = command not found: { $name }
 library-catalog-bad-item-ref = bad item reference: "{ $ask }" selects a { $kind }, not a { $wanted }
 library-catalog-item-syntax = invalid item reference "{ $ask }": { $cause }
+library-catalog-item-not-bundle = "{ $ask }" selects one item of a bundle, not the bundle
 library-bundle-profile = invalid bundle YAML: profile { $name }: { $cause }
 
 ## The config.

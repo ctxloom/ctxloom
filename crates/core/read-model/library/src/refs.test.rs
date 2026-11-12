@@ -517,3 +517,22 @@ fn test_a_canonical_reference_keys_like_the_url_of_its_repository() {
         "file:///srv/other.git"
     ));
 }
+
+// A reference's item selector is what follows its `#`, in every spelling a
+// profile may write; a reference without one names a whole bundle.
+#[test]
+fn test_an_item_selector_is_found_in_every_spelling_and_absent_for_a_whole_bundle() {
+    for (raw, selector) in [
+        ("roles#fragments/dev", Some("fragments/dev")),
+        ("ctxloom+local:roles#fragments/dev", Some("fragments/dev")),
+        (
+            "https://github.com/o/r@bundles/roles@abc123#fragments/finder",
+            Some("fragments/finder"),
+        ),
+        (" roles#mcp/tool ", Some("mcp/tool")),
+        ("roles", None),
+        ("ctxloom+git://github.com/o/r//bundles/roles@v1", None),
+    ] {
+        assert_eq!(item_selector(raw), selector, "{raw}");
+    }
+}

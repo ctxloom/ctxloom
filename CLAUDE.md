@@ -250,13 +250,25 @@ A one-shot CHILD's home (owner ruling 51) registers the per-turn ones only:
 `UserPromptSubmit`, `PostToolBatch`, `MessageDisplay`, `Stop`, `PreCompact`,
 `PostCompact`; never `SessionStart` or `SessionEnd`, which `claude -p` fires
 once per PROCESS (every turn), and whose slow hook claude cancels. The hook
-command is the bare `ctxloom`, so an engine's `PATH` (the terminal's and a
+command is the bare FILE NAME of the running binary (owner rulings 163, 164;
+`ctxloom` for a binary of that name, `ctxloom-rs` for the one `just
+install-rs` installs): claude's hooks and statusline, at rest and in a session
+home, and opencode's plugin's `COMMAND` all run it. The wiring resolves it
+ONCE (`ctxloom-wiring`'s `program::running`, from `std::env::current_exe`,
+which on Linux is `/proc/self/exe`, a symlink's target and never the link; the
+authored `ctxloom`, `surface_ports::CALLBACK_PROGRAM`, when it cannot) and
+tells the adapters as a value when it builds them (`Claude::calling`,
+`Opencode::calling`, `Mock::calling`, `Doctor::calling`); an authored callback
+(`ctxloom hook <verb>` in a bundle or ctxloom's own package) is installed
+running it (`Hook::installed_as`). An engine's `PATH` (the terminal's and a
 child's) is the directory of the running binary (`Place::program_dir`, the
-wiring's `current_exe` parent), then the inherited `PATH`. Two consequences:
-the session's own shell also sees that directory first, so a sibling program in
-it shadows the user's others (intended); and the binary must be named `ctxloom`
-for the hooks to resolve it (a renamed binary still leads `PATH` but the bare
-name finds nothing there: a known limit, not worked around).
+same resolution's directory), then the inherited `PATH`, so the bare name is
+this binary. The session's own shell also sees that directory first, so a
+sibling program in it shadows the user's others (intended). Only the running
+binary's entries are its wiring (`manage hooks check`, a surface's
+`hooks_present` and `statusline`); doctor reads an entry running `ctxloom` or
+the running binary's name as ctxloom's. The CLI's own help and fix texts
+still say `ctxloom`.
 The launcher records `RunnerStarted{runtime, workspace, pid}` AFTER the spawn,
 with the pid the spawn gave (`RunnerLauncher::launch` answers a `Running`, the
 launcher records, `Running::finish` waits), and the pending launches clear on
@@ -344,7 +356,7 @@ and the told host, so a runtime's host alias is a DNS name), and the client's
 an environment or in an error. A hook that finds the listener named but the
 certificate missing or garbled refuses (`HookSink::Refused`, `hook-cli-not-recorded`
 naming `CTXLOOM_TLS_CERT`) and sends nothing. The listener's limits are
-angzarr's generic `Listener` defaults (core `415b29ee`; `hook-listener` sets
+angzarr's generic `Listener` defaults (core `5dfeef53`; `hook-listener` sets
 none): a TLS handshake within 10 s, an HTTP/2 keepalive ping every 60 s
 answered within 20 s, a connection closed after 1 h plus a 30 s grace (never
 zero: a zero grace is `ListenError::ZeroConnectionAgeGrace` at bind, which
@@ -630,14 +642,14 @@ The lock holds ONE `angzarr-embedded`, `angzarr-proto`, `angzarr-ports` and
 `angzarr-diagnostic` (a test reads Cargo.lock). Every pin in `Cargo.toml` is
 a full commit. The angzarr pins are one line, one per family member:
 
-- angzarr core `415b29ee` (`angzarr-diagnostic`, `angzarr-yaml`,
+- angzarr core `5dfeef53` (`angzarr-diagnostic`, `angzarr-yaml`,
   `angzarr-presentation`; `angzarr-coordinator-grpc`'s `tls` feature, which
   `hook-listener` enables, is `Listener::tls`);
-- angzarr-embedded `640d2d07` on angzarr-router `e79400c3`;
-- angzarr-build `558cde5f` (the markup generator, `angzarr-build` and
+- angzarr-embedded `e2b0ebae` on angzarr-router `9aa923b2`;
+- angzarr-build `01cbe57e` (the markup generator, `angzarr-build` and
   `angzarr-codegen`, its own repository);
-- angzarr-platform `da6a3ee3`;
-- taskloom's crates `ff760778` and ctxloom-lib's `466132c7`, built on the
+- angzarr-platform `17ba6fa2`;
+- taskloom's crates `6c2b4fab` and ctxloom-lib's `f69993d3`, built on the
   same line,
 
 so moving one moves all. The lock holds one of every angzarr crate. The platform crates (`os`, `file-system`, `file-lock`) are
@@ -978,8 +990,9 @@ wiring's `engines()` and driven by the launcher, always: it is a real engine).
 opencode has no hook commands; its hooks are plugins in its own process. Every
 session home (`OPENCODE_CONFIG_DIR`) gets `plugins/ctxloom.js` (`PLUGIN`, node
 builtins only), which forwards opencode's bus events (v2 `{id,type,properties}`)
-and the `chat.message` trigger, serially and in order, by spawning `ctxloom hook
-opencode execute <Event>` with the event on stdin, plus what it alone knows
+and the `chat.message` trigger, serially and in order, by spawning `<program> hook
+opencode execute <Event>` (the running binary's file name, `home::plugin`)
+with the event on stdin, plus what it alone knows
 under `ctxloom` (the prompt a step message answers, a compaction's trigger and
 summary text). Its queue and dedupe live on `globalThis` (opencode may
 instantiate a plugin twice in one process), it drops sub-agent sessions (a
@@ -1120,6 +1133,7 @@ prerelease, no `schema_version` bump: each old key is an ordinary unknown key
 | `sync.auto_sync` | `sync.on_run: none\|missing` | `missing` |
 | `permissions.network: true\|false` (and an agent's) | deleted (ruling 134), with `approver`, `approval_timeout`, `sandbox` | |
 | `output_dir` (top level, unread) | `output.dir` | `ctxloom/` |
+| (new, ruling 162) | `legacy.go: present\|retired` (home config only) | `present` |
 
 The scaffold writes no `config:` section; `manage statusline install|
 uninstall` writes `ctxloom`/`none`. Output JSON may keep booleans for yes/no
@@ -1132,6 +1146,28 @@ pull). A session's outputs are `<project root>/<output.dir>/<harp>`
 rename moves the folder. A first init at a terminal asks for `output.dir`
 before the interview (suggesting `ctxloom/`, saying outputs are committable)
 and writes the answer.
+
+`legacy.go` (owner ruling 162) says whether Go ctxloom still runs on this
+machine beside this one; both write hook entries into the user's shared
+`~/.claude/settings.json`. It is the HOME config's alone: a project layer that
+says it is refused (`library::config::schema::HOME_ONLY` and
+`take_home_only`, a `breaks the schema` violation naming the home config,
+exit 20; under `--degraded` it is said and dropped, never read). Doctor's
+stale-hooks check (`DOCTOR-CHECK-STALE-HOOKS-n5`, doctor-checks' `hooks.rs`)
+calls a hook entry Rust-era when it is EXACTLY `<name> hook <engine> execute
+<Event>`, `<name>` the running binary's file name (ruling 163) or bare
+`ctxloom` (one command line, or `command: <name>` with the words in `args`,
+as `prepare` and the surface write it), and Go-era otherwise, whatever its
+program (a binary named `ctxloom-rs` still leaves `ctxloom hook stamp-plan`
+alone) (`ctxloom hook
+stamp-plan`, `session-bind`, the older `hook <verb> --engine` ...). Under
+`present` each Go-era entry is an `info` row of its own,
+`DOCTOR-CHECK-GO-ERA-HOOK-n6` ("Go-era hook, left alone", its event, command
+and file; shown by `doctor --all` and in json), and `--fix` touches nothing;
+under `retired` they are stale (the warn row) and `--fix` removes them. A
+Rust-era entry is never stale. Doctor reads the key as a run reads the config;
+a config no run can read counts as `present`, so a broken config never lets
+`--fix` delete Go's hooks.
 
 ctxloom has no posture of its own (owner ruling 134, superseding rulings 59,
 70, 106-109 and 125 as far as permissions go): the launch no longer judges a
@@ -1146,7 +1182,10 @@ isolation.
 
 ## Use `just`
 
-`just --list` shows the public recipes by group. The checks are `just build`,
+`just --list` shows the public recipes by group; `just install-rs` (group
+`install`) builds the plain binary and installs it as
+`~/.local/lib/ctxloom-rs/ctxloom-rs` with the wrapper `~/.local/bin/ctxloom-rs`
+(`CTXLOOM_HOME="$HOME/.ctxloom-rs"`), idempotently, one line per action. The checks are `just build`,
 `just test` (cargo-nextest, the one test runner, mutation included, owner
 ruling 144; required: a missing nextest fails the gate),
 `just lint` (clippy, warnings denied), `just lint-deps` (cargo-deny) and
@@ -1263,3 +1302,27 @@ drives. A failing gate is a finding: fix the cause and commit again; never
    tests need a feature of its own dev-depends on itself with it (as
    `session-cli` does for `session-destroy`). Both are held by
    `scripts/mutants-verdict.selftest.sh` (`just selftest`).
+
+A slice landing on an integration branch that carries a red spec on purpose
+(daemon/integration, its daemon scenarios red) closes out with `just
+closeout-ratchet <base>` (owner ruling 165; `scripts/closeout-ratchet.sh`):
+closeout's six gates as usual, mutation included (over merge-base(<base>,
+HEAD)..HEAD), except that the feature runner may fail where the base's does
+and nowhere else: the slice's red scenarios must be a SUBSET of the base
+tip's. It may turn red green, never add a red scenario or break a green one
+(`FAIL ratchet: N new red scenarios: B broke green, A added red`, each named,
+capped). Every other test failure fails `test` as ever. The scenario list is
+the feature runner's: `GHERKIN_RATCHET=<absolute file>` makes
+`every_feature_runs` write a line per scenario, sorted, `red<TAB><id>` or
+`green<TAB><id>` (the id `<feature path under features/> :: [<rule> ::
+]<scenario>[ :: | <example row> |]`; a failure no scenario owns is `<feature>
+:: (outside a scenario)`), and pass whatever failed, so only the ratchet's
+judge (`scripts/ratchet-judge.sh`) decides. The base's list is `just
+ratchet-base <base>` (`scripts/ratchet-base.sh`): only that test, on the
+base's tip, in a throwaway worktree `.<checkout>.ratchet-base` beside the
+checkout (target dir `target/ratchet-base`), cached by sha at
+`target/ratchet/<sha>.list`; a base from before the list gets the runner
+commit that taught it applied, and says so. On main the base has no red
+scenario, so the ratchet is the plain closeout. Exit 0, 1 (a gate, a new red,
+or no base list), 2 (usage). Held by `scripts/closeout-ratchet.selftest.sh`
+(`just selftest`).

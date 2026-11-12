@@ -6,7 +6,8 @@ use std::sync::Mutex;
 
 use auth_application::Auth;
 use ctxloom_ports::{
-    ConfigFiles, Executables, ExportedVars, Failure, LayerText, Put, Scope, Source, UserFiles,
+    ConfigFiles, Executables, ExportedVars, Failure, GitIdentity, LayerText, Put, Scope, Source,
+    UserFiles,
 };
 
 use crate::{Doctor, Status};
@@ -94,6 +95,15 @@ impl Executables for Git {
     }
 }
 
+/// Git's answer for the identity it commits with, known or not.
+struct Identity(bool);
+
+impl GitIdentity for Identity {
+    fn is_known(&self) -> bool {
+        self.0
+    }
+}
+
 /// A launch that exports the claude token, or does not.
 struct Token(bool);
 
@@ -108,12 +118,17 @@ fn doctor(mem: &Arc<Mem>, git: bool) -> Doctor {
 }
 
 fn doctor_with_token(mem: &Arc<Mem>, git: bool, token: bool) -> Doctor {
+    doctor_with(mem, git, true, token)
+}
+
+fn doctor_with(mem: &Arc<Mem>, git: bool, identity: bool, token: bool) -> Doctor {
     Doctor::new(
         mem.clone(),
         mem.clone(),
         Arc::new(Git(git)),
+        Arc::new(Identity(identity)),
         Auth::new(Arc::new(Token(token))),
-        "/home/u",
+        Some("/home/u"),
         "0.1.0",
     )
 }
@@ -128,6 +143,104 @@ fn project() -> Arc<Mem> {
         "schema_version: 8\n".to_string(),
     );
     mem
+}
+
+/// `mem` with a home config that says Go ctxloom is retired (ruling 162).
+fn retired(mem: Arc<Mem>) -> Arc<Mem> {
+    mem.files.lock().unwrap().insert(
+        "/home/u/.ctxloom/config.yaml".to_string(),
+        "schema_version: 9\nlegacy:\n  go: retired\n".to_string(),
+    );
+    mem
+}
+
+const GO_AND_RUST: &str = r#"{"hooks":{"PostToolUse":[{"matcher":"Edit|Write","hooks":[{"command":"ctxloom hook stamp-plan"}]}],"SessionStart":[{"hooks":[{"command":"ctxloom hook session-bind"},{"command":"ctxloom hook claude-code execute SessionStart"}]}]}}"#;
+
+// Owner ruling 162: while Go ctxloom is present (the default, and said), a
+// Go-era entry is an info row of its own, the stale row stays ok, and --fix
+// leaves the file as it was.
+#[test]
+fn a_go_era_entry_is_reported_and_left_alone_while_go_is_present() {
+    for home in [None, Some("schema_version: 9\nlegacy:\n  go: present\n")] {
+        let mem = project();
+        if let Some(home) = home {
+            mem.files
+                .lock()
+                .unwrap()
+                .insert("/home/u/.ctxloom/config.yaml".to_string(), home.to_string());
+        }
+        mem.files.lock().unwrap().insert(
+            "/home/u/.claude/settings.json".to_string(),
+            GO_AND_RUST.to_string(),
+        );
+        let doctor = doctor(&mem, true);
+        let report = doctor.report(false);
+        assert_eq!(status(&report, "DOCTOR-CHECK-STALE-HOOKS-n5"), Status::Ok);
+        let go: Vec<&crate::Check> = report
+            .checks
+            .iter()
+            .filter(|c| c.marker == "DOCTOR-CHECK-GO-ERA-HOOK-n6")
+            .collect();
+        assert_eq!(go.len(), 2, "{home:?}");
+        assert!(go.iter().all(|c| c.status == Status::Info));
+        assert!(go[0]
+            .detail
+            .contains("PostToolUse runs `ctxloom hook stamp-plan` (~/.claude/settings.json)"));
+        assert!(go[1]
+            .detail
+            .contains("SessionStart runs `ctxloom hook session-bind`"));
+        assert!(!report.failed());
+        assert!(doctor.fix().unwrap().is_empty());
+        assert_eq!(
+            mem.files.lock().unwrap()["/home/u/.claude/settings.json"],
+            GO_AND_RUST
+        );
+    }
+}
+
+// Once Go is retired, the same entries are stale, no info row is given, and
+// --fix removes them and keeps the Rust-era entry.
+#[test]
+fn a_go_era_entry_is_stale_and_fixed_once_go_is_retired() {
+    let mem = retired(project());
+    mem.files.lock().unwrap().insert(
+        "/home/u/.claude/settings.json".to_string(),
+        GO_AND_RUST.to_string(),
+    );
+    let doctor = doctor(&mem, true);
+    let report = doctor.report(false);
+    assert_eq!(status(&report, "DOCTOR-CHECK-STALE-HOOKS-n5"), Status::Warn);
+    assert!(report
+        .checks
+        .iter()
+        .all(|c| c.marker != "DOCTOR-CHECK-GO-ERA-HOOK-n6"));
+    let removed = doctor.fix().unwrap();
+    let subs: Vec<&str> = removed.iter().map(|r| r.sub.as_str()).collect();
+    assert_eq!(subs, ["stamp-plan", "session-bind"]);
+    let kept = mem.files.lock().unwrap()["/home/u/.claude/settings.json"].clone();
+    assert!(kept.contains("ctxloom hook claude-code execute SessionStart"));
+    assert!(!kept.contains("stamp-plan") && !kept.contains("session-bind"));
+}
+
+// A config no run can read retires nothing: Go is taken as present, so a
+// broken config never lets --fix delete Go's live hooks.
+#[test]
+fn a_refused_config_leaves_go_era_entries_alone() {
+    let mem = project();
+    mem.files.lock().unwrap().insert(
+        "/home/u/.ctxloom/config.yaml".to_string(),
+        "schema_version: 9\nlegacy:\n  go: retired\nnosuch: 1\n".to_string(),
+    );
+    mem.files.lock().unwrap().insert(
+        "/home/u/.claude/settings.json".to_string(),
+        GO_AND_RUST.to_string(),
+    );
+    let doctor = doctor(&mem, true);
+    assert!(doctor.fix().unwrap().is_empty());
+    assert_eq!(
+        status(&doctor.report(false), "DOCTOR-CHECK-STALE-HOOKS-n5"),
+        Status::Ok
+    );
 }
 
 fn status(report: &crate::Report, marker: &str) -> Status {
@@ -174,7 +287,7 @@ fn deps_narrows_to_the_capability_probes() {
 // exactly it" (the project's settings and the user's).
 #[test]
 fn fix_removes_the_stale_entries_of_the_project_and_the_user_and_then_the_row_is_ok() {
-    let mem = project();
+    let mem = retired(project());
     let stale = r#"{"hooks":{"SessionStart":[{"hooks":[{"command":"ctxloom hook inject-context abc"},{"command":"ctxloom hook claude-code execute SessionStart"}]}]}}"#;
     mem.files
         .lock()
@@ -200,6 +313,87 @@ fn fix_removes_the_stale_entries_of_the_project_and_the_user_and_then_the_row_is
         kept.contains("ctxloom hook claude-code execute SessionStart")
             && !kept.contains("inject-context")
     );
+}
+
+// Owner ruling 163: a doctor told the running binary's name reads an entry
+// running it as ctxloom's: its stale ones are found and fixed, its live ones
+// are the hooks row's.
+#[test]
+fn a_doctor_calling_another_program_reads_and_fixes_that_programs_entries() {
+    // its Go-era entries are stale once Go is retired (ruling 162)
+    let mem = retired(project());
+    let settings = r#"{"hooks":{"SessionStart":[{"hooks":[{"command":"ctxloom-other hook inject-context abc"},{"command":"ctxloom-other hook claude-code execute SessionStart"}]}]}}"#;
+    mem.files.lock().unwrap().insert(
+        "/work/.claude/settings.json".to_string(),
+        settings.to_string(),
+    );
+    let doctor = doctor(&mem, true).calling("ctxloom-other");
+    let report = doctor.report(false);
+    assert_eq!(status(&report, "DOCTOR-CHECK-STALE-HOOKS-n5"), Status::Warn);
+    assert_eq!(status(&report, "DOCTOR-CHECK-HOOKS-TRUST-d4"), Status::Ok);
+    assert_eq!(doctor.fix().unwrap().len(), 1);
+    let kept = mem.files.lock().unwrap()["/work/.claude/settings.json"].clone();
+    assert!(
+        kept.contains("ctxloom-other hook claude-code execute SessionStart")
+            && !kept.contains("inject-context"),
+        "{kept}"
+    );
+}
+
+// Rulings 162 and 163: the binary named `ctxloom-rs` still reads a bare
+// `ctxloom` entry as ctxloom's, but `ctxloom hook stamp-plan` is not the
+// Rust-era form: while Go is present it is Go's, reported and left alone, and
+// --fix never strips it; the binary's own Rust-era entry is kept too.
+#[test]
+fn a_binary_named_ctxloom_rs_leaves_gos_stamp_plan_alone_while_go_is_present() {
+    let mem = project();
+    let settings = r#"{"hooks":{"PostToolUse":[{"matcher":"Edit|Write","hooks":[{"command":"ctxloom hook stamp-plan"}]}],"SessionStart":[{"hooks":[{"command":"ctxloom-rs hook claude-code execute SessionStart"}]}]}}"#;
+    mem.files.lock().unwrap().insert(
+        "/home/u/.claude/settings.json".to_string(),
+        settings.to_string(),
+    );
+    let doctor = doctor(&mem, true).calling("ctxloom-rs");
+    let report = doctor.report(false);
+    assert_eq!(status(&report, "DOCTOR-CHECK-STALE-HOOKS-n5"), Status::Ok);
+    assert_eq!(status(&report, "DOCTOR-CHECK-HOOKS-TRUST-d4"), Status::Ok);
+    let go: Vec<&crate::Check> = report
+        .checks
+        .iter()
+        .filter(|c| c.marker == "DOCTOR-CHECK-GO-ERA-HOOK-n6")
+        .collect();
+    assert_eq!(go.len(), 1, "{go:?}");
+    assert!(go[0]
+        .detail
+        .contains("PostToolUse runs `ctxloom hook stamp-plan`"));
+    assert!(doctor.fix().unwrap().is_empty());
+    assert_eq!(
+        mem.files.lock().unwrap()["/home/u/.claude/settings.json"],
+        settings
+    );
+}
+
+// The identity is git's answer where ctxloom runs, in her own environment
+// (handtest D2): a `.gitconfig` in the doctor's home, which is ctxloom's home
+// (`CTXLOOM_HOME`), is not read for it, either way.
+#[test]
+fn the_git_identity_is_gits_answer_and_never_the_homes_gitconfig() {
+    let mem = project();
+    mem.files.lock().unwrap().insert(
+        "/home/u/.gitconfig".to_string(),
+        "[user]\n\tname = A\n\temail = a@b.c\n".to_string(),
+    );
+    let unknown = doctor_with(&mem, true, false, true).report(true);
+    assert_eq!(status(&unknown, "DOCTOR-CHECK-DEPS-a1"), Status::Warn);
+    assert!(unknown.checks[0].detail.contains("has no identity"));
+    let known = doctor_with(&project(), true, true, true).report(true);
+    assert_eq!(status(&known, "DOCTOR-CHECK-DEPS-a1"), Status::Ok);
+}
+
+// No git on the PATH is said as that, whatever an identity would answer.
+#[test]
+fn without_git_the_row_says_git_is_missing() {
+    let report = doctor_with(&project(), false, true, true).report(true);
+    assert!(report.checks[0].detail.contains("not on the PATH"));
 }
 
 #[test]
@@ -419,4 +613,37 @@ fn a_private_state_pattern_left_out_is_named() {
     assert_eq!(check.status, Status::Warn);
     assert!(check.detail.contains("/sessions"), "{}", check.detail);
     assert!(!check.detail.contains("/cache"), "{}", check.detail);
+}
+
+// With no HOME of hers known, none of her files is read: never a fallback to
+// another home (CTXLOOM_HOME's), which is the two-homes defect.
+#[test]
+fn without_her_home_none_of_her_files_is_read() {
+    let mem = retired(project());
+    let stale =
+        r#"{"hooks":{"SessionStart":[{"hooks":[{"command":"ctxloom hook inject-context abc"}]}]}}"#;
+    mem.files.lock().unwrap().insert(
+        "/home/u/.claude/settings.json".to_string(),
+        stale.to_string(),
+    );
+    let doctor = Doctor::new(
+        mem.clone(),
+        mem.clone(),
+        Arc::new(Git(true)),
+        Arc::new(Identity(true)),
+        Auth::new(Arc::new(Token(true))),
+        None,
+        "0.1.0",
+    );
+    let report = doctor.report(false);
+    assert_eq!(status(&report, "DOCTOR-CHECK-STALE-HOOKS-n5"), Status::Ok);
+    assert!(report
+        .checks
+        .iter()
+        .all(|c| !c.detail.contains("~/.claude")));
+    assert!(doctor_with(&mem, true, true, true)
+        .report(false)
+        .checks
+        .iter()
+        .any(|c| c.marker == "DOCTOR-CHECK-STALE-HOOKS-n5" && c.status == Status::Warn));
 }

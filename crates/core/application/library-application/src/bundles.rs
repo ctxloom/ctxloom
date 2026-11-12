@@ -81,11 +81,13 @@ impl Project {
     }
 
     /// The bundle asked for, or why there is none: a bundle that is there and
-    /// cannot be read says so, naming the fault.
+    /// cannot be read says so, naming the fault. An item reference names no
+    /// bundle, and is said in Go's words for a bundle that is not there
+    /// (bundle.feature: "Show does not take the item selector").
     pub(crate) fn bundle(&self, ask: &str) -> Result<&Entry, AppError> {
         match self.catalog.lookup(ask) {
             Ok(entry) => Ok(entry),
-            Err(CatalogError::BundleNotFound { .. }) => {
+            Err(CatalogError::BundleNotFound { .. } | CatalogError::ItemNotBundle { .. }) => {
                 if let Some(cause) = self.unreadable.get(ask) {
                     return Err(AppError::BundleUnreadable {
                         ask: ask.to_string(),

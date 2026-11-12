@@ -847,7 +847,45 @@ directory 0700, tightened on each publish whoever made it (the election's
 lock may have); on Windows the platform sets no mode and the profile's
 inherited ACL stands (M8). It keeps other users out, not the user's own
 processes. `Discovery`'s `Debug` withholds the bearer, and the daemon's log
-never holds it. Not yet placed (escalated): where a call's run travels on
+never holds it.
+
+A daemon is LIVE when it answers the standard `grpc.health.v1.Health`
+Check SERVING (T16, M11: `hook-sink-grpc`'s `serving`, written by hand as
+its other messages are, over TLS pinning the certificate the discovery
+file names, presenting no bearer, within the wiring's `HEALTH_WAIT`, one
+second). The election's lock (`daemon.lock`, `DaemonFiles::elect`) is the
+election ALONE: `daemon status`, `daemon stop`, a hook's rediscovery and a
+client's `ensure` all ask the health check, never the lock, so a daemon that
+holds the lock and does not answer (stopped, hung) is not serving, and a
+stale port another process took is never handed anything. A serving daemon
+looks at its discovery file each tick: gone, it publishes it again (it still
+holds the election); naming another daemon (its lock file was replaced, and
+another won), it exits, and withdraws only its OWN advertisement
+(`DaemonFiles::withdraw_own`), never the other's. A client with no live
+daemon spawns `ctxloom daemon serve` and waits for a live one to advertise
+itself (the one spawned or another client's, whichever won the election)
+within `SPAWN_WAIT`, eight seconds: S16's ten (`HOOK_BOUND`) less a
+delivery's two (`DELIVERY_MARGIN`). A stale file is left for the new daemon
+to publish over. The spawned daemon's environment is `daemon_env`'s: `HOME`,
+`PATH`, `TMPDIR`, `LANG`, `LC_ALL`, `USERPROFILE`, `APPDATA`,
+`LOCALAPPDATA` and `run_ports::WINDOWS_STARTUP_VARIABLES`, matched as the
+platform compares names (`os::Flavor::env_key`, so Windows' `Path` passes),
+and `CTXLOOM_HOME` set to the ctxloom home the spawner resolved; nothing
+else of the spawner's. Its process group is its own (`os::process::spawn_tree`);
+it is not yet a session of its own (no `setsid`) and on Windows not yet
+detached: the platform crates offer neither (escalated). Nor is its user
+home yet independent of its spawner's `HOME` (M4, escalated: the platform
+crates resolve no account home), nor is a version skew between client and
+daemon acted on (M3, escalated: telling an idle daemon from a busy one waits
+for `StopDaemon`). IDLENESS counts the runs started and not ended (M9:
+`Daemon::live_runs`, from `pending-launches`, any process's: the CLI's
+interactive sessions and one-shots as well as its hosted children), asked
+at the idle limit, after the runs whose owner is gone are ended by the
+start's sweep (`Sweeper`, of every run it does not host itself); so a
+daemon exits only once it has hosted nothing, had nothing to do and known
+no live run for its idle time. The launcher runs inside the runtime's
+`block_on`, on the thread that started it, not on its two workers, which
+serve the listener (M10); no use case runs in a handler yet. Not yet placed (escalated): where a call's run travels on
 the wire for the daemon to check that a fact's session is its run's and to
 stamp the requester; angzarr's `Gate::identify` sees only the arrival and
 the credential, so it is not the gate's today, and the daemon checks

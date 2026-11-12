@@ -14,7 +14,14 @@
 # to a version: the repository's own pins where it has one (rust-toolchain.toml,
 # .config/nextest.toml's recommended nextest, the justfile's arch-lint rev,
 # the Containerfile's cargo-deny and node), else the version the gates are run
-# with locally (just 1.40.0, protoc 3.21.12, ltk at f36e8df of go-final).
+# with locally (just 1.40.0, protoc 3.21.12, ltk at f36e8df of go-final,
+# versionator v0.3.0).
+#
+# The binary's build.rs stamps the version through versionator (no versionator,
+# no build), so both jobs install it with Go before anything builds. It reads
+# HEAD alone (its short hash, the build time, whether the tree is dirty): the
+# checkout's default depth of 1, with no tags, is enough (a tag count it cannot
+# make renders empty and is not in the stamp).
 
 name: ci
 
@@ -71,10 +78,15 @@ jobs:
           cache: false
       - name: ltk
         run: go install github.com/ctxloom/ctxloom/cmd/ltk@f36e8dfb21e4f0179a86acc36f39939320f7fff9
+      - name: versionator (build.rs's version stamp)
+        run: |
+          go install github.com/benjaminabbitt/versionator@v0.3.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - name: Tool versions
         run: |
           just --version; cargo nextest --version; cargo deny --version
           protoc --version; node --version; jq --version; ltk --version
+          command -v versionator
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       # The arch-lint binary `just lint-arch` installs at the justfile's
       # arch_lint_rev (`_arch-lint-ready`), outside cargo's target.
@@ -126,10 +138,19 @@ jobs:
           echo "71852a30cf62975358edfcbbff93086e8857a079c8e4d6904881aa968d65c7f9  $zip" | sha256sum -c -
           7z x -bso0 -oprotoc "$zip"
           cygpath -w "$PWD/protoc/bin" >> "$GITHUB_PATH"
+      # Go, for versionator (build.rs's version stamp): the Linux job's pin.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26.9"
+          cache: false
+      - name: versionator (build.rs's version stamp)
+        run: |
+          go install github.com/benjaminabbitt/versionator@v0.3.0
+          cygpath -w "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       # jq: the build's plain-binary checks and nextest's setup script read
       # cargo's JSON with it (the runner image has it).
       - name: Tool versions
-        run: just --version; cargo nextest --version; protoc --version; jq --version; sh --version | head -n 1
+        run: just --version; cargo nextest --version; protoc --version; jq --version; sh --version | head -n 1; command -v versionator
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       # WORKAROUND, until angzarr's proto build scripts stop canonicalizing:
       # angzarr-proto's build_support.rs `proto_root()` canonicalizes the

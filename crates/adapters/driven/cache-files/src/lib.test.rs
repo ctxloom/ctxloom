@@ -14,6 +14,21 @@ use super::CacheFiles;
 
 const APP: &str = "/work/.ctxloom";
 
+/// Whether the host keeps modes (unix), which the test that takes a
+/// directory's search or write bit away needs; elsewhere it is skipped, and
+/// says so: `SKIP <test>: <why>`.
+fn keeps_modes() -> bool {
+    if os::host().flavor() == os::Flavor::Unix {
+        return true;
+    }
+    let test = std::thread::current();
+    eprintln!(
+        "SKIP {}: it takes a directory's mode bits away, and the host keeps none",
+        test.name().unwrap_or("a test")
+    );
+    false
+}
+
 fn cache() -> (Arc<Rooted>, CacheFiles) {
     let fs = Arc::new(Rooted::temp().unwrap());
     (fs.clone(), CacheFiles::new(fs, Path::new(APP)))
@@ -89,6 +104,9 @@ fn chmod(fs: &Rooted, rel: &str, mode: u32) {
 
 #[test]
 fn a_failure_that_is_not_absence_is_reported_not_swallowed() {
+    if !keeps_modes() {
+        return;
+    }
     let (fs, cache) = cache();
     write(&fs, "cache/locked/inner/f", "x");
     write(&fs, "cache/readonly/f", "x");

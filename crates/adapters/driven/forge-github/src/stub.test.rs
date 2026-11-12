@@ -175,6 +175,12 @@ impl Drop for Stub {
 }
 
 fn serve(stream: TcpStream, seen: &Mutex<Vec<Request>>, responder: &Responder) {
+    // Read blocking (bounded by the timeout): Windows hands an accepted
+    // socket the listener's non-blocking mode, and a read that would block
+    // is no request.
+    if stream.set_nonblocking(false).is_err() {
+        return;
+    }
     let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
     let mut reader = BufReader::new(stream);
     let Some(request) = read(&mut reader) else {

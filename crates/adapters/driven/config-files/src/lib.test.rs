@@ -8,6 +8,20 @@ use angzarr_diagnostic::Diagnostic;
 
 use super::*;
 
+/// `path`, absolute and spelled the unix way (`/work/proj`), as this host
+/// spells it (`C:\work\proj` on Windows): what the adapter is handed and
+/// shows back. The fixtures' own writes may stay unix-spelled, since the
+/// rooted filesystem re-roots both spellings at one place.
+fn at(path: &str) -> String {
+    os::host().flavor().from_top(path)
+}
+
+/// The mode a file or directory made with `bits` reads back with: those
+/// bits where the host keeps modes; none on Windows, which keeps none.
+fn kept(bits: u32) -> Option<Mode> {
+    (os::host().flavor() == os::Flavor::Unix).then(|| Mode::from_bits(bits))
+}
+
 fn rooted() -> Arc<Rooted> {
     Arc::new(Rooted::temp().expect("a temporary root"))
 }
@@ -31,7 +45,7 @@ fn around(root_env: Option<&str>, cwd: &str) -> Surroundings {
     Surroundings {
         root_env: root_env.map(ToString::to_string),
         cwd: PathBuf::from(cwd),
-        home: PathBuf::from("/home/u"),
+        home: PathBuf::from(at("/home/u")),
         temp_root: PathBuf::from("/tmp"),
     }
 }
@@ -99,7 +113,7 @@ fn test_the_walk_up_stops_at_the_temporary_directory() {
         "the shared temp root's .ctxloom is no project's"
     );
     assert_eq!(found.source, Source::Home);
-    assert_eq!(found.path, Path::new("/home/u/.ctxloom"));
+    assert_eq!(found.path, Path::new(&at("/home/u/.ctxloom")));
 }
 
 // findappdir_test.go: TestLoad_EmptyHomeNonRepoCwd_CreatesNothing: the home
@@ -112,7 +126,7 @@ fn test_with_no_project_the_home_is_the_app_dir_and_nothing_is_created() {
     assert_eq!(
         found,
         AppDir {
-            path: PathBuf::from("/home/u/.ctxloom"),
+            path: PathBuf::from(at("/home/u/.ctxloom")),
             source: Source::Home,
             ignored_root: None
         }
@@ -121,12 +135,12 @@ fn test_with_no_project_the_home_is_the_app_dir_and_nothing_is_created() {
 }
 
 fn files_of(fs: Arc<Rooted>, app: AppDir) -> ConfigFilesFs {
-    ConfigFilesFs::new(fs, app, Path::new("/home/u"))
+    ConfigFilesFs::new(fs, app, Path::new(&at("/home/u")))
 }
 
 fn project_app() -> AppDir {
     AppDir {
-        path: PathBuf::from("/work/proj/.ctxloom"),
+        path: PathBuf::from(at("/work/proj/.ctxloom")),
         source: Source::Project,
         ignored_root: None,
     }
@@ -152,8 +166,8 @@ fn test_the_layers_are_the_homes_then_the_projects() {
     assert_eq!(
         paths,
         [
-            "/home/u/.ctxloom/config.yaml",
-            "/work/proj/.ctxloom/config.yaml"
+            at("/home/u/.ctxloom/config.yaml"),
+            at("/work/proj/.ctxloom/config.yaml")
         ]
     );
     assert!(layers[0].text.contains("command: home"));
@@ -171,7 +185,7 @@ fn test_a_layer_that_is_not_there_is_left_out() {
     );
     let layers = files_of(fs.clone(), project_app()).layers().unwrap();
     assert_eq!(layers.len(), 1);
-    assert_eq!(layers[0].path, "/work/proj/.ctxloom/config.yaml");
+    assert_eq!(layers[0].path, at("/work/proj/.ctxloom/config.yaml"));
     let none = files_of(rooted(), project_app()).layers().unwrap();
     assert!(none.is_empty());
 }
@@ -183,7 +197,7 @@ fn test_with_no_project_the_home_is_the_only_layer_and_never_twice() {
     let fs = rooted();
     file(&fs, "/home/u/.ctxloom/config.yaml", "schema_version: 8\n");
     let home_app = AppDir {
-        path: PathBuf::from("/home/u/.ctxloom"),
+        path: PathBuf::from(at("/home/u/.ctxloom")),
         source: Source::Home,
         ignored_root: None,
     };
@@ -191,7 +205,7 @@ fn test_with_no_project_the_home_is_the_only_layer_and_never_twice() {
     assert_eq!(layers.len(), 1);
     // A project whose app dir IS the home's: one file, one layer.
     let same = AppDir {
-        path: PathBuf::from("/home/u/.ctxloom"),
+        path: PathBuf::from(at("/home/u/.ctxloom")),
         source: Source::Project,
         ignored_root: None,
     };
@@ -203,7 +217,7 @@ fn test_with_no_project_the_home_is_the_only_layer_and_never_twice() {
 fn test_the_app_dir_is_shown_as_found() {
     assert_eq!(
         files_of(rooted(), project_app()).app_dir(),
-        "/work/proj/.ctxloom"
+        at("/work/proj/.ctxloom")
     );
 }
 
@@ -288,28 +302,28 @@ fn test_each_layers_file_is_where_it_is_shown() {
     let files = files_of(rooted(), project_app());
     assert_eq!(
         files.layer_path(Scope::Project),
-        "/work/proj/.ctxloom/config.yaml"
+        at("/work/proj/.ctxloom/config.yaml")
     );
     assert_eq!(
         files.layer_path(Scope::Home),
-        "/home/u/.ctxloom/config.yaml"
+        at("/home/u/.ctxloom/config.yaml")
     );
     // With no project there is one file for both.
     let home_only = files_of(
         rooted(),
         AppDir {
-            path: PathBuf::from("/home/u/.ctxloom"),
+            path: PathBuf::from(at("/home/u/.ctxloom")),
             source: Source::Home,
             ignored_root: None,
         },
     );
     assert_eq!(
         home_only.layer_path(Scope::Project),
-        "/home/u/.ctxloom/config.yaml"
+        at("/home/u/.ctxloom/config.yaml")
     );
     assert_eq!(
         home_only.layer_path(Scope::Home),
-        "/home/u/.ctxloom/config.yaml"
+        at("/home/u/.ctxloom/config.yaml")
     );
 }
 
@@ -321,7 +335,7 @@ fn test_a_layer_is_read_by_scope_and_none_where_it_is_not_there() {
     assert_eq!(
         files.layer(Scope::Home).unwrap(),
         Some(LayerText {
-            path: "/home/u/.ctxloom/config.yaml".to_string(),
+            path: at("/home/u/.ctxloom/config.yaml"),
             text: "home: 1\n".to_string()
         })
     );
@@ -366,7 +380,7 @@ fn test_a_layer_is_written_whole_and_its_directory_made() {
         fs.metadata(Path::new("/work/proj/.ctxloom/config.yaml"))
             .unwrap()
             .mode,
-        Some(Mode::from_bits(0o644))
+        kept(0o644)
     );
     files.write_layer(Scope::Project, "x: 1\n").unwrap();
     assert_eq!(
@@ -418,7 +432,7 @@ fn test_a_rewrite_keeps_the_mode_the_file_had() {
         fs.metadata(Path::new("/work/proj/.ctxloom/config.yaml"))
             .unwrap()
             .mode,
-        Some(Mode::from_bits(0o600))
+        kept(0o600)
     );
 }
 
@@ -440,7 +454,7 @@ fn test_a_layer_that_cannot_be_written_is_refused_with_the_systems_words() {
 fn scaffold() -> (Arc<Rooted>, ScaffoldFs) {
     let fs = rooted();
     dir(&fs, "/work/proj");
-    let scaffold = ScaffoldFs::new(fs.clone(), Path::new("/work/proj"));
+    let scaffold = ScaffoldFs::new(fs.clone(), Path::new(&at("/work/proj")));
     (fs, scaffold)
 }
 
@@ -448,7 +462,7 @@ fn scaffold() -> (Arc<Rooted>, ScaffoldFs) {
 #[test]
 fn test_a_new_project_is_made_under_the_working_directory() {
     let (_fs, scaffold) = scaffold();
-    assert_eq!(scaffold.app_dir(), "/work/proj/.ctxloom");
+    assert_eq!(scaffold.app_dir(), at("/work/proj/.ctxloom"));
 }
 
 #[test]
@@ -474,10 +488,10 @@ fn test_the_scaffold_writes_its_files_and_their_directories() {
     let meta = fs
         .metadata(Path::new("/work/proj/.ctxloom/config.yaml"))
         .unwrap();
-    assert_eq!(meta.mode, Some(Mode::from_bits(0o644)));
+    assert_eq!(meta.mode, kept(0o644));
     assert_eq!(
         fs.metadata(Path::new("/work/proj/.ctxloom")).unwrap().mode,
-        Some(Mode::from_bits(0o755))
+        kept(0o755)
     );
 }
 
@@ -565,7 +579,7 @@ fn test_an_ignored_root_is_carried_to_a_project_found_by_walking_and_to_the_home
     assert_eq!(
         home,
         AppDir {
-            path: PathBuf::from("/home/u/.ctxloom"),
+            path: PathBuf::from(at("/home/u/.ctxloom")),
             source: Source::Home,
             ignored_root: Some("/missing".to_string()),
         }
@@ -641,16 +655,16 @@ fn test_the_project_layer_is_named_only_when_it_is_a_file_apart_from_the_homes()
     let fs = rooted();
     assert_eq!(
         files_of(fs.clone(), project_app()).project_layer_path(),
-        Some("/work/proj/.ctxloom/config.yaml".to_string())
+        Some(at("/work/proj/.ctxloom/config.yaml"))
     );
     let home_app = AppDir {
-        path: PathBuf::from("/home/u/.ctxloom"),
+        path: PathBuf::from(at("/home/u/.ctxloom")),
         source: Source::Home,
         ignored_root: None,
     };
     assert_eq!(files_of(fs.clone(), home_app).project_layer_path(), None);
     let same = AppDir {
-        path: PathBuf::from("/home/u/.ctxloom"),
+        path: PathBuf::from(at("/home/u/.ctxloom")),
         source: Source::Project,
         ignored_root: None,
     };

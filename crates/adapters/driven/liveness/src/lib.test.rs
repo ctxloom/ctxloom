@@ -11,12 +11,22 @@ use session_ports::{Liveness, LockState, SessionLock};
 
 use super::LockFiles;
 
-const PROJECT: &str = "/work/proj";
+/// The project, absolute on every host (`C:\work\proj` on Windows): a lock's
+/// path is handed to the platform's lock as it is, which takes an absolute
+/// one only.
+fn project() -> String {
+    at("/work/proj")
+}
+
+/// `path`, absolute and spelled the unix way, as this host spells it.
+fn at(path: &str) -> String {
+    os::host().flavor().from_top(path)
+}
 const HARP: &str = "amber-swift-owl";
 
 fn locks() -> (Arc<Rooted>, LockFiles) {
     let fs = Arc::new(Rooted::temp().unwrap());
-    (fs.clone(), LockFiles::new(fs, PROJECT))
+    (fs.clone(), LockFiles::new(fs, project()))
 }
 
 /// The lock file of `harp`, made (as a session that ran once made it).
@@ -37,7 +47,7 @@ fn the_lock_sits_beside_the_session_directory() {
     let (_, locks) = locks();
     assert_eq!(
         locks.path(HARP),
-        Path::new("/work/proj/.ctxloom/sessions/amber-swift-owl.lock")
+        Path::new(&at("/work/proj/.ctxloom/sessions/amber-swift-owl.lock"))
     );
 }
 
@@ -122,7 +132,7 @@ fn each_harp_has_its_own_lock() {
 #[test]
 fn a_held_session_lock_reads_live_and_let_go_reads_ended() {
     let (fs, mut probe) = locks();
-    let mut runner = LockFiles::new(fs.clone(), PROJECT);
+    let mut runner = LockFiles::new(fs.clone(), project());
     assert_eq!(probe.lock_state(HARP), LockState::Unproven, "no lock yet");
     let held = runner.hold(HARP).expect("the run takes its lock");
     assert_eq!(probe.lock_state(HARP), LockState::Held);
@@ -135,7 +145,7 @@ fn a_held_session_lock_reads_live_and_let_go_reads_ended() {
 #[test]
 fn a_session_lock_another_holds_is_refused_at_once() {
     let (fs, mut first) = locks();
-    let mut second = LockFiles::new(fs.clone(), PROJECT);
+    let mut second = LockFiles::new(fs.clone(), project());
     let _held = first.hold(HARP).expect("the first run takes it");
     let started = std::time::Instant::now();
     assert!(second.hold(HARP).is_err(), "a second holder is refused");
@@ -152,12 +162,15 @@ use run_ports::{LockProbe, RunLocks};
 
 use super::RunLockFiles;
 
-const HOME: &str = "/home/u";
+/// ctxloom's home, absolute on every host.
+fn home() -> String {
+    at("/home/u")
+}
 const RUN: &str = "0a1b2c3d-0000-4000-8000-000000000001";
 
 fn run_locks() -> (Arc<Rooted>, RunLockFiles) {
     let fs = Arc::new(Rooted::temp().unwrap());
-    (fs.clone(), RunLockFiles::new(fs, HOME))
+    (fs.clone(), RunLockFiles::new(fs, home()))
 }
 
 // Ruling 92: a run's own lock is machine-local, under ctxloom's home, named by
@@ -168,9 +181,9 @@ fn a_held_run_lock_reads_held_at_the_path_it_names() {
     let held = locks.hold_run(RUN).expect("the run's lock is taken");
     assert_eq!(
         held.path(),
-        "/home/u/.ctxloom/runs/0a1b2c3d-0000-4000-8000-000000000001.lock"
+        at("/home/u/.ctxloom/runs/0a1b2c3d-0000-4000-8000-000000000001.lock")
     );
-    let other = RunLockFiles::new(fs.clone(), HOME);
+    let other = RunLockFiles::new(fs.clone(), home());
     assert_eq!(other.probe(held.path()), LockProbe::Held);
 }
 
@@ -205,7 +218,7 @@ fn a_run_lock_whose_holder_died_reads_free() {
 fn a_run_lock_another_holds_is_refused_at_once() {
     let (fs, locks) = run_locks();
     let _held = locks.hold_run(RUN).unwrap();
-    let other = RunLockFiles::new(fs.clone(), HOME);
+    let other = RunLockFiles::new(fs.clone(), home());
     assert!(other.hold_run(RUN).is_err());
 }
 
@@ -214,15 +227,15 @@ fn a_run_lock_another_holds_is_refused_at_once() {
 fn a_sessions_lock_is_probed_in_its_project() {
     let (fs, locks) = run_locks();
     assert_eq!(
-        locks.session(PROJECT, HARP),
+        locks.session(&project(), HARP),
         LockProbe::Unproven,
         "none yet"
     );
-    let mut sessions = LockFiles::new(fs.clone(), PROJECT);
+    let mut sessions = LockFiles::new(fs.clone(), project());
     let held = session_ports::SessionLock::hold(&mut sessions, HARP).unwrap();
-    assert_eq!(locks.session(PROJECT, HARP), LockProbe::Held);
+    assert_eq!(locks.session(&project(), HARP), LockProbe::Held);
     drop(held);
-    assert_eq!(locks.session(PROJECT, HARP), LockProbe::Free);
+    assert_eq!(locks.session(&project(), HARP), LockProbe::Free);
 }
 
 // A lock not taken says its kind: another process holds it (a decline: the
@@ -231,14 +244,14 @@ fn a_sessions_lock_is_probed_in_its_project() {
 fn a_lock_another_holds_is_held_and_one_that_cannot_be_made_failed() {
     let (fs, mut first) = locks();
     let _held = first.hold(HARP).unwrap();
-    let mut second = LockFiles::new(fs.clone(), PROJECT);
+    let mut second = LockFiles::new(fs.clone(), project());
     assert!(matches!(
         second.hold(HARP),
         Err(session_ports::LockError::Held(_))
     ));
     let (fs, run_held) = run_locks();
     let _run = run_held.hold_run(RUN).unwrap();
-    let other = RunLockFiles::new(fs.clone(), HOME);
+    let other = RunLockFiles::new(fs.clone(), home());
     assert!(matches!(
         other.hold_run(RUN),
         Err(run_ports::LockError::Held(_))

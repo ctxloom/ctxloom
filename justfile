@@ -200,6 +200,29 @@ install-windows:
         *) echo "todo add $win_dir to your user Path (Settings > System > About > Advanced system settings > Environment Variables), then open a new terminal" ;;
     esac
 
+# Build the binary that ships (owner ruling 2026-11-12: CI's artifacts on main
+# and release.yml's assets): the PLAIN binary (no test-support, no
+# session-destroy; held to that by the two checks `just build` runs) in
+# cargo's release profile, versionator-stamped by build.rs. The gate's
+# `ok`/`FAIL` line goes to stderr; stdout is the binary's path alone
+# (`ctxloom.exe` on Windows), for a caller to take with `$(just release-binary)`.
+[group('install')]
+[doc("Build the plain release binary and print its path")]
+[no-exit-message]
+release-binary:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    terse=(-q --message-format=short)
+    [ "${VERBOSE:-}" = 1 ] && terse=()
+    target=${CARGO_TARGET_DIR:-{{TOP}}/target}
+    built="$target/release/ctxloom"
+    just --justfile {{TOP}}/justfile _run release-binary ctxloom cargo \
+        bash -c 'cargo build "${@:4}" --release --manifest-path "$1/Cargo.toml" --package ctxloom --bin ctxloom &&
+            "$1/scripts/plain-engines-check.sh" "$2" &&
+            "$1/scripts/plain-destroy-check.sh" "$2"' release-binary {{TOP}} "$built" "${terse[@]}" >&2
+    [ -f "$built.exe" ] && built=$built.exe
+    echo "$built"
+
 # Install the arch-lint binary at the pinned ctxloom-lib commit, unless it is
 # there; and refuse a pin that differs from the one Cargo.toml has.
 [private]

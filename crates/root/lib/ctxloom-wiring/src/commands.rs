@@ -215,6 +215,7 @@ fn build_setup(wiring: &Wiring, deps: Rc<Deps>) -> Result<Setup, LibError> {
         project_dir.display().to_string(),
         cwd.display().to_string(),
     )
+    .with_os(wiring.os_name())
     .with_foreign(files)
     .with_puller(Rc::new(DepsPuller(deps))))
 }

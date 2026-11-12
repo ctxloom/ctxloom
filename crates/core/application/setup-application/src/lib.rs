@@ -70,6 +70,9 @@ pub struct Setup {
     project_dir: String,
     /// The working directory, which relative targets are relative to.
     cwd: String,
+    /// The operating system's name (`std::env::consts::OS`), whose rules a
+    /// path is read by: unix's unless told `windows`.
+    os: String,
 }
 
 impl Setup {
@@ -92,7 +95,15 @@ impl Setup {
             foreign: None,
             project_dir: project_dir.into(),
             cwd: cwd.into(),
+            os: String::new(),
         }
+    }
+
+    /// Paths read by the rules of the operating system `os`
+    /// (`std::env::consts::OS`): what is absolute, and how one is spelled.
+    pub fn with_os(mut self, os: impl Into<String>) -> Setup {
+        self.os = os.into();
+        self
     }
 
     /// `manage install` ends by pulling dependencies through `puller`.
@@ -112,15 +123,19 @@ impl Setup {
         self.engines.names()
     }
 
-    /// `path` made absolute against the working directory.
+    /// `path` made absolute against the working directory, its `.` and `..`
+    /// steps taken (never above the top). On Windows either separator splits
+    /// it, its top is a drive's root or a share's, and `\` joins it.
     fn absolute(&self, path: &str) -> String {
-        let joined = if path.starts_with('/') {
+        let windows = self.os == run_ports::WINDOWS;
+        let joined = if run_ports::is_absolute(&self.os, path) {
             path.to_string()
         } else {
             format!("{}/{path}", self.cwd)
         };
+        let (top, rest) = split_top(windows, &joined);
         let mut parts: Vec<&str> = Vec::new();
-        for part in joined.split('/') {
+        for part in rest.split(|c| c == '/' || (windows && c == '\\')) {
             match part {
                 "" | "." => {}
                 ".." => {
@@ -129,8 +144,29 @@ impl Setup {
                 other => parts.push(other),
             }
         }
-        format!("/{}", parts.join("/"))
+        let separator = if windows { "\\" } else { "/" };
+        format!("{top}{}", parts.join(separator))
     }
+}
+
+/// An absolute path's top, spelled as a path made absolute is, and the rest:
+/// `/` on unix; on Windows a drive's root (`C:\`) or a share's
+/// (`\\srv\share\`). A path with no top of its own is given unix's.
+fn split_top(windows: bool, path: &str) -> (String, &str) {
+    let slash = |c: char| c == '/' || (windows && c == '\\');
+    if windows {
+        if let Some(after) = path.strip_prefix(slash).and_then(|p| p.strip_prefix(slash)) {
+            let mut steps = after.splitn(3, slash);
+            let server = steps.next().unwrap_or_default();
+            let share = steps.next().unwrap_or_default();
+            let rest = steps.next().unwrap_or_default();
+            return (format!(r"\\{server}\{share}\"), rest);
+        }
+        if let Some(drive) = path.get(..2).filter(|d| d.ends_with(':')) {
+            return (format!("{drive}\\"), &path[2..]);
+        }
+    }
+    ("/".to_string(), path.trim_start_matches(slash))
 }
 
 #[cfg(test)]

@@ -3820,6 +3820,7 @@ dependencies = [
  "exit-code",
  "library",
  "library-application",
+ "run-ports",
  "serde",
  "serde_json",
  "surface-ports",

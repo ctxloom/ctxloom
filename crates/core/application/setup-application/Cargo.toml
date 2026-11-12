@@ -13,6 +13,7 @@ angzarr-diagnostic.workspace = true
 ctxloom-ports.workspace = true
 library.workspace = true
 library-application.workspace = true
+run-ports.workspace = true
 serde.workspace = true
 surface-ports.workspace = true
 

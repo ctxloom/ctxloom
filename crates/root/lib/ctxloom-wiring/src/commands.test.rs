@@ -234,15 +234,18 @@ fn test_a_setup_command_is_run_over_the_home() {
     let (code, out, _) = run_line(&mut world.commands(), &["clean"]);
     assert_eq!(code, 0);
     assert!(out.contains("\"applied\": false"), "{out}");
-    // The home's app dir, as the platform spells it, then the target below
-    // it; in JSON, where a Windows path's `\` is escaped.
-    let app = world
+    // The target below the home's app dir, joined as the platform joins it
+    // (owner ruling 2026-11-12); in JSON, where a Windows path's `\` is
+    // escaped.
+    let path = world
         .dir
         .join("home")
         .join(".ctxloom")
+        .join("cache")
+        .join("bundles")
         .display()
-        .to_string();
-    let path = format!("{app}/cache/bundles").replace('\\', "\\\\");
+        .to_string()
+        .replace('\\', "\\\\");
     assert!(out.contains(&format!("\"path\": \"{path}\"")), "{out}");
 }
 

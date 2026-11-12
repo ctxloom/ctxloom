@@ -66,3 +66,18 @@ fn yes_removes_what_it_reported() {
     assert!(mem.trees.lock().unwrap().is_empty());
     assert_eq!(report.targets.iter().filter(|t| t.removed).count(), 2);
 }
+
+// Owner ruling 2026-11-12: a target's path is the app dir joined with the
+// platform's separator, one segment at a time (`/work/.ctxloom/cache/context`
+// on unix, `\` throughout on Windows), never a `/` pasted on.
+#[test]
+fn a_targets_path_is_joined_as_the_platform_joins_it() {
+    let (_, cleaner) = cleaner(&[]);
+    let report = cleaner.clean(false).unwrap();
+    let want = std::path::Path::new("/work/.ctxloom")
+        .join("cache")
+        .join("context")
+        .display()
+        .to_string();
+    assert_eq!(report.targets[2].path, want);
+}

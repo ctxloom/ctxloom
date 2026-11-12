@@ -1,7 +1,10 @@
 syntax = "proto3";
 
-// DRAFT for the owner's review (ruling 132, design-by-test). No build.rs
-// lists this file, so nothing is generated from it yet.
+// DRAFT for the owner's review (ruling 132, design-by-test), compiled by
+// daemon-proto (its messages, each refusal's status, and the `Ctxloom`
+// service's stubs). Served so far (slice 2 step 5): GetDaemon, StopDaemon,
+// ResolveProject, GetProject, GetSession, ListSessions, SearchSessions;
+// every other method answers UNIMPLEMENTED.
 //
 // THE USER'S DAEMON'S API (T1-T30; the owner's API rulings Q1-Q13; rulings
 // 146, 147). It MIRRORS THE COMMAND LINE (T22): the CLI's nouns are AIP

@@ -532,3 +532,41 @@ fn test_a_dry_run_is_the_librarys_plan_and_runs_nothing() {
     assert_eq!(code, 1);
     assert!(out.contains("hello"), "{out}");
 }
+
+// T17, S48: a command in a project that still has a store of its own is
+// refused, exit 20, before it runs; the store is named for its removal.
+#[test]
+fn a_command_in_a_project_with_a_store_of_its_own_is_refused() {
+    let world = World::new("per-project-store");
+    let work = world.dir().join("work");
+    crate::fixtures::mkdirs(work.join(".ctxloom"));
+    crate::fixtures::mkdirs(world.dir().join("home/.ctxloom/projects/old-proj"));
+    crate::fixtures::put_mode(work.join(".ctxloom/project-id"), "old-proj\n", 0o644);
+    crate::fixtures::put_mode(
+        world
+            .dir()
+            .join("home/.ctxloom/projects/old-proj/ctxloom.db"),
+        "an old store",
+        0o644,
+    );
+    let failed =
+        try_line(&mut world.commands(), Format::Json, &["session", "list"]).expect_err("refused");
+    assert_eq!(failed.exit.code(true), 20);
+    assert_eq!(
+        failed.cause.code(),
+        "ctxloom-store-sqlite-per-project-store"
+    );
+    assert!(!crate::fixtures::exists(
+        world.dir().join("home/.ctxloom/ctxloom.db")
+    ));
+}
+
+// T18: the daemon hosts a child on claude or opencode, each by its name.
+#[test]
+fn the_daemon_hosts_children_on_claude_and_opencode() {
+    let names: Vec<String> = super::hosted_engines()
+        .iter()
+        .map(|engine| engine.name().to_string())
+        .collect();
+    assert_eq!(names, ["claude-code", "opencode"]);
+}

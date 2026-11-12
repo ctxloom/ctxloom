@@ -328,3 +328,7 @@ impl Ears for Pumps {
         std::iter::from_fn(|| heard.try_recv().ok()).collect()
     }
 }
+
+#[cfg(test)]
+#[path = "serve.test.rs"]
+mod tests;

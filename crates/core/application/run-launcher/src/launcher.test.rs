@@ -344,6 +344,27 @@ fn rig_plain() -> Rig {
     )
 }
 
+// Under `session_home: host` the engine's HOME is the user's own, which
+// already holds her git identity: the session home is not seeded with a
+// `.gitconfig` nothing reads.
+#[tokio::test]
+async fn a_host_home_is_not_seeded_with_the_users_git_identity() {
+    let mut host = order("fake");
+    host.git_user = Some(run_ports::GitUser {
+        name: "Alice Example".to_string(),
+        email: "alice@example.com".to_string(),
+    });
+    host.settings.session_home = run_ports::SessionHome::Host;
+    let mut rig = rig(
+        ScriptedEngine::answering("A", None),
+        ScriptedRunner::exits(0),
+        orders_with(host),
+    );
+    enqueued(&rig.edge, SESSION, HARP).await;
+    rig.step().await;
+    assert_eq!(rig.records.text(HARP, "home/.gitconfig"), None);
+}
+
 #[tokio::test]
 async fn no_known_git_identity_seeds_no_gitconfig() {
     let mut rig = rig(

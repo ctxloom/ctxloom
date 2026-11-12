@@ -261,7 +261,8 @@ resolves them in the project (`worktree-git`'s `Git::user`,
 `run_ports::git_config`, written by the launcher): a file, not
 `GIT_AUTHOR_*`/`GIT_COMMITTER_*` (they would outrank a repository's own
 user), and nothing else of her git configuration (no signing key, credential
-helper or alias). claude's own state file in the session home,
+helper or alias); not under `session_home: host`, where the engine's
+`HOME` is hers and already holds it (`Launcher::seed_git_user`). claude's own state file in the session home,
 `.claude.json`, is seeded (owner ruling 113) with `hasCompletedOnboarding:
 true` and `projects.<the run's directory>.hasTrustDialogAccepted: true`, the
 keys claude 2.1.322 reads (no theme picker, security notes or trust prompt),

@@ -565,8 +565,13 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
     /// 112: the engine's HOME is the session home, so git reads its global
     /// configuration there): once, when the home has no `.gitconfig`; one
     /// already there, which a tool of an earlier run may have written, is
-    /// left as it is.
+    /// left as it is. Under `session_home: host` the engine's HOME is the
+    /// user's own, which holds her git identity already, so nothing is
+    /// seeded.
     fn seed_git_user(&mut self, order: &Order) -> Result<(), String> {
+        if order.settings.session_home == run_ports::SessionHome::Host {
+            return Ok(());
+        }
         let Some(text) = order.git_user.as_ref().and_then(run_ports::git_config) else {
             return Ok(());
         };

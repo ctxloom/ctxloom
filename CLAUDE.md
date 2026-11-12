@@ -203,7 +203,8 @@ skipped (its owner not proven ended) refuses the whole removal,
 `isolation-application-keeps-session` (exit 20, `--even-if-live` too: it
 reaches no worktree), and nothing is applied; otherwise the clean ones are
 removed, and only once each is gone is the session destroyed (F2; a
-worktree that went dirty in between is left and the session kept). `session
+worktree that went dirty in between is left and the session kept;
+`reclaim_application::remove`, which `session-cli` only translates). `session
 sweep` keeps its own order, worktree rows first. The streams go first, so a
 failure removing the directory leaves a session nothing lists. A hook fact
 redelivered after it finds no session and records nothing. It is refused, as

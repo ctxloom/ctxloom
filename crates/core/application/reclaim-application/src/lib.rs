@@ -3,6 +3,9 @@
 //! decided by a fixed table; nothing is decided by a model). Both report
 //! first and act only on `yes`.
 //!
+//! `session remove` (`remove`) takes one session whole or not at all: its
+//! worktrees first, refused whole when one is not provably safe.
+//!
 //! The sweep acts through the sessions use cases (`session remove`) and the
 //! worktree leaf (`session worktrees purge`), so it inherits every refusal
 //! they make: a session whose lock does not prove it dead, one marked keep,
@@ -14,6 +17,7 @@ mod age;
 mod clean;
 mod error;
 mod purge;
+mod remove;
 mod sweep;
 
 pub use age::parse_age;
@@ -25,6 +29,7 @@ pub use ctxloom_ports::{Failure, ProjectCache};
 pub use error::diagnostic_samples;
 pub use error::{ReclaimError, EN_US};
 pub use purge::{purge_cutoff, SweepConfig};
+pub use remove::{remove, SessionRemoval};
 pub use sweep::{sweep, SweepReport, SweepRequest, SweepRow, Verdict};
 
 #[cfg(test)]

@@ -229,6 +229,24 @@ impl Project {
                     .permissions
                     .as_ref()
                     .map(|document| crate::json::document_text(&document.value));
+                // What the engine says of the plan, said as the runtime's
+                // notice is (owner ruling 168): never a refusal.
+                let planned = run_ports::Planned {
+                    agent: agent.name.clone(),
+                    model: effective
+                        .model
+                        .as_ref()
+                        .map(|m| m.value.clone())
+                        .unwrap_or_default(),
+                    effort: effective
+                        .effort
+                        .as_ref()
+                        .map(|e| e.value.clone())
+                        .unwrap_or_default(),
+                    permissions: permissions.clone(),
+                };
+                self.notices
+                    .extend(advice_of(&self.engines, &effective.engine.value, &planned));
                 let drive = Drive::from(&effective);
                 let settings = crate::engine_noun::settings_of(&effective);
                 Ok(Launch {
@@ -452,6 +470,21 @@ fn refuse_empty(selection: &Selection, package: &Package) -> Result<(), AppError
         });
     }
     Ok(())
+}
+
+/// What the engine named `engine`, of `engines`, says of `planned`, as
+/// notices; an engine not among them says nothing.
+fn advice_of(
+    engines: &[std::sync::Arc<dyn run_ports::Engine>],
+    engine: &str,
+    planned: &run_ports::Planned,
+) -> Vec<Notice> {
+    engines
+        .iter()
+        .filter(|candidate| candidate.name() == engine)
+        .flat_map(|candidate| candidate.advise(planned))
+        .map(Notice::Engine)
+        .collect()
 }
 
 /// The notice for a runtime the agent chose that is not the one the lower

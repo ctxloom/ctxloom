@@ -218,6 +218,16 @@ Crates:
   `engine-claude`; `adapters/driving/run-cli`; and `adapters/driven/hook-tls` (the
 per-run listener certificate's mint, see the credentials paragraph below).
 
+An engine may advise on a plan (owner ruling 168): `Engine::advise(&Planned)
+-> Vec<Advice>` is shown what the plan resolved for it (`run_ports::Planned`:
+the agent, model, effort and permissions document) and answers zero or more
+diagnostics of its own crate (`Advice`, a boxed `Diagnostic`: code, args,
+en-US message, an optional `-fix`), said as notices and never a refusal; by
+default it says nothing (claude-code). The library asks the plan's engine in
+`launch_of`, beside the runtime-weakening notice
+(`Library::with_engines`, the wiring's real engines;
+`Notice::Engine`), so a dry run and a launch, which plans through the same
+dry run, say them alike, text and json.
 An engine's hooks are its adapter's: `ctxloom hook <engine> execute
 <NativeHookName>` (hidden) resolves the engine through `surface_ports::Registry`
 and its `HookCodec` decodes the payload. The settings an older ctxloom wrote
@@ -1082,7 +1092,12 @@ claude's. The bundle (1.18.4, read not run) writes `auth.json` with
 `writeFile` and `chmod`, no rename, so a refresh writes through the link: not
 verified live. Accepted residual: a primary and a human-run opencode
 refreshing at the same instant may race (no cross-process lock; as claude).
-An effort level is not passed (no flag verified). At rest
+An effort level is not passed (no flag verified). An agent with no
+model lets opencode choose its own, whose fallback can be a model with no
+tool support (owner ruling 168), so the plan says so: the notice
+`engine-opencode-no-model`, naming `agents.<agent>.engines.opencode.model`,
+its fix `ctxloom agent edit <agent> --engine opencode --model
+<provider/model>` (never a refusal; a run with no agent is told nothing). At rest
 opencode carries its context alone (an `AGENTS.md` section). Costs: no
 per-delta capture; one hook process per forwarded event; the plugin's own
 logic is tested under node (`home.test.rs`, j001000), so those tests need node

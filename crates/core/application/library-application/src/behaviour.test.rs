@@ -1492,3 +1492,99 @@ fn test_a_run_reads_its_output_directory_and_start_sync_from_the_config() {
     let bad = ["schema_version: 9\nzzz: 1\n"];
     assert_eq!(with(&[], &bad).library().run_settings(&plain()), None);
 }
+
+/// An engine that says what it was shown of the plan, as one notice, and
+/// drives nothing.
+struct Advising(&'static str);
+
+#[derive(Debug)]
+struct Shown(String);
+
+impl std::fmt::Display for Shown {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl angzarr_diagnostic::Diagnostic for Shown {
+    fn code(&self) -> &str {
+        "advising-shown"
+    }
+    fn args(&self) -> Vec<(&str, angzarr_diagnostic::Arg)> {
+        vec![("shown", self.0.as_str().into())]
+    }
+}
+
+impl run_ports::Engine for Advising {
+    fn name(&self) -> &str {
+        self.0
+    }
+    fn prepare(
+        &self,
+        _: &run_ports::PrepareRequest,
+    ) -> Result<run_ports::Prepared, run_ports::EngineError> {
+        unreachable!()
+    }
+    fn drive_turn(
+        &self,
+        _: &run_ports::TurnRequest,
+    ) -> Result<run_ports::TurnCommand, run_ports::EngineError> {
+        unreachable!()
+    }
+    fn finish_turn(&self, _: &run_ports::TurnOutput) -> run_ports::TurnOutcome {
+        unreachable!()
+    }
+    fn drive_interactive(
+        &self,
+        _: &run_ports::TurnRequest,
+    ) -> Result<run_ports::TurnCommand, run_ports::EngineError> {
+        unreachable!()
+    }
+    fn advise(&self, planned: &run_ports::Planned) -> Vec<run_ports::Advice> {
+        vec![Box::new(Shown(format!(
+            "{} {} {} {:?}",
+            planned.agent, planned.model, planned.effort, planned.permissions
+        )))]
+    }
+}
+
+/// The notices' args of a dry run of `agent` under `layers`, its plan shown
+/// to an advising claude-code and opencode.
+fn advised(layers: &str, agent: &str, engine: &str) -> Vec<String> {
+    let library = with(&[], &[layers]).library().with_engines(vec![
+        std::sync::Arc::new(Advising("claude-code")),
+        std::sync::Arc::new(Advising("opencode")),
+    ]);
+    library
+        .dry_run(
+            &plain(),
+            &crate::RunRequest {
+                agent: agent.to_string(),
+                engine: engine.to_string(),
+                ..crate::RunRequest::default()
+            },
+        )
+        .notices
+        .iter()
+        .filter(|n| angzarr_diagnostic::Diagnostic::code(*n) == "advising-shown")
+        .map(|n| format!("{:?}", angzarr_diagnostic::Diagnostic::args(n)[0].1))
+        .collect()
+}
+
+// Owner ruling 168: the plan's engine is shown what the plan resolved for it
+// (the agent, its model, effort and permissions), and what it says is a
+// notice of the dry run; another engine is asked nothing.
+#[test]
+fn test_the_plans_engine_is_shown_what_it_resolved_and_its_word_is_a_notice() {
+    let layers = "schema_version: 9\nagents:\n  dev:\n    engine: opencode\n    engines:\n      opencode:\n        model: p/m\n        permissions:\n          edit: deny\n";
+    let said = advised(layers, "dev", "");
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(
+        said[0].contains(r#"dev p/m  Some(\"{\\\"edit\\\":\\\"deny\\\"}\")"#),
+        "{said:?}"
+    );
+    // On `--engine claude-code` it is claude-code's plan, and its block none.
+    let on_claude = advised(layers, "dev", "claude-code");
+    assert_eq!(on_claude.len(), 1, "{on_claude:?}");
+    assert!(on_claude[0].contains("dev   "), "{on_claude:?}");
+}

@@ -238,6 +238,12 @@ impl Engine for Opencode {
         true
     }
 
+    /// An agent with no model is told opencode chooses its own (owner
+    /// ruling 168).
+    fn advise(&self, planned: &run_ports::Planned) -> Vec<run_ports::Advice> {
+        crate::advice::advise(planned)
+    }
+
     /// The human's session: the TUI, given her terminal; the prompt (when she
     /// gave one) a flag.
     fn drive_interactive(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError> {

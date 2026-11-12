@@ -1313,3 +1313,14 @@ fn a_host_session_home_is_the_resolved_home_and_her_profile_passes_on() {
         }
     }
 }
+
+// Ruling 168: claude-code has nothing to say of a plan, a model or none.
+#[test]
+fn claude_advises_nothing_of_a_plan() {
+    use run_ports::Engine;
+    let planned = run_ports::Planned {
+        agent: "dev".to_string(),
+        ..run_ports::Planned::default()
+    };
+    assert!(Claude::new().advise(&planned).is_empty());
+}

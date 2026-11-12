@@ -16,6 +16,7 @@
 //! alone, as a section of `AGENTS.md`; MCP servers, settings, hooks, commands
 //! and skills at rest are not built for opencode.
 
+mod advice;
 mod codec;
 mod drive;
 mod home;
@@ -25,6 +26,9 @@ use surface_ports::{
     Claim, EngineSurfaces, HookCodec, Inputs, Kind, Planned, SurfaceError, SurfaceStore, Wiring,
 };
 
+#[cfg(any(test, feature = "test-support"))]
+pub use advice::diagnostic_samples;
+pub use advice::{OpencodeNotice, EN_US};
 pub use codec::Codec;
 pub use drive::{ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST, LOGIN_FILE, PROVIDER_KEYS, SIGN_IN};
 pub use home::{

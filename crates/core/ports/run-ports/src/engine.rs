@@ -228,6 +228,23 @@ impl Credentials {
     };
 }
 
+/// What the plan resolved for a run on an engine, which the engine may
+/// advise on ([`Engine::advise`]): the agent (empty with none), the model and
+/// the effort (empty: none set) and the permissions document (JSON text as
+/// written; none, no document).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Planned {
+    pub agent: String,
+    pub model: String,
+    pub effort: String,
+    pub permissions: Option<String>,
+}
+
+/// An engine's word on a plan (owner ruling 168): a diagnostic of the
+/// engine's own crate (its code, args and en-US message, and a `-fix` when
+/// there is one), said as a notice. Never a refusal: the run goes on.
+pub type Advice = Box<dyn angzarr_diagnostic::Diagnostic + Send + Sync>;
+
 /// An agent engine's contribution to running a child.
 pub trait Engine: Send + Sync {
     /// The engine's name.
@@ -248,6 +265,13 @@ pub trait Engine: Send + Sync {
     #[cfg_attr(test, mutants::skip)]
     fn credentials(&self) -> Credentials {
         Credentials::default()
+    }
+
+    /// What the engine has to say of what the plan resolved for it (owner
+    /// ruling 168): zero or more notices, said on `run --dry-run` and at the
+    /// launch, never a refusal. An engine with nothing to say says nothing.
+    fn advise(&self, _planned: &Planned) -> Vec<Advice> {
+        Vec::new()
     }
 
     /// The command of the human's terminal run.

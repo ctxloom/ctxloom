@@ -193,6 +193,7 @@ fn test_the_binary_reports_the_diagnostics_of_every_crate_composed_in() {
         "deps-application",
         "duration-text",
         "editor-process",
+        "engine-opencode",
         "hook-cli",
         "hook-listener",
         "hook-tls",

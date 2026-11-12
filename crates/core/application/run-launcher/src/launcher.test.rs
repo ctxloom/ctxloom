@@ -278,6 +278,40 @@ async fn an_engine_is_handed_the_home_files_it_merges_into() {
     );
 }
 
+// Owner ruling 167: what an engine seeds its home with (opencode's: the
+// user's `model.json`) is written once, as the `.gitconfig` is; one already
+// there (the engine of an earlier run may have rewritten it) is left as it is.
+#[tokio::test]
+async fn an_engines_seed_is_written_once_and_one_there_is_left_as_it_is() {
+    use run_ports::SessionRecords;
+    let mut first = rig(
+        crate::fakes::Seeding(ScriptedEngine::answering("A", None)),
+        ScriptedRunner::exits(0),
+        orders_with(order("fake")),
+    );
+    enqueued(&first.edge, SESSION, HARP).await;
+    first.step().await;
+    assert_eq!(
+        first.records.text(HARP, "home/seed.json").as_deref(),
+        std::str::from_utf8(crate::fakes::SEED).ok()
+    );
+
+    let mut kept = rig(
+        crate::fakes::Seeding(ScriptedEngine::answering("A", None)),
+        ScriptedRunner::exits(0),
+        orders_with(order("fake")),
+    );
+    kept.records
+        .write(HARP, "home/seed.json", b"PICKED-IN-THE-SESSION")
+        .unwrap();
+    enqueued(&kept.edge, SESSION, HARP).await;
+    kept.step().await;
+    assert_eq!(
+        kept.records.text(HARP, "home/seed.json").as_deref(),
+        Some("PICKED-IN-THE-SESSION")
+    );
+}
+
 #[tokio::test]
 async fn no_known_git_identity_seeds_no_gitconfig() {
     let mut rig = rig(

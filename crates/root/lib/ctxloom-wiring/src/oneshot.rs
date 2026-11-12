@@ -148,7 +148,10 @@ impl<'a> OneShots<'a> {
             engine_claude::Claude::calling(&program.name)
                 .accepting_bypass(claude_bypass_accepted(wiring)),
         );
-        let opencode: Arc<dyn Engine> = Arc::new(engine_opencode::Opencode::calling(&program.name));
+        let opencode: Arc<dyn Engine> = Arc::new(
+            engine_opencode::Opencode::calling(&program.name)
+                .seeding_model(opencode_recent_models(wiring)),
+        );
         // The run locks: this run's own, and those another process's runs
         // are judged by (rulings 86, 92, 93).
         let run_locks: Arc<dyn run_ports::RunLocks> =
@@ -235,6 +238,17 @@ pub(crate) fn claude_bypass_accepted(wiring: &Wiring) -> bool {
         .fs()
         .read_to_string(&dir.join("settings.json"))
         .is_ok_and(|text| engine_claude::accepts_bypass(&text))
+}
+
+/// The user's own opencode `model.json`, as read (owner ruling 167): where
+/// opencode keeps it ([`engine_opencode::user_model_file`]), in the caller's
+/// environment. No home, no file, or one that does not read is none, said
+/// nothing of: opencode runs without it, as on a machine where it never ran.
+pub(crate) fn opencode_recent_models(wiring: &Wiring) -> Option<Vec<u8>> {
+    let env = wiring.env();
+    let text = |name: &str| env.non_empty(name).and_then(|v| v.to_str());
+    let file = engine_opencode::user_model_file(text("HOME"), text("XDG_STATE_HOME"))?;
+    wiring.fs().read(Path::new(&file)).ok()
 }
 
 /// The run's hook listener over the core's edge: `Handle` on the run's loopback port

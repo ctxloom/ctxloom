@@ -182,6 +182,7 @@ impl Engine for Claude {
         Ok(Prepared {
             files,
             copy_in: copy_in(COPY_IN_ALLOWLIST, &request.offered),
+            seeds: Vec::new(),
             context_path: format!("{}/{CONTEXT_PROMPT_FILE}", request.home),
         })
     }

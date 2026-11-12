@@ -15,13 +15,14 @@
 //! The command's environment is built here and is all it gets: the session
 //! home as `OPENCODE_CONFIG_DIR`, every XDG base and `HOME` relocated into it
 //! (the user's own opencode config, data, state, cache and `~/.opencode` are
-//! neither read nor written), and the caller's variables on the allowlist,
+//! neither read nor written; her recent models alone seed the home, owner
+//! ruling 167), and the caller's variables on the allowlist,
 //! the engine block's `env` and the configured credential source.
 
 use std::collections::BTreeMap;
 
 use run_ports::{
-    Credentials, Engine, EngineError, PrepareRequest, Prepared, SessionHome, TurnCommand,
+    Credentials, Engine, EngineError, HomeFile, PrepareRequest, Prepared, SessionHome, TurnCommand,
     TurnOutcome, TurnOutput, TurnRequest,
 };
 
@@ -150,6 +151,16 @@ impl Engine for Opencode {
             ),
             // Nothing of the user's own opencode configuration crosses.
             copy_in: Vec::new(),
+            // Of her state, her recent models alone, once, where the
+            // relocated state directory is (owner ruling 167); under a host
+            // home the state directory is her own.
+            seeds: match (&self.model, request.session_home) {
+                (Some(bytes), SessionHome::Session) => vec![HomeFile {
+                    rel: home::MODEL_SEED.to_string(),
+                    bytes: bytes.clone(),
+                }],
+                _ => Vec::new(),
+            },
             context_path: format!("{}/{CONTEXT_FILE}", request.home),
         })
     }

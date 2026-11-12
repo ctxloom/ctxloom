@@ -749,3 +749,69 @@ mod bypass_acceptance {
         assert!(!asked(Some(ACCEPTED), Some(None)));
     }
 }
+
+// Owner ruling 167: the session home is seeded with the user's own opencode
+// `model.json`, read where opencode keeps it (`$XDG_STATE_HOME/opencode`,
+// else `~/.local/state/opencode`), as it is; none, or one that does not read,
+// is none.
+mod opencode_recent_models {
+    use std::sync::Arc;
+
+    use process_env::EnvSnapshot;
+
+    use super::super::opencode_recent_models;
+    use crate::fixtures::{mkdirs, put_mode, root};
+    use crate::Wiring;
+
+    const HERS: &str = r#"{"recent":[{"providerID":"openrouter","modelID":"m"}]}"#;
+
+    /// The answer under a home whose `.local/state/opencode/model.json` is
+    /// `in_home` and an `XDG_STATE_HOME` whose `opencode/model.json` is
+    /// `in_state_home`, when set.
+    fn asked(in_home: Option<&str>, in_state_home: Option<Option<&str>>) -> Option<Vec<u8>> {
+        let dir = root();
+        let home = dir.root().join("home");
+        let state = dir.root().join("state");
+        mkdirs(home.join(".local/state/opencode"));
+        mkdirs(state.join("opencode"));
+        if let Some(text) = in_home {
+            put_mode(home.join(".local/state/opencode/model.json"), text, 0o644);
+        }
+        let mut pairs = vec![("HOME", home.to_str().unwrap().to_string())];
+        if let Some(text) = in_state_home {
+            if let Some(text) = text {
+                put_mode(state.join("opencode/model.json"), text, 0o644);
+            }
+            pairs.push(("XDG_STATE_HOME", state.to_str().unwrap().to_string()));
+        }
+        let env = EnvSnapshot::of(pairs.iter().map(|(k, v)| (*k, v.as_str())));
+        let wiring = Wiring::new(Arc::new(env)).unwrap();
+        opencode_recent_models(&wiring)
+    }
+
+    #[test]
+    fn test_hers_is_read_from_her_home_as_it_is() {
+        assert_eq!(asked(Some(HERS), None), Some(HERS.as_bytes().to_vec()));
+        assert_eq!(asked(None, None), None);
+    }
+
+    #[test]
+    fn test_a_state_home_she_named_is_where_opencode_keeps_it() {
+        assert_eq!(
+            asked(None, Some(Some(HERS))),
+            Some(HERS.as_bytes().to_vec())
+        );
+        assert_eq!(asked(Some(HERS), Some(None)), None);
+    }
+
+    #[test]
+    fn test_one_that_does_not_read_is_none() {
+        let dir = root();
+        let home = dir.root().join("home");
+        // A directory where the file would be: there, and unreadable as one.
+        mkdirs(home.join(".local/state/opencode/model.json"));
+        let env = EnvSnapshot::of([("HOME", home.to_str().unwrap())]);
+        let wiring = Wiring::new(Arc::new(env)).unwrap();
+        assert_eq!(opencode_recent_models(&wiring), None);
+    }
+}

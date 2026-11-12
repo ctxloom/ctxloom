@@ -1031,7 +1031,19 @@ every XDG base and `OPENCODE_CONFIG_DIR` in the session home, the npm pre-seed
 (`node_modules/` and a `package-lock.json` naming `@opencode-ai/plugin`) in the
 home and in `xdg/config/opencode`, no `OPENCODE_*` or XDG variable of the
 caller's (`OPENCODE_PURE` would skip the plugin); `session_home: host` keeps
-the user's dirs and still adds the session home as a config dir. Auth mirrors
+the user's dirs and still adds the session home as a config dir. The
+relocated state directory is seeded, once (owner ruling 167, 2026-11-11; one
+there is left as it is, so a pick made in the session stays), with the
+user's own `model.json` as read (`$XDG_STATE_HOME/opencode` when absolute,
+else `~/.local/state/opencode`, on every platform: `engine_opencode::
+user_model_file`, read by the wiring's `opencode_recent_models` and told to
+`Opencode::seeding_model`), at `home/xdg/state/opencode/model.json`
+(`MODEL_SEED`): with no configured model and no `-m`, opencode 1.18.4 starts
+on the first of its `recent` it still knows, and without it picked a model
+itself. It is a `Prepared::seeds` entry, which the launcher writes only where
+the home has none (as the `.gitconfig`); under `host` nothing is seeded, and
+none of hers, or one that does not read, is none, said nothing of. Nothing
+else of her opencode state crosses. Auth mirrors
 claude's (owner ruling 69): opencode's login is `auth.json` in its data
 directory (`$XDG_DATA_HOME/opencode` when that is absolute, else
 `~/.local/share/opencode`), which an OAuth provider's refresh rewrites in

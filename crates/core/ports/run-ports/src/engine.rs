@@ -75,6 +75,11 @@ pub struct Prepared {
     /// Names to copy from the user's engine configuration into the home: the
     /// allowlist met with what was offered.
     pub copy_in: Vec<String>,
+    /// Files to write under the home only when it has none there yet: a seed
+    /// of the user's own state, written once (the launcher's, as the
+    /// `.gitconfig`'s); one already there, which the engine of an earlier run
+    /// may have rewritten, is left as it is.
+    pub seeds: Vec<HomeFile>,
     /// The context file's absolute path.
     pub context_path: String,
 }

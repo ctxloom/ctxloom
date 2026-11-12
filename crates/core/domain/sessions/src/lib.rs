@@ -103,6 +103,7 @@ pub fn apply(state: &mut SessionState, event: &SessionEvent, recorded_at: Timest
             state.engine_version = bound.engine_version.clone();
         }
         SessionEvent::KeptChanged(changed) => state.kept = changed.kept,
+        SessionEvent::TitleSet(set) => state.title = set.title.clone(),
         SessionEvent::RenamedTo(renamed) => {
             state.harp = renamed.harp.clone();
             state.output_dir = renamed.output_dir.clone();
@@ -258,6 +259,15 @@ fn kept_changed(
 ) -> Result<Option<KeptChanged>, SessionRejection> {
     let held = live(held)?;
     Ok((held.kept != set.kept).then_some(KeptChanged { kept: set.kept }))
+}
+
+/// What setting the title records (S55): `None` when it is the one held.
+fn title_set(
+    held: &SessionState,
+    set: &SetSessionTitle,
+) -> Result<Option<TitleSet>, SessionRejection> {
+    let _ = (held, set);
+    Ok(None)
 }
 
 /// What a rename records: refused with a name a human may not choose;

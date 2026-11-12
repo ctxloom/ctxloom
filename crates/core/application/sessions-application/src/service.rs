@@ -14,7 +14,8 @@ use crate::read::Reading;
 use crate::write::Writing;
 use crate::{
     AppError, BindRequest, Bound, DeadLetter, KeepRequest, Kept, ListQuery, Removal, RemoveRequest,
-    RenameRequest, Renamed, SearchQuery, ShowQuery, TranscriptQuery, TranscriptRow, View,
+    RenameRequest, Renamed, SearchQuery, ShowQuery, TitleRequest, Titled, TranscriptQuery,
+    TranscriptRow, View,
 };
 
 /// The use cases a driving adapter calls for a session. Their futures are
@@ -42,6 +43,11 @@ pub trait SessionService {
         &mut self,
         request: RemoveRequest,
     ) -> impl Future<Output = Result<Removal, AppError>> + Send;
+    /// Set a session's title (S55): its harp, name and places untouched.
+    fn set_title(
+        &mut self,
+        request: TitleRequest,
+    ) -> impl Future<Output = Result<Titled, AppError>> + Send;
     /// Rename a session: refused while it is live (its lock held, owner
     /// ruling 91); else its name claimed, its output folder, directory and
     /// lock moved, the old name freed.
@@ -194,6 +200,11 @@ where
 
     async fn remove(&mut self, request: RemoveRequest) -> Result<Removal, AppError> {
         let result = self.writing().remove(request).await;
+        self.with_dead_letters(result)
+    }
+
+    async fn set_title(&mut self, request: TitleRequest) -> Result<Titled, AppError> {
+        let result = self.writing().set_title(request).await;
         self.with_dead_letters(result)
     }
 

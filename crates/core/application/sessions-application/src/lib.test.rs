@@ -999,6 +999,60 @@ fn a_bind_of_a_harp_nobody_recorded_is_not_a_failure() {
     assert!(svc.stores.opened.is_empty(), "and creates nothing");
 }
 
+// ----------------------------------------------------------------- title (S55)
+
+fn title(harp: &str, text: &str) -> crate::TitleRequest {
+    crate::TitleRequest {
+        harp: harp.to_string(),
+        title: text.to_string(),
+        ..crate::TitleRequest::default()
+    }
+}
+
+// S55 (owner, 2026-11-12, slice 2): a rename sets the title. The harp, the
+// stable id, the output folder, the directory and the lock stay as they were,
+// and no name is claimed or freed.
+#[test]
+fn a_title_is_set_and_shown_and_nothing_moves_or_is_claimed() {
+    let mut svc = service();
+    svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, Some(LockState::Free));
+    svc.with_directory(1, "amber-swift-owl");
+    let titled = ready(svc.set_title(title("amber-swift-owl", "the auth refactor"))).unwrap();
+    assert_eq!(
+        (titled.harp.as_str(), titled.title.as_str(), titled.changed),
+        ("amber-swift-owl", "the auth refactor", true)
+    );
+    let views = ready(svc.list(all())).unwrap();
+    assert_eq!(views[0].record.harp, "amber-swift-owl");
+    assert_eq!(views[0].record.id, id_text(1));
+    assert_eq!(views[0].record.title, "the auth refactor");
+    assert_eq!(views[0].title.as_deref(), Some("the auth refactor"));
+    assert!(svc.files.moves.is_empty() && svc.files.session_moves.is_empty());
+    assert_eq!(holder(svc.store(HERE), HERE, "amber-swift-owl"), id_text(1));
+    let again = ready(svc.set_title(title("amber-swift-owl", "the auth refactor"))).unwrap();
+    assert!(!again.changed, "the title held records nothing");
+}
+
+// A live session is titled too: nothing it works in moves.
+#[test]
+fn a_live_session_is_titled() {
+    let mut svc = service();
+    svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, Some(LockState::Held));
+    let titled = ready(svc.set_title(title("amber-swift-owl", "still going"))).unwrap();
+    assert!(titled.changed);
+}
+
+#[test]
+fn a_title_for_a_session_nobody_recorded_fails_naming_it() {
+    let mut svc = service();
+    assert_eq!(
+        ready(svc.set_title(title("no-such-harp", "x"))).unwrap_err(),
+        AppError::NoSession {
+            harp: "no-such-harp".to_string()
+        }
+    );
+}
+
 // ---------------------------------------------------------------------- rename
 
 // plan 3.1 / D5 Q1: a rename claims the new name, records it, and frees the

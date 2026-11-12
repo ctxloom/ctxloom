@@ -17,7 +17,7 @@ pub const PROJECTS_DOMAIN: &str = "projects";
 /// The project harps' claim domain (S54): one stream per harp text.
 pub const PROJECT_NAMES_DOMAIN: &str = "project-names";
 
-/// The session, folded from its events. Derived values (its title, its
+/// The session, folded from its events. Derived values (its summary, its
 /// state now) are computed when read, never stored.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SessionState {
@@ -55,6 +55,8 @@ pub struct SessionState {
     /// The children this session holds as an owner, oldest first: launched
     /// and not yet ended, failed or forgotten (K2).
     pub children: Vec<Child>,
+    /// The free-text title `session rename` sets (S55); empty when none is.
+    pub title: String,
 }
 
 impl From<SessionState> for sessions_proto::v1::SessionState {
@@ -89,6 +91,7 @@ impl From<SessionState> for sessions_proto::v1::SessionState {
                 .into_iter()
                 .map(sessions_proto::v1::Child::from)
                 .collect(),
+            title: value.title,
         }
     }
 }
@@ -140,6 +143,7 @@ impl TryFrom<sessions_proto::v1::SessionState> for SessionState {
                 .into_iter()
                 .map(Child::try_from)
                 .collect::<Result<Vec<_>, _>>()?,
+            title: value.title,
         })
     }
 }

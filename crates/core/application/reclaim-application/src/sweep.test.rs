@@ -56,6 +56,7 @@ fn view(harp: &str, state: State, ended_days_ago: i64, kept: bool) -> View {
             owner: None,
             closed: false,
             children: Vec::new(),
+            title: String::new(),
         },
         state,
         title: None,
@@ -155,6 +156,12 @@ impl SessionService for Fake {
             refusal: self.refusal.clone(),
             dead_letters: Vec::new(),
         })
+    }
+    async fn set_title(
+        &mut self,
+        _: sessions_application::TitleRequest,
+    ) -> Result<sessions_application::Titled, AppError> {
+        nothing()
     }
     async fn rename(&mut self, _: RenameRequest) -> Result<Renamed, AppError> {
         nothing()

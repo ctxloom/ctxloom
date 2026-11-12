@@ -656,6 +656,71 @@ fn keep_marks_and_unmarks_and_records_only_a_change() {
     assert!(session.run(SetKept { kept: false }).unwrap().is_empty());
 }
 
+// ------------------------------------------------------------------ title
+
+fn title(text: &str) -> crate::SetSessionTitle {
+    crate::SetSessionTitle {
+        title: text.to_string(),
+    }
+}
+
+// S55 (owner, 2026-11-12, slice 2): `session rename` sets the title; the
+// harp, the name and every place keyed by them stay as they were.
+#[test]
+fn a_title_is_recorded_and_the_harp_and_places_are_untouched() {
+    let mut session = Session::minted();
+    let held = session.state();
+    let events = session.run(title("the auth refactor")).unwrap();
+    assert_eq!(
+        events,
+        [SessionEvent::TitleSet(crate::TitleSet {
+            title: "the auth refactor".to_string(),
+        })]
+    );
+    let state = session.state();
+    assert_eq!(state.title, "the auth refactor");
+    assert_eq!(
+        SessionState {
+            title: String::new(),
+            ..state
+        },
+        held,
+        "nothing but the title changed"
+    );
+}
+
+#[test]
+fn the_title_held_again_records_nothing_and_an_empty_one_clears_it() {
+    let mut session = Session::minted();
+    session.run(title("the auth refactor")).unwrap();
+    let before = session.pages().len();
+    assert!(session.run(title("the auth refactor")).unwrap().is_empty());
+    assert_eq!(session.pages().len(), before);
+    assert_eq!(session.run(title("")).unwrap().len(), 1);
+    assert_eq!(session.state().title, "");
+    assert!(
+        Session::minted().run(title("")).unwrap().is_empty(),
+        "no title, cleared, is no change"
+    );
+}
+
+#[test]
+fn a_title_is_free_text_a_harp_could_never_be() {
+    let mut session = Session::minted();
+    let text = "auth: the / refactor, part 2 \u{2014} long enough to pass any harp's bound";
+    session.run(title(text)).unwrap();
+    assert_eq!(session.state().title, text);
+    assert_eq!(session.state().harp, HARP);
+}
+
+#[test]
+fn a_title_on_a_stream_with_no_session_is_refused() {
+    assert_eq!(
+        Session::new().run(title("x")).unwrap_err(),
+        said(&SessionRejection::NoSession)
+    );
+}
+
 // ----------------------------------------------------------------- rename
 
 // Go: TestRename; and `session edit --name`'s record "names where the folder

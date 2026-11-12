@@ -12,7 +12,8 @@ use sessions_application::{
     dead_letter_sample, AppError, BindRequest, Bound, Captured, Class, FilePlan, ImportReport,
     ImportRequest, ImportService, Imported, KeepRequest, Kept, Left, ListQuery, PendingMessage,
     PlanItem, Refusal, Removal, RemoveRequest, RenameRequest, Renamed, SearchQuery, SessionRecord,
-    SessionService, ShowQuery, State, TranscriptQuery, TranscriptRow, View, Why,
+    SessionService, ShowQuery, State, TitleRequest, Titled, TranscriptQuery, TranscriptRow, View,
+    Why,
 };
 
 use super::run;
@@ -40,6 +41,7 @@ struct Fake {
     keep: Vec<KeepRequest>,
     remove: Vec<RemoveRequest>,
     renamed: Vec<RenameRequest>,
+    titled: Vec<TitleRequest>,
     transcripts: Vec<TranscriptQuery>,
     report: Option<ImportReport>,
     imports: usize,
@@ -126,6 +128,19 @@ impl SessionService for Fake {
         self.remove.push(request);
         self.removal.clone().ok_or(AppError::NoSession {
             harp: "x".to_string(),
+        })
+    }
+
+    async fn set_title(&mut self, request: TitleRequest) -> Result<Titled, AppError> {
+        self.titled.push(request.clone());
+        if request.harp == "no-such-harp" {
+            return Err(AppError::NoSession { harp: request.harp });
+        }
+        Ok(Titled {
+            harp: request.harp,
+            title: request.title,
+            changed: true,
+            dead_letters: Vec::new(),
         })
     }
 
@@ -686,6 +701,54 @@ fn dead_letters_are_said_loudly_beside_the_answer() {
         .unwrap();
     assert_eq!(done.lines.len(), 1);
     assert!(done.lines[0].contains("DEAD_LETTER"), "{}", done.lines[0]);
+}
+
+// ---------------------------------------------------------------------- rename
+
+// S55 (owner, 2026-11-12, slice 2): `session rename <harp> <title>` sets the
+// title; the harp is permanent.
+#[test]
+fn rename_sets_the_title_and_says_so() {
+    let mut fake = Fake::default();
+    let ran = go(
+        &mut fake,
+        Format::Json,
+        &["rename", "amber-swift-owl", "the auth refactor"],
+    );
+    assert_eq!(
+        json_of(&ran),
+        json!({"harp": "amber-swift-owl", "title": "the auth refactor", "changed": true})
+    );
+    assert_eq!(
+        fake.titled,
+        [TitleRequest {
+            project: None,
+            harp: "amber-swift-owl".to_string(),
+            title: "the auth refactor".to_string(),
+        }]
+    );
+    let ran = go(
+        &mut fake,
+        Format::Text,
+        &["rename", "amber-swift-owl", "the auth refactor"],
+    );
+    assert_eq!(ran.out, "amber-swift-owl: titled \"the auth refactor\"\n");
+}
+
+#[test]
+fn rename_of_a_session_nobody_recorded_fails_naming_it() {
+    let mut fake = Fake::default();
+    let failure = go(&mut fake, Format::Json, &["rename", "no-such-harp", "x"])
+        .result
+        .unwrap_err();
+    assert_eq!(failure.failure.exit, Exit::REFUSED);
+}
+
+#[test]
+fn the_harp_changing_edit_is_gone() {
+    assert!(Session::augment_args(Command::new("session"))
+        .try_get_matches_from(["session", "edit", "amber-swift-owl", "--name", "x"])
+        .is_err());
 }
 
 // ------------------------------------------------------------------------ edit

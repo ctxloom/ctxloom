@@ -88,6 +88,8 @@ pub struct SessionRecord {
     /// The children it holds as an owner (K2): the owner-to-children view,
     /// per owner stream.
     pub children: Vec<Child>,
+    /// The title `session rename` set (S55); empty when none is.
+    pub title: String,
 }
 
 /// One index of a project's sessions.
@@ -424,6 +426,7 @@ fn record_of(root: &[u8], session: &SessionAggregate) -> SessionRecord {
         owner: state.owner.clone(),
         closed: state.closed,
         children: state.children.clone(),
+        title: state.title.clone(),
     }
 }
 

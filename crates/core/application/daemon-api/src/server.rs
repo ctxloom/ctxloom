@@ -10,6 +10,8 @@
 //! lock's ([`SessionStates`]); a project's harp candidates are minted
 //! outside the core ([`Harps`]).
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use angzarr_embedded::v1::{event_page, Cover};
@@ -70,6 +72,63 @@ pub struct Parts<E> {
     pub states: Arc<dyn SessionStates>,
     pub harps: Arc<dyn Harps>,
     pub about: About,
+}
+
+/// An answer of a use case, boxed: what the API's edge awaits.
+pub type Answer<'a, T> = Pin<Box<dyn Future<Output = Result<T, ApiError>> + Send + 'a>>;
+
+/// The use cases as the API's edge calls them, whatever the core's edge
+/// is: one method per RPC served.
+pub trait Calls: Send + Sync {
+    fn get_daemon(&self) -> Answer<'_, v1::Daemon>;
+    fn stop_daemon(&self, request: v1::StopDaemonRequest) -> Answer<'_, v1::Daemon>;
+    fn resolve_project(&self, request: v1::ResolveProjectRequest) -> Answer<'_, v1::Project>;
+    fn get_project(&self, request: v1::GetProjectRequest) -> Answer<'_, v1::Project>;
+    fn get_session(&self, request: v1::GetSessionRequest) -> Answer<'_, v1::Session>;
+    fn list_sessions(
+        &self,
+        request: v1::ListSessionsRequest,
+    ) -> Answer<'_, v1::ListSessionsResponse>;
+    fn search_sessions(
+        &self,
+        request: v1::SearchSessionsRequest,
+    ) -> Answer<'_, v1::ListSessionsResponse>;
+}
+
+impl<E: Edge + 'static> Calls for Api<E> {
+    fn get_daemon(&self) -> Answer<'_, v1::Daemon> {
+        Box::pin(Api::get_daemon(self))
+    }
+
+    fn stop_daemon(&self, request: v1::StopDaemonRequest) -> Answer<'_, v1::Daemon> {
+        Box::pin(Api::stop_daemon(self, request))
+    }
+
+    fn resolve_project(&self, request: v1::ResolveProjectRequest) -> Answer<'_, v1::Project> {
+        Box::pin(Api::resolve_project(self, request))
+    }
+
+    fn get_project(&self, request: v1::GetProjectRequest) -> Answer<'_, v1::Project> {
+        Box::pin(Api::get_project(self, request))
+    }
+
+    fn get_session(&self, request: v1::GetSessionRequest) -> Answer<'_, v1::Session> {
+        Box::pin(Api::get_session(self, request))
+    }
+
+    fn list_sessions(
+        &self,
+        request: v1::ListSessionsRequest,
+    ) -> Answer<'_, v1::ListSessionsResponse> {
+        Box::pin(Api::list_sessions(self, request))
+    }
+
+    fn search_sessions(
+        &self,
+        request: v1::SearchSessionsRequest,
+    ) -> Answer<'_, v1::ListSessionsResponse> {
+        Box::pin(Api::search_sessions(self, request))
+    }
 }
 
 /// The use cases of the daemon's API.

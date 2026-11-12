@@ -77,6 +77,8 @@ ports = { max-threads = 1 }
 filter = '''
     package(hook-listener)
     | package(hook-sink-grpc)
+    | package(daemon-client)
+    | package(daemon-api-grpc)
     | package(forge-github)
     | (package(ctxloom-wiring) & test(/^(oneshot::tests::hooks::|capture::tests::)/))
     | (package(ctxloom) & test(/^tests::hook::/))

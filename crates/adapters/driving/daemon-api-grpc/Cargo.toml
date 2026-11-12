@@ -1,0 +1,30 @@
+[package]
+name = "daemon-api-grpc"
+version = "0.1.0"
+description = "The daemon's Ctxloom service over gRPC (slice 2 step 5): each served RPC admitted by the user bearer (UserGate), its use case run on the blocking pool (M10), a refusal answered under its status with the typed refusal in google.rpc.Status.details (S11); every other RPC UNIMPLEMENTED"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+angzarr-coordinator.workspace = true
+angzarr-coordinator-grpc = { workspace = true, default-features = false }
+daemon-api.workspace = true
+daemon-proto = { workspace = true, features = ["server"] }
+prost.workspace = true
+prost-types.workspace = true
+runs-application.workspace = true
+tokio = { workspace = true, features = ["rt"] }
+tonic = { version = "0.14", default-features = false, features = ["codegen"] }
+
+[dev-dependencies]
+daemon-proto = { workspace = true, features = ["server", "client"] }
+mutants.workspace = true
+run-ports.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "time", "sync"] }
+tokio-stream = { version = "0.1", features = ["net"] }
+tonic = { version = "0.14", default-features = false, features = ["channel", "codegen", "router", "server"] }
+
+[lints]
+workspace = true

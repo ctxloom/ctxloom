@@ -1,0 +1,29 @@
+[package]
+name = "daemon-client"
+version = "0.1.0"
+description = "daemon-ports' DaemonApi over gRPC (M7): the Ctxloom service's client, over TLS pinning the certificate the discovery file names as its sole root, presenting the user bearer it names"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+daemon-ports.workspace = true
+daemon-proto = { workspace = true, features = ["client"] }
+prost.workspace = true
+prost-types.workspace = true
+run-ports.workspace = true
+# The client channel, TLS on ring (never aws-lc), at the version the lock holds.
+tonic = { version = "0.14", default-features = false, features = ["channel", "codegen", "tls-ring"] }
+tokio = { workspace = true, features = ["time"] }
+
+[dev-dependencies]
+daemon-proto = { workspace = true, features = ["server", "client"] }
+hook-tls.workspace = true
+mutants.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "time"] }
+tokio-stream = { version = "0.1", features = ["net"] }
+tonic = { version = "0.14", default-features = false, features = ["channel", "codegen", "router", "server", "tls-ring"] }
+
+[lints]
+workspace = true

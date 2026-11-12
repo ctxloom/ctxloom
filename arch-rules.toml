@@ -48,8 +48,11 @@ allow = ["core/ports", "core/wire", "@support"]
 rule = "a driven adapter sees only ports and wire types, never another adapter"
 
 [roles."adapters/driving"]
-allow = ["core/application", "@presentation"]
-rule = "a driving adapter sees only the application layer and the presentation crates, never another adapter"
+# core/wire (owner M7, slice 2): the generated types are pure data, what an
+# API edge (the daemon's gRPC service, its client's CLI) renders and takes;
+# they hold no behaviour of the core.
+allow = ["core/application", "core/wire", "@presentation"]
+rule = "a driving adapter sees only the application layer, the wire types and the presentation crates, never another adapter"
 
 # The composition root (the binaries and their wiring library) may depend on
 # anything; nothing else lists either, so nothing but the root depends on the
@@ -106,6 +109,12 @@ from = "hook-sink-grpc"
 to = "hook-tls"
 kind = "dev"
 reason = "test-only: mints the per-run certificates the fake TLS listener is served with, by the same mint the run uses"
+
+[[exception]]
+from = "daemon-api-grpc"
+to = "run-ports"
+kind = "dev"
+reason = "test-only: builds the user bearer the gate is made from, as the daemon mints it"
 
 [[exception]]
 from = "hook-listener"

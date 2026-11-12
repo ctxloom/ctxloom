@@ -31,7 +31,7 @@ mod angzarr_v1 {}
 #[cfg(any(feature = "server", feature = "client"))]
 pub mod service {
     // Generated.
-    #![allow(clippy::all, missing_docs)]
+    #![allow(clippy::all, clippy::pedantic, clippy::nursery, missing_docs)]
     include!(concat!(env!("OUT_DIR"), "/services/ctxloom.daemon.v1.rs"));
 }
 

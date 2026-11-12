@@ -1,0 +1,223 @@
+//! The service on a loopback port, over use cases a test scripts: the
+//! user bearer admits, anything else is a bare UNAUTHENTICATED, a refusal
+//! travels in the status's details, an RPC not served is UNIMPLEMENTED,
+//! and a use case runs off the async workers (M10).
+
+use std::sync::{mpsc, Arc, Mutex};
+use std::time::Duration;
+
+use daemon_api::{Answer, ApiError, ApiRefusal, Calls};
+use daemon_proto::service::ctxloom_client::CtxloomClient;
+use daemon_proto::v1;
+use prost::Message;
+use runs_application::UserGate;
+use tonic::transport::{Channel, Server};
+use tonic::{Code, Request};
+
+const BEARER: &str = "11111111111111111111111111111111111111111111111111111111111111aa"; // gitleaks:allow
+
+/// Use cases a test scripts: `get_daemon` waits for `release` (if set)
+/// before it answers; `stop_daemon` refuses `DaemonHosting`.
+#[derive(Default)]
+struct Scripted {
+    release: Mutex<Option<mpsc::Receiver<()>>>,
+}
+
+impl Calls for Scripted {
+    fn get_daemon(&self) -> Answer<'_, v1::Daemon> {
+        let waiting = self.release.lock().unwrap().take();
+        Box::pin(async move {
+            if let Some(release) = waiting {
+                // Blocks this thread: a worker's, were it run on one.
+                release
+                    .recv_timeout(Duration::from_secs(10))
+                    .expect("released");
+            }
+            Ok(v1::Daemon {
+                pid: 7,
+                ..v1::Daemon::default()
+            })
+        })
+    }
+
+    fn stop_daemon(&self, _: v1::StopDaemonRequest) -> Answer<'_, v1::Daemon> {
+        Box::pin(async {
+            Err(ApiRefusal::of(&v1::DaemonHosting {
+                runs: 1,
+                harps: vec!["brisk-copper-moth".to_string()],
+            })
+            .into())
+        })
+    }
+
+    fn resolve_project(&self, _: v1::ResolveProjectRequest) -> Answer<'_, v1::Project> {
+        Box::pin(async {
+            Err(ApiError::Failed {
+                detail: "the store".to_string(),
+            })
+        })
+    }
+
+    fn get_project(&self, _: v1::GetProjectRequest) -> Answer<'_, v1::Project> {
+        Box::pin(async { Ok(v1::Project::default()) })
+    }
+
+    fn get_session(&self, request: v1::GetSessionRequest) -> Answer<'_, v1::Session> {
+        Box::pin(async move {
+            Ok(v1::Session {
+                name: request.name,
+                ..v1::Session::default()
+            })
+        })
+    }
+
+    fn list_sessions(&self, _: v1::ListSessionsRequest) -> Answer<'_, v1::ListSessionsResponse> {
+        Box::pin(async { Ok(v1::ListSessionsResponse::default()) })
+    }
+
+    fn search_sessions(
+        &self,
+        _: v1::SearchSessionsRequest,
+    ) -> Answer<'_, v1::ListSessionsResponse> {
+        Box::pin(async { Ok(v1::ListSessionsResponse::default()) })
+    }
+}
+
+/// Serve `calls` on a loopback port of a runtime with ONE worker; a
+/// channel to it.
+async fn serve(calls: Arc<Scripted>) -> Channel {
+    let token = run_token();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let service = crate::service(calls, UserGate::new(&token));
+    tokio::spawn(
+        Server::builder()
+            .add_service(service)
+            .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener)),
+    );
+    Channel::from_shared(format!("http://{addr}"))
+        .unwrap()
+        .connect()
+        .await
+        .unwrap()
+}
+
+fn run_token() -> run_ports::Token {
+    run_ports::Token::from_text(BEARER).unwrap()
+}
+
+fn with_bearer<T>(message: T, bearer: &str) -> Request<T> {
+    let mut request = Request::new(message);
+    request
+        .metadata_mut()
+        .insert("authorization", format!("Bearer {bearer}").parse().unwrap());
+    request
+}
+
+// The user bearer admits; the call is answered.
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn the_user_bearer_is_answered() {
+    let mut client = CtxloomClient::new(serve(Arc::default()).await);
+    let name = "projects/calm-otter/sessions/amber-swift-owl".to_string();
+    let session = client
+        .get_session(with_bearer(
+            v1::GetSessionRequest { name: name.clone() },
+            BEARER,
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(session.name, name);
+}
+
+// No bearer, another bearer, another scheme: a bare UNAUTHENTICATED, the
+// same for each, naming no reason of its own.
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn anything_but_the_user_bearer_is_a_bare_unauthenticated() {
+    let mut client = CtxloomClient::new(serve(Arc::default()).await);
+    let other = "22222222222222222222222222222222222222222222222222222222222222bb"; // gitleaks:allow
+    let mut answers = Vec::new();
+    for request in [
+        Request::new(v1::GetDaemonRequest::default()),
+        with_bearer(v1::GetDaemonRequest::default(), other),
+    ] {
+        let status = client.get_daemon(request).await.unwrap_err();
+        assert_eq!(status.code(), Code::Unauthenticated);
+        answers.push(status.message().to_string());
+    }
+    assert_eq!(answers[0], answers[1], "nothing says why");
+}
+
+// S11: a refusal is answered under its declared status, the typed refusal
+// in google.rpc.Status.details.
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn a_refusal_carries_its_typed_message_in_the_details() {
+    let mut client = CtxloomClient::new(serve(Arc::default()).await);
+    let status = client
+        .stop_daemon(with_bearer(v1::StopDaemonRequest::default(), BEARER))
+        .await
+        .unwrap_err();
+    assert_eq!(status.code(), Code::FailedPrecondition);
+    let details = super::RpcStatus::decode(status.details()).unwrap();
+    assert_eq!(details.code, Code::FailedPrecondition as i32);
+    let hosting = v1::DaemonHosting::decode(details.details[0].value.as_slice()).unwrap();
+    assert_eq!(hosting.harps, ["brisk-copper-moth"]);
+    assert!(details.details[0]
+        .type_url
+        .ends_with("ctxloom.daemon.v1.DaemonHosting"));
+}
+
+// A failure is INTERNAL.
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn a_failure_is_internal() {
+    let mut client = CtxloomClient::new(serve(Arc::default()).await);
+    let status = client
+        .resolve_project(with_bearer(v1::ResolveProjectRequest::default(), BEARER))
+        .await
+        .unwrap_err();
+    assert_eq!(status.code(), Code::Internal);
+}
+
+// Every RPC not served (and DeleteSession, M5) is UNIMPLEMENTED.
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn an_rpc_not_served_is_unimplemented() {
+    let mut client = CtxloomClient::new(serve(Arc::default()).await);
+    let status = client
+        .delete_session(with_bearer(v1::DeleteSessionRequest::default(), BEARER))
+        .await
+        .unwrap_err();
+    assert_eq!(status.code(), Code::Unimplemented);
+    let status = client
+        .get_transcript(Request::new(v1::GetTranscriptRequest::default()))
+        .await
+        .unwrap_err();
+    assert_eq!(status.code(), Code::Unimplemented);
+}
+
+// M10: a use case that blocks its thread holds a blocking-pool thread, not
+// the runtime's one worker: another call is answered meanwhile.
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn a_blocked_use_case_holds_no_async_worker() {
+    let (release, released) = mpsc::channel();
+    let calls = Arc::new(Scripted {
+        release: Mutex::new(Some(released)),
+    });
+    let channel = serve(calls).await;
+    let mut blocked = CtxloomClient::new(channel.clone());
+    let waiting = tokio::spawn(async move {
+        blocked
+            .get_daemon(with_bearer(v1::GetDaemonRequest::default(), BEARER))
+            .await
+    });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let mut other = CtxloomClient::new(channel);
+    let answered = tokio::time::timeout(
+        Duration::from_secs(5),
+        other.get_session(with_bearer(v1::GetSessionRequest::default(), BEARER)),
+    )
+    .await
+    .expect("answered while the other use case blocks");
+    assert!(answered.is_ok());
+    release.send(()).unwrap();
+    assert_eq!(waiting.await.unwrap().unwrap().into_inner().pid, 7);
+}

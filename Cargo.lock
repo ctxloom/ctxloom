@@ -1135,6 +1135,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "daemon-api-grpc"
+version = "0.1.0"
+dependencies = [
+ "angzarr-coordinator",
+ "angzarr-coordinator-grpc",
+ "daemon-api",
+ "daemon-proto",
+ "mutants",
+ "prost",
+ "prost-types",
+ "run-ports",
+ "runs-application",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+]
+
+[[package]]
 name = "daemon-application"
 version = "0.1.0"
 dependencies = [
@@ -1169,6 +1187,22 @@ dependencies = [
  "sessions",
  "sessions-proto",
  "uuid",
+]
+
+[[package]]
+name = "daemon-client"
+version = "0.1.0"
+dependencies = [
+ "daemon-ports",
+ "daemon-proto",
+ "hook-tls",
+ "mutants",
+ "prost",
+ "prost-types",
+ "run-ports",
+ "tokio",
+ "tokio-stream",
+ "tonic",
 ]
 
 [[package]]

@@ -102,8 +102,8 @@ Slice S4 (sessions) built the following. The record is the user's durable
 store (owner rulings 87a, T14, which reverses 87's store per project): a
 session's state goes through angzarr-embedded over the ONE per-user
 `<ctxloom home>/.ctxloom/ctxloom.db` (machine-local; see "Storage is
-angzarr-store-sqlite"), every project's streams in it, rooted in their
-project's namespace, every hook's fact an event when it is delivered. `session list`, `search`, `show` and
+angzarr-store-sqlite"), every project's streams in it, each rooted on its
+resource name (below), every hook's fact an event when it is delivered. `session list`, `search`, `show` and
 `transcript show` catch up from it on each read, so a live session shows what
 was delivered so far; nothing projects the events into a file (no
 `transcripts/transcript.jsonl`, `records/*.jsonl`, position file or
@@ -123,7 +123,7 @@ the store grows without bound (ruling 90; compaction is taskloom
   D27's lines, `seq` counting them);
 - `core/ports/session-ports` (a project's store, with `Purge`; `Liveness` and
   `SessionLock`; a session's files, Go's session directories);
-- `core/application/sessions-application` (list, search, show, keep, remove,
+- `core/application/sessions-application` (list, search, show, keep, title, remove,
   bind, the transcripts; Go's `session.yaml` schema 1 to 3 read through
   angzarr-yaml; the importer's types);
 - `adapters/driven/{liveness, session-files}` and, behind `ProjectStores`,
@@ -132,30 +132,53 @@ the store grows without bound (ruling 90; compaction is taskloom
   and `hud`).
 
 A session's state is its lock's verdict, never its end stamp; its title is the
-first prompt of its transcript; `hud` renders and records nothing. The
+one `session rename` set (S55), else the first prompt of its transcript; `hud` renders and records nothing. The
 kernel's retry is `angzarr-embedded-runner`'s (the embedded pin). A read catches
 up fresh each time and keeps the records of the project asked (`SessionState.project_id`, kept as a reference, S49); nothing caches a project's index. Rows and refusals say what was not
 done and the command that would, in the message, so the json envelope carries
 it too. A crate's catalog is `locales/en-US/messages.ftl`, ids the full code.
 
-Names and ids are fixed by the owner's rulings (2026-11-03), and imported
-streams are rooted on them, so they never change:
+Names and ids (owner, 2026-11-12, slice 2 B3/re-root/S55, superseding the
+2026-11-03 formulas: `sessions::project_namespace`, `claim_root` and
+`sessions_application::imported_id` are gone, a hard migrate with no reader
+of the old roots; a store written before is unreadable, start fresh):
 
-- a project's namespace is `UUIDv5(URL namespace, "ctxloom:project:" + project
-  id)` (`sessions::project_namespace`);
-- a name's claim stream root is `UUIDv5(project namespace, harp text)`
-  (`sessions::claim_root`, domain `session-names`);
-- an imported session's stable id is `UUIDv5(project namespace, harp text)`
-  (`sessions_application::imported_id`). Go's `run_ends[]` and `end_reason`
-  are NOT imported (they return with S10).
+- a session is named `projects/{project}/sessions/{session}` and a project
+  `projects/{project}`, each segment a harp (`sessions::validate`'s grammar,
+  not AIP-122's charset), formatted and parsed in ONE place, `sessions::name`
+  (`SessionName`, `ProjectName`; a name of another shape, or a segment that
+  is no harp, is `SessionRejection::NameMalformed`, `sessions-name-malformed`);
+- a stream's root is the UUIDv5 of its resource name in `sessions::NAMESPACE`
+  (`1473f25e-0851-4e01-8741-81055551414f`, minted once; it NEVER changes:
+  every root in every store derives from it, so a new value orphans every
+  stream): a session's stream and its name's claim (domain `session-names`)
+  at `SessionName::root`, the session's stable id `SessionName::uid`; a
+  project harp's claim (`project-names`) at `ProjectName::root`; the
+  `projects` stream, which mints the harp and so cannot be rooted on it, at
+  `project_id_root`, the UUIDv5 of the project id (which holds no `/`);
+- a project is named (`projects` aggregate, S54) at the first resolution of
+  its directory, before any session of it is minted: today by the wiring
+  (`Wiring::named_project`) before a run (`run_application::Place::
+  project_harp`), a child's launch, an import and the test seed, not yet by
+  the daemon (its `ResolveProject` is a later step's). A launch in a project
+  with no harp is `sessions-application-no-project-harp`;
+- a new session's harp is chosen before its run is enqueued (its id is its
+  name's) and claimed after; a name another run claimed meanwhile ends the
+  run refused `sessions-names-taken`;
+- an imported Go session is rooted on its new name, its project named at the
+  import (`ImportRequest::project_harps`, fresh harps the wiring fills). Go's
+  `run_ends[]` and `end_reason` are NOT imported (they return with S10).
 
-A rename is judged by the session on what its lock said (`RenameSession`
-carries `LockEvidence`, owner ruling 91, per 73e): a held lock is refused
-`SessionLive` (`sessions-session-live`, its fix: wait for the session's end;
-an unproven lock does not refuse). Otherwise it claims the new name, moves the
-output folder and the session's directory and lock (`SessionFiles::
-move_session`, defect 2), records the name and frees the old one, each step
-undone if a later one fails; a removed or destroyed session's name stays
+A harp never changes (S42; S55, owner 2026-11-12): `session rename <harp>
+<title>` sets the session's free-text TITLE (`SetSessionTitle` ->
+`TitleSet`, `SessionState.title`; live or ended; the title held again records
+nothing, an empty one clears it), shown in its listing and `show` in place of
+the first prompt, and in the daemon's `Session.title` beside the summary. Its
+harp, its name, its directory, its lock and its output folder stay where
+they were. The harp-changing rename is gone with its claim release and its
+moves: `RenameSession`, `RenamedTo`, `SessionLive`, `HarpTooLong`,
+`LockEvidence`, `validate_rename`, `SessionFiles::move_output|move_session`
+and `session edit --name`. A removed or destroyed session's name stays
 claimed. The refusal code of a taken name is `sessions-names-taken` (the
 crate-prefix rule).
 
@@ -804,8 +827,9 @@ The daemon's kernel registers its read models as projectors (S32):
 behind the exposure; `EdgeCommands::handle_sync` answers core's `Synced`)
 waits for the ones it names and answers each one's view: the session as
 `ctxloom.daemon.v1.Session` (`daemon-proto`, compiled from the daemon's
-drafts), named `projects/{project harp}/sessions/{harp}` once its project is
-named (the `projects` aggregate, S54); the session with its pending messages;
+drafts), named `projects/{project harp}/sessions/{harp}` (`SessionRecord.name`,
+`sessions::SessionName`) once its project is named (the `projects` aggregate,
+S54), its title the one set (S55); the session with its pending messages;
 the session's state. A CLI command's core registers none
 (`InProcessCore::start`); the daemon's does (`start_with`, `Projectors::
 filled`). There is ONE fold per read model: `core/read-model/held-projection`'s
@@ -823,9 +847,8 @@ ctxloom's store is ONE per user (owner T14): angzarr-store-sqlite's
 `CTXLOOM_HOME` first) by `ctxloom-store-sqlite` (the file name, the placement
 and the `ProjectStores` port, over ctxloom-lib's `sqlite-store-opener`, which
 refuses a store from before the embedded store, `ctxloom.db.pre-embedded`
-naming its backup). Every project's streams are in it, rooted in their
-project's namespace (the UUIDv5 namespaces are unchanged), so nothing routes
-by file: there is no `route.rs` and no routing metadata. taskloom's
+naming its backup). Every project's streams are in it, each rooted on its
+resource name (slice 2 re-root, above), so nothing routes by file: there is no `route.rs` and no routing metadata. taskloom's
 `state.db` stays taskloom's, per project, never the same file (T2, D26). A
 write for a project still makes its `~/.ctxloom/projects/<id>/` directory,
 which taskloom's registry lists projects by; ctxloom keeps nothing in it. A
@@ -1262,7 +1285,7 @@ with; a failed pull is a notice and the run goes on (a dry run does not
 pull). A session's outputs are `<project root>/<output.dir>/<harp>`
 (`output.dir` relative to the project root unless absolute), no longer
 `~/Documents/ctxloom/<basename>/<harp>`; nothing gitignores them, and a
-rename moves the folder. A first init at a terminal asks for `output.dir`
+harp never changes, so nothing moves the folder (S55). A first init at a terminal asks for `output.dir`
 before the interview (suggesting `ctxloom/`, saying outputs are committable)
 and writes the answer.
 

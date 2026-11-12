@@ -100,6 +100,10 @@ pub struct Launched {
     /// The caller's permits the launch did not follow (owner rulings 78,
     /// 78b), by the permit's name: the run says them.
     pub ignored: Vec<run_ports::Ignored>,
+    /// The user's own engine settings the session home was not started from
+    /// because they are not a JSON object (owner ruling 169), by path: the
+    /// run says them.
+    pub left_out: Vec<run_ports::LeftOut>,
 }
 
 /// The launcher: the engines it can drive, the way a command is run, the
@@ -293,7 +297,8 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             principal: Principal::Runner,
         };
         let mut ignored = Vec::new();
-        let prepared = self.prepare(&order, &mut ignored);
+        let mut left_out = Vec::new();
+        let prepared = self.prepare(&order, &mut ignored, &mut left_out);
         let done = |outcome| Launched {
             run: launch.run.clone(),
             session: launch.session.clone(),
@@ -301,6 +306,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             engine: order.engine.clone(),
             outcome,
             ignored: ignored.clone(),
+            left_out: left_out.clone(),
         };
         let (engine, command) = match prepared {
             Ok(prepared) => prepared,
@@ -487,6 +493,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         &mut self,
         order: &Order,
         ignored: &mut Vec<run_ports::Ignored>,
+        left_out: &mut Vec<run_ports::LeftOut>,
     ) -> Result<(Arc<dyn Engine>, TurnCommand), String> {
         let engine = self
             .engine(&order.engine)
@@ -517,6 +524,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
                 session_home: order.settings.session_home,
             })
             .map_err(|e| e.to_string())?;
+        left_out.clone_from(&prepared.left_out);
         for file in &prepared.files {
             self.records
                 .write(&order.harp, &format!("home/{}", file.rel), &file.bytes)

@@ -11,8 +11,8 @@ use run_ports::{Engine, PrepareRequest};
 use surface_ports::{HookCodec, Json};
 
 use crate::{
-    plugin, user_model_file, Codec, Opencode, CONFIG_FILE, CONTEXT_FILE, MODEL_SEED, PLUGIN,
-    PLUGIN_FILE, PRESEED_LOCK,
+    plugin, user_config_file, user_model_file, Codec, Opencode, CONFIG_FILE, CONTEXT_FILE,
+    MODEL_SEED, PLUGIN, PLUGIN_FILE, PRESEED_LOCK,
 };
 
 /// Whether this host runs the tests' fake programs: unix, the one flavor
@@ -245,6 +245,133 @@ fn test_her_model_json_is_where_opencode_keeps_it() {
     );
     assert_eq!(user_model_file(None, None, "linux"), None);
     assert_eq!(user_model_file(Some(""), None, "linux"), None);
+}
+
+/// The home an opencode told the user's own global config (`user`) prepares,
+/// with the agent's `permissions`, under `session_home`.
+fn over_hers(
+    user: Option<run_ports::UserSettings>,
+    permissions: Option<&str>,
+    session_home: run_ports::SessionHome,
+) -> run_ports::Prepared {
+    Opencode::new()
+        .over_user_config(user)
+        .prepare(&PrepareRequest {
+            home: HOME.to_string(),
+            context: String::new(),
+            offered: Vec::new(),
+            interactive: true,
+            cwd: None,
+            existing: Default::default(),
+            permissions: permissions.map(String::from),
+            session_home,
+        })
+        .unwrap()
+}
+
+const HER_CONFIG: &str = "/home/u/.config/opencode/opencode.json";
+
+fn hers(text: &str) -> run_ports::UserSettings {
+    run_ports::UserSettings {
+        path: HER_CONFIG.to_string(),
+        bytes: Some(text.as_bytes().to_vec()),
+    }
+}
+
+// Owner ruling 169, by analogy with claude's: the session home's
+// `opencode.json` starts from her own global config, its `permission`
+// replaced whole by the agent's document (none: none of hers either).
+#[test]
+fn test_her_global_config_is_the_session_configs_base() {
+    let user = hers(r#"{"model":"anthropic/claude","permission":{"bash":"allow"},"theme":"x"}"#);
+    let prepared = over_hers(
+        Some(user.clone()),
+        Some(r#"{"edit":"ask"}"#),
+        run_ports::SessionHome::Session,
+    );
+    assert_eq!(
+        Json::parse(&config_of(&prepared)).unwrap(),
+        Json::parse(r#"{"model":"anthropic/claude","permission":{"edit":"ask"},"theme":"x"}"#)
+            .unwrap()
+    );
+    assert!(prepared.left_out.is_empty());
+    let none = over_hers(Some(user), None, run_ports::SessionHome::Session);
+    assert_eq!(
+        Json::parse(&config_of(&none)).unwrap(),
+        Json::parse(r#"{"model":"anthropic/claude","theme":"x"}"#).unwrap()
+    );
+}
+
+// A config of hers that is not a JSON object (or did not read) is left out and
+// named; none of hers is a start from `{}`.
+#[test]
+fn test_a_config_of_hers_that_is_no_object_is_left_out_and_named() {
+    let unread = run_ports::UserSettings {
+        path: HER_CONFIG.to_string(),
+        bytes: None,
+    };
+    for user in [hers("[1]"), hers("// jsonc\n{}"), unread] {
+        let prepared = over_hers(Some(user.clone()), None, run_ports::SessionHome::Session);
+        assert_eq!(config_of(&prepared), "{}\n", "{user:?}");
+        assert_eq!(
+            prepared.left_out,
+            [run_ports::LeftOut {
+                engine: "opencode".to_string(),
+                path: HER_CONFIG.to_string(),
+            }]
+        );
+    }
+    let missing = over_hers(None, None, run_ports::SessionHome::Session);
+    assert_eq!(config_of(&missing), "{}\n");
+    assert!(missing.left_out.is_empty());
+}
+
+// Under `session_home: host` opencode reads her own config dirs itself: the
+// session home's config stays the agent's document alone, and nothing is said.
+#[test]
+fn test_under_a_host_home_her_config_is_not_copied() {
+    for user in [hers(r#"{"theme":"MARK"}"#), hers("[1]")] {
+        let prepared = over_hers(
+            Some(user),
+            Some(r#"{"edit":"ask"}"#),
+            run_ports::SessionHome::Host,
+        );
+        assert_eq!(
+            Json::parse(&config_of(&prepared)).unwrap(),
+            Json::parse(r#"{"permission":{"edit":"ask"}}"#).unwrap()
+        );
+        assert!(prepared.left_out.is_empty());
+    }
+}
+
+// opencode 1.18.4's global config is `opencode.json` of
+// `<XDG_CONFIG_HOME, else ~/.config>/opencode` on every platform (xdg-basedir,
+// no platform branch, as its state directory); a variable that is not an
+// absolute path is not taken.
+#[test]
+fn test_her_global_config_is_where_opencode_reads_it() {
+    assert_eq!(
+        user_config_file(Some("/home/u"), None, "linux").as_deref(),
+        Some(HER_CONFIG)
+    );
+    assert_eq!(
+        user_config_file(Some("/home/u"), Some("/xdg/config"), "linux").as_deref(),
+        Some("/xdg/config/opencode/opencode.json")
+    );
+    assert_eq!(
+        user_config_file(None, Some("/xdg/config"), "linux").as_deref(),
+        Some("/xdg/config/opencode/opencode.json")
+    );
+    assert_eq!(
+        user_config_file(Some("/home/u"), Some("relative"), "linux").as_deref(),
+        Some(HER_CONFIG)
+    );
+    assert_eq!(
+        user_config_file(Some("C:/Users/u"), Some("D:/xdg"), "windows").as_deref(),
+        Some("D:/xdg/opencode/opencode.json")
+    );
+    assert_eq!(user_config_file(None, None, "linux"), None);
+    assert_eq!(user_config_file(Some(""), None, "linux"), None);
 }
 
 // The probe: opencode installs `@opencode-ai/plugin` into a config directory

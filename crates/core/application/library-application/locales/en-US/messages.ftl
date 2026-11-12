@@ -84,6 +84,8 @@ library-application-notice-runtime-strengthens = runtime { $runtime } replaces {
 library-application-notice-runtime-ownership-swap = runtime { $runtime } replaces { $key } { $replaced }: ownership differs, not interchangeable
 library-application-notice-default-engine-block = agent { $agent } names no engine: its settings were written to agents.{ $agent }.{ $block }, the default engine's block
 library-application-notice-default-engine-block-fix = to write another engine's block, name it with --engine
+library-application-notice-user-settings-left-out = { $path } is not a JSON object, so the { $engine } session started without these settings of yours
+library-application-notice-user-settings-left-out-fix = make { $path } a JSON object, or move it aside
 library-application-notice-root-ignored = CTXLOOM_ROOT={ $root } is not a directory; ignoring it
 
 ## Writes (S2). A refused write has written nothing.

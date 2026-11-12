@@ -270,13 +270,27 @@ into, and the launcher hands their bytes in `PrepareRequest::existing` with
 the run's `cwd`; one that is not a JSON object is left as it is). It is
 claude's undocumented state: a release that changes it shows the onboarding
 again (visible, not harmful). The session home's user-scope `settings.json`
-also carries `skipDangerousModePermissionPrompt: true` when, and only when,
-the user's own claude settings say it (owner ruling 166: claude's config dir
-as claude finds it, `$CLAUDE_CONFIG_DIR` else `~/.claude`, read by the
-wiring's `claude_bypass_accepted` and told to `Claude::accepting_bypass`):
-a fresh config dir would otherwise ask again for the bypass-permissions
-warning she accepted, whose default answer ends the session; nothing else of
-her settings crosses. The terminal session (claude's and opencode's TUI) is
+is the USER'S OWN claude `settings.json` with ctxloom's values laid over it
+(owner ruling 169, reversing "nothing else of her settings crosses" of
+rulings 112 and 166): read from claude's config dir as claude finds it,
+`$CLAUDE_CONFIG_DIR` else `~/.claude` (the wiring's `claude_user_settings`,
+told to `Claude::over_user_settings` as a `run_ports::UserSettings`), its
+`permissions` replaced WHOLE by the agent's document (none: none of hers
+left either), everything else of hers kept (attribution, model,
+`effortLevel`, `env`, plugins, hooks, `statusLine`, and her
+`skipDangerousModePermissionPrompt`: ruling 166 is now a case of the copy).
+ctxloom's hooks and statusline stay in `ctxloom-hooks.json`, the
+`--settings` file, which outranks user scope. It is rewritten from hers at
+every launch (T21); no file of hers is a start from `{}`; one that is not a
+JSON object, or does not read, is left out (the home starts from `{}`) and
+said as the notice `library-application-notice-user-settings-left-out`
+naming its path (`Prepared::left_out`, `Launched::left_out`), never a
+refusal. Under `session_home: host` nothing is copied (the config dir IS
+hers, never written). No value of hers renders: `UserSettings`'s and
+`HomeFile`'s `Debug` show a path and a size alone (her `env` may hold a
+secret). Cost: her hooks fire in the session too, and an invalid value of
+hers disables the agent's permissions with them (one file, ruling 145's
+caveat). The terminal session (claude's and opencode's TUI) is
 also given `TERM` and `COLORTERM`, without which it draws in no colour; a
 child's turn is given neither. The session home's `ctxloom-hooks.json` calls `ctxloom
 hook claude-code execute <Event>`. The interactive home registers the session,
@@ -492,9 +506,10 @@ order it was written (`DryRun::permissions`, `library_application::json::
 document_text`), the order and the launcher hand it to `Engine::prepare`
 (`PrepareRequest::permissions`), and the config writer keeps it in its own
 order (`library::write::section::sorted_section`; the rest of the agents
-section is sorted as ever). engine-claude writes it as `{"permissions":
-<block>}`, the whole of the session home's user-scope `settings.json` (the
-home is the session's `CLAUDE_CONFIG_DIR`; `{}` with none), APART from
+section is sorted as ever). engine-claude writes it as the `permissions`
+of the session home's user-scope `settings.json`, over the user's own
+settings (ruling 169, above; the home is the session's `CLAUDE_CONFIG_DIR`;
+none of either, `{}`), APART from
 ctxloom's hooks, which are `ctxloom-hooks.json`, the file `--settings` names
 (owner ruling 145: claude 2.1.322 refuses a settings file whole for one
 invalid value, hooks included, so a bad value disables the block alone; the
@@ -508,8 +523,16 @@ passed, claude's mode is the document's `defaultMode`. A profile's
 `deny_tools` stays `permissions.deny` of the project's `.claude/settings.json`
 (surface apply), and claude merges the files' lists itself. engine-opencode writes the session home's `opencode.json`
 (`OPENCODE_CONFIG_DIR`, which opencode 1.18.4 reads after the project's) with
-the document as its `permission` object (`{}` with none, so no earlier run's
-lingers; read from the 1.18.4 bundle, not run live). A document that is not
+the document as its `permission` object (none, no `permission`, so no earlier
+run's lingers; read from the 1.18.4 bundle, not run live), over the user's
+own global config by analogy with claude's (ruling 169, an extension the
+owner is to confirm): `opencode.json` of `$XDG_CONFIG_HOME/opencode` when
+absolute, else `~/.config/opencode` (xdg-basedir, as its state directory;
+`engine_opencode::user_config_file`, the wiring's `opencode_user_config`,
+`Opencode::over_user_config`), its `permission` replaced whole, one that is
+not a JSON object (a JSONC file with comments among them) left out with the
+same notice; under `session_home: host` opencode reads hers itself and
+nothing is copied. Her `opencode.jsonc` and `config.json` are not read. A document that is not
 JSON is `run-ports-engine-bad-permissions` (ctxloom's own rendering, so a
 bug). Both files are rewritten whole from the order at EVERY launch (T21: a
 fresh session, a turn, a resume; neither is in `Engine::merges`), so an

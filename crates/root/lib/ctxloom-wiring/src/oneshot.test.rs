@@ -733,23 +733,28 @@ mod git_identity {
     }
 }
 
-// Owner ruling 166: the user's acceptance of claude's bypass-permissions
-// warning is read from her own claude settings, `$CLAUDE_CONFIG_DIR` when set,
-// else `~/.claude`: `true` there is an acceptance; none, or no file, is not.
-mod bypass_acceptance {
+// Owner ruling 169 (166 its special case): the session home's settings start
+// from the user's own claude `settings.json`, read from claude's config dir as
+// claude finds it, `$CLAUDE_CONFIG_DIR` when set, else `~/.claude`: her
+// acceptance of the bypass-permissions warning crosses with the rest of it.
+mod claude_user_settings {
     use std::sync::Arc;
 
     use process_env::EnvSnapshot;
 
-    use super::super::claude_bypass_accepted;
+    use super::super::claude_user_settings;
     use crate::fixtures::{mkdirs, put_mode, root};
     use crate::Wiring;
 
     const ACCEPTED: &str = r#"{"skipDangerousModePermissionPrompt": true}"#;
 
-    /// The answer under a home whose `.claude/settings.json` is `in_home` and
-    /// a `CLAUDE_CONFIG_DIR` whose settings are `in_config_dir`, when set.
-    fn asked(in_home: Option<&str>, in_config_dir: Option<Option<&str>>) -> bool {
+    /// What is read under a home whose `.claude/settings.json` is `in_home`
+    /// and a `CLAUDE_CONFIG_DIR` whose settings are `in_config_dir`, when set:
+    /// the bytes, and whether the path is under the config dir.
+    fn asked(
+        in_home: Option<&str>,
+        in_config_dir: Option<Option<&str>>,
+    ) -> Option<(Option<Vec<u8>>, bool)> {
         let dir = root();
         let home = dir.root().join("home");
         let config = dir.root().join("config");
@@ -767,23 +772,45 @@ mod bypass_acceptance {
         }
         let env = EnvSnapshot::of(pairs.iter().map(|(k, v)| (*k, v.as_str())));
         let wiring = Wiring::new(Arc::new(env)).unwrap();
-        claude_bypass_accepted(&wiring)
+        claude_user_settings(&wiring).map(|user| {
+            (
+                user.bytes,
+                user.path == config.join("settings.json").to_str().unwrap(),
+            )
+        })
     }
 
     #[test]
-    fn test_her_own_acceptance_is_read_from_her_home() {
-        assert!(asked(Some(ACCEPTED), None));
-        assert!(!asked(
-            Some(r#"{"skipDangerousModePermissionPrompt": false}"#),
-            None
-        ));
-        assert!(!asked(None, None));
+    fn test_her_own_settings_are_read_from_her_home_as_they_are() {
+        assert_eq!(
+            asked(Some(ACCEPTED), None),
+            Some((Some(ACCEPTED.as_bytes().to_vec()), false))
+        );
+        assert_eq!(
+            asked(Some("[not an object]"), None),
+            Some((Some(b"[not an object]".to_vec()), false))
+        );
+        assert_eq!(asked(None, None), None);
+    }
+
+    // A file that is there and cannot be read (here: a directory) is told as
+    // there and unread, so the run says it was left out.
+    #[test]
+    fn test_a_file_she_has_that_does_not_read_is_told_unread() {
+        let dir = root();
+        let home = dir.root().join("home");
+        mkdirs(home.join(".claude/settings.json"));
+        let env = EnvSnapshot::of([("HOME", home.to_str().unwrap())]);
+        let wiring = Wiring::new(Arc::new(env)).unwrap();
+        let user = claude_user_settings(&wiring).expect("there");
+        assert_eq!(user.bytes, None);
+        assert!(user.path.ends_with(".claude/settings.json"), "{user:?}");
     }
 
     // On Windows her home is USERPROFILE (the one home resolution,
     // `Wiring::user_home`), never a HOME Git Bash set.
     #[test]
-    fn test_on_windows_her_acceptance_is_read_under_her_profile() {
+    fn test_on_windows_her_settings_are_read_under_her_profile() {
         let dir = root();
         let profile = dir.root().join("profile");
         mkdirs(profile.join(".claude"));
@@ -794,13 +821,70 @@ mod bypass_acceptance {
         ])
         .with_flavor(os::Flavor::Windows);
         let wiring = Wiring::new(Arc::new(env)).unwrap();
-        assert!(claude_bypass_accepted(&wiring));
+        assert_eq!(
+            claude_user_settings(&wiring).and_then(|user| user.bytes),
+            Some(ACCEPTED.as_bytes().to_vec())
+        );
     }
 
     #[test]
-    fn test_a_config_dir_she_named_is_where_claude_reads_it() {
-        assert!(asked(None, Some(Some(ACCEPTED))));
-        assert!(!asked(Some(ACCEPTED), Some(None)));
+    fn test_a_config_dir_she_named_is_where_claude_reads_them() {
+        assert_eq!(
+            asked(None, Some(Some(ACCEPTED))),
+            Some((Some(ACCEPTED.as_bytes().to_vec()), true))
+        );
+        assert_eq!(asked(Some(ACCEPTED), Some(None)), None);
+    }
+}
+
+// Owner ruling 169, by analogy: the session home's `opencode.json` starts from
+// the user's own global one, read where opencode reads it
+// (`$XDG_CONFIG_HOME/opencode`, else `~/.config/opencode`).
+mod opencode_user_config {
+    use std::sync::Arc;
+
+    use process_env::EnvSnapshot;
+
+    use super::super::opencode_user_config;
+    use crate::fixtures::{mkdirs, put_mode, root};
+    use crate::Wiring;
+
+    const HERS: &str = r#"{"theme":"x"}"#;
+
+    fn asked(in_home: Option<&str>, in_config_home: Option<Option<&str>>) -> Option<Vec<u8>> {
+        let dir = root();
+        let home = dir.root().join("home");
+        let config = dir.root().join("xdg");
+        mkdirs(home.join(".config/opencode"));
+        mkdirs(config.join("opencode"));
+        if let Some(text) = in_home {
+            put_mode(home.join(".config/opencode/opencode.json"), text, 0o644);
+        }
+        let mut pairs = vec![("HOME", home.to_str().unwrap().to_string())];
+        if let Some(text) = in_config_home {
+            if let Some(text) = text {
+                put_mode(config.join("opencode/opencode.json"), text, 0o644);
+            }
+            pairs.push(("XDG_CONFIG_HOME", config.to_str().unwrap().to_string()));
+        }
+        let env = EnvSnapshot::of(pairs.iter().map(|(k, v)| (*k, v.as_str())));
+        let wiring = Wiring::new(Arc::new(env)).unwrap();
+        opencode_user_config(&wiring).and_then(|user| user.bytes)
+    }
+
+    #[test]
+    fn test_hers_is_read_from_her_home() {
+        assert_eq!(asked(Some(HERS), None), Some(HERS.as_bytes().to_vec()));
+        assert_eq!(asked(None, None), None);
+    }
+
+    #[test]
+    fn test_a_config_home_she_named_is_where_opencode_reads_it() {
+        assert_eq!(
+            asked(None, Some(Some(HERS))),
+            Some(HERS.as_bytes().to_vec())
+        );
+        assert_eq!(asked(Some(HERS), Some(None)), None);
     }
 }
 

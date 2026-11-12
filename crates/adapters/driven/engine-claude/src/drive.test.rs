@@ -1154,11 +1154,23 @@ fn the_terminal_session_is_told_the_terminal_and_its_colours() {
     assert!(!turn.env.contains_key("COLORTERM"), "{:?}", turn.env.keys());
 }
 
-/// A session-home `prepare` by a Claude told whether the user has accepted
-/// claude's bypass-permissions warning in her own settings.
-fn prepare_accepting(accepted: bool, session_home: run_ports::SessionHome) -> run_ports::Prepared {
+/// The user's own settings file, read, at a path of hers.
+fn users(text: &str) -> run_ports::UserSettings {
+    run_ports::UserSettings {
+        path: "/home/a/.claude/settings.json".to_string(),
+        bytes: Some(text.as_bytes().to_vec()),
+    }
+}
+
+/// A `prepare` by a Claude told the user's own settings (`user`), the agent's
+/// `permissions` given.
+fn prepare_over(
+    user: Option<run_ports::UserSettings>,
+    permissions: Option<&str>,
+    session_home: run_ports::SessionHome,
+) -> run_ports::Prepared {
     Claude::new()
-        .accepting_bypass(accepted)
+        .over_user_settings(user)
         .prepare(&PrepareRequest {
             home: "/h".to_string(),
             context: "c".to_string(),
@@ -1166,72 +1178,165 @@ fn prepare_accepting(accepted: bool, session_home: run_ports::SessionHome) -> ru
             interactive: true,
             cwd: None,
             existing: BTreeMap::new(),
-            permissions: Some(r#"{"defaultMode":"bypassPermissions"}"#.to_string()),
+            permissions: permissions.map(str::to_string),
             session_home,
         })
         .unwrap()
 }
 
-// Owner ruling 166: the session home is a fresh config dir, so claude would
-// ask again for the bypass-permissions warning the user already accepted in
-// her own settings (its default answer, "No, exit", ends the session). Her
-// acceptance, and nothing else of her settings, is carried into the home's
-// user-scope settings beside the agent's permissions; a user who never
-// accepted it is asked, as before.
+/// The session home's `settings.json`, parsed.
+fn home_settings(prepared: &run_ports::Prepared) -> surface_ports::Json {
+    surface_ports::Json::parse(&file_of(prepared, "settings.json").expect("settings.json")).unwrap()
+}
+
+fn doc(text: &str) -> surface_ports::Json {
+    surface_ports::Json::parse(text).unwrap()
+}
+
+// Owner ruling 169: the session home's user-scope settings are the user's
+// own, ctxloom's values laid over them: her attribution (and model, env,
+// plugins, hooks, statusline, ...) reach the session as she wrote them.
 #[test]
-fn the_users_acceptance_of_the_bypass_warning_is_carried_into_the_session_home() {
-    let carried = file_of(
-        &prepare_accepting(true, run_ports::SessionHome::Session),
-        "settings.json",
-    )
-    .unwrap();
+fn the_users_own_settings_are_the_session_homes_base() {
+    let prepared = prepare_over(
+        Some(users(
+            r#"{"attribution":{"commit":"","pr":""},"model":"opus","env":{"K":"v"}}"#,
+        )),
+        Some(r#"{"defaultMode":"acceptEdits"}"#),
+        run_ports::SessionHome::Session,
+    );
     assert_eq!(
-        surface_ports::Json::parse(&carried).unwrap(),
-        surface_ports::Json::parse(
-            r#"{"permissions":{"defaultMode":"bypassPermissions"},"skipDangerousModePermissionPrompt":true}"#
+        home_settings(&prepared),
+        doc(
+            r#"{"attribution":{"commit":"","pr":""},"model":"opus","env":{"K":"v"},"permissions":{"defaultMode":"acceptEdits"}}"#
         )
-        .unwrap()
     );
-    let asked = file_of(
-        &prepare_accepting(false, run_ports::SessionHome::Session),
-        "settings.json",
-    )
-    .unwrap();
-    assert!(
-        !asked.contains("skipDangerousModePermissionPrompt"),
-        "{asked}"
+    assert!(prepared.left_out.is_empty());
+}
+
+// Ruling 169: `permissions` is the agent's document WHOLE, never a merge with
+// hers; with no document, none of hers is left either.
+#[test]
+fn the_agents_permissions_replace_the_users_whole() {
+    let hers = r#"{"permissions":{"allow":["Bash(*)"],"defaultMode":"bypassPermissions"},"x":1}"#;
+    let prepared = prepare_over(
+        Some(users(hers)),
+        Some(r#"{"deny":["WebFetch"]}"#),
+        run_ports::SessionHome::Session,
     );
-    // Under `session_home: host` the config dir is her own, which already
-    // holds what she accepted: nothing of it is written anywhere.
-    let host = prepare_accepting(true, run_ports::SessionHome::Host);
-    for file in &host.files {
-        let text = String::from_utf8_lossy(&file.bytes);
-        assert!(
-            !text.contains("skipDangerousModePermissionPrompt"),
-            "{}",
-            file.rel
+    assert_eq!(
+        home_settings(&prepared),
+        doc(r#"{"permissions":{"deny":["WebFetch"]},"x":1}"#)
+    );
+    let none = prepare_over(Some(users(hers)), None, run_ports::SessionHome::Session);
+    assert_eq!(home_settings(&none), doc(r#"{"x":1}"#));
+}
+
+// Ruling 169 (and 166, now a case of it): her acceptance of claude's
+// bypass-permissions warning is in her settings, so it crosses with them,
+// and a session she already accepted it for is not asked again.
+#[test]
+fn the_users_acceptance_of_the_bypass_warning_crosses_with_her_settings() {
+    let prepared = prepare_over(
+        Some(users(r#"{"skipDangerousModePermissionPrompt":true}"#)),
+        Some(r#"{"defaultMode":"bypassPermissions"}"#),
+        run_ports::SessionHome::Session,
+    );
+    assert_eq!(
+        home_settings(&prepared),
+        doc(
+            r#"{"skipDangerousModePermissionPrompt":true,"permissions":{"defaultMode":"bypassPermissions"}}"#
+        )
+    );
+}
+
+// Ruling 169: a file that is not a JSON object (or that could not be read) is
+// left out, named, never a refusal: the home starts from nothing of hers.
+#[test]
+fn a_users_file_that_is_no_object_is_left_out_and_named() {
+    let unread = run_ports::UserSettings {
+        path: "/home/a/.claude/settings.json".to_string(),
+        bytes: None,
+    };
+    for user in [users("[1]"), users("not json"), users(""), unread] {
+        let prepared = prepare_over(
+            Some(user.clone()),
+            Some(r#"{"defaultMode":"acceptEdits"}"#),
+            run_ports::SessionHome::Session,
+        );
+        assert_eq!(
+            home_settings(&prepared),
+            doc(r#"{"permissions":{"defaultMode":"acceptEdits"}}"#),
+            "{user:?}"
+        );
+        assert_eq!(
+            prepared.left_out,
+            vec![run_ports::LeftOut {
+                engine: "claude-code".to_string(),
+                path: "/home/a/.claude/settings.json".to_string(),
+            }],
+            "{user:?}"
         );
     }
 }
 
-// Only a `true` is an acceptance: anything else, or a file that does not
-// read, is none.
+// Ruling 169: no file of hers is a start from `{}`, and nothing to say.
 #[test]
-fn only_a_true_skip_in_the_users_settings_is_an_acceptance() {
-    use crate::drive::accepts_bypass;
-    assert!(accepts_bypass(
-        r#"{"skipDangerousModePermissionPrompt": true, "x": 1}"#
-    ));
-    for text in [
-        r#"{"skipDangerousModePermissionPrompt": false}"#,
-        r#"{"skipDangerousModePermissionPrompt": "true"}"#,
-        r#"{"permissions": {"skipDangerousModePermissionPrompt": true}}"#,
-        r#"{}"#,
-        "[true]",
-        "not json",
-        "",
-    ] {
-        assert!(!accepts_bypass(text), "{text}");
+fn a_missing_users_file_is_a_start_from_nothing() {
+    let prepared = prepare_over(
+        None,
+        Some(r#"{"defaultMode":"acceptEdits"}"#),
+        run_ports::SessionHome::Session,
+    );
+    assert_eq!(
+        home_settings(&prepared),
+        doc(r#"{"permissions":{"defaultMode":"acceptEdits"}}"#)
+    );
+    assert!(prepared.left_out.is_empty());
+    let bare = prepare_over(None, None, run_ports::SessionHome::Session);
+    assert_eq!(file_of(&bare, "settings.json").as_deref(), Some("{}\n"));
+}
+
+// T21 and ruling 169: the home's settings are rewritten whole from hers at
+// every launch (a file `prepare` writes, never one it merges into), so an
+// edit of hers reaches the next launch and the session's own edit does not
+// survive it.
+#[test]
+fn the_users_settings_are_copied_afresh_at_every_launch() {
+    assert!(!Claude::new().merges().contains(&"settings.json"));
+    let first = prepare_over(
+        Some(users(r#"{"model":"opus"}"#)),
+        None,
+        run_ports::SessionHome::Session,
+    );
+    let second = prepare_over(
+        Some(users(r#"{"model":"sonnet"}"#)),
+        None,
+        run_ports::SessionHome::Session,
+    );
+    assert_eq!(home_settings(&first), doc(r#"{"model":"opus"}"#));
+    assert_eq!(home_settings(&second), doc(r#"{"model":"sonnet"}"#));
+}
+
+// Ruling 169: under `session_home: host` the config dir IS hers, never
+// written: nothing of her settings is copied anywhere, and nothing is said.
+#[test]
+fn under_a_host_home_nothing_of_her_settings_is_copied() {
+    for user in [users(r#"{"attribution":{"commit":"MARK"}}"#), users("[1]")] {
+        let prepared = prepare_over(
+            Some(user),
+            Some(r#"{"defaultMode":"acceptEdits"}"#),
+            run_ports::SessionHome::Host,
+        );
+        assert_eq!(file_of(&prepared, "settings.json"), None);
+        assert!(prepared.left_out.is_empty());
+        for file in &prepared.files {
+            assert!(
+                !String::from_utf8_lossy(&file.bytes).contains("MARK"),
+                "{}",
+                file.rel
+            );
+        }
     }
 }
 

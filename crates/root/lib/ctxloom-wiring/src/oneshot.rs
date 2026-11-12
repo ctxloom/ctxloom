@@ -146,11 +146,12 @@ impl<'a> OneShots<'a> {
         let program = crate::program::running();
         let claude: Arc<dyn Engine> = Arc::new(
             engine_claude::Claude::calling(&program.name)
-                .accepting_bypass(claude_bypass_accepted(wiring)),
+                .over_user_settings(claude_user_settings(wiring)),
         );
         let opencode: Arc<dyn Engine> = Arc::new(
             engine_opencode::Opencode::calling(&program.name)
-                .seeding_model(opencode_recent_models(wiring)),
+                .seeding_model(opencode_recent_models(wiring))
+                .over_user_config(opencode_user_config(wiring)),
         );
         // The run locks: this run's own, and those another process's runs
         // are judged by (rulings 86, 92, 93).
@@ -222,23 +223,46 @@ pub(crate) fn git_user(wiring: &Wiring, project_dir: &Path) -> Option<run_ports:
     })
 }
 
-/// Whether the user accepted claude's bypass-permissions warning in her own
-/// claude settings (owner ruling 166): the `settings.json` of claude's config
-/// dir as claude finds it, `$CLAUDE_CONFIG_DIR` when set, else `~/.claude`
-/// (her home as [`Wiring::user_home`] resolves it, `USERPROFILE` on Windows).
-/// No home, no file, or one that does not read is no acceptance.
-pub(crate) fn claude_bypass_accepted(wiring: &Wiring) -> bool {
+/// The user's own claude `settings.json` (owner ruling 169), which a session
+/// home's settings start from: in claude's config dir as claude finds it,
+/// `$CLAUDE_CONFIG_DIR` when set, else `~/.claude` (her home as
+/// [`Wiring::user_home`] resolves it, `USERPROFILE` on Windows). No home, or
+/// no file, is none; a file there that does not read is told unread.
+pub(crate) fn claude_user_settings(wiring: &Wiring) -> Option<run_ports::UserSettings> {
     let dir = match wiring.env().non_empty("CLAUDE_CONFIG_DIR") {
         Some(dir) => std::path::PathBuf::from(dir),
-        None => match wiring.user_home() {
-            Some(home) => home.join(".claude"),
-            None => return false,
-        },
+        None => wiring.user_home()?.join(".claude"),
     };
-    wiring
-        .fs()
-        .read_to_string(&dir.join("settings.json"))
-        .is_ok_and(|text| engine_claude::accepts_bypass(&text))
+    user_settings(wiring, &dir.join("settings.json"))
+}
+
+/// The user's own global opencode config (owner ruling 169, by analogy with
+/// claude's): where opencode reads it ([`engine_opencode::user_config_file`]),
+/// in the caller's environment, under her home as [`Wiring::user_home`]
+/// resolves it. No home, or no file, is none.
+pub(crate) fn opencode_user_config(wiring: &Wiring) -> Option<run_ports::UserSettings> {
+    let config = wiring
+        .env()
+        .non_empty("XDG_CONFIG_HOME")
+        .and_then(|v| v.to_str());
+    let home = wiring.user_home();
+    let home = home.as_deref().and_then(Path::to_str);
+    let file = engine_opencode::user_config_file(home, config, wiring.os_name())?;
+    user_settings(wiring, Path::new(&file))
+}
+
+/// The file at `path` as an engine is told it: none when nothing is there,
+/// its bytes when it reads, and unread otherwise.
+fn user_settings(wiring: &Wiring, path: &Path) -> Option<run_ports::UserSettings> {
+    let bytes = match wiring.fs().read(path) {
+        Ok(bytes) => Some(bytes),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(_) => None,
+    };
+    Some(run_ports::UserSettings {
+        path: path_text(path),
+        bytes,
+    })
 }
 
 /// The user's own opencode `model.json`, as read (owner ruling 167): where

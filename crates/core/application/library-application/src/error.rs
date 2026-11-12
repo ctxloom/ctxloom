@@ -421,6 +421,10 @@ pub enum Notice {
     /// An agent that names no engine had settings written into the default
     /// engine's block (owner ruling 68): `block` is `engines.<engine>`.
     DefaultEngineBlock { agent: String, block: String },
+    /// The user's own settings of `engine` at `path` are not a JSON object
+    /// (or could not be read), so a session home started without them
+    /// (owner ruling 169): by path, never their content.
+    UserSettingsLeftOut { engine: String, path: String },
 }
 
 impl Notice {
@@ -460,6 +464,7 @@ impl Diagnostic for Notice {
             Notice::LoadoutProbeFailed { .. } => code!("loadout-probe-failed"),
             Notice::LoadoutUnparseable { .. } => code!("loadout-unparseable"),
             Notice::DefaultEngineBlock { .. } => code!("notice-default-engine-block"),
+            Notice::UserSettingsLeftOut { .. } => code!("notice-user-settings-left-out"),
             Notice::RuntimeOverride { change, .. } => match change {
                 library::config::engines::Change::Weakens => code!("notice-runtime-weakens"),
                 library::config::engines::Change::Strengthens => {
@@ -517,6 +522,10 @@ impl Diagnostic for Notice {
             Notice::DefaultEngineBlock { agent, block } => vec![
                 ("agent", agent.as_str().into()),
                 ("block", block.as_str().into()),
+            ],
+            Notice::UserSettingsLeftOut { engine, path } => vec![
+                ("engine", engine.as_str().into()),
+                ("path", path.as_str().into()),
             ],
         }
     }
@@ -703,6 +712,10 @@ fn notice_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(Notice::DefaultEngineBlock {
             agent: s("p"),
             block: s("engines.claude-code"),
+        }),
+        Box::new(Notice::UserSettingsLeftOut {
+            engine: s("claude-code"),
+            path: s("/home/u/.claude/settings.json"),
         }),
         Box::new(runtime_override(library::config::engines::Change::Weakens)),
         Box::new(runtime_override(

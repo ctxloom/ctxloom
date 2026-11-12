@@ -312,6 +312,38 @@ async fn an_engines_seed_is_written_once_and_one_there_is_left_as_it_is() {
     );
 }
 
+// Owner ruling 169: a user settings file the engine left out of the home is
+// reported with the launch, by path, for the run to say.
+#[tokio::test]
+async fn what_the_engine_left_out_of_the_home_is_reported_with_the_launch() {
+    let mut rig = rig(
+        ScriptedEngine::answering("A", None).leaving_out(),
+        ScriptedRunner::exits(0),
+        orders_with(order("fake")),
+    );
+    enqueued(&rig.edge, SESSION, HARP).await;
+    let launched = rig.step().await;
+    assert_eq!(launched.len(), 1);
+    assert_eq!(
+        launched[0].left_out,
+        [run_ports::LeftOut {
+            engine: "fake".to_string(),
+            path: crate::fakes::LEFT_OUT.to_string(),
+        }]
+    );
+    let mut plain = rig_plain();
+    enqueued(&plain.edge, SESSION, HARP).await;
+    assert!(plain.step().await[0].left_out.is_empty());
+}
+
+fn rig_plain() -> Rig {
+    rig(
+        ScriptedEngine::answering("A", None),
+        ScriptedRunner::exits(0),
+        orders_with(order("fake")),
+    )
+}
+
 #[tokio::test]
 async fn no_known_git_identity_seeds_no_gitconfig() {
     let mut rig = rig(
@@ -459,6 +491,7 @@ async fn a_failed_turn_is_recorded_with_its_class_and_says_nothing_in_the_transc
             native_id: None,
         },
         refuses_to_drive: false,
+        left_out: Vec::new(),
     };
     let mut rig = rig(engine, ScriptedRunner::exits(1), orders_with(order("fake")));
     enqueued(&rig.edge, SESSION, HARP).await;
@@ -520,6 +553,7 @@ async fn each_failure_class_is_the_runs_own() {
                 native_id: None,
             },
             refuses_to_drive: false,
+            left_out: Vec::new(),
         };
         let mut rig = rig(engine, ScriptedRunner::exits(0), orders_with(order("fake")));
         enqueued(&rig.edge, SESSION, HARP).await;

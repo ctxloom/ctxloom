@@ -117,6 +117,16 @@ impl Origin {
             }
         }
         git(&self.work, &["add", "-A"]);
+        // The bit is committed as asked, on a host that keeps none on disk
+        // too (Windows, where git takes no mode from the file).
+        for (path, _, executable) in files {
+            let chmod = if *executable {
+                "--chmod=+x"
+            } else {
+                "--chmod=-x"
+            };
+            git(&self.work, &["update-index", chmod, path]);
+        }
         git(&self.work, &["commit", "-q", "-m", "commit"]);
         git(&self.work, &["push", "-q", "origin", "main"]);
         git(&self.work, &["rev-parse", "HEAD"])

@@ -36,6 +36,22 @@ fn kept(bits: u32) -> Option<u32> {
     (os::host().flavor() == os::Flavor::Unix).then_some(bits)
 }
 
+/// Whether the host links to a file (unix's symlink); Windows' links are
+/// directories' (a junction), which the product never makes to a login there
+/// (it copies one: ruling 80), so the test that reads a login through a link
+/// is skipped, and says so.
+fn links_files() -> bool {
+    if os::host().flavor() == os::Flavor::Unix {
+        return true;
+    }
+    let test = std::thread::current();
+    eprintln!(
+        "SKIP {}: the host links directories only, and a login is a file",
+        test.name().unwrap_or("a test")
+    );
+    false
+}
+
 /// Whether a look under a file fails otherwise than "not found" (unix's
 /// ENOTDIR); Windows reports such a path as not found, so the test (or the
 /// part of it) that tells the two apart is skipped, and says so: `SKIP
@@ -543,6 +559,9 @@ fn a_login_file_is_present_by_its_metadata_and_a_directory_or_gap_is_not() {
 
 #[test]
 fn linking_makes_the_homes_file_a_link_to_the_login_and_says_so() {
+    if !links_files() {
+        return;
+    }
     let (fs, mut dirs) = dirs();
     login(&fs);
     assert_eq!(

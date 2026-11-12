@@ -613,6 +613,17 @@ fn test_the_walk_stops_at_the_temporary_directory_itself_and_below_it_only() {
     let mut spelled = around(None, "/tmp/work");
     spelled.temp_root = PathBuf::from("/tmp/");
     assert_eq!(find_app_dir(&*fs, &spelled).source, Source::Home);
+    // nor does a spelling that names it only once resolved (Windows' short
+    // and long names of one directory; here a `..`, and a link to it)
+    dir(&fs, "/tmp/sub");
+    let mut spelled = around(None, "/tmp/work");
+    spelled.temp_root = PathBuf::from("/tmp/sub/..");
+    assert_eq!(find_app_dir(&*fs, &spelled).source, Source::Home);
+    fs.symlink_dir(Path::new("/tmp"), Path::new("/temp-link"))
+        .unwrap();
+    let mut linked = around(None, "/tmp/work");
+    linked.temp_root = PathBuf::from("/temp-link");
+    assert_eq!(find_app_dir(&*fs, &linked).source, Source::Home);
 }
 
 #[test]

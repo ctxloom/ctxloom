@@ -109,7 +109,7 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
       And the daemon's output goes to "~/.ctxloom/daemon/daemon.log"
 
     Scenario: Two commands started at once start one daemon between them
-      # new: the election.
+      # new: the single-instance lock.
       Given an initialized ctxloom project
       And no ctxloom daemon is serving for this home
       When two commands are run at once, "ctxloom session list" and "ctxloom bundle list"

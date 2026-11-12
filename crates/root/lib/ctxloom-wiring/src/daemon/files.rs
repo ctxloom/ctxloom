@@ -1,4 +1,4 @@
-//! The user daemon's files under the ctxloom home (D-N23): the election lock,
+//! The user daemon's files under the ctxloom home (D-N23): the single-instance lock,
 //! the discovery file (0600), the stop request, and a launching client's
 //! hand-off of a child's environment (0600, D-N45: taken by the daemon at the
 //! child's start). Every one through the
@@ -57,16 +57,17 @@ impl DaemonFiles {
         self.dir.join(name)
     }
 
-    /// The election (D18, S-e): the lock whoever serves holds for its life,
-    /// waited for up to `wait`; none when another holds it still. It is the
-    /// election ALONE (M11): whether a daemon serves is its health check
+    /// The single-instance lock (D18, S-e): one daemon per OS account, the
+    /// lock whoever serves holds for its life,
+    /// waited for up to `wait`; none when another holds it still. It says
+    /// only that one daemon serves (M11): whether a daemon serves is its health check
     /// (`daemon::live`), never this lock.
-    pub(crate) fn elect(&self, wait: Duration) -> Option<Locked> {
+    pub(crate) fn hold_instance(&self, wait: Duration) -> Option<Locked> {
         lock_within(self.fs.as_ref(), &self.path(DAEMON_LOCK_FILE), wait).ok()
     }
 
     /// The daemon's directory, made if missing and held to 0700 whoever made
-    /// it (the election's lock may have, with the default mode; an older
+    /// it (the single-instance lock may have, with the default mode; an older
     /// install's may be wider). Windows has no modes (M8).
     fn private_dir(&self) -> std::io::Result<()> {
         self.fs

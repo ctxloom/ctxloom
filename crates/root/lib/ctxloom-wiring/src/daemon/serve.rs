@@ -1,12 +1,12 @@
 //! `ctxloom daemon serve`: the user's daemon (D18), one per user, over the
 //! ONE store that holds every project's streams (T14). Only the holder of
-//! the election lock serves (S-e: the one policy runner).
+//! the single-instance lock serves (S-e: the one policy runner).
 //!
 //! This is composition alone (T18): the launcher is `daemon-application`'s
 //! [`Daemon`], given its ports here (the engine registry, the child's plan by
 //! its project's dry run, the hand-off files, the session directories, the
 //! pump that hears each child, the run locks and the tokens). What stays
-//! here is the root's: the election, the runtime, the store and its core
+//! here is the root's: the single-instance lock, the runtime, the store and its core
 //! (the read models registered in its kernel, S32), the listener and its
 //! certificate, the discovery file, and the pace: the launcher's start
 //! (the orphan sweep) first, then a round at the first commit through this
@@ -14,7 +14,7 @@
 //! interval, whichever is first (another process's commit reaches no
 //! in-process signal, so the poll stays, S-N4). The daemon exits when asked
 //! (`daemon stop`), when another daemon's discovery replaced its own (it
-//! lost the election), or once it has hosted nothing, had nothing to do and
+//! lost the single-instance lock), or once it has hosted nothing, had nothing to do and
 //! known no run started and not ended (M9: any process's) for its idle
 //! time.
 
@@ -41,8 +41,8 @@ use session_files::SessionDirs;
 use super::files::DaemonFiles;
 use crate::{InProcessCore, Projectors};
 
-/// How long a daemon starting waits for the election.
-const ELECTION_WAIT: Duration = Duration::from_secs(5);
+/// How long a daemon starting waits for the single-instance lock.
+const INSTANCE_WAIT: Duration = Duration::from_secs(5);
 
 /// Where the daemon is: the ctxloom home, the temporary root, the
 /// operating system's name, the user's own home (`Wiring::user_home`) and
@@ -71,7 +71,7 @@ fn said(say: &Say, line: &str) {
     (say.lock().unwrap_or_else(PoisonError::into_inner))(line);
 }
 
-/// Run the daemon in this process until it exits: elected, served,
+/// Run the daemon in this process until it exits: the instance held, served,
 /// advertised, swept, then ticking. `say` is its log.
 pub(crate) fn serve(
     fs: Arc<dyn Fs>,
@@ -88,8 +88,8 @@ pub(crate) fn serve(
     } = place;
     let home = home.as_path();
     let files = DaemonFiles::new(Arc::clone(&fs), home);
-    let Some(_elected) = files.elect(ELECTION_WAIT) else {
-        return Err("another daemon holds the election".to_string());
+    let Some(_held) = files.hold_instance(INSTANCE_WAIT) else {
+        return Err("another daemon holds the single-instance lock".to_string());
     };
     files.clear_stop();
     let say: Say = Arc::new(Mutex::new(say));
@@ -229,7 +229,7 @@ fn launcher(
 /// Tick until the daemon is asked to stop, another daemon's discovery
 /// replaced its own (`own`, in `files`), or it has had nothing to do for its
 /// idle time. A discovery file that is gone is published again: the daemon
-/// still holds the election, and a client finds it by the file (M11).
+/// still holds the single-instance lock, and a client finds it by the file (M11).
 async fn run<E: run_ports::Edge, T: run_ports::TokenSource>(
     launcher: &mut Daemon<E, T>,
     core: &InProcessCore<SqliteStore>,
@@ -298,9 +298,9 @@ enum Advertised {
     /// Its own advertisement: nothing to do.
     Ours,
     /// None (removed, or its home's directory removed): it advertises
-    /// itself again, since it still holds the election.
+    /// itself again, since it still holds the single-instance lock.
     Gone,
-    /// Another daemon's: it lost the election (its lock file was replaced),
+    /// Another daemon's: it lost the single-instance lock (its lock file was replaced),
     /// so it exits.
     Replaced,
 }

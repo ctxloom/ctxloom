@@ -22,9 +22,9 @@ message Discovery {
   // the file as unreadable and treats the daemon as absent.
   uint32 format = 1;
 
-  // The daemon's process id. A client that finds the election lock free
-  // treats the file as stale whatever this says (the pid is for `daemon
-  // status` and the log, never a liveness proof: rulings 85, 86).
+  // The daemon's process id, for `daemon status` and the log, never a
+  // liveness proof (rulings 85, 86): a daemon is live when it answers the
+  // health check (T16, M11), whatever this says.
   uint32 pid = 2;
 
   // `https://127.0.0.1:<port>`: TLS only, never port 0 (run-ports'

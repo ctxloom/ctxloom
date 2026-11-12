@@ -506,7 +506,7 @@ fn logger(fs: Arc<dyn Fs>, path: PathBuf) -> Box<dyn FnMut(&str) + Send> {
 
 /// Whether the daemon `found` names is live (T16, M11): it answers the
 /// standard health check over the certificate it advertised, pinned, within
-/// [`HEALTH_WAIT`]. The election's lock says nothing of it.
+/// [`HEALTH_WAIT`]. The single-instance lock says nothing of it.
 fn live(found: &run_ports::Discovery) -> bool {
     hook_sink_grpc::serving(&found.endpoint, &found.cert, HEALTH_WAIT)
 }
@@ -523,7 +523,7 @@ pub(crate) fn discovery(env: &Arc<EnvSnapshot>) -> Option<run_ports::Discovery> 
 
 /// Make sure the user's daemon serves: spawn one when none is live, and
 /// wait, within [`SPAWN_WAIT`], for a live one to advertise itself (the one
-/// spawned, or another client's, whichever won the election). A stale file
+/// spawned, or another client's, whichever took the single-instance lock). A stale file
 /// is left for the new daemon to publish over. A daemon that cannot be
 /// spawned is not this command's failure (what it recorded stands; the next
 /// client spawns one).

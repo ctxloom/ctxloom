@@ -823,7 +823,7 @@ composes claude and opencode, and nothing in the launcher names an adapter),
 `ChildPlans` (the child's project's dry run on its own engine), `HandOffs`,
 `ChildHomes`, `Ears` (the root pumps each child's observations off a thread:
 no thread in the core), `RunLocks`, `TokenSource` and the edge.
-`ctxloom-wiring/src/daemon/serve.rs` only composes it, with the election,
+`ctxloom-wiring/src/daemon/serve.rs` only composes it, with the single-instance lock,
 the runtime, the store and its core, the listener, the discovery file and
 the pace.
 
@@ -843,7 +843,7 @@ stream the daemon reaches. It advertises itself in the discovery file,
 public certificate (DER), the user bearer, the pid and the binary's FULL
 versionator stamp (M3; the stamp `ctxloom version` says, threaded from the
 binary, never `CARGO_PKG_VERSION`). The file is 0600 and the daemon
-directory 0700, tightened on each publish whoever made it (the election's
+directory 0700, tightened on each publish whoever made it (the single-instance
 lock may have); on Windows the platform sets no mode and the profile's
 inherited ACL stands (M8). It keeps other users out, not the user's own
 processes. `Discovery`'s `Debug` withholds the bearer, and the daemon's log
@@ -871,17 +871,17 @@ Check SERVING (T16, M11: `hook-sink-grpc`'s `serving`, tonic-health's
 client and messages, a direct dependency at the version the lock already
 held for angzarr's server, over TLS pinning the certificate the discovery
 file names, presenting no bearer, within the wiring's `HEALTH_WAIT`, one
-second). The election's lock (`daemon.lock`, `DaemonFiles::elect`) is the
-election ALONE: `daemon status`, `daemon stop`, a hook's rediscovery and a
+second). The single-instance lock (`daemon.lock`, `DaemonFiles::hold_instance`)
+says only that one daemon serves: `daemon status`, `daemon stop`, a hook's rediscovery and a
 client's `ensure` all ask the health check, never the lock, so a daemon that
 holds the lock and does not answer (stopped, hung) is not serving, and a
 stale port another process took is never handed anything. A serving daemon
 looks at its discovery file each tick: gone, it publishes it again (it still
-holds the election); naming another daemon (its lock file was replaced, and
-another won), it exits, and withdraws only its OWN advertisement
+holds the single-instance lock); naming another daemon (its lock file was replaced, and
+another took it), it exits, and withdraws only its OWN advertisement
 (`DaemonFiles::withdraw_own`), never the other's. A client with no live
 daemon spawns `ctxloom daemon serve` and waits for a live one to advertise
-itself (the one spawned or another client's, whichever won the election)
+itself (the one spawned or another client's, whichever took the single-instance lock)
 within `SPAWN_WAIT`, eight seconds: S16's ten (`HOOK_BOUND`) less a
 delivery's two (`DELIVERY_MARGIN`). A stale file is left for the new daemon
 to publish over. The spawned daemon's environment is `daemon_env`'s: `HOME`,

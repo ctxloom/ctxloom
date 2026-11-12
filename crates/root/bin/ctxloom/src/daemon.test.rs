@@ -528,10 +528,10 @@ fn signal(pid: u32, signal: &str) {
 }
 
 // T16, M11: liveness is the health check over the pinned certificate, not
-// the election's lock: a daemon that holds the lock but does not answer
+// the single-instance lock: a daemon that holds the lock but does not answer
 // (stopped) is not serving.
 #[test]
-fn a_daemon_that_holds_the_election_but_does_not_answer_is_not_serving() {
+fn a_daemon_that_holds_the_instance_lock_but_does_not_answer_is_not_serving() {
     if !files::runs_scripts() {
         return;
     }
@@ -552,8 +552,8 @@ fn a_daemon_that_holds_the_election_but_does_not_answer_is_not_serving() {
     let _ = daemon.wait();
 }
 
-// M11: the lock is the election alone. A daemon whose discovery file is
-// removed still holds the election, so it advertises itself again (it no
+// M11: the lock is the single-instance lock alone. A daemon whose discovery
+// file is removed still holds the lock, so it advertises itself again (it no
 // longer exits for want of one).
 #[test]
 fn a_daemon_whose_discovery_file_is_removed_advertises_itself_again() {
@@ -579,7 +579,7 @@ fn a_daemon_whose_discovery_file_is_removed_advertises_itself_again() {
 }
 
 // M11: a daemon whose discovery file names ANOTHER daemon has lost the
-// election, so it exits, and leaves the other's file as it is.
+// single-instance lock, so it exits, and leaves the other's file as it is.
 #[test]
 fn a_daemon_whose_discovery_file_names_another_exits_and_leaves_it() {
     let world = World::new();

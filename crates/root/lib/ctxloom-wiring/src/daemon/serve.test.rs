@@ -88,9 +88,9 @@ fn a_line_said_reaches_the_log() {
     assert_eq!(*lines.lock().unwrap(), ["serving"]);
 }
 
-// M11: the lock is the election alone; the discovery file is how a daemon
+// M11: the lock is the single-instance lock alone; the discovery file is how a daemon
 // is found. Its own is left be, one gone is published again (it still holds
-// the election), and another daemon's means this one lost it.
+// the single-instance lock), and another daemon's means this one lost it.
 #[test]
 fn a_daemon_keeps_its_advertisement_republishes_a_gone_one_and_yields_to_anothers() {
     let own = run_ports::Discovery {

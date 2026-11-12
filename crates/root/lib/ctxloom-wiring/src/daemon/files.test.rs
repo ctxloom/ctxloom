@@ -29,14 +29,19 @@ fn sample() -> Discovery {
 }
 
 #[test]
-fn the_election_is_one_holder_at_a_time() {
+fn the_single_instance_lock_is_one_holder_at_a_time() {
     let (root, home) = home();
     let files = files(&root, &home);
-    let held = files.elect(Duration::ZERO).expect("the first elected");
-    assert!(files.elect(Duration::ZERO).is_none(), "a second is not");
+    let held = files
+        .hold_instance(Duration::ZERO)
+        .expect("the first holds it");
+    assert!(
+        files.hold_instance(Duration::ZERO).is_none(),
+        "a second is not"
+    );
     drop(held);
     assert!(
-        files.elect(Duration::ZERO).is_some(),
+        files.hold_instance(Duration::ZERO).is_some(),
         "the lock dies with its holder"
     );
     assert!(files.dir().ends_with(".ctxloom/daemon"));
@@ -83,13 +88,13 @@ fn a_daemon_withdraws_its_own_advertisement_and_never_anothers() {
     files.withdraw_own(&sample());
 }
 
-// The election's lock makes the directory first, with the default mode: the
+// The single-instance lock makes the directory first, with the default mode: the
 // publish holds it to 0700 all the same.
 #[test]
 fn the_discovery_is_published_into_a_private_directory_whoever_made_it() {
     let (root, home) = home();
     let files = files(&root, &home);
-    let _held = files.elect(Duration::ZERO).expect("elected");
+    let _held = files.hold_instance(Duration::ZERO).expect("held");
     files.publish(&sample()).unwrap();
     if os::host().flavor() == os::Flavor::Unix {
         let fs = fixtures::fs();

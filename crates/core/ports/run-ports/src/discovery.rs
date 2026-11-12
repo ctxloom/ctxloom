@@ -24,7 +24,8 @@ use crate::token::Token;
 /// The daemon's directory under the ctxloom home.
 pub const DAEMON_DIR: &str = ".ctxloom/daemon";
 
-/// The election lock: whoever holds it serves (D18; the platform's file lock).
+/// The single-instance lock: whoever holds it serves, one daemon per OS
+/// account (D18; the platform's file lock).
 pub const DAEMON_LOCK_FILE: &str = "daemon.lock";
 
 /// The discovery file the serving daemon writes, 0600.

@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use auth_application::Auth;
 use ctxloom_ports::{ConfigFiles, Executables, Failure, GitIdentity, Scope, Source, UserFiles};
+use library_application::LegacyGo;
 use serde::Serialize;
 
 use crate::checks::{self, Check, Status};
@@ -141,10 +142,16 @@ impl Doctor {
             .map(|layer| layer.text);
         let layers = self.layer_texts();
         let settings = self.present(&self.settings_paths());
-        let mut stale = Vec::new();
+        let mut go_era = Vec::new();
         for (file, text) in &settings {
-            stale.extend(hooks::go_era(text).into_iter().map(|s| (file.clone(), s)));
+            go_era.extend(hooks::go_era(text).into_iter().map(|s| (file.clone(), s)));
         }
+        // Ruling 162: a Go-era entry is Go ctxloom's while it is present, and
+        // stale once it is retired.
+        let (stale, left_alone) = match self.legacy_go() {
+            LegacyGo::Retired => (go_era, Vec::new()),
+            LegacyGo::Present => (Vec::new(), go_era),
+        };
         let mcp = self.present(&self.mcp_paths());
         let mcp_and_settings: Vec<(String, String)> =
             mcp.into_iter().chain(settings.iter().cloned()).collect();
@@ -161,7 +168,6 @@ impl Doctor {
             None => Vec::new(),
         };
         let refused = self.refusal();
-        let go_era = checks::go_era_hooks(&[]);
         let mut report = Report {
             checks: vec![
                 checks::setup_marker(
@@ -180,8 +186,25 @@ impl Doctor {
                 checks::ingestion(),
             ],
         };
-        report.checks.extend(go_era);
+        // The Go-era rows follow the stale row; the stated limit stays last.
+        let at = report.checks.len() - 1;
         report
+            .checks
+            .splice(at..at, checks::go_era_hooks(&left_alone));
+        report
+    }
+
+    /// Whether Go ctxloom still runs here (`legacy.go`), read as a run reads
+    /// the config; a config no run can read retires nothing, so Go is then
+    /// present and its hooks are never removed.
+    fn legacy_go(&self) -> LegacyGo {
+        library_application::load_config(
+            self.config.as_ref(),
+            &[],
+            &library_application::Flags::default(),
+            &mut Vec::new(),
+        )
+        .map_or(LegacyGo::Present, |config| config.legacy_go())
     }
 
     /// What every run would refuse the config with, read as a run reads it
@@ -225,9 +248,14 @@ impl Doctor {
     }
 
     /// `--fix`: take every stale hook entry out of the engine's project and
-    /// user settings, and nothing else; what went.
+    /// user settings, and nothing else; what went. A Go-era entry is stale
+    /// only once Go ctxloom is retired (ruling 162): while it is present,
+    /// nothing is touched.
     pub fn fix(&self) -> Result<Vec<Removed>, Failure> {
         let mut removed = Vec::new();
+        if self.legacy_go() == LegacyGo::Present {
+            return Ok(removed);
+        }
         for (shown, path) in self.settings_paths() {
             let Some(text) = self.text(&path) else {
                 continue;

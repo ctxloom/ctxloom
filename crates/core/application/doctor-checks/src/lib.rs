@@ -13,7 +13,8 @@
 //! | `HOOKS-TRUST-d4` | ctxloom's hooks registered with the engine (the trust store half is dead since ADR 0037) |
 //! | `GITIGNORE-f6` | no blanket `.ctxloom` ignore rule |
 //! | `MCP-INVOCATION-g7` | no settings file launches a ctxloom MCP server that does not exist |
-//! | `STALE-HOOKS-n5` | no hook entry runs a `ctxloom hook` subcommand this ctxloom lacks |
+//! | `STALE-HOOKS-n5` | no hook entry runs a `ctxloom hook` subcommand this ctxloom lacks (a Go-era one only once `legacy.go: retired`) |
+//! | `GO-ERA-HOOK-n6` | one `info` row per Go-era hook entry, left alone while `legacy.go: present` (owner ruling 162) |
 //! | `INGESTION-q7` | the stated limit: whether the engine reads what ctxloom wrote |
 //!
 //! Left out here: the run-end and

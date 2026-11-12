@@ -376,7 +376,7 @@ pub fn mcp_invocation(files: &[(String, String)]) -> Check {
 }
 
 /// `STALE-HOOKS-n5`: hook entries running a `ctxloom hook` subcommand this
-/// ctxloom does not have.
+/// ctxloom does not have: the Go-era ones, once Go ctxloom is retired.
 pub fn stale_hooks(stale: &[(String, Stale)]) -> Check {
     const M: &str = "DOCTOR-CHECK-STALE-HOOKS-n5";
     const N: &str = "stale hook entries";
@@ -399,9 +399,25 @@ pub fn stale_hooks(stale: &[(String, Stale)]) -> Check {
     row(M, N, Status::Warn, &detail, "ctxloom doctor --fix")
 }
 
-/// `GO-ERA-HOOK-n6`: each Go-era entry left alone (red stub).
-pub fn go_era_hooks(_entries: &[(String, Stale)]) -> Vec<Check> {
-    Vec::new()
+/// `GO-ERA-HOOK-n6` (owner ruling 162): while Go ctxloom is present
+/// (`legacy.go`), each Go-era hook entry is its own `info` row, left alone:
+/// it may be a live hook of the Go ctxloom that shares the user's settings.
+pub fn go_era_hooks(entries: &[(String, Stale)]) -> Vec<Check> {
+    entries
+        .iter()
+        .map(|(file, entry)| {
+            row(
+                "DOCTOR-CHECK-GO-ERA-HOOK-n6",
+                "Go-era hook",
+                Status::Info,
+                &format!(
+                    "Go-era hook, left alone: {} runs `ctxloom hook {}` ({file}); Go ctxloom is present (legacy.go), and the hook is its own",
+                    entry.event, entry.sub
+                ),
+                "once Go ctxloom is gone, set `legacy.go: retired` in the home config; then `ctxloom doctor --fix` removes it",
+            )
+        })
+        .collect()
 }
 
 /// `INGESTION-q7`: the one thing no check can confirm.

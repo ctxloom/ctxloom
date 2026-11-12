@@ -435,6 +435,11 @@ fn doctor_fix_removes_a_stale_entry_and_names_it_on_the_error_stream() {
         r#"{"hooks":{"SessionStart":[{"hooks":[{"command":"ctxloom hook inject-context abc"}]}]}}"#;
     let r = go(&["doctor", "--fix"], Format::Text, |w, f| {
         token(w, f);
+        // Ruling 162: a Go-era entry is stale once Go ctxloom is retired.
+        w.config
+            .lock()
+            .unwrap()
+            .push("schema_version: 9\nlegacy:\n  go: retired\n".to_string());
         w.files
             .lock()
             .unwrap()

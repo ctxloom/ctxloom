@@ -1120,6 +1120,7 @@ prerelease, no `schema_version` bump: each old key is an ordinary unknown key
 | `sync.auto_sync` | `sync.on_run: none\|missing` | `missing` |
 | `permissions.network: true\|false` (and an agent's) | deleted (ruling 134), with `approver`, `approval_timeout`, `sandbox` | |
 | `output_dir` (top level, unread) | `output.dir` | `ctxloom/` |
+| (new, ruling 162) | `legacy.go: present\|retired` (home config only) | `present` |
 
 The scaffold writes no `config:` section; `manage statusline install|
 uninstall` writes `ctxloom`/`none`. Output JSON may keep booleans for yes/no
@@ -1132,6 +1133,25 @@ pull). A session's outputs are `<project root>/<output.dir>/<harp>`
 rename moves the folder. A first init at a terminal asks for `output.dir`
 before the interview (suggesting `ctxloom/`, saying outputs are committable)
 and writes the answer.
+
+`legacy.go` (owner ruling 162) says whether Go ctxloom still runs on this
+machine beside this one; both write hook entries into the user's shared
+`~/.claude/settings.json`. It is the HOME config's alone: a project layer that
+says it is refused (`library::config::schema::HOME_ONLY` and
+`take_home_only`, a `breaks the schema` violation naming the home config,
+exit 20; under `--degraded` it is said and dropped, never read). Doctor's
+stale-hooks check (`DOCTOR-CHECK-STALE-HOOKS-n5`, doctor-checks' `hooks.rs`)
+calls a hook entry Rust-era when it is EXACTLY `ctxloom hook <engine> execute
+<Event>` (one command line, or `command: ctxloom` with the words in `args`, as
+`prepare` and the surface write it), and Go-era otherwise (`ctxloom hook
+stamp-plan`, `session-bind`, the older `hook <verb> --engine` ...). Under
+`present` each Go-era entry is an `info` row of its own,
+`DOCTOR-CHECK-GO-ERA-HOOK-n6` ("Go-era hook, left alone", its event, command
+and file; shown by `doctor --all` and in json), and `--fix` touches nothing;
+under `retired` they are stale (the warn row) and `--fix` removes them. A
+Rust-era entry is never stale. Doctor reads the key as a run reads the config;
+a config no run can read counts as `present`, so a broken config never lets
+`--fix` delete Go's hooks.
 
 ctxloom has no posture of its own (owner ruling 134, superseding rulings 59,
 70, 106-109 and 125 as far as permissions go): the launch no longer judges a

@@ -770,6 +770,12 @@ angzarr-embedded's `sqlite` feature), opened at
 file name, the placement and the port, over ctxloom-lib's `sqlite-store-opener`,
 which refuses a store from before the embedded store, `ctxloom.db.pre-embedded`
 naming its backup), beside taskloom's `state.db` and never the same file (D26).
+The store is its owner's alone (owner ruling 2026-11-12): every open, to
+write or to read, sets ctxloom's home `.ctxloom` 0700 (`ctxloom-store-sqlite`)
+and the store's directory 0700 and its file, `-wal` and `-shm` 0600 (the
+opener's), so an existing store open to others is tightened on its next open;
+a mode that cannot be set fails the open (`sqlite-store-opener-restrict`). On
+Windows no mode is set: the profile's ACL holds it (ruling M8).
 A store is closed, never dropped, where its file matters after (ruling 131):
 angzarr-embedded's `SqliteStore::close` waits for the connection's close, so
 the last close's checkpoint and the log's removal are over when it returns

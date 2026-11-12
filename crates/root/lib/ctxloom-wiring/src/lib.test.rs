@@ -49,7 +49,10 @@ use std::sync::Arc;
 use ::process_env::EnvSnapshot;
 
 use super::{LibError, Wiring};
-use crate::fixtures::{canonical, exists, fs, mkdirs, put_mode, remove_dir, root, runs_scripts};
+use crate::fixtures::{
+    canonical, exists, fs, home_var, mkdirs, put_mode, remove_dir, removes_its_cwd, root,
+    runs_scripts, temp_var,
+};
 
 /// The version stamp the wiring's tests build their commands with.
 pub(crate) const VERSION: &str = "v0.1.0-abc1234";
@@ -136,8 +139,11 @@ struct Env {
 }
 
 impl Env {
-    /// A world of the test's own: `<dir>/home` as HOME, and none of the
-    /// variables the wiring reads set.
+    /// A world of the test's own: `<dir>/home` as the home (the host's home
+    /// variable, `HOME` or `USERPROFILE`), `<dir>` itself as the temporary
+    /// directory (so no walk up from the work directory looks above the
+    /// test's own, whatever the host's temporary directory is spelled as),
+    /// and none of the variables the wiring reads set.
     fn new(_name: &str) -> Env {
         let held = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let temp = root();
@@ -151,7 +157,8 @@ impl Env {
             dir,
             _held: held,
         };
-        env.set("HOME", env.dir.join("home"));
+        env.set(home_var(), env.dir.join("home"));
+        env.set(temp_var(), env.dir.clone());
         // An enclosing ctxloom session's variables, whatever they are, then
         // the rest the wiring reads.
         let enclosing: Vec<String> = std::env::vars_os()
@@ -290,13 +297,16 @@ fn test_no_home_is_refused_naming_the_variable_whether_unset_or_empty() {
 fn test_a_home_that_is_not_utf_8_is_taken_as_it_is() {
     let mut env = Env::new("homebytes");
     let odd = os::not_unicode("/h");
-    env.set("HOME", &odd);
+    env.set(home_var(), &odd);
     let wiring = from_process().ok().unwrap();
     assert_eq!(wiring.home().as_os_str(), odd.as_os_str());
 }
 
 #[test]
 fn test_the_wiring_is_made_though_the_working_directory_is_gone_and_surroundings_say_dot() {
+    if !removes_its_cwd() {
+        return;
+    }
     let env = Env::new("nocwd");
     let gone = env.dir.join("gone");
     mkdirs(&gone);
@@ -309,7 +319,7 @@ fn test_the_wiring_is_made_though_the_working_directory_is_gone_and_surroundings
 #[test]
 fn test_the_surroundings_are_the_root_variable_the_cwd_the_home_and_the_temp_dir() {
     let mut env = Env::new("around");
-    env.set("TMPDIR", env.dir.join("tmp"));
+    env.set(temp_var(), env.dir.join("tmp"));
     let wiring = from_process().ok().unwrap();
     let around = wiring.surroundings();
     assert_eq!(around.root_env, None, "unset");
@@ -392,7 +402,7 @@ fn test_locating_stops_at_the_temp_dir_the_variable_names() {
     // the temporary directory is `work` itself, and has an app dir: not a project
     mkdirs(env.work().join(".ctxloom"));
     mkdirs(env.work().join("sub"));
-    env.set("TMPDIR", env.work());
+    env.set(temp_var(), env.work());
     std::env::set_current_dir(env.work().join("sub")).unwrap();
     let wiring = from_process().ok().unwrap();
     let (_, app) = wiring.locate();
@@ -481,6 +491,42 @@ fn test_a_name_with_a_separator_is_that_file_and_the_path_is_not_searched() {
     // A relative name with a separator is not looked for in the PATH's
     // directories either.
     assert_eq!(search.find("./tool"), None);
+}
+
+// A Windows search finds a command by PATHEXT's extensions (`git` is
+// `git.exe`), each directory in turn, in PATHEXT's order; unix's by the name
+// alone.
+#[test]
+fn test_a_windows_search_finds_a_command_by_its_pathext_extensions() {
+    let env = Env::new("pathext");
+    let (first, second) = (env.dir.join("first"), env.dir.join("second"));
+    executable(&first, "tool.cmd", 0o755);
+    executable(&second, "git.exe", 0o755);
+    executable(&second, "tool.exe", 0o755);
+    let search = |flavor: os::Flavor| super::library::PathSearch {
+        fs: fs(),
+        dirs: vec![first.clone(), second.clone()],
+        flavor,
+        // Lower case: the extensions are tried as written, and this host may
+        // tell case apart (Windows does not).
+        pathext: Some(".exe;.cmd".to_string()),
+    };
+    let windows = search(os::Flavor::Windows);
+    assert_eq!(
+        windows.find("git"),
+        Some(second.join("git.exe").display().to_string())
+    );
+    assert_eq!(
+        windows.find("tool"),
+        Some(first.join("tool.cmd").display().to_string()),
+        "the first directory with any of the names wins"
+    );
+    assert_eq!(
+        windows.find("git.exe"),
+        Some(second.join("git.exe").display().to_string())
+    );
+    assert_eq!(search(os::Flavor::Unix).find("git"), None);
+    drop(env);
 }
 
 #[test]

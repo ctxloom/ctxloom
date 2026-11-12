@@ -114,7 +114,7 @@ fn test_an_mcp_edit_that_changes_nothing_or_breaks_the_server_leaves_it_alone() 
 fn test_a_name_the_bundle_lacks_is_created_as_a_remote_server() {
     let project = Project::initialized();
     demo_with_tools(&project, "mcp set fixture");
-    let manifest = project.dir().join(DEMO).join("bundle.yaml");
+    let manifest = project.shown(&format!("{DEMO}/bundle.yaml"));
     let ran = project.run(&[
         "mcp",
         "server",
@@ -136,7 +136,7 @@ fn test_a_name_the_bundle_lacks_is_created_as_a_remote_server() {
     assert_eq!(reports_as(&doc, "status"), "created");
     assert_eq!(reports_as(&doc, "bundle"), "demo");
     assert_eq!(reports_as(&doc, "name"), "search");
-    assert_eq!(reports_as(&doc, "path"), manifest.to_string_lossy());
+    assert_eq!(reports_as(&doc, "path"), manifest);
     // Go's bytes.
     assert_eq!(
         project.read(&format!("{DEMO}/mcp/search.yaml")).as_deref(),

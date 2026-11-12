@@ -228,7 +228,6 @@ fn origin(reference: &str) -> RemoteOrigin {
         url: "file:///srv/o.git".to_string(),
         sha: "a".repeat(40),
         files: std::collections::BTreeMap::new(),
-        executable: std::collections::BTreeSet::new(),
     }
 }
 

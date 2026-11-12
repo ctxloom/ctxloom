@@ -62,6 +62,36 @@ impl Fixture {
     }
 }
 
+/// Whether the host keeps modes (unix), which the test of a written file's
+/// mode reads back; elsewhere it is skipped, and says so: `SKIP <test>:
+/// <why>`.
+fn keeps_modes() -> bool {
+    if os::host().flavor() == os::Flavor::Unix {
+        return true;
+    }
+    let test = std::thread::current();
+    eprintln!(
+        "SKIP {}: it reads a file's mode back, and the host keeps none",
+        test.name().unwrap_or("a test")
+    );
+    false
+}
+
+/// Whether a look under a file fails otherwise than "not found" (unix's
+/// ENOTDIR); Windows reports such a path as not found, so the test that
+/// tells the two apart is skipped, and says so.
+fn tells_a_path_through_a_file() -> bool {
+    if os::host().flavor() == os::Flavor::Unix {
+        return true;
+    }
+    let test = std::thread::current();
+    eprintln!(
+        "SKIP {}: the host reports a path through a file as not found",
+        test.name().unwrap_or("a test")
+    );
+    false
+}
+
 fn section(path: &str, text: &str) -> Claim {
     Claim::Section {
         path: path.into(),
@@ -421,6 +451,9 @@ fn test_a_foreign_record_that_cannot_be_read_is_an_error() {
 
 #[test]
 fn test_inspecting_a_path_through_a_file_is_an_error_not_missing() {
+    if !tells_a_path_through_a_file() {
+        return;
+    }
     let f = Fixture::new();
     f.put("a.txt", "x");
     assert!(matches!(
@@ -431,6 +464,9 @@ fn test_inspecting_a_path_through_a_file_is_an_error_not_missing() {
 
 #[test]
 fn test_a_written_file_keeps_its_mode_or_takes_the_mode_asked_for() {
+    if !keeps_modes() {
+        return;
+    }
     let f = Fixture::new();
     let fs = &*f.fs;
     // New: 0644, or 0755 when executable.

@@ -141,8 +141,7 @@ fn test_a_forced_pull_reinstalls_each_reference_at_its_pin() {
         .installed_at(&demo_ref(), &sha)
         .expect("the pinned tree");
     assert!(
-        String::from_utf8_lossy(&tree["fragments/demo-frag.md"].data)
-            .contains("Demo fragment content.")
+        String::from_utf8_lossy(&tree["fragments/demo-frag.md"]).contains("Demo fragment content.")
     );
 }
 
@@ -768,4 +767,28 @@ fn test_a_profile_naming_the_built_in_bundle_pulls_nothing() {
     assert!(report.unreachable.is_empty());
     assert_eq!(report.installed, 0);
     assert!(fx.files.lock_text().is_none(), "nothing to lock");
+}
+
+// Owner ruling 2026-11-12: what the disclosure calls executable is what the
+// skills' sidecars declare, never the mode a publisher committed.
+#[test]
+fn test_the_disclosure_takes_executability_from_the_sidecar_alone() {
+    use deps_ports::RepoTree;
+    let tree: RepoTree = [
+        ("bundle.yaml", ENVELOPE.1),
+        ("skills/s/SKILL.md", "---\nname: s\n---\n"),
+        ("skills/s/go", "#!/bin/sh\n"),
+        ("skills/.s.meta.yaml", "executable:\n  - go\n"),
+    ]
+    .into_iter()
+    .map(|(path, text)| (path.to_string(), text.as_bytes().to_vec()))
+    .collect();
+    let disclosed = super::disclosed(&tree);
+    let executable: Vec<&str> = disclosed
+        .iter()
+        .filter(|(_, f)| f.executable)
+        .map(|(path, _)| path.as_str())
+        .collect();
+    assert_eq!(executable, ["skills/s/go"]);
+    assert_eq!(disclosed["skills/s/go"].data, b"#!/bin/sh\n");
 }

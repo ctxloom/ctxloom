@@ -6,7 +6,7 @@
 //! `editor-process`, `companion-probe`) does, and hands the text and the bytes
 //! over.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use angzarr_diagnostic::Diagnostic;
 
@@ -67,11 +67,6 @@ pub trait ContentRepo {
     /// Where the bundle's `bundle.yaml` is, as the user is shown it.
     fn manifest_path(&self, name: &str) -> String;
 
-    /// The files of the bundle's tree that carry an execute bit, by their
-    /// path relative to the bundle: what a skill package's listing reports
-    /// as its mode.
-    fn executable_files(&self, name: &str) -> Result<BTreeSet<String>, Failure>;
-
     /// Apply `changes` to the tree of the bundle `name`, in order, each file
     /// written atomically and its directories made. A path that is absolute,
     /// climbs out of the bundle or goes through a link is refused before
@@ -103,9 +98,10 @@ pub trait UserFiles {
     /// The file's bytes.
     fn read_file(&self, path: &str) -> Result<Vec<u8>, Failure>;
 
-    /// Every file below the directory, by path below it, sorted, with its
-    /// execute bit; links are not followed.
-    fn read_tree(&self, dir: &str) -> Result<Vec<Put>, Failure>;
+    /// Every file below the directory, by path below it; links are not
+    /// followed. No mode is read: a file's executability is its skill
+    /// sidecar's to say (owner ruling 2026-11-12).
+    fn read_tree(&self, dir: &str) -> Result<TreeFiles, Failure>;
 
     /// The file written whole, its directories made. With `overwrite` false
     /// nothing is replaced: the answer is false and nothing is written when
@@ -312,14 +308,24 @@ pub trait ProjectCache {
 
 /// Whether `name` is a slash-separated relative path of plain segments: not
 /// empty, not absolute, and no empty, `.` or `..` segment, so it cannot climb
-/// out of the directory it is joined to. An adapter adds what its own
-/// filesystem also refuses (a backslash, a NUL).
+/// out of the directory it is joined to. The same on every host: a backslash
+/// (Windows' separator, so `a\..\b` would climb there) and a drive prefix
+/// (`C:`, rooted there) are refused on Linux too. An adapter adds what its
+/// own filesystem also refuses (a NUL).
 pub fn is_plain_relative(name: &str) -> bool {
     !name.is_empty()
         && !name.starts_with('/')
+        && !name.contains('\\')
+        && !has_drive_prefix(name)
         && !name
             .split('/')
             .any(|part| part.is_empty() || part == "." || part == "..")
+}
+
+/// Whether `name` starts with a Windows drive, a letter and a colon.
+fn has_drive_prefix(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
 }
 
 #[cfg(test)]

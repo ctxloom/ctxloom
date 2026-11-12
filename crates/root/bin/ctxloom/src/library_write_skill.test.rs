@@ -66,8 +66,10 @@ fn create_reviewer(project: &Project) {
         .succeeds();
 }
 
-// skill.feature: Scenario: Alice authors a skill package and its listing and
-// show reflect the real tree (the create: Go's SKILL.md, bytes and answers)
+// skill.feature's dropped Scenario: Alice authors a skill package and its
+// listing and show reflect the real tree (the create: Go's SKILL.md, bytes and
+// answers; the rule named the mode on disk the truth, which owner ruling
+// 2026-11-12 contradicts: the sidecar says)
 #[test]
 fn test_alice_authors_a_skill_package_and_its_listing_and_show_reflect_the_real_tree() {
     for flags in FORMATS {
@@ -85,13 +87,13 @@ fn test_alice_authors_a_skill_package_and_its_listing_and_show_reflect_the_real_
             flags,
         );
         ran.succeeds();
-        let dir = project.dir().join(VAULT).join("skills/reviewer");
+        let dir = project.shown(&format!("{VAULT}/skills/reviewer"));
         if is_text(flags) {
             assert_eq!(
                 ran.stdout,
                 format!(
                     "Created skill \"reviewer\" in bundle \"vault\"\n  {0}\nEdit {0}/SKILL.md to describe the skill\n",
-                    dir.display()
+                    dir
                 )
             );
         } else {
@@ -99,7 +101,7 @@ fn test_alice_authors_a_skill_package_and_its_listing_and_show_reflect_the_real_
             assert_eq!(reports_as(&doc, "status"), "created");
             assert_eq!(reports_as(&doc, "bundle"), "vault");
             assert_eq!(reports_as(&doc, "name"), "reviewer");
-            assert_eq!(reports_as(&doc, "dir"), dir.to_string_lossy());
+            assert_eq!(reports_as(&doc, "dir"), dir);
         }
         assert_eq!(
             project.read(&format!("{VAULT}/skills/reviewer/SKILL.md")).as_deref(),
@@ -267,13 +269,13 @@ fn test_a_skills_files_survive_export_and_import_byte_for_byte() {
             flags,
         );
         imported.succeeds();
-        let dir = project.dir().join(LANDED).join("skills/reviewer");
+        let dir = project.shown(&format!("{LANDED}/skills/reviewer"));
         if is_text(flags) {
             assert_eq!(
                 imported.stdout,
                 format!(
                     "Imported skill \"reviewer\" into bundle \"landed\" (3 file(s))\n  {}\n",
-                    dir.display()
+                    dir
                 )
             );
         } else {
@@ -281,7 +283,7 @@ fn test_a_skills_files_survive_export_and_import_byte_for_byte() {
             assert_eq!(reports_as(&doc, "status"), "imported");
             assert_eq!(reports_as(&doc, "bundle"), "landed");
             assert_eq!(reports_as(&doc, "name"), "reviewer");
-            assert_eq!(reports_as(&doc, "dir"), dir.to_string_lossy());
+            assert_eq!(reports_as(&doc, "dir"), dir);
             assert_eq!(reports_as(&doc, "file_count"), "3");
         }
         assert_eq!(
@@ -295,9 +297,11 @@ fn test_a_skills_files_survive_export_and_import_byte_for_byte() {
             &format!("{LANDED}/skills/.reviewer.meta.yaml"),
             "scripts/run.sh",
         );
-        assert!(project.is_executable(&format!("{LANDED}/skills/reviewer/scripts/run.sh")));
-        assert!(!project.is_executable(&format!("{LANDED}/skills/reviewer/SKILL.md")));
-        assert!(!project.is_executable(&format!("{LANDED}/skills/reviewer/assets/blob.bin")));
+        if files::keeps_exec_bits_for("the landed files' execute bits on disk") {
+            assert!(project.is_executable(&format!("{LANDED}/skills/reviewer/scripts/run.sh")));
+            assert!(!project.is_executable(&format!("{LANDED}/skills/reviewer/SKILL.md")));
+            assert!(!project.is_executable(&format!("{LANDED}/skills/reviewer/assets/blob.bin")));
+        }
         project.file_is_absent("reviewer.zip.bak");
         project.run(&["bundle", "view", "landed"]).succeeds();
         let _ = files::fs().remove_file(&project.dir().join("reviewer.zip"));
@@ -309,6 +313,9 @@ fn test_a_skills_files_survive_export_and_import_byte_for_byte() {
 // as a plain file, and lands as one.
 #[test]
 fn test_an_exec_bit_on_disk_but_not_in_the_sidecar_does_not_travel() {
+    if !files::keeps_exec_bits() {
+        return;
+    }
     let project = project_with_bundles();
     create_reviewer(&project);
     add_script(&project, "SCRIPT-MARKER-reviewer-2b7e40", false);

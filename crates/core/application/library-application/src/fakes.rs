@@ -63,7 +63,6 @@ struct State {
     layers: Vec<LayerText>,
     project: Option<usize>,
     home: Option<usize>,
-    executables: BTreeSet<String>,
     user: BTreeMap<String, File>,
     scaffold: BTreeMap<String, File>,
     /// Every mutating call, in order.
@@ -333,15 +332,6 @@ impl ContentRepo for Mem {
         format!("/p/.ctxloom/content/bundles/v2/{name}/bundle.yaml")
     }
 
-    fn executable_files(&self, name: &str) -> Result<BTreeSet<String>, Failure> {
-        let state = self.lock();
-        let mut out: BTreeSet<String> = state.executables.clone();
-        if let Some(tree) = state.trees.get(name) {
-            out.extend(tree.iter().filter(|(_, f)| f.exec).map(|(p, _)| p.clone()));
-        }
-        Ok(out)
-    }
-
     fn apply(&self, name: &str, changes: &[Change]) -> Result<(), Failure> {
         let mut state = self.lock();
         if let Some(why) = state.refuse_apply.take() {
@@ -469,18 +459,15 @@ impl UserFiles for Mem {
         }
     }
 
-    fn read_tree(&self, dir: &str) -> Result<Vec<Put>, Failure> {
+    fn read_tree(&self, dir: &str) -> Result<TreeFiles, Failure> {
         let state = self.lock();
         let prefix = format!("{dir}/");
-        let found: Vec<Put> = state
+        let found: TreeFiles = state
             .user
             .iter()
             .filter_map(|(p, f)| {
-                p.strip_prefix(&prefix).map(|rest| Put {
-                    path: rest.to_string(),
-                    bytes: f.bytes.clone(),
-                    executable: f.exec,
-                })
+                p.strip_prefix(&prefix)
+                    .map(|rest| (rest.to_string(), f.bytes.clone()))
             })
             .collect();
         if found.is_empty() {
@@ -622,6 +609,9 @@ pub struct Setup<'a> {
     pub home_only: bool,
     /// The project has no bundles directory.
     pub no_root: bool,
+    /// Bundle files whose mode on disk is executable: what no read takes
+    /// (a skill's sidecar says, owner ruling 2026-11-12), so a test can show
+    /// it is not read.
     pub executable: &'a [&'a str],
     pub path: &'a [(&'a str, &'a str)],
     pub environ: &'a [(&'a str, &'a str)],
@@ -644,7 +634,6 @@ impl Setup<'_> {
             layers: Vec::new(),
             project: None,
             home: None,
-            executables: self.executable.iter().map(ToString::to_string).collect(),
             user: BTreeMap::new(),
             scaffold: BTreeMap::new(),
             log: Vec::new(),
@@ -662,7 +651,11 @@ impl Setup<'_> {
             refuse_apply: None,
         };
         for (name, files) in self.bundles {
-            state.trees.insert((*name).to_string(), tree_of(files));
+            let mut tree = tree_of(files);
+            for (path, file) in &mut tree {
+                file.exec = self.executable.contains(&path.as_str());
+            }
+            state.trees.insert((*name).to_string(), tree);
         }
         for (i, text) in self.layers.iter().enumerate() {
             state.layers.push(LayerText {

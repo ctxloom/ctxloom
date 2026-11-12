@@ -1,7 +1,7 @@
 //! The bundles the project authors: read, removed, and copied elsewhere.
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use deps_ports::{CopyOutcome, Why};
 use file_system::{Kind, Perms};
@@ -12,16 +12,25 @@ use crate::ProjectFiles;
 /// Where bundles are below an app dir.
 const BUNDLES: &str = "content/bundles/v2";
 
+/// Whether `name` is no bundle's path below the bundles directory: empty,
+/// with a `.` step, or anything but plain names once the host has read it as
+/// a path (a `..` step, a root: `/x`, and on Windows `\x` or `C:x`, which a
+/// join would put outside the directory, as it would an absolute path).
+fn climbs(name: &str) -> bool {
+    name.is_empty()
+        || name.split('/').any(|part| part == ".")
+        || Path::new(name)
+            .components()
+            .any(|part| !matches!(part, Component::Normal(_) | Component::CurDir))
+}
+
 /// The directory of the authored bundle `name`; why it is none if the name
 /// climbs out of the bundles directory.
 fn tree_of(files: &ProjectFiles, name: &str) -> Result<PathBuf, Why> {
-    let climbs = name.is_empty()
-        || Path::new(name).is_absolute()
-        || name.split('/').any(|part| part == ".." || part == ".");
-    if climbs {
+    if climbs(name) {
         return Err(format!("{name:?} is not the name of a bundle"));
     }
-    Ok(files.app_dir.join(BUNDLES).join(name))
+    Ok(crate::below(&crate::below(&files.app_dir, BUNDLES), name))
 }
 
 pub(crate) fn manifest(files: &ProjectFiles, name: &str) -> Result<Option<String>, Why> {
@@ -75,11 +84,11 @@ pub(crate) fn remove(files: &ProjectFiles, name: &str) -> Result<(), Why> {
 fn destination(files: &ProjectFiles, dir: &str) -> PathBuf {
     let dir = Path::new(dir);
     if dir.file_name().is_some_and(|n| n == ".ctxloom") {
-        return dir.join(BUNDLES);
+        return crate::below(dir, BUNDLES);
     }
     let app = dir.join(".ctxloom");
     if files.kind_of(&app) == Some(Kind::Dir) {
-        return app.join(BUNDLES);
+        return crate::below(&app, BUNDLES);
     }
     dir.to_path_buf()
 }
@@ -91,7 +100,7 @@ pub(crate) fn copy(
     contents: &BTreeMap<String, Vec<u8>>,
     force: bool,
 ) -> Result<CopyOutcome, Why> {
-    let target = destination(files, dir).join(name);
+    let target = crate::below(&destination(files, dir), name);
     let shown = target.display().to_string();
     let own = tree_of(files, name)?;
     let same = |a: &Path, b: &Path| match (files.fs.canonicalize(a), files.fs.canonicalize(b)) {

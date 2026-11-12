@@ -836,7 +836,15 @@ fn test_import_skips_a_directory_whose_name_is_no_harp() {
     let body = GO_SIDECARS[0]
         .1
         .replace("/work/proj", &work_root.display().to_string());
-    files::put(home.session_dir("has:colon").join("session.yaml"), &body);
+    // A leading space is no harp on every host; a `:` is none either, but
+    // Windows makes no directory of it.
+    let mut not_harps = vec![" leading-space"];
+    if os::host().flavor() == os::Flavor::Unix {
+        not_harps.push("has:colon");
+    }
+    for name in not_harps {
+        files::put(home.session_dir(name).join("session.yaml"), &body);
+    }
     let ran = home.run(&["session", "import"]);
     assert_eq!(ran.code, 0, "{}", ran.said());
     let report = ran.json();

@@ -166,13 +166,20 @@ impl Engine for Opencode {
             }
             None => None,
         };
+        // Under a session home the config starts from her own global one
+        // (owner ruling 169); under a host home opencode reads hers itself.
+        let (base, left_out) = match request.session_home {
+            SessionHome::Session => home::user_base(self.user_config.as_ref()),
+            SessionHome::Host => (surface_ports::Json::Object(Vec::new()), None),
+        };
         Ok(Prepared {
             files: home::files(
                 &request.context,
-                &home::config(permissions.as_ref()),
+                &home::config(base, permissions.as_ref()),
                 &self.program,
             ),
-            // Nothing of the user's own opencode configuration crosses.
+            // No file of the user's own opencode configuration crosses as
+            // it is (her config is the base of the home's, above).
             copy_in: Vec::new(),
             // Of her state, her recent models alone, once, where the
             // relocated state directory is (owner ruling 167); under a host
@@ -185,6 +192,7 @@ impl Engine for Opencode {
                 _ => Vec::new(),
             },
             context_path: format!("{}/{CONTEXT_FILE}", request.home),
+            left_out: left_out.into_iter().collect(),
         })
     }
 

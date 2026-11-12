@@ -50,9 +50,11 @@ fn test_only_the_bundle_noun_gains_the_publishing_verbs() {
     }
 }
 
-/// A world of the test's own: HOME and the working directory in a directory
-/// of the test's own, the root and project variables unset, the rest of the
-/// process's environment as it is. The program reads it as a snapshot, so
+/// A world of the test's own: the home (the host's home variable, `HOME` or
+/// `USERPROFILE`), the working directory and the temporary directory in a
+/// directory of the test's own (the temporary one being that directory, so
+/// no walk up from the work directory looks above it), the root and project
+/// variables unset, the rest of the process's environment as it is. The program reads it as a snapshot, so
 /// the process's own environment is never touched.
 pub(crate) struct World {
     _root: file_system::Rooted,
@@ -74,27 +76,31 @@ impl World {
             base,
             vars: Vec::new(),
         };
+        let flavor = world.base.flavor();
+        let unset = [
+            crate::fixtures::home_var(),
+            "CTXLOOM_ROOT",
+            "CTXLOOM_PROJECT_ID",
+            "CLAUDE_CODE_OAUTH_TOKEN",
+        ]
+        .map(|name| flavor.env_key(name));
         world.vars = world
             .base
             .vars()
             .filter(|(name, _)| {
-                [
-                    "HOME",
-                    "CTXLOOM_ROOT",
-                    "CTXLOOM_PROJECT_ID",
-                    "CLAUDE_CODE_OAUTH_TOKEN",
-                ]
-                .iter()
-                .all(|unset| name != &std::ffi::OsStr::new(unset))
+                name.to_str()
+                    .is_none_or(|name| !unset.contains(&flavor.env_key(name)))
             })
             .map(|(name, value)| (name.to_os_string(), value.to_os_string()))
             .collect();
-        world.set("HOME", world.dir.join("home"));
+        world.set(crate::fixtures::home_var(), world.dir.join("home"));
         world
     }
 
     pub(crate) fn set(&mut self, name: &str, value: impl Into<std::ffi::OsString>) {
-        self.vars.retain(|(set, _)| set != name);
+        let (flavor, key) = (self.base.flavor(), self.base.flavor().env_key(name));
+        self.vars
+            .retain(|(set, _)| set.to_str().is_none_or(|set| flavor.env_key(set) != key));
         self.vars.push((name.into(), value.into()));
     }
 
@@ -118,7 +124,7 @@ impl World {
         Arc::new(EnvSnapshot::from_parts(
             self.base.flavor(),
             Ok(self.dir.join("work")),
-            self.base.temp_dir().to_path_buf(),
+            self.dir.clone(),
             self.vars.clone(),
         ))
     }
@@ -228,11 +234,19 @@ fn test_a_setup_command_is_run_over_the_home() {
     let (code, out, _) = run_line(&mut world.commands(), &["clean"]);
     assert_eq!(code, 0);
     assert!(out.contains("\"applied\": false"), "{out}");
-    let home = world.dir.join("home").display().to_string();
-    assert!(
-        out.contains(&format!("\"path\": \"{home}/.ctxloom/cache/bundles\"")),
-        "{out}"
-    );
+    // The target below the home's app dir, joined as the platform joins it
+    // (owner ruling 2026-11-12); in JSON, where a Windows path's `\` is
+    // escaped.
+    let path = world
+        .dir
+        .join("home")
+        .join(".ctxloom")
+        .join("cache")
+        .join("bundles")
+        .display()
+        .to_string()
+        .replace('\\', "\\\\");
+    assert!(out.contains(&format!("\"path\": \"{path}\"")), "{out}");
 }
 
 // The sweep's purge age is read from the configuration of the project the

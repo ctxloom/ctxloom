@@ -12,14 +12,66 @@ use session_ports::{SessionFiles, Timestamp};
 
 use super::SessionDirs;
 
-const HOME: &str = "/home/u";
+/// `path`, absolute and spelled the unix way (`/home/u`), as this host
+/// spells it (`C:\home\u` on Windows): what the adapter is handed and shows
+/// back. A fixture's own write may stay unix-spelled, since the rooted
+/// filesystem re-roots both spellings at one place.
+fn host_path(path: &str) -> String {
+    os::host().flavor().from_top(path)
+}
+
+/// The home Go's sessions are under.
+fn home() -> String {
+    host_path("/home/u")
+}
+
 /// A project directory: its sessions are `<project>/.ctxloom/sessions`.
-const PROJECT: &str = "/work/proj";
+fn project() -> String {
+    host_path("/work/proj")
+}
+
+/// `bits` where the host keeps modes (unix); none on Windows, which keeps
+/// none.
+fn kept(bits: u32) -> Option<u32> {
+    (os::host().flavor() == os::Flavor::Unix).then_some(bits)
+}
+
+/// Whether the host links to a file (unix's symlink); Windows' links are
+/// directories' (a junction), which the product never makes to a login there
+/// (it copies one: ruling 80), so the test that reads a login through a link
+/// is skipped, and says so.
+fn links_files() -> bool {
+    if os::host().flavor() == os::Flavor::Unix {
+        return true;
+    }
+    let test = std::thread::current();
+    eprintln!(
+        "SKIP {}: the host links directories only, and a login is a file",
+        test.name().unwrap_or("a test")
+    );
+    false
+}
+
+/// Whether a look under a file fails otherwise than "not found" (unix's
+/// ENOTDIR); Windows reports such a path as not found, so the test (or the
+/// part of it) that tells the two apart is skipped, and says so: `SKIP
+/// <test>: <why>`.
+fn tells_a_path_through_a_file() -> bool {
+    if os::host().flavor() == os::Flavor::Unix {
+        return true;
+    }
+    let test = std::thread::current();
+    eprintln!(
+        "SKIP {} (a path through a file): the host reports it as not found",
+        test.name().unwrap_or("a test")
+    );
+    false
+}
 const HARP: &str = "amber-swift-owl";
 
 fn dirs() -> (Arc<Rooted>, SessionDirs) {
     let fs = Arc::new(Rooted::temp().unwrap());
-    (fs.clone(), SessionDirs::new(fs, PROJECT))
+    (fs.clone(), SessionDirs::new(fs, project()))
 }
 
 /// Write `body` at `rel` under `harp`'s directory.
@@ -55,7 +107,9 @@ fn the_lock_is_beside_the_session_directory() {
     let (_, dirs) = dirs();
     assert_eq!(
         dirs.lock_path(HARP),
-        Path::new("/work/proj/.ctxloom/sessions/amber-swift-owl.lock")
+        Path::new(&host_path(
+            "/work/proj/.ctxloom/sessions/amber-swift-owl.lock"
+        ))
     );
 }
 
@@ -136,12 +190,12 @@ use super::GoDirs;
 
 fn go() -> (Arc<Rooted>, GoDirs) {
     let fs = Arc::new(Rooted::temp().unwrap());
-    (fs.clone(), GoDirs::new(fs, HOME))
+    (fs.clone(), GoDirs::new(fs, home()))
 }
 
 /// Go's `session.yaml` of `harp`, written.
 fn sidecar(fs: &Rooted, harp: &str, body: &str) {
-    let path = Path::new(HOME)
+    let path = Path::new(&home())
         .join(".ctxloom/sessions")
         .join(harp)
         .join("session.yaml");
@@ -211,10 +265,12 @@ fn a_lock_file_is_not_a_session_and_a_name_is_not_judged() {
         )
         .unwrap();
     });
-    sidecar(&fs, "has:colon", "schema_version: 3\n");
+    // No harp (the rule refuses capitals and an underscore), and a name every
+    // host can make a directory of.
+    sidecar(&fs, "Not_A_Harp", "schema_version: 3\n");
     let got = go.go_sessions().unwrap();
     let harps: Vec<&str> = got.iter().map(|s| s.harp.as_str()).collect();
-    assert_eq!(harps, ["has:colon"]);
+    assert_eq!(harps, ["Not_A_Harp"]);
 }
 
 // Go: "never a symlink, in either direction — a sweep that followed one would
@@ -325,7 +381,7 @@ fn a_records_write_makes_the_directories_above_it() {
     );
     assert_eq!(
         SessionRecords::dir(&dirs, HARP),
-        "/work/proj/.ctxloom/sessions/amber-swift-owl"
+        host_path("/work/proj/.ctxloom/sessions/amber-swift-owl")
     );
 }
 
@@ -405,6 +461,9 @@ fn a_records_failure_names_the_file_and_the_systems_own_text() {
 // for any other reason is the error, with the file and the system's words.
 #[test]
 fn a_records_read_that_fails_otherwise_than_by_absence_is_the_error() {
+    if !tells_a_path_through_a_file() {
+        return;
+    }
     use run_ports::{RecordsError, SessionRecords};
     let (fs, mut dirs) = dirs();
     // A file where a directory must be: reading under it is not "not found".
@@ -422,7 +481,10 @@ fn a_records_read_that_fails_otherwise_than_by_absence_is_the_error() {
 
 use run_ports::{LinkState, LoginLinks};
 
-const LOGIN: &str = "/home/u/.claude/.credentials.json";
+/// The user's login file, absolute on every host: a link names it as given.
+fn login_file() -> String {
+    host_path("/home/u/.claude/.credentials.json")
+}
 const SECRET: &str = "not-a-real-credential";
 
 /// The user's login file, with a body that must survive everything.
@@ -430,7 +492,7 @@ fn login(fs: &Rooted) {
     fs.create_dir_all(Path::new("/home/u/.claude"), Mode::from_bits(0o755))
         .unwrap();
     fs.write_atomic(
-        Path::new(LOGIN),
+        Path::new(&login_file()),
         SECRET.as_bytes(),
         file_system::Perms::Exact(Mode::from_bits(0o600)),
     )
@@ -440,24 +502,28 @@ fn login(fs: &Rooted) {
 #[test]
 fn a_login_file_is_present_by_its_metadata_and_a_directory_or_gap_is_not() {
     let (fs, dirs) = dirs();
-    assert!(!dirs.present(LOGIN));
+    assert!(!dirs.present(&login_file()));
     login(&fs);
-    assert!(dirs.present(LOGIN));
+    assert!(dirs.present(&login_file()));
     assert!(!dirs.present("/home/u/.claude"));
 }
 
 #[test]
 fn linking_makes_the_homes_file_a_link_to_the_login_and_says_so() {
+    if !links_files() {
+        return;
+    }
     let (fs, mut dirs) = dirs();
     login(&fs);
     assert_eq!(
         dirs.state(HARP, "home/.credentials.json"),
         LinkState::Absent
     );
-    dirs.link(HARP, "home/.credentials.json", LOGIN).unwrap();
+    dirs.link(HARP, "home/.credentials.json", &login_file())
+        .unwrap();
     assert_eq!(
         dirs.state(HARP, "home/.credentials.json"),
-        LinkState::LinkTo(LOGIN.to_string())
+        LinkState::LinkTo(login_file())
     );
     // Read through the link it is the login; ctxloom read nothing to say so.
     let linked = dirs.dir(HARP).join("home/.credentials.json");
@@ -469,10 +535,11 @@ fn a_plain_file_is_other_and_a_dangling_link_is_still_a_link() {
     let (fs, mut dirs) = dirs();
     write(&fs, &dirs, "home/.credentials.json", "mine");
     assert_eq!(dirs.state(HARP, "home/.credentials.json"), LinkState::Other);
-    dirs.link(HARP, "home/other.json", "/nowhere").unwrap();
+    dirs.link(HARP, "home/other.json", &host_path("/nowhere"))
+        .unwrap();
     assert_eq!(
         dirs.state(HARP, "home/other.json"),
-        LinkState::LinkTo("/nowhere".to_string())
+        LinkState::LinkTo(host_path("/nowhere"))
     );
 }
 
@@ -481,7 +548,9 @@ fn linking_replaces_nothing() {
     let (fs, mut dirs) = dirs();
     login(&fs);
     write(&fs, &dirs, "home/.credentials.json", "mine");
-    assert!(dirs.link(HARP, "home/.credentials.json", LOGIN).is_err());
+    assert!(dirs
+        .link(HARP, "home/.credentials.json", &login_file())
+        .is_err());
     let path = dirs.dir(HARP).join("home/.credentials.json");
     assert_eq!(fs.read_to_string(&path).unwrap(), "mine");
 }
@@ -492,7 +561,7 @@ fn linking_replaces_nothing() {
 fn copying_makes_the_homes_file_a_private_copy_of_the_login_and_replaces_nothing() {
     let (fs, mut dirs) = dirs();
     login(&fs);
-    dirs.copy(HARP, "home/xdg/data/opencode/auth.json", LOGIN)
+    dirs.copy(HARP, "home/xdg/data/opencode/auth.json", &login_file())
         .unwrap();
     let copied = dirs.dir(HARP).join("home/xdg/data/opencode/auth.json");
     assert_eq!(fs.read_to_string(&copied).unwrap(), SECRET);
@@ -503,12 +572,12 @@ fn copying_makes_the_homes_file_a_private_copy_of_the_login_and_replaces_nothing
     );
     assert_eq!(
         fs.metadata(&copied).unwrap().mode.map(|m| m.bits() & 0o777),
-        Some(0o600)
+        kept(0o600)
     );
     assert!(dirs
-        .copy(HARP, "home/xdg/data/opencode/auth.json", LOGIN)
+        .copy(HARP, "home/xdg/data/opencode/auth.json", &login_file())
         .is_err());
-    assert!(dirs.copy(HARP, "../escape", LOGIN).is_err());
+    assert!(dirs.copy(HARP, "../escape", &login_file()).is_err());
     assert!(dirs
         .copy(HARP, "home/missing.json", "/home/u/none")
         .is_err());
@@ -518,7 +587,7 @@ fn copying_makes_the_homes_file_a_private_copy_of_the_login_and_replaces_nothing
 fn a_path_out_of_the_session_directory_is_refused() {
     let (fs, mut dirs) = dirs();
     login(&fs);
-    assert!(dirs.link(HARP, "../escape", LOGIN).is_err());
+    assert!(dirs.link(HARP, "../escape", &login_file()).is_err());
     assert_eq!(dirs.state(HARP, "../escape"), LinkState::Other);
 }
 
@@ -530,7 +599,8 @@ fn removing_a_session_whose_home_holds_the_link_leaves_the_login_intact() {
     let (fs, mut dirs) = dirs();
     login(&fs);
     write(&fs, &dirs, "transcripts/transcript.jsonl", "hello");
-    dirs.link(HARP, "home/.credentials.json", LOGIN).unwrap();
+    dirs.link(HARP, "home/.credentials.json", &login_file())
+        .unwrap();
     let surveyed = dirs.survey(HARP).unwrap();
     assert!(
         surveyed.iter().all(|item| !item.rel.starts_with("home")),
@@ -538,7 +608,7 @@ fn removing_a_session_whose_home_holds_the_link_leaves_the_login_intact() {
     );
     dirs.destroy_session(HARP).unwrap();
     assert!(!fs.exists(&dirs.dir(HARP)).unwrap());
-    assert_eq!(fs.read_to_string(Path::new(LOGIN)).unwrap(), SECRET);
+    assert_eq!(fs.read_to_string(Path::new(&login_file())).unwrap(), SECRET);
 }
 
 #[test]
@@ -553,10 +623,12 @@ fn a_directory_at_the_link_path_is_other_and_a_failed_look_is_not_absent() {
     // `home` is a file, so nothing under it can be looked at: that is a
     // failure to find out (not a directory), never "absent".
     write(&fs, &dirs, "blocked", "x");
-    assert_eq!(
-        dirs.state(HARP, "blocked/.credentials.json"),
-        LinkState::Other
-    );
+    if tells_a_path_through_a_file() {
+        assert_eq!(
+            dirs.state(HARP, "blocked/.credentials.json"),
+            LinkState::Other
+        );
+    }
     // And a gap really is absent.
     assert_eq!(dirs.state(HARP, "home/never"), LinkState::Absent);
 }

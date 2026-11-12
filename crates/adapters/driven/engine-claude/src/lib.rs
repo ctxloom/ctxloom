@@ -31,10 +31,7 @@ use surface_ports::{
 
 pub use child::{launcher_environment, transcripts_of};
 pub use codec::Codec;
-pub use drive::{
-    accepts_bypass, CONTEXT_PROMPT_FILE, COPY_IN_ALLOWLIST, ENV_ALLOWLIST,
-    INTERACTIVE_ENV_ALLOWLIST,
-};
+pub use drive::{CONTEXT_PROMPT_FILE, COPY_IN_ALLOWLIST, ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST};
 
 /// The engine's name.
 pub const NAME: &str = "claude-code";
@@ -57,9 +54,9 @@ pub struct Claude {
     /// The program every callback ctxloom installs runs: the running binary's
     /// file name (owner ruling 163), told by the composition root.
     program: String,
-    /// The user accepted claude's bypass-permissions warning in her own
-    /// settings (owner ruling 166), told by the composition root.
-    bypass_accepted: bool,
+    /// The user's own claude `settings.json`, as the composition root found
+    /// it: the session home's settings start from it (owner ruling 169).
+    user_settings: Option<run_ports::UserSettings>,
 }
 
 impl Default for Claude {
@@ -67,7 +64,7 @@ impl Default for Claude {
         Claude {
             codec: Codec,
             program: surface_ports::CALLBACK_PROGRAM.to_string(),
-            bypass_accepted: false,
+            user_settings: None,
         }
     }
 }
@@ -87,12 +84,13 @@ impl Claude {
         }
     }
 
-    /// Claude, told whether the user accepted claude's bypass-permissions
-    /// warning in her own settings ([`accepts_bypass`]): a session
-    /// home then carries her acceptance (owner ruling 166).
-    pub fn accepting_bypass(self, accepted: bool) -> Claude {
+    /// Claude, told the user's own claude `settings.json` (from claude's
+    /// config dir as claude finds it; none, there is none): a session home's
+    /// user-scope settings are hers with ctxloom's values laid over them
+    /// (owner ruling 169).
+    pub fn over_user_settings(self, user: Option<run_ports::UserSettings>) -> Claude {
         Claude {
-            bypass_accepted: accepted,
+            user_settings: user,
             ..self
         }
     }

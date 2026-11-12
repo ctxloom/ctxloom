@@ -1063,6 +1063,22 @@ Feature: run — assembling a project's context and handing it to an engine
       And the assistant's settings still register ctxloom's hooks
       And the assistant was launched without "--permission-mode"
 
+    Scenario: Her own claude settings are the session's, but for its permissions
+      # new: owner ruling 169 (2026-11-12)
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      And Alice's own claude settings are:
+        """
+        {"attribution": {"commit": "", "pr": ""}, "model": "opus", "permissions": {"allow": ["Bash(*)"]}}
+        """
+      When Alice runs a child agent on her default agent:
+        """
+        ctxloom run --one-shot hello
+        """
+      Then the command succeeds
+      And the assistant's settings hold the permissions '{"defaultMode": "acceptEdits"}'
+      And the assistant's settings still register ctxloom's hooks
+
     Scenario: Her session runs on the document she wrote, as she wrote it
       # new: owner rulings 135, 137 (2026-11-11)
       Given Alice has a project that has never used ctxloom

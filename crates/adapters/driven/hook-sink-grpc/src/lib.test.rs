@@ -529,13 +529,25 @@ fn a_server_that_never_answers_times_out_within_the_budget() {
 
 #[test]
 fn a_port_nobody_listens_on_is_unavailable_at_once() {
-    let sink = sink_to(closed_url(), &own_cert());
+    let url = closed_url();
+    let sink = sink_to(url.clone(), &own_cert());
     let started = Instant::now();
     match sink.deliver(CommandBook::default(), BUDGET) {
         Delivery::Unavailable { detail } => assert!(detail.contains("cannot reach"), "{detail}"),
         other => panic!("{other:?}"),
     }
-    assert!(started.elapsed() < Duration::from_secs(2));
+    let elapsed = started.elapsed();
+    // As soon as the system says nobody listens, not at the budget: at once
+    // on unix; Windows retries a refused loopback connect for about two
+    // seconds before it says so.
+    let address = url.strip_prefix("https://").expect("an https url");
+    let asked = Instant::now();
+    std::net::TcpStream::connect(address).expect_err("nobody listens");
+    let refused_after = asked.elapsed();
+    assert!(
+        elapsed < refused_after + Duration::from_secs(2),
+        "{elapsed:?}, the system refused after {refused_after:?}"
+    );
 }
 
 #[test]

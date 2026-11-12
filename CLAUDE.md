@@ -23,6 +23,8 @@ copy: this repository holds only ctxloom.
 
 # Working rules
 
+A branch keeps CLAUDE.md true for the facts it changes, in the same branch (ruling 171).
+
 ## Tests go in `*.test.rs` files beside the code they test
 
 A source file `foo.rs` keeps its tests in `foo.test.rs` in the same
@@ -97,6 +99,20 @@ heals a file that does not parse. `loadout --format yaml` is the one yaml
 output; its prose is withheld until the owner rules (D24, D8).
 Skill zips are written and read by `library::write::archive` over the `zip`
 crate (deflate only, default features off) and crc32fast.
+A file's executability is ONLY its skill sidecar's `executable:` list
+(`skills/.<n>.meta.yaml`), on every OS (owner ruling 2026-11-12; Windows
+reports every file executable): `library::write::skill::declared_executables`
+answers it for a bundle's tree, and nothing reads a mode from disk or git
+(`ContentRepo` has no `executable_files`, `UserFiles::read_tree` and
+`deps_ports::RepoTree` are bytes alone). `skill show`'s mode column, an
+export, an import (the sidecar it brings), an installed bundle and a pin's
+disclosure take it from there; an install writes the declared files 0755 as
+a convenience for running them, never read back; a push commits them 100755
+and every other file 100644 (`Remotes::publish`'s `executable`, `git add
+--chmod`; a pull request's `PullRequest::executable`). Visible change on
+unix: a file chmod'ed executable but not listed shows 0644 and is pushed
+100644. Not changed: a skill zip's entry modes, which its export writes
+from the sidecar and its import turns into the sidecar's list.
 
 Slice S4 (sessions) built the following. The record is the user's durable
 store (owner rulings 87a, T14, which reverses 87's store per project): a
@@ -287,7 +303,8 @@ resolves them in the project (`worktree-git`'s `Git::user`,
 `run_ports::git_config`, written by the launcher): a file, not
 `GIT_AUTHOR_*`/`GIT_COMMITTER_*` (they would outrank a repository's own
 user), and nothing else of her git configuration (no signing key, credential
-helper or alias). claude's own state file in the session home,
+helper or alias); not under `session_home: host`, where the engine's
+`HOME` is hers and already holds it (`Launcher::seed_git_user`). claude's own state file in the session home,
 `.claude.json`, is seeded (owner ruling 113) with `hasCompletedOnboarding:
 true` and `projects.<the run's directory>.hasTrustDialogAccepted: true`, the
 keys claude 2.1.322 reads (no theme picker, security notes or trust prompt),
@@ -296,13 +313,44 @@ into, and the launcher hands their bytes in `PrepareRequest::existing` with
 the run's `cwd`; one that is not a JSON object is left as it is). It is
 claude's undocumented state: a release that changes it shows the onboarding
 again (visible, not harmful). The session home's user-scope `settings.json`
-also carries `skipDangerousModePermissionPrompt: true` when, and only when,
-the user's own claude settings say it (owner ruling 166: claude's config dir
-as claude finds it, `$CLAUDE_CONFIG_DIR` else `~/.claude`, read by the
-wiring's `claude_bypass_accepted` and told to `Claude::accepting_bypass`):
-a fresh config dir would otherwise ask again for the bypass-permissions
-warning she accepted, whose default answer ends the session; nothing else of
-her settings crosses. The terminal session (claude's and opencode's TUI) is
+is the USER'S OWN claude `settings.json` with ctxloom's values laid over it
+(owner ruling 169, reversing "nothing else of her settings crosses" of
+rulings 112 and 166): read from claude's config dir as claude finds it,
+`$CLAUDE_CONFIG_DIR` else `~/.claude` (the wiring's `claude_user_settings`,
+told to `Claude::over_user_settings` as a `run_ports::UserSettings`), its
+`permissions` replaced WHOLE by the agent's document (none: none of hers
+left either), everything else of hers kept (attribution, model,
+`effortLevel`, `env`, plugins, hooks, `statusLine`, and her
+`skipDangerousModePermissionPrompt`: ruling 166 is now a case of the copy).
+ctxloom's hooks and statusline stay in `ctxloom-hooks.json`, the
+`--settings` file, which outranks user scope. It is rewritten from hers at
+every launch (T21); no file of hers is a start from `{}`; one that is not a
+JSON object, or does not read, is left out (the home starts from `{}`) and
+said as the notice `library-application-notice-user-settings-left-out`
+naming its path (`Prepared::left_out`, `Launched::left_out`), never a
+refusal. Under `session_home: host` nothing is copied (the config dir IS
+hers, never written). No value of hers renders: `UserSettings`'s and
+`HomeFile`'s `Debug` show a path and a size alone (her `env` may hold a
+secret). Cost: her hooks fire in the session too, and an invalid value of
+hers disables the agent's permissions with them (one file, ruling 145's
+caveat). Every command is measured against the platform's command line
+once it is complete and before it is spawned (owner ruling, 2026-11-12;
+`run_ports::check_command_line`, called in one place, the launcher's
+prepare, `Launcher::on_os(wiring.os_name())`): the terminal session's
+opening prompt is the one piece of content on an engine's command line
+(claude's positional prompt, opencode's `--prompt`; a child's turn has it on
+stdin, which is not measured). One table of constants, no libc call:
+Windows, 32767 UTF-16 units for the whole line, its NUL included, counted as
+std quotes it (a `.cmd`/`.bat` program as if every unit were escaped);
+Linux, 131072 bytes per argument or environment string, its NUL included
+(MAX_ARG_STRLEN). Linux's total (ARG_MAX, a quarter of the stack rlimit) and
+macOS's (`kern.argmax`, a sysctl) are not constants and the platform crates
+read neither, so no total is checked: such a command fails at the spawn as
+before. A command over a limit is `run-ports-command-too-long` (exit 20,
+`RunError::TooLong`, the launch's `Outcome::TooLong`; the run ends
+launch-failed, nothing is spawned), its fix: start the session without the
+prompt and paste it, or `run --one-shot`, which reads the prompt from
+stdin. The terminal session (claude's and opencode's TUI) is
 also given `TERM` and `COLORTERM`, without which it draws in no colour; a
 child's turn is given neither. The session home's `ctxloom-hooks.json` calls `ctxloom
 hook claude-code execute <Event>`. The interactive home registers the session,
@@ -317,6 +365,10 @@ installs): claude's hooks and statusline, at rest and in a session
 home, and opencode's plugin's `COMMAND` all run it. The wiring resolves it
 ONCE (`ctxloom-wiring`'s `program::running`, from `std::env::current_exe`,
 which on Linux is `/proc/self/exe`, a symlink's target and never the link; the
+platform's executable suffix, `std::env::consts::EXE_SUFFIX`, stripped in any
+case, so `ctxloom.exe` is `ctxloom` and every written hook, statusline and
+plugin command is `ctxloom hook ...` on every OS, the PATH search finding the
+`.exe` itself (owner ruling 2026-11-12, amending 163 and 164); the
 authored `ctxloom`, `surface_ports::CALLBACK_PROGRAM`, when it cannot) and
 tells the adapters as a value when it builds them (`Claude::calling`,
 `Opencode::calling`, `Mock::calling`, `Doctor::calling`); an authored callback
@@ -538,9 +590,10 @@ order it was written (`DryRun::permissions`, `library_application::json::
 document_text`), the order and the launcher hand it to `Engine::prepare`
 (`PrepareRequest::permissions`), and the config writer keeps it in its own
 order (`library::write::section::sorted_section`; the rest of the agents
-section is sorted as ever). engine-claude writes it as `{"permissions":
-<block>}`, the whole of the session home's user-scope `settings.json` (the
-home is the session's `CLAUDE_CONFIG_DIR`; `{}` with none), APART from
+section is sorted as ever). engine-claude writes it as the `permissions`
+of the session home's user-scope `settings.json`, over the user's own
+settings (ruling 169, above; the home is the session's `CLAUDE_CONFIG_DIR`;
+none of either, `{}`), APART from
 ctxloom's hooks, which are `ctxloom-hooks.json`, the file `--settings` names
 (owner ruling 145: claude 2.1.322 refuses a settings file whole for one
 invalid value, hooks included, so a bad value disables the block alone; the
@@ -554,8 +607,16 @@ passed, claude's mode is the document's `defaultMode`. A profile's
 `deny_tools` stays `permissions.deny` of the project's `.claude/settings.json`
 (surface apply), and claude merges the files' lists itself. engine-opencode writes the session home's `opencode.json`
 (`OPENCODE_CONFIG_DIR`, which opencode 1.18.4 reads after the project's) with
-the document as its `permission` object (`{}` with none, so no earlier run's
-lingers; read from the 1.18.4 bundle, not run live). A document that is not
+the document as its `permission` object (none, no `permission`, so no earlier
+run's lingers; read from the 1.18.4 bundle, not run live), over the user's
+own global config by analogy with claude's (ruling 169, an extension the
+owner is to confirm): `opencode.json` of `$XDG_CONFIG_HOME/opencode` when
+absolute, else `~/.config/opencode` (xdg-basedir, as its state directory;
+`engine_opencode::user_config_file`, the wiring's `opencode_user_config`,
+`Opencode::over_user_config`), its `permission` replaced whole, one that is
+not a JSON object (a JSONC file with comments among them) left out with the
+same notice; under `session_home: host` opencode reads hers itself and
+nothing is copied. Her `opencode.jsonc` and `config.json` are not read. A document that is not
 JSON is `run-ports-engine-bad-permissions` (ctxloom's own rendering, so a
 bug). Both files are rewritten whole from the order at EVERY launch (T21: a
 fresh session, a turn, a resume; neither is in `Engine::merges`), so an
@@ -733,8 +794,8 @@ a full commit. The angzarr pins are one line, one per family member:
 - angzarr-embedded `94f630a3` on angzarr-router `bec0c2bf`;
 - angzarr-build `7547415e` (the markup generator, `angzarr-build` and
   `angzarr-codegen`, its own repository);
-- angzarr-platform `f9f1c7cb`;
-- taskloom's crates `096a3dbb` and ctxloom-lib's `9ec4c974`, built on the
+- angzarr-platform `a35789ef`;
+- taskloom's crates `7af05807` and ctxloom-lib's `fb8e8212`, built on the
   same line,
 
 so moving one moves all. The lock holds one of every angzarr crate. The platform crates (`os`, `file-system`, `file-lock`) are
@@ -877,10 +938,15 @@ must be its run's) until runs are hosted. A hosted child is told the user's home
 the platform joins it (`run_ports::search_path_led_by`, on the daemon's
 `Place::os`); the environment its launcher hands off is keyed as the
 platform compares names (`os::Flavor::env_key`). The hosted engines are
-composed bare (`Claude::new`, `Opencode::new`): no callback program, no
-bypass acceptance (ruling 166) and no model seed (ruling 167), so a hosted
+composed bare (`Claude::new`, `Opencode::new`): no callback program, none
+of the user's own settings (ruling 169: a hosted child's `settings.json` and
+`opencode.json` start from `{}`) and no model seed (ruling 167), so a hosted
 child's home gets no `Prepared::seeds`, no `.gitconfig` and no merge; those
-are follow-ups.
+are follow-ups. The daemon prepares a child's home itself (`Daemon::
+spawn_child` calls `Engine::prepare`), not through `run-launcher`'s
+`Launcher`, so `run_ports::check_command_line` does not measure a hosted
+child's command: it carries no prompt (its turns are fed over the child's
+stream), only paths, model and effort.
 
 A daemon is LIVE when it answers the standard `grpc.health.v1.Health`
 Check SERVING (T16, M11: `hook-sink-grpc`'s `serving`, tonic-health's
@@ -1039,6 +1105,14 @@ nothing is imported (accepted cost: that history is lost), and the file is
 left as it is. Hooks are not refused (a hook never fails its engine); the
 store port refuses it too, for whatever reaches a store past the command
 line.
+The store is its owner's alone (owner ruling 2026-11-12): every open, to
+write or to read, sets the store's directory, ctxloom's home `.ctxloom`, 0700
+and its file, `-wal` and `-shm` 0600 (the opener's, so `ctxloom-store-sqlite`
+sets no mode of its own), so an existing store open to others is tightened on
+its next open; a mode that cannot be set fails the open
+(`sqlite-store-opener-restrict`). A project's `projects/<id>/` directory,
+which holds nothing of ctxloom's, is made 0755 inside it. On Windows no mode
+is set: the profile's ACL holds it (ruling M8).
 A store is closed, never dropped, where its file matters after (ruling 131):
 angzarr-embedded's `SqliteStore::close` waits for the connection's close, so
 the last close's checkpoint and the log's removal are over when it returns
@@ -1169,7 +1243,13 @@ disclosure), `deps-ports` (`Remotes`, `DepsFiles`, `RemoteLibrary`),
 under `.ctxloom/cache/repos`, read from commits only, never a checkout),
 `deps-files` (remotes.yaml, lock.yaml and the installed trees under
 `.ctxloom/cache/bundles/<segments>/<bundle>/<sha>/`; it stands where the plan
-named `content-fs` for these files), `deps-cli`. `ctxloom-wiring`'s `Commands`
+named `content-fs` for these files), `deps-cli`. A repository's
+`<segments>` (`deps::address::cache_segments`, under `cache/repos` and
+`cache/bundles` alike) are its host and path with every `:` as `_`, on every
+OS (owner ruling 2026-11-12: `host_8443`, a Windows drive's `C_`; one layout
+everywhere). The cache is regenerable: a unix cache an older ctxloom spelled
+with the `:` is orphaned and cloned again once, and `clean` removes both
+spellings, as it removes each cache tree whole. `ctxloom-wiring`'s `Commands`
 composes them with the library: it merges `bundle push|move` into the
 library's `bundle` noun and owns `remote` and `deps`.
 
@@ -1590,7 +1670,8 @@ ctxloom's go-final, for `ltk-rules-check.sh`), the gates' logs dumped and
 uploaded on a failure. Linux (`ubuntu-24.04`) runs every gate but mutation
 (closeout's): `just build`, `fmt-check`, `lint`, `lint-os`, `lint-deps`,
 `test`, `check-windows`, `selftest`. Windows (`windows-latest`, MSVC, Git
-Bash) runs `just build` and `just test` natively, the whole workspace. Every
+Bash) runs `just build` and `just test` natively, the whole workspace, and so
+does macOS (`macos-15`, arm64; protoc's osx-aarch_64 by checksum). Every
 dependency is a public https git pin, so no credential is needed. For
 Windows, nextest's setup script runs under `sh` (`cfg(windows)` entry in
 `.config/nextest.toml`; the unix one is unchanged), and the plain-binary
@@ -1634,6 +1715,18 @@ is how 280 survivors reached `main` once (2026-11-04). Nothing runs
 cargo-mutants but the `mutants-staged` gate recipe, which `mutants-batch`
 drives. A failing gate is a finding: fix the cause and commit again; never
 `--no-verify`, and never weaken a gate to get through.
+
+No commit carries an attribution trailer (owner ruling 170), and the
+`commit-msg` hook holds every commit to it: `just commit-msg-check <file>`
+(the private `_no-trailers` in `gates/gates.just`) refuses a message with a
+`Co-Authored-By:` trailer line, in any case, on any line (the subject and
+body too, leading space and a space before the colon allowed; prose that
+only names the words passes), printing `FAIL commit-msg: the message
+carries an attribution trailer ...` and each offending line by number; a
+pass is one `ok   commit-msg (message)` line. What follows git's scissors
+line (`commit -v`'s diff) is not judged. Its self-test is
+`scripts/commit-msg.selftest.sh` (`just selftest`). A clone installs the
+hook with `just hooks-install` once more (`gates/MIGRATING.md`).
 
 1. **fmt** formats the staged `*.rs` files in the index (`just
    fmt-staged`) rather than refusing an unformatted commit. A fully staged

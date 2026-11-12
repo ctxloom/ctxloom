@@ -92,7 +92,8 @@ fn test_the_editor_is_given_a_file_with_the_name_asked_for_and_mode_0600() {
     let w = fs.real_path(&seen_at).unwrap();
     let w = w.to_str().unwrap();
     let probe = sh(
-        "{ basename \"$1\"; cat \"$1\"; stat -c %a \"$1\"; } > \"$0\"",
+        // GNU stat says the mode with -c %a, BSD's (macOS) with -f %Lp.
+        "{ basename \"$1\"; cat \"$1\"; stat -c %a \"$1\" 2>/dev/null || stat -f %Lp \"$1\"; } > \"$0\"",
         &[w],
     );
     editor.edit(&probe, "review.md", "THE CONTENT").unwrap();

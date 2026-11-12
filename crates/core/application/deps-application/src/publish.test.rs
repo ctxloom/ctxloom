@@ -491,3 +491,32 @@ fn test_a_move_to_a_github_remote_still_publishes_by_git_not_a_pull_request() {
     );
     assert!(fx.forge.opened().is_empty());
 }
+
+// Owner ruling 2026-11-12: a push commits executable what the bundle's
+// skills' sidecars declare, by its path in the repository; a pull request
+// carries the same.
+#[test]
+fn test_a_push_and_a_pull_request_commit_executable_what_the_sidecars_declare() {
+    let tree: &[(&str, &str)] = &[
+        ("bundle.yaml", "description: acceptance fixture bundle\n"),
+        ("skills/s/SKILL.md", "---\nname: s\n---\n"),
+        ("skills/s/run.sh", "#!/bin/sh\n"),
+        ("skills/.s.meta.yaml", "executable:\n  - run.sh\n"),
+    ];
+    let want = std::collections::BTreeSet::from([format!(
+        "{}/scripted/skills/s/run.sh",
+        deps_ports::BUNDLES_IN_REPOSITORY
+    )]);
+    let fx = Fixture::new();
+    fx.files.author("scripted", tree);
+    fx.origin("team", URL);
+    ok(fx.deps.push(&push("scripted", "team")));
+    assert_eq!(
+        fx.remotes.published_executable(),
+        std::slice::from_ref(&want)
+    );
+    let fx = on_github();
+    fx.files.author("scripted", tree);
+    ok(fx.deps.push(&pr("scripted", "hub")));
+    assert_eq!(fx.forge.opened()[0].1.executable, want);
+}

@@ -29,6 +29,7 @@ mod profiles;
 mod project;
 mod run;
 mod search;
+mod shown;
 mod views;
 pub mod write;
 mod yamlout;

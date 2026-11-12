@@ -213,6 +213,38 @@ pub(crate) fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..")
 }
 
+/// `cargo metadata` of the workspace, offline, for the host's platform: the
+/// graph this binary is built from. Every platform's would need the packages
+/// of every platform, and a build fetches only its own (on Windows the unix
+/// ones are not there to read offline).
+pub(crate) fn cargo_metadata() -> serde_json::Value {
+    let cargo = env!("CARGO");
+    let version = std::process::Command::new(cargo)
+        .arg("-vV")
+        .output()
+        .expect("cargo runs");
+    let version = String::from_utf8_lossy(&version.stdout).into_owned();
+    let host = version
+        .lines()
+        .find_map(|line| line.strip_prefix("host: "))
+        .unwrap_or_else(|| panic!("cargo -vV names no host: {version}"))
+        .trim()
+        .to_string();
+    let output = std::process::Command::new(cargo)
+        .args(["metadata", "--format-version", "1", "--offline"])
+        .args(["--filter-platform", &host])
+        .arg("--manifest-path")
+        .arg(repo_root().join("Cargo.toml"))
+        .output()
+        .expect("cargo runs");
+    assert!(
+        output.status.success(),
+        "cargo metadata failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).expect("metadata is JSON")
+}
+
 #[path = "files.test.rs"]
 pub(crate) mod files;
 

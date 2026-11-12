@@ -99,10 +99,7 @@ impl Project {
         let mut by_key = BTreeMap::new();
         let mut sources = BTreeMap::new();
         for entry in self.catalog.entries() {
-            let dir = entry
-                .manifest_path
-                .strip_suffix("/bundle.yaml")
-                .unwrap_or(&entry.manifest_path);
+            let dir = crate::shown::parent(&entry.manifest_path);
             let origin = self.catalog.origin(&entry.name);
             let bundle_key = origin.map_or_else(
                 || format!("ctxloom+local:{}", entry.name),
@@ -126,7 +123,13 @@ impl Project {
                     }
                     sources.insert(key.clone(), origin.url.clone());
                 }
-                by_key.insert(key, (profile, format!("{dir}/profiles/{name}.yaml")));
+                by_key.insert(
+                    key,
+                    (
+                        profile,
+                        crate::shown::below(dir, &format!("profiles/{name}.yaml")),
+                    ),
+                );
             }
         }
         Profiles { by_key, sources }

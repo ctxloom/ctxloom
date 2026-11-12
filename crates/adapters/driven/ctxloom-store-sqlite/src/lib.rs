@@ -10,6 +10,13 @@
 //! - The opening is `sqlite-store-opener`'s: this crate is the file name, the
 //!   placement under the home and the [`ProjectStores`] port. A store from
 //!   before the embedded store is refused ([`OpenError::PredatesEmbedded`]).
+//! - The store is its owner's alone (owner ruling 2026-11-12): the opener
+//!   sets its directory, ctxloom's home `<home>/.ctxloom`, 0700 and the
+//!   file, `-wal` and `-shm` 0600 on every open, to write or to read, so one
+//!   another writer made open to others is made so on the store's next open.
+//!   On Windows the seam sets no mode (ruling M8: the profile's ACL holds
+//!   it). A mode that cannot be set fails the open ([`OpenError::Restrict`]),
+//!   the store closed.
 //! - A project that still has a store of its OWN, from before the one store
 //!   (`<home>/.ctxloom/projects/<id>/ctxloom.db`), is refused
 //!   ([`StoreOpenError::PerProjectStore`], owner T17 and S48): nothing is

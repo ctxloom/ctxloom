@@ -26,31 +26,6 @@ Feature: skill — authoring an Agent Skill package, curating it, and shipping i
   # remains here is what the noun itself owns.
 
   @pending
-  Rule: Authoring a package records what is actually on disk
-
-    `skill create` scaffolds a package directory, and the directory IS the
-    skill: nothing records its files anywhere else. Listing and showing a
-    skill must reflect that real tree — every file, its sha256 and its POSIX
-    mode — rather than a name someone declared.
-
-
-    Scenario: Alice authors a skill package and its listing and show reflect the real tree
-      Given Alice's project has a directory-form bundle "vault"
-      When I run "ctxloom skill create vault reviewer -d SKILL-MARKER-reviewer-9f3c21"
-      And Alice adds an executable scripts/run.sh carrying the marker "SCRIPT-MARKER-reviewer-2b7e40" to the skill "vault#skills/reviewer"
-      When I run "ctxloom skill show vault#skills/reviewer --format json"
-      Then the skill show output lists "SKILL.md" and an executable "scripts/run.sh"
-      When I run "ctxloom skill list"
-      Then the skill list output includes "reviewer" from bundle "vault"
-      When I run "ctxloom skill show vault#skills/reviewer"
-      Then the skill show output carries the frontmatter description "SKILL-MARKER-reviewer-9f3c21"
-      # The session endpoint's catalog lists the skill by ref; a skill's
-      # files reach an engine by delivery (its SKILL.md is materialized),
-      # not as a resource body.
-      When the agent reads resource "ctxloom://skills"
-      Then the skill resource contains "reviewer"
-
-  @pending
   Rule: A skill package can be created and removed
 
     Before `skill remove`, a skill package could be created and never

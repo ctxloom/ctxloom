@@ -59,6 +59,7 @@ fn test_live_a_pull_request_without_a_token_is_refused_before_any_request() {
         title: "t".to_string(),
         body: "b".to_string(),
         files: std::collections::BTreeMap::from([("a".to_string(), b"a".to_vec())]),
+        executable: Default::default(),
     };
     let refused = github
         .open_pull_request(&public(), &request)

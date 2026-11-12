@@ -153,6 +153,14 @@ pub(super) fn claude_code(w: &mut World) {
     w.common.set_env("PATH", path);
 }
 
+/// Her own claude settings, in her home's claude config dir, as written
+/// (owner ruling 169: the session's settings start from them).
+#[given("Alice's own claude settings are:")]
+fn own_claude_settings(w: &mut World, step: &cucumber::gherkin::Step) {
+    let text = super::super::gherkin_common::doc(step);
+    w.common.project.write_home(".claude/settings.json", &text);
+}
+
 /// The token every agent authenticates with: a fixture, so init's check
 /// for it passes and no real credential is read.
 #[given("Alice has exported her assistant's token")]
@@ -283,10 +291,12 @@ fn user_settings_path(w: &World) -> String {
     format!("{dir}/settings.json")
 }
 
-/// Owner rulings 135, 137, 145: the agent's permissions document is, exactly,
-/// the `permissions` of the user-scope settings of the session's config dir,
-/// that file holds nothing else, and the `--settings` file (ctxloom's hooks)
-/// holds no permissions: a bad value in the block disables the block alone.
+/// Owner rulings 135, 137, 145, 169: the agent's permissions document is,
+/// exactly, the `permissions` of the user-scope settings of the session's
+/// config dir, the rest of that file is the user's own claude settings as she
+/// wrote them (none of hers, nothing), and the `--settings` file (ctxloom's
+/// hooks) holds no permissions: a bad value in the block disables the block,
+/// never the hooks.
 #[then(expr = "the assistant's settings hold the permissions {string}")]
 fn settings_hold_permissions(w: &mut World, want: String) {
     let want: serde_json::Value = serde_json::from_str(&want).expect("the step's JSON");
@@ -294,7 +304,14 @@ fn settings_hold_permissions(w: &mut World, want: String) {
     let text = files::read(&path).unwrap_or_else(|e| panic!("reading {path}: {e}"));
     let user: serde_json::Value =
         serde_json::from_str(&text).unwrap_or_else(|e| panic!("{path} is not JSON ({e}): {text}"));
-    assert_eq!(user, serde_json::json!({ "permissions": want }), "{path}");
+    let mut expected = w
+        .common
+        .project
+        .read_home(".claude/settings.json")
+        .map(|hers| serde_json::from_str(&hers).expect("her settings are JSON"))
+        .unwrap_or_else(|| serde_json::json!({}));
+    expected["permissions"] = want;
+    assert_eq!(user, expected, "{path}");
     let handed = handed_settings(w);
     assert!(handed.get("permissions").is_none(), "{handed}");
 }

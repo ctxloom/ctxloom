@@ -160,7 +160,7 @@ impl Setup {
         if file.is_empty() {
             return Err(refused("--file is required"));
         }
-        if !file.starts_with('/') {
+        if !run_ports::is_absolute(&self.os, file) {
             return Err(refused(format!("--file must be an absolute, already-resolved path (got {file:?}): this command never expands $HOME or guesses a location")));
         }
         if file.contains(['~', '$']) {

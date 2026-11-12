@@ -22,10 +22,14 @@ use process_env::EnvSnapshot;
 
 use crate::{LibError, Wiring};
 
-/// Where a program is on the `PATH`, by the filesystem seam.
+/// Where a program is on the `PATH`, by the filesystem seam, by the file
+/// names the host looks a command up by (`git`; on Windows `git.exe` and the
+/// rest of `PATHEXT`'s).
 pub(crate) struct PathSearch {
     pub(crate) fs: Arc<dyn Fs>,
     pub(crate) dirs: Vec<PathBuf>,
+    pub(crate) flavor: os::Flavor,
+    pub(crate) pathext: Option<String>,
 }
 
 impl PathSearch {
@@ -42,9 +46,10 @@ impl Executables for PathSearch {
         if name.contains(['/', '\\']) {
             return self.runnable(std::path::Path::new(name));
         }
+        let names = self.flavor.candidates(name, self.pathext.as_deref());
         self.dirs
             .iter()
-            .find_map(|dir| self.runnable(&dir.join(name)))
+            .find_map(|dir| names.iter().find_map(|file| self.runnable(&dir.join(file))))
     }
 }
 

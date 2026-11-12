@@ -13,7 +13,7 @@ fn file_name(name: &str) -> String {
 /// Whether a name is safe to make a file of: nothing that climbs or is
 /// absolute.
 fn safe(name: &str) -> bool {
-    ctxloom_ports::is_plain_relative(name) && !name.contains('\\')
+    ctxloom_ports::is_plain_relative(name)
 }
 
 /// A YAML scalar for a frontmatter value: quoted where plain would not read

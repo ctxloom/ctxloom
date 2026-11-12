@@ -82,7 +82,11 @@ impl Fixture {
     }
 
     fn work_dir(&self, harp: &str) -> PathBuf {
-        self.home.join(".ctxloom/sessions").join(harp).join("work")
+        self.home
+            .join(".ctxloom")
+            .join("sessions")
+            .join(harp)
+            .join("work")
     }
 
     fn request(&self, harp: &str, agent: &str) -> Request {

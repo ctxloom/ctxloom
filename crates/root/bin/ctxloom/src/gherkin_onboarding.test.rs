@@ -137,7 +137,7 @@ impl World {
 
     /// Go's `remote create`, then the profile naming the bundle.
     fn draw_on(&mut self, remote: &str, bare: &Path, bundle: &str) {
-        let url = format!("file://{}", bare.display());
+        let url = files::file_url(bare);
         self.common.run_lines(
             &format!(
                 "ctxloom remote create {remote} {url} --forge git\nctxloom profile edit {J000700_PROFILE} --add-bundle {remote}/{bundle}"

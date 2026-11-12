@@ -106,6 +106,16 @@ impl Project {
         &self.project
     }
 
+    /// The path `rel` (`/`-separated) in the project, as ctxloom shows it: a
+    /// step at a time, so the host's separator joins each step (`C:\p\a\b`
+    /// on Windows, never `C:\p\a/b`).
+    pub(crate) fn shown(&self, rel: &str) -> String {
+        rel.split('/')
+            .fold(self.project.clone(), |path, step| path.join(step))
+            .display()
+            .to_string()
+    }
+
     /// The project as a Go-ported test holds it: its runs see the catalog Go
     /// had, with no built-in bundle (owner rulings 110, 111 added them; their
     /// own contract is `cli/init.feature`'s), so a listing or a search is
@@ -339,11 +349,46 @@ impl Project {
     }
 
     /// What a run printed with the project's and the home's paths written
-    /// as `{PROJECT}` and `{HOME}`: the form the goldens are in.
+    /// as `{PROJECT}` and `{HOME}`: the form the goldens are in. A path is
+    /// shown in the host's spelling, so on Windows it is found as JSON writes
+    /// it too (each `\` doubled), and the rest of a path below either is
+    /// spelled with `/`, as Go's goldens (made on unix) spell it.
     pub(crate) fn normalized(&self, text: &str) -> String {
-        text.replace(self.project.to_str().expect("utf-8"), "{PROJECT}")
-            .replace(self.home.to_str().expect("utf-8"), "{HOME}")
+        let mut out = text.to_string();
+        for (path, token) in [(&self.project, "{PROJECT}"), (&self.home, "{HOME}")] {
+            let path = path.to_str().expect("utf-8");
+            out = out
+                .replace(&path.replace('\\', "\\\\"), token)
+                .replace(path, token);
+        }
+        if os::host().flavor() == os::Flavor::Windows {
+            out = slashed_below(&out, &["{PROJECT}", "{HOME}"]);
+        }
+        out
     }
+}
+
+/// `text` with each path that starts at one of `tokens` spelled with `/`: the
+/// `\` (or JSON's `\\`) up to the path's end (a quote, a space, a line's end,
+/// or `,`, `:`, `;`, `)`, `` ` ``) made `/`.
+fn slashed_below(text: &str, tokens: &[&str]) -> String {
+    let ends = |c: char| c.is_whitespace() || "\"'`,:;)".contains(c);
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some((at, token)) = tokens
+        .iter()
+        .filter_map(|t| rest.find(t).map(|at| (at, *t)))
+        .min()
+    {
+        let after = at + token.len();
+        out.push_str(&rest[..after]);
+        let tail = &rest[after..];
+        let span = tail.find(ends).unwrap_or(tail.len());
+        out.push_str(&tail[..span].replace("\\\\", "/").replace('\\', "/"));
+        rest = &tail[span..];
+    }
+    out.push_str(rest);
+    out
 }
 
 fn put(path: &Path, content: &str) {

@@ -179,8 +179,9 @@ fn invalid(detail: impl ToString) -> ArchiveError {
 
 /// Pack `entries` as the package `name`: one top-level directory `name`, the
 /// files below it in path order, deflated; modes 0755 for an executable file
-/// and 0644 for the rest; a fixed modification time (the zip epoch, 1980-01-01),
-/// so the same package packs to the same bytes.
+/// and 0644 for the rest, made on unix on every host; a fixed modification
+/// time (the zip epoch, 1980-01-01), so the same package packs to the same
+/// bytes.
 pub fn pack(name: &str, entries: &[Entry]) -> Result<Vec<u8>, ArchiveError> {
     use std::io::Write;
     use zip::write::SimpleFileOptions;
@@ -197,6 +198,10 @@ pub fn pack(name: &str, entries: &[Entry]) -> Result<Vec<u8>, ArchiveError> {
             .compression_method(zip::CompressionMethod::Deflated)
             .last_modified_time(zip::DateTime::default())
             .unix_permissions(if entry.executable { 0o755 } else { 0o644 })
+            // Made on unix whatever the host: the zip crate would otherwise
+            // say DOS on Windows, whose entries carry no mode, so an
+            // executable would be read back as not one.
+            .system(zip::System::Unix)
             .large_file(entry.bytes.len() as u64 >= u64::from(u32::MAX));
         writer
             .start_file(format!("{name}/{}", entry.path), options)

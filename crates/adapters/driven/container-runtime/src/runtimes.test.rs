@@ -137,7 +137,32 @@ fn docker_comes_before_podman() {
     assert_eq!(names, vec!["docker", "podman"]);
 }
 
-// A file that is not executable is not a runtime.
+// A runtime is found by the file name the host runs a command by (`docker`;
+// `docker.exe` on Windows, where an extensionless `docker` is no program),
+// whether or not it answers.
+#[test]
+fn a_runtime_is_found_by_the_name_the_host_runs_it_by() {
+    let (fs, bin) = machine();
+    let flavor = os::host().flavor();
+    if flavor == os::Flavor::Unix {
+        script(&fs, &bin, "podman", "exit 1");
+    } else {
+        // A file named as Windows runs a program; never a program that answers.
+        fs.write_atomic(
+            &bin.join(flavor.program_file("podman")),
+            b"not a program",
+            Perms::Exact(Mode::FILE),
+        )
+        .unwrap();
+    }
+    let found = runtimes(&fs, &[&bin]).installed();
+    let names: Vec<&str> = found.iter().map(|r| r.name.as_str()).collect();
+    assert_eq!(names, ["podman"]);
+    assert!(!found[0].reachable, "it does not answer");
+}
+
+// A file that is not executable is not a runtime: on unix one with no
+// execute bit; on Windows one with no extension PATHEXT names.
 #[test]
 fn a_file_that_cannot_be_run_is_not_a_runtime() {
     let (fs, bin) = machine();

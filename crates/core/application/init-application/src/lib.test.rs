@@ -215,7 +215,7 @@ mod init {
         fn read_file(&self, _: &str) -> Result<Vec<u8>, Failure> {
             unreachable!()
         }
-        fn read_tree(&self, _: &str) -> Result<Vec<Put>, Failure> {
+        fn read_tree(&self, _: &str) -> Result<ctxloom_ports::TreeFiles, Failure> {
             unreachable!()
         }
         fn write_file(&self, _: &str, _: &[u8], _: bool) -> Result<bool, Failure> {

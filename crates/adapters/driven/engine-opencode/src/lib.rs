@@ -36,8 +36,8 @@ pub use advice::{OpencodeNotice, EN_US};
 pub use codec::Codec;
 pub use drive::{ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST, LOGIN_FILE, PROVIDER_KEYS, SIGN_IN};
 pub use home::{
-    plugin, user_model_file, CONFIG_FILE, CONTEXT_FILE, MODEL_SEED, PLUGIN, PLUGIN_FILE,
-    PRESEED_LOCK,
+    plugin, user_config_file, user_model_file, CONFIG_FILE, CONTEXT_FILE, MODEL_SEED, PLUGIN,
+    PLUGIN_FILE, PRESEED_LOCK,
 };
 
 /// The engine's name.
@@ -52,6 +52,9 @@ pub struct Opencode {
     /// The user's own `model.json`, as read, which a session home is seeded
     /// with (owner ruling 167), told by the composition root.
     model: Option<Vec<u8>>,
+    /// The user's own global `opencode.json`, as the composition root found
+    /// it: a session home's config starts from it (owner ruling 169).
+    user_config: Option<run_ports::UserSettings>,
 }
 
 impl Default for Opencode {
@@ -60,6 +63,7 @@ impl Default for Opencode {
             codec: Codec,
             program: surface_ports::CALLBACK_PROGRAM.to_string(),
             model: None,
+            user_config: None,
         }
     }
 }
@@ -84,6 +88,16 @@ impl Opencode {
     /// ruling 167); none, nothing is.
     pub fn seeding_model(self, model: Option<Vec<u8>>) -> Opencode {
         Opencode { model, ..self }
+    }
+
+    /// opencode, told the user's own global config ([`user_config_file`]):
+    /// a session home's `opencode.json` is hers with the agent's permissions
+    /// document as its `permission` (owner ruling 169); none, `{}` is.
+    pub fn over_user_config(self, user: Option<run_ports::UserSettings>) -> Opencode {
+        Opencode {
+            user_config: user,
+            ..self
+        }
     }
 }
 

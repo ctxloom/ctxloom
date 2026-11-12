@@ -608,6 +608,13 @@ fn skill_marker(w: &mut World, marker: String) {
 
 #[then(expr = "{string} is executable")]
 fn is_executable(w: &mut World, rel: String) {
+    // A host that keeps no execute bit skips the scenario, named.
+    if os::host().flavor() != os::Flavor::Unix {
+        panic!(
+            "{}an execute bit on disk: Windows keeps none",
+            files::UNSUPPORTED
+        );
+    }
     assert!(w.common.project.is_executable(&rel), "{rel}");
 }
 

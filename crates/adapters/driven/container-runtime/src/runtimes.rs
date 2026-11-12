@@ -55,13 +55,24 @@ impl HostRuntimes {
 }
 
 impl HostRuntimes {
-    /// The executable `name` on the searched directories.
+    /// The executable `name` on the searched directories, by the file names
+    /// the host looks a command up by (`docker`; on Windows `docker.exe` and
+    /// the rest of `PATHEXT`'s).
     fn find(&self, name: &str) -> Option<PathBuf> {
-        let found = self.dirs.iter().map(|dir| dir.join(name)).find(|path| {
-            self.fs
-                .metadata(path)
-                .is_ok_and(|meta| meta.kind == Kind::File && meta.executable)
-        })?;
+        let names = self
+            .fs
+            .os()
+            .flavor()
+            .candidates(name, self.env.utf8("PATHEXT"));
+        let found = self
+            .dirs
+            .iter()
+            .flat_map(|dir| names.iter().map(move |file| dir.join(file)))
+            .find(|path| {
+                self.fs
+                    .metadata(path)
+                    .is_ok_and(|meta| meta.kind == Kind::File && meta.executable)
+            })?;
         // The command runs on the host's own path, not the caller's.
         self.fs.real_path(&found).ok()
     }

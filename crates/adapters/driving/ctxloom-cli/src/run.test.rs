@@ -66,6 +66,11 @@ struct Ran {
 }
 
 fn go_in(terminal: bool, answer: Result<Exit, Exit>, line: &[&str]) -> Ran {
+    go_as("ctxloom", terminal, answer, line)
+}
+
+/// `line` run as the program `program` (its argv[0]).
+fn go_as(program: &str, terminal: bool, answer: Result<Exit, Exit>, line: &[&str]) -> Ran {
     let context = Context {
         version: "1.2.3".to_string(),
         lock_protocol: 4,
@@ -73,7 +78,7 @@ fn go_in(terminal: bool, answer: Result<Exit, Exit>, line: &[&str]) -> Ran {
     };
     let catalog = Catalog::en_us(&[crate::EN_US]).unwrap();
     let (mut out, mut err) = (Vec::new(), Vec::new());
-    let args = std::iter::once("ctxloom")
+    let args = std::iter::once(program)
         .chain(line.iter().copied())
         .map(OsString::from);
     let code = run(
@@ -121,6 +126,23 @@ fn test_help_is_an_answer() {
         assert_eq!(ran.code, 0, "{line:?}");
         assert!(ran.out.contains("Usage:"), "{line:?}: {}", ran.out);
         assert!(ran.err.is_empty());
+    }
+}
+
+// The help says `ctxloom` however the program file is named (Windows'
+// `ctxloom.exe`, a renamed binary): at the top, a verb and a mounted noun.
+#[test]
+fn test_the_help_names_ctxloom_whatever_the_program_file_is_called() {
+    for (line, usage) in [
+        (&["-h"][..], "Usage: ctxloom [OPTIONS]"),
+        (&["version", "-h"], "Usage: ctxloom version"),
+        (&["demo", "-h"], "Usage: ctxloom demo"),
+        (&["demo", "list", "-h"], "Usage: ctxloom demo list"),
+    ] {
+        let ran = go_as("/opt/bin/ctxloom.exe", false, Ok(Exit::OK), line);
+        assert_eq!(ran.code, 0, "{line:?}");
+        assert!(ran.out.contains(usage), "{line:?}: {}", ran.out);
+        assert!(!ran.out.contains("ctxloom.exe"), "{line:?}: {}", ran.out);
     }
 }
 

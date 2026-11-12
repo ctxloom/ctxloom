@@ -61,9 +61,11 @@ fn nightly_project() -> Project {
 }
 
 fn payload(project: &Project, tool: &str, input: &str) -> String {
+    // The path as JSON writes it: a Windows path's `\` escaped.
+    let transcript =
+        serde_json::to_string(&project.dir().join("turn.jsonl").display().to_string()).unwrap();
     format!(
-        r#"{{"session_id":"s","hook_event_name":"PostToolUse","transcript_path":"{}/turn.jsonl","cwd":"/repo","tool_name":"{tool}","tool_input":{input},"tool_response":"ok"}}"#,
-        project.dir().display()
+        r#"{{"session_id":"s","hook_event_name":"PostToolUse","transcript_path":{transcript},"cwd":"/repo","tool_name":"{tool}","tool_input":{input},"tool_response":"ok"}}"#
     )
 }
 

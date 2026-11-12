@@ -133,3 +133,14 @@ fn anything_else_is_refused_naming_the_flag_and_why() {
         }
     }
 }
+
+// A `now` whose nanoseconds run past a second carries them into its seconds.
+#[test]
+fn a_now_with_more_than_a_second_of_nanoseconds_carries_them() {
+    let now = Timestamp {
+        seconds: 10,
+        nanos: 1_500_000_000,
+    };
+    let at = parse_age("--older-than", "1s", now).unwrap();
+    assert_eq!((at.seconds, at.nanos), (10, 500_000_000));
+}

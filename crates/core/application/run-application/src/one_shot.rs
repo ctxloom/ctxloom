@@ -87,13 +87,23 @@ fn ours(launched: Vec<Launched>, session: &str) -> Option<Launched> {
 }
 
 /// The permits the launcher did not follow, said by the permit's name (owner
-/// rulings 78, 78b).
+/// rulings 78, 78b), and the user's own settings files the session home was
+/// not started from, by path (owner ruling 169).
 fn said_permits(launched: &Launched, notices: &mut Vec<Notice>) {
     notices.extend(
         launched
             .ignored
             .iter()
             .map(crate::credential::ignored_permit),
+    );
+    notices.extend(
+        launched
+            .left_out
+            .iter()
+            .map(|left_out| Notice::UserSettingsLeftOut {
+                engine: left_out.engine.clone(),
+                path: left_out.path.clone(),
+            }),
     );
 }
 
@@ -673,7 +683,7 @@ where
         let launched = launched?;
         let ours = ours(launched, &started.session).ok_or_else(|| not_ended(&started.session))?;
         let cause = match ours.outcome {
-            Turn::NotStarted { .. } => LAUNCH_FAILED,
+            Turn::NotStarted { .. } | Turn::TooLong(_) => LAUNCH_FAILED,
             _ => RUNNER_EXIT,
         };
         self.incarnation_ended(&started.session, started.incarnation, cause)
@@ -717,6 +727,7 @@ where
                 code,
             }),
             Turn::NotStarted { detail } => Err(RunError::NotStarted { detail }),
+            Turn::TooLong(refusal) => Err(RunError::TooLong(Box::new(refusal))),
             other => Err(RunError::Turn {
                 class: run_ports::FailureClass::EngineError,
                 detail: format!("{other:?}"),
@@ -1058,6 +1069,7 @@ where
             }),
             Turn::Failed { class, detail } => Err(RunError::Turn { class, detail }),
             Turn::NotStarted { detail } => Err(RunError::NotStarted { detail }),
+            Turn::TooLong(refusal) => Err(RunError::TooLong(Box::new(refusal))),
             Turn::Ended { .. } => Err(RunError::Turn {
                 class: run_ports::FailureClass::EngineError,
                 detail: "a turn ended as a session".to_string(),

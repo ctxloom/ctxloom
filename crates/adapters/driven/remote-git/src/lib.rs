@@ -164,7 +164,7 @@ impl Remotes for GitRemotes {
             .fs
             .canonicalize(dir)
             .map_err(|e| format!("cannot resolve {path:?}: {e}"))?;
-        Ok(format!("file://{}", absolute.display()))
+        Ok(file_url(self.fs.os().flavor(), &absolute))
     }
 
     fn ensure(&self, repo: &Repository) -> Result<(), Why> {
@@ -233,6 +233,7 @@ impl Remotes for GitRemotes {
         &self,
         repo: &Repository,
         files: &BTreeMap<String, Vec<u8>>,
+        executable: &std::collections::BTreeSet<String>,
         message: &str,
     ) -> Result<String, Why> {
         publish::publish(
@@ -241,8 +242,20 @@ impl Remotes for GitRemotes {
             &self.cache,
             &repo.url,
             files,
+            executable,
             message,
         )
+    }
+}
+
+/// The `file://` URL of the absolute `path`, as git reads one:
+/// `file:///a/b` on unix; `file:///C:/a/b` on Windows, whose path is spelled
+/// with `/` in a URL.
+fn file_url(flavor: os::Flavor, path: &Path) -> String {
+    let shown = path.display().to_string();
+    match flavor {
+        os::Flavor::Unix => format!("file://{shown}"),
+        os::Flavor::Windows => format!("file:///{}", shown.replace('\\', "/")),
     }
 }
 

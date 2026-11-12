@@ -329,14 +329,7 @@ fn test_every_spawn_in_a_directory_hands_the_child_its_temporary_root() {
 
 #[test]
 fn test_annals_has_left_the_workspace() {
-    let output = std::process::Command::new(env!("CARGO"))
-        .args(["metadata", "--format-version", "1", "--offline"])
-        .arg("--manifest-path")
-        .arg(super::repo_root().join("Cargo.toml"))
-        .output()
-        .expect("cargo runs");
-    assert!(output.status.success(), "cargo metadata failed");
-    let meta: serde_json::Value = serde_json::from_slice(&output.stdout).expect("JSON");
+    let meta = super::cargo_metadata();
     let annals: Vec<&str> = meta["packages"]
         .as_array()
         .expect("packages")

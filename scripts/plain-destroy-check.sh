@@ -38,7 +38,7 @@ if [ -n "$root" ]; then
     native=$(cygpath -w "$home")
     windows=(USERPROFILE="$native" TEMP="$native" TMP="$native" SYSTEMROOT="$root" WINDIR="$root")
 fi
-ctxloom() { (cd "$home" && env -i PATH="$PATH" HOME="$home" TMPDIR="$home" "${windows[@]}" "$bin" "$@"); }
+ctxloom() { (cd "$home" && env -i PATH="$PATH" HOME="$home" TMPDIR="$home" ${windows[@]+"${windows[@]}"} "$bin" "$@"); }
 
 help=$(ctxloom session --help 2>&1) || true
 for verb in remove purge sweep; do

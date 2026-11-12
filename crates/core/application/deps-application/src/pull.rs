@@ -202,8 +202,12 @@ impl Deps {
                 pin.hash.get(..7).unwrap_or(&pin.hash)
             ));
         }
-        self.files
-            .install(&cache::slot(&remote)?, &pin.hash, &tree)?;
+        cache::install(
+            self.files.as_ref(),
+            &cache::slot(&remote)?,
+            &pin.hash,
+            &tree,
+        )?;
         Ok(tree)
     }
 
@@ -284,17 +288,16 @@ impl Deps {
     }
 }
 
-/// A tree as the disclosure reads it: committed executability only.
+/// A tree as the disclosure reads it: a file is executable when its skill's
+/// sidecar declares it, on every OS, never by the mode a publisher committed
+/// (owner ruling 2026-11-12).
 pub(crate) fn disclosed(tree: &RepoTree) -> Tree {
-    tree.iter()
-        .map(|(path, file)| {
-            (
-                path.clone(),
-                TreeFile {
-                    data: file.data.clone(),
-                    executable: file.executable,
-                },
-            )
+    let declared = library::write::skill::declared_executables(tree);
+    tree.clone()
+        .into_iter()
+        .map(|(path, data)| {
+            let executable = declared.contains(&path);
+            (path, TreeFile { data, executable })
         })
         .collect()
 }

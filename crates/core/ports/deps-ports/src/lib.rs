@@ -16,7 +16,7 @@
 //! A failure carries git's own account (third-party text, shown as it is): a
 //! reason is something to say, not a code to branch on.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 mod cache;
 pub use cache::{BundleSlot, CachePath, Repository};
@@ -35,16 +35,10 @@ pub type Failure = Box<dyn Diagnostic>;
 /// third party's own words.
 pub type Why = String;
 
-/// One file of a tree read from a repository.
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct RepoFile {
-    pub data: Vec<u8>,
-    /// Whether the publisher committed it executable.
-    pub executable: bool,
-}
-
-/// A tree: files by path relative to its root.
-pub type RepoTree = BTreeMap<String, RepoFile>;
+/// A tree: files' bytes by path relative to its root. No mode is read: a
+/// file's executability is its skill sidecar's to say, on every OS (owner
+/// ruling 2026-11-12).
+pub type RepoTree = BTreeMap<String, Vec<u8>>;
 
 /// The repositories content comes from, and where it is published.
 ///
@@ -98,11 +92,14 @@ pub trait Remotes {
 
     /// Commit `files` (paths in the repository, with their bytes) to the
     /// default branch as one commit with `message` and push it; the commit now
-    /// at the tip (the same one where nothing changed).
+    /// at the tip (the same one where nothing changed). The files of
+    /// `executable` (what the sidecars declare) are committed 100755, every
+    /// other 100644, on every OS.
     fn publish(
         &self,
         repo: &Repository,
         files: &BTreeMap<String, Vec<u8>>,
+        executable: &BTreeSet<String>,
         message: &str,
     ) -> Result<String, Why>;
 }
@@ -142,6 +139,9 @@ pub struct PullRequest {
     pub body: String,
     /// Paths in the repository, with their bytes.
     pub files: BTreeMap<String, Vec<u8>>,
+    /// The paths of `files` committed 100755 (what the sidecars declare);
+    /// every other is 100644.
+    pub executable: BTreeSet<String>,
 }
 
 /// What opening a pull request did.
@@ -195,8 +195,16 @@ pub trait DepsFiles {
     fn is_installed(&self, slot: &BundleSlot, sha: &str) -> bool;
 
     /// Install the tree of the bundle of `slot` at `sha`, replacing whatever was
-    /// installed for the identity.
-    fn install(&self, slot: &BundleSlot, sha: &str, tree: &RepoTree) -> Result<(), Why>;
+    /// installed for the identity; the files of `executable` (what its
+    /// sidecars declare) are written executable, a convenience for running
+    /// them that is never read back.
+    fn install(
+        &self,
+        slot: &BundleSlot,
+        sha: &str,
+        tree: &RepoTree,
+        executable: &BTreeSet<String>,
+    ) -> Result<(), Why>;
 
     /// Where the tree installed for the bundle of `slot` at `sha` is, as shown.
     fn installed_path(&self, slot: &BundleSlot, sha: &str) -> String;
@@ -263,8 +271,6 @@ pub struct InstalledBundle {
     pub path: String,
     /// Its tree.
     pub files: BTreeMap<String, Vec<u8>>,
-    /// The files of it committed executable.
-    pub executable: std::collections::BTreeSet<String>,
 }
 
 /// A bundle a remote publishes.

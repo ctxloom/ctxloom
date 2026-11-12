@@ -6,6 +6,7 @@
 //! local-only state (the project id, sessions, approvals) is rebuilt by
 //! nothing, so not even `--yes` takes it.
 
+use std::path::Path;
 use std::sync::Arc;
 
 use ctxloom_ports::ProjectCache;
@@ -25,7 +26,9 @@ pub const TARGETS: [(&str, &str); 3] = [
 pub struct CleanTarget {
     /// As the project shows it: `.ctxloom/cache/context`.
     pub rel: String,
-    /// Where it resolves on this machine.
+    /// Where it resolves on this machine: the app dir joined with each
+    /// segment of `rel` by the platform's separator (owner ruling
+    /// 2026-11-12), so unix's is `/`, Windows' `\` throughout.
     pub path: String,
     /// Absent targets are reported, not hidden.
     pub present: bool,
@@ -67,7 +70,11 @@ impl Cleaner {
             let measured = self.cache.measure(rel).map_err(ReclaimError::Cache)?;
             let mut target = CleanTarget {
                 rel: format!(".ctxloom/{rel}"),
-                path: format!("{}/{rel}", app.trim_end_matches('/')),
+                path: rel
+                    .split('/')
+                    .fold(Path::new(&app).to_path_buf(), |path, part| path.join(part))
+                    .display()
+                    .to_string(),
                 present: measured.is_some(),
                 bytes: measured.unwrap_or(0),
                 rebuild: rebuild.to_string(),

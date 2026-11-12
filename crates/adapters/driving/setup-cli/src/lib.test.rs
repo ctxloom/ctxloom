@@ -193,8 +193,8 @@ impl UserFiles for World {
     fn read_file(&self, path: &str) -> Result<Vec<u8>, PortFailure> {
         Ok(self.files.lock().unwrap()[path].clone().into_bytes())
     }
-    fn read_tree(&self, _: &str) -> Result<Vec<Put>, PortFailure> {
-        Ok(Vec::new())
+    fn read_tree(&self, _: &str) -> Result<BTreeMap<String, Vec<u8>>, PortFailure> {
+        Ok(BTreeMap::new())
     }
     fn write_file(&self, path: &str, bytes: &[u8], _: bool) -> Result<bool, PortFailure> {
         self.files

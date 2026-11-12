@@ -439,7 +439,7 @@ impl<'a> Walk<'a> {
                 return None;
             }
         };
-        let files = tree.into_iter().map(|(k, f)| (k, f.data)).collect();
+        let files = tree;
         match read_tree(&remote.bundle, &files) {
             Ok(bundle) => Some(bundle),
             Err(cause) => {

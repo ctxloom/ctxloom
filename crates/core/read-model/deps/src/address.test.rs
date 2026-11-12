@@ -97,6 +97,25 @@ fn test_a_clone_is_cached_under_the_repository_s_host_and_path() {
     );
 }
 
+// Owner ruling 2026-11-12: a ':' is '_' in every cache segment, on every OS,
+// so a port or a Windows drive gives one cache layout everywhere (Windows
+// refuses ':' in a file name).
+#[test]
+fn test_a_colon_in_a_cache_segment_is_an_underscore_on_every_os() {
+    assert_eq!(
+        cache_segments("https://host:8443/o/r.git"),
+        Some(["host_8443", "o", "r"].map(String::from).to_vec())
+    );
+    assert_eq!(
+        cache_segments("file:///C:/work/r/remote.git"),
+        Some(["C_", "work", "r", "remote"].map(String::from).to_vec())
+    );
+    assert_eq!(
+        cache_segments("file:///a/b:c:d/r.git"),
+        Some(["a", "b_c_d", "r"].map(String::from).to_vec())
+    );
+}
+
 // Reference.CanonicalString: the lock key is the version-less canonical
 // reference; the repository path is kept as written, ".git" included (Go's
 // `profile show` of `https://h/o/r.git@bundles/x`).

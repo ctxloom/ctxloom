@@ -23,37 +23,41 @@ pub fn parse_age(flag: &str, value: &str, now: Timestamp) -> Result<Timestamp, R
     let overflow = || DurationError::Overflow {
         text: value.trim().to_string(),
     };
-    // `now` as an instant: whole seconds from (or, before the epoch, back
-    // from) the epoch, then its nanoseconds forward.
+    // `now`'s whole seconds as an instant (from, or before the epoch, back
+    // from, the epoch). Its nanoseconds never pass through the std instant,
+    // whose resolution is the platform's (100 ns on Windows, which would drop
+    // a `now` of 7 ns to 0): a span's cutoff gets them back below, exactly.
+    let extra = u64::try_from(now.nanos).map_err(|_| bad(overflow()))?;
     let whole = Duration::from_secs(now.seconds.unsigned_abs());
-    let nanos = u64::try_from(now.nanos).ok().map(Duration::from_nanos);
-    let now = nanos
-        .zip(if now.seconds >= 0 {
-            UNIX_EPOCH.checked_add(whole)
-        } else {
-            UNIX_EPOCH.checked_sub(whole)
-        })
-        .and_then(|(nanos, at)| at.checked_add(nanos))
-        .ok_or_else(|| bad(overflow()))?;
-    let cutoff = DurationText::new(now).cutoff(value).map_err(bad)?;
-    // The cutoff as a `Timestamp`: nanoseconds always count forward from
-    // whole seconds, as in protobuf, so an instant before the epoch rounds
-    // its seconds down.
-    let (before, span) = match cutoff.duration_since(UNIX_EPOCH) {
-        Ok(after) => (false, after),
-        Err(before) => (true, before.duration()),
+    let at = if now.seconds >= 0 {
+        UNIX_EPOCH.checked_add(whole)
+    } else {
+        UNIX_EPOCH.checked_sub(whole)
+    }
+    .ok_or_else(|| bad(overflow()))?;
+    let text = DurationText::new(at);
+    let cutoff = text.cutoff(value).map_err(bad)?;
+    // The cutoff in whole seconds from the epoch: whole, as `now` was made
+    // whole and duration-text's spans and dates are whole seconds.
+    let seconds = match cutoff.duration_since(UNIX_EPOCH) {
+        Ok(after) => i64::try_from(after.as_secs()).ok(),
+        Err(before) => i64::try_from(before.duration().as_secs())
+            .ok()
+            .map(i64::wrapping_neg),
     };
-    let (seconds, nanos) = (
-        i64::try_from(span.as_secs()).ok(),
-        i32::try_from(span.subsec_nanos()).ok(),
-    );
+    // A span is counted back from `now`, nanoseconds and all (they count
+    // forward from the whole seconds, as in protobuf); a date is its
+    // midnight, whatever `now` is.
+    let extra = if text.parse(value).is_ok() { extra } else { 0 };
     seconds
-        .zip(nanos)
-        .map(|(seconds, nanos)| match (before, nanos) {
-            (false, _) => (seconds, nanos),
-            (true, 0) => (-seconds, 0),
-            (true, _) => (-seconds - 1, 1_000_000_000 - nanos),
+        .and_then(|seconds| {
+            Some(Timestamp {
+                seconds: seconds.checked_add(i64::try_from(extra / NANOS).ok()?)?,
+                nanos: i32::try_from(extra % NANOS).ok()?,
+            })
         })
-        .map(|(seconds, nanos)| Timestamp { seconds, nanos })
         .ok_or_else(|| bad(overflow()))
 }
+
+/// Nanoseconds in a second.
+const NANOS: u64 = 1_000_000_000;

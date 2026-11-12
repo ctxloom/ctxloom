@@ -87,6 +87,25 @@ pub enum Outcome {
     NotStarted {
         detail: String,
     },
+    /// Nothing was started: the engine's command is too long for the
+    /// platform to start (its terminal session's opening prompt), refused
+    /// before the spawn.
+    TooLong(run_ports::CommandTooLong),
+}
+
+/// Why a launch's preparation started nothing.
+enum Unprepared {
+    /// Its words: no engine, a home that could not be written, a command the
+    /// engine would not build.
+    Failed(String),
+    /// The command is too long for the platform (`run_ports::check_command_line`).
+    TooLong(run_ports::CommandTooLong),
+}
+
+impl From<String> for Unprepared {
+    fn from(detail: String) -> Unprepared {
+        Unprepared::Failed(detail)
+    }
 }
 
 /// A run launched, and its turn's outcome.
@@ -100,6 +119,10 @@ pub struct Launched {
     /// The caller's permits the launch did not follow (owner rulings 78,
     /// 78b), by the permit's name: the run says them.
     pub ignored: Vec<run_ports::Ignored>,
+    /// The user's own engine settings the session home was not started from
+    /// because they are not a JSON object (owner ruling 169), by path: the
+    /// run says them.
+    pub left_out: Vec<run_ports::LeftOut>,
 }
 
 /// The launcher: the engines it can drive, the way a command is run, the
@@ -112,6 +135,9 @@ pub struct Launcher<E: Edge, L: RunnerLauncher, R: SessionRecords> {
     engines: Vec<Arc<dyn Engine>>,
     orders: Arc<Orders>,
     limits: Limits,
+    /// The OS name the commands are measured for (`std::env::consts::OS`,
+    /// as the composition root takes it); none, nothing is measured.
+    os: String,
     pending: CatchUp<PendingModel>,
     /// The locks other processes' runs are judged by; none: no sweep.
     locks: Option<Arc<dyn run_ports::RunLocks>>,
@@ -134,6 +160,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             engines,
             orders,
             limits,
+            os: String::new(),
             pending: catch_up(),
             locks: None,
         }
@@ -146,6 +173,13 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
     /// records it ended: `LaunchOrphaned` or `RunnerLost` (rulings 95, 100).
     pub fn with_locks(mut self, locks: Arc<dyn run_ports::RunLocks>) -> Self {
         self.locks = Some(locks);
+        self
+    }
+
+    /// The launcher, measuring each command against the command line of
+    /// `os` before it is spawned ([`run_ports::check_command_line`]).
+    pub fn on_os(mut self, os: &str) -> Self {
+        self.os = os.to_string();
         self
     }
 
@@ -222,7 +256,8 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             depth: 0,
         };
         let mut ignored = Vec::new();
-        let prepared = self.prepare(&order, &mut ignored);
+        let mut left_out = Vec::new();
+        let prepared = self.prepare(&order, &mut ignored, &mut left_out);
         let done = |outcome| Launched {
             run: launch.run.clone(),
             session: launch.session.clone(),
@@ -230,13 +265,13 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             engine: order.engine.clone(),
             outcome,
             ignored: ignored.clone(),
+            left_out: left_out.clone(),
         };
         let (engine, command) = match prepared {
             Ok(prepared) => prepared,
-            Err(detail) => {
-                self.not_started(&who, true, &detail).await?;
-                self.orders.release(&launch.session, launch.incarnation);
-                return Ok(done(Outcome::NotStarted { detail }));
+            Err(unprepared) => {
+                let outcome = self.unprepared(&who, &launch, unprepared).await?;
+                return Ok(done(outcome));
             }
         };
         self.record(&who, attached()).await?;
@@ -388,6 +423,23 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         Ok(native)
     }
 
+    /// The launch's preparation started nothing: record why (deterministic:
+    /// the same order prepares the same way), end the launch, and say it.
+    async fn unprepared(
+        &self,
+        who: &Identity,
+        launch: &PendingLaunch,
+        unprepared: Unprepared,
+    ) -> Result<Outcome, LaunchError> {
+        let (detail, outcome) = match unprepared {
+            Unprepared::Failed(detail) => (detail.clone(), Outcome::NotStarted { detail }),
+            Unprepared::TooLong(refusal) => (refusal.to_string(), Outcome::TooLong(refusal)),
+        };
+        self.not_started(who, true, &detail).await?;
+        self.orders.release(&launch.session, launch.incarnation);
+        Ok(outcome)
+    }
+
     /// The command did not run: record why, and end the launch.
     async fn never_started(
         &self,
@@ -414,7 +466,8 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         &mut self,
         order: &Order,
         ignored: &mut Vec<run_ports::Ignored>,
-    ) -> Result<(Arc<dyn Engine>, TurnCommand), String> {
+        left_out: &mut Vec<run_ports::LeftOut>,
+    ) -> Result<(Arc<dyn Engine>, TurnCommand), Unprepared> {
         let engine = self
             .engine(&order.engine)
             .ok_or_else(|| format!("no engine named {}", order.engine))?;
@@ -444,6 +497,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
                 session_home: order.settings.session_home,
             })
             .map_err(|e| e.to_string())?;
+        left_out.clone_from(&prepared.left_out);
         for file in &prepared.files {
             self.records
                 .write(&order.harp, &format!("home/{}", file.rel), &file.bytes)
@@ -477,6 +531,9 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         // Never over a name ctxloom set for the engine (ruling 78b): the
         // adapter's computed names, derived from the command, and the run's.
         *ignored = run_ports::apply_permits(&order.env, &mut command.env, &order.owned);
+        // The command is complete: measured against the platform's command
+        // line before it is spawned (the terminal's opening prompt is on it).
+        run_ports::check_command_line(&self.os, &command).map_err(Unprepared::TooLong)?;
         Ok((engine, command))
     }
 
@@ -484,8 +541,13 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
     /// 112: the engine's HOME is the session home, so git reads its global
     /// configuration there): once, when the home has no `.gitconfig`; one
     /// already there, which a tool of an earlier run may have written, is
-    /// left as it is.
+    /// left as it is. Under `session_home: host` the engine's HOME is the
+    /// user's own, which holds her git identity already, so nothing is
+    /// seeded.
     fn seed_git_user(&mut self, order: &Order) -> Result<(), String> {
+        if order.settings.session_home == run_ports::SessionHome::Host {
+            return Ok(());
+        }
         let Some(text) = order.git_user.as_ref().and_then(run_ports::git_config) else {
             return Ok(());
         };

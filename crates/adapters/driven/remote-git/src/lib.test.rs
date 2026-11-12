@@ -54,17 +54,34 @@ fn identity() -> Vec<(&'static str, OsString)> {
 /// The repository at `url`, cached where the application would say: its host
 /// (none for a file address) and path, `.git` dropped. Any other place would
 /// do to the adapter; this one is only a plausible one.
+/// Nothing committed executable.
+fn none() -> std::collections::BTreeSet<String> {
+    Default::default()
+}
+
 fn repo(url: &str) -> Repository {
     let path = url.split_once("://").map_or(url, |(_, rest)| rest);
     let path = path.strip_suffix(".git").unwrap_or(path);
+    // A `:` (a port's, a Windows drive's) is no part of a name every host can
+    // make a directory of.
     let segments = path
         .split('/')
         .filter(|s| !s.is_empty())
-        .map(str::to_string)
+        .map(|s| s.replace(':', "_"))
         .collect();
     Repository {
         url: url.to_string(),
         cache: CachePath::new(segments).expect("plain names"),
+    }
+}
+
+/// The `file://` URL git reads for the absolute `path`: `file:///a/b`, and
+/// on Windows `file:///C:/a/b`.
+fn file_url_of(path: &Path) -> String {
+    let shown = path.display().to_string();
+    match os::host().flavor() {
+        os::Flavor::Unix => format!("file://{shown}"),
+        os::Flavor::Windows => format!("file:///{}", shown.replace('\\', "/")),
     }
 }
 
@@ -90,7 +107,7 @@ impl Origin {
     }
 
     fn url(&self) -> String {
-        format!("file://{}", self.bare.display())
+        file_url_of(&self.bare)
     }
 
     /// A commit writing these files (an execute bit where `true`); its sha.
@@ -105,6 +122,16 @@ impl Origin {
             }
         }
         git(&self.work, &["add", "-A"]);
+        // The bit is committed as asked, on a host that keeps none on disk
+        // too (Windows, where git takes no mode from the file).
+        for (path, _, executable) in files {
+            let chmod = if *executable {
+                "--chmod=+x"
+            } else {
+                "--chmod=-x"
+            };
+            git(&self.work, &["update-index", chmod, path]);
+        }
         git(&self.work, &["commit", "-q", "-m", "commit"]);
         git(&self.work, &["push", "-q", "origin", "main"]);
         git(&self.work, &["rev-parse", "HEAD"])
@@ -209,7 +236,7 @@ fn test_refresh_clones_what_is_not_there_and_a_failed_clone_leaves_nothing_behin
     demo(&origin);
     let c = cache();
     c.remotes.refresh(&repo(&origin.url())).expect("clones");
-    let missing = format!("file://{}/nowhere.git", origin.root.root().display());
+    let missing = file_url_of(&origin.root.root().join("nowhere.git"));
     let refused = c
         .remotes
         .ensure(&repo(&missing))
@@ -241,7 +268,7 @@ fn test_a_branch_is_its_remote_tracking_tip_whatever_the_clone_has_checked_out()
         .read_bundle(&repo(&origin.url()), &second, "demo")
         .expect("reads")
         .expect("a bundle");
-    assert_eq!(tree["fragments/a.md"].data, b"A2\n");
+    assert_eq!(tree["fragments/a.md"], b"A2\n");
 }
 
 #[test]
@@ -362,9 +389,10 @@ fn test_the_default_branch_is_what_the_remote_head_points_at_else_main_or_master
     );
 }
 
-// remotetree: a bundle's files with the execute bit the publisher committed
+// remotetree: a bundle's files with their bytes; no committed mode is read
+// (owner ruling 2026-11-12: a skill's sidecar says what is executable).
 #[test]
-fn test_a_bundle_is_read_at_a_commit_with_its_bytes_and_modes() {
+fn test_a_bundle_is_read_at_a_commit_with_its_bytes() {
     let origin = Origin::new();
     let first = demo(&origin);
     let c = cache();
@@ -380,8 +408,7 @@ fn test_a_bundle_is_read_at_a_commit_with_its_bytes_and_modes() {
         paths,
         vec!["bundle.yaml", "fragments/a.md", "scripts/run.sh"]
     );
-    assert_eq!(tree["fragments/a.md"].data, b"A\n");
-    assert!(tree["scripts/run.sh"].executable && !tree["bundle.yaml"].executable);
+    assert_eq!(tree["fragments/a.md"], b"A\n");
     assert_eq!(
         c.remotes
             .read_bundle(&repo(&url), &first, "absent")
@@ -400,13 +427,13 @@ fn test_a_bundle_is_read_at_a_commit_with_its_bytes_and_modes() {
         .read_bundle(&repo(&url), &first, "demo")
         .expect("reads")
         .expect("a bundle");
-    assert_eq!(earlier["fragments/a.md"].data, b"A\n");
+    assert_eq!(earlier["fragments/a.md"], b"A\n");
     let later = c
         .remotes
         .read_bundle(&repo(&url), &second, "demo")
         .expect("reads")
         .expect("a bundle");
-    assert_eq!(later["fragments/a.md"].data, b"A2\n");
+    assert_eq!(later["fragments/a.md"], b"A2\n");
 }
 
 #[test]
@@ -428,7 +455,7 @@ fn test_binary_bytes_survive_and_a_link_is_not_a_file_of_the_tree() {
         .read_bundle(&repo(&origin.url()), &sha, "demo")
         .expect("reads")
         .expect("a bundle");
-    assert_eq!(tree["blob.bin"].data, vec![0u8, 1, 2, 255, b'\n', 0, b'\n']);
+    assert_eq!(tree["blob.bin"], vec![0u8, 1, 2, 255, b'\n', 0, b'\n']);
     assert!(!tree.contains_key("link"));
 }
 
@@ -548,6 +575,19 @@ fn test_a_clone_is_kept_exactly_under_the_segments_it_is_handed() {
     assert!(why.ends_with("is not cloned yet"), "{why}");
 }
 
+// A file URL is the path as git reads one in a URL, on either host.
+#[test]
+fn test_a_file_url_spells_the_path_with_slashes_from_the_top() {
+    assert_eq!(
+        file_url(os::Flavor::Unix, Path::new("/srv/r.git")),
+        "file:///srv/r.git"
+    );
+    assert_eq!(
+        file_url(os::Flavor::Windows, Path::new(r"C:\Users\u\r.git")),
+        "file:///C:/Users/u/r.git"
+    );
+}
+
 // remote.go resolveLocalRepoURL
 #[test]
 fn test_a_path_is_the_file_url_of_the_repository_there() {
@@ -557,7 +597,7 @@ fn test_a_path_is_the_file_url_of_the_repository_there() {
         .remotes
         .local_repository(origin.bare.to_str().expect("utf-8"))
         .expect("a repository");
-    assert_eq!(url, format!("file://{}", canonical(&origin.bare).display()));
+    assert_eq!(url, file_url_of(&canonical(&origin.bare)));
     assert!(c
         .remotes
         .local_repository(origin.work.to_str().expect("utf-8"))
@@ -587,7 +627,12 @@ fn test_a_publish_lands_files_as_one_commit_beside_the_history() {
     ]);
     let commit = c
         .remotes
-        .publish(&repo(&origin.url()), &files, "Update bundle: authored")
+        .publish(
+            &repo(&origin.url()),
+            &files,
+            &none(),
+            "Update bundle: authored",
+        )
         .expect("publishes");
     assert_eq!(git(&origin.bare, &["rev-parse", "main"]), commit);
     assert_eq!(
@@ -625,13 +670,47 @@ fn test_a_publish_lands_files_as_one_commit_beside_the_history() {
     // Nothing to change is nothing to publish: the tip stands.
     let again = c
         .remotes
-        .publish(&repo(&origin.url()), &files, "again")
+        .publish(&repo(&origin.url()), &files, &none(), "again")
         .expect("publishes");
     assert_eq!(again, commit);
     assert_eq!(git(&origin.bare, &["rev-list", "--count", "main"]), "2");
     // No working clone is left in the cache.
     let leftovers = names(c.dir.root());
     assert!(leftovers.is_empty(), "{leftovers:?}");
+}
+
+// Owner ruling 2026-11-12: the files the sidecars declare are committed
+// 100755 and every other 100644, on every OS (Windows keeps no mode on disk,
+// so the mode is the index's, set as each file is added).
+#[test]
+fn test_a_publish_commits_executable_the_files_it_is_told_and_no_others() {
+    let origin = Origin::new();
+    demo(&origin);
+    let c = cache_with(crate::fixtures::env_with(&identity()));
+    let script = format!("{BUNDLE}/authored/skills/s/run.sh");
+    let plain = format!("{BUNDLE}/authored/skills/s/SKILL.md");
+    let files: BTreeMap<String, Vec<u8>> = BTreeMap::from([
+        (script.clone(), b"#!/bin/sh\n".to_vec()),
+        (plain.clone(), b"---\nname: s\n---\n".to_vec()),
+    ]);
+    let told = std::collections::BTreeSet::from([script.clone()]);
+    c.remotes
+        .publish(
+            &repo(&origin.url()),
+            &files,
+            &told,
+            "Update bundle: authored",
+        )
+        .expect("publishes");
+    let mode = |path: &str| {
+        git(&origin.bare, &["ls-tree", "main", "--", path])
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .to_string()
+    };
+    assert_eq!(mode(&script), "100755");
+    assert_eq!(mode(&plain), "100644");
 }
 
 #[test]
@@ -642,7 +721,10 @@ fn test_a_publish_to_a_repository_that_cannot_be_reached_fails_and_leaves_no_clo
     let url = origin.url();
     origin.vanish();
     let files = BTreeMap::from([("a.txt".to_string(), b"a".to_vec())]);
-    assert!(c.remotes.publish(&repo(&url), &files, "m").is_err());
+    assert!(c
+        .remotes
+        .publish(&repo(&url), &files, &none(), "m")
+        .is_err());
     let leftovers = names(c.dir.root()).len();
     assert_eq!(leftovers, 0);
 }
@@ -934,7 +1016,7 @@ mod hung_git {
         let (_stub, remotes) = hung(&c);
         let files = BTreeMap::from([("a.txt".to_string(), b"a".to_vec())]);
         let why = remotes
-            .publish(&repo(&origin.url()), &files, "msg")
+            .publish(&repo(&origin.url()), &files, &none(), "msg")
             .unwrap_err();
         assert_eq!(why, format!("git clone: {TIMED_OUT}"));
         let left = names(c.dir.root());

@@ -134,7 +134,7 @@ impl Project {
             status: "created".to_string(),
             bundle: bundle.to_string(),
             name: name.to_string(),
-            dir: format!("{}/{dir}", self.content.bundle_dir(&entry.name)),
+            dir: crate::shown::below(&self.content.bundle_dir(&entry.name), &dir),
         })
     }
 
@@ -157,7 +157,7 @@ impl Project {
         Ok(Removal::Done(SkillRemoved {
             status: "removed".to_string(),
             bundle,
-            dir: format!("{}/{dir}", self.content.bundle_dir(&entry.name)),
+            dir: crate::shown::below(&self.content.bundle_dir(&entry.name), &dir),
             name,
         }))
     }
@@ -239,7 +239,7 @@ impl Project {
         let entry = self.bundle(bundle)?;
         let mut plan = self.plan_of(&entry.name)?;
         let dir = skill::package_dir(&name);
-        let dest = format!("{}/{dir}", self.content.bundle_dir(&entry.name));
+        let dest = crate::shown::below(&self.content.bundle_dir(&entry.name), &dir);
         if !plan.below(&dir).is_empty() {
             if !force {
                 return Err(WriteError::ImportExists {

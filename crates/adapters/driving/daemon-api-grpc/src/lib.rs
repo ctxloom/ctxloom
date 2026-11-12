@@ -2,21 +2,27 @@
 //! over gRPC, served beside angzarr's coordinator on the daemon's one
 //! listener (slice 2 step 5): translation only.
 //!
-//! - Every served RPC is admitted by the user bearer first, through the
-//!   same [`UserGate`] as the coordinator; anything else is the bare
-//!   UNAUTHENTICATED the gate answers, which says nothing of why (S11).
+//! - GATE FIRST, EVERYTHING (owner, after step 5): every request to the
+//!   service, served RPC or not, is admitted by the user bearer first,
+//!   through the same [`UserGate`] as the coordinator ([`Gated`], around
+//!   the whole generated server); anything else is the one bare
+//!   UNAUTHENTICATED the gate answers, which says nothing of why (S11), nor
+//!   whether the RPC is served: a caller that is not the user learns
+//!   nothing of the API, not even its shape.
 //! - Its use case runs on the runtime's BLOCKING pool (`spawn_blocking`,
 //!   M10), never on the two async workers that serve the listener: a slow
 //!   use case holds a blocking thread, never the sockets.
 //! - A refusal is answered under the gRPC code its `(refusal_status)`
 //!   declares, the typed refusal message packed in `google.rpc.Status.
 //!   details` (S11); a failure is INTERNAL.
-//! - Every other RPC is the generated default: UNIMPLEMENTED, answered
-//!   before any credential is looked at (the API's surface is no secret; a
-//!   plain build's `DeleteSession` and `SweepSessions` among them, M5).
+//! - Every other RPC is the generated default, UNIMPLEMENTED, to the user
+//!   bearer alone (a plain build's `DeleteSession` and `SweepSessions`
+//!   among them, M5).
 
+use std::convert::Infallible;
 use std::future::Future;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 
 use angzarr_coordinator::{Arrival, Credential, Gate, Unauthenticated};
 use angzarr_coordinator_grpc::{bearer, status_of};
@@ -25,21 +31,86 @@ use daemon_proto::service::ctxloom_server::{Ctxloom, CtxloomServer};
 use daemon_proto::v1;
 use prost::Message;
 use runs_application::UserGate;
-use tonic::codegen::Bytes;
+use tonic::body::Body;
+use tonic::codegen::{http, BoxFuture, Bytes, Service};
+use tonic::metadata::MetadataMap;
+use tonic::server::NamedService;
 use tonic::{Code, Request, Response, Status};
 
 /// The service's own name, as a router routes it.
 pub use daemon_proto::service::ctxloom_server::SERVICE_NAME;
 
-/// The service, ready to be added to a server: `calls` behind `gate`.
-pub fn service(calls: Arc<dyn Calls>, gate: UserGate) -> CtxloomServer<Served> {
-    CtxloomServer::new(Served { calls, gate })
+/// The service, ready to be added to a server: `calls` behind `gate`,
+/// every request admitted before it reaches a handler or the generated
+/// UNIMPLEMENTED.
+pub fn service(calls: Arc<dyn Calls>, gate: UserGate) -> Gated<CtxloomServer<Served>> {
+    Gated {
+        inner: CtxloomServer::new(Served { calls }),
+        gate: Arc::new(gate),
+    }
 }
 
 /// The `Ctxloom` service's handlers.
 pub struct Served {
     calls: Arc<dyn Calls>,
-    gate: UserGate,
+}
+
+/// A gRPC service `inner` behind the user bearer: a request is handed on
+/// only once `gate` admits the bearer it presents; any other (none, another
+/// bearer, a malformed `authorization`) is answered the gate's one bare
+/// UNAUTHENTICATED, whatever its path names.
+#[derive(Clone)]
+pub struct Gated<S> {
+    inner: S,
+    gate: Arc<UserGate>,
+}
+
+impl<S: NamedService> NamedService for Gated<S> {
+    const NAME: &'static str = S::NAME;
+}
+
+impl<S> Service<http::Request<Body>> for Gated<S>
+where
+    S: Service<http::Request<Body>, Response = http::Response<Body>, Error = Infallible>
+        + Clone
+        + Send
+        + 'static,
+    S::Future: Send + 'static,
+{
+    type Response = http::Response<Body>;
+    type Error = Infallible;
+    type Future = BoxFuture<Self::Response, Self::Error>;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx)
+    }
+
+    fn call(&mut self, request: http::Request<Body>) -> Self::Future {
+        let gate = Arc::clone(&self.gate);
+        // The clone that was made ready is the one called (tower's rule);
+        // the one left behind is readied again before the next call.
+        let fresh = self.inner.clone();
+        let mut inner = std::mem::replace(&mut self.inner, fresh);
+        Box::pin(async move {
+            let metadata = MetadataMap::from_headers(request.headers().clone());
+            if admitted(&gate, &metadata).await {
+                inner.call(request).await
+            } else {
+                Ok(status_of(&Unauthenticated.coded()).into_http())
+            }
+        })
+    }
+}
+
+/// Whether `metadata` presents the bearer `gate` admits.
+async fn admitted(gate: &UserGate, metadata: &MetadataMap) -> bool {
+    let Ok(Some(presented)) = bearer(metadata) else {
+        return false;
+    };
+    let credential = Credential::bearer(presented.secret().as_bytes());
+    gate.identify(Arrival::Loopback, Some(&credential))
+        .await
+        .is_ok()
 }
 
 /// `google.rpc.Status`, as googleapis defines it: what a status's details
@@ -78,20 +149,8 @@ fn status_of_error(error: ApiError) -> Status {
 }
 
 impl Served {
-    /// Admit `request` by the user bearer, or answer the gate's bare
-    /// UNAUTHENTICATED.
-    async fn admit<T>(&self, request: &Request<T>) -> Result<(), Status> {
-        let presented = bearer(request.metadata())?;
-        let credential = presented.map(|bearer| Credential::bearer(bearer.secret().as_bytes()));
-        self.gate
-            .identify(Arrival::Loopback, credential.as_ref())
-            .await
-            .map(|_| ())
-            .map_err(|_| status_of(&Unauthenticated.coded()))
-    }
-
-    /// Admit `request`, then answer it with `call`'s use case, run on the
-    /// blocking pool (M10).
+    /// Answer `request` (admitted already, by [`Gated`]) with `call`'s use
+    /// case, run on the blocking pool (M10).
     async fn answer<T, R, F, Fut>(
         &self,
         request: Request<T>,
@@ -103,7 +162,6 @@ impl Served {
         F: FnOnce(Arc<dyn Calls>, T) -> Fut + Send + 'static,
         Fut: Future<Output = Result<R, ApiError>> + Send,
     {
-        self.admit(&request).await?;
         let calls = Arc::clone(&self.calls);
         let message = request.into_inner();
         let runtime = tokio::runtime::Handle::current();

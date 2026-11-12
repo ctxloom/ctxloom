@@ -13,11 +13,15 @@
 # that ships.
 #
 # The API too (owner M5): the plain binary's daemon answers the `Ctxloom`
-# service's DeleteSession and SweepSessions UNIMPLEMENTED (grpc-status 12),
-# while the service itself is mounted (GetDaemon without the bearer is
-# UNAUTHENTICATED, 16). The probe is curl over HTTP/2 to the endpoint the
-# daemon logs (`-k`: nothing is trusted here, only a status read back);
-# skipped, and said, where curl cannot speak HTTP/2.
+# service's DeleteSession and SweepSessions UNIMPLEMENTED (grpc-status 12)
+# to the user bearer, while the service itself is mounted and gated first
+# (owner, after step 5: GetDaemon and DeleteSession without the bearer are
+# both UNAUTHENTICATED, 16). The probe is curl over HTTP/2 to the endpoint
+# the daemon logs (`-k`: nothing is trusted here, only a status read back),
+# presenting the bearer read from the daemon's discovery file (its field 5,
+# a 64-hex string: the bytes `*@` then the hex; given to curl from a 0600
+# file, never on its command line); skipped, and said, where curl cannot
+# speak HTTP/2.
 #
 # Usage: plain-destroy-check.sh <ctxloom binary>
 # Silent on a pass; on a failure the first line is the summary, then what the
@@ -77,23 +81,39 @@ if [ -z "$endpoint" ]; then
     cat "$log" 2>/dev/null || true
     exit 1
 fi
+discovery="$home/.ctxloom/daemon/daemon.discovery"
+user_bearer=$( { LC_ALL=C grep -ao '\*@[0-9a-f]\{64\}' "$discovery" 2>/dev/null || true; } | head -1)
+user_bearer=${user_bearer#\*@}
+if [ "${#user_bearer}" -ne 64 ]; then
+    echo "plain build: its daemon's discovery file holds no user bearer"
+    exit 1
+fi
+headers="$home/bearer.header"
+(umask 077 && printf 'authorization: Bearer %s\n' "$user_bearer" > "$headers")
+unset user_bearer
 frame="$home/empty.grpc"
 printf '\0\0\0\0\0' > "$frame"
+# status <method> [<header file>]: the grpc-status the daemon answers.
 status() {
+    local auth=()
+    [ -n "${2:-}" ] && auth=(-H "@$2")
     curl -sS -k --http2 --max-time 5 -o /dev/null -D - \
         -H 'content-type: application/grpc' -H 'te: trailers' \
+        ${auth[@]+"${auth[@]}"} \
         --data-binary "@$frame" "$endpoint/ctxloom.daemon.v1.Ctxloom/$1" 2>&1 |
         tr -d '\r' | sed -n 's/^grpc-status: *//Ip' | head -1 || true
 }
-mounted=$(status GetDaemon)
-if [ "$mounted" != 16 ]; then
-    echo "plain build: its daemon's GetDaemon without a bearer is grpc-status '$mounted', not 16"
-    exit 1
-fi
-for method in DeleteSession SweepSessions; do
+for method in GetDaemon DeleteSession; do
     got=$(status "$method")
+    if [ "$got" != 16 ]; then
+        echo "plain build: its daemon's $method without a bearer is grpc-status '$got', not 16 (UNAUTHENTICATED)"
+        exit 1
+    fi
+done
+for method in DeleteSession SweepSessions; do
+    got=$(status "$method" "$headers")
     if [ "$got" != 12 ]; then
-        echo "plain build: its daemon answers $method with grpc-status '$got', not 12 (UNIMPLEMENTED)"
+        echo "plain build: its daemon answers $method to the user bearer with grpc-status '$got', not 12 (UNIMPLEMENTED)"
         exit 1
     fi
 done

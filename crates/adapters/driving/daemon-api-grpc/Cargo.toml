@@ -1,7 +1,7 @@
 [package]
 name = "daemon-api-grpc"
 version = "0.1.0"
-description = "The daemon's Ctxloom service over gRPC (slice 2 step 5): each served RPC admitted by the user bearer (UserGate), its use case run on the blocking pool (M10), a refusal answered under its status with the typed refusal in google.rpc.Status.details (S11); every other RPC UNIMPLEMENTED"
+description = "The daemon's Ctxloom service over gRPC (slice 2 step 5): every request, served RPC or not, admitted by the user bearer first (UserGate, gate first), its use case run on the blocking pool (M10), a refusal answered under its status with the typed refusal in google.rpc.Status.details (S11); every other RPC UNIMPLEMENTED to the user bearer alone"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

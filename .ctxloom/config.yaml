@@ -42,6 +42,7 @@ agents:
           defaultMode: bypassPermissions
     profiles:
       - orchestrator
+      - captain
     runtime: host
   reviewer-rust:
     engine: claude-code

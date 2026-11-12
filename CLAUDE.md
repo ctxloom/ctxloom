@@ -98,10 +98,12 @@ output; its prose is withheld until the owner rules (D24, D8).
 Skill zips are written and read by `library::write::archive` over the `zip`
 crate (deflate only, default features off) and crc32fast.
 
-Slice S4 (sessions) built the following. The record is the project's durable
-store (owner rulings 87, 87a): a session's state goes through angzarr-embedded
-over `~/.ctxloom/projects/<id>/ctxloom.db` (machine-local), every hook's fact
-an event when it is delivered. `session list`, `search`, `show` and
+Slice S4 (sessions) built the following. The record is the user's durable
+store (owner rulings 87a, T14, which reverses 87's store per project): a
+session's state goes through angzarr-embedded over the ONE per-user
+`<ctxloom home>/.ctxloom/ctxloom.db` (machine-local; see "Storage is
+angzarr-store-sqlite"), every project's streams in it, rooted in their
+project's namespace, every hook's fact an event when it is delivered. `session list`, `search`, `show` and
 `transcript show` catch up from it on each read, so a live session shows what
 was delivered so far; nothing projects the events into a file (no
 `transcripts/transcript.jsonl`, `records/*.jsonl`, position file or
@@ -132,7 +134,7 @@ the store grows without bound (ruling 90; compaction is taskloom
 A session's state is its lock's verdict, never its end stamp; its title is the
 first prompt of its transcript; `hud` renders and records nothing. The
 kernel's retry is `angzarr-embedded-runner`'s (the embedded pin). A read catches
-up fresh each time; nothing caches a project's index. Rows and refusals say what was not
+up fresh each time and keeps the records of the project asked (`SessionState.project_id`, kept as a reference, S49); nothing caches a project's index. Rows and refusals say what was not
 done and the command that would, in the message, so the json envelope carries
 it too. A crate's catalog is `locales/en-US/messages.ftl`, ids the full code.
 
@@ -415,8 +417,15 @@ wins the race), then records the run's end, keyed by the run (a second
 sweeper's is a DUPLICATE): `LaunchOrphaned` (`launch-orphaned:<run>`,
 `END_CAUSE_LAUNCH_ORPHANED`) for one owed a runner, since no launch failed
 (ruling 100), and `RunnerLost` (`runner-lost:<run>`, `END_CAUSE_RUNNER_LOSS`)
-for one started (ruling 95); no orphan claims `LaunchFailed`. Then the
-session's incarnation ended (`orphaned`). Every
+for one started (ruling 95); no orphan claims `LaunchFailed`. A started run
+whose OWN lock (`RunEnqueued.launcher_lock`, which `pending-launches` keeps
+on a started run) is free has lost its owner too: a host that held it for
+the run's life, as the daemon does for a child it hosts, is gone (T3, T18);
+a primary removes its file once its runner started, which proves nothing.
+Then the session's incarnation ended (`orphaned`). The sweep is ONE
+implementation, `run_launcher::Sweeper`: `Launcher::step` runs it over the
+runs it holds no order for, and the daemon's launcher runs it as its first
+step (below). Every
 run's end, or abandon after its mint, tells its session
 `RecordIncarnationEnded` (`runner-exit`, `launch-failed`; keyed
 `incarnation-ended:<session>:<n>`), so no incarnation stays open; nothing
@@ -713,21 +722,68 @@ or one without that line, they assert as ever, and the commit gates (which
 build the staged tree without the patch) run them. Re-pin once per landing: push the sibling (ctxloom-lib's gates and
 mutation first), bump the revs in Cargo.toml, `just dev-local-off`.
 
+## The daemon's one launcher, and the read models it registers (slice 1)
+
+The user daemon (`ctxloom daemon serve`) hosts its children through ONE
+launcher in the application ring (owner T18): `core/application/
+daemon-application`'s `Daemon`. Its first step, `start_up`, is the sweep
+(`run_launcher::Sweeper`, above); then `tick` catches up the read models,
+plans each project on the board (`session-policies`), and takes the steps
+(launch, start, feed, clear, end), recording what each child said as its
+run's facts. Its ports: the engine registry (`HostedEngine`, an `Engine`
+beside its `ChildEngine`, resolved by NAME; the wiring's `hosted_engines()`
+composes claude and opencode, and nothing in the launcher names an adapter),
+`ChildPlans` (the child's project's dry run on its own engine), `HandOffs`,
+`ChildHomes`, `Ears` (the root pumps each child's observations off a thread:
+no thread in the core), `RunLocks`, `TokenSource` and the edge.
+`ctxloom-wiring/src/daemon/serve.rs` only composes it, with the election,
+the runtime, the store and its core, the listener, the discovery file and
+the pace.
+
+The daemon's kernel registers its read models as projectors (S32):
+`session-index`, `pending-messages` and `daemon-board`, by those names, so a
+`HandleSync` (T16: `run_ports::Edge::serve_sync`, the kernel's `handle_sync`
+behind the exposure; `EdgeCommands::handle_sync` answers core's `Synced`)
+waits for the ones it names and answers each one's view: the session as
+`ctxloom.daemon.v1.Session` (`daemon-proto`, compiled from the daemon's
+drafts), named `projects/{project harp}/sessions/{harp}` once its project is
+named (the `projects` aggregate, S54); the session with its pending messages;
+the session's state. A CLI command's core registers none
+(`InProcessCore::start`); the daemon's does (`start_with`, `Projectors::
+filled`). There is ONE fold per read model: `core/read-model/held-projection`'s
+`Held` is a shared handle, the same instance the kernel runs inline and the
+daemon's catch-up drives, each page folded once (one before where the fold
+is on its stream is passed over; a book from 0 with another first event is
+folded afresh; a book past where it is is a gap, read from the store first,
+else left for the catch-up).
+
 ## Storage is angzarr-store-sqlite
 
-A project's store is angzarr-store-sqlite's `SqliteStore` (through
-angzarr-embedded's `sqlite` feature), opened at
-`~/.ctxloom/projects/<project-id>/ctxloom.db` by `ctxloom-store-sqlite` (the
-file name, the placement and the port, over ctxloom-lib's `sqlite-store-opener`,
-which refuses a store from before the embedded store, `ctxloom.db.pre-embedded`
-naming its backup), beside taskloom's `state.db` and never the same file (D26).
+ctxloom's store is ONE per user (owner T14): angzarr-store-sqlite's
+`SqliteStore` (through angzarr-embedded's `sqlite` feature), opened at
+`<ctxloom home>/.ctxloom/ctxloom.db` (the home resolved as everywhere:
+`CTXLOOM_HOME` first) by `ctxloom-store-sqlite` (the file name, the placement
+and the `ProjectStores` port, over ctxloom-lib's `sqlite-store-opener`, which
+refuses a store from before the embedded store, `ctxloom.db.pre-embedded`
+naming its backup). Every project's streams are in it, rooted in their
+project's namespace (the UUIDv5 namespaces are unchanged), so nothing routes
+by file: there is no `route.rs` and no routing metadata. taskloom's
+`state.db` stays taskloom's, per project, never the same file (T2, D26). A
+write for a project still makes its `~/.ctxloom/projects/<id>/` directory,
+which taskloom's registry lists projects by; ctxloom keeps nothing in it. A
+project that still has a store of its OWN there (`projects/<id>/ctxloom.db`,
+from before) is refused per command (T17, S48): exit 20,
+`ctxloom-store-sqlite-per-project-store`, its fix naming the file to remove;
+nothing is imported (accepted cost: that history is lost), and the file is
+left as it is. Hooks are not refused (a hook never fails its engine); the
+store port refuses it too, for whatever reaches a store past the command
+line.
 A store is closed, never dropped, where its file matters after (ruling 131):
 angzarr-embedded's `SqliteStore::close` waits for the connection's close, so
 the last close's checkpoint and the log's removal are over when it returns
 (dropped, they are left to sqlx's detached thread, which an exiting process
-need not let run). `SqliteStores` closes a store it gives up for another (a
-project's, or a read's reopened to write) and `SqliteStores::close` the one it
-holds; the wiring closes the sessions use cases' stores after every `session`
+need not let run). `SqliteStores` holds the one store, closes a read's before
+it reopens it to write, and `SqliteStores::close` closes the one it holds; the wiring closes the sessions use cases' stores after every `session`
 command and a hook's bind (`Sessions::close`; a failed close fails a command
 that had not), the seed's and `test open-store`'s, and a run's at its end.
 A run's store has holders past the use case: the core's application and

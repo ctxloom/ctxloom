@@ -291,6 +291,10 @@ installs): claude's hooks and statusline, at rest and in a session
 home, and opencode's plugin's `COMMAND` all run it. The wiring resolves it
 ONCE (`ctxloom-wiring`'s `program::running`, from `std::env::current_exe`,
 which on Linux is `/proc/self/exe`, a symlink's target and never the link; the
+platform's executable suffix, `std::env::consts::EXE_SUFFIX`, stripped in any
+case, so `ctxloom.exe` is `ctxloom` and every written hook, statusline and
+plugin command is `ctxloom hook ...` on every OS, the PATH search finding the
+`.exe` itself (owner ruling 2026-11-12, amending 163 and 164); the
 authored `ctxloom`, `surface_ports::CALLBACK_PROGRAM`, when it cannot) and
 tells the adapters as a value when it builds them (`Claude::calling`,
 `Opencode::calling`, `Mock::calling`, `Doctor::calling`); an authored callback

@@ -85,3 +85,14 @@ with the feature on (`<crate> = { path = ".", features = ["<feature>"] }`).
   repository copying this change replaces its `_tests`, `test-commit` and
   `_extract-tests`, and adds `scripts/tests-exit.selftest.sh` to `just
   selftest`.
+
+## The `red_judge` parameter
+
+`test-commit` asks the justfile's `red_judge` recipe, given the tests' exit
+code, before it lets red tests be committed off the default branch, and its
+failure refuses the commit. Every justfile importing these gates defines it
+(`red_judge := ""` for none, which lets every red commit through as before).
+ctxloom's is `_red-judge` (`scripts/red-commit-judge.sh`): no scenario of a
+feature file the commit does not touch may turn red. A repository copying
+the change takes the `test-commit` hunk, the parameter's line in the header,
+and `scripts/tests-exit.selftest.sh`'s judge cases.

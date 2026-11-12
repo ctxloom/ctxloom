@@ -1474,7 +1474,19 @@ hook with `just hooks-install` once more (`gates/MIGRATING.md`).
 5. **tests**: `just test-staged` tests the changed crates and their
    dependents in the staged tree (HEAD plus the staged diff, a sibling
    worktree of the checkout); a staged `workspace_wide` file tests the whole
-   workspace.
+   workspace (`scripts/test-staged.selftest.sh`: a library's change selects
+   the binary depending on it). Red tests are committed off the default
+   branch only (`test-commit`), and only red the commit may carry: the
+   gates' `red_judge`, ctxloom's `scripts/red-commit-judge.sh`, refuses a
+   commit that turns red a scenario of a feature file it does not stage,
+   judged by the feature runner's lists (GHERKIN_RATCHET) of the staged tree
+   and of HEAD (`just ratchet-base HEAD`, cached by sha): ruling 165's
+   ratchet at each commit, so a RED commit may still add scenarios or change
+   one in its own feature file. Commit fd50e0b77 broke `run.feature`
+   untouched and was committed as RED; its branch's fast-forward of `main`
+   ran no hook. A red unit test is not compared with HEAD (allowed as
+   before). The cost: a red feature runner off `main` builds HEAD once per
+   sha (`target/ratchet-base`) before the commit is judged.
 6. **mutants** (no hook; at close-out, `just mutants-batch`): `mutants-staged` mutation-tests the staged diff
    (`cargo mutants --in-diff`), holding new logic to its tier: every
    hand-written tier (domain, read models, ports, application and adapters)

@@ -32,6 +32,12 @@
 #                        dev-dependency on itself).
 #   features_prepare     a recipe of the justfile's, run before the tests
 #                        whenever a feature rule turns a feature on.
+#   red_judge            a recipe of the justfile's that `test-commit` asks,
+#                        with the tests' exit code, before it lets red tests be
+#                        committed off the default branch; its failure refuses
+#                        the commit. It runs in the checkout, the staged index
+#                        and target/logs/test-staged.log in place. "" lets
+#                        every red commit through (whatever went red).
 #
 # and this recipe, which the hooks call: `lint` (clippy, through `_run`).
 #
@@ -278,7 +284,12 @@ test-staged: (_require-nextest "test-staged")
 # committed on any branch but the default one (`_red-allowed`), with a
 # warning that the branch cannot merge until they pass, and refused on the
 # default branch. Red tests are a step on the way and belong on a branch;
-# `push-check` and `merge-check` keep them out of the default branch. Any
+# `push-check` and `merge-check` keep them out of the default branch. Being
+# off it is not enough when the justfile gives a `red_judge`: the judge says
+# whether these red tests are ones the commit may carry (red it added, not
+# green it broke), and its refusal refuses the commit; a fast-forward of the
+# default branch to a green tip runs no hook, so a red commit the judge would
+# refuse would otherwise reach the default branch's history. Any
 # other failure (the tests do not build, a tool is missing) is refused on
 # every branch, as every other gate's is. There is no way to skip it.
 [no-exit-message]
@@ -297,6 +308,11 @@ test-commit:
     esac
     if where=$(just --justfile '{{gates_root}}/justfile' _red-allowed); then
         IFS=$'\t' read -r branch default <<< "$where"
+        if [ -n "{{red_judge}}" ] && ! just --justfile '{{gates_root}}/justfile' {{red_judge}} "$rc"; then
+            echo "FAIL tests: red tests cannot be committed: red_judge refused them, though $branch is off" \
+                "the default branch (full log: target/logs/test-staged.log)" >&2
+            exit "$rc"
+        fi
         echo "RED  tests: red tests committed on $branch, which is allowed off the default branch;" \
             "$branch cannot merge into $default (or be pushed to it) until they pass"
         exit 0

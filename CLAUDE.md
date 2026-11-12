@@ -97,6 +97,20 @@ heals a file that does not parse. `loadout --format yaml` is the one yaml
 output; its prose is withheld until the owner rules (D24, D8).
 Skill zips are written and read by `library::write::archive` over the `zip`
 crate (deflate only, default features off) and crc32fast.
+A file's executability is ONLY its skill sidecar's `executable:` list
+(`skills/.<n>.meta.yaml`), on every OS (owner ruling 2026-11-12; Windows
+reports every file executable): `library::write::skill::declared_executables`
+answers it for a bundle's tree, and nothing reads a mode from disk or git
+(`ContentRepo` has no `executable_files`, `UserFiles::read_tree` and
+`deps_ports::RepoTree` are bytes alone). `skill show`'s mode column, an
+export, an import (the sidecar it brings), an installed bundle and a pin's
+disclosure take it from there; an install writes the declared files 0755 as
+a convenience for running them, never read back; a push commits them 100755
+and every other file 100644 (`Remotes::publish`'s `executable`, `git add
+--chmod`; a pull request's `PullRequest::executable`). Visible change on
+unix: a file chmod'ed executable but not listed shows 0644 and is pushed
+100644. Not changed: a skill zip's entry modes, which its export writes
+from the sidecar and its import turns into the sidecar's list.
 
 Slice S4 (sessions) built the following. The record is the project's durable
 store (owner rulings 87, 87a): a session's state goes through angzarr-embedded

@@ -2,7 +2,10 @@
 //! `surface_skill.go`): the directory `skills/<n>/` is the skill, and the
 //! sidecar `skills/.<n>.meta.yaml` says what the directory cannot: its tags
 //! and notes and which files are executable. A file's mode bit is not
-//! portable; the sidecar's `executable:` is the whole of it (plan §8.2).
+//! portable; the sidecar's `executable:` is the whole of it (plan §8.2), on
+//! every OS (owner ruling 2026-11-12): no mode is read from disk or from git,
+//! by `skill show`, an export, an import, an installed or a fetched bundle,
+//! or a pin's disclosure, and a push commits the declared files 100755.
 
 use std::collections::BTreeSet;
 

@@ -66,8 +66,10 @@ fn create_reviewer(project: &Project) {
         .succeeds();
 }
 
-// skill.feature: Scenario: Alice authors a skill package and its listing and
-// show reflect the real tree (the create: Go's SKILL.md, bytes and answers)
+// skill.feature's dropped Scenario: Alice authors a skill package and its
+// listing and show reflect the real tree (the create: Go's SKILL.md, bytes and
+// answers; the rule named the mode on disk the truth, which owner ruling
+// 2026-11-12 contradicts: the sidecar says)
 #[test]
 fn test_alice_authors_a_skill_package_and_its_listing_and_show_reflect_the_real_tree() {
     for flags in FORMATS {

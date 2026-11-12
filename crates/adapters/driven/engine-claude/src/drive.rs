@@ -82,9 +82,13 @@ pub const ENV_ALLOWLIST: &[&str] = &[
 ];
 
 /// The variables of the caller's environment the human's terminal session is
-/// given: a turn's, and the primary's own token.
+/// given: a turn's, the primary's own token, and the terminal's type and
+/// colour depth (`TERM`, `COLORTERM`), without which claude draws in no
+/// colour.
 pub const INTERACTIVE_ENV_ALLOWLIST: &[&str] = &[
     "PATH",
+    "TERM",
+    "COLORTERM",
     "LANG",
     "LC_ALL",
     "TMPDIR",

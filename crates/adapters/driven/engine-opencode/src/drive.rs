@@ -89,8 +89,35 @@ pub const ENV_ALLOWLIST: &[&str] = &[
 ];
 
 /// The variables of the caller's environment the human's session is given:
-/// a turn's (the TUI is heard through the same plugin).
-pub const INTERACTIVE_ENV_ALLOWLIST: &[&str] = ENV_ALLOWLIST;
+/// a turn's (the TUI is heard through the same plugin), and the terminal's
+/// type and colour depth (`TERM`, `COLORTERM`), without which the TUI draws
+/// in no colour.
+pub const INTERACTIVE_ENV_ALLOWLIST: &[&str] = &[
+    "TERM",
+    "COLORTERM",
+    "PATH",
+    "LANG",
+    "LC_ALL",
+    "TMPDIR",
+    "HTTPS_PROXY",
+    "HTTP_PROXY",
+    "NO_PROXY",
+    "https_proxy",
+    "http_proxy",
+    "no_proxy",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "NODE_EXTRA_CA_CERTS",
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    run_ports::HOME_VARIABLE,
+    run_ports::ENDPOINT_VARIABLE,
+    run_ports::BEARER_VARIABLE,
+    run_ports::RUN_VARIABLE,
+    run_ports::TLS_CERT_VARIABLE,
+    run_ports::SESSION_VARIABLE,
+    run_ports::HARP_VARIABLE,
+];
 
 /// The variables a command is given whatever the config names: opencode's
 /// own, which the relocation sets, and `OPENCODE_PURE` above all.
@@ -135,7 +162,7 @@ impl Engine for Opencode {
             command.args.push(native_id.clone());
         }
         push_model(&mut command.args, request);
-        command.env = environment(self, request)?;
+        command.env = environment(self, ENV_ALLOWLIST, request)?;
         command.stdin = request.prompt.clone().into_bytes();
         command.cwd = request.cwd.clone();
         Ok(command)
@@ -190,7 +217,7 @@ impl Engine for Opencode {
             command.args.push("--prompt".to_string());
             command.args.push(request.prompt.clone());
         }
-        command.env = environment(self, request)?;
+        command.env = environment(self, INTERACTIVE_ENV_ALLOWLIST, request)?;
         command.cwd = request.cwd.clone();
         Ok(command)
     }
@@ -213,16 +240,18 @@ fn program(request: &TurnRequest) -> &str {
     }
 }
 
-/// The command's whole environment.
+/// The command's whole environment: the caller's variables on `curated`
+/// (a child's turn's list or the TUI's), the config's and the credential's.
 fn environment(
     engine: &Opencode,
+    curated: &[&str],
     request: &TurnRequest,
 ) -> Result<BTreeMap<String, String>, EngineError> {
     let settings = &request.settings;
     let policy = settings.credentials(engine.credentials());
     let passes = |name: &str| {
         !withheld(name)
-            && (ENV_ALLOWLIST.contains(&name)
+            && (curated.contains(&name)
                 || settings.env.iter().any(|n| n == name)
                 || policy.child_env.iter().any(|n| n == name))
     };

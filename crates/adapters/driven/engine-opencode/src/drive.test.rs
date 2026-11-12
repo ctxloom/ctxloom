@@ -464,3 +464,27 @@ fn test_its_login_links_everywhere_and_is_copied_on_windows_when_no_link_can_be_
     );
     assert_eq!(credentials.copy_on, ["windows"]);
 }
+
+// The TUI is given the terminal's type and colour depth, so it draws in
+// colour; a child's turn writes to a pipe and needs neither.
+#[test]
+fn test_the_tui_is_told_the_terminal_and_its_colours() {
+    let mut asked = request();
+    asked.env = env(&[("TERM", "xterm-256color"), ("COLORTERM", "truecolor")]);
+    let command = terminal(&asked);
+    assert_eq!(
+        command.env.get("TERM").map(String::as_str),
+        Some("xterm-256color")
+    );
+    assert_eq!(
+        command.env.get("COLORTERM").map(String::as_str),
+        Some("truecolor")
+    );
+    let child = turn(&asked);
+    assert!(!child.env.contains_key("TERM"), "{:?}", child.env.keys());
+    assert!(
+        !child.env.contains_key("COLORTERM"),
+        "{:?}",
+        child.env.keys()
+    );
+}

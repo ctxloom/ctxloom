@@ -1129,3 +1129,23 @@ fn a_home_prepared_by_a_claude_calling_another_program_calls_that_program() {
         assert!(!text.contains(r#""command": "ctxloom""#), "{text}");
     }
 }
+
+// The terminal session is given the terminal's type and colour depth, so
+// claude draws in colour; a child's turn writes to a pipe and needs neither.
+#[test]
+fn the_terminal_session_is_told_the_terminal_and_its_colours() {
+    let mut asked = request();
+    asked.env = env(&[("TERM", "xterm-256color"), ("COLORTERM", "truecolor")]);
+    let command = Claude::new().drive_interactive(&asked).unwrap();
+    assert_eq!(
+        command.env.get("TERM").map(String::as_str),
+        Some("xterm-256color")
+    );
+    assert_eq!(
+        command.env.get("COLORTERM").map(String::as_str),
+        Some("truecolor")
+    );
+    let turn = Claude::new().drive_turn(&asked).unwrap();
+    assert!(!turn.env.contains_key("TERM"), "{:?}", turn.env.keys());
+    assert!(!turn.env.contains_key("COLORTERM"), "{:?}", turn.env.keys());
+}

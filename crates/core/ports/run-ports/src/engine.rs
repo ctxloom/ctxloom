@@ -270,6 +270,8 @@ pub trait Engine: Send + Sync {
     /// What the engine has to say of what the plan resolved for it (owner
     /// ruling 168): zero or more notices, said on `run --dry-run` and at the
     /// launch, never a refusal. An engine with nothing to say says nothing.
+    // `vec![]` is the same value as `Vec::new()`: the mutant is equivalent.
+    #[cfg_attr(test, mutants::skip)]
     fn advise(&self, _planned: &Planned) -> Vec<Advice> {
         Vec::new()
     }

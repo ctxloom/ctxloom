@@ -251,8 +251,8 @@ A one-shot CHILD's home (owner ruling 51) registers the per-turn ones only:
 `PostCompact`; never `SessionStart` or `SessionEnd`, which `claude -p` fires
 once per PROCESS (every turn), and whose slow hook claude cancels. The hook
 command is the bare FILE NAME of the running binary (owner rulings 163, 164;
-`ctxloom` for a binary of that name, `ctxloom-rs` for the one `just
-install-rs` installs): claude's hooks and statusline, at rest and in a session
+`ctxloom` for a binary of that name, which is what `just install`
+installs): claude's hooks and statusline, at rest and in a session
 home, and opencode's plugin's `COMMAND` all run it. The wiring resolves it
 ONCE (`ctxloom-wiring`'s `program::running`, from `std::env::current_exe`,
 which on Linux is `/proc/self/exe`, a symlink's target and never the link; the
@@ -1182,9 +1182,9 @@ isolation.
 
 ## Use `just`
 
-`just --list` shows the public recipes by group; `just install-rs` (group
+`just --list` shows the public recipes by group; `just install` (group
 `install`) builds the plain binary and installs it as
-`~/.local/lib/ctxloom-rs/ctxloom-rs` with the wrapper `~/.local/bin/ctxloom-rs`
+`~/.local/lib/ctxloom/ctxloom` with the wrapper `~/.local/bin/ctxloom` (ahead of a Go ctxloom in `~/go/bin` on PATH)
 (`CTXLOOM_HOME="$HOME/.ctxloom-rs"`), idempotently, one line per action. The checks are `just build`,
 `just test` (cargo-nextest, the one test runner, mutation included, owner
 ruling 144; required: a missing nextest fails the gate),

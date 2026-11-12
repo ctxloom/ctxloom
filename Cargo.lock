@@ -3288,6 +3288,7 @@ dependencies = [
  "angzarr-diagnostic",
  "angzarr-embedded",
  "exit-code",
+ "isolation-ports",
  "library-application",
  "mutants",
  "ports",
@@ -3322,6 +3323,7 @@ version = "0.1.0"
 dependencies = [
  "angzarr-diagnostic",
  "angzarr-embedded",
+ "isolation-ports",
  "mutants",
  "pending-launches",
  "ports",

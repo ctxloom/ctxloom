@@ -123,6 +123,12 @@ pub struct Launched {
     /// because they are not a JSON object (owner ruling 169), by path: the
     /// run says them.
     pub left_out: Vec<run_ports::LeftOut>,
+    /// The checkout the engine worked in (the workspace axis); none in the
+    /// live project. Its run releases it once the engine is over.
+    pub checkout: Option<isolation_ports::Checkout>,
+    /// Why a worktree asked for could not be had: the engine worked in the
+    /// project, and the run says so.
+    pub workspace_warning: Option<String>,
 }
 
 /// The launcher: the engines it can drive, the way a command is run, the
@@ -141,6 +147,9 @@ pub struct Launcher<E: Edge, L: RunnerLauncher, R: SessionRecords> {
     pending: CatchUp<PendingModel>,
     /// The locks other processes' runs are judged by; none: no sweep.
     locks: Option<Arc<dyn run_ports::RunLocks>>,
+    /// Where a worktree is made; none: a run asking for one works in the
+    /// project, and says so.
+    workspaces: Option<Arc<dyn isolation_ports::Workspaces + Send + Sync>>,
 }
 
 impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
@@ -163,7 +172,18 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             os: String::new(),
             pending: catch_up(),
             locks: None,
+            workspaces: None,
         }
+    }
+
+    /// The launcher, placing a run that asks for a worktree in a checkout
+    /// `workspaces` makes (`crate::place_workspace`).
+    pub fn with_workspaces(
+        mut self,
+        workspaces: Arc<dyn isolation_ports::Workspaces + Send + Sync>,
+    ) -> Self {
+        self.workspaces = Some(workspaces);
+        self
     }
 
     /// The launcher, probing `locks` for the owners of other processes' runs:
@@ -337,6 +357,8 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             outcome,
             ignored: ignored.clone(),
             left_out: left_out.clone(),
+            checkout: None,
+            workspace_warning: None,
         };
         let (engine, command) = match prepared {
             Ok(prepared) => prepared,

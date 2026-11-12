@@ -172,6 +172,9 @@ impl<'a> OneShots<'a> {
         let hooks = Box::new(Hooks { edge: core.edge() });
         let enqueuer = Enqueuer::new(core.edge(), Arc::new(OsTokenSource));
         let output_root = output_root(&project_dir, output_dir);
+        // The project's checkouts, under ctxloom's home (owner ruling
+        // 2026-11-12, Q1).
+        let worktrees = isolation_ports::worktrees_root(wiring.home(), &project.id);
         Ok(Runs::new(Parts {
             core,
             planner: Box::new(library),
@@ -187,6 +190,7 @@ impl<'a> OneShots<'a> {
                 output_root: path_text(&output_root),
                 program_dir: program.dir.clone(),
                 user_home: wiring.user_home().map(|home| path_text(&home)),
+                worktrees: path_text(&worktrees),
             },
             env: run_env(env, wiring.home()),
             links: Box::new(SessionDirs::new(wiring.fs(), project_dir.clone())),

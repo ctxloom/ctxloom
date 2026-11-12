@@ -23,8 +23,12 @@ pub struct Order {
     /// The user's own home, as the composition root resolved it (the
     /// platform's home variable); none when unset.
     pub user_home: Option<String>,
-    /// Where the turn's command runs.
+    /// The live project: where the turn's command runs, unless the
+    /// workspace axis places it in a checkout of its own (`workspace`).
     pub cwd: Option<String>,
+    /// What the run asks of the workspace axis; the launcher places the
+    /// engine (`crate::place_workspace`).
+    pub workspace: crate::Workspace,
     /// The human's terminal session, not a turn: the engine's command is
     /// given her terminal and the prompt may be empty.
     pub interactive: bool,
@@ -62,6 +66,7 @@ impl fmt::Debug for Order {
             .field("env", &run_ports::RedactedEnv(&self.env))
             .field("user_home", &self.user_home)
             .field("cwd", &self.cwd)
+            .field("workspace", &self.workspace)
             .field("interactive", &self.interactive)
             .field("model", &self.model)
             .field("effort", &self.effort)

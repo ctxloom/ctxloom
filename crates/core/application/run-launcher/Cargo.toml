@@ -10,6 +10,7 @@ publish.workspace = true
 [dependencies]
 angzarr-diagnostic.workspace = true
 angzarr-embedded.workspace = true
+isolation-ports.workspace = true
 pending-launches.workspace = true
 ports.workspace = true
 run-ports.workspace = true

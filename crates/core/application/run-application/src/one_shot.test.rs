@@ -192,6 +192,8 @@ struct ScriptedPlan {
     drive: library_application::Drive,
     error: Option<fn() -> PlanError>,
     asked: Arc<Mutex<Vec<RunRequest>>>,
+    axis: String,
+    agent: String,
 }
 
 impl Planner for ScriptedPlan {
@@ -207,7 +209,7 @@ impl Planner for ScriptedPlan {
             };
         }
         let plan = DryRun {
-            agent: String::new(),
+            agent: self.agent.clone(),
             workspace: String::new(),
             runtime: String::new(),
             engine: self.backend.clone(),
@@ -217,7 +219,7 @@ impl Planner for ScriptedPlan {
             tokens: 0,
             prompt: self.prompt.clone(),
             findings: Vec::new(),
-            axes: (String::new(), "host".to_string()),
+            axes: (self.axis.clone(), "host".to_string()),
             model: self.model.clone(),
             effort: self.effort.clone(),
             permissions: self.permissions.clone(),
@@ -582,6 +584,12 @@ struct Script {
     certs_refuse: Option<&'static str>,
     /// The user's git identity, if known.
     git_user: Option<run_ports::GitUser>,
+    /// The workspace the plan settles on (`DryRun.axes.0`), and its agent.
+    axis: &'static str,
+    agent: &'static str,
+    /// How the launcher's workspaces port answers; none: the launcher has
+    /// none.
+    workspaces: Option<Arc<run_launcher::fakes::ScriptedWorkspaces>>,
 }
 
 impl Script {
@@ -607,6 +615,9 @@ impl Script {
             hooks_refuse: None,
             certs_refuse: None,
             git_user: None,
+            axis: "",
+            agent: "",
+            workspaces: None,
         }
     }
 }
@@ -623,6 +634,21 @@ fn place(script: &Script) -> Place {
             .iter()
             .find(|(name, _)| *name == "HOME")
             .map(|(_, home)| home.to_string()),
+        worktrees: WORKTREES.to_string(),
+    }
+}
+
+/// The project's checkouts directory the scripted run is told.
+const WORKTREES: &str = "/h/.ctxloom/worktrees/calm-otter";
+
+/// The launcher, placing worktrees through the script's workspaces, if any.
+fn placing_through(
+    launcher: Launcher<Seen, ScriptedRunner, MemoryRecords>,
+    workspaces: Option<Arc<run_launcher::fakes::ScriptedWorkspaces>>,
+) -> Launcher<Seen, ScriptedRunner, MemoryRecords> {
+    match workspaces {
+        Some(workspaces) => launcher.with_workspaces(workspaces),
+        None => launcher,
     }
 }
 
@@ -651,6 +677,7 @@ fn rig(script: Script) -> Rig {
         Limits::new(std::time::Duration::from_secs(5)),
     )
     .on_os(script.os);
+    let launcher = placing_through(launcher, script.workspaces.clone());
     let hooks = Hooks {
         runner: Some(script.runner.clone()),
         refuse: script.hooks_refuse,
@@ -685,6 +712,8 @@ fn rig(script: Script) -> Rig {
             drive: script.drive.clone(),
             error: script.plan_error,
             asked: Arc::clone(&asked),
+            axis: script.axis.to_string(),
+            agent: script.agent.to_string(),
         }),
         identity: Box::new(FixedProject(script.project_error)),
         names: Box::new(ScriptedNames(
@@ -1688,6 +1717,7 @@ async fn the_bearer_is_in_no_debug_or_error_rendering() {
                 env: command.env.clone(),
                 user_home: None,
                 cwd: None,
+                workspace: Default::default(),
                 interactive: true,
                 model: String::new(),
                 effort: String::new(),
@@ -3214,4 +3244,111 @@ async fn a_resume_of_a_session_with_no_native_id_is_refused() {
     let events = session_events(&rig.edge, &first.session).await;
     assert!(!events.iter().any(|e| matches!(e,
         sessions::SessionEvent::IncarnationOwed(o) if o.incarnation == 2)));
+}
+
+// ------------------------------------------------------------ the workspace
+
+/// The plan settles on `axis` for agent `reviewer`, the launcher's
+/// workspaces answering with `answer`.
+fn placing(
+    axis: &'static str,
+    answer: fn(
+        &isolation_ports::Request,
+    ) -> Result<isolation_ports::Prepared, isolation_ports::Failure>,
+) -> (Script, Arc<run_launcher::fakes::ScriptedWorkspaces>) {
+    let workspaces = Arc::new(run_launcher::fakes::ScriptedWorkspaces::new(answer));
+    let mut script = Script::answering();
+    script.axis = axis;
+    script.agent = "reviewer";
+    script.workspaces = Some(Arc::clone(&workspaces));
+    (script, workspaces)
+}
+
+/// Where the run's `RunnerStarted` says its runner works.
+async fn started_in(rig: &Rig, session: &str) -> String {
+    run_events(&rig.edge, session)
+        .await
+        .into_iter()
+        .find_map(|e| match e {
+            runs::RunEvent::RunnerStartedRecorded(s) => Some(s.workspace),
+            _ => None,
+        })
+        .expect("a runner started")
+}
+
+// j002200 "The same run lands in the workspace its axis dictates": the axis
+// the plan settles on (the flag, else the config's default: `axes.0`) asks
+// the launcher for the session's checkout for its agent, under the
+// project's checkouts directory; the engine runs there, and its start says
+// so.
+#[tokio::test]
+async fn a_worktree_run_works_in_its_sessions_checkout_for_its_agent() {
+    let (script, workspaces) = placing("worktree", run_launcher::fakes::worktree_checkout);
+    let mut rig = rig(script);
+    let answer = rig
+        .runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let path = format!("{WORKTREES}/{}/reviewer", answer.harp);
+    assert_eq!(
+        rig.runner.seen.lock().unwrap()[0].cwd.as_deref(),
+        Some(path.as_str())
+    );
+    assert_eq!(started_in(&rig, &answer.session).await, path);
+    let asked = workspaces.asked.lock().unwrap();
+    assert_eq!(asked[0].project_dir, "/work/proj");
+    assert_eq!(asked[0].work_dir, format!("{WORKTREES}/{}", answer.harp));
+    assert_eq!(asked[0].agent, "reviewer");
+}
+
+// The live project (`none`, or no axis at all) asks for no checkout.
+#[tokio::test]
+async fn a_run_in_the_project_asks_for_no_checkout() {
+    for axis in ["none", ""] {
+        let (script, workspaces) = placing(axis, run_launcher::fakes::worktree_checkout);
+        let mut rig = rig(script);
+        rig.runs
+            .one_shot(&Flags::default(), &ask())
+            .await
+            .result
+            .unwrap();
+        assert!(workspaces.asked.lock().unwrap().is_empty(), "{axis:?}");
+        assert_eq!(
+            rig.runner.seen.lock().unwrap()[0].cwd.as_deref(),
+            Some("/work/proj")
+        );
+    }
+}
+
+// "Asking for a worktree outside git runs in the live project directory
+// instead of refusing", and the run says why.
+#[tokio::test]
+async fn a_worktree_that_cannot_be_had_runs_in_the_project_and_says_so() {
+    let (script, _) = placing("worktree", run_launcher::fakes::worktree_unavailable);
+    let mut rig = rig(script);
+    let done = rig.runs.one_shot(&Flags::default(), &ask()).await;
+    done.result.unwrap();
+    assert_eq!(
+        rig.runner.seen.lock().unwrap()[0].cwd.as_deref(),
+        Some("/work/proj")
+    );
+    assert!(done.notices.iter().any(|n| matches!(n,
+        Notice::WorkspaceUnavailable { reason } if reason.contains("not a git repository"))));
+}
+
+// A worktree the port refuses starts no engine: the run's launch failed.
+#[tokio::test]
+async fn a_refused_worktree_fails_the_launch() {
+    let (script, _) = placing("worktree", run_launcher::fakes::worktree_refused);
+    let mut rig = rig(script);
+    let error = rig
+        .runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap_err();
+    assert!(matches!(error, RunError::NotStarted { .. }), "{error:?}");
+    assert!(rig.runner.seen.lock().unwrap().is_empty());
 }

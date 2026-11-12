@@ -168,6 +168,11 @@ pub struct Place {
     /// unset. Her login is found under it, and `session_home: host` gives it
     /// to the engine.
     pub user_home: Option<String>,
+    /// The project's checkouts directory under ctxloom's home
+    /// (`isolation_ports::worktrees_root`); each session's checkouts are
+    /// `<worktrees>/<harp>`. Empty: none, and a worktree asked for is
+    /// unavailable.
+    pub worktrees: String,
 }
 
 /// The run use cases over their ports.
@@ -925,6 +930,7 @@ where
                 env,
                 user_home: self.place.user_home.clone(),
                 cwd: Some(self.place.project_dir.clone()),
+                workspace: Default::default(),
                 interactive,
                 model: plan.model,
                 effort: plan.effort,

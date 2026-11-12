@@ -17,12 +17,14 @@
 mod error;
 mod launcher;
 mod orders;
+mod workspace;
 
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{LaunchError, EN_US};
 pub use launcher::{Launched, Launcher, Outcome};
 pub use orders::{Order, Orders};
+pub use workspace::{place_workspace, Axis, Placement, Workspace};
 
 /// In-memory ports and a world of the real aggregates, for this crate's tests
 /// and the use cases' above it.

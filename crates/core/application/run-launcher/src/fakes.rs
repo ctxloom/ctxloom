@@ -742,6 +742,7 @@ pub fn order(engine: &str) -> Order {
         env: BTreeMap::from([("PATH".to_string(), "/bin".to_string())]),
         user_home: None,
         cwd: Some("/work/proj".to_string()),
+        workspace: Default::default(),
         interactive: false,
         model: String::new(),
         effort: String::new(),
@@ -757,4 +758,118 @@ pub fn orders_with(order: Order) -> Arc<Orders> {
     let orders = Arc::new(Orders::new());
     orders.place(SESSION, 1, order);
     orders
+}
+
+/// A workspaces port that answers every prepare as scripted and every
+/// removal with `removal`, and keeps what it was asked.
+pub struct ScriptedWorkspaces {
+    pub answer: fn(
+        &isolation_ports::Request,
+    ) -> Result<isolation_ports::Prepared, isolation_ports::Failure>,
+    pub removal: isolation_ports::Removal,
+    pub asked: Mutex<Vec<isolation_ports::Request>>,
+    /// Each removal asked: the repository and the checkout.
+    pub removed: Mutex<Vec<(String, String)>>,
+}
+
+impl ScriptedWorkspaces {
+    pub fn new(
+        answer: fn(
+            &isolation_ports::Request,
+        ) -> Result<isolation_ports::Prepared, isolation_ports::Failure>,
+    ) -> ScriptedWorkspaces {
+        ScriptedWorkspaces {
+            answer,
+            removal: isolation_ports::Removal::Removed,
+            asked: Mutex::new(Vec::new()),
+            removed: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// The same, leaving every checkout it is asked to remove, for `why`.
+    // A test double shipped for tests only; its tests are the callers' own.
+    #[cfg_attr(test, mutants::skip)]
+    pub fn leaving(self, why: &str) -> ScriptedWorkspaces {
+        ScriptedWorkspaces {
+            removal: isolation_ports::Removal::Left(why.to_string()),
+            ..self
+        }
+    }
+}
+
+impl isolation_ports::Workspaces for ScriptedWorkspaces {
+    fn prepare(
+        &self,
+        request: &isolation_ports::Request,
+    ) -> Result<isolation_ports::Prepared, isolation_ports::Failure> {
+        self.asked.lock().unwrap().push(request.clone());
+        (self.answer)(request)
+    }
+    fn session_known(&self, _: &str) -> Result<bool, isolation_ports::Failure> {
+        Ok(false)
+    }
+    fn scratch(
+        &self,
+        _: Option<&str>,
+    ) -> Result<Vec<isolation_ports::Scratch>, isolation_ports::Failure> {
+        Ok(Vec::new())
+    }
+    fn inspect(&self, _: &str) -> isolation_ports::Standing {
+        isolation_ports::Standing::Unresolved(String::new())
+    }
+    fn remove(&self, repo_dir: &str, path: &str) -> isolation_ports::Removal {
+        self.removed
+            .lock()
+            .unwrap()
+            .push((repo_dir.to_string(), path.to_string()));
+        self.removal.clone()
+    }
+}
+
+/// A checkout at `<work_dir>/<agent>`, on the session's branch for it.
+pub fn worktree_checkout(
+    request: &isolation_ports::Request,
+) -> Result<isolation_ports::Prepared, isolation_ports::Failure> {
+    Ok(isolation_ports::Prepared::Checkout(
+        isolation_ports::Checkout {
+            path: format!("{}/{}", request.work_dir, request.agent),
+            branch: format!("ctxloom/{HARP}/{}", request.agent),
+            repo_dir: request.project_dir.clone(),
+            reused: false,
+        },
+    ))
+}
+
+/// No worktree: the project is not a git repository.
+pub fn worktree_unavailable(
+    request: &isolation_ports::Request,
+) -> Result<isolation_ports::Prepared, isolation_ports::Failure> {
+    Ok(isolation_ports::Prepared::Unavailable(format!(
+        "worktree isolation: {} is not a git repository",
+        request.project_dir
+    )))
+}
+
+/// A worktree refused: something at its path it will not adopt.
+pub fn worktree_refused(
+    _: &isolation_ports::Request,
+) -> Result<isolation_ports::Prepared, isolation_ports::Failure> {
+    Err(Box::new(RecordsError::BadPath {
+        rel: "reviewer".to_string(),
+    }))
+}
+
+/// The session's checkouts directory the fakes' orders name.
+pub const WORK_DIR: &str = "/h/.ctxloom/worktrees/calm-otter/amber-swift-owl";
+
+/// The order a one-shot places asking for a worktree for `agent`.
+pub fn worktree_order(engine: &str, agent: &str) -> Order {
+    Order {
+        workspace: crate::Workspace {
+            axis: crate::Axis::Worktree,
+            work_dir: WORK_DIR.to_string(),
+            agent: agent.to_string(),
+        },
+        ..order(engine)
+    }
 }

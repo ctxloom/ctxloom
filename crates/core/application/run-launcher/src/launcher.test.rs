@@ -1798,3 +1798,129 @@ async fn the_users_home_reaches_the_engine_as_the_order_placed_it() {
         Some(r"C:\Users\her")
     );
 }
+
+// ------------------------------------------------------------ the workspace
+
+/// A rig whose launcher places worktrees through `workspaces`, for one order.
+fn rig_placing(order: crate::Order, workspaces: Arc<crate::fakes::ScriptedWorkspaces>) -> Rig {
+    let mut rig = rig(
+        ScriptedEngine::answering("A", None),
+        ScriptedRunner::exits(0),
+        orders_with(order),
+    );
+    rig.launcher = rig.launcher.with_workspaces(workspaces);
+    rig
+}
+
+/// The `RunnerStarted` the launch recorded: where it said the runner works.
+async fn started_in(edge: &Arc<TestEdge>) -> String {
+    run_events(edge, SESSION)
+        .await
+        .into_iter()
+        .find_map(|e| match e {
+            RunEvent::RunnerStartedRecorded(s) => Some(s.workspace),
+            _ => None,
+        })
+        .expect("a runner started")
+}
+
+// j002200 "The same run lands in the workspace its axis dictates": the
+// engine is placed in the checkout, as every launch's setup is, in the
+// launcher's prepare: its home is prepared for it, its command runs in it,
+// and its start says so.
+#[tokio::test]
+async fn a_worktree_run_is_prepared_driven_and_recorded_in_its_checkout() {
+    use crate::fakes::{worktree_checkout, worktree_order, ScriptedWorkspaces, WORK_DIR};
+    let workspaces = Arc::new(ScriptedWorkspaces::new(worktree_checkout));
+    let mut rig = rig_placing(worktree_order("fake", "reviewer"), Arc::clone(&workspaces));
+    enqueued(&rig.edge, SESSION, HARP).await;
+    let launched = rig.step().await;
+    let path = format!("{WORK_DIR}/reviewer");
+    assert_eq!(
+        rig.runner.seen.lock().unwrap()[0].cwd.as_deref(),
+        Some(path.as_str())
+    );
+    assert_eq!(started_in(&rig.edge).await, path);
+    assert_eq!(launched[0].checkout.as_ref().unwrap().path, path);
+    assert_eq!(launched[0].workspace_warning, None);
+    let asked = workspaces.asked.lock().unwrap();
+    assert_eq!(asked.len(), 1);
+    assert_eq!(asked[0].project_dir, "/work/proj");
+    assert_eq!(asked[0].work_dir, WORK_DIR);
+    assert_eq!(asked[0].agent, "reviewer");
+}
+
+// "Asking for a worktree outside git runs in the live project directory
+// instead of refusing", and says why.
+#[tokio::test]
+async fn a_worktree_that_cannot_be_had_runs_in_the_project_with_a_warning() {
+    use crate::fakes::{worktree_order, worktree_unavailable, ScriptedWorkspaces};
+    let workspaces = Arc::new(ScriptedWorkspaces::new(worktree_unavailable));
+    let mut rig = rig_placing(worktree_order("fake", "reviewer"), workspaces);
+    enqueued(&rig.edge, SESSION, HARP).await;
+    let launched = rig.step().await;
+    assert_eq!(
+        rig.runner.seen.lock().unwrap()[0].cwd.as_deref(),
+        Some("/work/proj")
+    );
+    assert_eq!(started_in(&rig.edge).await, "/work/proj");
+    assert_eq!(launched[0].checkout, None);
+    assert!(launched[0]
+        .workspace_warning
+        .as_deref()
+        .is_some_and(|w| w.contains("not a git repository")));
+}
+
+// A worktree the port refuses (an occupant it will not adopt, a git that
+// hung) starts nothing: the launch fails, deterministically.
+#[tokio::test]
+async fn a_refused_worktree_ends_the_run_as_a_failed_launch() {
+    use crate::fakes::{worktree_order, worktree_refused, ScriptedWorkspaces};
+    let workspaces = Arc::new(ScriptedWorkspaces::new(worktree_refused));
+    let mut rig = rig_placing(worktree_order("fake", "reviewer"), workspaces);
+    enqueued(&rig.edge, SESSION, HARP).await;
+    let launched = rig.step().await;
+    assert!(
+        matches!(&launched[0].outcome, Outcome::NotStarted { detail } if detail.contains("run-ports-records-bad-path")),
+        "{:?}",
+        launched[0].outcome
+    );
+    assert!(
+        rig.runner.seen.lock().unwrap().is_empty(),
+        "nothing spawned"
+    );
+    let events = run_events(&rig.edge, SESSION).await;
+    assert!(events.iter().any(|e| matches!(e,
+        RunEvent::RunEnded(ended) if ended.cause == EndCause::LaunchFailed)));
+}
+
+// A launcher with no workspaces port places a worktree run in the project,
+// and says so.
+#[tokio::test]
+async fn a_worktree_run_with_no_workspaces_port_runs_in_the_project_with_a_warning() {
+    let mut rig = rig(
+        ScriptedEngine::answering("A", None),
+        ScriptedRunner::exits(0),
+        orders_with(crate::fakes::worktree_order("fake", "reviewer")),
+    );
+    enqueued(&rig.edge, SESSION, HARP).await;
+    let launched = rig.step().await;
+    assert_eq!(
+        rig.runner.seen.lock().unwrap()[0].cwd.as_deref(),
+        Some("/work/proj")
+    );
+    assert!(launched[0].workspace_warning.is_some());
+}
+
+// The live project asks the port nothing.
+#[tokio::test]
+async fn a_run_in_the_project_asks_no_workspace() {
+    use crate::fakes::{worktree_checkout, ScriptedWorkspaces};
+    let workspaces = Arc::new(ScriptedWorkspaces::new(worktree_checkout));
+    let mut rig = rig_placing(order("fake"), Arc::clone(&workspaces));
+    enqueued(&rig.edge, SESSION, HARP).await;
+    let launched = rig.step().await;
+    assert!(workspaces.asked.lock().unwrap().is_empty());
+    assert_eq!(launched[0].checkout, None);
+    assert_eq!(started_in(&rig.edge).await, "/work/proj");
+}

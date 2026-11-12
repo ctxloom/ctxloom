@@ -173,6 +173,13 @@ impl SessionService for Sessions {
         self.use_cases.remove(request).await
     }
 
+    async fn set_title(
+        &mut self,
+        request: sessions_application::TitleRequest,
+    ) -> Result<sessions_application::Titled, AppError> {
+        self.use_cases.set_title(request).await
+    }
+
     async fn rename(&mut self, request: RenameRequest) -> Result<Renamed, AppError> {
         self.use_cases.rename(request).await
     }

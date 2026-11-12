@@ -120,6 +120,23 @@ impl Removal {
     }
 }
 
+/// Set a session's title (`session rename <harp> <title>`, S55).
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct TitleRequest {
+    pub project: Option<String>,
+    pub harp: String,
+    pub title: String,
+}
+
+/// What setting a title did: whether it changed anything.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Titled {
+    pub harp: String,
+    pub title: String,
+    pub changed: bool,
+    pub dead_letters: Vec<DeadLetter>,
+}
+
 /// Rename a session (`session edit --name`).
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct RenameRequest {

@@ -12,9 +12,10 @@ package ctxloom.sessions.v1;
 import "google/protobuf/timestamp.proto";
 import "io/angzarr/v1/options.proto";
 
-// The session, folded from its events. Derived values (its title, its
-// state now) are computed when read, never stored: the title is the first
-// prompt of its transcript, and the state is `Liveness`'s.
+// The session, folded from its events. Derived values (its summary, its
+// state now) are computed when read, never stored: the summary is the first
+// prompt of its transcript, and the state is `Liveness`'s. Its title is the
+// one `session rename` set (S55).
 message SessionState {
   option (io.angzarr.v1.component) = {
     component_name: "session"
@@ -59,6 +60,10 @@ message SessionState {
   reserved 19, 21;
   reserved "relaunches", "inbox";
   bool stopped = 20;
+  // The free-text title `session rename` sets (S55); empty when none is.
+  // 22 to 25 are the daemon branch's (owner, closed, closed_cause,
+  // children), so this number is the one it took too.
+  string title = 26;
 }
 
 // Who a session was minted for (Go's Origin): an empty origin reads as a
@@ -158,6 +163,19 @@ message SetKept {
   bool kept = 1;
 }
 
+// Set the session's title (owner S55, 2026-11-12 slice 2): free text shown
+// beside the first prompt; empty clears it. The harp and the name never
+// change (S42), so nothing moves.
+message SetSessionTitle {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.sessions.v1.SessionState"
+    emits: ["ctxloom.sessions.v1.TitleSet"]
+    refuses: "ctxloom.sessions.v1.NoSession"
+  };
+
+  string title = 1;
+}
+
 // Rename the session. The harp must be one a human may choose (Go's
 // ValidateRename). The output dir moves as an effect; the new path is
 // recorded with the name.
@@ -250,6 +268,12 @@ message KeptChanged {
   option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
 
   bool kept = 1;
+}
+
+message TitleSet {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
+
+  string title = 1;
 }
 
 message RenamedTo {

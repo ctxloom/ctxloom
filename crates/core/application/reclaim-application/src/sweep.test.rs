@@ -53,6 +53,7 @@ fn view(harp: &str, state: State, ended_days_ago: i64, kept: bool) -> View {
             ended_at: Some(at(NOW - ended_days_ago * DAY)),
             incarnation: 1,
             last_captured: None,
+            title: String::new(),
         },
         state,
         title: None,
@@ -151,6 +152,12 @@ impl SessionService for Fake {
             refusal: self.refusal.clone(),
             dead_letters: Vec::new(),
         })
+    }
+    async fn set_title(
+        &mut self,
+        _: sessions_application::TitleRequest,
+    ) -> Result<sessions_application::Titled, AppError> {
+        nothing()
     }
     async fn rename(&mut self, _: RenameRequest) -> Result<Renamed, AppError> {
         nothing()

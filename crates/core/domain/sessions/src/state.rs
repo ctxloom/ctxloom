@@ -39,6 +39,8 @@ pub struct SessionState {
     pub open_incarnation: Option<u32>,
     /// Set by a stop order; no incarnation is owed after it.
     pub stopped: bool,
+    /// The free-text title `session rename` sets (S55); empty when none is.
+    pub title: String,
 }
 
 impl From<SessionState> for sessions_proto::v1::SessionState {
@@ -65,6 +67,7 @@ impl From<SessionState> for sessions_proto::v1::SessionState {
             incarnation: value.incarnation,
             open_incarnation: value.open_incarnation,
             stopped: value.stopped,
+            title: value.title,
         }
     }
 }
@@ -108,6 +111,7 @@ impl TryFrom<sessions_proto::v1::SessionState> for SessionState {
             incarnation: value.incarnation,
             open_incarnation: value.open_incarnation,
             stopped: value.stopped,
+            title: value.title,
         })
     }
 }

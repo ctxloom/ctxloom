@@ -19,13 +19,13 @@ use angzarr_embedded_macros::{aggregate, applies, handles_cmd, handles_fact};
 use crate::refusal::refuse;
 use crate::{
     adopted, end_recorded, engine_bound, kept_changed, lifeline, live, record, renamed,
-    session_minted, AdoptRotations, BindEngineSession, ChildCannotStop, EndRecorded,
+    session_minted, title_set, AdoptRotations, BindEngineSession, ChildCannotStop, EndRecorded,
     EngineMismatch, EngineSessionBound, HarpInvalid, HarpTooLong, IncarnationEnded,
     IncarnationOwed, KeptChanged, MintSession, NoNativeSession, NoSession, RecordEnd,
     RecordIncarnationEnded, RenameSession, RenamedTo, ResumeSession, SessionAdopted,
     SessionCommand, SessionDestroyed, SessionEvent, SessionExists, SessionLive, SessionMinted,
-    SessionRejection, SessionRunning, SessionState, SessionUnknown, SetKept, StopOrdered,
-    StopSession,
+    SessionRejection, SessionRunning, SessionState, SessionUnknown, SetKept, SetSessionTitle,
+    StopOrdered, StopSession, TitleSet,
 };
 use crate::{
     AssistantTextShown, Compacted, PromptSubmitted, RecordAssistantText, RecordCompaction,
@@ -101,6 +101,24 @@ impl SessionAggregate {
                 SessionRejection,
                 rejection,
                 Refuses<Self, SetKept>,
+                [NoSession => NoSession]
+            )
+        })
+    }
+
+    /// Set the session's title (S55); `None` when it is the one held.
+    #[handles_cmd(SetSessionTitle, refuses(NoSession))]
+    fn set_title(
+        &self,
+        cmd: SetSessionTitle,
+        ctx: &Context,
+    ) -> Result<Option<TitleSet>, Failed<Refuses<Self, SetSessionTitle>>> {
+        let _ = ctx;
+        title_set(&self.session, &cmd).map_err(|rejection| {
+            refuse!(
+                SessionRejection,
+                rejection,
+                Refuses<Self, SetSessionTitle>,
                 [NoSession => NoSession]
             )
         })
@@ -372,6 +390,11 @@ impl SessionAggregate {
 
     #[applies(KeptChanged)]
     fn kept_changed(&mut self, event: KeptChanged, page: &PageContext) {
+        fold(&mut self.session, event.into(), page);
+    }
+
+    #[applies(TitleSet)]
+    fn title_set(&mut self, event: TitleSet, page: &PageContext) {
         fold(&mut self.session, event.into(), page);
     }
 

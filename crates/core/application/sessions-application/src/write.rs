@@ -25,7 +25,7 @@ use sessions::{
 use crate::read::Reading;
 use crate::{
     failed, AppError, BindRequest, Bound, Class, DeadLetter, FilePlan, KeepRequest, Kept, PlanItem,
-    Refusal, Removal, RemoveRequest, RenameRequest, Renamed, REMOVE_VERB,
+    Refusal, Removal, RemoveRequest, RenameRequest, Renamed, TitleRequest, Titled, REMOVE_VERB,
 };
 
 /// A write's way to its sessions and the kernel, borrowed from the service
@@ -142,6 +142,21 @@ where
                 dead_letters: std::mem::take(self.dead_letters),
             },
             false => Bound::Unchanged,
+        })
+    }
+
+    /// Set a session's title (S55): one command to its stream; nothing is
+    /// claimed or moved, its harp and name being permanent.
+    pub(crate) async fn set_title(&mut self, request: TitleRequest) -> Result<Titled, AppError> {
+        let (_project, record) = self
+            .read
+            .find(request.project.as_deref(), &request.harp)
+            .await?;
+        Ok(Titled {
+            harp: record.harp,
+            title: request.title,
+            changed: false,
+            dead_letters: std::mem::take(self.dead_letters),
         })
     }
 

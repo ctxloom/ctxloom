@@ -70,6 +70,8 @@ pub struct SessionRecord {
     /// When its hooks last delivered something to its transcript: the newest
     /// capture event's instant (owner ruling 87a: its last activity).
     pub last_captured: Option<Timestamp>,
+    /// The title `session rename` set (S55); empty when none is.
+    pub title: String,
 }
 
 /// One index of a project's sessions.
@@ -299,6 +301,7 @@ fn record_of(root: &[u8], session: &SessionAggregate) -> SessionRecord {
         ended_at: state.ended_at,
         incarnation: state.incarnation,
         last_captured: None,
+        title: state.title.clone(),
     }
 }
 

@@ -816,11 +816,15 @@ mod claude_user_settings {
         let dir = root();
         let home = dir.root().join("home");
         mkdirs(home.join(".claude/settings.json"));
-        let env = EnvSnapshot::of([("HOME", home.to_str().unwrap())]);
+        let env = EnvSnapshot::of([(crate::fixtures::home_var(), home.to_str().unwrap())]);
         let wiring = Wiring::new(Arc::new(env)).unwrap();
         let user = claude_user_settings(&wiring).expect("there");
         assert_eq!(user.bytes, None);
-        assert!(user.path.ends_with(".claude/settings.json"), "{user:?}");
+        assert_eq!(
+            std::path::Path::new(&user.path),
+            home.join(".claude").join("settings.json"),
+            "{user:?}"
+        );
     }
 
     // On Windows her home is USERPROFILE (the one home resolution,
@@ -876,7 +880,10 @@ mod opencode_user_config {
         if let Some(text) = in_home {
             put_mode(home.join(".config/opencode/opencode.json"), text, 0o644);
         }
-        let mut pairs = vec![("HOME", home.to_str().unwrap().to_string())];
+        let mut pairs = vec![(
+            crate::fixtures::home_var(),
+            home.to_str().unwrap().to_string(),
+        )];
         if let Some(text) = in_config_home {
             if let Some(text) = text {
                 put_mode(config.join("opencode/opencode.json"), text, 0o644);

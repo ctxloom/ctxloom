@@ -64,3 +64,24 @@ fn test_a_plain_relative_name_has_only_plain_segments() {
         assert!(!is_plain_relative(bad), "{bad:?}");
     }
 }
+
+// The guard is the same on every host: what Windows would read as a
+// separator, a root or a drive is refused on Linux too, so a name that would
+// climb there is refused everywhere.
+#[test]
+fn test_a_plain_relative_name_has_no_windows_separator_root_or_drive() {
+    for bad in [
+        "a\\..\\b",
+        "..\\a",
+        "a\\b",
+        "\\a",
+        "\\\\server\\share",
+        "C:",
+        "C:a",
+        "c:/a",
+        "C:\\a",
+        "z:..",
+    ] {
+        assert!(!is_plain_relative(bad), "{bad:?}");
+    }
+}

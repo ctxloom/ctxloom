@@ -51,7 +51,7 @@ fn violation(skill: &Skill) -> Option<String> {
 
 /// Whether a package file's path stays inside its package.
 fn inside(path: &str) -> bool {
-    ctxloom_ports::is_plain_relative(path) && !path.contains('\\')
+    ctxloom_ports::is_plain_relative(path)
 }
 
 pub(crate) fn plan(skills: &[Skill], planned: &mut Planned) {

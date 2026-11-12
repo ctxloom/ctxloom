@@ -19,6 +19,8 @@ pub enum AppError {
     NoSession { harp: String },
     /// A transcript asked for of a session that has none captured.
     NoCapturedTranscript { harp: String },
+    /// A project named with no harp to try (S54).
+    NoProjectHarp { project_id: String },
     /// The domain refused the command: tell the person.
     Rejected(Report),
     /// The store or the kernel failed in a way a retry will not mend.
@@ -62,6 +64,7 @@ impl ExitClass for AppError {
             AppError::Rejected(_)
             | AppError::NoSession { .. }
             | AppError::NoCapturedTranscript { .. } => Exit::REFUSED,
+            AppError::NoProjectHarp { .. } => Exit::FAILED,
             AppError::Failed(_)
             | AppError::Identity(_)
             | AppError::Files(_)
@@ -81,6 +84,7 @@ impl Diagnostic for AppError {
         match self {
             AppError::NoSession { .. } => code!("no-session"),
             AppError::NoCapturedTranscript { .. } => code!("no-captured-transcript"),
+            AppError::NoProjectHarp { .. } => code!("no-project-harp"),
             AppError::GaveUp { .. } => code!("gave-up"),
             AppError::Rejected(cause)
             | AppError::Failed(cause)
@@ -94,6 +98,9 @@ impl Diagnostic for AppError {
         match self {
             AppError::NoSession { harp } | AppError::NoCapturedTranscript { harp } => {
                 vec![("harp", harp.as_str().into())]
+            }
+            AppError::NoProjectHarp { project_id } => {
+                vec![("project_id", project_id.as_str().into())]
             }
             AppError::GaveUp { attempts, error } => vec![
                 ("attempts", u64::from(*attempts).into()),
@@ -255,6 +262,9 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
     samples.extend::<Vec<Box<dyn Diagnostic>>>(vec![
         Box::new(AppError::NoSession { harp: harp() }),
         Box::new(AppError::NoCapturedTranscript { harp: harp() }),
+        Box::new(AppError::NoProjectHarp {
+            project_id: "jolly-mute-magma".to_string(),
+        }),
         Box::new(AppError::GaveUp {
             attempts: 10,
             error: Report::new("x-busy"),

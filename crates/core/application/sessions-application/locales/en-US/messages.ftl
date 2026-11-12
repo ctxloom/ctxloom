@@ -6,6 +6,7 @@
 sessions-application-no-session = no session named { $harp }
 sessions-application-no-session-fix = list the sessions with: ctxloom session list --all
 sessions-application-no-captured-transcript = session { $harp }: no captured transcript
+sessions-application-no-project-harp = project { $project_id } was given no harp to be named with
 sessions-application-gave-up = gave up after { $attempts } attempts: { $error }
 sessions-application-refused-not-dead = refusing to remove { $harp }: it cannot be proven dead ({ $reason }). Nothing was removed. To destroy it anyway, deliberately: ctxloom { $verb } { $harp } --yes --even-if-live
 sessions-application-refused-kept = refusing to remove { $harp }: it is marked keep, so its transcript is kept at any age. Nothing was removed. To release it: ctxloom session keep { $harp } --undo

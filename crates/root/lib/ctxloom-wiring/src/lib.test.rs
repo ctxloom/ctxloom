@@ -614,3 +614,22 @@ fn test_the_catalog_has_the_shared_project_dir_messages_and_the_samples_carry_it
         "{codes:?}"
     );
 }
+
+// S54: the project is named once, in the one store, and keeps its harp; the
+// harp is three words, as a session's is.
+#[test]
+fn test_the_project_is_named_once_in_the_one_store_and_keeps_its_harp() {
+    let env = Env::new("name-project");
+    let wiring = from_process().ok().unwrap();
+    let named = wiring.name_project().ok().unwrap();
+    assert!(named.named, "{named:?}");
+    assert_eq!(named.harp.split('-').count(), 3, "{named:?}");
+    assert!(
+        exists(env.home().join(".ctxloom/ctxloom.db")),
+        "the one store"
+    );
+    let again = wiring.name_project().ok().unwrap();
+    assert_eq!(again.harp, named.harp, "permanent");
+    assert!(!again.named);
+    assert_eq!(again.project_id, named.project_id);
+}

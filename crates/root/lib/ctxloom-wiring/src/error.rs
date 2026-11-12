@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
+use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
 use ctxloom_store_sqlite::StoreOpenError;
 
 /// This crate's en-US messages.
@@ -23,6 +23,8 @@ pub enum LibError {
     NoRuntime { detail: String },
     /// The project's store would not open.
     Store(StoreOpenError),
+    /// The project could not be named (S54).
+    Project(Report),
 }
 
 impl fmt::Display for LibError {
@@ -40,6 +42,7 @@ impl Diagnostic for LibError {
             LibError::BadSession { .. } => code!("bad-session"),
             LibError::NoRuntime { .. } => code!("no-runtime"),
             LibError::Store(_) => code!("store"),
+            LibError::Project(cause) => cause.code(),
         }
     }
 
@@ -52,6 +55,7 @@ impl Diagnostic for LibError {
             ],
             LibError::NoRuntime { detail } => vec![("ext_err_txt", detail.as_str().into())],
             LibError::Store(cause) => vec![("error", Arg::Nested(Box::new(cause.clone())))],
+            LibError::Project(cause) => cause.args(),
         }
     }
 }

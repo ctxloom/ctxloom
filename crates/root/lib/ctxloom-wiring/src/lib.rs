@@ -91,6 +91,9 @@ pub(crate) fn registry<N>(
         .expect("PROJECT_MARKER is a relative path of plain names")
 }
 
+/// How many fresh harps a project's naming tries before it gives up (S54).
+const PROJECT_HARP_TRIES: usize = 3;
+
 /// A newly minted session's harp: two adjectives and a noun.
 pub fn session_name() -> String {
     HarpNames.project_id()
@@ -392,6 +395,35 @@ impl Wiring {
             return Ok(());
         };
         Stores::new(Arc::clone(&self.fs), self.home.clone()).refuse_per_project(&project.id)
+    }
+
+    /// Name the project this process is in (S54), once, in the one store:
+    /// its harp, minted from fresh harps, or the one it has. The CLI's
+    /// exposure is a later slice's.
+    pub fn name_project(&self) -> Result<sessions_application::ProjectHarp, LibError> {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e: io::Error| LibError::NoRuntime {
+                detail: e.to_string(),
+            })?;
+        let mut sessions = self.sessions();
+        let harps = (0..PROJECT_HARP_TRIES).map(|_| session_name()).collect();
+        runtime.block_on(async {
+            let named = sessions
+                .use_cases
+                .name_project(sessions_application::NameProjectRequest {
+                    project: None,
+                    harps,
+                })
+                .await
+                .map_err(|e| LibError::Project(angzarr_diagnostic::Report::of(&e)));
+            // Closed, not dropped (ruling 131).
+            let closed = sessions.close().await;
+            let named = named?;
+            closed.map_err(|e| LibError::Project(angzarr_diagnostic::Report::of(&e)))?;
+            Ok(named)
+        })
     }
 
     /// The one store opened (made, if need be) under the home for `project`

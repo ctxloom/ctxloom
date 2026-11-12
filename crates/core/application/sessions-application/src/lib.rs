@@ -23,6 +23,7 @@ mod error;
 mod go_sidecar;
 mod import;
 mod orchestrate;
+mod projects;
 mod read;
 mod service;
 mod typed;
@@ -50,6 +51,7 @@ pub use orchestrate::{
     urgencies_of, ClearRequest, CloseRequest, LaunchRequest, Ordered, SendRequest,
 };
 pub use ports::{Project, Timestamp};
+pub use projects::{NameProjectRequest, ProjectHarp};
 pub use service::{registry, Service, SessionService};
 pub use session_index::{
     stamp, Captured, PendingMessage, SessionRecord, State, View, NO_SUMMARY, STATES,

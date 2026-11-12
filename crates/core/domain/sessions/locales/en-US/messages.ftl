@@ -6,6 +6,7 @@ sessions-no-session = there is no such session
 sessions-harp-invalid = { $harp } cannot be a session name: { $reason }
 sessions-harp-too-long = { $harp } is { $length } characters, the limit for a session name is { $limit }
 sessions-names-taken = the session name { $harp } is taken
+sessions-project-name-taken = the project name { $harp } is another project's
 sessions-no-claim = nobody holds that session name
 sessions-not-holder = this session does not hold the name { $harp }
 sessions-child-cannot-stop = a child (depth { $depth }) cannot order a stop

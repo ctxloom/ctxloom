@@ -1,0 +1,93 @@
+syntax = "proto3";
+
+// A project's harp (owner S54, accepted): a session's resource name is
+// `projects/{project-harp}/sessions/{session-harp}` (S42), so each project
+// has a harp of its own, minted ONCE and never changed, as a session's is.
+// Two aggregates in the one store (T14):
+//
+// - `projects`: one stream per project, its root the project's namespace
+//   (`project_namespace(project_id)`, owner-approved and fixed), holding the
+//   harp it was named with;
+// - `project-names`: one claim stream per harp text, its root UUIDv5 of the
+//   harp in the user's project-names namespace, so a project harp is unique
+//   for the user because a stream is.
+//
+// A project is named by claiming a harp for it first (`ClaimProjectName`),
+// then `NameProject`; a project already named records nothing, whatever
+// harp is asked, and keeps the one it has.
+package ctxloom.sessions.v1;
+
+import "io/angzarr/v1/options.proto";
+
+message ProjectState {
+  option (io.angzarr.v1.component) = {
+    component_name: "project"
+    aggregate: {domain: "projects"}
+  };
+
+  string project_id = 1;
+  // The project's harp; empty until it is named.
+  string harp = 2;
+}
+
+// Name the project `harp`, once. A project already named records nothing
+// (its harp is permanent); its stream says the harp it has.
+message NameProject {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.sessions.v1.ProjectState"
+    emits: ["ctxloom.sessions.v1.ProjectNamed"]
+    refuses: "ctxloom.sessions.v1.HarpInvalid"
+  };
+
+  string project_id = 1;
+  string harp = 2;
+}
+
+message ProjectNamed {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.ProjectState"};
+
+  string project_id = 1;
+  string harp = 2;
+}
+
+message ProjectNameState {
+  option (io.angzarr.v1.component) = {
+    component_name: "project-name"
+    aggregate: {domain: "project-names"}
+  };
+
+  string harp = 1;
+  // The project that holds the harp; empty while it is free.
+  string project_id = 2;
+}
+
+// Take the harp for `project_id`. Refused `sessions-project-name-taken`
+// while another project holds it; the holder asking again records nothing.
+message ClaimProjectName {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.sessions.v1.ProjectNameState"
+    emits: ["ctxloom.sessions.v1.ProjectNameClaimed"]
+    refuses: "ctxloom.sessions.v1.ProjectNameTaken"
+  };
+
+  string harp = 1;
+  string project_id = 2;
+}
+
+message ProjectNameClaimed {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.ProjectNameState"};
+
+  string harp = 1;
+  string project_id = 2;
+}
+
+// region refusals
+
+// A claim on a project harp another project holds.
+message ProjectNameTaken {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_ALREADY_EXISTS;
+
+  string harp = 1;
+}
+
+// endregion refusals

@@ -1907,3 +1907,63 @@ fn the_urgencies_a_send_gives_as_evidence() {
     assert_eq!(crate::urgencies_of(false, "claude-code"), [Inform]);
     assert_eq!(crate::urgencies_of(true, "opencode"), [Inform]);
 }
+
+// ------------------------------------------------------------------ a project's harp (S54)
+
+fn name_request(harps: &[&str]) -> crate::NameProjectRequest {
+    crate::NameProjectRequest {
+        project: None,
+        harps: harps.iter().map(|h| h.to_string()).collect(),
+    }
+}
+
+// S54: a project is named once, with the first harp tried, and keeps it: a
+// second naming claims nothing and names nothing.
+#[test]
+fn a_project_is_named_once_and_keeps_its_harp() {
+    let mut svc = service();
+    let named = ready(svc.name_project(name_request(&["calm-quiet-heron"]))).unwrap();
+    assert_eq!(
+        named,
+        crate::ProjectHarp {
+            project_id: HERE.to_string(),
+            harp: "calm-quiet-heron".to_string(),
+            named: true,
+        }
+    );
+    let again = ready(svc.name_project(name_request(&["brisk-tall-fern"]))).unwrap();
+    assert_eq!(again.harp, "calm-quiet-heron", "permanent");
+    assert!(!again.named);
+}
+
+// S54: "its claim unique per user": a harp another project holds is passed
+// over for the next; with none left, the taken refusal is the answer.
+#[test]
+fn a_harp_another_project_holds_is_passed_over_for_the_next() {
+    let mut svc = service();
+    svc.stores.one = true;
+    ready(svc.name_project(crate::NameProjectRequest {
+        project: Some(ELSEWHERE.to_string()),
+        harps: vec!["calm-quiet-heron".to_string()],
+    }))
+    .unwrap();
+    let named =
+        ready(svc.name_project(name_request(&["calm-quiet-heron", "brisk-tall-fern"]))).unwrap();
+    assert_eq!(named.harp, "brisk-tall-fern");
+    assert!(named.named);
+    // A third project, through the same service (its clock's command ids
+    // run on: a fresh fake clock would repeat the first claim's id, a
+    // DUPLICATE on that stream).
+    svc.identity.bound = Some(project("calm-otter"));
+    let error = ready(svc.name_project(name_request(&["calm-quiet-heron"]))).unwrap_err();
+    assert_eq!(error.code(), "sessions-project-name-taken");
+    assert_eq!(error.exit(), Exit::REFUSED);
+}
+
+// Nothing to try is a failure of the caller's, not a refusal.
+#[test]
+fn a_project_given_no_harp_to_try_is_not_named() {
+    let mut svc = service();
+    let error = ready(svc.name_project(name_request(&[]))).unwrap_err();
+    assert_eq!(error.code(), "sessions-application-no-project-harp");
+}

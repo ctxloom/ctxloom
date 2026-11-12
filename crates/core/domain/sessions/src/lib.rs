@@ -26,6 +26,7 @@ mod daemon;
 mod harp;
 mod lifeline;
 mod names;
+mod projects;
 mod refusal;
 mod rejection;
 mod state;
@@ -40,17 +41,29 @@ pub type SessionEvent = SessionStateEvent;
 pub type NameClaimCommand = NameClaimStateCommand;
 /// The name-claim aggregate's events, one variant per event type.
 pub type NameClaimEvent = NameClaimStateEvent;
+/// The project aggregate's commands (S54).
+pub type ProjectCommand = ProjectStateCommand;
+/// The project aggregate's events (S54).
+pub type ProjectEvent = ProjectStateEvent;
+/// The project harp claim's commands (S54).
+pub type ProjectNameCommand = ProjectNameStateCommand;
+/// The project harp claim's events (S54).
+pub type ProjectNameEvent = ProjectNameStateEvent;
 
 pub use aggregate::SessionAggregate;
 pub use daemon::{command_id, keyed_book, urgency_word};
 pub use generated::*;
 pub use harp::{validate, validate_rename, MAX_NAME_LEN};
 pub use names::{claim_root, project_namespace, NameClaimAggregate};
+pub use projects::{project_name_root, project_root, ProjectAggregate, ProjectNameAggregate};
 pub use refusal::NotOurs;
 #[cfg(any(test, feature = "test-support"))]
 pub use rejection::diagnostic_samples;
 pub use rejection::{SessionRejection, EN_US};
-pub use state::{Child, NameClaimState, SessionState, NAMES_DOMAIN, SESSION_DOMAIN};
+pub use state::{
+    Child, NameClaimState, ProjectNameState, ProjectState, SessionState, NAMES_DOMAIN,
+    PROJECTS_DOMAIN, PROJECT_NAMES_DOMAIN, SESSION_DOMAIN,
+};
 
 /// Fold `event`, recorded at `recorded_at` (its page's
 /// `EventMeta.recorded_at`), into `state`: what the aggregate's appliers do,

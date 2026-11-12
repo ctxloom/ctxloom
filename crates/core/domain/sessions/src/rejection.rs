@@ -22,6 +22,8 @@ pub enum SessionRejection {
     },
     /// A claim on a name another session holds.
     NamesTaken { harp: String },
+    /// A claim on a project harp another project holds (S54).
+    ProjectNameTaken { harp: String },
     /// A release of a name nobody holds.
     NoClaim,
     /// A release by a session that does not hold the name.
@@ -77,6 +79,7 @@ impl Diagnostic for SessionRejection {
             SessionRejection::HarpInvalid { .. } => code!("harp-invalid"),
             SessionRejection::HarpTooLong { .. } => code!("harp-too-long"),
             SessionRejection::NamesTaken { .. } => code!("names-taken"),
+            SessionRejection::ProjectNameTaken { .. } => code!("project-name-taken"),
             SessionRejection::NoClaim => code!("no-claim"),
             SessionRejection::NotHolder { .. } => code!("not-holder"),
             SessionRejection::ChildCannotStop { .. } => code!("child-cannot-stop"),
@@ -100,6 +103,7 @@ impl Diagnostic for SessionRejection {
         match self {
             SessionRejection::SessionExists { harp }
             | SessionRejection::NamesTaken { harp }
+            | SessionRejection::ProjectNameTaken { harp }
             | SessionRejection::NotHolder { harp }
             | SessionRejection::SessionLive { harp }
             | SessionRejection::SessionClosed { harp }
@@ -171,6 +175,7 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
             length: 30,
         }),
         Box::new(SessionRejection::NamesTaken { harp: harp() }),
+        Box::new(SessionRejection::ProjectNameTaken { harp: harp() }),
         Box::new(SessionRejection::NoClaim),
         Box::new(SessionRejection::NotHolder { harp: harp() }),
         Box::new(SessionRejection::ChildCannotStop { depth: 1 }),

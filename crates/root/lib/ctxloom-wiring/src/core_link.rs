@@ -25,7 +25,7 @@ use angzarr_embedded_host::stores::Stores;
 use angzarr_embedded_host::App;
 use embedded_edge::EmbeddedEdge;
 use runs::RunAggregate;
-use sessions::{NameClaimAggregate, SessionAggregate};
+use sessions::{NameClaimAggregate, ProjectAggregate, ProjectNameAggregate, SessionAggregate};
 use std::num::NonZeroU32;
 use trees::TreeAggregate;
 
@@ -160,6 +160,13 @@ where
         registry
             .aggregate::<TreeAggregate>(TreeAggregate::default)
             .expect("the trees aggregate registers");
+        // A project's harp (S54): the project and its harp's claim.
+        registry
+            .aggregate::<ProjectAggregate>(ProjectAggregate::default)
+            .expect("the projects aggregate registers");
+        registry
+            .aggregate::<ProjectNameAggregate>(ProjectNameAggregate::default)
+            .expect("the project-names aggregate registers");
         let exposed = BTreeMap::from([
             (sessions::SESSION_DOMAIN.to_string(), Expose::Ip),
             (runs::RUN_DOMAIN.to_string(), Expose::Ip),

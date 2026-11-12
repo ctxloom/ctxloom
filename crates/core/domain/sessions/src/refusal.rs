@@ -75,6 +75,9 @@ impl TryFrom<&TypedRefusal> for SessionRejection {
         if let Some(NamesTaken { harp }) = refusal.object() {
             return Ok(SessionRejection::NamesTaken { harp });
         }
+        if let Some(crate::ProjectNameTaken { harp }) = refusal.object() {
+            return Ok(SessionRejection::ProjectNameTaken { harp });
+        }
         if refusal.object::<NoClaim>().is_some() {
             return Ok(SessionRejection::NoClaim);
         }

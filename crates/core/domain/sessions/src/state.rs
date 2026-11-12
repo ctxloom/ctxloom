@@ -11,6 +11,12 @@ pub const SESSION_DOMAIN: &str = "sessions";
 /// The name claims' domain: every claim stream's `Cover.domain`.
 pub const NAMES_DOMAIN: &str = "session-names";
 
+/// The projects' domain (S54): one stream per project, holding its harp.
+pub const PROJECTS_DOMAIN: &str = "projects";
+
+/// The project harps' claim domain (S54): one stream per harp text.
+pub const PROJECT_NAMES_DOMAIN: &str = "project-names";
+
 /// The session, folded from its events. Derived values (its title, its
 /// state now) are computed when read, never stored.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -198,6 +204,62 @@ impl TryFrom<sessions_proto::v1::NameClaimState> for NameClaimState {
             harp: value.harp,
             session: value.session,
             claimed: value.claimed,
+        })
+    }
+}
+
+/// A project, folded from its events (S54): its harp, empty until named.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProjectState {
+    pub project_id: String,
+    pub harp: String,
+}
+
+impl From<ProjectState> for sessions_proto::v1::ProjectState {
+    fn from(value: ProjectState) -> Self {
+        sessions_proto::v1::ProjectState {
+            project_id: value.project_id,
+            harp: value.harp,
+        }
+    }
+}
+
+impl TryFrom<sessions_proto::v1::ProjectState> for ProjectState {
+    type Error = WireError;
+
+    fn try_from(value: sessions_proto::v1::ProjectState) -> Result<Self, WireError> {
+        Ok(ProjectState {
+            project_id: value.project_id,
+            harp: value.harp,
+        })
+    }
+}
+
+/// A project harp's claim, folded from its events: held by a project, or
+/// free (never yet claimed).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProjectNameState {
+    pub harp: String,
+    /// The project that holds the harp; empty while it is free.
+    pub project_id: String,
+}
+
+impl From<ProjectNameState> for sessions_proto::v1::ProjectNameState {
+    fn from(value: ProjectNameState) -> Self {
+        sessions_proto::v1::ProjectNameState {
+            harp: value.harp,
+            project_id: value.project_id,
+        }
+    }
+}
+
+impl TryFrom<sessions_proto::v1::ProjectNameState> for ProjectNameState {
+    type Error = WireError;
+
+    fn try_from(value: sessions_proto::v1::ProjectNameState) -> Result<Self, WireError> {
+        Ok(ProjectNameState {
+            harp: value.harp,
+            project_id: value.project_id,
         })
     }
 }

@@ -8,7 +8,7 @@ use angzarr_embedded::{OnRetryable, Registry};
 use angzarr_embedded_runner::KERNEL_RETRY;
 use ports::{Clock, CommandIds, Delay, Jitter, ProjectIdentity};
 use session_ports::{Liveness, ProjectStores, SessionFiles};
-use sessions::{NameClaimAggregate, SessionAggregate};
+use sessions::{NameClaimAggregate, ProjectAggregate, ProjectNameAggregate, SessionAggregate};
 
 use crate::read::Reading;
 use crate::write::Writing;
@@ -70,7 +70,11 @@ pub fn registry() -> Registry {
     registry
         .aggregate::<SessionAggregate>(SessionAggregate::default)
         .and_then(|registry| registry.aggregate::<NameClaimAggregate>(NameClaimAggregate::default))
-        .expect("the sessions and session-names domains, each once");
+        .and_then(|registry| registry.aggregate::<ProjectAggregate>(ProjectAggregate::default))
+        .and_then(|registry| {
+            registry.aggregate::<ProjectNameAggregate>(ProjectNameAggregate::default)
+        })
+        .expect("the sessions, session-names, projects and project-names domains, each once");
     registry
 }
 
@@ -246,6 +250,16 @@ where
         request: crate::ClearRequest,
     ) -> Result<crate::Ordered, AppError> {
         let result = self.writing().clear(request).await;
+        self.with_dead_letters(result)
+    }
+
+    /// Name the project, once (S54): its harp, minted from the first of the
+    /// request's harps no other project holds, or the one it has.
+    pub async fn name_project(
+        &mut self,
+        request: crate::NameProjectRequest,
+    ) -> Result<crate::ProjectHarp, AppError> {
+        let result = self.writing().name_project(request).await;
         self.with_dead_letters(result)
     }
 

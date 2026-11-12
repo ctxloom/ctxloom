@@ -1,7 +1,7 @@
 //! The command half the hook listener serves: core's [`Commands`] and
 //! [`Served`] over the [`Edge`] port (owner ruling 2026-11-09, item 17). The
-//! coordinator's gate has already admitted the book (identity, the six fact
-//! types, the caller's own session); what is left is to hand it to the kernel
+//! coordinator's gate has already admitted the book (the user, what she may
+//! send, the streams it reaches); what is left is to hand it to the kernel
 //! through the edge's exposure seam, as a request from this machine, and to
 //! answer what the kernel answers: applied or duplicate, or a failure as its
 //! gRPC code and key.

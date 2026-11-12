@@ -2,13 +2,13 @@
 
 use std::sync::Arc;
 
-use angzarr_coordinator::{BodyKind, Credential, Gate};
+use angzarr_coordinator::{Credential, Gate};
 use angzarr_embedded::v1::{Cover, Uuid};
 use run_ports::{Bearer, Token};
 
 use crate::fakes::World;
-use crate::gate::url;
-use crate::hook_gate::{hook_allowlist, HookGate, HookIdentity, Scope};
+use crate::hook_gate::{HookGate, HookIdentity};
+use crate::user_gate::user_allowlist;
 
 const ARRIVAL: angzarr_coordinator::Arrival = angzarr_coordinator::Arrival::Loopback;
 
@@ -52,79 +52,17 @@ async fn a_live_runs_hook_bearer_identifies_its_run_and_session() {
     );
 }
 
+// One principal: whoever presents the run's hook bearer is the user, and
+// may send what she may.
 #[tokio::test]
-async fn the_hook_principal_may_send_exactly_the_six_capture_facts() {
+async fn the_hook_bearer_is_the_user_with_her_allowlist() {
     let world = World::new().await;
     let credential = bearer(&world.me.identity.run, &world.me.hook_token);
     let principal = gate(&world)
         .identify(ARRIVAL, Some(&credential))
         .await
         .unwrap();
-    let allowed = [
-        url::<sessions::RecordPromptSubmitted>(),
-        url::<sessions::RecordAssistantText>(),
-        url::<sessions::RecordToolCall>(),
-        url::<sessions::RecordTurnEnded>(),
-        url::<sessions::RecordSessionEnded>(),
-        url::<sessions::RecordCompaction>(),
-    ];
-    for type_url in &allowed {
-        assert!(
-            principal
-                .allowlist()
-                .permits_body(BodyKind::Fact, type_url)
-                .is_ok(),
-            "{type_url}"
-        );
-        // A capture type is a fact, never a command.
-        assert!(principal
-            .allowlist()
-            .permits_body(BodyKind::Command, type_url)
-            .is_err());
-    }
-    assert_eq!(principal.allowlist(), &hook_allowlist());
-}
-
-#[tokio::test]
-async fn a_runner_lifecycle_fact_is_refused_to_the_hook_principal() {
-    let world = World::new().await;
-    let credential = bearer(&world.me.identity.run, &world.me.hook_token);
-    let principal = gate(&world)
-        .identify(ARRIVAL, Some(&credential))
-        .await
-        .unwrap();
-    for type_url in [
-        url::<runs::TurnCompleted>(),
-        url::<runs::TurnStarted>(),
-        url::<runs::RunnerAttached>(),
-        url::<runs::RunExited>(),
-        url::<sessions::BindEngineSession>(),
-        url::<runs::SummaryReported>(),
-    ] {
-        assert!(
-            principal
-                .allowlist()
-                .permits_body(BodyKind::Fact, &type_url)
-                .is_err(),
-            "{type_url}"
-        );
-    }
-}
-
-#[tokio::test]
-async fn a_command_body_is_refused_to_the_hook_principal_whatever_its_type() {
-    let world = World::new().await;
-    let credential = bearer(&world.me.identity.run, &world.me.hook_token);
-    let principal = gate(&world)
-        .identify(ARRIVAL, Some(&credential))
-        .await
-        .unwrap();
-    for type_url in [url::<sessions::MintSession>(), url::<runs::EnqueueRun>()] {
-        assert!(principal
-            .allowlist()
-            .permits_body(BodyKind::Command, &type_url)
-            .is_err());
-    }
+    assert_eq!(principal.allowlist(), &user_allowlist());
 }
 
 #[tokio::test]
@@ -238,58 +176,6 @@ async fn the_hook_owns_its_own_sessions_stream_and_no_other() {
     let mut cover = session_cover(&world.me.identity.session);
     cover.root = None;
     assert!(!gate.owns(&identity, &cover));
-}
-
-fn capture_urls() -> [String; 6] {
-    [
-        url::<sessions::RecordPromptSubmitted>(),
-        url::<sessions::RecordAssistantText>(),
-        url::<sessions::RecordToolCall>(),
-        url::<sessions::RecordTurnEnded>(),
-        url::<sessions::RecordSessionEnded>(),
-        url::<sessions::RecordCompaction>(),
-    ]
-}
-
-// Owner ruling 38: the gate's allowed types are a scope VALUE, checked by one
-// function; today's hook scope is the six capture facts.
-#[test]
-fn the_capture_scope_is_the_six_facts_and_no_command() {
-    let scope = Scope::capture();
-    for type_url in capture_urls() {
-        assert!(scope.permits(BodyKind::Fact, &type_url), "{type_url}");
-        assert!(!scope.permits(BodyKind::Command, &type_url), "{type_url}");
-    }
-    assert!(!scope.permits(BodyKind::Fact, &url::<runs::RunExited>()));
-    assert!(!scope.permits(BodyKind::Fact, "type.googleapis.com/nothing"));
-}
-
-#[test]
-fn widening_a_scope_is_adding_to_it_and_the_allowlist_follows() {
-    let extra = url::<runs::RunExited>();
-    let wider = Scope::capture()
-        .with_fact(extra.clone())
-        .with_command(url::<sessions::RecordTurnEnded>());
-    assert!(wider.permits(BodyKind::Fact, &extra));
-    assert!(wider.permits(BodyKind::Command, &url::<sessions::RecordTurnEnded>()));
-    assert!(!Scope::capture().permits(BodyKind::Fact, &extra));
-    // The allowlist agrees with `permits` for every probe.
-    let probes = [
-        (BodyKind::Fact, extra),
-        (BodyKind::Command, url::<sessions::RecordTurnEnded>()),
-        (BodyKind::Command, url::<runs::RunExited>()),
-        (BodyKind::Fact, url::<sessions::RecordCompaction>()),
-    ];
-    for scope in [Scope::capture(), wider] {
-        let allowlist = scope.allowlist();
-        for (kind, type_url) in &probes {
-            assert_eq!(
-                allowlist.permits_body(*kind, type_url).is_ok(),
-                scope.permits(*kind, type_url),
-                "{type_url}"
-            );
-        }
-    }
 }
 
 // Owner additions (1): each run has its own hook token, and one run's token

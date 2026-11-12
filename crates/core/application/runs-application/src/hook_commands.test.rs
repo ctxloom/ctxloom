@@ -136,20 +136,6 @@ async fn what_the_gate_forbids_is_answered_as_an_unknown_domain_and_writes_nothi
         .await
         .unwrap_err();
     assert_eq!(lifecycle.coded(), hidden(runs::RUN_DOMAIN));
-    // A runner-lifecycle fact on the session stream.
-    let bound = session
-        .handle(fact_book(
-            mine_cover.clone(),
-            sessions::BindEngineSession {
-                native_id: "forged".to_string(),
-                transcript_path: "/t".to_string(),
-                engine_version: None,
-            },
-            "bind:forged",
-        ))
-        .await
-        .unwrap_err();
-    assert_eq!(bound.coded(), hidden(sessions::SESSION_DOMAIN));
     assert_eq!(world.edge.served(), served, "nothing reached the kernel");
     assert_eq!(pages(&world, &theirs).await, before);
 }

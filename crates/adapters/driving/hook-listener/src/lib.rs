@@ -7,8 +7,9 @@
 //! generic coordinator (`angzarr-coordinator-grpc`'s server on a
 //! `Listener::tcp`, port 0, never an unspecified address, the arrival declared
 //! from the bind). What is ctxloom's is the admission gate in front of it
-//! ([`runs_application::HookGate`]: who the bearer is, the credential's scope,
-//! the caller's own session stream, validity until the run ends) and the
+//! ([`runs_application::HookGate`]: the run the bearer names, its session's
+//! stream as the one a fact may address, validity until the run ends; the
+//! user daemon's is [`runs_application::UserGate`], the user bearer) and the
 //! command half behind it ([`runs_application::EdgeCommands`]: the kernel).
 //! `Handle` is the only operation served: the other operations of the service
 //! answer UNIMPLEMENTED, and the query service is not mounted at all (a hook
@@ -16,9 +17,9 @@
 //!
 //! The listener is TLS only (rulings 35-37): the run's self-signed
 //! certificate ([`TlsIdentity`]) authenticates the SERVER to the child, which
-//! pins it as its sole root, and the bearer authenticates the child. There is
-//! no mutual TLS and no plaintext: a client that does not speak TLS gets no
-//! answer.
+//! pins it as its sole root, and the bearer keeps non-user callers off the
+//! socket. There is no mutual TLS and no plaintext: a client that does not
+//! speak TLS gets no answer.
 //!
 //! The listener's limits are angzarr's generic defaults (`Listener::DEFAULT_*`;
 //! none is set here): a TLS handshake within 10 s, an HTTP/2 keepalive ping
@@ -111,8 +112,8 @@ impl HookListener {
     }
 
     /// [`HookListener::serve_tcp`] behind `gate` in place of the run's hook
-    /// gate: the user daemon's listener serves the orchestration scope
-    /// ([`runs_application::OrchestratorGate`], D25) this way.
+    /// gate: the user daemon's listener serves its one principal, the user
+    /// ([`runs_application::UserGate`]), this way.
     pub async fn serve_tcp_gated<E, G>(
         edge: Arc<E>,
         gate: G,

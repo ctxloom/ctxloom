@@ -1,9 +1,13 @@
-//! The gate the HOOK principal passes: core's [`Gate`] for ctxloom (owner
-//! rulings 2026-11-08 item 7 and 2026-11-09 items 9, 16 and 17).
+//! The gate of a CLI run's own listener: core's [`Gate`] for ctxloom (owner
+//! rulings 2026-11-08 item 7 and 2026-11-09 items 9, 16 and 17, as the
+//! separation model of slice 2 left them).
 //!
-//! A hook process of a run's engine (interactive or one-shot) holds the run's hook bearer
-//! (`<run-id>.<64 hex>`, [`run_ports::Bearer`]) and nothing else of the run:
-//! no runner token, no model token. The gate
+//! A hook process of a run's engine (interactive or one-shot) holds the
+//! run's hook bearer (`<run-id>.<64 hex>`, [`run_ports::Bearer`]). It is that
+//! listener's authentication, kept while the CLI serves its own runs: it
+//! keeps NON-USER callers off the socket, and separates nothing among the
+//! user's processes (one principal: whoever presents it is the user, with
+//! the user's allowlist). The gate
 //!
 //! - `identify`: parses the bearer, finds the run by its id, and matches the
 //!   secret's SHA-256 against the `hook_credential_hash` the run's enqueue
@@ -11,23 +15,24 @@
 //!   that does not match, a bearer that is not one, and a run that has ended
 //!   (its credentials are revoked in the fold) are all UNAUTHENTICATED, and
 //!   the caller is told no more than that;
-//! - allows exactly the six capture-fact types as FACTS ([`hook_allowlist`]):
-//!   not the runner's lifecycle facts, and no command of any type;
-//! - `owns` only the SESSION stream of the run the bearer names;
+//! - allows what the user may send ([`crate::user_allowlist`]);
+//! - `owns` only the SESSION stream of the run the bearer names: an
+//!   addressing check (a fact's session must be its run's), not a permission;
 //! - `still_valid` is false once the run has ended, so a token dies with its
-//!   run on the very next request.
+//!   run on the very next request (a bound on how long a harvested bearer is
+//!   good for).
 
 use std::sync::Arc;
 
 use angzarr_coordinator::angzarr_ports::BoxFuture;
 use angzarr_coordinator::{
-    constant_time_eq, Allowlist, Arrival, BodyKind, Credential, Gate, Principal, Scheme,
-    Unauthenticated,
+    constant_time_eq, Arrival, Credential, Gate, Principal, Scheme, Unauthenticated,
 };
 use angzarr_embedded::v1::{Cover, Uuid};
 use run_ports::{Bearer, Edge};
 
-use crate::gate::{run_state, url};
+use crate::gate::run_state;
+use crate::user_gate::user_allowlist;
 
 /// Who a hook bearer identifies: the run it names and that run's session.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -36,72 +41,6 @@ pub struct HookIdentity {
     pub run: Uuid,
     /// The session stream's root: the one stream the hook may write to.
     pub session: Uuid,
-}
-
-/// What a credential may send: the message types it is scoped to, as FACTS
-/// and as COMMANDS. One value, checked by one function ([`Scope::permits`]);
-/// widening a credential later is adding to its scope, not changing the check.
-/// Today the hook credential's scope is derived from its role in code
-/// ([`Scope::capture`]); nothing of it is journaled.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Scope {
-    facts: std::collections::BTreeSet<String>,
-    commands: std::collections::BTreeSet<String>,
-}
-
-impl Scope {
-    /// The hook role's scope: the six capture facts and nothing else.
-    pub fn capture() -> Scope {
-        [
-            url::<sessions::RecordPromptSubmitted>(),
-            url::<sessions::RecordAssistantText>(),
-            url::<sessions::RecordToolCall>(),
-            url::<sessions::RecordTurnEnded>(),
-            url::<sessions::RecordSessionEnded>(),
-            url::<sessions::RecordCompaction>(),
-        ]
-        .into_iter()
-        .fold(Scope::default(), Scope::with_fact)
-    }
-
-    /// This scope and `type_url` as a fact.
-    pub fn with_fact(mut self, type_url: String) -> Scope {
-        self.facts.insert(type_url);
-        self
-    }
-
-    /// This scope and `type_url` as a command.
-    #[cfg_attr(not(test), allow(dead_code))] // widening is a later landing's
-    pub fn with_command(mut self, type_url: String) -> Scope {
-        self.commands.insert(type_url);
-        self
-    }
-
-    #[cfg_attr(not(test), allow(dead_code))] // the allowlist is what the coordinator enforces
-    /// Whether a body of `kind` and `type_url` is within the scope.
-    pub fn permits(&self, kind: BodyKind, type_url: &str) -> bool {
-        match kind {
-            BodyKind::Fact => self.facts.contains(type_url),
-            BodyKind::Command => self.commands.contains(type_url),
-        }
-    }
-
-    /// The allowlist the coordinator enforces for this scope.
-    pub fn allowlist(&self) -> Allowlist {
-        let facts = self.facts.iter().map(|u| (BodyKind::Fact, u));
-        let commands = self.commands.iter().map(|u| (BodyKind::Command, u));
-        facts
-            .chain(commands)
-            .fold(Allowlist::none(), |list, (kind, type_url)| {
-                list.send(kind, type_url.clone())
-            })
-    }
-}
-
-/// What the hook principal may send: the six capture facts, as FACTS, and
-/// nothing else (no command, no other fact, no read).
-pub fn hook_allowlist() -> Allowlist {
-    Scope::capture().allowlist()
 }
 
 /// The run's hook credential, gated: reads the run's stream through the edge
@@ -157,7 +96,7 @@ impl<E: Edge> Gate for HookGate<E> {
         Box::pin(async move {
             let credential = credential.ok_or(Unauthenticated)?;
             let identity = self.resolve(credential).await.ok_or(Unauthenticated)?;
-            Ok(Principal::new(identity, Scope::capture().allowlist()))
+            Ok(Principal::new(identity, user_allowlist()))
         })
     }
 

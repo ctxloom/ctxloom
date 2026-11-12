@@ -478,41 +478,12 @@ async fn what_the_gate_forbids_is_answered_as_an_unknown_domain_and_writes_nothi
             ),
         ),
         (
-            "a runner-lifecycle fact on the session's stream",
-            fact(
-                mine.clone(),
-                &sessions::BindEngineSession {
-                    native_id: "forged".to_string(),
-                    transcript_path: "/t".to_string(),
-                    engine_version: None,
-                },
-                "bind:forged",
-            ),
-        ),
-        (
             "a command body of a capture type",
             command_of_type(
                 mine.clone(),
                 &sessions::RecordTurnEnded {
                     prompt_id: "p".to_string(),
                 },
-            ),
-        ),
-        (
-            "a command to mint a session",
-            CommandBook::command_of(
-                mine,
-                &sessions::SessionCommand::from(sessions::MintSession {
-                    harp: "forged-name-here".to_string(),
-                    project_id: "p".to_string(),
-                    project_dir: "/w".to_string(),
-                    output_dir: "/o".to_string(),
-                    engine: "claude-code".to_string(),
-                    origin: sessions::Origin::Session,
-                    started_at: None,
-                    depth: 0,
-                    owner: None,
-                }),
             ),
         ),
     ];
@@ -995,64 +966,6 @@ fn the_identity_does_not_render_the_key() {
     let shown = format!("{:?}", identity());
     assert!(!shown.contains("PRIVATE"), "{shown}");
     assert!(!shown.contains(certificate().key_pem().lines().nth(1).unwrap()));
-}
-
-/// A `SendMessage` to `session` claiming to be the user's (no requester).
-fn send_as_user(session: &Uuid) -> CommandBook {
-    CommandBook::command_of(
-        cover(sessions::SESSION_DOMAIN, session),
-        &sessions::SessionCommand::from(sessions::SendMessage {
-            message_id: "m1".to_string(),
-            urgency: sessions::Urgency::Wake,
-            text: "go".to_string(),
-            requester: None,
-            supported: vec![sessions::Urgency::Wake],
-        }),
-    )
-}
-
-// D25, S-f: behind the daemon's gate the orchestration command is admitted
-// and STAMPED with the bearer's own session, so the domain judges it as that
-// session's (a session is not its own owner: NotOwner) and the payload's
-// claim to be the user is never believed. Behind the run's hook gate the
-// same command is not admitted at all.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_daemons_gate_stamps_an_orchestration_command_with_the_bearers_session() {
-    let world = World::new().await;
-    let gate = runs_application::OrchestratorGate::new(Arc::clone(&world.edge));
-    let listener =
-        HookListener::serve_tcp_gated(Arc::clone(&world.edge), gate, LOOPBACK_ANY_PORT, identity())
-            .await
-            .expect("serves");
-    let mut client = tcp_client(listener.local_addr()).await;
-    let bearer = format!("Bearer {}", world.bearer);
-    let before = world.watched().await;
-    let refused = client
-        .handle(request(send_as_user(&world.session), Some(&bearer)))
-        .await
-        .expect_err("stamped: the session is not its own owner");
-    assert_eq!(refused.code(), Code::PermissionDenied, "{refused:?}");
-    assert_eq!(world.watched().await, before, "nothing written");
-    let elsewhere = client
-        .handle(request(send_as_user(&world.other_session), Some(&bearer)))
-        .await
-        .expect_err("another session's stream is not reached");
-    assert_ne!(elsewhere.code(), Code::PermissionDenied);
-    let captured = client
-        .handle(request(world.turn_ended("p1"), Some(&bearer)))
-        .await
-        .expect("the capture facts are still in the scope")
-        .into_inner();
-    assert_eq!(captured.delivery(), DeliveryOutcome::Applied);
-    listener.stop().await.unwrap();
-    let hooks = world.serve().await;
-    let mut client = world.client().await;
-    let refused = client
-        .handle(request(send_as_user(&world.session), Some(&bearer)))
-        .await
-        .expect_err("the run's hook gate admits no command");
-    assert_ne!(refused.code(), Code::PermissionDenied);
-    hooks.stop().await.unwrap();
 }
 
 // The separation model: the daemon's listener has one principal, the user.

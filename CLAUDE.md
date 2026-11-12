@@ -23,6 +23,8 @@ copy: this repository holds only ctxloom.
 
 # Working rules
 
+A branch keeps CLAUDE.md true for the facts it changes, in the same branch (ruling 171).
+
 ## Tests go in `*.test.rs` files beside the code they test
 
 A source file `foo.rs` keeps its tests in `foo.test.rs` in the same

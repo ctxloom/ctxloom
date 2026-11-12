@@ -4,9 +4,6 @@
 //! (`StopDaemon`) and starts its own. Some: it is refused, a decline whose
 //! fix is `ctxloom daemon stop --even-if-live`.
 
-// RED: the use cases are not built yet.
-#![allow(unused_imports, dead_code, unused_variables)]
-
 use std::fmt;
 
 use angzarr_diagnostic::{code, Arg, Diagnostic};
@@ -43,8 +40,30 @@ pub async fn reconcile<A: DaemonApi>(
     own: &str,
     daemon: &str,
 ) -> Result<Reconciled, SkewError> {
-    let _ = (api, own, daemon);
-    Ok(Reconciled::Same)
+    if own == daemon {
+        return Ok(Reconciled::Same);
+    }
+    let busy = |harps: Vec<String>| SkewError::Busy {
+        own: own.to_string(),
+        daemon: daemon.to_string(),
+        harps,
+    };
+    let found = api.get_daemon().await.map_err(SkewError::Call)?;
+    if !found.runs.is_empty() {
+        return Err(busy(found.runs.into_iter().map(|run| run.harp).collect()));
+    }
+    let stop = daemon_proto::v1::StopDaemonRequest {
+        name: found.name,
+        ..daemon_proto::v1::StopDaemonRequest::default()
+    };
+    match api.stop_daemon(stop).await {
+        Ok(_) => Ok(Reconciled::Stopped),
+        // A run started between the two calls.
+        Err(called) => match called.refusal::<daemon_proto::v1::DaemonHosting>() {
+            Some(hosting) => Err(busy(hosting.harps)),
+            None => Err(SkewError::Call(called)),
+        },
+    }
 }
 
 impl fmt::Display for SkewError {

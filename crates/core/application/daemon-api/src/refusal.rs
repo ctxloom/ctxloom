@@ -4,9 +4,6 @@
 //! the kernel's rejection (a domain's, as its generated layer refused it).
 //! No status is spelled here.
 
-// RED: the use cases are not built yet.
-#![allow(unused_imports, dead_code, unused_variables)]
-
 use std::fmt;
 
 use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
@@ -167,8 +164,55 @@ impl Rejection {
 /// The rejection a typed refusal is, by its type; `None` for one this
 /// crate does not know.
 pub fn rejection_of(refusal: &Any) -> Option<Rejection> {
-    let _ = refusal;
-    None
+    use sessions_proto::v1 as wire;
+    let api = |rejection| Some(Rejection::Api(rejection));
+    let ours = |rejection| Some(Rejection::Sessions(rejection));
+    let name = refusal.type_url.rsplit('/').next().unwrap_or_default();
+    match name {
+        "ctxloom.daemon.v1.NameInvalid" => decode::<v1::NameInvalid>(refusal).and_then(|r| {
+            api(ApiRejection::NameInvalid {
+                name: r.name,
+                reason: r.reason,
+            })
+        }),
+        "ctxloom.daemon.v1.SessionNotFound" => decode::<v1::SessionNotFound>(refusal)
+            .and_then(|r| api(ApiRejection::SessionNotFound { name: r.name })),
+        "ctxloom.daemon.v1.ProjectNotFound" => decode::<v1::ProjectNotFound>(refusal)
+            .and_then(|r| api(ApiRejection::ProjectNotFound { name: r.name })),
+        "ctxloom.daemon.v1.ProjectUnknown" => decode::<v1::ProjectUnknown>(refusal)
+            .and_then(|r| api(ApiRejection::ProjectUnknown { cwd: r.cwd })),
+        "ctxloom.daemon.v1.DaemonHosting" => decode::<v1::DaemonHosting>(refusal).and_then(|r| {
+            api(ApiRejection::DaemonHosting {
+                runs: r.runs,
+                harps: r.harps,
+            })
+        }),
+        "ctxloom.sessions.v1.ProjectIdentityChanged" => {
+            decode::<wire::ProjectIdentityChanged>(refusal).and_then(|r| {
+                ours(sessions::SessionRejection::ProjectIdentityChanged {
+                    project: r.project,
+                    root: r.root,
+                    registered_commit: r.registered_commit,
+                    found_commit: r.found_commit,
+                })
+            })
+        }
+        "ctxloom.sessions.v1.ProjectHarpMismatch" => decode::<wire::ProjectHarpMismatch>(refusal)
+            .and_then(|r| {
+                ours(sessions::SessionRejection::ProjectHarpMismatch {
+                    project: r.project,
+                    expected: r.expected,
+                })
+            }),
+        "ctxloom.sessions.v1.UnnamedProject" => {
+            decode::<wire::UnnamedProject>(refusal).and_then(|r| {
+                ours(sessions::SessionRejection::ProjectNotNamed {
+                    project_id: r.project_id,
+                })
+            })
+        }
+        _ => None,
+    }
 }
 
 fn decode<T: Message + Default>(refusal: &Any) -> Option<T> {
@@ -178,7 +222,6 @@ fn decode<T: Message + Default>(refusal: &Any) -> Option<T> {
 /// One value of every diagnostic here.
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) fn samples() -> Vec<Box<dyn Diagnostic>> {
-    let _ = decode::<v1::NameInvalid>;
     vec![
         Box::new(ApiError::Failed {
             detail: "the store".to_string(),

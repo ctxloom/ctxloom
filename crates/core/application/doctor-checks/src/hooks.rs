@@ -4,13 +4,15 @@
 
 use serde_json::Value;
 
-/// What `ctxloom hook` takes: `hook <engine> execute <hook-name>` (the owner's
-/// ruling, 2026-11-08). Any other `ctxloom hook <name> ...` (`session-start`,
-/// `hud`, `inject-context`, ...) is a leftover of an older release: the rule is
-/// general, not a list of retired names.
+/// What this ctxloom writes and takes: `hook <engine> execute <Event>` (the
+/// owner's ruling, 2026-11-08), exactly. Any other `ctxloom hook ...` entry
+/// (`stamp-plan`, `session-start`, `hud`, `inject-context`, ...) is Go-era
+/// (owner ruling 162): a live hook of a Go ctxloom still installed, or a
+/// leftover once it is retired. The rule is the form, not a list of names.
 const LIVE_VERB: &str = "execute";
 
-/// A hook entry running a `ctxloom hook` subcommand that is gone.
+/// A Go-era hook entry: one running `ctxloom hook` in any form but the
+/// Rust-era `hook <engine> execute <Event>`.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Stale {
     /// The engine's event (`SessionStart`).
@@ -49,32 +51,56 @@ fn words(command: &str) -> Vec<String> {
     words
 }
 
-/// Whether `program` is ctxloom itself, by its file name.
-fn is_ctxloom(program: &str) -> bool {
-    let name = program.rsplit(['/', '\\']).next().unwrap_or_default();
-    name == "ctxloom" || name == "ctxloom.exe"
+/// Whether `program` is ctxloom itself, by its file name: `ctxloom`, or
+/// `name`, the running binary's own (owner ruling 163).
+fn is_ctxloom(program: &str, name: &str) -> bool {
+    let file = program.rsplit(['/', '\\']).next().unwrap_or_default();
+    file == "ctxloom" || file == "ctxloom.exe" || (!name.is_empty() && file == name)
 }
 
-/// `ctxloom hook <sub> ...`: the subcommand and whether the line is the live
-/// `hook <engine> execute ...` form, when `command` runs one.
-fn hook_sub(command: &str) -> Option<(String, bool)> {
-    let words = words(command);
-    match words.as_slice() {
+/// `ctxloom hook <sub> ...` (or `name hook <sub> ...`): the subcommand and
+/// whether the words are exactly the Rust-era `hook <engine> execute
+/// <Event>`, when they run one. The program alone never makes an entry
+/// Rust-era: a Go-era `ctxloom hook stamp-plan` stays Go's whatever this
+/// binary is named.
+fn hook_sub(words: &[String], name: &str) -> Option<(String, bool)> {
+    match words {
         [program, hook, sub, rest @ ..]
-            if is_ctxloom(program) && hook == "hook" && !sub.starts_with('-') =>
+            if is_ctxloom(program, name) && hook == "hook" && !sub.starts_with('-') =>
         {
-            Some((sub.clone(), rest.first().is_some_and(|v| v == LIVE_VERB)))
+            let rust_era = matches!(rest, [verb, event]
+                if verb == LIVE_VERB && !event.is_empty() && !event.starts_with('-'));
+            Some((sub.clone(), rust_era))
         }
         _ => None,
     }
+}
+
+/// A hook's words: its `command` line, then its `args` (claude runs
+/// `command` with `args` when they are given, as ctxloom's surface writes it).
+fn hook_words(hook: &Value) -> Vec<String> {
+    let mut found = hook
+        .get("command")
+        .and_then(Value::as_str)
+        .map(words)
+        .unwrap_or_default();
+    found.extend(
+        hook.get("args")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_string),
+    );
+    found
 }
 
 fn parse(text: &str) -> Option<Value> {
     serde_json::from_str(text).ok()
 }
 
-/// The `(event, command)` of every hook entry in a settings document.
-fn entries(doc: &Value) -> Vec<(String, String)> {
+/// The `(event, words)` of every hook entry in a settings document.
+fn entries(doc: &Value) -> Vec<(String, Vec<String>)> {
     let mut found = Vec::new();
     let Some(events) = doc.get("hooks").and_then(Value::as_object) else {
         return found;
@@ -87,8 +113,8 @@ fn entries(doc: &Value) -> Vec<(String, String)> {
                 .into_iter()
                 .flatten()
             {
-                if let Some(command) = hook.get("command").and_then(Value::as_str) {
-                    found.push((event.clone(), command.to_string()));
+                if hook.get("command").and_then(Value::as_str).is_some() {
+                    found.push((event.clone(), hook_words(hook)));
                 }
             }
         }
@@ -96,35 +122,42 @@ fn entries(doc: &Value) -> Vec<(String, String)> {
     found
 }
 
-fn stale_of(event: &str, command: &str) -> Option<Stale> {
-    let (sub, live) = hook_sub(command)?;
-    (!live).then(|| Stale {
+fn go_era_of(event: &str, words: &[String], name: &str) -> Option<Stale> {
+    let (sub, rust_era) = hook_sub(words, name)?;
+    (!rust_era).then(|| Stale {
         event: event.to_string(),
         sub,
     })
 }
 
-/// Whether the settings register any ctxloom hook.
-pub fn registered(text: &str) -> bool {
-    parse(text).is_some_and(|doc| entries(&doc).iter().any(|(_, c)| hook_sub(c).is_some()))
+/// Whether the settings register any hook of ctxloom's (by `ctxloom` or by
+/// `name`, the running binary's file name).
+pub fn registered(text: &str, name: &str) -> bool {
+    parse(text).is_some_and(|doc| {
+        entries(&doc)
+            .iter()
+            .any(|(_, w)| hook_sub(w, name).is_some())
+    })
 }
 
-/// The stale entries of a settings file.
-pub fn stale(text: &str) -> Vec<Stale> {
+/// The Go-era entries of a settings file, ctxloom's by `ctxloom` or by
+/// `name`.
+pub fn go_era(text: &str, name: &str) -> Vec<Stale> {
     parse(text)
         .map(|doc| {
             entries(&doc)
                 .iter()
-                .filter_map(|(event, command)| stale_of(event, command))
+                .filter_map(|(event, words)| go_era_of(event, words, name))
                 .collect()
         })
         .unwrap_or_default()
 }
 
-/// The settings with the stale entries gone and nothing else touched (a
+/// The settings with the Go-era entries gone and nothing else touched (a
 /// group left with no hook goes, and an event left with no group), and which
-/// went; none where there is nothing stale.
-pub fn strip(text: &str) -> Option<(String, Vec<Stale>)> {
+/// went; none where there is none. The caller strips only once Go ctxloom
+/// is retired (`legacy.go`).
+pub fn strip(text: &str, name: &str) -> Option<(String, Vec<Stale>)> {
     let mut doc = parse(text)?;
     let mut gone = Vec::new();
     let events = doc.get_mut("hooks")?.as_object_mut()?;
@@ -137,11 +170,10 @@ pub fn strip(text: &str) -> Option<(String, Vec<Stale>)> {
                 continue;
             };
             hooks.retain(|hook| {
-                let command = hook
-                    .get("command")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default();
-                match stale_of(event, command) {
+                if hook.get("command").and_then(Value::as_str).is_none() {
+                    return true;
+                }
+                match go_era_of(event, &hook_words(hook), name) {
                     Some(stale) => {
                         gone.push(stale);
                         false
@@ -167,8 +199,8 @@ pub fn strip(text: &str) -> Option<(String, Vec<Stale>)> {
 }
 
 /// Whether a settings document's `mcpServers.ctxloom` launches a process
-/// (`command`, no `url`) running `ctxloom mcp ...`.
-pub fn launches_ctxloom_mcp(text: &str) -> bool {
+/// (`command`, no `url`) running `ctxloom mcp ...` (or `name mcp ...`).
+pub fn launches_ctxloom_mcp(text: &str, name: &str) -> bool {
     let Some(doc) = parse(text) else { return false };
     let Some(entry) = doc.get("mcpServers").and_then(|s| s.get("ctxloom")) else {
         return false;
@@ -184,5 +216,5 @@ pub fn launches_ctxloom_mcp(text: &str) -> bool {
         .and_then(Value::as_array)
         .and_then(|args| args.first())
         .and_then(Value::as_str);
-    is_ctxloom(command) && first_arg == Some("mcp")
+    is_ctxloom(command, name) && first_arg == Some("mcp")
 }

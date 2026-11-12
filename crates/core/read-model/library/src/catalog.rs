@@ -7,7 +7,7 @@
 //! item by `<bundle>#<kind>/<name>`. Listings are a function of the corpus:
 //! bundles by name, items by name.
 
-use crate::error::CatalogError;
+use crate::error::{CatalogError, RefError};
 use crate::model::{Bundle, ItemBody};
 use crate::refs::{self, has_scheme, ItemKind, Parts, SourceClass};
 
@@ -217,8 +217,15 @@ impl Catalog {
 
     /// The bundle asked for as `ask`: a canonical or older local reference
     /// exactly, else a name (the name a listing shows, then the name the
-    /// bundle declares for itself).
+    /// bundle declares for itself). A reference that selects an item
+    /// (`#<kind>/<name>`, any spelling) is refused, `ItemNotBundle`: it
+    /// names one item, never its bundle; [`Self::lookup_item`] reads it.
     pub fn lookup(&self, ask: &str) -> Result<&Entry, CatalogError> {
+        if refs::item_selector(ask).is_some() {
+            return Err(CatalogError::ItemNotBundle {
+                ask: ask.to_string(),
+            });
+        }
         let not_found = || CatalogError::BundleNotFound {
             ask: ask.to_string(),
         };
@@ -428,6 +435,27 @@ impl Catalog {
                 }
             }
         }
+    }
+
+    /// The bundle an item reference (`<bundle>#<kind>/<name>`) reaches, the
+    /// item's kind and its name: the item references' own path, beside
+    /// [`Self::lookup`], which refuses them. A reference with no selector, or
+    /// one that does not parse, is `ItemSyntax`.
+    pub fn lookup_item(&self, ask: &str) -> Result<(&Entry, ItemKind, String), CatalogError> {
+        let Some((base, selector)) = ask.trim().split_once('#') else {
+            return Err(CatalogError::ItemSyntax {
+                ask: ask.to_string(),
+                cause: RefError::Selector {
+                    selector: String::new(),
+                },
+            });
+        };
+        let (kind, item) =
+            refs::parse_selector(selector).map_err(|cause| CatalogError::ItemSyntax {
+                ask: ask.to_string(),
+                cause,
+            })?;
+        Ok((self.lookup(base)?, kind, item))
     }
 
     /// The bundle and item an `ask` of the form `<bundle>#<kind>/<item>` names,

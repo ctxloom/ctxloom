@@ -19,7 +19,7 @@ fn callback(verb: &str) -> Hook {
 fn one(unified: &str, hook: Hook) -> JsonOp {
     let mut hooks = BTreeMap::new();
     hooks.insert(unified.to_string(), vec![hook]);
-    ops(&hooks).unwrap().remove(0)
+    ops(&hooks, "ctxloom").unwrap().remove(0)
 }
 
 fn matcher_of_op(op: &JsonOp) -> Option<String> {
@@ -87,19 +87,25 @@ fn test_a_callback_is_found_by_its_execute_form_only() {
         ))
         .unwrap()
     };
-    assert!(has_callback(&settings(
-        r#"["hook","claude-code","execute","Stop"]"#
-    )));
+    assert!(has_callback(
+        &settings(r#"["hook","claude-code","execute","Stop"]"#),
+        "ctxloom"
+    ));
     // The earlier forms are stale: the next surface apply rewrites them.
-    assert!(!has_callback(&settings(r#"["hook","skill-mates"]"#)));
-    assert!(!has_callback(&settings(
-        r#"["hook","session-start","--engine","claude-code"]"#
-    )));
+    assert!(!has_callback(
+        &settings(r#"["hook","skill-mates"]"#),
+        "ctxloom"
+    ));
+    assert!(!has_callback(
+        &settings(r#"["hook","session-start","--engine","claude-code"]"#),
+        "ctxloom"
+    ));
     // Another command, or another verb of ours, is not a callback.
-    assert!(!has_callback(&settings(
-        r#"["hook","claude-code","other","Stop"]"#
-    )));
-    assert!(!has_callback(&settings(r#"["profile","list"]"#)));
+    assert!(!has_callback(
+        &settings(r#"["hook","claude-code","other","Stop"]"#),
+        "ctxloom"
+    ));
+    assert!(!has_callback(&settings(r#"["profile","list"]"#), "ctxloom"));
 }
 
 #[test]
@@ -141,7 +147,10 @@ fn test_a_class_claude_has_no_tool_for_is_refused_not_widened() {
     h.tool = "teleport".into();
     let mut hooks = BTreeMap::new();
     hooks.insert("pre_tool".to_string(), vec![h]);
-    assert!(matches!(ops(&hooks), Err(SurfaceError::Unsupported { .. })));
+    assert!(matches!(
+        ops(&hooks, "ctxloom"),
+        Err(SurfaceError::Unsupported { .. })
+    ));
 }
 
 #[test]
@@ -179,14 +188,14 @@ fn test_every_unified_event_has_a_native_one_and_an_unknown_has_none() {
     }
     let mut hooks = BTreeMap::new();
     hooks.insert("nonesuch".to_string(), vec![hook("x")]);
-    assert!(ops(&hooks).unwrap().is_empty());
+    assert!(ops(&hooks, "ctxloom").unwrap().is_empty());
 }
 
 #[test]
 fn test_a_hook_routed_twice_is_claimed_once() {
     let mut hooks = BTreeMap::new();
     hooks.insert("pre_tool".to_string(), vec![hook("x"), hook("x")]);
-    assert_eq!(ops(&hooks).unwrap().len(), 1);
+    assert_eq!(ops(&hooks, "ctxloom").unwrap().len(), 1);
 }
 
 #[test]
@@ -215,14 +224,17 @@ fn test_a_settings_document_with_a_ctxloom_callback_is_wired() {
         r#"{"hooks":{"Stop":[{"hooks":[{"command":"ctxloom","args":["hook","claude-code","execute","Stop"]}]}]}}"#,
     )
     .unwrap();
-    assert!(has_callback(&wired));
+    assert!(has_callback(&wired, "ctxloom"));
     for not in [
         r#"{}"#,
         r#"{"hooks":{"Stop":[{"hooks":[{"command":"ctxloom","args":["profile","list"]}]}]}}"#,
         r#"{"hooks":{"Stop":[{"hooks":[{"command":"mine","args":["hook"]}]}]}}"#,
         r#"{"hooks":{"Stop":[{"hooks":[{"command":"ctxloom"}]}]}}"#,
     ] {
-        assert!(!has_callback(&Json::parse(not).unwrap()), "{not}");
+        assert!(
+            !has_callback(&Json::parse(not).unwrap(), "ctxloom"),
+            "{not}"
+        );
     }
 }
 
@@ -237,4 +249,52 @@ fn test_a_timeout_is_written_only_when_it_is_positive() {
     assert_eq!(with(1).get("timeout"), Some(&Json::Number("1".into())));
     assert_eq!(with(0).get("timeout"), None);
     assert_eq!(with(-1).get("timeout"), None);
+}
+
+// Owner ruling 163: the callbacks call the running binary by its file name,
+// and only that binary's callbacks are its wiring.
+#[test]
+fn test_a_home_calls_the_program_it_is_given_and_its_wiring_is_that_programs() {
+    let settings = Json::parse(&home_settings(false, "ctxloom-other")).unwrap();
+    let Some(Json::Object(events)) = settings.get("hooks").cloned() else {
+        panic!("no hooks: {settings:?}");
+    };
+    assert!(!events.is_empty());
+    for (event, groups) in events {
+        let hook = groups.as_array().unwrap()[0]
+            .get("hooks")
+            .and_then(Json::as_array)
+            .unwrap()[0]
+            .clone();
+        assert_eq!(
+            hook.get("command").and_then(Json::as_str),
+            Some("ctxloom-other"),
+            "{event}"
+        );
+    }
+    assert!(has_callback(&settings, "ctxloom-other"));
+    assert!(
+        !has_callback(&settings, "ctxloom"),
+        "another binary's wiring"
+    );
+}
+
+#[test]
+fn test_an_authored_callback_is_installed_to_call_the_program_it_is_given() {
+    let mut hooks = BTreeMap::new();
+    hooks.insert(
+        "session_start".to_string(),
+        vec![Hook {
+            command: "ctxloom".to_string(),
+            args: vec!["hook".to_string(), "session-start".to_string()],
+            ..Hook::default()
+        }],
+    );
+    let JsonOp::HookEntry { value, .. } = ops(&hooks, "ctxloom-other").unwrap().remove(0) else {
+        panic!()
+    };
+    assert_eq!(
+        value.get("command").and_then(Json::as_str),
+        Some("ctxloom-other")
+    );
 }

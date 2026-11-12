@@ -149,8 +149,9 @@ pub struct Place {
     pub output_root: String,
     /// The directory of the running ctxloom binary, which leads an
     /// engine's `PATH` (the terminal's and a child's) so a hook's bare
-    /// `ctxloom` is it; empty
-    /// when it could not be found.
+    /// program (the binary's file name, owner ruling 163, which the
+    /// composition root tells the engines) is it; empty when it could not be
+    /// found.
     pub program_dir: String,
 }
 
@@ -874,8 +875,8 @@ where
         // session's id it addresses its facts to.
         env.insert(run_ports::HARP_VARIABLE.to_string(), harp.clone());
         // The running binary's directory leads the engine's PATH, so a hook's
-        // bare `ctxloom` is this binary and not another one the user has (the
-        // Go one); the inherited PATH follows it.
+        // bare program (this binary's file name, ruling 163) is this binary
+        // and not another one the user has; the inherited PATH follows it.
         if !self.place.program_dir.is_empty() {
             let path = match env.get("PATH").filter(|path| !path.is_empty()) {
                 Some(inherited) => format!("{}:{inherited}", self.place.program_dir),

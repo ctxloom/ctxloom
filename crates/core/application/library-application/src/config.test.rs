@@ -46,6 +46,25 @@ fn test_a_run_installs_missing_dependencies_unless_on_run_is_none() {
     assert_eq!(config("sync:\n  on_run: none\n").sync_on_run(), OnRun::None);
 }
 
+// legacy.go (owner ruling 162): Go ctxloom is present unless the config says
+// it is retired.
+#[test]
+fn test_go_ctxloom_is_present_unless_legacy_go_says_retired() {
+    use super::LegacyGo;
+    assert_eq!(
+        config("editor:\n  command: vim\n").legacy_go(),
+        LegacyGo::Present
+    );
+    assert_eq!(
+        config("legacy:\n  go: present\n").legacy_go(),
+        LegacyGo::Present
+    );
+    assert_eq!(
+        config("legacy:\n  go: retired\n").legacy_go(),
+        LegacyGo::Retired
+    );
+}
+
 // output.dir (rulings 89, 106): `ctxloom/` unless it says otherwise, as it
 // was written (the project root it is relative to is the caller's).
 #[test]
@@ -229,6 +248,53 @@ mod loading {
             assert!(load(files, &[], &flags_with(&[set]), &mut notices).is_err());
             assert!(notices.is_empty(), "{set}: {notices:?}");
         }
+    }
+
+    // Owner ruling 162: `legacy.go` is the home config's alone; a project's
+    // config that says it is refused, naming the key and the home config.
+    #[test]
+    fn test_a_project_config_saying_legacy_go_is_refused() {
+        let project = "schema_version: 9\nlegacy:\n  go: retired\n";
+        let (code, violations) = refused_by(&[STAMPED, project], &Flags::default());
+        assert_eq!(code, "library-application-config-breaks-schema");
+        assert!(violations.contains("`legacy.go`"), "{violations}");
+        assert!(violations.contains("home config"), "{violations}");
+    }
+
+    // The home config may say it, and its words are present and retired.
+    #[test]
+    fn test_the_home_config_says_legacy_go_in_words() {
+        let home = "schema_version: 9\nlegacy:\n  go: retired\n";
+        let (value, _) = loaded(&[home, STAMPED], &[], &Flags::default());
+        assert_eq!(
+            value
+                .get("legacy")
+                .and_then(|l| l.get("go"))
+                .and_then(angzarr_yaml::Value::as_str),
+            Some("retired")
+        );
+        for word in ["true", "yes", "gone"] {
+            let home = format!("schema_version: 9\nlegacy:\n  go: {word}\n");
+            let (_, violations) = refused_by(&[home.as_str(), STAMPED], &Flags::default());
+            assert!(
+                violations.contains("`legacy.go` breaks the schema"),
+                "{word}: {violations}"
+            );
+        }
+    }
+
+    // Under `--degraded` a project's `legacy.go` is said and dropped, never
+    // read: a project cannot retire Go even then.
+    #[test]
+    fn test_degraded_drops_a_projects_legacy_go() {
+        let project = "schema_version: 9\nlegacy:\n  go: retired\n";
+        let flags = Flags {
+            degraded: true,
+            ..Flags::default()
+        };
+        let (value, said) = loaded(&[STAMPED, project], &[], &flags);
+        assert_eq!(value.get("legacy").and_then(|l| l.get("go")), None);
+        assert!(said.iter().any(|s| s.contains("`legacy.go`")), "{said:?}");
     }
 
     // `--degraded` carries on past a refused `--config-set`, as past a file.

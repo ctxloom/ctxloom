@@ -339,6 +339,9 @@ pub enum CatalogError {
     },
     /// A `#` selector that does not parse.
     ItemSyntax { ask: String, cause: RefError },
+    /// A reference that selects an item, asked for as a bundle: it names
+    /// one item of its bundle, never the bundle (`Catalog::lookup_item`).
+    ItemNotBundle { ask: String },
 }
 
 impl fmt::Display for CatalogError {
@@ -360,12 +363,15 @@ impl Diagnostic for CatalogError {
             CatalogError::CommandNameNotFound { .. } => code!("catalog-command-name-not-found"),
             CatalogError::BadItemRef { .. } => code!("catalog-bad-item-ref"),
             CatalogError::ItemSyntax { .. } => code!("catalog-item-syntax"),
+            CatalogError::ItemNotBundle { .. } => code!("catalog-item-not-bundle"),
         }
     }
 
     fn args(&self) -> Vec<(&str, Arg)> {
         match self {
-            CatalogError::BundleNotFound { ask } => vec![("ask", ask.as_str().into())],
+            CatalogError::BundleNotFound { ask } | CatalogError::ItemNotBundle { ask } => {
+                vec![("ask", ask.as_str().into())]
+            }
             CatalogError::Ambiguous { ask, candidates } => vec![
                 ("ask", ask.as_str().into()),
                 ("candidates", candidates.as_str().into()),
@@ -592,6 +598,9 @@ fn catalog_samples() -> Vec<Box<dyn Diagnostic>> {
             ask: "kit#commands/deploy".to_string(),
             kind: "prompt".to_string(),
             wanted: "fragment".to_string(),
+        }),
+        Box::new(CatalogError::ItemNotBundle {
+            ask: "kit#fragments/x".to_string(),
         }),
         Box::new(CatalogError::ItemSyntax {
             ask: "kit#widgets/x".to_string(),

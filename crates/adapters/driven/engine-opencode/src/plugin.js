@@ -3,7 +3,8 @@
 //
 // It forwards what opencode's bus says of the session to ctxloom, one event at
 // a time and in the order opencode said it, by running
-// `ctxloom hook opencode execute <Event>` with the event on stdin. ctxloom
+// `<COMMAND> hook opencode execute <Event>` with the event on stdin, COMMAND
+// being the file name of the ctxloom binary that wrote it. ctxloom
 // decides what each one records; the plugin forwards only the events that can
 // record something, and adds only what it alone knows from the events before
 // (under `ctxloom`): the prompt a step message answers, a compaction's trigger

@@ -37,19 +37,43 @@ pub const CONTEXT_FILE: &str = "CLAUDE.md";
 pub const MCP_FILE: &str = ".mcp.json";
 /// The settings file claude reads, hooks included.
 pub const SETTINGS_FILE: &str = ".claude/settings.json";
-/// The statusline command ctxloom installs: the bare executable, which
-/// resolves on `PATH` wherever the file is read.
-pub const STATUSLINE: &str = "ctxloom hook claude-code execute statusline";
+/// The statusline command ctxloom installs for the binary `program` (its
+/// file name, owner ruling 163): bare, so it resolves on `PATH` wherever the
+/// file is read.
+pub fn statusline(program: &str) -> String {
+    format!("{program} hook {NAME} execute statusline")
+}
 
 /// Claude Code.
-#[derive(Default)]
 pub struct Claude {
     codec: Codec,
+    /// The program every callback ctxloom installs runs: the running binary's
+    /// file name (owner ruling 163), told by the composition root.
+    program: String,
+}
+
+impl Default for Claude {
+    fn default() -> Claude {
+        Claude {
+            codec: Codec,
+            program: surface_ports::CALLBACK_PROGRAM.to_string(),
+        }
+    }
 }
 
 impl Claude {
+    /// Claude, its callbacks calling [`surface_ports::CALLBACK_PROGRAM`].
     pub fn new() -> Claude {
         Claude::default()
+    }
+
+    /// Claude, its callbacks calling `program`: the running binary's file
+    /// name, as the composition root resolved it.
+    pub fn calling(program: &str) -> Claude {
+        Claude {
+            program: program.to_string(),
+            ..Claude::default()
+        }
     }
 }
 
@@ -99,7 +123,7 @@ impl EngineSurfaces for Claude {
                         path: vec!["statusLine".to_string()],
                         value: Json::object([
                             ("type", Json::text("command")),
-                            ("command", Json::text(STATUSLINE)),
+                            ("command", Json::text(statusline(&self.program))),
                         ]),
                     });
                 }
@@ -121,7 +145,7 @@ impl EngineSurfaces for Claude {
                 }
             }
             Kind::Hooks => {
-                let ops = hooks::ops(&inputs.hooks)?;
+                let ops = hooks::ops(&inputs.hooks, &self.program)?;
                 if !ops.is_empty() {
                     planned.claims.push(Claim::Json {
                         path: SETTINGS_FILE.to_string(),
@@ -148,13 +172,15 @@ impl EngineSurfaces for Claude {
             .and_then(|t| Json::parse(t).ok());
         Ok(Wiring {
             settings_exists: settings.is_some(),
-            hooks_present: doc.as_ref().is_some_and(hooks::has_callback),
+            hooks_present: doc
+                .as_ref()
+                .is_some_and(|doc| hooks::has_callback(doc, &self.program)),
             statusline: doc
                 .as_ref()
                 .and_then(|d| d.get("statusLine"))
                 .and_then(|s| s.get("command"))
                 .and_then(Json::as_str)
-                == Some(STATUSLINE),
+                == Some(statusline(&self.program).as_str()),
             mcp_present: mcp
                 .as_ref()
                 .and_then(|d| d.get("mcpServers"))

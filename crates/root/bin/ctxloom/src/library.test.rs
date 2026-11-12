@@ -57,6 +57,9 @@ pub(crate) struct Project {
     home: PathBuf,
     /// Its runs see the catalog Go had: no built-in bundles.
     gos_catalog: bool,
+    /// The binary its runs run, when not the one under test at its own path
+    /// (a copy under another name).
+    program: Option<PathBuf>,
 }
 
 impl Project {
@@ -84,6 +87,7 @@ impl Project {
             project,
             home,
             gos_catalog: false,
+            program: None,
         }
     }
 
@@ -109,6 +113,13 @@ impl Project {
     /// The binary's `test-support` variable `CTXLOOM_TEST_NO_BUILTINS` does it.
     pub(crate) fn on_gos_catalog(mut self) -> Project {
         self.gos_catalog = true;
+        self
+    }
+
+    /// The project as run by `program` (a copy of the binary under test
+    /// under another name) instead of the binary at its own path.
+    pub(crate) fn run_by(mut self, program: PathBuf) -> Project {
+        self.program = Some(program);
         self
     }
 
@@ -305,7 +316,7 @@ impl Project {
 
     /// `ctxloom args` from `cwd`, in the project's home, with `env`.
     fn process(&self, cwd: &Path, env: &[(&str, &str)], args: &[&str]) -> Command {
-        let mut command = Command::new(binary());
+        let mut command = Command::new(self.program.as_deref().unwrap_or(binary()));
         command
             .args(args)
             .env_clear()

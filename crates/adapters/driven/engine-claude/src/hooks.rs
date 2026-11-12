@@ -57,8 +57,12 @@ fn value(hook: &Hook) -> Json {
     Json::object(members)
 }
 
-/// Each hook as a claim on its entry in the group its matcher selects.
-pub(crate) fn ops(hooks: &BTreeMap<String, Vec<Hook>>) -> Result<Vec<JsonOp>, SurfaceError> {
+/// Each hook as a claim on its entry in the group its matcher selects, a
+/// ctxloom callback calling `program`.
+pub(crate) fn ops(
+    hooks: &BTreeMap<String, Vec<Hook>>,
+    program: &str,
+) -> Result<Vec<JsonOp>, SurfaceError> {
     let mut ops: Vec<JsonOp> = Vec::new();
     for (unified, list) in hooks {
         let Some((event, default, takes_matcher)) = route(unified) else {
@@ -86,7 +90,7 @@ pub(crate) fn ops(hooks: &BTreeMap<String, Vec<Hook>>) -> Result<Vec<JsonOp>, Su
             let op = JsonOp::HookEntry {
                 event: event.to_string(),
                 matcher: matcher.filter(|_| takes_matcher),
-                value: value(&hook.installed_as(ENGINE, event)),
+                value: value(&hook.installed_as(ENGINE, event, program)),
             };
             // A hook routed twice is claimed once.
             if !ops.contains(&op) {
@@ -124,11 +128,11 @@ const CHILD_EVENTS: &[&str] = &[
 ];
 
 /// The `settings.json` of a session home: every one of [`HOME_EVENTS`] (the
-/// terminal session's) or [`CHILD_EVENTS`] (a child's turn) calls ctxloom's
-/// `hook <engine> execute <Event>`.
-pub(crate) fn home_settings(interactive: bool) -> String {
+/// terminal session's) or [`CHILD_EVENTS`] (a child's turn) calls the binary
+/// `program`'s `hook <engine> execute <Event>`.
+pub(crate) fn home_settings(interactive: bool, program: &str) -> String {
     let callback = Hook {
-        command: "ctxloom".to_string(),
+        command: surface_ports::CALLBACK_PROGRAM.to_string(),
         args: vec!["hook".to_string()],
         ..Hook::default()
     };
@@ -142,7 +146,7 @@ pub(crate) fn home_settings(interactive: bool) -> String {
         .map(|event| (event.to_string(), vec![callback.clone()]))
         .collect();
     let mut events: Vec<(String, Json)> = Vec::new();
-    for op in ops(&hooks).unwrap_or_default() {
+    for op in ops(&hooks, program).unwrap_or_default() {
         if let JsonOp::HookEntry { event, value, .. } = op {
             events.push((
                 event,
@@ -163,8 +167,9 @@ fn is_execute_form(args: Option<&Json>) -> bool {
     matches!(args.as_slice(), ["hook", engine, "execute", _] if *engine == ENGINE)
 }
 
-/// Whether the settings document registers a ctxloom callback in any event.
-pub(crate) fn has_callback(doc: &Json) -> bool {
+/// Whether the settings document registers a callback of the binary
+/// `program` in any event.
+pub(crate) fn has_callback(doc: &Json, program: &str) -> bool {
     let Some(Json::Object(events)) = doc.get("hooks") else {
         return false;
     };
@@ -176,7 +181,7 @@ pub(crate) fn has_callback(doc: &Json) -> bool {
                     .and_then(Json::as_array)
                     .is_some_and(|hooks| {
                         hooks.iter().any(|hook| {
-                            hook.get("command").and_then(Json::as_str) == Some("ctxloom")
+                            hook.get("command").and_then(Json::as_str) == Some(program)
                                 && is_execute_form(hook.get("args"))
                         })
                     })

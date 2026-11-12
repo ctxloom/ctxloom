@@ -17,9 +17,10 @@ syntax = "proto3";
 // preview (`Ctxloom.GetTrust`) carries an etag of what it showed, and the
 // grant names it, so what is applied is what was shown (API Q5).
 //
-// Only the USER may trust or revoke: the run scopes never admit these
-// commands. The actor and the current etag are STAMPED by the daemon's gate
-// (S21); a client sets the subject and the etag it saw. The time is the
+// A trust is the user's consent to a project's settings, asked of the human
+// (her terminal's confirmation); ctxloom gives agents no trust tool. The
+// actor and the current etag are STAMPED by the daemon (S21); a client sets
+// the subject and the etag it saw. The time is the
 // event's own recorded instant.
 //
 // Through angzarr's coordinator: `HandleSync`, projector `trust-index`.
@@ -64,7 +65,6 @@ message GrantTrust {
     component: "ctxloom.trust.v1.TrustState"
     emits: ["ctxloom.trust.v1.TrustGranted"]
     refuses: "ctxloom.trust.v1.PlanStale"
-    refuses: "ctxloom.trust.v1.NotTheUser"
   };
 
   Subject subject = 1;
@@ -82,7 +82,6 @@ message RevokeTrust {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.trust.v1.TrustState"
     emits: ["ctxloom.trust.v1.TrustRevoked"]
-    refuses: "ctxloom.trust.v1.NotTheUser"
   };
 
   Subject subject = 1;
@@ -117,11 +116,6 @@ message PlanStale {
 
   string seen = 1;
   string now = 2;
-}
-
-// Trust is the user's alone.
-message NotTheUser {
-  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_PERMISSION_DENIED;
 }
 
 // endregion

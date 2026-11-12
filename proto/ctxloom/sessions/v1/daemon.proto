@@ -6,11 +6,13 @@ syntax = "proto3";
 // D12) with its urgency, the clear (D16, D17), and the owner link (D19, D26):
 // a child is launched by a command on its OWNER's stream, which then holds
 // the child until it ends or is forgotten, and the child holds its owner
-// from its mint. "Only its own children" is a domain rule (S-f): the
-// listener stamps the requester from the credential into the command, and
-// the aggregate judges it. A requester left out is the USER (the human, or
-// a policy of the user's daemon, acting with the user's authority, ruling
-// 37): it may do anything a session may.
+// from its mint. "Only its own children" is a rule of the session TREE (S-f),
+// not a permission: the requester is a plain address (the session a call
+// names, stamped by the daemon from the call's run and session), and the
+// aggregate judges it. A requester left out is the user (the human, or a
+// policy of the user's daemon): it may do anything a session may. On the
+// host there is one principal, the user; nothing here keeps one of her
+// processes from naming any requester.
 package ctxloom.sessions.v1;
 
 import "io/angzarr/v1/options.proto";
@@ -68,7 +70,8 @@ message CloseSession {
   };
 
   string cause = 1;
-  // STAMPED by the listener from the credential, never read from a payload.
+  // The requester, a plain address (stamped from the call's run and
+  // session where the transport names them; absent, the user).
   optional SessionRef requester = 2;
 }
 
@@ -89,7 +92,7 @@ message SendMessage {
   Urgency urgency = 2;
   // Journaled (M4: message text is not a secret).
   string text = 3;
-  // STAMPED by the listener from the credential.
+  // The requester, a plain address (absent, the user).
   optional SessionRef requester = 4;
   // The EVIDENCE (S-c): the urgencies the recipient's engine can honour, as
   // the sending application asked its adapter. None proves nothing: every
@@ -139,8 +142,8 @@ message LaunchChild {
   // How many open children this owner may hold (the config's, as the
   // application read it). Fail closed: 0 allows none.
   uint32 delegation_limit = 7;
-  // STAMPED by the listener: only the owner session itself (or the user)
-  // may launch its children (D25).
+  // The requester, a plain address: the tree takes a child only from the
+  // owner session itself (or the user) (D25).
   optional SessionRef requester = 8;
   // The child's first task: the launch policy sends it to the minted child
   // as a wake (message id `launch:<child>`); empty sends nothing, and the
@@ -254,9 +257,10 @@ message ChildForgotten {
 
 // region refusals
 
-// A command from a session that is not the target's owner (S-f, D25).
+// A command whose requester is not the target's owner (S-f, D25): the tree
+// does not hold that link. A tree rule, not a permission.
 message NotOwner {
-  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_PERMISSION_DENIED;
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
 
   // The requester's stable id.
   string requester = 1;

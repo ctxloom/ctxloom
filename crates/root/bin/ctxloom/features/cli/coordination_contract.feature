@@ -91,8 +91,8 @@ Feature: The coordination tools advertise a closed message-kind vocabulary
     with two agents it can delegate to, "reviewer" and "fixer", each with its
     own profile, MCP server and permission mode.
 
-    # A message's kind is a security boundary, not a label: user_injected is
-    # coordinator-reserved and reads to a recipient as the human speaking, and
+    # A message's kind is a provenance label ctxloom never lets a sender
+    # choose: user_injected is coordinator-reserved and reads to a recipient as the human speaking, and
     # steer and exited are the coordinator's own notices. A reserved kind is
     # refused at the coordinator's ingress, naming the kinds a sender may use;
     # a spelling outside the vocabulary is refused at the tool schema, naming

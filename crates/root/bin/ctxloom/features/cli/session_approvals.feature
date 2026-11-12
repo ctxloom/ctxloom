@@ -7,8 +7,9 @@ Feature: session approvals — a child's permission ask, answered by the user or
   A child runs with no one at its terminal. When its engine's own
   permissions say to ask before a tool runs, the ask becomes an approval
   request: listed under the root of its session tree (where the human is),
-  answered by the user alone (never an agent, the owner included), and
-  denied when nobody answers in time (300 seconds). The child's tool waits
+  answered from the user's CLI (ctxloom gives agents no answer tool; on the
+  host it cannot tell the human from her own processes), and denied when
+  nobody answers in time (300 seconds). The child's tool waits
   for the answer. Asks are rare: an agent's own engine permissions let its
   routine work run without asking.
 
@@ -80,21 +81,6 @@ Feature: session approvals — a child's permission ask, answered by the user or
       When the ask's time runs out
       Then the child's engine was told not to run it, because no answer came in time
       And no ask is waiting under "amber-quiet-heron"
-
-  Rule: Only the human answers an ask
-
-    Scenario Outline: An agent's answer is refused, even its owner's, and the ask still waits
-      # new: no agent answers.
-      Given an initialized ctxloom project
-      And a child "brisk-copper-moth" of "amber-quiet-heron" whose engine has asked to run "Bash" with "rm -rf build/"
-      And a session "quiet-amber-fox" that is still running
-      When the assistant of "<agent>" answers the ask allow, with its own credential
-      Then the answer is refused as not the approver's, and the ask still waits
-
-      Examples:
-        | agent             |
-        | amber-quiet-heron |
-        | quiet-amber-fox   |
 
   Rule: Each engine is asked through its own hook point
 

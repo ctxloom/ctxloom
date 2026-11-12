@@ -50,11 +50,14 @@ syntax = "proto3";
 // `grpc.health.v1.Health`. There is no hold stream and no routing: one
 // per-user store (T14), so a stream reference is its root alone.
 //
-// CREDENTIALS (T15). One TCP+TLS listener, its certificate the discovery
-// file's. The CLI and the MCP server present the USER bearer; a run's
-// runner and hook bearers carry narrower scopes on `Handle`. Those scopes
-// are GUARDRAILS, not a security boundary: a model running as the user can
-// read the user bearer (ruling 37).
+// CREDENTIALS (T15, the separation model of slice 2). One principal, the
+// user. One TCP+TLS listener, its certificate the discovery file's; every
+// caller (the CLI, a hook, the MCP server) presents the USER bearer and pins
+// the certificate. The bearer and the pinned certificate keep non-user
+// callers off the socket (other users, web pages, containers, machines);
+// nothing separates the user's own processes, which can all read the
+// discovery file. A call addresses its run and session as plain fields (an
+// address, never an identity).
 //
 // THE AIP FIELDS, AT FIXED NUMBERS IN EVERY REQUEST (API Q13):
 //   1        `name` (or `parent`)
@@ -158,7 +161,7 @@ service Ctxloom {
   // region runs: `projects/{project}/runs/{run}`
   // `run --dry-run` is `validate_only`; `run --one-shot` creates a hosted
   // run (then `WatchRun`); `run` creates a TERMINAL run, whose `Run` holds
-  // the `Launch` the frontend starts and the runner bearer.
+  // the `Launch` the frontend starts.
   rpc CreateRun(CreateRunRequest) returns (Run);
   rpc GetRun(GetRunRequest) returns (Run);
   // A one-shot's notices, reply and end.
@@ -548,10 +551,11 @@ message Run {
   uint64 tokens = 8;
   repeated Finding findings = 9;
   repeated Setting settings = 10;
-  // TERMINAL only: what the frontend starts, and its runner bearer
-  // (returned this once; never in a log or a Debug).
+  // TERMINAL only: what the frontend starts.
   Launch launch = 11;
-  string runner_bearer = 12;
+  // The runner bearer (deleted, slice 2: one principal, the user).
+  reserved 12;
+  reserved "runner_bearer";
   repeated Need needs = 90;
   string etag = 91;
   repeated Notice notices = 92;
@@ -938,9 +942,10 @@ message OneChangePerCall {
   repeated string paths = 1;
 }
 
-// The call names a session the bearer's run does not own (T8, a guardrail).
+// An addressing refusal, not a permission: the call names a session that is
+// not its run's (a fact's session must be its run's).
 message SessionNotOwned {
-  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_PERMISSION_DENIED;
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
 
   string session = 1;
 }

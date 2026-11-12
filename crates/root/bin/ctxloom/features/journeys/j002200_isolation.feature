@@ -15,9 +15,13 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   are not what protects the rest of her disk. Something else has to.
 
   ctxloom gives her two independent choices. The workspace: the live project,
-  or a checkout of its own. The runtime: her machine, or a container. Each
+  or a checkout of its own. The runtime: her machine, or a container. Only
+  the container runtime bounds what the agent can reach: on her machine the
+  agent runs as her, and a checkout of its own or its session home is a
+  place to work, not a wall (absolute paths reach the rest of her disk). Each
   run also gets its own session home, so the agent does not run on her own
-  engine setup, with her memory, her MCP servers and her history.
+  engine setup, with her memory, her MCP servers and her history: a
+  relocation, not confinement.
 
   This journey is Alice establishing that the choices are real: that a run
   asking for its own checkout works somewhere else, that two such runs never

@@ -23,10 +23,11 @@ Feature: trust — the user's verdict on a project's own settings, or a remote's
   A trust is recorded with the user's name and the time; a trust already
   given records nothing more.
 
-  ONLY THE USER. Trust is a command of the trust aggregate, sent through the
-  daemon's command coordinator with the user's credential; an agent's
-  credential (the capture or orchestration scope) is refused, so no
-  assistant can trust its own repository.
+  THE HUMAN IS ASKED. Trust is a command of the trust aggregate, sent through
+  the daemon's command coordinator: the user's consent to a project's
+  settings, asked of the human at her terminal (as with direnv or a workspace
+  trust prompt). ctxloom gives agents no trust tool; on the host it cannot
+  tell the human from her own processes (one principal, the user).
 
   CONFIRMATION. Trust is previewed first (the daemon's trust resource,
   naming what it would allow, and a tag of what it showed): at a terminal
@@ -90,13 +91,6 @@ Feature: trust — the user's verdict on a project's own settings, or a remote's
       When I run "ctxloom trust --yes"
       Then the command exits with code 20
       And the refusal is "trust-plan-stale"
-
-    Scenario: An assistant's own credential cannot trust its project
-      # new: an agent never trusts.
-      Given an initialized ctxloom project whose project config says "engines.claude-code.command: /opt/their-claude"
-      And a session "amber-quiet-heron" that is still running
-      When its assistant sends a trust of its project with its own credential
-      Then the trust is refused as not the user's, and the project is not trusted
 
     Scenario: Undoing trust holds the project's settings back again
       # new: trust --undo.

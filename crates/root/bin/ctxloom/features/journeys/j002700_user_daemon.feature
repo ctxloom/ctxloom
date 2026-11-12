@@ -11,8 +11,9 @@ Feature: One daemon of her own does ctxloom's work, wherever Alice types
   same one and lets it do the work. Her terminal keeps only what must be on
   her terminal: the assistant's own screen.
 
-  It is hers alone: nothing on her machine that is not her can find it or
-  speak to it as her. It may die at any moment, even killed outright, and
+  It is hers alone: no other user, web page, container or machine can find
+  it or speak to it. Her own processes, her assistants included, can: on her
+  machine they run as her. It may die at any moment, even killed outright, and
   she loses nothing for it: her assistants keep working, what they report
   reaches the record once, and her next command brings it back. When she
   stops working, it goes away by itself.

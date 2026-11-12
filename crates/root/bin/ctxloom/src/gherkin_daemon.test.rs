@@ -681,16 +681,6 @@ fn changed_mid_trust(_: &mut World) {
     red("the project's settings change after the preview and before the answer")
 }
 
-#[when("its assistant sends a trust of its project with its own credential")]
-fn agent_trusts(_: &mut World) {
-    red("its assistant sends a trust of its project with its own credential")
-}
-
-#[then("the trust is refused as not the user's, and the project is not trusted")]
-fn agent_refused(_: &mut World) {
-    red("an agent's trust is refused")
-}
-
 #[given("an initialized ctxloom project that the user has trusted")]
 fn project_trusted(_: &mut World) {
     red("an initialized ctxloom project that the user has trusted")
@@ -733,16 +723,6 @@ fn ask_answered(_: &mut World, _child: String, _owner: String) {
 #[when("the ask's time runs out")]
 fn ask_expires(_: &mut World) {
     red("the ask's time runs out")
-}
-
-#[when(regex = r#"^the assistant of "([^"]+)" answers the ask allow, with its own credential$"#)]
-fn agent_answers(_: &mut World, _harp: String) {
-    red("an assistant answers the ask with its own credential")
-}
-
-#[then("the answer is refused as not the approver's, and the ask still waits")]
-fn not_approver(_: &mut World) {
-    red("the answer is refused as not the approver's")
 }
 
 #[then(regex = r#"^the child's claude was launched with "([^"]+)" "([^"]+)"$"#)]

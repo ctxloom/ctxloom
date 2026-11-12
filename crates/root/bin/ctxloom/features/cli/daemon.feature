@@ -77,13 +77,15 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
   `ctxloom daemon serve` detached, in a session of its own, its output in
   `~/.ctxloom/daemon/daemon.log`, waits for the discovery file, then calls.
 
-  PROVING IT IS THE USER. A command presents the user bearer and pins the
-  certificate; a run, a hosted child and a hook present their own narrower
-  per-run credentials instead. Each daemon start mints a new certificate and
-  a new bearer; the daemon keeps only the bearer's digest, and nothing but
-  the discovery file holds the bearer. The per-run credentials' narrower
-  scopes are GUARDRAILS, not a security boundary: an assistant running as
-  the user can read the discovery file, and with it act as her.
+  ONE PRINCIPAL, THE USER. Every caller (a command, a hook, the MCP server)
+  presents the user bearer and pins the certificate. Each daemon start mints
+  a new certificate and a new bearer; the daemon keeps only the bearer's
+  digest, and nothing but the discovery file holds the bearer. The bearer
+  and the pinned certificate keep NON-USER callers off the socket: no other
+  user, web page, container or machine can speak to the daemon. Nothing
+  separates the user's own processes: an assistant running as her can read
+  the discovery file, and with it do anything she can. A call names its run
+  and session as plain fields, an address and never an identity.
 
   KILLED AT ANY INSTANT. Everything the daemon knows is in the stores, the
   locks and the files it owns, and every write it makes is keyed, so a

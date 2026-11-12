@@ -37,8 +37,9 @@ syntax = "proto3";
 //     terminal, and nothing is routed.
 //
 // ROUTING (owner, S25): the ask is listed under the session tree's ROOT (the
-// human's primary) and answered by the USER alone: an answer with any run's
-// credential is refused `NotApprover`.
+// human's primary) and answered from the user's CLI; ctxloom gives agents no
+// answer tool. It cannot tell the human from her processes (one principal,
+// the user: the separation model of slice 2).
 //
 // TIMEOUT (S26): the ask arms the scheduler's alarm
 // (`io.angzarr.scheduler.v1.ArmAlarm`, key `approval-expiry:<ask>`); when it
@@ -117,15 +118,14 @@ message RecordApprovalExpired {
 
 // region commands
 
-// Answer the ask: the user alone (S25). The answerer is STAMPED: absent, the
-// user; a session (any run's credential) is refused `NotApprover`.
+// Answer the ask (S25): from the user's CLI; ctxloom gives agents no answer
+// tool, and cannot tell the human from her processes.
 message AnswerApproval {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.approvals.v1.ApprovalState"
     emits: ["ctxloom.approvals.v1.ApprovalAnswered"]
     refuses: "ctxloom.approvals.v1.ApprovalUnknown"
     refuses: "ctxloom.approvals.v1.ApprovalSettled"
-    refuses: "ctxloom.approvals.v1.NotApprover"
   };
 
   string ask_id = 1;
@@ -186,13 +186,6 @@ message ApprovalSettled {
   string ask_id = 1;
   // `allowed`, `denied` or `expired`.
   string how = 2;
-}
-
-// A run's credential answered: only the human answers (S25).
-message NotApprover {
-  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_PERMISSION_DENIED;
-
-  string answerer = 1;
 }
 
 // endregion

@@ -277,10 +277,11 @@ message EndRecorded {
 // the run streams.
 
 // Order every live run of the session to stop. `requester_depth` and
-// `requester` are STAMPED from the caller's identity, never read from its
-// payload. A session requester is judged by the owner rule (D25, S-f): the
-// target's owner may stop it, any other session is NotOwner. With no session
-// requester the depth rule stands: refused from a child (Go's I2).
+// `requester` are the caller's address (a session's own run stamps them from
+// its session). A session requester is judged by the tree's owner rule (D25,
+// S-f): the target's owner may stop it, any other session is NotOwner. With
+// no session requester the depth rule stands: refused from a child (Go's
+// I2). Tree rules, not permissions: one principal, the user.
 message StopSession {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.sessions.v1.SessionState"
@@ -388,9 +389,10 @@ message HarpInvalid {
   string reason = 2;
 }
 
-// A stop ordered by a child; `depth` is the requester's.
+// A stop ordered by a child; `depth` is the requester's. A tree rule (Go's
+// I2), not a permission.
 message ChildCannotStop {
-  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_PERMISSION_DENIED;
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
 
   uint64 depth = 1;
 }

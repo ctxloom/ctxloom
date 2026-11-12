@@ -15,15 +15,6 @@
 //!   before any credential is looked at (the API's surface is no secret; a
 //!   plain build's `DeleteSession` and `SweepSessions` among them, M5).
 
-// RED: the calls are not made yet.
-#![allow(
-    dead_code,
-    unused_imports,
-    unused_variables,
-    unused_macros,
-    clippy::all
-)]
-
 use std::future::Future;
 use std::sync::Arc;
 
@@ -112,9 +103,14 @@ impl Served {
         F: FnOnce(Arc<dyn Calls>, T) -> Fut + Send + 'static,
         Fut: Future<Output = Result<R, ApiError>> + Send,
     {
-        // RED: not answered yet.
-        let _ = (request, call, status_of_error);
-        Err(Status::unimplemented(""))
+        self.admit(&request).await?;
+        let calls = Arc::clone(&self.calls);
+        let message = request.into_inner();
+        let runtime = tokio::runtime::Handle::current();
+        let answered = tokio::task::spawn_blocking(move || runtime.block_on(call(calls, message)))
+            .await
+            .map_err(|joined| Status::internal(joined.to_string()))?;
+        answered.map(Response::new).map_err(status_of_error)
     }
 }
 

@@ -124,6 +124,33 @@ impl HookListener {
         E: Edge + 'static,
         G: Gate + 'static,
     {
+        HookListener::serve_tcp_beside(edge, gate, addr, identity, None::<Nothing>).await
+    }
+
+    /// [`HookListener::serve_tcp_gated`], serving `beside` too on the same
+    /// listener (the user daemon's `Ctxloom` service, slice 2 step 5): one
+    /// socket, one certificate, its own admission.
+    pub async fn serve_tcp_beside<E, G, S>(
+        edge: Arc<E>,
+        gate: G,
+        addr: std::net::SocketAddr,
+        identity: TlsIdentity,
+        beside: Option<S>,
+    ) -> Result<HookListener, ListenerError>
+    where
+        E: Edge + 'static,
+        G: Gate + 'static,
+        S: tonic::codegen::Service<
+                tonic::codegen::http::Request<tonic::body::Body>,
+                Response = tonic::codegen::http::Response<tonic::body::Body>,
+                Error = std::convert::Infallible,
+            > + tonic::server::NamedService
+            + Clone
+            + Send
+            + Sync
+            + 'static,
+        S::Future: Send + 'static,
+    {
         if addr.ip().is_unspecified() {
             return Err(ListenerError::Unspecified {
                 addr: addr.to_string(),
@@ -136,8 +163,11 @@ impl HookListener {
         let tls = ServerTlsConfig::new()
             .identity(Identity::from_pem(identity.cert_pem, identity.key_pem));
         let listener = Listener::tcp(addr).declare(reach_of(addr.ip())).tls(tls);
-        let running = Server::builder()
-            .add_service(service)
+        let mut server = Server::builder().add_service(service);
+        if let Some(beside) = beside {
+            server = server.add_service(beside);
+        }
+        let running = server
             .listen(listener)
             .bind()
             .await
@@ -190,6 +220,31 @@ impl HookListener {
             .shutdown_within(grace)
             .await
             .map_err(|cause| ListenerError::stop(&endpoint, &cause))
+    }
+}
+
+/// No service beside the coordinator's.
+#[derive(Clone)]
+enum Nothing {}
+
+impl tonic::server::NamedService for Nothing {
+    const NAME: &'static str = "";
+}
+
+impl tonic::codegen::Service<tonic::codegen::http::Request<tonic::body::Body>> for Nothing {
+    type Response = tonic::codegen::http::Response<tonic::body::Body>;
+    type Error = std::convert::Infallible;
+    type Future = std::future::Ready<Result<Self::Response, Self::Error>>;
+
+    fn poll_ready(
+        &mut self,
+        _: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        match *self {}
+    }
+
+    fn call(&mut self, _: tonic::codegen::http::Request<tonic::body::Body>) -> Self::Future {
+        match *self {}
     }
 }
 

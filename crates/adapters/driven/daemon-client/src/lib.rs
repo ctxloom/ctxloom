@@ -5,15 +5,6 @@
 //! and is bounded by a deadline. A status is read back as [`Called`]: a
 //! refusal as its typed message from `google.rpc.Status.details` (S11).
 
-// RED: the calls are not made yet.
-#![allow(
-    dead_code,
-    unused_imports,
-    unused_variables,
-    unused_macros,
-    clippy::all
-)]
-
 use std::time::Duration;
 
 use daemon_ports::{Called, DaemonApi};
@@ -138,14 +129,16 @@ fn chain(error: &dyn std::error::Error) -> String {
 /// One call: `$method` of the client with `$message`, its status read back.
 macro_rules! call {
     ($self:ident, $method:ident, $name:literal, $message:expr) => {{
-        // RED: not called yet.
-        let _ = (&$message, called, chain, $name);
-        let _ = |c: CtxloomClient<Channel>| c;
-        let _ = $self.request(());
-        Err::<_, Called>(Called::Failed {
-            code: 2,
-            detail: String::new(),
-        })
+        let mut client = $self.client().await?;
+        let request = $self.request($message)?;
+        let answered = tokio::time::timeout($self.within, client.$method(request)).await;
+        match answered {
+            Ok(Ok(response)) => Ok(response.into_inner()),
+            Ok(Err(status)) => Err(called($name, &status)),
+            Err(_) => Err(Called::Unreachable {
+                detail: format!("no answer within {:?}", $self.within),
+            }),
+        }
     }};
 }
 

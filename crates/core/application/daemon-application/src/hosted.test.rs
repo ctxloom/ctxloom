@@ -99,6 +99,7 @@ impl Engine for Scripted {
             }],
             copy_in: Vec::new(),
             seeds: Vec::new(),
+            left_out: Vec::new(),
             context_path: format!("{}/CONTEXT.md", request.home),
         })
     }

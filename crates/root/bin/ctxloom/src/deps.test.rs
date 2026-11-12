@@ -152,7 +152,7 @@ impl World {
     }
 
     fn register(&mut self, name: &str, bare: PathBuf) {
-        let url = format!("file://{}", bare.display());
+        let url = files::file_url(&bare);
         self.bare.insert(name.to_string(), bare.clone());
         self.seeded.insert(name.to_string(), bare);
         self.run(&["remote", "create", name, &url, "--forge", "git"])
@@ -182,7 +182,7 @@ impl World {
         target: &str,
         other: &str,
     ) {
-        let other_bare = self.seeded[other].display().to_string();
+        let other_url = files::file_url(&self.seeded[other]);
         let root = tree_bundle(bundle);
         let files = vec![
             (
@@ -191,7 +191,7 @@ impl World {
             ),
             (
                 format!("{root}/profiles/{profile}.yaml"),
-                format!("bundles:\n  - ctxloom+file://{other_bare}//bundles/{target}\n"),
+                format!("bundles:\n  - ctxloom+{other_url}//bundles/{target}\n"),
             ),
         ];
         let bare = self.seed_bare(&files);
@@ -211,7 +211,7 @@ impl World {
         let bare = self.seed_bare(&files);
         self.project.profile(
             profile,
-            &format!("ctxloom+file://{}//bundles/demo", bare.display()),
+            &format!("ctxloom+{}//bundles/demo", files::file_url(&bare)),
         );
     }
 
@@ -219,8 +219,8 @@ impl World {
     /// create --include <name>/<bundle>` stores it.
     pub(crate) fn reference(&self, name: &str, bundle: &str) -> String {
         format!(
-            "ctxloom+file://{}//bundles/{bundle}",
-            self.seeded[name].display()
+            "ctxloom+{}//bundles/{bundle}",
+            files::file_url(&self.seeded[name])
         )
     }
 

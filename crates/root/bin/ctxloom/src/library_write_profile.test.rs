@@ -106,7 +106,7 @@ fn test_create_says_what_it_wrote_and_refuses_what_it_must() {
         ran.stdout,
         format!(
             "Created profile \"base\" with bundles: demo\nSaved to: {}\n",
-            project.dir().join(PROFILES).join("base.yaml").display()
+            project.shown(&format!("{PROFILES}/base.yaml"))
         )
     );
     let ran = project.run(&[
@@ -586,7 +586,7 @@ fn test_export_remove_and_re_import_a_profile() {
             exported.stdout,
             format!(
                 "Exported: {} -> pexport/dev.yaml\n",
-                project.dir().join(DEV_YAML).display()
+                project.shown(DEV_YAML)
             )
         );
         project.file_contains("pexport/dev.yaml", "- demo");
@@ -600,7 +600,7 @@ fn test_export_remove_and_re_import_a_profile() {
             imported.stdout,
             format!(
                 "Imported: pexport/dev.yaml -> {}\n",
-                project.dir().join(DEV_YAML).display()
+                project.shown(DEV_YAML)
             )
         );
         let listed = with_flags(&project, &["profile", "list"], flags);

@@ -1,8 +1,6 @@
 //! `fragment` and `command` (list, show), `fragment premises`, and `skill`
 //! (list, show).
 
-use std::collections::BTreeSet;
-
 use library::catalog::ContentInfo;
 use library::frontmatter::split_front_matter;
 use library::model::Skill;
@@ -262,31 +260,13 @@ impl Project {
         }
     }
 
-    /// The files of `entry` that carry an execute bit: a remote one's as
-    /// installed, none of a built-in one's, the project's as on disk.
-    pub(crate) fn executables_of(
-        &self,
-        entry: &library::catalog::Entry,
-    ) -> Result<std::collections::BTreeSet<String>, AppError> {
-        match self.catalog.origin(&entry.name) {
-            Some(origin) => Ok(origin.executable.clone()),
-            // A built-in bundle ships no executable file.
-            None if self.catalog.is_builtin(&entry.name) => Ok(Default::default()),
-            None => self
-                .content
-                .executable_files(&entry.name)
-                .map_err(AppError::Cause),
-        }
-    }
-
     /// Every skill of every bundle that loads, by bundle then name.
     fn skills(&mut self) -> Result<Vec<LoadedSkill>, AppError> {
         let mut out = Vec::new();
         let mut withheld = Vec::new();
         for entry in self.catalog.entries() {
-            let executable = self.executables_of(entry)?;
             for (name, skill) in &entry.bundle.skills {
-                match load_skill(&entry.name, &entry.bundle.tags, name, skill, &executable) {
+                match load_skill(&entry.name, &entry.bundle.tags, name, skill) {
                     Ok(loaded) => out.push(loaded),
                     Err(why) => {
                         withheld.push(Notice::text(format!("skill \"{name}\" withheld: {why}")))
@@ -386,7 +366,6 @@ fn load_skill(
     bundle_tags: &[String],
     name: &str,
     skill: &Skill,
-    executable: &BTreeSet<String>,
 ) -> Result<LoadedSkill, String> {
     let descriptor = skill
         .files
@@ -432,10 +411,9 @@ fn load_skill(
         files: skill
             .files
             .iter()
-            .map(|f| {
-                let key = format!("skills/{name}/{}", f.path);
-                (f.path.clone(), f.bytes.clone(), executable.contains(&key))
-            })
+            // The sidecar's declaration, on every OS (owner ruling
+            // 2026-11-12): no mode is read.
+            .map(|f| (f.path.clone(), f.bytes.clone(), f.executable))
             .collect(),
     })
 }

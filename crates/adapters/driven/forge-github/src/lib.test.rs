@@ -41,6 +41,7 @@ fn request(files: &[(&str, &str)]) -> PullRequest {
             .iter()
             .map(|(path, text)| (path.to_string(), text.as_bytes().to_vec()))
             .collect(),
+        executable: Default::default(),
     }
 }
 
@@ -356,6 +357,31 @@ fn test_each_file_is_a_base64_blob_in_path_order() {
             json!({"content": "IyBFeGFtcGxlIEZyYWdtZW50Cg==", "encoding": "base64"}),
         ]
     );
+}
+
+// Owner ruling 2026-11-12: the files the sidecars declare are 100755 in the
+// tree, every other 100644.
+#[test]
+fn test_the_tree_makes_executable_the_files_it_is_told_and_no_others() {
+    let stub = Stub::github(Some(TOKEN), "");
+    let mut request = notes();
+    request.executable = ["b/two.md".to_string()].into();
+    authed()
+        .open_pull_request(&endpoint(&stub), &request)
+        .expect("opened");
+    let tree = stub
+        .requests()
+        .iter()
+        .find(|r| r.path.ends_with("/git/trees"))
+        .expect("a tree")
+        .json();
+    let modes: Vec<(&str, &str)> = tree["tree"]
+        .as_array()
+        .expect("entries")
+        .iter()
+        .map(|e| (e["path"].as_str().unwrap(), e["mode"].as_str().unwrap()))
+        .collect();
+    assert_eq!(modes, [("a/one.yaml", "100644"), ("b/two.md", "100755")]);
 }
 
 #[test]

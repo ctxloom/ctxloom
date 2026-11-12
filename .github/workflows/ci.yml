@@ -2,7 +2,8 @@
 # ci.yml). On Linux every gate but mutation (closeout's, never CI's): the
 # justfile's build, lint (lint-arch and lint-path-deps with it), lint-os,
 # check-windows and selftest, and gates/gates.just's fmt-check, lint-deps and
-# test. On Windows, natively, build and test: the whole workspace's tests run,
+# test. On macOS (arm64), natively, build and test, as on Windows. On Windows,
+# natively, build and test: the whole workspace's tests run,
 # and a test whose fake programs are sh scripts says `SKIP <test>: <why>`
 # (CLAUDE.md, "CI").
 #
@@ -18,7 +19,7 @@
 # versionator v0.3.0).
 #
 # The binary's build.rs stamps the version through versionator (no versionator,
-# no build), so both jobs install it with Go before anything builds. It reads
+# no build), so every job install it with Go before anything builds. It reads
 # HEAD alone (its short hash, the build time, whether the tree is dirty): the
 # checkout's default depth of 1, with no tags, is enough (a tag count it cannot
 # make renders empty and is not in the stamp).
@@ -109,6 +110,57 @@ jobs:
         if: failure()
         with:
           name: gate-logs-linux
+          path: target/logs/
+          if-no-files-found: ignore
+
+  macos:
+    name: build and test (macos)
+    runs-on: macos-15
+    defaults:
+      run:
+        shell: bash
+    env:
+      TOOLS: just@1.40.0,cargo-nextest@0.9.146
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          tool: ${{ env.TOOLS }}
+      - name: protoc (angzarr-build's codegen)
+        run: |
+          cd "$RUNNER_TEMP"
+          zip="protoc-$PROTOC_VERSION-osx-aarch_64.zip"
+          curl -fsSL -o "$zip" "https://github.com/protocolbuffers/protobuf/releases/download/v$PROTOC_VERSION/$zip"
+          echo "96839af0caed64352442fc8236f4bdf7c1cd6efcfaa98fa5db37307a73fc7c70  $zip" | shasum -a 256 -c -
+          unzip -q "$zip" -d protoc
+          echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
+      # The opencode plugin's tests run it under node.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      # Go, for versionator (build.rs's version stamp): the Linux job's pin.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26.9"
+          cache: false
+      - name: versionator (build.rs's version stamp)
+        run: |
+          go install github.com/benjaminabbitt/versionator@v0.3.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Tool versions
+        run: just --version; cargo nextest --version; protoc --version; node --version; jq --version; command -v versionator
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - run: just build
+      - run: just test
+      - name: The gates' logs
+        if: failure()
+        run: shopt -s nullglob; for log in target/logs/*.log; do echo "::group::$log"; cat "$log"; echo "::endgroup::"; done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: gate-logs-macos
           path: target/logs/
           if-no-files-found: ignore
 

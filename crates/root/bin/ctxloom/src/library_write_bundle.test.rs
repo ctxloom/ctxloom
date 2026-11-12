@@ -79,8 +79,7 @@ fn test_creating_a_bundle_answers_in_json_and_in_text() {
         let project = Project::initialized().on_gos_catalog();
         let ran = with_flags(&project, &["bundle", "create", "demo", "-d", "x"], flags);
         ran.succeeds();
-        let manifest = project.dir().join(DEMO).join("bundle.yaml");
-        let manifest = manifest.to_string_lossy().into_owned();
+        let manifest = project.shown(&format!("{DEMO}/bundle.yaml"));
         if is_text(flags) {
             assert_eq!(
                 ran.stdout,
@@ -288,12 +287,12 @@ fn test_an_edit_names_what_it_changed() {
         "text",
     ]);
     ran.succeeds();
-    let manifest = project.dir().join(DEMO).join("bundle.yaml");
+    let manifest = project.shown(&format!("{DEMO}/bundle.yaml"));
     assert_eq!(
         ran.stdout,
         format!(
             "updated version\nadded tag: golang\nset fragment: testing\nset prompt: review\nset mcp: tree-sitter\nUpdated bundle: {}\n",
-            manifest.display()
+            manifest
         )
     );
     let again = project.run(&[
@@ -425,17 +424,17 @@ fn test_export_and_import_answer_and_carry_the_whole_tree() {
         );
         let exported = with_flags(&project, &["bundle", "export", "demo", "out"], flags);
         exported.succeeds();
-        let manifest = project.dir().join(DEMO).join("bundle.yaml");
+        let manifest = project.shown(&format!("{DEMO}/bundle.yaml"));
         if is_text(flags) {
             assert_eq!(
                 exported.stdout,
-                format!("Exported: {} -> out/demo\n", manifest.display())
+                format!("Exported: {} -> out/demo\n", manifest)
             );
         } else {
             let doc = exported.json();
             assert_eq!(reports_as(&doc, "status"), "exported");
             assert_eq!(reports_as(&doc, "name"), "demo");
-            assert_eq!(reports_as(&doc, "source"), manifest.to_string_lossy());
+            assert_eq!(reports_as(&doc, "source"), manifest);
             assert_eq!(reports_as(&doc, "dest"), "out/demo");
         }
         assert_eq!(project.tree("out/demo"), project.tree(DEMO));
@@ -449,7 +448,7 @@ fn test_export_and_import_answer_and_carry_the_whole_tree() {
                 imported.stdout,
                 format!(
                     "Imported: out/demo -> {}\n  Version: 1.0.0\n  Fragments: 1, Commands: 1, MCP: 1\n",
-                    project.dir().join(DEMO).display()
+                    project.shown(DEMO)
                 )
             );
         } else {
@@ -586,17 +585,14 @@ fn test_removing_a_bundle_with_yes_takes_the_file_and_the_listing_entry() {
         let kept = project.tree(".ctxloom/content/bundles/v2/keep");
         let ran = with_flags(&project, &["bundle", "remove", "demo", "--yes"], flags);
         ran.succeeds();
-        let manifest = project.dir().join(DEMO).join("bundle.yaml");
+        let manifest = project.shown(&format!("{DEMO}/bundle.yaml"));
         if is_text(flags) {
-            assert_eq!(
-                ran.stdout,
-                format!("Removed bundle: {}\n", manifest.display())
-            );
+            assert_eq!(ran.stdout, format!("Removed bundle: {}\n", manifest));
         } else {
             let doc = ran.json();
             assert_eq!(reports_as(&doc, "status"), "deleted");
             assert_eq!(reports_as(&doc, "name"), "demo");
-            assert_eq!(reports_as(&doc, "path"), manifest.to_string_lossy());
+            assert_eq!(reports_as(&doc, "path"), manifest);
         }
         // Exactly the target: the whole bundle's tree, items included (Go
         // left the items behind), and nothing of its neighbour.

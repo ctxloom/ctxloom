@@ -28,6 +28,17 @@ once:
 lefthook install          # or: just hooks-install
 ```
 
+## The commit-msg hook (owner ruling 170)
+
+`gates/lefthook.yml` names a `commit-msg` hook: `just commit-msg-check
+<file>` refuses a message carrying a `Co-Authored-By:` trailer, in any
+case, on any line. It is a hook lefthook has not installed in a clone made
+before it, so each clone runs `just hooks-install` once more (worktrees
+share the hooks, so once per clone covers them all). A repository copying
+it takes the `commit-msg-check`, `_no-trailers` and `_extract-trailers`
+recipes, the hook's block, and `scripts/commit-msg.selftest.sh` into its
+`just selftest`.
+
 ## Red tests on branches
 
 The gates allow a commit with failing tests on any branch but the default

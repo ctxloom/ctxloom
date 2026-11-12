@@ -21,7 +21,7 @@ import 'gates/dev-local.just'
 # from the same ctxloom-lib commit the workspace pins (arch_lint_rev, kept
 # equal to Cargo.toml's by `_arch-lint-ready`'s check) and installed once per
 # commit into the user's cache, shared by every worktree.
-arch_lint_rev := "9ec4c974b5cb687275be590eb24181b11cc463ca"
+arch_lint_rev := "fb8e821250b3c1935a25323a830de04bf2f844f9"
 arch_lint_root := env_var_or_default("XDG_CACHE_HOME", env_var("HOME") / ".cache") / "ctxloom-arch-lint" / arch_lint_rev
 arch_lint := arch_lint_root / "bin/arch-lint"
 
@@ -330,6 +330,7 @@ selftest:
     @{{TOP}}/scripts/exec-mode-check.selftest.sh
     @{{TOP}}/scripts/dev-local.selftest.sh
     @{{TOP}}/scripts/path-deps-check.selftest.sh
+    @{{TOP}}/scripts/commit-msg.selftest.sh
 
 # Run the ctxloom binary (cargo run, quiet) with the given arguments.
 [group('dev')]

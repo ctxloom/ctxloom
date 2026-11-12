@@ -170,6 +170,22 @@ fn test_the_path_and_the_patch_are_checked_first() {
     assert!(files.files.lock().unwrap().is_empty());
 }
 
+// On Windows an absolute path has a drive and a root, or a share; a rooted
+// `\x` or `/x` and a drive-relative `C:x` are not absolute there.
+#[test]
+fn test_an_absolute_path_on_windows_has_a_drive_or_a_share() {
+    let files = Arc::new(Files::default());
+    let setup = setup(&files).with_os("windows");
+    for good in [r"C:\work\a.json", "C:/work/b.json", r"\\srv\share\c.json"] {
+        setup.config_write(good, None, r#"{"a":1}"#).unwrap();
+        assert!(files.read(good).unwrap().is_some(), "{good}");
+    }
+    for bad in ["/work/a.json", r"\work\a.json", "C:a.json", "a.json"] {
+        let err = setup.config_write(bad, None, r#"{"a":1}"#).unwrap_err();
+        assert!(matches!(err, SetupError::ConfigWrite { .. }), "{bad}");
+    }
+}
+
 #[test]
 fn test_a_record_ctxloom_cannot_read_stops_the_write() {
     let files = Arc::new(Files::default());

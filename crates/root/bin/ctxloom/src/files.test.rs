@@ -26,6 +26,38 @@ pub(crate) fn runs_scripts() -> bool {
     false
 }
 
+/// Whether this host keeps a file's execute bits: unix. Windows keeps none
+/// (a file is one it would run by its extension), so a test of what a bit on
+/// disk does is skipped there and says so, `SKIP <test>: <why>`.
+pub(crate) fn keeps_exec_bits() -> bool {
+    keeps_exec_bits_for("it sets an execute bit on disk")
+}
+
+/// [`keeps_exec_bits`] for a part of a test, `what`, the rest of which runs
+/// on every host: `SKIP <test>: <what>, ...` where the part is skipped.
+pub(crate) fn keeps_exec_bits_for(what: &str) -> bool {
+    if os::host().flavor() == os::Flavor::Unix {
+        return true;
+    }
+    let test = std::thread::current();
+    eprintln!(
+        "SKIP {}: {what}, which Windows keeps no execute bit for",
+        test.name().unwrap_or("a test")
+    );
+    false
+}
+
+/// The `file://` URL of the absolute `path`, as git reads one and a person
+/// writes one: `file:///a/b` on unix; `file:///C:/a/b` on Windows, whose path
+/// is spelled with `/` in a URL.
+pub(crate) fn file_url(path: &Path) -> String {
+    let shown = path.display().to_string();
+    match os::host().flavor() {
+        os::Flavor::Unix => format!("file://{shown}"),
+        os::Flavor::Windows => format!("file:///{}", shown.replace('\\', "/")),
+    }
+}
+
 /// The host's own filesystem (no root), for real paths.
 pub(crate) fn fs() -> Arc<dyn Fs> {
     let os = os::host();

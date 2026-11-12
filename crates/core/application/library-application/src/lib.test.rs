@@ -329,7 +329,9 @@ fn test_the_premises_list_only_premised_fragments() {
 // skills.go: a package's mode is the file's execute bit; a skill whose
 // SKILL.md has no frontmatter is withheld with a warning.
 #[test]
-fn test_a_skill_mode_is_the_files_execute_bit_and_a_headless_skill_is_withheld() {
+fn test_a_skill_mode_is_the_sidecars_declaration_and_a_headless_skill_is_withheld() {
+    // Owner ruling 2026-11-12: the sidecar's `executable:` alone says, on
+    // every OS; a mode on disk (here SKILL.md's) is never read.
     let reviewer: &[(&str, &str)] = &[
         ENVELOPE,
         (
@@ -337,12 +339,16 @@ fn test_a_skill_mode_is_the_files_execute_bit_and_a_headless_skill_is_withheld()
             "---\nname: reviewer\ndescription: Reviews\n---\n\nbody\n",
         ),
         ("skills/reviewer/scripts/run.sh", "#!/bin/sh\n"),
+        (
+            "skills/.reviewer.meta.yaml",
+            "executable:\n  - scripts/run.sh\n",
+        ),
         ("skills/headless/SKILL.md", "no frontmatter\n"),
     ];
     let library = Setup {
         bundles: &[("vault", reviewer)],
         layers: &[CONFIG],
-        executable: &["skills/reviewer/scripts/run.sh"],
+        executable: &["skills/reviewer/SKILL.md"],
         ..Setup::default()
     }
     .library();

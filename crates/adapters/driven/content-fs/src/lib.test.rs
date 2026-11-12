@@ -41,14 +41,54 @@ const FIXTURE: &[(&str, &[u8])] = fixture![
     "tooling/mcp/redis.yaml",
 ];
 
-const APP: &str = "/proj/.ctxloom";
+/// The app dir, absolute on every host (`C:\proj\.ctxloom` on Windows): the
+/// adapter shows paths below it as the host spells them.
+fn app() -> std::path::PathBuf {
+    std::path::PathBuf::from(at("/proj/.ctxloom"))
+}
+
+/// `path`, absolute and spelled the unix way, as this host spells it.
+fn at(path: &str) -> String {
+    os::host().flavor().from_top(path)
+}
+
+/// Whether the host keeps a file's execute bit (unix); elsewhere every file
+/// is one the host would run, so the part of a test that tells an
+/// executable file from a plain one is skipped, and says so: `SKIP <test>:
+/// <why>`.
+fn keeps_exec_bits() -> bool {
+    if os::host().flavor() == os::Flavor::Unix {
+        return true;
+    }
+    let test = std::thread::current();
+    eprintln!(
+        "SKIP {} (its execute bits): the host keeps none, every file is one it would run",
+        test.name().unwrap_or("a test")
+    );
+    false
+}
+
+/// Whether a look under a file fails otherwise than "not found" (unix's
+/// ENOTDIR); Windows reports such a path as not found, so the part of a
+/// test that tells the two apart is skipped, and says so.
+fn tells_a_path_through_a_file() -> bool {
+    if os::host().flavor() == os::Flavor::Unix {
+        return true;
+    }
+    let test = std::thread::current();
+    eprintln!(
+        "SKIP {} (a path through a file): the host reports it as not found",
+        test.name().unwrap_or("a test")
+    );
+    false
+}
 
 fn rooted() -> Arc<Rooted> {
     Arc::new(Rooted::temp().expect("a temporary root"))
 }
 
 fn put(fs: &Rooted, path: &str, bytes: &[u8]) {
-    let path = Path::new(APP).join(BUNDLES_BELOW_APP_DIR).join(path);
+    let path = bundle_file("", path);
     fs.create_dir_all(path.parent().unwrap(), Mode::from_bits(0o755))
         .unwrap();
     fs.write_atomic(
@@ -75,7 +115,7 @@ fn fixture_repo() -> (Arc<Rooted>, ContentFs) {
         "tooling/bundle.yaml",
         b"version: 1.0.0\ndescription: golden corpus tooling\n",
     );
-    let repo = ContentFs::new(fs.clone(), Path::new(APP));
+    let repo = ContentFs::new(fs.clone(), &app());
     (fs, repo)
 }
 
@@ -158,7 +198,7 @@ fn test_a_bundle_can_be_nested_and_its_items_are_not_bundles() {
     ] {
         put(&fs, path, b"x: 1\n");
     }
-    let repo = ContentFs::new(fs.clone(), Path::new(APP));
+    let repo = ContentFs::new(fs.clone(), &app());
     assert_eq!(repo.bundle_names().unwrap(), ["plain", "team/rules"]);
     let tree = repo.read_tree("team/rules").unwrap();
     assert!(tree.contains_key("profiles/coordinator/bundle.yaml"));
@@ -170,7 +210,7 @@ fn test_a_file_is_never_a_bundle() {
     let fs = rooted();
     put(&fs, "file-called-bundle", b"not a directory\n");
     put(&fs, "real/bundle.yaml", b"version: 1.0.0\n");
-    let repo = ContentFs::new(fs.clone(), Path::new(APP));
+    let repo = ContentFs::new(fs.clone(), &app());
     assert_eq!(repo.bundle_names().unwrap(), ["real"]);
 }
 
@@ -179,12 +219,12 @@ fn test_a_file_is_never_a_bundle() {
 #[test]
 fn test_without_a_bundles_directory_there_are_no_bundles_and_nothing_is_made() {
     let fs = rooted();
-    let repo = ContentFs::new(fs.clone(), Path::new(APP));
+    let repo = ContentFs::new(fs.clone(), &app());
     assert!(!repo.has_root().unwrap());
     assert_eq!(repo.bundle_names().unwrap(), Vec::<String>::new());
-    assert!(!fs.exists(Path::new(APP)).unwrap(), "reading made nothing");
+    assert!(!fs.exists(&app()).unwrap(), "reading made nothing");
     put(&fs, "x/bundle.yaml", b"version: 1.0.0\n");
-    assert!(ContentFs::new(fs, Path::new(APP)).has_root().unwrap());
+    assert!(ContentFs::new(fs, &app()).has_root().unwrap());
 }
 
 // the manifest path shown to the user
@@ -193,7 +233,7 @@ fn test_the_manifest_path_is_shown_as_the_caller_names_it() {
     let (_fs, repo) = fixture_repo();
     assert_eq!(
         repo.manifest_path("code-quality"),
-        "/proj/.ctxloom/content/bundles/v2/code-quality/bundle.yaml"
+        at("/proj/.ctxloom/content/bundles/v2/code-quality/bundle.yaml")
     );
 }
 
@@ -203,38 +243,6 @@ fn test_a_name_that_climbs_is_refused() {
     let (_fs, repo) = fixture_repo();
     let err = repo.read_tree("../../etc").expect_err("climbs");
     assert_eq!(err.code(), "content-fs-bad-name");
-}
-
-// skill.go skillManifestMode: a skill file is executable when any execute bit
-// is set on disk, whatever a sidecar declares; the listing is read off the
-// directory.
-#[test]
-fn test_the_executable_files_are_those_with_an_execute_bit() {
-    let fs = rooted();
-    put(&fs, "vault/bundle.yaml", b"version: 1.0.0\n");
-    put(
-        &fs,
-        "vault/skills/reviewer/SKILL.md",
-        b"---\nname: reviewer\n---\n",
-    );
-    let script = Path::new(APP)
-        .join(BUNDLES_BELOW_APP_DIR)
-        .join("vault/skills/reviewer/scripts/run.sh");
-    fs.create_dir_all(script.parent().unwrap(), Mode::from_bits(0o755))
-        .unwrap();
-    fs.write_atomic(
-        &script,
-        b"#!/bin/sh\n",
-        file_system::Perms::Exact(Mode::from_bits(0o755)),
-    )
-    .unwrap();
-    let repo = ContentFs::new(fs, Path::new(APP));
-    let found: Vec<String> = repo
-        .executable_files("vault")
-        .unwrap()
-        .into_iter()
-        .collect();
-    assert_eq!(found, ["skills/reviewer/scripts/run.sh"]);
 }
 
 // bundlewalk.go: a name is no bundle's path when it is empty, absolute, or
@@ -253,8 +261,11 @@ fn test_each_kind_of_bad_name_is_refused_on_its_own() {
 // directory should) is an error naming it, not an absent directory.
 #[test]
 fn test_a_bundles_directory_that_cannot_be_inspected_is_an_error() {
+    if !tells_a_path_through_a_file() {
+        return;
+    }
     let fs = rooted();
-    let blocker = Path::new(APP).join("content");
+    let blocker = app().join("content");
     fs.create_dir_all(blocker.parent().unwrap(), Mode::from_bits(0o755))
         .unwrap();
     fs.write_atomic(
@@ -263,7 +274,7 @@ fn test_a_bundles_directory_that_cannot_be_inspected_is_an_error() {
         file_system::Perms::Exact(Mode::from_bits(0o644)),
     )
     .unwrap();
-    let repo = ContentFs::new(fs, Path::new(APP));
+    let repo = ContentFs::new(fs, &app());
     let err = repo.has_root().expect_err("not a directory");
     assert_eq!(err.code(), "content-fs-list-root");
     assert!(err.args().iter().any(|(k, _)| *k == "ext_err_txt"));
@@ -317,15 +328,12 @@ fn test_the_errors_carry_their_args_and_their_samples_are_all_of_them() {
 
 fn empty_repo() -> (Arc<Rooted>, ContentFs) {
     let fs = rooted();
-    let repo = ContentFs::new(fs.clone(), Path::new(APP));
+    let repo = ContentFs::new(fs.clone(), &app());
     (fs, repo)
 }
 
 fn bundle_file(name: &str, rel: &str) -> std::path::PathBuf {
-    Path::new(APP)
-        .join(BUNDLES_BELOW_APP_DIR)
-        .join(name)
-        .join(rel)
+    app().join(BUNDLES_BELOW_APP_DIR).join(name).join(rel)
 }
 
 fn read(fs: &Rooted, name: &str, rel: &str) -> Option<Vec<u8>> {
@@ -382,6 +390,9 @@ fn test_apply_replaces_a_file_whole_and_leaves_no_temporary_file() {
 // only when it is asked to be, and plain otherwise
 #[test]
 fn test_apply_makes_a_file_executable_only_when_asked() {
+    if !keeps_exec_bits() {
+        return;
+    }
     let (fs, repo) = empty_repo();
     repo.apply(
         "demo",
@@ -398,13 +409,6 @@ fn test_apply_makes_a_file_executable_only_when_asked() {
     let meta = |rel: &str| fs.metadata(&bundle_file("demo", rel)).unwrap();
     assert!(meta("skills/s/scripts/run.sh").executable);
     assert!(!meta("skills/s/SKILL.md").executable);
-    assert_eq!(
-        repo.executable_files("demo")
-            .unwrap()
-            .into_iter()
-            .collect::<Vec<_>>(),
-        ["skills/s/scripts/run.sh"]
-    );
     // Rewriting the script plain takes the bit away: the write is the whole of it.
     repo.apply("demo", &[write("skills/s/scripts/run.sh", "#!/bin/sh\n")])
         .unwrap();
@@ -566,7 +570,7 @@ fn test_apply_removes_a_link_itself_when_it_is_the_last_part() {
 #[test]
 fn test_a_bundle_name_that_climbs_is_refused_for_every_write() {
     let (_fs, repo) = empty_repo();
-    for bad in ["../x", "/abs", "", "a/../b"] {
+    for bad in ["../x", "/abs", "", "a/../b", "a\\..\\b", "C:x", "\\abs"] {
         assert_eq!(
             repo.apply(bad, &[]).unwrap_err().code(),
             "content-fs-bad-name",
@@ -649,19 +653,22 @@ fn test_the_bundle_dir_is_where_the_bundle_is() {
     let (_fs, repo) = empty_repo();
     assert_eq!(
         repo.bundle_dir("team/rules"),
-        "/proj/.ctxloom/content/bundles/v2/team/rules"
+        at("/proj/.ctxloom/content/bundles/v2/team/rules")
     );
     assert_eq!(
         repo.manifest_path("demo"),
-        format!("{}/bundle.yaml", repo.bundle_dir("demo"))
+        Path::new(&repo.bundle_dir("demo"))
+            .join("bundle.yaml")
+            .display()
+            .to_string()
     );
 }
 
 // ---------------------------------------------------------------- the user's files
 
 fn user() -> (Arc<Rooted>, UserFilesFs) {
-    let fs = Arc::new(Rooted::temp_with_cwd(Path::new("/work")).expect("a root"));
-    fs.create_dir_all(Path::new("/work"), Mode::from_bits(0o755))
+    let fs = Arc::new(Rooted::temp_with_cwd(Path::new(&at("/work"))).expect("a root"));
+    fs.create_dir_all(Path::new(&at("/work")), Mode::from_bits(0o755))
         .unwrap();
     let user = UserFilesFs::new(fs.clone());
     (fs, user)
@@ -679,8 +686,8 @@ fn test_a_file_is_written_where_the_user_said_and_read_back() {
     assert!(!user.is_dir("out/dir/x.yaml").unwrap());
     assert!(!user.is_dir("out/nope").unwrap());
     // An absolute path is as given.
-    assert!(user.write_file("/abs/y", b"Y", false).unwrap());
-    assert_eq!(fs.read(Path::new("/abs/y")).unwrap(), b"Y");
+    assert!(user.write_file(&at("/abs/y"), b"Y", false).unwrap());
+    assert_eq!(fs.read(Path::new(&at("/abs/y"))).unwrap(), b"Y");
 }
 
 #[test]
@@ -717,24 +724,26 @@ fn test_a_tree_is_read_whole_sorted_with_its_dotfiles_and_exec_bits() {
         ],
     )
     .unwrap();
-    assert!(
-        fs.metadata(Path::new("/work/t/a/run.sh"))
-            .unwrap()
-            .executable
-    );
-    assert!(!fs.metadata(Path::new("/work/t/z.md")).unwrap().executable);
+    let exec_bits = keeps_exec_bits();
+    if exec_bits {
+        assert!(
+            fs.metadata(Path::new("/work/t/a/run.sh"))
+                .unwrap()
+                .executable
+        );
+        assert!(!fs.metadata(Path::new("/work/t/z.md")).unwrap().executable);
+    }
     // A link in the tree is not followed and not listed.
     fs.symlink_dir(Path::new("/work/t/a"), Path::new("/work/t/link"))
         .unwrap();
+    // No mode is read back (owner ruling 2026-11-12): the files alone.
     let read = user.read_tree("t").unwrap();
-    let paths: Vec<&str> = read.iter().map(|p| p.path.as_str()).collect();
+    let paths: Vec<&str> = read.keys().map(String::as_str).collect();
     assert_eq!(
         paths,
         ["a/.hidden.meta.yaml", "a/b/c.txt", "a/run.sh", "z.md"]
     );
-    let exec: Vec<bool> = read.iter().map(|p| p.executable).collect();
-    assert_eq!(exec, [false, false, true, false]);
-    assert_eq!(read[1].bytes, b"C");
+    assert_eq!(read["a/b/c.txt"], b"C");
 }
 
 #[test]
@@ -761,7 +770,9 @@ fn test_write_tree_replaces_what_is_there_file_by_file() {
 fn test_a_path_through_a_file_is_an_error_and_not_an_absence() {
     let (_fs, user) = user();
     assert!(user.write_file("plain", b"x", false).unwrap());
-    assert!(user.is_dir("plain/child").is_err());
+    if tells_a_path_through_a_file() {
+        assert!(user.is_dir("plain/child").is_err());
+    }
     let (fs, repo) = empty_repo();
     let file = bundle_file("file", "");
     fs.create_dir_all(file.parent().unwrap(), Mode::from_bits(0o755))

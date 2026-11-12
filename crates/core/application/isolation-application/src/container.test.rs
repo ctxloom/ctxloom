@@ -96,8 +96,8 @@ impl UserFiles for &Files {
         Ok(self.0.borrow().get(path).cloned().unwrap_or_default())
     }
 
-    fn read_tree(&self, _dir: &str) -> Result<Vec<Put>, Failure> {
-        Ok(Vec::new())
+    fn read_tree(&self, _dir: &str) -> Result<ctxloom_ports::TreeFiles, Failure> {
+        Ok(Default::default())
     }
 
     fn write_file(&self, path: &str, bytes: &[u8], overwrite: bool) -> Result<bool, Failure> {

@@ -73,14 +73,18 @@ pub fn same_repository(a: &str, b: &str) -> bool {
 
 /// The path segments a repository's clone is cached under, below the cache
 /// root: the host and path of an https address, the path of a file address;
-/// never an empty, `.` or `..` segment.
+/// never an empty, `.` or `..` segment. A `:` is `_` in every segment, on
+/// every OS (owner ruling 2026-11-12): a port or a Windows drive gives one
+/// layout everywhere (`host_8443`, `C_`), since Windows refuses a `:` in a
+/// file name. The cache is regenerable, so a unix cache spelled with the
+/// `:` is orphaned and cloned again once.
 pub fn cache_segments(url: &str) -> Option<Vec<String>> {
     let key = repository_key(url)?;
     let path = key.strip_prefix("file://").unwrap_or(&key);
     let segments: Vec<String> = path
         .split('/')
         .filter(|s| !s.is_empty() && *s != "." && *s != "..")
-        .map(str::to_string)
+        .map(|s| s.replace(':', "_"))
         .collect();
     (!segments.is_empty()).then_some(segments)
 }

@@ -196,6 +196,46 @@ secrets-scan-staged:
         gitleaks git --pre-commit --staged --redact --verbose --no-banner --no-color \
         --config '{{gates_root}}/.gitleaks.toml' '{{gates_root}}'
 
+# Refuse a commit message that carries an attribution trailer (owner ruling
+# 170): a line that is a `Co-Authored-By:` trailer, in any case, anywhere in
+# the message (the subject and body included, not only the trailer block),
+# leading space and a space before the colon allowed. Prose that only names
+# the words is not a trailer. What follows git's scissors line (`commit -v`'s
+# diff) is not the message, and is not judged. lefthook's commit-msg step,
+# given the message file.
+[no-exit-message]
+[private]
+[group('hook')]
+[doc("commit-msg: refuse an attribution trailer")]
+commit-msg-check msgfile:
+    @just --justfile '{{gates_root}}/justfile' _run commit-msg message trailers \
+        just --justfile '{{gates_root}}/justfile' _no-trailers '{{msgfile}}'
+
+# The judge of `commit-msg-check`: silent on a pass; on a failure, the summary
+# line, then each offending line by its number; exit 1.
+[no-exit-message]
+[private]
+[positional-arguments]
+_no-trailers msgfile:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    found=$(awk '
+        /^. -+ >8 -+$/ { exit }
+        tolower($0) ~ /^[ \t]*co-authored-by[ \t]*:/ { printf "line %d: %s\n", NR, $0 }
+    ' "$1")
+    if [ -n "$found" ]; then
+        echo "the message carries an attribution trailer (ruling 170: no attribution trailers); remove it and commit again"
+        echo "$found"
+        exit 1
+    fi
+
+# The commit-msg judge prints its own summary line, then a line per finding.
+[positional-arguments]
+_extract-trailers log rc:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cat "$1"
+
 # Every test in the workspace, by cargo-nextest (`_tests`), every feature of
 # `feature_rules` on.
 [no-exit-message]
@@ -343,6 +383,8 @@ _tests +packages:
     #!/usr/bin/env bash
     set -euo pipefail
     root='{{gates_root}}'
+    # An array that may be empty is spelled ${a[@]+"${a[@]}"}: macOS's bash
+    # 3.2 calls a bare "${a[@]}" of an empty one unbound under set -u.
     terse=(--status-level fail --final-status-level fail --success-output never --failure-output final
         --hide-progress-bar --cargo-quiet)
     cargo_terse=(-q --message-format=short)
@@ -352,12 +394,12 @@ _tests +packages:
     if [ "$1" = --workspace ]; then
         selection=(--workspace)
         doc=(--workspace)
-        for rule in "${rules[@]}"; do features+=(--features "${rule#*=}"); done
+        for rule in ${rules[@]+"${rules[@]}"}; do features+=(--features "${rule#*=}"); done
     else
         selection=() doc=()
         for name in "$@"; do
             selection+=(--package "$name")
-            for rule in "${rules[@]}"; do
+            for rule in ${rules[@]+"${rules[@]}"}; do
                 [ "${rule%%=*}" = "$name" ] && features+=(--features "${rule#*=}")
             done
         done
@@ -370,10 +412,10 @@ _tests +packages:
     if [ "${#features[@]}" -gt 0 ] && [ -n "{{features_prepare}}" ]; then
         just --justfile "$root/justfile" {{features_prepare}}
     fi
-    cargo test --manifest-path "$root/Cargo.toml" --no-run "${cargo_terse[@]}" "${selection[@]}" "${features[@]}"
+    cargo test --manifest-path "$root/Cargo.toml" --no-run ${cargo_terse[@]+"${cargo_terse[@]}"} ${selection[@]+"${selection[@]}"} ${features[@]+"${features[@]}"}
     rc=0
-    cargo nextest run --manifest-path "$root/Cargo.toml" --no-fail-fast --no-tests=pass "${terse[@]}" \
-        "${selection[@]}" "${features[@]}" || rc=$?
+    cargo nextest run --manifest-path "$root/Cargo.toml" --no-fail-fast --no-tests=pass ${terse[@]+"${terse[@]}"} \
+        ${selection[@]+"${selection[@]}"} ${features[@]+"${features[@]}"} || rc=$?
     case "$rc" in
         0|100|101) ;;
         *)
@@ -386,7 +428,7 @@ _tests +packages:
     # need was built above, so their failing is a red doc test (one that does
     # not compile included), not a build failure: 120, not cargo's 101.
     if [ "$rc" -eq 0 ] && [ "${#doc[@]}" -gt 0 ]; then
-        cargo test --manifest-path "$root/Cargo.toml" --doc "${cargo_terse[@]}" "${doc[@]}" "${features[@]}" || rc=120
+        cargo test --manifest-path "$root/Cargo.toml" --doc ${cargo_terse[@]+"${cargo_terse[@]}"} ${doc[@]+"${doc[@]}"} ${features[@]+"${features[@]}"} || rc=120
     fi
     exit "$rc"
 

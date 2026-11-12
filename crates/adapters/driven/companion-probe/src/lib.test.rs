@@ -104,12 +104,18 @@ fn test_a_program_that_fails_is_said_to_have_failed() {
 
 #[test]
 fn test_a_program_that_cannot_be_run_has_failed() {
+    let missing = os::fixture("/no/such/program");
     let Err(Unanswered::Missing(detail)) =
-        ProcessProbe::standard(env()).answers(&["/no/such/program".to_string()])
+        ProcessProbe::standard(env()).answers(&[missing.to_str().unwrap().to_string()])
     else {
         panic!("should fail");
     };
-    assert!(detail.contains("No such file"), "{detail}");
+    // The system's own words for a program that is not there.
+    let words = std::process::Command::new(&missing)
+        .spawn()
+        .expect_err("no such program")
+        .to_string();
+    assert!(detail.contains(&words), "{detail}");
 }
 
 #[test]

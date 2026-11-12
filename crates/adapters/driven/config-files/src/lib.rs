@@ -70,9 +70,14 @@ pub fn find_app_dir(fs: &dyn Fs, around: &Surroundings) -> AppDir {
     }
     // The rule is this app's: the nearest `.ctxloom` directory, not looking
     // at the temporary directory or above it. The walk is the shared crate's.
+    // The temporary directory is known however it is spelled (Windows names
+    // one directory by its 8.3 short name and its long one, `\\?\` or not):
+    // each is compared as the host resolves it.
+    let resolved = |dir: &Path| fs.canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+    let temp_root = resolved(&around.temp_root);
     let nearest = project_dir::nearest_ancestor(
         &around.cwd,
-        |dir| dir == around.temp_root,
+        |dir| resolved(dir) == temp_root,
         |dir| project_dir::holds_dir(fs, dir, APP_DIR_NAME),
     );
     if let Some(root) = nearest {

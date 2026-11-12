@@ -27,20 +27,27 @@ fn pulled() -> (Fixture, String) {
 fn test_installed_bundles_are_named_by_their_remote_and_carry_their_tree() {
     let fx = Fixture::new();
     fx.remotes.serve(URL);
-    let mut files: Vec<(String, String, bool)> = demo("1.0.0", "x")
+    let mut files: Vec<(String, String)> = demo("1.0.0", "x")
         .iter()
-        .map(|(p, t)| (p.to_string(), t.to_string(), false))
+        .map(|(p, t)| (p.to_string(), t.to_string()))
         .collect();
+    files.push((
+        format!("{BUNDLES}/demo/skills/runner/SKILL.md"),
+        "---\nname: runner\n---\n".to_string(),
+    ));
     files.push((
         format!("{BUNDLES}/demo/skills/runner/scripts/run.sh"),
         "#!/bin/sh\n".to_string(),
-        true,
     ));
-    let refs: Vec<(&str, &str, bool)> = files
+    files.push((
+        format!("{BUNDLES}/demo/skills/.runner.meta.yaml"),
+        "executable:\n  - scripts/run.sh\n".to_string(),
+    ));
+    let refs: Vec<(&str, &str)> = files
         .iter()
-        .map(|(p, t, e)| (p.as_str(), t.as_str(), *e))
+        .map(|(p, t)| (p.as_str(), t.as_str()))
         .collect();
-    let sha = fx.remotes.commit_modes(URL, &refs);
+    let sha = fx.remotes.commit(URL, &refs);
     fx.register("origin", URL);
     fx.profile("dev", &[&demo_ref()]);
     ok(fx.deps.pull(false, true));
@@ -58,9 +65,11 @@ fn test_installed_bundles_are_named_by_their_remote_and_carry_their_tree() {
     );
     assert_eq!(bundle.path, format!("/p/.ctxloom/cache/bundles/{sha}"));
     assert!(bundle.files.contains_key("bundle.yaml"));
+    // The install wrote executable what the sidecar declares (owner ruling
+    // 2026-11-12), and nothing else.
     assert_eq!(
-        bundle
-            .executable
+        fx.files
+            .installed_executable(&demo_ref(), &sha)
             .iter()
             .map(String::as_str)
             .collect::<Vec<_>>(),

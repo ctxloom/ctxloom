@@ -41,7 +41,7 @@ fn registered(names: &[&str], register: &[&str]) -> (file_system::Rooted, Regist
         Ok(work),
         base.temp_dir().to_path_buf(),
         vec![
-            ("HOME".into(), home.into_os_string()),
+            (crate::fixtures::home_var().into(), home.into_os_string()),
             ("PATH".into(), path.into()),
         ],
     ));
@@ -99,7 +99,7 @@ fn engines_of(names: &[&str], config: Option<&str>) -> (file_system::Rooted, Eng
         base.flavor(),
         Ok(work),
         base.temp_dir().to_path_buf(),
-        vec![("HOME".into(), home.into_os_string())],
+        vec![(crate::fixtures::home_var().into(), home.into_os_string())],
     ));
     let wiring = crate::Wiring::new(env).unwrap();
     let library = Rc::new(crate::library::build(&wiring, None).unwrap());

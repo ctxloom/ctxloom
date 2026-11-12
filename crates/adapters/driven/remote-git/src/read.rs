@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use deps_ports::{RepoFile, RepoTree, Why};
+use deps_ports::{RepoTree, Why};
 
 use crate::command::Git;
 use crate::BUNDLES;
@@ -124,15 +124,11 @@ pub(crate) fn bundle(
         .collect();
     let contents = blobs(git, dir, &objects)?;
     let mut tree = RepoTree::new();
-    for ((mode, _, path), data) in entries.iter().zip(contents) {
+    // The bytes alone: a committed mode is never read (owner ruling
+    // 2026-11-12); the sidecars say what is executable.
+    for ((_, _, path), data) in entries.iter().zip(contents) {
         let relative = path.strip_prefix(&prefix).unwrap_or(path).to_string();
-        tree.insert(
-            relative,
-            RepoFile {
-                data,
-                executable: mode == "100755",
-            },
-        );
+        tree.insert(relative, data);
     }
     Ok(Some(tree))
 }

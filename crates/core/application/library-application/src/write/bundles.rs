@@ -309,8 +309,8 @@ impl Project {
             }
             _ => typed,
         };
-        let puts = ports.user.read_tree(dir).map_err(AppError::Cause)?;
-        if !puts.iter().any(|p| p.path == "bundle.yaml") {
+        let files: Files = ports.user.read_tree(dir).map_err(AppError::Cause)?;
+        if !files.contains_key("bundle.yaml") {
             return Err(WriteError::NotABundle {
                 path: dir.to_string(),
             }
@@ -320,10 +320,6 @@ impl Project {
         if !valid_bundle_name(&name) || name == "." {
             return Err(WriteError::BadBundleName {}.into());
         }
-        let files: Files = puts
-            .iter()
-            .map(|p| (p.path.clone(), p.bytes.clone()))
-            .collect();
         let bundle = library::tree::read_tree(&name, &files).map_err(|cause| {
             WriteError::ImportUnreadable {
                 path: dir.to_string(),
@@ -351,8 +347,11 @@ impl Project {
         } else {
             Plan::of(Files::new(), Default::default())
         };
-        for put in &puts {
-            plan.put(&put.path, put.bytes.clone(), put.executable);
+        // The sidecar the import brings says what is executable, never the
+        // modes of the files imported (owner ruling 2026-11-12).
+        let exec = library::write::skill::declared_executables(&files);
+        for (path, bytes) in &files {
+            plan.put(path, bytes.clone(), exec.contains(path));
         }
         let stale: Vec<String> = plan
             .files()

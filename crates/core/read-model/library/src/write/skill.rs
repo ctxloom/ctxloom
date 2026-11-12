@@ -2,13 +2,18 @@
 //! `surface_skill.go`): the directory `skills/<n>/` is the skill, and the
 //! sidecar `skills/.<n>.meta.yaml` says what the directory cannot: its tags
 //! and notes and which files are executable. A file's mode bit is not
-//! portable; the sidecar's `executable:` is the whole of it (plan §8.2).
+//! portable; the sidecar's `executable:` is the whole of it (plan §8.2), on
+//! every OS (owner ruling 2026-11-12): no mode is read from disk or from git,
+//! by `skill show`, an export, an import, an installed or a fetched bundle,
+//! or a pin's disclosure, and a push commits the declared files 100755.
+
+use std::collections::BTreeSet;
 
 use angzarr_yaml::edit::Document;
 use angzarr_yaml::Value;
 
 use super::yamledit::drop_key;
-use crate::frontmatter::meta_path_for_name;
+use crate::frontmatter::{is_meta_path, meta_path_for_name, stem_of};
 use crate::BundleError;
 
 /// The description `skill create` writes when none is given.
@@ -53,6 +58,31 @@ pub fn executable_files(sidecar: Option<&str>) -> Vec<String> {
             })
         })
         .unwrap_or_default()
+}
+
+/// The files of a bundle's tree (`files`, by path in the bundle) that its
+/// skills' sidecars declare executable, by path in the bundle: on every OS
+/// the sidecar's `executable:` is the whole of it, never a mode bit (owner
+/// ruling 2026-11-12). A listed file the tree does not hold is not one.
+pub fn declared_executables(files: &crate::tree::Files) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    for (path, bytes) in files {
+        let Some(rest) = path.strip_prefix("skills/") else {
+            continue;
+        };
+        if rest.contains('/') || !is_meta_path(rest) {
+            continue;
+        }
+        let name = stem_of(rest);
+        let text = String::from_utf8_lossy(bytes);
+        for listed in executable_files(Some(&text)) {
+            let file = format!("{}/{listed}", package_dir(&name));
+            if files.contains_key(&file) {
+                out.insert(file);
+            }
+        }
+    }
+    out
 }
 
 fn unwritable(error: angzarr_yaml::edit::EditError) -> BundleError {

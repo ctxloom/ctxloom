@@ -41,10 +41,13 @@ impl Common {
     }
 
     /// The commands of a docstring (one per line) or one line, run in turn
-    /// (`$PROJECT_DIR` is the project's directory); the first to fail is the
-    /// one the next step sees.
+    /// (`$PROJECT_DIR` is the project's directory; in the input, which is
+    /// JSON, as JSON writes it, so a Windows path's `\` is escaped); the first
+    /// to fail is the one the next step sees.
     pub(crate) fn run_lines(&mut self, lines: &str, input: &str) {
         let dir = self.project.dir().display().to_string();
+        let quoted = serde_json::to_string(&dir).expect("a string is JSON");
+        let in_json = &quoted[1..quoted.len() - 1];
         for line in lines.lines().map(str::trim).filter(|l| !l.is_empty()) {
             let line = line.replace("$PROJECT_DIR", &dir);
             let words = split(&line);
@@ -59,7 +62,7 @@ impl Common {
                 self.project.run_with(&env, &args)
             } else {
                 self.project
-                    .run_input(&args, &input.replace("$PROJECT_DIR", &dir), &env)
+                    .run_input(&args, &input.replace("$PROJECT_DIR", in_json), &env)
             };
             let failed = ran.code != 0;
             self.line = line;

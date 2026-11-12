@@ -208,7 +208,9 @@ fn commit_files(
             .map_err(step(format!("create blob for {path}")))?;
         entries.push(json!({
             "path": path,
-            "mode": "100644",
+            // What the sidecars declare is executable (owner ruling
+            // 2026-11-12).
+            "mode": if request.executable.contains(path) { "100755" } else { "100644" },
             "type": "blob",
             "sha": string_at(&blob, &["sha"], "blob")?,
         }));

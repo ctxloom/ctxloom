@@ -1,0 +1,12 @@
+# Text is checked out with LF line ends on every OS. Prompts, templates and
+# fixtures are compiled in (`include_str!`) or read by tests and compared byte
+# for byte; a Windows checkout's CRLF (git's `core.autocrlf`) would put a
+# carriage return in every line ctxloom writes from them, and in the bytes the
+# tests pin. Binary files are detected and left as they are.
+* text=auto eol=lf
+
+# Golden testdata whose bytes are compared (Go's fixture tree and golden,
+# whose sizes and digests are the golden's; the binary's Go-parity outputs):
+# never converted, by any checkout or commit.
+crates/adapters/driven/content-fs/testdata/** -text
+crates/root/bin/ctxloom/fixtures/golden/** -text

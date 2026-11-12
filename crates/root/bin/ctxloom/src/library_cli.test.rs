@@ -300,10 +300,9 @@ const SKILL_ROOT: &str = ".ctxloom/content/bundles/v2/vault";
 
 /// Go's "Alice's project has a directory-form bundle "vault"" with the skill
 /// `skill create vault reviewer -d SKILL-MARKER-reviewer-9f3c21` makes, and
-/// "Alice adds an executable scripts/run.sh" (`steps_skill.go`: written with
-/// mode 0755 on disk, which is what `skill show` reports: Go reads a package's
-/// listing off its directory, so the mode is the file's, whatever a sidecar
-/// declares).
+/// "Alice adds an executable scripts/run.sh" (`steps_skill.go` wrote it 0755
+/// on disk, which Go read; here the sidecar's `executable:` is what `skill
+/// show` reports, on every OS, and no mode is read: owner ruling 2026-11-12).
 fn vault_with_reviewer() -> Project {
     let project = Project::initialized().on_gos_catalog();
     project.write(
@@ -324,8 +323,9 @@ fn vault_with_reviewer() -> Project {
     project
 }
 
-// skill.feature: Scenario: Alice authors a skill package and its listing and
-// show reflect the real tree
+// skill.feature's dropped Scenario: Alice authors a skill package and its
+// listing and show reflect the real tree (its rule named the mode on disk the
+// truth, which owner ruling 2026-11-12 contradicts: the sidecar says)
 #[test]
 fn test_a_skills_listing_and_show_reflect_the_real_tree() {
     let project = vault_with_reviewer();

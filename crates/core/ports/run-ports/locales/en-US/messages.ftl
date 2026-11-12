@@ -32,3 +32,5 @@ run-ports-child-not-started = could not start the child's engine { $program }: {
 run-ports-child-not-started-fix = check that { $program } is installed and on the PATH ctxloom runs it with (or set engines.<engine>.command)
 run-ports-child-closed = the child has ended, or its engine has exited: it takes no more messages
 run-ports-child-io = could not reach the child's engine: { $ext_err_txt }
+run-ports-command-too-long = the engine's command is too long to start on { $os }: its { $measure } is { $length } where at most { $limit } fit, and the session's opening prompt is the one long part of it
+run-ports-command-too-long-fix = start the session without the prompt and paste it in once it is open, or use `ctxloom run --one-shot`, which reads the prompt from stdin

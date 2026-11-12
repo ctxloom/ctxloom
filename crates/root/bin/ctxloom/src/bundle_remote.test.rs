@@ -136,10 +136,11 @@ fn test_moving_a_bundle_into_another_project_lands_it_in_that_project_s_content_
     ran.succeeds();
     let doc = ran.json();
     assert_eq!(reports_as(&doc, "status"), "moved");
-    assert_eq!(
-        reports_as(&doc, "dest"),
-        "other-project/.ctxloom/content/bundles/v2/demo"
-    );
+    // Shown in the host's spelling, a step at a time.
+    let dest: std::path::PathBuf = "other-project/.ctxloom/content/bundles/v2/demo"
+        .split('/')
+        .collect();
+    assert_eq!(reports_as(&doc, "dest"), dest.display().to_string());
     let landed = |rel: &str| {
         world.file(&format!(
             "other-project/.ctxloom/content/bundles/v2/demo/{rel}"

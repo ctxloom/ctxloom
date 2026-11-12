@@ -12,11 +12,10 @@
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
-use std::process::Command;
 
 use serde_json::Value;
 
-use super::{repo_root, run};
+use super::run;
 use crate::tests::files;
 
 /// A crate of the dependency graph: its name and its directory.
@@ -26,14 +25,7 @@ struct Package {
 }
 
 fn packages() -> Vec<Package> {
-    let output = Command::new(env!("CARGO"))
-        .args(["metadata", "--format-version", "1", "--offline"])
-        .arg("--manifest-path")
-        .arg(repo_root().join("Cargo.toml"))
-        .output()
-        .expect("cargo runs");
-    assert!(output.status.success(), "cargo metadata failed");
-    let meta: Value = serde_json::from_slice(&output.stdout).expect("metadata is JSON");
+    let meta: Value = super::cargo_metadata();
     meta["packages"]
         .as_array()
         .expect("packages")

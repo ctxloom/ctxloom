@@ -73,8 +73,17 @@ fn a_silent_failure_is_named_by_the_command_not_its_flags() {
     let dir = root();
     put(dir.root().join("a"), "1");
     put(dir.root().join("b"), "2");
-    let said = run(dir.root(), &["diff", "--no-index", "--quiet", "a", "b"]).unwrap_err();
-    assert_eq!(said, "git diff: exit status: 1");
+    let args = ["diff", "--no-index", "--quiet", "a", "b"];
+    let said = run(dir.root(), &args).unwrap_err();
+    // git's status as the host says it (`exit status: 1`; `exit code: 1` on
+    // Windows).
+    let status = std::process::Command::new("git")
+        .args(args)
+        .current_dir(dir.root())
+        .status()
+        .expect("git runs");
+    assert_eq!(status.code(), Some(1));
+    assert_eq!(said, format!("git diff: {status}"));
 }
 
 #[test]

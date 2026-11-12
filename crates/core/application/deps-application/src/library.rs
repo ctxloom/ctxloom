@@ -38,15 +38,7 @@ impl RemoteLibrary for Deps {
                     sha: entry.sha.clone(),
                     path: self.files.installed_path(&slot, &entry.sha),
                     url: remote.url,
-                    executable: tree
-                        .iter()
-                        .filter(|(_, file)| file.executable)
-                        .map(|(path, _)| path.clone())
-                        .collect(),
-                    files: tree
-                        .into_iter()
-                        .map(|(path, file)| (path, file.data))
-                        .collect(),
+                    files: tree,
                 });
             }
         }
@@ -124,7 +116,7 @@ impl Deps {
         for name in names {
             let meta = match ByAddress(self.remotes.as_ref()).read_bundle(url, &tip, &name) {
                 Ok(Some(tree)) => {
-                    let files = tree.into_iter().map(|(k, f)| (k, f.data)).collect();
+                    let files = tree;
                     read_tree(&name, &files).ok()
                 }
                 _ => None,

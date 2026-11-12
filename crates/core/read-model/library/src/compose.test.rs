@@ -670,7 +670,6 @@ fn installed_kit() -> Catalog {
                 url: "file:///srv/o.git".to_string(),
                 sha: "a".repeat(40),
                 files: BTreeMap::new(),
-                executable: BTreeSet::new(),
             },
         )]
         .into(),

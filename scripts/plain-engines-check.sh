@@ -30,9 +30,11 @@ if [ -n "$root" ]; then
     native=$(cygpath -w "$home")
     windows=(USERPROFILE="$native" TEMP="$native" TMP="$native" SYSTEMROOT="$root" WINDIR="$root")
 fi
+# An empty array is spelled ${a[@]+"${a[@]}"}: macOS's bash 3.2 calls a bare
+# "${a[@]}" of an empty one unbound under set -u.
 # A Windows jq ends its lines CRLF; its answers here are compared as text.
 jq() { command jq "$@" | tr -d '\r'; }
-ctxloom() { (cd "$home" && env -i PATH="$PATH" HOME="$home" TMPDIR="$home" "${windows[@]}" "$bin" "$@"); }
+ctxloom() { (cd "$home" && env -i PATH="$PATH" HOME="$home" TMPDIR="$home" ${windows[@]+"${windows[@]}"} "$bin" "$@"); }
 
 listed=$(ctxloom engine list --format json) || {
     echo "plain build: engine list failed"; echo "$listed"; exit 1; }

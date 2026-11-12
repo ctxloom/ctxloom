@@ -9,6 +9,13 @@
 //! - The opening is `sqlite-store-opener`'s: this crate is the file name, the
 //!   placement under the home and the [`ProjectStores`] port. A store from
 //!   before the embedded store is refused ([`OpenError::PredatesEmbedded`]).
+//! - ctxloom's home directory, `<home>/.ctxloom`, is its owner's alone
+//!   (0700, owner ruling 2026-11-12), set on every open that finds a store,
+//!   to write or to read, so one another writer made open to others is made
+//!   so on the store's next open; the store itself (its directory 0700, the
+//!   file, `-wal` and `-shm` 0600) is the opener's. On Windows the seam sets
+//!   no mode (ruling M8: the profile's ACL holds it). A mode that cannot be
+//!   set fails the open ([`OpenError::Restrict`]), the store closed.
 //! - Errors are the opener's and the project id's, each under its own code.
 //! - A store is closed, never dropped, where its file matters after (ruling
 //!   131): [`SqliteStore::close`] waits for the connection's close, so when
@@ -26,6 +33,7 @@ use std::sync::Arc;
 use angzarr_embedded::angzarr_store_sqlite::SqliteStore;
 use angzarr_embedded::StoreError;
 use file_system::Fs;
+use os::Mode;
 use ports::Project;
 use session_ports::ProjectStores;
 use sqlite_store_opener::Opener;
@@ -38,11 +46,15 @@ pub use sqlite_store_opener::{OpenError, EN_US};
 /// The app's directory under a home.
 const APP_DIR: &str = ".ctxloom";
 
+/// ctxloom's home directory's mode: its owner's alone.
+const PRIVATE_DIR: Mode = Mode::from_bits(0o700);
+
 /// The store's file name: beside taskloom's `state.db`, never the same file.
 const FILE_NAME: &str = "ctxloom.db";
 
 /// The ctxloom stores under one home.
 pub struct Stores {
+    fs: Arc<dyn Fs>,
     opener: Opener,
     home: PathBuf,
 }
@@ -51,7 +63,8 @@ impl Stores {
     /// The stores under `home`, on `fs`; none opened yet.
     pub fn new(fs: Arc<dyn Fs>, home: impl Into<PathBuf>) -> Stores {
         Stores {
-            opener: Opener::new(fs, FILE_NAME),
+            opener: Opener::new(Arc::clone(&fs), FILE_NAME),
+            fs,
             home: home.into(),
         }
     }
@@ -74,9 +87,17 @@ impl Stores {
         let path = self
             .path(project)
             .map_err(StoreOpenError::into_store_error)?;
-        self.opener
+        let Some(store) = self
+            .opener
             .open_existing(&path)
             .await
+            .map_err(OpenError::into_store_error)?
+        else {
+            return Ok(None);
+        };
+        self.private(store)
+            .await
+            .map(Some)
             .map_err(OpenError::into_store_error)
     }
 
@@ -85,10 +106,30 @@ impl Stores {
     /// refused.
     pub async fn open(&self, project: &str) -> Result<SqliteStore, StoreOpenError> {
         let path = self.path(project)?;
-        self.opener
+        let store = self
+            .opener
             .open_for_write(&path)
             .await
-            .map_err(StoreOpenError::Open)
+            .map_err(StoreOpenError::Open)?;
+        self.private(store).await.map_err(StoreOpenError::Open)
+    }
+
+    /// `store`, once ctxloom's home directory is 0700; closed, and the
+    /// failure, if its mode cannot be set.
+    async fn private(&self, store: SqliteStore) -> Result<SqliteStore, OpenError> {
+        let app_dir = self.home.join(APP_DIR);
+        match self.fs.set_permissions(&app_dir, PRIVATE_DIR) {
+            Ok(()) => Ok(store),
+            Err(error) => {
+                // The failure to make it private is the one said; the
+                // store is closed, never dropped, either way.
+                let _closed = store.close().await;
+                Err(OpenError::Restrict {
+                    path: app_dir.display().to_string(),
+                    detail: error.to_string(),
+                })
+            }
+        }
     }
 }
 

@@ -13,6 +13,8 @@ angzarr-diagnostic.workspace = true
 # `sqlite` feature), at the rev the kernel is built with.
 angzarr-embedded = { workspace = true, features = ["sqlite"] }
 file-system.workspace = true
+# The home directory's mode, set through the seam.
+os.workspace = true
 project-dir.workspace = true
 # The Project the store is opened for (taskloom's ports, by commit) and the port
 # it implements.
@@ -25,7 +27,6 @@ sqlite-store-opener.workspace = true
 [dev-dependencies]
 sqlite-store-opener = { workspace = true, features = ["test-support"] }
 file-system = { workspace = true, features = ["test-support"] }
-os.workspace = true
 tokio = { workspace = true, features = ["macros"] }
 
 [features]

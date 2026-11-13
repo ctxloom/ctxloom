@@ -34,6 +34,34 @@ leak-timeout = { period = "1s", result = "fail" }
 capture-stdout = true
 capture-stderr = true
 
+# Every test runs with no home of the shell it was started in (OD-34): the
+# owner's and every agent's shell carries CTXLOOM_HOME (which ctxloom reads
+# before HOME) and an engine's relocated CLAUDE_CONFIG_DIR, OPENCODE_CONFIG_DIR
+# and XDG bases, and a test that kept one once registered 85 temporary
+# projects in the owner's real ctxloom home. The script names each as a file
+# under which nothing can be created, so such a test fails instead. Here and
+# not in the justfile: every test gate (test, test-pkg, test-staged) and the
+# mutation run go through nextest and this file.
+[scripts.setup.guard-homes]
+command = 'scripts/nextest-guard-homes.sh'
+capture-stdout = true
+capture-stderr = true
+
+[scripts.setup.guard-homes-windows]
+command = ['sh', 'scripts/nextest-guard-homes.sh']
+capture-stdout = true
+capture-stderr = true
+
+[[profile.default.scripts]]
+platform = 'cfg(unix)'
+filter = 'all()'
+setup = 'guard-homes'
+
+[[profile.default.scripts]]
+platform = 'cfg(windows)'
+filter = 'all()'
+setup = 'guard-homes-windows'
+
 [[profile.default.scripts]]
 platform = 'cfg(unix)'
 filter = 'package(ctxloom)'

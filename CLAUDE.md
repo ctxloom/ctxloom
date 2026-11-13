@@ -375,7 +375,38 @@ turn, message, tool-batch and compaction (`PreCompact`, `PostCompact`) events.
 A one-shot CHILD's home (owner ruling 51) registers the per-turn ones only:
 `UserPromptSubmit`, `PostToolBatch`, `MessageDisplay`, `Stop`, `PreCompact`,
 `PostCompact`; never `SessionStart` or `SessionEnd`, which `claude -p` fires
-once per PROCESS (every turn), and whose slow hook claude cancels. The hook
+once per PROCESS (every turn), and whose slow hook claude cancels.
+EVERYTHING ctxloom delivered at rest rides the launch (owner ruling
+2026-11-12), from the RUN agent's selection (`DryRun.surfaces`, library-
+application's `launch_surfaces` over `Project::carried`, the same as
+`package`; `Order.surfaces` -> `PrepareRequest.surfaces`, a
+`run_ports::LaunchSurfaces` whose `Debug` names what it carries and withholds
+every value), in every working directory: claude lays the bundles' authored
+hooks and ctxloom's own callbacks (session-start, skill-mates) into
+`ctxloom-hooks.json` beside the capture events, each once (a child: no
+`SessionStart`/`SessionEnd`), and the statusline (`statusLine`) there too;
+`deny_tools` is `permissions.deny` laid over the agent's document where it
+lives (the session home's `settings.json`, or the hooks file under `host`);
+the servers not served by the session are `ctxloom-mcp.json`, written at
+every launch and named by `--mcp-config` (variadic: an option always follows
+it); the commands and skills are the session home's `commands/` and
+`skills/` (claude's user scope under CLAUDE_CONFIG_DIR), and under
+`session_home: host` files written into the session's checkout alone
+(`Prepared::workspace_files`, hidden by `Engine::workspace_patterns`,
+`.claude/commands/` and `.claude/skills/`; never the live project), taken out
+at the release before the checkout goes. Probed live on claude 2.1.322 (the
+stream's `init` event, temporary project and CLAUDE_CONFIG_DIR, no model
+call): `--mcp-config` loads (`source: dynamic`) and replaces a same-named
+project server, user-scope `commands/` and `skills/` are offered, and
+`--disallowedTools` (variadic, so unused) removes a tool. opencode's
+plugin runs the bundles' authored hooks (`ctxloom-authored-hooks.json` in its
+session home: `tool.execute.before`, where exit 2 blocks the call,
+`tool.execute.after`, `session.created`, `chat.message`, `session.idle`; read
+from opencode 1.18.4's plugin interface, not run live). A project refresh
+gives back at rest what a launch carries (`EngineSurfaces::rides_launch`:
+every kind for claude; the context left as before), and `manage check` says
+`hooks_at_launch`; an explicit `materialize` still writes them at rest; a
+bare `claude` started without ctxloom has none of them (accepted). The hook
 command is the bare FILE NAME of the running binary (owner rulings 163, 164;
 `ctxloom` for a binary of that name, which is what `just install`
 installs): claude's hooks and statusline, at rest and in a session
@@ -604,8 +635,7 @@ Under `session_home: host` (the config dir is the user's own `~/.claude`,
 never written) the block stays the `permissions` of the hooks file, with the
 cost that a bad value there disables the hooks too. No `--permission-mode` is
 passed, claude's mode is the document's `defaultMode`. A profile's
-`deny_tools` stays `permissions.deny` of the project's `.claude/settings.json`
-(surface apply), and claude merges the files' lists itself. engine-opencode writes the session home's `opencode.json`
+`deny_tools` rides the launch (above), laid into the same `permissions.deny`. engine-opencode writes the session home's `opencode.json`
 (`OPENCODE_CONFIG_DIR`, which opencode 1.18.4 reads after the project's) with
 the document as its `permission` object (none, no `permission`, so no earlier
 run's lingers; read from the 1.18.4 bundle, not run live), over the user's

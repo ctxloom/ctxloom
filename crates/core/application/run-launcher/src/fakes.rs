@@ -862,6 +862,8 @@ impl isolation_ports::Workspaces for ScriptedWorkspaces {
         self.asked.lock().unwrap().push(request.clone());
         (self.answer)(request)
     }
+    // Test double; behaviour not under test: no launcher test asks it.
+    #[cfg_attr(test, mutants::skip)]
     fn session_known(&self, _: &str) -> Result<bool, isolation_ports::Failure> {
         Ok(false)
     }
@@ -878,6 +880,8 @@ impl isolation_ports::Workspaces for ScriptedWorkspaces {
         let mut placed = self.files.lock().unwrap();
         placed.extend(rels.iter().map(|rel| format!("-{checkout}/{rel}")));
     }
+    // Test double; equivalent: its mutant `Ok(vec![])` is this same empty list.
+    #[cfg_attr(test, mutants::skip)]
     fn scratch(
         &self,
         _: Option<&str>,

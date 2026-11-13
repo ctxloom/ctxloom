@@ -801,6 +801,29 @@ fn files_placed_in_a_checkout_are_hidden_and_taken_out_before_its_removal() {
     );
 }
 
+// Taking a placed file out takes out only the directories it leaves empty:
+// one that still holds another file, and every one above it, stays.
+#[test]
+fn taking_a_placed_file_out_keeps_a_directory_that_still_holds_one() {
+    let f = Fixture::new();
+    let checkout = f.prepared("amber-quiet-heron", "reviewer");
+    let ws = f.adapter();
+    let gone = ".claude/commands/gone.md".to_string();
+    let kept = ".claude/commands/kept.md".to_string();
+    ws.place_files(
+        &checkout.path,
+        &[
+            (gone.clone(), b"GONE".to_vec()),
+            (kept.clone(), b"KEPT".to_vec()),
+        ],
+    )
+    .unwrap();
+    ws.remove_files(&checkout.path, std::slice::from_ref(&gone));
+    let root = Path::new(&checkout.path);
+    assert!(!exists(root.join(&gone)));
+    assert_eq!(slurp(root.join(&kept)), "KEPT");
+}
+
 // A path that is not plainly relative is refused, and nothing written.
 #[test]
 fn a_placed_file_may_not_climb_out_of_its_checkout() {

@@ -106,3 +106,37 @@ fn test_a_hook_the_plugin_cannot_run_as_written_is_left_out() {
     let doc = of(&[("pre_tool", vec![prompt, hook("echo X", "nonsense")])]);
     assert_eq!(doc, Json::Object(Vec::new()));
 }
+
+// `post_tool` is `tool.after` un-narrowed, and a hook narrowed to `skill`
+// runs on opencode's `skill` tool.
+#[test]
+fn test_post_tool_is_tool_after_and_skill_is_its_tool() {
+    let doc = of(&[(
+        "post_tool",
+        vec![hook("echo POST", ""), hook("echo SK", "skill")],
+    )]);
+    assert_eq!(
+        lines(&doc, "tool.after"),
+        ["echo POST []", "echo SK [skill]"]
+    );
+}
+
+// A hook whose kind says `command` is one; a command hook with no command
+// line is left out; a hook with no timeout carries none.
+#[test]
+fn test_a_command_kind_runs_an_empty_command_does_not_and_no_timeout_is_none() {
+    let explicit = Hook {
+        kind: "command".to_string(),
+        command: "echo KIND".to_string(),
+        ..Hook::default()
+    };
+    let empty = Hook {
+        command: String::new(),
+        timeout: 3,
+        ..Hook::default()
+    };
+    let doc = of(&[("turn_end", vec![explicit, empty])]);
+    assert_eq!(lines(&doc, "turn.end"), ["echo KIND []"]);
+    let only = &doc.get("turn.end").unwrap().as_array().unwrap()[0];
+    assert_eq!(only.get("timeout"), None);
+}

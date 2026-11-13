@@ -3222,7 +3222,6 @@ dependencies = [
  "deps",
  "library",
  "serde",
- "serde_json",
 ]
 
 [[package]]

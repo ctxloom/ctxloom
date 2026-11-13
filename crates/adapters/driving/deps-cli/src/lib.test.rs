@@ -629,9 +629,58 @@ fn test_deps_pull_text_says_what_it_installed_kept_and_removed() {
         forced.out
     );
     assert_eq!(
-        go(&fx, &["deps", "pull", "-f", "--lock=false"], JSON).json()["reconcile"],
+        go(&fx, &["deps", "pull", "-f", "--lock=false"], JSON).json()["reconciliation"],
         serde_json::Value::Null
     );
+}
+
+// OD-40, B4: `PullDependenciesResponse`: one `results` list, each row's
+// state; a first pin's disclosure as `PinChange`; no status or counts.
+#[test]
+fn test_deps_pull_json_is_each_result_by_its_state_and_the_first_pins() {
+    let fx = Fixture::new();
+    let sha = fx.origin("origin", URL);
+    fx.profile("dev", &[&demo_ref()]);
+    let dependency = named(&format!("dependencies/{}", dependency_id(&demo_ref())));
+    let first = go(&fx, &["deps", "pull"], JSON).json();
+    assert_eq!(
+        first,
+        serde_json::json!({
+            "applied": true,
+            "results": [{
+                "dependency": dependency,
+                "reference": demo_ref(),
+                "kind": "BUNDLE",
+                "state": "INSTALLED",
+            }],
+            "changes": [{
+                "reference": demo_ref(),
+                "url": URL,
+                "new_commit": sha,
+                "items": [{"kind": "FRAGMENT", "item": "demo-frag", "change": "ADDED"}],
+                "files": [
+                    {"path": "bundle.yaml", "change": "ADDED"},
+                    {"path": "fragments/demo-frag.md", "change": "ADDED"},
+                ],
+            }],
+            "reconciliation": {},
+        })
+    );
+    let again = go(&fx, &["deps", "pull"], JSON).json();
+    assert_eq!(again["results"][0]["state"], "KEPT", "{again}");
+    assert!(again.get("changes").is_none(), "{again}");
+    let forced = go(&fx, &["deps", "pull", "--force"], JSON).json();
+    assert_eq!(forced["results"][0]["state"], "REINSTALLED", "{forced}");
+    for gone in [
+        "status",
+        "message",
+        "total",
+        "installed",
+        "synced",
+        "skipped",
+    ] {
+        assert!(forced.get(gone).is_none(), "{gone}: {forced}");
+    }
 }
 
 #[test]
@@ -641,7 +690,11 @@ fn test_a_pull_over_nothing_says_so() {
         go(&fx, &["deps", "pull"], TEXT).ok().out,
         "No remote dependencies to pull.\n"
     );
-    assert_eq!(go(&fx, &["deps", "pull"], JSON).json()["status"], "empty");
+    // OD-40: an empty pull is `{}` (no status, message or counts).
+    assert_eq!(
+        go(&fx, &["deps", "pull"], JSON).json(),
+        serde_json::json!({})
+    );
 }
 
 #[test]
@@ -664,6 +717,10 @@ fn test_a_pull_says_what_upstream_withdrew_and_what_it_could_not_check() {
         "{}",
         unreachable.err
     );
+    let json = go(&fx, &["deps", "pull"], JSON).json();
+    let unreachable = &json["reconciliation"]["unreachable_remotes"][0];
+    assert_eq!(unreachable["url"], URL, "{json}");
+    assert_eq!(unreachable["references"][0], demo_ref(), "{json}");
     fx.remotes.set_unreachable(URL, false);
     fx.remotes.delete(
         URL,
@@ -671,6 +728,12 @@ fn test_a_pull_says_what_upstream_withdrew_and_what_it_could_not_check() {
             &format!("{BUNDLES}/demo/bundle.yaml"),
             &format!("{BUNDLES}/demo/fragments/demo-frag.md"),
         ],
+    );
+    let gone_json = go(&fx, &["deps", "pull"], JSON).json();
+    assert_eq!(
+        gone_json["reconciliation"]["gone_references"],
+        serde_json::json!([demo_ref()]),
+        "{gone_json}"
     );
     let gone = go(&fx, &["deps", "pull"], TEXT);
     assert!(
@@ -702,6 +765,19 @@ fn test_a_pull_names_a_part_of_the_closure_it_could_not_reach_and_a_changed_cons
             ),
         ],
     );
+    let json = go(&fx, &["deps", "pull"], JSON).json();
+    assert_eq!(json["incomplete"], true, "{json}");
+    assert!(
+        json["unreachable_profiles"][0]
+            .as_str()
+            .is_some_and(|p| p.starts_with(&kit)),
+        "{json}"
+    );
+    assert_eq!(
+        json["constraint_changes"][0],
+        serde_json::json!({"reference": demo_ref(), "declared": "main", "commit": sha}),
+        "{json}"
+    );
     let ran = go(&fx, &["deps", "pull"], TEXT);
     let out = ran.ok().out.clone();
     assert!(
@@ -724,6 +800,15 @@ fn test_a_pull_that_failed_prints_its_answer_first_then_exits_failed() {
         .commit(URL, &[(&format!("{BUNDLES}/demo/note.txt"), "x")]);
     fx.register("origin", URL);
     fx.profile("dev", &[&demo_ref()]);
+    let json = go(&fx, &["deps", "pull"], JSON);
+    assert_eq!(json.refused(), ("deps-application-pull-failed", 10));
+    let failed = &json.json()["results"][0];
+    assert_eq!(failed["state"], "FAILED", "{failed}");
+    assert!(failed["error"].as_str().is_some_and(|e| !e.is_empty()));
+    assert_eq!(
+        failed["fix"],
+        "check network/auth and retry (ctxloom deps pull)"
+    );
     let ran = go(&fx, &["deps", "pull"], TEXT);
     assert_eq!(ran.refused(), ("deps-application-pull-failed", 10));
     assert!(ran.out.contains("  Failed: 1\n"), "{}", ran.out);
@@ -745,6 +830,20 @@ fn test_a_pull_says_what_it_dropped_and_pruned() {
     let (fx, _) = pulled();
     fx.origin("other", "file:///srv/other.git");
     let other = Fixture::reference("file:///srv/other.git", "demo");
+    fx.profile("dev", &[&demo_ref(), &other]);
+    go(&fx, &["deps", "pull"], JSON).ok();
+    fx.profile("dev", &[&demo_ref()]);
+    let json = go(&fx, &["deps", "pull"], JSON).json();
+    assert_eq!(
+        json["removed_references"],
+        serde_json::json!([other]),
+        "{json}"
+    );
+    assert_eq!(
+        json["pruned_checkouts"],
+        serde_json::json!([other]),
+        "{json}"
+    );
     fx.profile("dev", &[&demo_ref(), &other]);
     go(&fx, &["deps", "pull"], JSON).ok();
     fx.profile("dev", &[&demo_ref()]);
@@ -1326,10 +1425,17 @@ fn test_a_pull_without_yes_carries_the_skipped_refresh_in_json() {
     fx.profile("dev", &[&demo_ref()]);
     let ran = go_refreshing(&fx, &writing_hooks(), &["deps", "pull"], JSON);
     ran.ok();
-    let skipped = &ran.json()["refresh_skipped"];
+    // OD-40: the refresh skipped, its engine by name, and the command that
+    // applies it.
+    let json = ran.json();
+    let skipped = &json["skipped_refresh"];
     assert_eq!(skipped["target"], "/project");
-    assert_eq!(skipped["engines"][0]["wrote"][0], "hooks");
-    assert_eq!(ran.json()["installed"], 1);
+    assert_eq!(
+        skipped["engines"][0],
+        serde_json::json!({"engine": named("engines/claude-code"), "written_kinds": ["hooks"]})
+    );
+    assert_eq!(json["apply_command"], "ctxloom deps pull --yes");
+    assert_eq!(json["results"][0]["state"], "INSTALLED");
 }
 
 // deps.feature: A pull with --yes also refreshes the project's engine files
@@ -1344,7 +1450,8 @@ fn test_a_pull_with_yes_asks_for_the_write_and_carries_no_note() {
     assert!(!ran.out.contains("Project refresh skipped"), "{}", ran.out);
     assert_eq!(*refresh.asked.lock().unwrap(), [true]);
     let json = go_refreshing(&fx, &writing_hooks(), &["deps", "pull", "--yes"], JSON);
-    assert!(json.json().get("refresh_skipped").is_none());
+    assert!(json.json().get("skipped_refresh").is_none());
+    assert!(json.json().get("apply_command").is_none());
 }
 
 // behaviour-changes-0.7.0: a refused consented refresh exits 20, the pull
@@ -1360,5 +1467,5 @@ fn test_a_pull_with_yes_whose_refresh_is_refused_exits_20_after_the_pull() {
     };
     let ran = go_refreshing(&fx, &refresh, &["deps", "pull", "--yes"], JSON);
     assert_eq!(ran.refused(), ("deps-application-refresh-aborted", 20));
-    assert_eq!(ran.json()["installed"], 1);
+    assert_eq!(ran.json()["results"][0]["state"], "INSTALLED");
 }

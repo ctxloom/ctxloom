@@ -473,8 +473,6 @@ fn test_an_upgrade_discloses_a_move_within_a_line_as_compatible() {
     fx.remotes.tag(URL, "v1.1.0", &minor);
     let report = ok(fx.deps.upgrade(false));
     assert_eq!(report.changes[0].compat, Some(Compat::Compatible));
-    let json = serde_json::to_value(&report).expect("json");
-    assert_eq!(json["changes"][0]["compat"], "compatible");
 }
 
 #[test]

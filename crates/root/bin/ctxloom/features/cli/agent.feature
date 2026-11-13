@@ -795,7 +795,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       Then the command succeeds
       And the output reports "settings.env.value" containing "OPENCODE_ONLY"
       And the output reports "settings.env.value" containing "ALPHA_TOKEN"
-      And the output reports "settings.env.keys.[name=OPENCODE_ONLY].source" as "engine"
+      And the output reports "settings.env.keys.[variable=OPENCODE_ONLY].source" as "engine"
       And the output does not contain "NPM_TOKEN"
 
     Scenario: An agent can no longer be given an engine home

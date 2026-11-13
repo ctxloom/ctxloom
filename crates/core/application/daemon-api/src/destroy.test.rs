@@ -301,7 +301,7 @@ async fn a_delete_validate_only_is_the_plan_and_destroys_nothing() {
     let plan = f.api.delete_session(delete(NAME, false)).await.unwrap();
     assert_eq!(plan.name, NAME);
     assert_eq!(plan.harp, HARP);
-    assert!(!plan.applied);
+    assert_eq!(plan.applied, Some(false));
     let classes: Vec<(&str, i32)> = plan
         .files
         .iter()
@@ -336,7 +336,7 @@ async fn a_delete_destroys_the_session_its_runs_and_its_directory() {
     let events = head(&f.world, sessions::SESSION_DOMAIN, session).await
         + head(&f.world, runs::RUN_DOMAIN, run).await;
     let done = f.api.delete_session(delete(NAME, true)).await.unwrap();
-    assert!(done.applied);
+    assert_eq!(done.applied, Some(true));
     assert_eq!(done.events_destroyed, events);
     assert_eq!(done.bytes_freed, 7);
     assert_eq!(head(&f.world, sessions::SESSION_DOMAIN, session).await, 0);
@@ -382,7 +382,7 @@ async fn a_session_its_lock_cannot_prove_ended_is_refused_with_its_plan() {
         let plan = refused.plan.expect("the plan");
         assert_eq!(plan.files.len(), 2, "the plan is carried");
         assert_eq!(plan.authored, ["design-notes.md"]);
-        assert!(!plan.applied);
+        assert_eq!(plan.applied, Some(false));
         assert!(f.places.held().destroyed.is_empty());
     }
 }
@@ -405,7 +405,7 @@ async fn even_if_live_destroys_a_session_its_lock_cannot_prove_ended() {
         })
         .await
         .unwrap();
-    assert!(done.applied);
+    assert_eq!(done.applied, Some(true));
     assert_eq!(f.places.held().destroyed, [HARP]);
 }
 
@@ -480,9 +480,9 @@ async fn the_clean_worktrees_go_and_then_the_session() {
         held.applied = Some(vec![Verdict::Reaped]);
     }
     let done = f.api.delete_session(delete(NAME, true)).await.unwrap();
-    assert!(done.applied);
+    assert_eq!(done.applied, Some(true));
     let worktrees = done.worktrees.unwrap();
-    assert_eq!((worktrees.reaped, worktrees.applied), (1, true));
+    assert_eq!((worktrees.reaped, worktrees.applied), (1, Some(true)));
     let asked: Vec<bool> = f
         .places
         .held()
@@ -701,7 +701,7 @@ async fn a_destroy_closes_the_children_of_the_session_first() {
     launched_child(&f, HARP, OTHER_KID).await;
     assert_eq!(record_of(&f, HARP).children.len(), 2);
     let done = f.api.delete_session(delete(NAME, true)).await.unwrap();
-    assert!(done.applied);
+    assert_eq!(done.applied, Some(true));
     f.catch_up().await;
     for kid in [KID, OTHER_KID] {
         assert!(record_of(&f, kid).closed, "{kid} is closed");
@@ -736,7 +736,7 @@ async fn a_destroyed_child_is_forgotten_by_its_owner() {
         .delete_session(delete(&name_of(KID), true))
         .await
         .unwrap();
-    assert!(done.applied);
+    assert_eq!(done.applied, Some(true));
     f.catch_up().await;
     let owner = record_of(&f, HARP);
     assert!(owner.children.is_empty(), "{:?}", owner.children);
@@ -810,7 +810,7 @@ async fn a_destroy_retried_with_its_request_id_answers_its_first_result() {
         .delete_session(delete_as(NAME, "req-1"))
         .await
         .unwrap();
-    assert!(first.applied);
+    assert_eq!(first.applied, Some(true));
     assert!(first.events_destroyed > 0);
     let again = f
         .api
@@ -850,7 +850,7 @@ async fn after_a_restart_a_retried_destroy_is_answered_from_the_stores_facts() {
         .unwrap();
     assert_eq!(
         (again.name.as_str(), again.harp.as_str(), again.applied),
-        (NAME, HARP, true)
+        (NAME, HARP, Some(true))
     );
     assert_eq!((again.bytes_freed, again.events_destroyed), (0, 0));
     assert_eq!(f.places.held().destroyed, [HARP], "destroyed once");
@@ -873,13 +873,13 @@ async fn a_planned_destroy_keeps_no_result_for_its_request_id() {
         })
         .await
         .unwrap();
-    assert!(!plan.applied);
+    assert_eq!(plan.applied, Some(false));
     let done = f
         .api
         .delete_session(delete_as(NAME, "req-1"))
         .await
         .unwrap();
-    assert!(done.applied);
+    assert_eq!(done.applied, Some(true));
 }
 
 // A sweep retried with its request id answers its first report.
@@ -921,7 +921,7 @@ async fn a_removal_honours_the_configured_transcript_retention() {
             .insert(HARP.to_string(), at(NOW - 10 * DAY));
     }
     let done = f.api.delete_session(delete(NAME, true)).await.unwrap();
-    assert!(done.applied);
+    assert_eq!(done.applied, Some(true));
 
     // None configured: 30 days.
     let f = finished(HARP, transcript_and_notes(HARP)).await;
@@ -982,7 +982,7 @@ async fn a_blank_configured_retention_is_the_default() {
     let f = finished(HARP, transcript_and_notes(HARP)).await;
     f.places.held().retention = Some("  ".to_string());
     let done = f.api.delete_session(delete(NAME, true)).await.unwrap();
-    assert!(done.applied);
+    assert_eq!(done.applied, Some(true));
     assert_eq!(f.places.held().destroyed, [HARP]);
 }
 

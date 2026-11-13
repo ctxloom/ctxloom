@@ -192,7 +192,7 @@ fn class(class: Class) -> &'static str {
 pub(crate) fn removal_of(plan: &v1::DeleteSessionResponse) -> Removal {
     Removal {
         harp: plan.harp.clone(),
-        applied: plan.applied,
+        applied: plan.applied.unwrap_or(false),
         files: FilePlan {
             destroy: plan
                 .files
@@ -244,7 +244,7 @@ pub(crate) fn report_of(report: &v1::WorktreeReport) -> isolation_application::R
         reaped: report.reaped,
         spared: report.spared,
         skipped: report.skipped,
-        applied: report.applied,
+        applied: report.applied.unwrap_or(false),
     }
 }
 

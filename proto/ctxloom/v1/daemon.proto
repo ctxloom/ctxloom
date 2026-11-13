@@ -602,7 +602,8 @@ message WorktreeReport {
   uint64 reaped = 2;
   uint64 spared = 3;
   uint64 skipped = 4;
-  bool applied = 5;
+  // Whether the removal was applied; presence (OQ-7), so a plan says false.
+  optional bool applied = 5;
 }
 
 message DeleteSessionResponse {
@@ -611,8 +612,9 @@ message DeleteSessionResponse {
   repeated string authored = 2;
   // The session's harp.
   string harp = 3;
-  // Whether the session was destroyed (false: the plan, or refused).
-  bool applied = 4;
+  // Whether the session was destroyed (false: the plan, or refused);
+  // presence (OQ-7), so a plan says false rather than leaving it out.
+  optional bool applied = 4;
   // Every file of the session's directory, destroyed with it.
   repeated RemovalFile files = 5;
   // The bytes freed: zero on a plan.

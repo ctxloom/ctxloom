@@ -762,7 +762,7 @@ fn plan(applied: bool) -> v1::DeleteSessionResponse {
     v1::DeleteSessionResponse {
         name: "projects/calm-otter/sessions/amber-swift-owl".to_string(),
         harp: "amber-swift-owl".to_string(),
-        applied,
+        applied: Some(applied),
         authored: vec!["notes.md".to_string()],
         files: vec![
             v1::RemovalFile {

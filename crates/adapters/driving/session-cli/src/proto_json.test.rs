@@ -202,7 +202,7 @@ fn every_field_of_a_removal() -> v1::DeleteSessionResponse {
         name: "projects/calm-otter/sessions/amber-swift-owl".to_string(),
         authored: vec!["notes.md".to_string()],
         harp: "amber-swift-owl".to_string(),
-        applied: true,
+        applied: Some(true),
         files: vec![v1::RemovalFile {
             path: "/p/.ctxloom/sessions/amber-swift-owl/notes.md".to_string(),
             rel: "notes.md".to_string(),
@@ -223,7 +223,7 @@ fn every_field_of_a_removal() -> v1::DeleteSessionResponse {
             reaped: 1,
             spared: 2,
             skipped: 3,
-            applied: true,
+            applied: Some(true),
         }),
         etag: "e-2".to_string(),
         ..v1::DeleteSessionResponse::default()
@@ -274,6 +274,15 @@ fn test_the_generated_proto3_json_is_byte_identical_to_the_hand_written() {
         idle_limit_seconds: 600,
     };
     let removal = every_field_of_a_removal();
+    // A plan: `applied` has presence (OQ-7), so its `false` is printed.
+    let plan = v1::DeleteSessionResponse {
+        applied: Some(false),
+        worktrees: Some(v1::WorktreeReport {
+            applied: Some(false),
+            ..v1::WorktreeReport::default()
+        }),
+        ..removal.clone()
+    };
     let sweep = v1::SweepSessionsResponse {
         sessions: vec![removal.clone()],
         rows: vec![v1::SweepRow {
@@ -314,6 +323,7 @@ fn test_the_generated_proto3_json_is_byte_identical_to_the_hand_written() {
             bytes_of(&super::daemon(&v1::Daemon::default())),
         ),
         (bytes_of(&removal), bytes_of(&super::deletion(&removal))),
+        (bytes_of(&plan), bytes_of(&super::deletion(&plan))),
         (
             bytes_of(&v1::DeleteSessionResponse::default()),
             bytes_of(&super::deletion(&v1::DeleteSessionResponse::default())),
@@ -327,4 +337,23 @@ fn test_the_generated_proto3_json_is_byte_identical_to_the_hand_written() {
     for (generated, hand_written) in pairs {
         assert_eq!(generated, hand_written);
     }
+}
+
+// OQ-7: `applied` has presence: a plan prints `false`, an unset one is
+// left out, a removal's and its worktrees' alike.
+#[test]
+fn an_applied_with_presence_prints_false_and_unset_is_left_out() {
+    let plan = v1::DeleteSessionResponse {
+        applied: Some(false),
+        worktrees: Some(v1::WorktreeReport {
+            applied: Some(false),
+            ..v1::WorktreeReport::default()
+        }),
+        ..v1::DeleteSessionResponse::default()
+    };
+    assert_eq!(
+        deletion(&plan),
+        json!({"applied": false, "worktrees": {"applied": false}})
+    );
+    assert_eq!(deletion(&v1::DeleteSessionResponse::default()), json!({}));
 }

@@ -458,7 +458,7 @@ impl<E: Edge> Api<E> {
                 detail: other.to_string(),
             }),
             (None, None) => {
-                if plan.applied {
+                if plan.applied == Some(true) {
                     self.applied
                         .keep(&request.request_id, Done::Deleted(plan.clone()));
                 }
@@ -514,7 +514,7 @@ impl<E: Edge> Api<E> {
             true => Ok(v1::DeleteSessionResponse {
                 name: text.to_string(),
                 harp: name.harp().to_string(),
-                applied: true,
+                applied: Some(true),
                 ..v1::DeleteSessionResponse::default()
             }),
             false => Err(not_found(text)),
@@ -764,7 +764,7 @@ pub(crate) fn deletion(
         name: name.to_string(),
         authored: removal.authored(),
         harp: removal.harp.clone(),
-        applied: removal.applied,
+        applied: Some(removal.applied),
         files: removal
             .files
             .destroy
@@ -810,7 +810,7 @@ fn worktree_report(report: &Report) -> v1::WorktreeReport {
         reaped: report.reaped,
         spared: report.spared,
         skipped: report.skipped,
-        applied: report.applied,
+        applied: Some(report.applied),
     }
 }
 

@@ -137,7 +137,7 @@ impl Ctxloom for Fake {
         tokio::time::sleep(SLOW).await;
         Ok(Response::new(v1::DeleteSessionResponse {
             name: request.into_inner().name,
-            applied: true,
+            applied: Some(true),
             ..v1::DeleteSessionResponse::default()
         }))
     }
@@ -326,7 +326,7 @@ async fn a_destroy_is_bounded_by_its_own_deadline_not_a_reads() {
         })
         .await
         .unwrap();
-    assert!(done.applied);
+    assert_eq!(done.applied, Some(true));
     let swept = client
         .sweep_sessions(v1::SweepSessionsRequest::default())
         .await

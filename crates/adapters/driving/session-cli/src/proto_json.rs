@@ -32,6 +32,15 @@ impl Fields {
         self
     }
 
+    /// A yes/no with presence (`optional bool`, OQ-7): printed whenever
+    /// set, `false` too; left out only when unset.
+    fn present(mut self, name: &str, value: Option<bool>) -> Fields {
+        if let Some(value) = value {
+            self.0.insert(name.to_string(), Value::Bool(value));
+        }
+        self
+    }
+
     fn u32(mut self, name: &str, value: u32) -> Fields {
         if value != 0 {
             self.0.insert(name.to_string(), Value::from(value));
@@ -186,7 +195,7 @@ pub fn deletion(removal: &v1::DeleteSessionResponse) -> Value {
                 .collect(),
         )
         .text("harp", &removal.harp)
-        .flag("applied", removal.applied)
+        .present("applied", removal.applied)
         .list("files", removal.files.iter().map(removal_file).collect())
         .u64("bytes_freed", removal.bytes_freed)
         .u64("events_destroyed", removal.events_destroyed)
@@ -211,7 +220,7 @@ fn worktrees(report: &v1::WorktreeReport) -> Value {
         .u64("reaped", report.reaped)
         .u64("spared", report.spared)
         .u64("skipped", report.skipped)
-        .flag("applied", report.applied)
+        .present("applied", report.applied)
         .done()
 }
 

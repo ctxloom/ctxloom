@@ -1538,7 +1538,9 @@ grammar (OQ-6: a bundle's or item's ID is `^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$`;
 a dependency's 16 hex digits of its identity's SHA-256, OQ-15; an engine's,
 agent's, companion's and remote's its config key) and the conventions: a
 default left out, presence (`optional`) on `applied`, `held`, `default`,
-`resolves` and `no_distill` alone (OQ-7); `uint32` counts and tokens,
+`resolves` and `no_distill` alone (OQ-7; the session's too:
+`DeleteSessionResponse.applied` and `WorktreeReport.applied`, so a
+`session remove` plan prints `"applied": false`); `uint32` counts and tokens,
 `uint64` bytes (OQ-12); a free-form document (permissions, the config) a
 `google.protobuf.Value` (OQ-11, owner ruling 2026-11-13, superseding
 Struct: printed as written whatever its kind, so a permissions document

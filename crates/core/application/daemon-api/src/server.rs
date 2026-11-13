@@ -474,6 +474,9 @@ impl<E: Edge> Api<E> {
     ) -> Result<v1::Project, ApiError> {
         let name = ProjectName::parse(&request.name)
             .map_err(|rejection| invalid(&request.name, &rejection))?;
+        // Read fresh, as every read is: a daemon just started answers what
+        // was registered before it (a session's MCP call retried on it).
+        self.parts.hosting.fresh().await;
         let row = self.parts.index.index().project_named_by(name.harp());
         let row = row.ok_or_else(|| {
             ApiError::from(ApiRefusal::of(&v1::ProjectNotFound {

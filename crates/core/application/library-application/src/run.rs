@@ -283,6 +283,18 @@ impl Project {
         }
     }
 
+    /// ctxloom's own MCP server keeps its name in every session (OD-6): a
+    /// server `surfaces` carries of that name is shadowed, and said.
+    fn say_shadowed(&mut self, surfaces: &surface_ports::Inputs) {
+        for server in &surfaces.mcp {
+            if server.name == surface_ports::CTXLOOM_SERVER {
+                self.notices.push(Notice::McpServerShadowed {
+                    name: server.name.clone(),
+                });
+            }
+        }
+    }
+
     fn dry_run(&mut self, request: &RunRequest) -> Result<Previewed, AppError> {
         if !request.agent.is_empty() {
             let other = if !request.profile.is_empty() {
@@ -354,6 +366,7 @@ impl Project {
             .collect();
         let fatal = rows.iter().filter(|r| r.fatal).cloned().collect();
         let surfaces = self.launch_surfaces(&selection.profiles, &package.selection);
+        self.say_shadowed(&surfaces);
         let plan = DryRun {
             agent: request.agent.clone(),
             workspace: request.workspace.clone(),

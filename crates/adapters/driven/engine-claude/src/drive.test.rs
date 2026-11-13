@@ -4,7 +4,9 @@ use run_ports::{
     AuthSetting, Engine, EngineError, EngineSettings, PrepareRequest, SessionHome, TurnRequest,
 };
 
-use crate::drive::{COPY_IN_ALLOWLIST, EFFORT_LEVELS, ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST};
+use crate::drive::{
+    COPY_IN_ALLOWLIST, EFFORT_LEVELS, ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST, OUR_TOOLS,
+};
 use crate::{Claude, CONTEXT_PROMPT_FILE};
 
 fn request() -> TurnRequest {
@@ -628,7 +630,8 @@ fn the_permissions_document_is_the_user_settings_and_never_the_hooks_file() {
                 "n"
             ]
         );
-        // The hooks file holds ctxloom's hooks alone, as with no document.
+        // The hooks file holds ctxloom's hooks (and its own tools'
+        // allowance, OD-4) alone, as with no document.
         let hooks = file_of(&prepared, HOOKS_FILE).expect("the hooks file");
         assert_eq!(
             Some(hooks.clone()),
@@ -638,7 +641,11 @@ fn the_permissions_document_is_the_user_settings_and_never_the_hooks_file() {
             )
         );
         let hooks = surface_ports::Json::parse(&hooks).unwrap();
-        assert!(hooks.get("permissions").is_none(), "{hooks:?}");
+        assert_eq!(
+            without_ours(hooks.clone()).get("permissions"),
+            None,
+            "{hooks:?}"
+        );
         assert!(crate::hooks::has_callback(&hooks, "ctxloom"), "{hooks:?}");
     }
 }
@@ -687,7 +694,12 @@ fn with_no_document_the_settings_hold_no_permissions() {
         assert_eq!(file_of(&prepared, "settings.json").as_deref(), Some("{}\n"));
         let hooks = file_of(&prepared, HOOKS_FILE).expect("the hooks file");
         let doc = surface_ports::Json::parse(&hooks).unwrap();
-        assert!(doc.get("permissions").is_none(), "{hooks}");
+        // ctxloom's own allowance alone (OD-4).
+        assert_eq!(
+            without_ours(doc.clone()).get("permissions"),
+            None,
+            "{hooks}"
+        );
         assert!(crate::hooks::has_callback(&doc, "ctxloom"), "{hooks}");
     }
 }
@@ -1093,7 +1105,7 @@ fn under_a_host_home_the_block_stays_in_the_hooks_file_and_no_user_settings_are_
         let hooks = file_of(&prepared, HOOKS_FILE).expect("the hooks file");
         let doc = surface_ports::Json::parse(&hooks).unwrap();
         assert_eq!(
-            doc.get("permissions"),
+            without_ours(doc.clone()).get("permissions"),
             Some(&surface_ports::Json::parse(DOCUMENT).unwrap())
         );
         assert!(crate::hooks::has_callback(&doc, "ctxloom"), "{hooks}");
@@ -1211,6 +1223,74 @@ fn prepare_over(
 /// The session home's `settings.json`, parsed.
 fn home_settings(prepared: &run_ports::Prepared) -> surface_ports::Json {
     surface_ports::Json::parse(&file_of(prepared, "settings.json").expect("settings.json")).unwrap()
+}
+
+/// `settings` with [`OUR_TOOLS`] out of its `permissions.allow` (held to be
+/// its last entry), and an `allow`, then a `permissions`, left empty taken out.
+fn without_ours(mut settings: surface_ports::Json) -> surface_ports::Json {
+    use surface_ports::Json;
+    let permissions = settings.get_mut("permissions").expect("permissions");
+    let Some(Json::Array(allow)) = permissions.get_mut("allow") else {
+        panic!("no allow: {permissions:?}");
+    };
+    assert_eq!(allow.pop(), Some(Json::text(OUR_TOOLS)), "ours, last");
+    if allow.is_empty() {
+        permissions.remove("allow");
+    }
+    if permissions == &Json::Object(Vec::new()) {
+        settings.remove("permissions");
+    }
+    settings
+}
+
+// OD-4 (owner, 2026-11-13): ctxloom allows its own MCP server's tools
+// itself, beside the agent's document (a stated exception to rulings
+// 133-139's "never edits"): in its own `--settings` file, whose lists claude
+// merges with user scope's, so the document stays the user-scope
+// `permissions` as written; under `host`, after the document's own allow in
+// that same file, once.
+#[test]
+fn ctxloom_allows_its_own_tools_beside_the_document() {
+    let ours = || doc(r#"{"allow":["mcp__ctxloom__*"]}"#);
+    let with = prepare_home(false, Some(r#"{"allow":["Read"]}"#), BTreeMap::new());
+    assert_eq!(
+        home_settings(&with),
+        doc(r#"{"permissions":{"allow":["Read"]}}"#)
+    );
+    assert_eq!(hooks_doc(&with).get("permissions"), Some(&ours()));
+    let none = prepare_home(true, None, BTreeMap::new());
+    assert_eq!(hooks_doc(&none).get("permissions"), Some(&ours()));
+    for (document, allow) in [
+        (
+            r#"{"allow":["Read"],"defaultMode":"plan"}"#,
+            r#"{"allow":["Read","mcp__ctxloom__*"],"defaultMode":"plan"}"#,
+        ),
+        (
+            r#"{"allow":["mcp__ctxloom__*"]}"#,
+            r#"{"allow":["mcp__ctxloom__*"]}"#,
+        ),
+        (r#"{"allow":"Read"}"#, r#"{"allow":["mcp__ctxloom__*"]}"#),
+    ] {
+        let host = Claude::new()
+            .prepare(&PrepareRequest {
+                home: "/h".to_string(),
+                context: "c".to_string(),
+                offered: Vec::new(),
+                interactive: false,
+                cwd: None,
+                existing: Default::default(),
+                permissions: Some(document.to_string()),
+                session_home: SessionHome::Host,
+                surfaces: Default::default(),
+            })
+            .unwrap();
+        assert_eq!(
+            hooks_doc(&host).get("permissions"),
+            Some(&doc(allow)),
+            "{document}"
+        );
+    }
+    assert_eq!(OUR_TOOLS, "mcp__ctxloom__*");
 }
 
 fn doc(text: &str) -> surface_ports::Json {

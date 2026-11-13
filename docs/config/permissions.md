@@ -6,6 +6,17 @@ words**, and ctxloom passes them on as a **verbatim copy**. ctxloom does
 engine does not take, or a typo reaches the engine as written, and it is the
 engine that accepts, warns about or ignores it (owner rulings 133-139).
 
+**One exception: ctxloom allows its own tools.** Every session's engine is
+given ctxloom's own MCP server (`ctxloom mcp serve`), so the agent can call
+its daemon. On claude-code ctxloom allows `mcp__ctxloom__*` itself, in
+its own `ctxloom-hooks.json` (the `--settings` file), whose permission lists
+claude merges with your block's, so those calls are never asked for and your
+block reaches claude as you wrote it. Under `session_home: host`, where your
+block is in that same file, the allowance is appended to its `allow` once.
+That is the only permission ctxloom adds (owner ruling OD-4, 2026-11-13). To
+hold one of the tools back, `deny` it: in claude's rules a deny wins over an
+allow.
+
 ## Where the block goes
 
 The block lives on the agent, under the engine it is for:

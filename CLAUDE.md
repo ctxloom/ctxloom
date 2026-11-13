@@ -744,6 +744,12 @@ of the session home's user-scope `settings.json`, over the user's own
 settings (ruling 169, above; the home is the session's `CLAUDE_CONFIG_DIR`;
 none of either, `{}`), APART from
 ctxloom's hooks, which are `ctxloom-hooks.json`, the file `--settings` names
+(which also ALLOWS ctxloom's own MCP server's tools, `permissions.allow:
+["mcp__ctxloom__*"]`, OD-4, owner 2026-11-13: a stated exception to
+"ctxloom never edits the document", made beside it so the document stays
+as written, claude merging the lists of its scopes;
+`engine_claude::drive::OUR_TOOLS`; under `host`, appended once to the
+document's own `allow` there)
 (owner ruling 145: claude 2.1.322 refuses a settings file whole for one
 invalid value, hooks included, so a bad value disables the block alone; the
 probe is in the ruling-145 commits). User scope is claude's lowest: a single

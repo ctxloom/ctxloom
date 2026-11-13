@@ -1672,3 +1672,39 @@ fn test_the_plans_engine_is_shown_what_it_resolved_and_its_word_is_a_notice() {
         "{on_claude:?}"
     );
 }
+
+// OD-6 (owner, 2026-11-13): a bundle's server named `ctxloom` is shadowed
+// by ctxloom's own in every session, and the plan says so by name; one of
+// another name is said nothing of.
+#[test]
+fn test_a_carried_server_named_ctxloom_is_said_shadowed() {
+    let said = |server: &str| -> Vec<Notice> {
+        let files: &[(&str, &str)] = &[
+            ENVELOPE,
+            (server, "command: theirs\n"),
+            ("profiles/p.yaml", "description: p\nbundles: [project]\n"),
+        ];
+        with(&[("project", files)], &[CONFIG])
+            .library()
+            .dry_run(
+                &plain(),
+                &crate::RunRequest {
+                    profile: "p".to_string(),
+                    ..crate::RunRequest::default()
+                },
+            )
+            .notices
+            .into_iter()
+            .filter(|n| {
+                angzarr_diagnostic::Diagnostic::code(n)
+                    == "library-application-notice-mcp-server-shadowed"
+            })
+            .collect()
+    };
+    let shadowed = said("mcp/ctxloom.yaml");
+    assert!(
+        matches!(shadowed.as_slice(), [Notice::McpServerShadowed { name }] if name == "ctxloom"),
+        "{shadowed:?}"
+    );
+    assert!(said("mcp/ledger.yaml").is_empty());
+}

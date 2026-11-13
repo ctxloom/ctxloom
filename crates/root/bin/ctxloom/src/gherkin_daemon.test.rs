@@ -1551,7 +1551,12 @@ fn count_of(events: &[Value], name: &str) -> usize {
 /// The tool's answer: not an error, its first text the session it answered.
 fn tool_session(w: &World) -> Value {
     let answered = w.daemon_spec.tool.clone().expect("a tool was called");
-    assert_ne!(answered["isError"], true, "the tool failed: {answered}");
+    assert_ne!(
+        answered["isError"],
+        true,
+        "the tool failed: {answered}; the daemon's log:\n{}",
+        daemon_log_text(w)
+    );
     crate::tests::mcp_serve::answered_json(&answered)
 }
 

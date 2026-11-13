@@ -517,6 +517,9 @@ async fn get_project_answers_the_registered_project() {
         .await
         .unwrap();
     assert_eq!(got, resolved);
+    // Read fresh (slice 3: a session's call retried on a daemon just
+    // started finds what was registered before it).
+    assert_eq!(*f.hosting.freshened.lock().unwrap(), 1);
     let (code, missing): (_, v1::ProjectNotFound) = refused(
         f.api
             .get_project(v1::GetProjectRequest {

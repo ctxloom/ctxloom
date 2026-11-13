@@ -295,8 +295,9 @@ fn user_settings_path(w: &World) -> String {
 /// exactly, the `permissions` of the user-scope settings of the session's
 /// config dir, the rest of that file is the user's own claude settings as she
 /// wrote them (none of hers, nothing), and the `--settings` file (ctxloom's
-/// hooks) holds no permissions: a bad value in the block disables the block,
-/// never the hooks.
+/// hooks) holds none of the block: a bad value in the block disables the
+/// block, never the hooks. That file's permissions are ctxloom's own
+/// allowance of its MCP server's tools alone (OD-4, owner 2026-11-13).
 #[then(expr = "the assistant's settings hold the permissions {string}")]
 fn settings_hold_permissions(w: &mut World, want: String) {
     let want: serde_json::Value = serde_json::from_str(&want).expect("the step's JSON");
@@ -313,7 +314,11 @@ fn settings_hold_permissions(w: &mut World, want: String) {
     expected["permissions"] = want;
     assert_eq!(user, expected, "{path}");
     let handed = handed_settings(w);
-    assert!(handed.get("permissions").is_none(), "{handed}");
+    assert_eq!(
+        handed.get("permissions"),
+        Some(&serde_json::json!({"allow": ["mcp__ctxloom__*"]})),
+        "{handed}"
+    );
 }
 
 /// Owner T21: the agent edits the settings files it was given (they are in

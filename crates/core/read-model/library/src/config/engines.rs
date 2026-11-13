@@ -2,8 +2,9 @@
 //!
 //! Owner rulings 40-44 (2026-11-09): `model`, `effort` and `permissions` are an
 //! AGENT's settings; the `engines.<engine>` block holds what is cross-agent:
-//! `command`, `session_home`, `auth`, and the default `runtime` /
-//! `env` an agent may override. An unset `model` / `effort` passes no flag;
+//! `command`, `auth`, and the default `runtime`, `session_home` and
+//! `env` an agent may override (`session_home`: owner ruling of 2026-11-13,
+//! superseding 44(b) for this key). An unset `model` / `effort` passes no flag;
 //! `permissions` is the engine's own document, passed to it verbatim (owner
 //! rulings 133-139), with ctxloom's default document for claude
 //! ([`default_permissions`]) when the agent writes none. Everything here is a pure
@@ -384,13 +385,7 @@ fn resolve(config: &Value, agent: &str, on: Option<&str>) -> Result<Effective, E
                 source: Source::Engine,
             },
         ),
-        session_home: from_block("session_home").map_or_else(
-            || default("session".to_string()),
-            |value| Sourced {
-                value,
-                source: Source::Engine,
-            },
-        ),
+        session_home: session_home_of(binding, block),
         auth,
         engine,
     })
@@ -412,8 +407,9 @@ pub fn default_permissions(engine: &str) -> Option<Value> {
 }
 
 /// What a launch of an engine is told of how to run it: the engine block's
-/// `command`, `session_home` and `auth`, and the `env` passthrough (the
-/// engine's names merged with the launching agent's). A source, never a value.
+/// `command` and `auth`, the effective `session_home` (the agent's, else the
+/// engine block's), and the `env` passthrough (the engine's names merged with
+/// the launching agent's). A source, never a value.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Drive {
     pub command: String,
@@ -625,13 +621,41 @@ fn runtime_of(
     (agent_said(value), kept)
 }
 
+/// Whose home the engine runs on (owner ruling of 2026-11-13, superseding
+/// ruling 44(b) for this key): the agent's own `session_home`, else the
+/// engine block's, else a session home of its own. Engine-neutral, like the
+/// runtime: `run --engine` keeps the agent's.
+fn session_home_of(binding: &Value, block: Option<&Value>) -> Sourced<String> {
+    match (
+        text_of(binding, "session_home"),
+        block.and_then(|b| text_of(b, "session_home")),
+    ) {
+        (Some(value), _) => agent_said(value),
+        (None, Some(value)) => Sourced {
+            value,
+            source: Source::Engine,
+        },
+        (None, None) => default("session".to_string()),
+    }
+}
+
 /// Ruling 46: what a PROJECT layer may not say. `engines.<e>.command` and
 /// `engines.<e>.auth.file` are honoured only from the home-layer config, and
 /// `session_home: host` only through a trust check no layer reading can make:
 /// each is taken out of `layer` and its dotted path returned, so the loader
-/// can warn. Nothing else is touched.
+/// can warn. `session_home: host` is taken out at either level, an
+/// agent's (`agents.<a>.session_home`) as an engine block's. Nothing else is
+/// touched.
 pub fn strip_project_only(layer: &mut Value) -> Vec<String> {
     let mut removed = Vec::new();
+    if let Some(Value::Map(agents)) = layer.get_mut("agents") {
+        for (agent, binding) in agents.iter_mut() {
+            if binding.get("session_home").and_then(Value::as_str) == Some("host") {
+                binding.remove("session_home");
+                removed.push(format!("agents.{agent}.session_home"));
+            }
+        }
+    }
     let Some(Value::Map(engines)) = layer.get_mut("engines") else {
         return removed;
     };

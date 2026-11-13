@@ -130,6 +130,8 @@ pub enum AppError {
     NoFragments { detail: String },
     /// `--agent` with a flag it excludes.
     AgentExclusive { other: String },
+    /// `--no-context` beside a flag that selects context (OD-38).
+    NoContextExclusive { other: String },
     /// A saved command that cannot be loaded.
     SavedCommand { name: String },
     /// A `--workspace` that is neither none nor worktree.
@@ -229,6 +231,7 @@ impl Diagnostic for AppError {
             AppError::Compose { .. } => code!("compose"),
             AppError::NoFragments { .. } => code!("no-fragments"),
             AppError::AgentExclusive { .. } => code!("agent-exclusive"),
+            AppError::NoContextExclusive { .. } => code!("no-context-exclusive"),
             AppError::SavedCommand { .. } => code!("saved-command"),
             AppError::Workspace { .. } => code!("workspace"),
             AppError::RunNeedsDryRun => code!("run-needs-dry-run"),
@@ -335,6 +338,7 @@ impl Diagnostic for AppError {
             ],
             AppError::NoFragments { detail } => vec![("detail", detail.as_str().into())],
             AppError::AgentExclusive { other } => vec![("other", other.as_str().into())],
+            AppError::NoContextExclusive { other } => vec![("other", other.as_str().into())],
             AppError::SavedCommand { name } => vec![("name", name.as_str().into())],
             AppError::Workspace { value } => vec![("value", value.as_str().into())],
             AppError::StartupAborted { count, findings } => vec![
@@ -697,6 +701,9 @@ fn error_samples() -> Vec<Box<dyn Diagnostic>> {
             cause: Box::new(ProfileError::Circular { name: s("dev") }),
         }),
         Box::new(AppError::NoFragments { detail: s("none") }),
+        Box::new(AppError::NoContextExclusive {
+            other: s("--profile"),
+        }),
         Box::new(AppError::AgentExclusive {
             other: s("profile"),
         }),

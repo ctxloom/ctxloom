@@ -30,6 +30,12 @@ pub struct RunRequest {
     /// `--command <name>`: the saved command whose body is the prompt.
     pub saved_command: String,
     pub workspace: String,
+    /// `--no-context` (owner OD-38): nothing ctxloom assembles reaches the
+    /// engine (no profile, fragment, premise index or companion guidance)
+    /// and no MCP server, ctxloom's own included; the run's hooks, and the
+    /// engine's own setup (its session home, credential and the agent's
+    /// permissions), stay.
+    pub no_context: bool,
 }
 
 /// What `context assemble` is asked.
@@ -573,3 +579,7 @@ fn runtime_notice(effective: &Effective) -> Option<Notice> {
         remedy,
     })
 }
+
+#[cfg(test)]
+#[path = "run.test.rs"]
+mod tests;

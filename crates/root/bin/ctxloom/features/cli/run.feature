@@ -26,6 +26,7 @@ Feature: run — assembling a project's context and handing it to an engine
     ctxloom run --command/-r <name>      (a saved command as the prompt)
     ctxloom run --agent <name>
     ctxloom run --session <harp>         (resume a session, owner ruling 115)
+    ctxloom run --no-context             (no context and no MCP server; hooks stay, OD-38)
 
   A RUN IS EITHER A SESSION OR A SINGLE TURN, and `--one-shot` is how a caller
   says which. The flag names the MODE, not its output: every mode prints, and
@@ -263,6 +264,82 @@ Feature: run — assembling a project's context and handing it to an engine
         """
       Then the command fails
       And the output contains "no-such-tag-anywhere"
+
+  Rule: --no-context runs the engine with no context and no MCP server, and its hooks still record it
+
+    `--no-context` (owner, OD-38, 2026-11-13) hands the engine NOTHING
+    ctxloom assembles: no profile, no fragment, no premise index, no
+    companion's guidance, and no MCP server, ctxloom's own included (a
+    server's instructions are context too). The run's capture hooks stay,
+    so the session is recorded like any other, and the engine's own setup
+    is unchanged: its session home, its credential and the agent's
+    permissions (the agent is `--agent`, else the default agent where there
+    is one). It answers what context to give, so asking for context beside
+    it (`--profile`, `--fragment`, `--tag`) is refused. Distilling content
+    runs on it, so the distiller sees the item and nothing of the project's
+    guidance.
+
+    Scenario: A dry run with no context composes nothing the profile would have given
+      # new: owner OD-38 (2026-11-13)
+      Given an initialized ctxloom project
+      And a bundle "demo" exists
+      And a fragment "testing" in bundle "demo" exists
+      And a profile "dev" with bundle "demo"
+      When Alice checks what her default agent would be sent:
+        """
+        ctxloom --config-set agents.default.profiles=dev --config-set default_agent=default run --dry-run hello
+        """
+      Then the command succeeds
+      And the output contains "FRAGMENT-BODY-testing"
+      When Alice checks what it would be sent with no context:
+        """
+        ctxloom --config-set agents.default.profiles=dev --config-set default_agent=default run --dry-run --no-context --format json hello
+        """
+      Then the command succeeds
+      And the output does not contain "FRAGMENT-BODY-testing"
+      And the output reports "prompt" as "hello"
+      And the output reports "context" as ""
+      And the output reports no "fragments"
+
+    Scenario Outline: No context beside a selection of context is refused
+      # new: owner OD-38 (2026-11-13)
+      Given an initialized ctxloom project
+      And a bundle "demo" exists
+      And a fragment "testing" in bundle "demo" exists
+      And a profile "dev" with bundle "demo"
+      When I run "ctxloom run --dry-run --no-context <selection> hello"
+      Then the command exits with code 20
+      And the output contains "--no-context"
+      And the output contains "<flag>"
+
+      Examples:
+        | selection                     | flag       |
+        | --profile dev                 | --profile  |
+        | --fragment demo#fragments/testing | --fragment |
+        | --tag example                 | --tag      |
+
+    Scenario: A child run with no context is handed no MCP server and no context, and its hooks still record it
+      # new: owner OD-38 (2026-11-13): "no context, no mcp server (mcp
+      # instructions are context). we need hooks"
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      And Alice's default profile ships the MCP server "ledger" and a fragment of guidance
+      When Alice runs a child agent on her default agent:
+        """
+        ctxloom run --one-shot hello
+        """
+      Then the command succeeds
+      And the assistant was handed the MCP server "ledger"
+      And the assistant was handed the profile's guidance
+      When Alice runs a child agent with no context:
+        """
+        ctxloom run --one-shot --no-context hello
+        """
+      Then the command succeeds
+      And the assistant was handed no MCP server at all
+      And the assistant was not handed the profile's guidance
+      And the assistant's settings still register ctxloom's hooks
+      And the assistant's settings hold the permissions '{"defaultMode": "acceptEdits"}'
 
   @pending
   Rule: What the profile declares reaches the launched backend

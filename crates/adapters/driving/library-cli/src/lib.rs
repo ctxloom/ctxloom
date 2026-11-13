@@ -35,11 +35,11 @@ mod prelude {
     };
 
     pub(crate) use crate::write::{
-        finish, finish_text, given, given_list, given_map, given_pairs, nothing, removal, text_only,
+        finish_text, given, given_list, given_map, given_pairs, nothing, text_only,
     };
     pub(crate) use crate::{
-        answer, api, emit, failed, output_failure, resource, text, text_arg, verb, Context,
-        Failure, IntoFailure, PROG,
+        api, failed, output_failure, resource, text, text_arg, verb, Context, Failure, IntoFailure,
+        PROG,
     };
     pub(crate) use daemon_proto::v1;
 }
@@ -242,17 +242,6 @@ impl Diagnostic for OutputFailure {
     fn args(&self) -> Vec<(&str, angzarr_diagnostic::Arg)> {
         vec![("ext_err_txt", self.0.as_str().into())]
     }
-}
-
-/// Write `value` as json, or as `text` says; the exit code is 0.
-pub(crate) fn emit<T: Serialize>(
-    format: Format,
-    out: &mut dyn Write,
-    value: &T,
-    text: impl FnOnce(&mut dyn Write) -> io::Result<()>,
-) -> io::Result<Exit> {
-    cli_support::emit(format, out, value, text)?;
-    Ok(Exit::OK)
 }
 
 pub(crate) fn text_arg(matches: &ArgMatches, name: &str) -> String {

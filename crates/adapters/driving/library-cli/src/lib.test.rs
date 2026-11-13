@@ -290,7 +290,8 @@ fn test_the_format_is_asked_for_a_terminals_or_the_configurations() {
         terminal: false,
         degraded: false,
     };
-    assert!(go(&line, default, BARE).out.starts_with('['));
+    // OD-40: json is the companions' `ListCompanionsResponse`.
+    assert!(go(&line, default, BARE).out.starts_with('{'));
     let terminal = How {
         terminal: true,
         ..default
@@ -299,8 +300,8 @@ fn test_the_format_is_asked_for_a_terminals_or_the_configurations() {
     let text_config = ["schema_version: 9\ncompanions:\n  acme: {command: [acme-bin, --as, acme]}\nnon_tty_format: text\n"];
     assert!(go(&line, default, &text_config).out.starts_with("acme"));
     let json_config = ["schema_version: 9\ncompanions:\n  acme: {command: [acme-bin, --as, acme]}\nnon_tty_format: json\n"];
-    assert!(go(&line, default, &json_config).out.starts_with('['));
-    assert!(go(&line, JSON, &text_config).out.starts_with('['));
+    assert!(go(&line, default, &json_config).out.starts_with('{'));
+    assert!(go(&line, JSON, &text_config).out.starts_with('{'));
 }
 
 // A noun the matches do not hold is not run.

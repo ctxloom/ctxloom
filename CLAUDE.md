@@ -1615,7 +1615,13 @@ name's parent comes from `library_cli::Names`, asked only when a json
 answer prints one (text reaches no daemon): the wiring's is the daemon's
 `ResolveProject` (`daemon_api::Client::library_parent`, the wiring's
 `daemon::library_parent`; OQ-2, so a json answer may start the daemon), or
-`users/me` outside a project, where no daemon is asked (OQ-3). Converted:
+`users/me` outside a project, where no daemon is asked (OQ-3). The project
+is the ctxloom project, the nearest `.ctxloom` up (or `CTXLOOM_ROOT`), as
+every library read finds it (`Wiring::library_registration`, the names'
+alone; the sessions' client keeps `registration()`, the registry's work
+root): its identity is read at that root when bound and minted there once
+when no run has named it, so a read never writes outside the project's own
+`.ctxloom/project-id`, and a subdirectory names its root's project. Converted:
 the `engine` noun (the worked example): `engine list` is
 `ListEnginesResponse` (`{engines: [...]}`), `engine show` an `Engine`
 named `projects/{harp}/engines/<engine>`, its agent rows' name `agent`,
@@ -1681,6 +1687,39 @@ bundle_name` and `item_name`, as B1's `catalog` names bundles). Go parity
 ends for search's JSON: its rows left `fixtures/parity/search.tsv` with
 their goldens, and the text rows stay.
 
+B2 (`aip/configuration`) converted `agent`, `companion`, `config` and `run --dry-run`: `agent list` is
+`ListAgentsResponse` (`{agents: [...]}`, an empty one `{}`), `agent show`
+the `Agent` itself (no `definition` level: `engine`, `profiles`,
+`engines.<e>.model` at the top, `resolved` beside them, an env key's name
+`variable`), each agent's `default` printed true or false (library-cli asks
+`Library::agent_default` once more, for a json answer only); `create`,
+`edit` and `remove` answer `CreateAgentResponse`, `UpdateAgentResponse` and
+`DeleteAgentResponse`, the agent under `agent` (a preview's and a
+removal's by name alone), `applied`, a preview's `apply_command` and
+`detail`, through `api::written`, the write half of the one path. A
+reference (an agent's `engine` and `profiles`) still prints its configured
+text, as the engine noun's agent rows do. `agent default` is still text
+only. `companion list` is `ListCompanionsResponse`, each companion named
+`projects/{harp}/companions/<name>`, its `command`, and `resolves` (was
+`exists`); `companion add` answers `CreateCompanionResponse` (`applied`
+when the registration is new or changed, `resolves` true: its program
+answered the probe) and `remove` `DeleteCompanionResponse`; `bin` is left
+unset (a companion is a name and the command that runs it, not Go's
+`ctxloom-companion-<name>`). `loadout` is unchanged. `config show
+[section] [--raw]` is the `Config` singleton, `projects/{harp}/config`
+(`users/me/config` outside a project), the document it printed before
+under `document` (so `agents.default.engine` reads
+`document.agents.default.engine`); `config create` and `edit` stay text
+only. `run --dry-run` is `CreateRun` with `validate_only`, its json the
+`Run` it would create (daemon.proto's `Run`, amended per design §5.9:
+`settings` an `AgentSettings`, `tokens` uint32, and `workspace`,
+`runtime`, `prompt` and `fragments` added; the draft's `Setting` is gone),
+named nothing, so it asks no daemon; a finding's false `fatal` is left out. Go parity ends for these nouns' JSON (design §8.1): their JSON rows
+are retired from `fixtures/parity/`, the text rows stay; `config show`'s
+JSON rows still compare Go's answer, the resource's `document`
+(`library_parity`'s `as_go_printed`), and the dry run's compared keys
+read a default proto3 JSON leaves out as Go's printed one (`printed`).
+
 The feature steps read proto3 JSON (design §8.1, the binary's
 `library.test.rs` and `gherkin_common.test.rs`): a selector `[key$=suffix]`
 picks the element whose `key` ends so (`engines[name$=/engines/opencode]`);
@@ -1704,8 +1743,9 @@ on that engine (ctxloom's own callbacks are not the profile's):
 of each agent that has one (`Doctor::reporting_losses`, the library's
 `agents_losses`); and `agent edit <name> --engine <new>` whose new engine
 loses something the old did not is the SWAP PREVIEW without `--yes`
-(`Library::agent_edit`, `AgentWritten::Preview`, `SwapPreview`: `status:
-preview`, `applied: false`, `from`, `to`, `not_carried`, `apply`, the edit
+(`Library::agent_edit`, `AgentWritten::Preview`, `SwapPreview`; its json
+`UpdateAgentResponse`: `applied: false`, `from`, `to`, `not_carried`,
+`apply_command`, OD-40; the edit
 judged as the write would judge it first; nothing written; exit 1 under
 `--detailed-exitcode`). An edit that changes no engine, or loses nothing,
 writes as ever, and `agent create` never previews. Only hooks are judged:
@@ -1997,7 +2037,8 @@ dry run's JSON carries `settings` (each value with its source), and its text
 a Settings section naming the place that said each (ruling 72:
 `agents.<a>.engines.<e>`, `agents.<a>`, `engines.<e>`, the top-level
 `runtime`, or `default`). `agent list`,
-`agent show`'s definition and the create/edit summary show the agent in the
+`agent show` (its json the `Agent` resource, OD-40) and the create/edit
+summary show the agent in the
 config's shape (ruling 67): `engines` (JSON) / `engines.<e>: {...}` lines
 (text, YAML flow form, keys sorted as written), each block that holds
 `permissions` followed by "passed to <engine> verbatim; ctxloom does not

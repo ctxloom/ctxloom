@@ -345,9 +345,10 @@ Feature: engine — the programs ctxloom drives, and the settings they share
           claude-code:
             runtime: container-rootless
         """
+      # OD-40 (aip/configuration): the `Config` singleton, the section under `document`.
       When I run "ctxloom config show engines --format json"
       Then the command succeeds
-      And the output reports "claude-code.runtime" as "container-rootless"
+      And the output reports "document.claude-code.runtime" as "container-rootless"
       And the output does not contain "schema_version"
 
     Scenario: The default configuration no longer carries an llm registry

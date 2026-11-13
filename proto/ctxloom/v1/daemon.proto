@@ -764,12 +764,6 @@ message Finding {
   bool fatal = 4;
 }
 
-message Setting {
-  string path = 1;
-  string value = 2;
-  string source = 3;
-}
-
 // A run: its plan, and once created its session and (TERMINAL) its launch.
 message Run {
   enum Mode {
@@ -787,14 +781,26 @@ message Run {
   string engine = 5;
   repeated string profiles = 6;
   string context = 7;
-  uint64 tokens = 8;
+  // The context's token estimate: a count, so a JSON number (OQ-12).
+  uint32 tokens = 8;
   repeated Finding findings = 9;
-  repeated Setting settings = 10;
+  // The agent's settings on the run's engine, each with the layer that said
+  // it (ruling 72; library.proto's), so `settings.model.value` keeps its
+  // path; none for a run with no agent (design §5.9, OD-40: it replaced the
+  // draft's flat `repeated Setting`).
+  AgentSettings settings = 10;
   // TERMINAL only: what the frontend starts.
   Launch launch = 11;
   // The runner bearer (deleted, slice 2: one principal, the user).
   reserved 12;
   reserved "runner_bearer";
+  // The workspace axis and the runtime the launch settles on (design §5.9).
+  string workspace = 13;
+  string runtime = 14;
+  // The opening prompt, as the plan resolved it.
+  string prompt = 15;
+  // The fragments the context composes, by canonical reference.
+  repeated string fragments = 16;
   repeated Need needs = 90;
   string etag = 91;
   repeated Notice notices = 92;

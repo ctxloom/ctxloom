@@ -1,5 +1,8 @@
 # Ported from cli/config.feature (rev f36e8dfb2)
 # NOT ported: any of it yet (the Feature is @pending).
+# OD-40 (aip/configuration, 2026-11-13; OQ-19): the JSON steps read the AIP resource (library.proto's
+#   `Config` singleton, design §3.9, §5.8): `{name: projects/{project}/config, document: {...}}`, so
+#   a path into the configuration starts `document.`. Still pending.
 
 @doc
 @pending
@@ -61,8 +64,8 @@ Feature: config — the project's one configuration document, read and scaffolde
         """
       Then the command succeeds
       And the output contains "claude-code"
-      And the output reports "agents.default.engine" as "<names the agents section>"
-      And the output reports "default_agent" as "<names the default agent>"
+      And the output reports "document.agents.default.engine" as "<names the agents section>"
+      And the output reports "document.default_agent" as "<names the default agent>"
 
     @json-default
     Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
@@ -88,8 +91,8 @@ Feature: config — the project's one configuration document, read and scaffolde
         """
       When I run "ctxloom config <flags>"
       Then the command succeeds
-      And the output reports "agents.default.engine" as "<names the agents section>"
-      And the output reports "default_agent" as "<names the default agent>"
+      And the output reports "document.agents.default.engine" as "<names the agents section>"
+      And the output reports "document.default_agent" as "<names the default agent>"
       And the output does not contain "Available Commands:"
 
     @json-default
@@ -150,8 +153,8 @@ Feature: config — the project's one configuration document, read and scaffolde
         """
       Then the command succeeds
       And the output contains "claude-code"
-      And the output reports "default.engine" as "<names the engine>"
-      And the output reports "default.runtime" as "<names the runtime>"
+      And the output reports "document.default.engine" as "<names the engine>"
+      And the output reports "document.default.runtime" as "<names the runtime>"
       And the output does not contain "editor:"
       And the output does not contain "agents:"
 

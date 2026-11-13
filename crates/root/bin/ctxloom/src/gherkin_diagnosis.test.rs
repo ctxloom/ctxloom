@@ -359,7 +359,8 @@ fn pulled_not_composed(w: &mut World) {
 #[then("she sees that her profile does not compose the runbook")]
 fn profile_lacks_runbook(w: &mut World) {
     let agent = w.diagnosis_ran("ctxloom agent show").succeeds().json();
-    let profiles = &agent["definition"]["profiles"];
+    // OD-40: `agent show` is the `Agent` resource itself.
+    let profiles = &agent["profiles"];
     assert!(
         profiles
             .as_array()

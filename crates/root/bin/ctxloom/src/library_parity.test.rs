@@ -38,6 +38,12 @@
 //!   to its exit code and to answering JSON at all (`aip_json`); the shapes
 //!   are asserted by `library_cli_<noun>`, `library_write_<noun>` and the
 //!   features. Their text rows stay Go parity.
+//! - A converted noun's JSON shape (OD-40, design §8.1: Go parity ends for
+//!   JSON): an agent's and a companion's JSON rows are retired. Where the AIP
+//!   resource carries Go's answer whole, that answer is still compared:
+//!   `config show`'s `document` (`as_go_printed`) and a dry run's compared
+//!   keys, a default proto3 JSON leaves out read as Go's printed default
+//!   (`printed`).
 //! - Error texts. A failing command's stdout is empty in both and its exit
 //!   code is compared; the words are asserted in `library_cli.test.rs` from
 //!   the Gherkin. A usage error is exit 20 here (D28, ruled), where Go's
@@ -394,7 +400,7 @@ fn mismatch(row: &Row, project: &Project) -> Option<String> {
             let got = if is_dry_run(&row.id) {
                 json_without_index(got)
             } else {
-                got
+                as_go_printed(row, got)
             };
             json_mismatch(&row.id, &want, &got)
         }
@@ -422,13 +428,47 @@ fn mismatch(row: &Row, project: &Project) -> Option<String> {
     }
 }
 
+/// The noun a row runs: its first word that is no flag and no flag's value.
+fn noun(row: &Row) -> &str {
+    row.args
+        .iter()
+        .find(|word| !word.starts_with('-') && !word.contains('='))
+        .map_or("", String::as_str)
+}
+
+/// This build's json as Go printed it, where the AIP resource (OD-40)
+/// carries Go's answer whole: `config show` is the `Config` singleton, whose
+/// `document` is the configuration Go printed (design §5.8), so that is what
+/// is compared. Every other noun's json is compared as it is.
+fn as_go_printed(row: &Row, got: Value) -> Value {
+    if noun(row) == "config" {
+        return got.get("document").cloned().unwrap_or(got);
+    }
+    got
+}
+
+/// A value as proto3 JSON prints it (OD-40: the dry run is the `Run`
+/// message): a default (null, false, a zero, an empty text or list) is left
+/// out, so Go's printed default and this build's absent field agree, and
+/// nothing else does.
+fn printed(value: Option<&Value>) -> Option<&Value> {
+    value.filter(|value| match value {
+        Value::Null => false,
+        Value::Bool(b) => *b,
+        Value::Number(n) => n.as_f64() != Some(0.0),
+        Value::String(s) => !s.is_empty(),
+        Value::Array(a) => !a.is_empty(),
+        Value::Object(_) => true,
+    })
+}
+
 fn json_mismatch(id: &str, want: &Value, got: &Value) -> Option<String> {
     if !is_dry_run(id) {
         return (want != got).then(|| format!("JSON differs\n--- Go\n{want:#}\n--- here\n{got:#}"));
     }
     let mut wrong = Vec::new();
     for key in DRY_RUN_KEYS {
-        if want.get(key) != got.get(key) {
+        if printed(want.get(key)) != printed(got.get(key)) {
             wrong.push(format!(
                 "{key}: Go {:?}, here {:?}",
                 want.get(key),
@@ -438,12 +478,12 @@ fn json_mismatch(id: &str, want: &Value, got: &Value) -> Option<String> {
     }
     // Findings: how many, and which are fatal (their words are the
     // catalog's).
-    let flags = |doc: &Value| -> Vec<(Value, Value)> {
+    let flags = |doc: &Value| -> Vec<(Value, bool)> {
         doc["findings"]
             .as_array()
             .map(|a| {
                 a.iter()
-                    .map(|f| (f["kind"].clone(), f["fatal"].clone()))
+                    .map(|f| (f["kind"].clone(), f["fatal"].as_bool().unwrap_or(false)))
                     .collect()
             })
             .unwrap_or_default()

@@ -78,6 +78,65 @@ mod read {
         };
         let past = go(&["run", "--dry-run", "-p", "broken"], degraded, BARE);
         assert_eq!(past.code(), 1, "past its findings it would launch");
-        assert_eq!(past.json()["findings"][0]["fatal"], false);
+        // OD-40: proto3 JSON leaves a finding's false `fatal` out (OQ-7).
+        let finding = &past.json()["findings"][0];
+        assert!(finding.get("kind").is_some(), "{finding}");
+        assert!(finding.get("fatal").is_none(), "{finding}");
+    }
+
+    // OD-40 (design §5.9): `run --dry-run` is `CreateRun(validate_only)`, its
+    // json the `Run` it would create: no name (nothing is created), the plan's
+    // engine, profiles and context, the token estimate a number (uint32,
+    // OQ-12), and the agent's `settings` an `AgentSettings`, each value with
+    // the layer that said it, an unset one no `value`, an env key's name
+    // `variable` (AIP-122).
+    #[test]
+    fn test_a_dry_run_is_the_run_it_would_create() {
+        let plan = go(
+            &["run", "--dry-run", "--agent", "dev", "hello"],
+            JSON,
+            &[ENGINE_HOME, ENGINE_PROJECT],
+        );
+        assert_eq!(plan.code(), 1, "{}", plan.err);
+        let run = plan.json();
+        assert!(run.get("name").is_none(), "{run}");
+        assert_eq!(run["agent"], "dev");
+        assert_eq!(run["engine"], "claude-code");
+        assert_eq!(run["runtime"], "host");
+        assert_eq!(run["profiles"], serde_json::json!(["dev"]));
+        assert_eq!(run["prompt"], "hello");
+        assert!(run["tokens"].as_u64().is_some_and(|n| n > 0), "{run}");
+        assert!(run["context"].is_string(), "{run}");
+        assert_eq!(
+            run["settings"],
+            serde_json::json!({
+                "model": {"value": "haiku", "source": "agent"},
+                "effort": {"source": "default"},
+                "permissions": {"value": {"defaultMode": "acceptEdits"}, "source": "default"},
+                "runtime": {
+                    "value": "host",
+                    "source": "agent",
+                    "overrides": "container-rootless",
+                    "overrides_source": "project",
+                    "change": "weakens",
+                },
+                "env": {
+                    "value": ["HTTPS_PROXY"],
+                    "source": "engine",
+                    "keys": [{"variable": "HTTPS_PROXY", "source": "engine"}],
+                },
+            })
+        );
+        // A run with no agent has no settings, and an empty selection prints
+        // no list at all.
+        let bare = go(
+            &["run", "--dry-run", "-f", "demo#fragments/testing", "hello"],
+            JSON,
+            &["schema_version: 9\n"],
+        );
+        assert_eq!(bare.code(), 1, "{}", bare.err);
+        let run = bare.json();
+        assert!(run.get("settings").is_none(), "{run}");
+        assert!(run.get("profiles").is_none(), "{run}");
     }
 }

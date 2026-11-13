@@ -9,9 +9,8 @@ use std::io::{self, Write};
 use angzarr_presentation::Format;
 use clap::ArgMatches;
 use library_application::{AppError, Outcome, Preview, Removal, WriteError};
-use serde::Serialize;
 
-use crate::{emit, failed, Context, Failure, IntoFailure};
+use crate::{failed, Context, Failure, IntoFailure};
 
 /// A flag's value, `None` when the flag was not given.
 pub(crate) fn given(sub: &ArgMatches, name: &str) -> Option<String> {
@@ -67,19 +66,6 @@ pub(crate) fn text_only(cx: &Context<'_>, command: &str) -> Result<(), Failure> 
     Ok(())
 }
 
-/// Said and written: json, or `text`.
-pub(crate) fn finish<T: Serialize>(
-    cx: &Context<'_>,
-    outcome: Outcome<T>,
-    out: &mut dyn Write,
-    err: &mut dyn Write,
-    text: impl FnOnce(&T, &mut dyn Write, &mut Vec<String>) -> io::Result<()>,
-) -> Result<Exit, Failure> {
-    crate::answer(cx, outcome, out, err, |value, out, notes| {
-        emit(cx.format, out, &value, |out| text(&value, out, notes))
-    })
-}
-
 /// Said and written as text, whatever the format.
 pub(crate) fn finish_text<T>(
     cx: &Context<'_>,
@@ -90,23 +76,6 @@ pub(crate) fn finish_text<T>(
 ) -> Result<Exit, Failure> {
     crate::answer(cx, outcome, out, err, |value, out, notes| {
         text(&value, out, notes).map(|()| Exit::OK)
-    })
-}
-
-/// A removal: the preview or the removed.
-pub(crate) fn removal<T: Serialize>(
-    cx: &Context<'_>,
-    outcome: Outcome<Removal<T>>,
-    out: &mut dyn Write,
-    err: &mut dyn Write,
-    done: impl FnOnce(&T, &mut dyn Write) -> io::Result<()>,
-) -> Result<Exit, Failure> {
-    crate::answer(cx, outcome, out, err, |value, out, _| {
-        emit(cx.format, out, &value, |out| match &value {
-            Removal::Preview(preview) => preview_text(out, preview),
-            Removal::Done(removed) => done(removed, out),
-        })?;
-        Ok(removal_exit(&value))
     })
 }
 

@@ -42,8 +42,11 @@ fn test_show_renders_the_whole_configuration_document() {
                 .contains("default_agent: default");
         } else {
             let doc = ran.json();
-            assert_eq!(reports_as(&doc, "agents.default.engine"), "claude-code");
-            assert_eq!(reports_as(&doc, "default_agent"), "default");
+            assert_eq!(
+                reports_as(&doc, "document.agents.default.engine"),
+                "claude-code"
+            );
+            assert_eq!(reports_as(&doc, "document.default_agent"), "default");
         }
     }
 }
@@ -61,8 +64,11 @@ fn test_bare_config_shows_the_document_instead_of_printing_help() {
             ran.contains("agents:").contains("default_agent:");
         } else {
             let doc = ran.json();
-            assert_eq!(reports_as(&doc, "agents.default.engine"), "claude-code");
-            assert_eq!(reports_as(&doc, "default_agent"), "default");
+            assert_eq!(
+                reports_as(&doc, "document.agents.default.engine"),
+                "claude-code"
+            );
+            assert_eq!(reports_as(&doc, "document.default_agent"), "default");
         }
     }
 }
@@ -75,7 +81,16 @@ fn test_the_machine_readable_rendering_carries_the_document_not_an_empty_object(
     project.write(".ctxloom/config.yaml", AGENT_CONFIG);
     let ran = project.run(&["--format", "json", "config", "show"]);
     ran.succeeds().contains("claude-code");
-    assert!(ran.json().as_object().is_some_and(|o| !o.is_empty()));
+    // OD-40: the `Config` singleton, its document under `document`.
+    assert!(ran.json()["document"]
+        .as_object()
+        .is_some_and(|o| !o.is_empty()));
+    let name = ran.json()["name"].as_str().unwrap_or_default().to_string();
+    assert!(
+        name.starts_with("projects/") && name.ends_with("/config"),
+        "{}",
+        ran.stdout
+    );
 }
 
 // config.feature: Scenario Outline: The agents section carries the engine
@@ -96,8 +111,8 @@ fn test_the_agents_section_carries_the_engine_bindings_and_nothing_above_it() {
                 .contains("runtime: host");
         } else {
             let doc = ran.json();
-            assert_eq!(reports_as(&doc, "default.engine"), "claude-code");
-            assert_eq!(reports_as(&doc, "default.runtime"), "host");
+            assert_eq!(reports_as(&doc, "document.default.engine"), "claude-code");
+            assert_eq!(reports_as(&doc, "document.default.runtime"), "host");
         }
     }
 }
@@ -196,10 +211,10 @@ fn test_the_retired_config_booleans_are_refused_and_their_words_read() {
         .run(&["config", "show", "--format", "json"])
         .succeeds()
         .json();
-    assert_eq!(reports_as(&doc, "config.content_form"), "original");
-    assert_eq!(reports_as(&doc, "config.statusline"), "none");
-    assert_eq!(reports_as(&doc, "sync.on_run"), "none");
-    assert_eq!(reports_as(&doc, "output.dir"), "docs/sessions");
+    assert_eq!(reports_as(&doc, "document.config.content_form"), "original");
+    assert_eq!(reports_as(&doc, "document.config.statusline"), "none");
+    assert_eq!(reports_as(&doc, "document.sync.on_run"), "none");
+    assert_eq!(reports_as(&doc, "document.output.dir"), "docs/sessions");
 }
 
 // hand-test 2026-11-10: a `--config-set` saying what a config file may not
@@ -257,8 +272,8 @@ fn test_a_schema_7_config_migrates_in_memory_dropping_essence_max_chars() {
     let ran = project.run(&["config", "show", "--format", "json"]);
     ran.succeeds().lacks("essence_max_chars");
     let doc = ran.json();
-    assert_eq!(reports_as(&doc, "schema_version"), "9");
-    assert_eq!(reports_as(&doc, "config.content_form"), "original");
+    assert_eq!(reports_as(&doc, "document.schema_version"), "9");
+    assert_eq!(reports_as(&doc, "document.config.content_form"), "original");
     // The file is not touched: persisting an upgrade is --write-upgrades'.
     let kept = files::read(project.dir().join(".ctxloom/config.yaml")).unwrap();
     assert!(kept.contains("essence_max_chars"), "{kept}");
@@ -269,7 +284,11 @@ fn test_a_schema_7_config_migrates_in_memory_dropping_essence_max_chars() {
     );
     let emptied = project.run(&["config", "show", "--format", "json"]);
     emptied.succeeds();
-    assert!(emptied.json().get("config").is_none(), "{}", emptied.stdout);
+    assert!(
+        emptied.json()["document"].get("config").is_none(),
+        "{}",
+        emptied.stdout
+    );
 }
 
 // config_version_refusal_test.go (the stamp): owner override of Go, D15,
@@ -319,15 +338,27 @@ fn test_layers_merge_home_under_project() {
         .run(&["config", "show", "--format", "json"])
         .succeeds()
         .json();
-    assert_eq!(reports_as(&doc, "editor.command"), "project-editor");
-    assert!(contains_value(&doc, "editor.args", "-h"), "{doc}");
-    assert_eq!(reports_as(&doc, "workspace"), "worktree");
-    assert_eq!(reports_as(&doc, "agents.proj.engine"), "claude-code");
-    assert!(contains_value(&doc, "agents.proj.profiles", "x"), "{doc}");
-    assert!(contains_value(&doc, "agents.home.profiles", "h"), "{doc}");
+    assert_eq!(
+        reports_as(&doc, "document.editor.command"),
+        "project-editor"
+    );
+    assert!(contains_value(&doc, "document.editor.args", "-h"), "{doc}");
+    assert_eq!(reports_as(&doc, "document.workspace"), "worktree");
+    assert_eq!(
+        reports_as(&doc, "document.agents.proj.engine"),
+        "claude-code"
+    );
+    assert!(
+        contains_value(&doc, "document.agents.proj.profiles", "x"),
+        "{doc}"
+    );
+    assert!(
+        contains_value(&doc, "document.agents.home.profiles", "h"),
+        "{doc}"
+    );
     // Names union; a name's command is the project's where both register it.
     assert_eq!(
-        doc["companions"],
+        doc["document"]["companions"],
         serde_json::json!({
             "acme": {"command": ["acme-bin"]},
             "beta": {"command": ["other-beta"]},
@@ -343,7 +374,10 @@ fn test_overrides_beat_the_files_and_the_flag_beats_the_variable() {
     let project = Project::initialized();
     let env = [("CTXLOOM_CONFIG_EDITOR_COMMAND", "nano")];
     let from_env = project.run_with(&env, &["config", "show", "editor", "--format", "json"]);
-    assert_eq!(reports_as(&from_env.succeeds().json(), "command"), "nano");
+    assert_eq!(
+        reports_as(&from_env.succeeds().json(), "document.command"),
+        "nano"
+    );
     let both = project.run_with(
         &env,
         &[
@@ -356,7 +390,10 @@ fn test_overrides_beat_the_files_and_the_flag_beats_the_variable() {
             "json",
         ],
     );
-    assert_eq!(reports_as(&both.succeeds().json(), "command"), "vim");
+    assert_eq!(
+        reports_as(&both.succeeds().json(), "document.command"),
+        "vim"
+    );
     // An entry with no "=" is warned about and the rest is read.
     project
         .run(&[
@@ -385,7 +422,10 @@ fn test_without_a_project_the_home_config_is_the_whole_configuration() {
         project.dir(),
         &["config", "show", "editor", "--format", "json"],
     );
-    assert_eq!(reports_as(&ran.succeeds().json(), "command"), "nano");
+    assert_eq!(
+        reports_as(&ran.succeeds().json(), "document.command"),
+        "nano"
+    );
     assert!(
         !files::exists(project.dir().join(".ctxloom")),
         "reading creates nothing"
@@ -432,4 +472,69 @@ fn test_config_show_prints_the_registration_as_a_map_of_commands() {
     ran.contains("acme:\n  command:\n    - acme-bin\n")
         .contains("beta:\n  command:\n    - other-beta\n")
         .contains("gamma:\n  command:\n    - gamma-bin\n");
+}
+
+// OD-40 (OQ-3): outside a project a json answer is named under the home,
+// `users/me/config`, with no project to resolve, so no identity is minted
+// and nothing is written where the command ran.
+#[test]
+fn test_outside_a_project_a_json_read_is_named_under_the_home_and_writes_nothing() {
+    let project = Project::bare();
+    project.write_home(".ctxloom/config.yaml", "schema_version: 9\n");
+    let ran = project.run_in(project.dir(), &["config", "show", "--format", "json"]);
+    assert_eq!(
+        reports_as(&ran.succeeds().json(), "name"),
+        "users/me/config"
+    );
+    assert!(project.tree("").is_empty(), "{:?}", project.tree("").keys());
+}
+
+/// The project's name (`projects/<harp>`) as a json read from `dir` gives it.
+fn named_from(project: &Project, dir: &std::path::Path) -> String {
+    let ran = project.run_in(dir, &["config", "show", "--format", "json"]);
+    let name = reports_as(&ran.succeeds().json(), "name");
+    name.strip_suffix("/config")
+        .unwrap_or_else(|| panic!("{name} is no config's name"))
+        .to_string()
+}
+
+// OD-40 (OQ-2): inside a project, a json read from a subdirectory names the
+// project of the nearest `.ctxloom` up from it, the one its root names, and
+// writes nothing: no identity of the subdirectory's own.
+#[test]
+fn test_a_json_read_from_a_subdirectory_names_the_nearest_project_and_writes_nothing() {
+    let project = Project::initialized();
+    let sub = project.dir().join("src").join("deep");
+    files::mkdirs(&sub);
+    let at_root = named_from(&project, project.dir());
+    assert!(at_root.starts_with("projects/"), "{at_root}");
+    let before = project.tree("");
+    assert_eq!(named_from(&project, &sub), at_root);
+    assert_eq!(project.tree(""), before, "a read wrote in the project");
+    assert!(
+        !files::exists(sub.join(".ctxloom")),
+        "the subdirectory got an identity"
+    );
+}
+
+// OD-40: a project no run has named yet is named at its root, from wherever
+// in it the first json read is made: the identity is the project's
+// (`.ctxloom/project-id` beside its config), never a subdirectory's, so the
+// root then names the same project.
+#[test]
+fn test_a_first_json_read_from_a_subdirectory_names_the_project_at_its_root() {
+    let project = Project::initialized();
+    let sub = project.dir().join("src");
+    files::mkdirs(&sub);
+    let from_sub = named_from(&project, &sub);
+    assert!(
+        !files::exists(sub.join(".ctxloom")),
+        "the subdirectory got an identity"
+    );
+    assert!(
+        project.exists(".ctxloom/project-id"),
+        "{:?}",
+        project.tree("").keys()
+    );
+    assert_eq!(named_from(&project, project.dir()), from_sub);
 }

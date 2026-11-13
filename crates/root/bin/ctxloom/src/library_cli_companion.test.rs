@@ -22,8 +22,8 @@ fn test_a_projects_companions_are_added_to_the_home_registrations() {
     let ran = project.run(&["companion", "list", "--format", "json"]);
     ran.succeeds();
     let doc = ran.json();
-    assert_eq!(reports_as(&doc, "0.name"), "acme");
-    assert_eq!(reports_as(&doc, "1.name"), "beta");
+    assert!(reports_as(&doc, "companions.0.name").ends_with("/companions/acme"));
+    assert!(reports_as(&doc, "companions.1.name").ends_with("/companions/beta"));
 }
 
 // companion.feature: Scenario: An empty project list does not unregister a
@@ -41,7 +41,7 @@ fn test_an_empty_project_list_does_not_unregister_a_home_companion() {
     );
     let ran = project.run(&["companion", "list", "--format", "json"]);
     ran.succeeds();
-    assert_eq!(reports_as(&ran.json(), "0.name"), "acme");
+    assert!(reports_as(&ran.json(), "companions.0.name").ends_with("/companions/acme"));
 }
 
 // companion.feature: Scenario: List answers which program each registered
@@ -66,12 +66,15 @@ fn test_list_answers_the_command_each_registered_name_runs_and_whether_it_is_the
     let ran = project.run(&["companion", "list", "--format", "json"]);
     ran.succeeds();
     let doc = ran.json();
-    assert_eq!(reports_as(&doc, "0.name"), "acme");
-    assert_eq!(reports_as(&doc, "0.command.0"), exe.display().to_string());
-    assert_eq!(reports_as(&doc, "0.command.2"), "acme");
-    assert_eq!(reports_as(&doc, "0.exists"), "true");
-    assert_eq!(reports_as(&doc, "1.name"), "gone");
-    assert_eq!(reports_as(&doc, "1.exists"), "false");
+    assert!(reports_as(&doc, "companions.0.name").ends_with("/companions/acme"));
+    assert_eq!(
+        reports_as(&doc, "companions.0.command.0"),
+        exe.display().to_string()
+    );
+    assert_eq!(reports_as(&doc, "companions.0.command.2"), "acme");
+    assert_eq!(reports_as(&doc, "companions.0.resolves"), "true");
+    assert!(reports_as(&doc, "companions.1.name").ends_with("/companions/gone"));
+    assert_eq!(reports_as(&doc, "companions.1.resolves"), "false");
     project
         .run(&["companion", "--format", "text"])
         .succeeds()

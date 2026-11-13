@@ -25,6 +25,9 @@ pub struct DaemonClient {
     cert: PublicCert,
     bearer: Token,
     within: Duration,
+    /// A destroy's deadline (`DeleteSession`, `SweepSessions`).
+    #[allow(dead_code)] // RED: read once the green lands.
+    destroying: Duration,
 }
 
 impl std::fmt::Debug for DaemonClient {
@@ -44,6 +47,15 @@ impl DaemonClient {
             cert: found.cert.clone(),
             bearer: found.bearer.clone(),
             within,
+            destroying: within,
+        }
+    }
+
+    /// This client, each destroy bounded by `within` instead.
+    pub fn destroying(self, within: Duration) -> DaemonClient {
+        DaemonClient {
+            destroying: within,
+            ..self
         }
     }
 

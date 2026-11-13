@@ -79,3 +79,38 @@ fn an_environment_override_beats_the_files() {
 fn a_config_that_will_not_parse_is_an_error_not_no_age() {
     assert!(age(vec!["session_purge_age: [unclosed\n"], &[]).is_err());
 }
+
+fn retention(
+    layers: Vec<&'static str>,
+    environ: &[(&str, &str)],
+) -> Result<Option<String>, Failure> {
+    let environ = environ
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+    SweepSettings::new(Arc::new(Layers(layers)), environ).retention()
+}
+
+// The destroy's retention refusal honours the project's configured
+// `session_transcript_retention`, an override beating the files.
+#[test]
+fn the_configured_transcript_retention_is_read() {
+    assert_eq!(
+        retention(vec!["session_transcript_retention: 365d\n"], &[]).unwrap(),
+        Some("365d".to_string())
+    );
+    let environ = [("CTXLOOM_CONFIG_session_transcript_retention", "7d")];
+    assert_eq!(
+        retention(vec!["session_transcript_retention: 365d\n"], &environ).unwrap(),
+        Some("7d".to_string())
+    );
+}
+
+#[test]
+fn a_config_without_the_retention_has_none_and_a_broken_one_is_an_error() {
+    assert_eq!(
+        retention(vec!["session_purge_age: 90d\n"], &[]).unwrap(),
+        None
+    );
+    assert!(retention(vec!["session_transcript_retention: [unclosed\n"], &[]).is_err());
+}

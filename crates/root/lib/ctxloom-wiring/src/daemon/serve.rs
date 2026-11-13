@@ -228,6 +228,7 @@ async fn start(
         edge: Arc::clone(&edge),
         index: kept.index.clone().unwrap_or_default(),
         pending: kept.pending.clone().unwrap_or_default(),
+        board: kept.board.clone().unwrap_or_default(),
         hosting: Arc::clone(shared) as Arc<dyn daemon_api::Hosting>,
         states: Arc::new(Locks(Arc::clone(fs))),
         harps: Arc::new(FreshHarps),

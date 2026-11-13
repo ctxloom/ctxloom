@@ -45,6 +45,12 @@ impl World {
         registry
             .aggregate::<sessions::ProjectNameAggregate>(sessions::ProjectNameAggregate::default)
             .unwrap();
+        registry
+            .aggregate::<sessions::NameClaimAggregate>(sessions::NameClaimAggregate::default)
+            .unwrap();
+        registry
+            .aggregate::<runs::RunAggregate>(runs::RunAggregate::default)
+            .unwrap();
         Arc::new(World {
             registry,
             store: MemoryStore::default(),
@@ -150,6 +156,7 @@ impl Harps for Offered {
 pub(crate) struct Fixture {
     pub(crate) world: Arc<World>,
     pub(crate) index: SessionIndexes,
+    pub(crate) board: daemon_board::Boards,
     pub(crate) hosting: Arc<Loop>,
     pub(crate) places: Arc<FakePlaces>,
     pub(crate) locks: Arc<Locks>,
@@ -159,6 +166,7 @@ pub(crate) struct Fixture {
 pub(crate) fn fixture(harps: Vec<&'static str>) -> Fixture {
     let world = World::new();
     let index = SessionIndexes::default();
+    let board = daemon_board::Boards::default();
     let hosting = Arc::new(Loop::default());
     let places = Arc::new(FakePlaces::default());
     let locks = Arc::new(Locks::default());
@@ -166,6 +174,7 @@ pub(crate) fn fixture(harps: Vec<&'static str>) -> Fixture {
         edge: Arc::clone(&world),
         index: index.clone(),
         pending: pending_messages::PendingMessages::default(),
+        board: board.clone(),
         hosting: Arc::clone(&hosting) as Arc<dyn Hosting>,
         states: Arc::clone(&locks) as Arc<dyn SessionStates>,
         harps: Arc::new(Offered(harps)),
@@ -184,6 +193,7 @@ pub(crate) fn fixture(harps: Vec<&'static str>) -> Fixture {
     Fixture {
         world,
         index,
+        board,
         hosting,
         places,
         locks,
@@ -200,6 +210,34 @@ impl Fixture {
             .step(&self.world.store, self.world.registry.catalog())
             .await
             .unwrap();
+        let mut board = daemon_board::caught_up(self.board.clone());
+        board
+            .step(&self.world.store, self.world.registry.catalog())
+            .await
+            .unwrap();
+    }
+
+    /// The daemon started again over the same store: a fresh API, its
+    /// index caught up from what the store holds, remembering nothing.
+    pub(crate) async fn restarted(&self) -> Api<World> {
+        let index = SessionIndexes::default();
+        let mut caught = SessionIndex::caught_up(index.clone());
+        caught
+            .step(&self.world.store, self.world.registry.catalog())
+            .await
+            .unwrap();
+        Api::new(Parts {
+            edge: Arc::clone(&self.world),
+            index,
+            pending: pending_messages::PendingMessages::default(),
+            board: daemon_board::Boards::default(),
+            hosting: Arc::clone(&self.hosting) as Arc<dyn Hosting>,
+            states: Arc::clone(&self.locks) as Arc<dyn SessionStates>,
+            harps: Arc::new(Offered(Vec::new())),
+            about: About::default(),
+            places: Arc::new(Arc::clone(&self.places)) as Arc<dyn crate::Places>,
+            purges: Arc::clone(&self.world) as Arc<dyn crate::Purges>,
+        })
     }
 
     /// Mint the session `harp` of the project.

@@ -11,6 +11,12 @@ pub trait SweepConfig {
     /// configuration that cannot be read is an error and stops the sweep
     /// (Go warned and held every purge; nothing is acted on either way).
     fn purge_age(&mut self) -> Result<Option<String>, Failure>;
+
+    /// `session_transcript_retention` as configured: how long after its end
+    /// a session's transcript is kept, so its removal refused; none where
+    /// it is unset (the default then applies). A configuration that cannot
+    /// be read is an error, and nothing is removed.
+    fn retention(&mut self) -> Result<Option<String>, Failure>;
 }
 
 /// The instant sessions last active before are purged: the flag's age or

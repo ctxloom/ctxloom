@@ -47,6 +47,11 @@ pub(crate) struct Held {
     /// The configured purge age, and the roots it was read from.
     purge_age: Option<String>,
     settings_asked: Vec<String>,
+    /// The roots whose purge age was read.
+    purge_age_asked: Vec<String>,
+    /// The configured transcript retention, and the roots it was read from.
+    retention: Option<String>,
+    retention_asked: Vec<String>,
     /// The directories whose files were asked for.
     files_asked: Vec<String>,
 }
@@ -127,11 +132,19 @@ impl WorktreeUse for Checkouts {
     }
 }
 
-struct Settings(Arc<FakePlaces>);
+struct Settings(Arc<FakePlaces>, String);
 
 impl SweepConfig for Settings {
     fn purge_age(&mut self) -> Result<Option<String>, reclaim_application::Failure> {
-        Ok(self.0.held().purge_age.clone())
+        let mut held = self.0.held();
+        held.purge_age_asked.push(self.1.clone());
+        Ok(held.purge_age.clone())
+    }
+
+    fn retention(&mut self) -> Result<Option<String>, reclaim_application::Failure> {
+        let mut held = self.0.held();
+        held.retention_asked.push(self.1.clone());
+        Ok(held.retention.clone())
     }
 }
 
@@ -157,7 +170,7 @@ impl Places for Arc<FakePlaces> {
 
     fn settings(&self, root: &str, _env: &[(String, String)]) -> Box<dyn SweepConfig + Send> {
         self.held().settings_asked.push(root.to_string());
-        Box::new(Settings(Arc::clone(self)))
+        Box::new(Settings(Arc::clone(self), root.to_string()))
     }
 
     fn now(&self) -> Timestamp {
@@ -203,16 +216,21 @@ async fn head(world: &World, domain: &str, root: uuid::Uuid) -> u64 {
         .next_sequence
 }
 
-/// A run stream of the session's first incarnation, with one event.
-async fn a_run_of(world: &World, root: uuid::Uuid) {
-    use angzarr_embedded::Write;
+/// A run stream of the session's first incarnation, with one event: the
+/// run of `session` (its id text) enqueued.
+async fn a_run_of(world: &World, session: &str, root: uuid::Uuid) {
+    use angzarr_embedded::{Payload, Write};
+    let enqueued = runs::RunEvent::RunEnqueued(runs::RunEnqueued {
+        session: session.to_string(),
+        incarnation: 1,
+        mode: runs::RunMode::Structured,
+        hook_credential_hash: vec![3; 32],
+        launcher_lock: String::new(),
+    });
     let page = angzarr_embedded::v1::EventPage {
         sequence: 0,
         body: Some(angzarr_embedded::v1::event_page::Body::Event(
-            angzarr_embedded::Any {
-                type_url: "type.googleapis.com/ctxloom.runs.v1.RunExited".to_string(),
-                value: Vec::new(),
-            },
+            enqueued.to_any(),
         )),
         meta: None,
     };
@@ -310,7 +328,7 @@ async fn a_delete_validate_only_is_the_plan_and_destroys_nothing() {
 async fn a_delete_destroys_the_session_its_runs_and_its_directory() {
     let f = finished(HARP, transcript_and_notes(HARP)).await;
     let (session, run) = roots(NAME);
-    a_run_of(&f.world, run).await;
+    a_run_of(&f.world, &uid_of(HARP), run).await;
     let events = head(&f.world, sessions::SESSION_DOMAIN, session).await
         + head(&f.world, runs::RUN_DOMAIN, run).await;
     let done = f.api.delete_session(delete(NAME, true)).await.unwrap();
@@ -531,8 +549,8 @@ async fn a_sweep_reports_and_plans_through_the_removal() {
     assert_eq!(report.sessions[0].name, NAME);
     assert!(!report.purge_cutoff.is_empty());
     assert!(f.places.held().destroyed.is_empty());
-    // The flag given, the configuration is not read.
-    assert!(f.places.held().settings_asked.is_empty());
+    // The flag given, the configured purge age is not read.
+    assert!(f.places.held().purge_age_asked.is_empty());
 }
 
 // The purge age a sweep is not given is its project's configured one, read
@@ -543,7 +561,7 @@ async fn a_sweep_reads_the_configured_age_from_the_registered_root() {
     let f = finished(HARP, transcript_and_notes(HARP)).await;
     f.places.held().purge_age = Some("30d".to_string());
     let report = f.api.sweep_sessions(sweep("", true)).await.unwrap();
-    assert_eq!(f.places.held().settings_asked, [ROOT]);
+    assert_eq!(f.places.held().purge_age_asked, [ROOT]);
     assert_eq!(report.counts.unwrap().done, 1);
     assert_eq!(f.places.held().destroyed, [HARP]);
 
@@ -580,6 +598,360 @@ async fn a_sweep_of_every_project_reaches_each_session() {
         .await
         .unwrap();
     assert!(report.rows.iter().any(|row| row.harp == HARP));
+}
+
+// ------------------------------------------- the children and the owner
+
+/// The name of `harp` in the fixture's project.
+fn name_of(harp: &str) -> String {
+    format!("projects/calm-quiet-heron/sessions/{harp}")
+}
+
+/// The stream id text of `harp`'s session.
+fn uid_of(harp: &str) -> String {
+    sessions::SessionName::parse(&name_of(harp)).unwrap().uid()
+}
+
+fn cover_of(harp: &str) -> Cover {
+    Cover {
+        domain: sessions::SESSION_DOMAIN.to_string(),
+        root: Some(sessions::SessionName::parse(&name_of(harp)).unwrap().root()),
+        edition: None,
+    }
+}
+
+fn at_session(harp: &str) -> sessions::SessionRef {
+    sessions::SessionRef {
+        project_id: PROJECT.to_string(),
+        session: uid_of(harp),
+    }
+}
+
+/// The owner `owner` (minted, its incarnation open) launches the child
+/// `child`, which is minted for it, its directory holding a file.
+async fn launched_child(f: &Fixture, owner: &str, child: &str) {
+    let launch = sessions::LaunchChild {
+        child_project_id: PROJECT.to_string(),
+        child_session: uid_of(child),
+        child_root: ROOT.to_string(),
+        harp: child.to_string(),
+        engine: "claude-code".to_string(),
+        trust: sessions::TargetTrust {
+            same_project: true,
+            trusted: true,
+        },
+        delegation_limit: 4,
+        requester: None,
+        prompt: String::new(),
+    };
+    let book = sessions::keyed_book(cover_of(owner), &launch, &format!("launch:{child}"));
+    f.world.handle(book).await.unwrap();
+    let mint = sessions::MintSession {
+        harp: child.to_string(),
+        project_id: PROJECT.to_string(),
+        project_dir: ROOT.to_string(),
+        output_dir: format!("{ROOT}/ctxloom/{child}"),
+        engine: "claude-code".to_string(),
+        origin: sessions::Origin::Agent,
+        started_at: None,
+        depth: 1,
+        owner: Some(at_session(owner)),
+    };
+    let book = sessions::keyed_book(cover_of(child), &mint, &format!("mint:{child}"));
+    f.world.handle(book).await.unwrap();
+    f.catch_up().await;
+    let mut held = f.places.held();
+    held.survey.insert(
+        child.to_string(),
+        vec![file(child, "native/history.jsonl", 1)],
+    );
+    held.last_active
+        .insert(child.to_string(), at(NOW - 60 * DAY));
+}
+
+/// The warm index's record of `harp`.
+fn record_of(f: &Fixture, harp: &str) -> session_index::SessionRecord {
+    f.index
+        .index()
+        .find_by_id(&uid_of(harp))
+        .unwrap_or_else(|| panic!("{harp} is indexed"))
+}
+
+const KID: &str = "ended-kid-near";
+const OTHER_KID: &str = "ended-kid-far";
+
+// Rulings 94, 98, D28 K3/M3: a purge emits no event, so a destroy closes each
+// child its session holds BEFORE it purges, through the core, and a
+// redelivered close step (its keyed command again) records nothing.
+#[tokio::test]
+async fn a_destroy_closes_the_children_of_the_session_first() {
+    let f = finished(HARP, transcript_and_notes(HARP)).await;
+    launched_child(&f, HARP, KID).await;
+    launched_child(&f, HARP, OTHER_KID).await;
+    assert_eq!(record_of(&f, HARP).children.len(), 2);
+    let done = f.api.delete_session(delete(NAME, true)).await.unwrap();
+    assert!(done.applied);
+    f.catch_up().await;
+    for kid in [KID, OTHER_KID] {
+        assert!(record_of(&f, kid).closed, "{kid} is closed");
+    }
+    let again = session_policies::destroy(
+        &at_session(HARP),
+        None,
+        &[sessions::Child {
+            session: Some(at_session(KID)),
+            root: String::new(),
+        }],
+    );
+    let kid = uuid::Uuid::parse_str(&uid_of(KID)).unwrap();
+    let before = head(&f.world, sessions::SESSION_DOMAIN, kid).await;
+    let _ = f.world.handle(again.close[0].book()).await;
+    assert_eq!(
+        head(&f.world, sessions::SESSION_DOMAIN, kid).await,
+        before,
+        "a duplicate"
+    );
+}
+
+// M3: a destroyed child is forgotten by its owner before its purge; the
+// owner stays open.
+#[tokio::test]
+async fn a_destroyed_child_is_forgotten_by_its_owner() {
+    let f = finished(HARP, transcript_and_notes(HARP)).await;
+    launched_child(&f, HARP, KID).await;
+    assert_eq!(record_of(&f, HARP).children.len(), 1);
+    let done = f
+        .api
+        .delete_session(delete(&name_of(KID), true))
+        .await
+        .unwrap();
+    assert!(done.applied);
+    f.catch_up().await;
+    let owner = record_of(&f, HARP);
+    assert!(owner.children.is_empty(), "{:?}", owner.children);
+    assert!(!owner.closed);
+}
+
+// A destroy that is only planned sends nothing to the children.
+#[tokio::test]
+async fn a_destroy_planned_and_not_applied_closes_no_child() {
+    let f = finished(HARP, transcript_and_notes(HARP)).await;
+    launched_child(&f, HARP, KID).await;
+    f.api.delete_session(delete(NAME, false)).await.unwrap();
+    f.catch_up().await;
+    assert!(!record_of(&f, KID).closed);
+    assert_eq!(record_of(&f, HARP).children.len(), 1);
+}
+
+// ------------------------------------------------------------- the board
+
+// The board the daemon's policies plan from is told the session's stream
+// and its runs' are gone, as the index is: a destroyed session leaves no
+// board row.
+#[tokio::test]
+async fn a_destroy_leaves_no_board_row() {
+    let f = finished(HARP, transcript_and_notes(HARP)).await;
+    let (_, run) = roots(NAME);
+    a_run_of(&f.world, &uid_of(HARP), run).await;
+    f.catch_up().await;
+    let id = uid_of(HARP);
+    assert!(f.board.board().session(&id).is_some());
+    assert!(f.board.board().run(&id, 1).is_some());
+    f.api.delete_session(delete(NAME, true)).await.unwrap();
+    assert!(f.board.board().session(&id).is_none(), "the session row");
+    assert!(f.board.board().run(&id, 1).is_none(), "its run's row");
+}
+
+// ------------------------------------------------- the request id (S8)
+
+fn delete_as(name: &str, request_id: &str) -> v1::DeleteSessionRequest {
+    v1::DeleteSessionRequest {
+        request_id: request_id.to_string(),
+        ..delete(name, true)
+    }
+}
+
+/// `harp`'s name claimed by its session, as a mint's claim leaves it.
+async fn claimed(f: &Fixture, harp: &str) {
+    let name = sessions::SessionName::parse(&name_of(harp)).unwrap();
+    let cover = Cover {
+        domain: sessions::NAMES_DOMAIN.to_string(),
+        root: Some(name.root()),
+        edition: None,
+    };
+    let claim = sessions::ClaimName {
+        project_id: PROJECT.to_string(),
+        harp: harp.to_string(),
+        session: name.uid(),
+    };
+    let book = sessions::keyed_book(cover, &claim, &format!("claim:{harp}"));
+    f.world.handle(book).await.unwrap();
+}
+
+// S8: a destroy retried with its request id, already applied, is answered
+// with its first result, not `SessionNotFound`.
+#[tokio::test]
+async fn a_destroy_retried_with_its_request_id_answers_its_first_result() {
+    let f = finished(HARP, transcript_and_notes(HARP)).await;
+    claimed(&f, HARP).await;
+    let first = f
+        .api
+        .delete_session(delete_as(NAME, "req-1"))
+        .await
+        .unwrap();
+    assert!(first.applied);
+    assert!(first.events_destroyed > 0);
+    let again = f
+        .api
+        .delete_session(delete_as(NAME, "req-1"))
+        .await
+        .unwrap();
+    assert_eq!(again, first);
+    assert_eq!(f.places.held().destroyed, [HARP], "destroyed once");
+}
+
+// Without a request id, a destroyed session is a name nobody holds.
+#[tokio::test]
+async fn a_destroy_with_no_request_id_is_not_answered_twice() {
+    let f = finished(HARP, transcript_and_notes(HARP)).await;
+    claimed(&f, HARP).await;
+    f.api.delete_session(delete(NAME, true)).await.unwrap();
+    let (_, missing): (_, v1::SessionNotFound) =
+        refused(f.api.delete_session(delete(NAME, true)).await);
+    assert_eq!(missing.name, NAME);
+}
+
+// After a restart the daemon holds no first result: a retried destroy of a
+// session the store says was destroyed (its name claimed, its stream empty)
+// is answered applied from those facts; a name never claimed is not found.
+#[tokio::test]
+async fn after_a_restart_a_retried_destroy_is_answered_from_the_stores_facts() {
+    let f = finished(HARP, transcript_and_notes(HARP)).await;
+    claimed(&f, HARP).await;
+    f.api
+        .delete_session(delete_as(NAME, "req-1"))
+        .await
+        .unwrap();
+    let restarted = f.restarted().await;
+    let again = restarted
+        .delete_session(delete_as(NAME, "req-1"))
+        .await
+        .unwrap();
+    assert_eq!(
+        (again.name.as_str(), again.harp.as_str(), again.applied),
+        (NAME, HARP, true)
+    );
+    assert_eq!((again.bytes_freed, again.events_destroyed), (0, 0));
+    assert_eq!(f.places.held().destroyed, [HARP], "destroyed once");
+
+    let never = name_of("ended-never-owl");
+    let (_, missing): (_, v1::SessionNotFound) =
+        refused(restarted.delete_session(delete_as(&never, "req-2")).await);
+    assert_eq!(missing.name, never);
+}
+
+// A plan is no write: its request id keeps nothing.
+#[tokio::test]
+async fn a_planned_destroy_keeps_no_result_for_its_request_id() {
+    let f = finished(HARP, transcript_and_notes(HARP)).await;
+    let plan = f
+        .api
+        .delete_session(v1::DeleteSessionRequest {
+            validate_only: true,
+            ..delete_as(NAME, "req-1")
+        })
+        .await
+        .unwrap();
+    assert!(!plan.applied);
+    let done = f
+        .api
+        .delete_session(delete_as(NAME, "req-1"))
+        .await
+        .unwrap();
+    assert!(done.applied);
+}
+
+// A sweep retried with its request id answers its first report.
+#[tokio::test]
+async fn a_sweep_retried_with_its_request_id_answers_its_first_report() {
+    let f = finished(HARP, transcript_and_notes(HARP)).await;
+    let request = v1::SweepSessionsRequest {
+        request_id: "sweep-1".to_string(),
+        ..sweep("30d", true)
+    };
+    let first = f.api.sweep_sessions(request.clone()).await.unwrap();
+    assert_eq!(first.counts.unwrap().done, 1);
+    let again = f.api.sweep_sessions(request).await.unwrap();
+    assert_eq!(again, first);
+    assert_eq!(f.places.held().destroyed, [HARP]);
+}
+
+// ------------------------------------------------ the transcript retention
+
+// The retention a removal is refused within is the project's configured
+// `session_transcript_retention`, read from its registered root (30 days
+// unless configured).
+#[tokio::test]
+async fn a_removal_honours_the_configured_transcript_retention() {
+    // Ended 60 days ago, kept for 90: refused.
+    let f = finished(HARP, transcript_and_notes(HARP)).await;
+    f.places.held().retention = Some("90d".to_string());
+    let refused = removal_refused(f.api.delete_session(delete(NAME, true)).await);
+    assert_eq!(refused.reason, v1::RemovalRefusal::Retained as i32);
+    assert_eq!(f.places.held().retention_asked, [ROOT]);
+    assert!(f.places.held().destroyed.is_empty());
+
+    // Ended 10 days ago, kept for 7: destroyed (the default would refuse).
+    let f = finished(HARP, transcript_and_notes(HARP)).await;
+    {
+        let mut held = f.places.held();
+        held.retention = Some("7d".to_string());
+        held.last_active
+            .insert(HARP.to_string(), at(NOW - 10 * DAY));
+    }
+    let done = f.api.delete_session(delete(NAME, true)).await.unwrap();
+    assert!(done.applied);
+
+    // None configured: 30 days.
+    let f = finished(HARP, transcript_and_notes(HARP)).await;
+    f.places
+        .held()
+        .last_active
+        .insert(HARP.to_string(), at(NOW - 10 * DAY));
+    let refused = removal_refused(f.api.delete_session(delete(NAME, true)).await);
+    assert_eq!(refused.reason, v1::RemovalRefusal::Retained as i32);
+}
+
+// A configured retention that is no age is refused, naming the key, and
+// nothing is removed.
+#[tokio::test]
+async fn a_configured_retention_that_is_no_age_is_refused() {
+    let f = finished(HARP, transcript_and_notes(HARP)).await;
+    f.places.held().retention = Some("forever".to_string());
+    let (_, invalid): (_, v1::AgeInvalid) = refused(f.api.delete_session(delete(NAME, true)).await);
+    assert_eq!(
+        (invalid.key.as_str(), invalid.value.as_str()),
+        ("session_transcript_retention", "forever")
+    );
+    assert!(f.places.held().destroyed.is_empty());
+}
+
+// A sweep holds a purge within its session's project's configured
+// retention.
+#[tokio::test]
+async fn a_sweep_holds_a_purge_within_the_configured_retention() {
+    let f = finished(HARP, transcript_and_notes(HARP)).await;
+    f.places.held().retention = Some("90d".to_string());
+    let report = f.api.sweep_sessions(sweep("30d", true)).await.unwrap();
+    let row = report
+        .rows
+        .iter()
+        .find(|row| row.harp == HARP && row.action == "purge")
+        .cloned()
+        .unwrap();
+    assert_eq!(row.verdict, "held");
+    assert!(row.reason.contains("retention"), "{}", row.reason);
+    assert!(f.places.held().destroyed.is_empty());
 }
 
 // A refusal the daemon answers is its own message, under its status.

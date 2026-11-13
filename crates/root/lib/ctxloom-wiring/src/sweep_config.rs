@@ -36,6 +36,10 @@ impl SweepConfig for SweepSettings {
         .map_err(|e| Box::new(e) as Failure)?;
         Ok(Some(config.text("session_purge_age")).filter(|age| !age.is_empty()))
     }
+
+    fn retention(&mut self) -> Result<Option<String>, Failure> {
+        Ok(None)
+    }
 }
 
 #[cfg(test)]

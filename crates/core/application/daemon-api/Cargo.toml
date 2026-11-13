@@ -10,6 +10,8 @@ publish.workspace = true
 [dependencies]
 angzarr-diagnostic.workspace = true
 angzarr-embedded.workspace = true
+# The board a destroy tells the stream is gone.
+daemon-board.workspace = true
 daemon-ports.workspace = true
 daemon-proto.workspace = true
 exit-code.workspace = true

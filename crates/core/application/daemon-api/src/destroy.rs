@@ -517,6 +517,10 @@ impl SweepConfig for Unconfigured {
     fn purge_age(&mut self) -> Result<Option<String>, reclaim_application::Failure> {
         Ok(None)
     }
+
+    fn retention(&mut self) -> Result<Option<String>, reclaim_application::Failure> {
+        Ok(None)
+    }
 }
 
 /// A sweep row's verdict, by its word.

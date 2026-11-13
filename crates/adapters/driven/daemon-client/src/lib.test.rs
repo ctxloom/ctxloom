@@ -73,7 +73,36 @@ impl Ctxloom for Fake {
             Bytes::from(details.encode_to_vec()),
         ))
     }
+
+    /// A destroy takes longer than a read's deadline (its worktrees' git).
+    async fn delete_session(
+        &self,
+        request: Request<v1::DeleteSessionRequest>,
+    ) -> Result<Response<v1::DeleteSessionResponse>, Status> {
+        self.admit(&request)?;
+        tokio::time::sleep(SLOW).await;
+        Ok(Response::new(v1::DeleteSessionResponse {
+            name: request.into_inner().name,
+            applied: true,
+            ..v1::DeleteSessionResponse::default()
+        }))
+    }
+
+    async fn sweep_sessions(
+        &self,
+        request: Request<v1::SweepSessionsRequest>,
+    ) -> Result<Response<v1::SweepSessionsResponse>, Status> {
+        self.admit(&request)?;
+        tokio::time::sleep(SLOW).await;
+        Ok(Response::new(v1::SweepSessionsResponse {
+            purge_cutoff: "2026-01-01".to_string(),
+            ..v1::SweepSessionsResponse::default()
+        }))
+    }
 }
+
+/// How long the fake's destroys take.
+const SLOW: Duration = Duration::from_millis(600);
 
 fn certificate() -> HookCertificate {
     Minter::new(SystemClock)
@@ -222,4 +251,39 @@ fn an_error_info_detail_is_no_typed_refusal() {
         Bytes::from(details.encode_to_vec()),
     );
     assert_eq!(super::called("GetDaemon", &status), Called::Unauthenticated);
+}
+
+// A destroy has a deadline of its own, longer than a read's: one that takes
+// longer than `within` is still answered within `destroying`, and one that
+// outlasts that too is unreachable.
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn a_destroy_is_bounded_by_its_own_deadline_not_a_reads() {
+    let found = serve(&certificate(), &token(0xab)).await;
+    let quick = Duration::from_millis(200);
+    let client = DaemonClient::new(&found, quick).destroying(Duration::from_secs(10));
+    let done = client
+        .delete_session(v1::DeleteSessionRequest {
+            name: "projects/p/sessions/s".to_string(),
+            ..v1::DeleteSessionRequest::default()
+        })
+        .await
+        .unwrap();
+    assert!(done.applied);
+    let swept = client
+        .sweep_sessions(v1::SweepSessionsRequest::default())
+        .await
+        .unwrap();
+    assert_eq!(swept.purge_cutoff, "2026-01-01");
+
+    let short = DaemonClient::new(&found, Duration::from_secs(10)).destroying(quick);
+    let late = short
+        .delete_session(v1::DeleteSessionRequest::default())
+        .await
+        .unwrap_err();
+    assert!(matches!(late, Called::Unreachable { .. }), "{late:?}");
+    let late = short
+        .sweep_sessions(v1::SweepSessionsRequest::default())
+        .await
+        .unwrap_err();
+    assert!(matches!(late, Called::Unreachable { .. }), "{late:?}");
 }

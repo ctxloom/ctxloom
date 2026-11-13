@@ -25,7 +25,13 @@ pub struct Client<D> {
     project: Option<v1::ResolveProjectRequest>,
     cwd: String,
     env: v1::EnvVars,
+    /// Mints a write's request id (S8), once per call, retry included.
+    #[allow(dead_code)] // RED: read once the green lands.
+    ids: RequestIds,
 }
+
+/// What mints a write's request id (S8): unique per call.
+pub type RequestIds = Box<dyn Fn() -> String + Send + Sync>;
 
 /// The session reads a command makes, as the CLI calls them.
 #[allow(async_fn_in_trait)]
@@ -101,7 +107,14 @@ impl<D: Daemons> Client<D> {
             project,
             cwd,
             env,
+            ids: Box::new(String::new),
         }
+    }
+
+    /// This client, each write's request id minted by `ids` (none, by
+    /// default).
+    pub fn with_request_ids(self, ids: RequestIds) -> Client<D> {
+        Client { ids, ..self }
     }
 
     /// `daemon status`: the serving daemon, or none (S14: none is started).

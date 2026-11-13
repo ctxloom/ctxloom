@@ -25,6 +25,8 @@ struct Fake {
     names: Arc<Mutex<Vec<String>>>,
     /// The daemons that cannot be reached mid-call.
     dying: Arc<Mutex<Vec<usize>>>,
+    /// The writes' request ids, as they came, `<daemon>:<id>`.
+    request_ids: Arc<Mutex<Vec<String>>>,
 }
 
 impl Fake {
@@ -102,6 +104,10 @@ impl DaemonApi for Fake {
         r: v1::DeleteSessionRequest,
     ) -> Result<v1::DeleteSessionResponse, Called> {
         let rpc = format!("delete {} {}", r.validate_only, r.even_if_live);
+        self.request_ids
+            .lock()
+            .unwrap()
+            .push(format!("{}:{}", self.n, r.request_id));
         self.ask(&rpc, r.env)?;
         self.names.lock().unwrap().push(r.name.clone());
         let plan = v1::DeleteSessionResponse {
@@ -130,6 +136,10 @@ impl DaemonApi for Fake {
         r: v1::SweepSessionsRequest,
     ) -> Result<v1::SweepSessionsResponse, Called> {
         let rpc = format!("sweep {} {}", r.validate_only, r.older_than);
+        self.request_ids
+            .lock()
+            .unwrap()
+            .push(format!("{}:{}", self.n, r.request_id));
         self.ask(&rpc, r.env)?;
         self.names.lock().unwrap().push(r.parent);
         self.names.lock().unwrap().push(r.project);
@@ -159,6 +169,7 @@ impl Fakes {
                 envs: Arc::default(),
                 names: Arc::default(),
                 dying: Arc::default(),
+                request_ids: Arc::default(),
             },
         }
     }
@@ -457,4 +468,45 @@ async fn a_sweep_names_its_parent_and_its_project() {
         .unwrap();
     assert_eq!(outside_daemons.names(), ["projects/-", ""]);
     assert_eq!(outside_daemons.asked(), ["1:sweep false "]);
+}
+
+/// A client in the project whose request ids are `req-1`, `req-2`, ...
+fn numbering(daemons: &Fakes) -> Client<Fakes> {
+    let minted = Arc::new(Mutex::new(0_u32));
+    in_project(daemons).with_request_ids(Box::new(move || {
+        let mut n = minted.lock().unwrap();
+        *n += 1;
+        format!("req-{n}")
+    }))
+}
+
+// S8: a removal and a sweep each carry a request id the client chose, and
+// a call made once more on a new daemon carries the SAME id, so the daemon
+// can answer one already applied with its first result.
+#[tokio::test]
+async fn a_write_retried_on_a_new_daemon_carries_the_same_request_id() {
+    let daemons = Fakes::new();
+    daemons.template.dying.lock().unwrap().push(1);
+    let client = numbering(&daemons);
+    client
+        .delete_session("brisk-copper-moth", true, false)
+        .await
+        .unwrap();
+    client.sweep_sessions(false, None, true).await.unwrap();
+    assert_eq!(
+        daemons.template.request_ids.lock().unwrap().clone(),
+        ["1:req-1", "2:req-1", "3:req-2"]
+    );
+}
+
+// With no ids given, a client sends none (the daemon then answers a retry
+// as it finds the session).
+#[tokio::test]
+async fn a_client_given_no_ids_sends_none() {
+    let daemons = Fakes::new();
+    in_project(&daemons)
+        .delete_session("brisk-copper-moth", true, false)
+        .await
+        .unwrap();
+    assert_eq!(daemons.template.request_ids.lock().unwrap().clone(), ["1:"]);
 }

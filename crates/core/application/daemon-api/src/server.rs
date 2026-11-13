@@ -77,6 +77,9 @@ pub struct Parts<E> {
     pub index: SessionIndexes,
     /// The pending messages the daemon's kernel keeps warm (`show`'s, D30).
     pub pending: PendingMessages,
+    /// The board the daemon's kernel keeps warm (its policies plan from
+    /// it), told of a destroy as the index is.
+    pub board: daemon_board::Boards,
     pub hosting: Arc<dyn Hosting>,
     pub states: Arc<dyn SessionStates>,
     pub harps: Arc<dyn Harps>,

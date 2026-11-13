@@ -17,6 +17,7 @@ fn shown(write: impl FnOnce(&mut Vec<u8>) -> io::Result<()>) -> String {
 
 fn bundle(name: &str, fragments: u64, commands: u64, mcp: u64) -> BundleRow {
     BundleRow {
+        commit: String::new(),
         name: name.to_string(),
         reference: format!("ctxloom+local:{name}"),
         path: String::new(),
@@ -163,6 +164,7 @@ fn test_a_skill_listing_shows_description_files_and_tags() {
 fn test_a_profile_listing_summarizes_each_profile() {
     let list = ProfileList {
         rows: vec![ProfileRow {
+            entry: String::new(),
             name: "dev".to_string(),
             display_name: "dev".to_string(),
             description: "dev profile".to_string(),
@@ -399,6 +401,7 @@ fn mcp_shown(notes: &str, installation: &str) -> library_application::ShownMcp {
 
 fn bundle_shown() -> BundleShow {
     BundleShow {
+        listing: BundleRow::default(),
         name: st("demo"),
         path: st("/p/bundle.yaml"),
         version: st("1.0.0"),
@@ -458,6 +461,7 @@ Notes:\n  bundle notes\n"
 #[test]
 fn test_a_bundle_show_leaves_out_what_it_does_not_have() {
     let bare = BundleShow {
+        listing: BundleRow::default(),
         name: st("bare"),
         path: st("/p/bundle.yaml"),
         version: String::new(),
@@ -520,6 +524,7 @@ fn test_an_altered_publisher_body_is_noted_by_what_it_names() {
 fn test_a_view_collapses_blank_runs_only_for_one_item() {
     let content = "a\n\n\n\n\n\n\nb\n";
     let view = |item| BundleView {
+        viewed: Default::default(),
         bundle: st("demo"),
         path: String::new(),
         distilled: false,
@@ -541,6 +546,7 @@ fn test_a_view_collapses_blank_runs_only_for_one_item() {
 #[test]
 fn test_an_item_show_prints_its_marker_name_and_body() {
     let show = |distilled| ItemShow {
+        bundle: String::new(),
         name: st("golang"),
         reference: st("demo#fragments/golang"),
         content: st("BODY\n\n\n\n\n\n\nEND"),
@@ -664,6 +670,7 @@ fn test_a_skill_row_without_a_description_or_tags_is_just_its_name_and_files() {
 
 fn profile_shown() -> ProfileShow {
     ProfileShow {
+        entry: String::new(),
         name: st("dev"),
         description: st("Dev"),
         parents: sv(&["base"]),

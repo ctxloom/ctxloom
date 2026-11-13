@@ -27,7 +27,7 @@ fn is_zero(n: &u64) -> bool {
 }
 
 /// One row of `bundle list`.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Default, Serialize)]
 pub struct BundleRow {
     pub name: String,
     #[serde(rename = "ref")]
@@ -49,6 +49,10 @@ pub struct BundleRow {
     pub mcp_count: u64,
     pub profile_count: u64,
     pub held: bool,
+    /// The commit an installed remote bundle is pinned at; empty for any
+    /// other (its API resource's `commit`, OD-40).
+    #[serde(skip)]
+    pub commit: String,
 }
 
 /// What `bundle list` answers.
@@ -140,6 +144,34 @@ pub struct BundleShow {
     pub profiles: Vec<String>,
     #[serde(skip_serializing_if = "no_items")]
     pub hooks: Vec<String>,
+    /// The bundle as `bundle list` lists it: its origin, reference and
+    /// counts (its API resource's, OD-40).
+    #[serde(skip)]
+    pub listing: BundleRow,
+}
+
+/// What `bundle view` read, as data (its API resource, OD-40): the
+/// bundle's files, or the one item the path selects.
+#[derive(Clone, Debug, Default)]
+pub enum Viewed {
+    #[default]
+    Nothing,
+    /// The whole bundle: each file, by path, as text.
+    Files(Vec<(String, String)>),
+    /// A fragment or a command (`kind` its directory, `fragments` or
+    /// `commands`): the body served, and whether it is the distilled form.
+    Body {
+        kind: String,
+        name: String,
+        body: String,
+        distilled: bool,
+    },
+    Skill {
+        name: String,
+        skill: ShownSkill,
+    },
+    Mcp(McpRow),
+    Profile(ProfileShow),
 }
 
 /// What `bundle view` answers.
@@ -154,6 +186,9 @@ pub struct BundleView {
     /// Whether the content is one item's (its blank runs collapse in text).
     #[serde(skip)]
     pub item: bool,
+    /// What was read, as data.
+    #[serde(skip)]
+    pub viewed: Viewed,
 }
 
 /// One row of `fragment list` and `command list`.
@@ -185,6 +220,8 @@ pub struct ItemList {
 #[derive(Clone, Debug)]
 pub struct ItemShow {
     pub name: String,
+    /// The bundle the item is in, by its catalog name.
+    pub bundle: String,
     pub reference: String,
     pub content: String,
     pub distilled: bool,
@@ -268,6 +305,10 @@ pub struct ProfileRow {
     pub is_remote: bool,
     #[serde(skip_serializing_if = "no_text")]
     pub bundle: String,
+    /// The catalog name of the bundle that ships it (its API resource's
+    /// parent, OD-40).
+    #[serde(skip)]
+    pub entry: String,
 }
 
 /// What `profile list` answers.
@@ -278,7 +319,7 @@ pub struct ProfileList {
 }
 
 /// What `profile show` answers.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Default, Serialize)]
 pub struct ProfileShow {
     pub name: String,
     #[serde(skip_serializing_if = "no_text")]
@@ -300,6 +341,9 @@ pub struct ProfileShow {
     #[serde(skip_serializing_if = "no_text")]
     pub bundle: String,
     pub default: bool,
+    /// The catalog name of the bundle that ships it (OD-40).
+    #[serde(skip)]
+    pub entry: String,
 }
 
 /// An agent as its binding declares it.

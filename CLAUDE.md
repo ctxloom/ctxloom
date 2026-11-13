@@ -1601,9 +1601,41 @@ named `projects/{harp}/engines/<engine>`, its agent rows' name `agent`,
 their settings flat (`agents[agent=x].model.value`), the auth state
 `PRESENT|MISSING|NOT_NEEDED` (`EngineAuth.State`), an unset model no `value`; its
 text is unchanged. `scripts/plain-engines-check.sh` reads the TEXT
-listing, so `just build` reaches no daemon. Every other noun still prints
-its view, until its branch (B1 catalog, B2 configuration, B3 queries, B4
-remotes) converts it.
+listing, so `just build` reaches no daemon. The catalog nouns (B1,
+`aip/catalog`): `bundle list|show|view`, `fragment|command list|show`,
+`fragment premises`, `skill list|show`, `mcp server list|show`, `profile
+list|show` and every write of theirs (but `bundle push|move`, B4's) print
+their AIP resource or their method's own response (`ListBundlesResponse`,
+`Bundle`, `CreateBundleResponse`, `DeleteFragmentResponse`, ...), mapped by
+`noun/<noun>.rs` over library-cli's `catalog.rs` (the one place a catalog
+name becomes a resource name: `demo` is `<parent>/bundles/demo`,
+`<remote>/<b>` `<parent>/remotes/<remote>/bundles/<b>`,
+`ctxloom+companion:<c>` `<parent>/companions/<c>/bundles/loadout`; an item
+is `<bundle's>/<fragments|commands|skills|mcpServers|profiles>/<id>`, a
+project's own profile `<parent>/bundles/project/profiles/<p>`; a
+configured reference (a profile's parents and bundles) is a name where its
+text places it and keeps its text where it does not, a remote's URL
+reference among them, OQ-16, no notice yet; an ID on disk that breaks the
+grammar is named as it is). `bundle show` lists each child as a
+`BundleItem` naming it (`fragments[item$=/fragments/x]`, OQ-14), `bundle
+view <b>` is the `Bundle` with its `files`, `bundle view <b>#<kind>/<i>` the
+item's own resource (its `body` the bytes served); `mcp server show <n>` is
+`ListMcpServersResponse` filtered by the ID; `fragment premises` the
+`PremiseIndex` singleton (`<parent>/premiseIndex`, each entry's `fragment`
+a name). A removal's preview is its `Delete<Noun>Response` with `applied:
+false`, `detail` and `apply_command`; an edit that changed nothing has
+`applied: false` and no `changes`; `mcp server set` says `created` when the
+bundle lacked the server. The verbs that answered in text only (`fragment|
+command show`, `profile create|edit|modify|export|import`, `mcp server
+edit`) answer their message only when `--format json` is asked for by name,
+and stay text by default (an agent's shell runs `fragment show` off a
+terminal). The views gained what a name needs and the JSON never printed
+(`BundleRow::commit`, `BundleShow::listing`, `BundleView::viewed`,
+`ItemShow::bundle`, `ProfileRow|ProfileShow::entry`, all `serde(skip)`).
+Go parity ends for their JSON (`library_parity`'s `aip_json`: such a row is
+held to its exit code and to answering JSON; its text rows stay Go's).
+Every other noun still prints its view, until its branch (B2
+configuration, B3 queries, B4 remotes) converts it.
 
 The feature steps read proto3 JSON (design §8.1, the binary's
 `library.test.rs` and `gherkin_common.test.rs`): a selector `[key$=suffix]`
@@ -1703,7 +1735,7 @@ create` seed a BARE `default` profile that inherits nothing (accepted cost: a
 fresh project has no coding guidance until a remote is added). The catalog
 lists it under the read-only built-in origin `ctxloom/builtin` (ruling 127;
 `Catalog::with_builtins`, joined by the composition root through
-`Library::with_builtins`; `bundle list` gives `origin: ctxloom/builtin` in
+`Library::with_builtins`; `bundle list` gives `origin: BUILTIN` (OD-40) in
 json and `[built-in]` in text; only the bundle is labelled, as no built-in
 profile or fragment exists). A project bundle named `ctxloom` (readable or
 not) overrides it whole, and init reads its interview THROUGH the catalog

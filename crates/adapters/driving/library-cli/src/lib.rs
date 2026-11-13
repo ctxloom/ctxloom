@@ -11,6 +11,7 @@
 //! as json or as text, with what it noticed said on the error stream.
 
 mod api;
+mod catalog;
 mod commands;
 pub mod inert;
 mod noun;

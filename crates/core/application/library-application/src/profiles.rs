@@ -31,6 +31,8 @@ impl Library {
 /// The profiles the project's local bundles ship, by their canonical key.
 pub(crate) struct Profiles {
     pub(crate) by_key: BTreeMap<String, (Profile, String)>,
+    /// The catalog name of the bundle that ships each, by its key.
+    entries: BTreeMap<String, String>,
     /// The repository a remote profile was shipped in, by its key: it may
     /// name only that repository's content.
     sources: BTreeMap<String, String>,
@@ -98,6 +100,7 @@ impl Project {
     pub(crate) fn profiles(&self) -> Profiles {
         let mut by_key = BTreeMap::new();
         let mut sources = BTreeMap::new();
+        let mut entries = BTreeMap::new();
         for entry in self.catalog.entries() {
             let dir = crate::shown::parent(&entry.manifest_path);
             let origin = self.catalog.origin(&entry.name);
@@ -123,6 +126,7 @@ impl Project {
                     }
                     sources.insert(key.clone(), origin.url.clone());
                 }
+                entries.insert(key.clone(), entry.name.clone());
                 by_key.insert(
                     key,
                     (
@@ -132,7 +136,11 @@ impl Project {
                 );
             }
         }
-        Profiles { by_key, sources }
+        Profiles {
+            by_key,
+            entries,
+            sources,
+        }
     }
 
     /// The canonical keys of the profiles the default agent composes.
@@ -162,6 +170,7 @@ impl Project {
                 path: path.clone(),
                 is_remote: profiles.sources.contains_key(key),
                 bundle: bundle_of(key),
+                entry: profiles.entries.get(key).cloned().unwrap_or_default(),
             })
             .collect();
         rows.sort_by_key(|r| r.name.to_lowercase());
@@ -201,6 +210,7 @@ impl Project {
             path: path.clone(),
             bundle: bundle_of(&key),
             default: defaults.contains(&key),
+            entry: profiles.entries.get(&key).cloned().unwrap_or_default(),
         })
     }
 

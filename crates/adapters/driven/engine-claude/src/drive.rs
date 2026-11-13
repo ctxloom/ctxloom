@@ -198,9 +198,27 @@ impl Engine for Claude {
                 bytes: mcp_config(&request.surfaces.0).into_bytes(),
             },
         ];
-        if request.session_home == SessionHome::Session {
-            files.extend(user_scope_items(&request.surfaces.0));
-        }
+        // The commands and skills: the session home's own (its
+        // CLAUDE_CONFIG_DIR's user scope); under `host` the config dir is
+        // the user's, never written, so they ride into the checkout the
+        // engine works in (owner ruling 2026-11-12, Q3).
+        let items = items(&request.surfaces.0);
+        let workspace_files = match request.session_home {
+            SessionHome::Session => {
+                files.extend(items.into_iter().map(|file| {
+                    HomeFile {
+                        rel: file
+                            .rel
+                            .strip_prefix(".claude/")
+                            .unwrap_or(&file.rel)
+                            .to_string(),
+                        bytes: file.bytes,
+                    }
+                }));
+                Vec::new()
+            }
+            SessionHome::Host => items,
+        };
         let mut left_out = Vec::new();
         if request.session_home == SessionHome::Session {
             let (base, skipped) = user_base(self.user_settings.as_ref());
@@ -223,12 +241,22 @@ impl Engine for Claude {
             seeds: Vec::new(),
             context_path: format!("{}/{CONTEXT_PROMPT_FILE}", request.home),
             left_out,
-            workspace_files: Vec::new(),
+            workspace_files,
         })
     }
 
     fn merges(&self) -> &'static [&'static str] {
         &[STATE_FILE]
+    }
+
+    fn workspace_patterns(&self, session_home: SessionHome) -> Vec<String> {
+        match session_home {
+            SessionHome::Session => Vec::new(),
+            SessionHome::Host => vec![
+                ".claude/commands/".to_string(),
+                ".claude/skills/".to_string(),
+            ],
+        }
     }
 
     fn drive_turn(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError> {
@@ -387,10 +415,10 @@ fn mcp_config(surfaces: &surface_ports::Inputs) -> String {
     format!("{}\n", doc.pretty())
 }
 
-/// The commands and skills the launch carries, as claude's user-scope
-/// `commands/` and `skills/` of the session home (its CLAUDE_CONFIG_DIR):
-/// the files a project's `.claude/` would hold, under the home instead.
-fn user_scope_items(surfaces: &surface_ports::Inputs) -> Vec<HomeFile> {
+/// The commands and skills the launch carries, as the files a project's
+/// `.claude/commands/` and `.claude/skills/` hold: the session home's
+/// `commands/` and `skills/` take them without the `.claude/`.
+fn items(surfaces: &surface_ports::Inputs) -> Vec<HomeFile> {
     let mut planned = surface_ports::Planned::default();
     crate::commands::plan(&surfaces.commands, &mut planned);
     crate::skills::plan(&surfaces.skills, &mut planned);
@@ -398,10 +426,7 @@ fn user_scope_items(surfaces: &surface_ports::Inputs) -> Vec<HomeFile> {
         .claims
         .into_iter()
         .filter_map(|claim| match claim {
-            surface_ports::Claim::Whole { path, bytes, .. } => Some(HomeFile {
-                rel: path.strip_prefix(".claude/").unwrap_or(&path).to_string(),
-                bytes,
-            }),
+            surface_ports::Claim::Whole { path, bytes, .. } => Some(HomeFile { rel: path, bytes }),
             _ => None,
         })
         .collect()

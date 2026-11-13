@@ -311,6 +311,16 @@ fn checkouts_in(fs: &dyn Fs, work: &Path, harp: &str) -> Result<Vec<Scratch>, Fa
     Ok(found)
 }
 
+/// Whether `rel` is a path inside a directory: relative, and climbing
+/// nowhere.
+fn plainly_inside(rel: &str) -> bool {
+    let path = Path::new(rel);
+    !rel.is_empty()
+        && path
+            .components()
+            .all(|c| matches!(c, std::path::Component::Normal(_)))
+}
+
 /// Whether `harp` is one path segment that could name a session.
 fn is_name(harp: &str) -> bool {
     !harp.is_empty() && harp != "." && harp != ".." && !harp.contains(['/', '\\'])
@@ -399,12 +409,51 @@ impl Workspaces for GitWorkspaces {
     }
 
     fn place_files(&self, checkout: &str, files: &[(String, Vec<u8>)]) -> Result<(), Failure> {
-        let _ = (checkout, files);
+        let root = Path::new(checkout);
+        for (rel, _) in files {
+            if !plainly_inside(rel) {
+                return Err(Box::new(WorktreeError::Unreadable {
+                    path: root.join(rel).display().to_string(),
+                    why: "not a path inside the checkout".to_string(),
+                }));
+            }
+        }
+        for (rel, bytes) in files {
+            let path = root.join(rel);
+            let failed = |e: std::io::Error| -> Failure {
+                Box::new(WorktreeError::Unreadable {
+                    path: path.display().to_string(),
+                    why: e.to_string(),
+                })
+            };
+            if let Some(parent) = path.parent() {
+                self.fs
+                    .create_dir_all(parent, Mode::from_bits(0o777))
+                    .map_err(failed)?;
+            }
+            self.fs
+                .write_atomic(&path, bytes, Perms::KeepOr(Mode::FILE))
+                .map_err(failed)?;
+        }
         Ok(())
     }
 
     fn remove_files(&self, checkout: &str, rels: &[String]) {
-        let _ = (checkout, rels);
+        let root = Path::new(checkout);
+        for rel in rels.iter().filter(|rel| plainly_inside(rel)) {
+            let _ = self.fs.remove_file(&root.join(rel));
+            // A directory left empty is gone too: git lists an empty one an
+            // exclude matches as ignored, which would keep the checkout.
+            let mut dir = Path::new(rel).parent();
+            while let Some(at) = dir.filter(|d| !d.as_os_str().is_empty()) {
+                let path = root.join(at);
+                let empty = self.fs.read_dir(&path).is_ok_and(|e| e.is_empty());
+                if !empty || self.fs.remove_dir_all(&path).is_err() {
+                    break;
+                }
+                dir = at.parent();
+            }
+        }
     }
 
     fn session_known(&self, harp: &str) -> Result<bool, Failure> {

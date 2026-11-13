@@ -356,6 +356,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         let prepared = self.prepare(&order, &mut ignored, &mut left_out, &mut placed);
         let checkout = placed.as_ref().and_then(|p: &Placement| p.checkout.clone());
         let workspace_warning = placed.as_ref().and_then(|p| p.warning.clone());
+        let checkout_files = placed.as_ref().map(|p| p.files.clone()).unwrap_or_default();
         let cwd = placed.map(|p| p.cwd).or_else(|| order.cwd.clone());
         let done = |outcome| Launched {
             run: launch.run.clone(),
@@ -366,7 +367,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             ignored: ignored.clone(),
             left_out: left_out.clone(),
             checkout: checkout.clone(),
-            checkout_files: Vec::new(),
+            checkout_files: checkout_files.clone(),
             workspace_warning: workspace_warning.clone(),
         };
         let (engine, command) = match prepared {
@@ -593,7 +594,10 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         let engine = self
             .engine(&order.engine)
             .ok_or_else(|| format!("no engine named {}", order.engine))?;
-        *placed = self.place(order)?;
+        *placed = self.place(
+            order,
+            &engine.workspace_patterns(order.settings.session_home),
+        )?;
         let cwd = placed
             .as_ref()
             .map(|p| p.cwd.clone())
@@ -626,6 +630,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             })
             .map_err(|e| e.to_string())?;
         left_out.clone_from(&prepared.left_out);
+        self.place_files(placed.as_mut(), &prepared.workspace_files)?;
         for file in &prepared.files {
             self.records
                 .write(&order.harp, &format!("home/{}", file.rel), &file.bytes)
@@ -686,18 +691,49 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         checkout: &isolation_ports::Checkout,
         files: &[String],
     ) -> isolation_ports::Removal {
-        let _ = files;
         match &self.workspaces {
-            Some(workspaces) => workspaces.remove(&checkout.repo_dir, &checkout.path),
+            Some(workspaces) => {
+                workspaces.remove_files(&checkout.path, files);
+                workspaces.remove(&checkout.repo_dir, &checkout.path)
+            }
             None => isolation_ports::Removal::Left(crate::workspace::NO_WORKSPACES.to_string()),
         }
+    }
+
+    /// Write what the launch carries that its engine reads only from where
+    /// it works into the checkout it was placed in (owner ruling 2026-11-12,
+    /// Q3), and keep their paths for the release; in the live project none
+    /// is written.
+    fn place_files(
+        &self,
+        placed: Option<&mut Placement>,
+        files: &[run_ports::HomeFile],
+    ) -> Result<(), Unprepared> {
+        let (Some(placed), Some(workspaces)) = (placed, &self.workspaces) else {
+            return Ok(());
+        };
+        let Some(checkout) = &placed.checkout else {
+            return Ok(());
+        };
+        if files.is_empty() {
+            return Ok(());
+        }
+        let pairs: Vec<(String, Vec<u8>)> = files
+            .iter()
+            .map(|f| (f.rel.clone(), f.bytes.clone()))
+            .collect();
+        workspaces
+            .place_files(&checkout.path, &pairs)
+            .map_err(|e| Unprepared::Failed(e.to_string()))?;
+        placed.files = files.iter().map(|f| f.rel.clone()).collect();
+        Ok(())
     }
 
     /// Where the order's engine works (the workspace axis): none for an
     /// order with no project; the project where it asks for no worktree, or
     /// this launcher makes none (with a warning); else what
     /// [`place_workspace`] says. A worktree refused is why nothing started.
-    fn place(&self, order: &Order) -> Result<Option<Placement>, Unprepared> {
+    fn place(&self, order: &Order, patterns: &[String]) -> Result<Option<Placement>, Unprepared> {
         let Some(project) = &order.cwd else {
             return Ok(None);
         };
@@ -708,6 +744,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
                 checkout: None,
                 warning: (asked.axis == Axis::Worktree)
                     .then(|| crate::workspace::NO_WORKSPACES.to_string()),
+                files: Vec::new(),
             }));
         };
         place_workspace(
@@ -715,7 +752,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             project,
             &asked.work_dir,
             &asked.agent,
-            &[],
+            patterns,
             workspaces.as_ref(),
         )
         .map(Some)

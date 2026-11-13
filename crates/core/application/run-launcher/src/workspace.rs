@@ -69,6 +69,8 @@ pub struct Placement {
     /// Why a worktree asked for could not be had, and the engine works in
     /// the project instead.
     pub warning: Option<String>,
+    /// What the launch wrote into the checkout, relative to it.
+    pub files: CheckoutFiles,
 }
 
 /// What a launch placed in its checkout: the files (relative to it) its
@@ -86,11 +88,11 @@ pub fn place_workspace(
     patterns: &[String],
     workspaces: &dyn Workspaces,
 ) -> Result<Placement, Failure> {
-    let _ = patterns;
     let live = |warning: Option<String>| Placement {
         cwd: project_dir.to_string(),
         checkout: None,
         warning,
+        files: Vec::new(),
     };
     if axis == Axis::None {
         return Ok(live(None));
@@ -104,13 +106,14 @@ pub fn place_workspace(
         agent: agent.to_string(),
         // What the launch writes into the checkout (the engine's), hidden
         // from git.
-        artifact_patterns: Vec::new(),
+        artifact_patterns: patterns.to_vec(),
     };
     Ok(match workspaces.prepare(&request)? {
         Prepared::Checkout(checkout) => Placement {
             cwd: checkout.path.clone(),
             checkout: Some(checkout),
             warning: None,
+            files: Vec::new(),
         },
         Prepared::Unavailable(why) => live(Some(why)),
     })

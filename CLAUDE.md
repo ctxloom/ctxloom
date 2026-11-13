@@ -97,6 +97,12 @@ tree still reads, then hands the changes to the port; a refused write has
 written nothing. A config write replaces the section it owns whole, never
 heals a file that does not parse. `loadout --format yaml` is the one yaml
 output; its prose is withheld until the owner rules (D24, D8).
+Every item verb takes one reference, `create` too: `fragment|command|skill
+create <bundle>#<kind>s/<name>` (or the bundle and the name, the Go-ported
+form). A fragment or command create opens the editor on its template and
+stores what the editor gives back (an editor that saves nothing stores the
+template; an empty buffer is `library-application-write-empty-edit` and
+writes nothing); `skill create` scaffolds its `SKILL.md` and opens none.
 Skill zips are written and read by `library::write::archive` over the `zip`
 crate (deflate only, default features off) and crc32fast.
 A file's executability is ONLY its skill sidecar's `executable:` list
@@ -358,6 +364,21 @@ binary's entries are its wiring (`manage hooks check`, a surface's
 `hooks_present` and `statusline`); doctor reads an entry running `ctxloom` or
 the running binary's name as ctxloom's. The CLI's own help and fix texts
 still say `ctxloom`.
+A session is offered, beside its context, its profiles' commands, skills,
+MCP servers and hooks (S9, M3): the plan's `DryRun::surfaces`
+(`run_ports::SessionSurfaces`, from the profiles' package: the registered
+MCP servers only, the hooks without ctxloom's own `session-start` and
+`skill-mates` callbacks) rides the `Order` to `PrepareRequest::surfaces`.
+engine-claude writes them where its config dir (the session home) keeps them:
+`commands/<bundle>-<name>.md` and `skills/<name>/...` (the at-rest
+renderings), the state file's `mcpServers` (user scope, replacing one of the
+same name), and each hook in the group of its event and matcher of
+`ctxloom-hooks.json`, after ctxloom's own; under `session_home: host` only
+the hooks file (ctxloom's) is written. A skill's declared-executable files
+are written without a mode (`HomeFile` carries none), a skill claude would
+refuse is left out unsaid, and engine-opencode delivers none of them yet.
+Not verified against a live claude: user-scope commands, skills and
+`mcpServers` read from a relocated `CLAUDE_CONFIG_DIR`.
 The launcher records `RunnerStarted{runtime, workspace, pid}` AFTER the spawn,
 with the pid the spawn gave (`RunnerLauncher::launch` answers a `Running`, the
 launcher records, `Running::finish` waits), and the pending launches clear on
@@ -983,6 +1004,10 @@ library's `bundle` noun and owns `remote` and `deps`.
 
 - Evidence rule: content is removed upstream only on a not-found from a
   repository proven readable this run; an unreachable remote keeps everything.
+- `deps upgrade <reference>` (`<remote>/<bundle>` or canonical) moves that
+  one dependency: every other lock entry keeps its commit and hold
+  (`deps::plan::upgrade_only`); a first pin its closure needs is still made;
+  a reference the lock does not hold is `deps-application-nothing-to-hold`.
 - Lock schema 3 has no timestamps and rewrites byte-identically at unchanged
   pins; a corrupt lock is refused, never overwritten; an empty lock never
   replaces a populated one. Registry schema 1: unstamped is refused

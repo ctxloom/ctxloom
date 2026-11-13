@@ -5,10 +5,13 @@
 # by the Rust acceptance test (library_parity.test.rs) against this binary.
 # Source of every line: the Go feature named in the id's group comment.
 #
+# OD-40 (design §8.1): Go parity ends for JSON. A companion's JSON is its
+# AIP resource (ListCompanionsResponse), held by library-cli's and the
+# binary's companion tests; its JSON rows are retired, the text rows (and the
+# rows that hold a refusal) stay as Go parity.
+#
 # cli/companion.feature
-companion-list-json	lib	companion list --format json
 companion-list-text	lib	companion list --format text
-companion-bare-json	lib	companion --format json
 # Configuration: schema 8 and older, layering, strict decode (cli/config.feature, fault_tolerance.feature)
 cfg-layers-companion-list-json	cfg/layers	companion list --format json
 # Nothing there: no content directory at all, and an empty one (empty_listing_hint, cli/agent.feature)

@@ -9,7 +9,7 @@
 //! T13 the same mapping moves into the daemon.
 //!
 //! Converted so far: the `engine` noun (the spine's worked example,
-//! `noun/engine.rs`) and `agent` (`noun/agent.rs`, whose writes answer
+//! `noun/engine.rs`), `agent` and `companion` (whose writes answer
 //! through [`written`]). The other nouns still print their views, until
 //! their branch converts them.
 

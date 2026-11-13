@@ -1605,7 +1605,7 @@ listing, so `just build` reaches no daemon. Every other noun still prints
 its view, until its branch (B1 catalog, B2 configuration, B3 queries, B4
 remotes) converts it.
 
-B2 (`aip/configuration`) converted `agent`: `agent list` is
+B2 (`aip/configuration`) converted `agent` and `companion`: `agent list` is
 `ListAgentsResponse` (`{agents: [...]}`, an empty one `{}`), `agent show`
 the `Agent` itself (no `definition` level: `engine`, `profiles`,
 `engines.<e>.model` at the top, `resolved` beside them, an env key's name
@@ -1617,7 +1617,13 @@ removal's by name alone), `applied`, a preview's `apply_command` and
 `detail`, through `api::written`, the write half of the one path. A
 reference (an agent's `engine` and `profiles`) still prints its configured
 text, as the engine noun's agent rows do. `agent default` is still text
-only. Go parity ends for these nouns' JSON (design §8.1): their JSON rows
+only. `companion list` is `ListCompanionsResponse`, each companion named
+`projects/{harp}/companions/<name>`, its `command`, and `resolves` (was
+`exists`); `companion add` answers `CreateCompanionResponse` (`applied`
+when the registration is new or changed, `resolves` true: its program
+answered the probe) and `remove` `DeleteCompanionResponse`; `bin` is left
+unset (a companion is a name and the command that runs it, not Go's
+`ctxloom-companion-<name>`). `loadout` is unchanged. Go parity ends for these nouns' JSON (design §8.1): their JSON rows
 are retired from `fixtures/parity/`, the text rows stay.
 
 The feature steps read proto3 JSON (design §8.1, the binary's

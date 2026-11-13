@@ -287,6 +287,54 @@ async fn outside_a_project_its_own_listing_is_refused() {
     assert!(daemons.asked().is_empty());
 }
 
+// Owner ruling 2026-11-13: a read never mints a project id, so a project
+// with none has recorded nothing. Its own listing and search are empty,
+// asked of no daemon; every project's listing is still every project's, and
+// what addresses one of its sessions is refused as outside a project.
+#[tokio::test]
+async fn an_unnamed_projects_own_listing_and_search_are_empty_and_ask_no_daemon() {
+    let daemons = Fakes::new();
+    let client = outside(&daemons).unnamed();
+    let listed = client
+        .list_sessions(false, v1::session::State::Unspecified)
+        .await
+        .unwrap();
+    assert_eq!(listed, v1::ListSessionsResponse::default());
+    let found = client
+        .search_sessions(
+            vec!["x".to_string()],
+            false,
+            v1::session::State::Unspecified,
+        )
+        .await
+        .unwrap();
+    assert_eq!(found, v1::ListSessionsResponse::default());
+    assert!(daemons.asked().is_empty(), "{:?}", daemons.asked());
+    client
+        .list_sessions(true, v1::session::State::Unspecified)
+        .await
+        .unwrap();
+    assert_eq!(daemons.asked(), ["1:list 0"]);
+    assert_eq!(daemons.names(), ["projects/-"]);
+    let refused = client.get_session("amber-swift-owl").await.unwrap_err();
+    assert_eq!(
+        angzarr_diagnostic::Diagnostic::code(&refused),
+        "daemon-api-project-unknown"
+    );
+}
+
+// A client in a named project is asked as ever, whatever `unnamed` says.
+#[tokio::test]
+async fn a_named_project_is_listed_by_its_daemon_even_marked_unnamed() {
+    let daemons = Fakes::new();
+    in_project(&daemons)
+        .unnamed()
+        .list_sessions(false, v1::session::State::Unspecified)
+        .await
+        .unwrap();
+    assert_eq!(daemons.asked(), ["1:resolve", "1:list 0"]);
+}
+
 // show and search address the project the daemon named.
 #[tokio::test]
 async fn show_and_search_address_the_resolved_project() {

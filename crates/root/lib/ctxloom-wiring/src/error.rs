@@ -28,6 +28,21 @@ pub enum LibError {
     /// The user's one daemon serves another ctxloom home than this
     /// command's: one daemon per OS user, never a second.
     DaemonOtherHome { home: String, daemon_home: String },
+    /// A read in a ctxloom project nothing has named yet: only `run` and
+    /// `init` mint a project id (owner ruling 2026-11-13), so a read is
+    /// refused and writes nothing.
+    ProjectUnnamed { root: String },
+}
+
+impl cli_support::ExitClass for LibError {
+    /// A read in a project nothing has named is a decline (20); every other
+    /// wiring error failed (10).
+    fn exit(&self) -> cli_support::Exit {
+        match self {
+            LibError::ProjectUnnamed { .. } => cli_support::Exit::REFUSED,
+            _ => cli_support::Exit::FAILED,
+        }
+    }
 }
 
 impl fmt::Display for LibError {
@@ -47,6 +62,7 @@ impl Diagnostic for LibError {
             LibError::Store(_) => code!("store"),
             LibError::Project(cause) => cause.code(),
             LibError::DaemonOtherHome { .. } => code!("daemon-other-home"),
+            LibError::ProjectUnnamed { .. } => code!("project-unnamed"),
         }
     }
 
@@ -64,6 +80,7 @@ impl Diagnostic for LibError {
                 ("home", home.as_str().into()),
                 ("daemon_home", daemon_home.as_str().into()),
             ],
+            LibError::ProjectUnnamed { root } => vec![("root", root.as_str().into())],
         }
     }
 }
@@ -85,6 +102,9 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(LibError::DaemonOtherHome {
             home: "/home/u/.ctxloom-other".to_string(),
             daemon_home: "/home/u".to_string(),
+        }),
+        Box::new(LibError::ProjectUnnamed {
+            root: "/work/app".to_string(),
         }),
         Box::new(LibError::Store(StoreOpenError::Open(
             ctxloom_store_sqlite::OpenError::Unplaced {

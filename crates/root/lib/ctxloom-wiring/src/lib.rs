@@ -372,17 +372,9 @@ impl Wiring {
     }
 
     /// The sessions use cases over the default adapters, in this process's
-    /// home and working directory, reading CTXLOOM_ROOT and CTXLOOM_PROJECT_ID
-    /// as the project registry does.
+    /// home, for the project [`Wiring::environment`] resolves.
     pub fn sessions(&self) -> Sessions {
-        let environment = Environment {
-            home: Some(self.home.clone()),
-            root: self.env.non_empty("CTXLOOM_ROOT").map(PathBuf::from),
-            project_id: self
-                .env
-                .non_empty("CTXLOOM_PROJECT_ID")
-                .and_then(|v| v.to_str().map(String::from)),
-        };
+        let environment = self.environment();
         let registry = || registry(Arc::clone(&self.fs), environment.clone(), HarpNames);
         let stores = || SqliteStores::new(Arc::clone(&self.fs), self.home.clone());
         let project = self.project_dir();
@@ -421,17 +413,68 @@ impl Wiring {
         }
     }
 
-    /// The registry's environment: the home, and the root and project id the
-    /// process was given.
-    fn environment(&self) -> Environment {
+    /// The ctxloom project this process is in (owner ruling 2026-11-13, one
+    /// project resolver): the directory holding the nearest `.ctxloom` above
+    /// the working directory, or the one `CTXLOOM_ROOT` names, as every
+    /// library read finds it ([`Wiring::locate`]). None where there is none
+    /// but ctxloom's own home's.
+    pub(crate) fn ctxloom_project(&self) -> Option<PathBuf> {
+        let (_, app) = self.locate();
+        if !matches!(app.source, ctxloom_ports::Source::Project) {
+            return None;
+        }
+        let at = app.path.parent()?.to_path_buf();
+        (at != self.home).then_some(at)
+    }
+
+    /// The registry's environment, the ONE project resolution every command
+    /// shares (owner ruling 2026-11-13): runs, sessions and library reads
+    /// belong to the project `CTXLOOM_ROOT` names, else to the nearest
+    /// `.ctxloom` up ([`Wiring::ctxloom_project`]); only where there is
+    /// neither is the root the registry's own (the git top, else the working
+    /// directory). The home, and the project id the process was given.
+    pub(crate) fn environment(&self) -> Environment {
         Environment {
             home: Some(self.home.clone()),
-            root: self.env.non_empty("CTXLOOM_ROOT").map(PathBuf::from),
+            root: self
+                .env
+                .non_empty("CTXLOOM_ROOT")
+                .map(PathBuf::from)
+                .or_else(|| self.ctxloom_project()),
             project_id: self
                 .env
                 .non_empty("CTXLOOM_PROJECT_ID")
                 .and_then(|v| v.to_str().map(String::from)),
         }
+    }
+
+    /// The project this process is in, its identity READ, never minted
+    /// (owner ruling 2026-11-13: only `run` and `init` mint). None where no
+    /// project is bound and none is there to name (no `.ctxloom` but the
+    /// home's, no `CTXLOOM_ROOT`); refused, `ctxloom-wiring-project-unnamed`,
+    /// where a ctxloom project is there and nothing has named it yet.
+    pub(crate) fn project(&self) -> Result<Option<ports::Project>, LibError> {
+        use ports::ProjectIdentity as _;
+        let mut identity = registry(Arc::clone(&self.fs), self.environment(), HarpNames);
+        match identity.for_read(None).map_err(LibError::Project)? {
+            Some(project) => Ok(Some(project)),
+            None => match self.ctxloom_project() {
+                Some(root) => Err(LibError::ProjectUnnamed {
+                    root: root.display().to_string(),
+                }),
+                None => Ok(None),
+            },
+        }
+    }
+
+    /// The project this process is in, its identity minted at its resolved
+    /// root when none is bound yet: `run`'s and `init`'s alone (owner ruling
+    /// 2026-11-13).
+    pub(crate) fn mint_project(&self) -> Result<ports::Project, LibError> {
+        use ports::ProjectIdentity as _;
+        registry(Arc::clone(&self.fs), self.environment(), HarpNames)
+            .for_write(None)
+            .map_err(LibError::Project)
     }
 
     /// Refused where the project this process is in still has a store of its
@@ -451,46 +494,28 @@ impl Wiring {
     /// project registration): its project's id (taskloom's identity, so a
     /// worktree is its primary checkout's), its root, the repository's
     /// common dir and root commit (worktree-git's, empty outside git), and
-    /// its working directory. `None` outside any project. The sessions'
-    /// project: the registry's work root (`CTXLOOM_ROOT`, a git top, or the
-    /// working directory), its identity minted there on first use.
-    pub(crate) fn registration(&self) -> Option<daemon_proto::v1::ResolveProjectRequest> {
-        use ports::ProjectIdentity as _;
-        let mut identity = registry(Arc::clone(&self.fs), self.environment(), HarpNames);
-        let project = identity.for_write(None).ok()?;
-        Some(self.registering(project))
+    /// its working directory. The project is [`Wiring::project`]'s: read,
+    /// never minted (owner ruling 2026-11-13), so `None` where none is bound
+    /// and there is no ctxloom project, and refused where a ctxloom project
+    /// is there that nothing has named.
+    pub(crate) fn registration(
+        &self,
+    ) -> Result<Option<daemon_proto::v1::ResolveProjectRequest>, LibError> {
+        Ok(self.project()?.map(|project| self.registering(project)))
     }
 
     /// What a library read registers, to name its resources (OD-40): the
-    /// ctxloom project, the nearest `.ctxloom` up from the working directory
-    /// (or named by `CTXLOOM_ROOT`), as every library read finds it. `None`
-    /// where there is none but the home's, so the parent is `users/me`, no
-    /// daemon is asked and nothing is written (OQ-3). Its identity is
-    /// resolved at that root, never at the registry's own work root, so a
-    /// read from a subdirectory names the project its root names (OQ-2): read
-    /// when bound, never minted; a project no run has named yet is named once,
-    /// at its root (`.ctxloom/project-id`), as its first run would name it.
-    pub(crate) fn library_registration(&self) -> Option<daemon_proto::v1::ResolveProjectRequest> {
-        use ports::ProjectIdentity as _;
-        let (_, app) = self.locate();
-        if !matches!(app.source, ctxloom_ports::Source::Project) {
-            return None;
+    /// project [`Wiring::registration`] resolves, but only inside a ctxloom
+    /// project, so where there is none but the home's the parent is
+    /// `users/me`, no daemon is asked and nothing is written (OQ-3). A
+    /// subdirectory names the project its root names (OQ-2).
+    pub(crate) fn library_registration(
+        &self,
+    ) -> Result<Option<daemon_proto::v1::ResolveProjectRequest>, LibError> {
+        if self.ctxloom_project().is_none() {
+            return Ok(None);
         }
-        let at = app.path.parent()?.to_path_buf();
-        if at == self.home {
-            return None;
-        }
-        let environment = Environment {
-            root: Some(at),
-            ..self.environment()
-        };
-        let mut identity = registry(Arc::clone(&self.fs), environment, HarpNames);
-        let project = match identity.for_read(None) {
-            Ok(Some(project)) => project,
-            Ok(None) => identity.for_write(None).ok()?,
-            Err(_) => return None,
-        };
-        Some(self.registering(project))
+        self.registration()
     }
 
     /// The registration of `project`, found from this process.

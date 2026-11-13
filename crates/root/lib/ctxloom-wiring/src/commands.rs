@@ -411,8 +411,27 @@ impl Commands {
             sessions: &sessions,
             prompts: &sessions,
         };
-        setup_cli::run(&uses, noun, call, catalog, out, err)
+        let done = setup_cli::run(&uses, noun, call, catalog, out, err)?;
+        if mints(noun, call) {
+            // `init` names the project it set up (owner ruling 2026-11-13:
+            // only `run` and `init` mint a project id), at the root the one
+            // resolver finds now that its `.ctxloom` is there.
+            Wiring::new(Arc::clone(&env))
+                .and_then(|wiring| wiring.mint_project())
+                .map_err(|e| Failure::new(e, Exit::FAILED))?;
+        }
+        Ok(done)
     }
+}
+
+/// Whether the setup command `noun` mints its project's id: a bare `init`
+/// (owner ruling 2026-11-13), never `init prompt`, which only prints.
+fn mints(noun: &str, call: &Call<'_>) -> bool {
+    noun == "init"
+        && call
+            .matches
+            .subcommand_matches(noun)
+            .is_some_and(|init| init.subcommand_name().is_none())
 }
 
 impl Extension for Commands {

@@ -118,16 +118,11 @@ impl<'a> OneShots<'a> {
         stop: host_launcher::Stop,
     ) -> Result<TheRuns, RunError> {
         let wiring = self.wiring;
-        let env = wiring.env();
-        let environment = Environment {
-            home: Some(wiring.home().to_path_buf()),
-            root: env.non_empty("CTXLOOM_ROOT").map(std::path::PathBuf::from),
-            project_id: env
-                .non_empty("CTXLOOM_PROJECT_ID")
-                .and_then(|v| v.to_str().map(String::from)),
-        };
-        let project =
-            tell_project(wiring.fs(), environment, HarpNames).map_err(RunError::Project)?;
+        // The one project resolution (owner ruling 2026-11-13): the run's
+        // project is the nearest `.ctxloom` up, as a library read's is, its
+        // id minted at that root when none is bound yet.
+        let project = tell_project(wiring.fs(), wiring.environment(), HarpNames)
+            .map_err(RunError::Project)?;
         // Named at its resolution, before any session of it is minted (slice
         // 2 M1): a session's name, and so its stable id, holds its harp.
         let project_harp = wiring
@@ -199,7 +194,7 @@ impl<'a> OneShots<'a> {
                 user_home: wiring.user_home().map(|home| path_text(&home)),
                 worktrees: path_text(&worktrees),
             },
-            env: run_env(env, wiring.home()),
+            env: run_env(wiring.env(), wiring.home()),
             links: Box::new(SessionDirs::new(wiring.fs(), project_dir.clone())),
             os: wiring.os_name().to_string(),
             hooks,

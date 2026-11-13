@@ -1615,13 +1615,31 @@ name's parent comes from `library_cli::Names`, asked only when a json
 answer prints one (text reaches no daemon): the wiring's is the daemon's
 `ResolveProject` (`daemon_api::Client::library_parent`, the wiring's
 `daemon::library_parent`; OQ-2, so a json answer may start the daemon), or
-`users/me` outside a project, where no daemon is asked (OQ-3). The project
-is the ctxloom project, the nearest `.ctxloom` up (or `CTXLOOM_ROOT`), as
-every library read finds it (`Wiring::library_registration`, the names'
-alone; the sessions' client keeps `registration()`, the registry's work
-root): its identity is read at that root when bound and minted there once
-when no run has named it, so a read never writes outside the project's own
-`.ctxloom/project-id`, and a subdirectory names its root's project. Converted:
+`users/me` outside a project, where no daemon is asked (OQ-3). ONE
+project resolver serves every command (owner ruling 2026-11-13): runs,
+sessions and library reads belong to the project `CTXLOOM_ROOT` names,
+else to the nearest `.ctxloom` up (not ctxloom's home's), as every library
+read finds it (`Wiring::ctxloom_project`, through `find_app_dir`); only
+where there is neither is the root the registry's own (the git top, else
+the working directory). It is the registry's `Environment.root`
+(`Wiring::environment`), which the run, the sessions use cases, the
+daemon client's `registration()` and the names' `library_registration()`
+(the same, but `users/me` outside a ctxloom project) all use, so a
+subdirectory names its root's project and a monorepo subfolder with a
+`.ctxloom` of its own is a project of its own (accepted cost: its runs move
+to that project's store). A READ NEVER MINTS a project id (owner ruling
+2026-11-13, overruling B2's root write): only a run (`tell_project`) and a
+bare `init` (`Wiring::mint_project`, after its scaffold; not `init
+prompt`) do, at the resolved root. A json library read in a ctxloom
+project with no id is refused, `ctxloom-wiring-project-unnamed` (exit 20,
+its fix `ctxloom init`), and writes nothing; a session listing or search
+there (or wherever no id is bound) lists nothing, asking no daemon
+(`daemon_api::Client::unnamed`), and a `session show|remove` of one is
+`daemon-api-project-unknown`. `config create` and the other writes mint
+none (their json reads are refused until a run or init); `daemon resolve`
+is refused too. The test harness's "an initialized ctxloom project"
+(`Project::initialized`, `with_editor`, a fixture's `.ctxloom`) carries
+the id init mints (`Project::named`); `Project::configured` has none. Converted:
 the `engine` noun (the worked example): `engine list` is
 `ListEnginesResponse` (`{engines: [...]}`), `engine show` an `Engine`
 named `projects/{harp}/engines/<engine>`, its agent rows' name `agent`,

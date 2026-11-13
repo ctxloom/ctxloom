@@ -34,6 +34,7 @@ import 'gates/gates.just'
 staged_tree := "../.{name}.staged"
 feature_rules := ""
 features_prepare := ""
+red_judge := ""
 mutation_thresholds := "crates=90"
 workspace_wide := "Cargo.toml"
 build:

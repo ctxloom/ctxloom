@@ -44,9 +44,13 @@ feature_rules := ""
 features_prepare := ""
 mutation_thresholds := "crates=90"
 workspace_wide := "Cargo.toml"
+red_judge := "_judge"
 [no-exit-message]
 test-staged:
     @exit "${FAKE_STAGED_RC}"
+[no-exit-message]
+_judge rc:
+    @echo "judge asked: {{rc}}"; exit "${FAKE_JUDGE_RC:-0}"
 J
 # `cargo`, as `_tests` finds it on PATH: the real one, except that `cargo
 # nextest` exits FAKE_NEXTEST_RC when it is set (a code no fixture can make
@@ -100,21 +104,30 @@ printf 'nextest exited 102: not a test failure\n' > "$tmp/log"
 said=$(cd "$fx" && just _extract-tests "$tmp/log" 121)
 grep -q '^the test runner failed, not a test: nextest exited 102$' <<< "$said" || fail "extract 121: $said"
 
-commit_rc() { # branch staged-rc expected
+commit_rc() { # branch staged-rc expected [judge-rc]
     local rc=0
     git -C "$fx" checkout -q -B "$1"
-    (cd "$fx" && FAKE_STAGED_RC=$2 just test-commit > "$tmp/out" 2>&1) || rc=$?
+    (cd "$fx" && FAKE_STAGED_RC=$2 FAKE_JUDGE_RC=${4:-0} just test-commit > "$tmp/out" 2>&1) || rc=$?
     [ "$rc" -eq "$3" ] || fail "test-commit on $1, tests exit $2: exit $rc, want $3: $(cat "$tmp/out")"
 }
 commit_rc feature 100 0
 grep -q '^RED  tests: red tests committed on feature' "$tmp/out" || fail "test-commit: a red test off main is not said: $(cat "$tmp/out")"
+grep -q '^judge asked: 100$' "$tmp/out" || fail "test-commit: red off main is not judged by red_judge: $(cat "$tmp/out")"
 commit_rc feature 120 0
+# A red commit its judge refuses (`red_judge`: red tests it may not carry,
+# such as a green test of a file it does not touch turned red) is refused,
+# with the tests' own code, though it is off the default branch.
+commit_rc feature 100 100 1
+grep -q 'red tests cannot be committed: red_judge refused them' "$tmp/out" || fail "test-commit: the judge's refusal is not said: $(cat "$tmp/out")"
+! grep -q '^RED' "$tmp/out" || fail "test-commit: a judged-out red commit is called RED: $(cat "$tmp/out")"
 commit_rc feature 121 121
 ! grep -q 'RED' "$tmp/out" || fail "test-commit: a runner failure is called red: $(cat "$tmp/out")"
 commit_rc feature 101 101
 commit_rc feature 102 102
 commit_rc main 100 100
 grep -q 'red tests cannot be committed here' "$tmp/out" || fail "test-commit on main: $(cat "$tmp/out")"
+! grep -q 'judge asked' "$tmp/out" || fail "test-commit on main: the judge was asked: $(cat "$tmp/out")"
 commit_rc main 121 121
 commit_rc main 0 0
+! grep -q 'judge asked' "$tmp/out" || fail "test-commit: green tests were judged: $(cat "$tmp/out")"
 echo "ok   tests-exit.selftest"

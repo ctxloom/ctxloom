@@ -168,7 +168,9 @@ impl<'a> OneShots<'a> {
         ));
         let launcher = Launcher::new(
             core.edge(),
-            HostLauncher::stopped_by(stop),
+            // Each command's program found on its own PATH, by the host's
+            // rules (PATHEXT on Windows), before it is spawned.
+            HostLauncher::stopped_by(stop).searching(wiring.fs()),
             SessionDirs::new(wiring.fs(), project_dir.clone()),
             vec![claude, opencode],
             Arc::clone(&orders),

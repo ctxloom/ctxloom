@@ -149,8 +149,9 @@ checkouts directory or no workspaces port) is the project and the notice
 fails the launch (`LaunchFailed`). Once the engine has exited and the
 listener stopped, and before the session's lock is let go, the run lets the
 checkout go (`Launcher::release`, the port's WIP-safe `remove`, never
-forced; owner ruling 2026-11-12, Q2): a clean one is removed, its branch
-deleted when merged; one holding work, or that will not go, is left and
+forced; owner ruling 2026-11-12, Q2): a clean one is removed (`git worktree
+remove` drops its own record; never a repository-wide `git worktree prune`),
+its branch deleted when merged; one holding work, or that will not go, is left and
 said, `library-application-notice-checkout-left` (path, branch, why). A
 resume re-enters or re-creates the same path. A name is unique because its claim is. Accepted cost: a clone has no session
 history (the store is machine-local; `sessions/` was always gitignored), and
@@ -274,14 +275,33 @@ per-run listener certificate's mint, see the credentials paragraph below).
 
 An engine may advise on a plan (owner ruling 168): `Engine::advise(&Planned)
 -> Vec<Advice>` is shown what the plan resolved for it (`run_ports::Planned`:
-the agent, model, effort and permissions document) and answers zero or more
-diagnostics of its own crate (`Advice`, a boxed `Diagnostic`: code, args,
-en-US message, an optional `-fix`), said as notices and never a refusal; by
-default it says nothing (claude-code). The library asks the plan's engine in
+the agent, model, effort and permissions document, the OS, whether the launch
+is interactive and whether a primary credential variable is set, by name
+only) and answers zero or more diagnostics of its own crate (`Advice`, a
+boxed `Diagnostic`: code, args, en-US message, an optional `-fix`), said as
+notices and never a refusal; by default it says nothing (claude-code says
+only `engine-claude-windows-token-only`, at a Windows terminal launch with
+no token set). The library asks the plan's engine in
 `launch_of`, beside the runtime-weakening notice
 (`Library::with_engines`, the wiring's real engines;
 `Notice::Engine`), so a dry run and a launch, which plans through the same
 dry run, say them alike, text and json.
+A command's program is FOUND before it is spawned, a child's turn and the
+terminal's alike, in the one launch path (`Launcher::prepare` asks
+`RunnerLauncher::find_program`; `host-launcher`'s `find`, given the wiring's
+filesystem by `HostLauncher::searching`): on the command's own `PATH` (the
+engine's, led by the program's directory), by `os::Flavor::candidates` (on
+Windows PATHEXT's, the command's own or cmd.exe's default), an executable
+preferred to a batch file wherever each is on the PATH; the file found is
+spawned. std's spawn would try `<name>.exe` alone, so an npm `claude.cmd` was
+"program not found" (owner, 2026-11-12). Found nowhere, the run is not
+started: `run-ports-program-not-found` (or `-no-path`), naming the names and
+directories searched, exit 10. A batch file is run by std through cmd.exe
+with its own quoting (Go's `batchcmdline.go` rules, usable-epileptic), and
+std refuses it an argument with a line break or NUL; `run_ports::
+check_batch_arguments` refuses that before the spawn (on Windows: a
+multi-line opening prompt to `claude.cmd`), `run-ports-batch-arguments`, exit
+20, its fix claude's native build or no opening prompt.
 An engine's hooks are its adapter's: `ctxloom hook <engine> execute
 <NativeHookName>` (hidden) resolves the engine through `surface_ports::Registry`
 and its `HookCodec` decodes the payload. The settings an older ctxloom wrote
@@ -749,7 +769,16 @@ the login is is the engine's `Credentials` (`user_dir`, `user_dir_variable`,
 session dir), and so is what the human is told when none is shared
 (`sign_in`, the engine's own words), whether a missing one is worth saying
 (`login_optional`), where it is never linked (`no_link_on`: claude's macOS
-keychain and Windows' symlink privilege) and where a link that cannot be made
+keychain and Windows' symlink privilege; on Windows claude is TOKEN ONLY,
+owner ruling of 2026-11-12: the terminal session's engine is asked first,
+through `Engine::advise` (`Planned`'s `os`, `interactive` and
+`credential_set`, the last by name only), and engine-claude's
+`engine-claude-windows-token-only` notice, which says this is a workaround
+for claude's own credential handling (one session's token rotation signs the
+others out) and whose fix is `claude setup-token` then export
+`CLAUDE_CODE_OAUTH_TOKEN`, replaces the login sharing; a NOTICE, not a
+refusal: `/login` in the session still signs that session in, and a refusal
+would block init's interview) and where a link that cannot be made
 is a copy (`copy_on`: opencode's Windows, ruling 80; `LoginLinks::copy`, a
 new 0600 file). The platform is the OS name the caller gives; macOS and
 Windows are unverified live. Settings apply to the engine the plan resolved, and `run --engine
@@ -1346,7 +1375,24 @@ prerelease, no `schema_version` bump: each old key is an ordinary unknown key
 | `permissions.network: true\|false` (and an agent's) | deleted (ruling 134), with `approver`, `approval_timeout`, `sandbox` | |
 | `output_dir` (top level, unread) | `output.dir` | `ctxloom/` |
 | (new, ruling 162) | `legacy.go: present\|retired` (home config only) | `present` |
+| (new, owner ruling of 2026-11-12) | `config.premised: on-demand\|always` | `on-demand` |
 
+`config.premised` says when a fragment with a premise loads (owner ruling of
+2026-11-12; `library::compose::Premised`, read by `Config::premised`):
+`on-demand` holds it back (unless the caller named it) and ends the
+assembled context with the premise index of what was held back
+(`library::premise::render`, each name once, sorted), so `context
+assemble`, the dry run, `run` and materialize carry the index; `always`
+loads every fragment with the rest and renders no index (the static
+assembly). The index's instruction (`library::premise::INSTRUCTION`) is the
+owner's Go text but for its last clause, which tells the agent to run
+`ctxloom fragment show <name>` for each name it chose, not Go's
+`assemble_context` MCP tool (not built: T20; the wording is pending the
+owner's approval); `fragment show` reads a companion's fragment
+(`ctxloom+companion:<bin>#fragments/<name>`) by asking the companions for
+their loadouts. Divergence from Go: Go never put the index in the context
+(it served it over MCP); the parity tests compare a dry run without it, and
+Go's goldens with the clause reworded.
 The scaffold writes no `config:` section; `manage statusline install|
 uninstall` writes `ctxloom`/`none`. Output JSON may keep booleans for yes/no
 facts. `sync.on_run: missing` makes the run (one-shot, session, init's
@@ -1357,7 +1403,11 @@ pull). A session's outputs are `<project root>/<output.dir>/<harp>`
 `~/Documents/ctxloom/<basename>/<harp>`; nothing gitignores them, and a
 harp never changes, so neither does the folder. A first init at a terminal asks for `output.dir`
 before the interview (suggesting `ctxloom/`, saying outputs are committable)
-and writes the answer.
+and writes the answer; then, in the same style, whether conditional guidance
+loads only when it applies or always (`init_application::PREMISED_QUESTION`,
+suggesting `on-demand`; an answer that is neither word is asked again, at
+most three times, then the suggestion stands), and writes it as
+`config.premised`. Off a terminal neither is asked and nothing is written.
 
 `legacy.go` (owner ruling 162) says whether Go ctxloom still runs on this
 machine beside this one; both write hook entries into the user's shared
@@ -1535,6 +1585,16 @@ them), and again after a change to the gates names a new hook
 (`gates/MIGRATING.md`). They came from the shared gates repository that
 taskloom and annals also copied; a change here does not reach them.
 
+A throwaway worktree (the staged tree, the mutants batch's, the ratchet
+base's) is let go by `gates/drop-worktree.sh <top> <path>`: its directory and
+its OWN record under `.git/worktrees/`, nothing else. Nothing runs `git
+worktree prune` (`scripts/drop-worktree.selftest.sh` holds the gates, the
+justfile and the scripts to it; worktree-git's removal ran one too): prune
+judges every worktree of the repository and deletes the record of each whose
+directory it cannot see, so a gate run in the dev container, which mounts only
+the checkout, cut every other worktree on the host off from the repository
+(2026-11-12).
+
 lefthook runs the gates one at a time, stopping at the first failure, and
 shows each gate's pass line and any failure's extract. Gates 1 to 5 run in
 pre-commit (the private recipes `fmt-staged`, `secrets-scan-staged`,
@@ -1576,7 +1636,19 @@ hook with `just hooks-install` once more (`gates/MIGRATING.md`).
 5. **tests**: `just test-staged` tests the changed crates and their
    dependents in the staged tree (HEAD plus the staged diff, a sibling
    worktree of the checkout); a staged `workspace_wide` file tests the whole
-   workspace.
+   workspace (`scripts/test-staged.selftest.sh`: a library's change selects
+   the binary depending on it). Red tests are committed off the default
+   branch only (`test-commit`), and only red the commit may carry: the
+   gates' `red_judge`, ctxloom's `scripts/red-commit-judge.sh`, refuses a
+   commit that turns red a scenario of a feature file it does not stage,
+   judged by the feature runner's lists (GHERKIN_RATCHET) of the staged tree
+   and of HEAD (`just ratchet-base HEAD`, cached by sha): ruling 165's
+   ratchet at each commit, so a RED commit may still add scenarios or change
+   one in its own feature file. Commit fd50e0b77 broke `run.feature`
+   untouched and was committed as RED; its branch's fast-forward of `main`
+   ran no hook. A red unit test is not compared with HEAD (allowed as
+   before). The cost: a red feature runner off `main` builds HEAD once per
+   sha (`target/ratchet-base`) before the commit is judged.
 6. **mutants** (no hook; at close-out, `just mutants-batch`): `mutants-staged` mutation-tests the staged diff
    (`cargo mutants --in-diff`), holding new logic to its tier: every
    hand-written tier (domain, read models, ports, application and adapters)

@@ -393,6 +393,33 @@ fn test_the_statusline_choice_keeps_the_other_config_entries() {
     assert!(!config.contains("statusline: ctxloom"), "{config}");
 }
 
+// Owner ruling of 2026-11-12: init writes when conditional guidance loads
+// into the project's config as `config.premised`, keeping the section's
+// other entries; a second answer replaces the first.
+#[test]
+fn test_the_premised_choice_is_written_and_keeps_the_other_config_entries() {
+    let held = Setup {
+        layers: &["schema_version: 9\nconfig:\n  content_form: original\n  statusline: none\n"],
+        ..setup()
+    };
+    let (library, mem) = held.fixture();
+    library
+        .set_premised(&plain(), "always")
+        .result
+        .expect("written");
+    let config = mem.config(ctxloom_ports::Scope::Project).unwrap();
+    assert!(config.contains("premised: always"), "{config}");
+    assert!(config.contains("content_form: original"), "{config}");
+    assert!(config.contains("statusline: none"), "{config}");
+    library
+        .set_premised(&plain(), "on-demand")
+        .result
+        .expect("written");
+    let config = mem.config(ctxloom_ports::Scope::Project).unwrap();
+    assert!(config.contains("premised: on-demand"), "{config}");
+    assert!(!config.contains("premised: always"), "{config}");
+}
+
 // Rulings 89, 106: init writes the output directory she chose into the
 // project's config as `output.dir`, keeping what else the config holds.
 #[test]

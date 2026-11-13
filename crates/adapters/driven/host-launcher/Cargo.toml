@@ -8,6 +8,8 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+file-system.workspace = true
+os.workspace = true
 run-ports.workspace = true
 run-within.workspace = true
 

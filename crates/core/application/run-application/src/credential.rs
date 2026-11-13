@@ -64,7 +64,7 @@ pub fn ignored_permit(ignored: &Ignored) -> Notice {
 }
 
 /// Whether the environment holds any of `names`, non-empty.
-fn holds(env: &BTreeMap<String, String>, names: &[String]) -> bool {
+pub(crate) fn holds(env: &BTreeMap<String, String>, names: &[String]) -> bool {
     names
         .iter()
         .any(|name| env.get(name).is_some_and(|value| !value.is_empty()))

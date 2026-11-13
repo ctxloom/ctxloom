@@ -280,6 +280,8 @@ pub struct ScriptedRunner {
     pub at_spawn: Arc<Mutex<Option<Window>>>,
     /// The pid of the spawned command.
     pub pid: u32,
+    /// What finding the program answers; none, the program as named.
+    pub finds: Option<Result<String, run_ports::ProgramNotFound>>,
 }
 
 /// The pid a scripted command has.
@@ -331,6 +333,15 @@ impl ScriptedRunner {
             during: Arc::default(),
             at_spawn: Arc::default(),
             pid: SCRIPTED_PID,
+            finds: None,
+        }
+    }
+
+    /// The same, finding every program as `finds` says.
+    pub fn finding(self, finds: Result<String, run_ports::ProgramNotFound>) -> ScriptedRunner {
+        ScriptedRunner {
+            finds: Some(finds),
+            ..self
         }
     }
 
@@ -361,6 +372,12 @@ impl RunnerLauncher for ScriptedRunner {
         self.seen_terminal.lock().unwrap().push(command.clone());
         self.spawn()
     }
+
+    fn find_program(&self, command: &TurnCommand) -> Result<String, run_ports::ProgramNotFound> {
+        self.finds
+            .clone()
+            .unwrap_or_else(|| Ok(command.program.clone()))
+    }
 }
 
 /// An engine that puts the context in its home, drives a command that names
@@ -373,6 +390,10 @@ pub struct ScriptedEngine {
     pub left_out: Vec<run_ports::LeftOut>,
     /// Every prepare it was asked, shared by its clones.
     pub prepared: Arc<Mutex<Vec<PrepareRequest>>>,
+    /// Whether it advises (owner ruling 168): one notice for every plan it
+    /// is asked of, the plans it was asked of kept in `advised`.
+    pub advises: bool,
+    pub advised: Arc<Mutex<Vec<run_ports::Planned>>>,
 }
 
 impl ScriptedEngine {
@@ -385,6 +406,8 @@ impl ScriptedEngine {
             refuses_to_drive: false,
             left_out: Vec::new(),
             prepared: Arc::default(),
+            advises: false,
+            advised: Arc::default(),
         }
     }
 
@@ -405,6 +428,17 @@ impl ScriptedEngine {
 impl Engine for ScriptedEngine {
     fn name(&self) -> &str {
         "fake"
+    }
+
+    fn advise(&self, planned: &run_ports::Planned) -> Vec<run_ports::Advice> {
+        self.advised.lock().unwrap().push(planned.clone());
+        if !self.advises {
+            return Vec::new();
+        }
+        vec![Box::new(EngineError::NotYet {
+            engine: "fake".to_string(),
+            operation: "advice".to_string(),
+        })]
     }
 
     fn prepare(&self, request: &PrepareRequest) -> Result<Prepared, EngineError> {
@@ -539,6 +573,9 @@ impl Engine for Credentialed {
     }
     fn credentials(&self) -> run_ports::Credentials {
         self.1
+    }
+    fn advise(&self, planned: &run_ports::Planned) -> Vec<run_ports::Advice> {
+        self.0.advise(planned)
     }
     fn drive_interactive(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError> {
         self.0.drive_interactive(request)

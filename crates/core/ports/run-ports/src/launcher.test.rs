@@ -105,3 +105,22 @@ fn a_commands_debug_shows_no_credential_value() {
         assert!(shown.contains(name), "{name}: {shown}");
     }
 }
+
+/// A launcher that searches nothing: the port's default.
+struct Searchless;
+
+impl RunnerLauncher for Searchless {
+    fn launch(&self, _: &TurnCommand, _: &Limits) -> Result<Box<dyn Running>, LaunchFailure> {
+        unreachable!("never launched")
+    }
+
+    fn launch_terminal(&self, _: &TurnCommand) -> Result<Box<dyn Running>, LaunchFailure> {
+        unreachable!("never launched")
+    }
+}
+
+#[test]
+fn a_launcher_that_searches_nothing_spawns_the_program_as_it_is_named() {
+    let command = TurnCommand::new("claude");
+    assert_eq!(Searchless.find_program(&command), Ok("claude".to_string()));
+}

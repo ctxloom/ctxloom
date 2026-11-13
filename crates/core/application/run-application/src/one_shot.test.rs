@@ -1142,9 +1142,7 @@ async fn a_rate_limited_turn_is_that_error_and_the_run_still_ended() {
             detail: "slow down".to_string(),
             native_id: None,
         },
-        refuses_to_drive: false,
-        left_out: Vec::new(),
-        prepared: Default::default(),
+        ..ScriptedEngine::answering("", None)
     };
     let mut rig = rig(Script {
         engine,
@@ -1170,9 +1168,7 @@ async fn a_credential_the_engine_refused_is_that_error() {
             detail: "401".to_string(),
             native_id: None,
         },
-        refuses_to_drive: false,
-        left_out: Vec::new(),
-        prepared: Default::default(),
+        ..ScriptedEngine::answering("", None)
     };
     let mut rig = rig(Script {
         engine,
@@ -1580,6 +1576,85 @@ async fn the_primary_on_macos_is_not_linked_and_is_told_to_set_a_token() {
     assert!(rig.links.made.lock().unwrap().is_empty());
     assert!(done.notices.iter().any(|n| matches!(n,
         Notice::Finding { remedy, .. } if remedy.contains("CLAUDE_CODE_OAUTH_TOKEN"))));
+}
+
+// Owner ruling 2026-11-12: the terminal session's engine is asked how it is
+// signed in, by the OS the wiring passes, whether a primary credential is
+// set (by name) and that it is the terminal; where it advises (claude on
+// Windows with no token), its notice is said and no login is shared.
+#[tokio::test]
+async fn the_terminal_sessions_engine_is_asked_and_its_advice_replaces_the_login() {
+    let mut script = needing_a_token();
+    script.os = "windows";
+    script.engine.advises = true;
+    let advised = Arc::clone(&script.engine.advised);
+    let mut rig = rig(script);
+    let done = rig.runs.interactive(&Flags::default(), &ask()).await;
+    assert!(done.result.is_ok(), "{:?}", done.result.err());
+    assert!(rig.links.made.lock().unwrap().is_empty());
+    let launch = advised
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|planned| planned.interactive)
+        .cloned()
+        .expect("asked at the launch");
+    assert_eq!(launch.os, "windows");
+    assert!(!launch.credential_set);
+    assert!(done.notices.iter().any(|n| matches!(n,
+        Notice::Engine(advice) if advice.code() == "run-ports-engine-not-yet")));
+    assert!(
+        !done
+            .notices
+            .iter()
+            .any(|n| matches!(n, Notice::Finding { text, .. } if text.contains("login"))),
+        "no word of a login is said beside the advice: {:?}",
+        done.notices
+    );
+}
+
+// A primary credential set is told by name; an engine that does not advise
+// leaves the login shared as before.
+#[tokio::test]
+async fn an_engine_asked_with_a_token_set_and_no_advice_shares_the_login_as_before() {
+    let mut script = needing_a_token();
+    script.env = vec![("HOME", "/home/u"), ("ANTHROPIC_AUTH_TOKEN", "t")]; // gitleaks:allow
+    let advised = Arc::clone(&script.engine.advised);
+    let mut first = rig(script);
+    assert!(first
+        .runs
+        .interactive(&Flags::default(), &ask())
+        .await
+        .result
+        .is_ok());
+    let asked = advised.lock().unwrap().clone();
+    assert!(
+        asked
+            .iter()
+            .any(|p| p.interactive && p.credential_set && p.os == "linux"),
+        "{asked:?}"
+    );
+
+    let mut script = needing_a_token();
+    let advised = Arc::clone(&script.engine.advised);
+    script.env = vec![("HOME", "/home/u")];
+    let mut again = rig(script);
+    assert!(again
+        .runs
+        .interactive(&Flags::default(), &ask())
+        .await
+        .result
+        .is_ok());
+    assert!(advised
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|p| p.interactive && !p.credential_set));
+    assert_eq!(
+        again.links.made.lock().unwrap().len(),
+        1,
+        "her login is shared"
+    );
 }
 
 #[tokio::test]
@@ -2343,6 +2418,70 @@ async fn the_settings_of_the_planned_engine_are_not_applied_to_another() {
     let answer = rig.runs.one_shot(&Flags::default(), &asked).await.result;
     assert!(answer.is_ok(), "{answer:?}");
     assert_eq!(rig.runner.seen.lock().unwrap()[0].program, "fake");
+}
+
+// Owner, 2026-11-12 (Windows): claude found as an npm `claude.cmd` cannot be
+// handed a multi-line opening prompt (std: "batch file arguments are
+// invalid"), so the session is refused before the spawn, typed and
+// crate-prefixed, exit 20, its fix naming claude's native build.
+#[tokio::test]
+async fn a_batch_file_session_with_a_multi_line_opening_prompt_is_refused() {
+    let mut script = Script::answering();
+    script.os = "windows";
+    script.prompt = "one\ntwo";
+    script.runner = ScriptedRunner::exits(0).finding(Ok(r"C:\npm\claude.cmd".to_string()));
+    let mut rig = rig(script);
+    let error = rig
+        .runs
+        .interactive(&Flags::default(), &ask())
+        .await
+        .result
+        .expect_err("refused");
+    assert!(
+        matches!(&error, RunError::BatchArguments(refusal) if refusal.program == r"C:\npm\claude.cmd"),
+        "{error:?}"
+    );
+    assert_eq!(error.code(), "run-ports-batch-arguments");
+    assert_eq!(error.exit(), Exit::REFUSED);
+    assert!(rig.runner.seen_terminal.lock().unwrap().is_empty());
+}
+
+// Owner, 2026-11-12 (Windows: "the engine was not started: program not
+// found"): a program on no directory of the engine's PATH is not started,
+// typed, naming what was looked for and where; a failure (10), as before.
+#[tokio::test]
+async fn a_program_found_nowhere_is_not_started_naming_what_was_searched() {
+    for interactive in [false, true] {
+        let mut script = Script::answering();
+        script.runner = ScriptedRunner::exits(0).finding(Err(run_ports::ProgramNotFound {
+            program: "claude".to_string(),
+            names: vec!["claude.exe".to_string(), "claude.cmd".to_string()],
+            dirs: vec![r"C:\bin".to_string()],
+        }));
+        let mut rig = rig(script);
+        let error = if interactive {
+            rig.runs
+                .interactive(&Flags::default(), &ask())
+                .await
+                .result
+                .map(drop)
+        } else {
+            rig.runs
+                .one_shot(&Flags::default(), &ask())
+                .await
+                .result
+                .map(drop)
+        }
+        .expect_err("not started");
+        assert!(
+            matches!(&error, RunError::ProgramNotFound(missing) if missing.dirs == [r"C:\bin"]),
+            "{error:?}"
+        );
+        assert_eq!(error.code(), "run-ports-program-not-found");
+        assert_eq!(error.exit(), Exit::FAILED);
+        assert!(rig.runner.seen.lock().unwrap().is_empty());
+        assert!(rig.runner.seen_terminal.lock().unwrap().is_empty());
+    }
 }
 
 // Owner ruling 2026-11-12: a terminal session whose opening prompt is too long

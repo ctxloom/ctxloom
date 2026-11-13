@@ -31,6 +31,7 @@ read -ra gate <<< "${MUTANTS_GATE:-just mutants-staged}"
 
 # Run from a git hook, git exports variables naming the real repository, and
 # the throwaway worktree must not inherit them.
+here=$(cd "$(dirname "$0")" && pwd)
 scrub=(env)
 while IFS= read -r var; do scrub+=(-u "$var"); done < <(git rev-parse --local-env-vars)
 g() { "${scrub[@]}" git "$@"; }
@@ -87,10 +88,11 @@ remove_tree() {
         [ -e "$t" ] || continue
         g -C "$t" reset --hard -q 2>/dev/null || true
         g -C "$t" clean -fdq -e target 2>/dev/null || true
-        g -C "$top" worktree remove "$t" >/dev/null 2>&1 \
-            || g -C "$top" worktree remove --force "$t" >/dev/null 2>&1 || rm -rf "$t"
     done
-    g -C "$top" worktree prune
+    # Each tree and its own record only, never a repository-wide prune (in a
+    # container that mounts only this checkout it deletes every other
+    # worktree's record): gates/drop-worktree.sh.
+    for t in "$inner" "$wt"; do "${scrub[@]}" "$here/../gates/drop-worktree.sh" "$top" "$t"; done
 }
 cleanup() {
     trap '' INT TERM HUP

@@ -234,6 +234,7 @@ fn sample(empty: bool) -> Vec<Row> {
 fn diagnostics(samples: Samples, catalog: &Catalog, out: &mut dyn Write) -> std::io::Result<()> {
     let mut all = ctxloom_cli::diagnostic_samples();
     all.extend(crate::diagnostic_samples());
+    all.extend(engine_claude::diagnostic_samples());
     all.extend(engine_opencode::diagnostic_samples());
     all.extend(crate::test_error::diagnostic_samples());
     all.extend(samples());

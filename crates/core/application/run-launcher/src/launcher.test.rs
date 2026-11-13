@@ -511,9 +511,7 @@ async fn a_failed_turn_is_recorded_with_its_class_and_says_nothing_in_the_transc
             detail: "slow down".to_string(),
             native_id: None,
         },
-        refuses_to_drive: false,
-        left_out: Vec::new(),
-        prepared: Default::default(),
+        ..ScriptedEngine::answering("", None)
     };
     let mut rig = rig(engine, ScriptedRunner::exits(1), orders_with(order("fake")));
     enqueued(&rig.edge, SESSION, HARP).await;
@@ -574,9 +572,7 @@ async fn each_failure_class_is_the_runs_own() {
                 detail: String::new(),
                 native_id: None,
             },
-            refuses_to_drive: false,
-            left_out: Vec::new(),
-            prepared: Default::default(),
+            ..ScriptedEngine::answering("", None)
         };
         let mut rig = rig(engine, ScriptedRunner::exits(0), orders_with(order("fake")));
         enqueued(&rig.edge, SESSION, HARP).await;
@@ -2119,4 +2115,135 @@ async fn files_the_engine_reads_where_it_works_never_go_into_the_live_project() 
     let launched = rig.step().await;
     assert!(workspaces.files.lock().unwrap().is_empty());
     assert!(launched[0].checkout_files.is_empty());
+}
+
+// Owner, 2026-11-12 (Windows): std's spawn searches PATH for `<name>.exe`
+// alone, so the launch finds the program itself, on the command's own PATH,
+// and spawns the file found: a child's turn and the terminal's alike.
+#[tokio::test]
+async fn the_program_found_is_the_file_spawned_for_a_turn_and_for_the_terminal() {
+    for interactive in [false, true] {
+        let mut ordered = order("fake");
+        ordered.interactive = interactive;
+        let mut rig = rig(
+            ScriptedEngine::answering("A", None),
+            ScriptedRunner::exits(0).finding(Ok(r"C:\npm\claude.cmd".to_string())),
+            orders_with(ordered),
+        );
+        enqueued(&rig.edge, SESSION, HARP).await;
+        rig.step().await;
+        let seen = if interactive {
+            rig.runner.seen_terminal.lock().unwrap().clone()
+        } else {
+            rig.runner.seen.lock().unwrap().clone()
+        };
+        assert_eq!(seen.len(), 1, "interactive {interactive}");
+        assert_eq!(seen[0].program, r"C:\npm\claude.cmd");
+    }
+}
+
+// A program found on no directory of the PATH is not started, in the words
+// that say what was looked for and where; nothing is spawned.
+#[tokio::test]
+async fn a_program_found_nowhere_is_not_started_naming_what_was_searched() {
+    let missing = run_ports::ProgramNotFound {
+        program: "claude".to_string(),
+        names: vec!["claude.exe".to_string(), "claude.cmd".to_string()],
+        dirs: vec![r"C:\bin".to_string()],
+    };
+    let mut rig = rig(
+        ScriptedEngine::answering("A", None),
+        ScriptedRunner::exits(0).finding(Err(missing)),
+        orders_with(order("fake")),
+    );
+    enqueued(&rig.edge, SESSION, HARP).await;
+    let launched = rig.step().await;
+    assert!(
+        matches!(&launched[0].outcome, Outcome::ProgramNotFound(missing)
+            if missing.names == ["claude.exe", "claude.cmd"] && missing.dirs == [r"C:\bin"]),
+        "{launched:?}"
+    );
+    assert_eq!(
+        names(&run_events(&rig.edge, SESSION).await),
+        ["RunEnqueued", "RunEnded"]
+    );
+    assert!(rig.runner.seen.lock().unwrap().is_empty());
+}
+
+// std refuses a batch file an argument of more than one line ("batch file
+// arguments are invalid"): on Windows the terminal's multi-line opening
+// prompt to a `claude.cmd` is refused, typed, before the spawn. One line, an
+// executable, or another OS is spawned.
+#[tokio::test]
+async fn a_batch_files_multi_line_prompt_is_refused_before_the_spawn_on_windows() {
+    let launch = |os: &str, prompt: &str, found: &str| {
+        let mut interactive = order("fake");
+        interactive.interactive = true;
+        interactive.prompt = prompt.to_string();
+        let mut rig = rig(
+            ScriptedEngine::answering("A", None),
+            ScriptedRunner::exits(0).finding(Ok(found.to_string())),
+            orders_with(interactive),
+        );
+        rig.launcher = rig.launcher.on_os(os);
+        rig
+    };
+    let mut refused = launch("windows", "one\ntwo", r"C:\npm\claude.cmd");
+    enqueued(&refused.edge, SESSION, HARP).await;
+    let launched = refused.step().await;
+    assert!(
+        matches!(&launched[0].outcome, Outcome::BatchArguments(refusal)
+            if refusal.program == r"C:\npm\claude.cmd"),
+        "{launched:?}"
+    );
+    assert!(refused.runner.seen_terminal.lock().unwrap().is_empty());
+    assert_eq!(
+        names(&run_events(&refused.edge, SESSION).await),
+        ["RunEnqueued", "RunEnded"]
+    );
+
+    for (os, prompt, found) in [
+        ("windows", "one line", r"C:\npm\claude.cmd"),
+        ("windows", "one\ntwo", r"C:\bin\claude.exe"),
+        ("linux", "one\ntwo", "/bin/claude.cmd"),
+    ] {
+        let mut spawned = launch(os, prompt, found);
+        enqueued(&spawned.edge, SESSION, HARP).await;
+        let launched = spawned.step().await;
+        assert!(
+            matches!(launched[0].outcome, Outcome::Ended { .. }),
+            "{os} {found}: {launched:?}"
+        );
+    }
+}
+
+// Ruling 168's seam at the launch: the launcher asks the engine of the name,
+// and an engine it cannot drive says nothing.
+#[test]
+fn the_launcher_asks_the_named_engine_for_its_advice() {
+    let engine = ScriptedEngine {
+        advises: true,
+        ..ScriptedEngine::answering("A", None)
+    };
+    let advised = Arc::clone(&engine.advised);
+    let rig = rig(engine, ScriptedRunner::exits(0), orders_with(order("fake")));
+    let planned = run_ports::Planned {
+        os: "windows".to_string(),
+        interactive: true,
+        ..run_ports::Planned::default()
+    };
+    assert_eq!(rig.launcher.advise("fake", &planned).len(), 1);
+    assert_eq!(*advised.lock().unwrap(), vec![planned.clone()]);
+    assert!(rig.launcher.advise("other", &planned).is_empty());
+
+    let quiet = rig_quiet();
+    assert!(quiet.launcher.advise("fake", &planned).is_empty());
+}
+
+fn rig_quiet() -> Rig {
+    rig(
+        ScriptedEngine::answering("A", None),
+        ScriptedRunner::exits(0),
+        orders_with(order("fake")),
+    )
 }

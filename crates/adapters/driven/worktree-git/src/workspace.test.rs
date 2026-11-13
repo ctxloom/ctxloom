@@ -419,7 +419,7 @@ fn inspect_of_a_directory_in_no_repository_is_unresolved() {
     ));
 }
 
-// Go: ReapWorktrees: a clean checkout is removed, its registration pruned,
+// Go: ReapWorktrees: a clean checkout is removed, its registration dropped,
 // and its branch deleted when merged.
 #[test]
 fn removing_a_clean_checkout_removes_it_its_registration_and_its_merged_branch() {
@@ -438,6 +438,42 @@ fn removing_a_clean_checkout_removes_it_its_registration_and_its_merged_branch()
         branches.trim(),
         "",
         "a merged branch holds nothing the repository does not"
+    );
+}
+
+// A removal lets go of its own checkout and nothing else: another worktree of
+// the repository whose directory this process cannot see (a container that
+// mounts only the project) keeps its registration. A repository-wide `git
+// worktree prune` deleted every such record (2026-11-12).
+#[test]
+fn removing_a_checkout_keeps_every_other_worktrees_registration_even_out_of_sight() {
+    let f = Fixture::new();
+    let elsewhere = f.home.join("elsewhere");
+    git(
+        &f.project,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "--detach",
+            &elsewhere.display().to_string(),
+        ],
+    );
+    let out_of_sight = f.home.join("elsewhere.unmounted");
+    fs().rename(&elsewhere, &out_of_sight).unwrap();
+    let checkout = f.prepared("amber-quiet-heron", "clean");
+    let removal = f.adapter().remove(&checkout.repo_dir, &checkout.path);
+    assert_eq!(removal, Removal::Removed);
+    let records = fs()
+        .read_dir(&f.project.join(".git").join("worktrees"))
+        .unwrap()
+        .into_iter()
+        .map(|e| e.name.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        records,
+        ["elsewhere"],
+        "only the removed checkout's record goes"
     );
 }
 

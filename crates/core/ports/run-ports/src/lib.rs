@@ -19,6 +19,7 @@ mod launcher;
 mod locks;
 mod login;
 mod permit;
+mod program;
 mod records;
 mod serving;
 mod settings;
@@ -51,6 +52,7 @@ pub use launcher::{
 pub use locks::{HeldLock, LockError, LockProbe, RunLocks};
 pub use login::{LinkState, LoginLinks};
 pub use permit::{apply_permits, permits, Ignored, Permits, PERMIT_PREFIX};
+pub use program::{check_batch_arguments, is_batch_file, BatchArguments, ProgramNotFound};
 pub use records::{check_rel, RecordsError, SessionRecords};
 pub use serving::{BoxFuture, HookServer, Serving};
 pub use settings::{AuthSetting, CredentialPolicy, EngineSettings, SessionHome};
@@ -69,6 +71,19 @@ pub fn diagnostic_samples() -> Vec<Box<dyn angzarr_diagnostic::Diagnostic>> {
         measure: Measure::CommandLine,
         length: 40_000,
         limit: WINDOWS_COMMAND_LINE,
+    }));
+    samples.push(Box::new(ProgramNotFound {
+        program: "claude".to_string(),
+        names: vec!["claude.exe".to_string(), "claude.cmd".to_string()],
+        dirs: vec![r"C:\Users\a\bin".to_string()],
+    }));
+    samples.push(Box::new(ProgramNotFound {
+        program: "claude".to_string(),
+        names: vec!["claude".to_string()],
+        dirs: Vec::new(),
+    }));
+    samples.push(Box::new(BatchArguments {
+        program: r"C:\Users\a\AppData\Roaming\npm\claude.cmd".to_string(),
     }));
     samples.extend(tls::diagnostic_samples());
     samples.push(Box::new(EngineError::NotYet {

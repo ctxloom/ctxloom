@@ -1,6 +1,8 @@
 //! Ported from Go's `internal/adapters/operations/premise_test.go`
 //! (860336c4e), and the D24 pin: the index's text is the owner's, byte for
-//! byte from Go ctxloom's `PremiseSelectionInstruction()` at release/0.7.
+//! byte from Go ctxloom's `PremiseSelectionInstruction()` at release/0.7,
+//! but for the clause that says how to load what was chosen (owner ruling of
+//! 2026-11-12: the CLI, `ctxloom fragment show`, until the MCP tool, T20).
 
 use super::*;
 use crate::compose::{assemble, select, Options, SelectRequest};
@@ -9,8 +11,10 @@ use crate::testdata::catalog_of;
 
 /// `PremiseSelectionInstruction()` at release/0.7 (860336c4e), written out in
 /// full: a test that rebuilt it from the code's own pieces would keep agreeing
-/// after someone edited the owner's words.
-const GO_INSTRUCTION: &str = "# Conditional guidance\n\nSome of this project's guidance applies CONDITIONALLY. Each entry gives a\nfragment's NAME and the PREMISE under which it applies. Load any your\ncontext does not already carry.\n\nMatch against WHAT YOU ARE ABOUT TO DO -- the next action, not the whole\nconversation behind you. Take each premise ON ITS OWN and ask whether it\ndescribes that action; you are not picking the single best match, and\nseveral premises often apply at once.\n\nWhen it is a BORDERLINE call, include it. An unnecessary fragment costs a\nlittle context; one you withhold is never learned to exist and cannot be\nasked for.\n\nSelect on the premise, not on the name. Then call the ctxloom\n`assemble_context` tool with the names you chose (the `bundles` argument)\nand follow what it returns.\n";
+/// after someone edited the owner's words. Its last clause is the owner's of
+/// 2026-11-12 (Go's called the `assemble_context` MCP tool, which is not
+/// built: T20).
+const GO_INSTRUCTION: &str = "# Conditional guidance\n\nSome of this project's guidance applies CONDITIONALLY. Each entry gives a\nfragment's NAME and the PREMISE under which it applies. Load any your\ncontext does not already carry.\n\nMatch against WHAT YOU ARE ABOUT TO DO -- the next action, not the whole\nconversation behind you. Take each premise ON ITS OWN and ask whether it\ndescribes that action; you are not picking the single best match, and\nseveral premises often apply at once.\n\nWhen it is a BORDERLINE call, include it. An unnecessary fragment costs a\nlittle context; one you withhold is never learned to exist and cannot be\nasked for.\n\nSelect on the premise, not on the name. Then run\n`ctxloom fragment show <name>` for each name you chose and follow what it\nreturns.\n";
 
 /// A bundle shipping three fragments and a profile composing it; `premised`
 /// decides whether the third carries a premise. Everything else is identical,
@@ -76,8 +80,13 @@ fn test_a_premiseless_corpus_assembles_byte_identically() {
 fn test_a_premised_fragment_is_withheld_and_indexed() {
     let (pkg, withheld) = assembled(true, &[]);
     assert_eq!(
-        pkg.context, "ALPHA-BODY\n\n---\n\nBETA-BODY",
-        "the withheld one left no gap"
+        pkg.context,
+        format!(
+            "ALPHA-BODY\n\n---\n\nBETA-BODY\n\n---\n\n{}",
+            render(&withheld)
+        ),
+        "the withheld one left no gap, and the index of it ends the context \
+         (config.premised `on-demand`, owner ruling of 2026-11-12)"
     );
     assert!(
         !pkg.context.contains("GAMMA-BODY"),
@@ -176,6 +185,16 @@ fn test_a_row_carries_the_name_and_the_premise_only() {
     );
 }
 
+// Owner ruling of 2026-11-12: the instruction points at the CLI, and at no
+// MCP tool, until T20 builds one.
+#[test]
+fn test_the_instruction_names_the_cli_and_no_mcp_tool() {
+    let said = selection_instruction();
+    assert!(said.contains("ctxloom fragment show <name>"), "{said}");
+    assert!(!said.contains("assemble_context"), "{said}");
+    assert!(!said.contains("`bundles`"), "{said}");
+}
+
 // D24: the instruction is the owner's, byte for byte.
 #[test]
 fn test_the_instruction_is_byte_identical_to_gos() {
@@ -196,8 +215,7 @@ fn test_the_index_keeps_the_three_measured_properties() {
         "never learned to exist",
         "ABOUT TO DO",
         "not the whole",
-        "assemble_context",
-        "`bundles`",
+        "`ctxloom fragment show <name>` for each name you chose",
         "alpha: You are about to do a thing.",
     ] {
         assert!(got.contains(phrase), "{phrase}");

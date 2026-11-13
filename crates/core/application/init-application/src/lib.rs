@@ -67,6 +67,10 @@ pub trait Create {
     /// Write `dir` as the new project's `output.dir`.
     fn set_output_dir(&self, dir: &str) -> Result<(), Failure>;
 
+    /// Write `word` (`on-demand` or `always`) as the new project's
+    /// `config.premised`.
+    fn set_premised(&self, word: &str) -> Result<(), Failure>;
+
     /// The dependency use cases over the project as it is now: once
     /// [`create`](Create::create) has written it, the new project's (those
     /// built before saw no project, and would write the home's files).
@@ -80,6 +84,21 @@ pub const OUTPUT_DIR_SUGGESTED: &str = "ctxloom/";
 /// What a first init asks at the terminal (rulings 89, 106), and says while
 /// asking: the directory is not gitignored, so outputs can be committed.
 pub const OUTPUT_DIR_QUESTION: &str = "Where should your sessions' outputs (plans, reports) go? A path relative to the project, or absolute. It is not gitignored, so what they leave there can be committed.";
+
+/// What a first init suggests for `config.premised` (owner ruling of
+/// 2026-11-12): its default, conditional guidance loaded when it applies.
+pub const PREMISED_SUGGESTED: &str = "on-demand";
+
+/// The other answer: every fragment loads at launch, premised ones too.
+pub const PREMISED_ALWAYS: &str = "always";
+
+/// What a first init asks at the terminal after the output directory, and
+/// says while asking: on demand keeps the context smaller.
+pub const PREMISED_QUESTION: &str = "Should conditional guidance (a fragment with a premise) load only when it applies, which keeps the context smaller, or always? Answer on-demand or always.";
+
+/// How often the question is put before an answer that is neither word
+/// leaves the suggestion standing.
+pub const PREMISED_TRIES: usize = 3;
 
 /// What `init` is asked.
 #[derive(Clone, Debug, Default)]
@@ -198,6 +217,37 @@ impl Init {
             .set_output_dir(&dir)
             .map_err(InitError::Create)?;
         Ok(Some(dir))
+    }
+}
+
+impl Init {
+    /// A first init's second question at the terminal (owner ruling of
+    /// 2026-11-12): whether conditional guidance loads only when it applies
+    /// (`on-demand`, the suggestion) or always. The word, trimmed and in any
+    /// case, is written as the project's `config.premised`; a bare Enter or a
+    /// closed input takes [`PREMISED_SUGGESTED`], and an answer that is
+    /// neither word is asked again, at most [`PREMISED_TRIES`] times in all,
+    /// then the suggestion stands. Off a terminal nothing is asked and
+    /// nothing written: the word chosen, if one was.
+    pub fn choose_premised(&self, terminal: &dyn Terminal) -> Result<Option<String>, InitError> {
+        if !terminal.is_terminal() {
+            return Ok(None);
+        }
+        let mut word = PREMISED_SUGGESTED;
+        for _ in 0..PREMISED_TRIES {
+            let typed = terminal.ask(PREMISED_QUESTION, PREMISED_SUGGESTED);
+            match typed.map(|line| line.trim().to_lowercase()).as_deref() {
+                None | Some("") => break,
+                Some(answer) if answer == PREMISED_SUGGESTED => break,
+                Some(answer) if answer == PREMISED_ALWAYS => {
+                    word = PREMISED_ALWAYS;
+                    break;
+                }
+                Some(_) => {}
+            }
+        }
+        self.create.set_premised(word).map_err(InitError::Create)?;
+        Ok(Some(word.to_string()))
     }
 }
 

@@ -302,6 +302,10 @@ impl Engine for Claude {
         stream::read_turn(output)
     }
 
+    fn advise(&self, planned: &run_ports::Planned) -> Vec<run_ports::Advice> {
+        crate::advice::advise(planned)
+    }
+
     /// The human's terminal run: no print mode, no stream, the context in
     /// the system prompt, and the prompt (when she gave one) as the
     /// conversation's opening. The command is given her terminal.

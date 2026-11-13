@@ -51,6 +51,7 @@ fn prepared_with(
         existing: Default::default(),
         permissions: permissions.map(String::from),
         session_home: run_ports::SessionHome::Session,
+        surfaces: Default::default(),
     })
 }
 
@@ -106,6 +107,7 @@ fn test_the_config_is_regenerated_whatever_the_home_holds() {
             )]),
             permissions: Some(r#"{"edit":"ask"}"#.to_string()),
             session_home: run_ports::SessionHome::Session,
+            surfaces: Default::default(),
         })
         .unwrap();
     assert_eq!(
@@ -176,6 +178,7 @@ fn seeded(model: Option<&[u8]>, session_home: run_ports::SessionHome) -> run_por
             existing: Default::default(),
             permissions: None,
             session_home,
+            surfaces: Default::default(),
         })
         .unwrap()
 }
@@ -265,6 +268,7 @@ fn over_hers(
             existing: Default::default(),
             permissions: permissions.map(String::from),
             session_home,
+            surfaces: Default::default(),
         })
         .unwrap()
 }
@@ -626,6 +630,7 @@ fn test_a_home_prepared_by_an_opencode_calling_another_program_runs_that_program
             existing: Default::default(),
             permissions: None,
             session_home: run_ports::SessionHome::Session,
+            surfaces: Default::default(),
         })
         .unwrap();
     let written = home

@@ -750,6 +750,7 @@ pub fn order(engine: &str) -> Order {
         owned: Vec::new(),
         git_user: None,
         resume: None,
+        surfaces: Default::default(),
     }
 }
 

@@ -23,6 +23,7 @@ mod records;
 mod serving;
 mod settings;
 mod sink;
+mod surfaces;
 mod tls;
 mod token;
 
@@ -54,6 +55,9 @@ pub use records::{check_rel, RecordsError, SessionRecords};
 pub use serving::{BoxFuture, HookServer, Serving};
 pub use settings::{AuthSetting, CredentialPolicy, EngineSettings, SessionHome};
 pub use sink::{Delivery, FactSink};
+pub use surfaces::{
+    SessionSurfaces, SurfaceCommand, SurfaceFile, SurfaceHook, SurfaceMcp, SurfaceSkill,
+};
 pub use tls::{CertError, CertMint, CertNames, HookCertificate, PublicCert};
 pub use token::{Token, TokenError, TokenHash, TokenSource, EN_US};
 

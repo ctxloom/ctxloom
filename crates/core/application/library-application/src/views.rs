@@ -563,6 +563,11 @@ pub struct DryRun {
     /// whose `settings` say their places by word.
     #[serde(skip)]
     pub settings_agent: String,
+    /// What the session is offered beside its context: its profiles'
+    /// commands, skills, MCP servers and hooks, which the engine puts in the
+    /// session home. Not shown by a dry run.
+    #[serde(skip)]
+    pub surfaces: run_ports::SessionSurfaces,
 }
 
 /// What `context assemble` answers (Go's `assemble_context` result).

@@ -215,6 +215,26 @@ impl Project {
         Ok(package)
     }
 
+    /// What a session on the profiles `names` is offered beside its context
+    /// (S9): the commands and skills they carry, the MCP servers registered
+    /// for them (none the session itself serves) and the hooks of their
+    /// profiles, companions and bundles (ctxloom's own callbacks are the
+    /// engine's: a session home registers its own). What the assembly found
+    /// is not said again: the plan this rides in said it.
+    pub(crate) fn session_surfaces(&mut self, names: &[String]) -> run_ports::SessionSurfaces {
+        let mut findings: Vec<Finding> = Vec::new();
+        let Ok(set) = self.resolve_profiles(names, &mut findings) else {
+            return run_ports::SessionSurfaces::default();
+        };
+        let assembled = self.assemble_set(&set, &[], &[], &mut findings);
+        let catalog = self.catalog_with_companions();
+        let served = self.served_from(&catalog, &set, &mut findings);
+        let mut package = EnginePackage::default();
+        self.items_of(&catalog, &assembled.selection, &mut package);
+        let hooks = self.hooks_of(&catalog, &set, &assembled.selection);
+        surfaces_of(package, served, hooks)
+    }
+
     /// The commands and skills the profiles curate by reference when they
     /// curate any of that kind; otherwise those of the bundles they include.
     /// Each once (Go's composite assembly: a curation replaces the bundles'
@@ -427,6 +447,70 @@ impl Project {
             entries.push(("statusline".to_string(), Value::Scalar(word.to_string())));
             Ok(Some(Value::Map(entries)))
         })
+    }
+}
+
+/// The package's items in no engine's words: the served MCP servers
+/// registered ones only, the hooks without ctxloom's own callbacks.
+fn surfaces_of(
+    package: EnginePackage,
+    served: BTreeMap<String, crate::agents::Served>,
+    hooks: Vec<PackagedHook>,
+) -> run_ports::SessionSurfaces {
+    run_ports::SessionSurfaces {
+        commands: package
+            .commands
+            .into_iter()
+            .map(|c| run_ports::SurfaceCommand {
+                name: c.name,
+                description: c.description,
+                body: c.body,
+            })
+            .collect(),
+        skills: package
+            .skills
+            .into_iter()
+            .map(|s| run_ports::SurfaceSkill {
+                name: s.name,
+                description: s.description,
+                files: s
+                    .files
+                    .into_iter()
+                    .map(|f| run_ports::SurfaceFile {
+                        path: f.path,
+                        bytes: f.bytes,
+                        executable: f.executable,
+                    })
+                    .collect(),
+            })
+            .collect(),
+        mcp: served
+            .into_iter()
+            .filter(|(_, served)| served.server.served_by.is_empty())
+            .map(|(name, served)| run_ports::SurfaceMcp {
+                name,
+                command: served.server.command,
+                args: served.server.args,
+                env: served.server.env,
+                url: served.server.url,
+                headers: served.server.headers,
+            })
+            .collect(),
+        hooks: hooks
+            .into_iter()
+            .filter(|h| h.source_kind != "context")
+            .map(|h| run_ports::SurfaceHook {
+                event: h.event,
+                kind: h.hook.kind,
+                command: h.hook.command,
+                args: h.hook.args,
+                prompt: h.hook.prompt,
+                timeout: h.hook.timeout,
+                is_async: h.hook.is_async,
+                tool: h.hook.tool,
+                matcher: String::new(),
+            })
+            .collect(),
     }
 }
 

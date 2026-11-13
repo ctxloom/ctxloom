@@ -122,6 +122,7 @@ fn preparing_a_home_writes_the_context_file_it_names() {
             existing: Default::default(),
             permissions: None,
             session_home: run_ports::SessionHome::Session,
+            surfaces: Default::default(),
         })
         .unwrap();
     assert_eq!(prepared.context_path, format!("/h/{CONTEXT_PROMPT_FILE}"));
@@ -133,6 +134,74 @@ fn preparing_a_home_writes_the_context_file_it_names() {
     assert_eq!(prepared.files[0].bytes, b"the context");
     // Nothing of the user's own configuration is on the allowlist yet.
     assert!(prepared.copy_in.is_empty());
+}
+
+// S9, j000700: what the session is offered beside its context reaches its
+// home, where its config dir keeps it: commands and skills as files, MCP
+// servers in the state file, hooks in the `--settings` file beside ctxloom's.
+#[test]
+fn preparing_a_home_delivers_what_the_session_is_offered() {
+    let prepare = |session_home| {
+        Claude::calling("ctxloom-x")
+            .prepare(&PrepareRequest {
+                home: "/h".to_string(),
+                context: "the context".to_string(),
+                offered: Vec::new(),
+                interactive: true,
+                cwd: Some("/p".to_string()),
+                existing: Default::default(),
+                permissions: None,
+                session_home,
+                surfaces: crate::session::tests::offered(),
+            })
+            .unwrap()
+    };
+    let prepared = prepare(SessionHome::Session);
+    let file = |rel: &str| {
+        let found = prepared.files.iter().find(|f| f.rel == rel);
+        String::from_utf8(found.unwrap_or_else(|| panic!("no {rel}")).bytes.clone()).unwrap()
+    };
+    assert!(file("commands/standards-conventional-commits.md").contains("COMMITS-BODY"));
+    assert!(file("skills/review-checklist/SKILL.md").contains("SKILL-BODY"));
+    assert_eq!(
+        file("skills/review-checklist/scripts/check.sh"),
+        "echo check\n"
+    );
+    let state = surface_ports::Json::parse(&file(".claude.json")).unwrap();
+    assert_eq!(
+        state
+            .get("mcpServers")
+            .and_then(|s| s.get("ledger"))
+            .and_then(|l| l.get("command"))
+            .and_then(surface_ports::Json::as_str),
+        Some("ledger-server")
+    );
+    let hooks = surface_ports::Json::parse(&file("ctxloom-hooks.json")).unwrap();
+    let post = hooks
+        .get("hooks")
+        .and_then(|h| h.get("PostToolUse"))
+        .unwrap();
+    assert!(post.pretty().contains("stamp-edits"), "{}", post.pretty());
+    assert!(post.pretty().contains("Edit|Write"), "{}", post.pretty());
+    // ctxloom's own callbacks are still there.
+    assert!(file("ctxloom-hooks.json").contains("SessionStart"));
+    // Under `session_home: host` the config dir is the user's own: nothing is
+    // written there, and the hooks (ctxloom's own file) still are.
+    let host = prepare(SessionHome::Host);
+    let rels: Vec<&str> = host.files.iter().map(|f| f.rel.as_str()).collect();
+    assert!(
+        rels.iter()
+            .all(|r| !r.starts_with("commands/") && !r.starts_with("skills/")),
+        "{rels:?}"
+    );
+    let state = host.files.iter().find(|f| f.rel == ".claude.json").unwrap();
+    assert!(!String::from_utf8_lossy(&state.bytes).contains("ledger"));
+    let hooks = host
+        .files
+        .iter()
+        .find(|f| f.rel == "ctxloom-hooks.json")
+        .unwrap();
+    assert!(String::from_utf8_lossy(&hooks.bytes).contains("stamp-edits"));
 }
 
 #[test]
@@ -215,6 +284,7 @@ fn prepared(interactive: bool) -> run_ports::Prepared {
             existing: Default::default(),
             permissions: None,
             session_home: run_ports::SessionHome::Session,
+            surfaces: Default::default(),
         })
         .unwrap()
 }
@@ -565,6 +635,7 @@ fn prepare_home(
             existing,
             permissions: permissions.map(String::from),
             session_home: run_ports::SessionHome::Session,
+            surfaces: Default::default(),
         })
         .unwrap()
 }
@@ -697,6 +768,7 @@ fn a_document_that_is_not_json_is_refused() {
         existing: Default::default(),
         permissions: Some("{not json".to_string()),
         session_home: run_ports::SessionHome::Session,
+        surfaces: Default::default(),
     });
     assert!(
         matches!(&refused, Err(EngineError::BadPermissions { engine, .. }) if engine == "claude-code"),
@@ -981,6 +1053,7 @@ fn claude_state(existing: Option<&str>, cwd: Option<&str>) -> Option<String> {
                 .unwrap_or_default(),
             permissions: None,
             session_home: run_ports::SessionHome::Session,
+            surfaces: Default::default(),
         })
         .unwrap();
     prepared
@@ -1073,6 +1146,7 @@ fn under_a_host_home_the_block_stays_in_the_hooks_file_and_no_user_settings_are_
                 existing: Default::default(),
                 permissions: Some(DOCUMENT.to_string()),
                 session_home: SessionHome::Host,
+                surfaces: Default::default(),
             })
             .unwrap();
         assert_eq!(file_of(&prepared, "settings.json"), None);
@@ -1094,6 +1168,7 @@ fn under_a_host_home_the_block_stays_in_the_hooks_file_and_no_user_settings_are_
             existing: Default::default(),
             permissions: Some("{nope".to_string()),
             session_home: home,
+            surfaces: Default::default(),
         });
         assert!(
             matches!(&refused, Err(EngineError::BadPermissions { .. })),
@@ -1117,6 +1192,7 @@ fn a_home_prepared_by_a_claude_calling_another_program_calls_that_program() {
                 existing: Default::default(),
                 permissions: None,
                 session_home: run_ports::SessionHome::Session,
+                surfaces: Default::default(),
             })
             .unwrap();
         let settings = prepared
@@ -1180,6 +1256,7 @@ fn prepare_over(
             existing: BTreeMap::new(),
             permissions: permissions.map(str::to_string),
             session_home,
+            surfaces: Default::default(),
         })
         .unwrap()
 }

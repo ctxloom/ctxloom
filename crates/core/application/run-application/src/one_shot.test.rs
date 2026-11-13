@@ -224,6 +224,7 @@ impl Planner for ScriptedPlan {
             drive: self.drive.clone(),
             settings: None,
             settings_agent: String::new(),
+            surfaces: Default::default(),
         };
         Outcome {
             result: Ok(Previewed {
@@ -1696,6 +1697,7 @@ async fn the_bearer_is_in_no_debug_or_error_rendering() {
                 owned: Vec::new(),
                 git_user: None,
                 resume: None,
+                surfaces: Default::default(),
             }
         ),
     ] {

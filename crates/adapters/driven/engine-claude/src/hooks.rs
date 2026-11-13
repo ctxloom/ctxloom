@@ -127,10 +127,21 @@ const CHILD_EVENTS: &[&str] = &[
     "PostCompact",
 ];
 
+/// A group of an event's hooks: its matcher (none, every tool) and its hooks.
+type Group = (Option<String>, Vec<Json>);
+
 /// The `settings.json` of a session home: every one of [`HOME_EVENTS`] (the
 /// terminal session's) or [`CHILD_EVENTS`] (a child's turn) calls the binary
-/// `program`'s `hook <engine> execute <Event>`.
-pub(crate) fn home_settings(interactive: bool, program: &str) -> String {
+/// `program`'s `hook <engine> execute <Event>`, then the session's own hooks
+/// (`offered`, unified events to their hooks in firing order: its profiles',
+/// companions' and bundles'), each in the group of its event its matcher
+/// selects. A hook claude cannot carry (narrowed to a tool class it has no
+/// tool for) is left out, and named in the second half of the answer.
+pub(crate) fn home_settings(
+    interactive: bool,
+    program: &str,
+    offered: &BTreeMap<String, Vec<Hook>>,
+) -> (String, Vec<String>) {
     let callback = Hook {
         command: surface_ports::CALLBACK_PROGRAM.to_string(),
         args: vec!["hook".to_string()],
@@ -145,17 +156,66 @@ pub(crate) fn home_settings(interactive: bool, program: &str) -> String {
         .iter()
         .map(|event| (event.to_string(), vec![callback.clone()]))
         .collect();
-    let mut events: Vec<(String, Json)> = Vec::new();
-    for op in ops(&hooks, program).unwrap_or_default() {
-        if let JsonOp::HookEntry { event, value, .. } = op {
-            events.push((
-                event,
-                Json::Array(vec![Json::object([("hooks", Json::Array(vec![value]))])]),
-            ));
+    let mut all = ops(&hooks, program).unwrap_or_default();
+    let mut left_out = Vec::new();
+    for (event, list) in offered {
+        for hook in list {
+            let one = BTreeMap::from([(event.clone(), vec![hook.clone()])]);
+            match ops(&one, program) {
+                Ok(more) => {
+                    for op in more {
+                        if !all.contains(&op) {
+                            all.push(op);
+                        }
+                    }
+                }
+                Err(why) => left_out.push(why.to_string()),
+            }
         }
     }
-    let doc = Json::object([("hooks", Json::object(events))]);
-    format!("{}\n", doc.pretty())
+    // Each event's groups, in the order first claimed: a group per matcher.
+    let mut events: Vec<(String, Vec<Group>)> = Vec::new();
+    for op in all {
+        let JsonOp::HookEntry {
+            event,
+            matcher,
+            value,
+        } = op
+        else {
+            continue;
+        };
+        let at = match events.iter().position(|(e, _)| *e == event) {
+            Some(at) => at,
+            None => {
+                events.push((event, Vec::new()));
+                events.len() - 1
+            }
+        };
+        let groups = &mut events[at].1;
+        match groups.iter_mut().find(|(m, _)| *m == matcher) {
+            Some((_, values)) => values.push(value),
+            None => groups.push((matcher, vec![value])),
+        }
+    }
+    let rendered: Vec<(String, Json)> = events
+        .into_iter()
+        .map(|(event, groups)| {
+            let groups = groups
+                .into_iter()
+                .map(|(matcher, values)| {
+                    let mut members = Vec::new();
+                    if let Some(matcher) = matcher {
+                        members.push(("matcher", Json::text(matcher)));
+                    }
+                    members.push(("hooks", Json::Array(values)));
+                    Json::object(members)
+                })
+                .collect();
+            (event, Json::Array(groups))
+        })
+        .collect();
+    let doc = Json::object([("hooks", Json::object(rendered))]);
+    (format!("{}\n", doc.pretty()), left_out)
 }
 
 /// Whether the args are `hook <this engine> execute <event>`.

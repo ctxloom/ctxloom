@@ -186,16 +186,21 @@ impl Engine for Claude {
             },
         ];
         let mut left_out = Vec::new();
-        if request.session_home == SessionHome::Session {
+        let in_session = request.session_home == SessionHome::Session;
+        if in_session {
             let (base, skipped) = user_base(self.user_settings.as_ref());
             left_out.extend(skipped);
             files.push(HomeFile {
                 rel: USER_SETTINGS_FILE.to_string(),
                 bytes: user_settings(request, base)?.into_bytes(),
             });
+            // The session's commands and skills, where its config dir keeps
+            // them (under `host` that dir is the user's own: none written).
+            files.extend(crate::session::home_files(&request.surfaces).0);
         }
         let existing = request.existing.get(STATE_FILE).map(Vec::as_slice);
-        if let Some(bytes) = seeded_state(existing, request.cwd.as_deref()) {
+        let offered = in_session.then_some(&request.surfaces);
+        if let Some(bytes) = seeded_state(existing, request.cwd.as_deref(), offered) {
             files.push(HomeFile {
                 rel: STATE_FILE.to_string(),
                 bytes,
@@ -361,7 +366,11 @@ fn user_base(user: Option<&run_ports::UserSettings>) -> (Json, Option<LeftOut>) 
 /// it never overwrites the hooks), with the cost ruling 145 avoids in the
 /// session home: one invalid value in them disables the hooks too.
 fn hooks_settings(request: &PrepareRequest, program: &str) -> Result<String, EngineError> {
-    let hooks = crate::hooks::home_settings(request.interactive, program);
+    let (hooks, _) = crate::hooks::home_settings(
+        request.interactive,
+        program,
+        &crate::session::hooks(&request.surfaces),
+    );
     let permissions = document(request)?.filter(|_| request.session_home == SessionHome::Host);
     let Some(permissions) = permissions else {
         return Ok(hooks);
@@ -374,12 +383,18 @@ fn hooks_settings(request: &PrepareRequest, program: &str) -> Result<String, Eng
     Ok(format!("{}\n", settings.pretty()))
 }
 
-/// claude's state file with the onboarding marked done and `cwd` trusted
+/// claude's state file with the onboarding marked done, `cwd` trusted and
+/// the session's MCP servers (`offered`, in the session home alone)
+/// registered at user scope
 /// (owner ruling 113: the keys claude 2.1.322 reads; a release that changes
 /// them shows its onboarding again, visible and harmless), merged into what
 /// the home holds (`existing`; none, a fresh file). A file that is not a JSON
 /// object is claude's to deal with: none, the file is left as it is.
-fn seeded_state(existing: Option<&[u8]>, cwd: Option<&str>) -> Option<Vec<u8>> {
+fn seeded_state(
+    existing: Option<&[u8]>,
+    cwd: Option<&str>,
+    offered: Option<&run_ports::SessionSurfaces>,
+) -> Option<Vec<u8>> {
     let mut state = match existing {
         None => Json::Object(Vec::new()),
         Some(bytes) => match std::str::from_utf8(bytes).ok().map(Json::parse) {
@@ -391,6 +406,9 @@ fn seeded_state(existing: Option<&[u8]>, cwd: Option<&str>) -> Option<Vec<u8>> {
     if let Some(dir) = cwd {
         let project = object_at(object_at(&mut state, "projects"), dir);
         project.set("hasTrustDialogAccepted", Json::Bool(true));
+    }
+    if let Some(offered) = offered {
+        crate::session::register_mcp(&mut state, offered);
     }
     Some(format!("{}\n", state.pretty()).into_bytes())
 }

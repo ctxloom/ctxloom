@@ -109,6 +109,12 @@ pub struct PrepareRequest {
     /// Whose engine configuration directory the run gets (`session_home`):
     /// under `host` it is the user's own, which an engine never writes.
     pub session_home: crate::settings::SessionHome,
+    /// What the session is offered beside its context (its profiles'
+    /// commands, skills, MCP servers and hooks): the engine writes each where
+    /// it reads it in the home. Under `session_home: host` an engine writes
+    /// nothing into the user's own directory, so only what lives in a file
+    /// of ctxloom's (claude's hooks) is delivered.
+    pub surfaces: crate::surfaces::SessionSurfaces,
 }
 
 /// What [`Engine::prepare`] answers: the session home's surfaces.

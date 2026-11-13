@@ -255,7 +255,7 @@ fn test_a_timeout_is_written_only_when_it_is_positive() {
 // and only that binary's callbacks are its wiring.
 #[test]
 fn test_a_home_calls_the_program_it_is_given_and_its_wiring_is_that_programs() {
-    let settings = Json::parse(&home_settings(false, "ctxloom-other")).unwrap();
+    let settings = Json::parse(&home_settings(false, "ctxloom-other", &BTreeMap::new()).0).unwrap();
     let Some(Json::Object(events)) = settings.get("hooks").cloned() else {
         panic!("no hooks: {settings:?}");
     };

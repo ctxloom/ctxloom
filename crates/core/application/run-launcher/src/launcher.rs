@@ -568,6 +568,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
                 existing,
                 permissions: order.permissions.clone(),
                 session_home: order.settings.session_home,
+                surfaces: order.surfaces.clone(),
             })
             .map_err(|e| e.to_string())?;
         left_out.clone_from(&prepared.left_out);

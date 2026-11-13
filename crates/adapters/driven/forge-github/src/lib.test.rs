@@ -844,3 +844,18 @@ fn test_the_stub_answers_a_request_it_was_started_for() {
     assert!(raw(&stub, "GET /x HTTP/1.1\r\n\r\n").starts_with("HTTP/1.1 200"));
     assert_eq!(stub.lines(), vec!["GET /x".to_string()]);
 }
+
+#[test]
+fn test_an_https_api_is_spoken_to_over_tls() {
+    // The stub speaks plain HTTP: a client that can speak TLS fails the
+    // handshake, where one built without TLS refuses the scheme.
+    let stub = Stub::github(None, "");
+    let over_tls = Endpoint {
+        api_url: stub.url().replacen("http://", "https://", 1),
+        token_vars: Vec::new(),
+    };
+    let refused = env(&[])
+        .search_repositories(&over_tls, "", 1)
+        .expect_err("no TLS on the stub");
+    assert!(refused.contains("tls handshake"), "{refused}");
+}

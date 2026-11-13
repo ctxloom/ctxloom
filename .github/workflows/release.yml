@@ -1,0 +1,195 @@
+# The release (owner ruling 2026-11-12): on a pushed `v*` tag, the PLAIN
+# binary (no test-support, no session-destroy, Cargo.toml's release profile,
+# versionator-stamped by build.rs) for linux x86_64, windows x86_64 and macOS
+# arm64, each stripped NEXT TO its debug file (`just release-package <os>`:
+# linux `<name>` and `<name>.debug`, macOS `<name>` and `<name>.dSYM.zip`,
+# Windows `<name>.exe` and `<name>.pdb`), and a SHA-256 checksums file
+# covering every one of them, all attached to a GitHub release for the tag.
+# Each platform's binary and debug file are two artifacts: `<name>` and
+# `<name>-debug`. A person cuts it: `just set-version <v>`, commit, push
+# the tag `v<v>` (CLAUDE.md, "Releases"). The tag must be VERSION's, or the
+# build refuses: the stamp says VERSION, and a release named otherwise would
+# lie.
+#
+# `workflow_dispatch` builds the same binaries and the checksums file and
+# uploads them as the run's artifacts, and creates NO release: the workflow can
+# be exercised without a tag.
+#
+# The tools are ci.yml's, at its pins (every action pinned to a commit, its
+# release in the comment): the toolchain of rust-toolchain.toml, just, protoc
+# 3.21.12 by checksum, Go and versionator v0.3.0 for the stamp. The release is
+# made with the runner's own `gh` and the default GITHUB_TOKEN; only that job
+# may write the repository's contents.
+
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: never
+  PROTOC_VERSION: "21.12"
+
+jobs:
+  binary:
+    name: binary (${{ matrix.os }}-${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            arch: x86_64
+            runner: ubuntu-24.04
+            protoc: linux-x86_64
+            protoc_sha256: 3a4c1e5f2516c639d3079b1586e703fc7bcfa2136d58bda24d1d54f949c315e8
+          - os: windows
+            arch: x86_64
+            runner: windows-latest
+            protoc: win64
+            protoc_sha256: 71852a30cf62975358edfcbbff93086e8857a079c8e4d6904881aa968d65c7f9
+          - os: macos
+            arch: arm64
+            runner: macos-15
+            protoc: osx-aarch_64
+            protoc_sha256: 96839af0caed64352442fc8236f4bdf7c1cd6efcfaa98fa5db37307a73fc7c70
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # Some paths are longer than Windows' 260 characters.
+      - name: Long paths
+        if: matrix.os == 'windows'
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: The tag is VERSION's
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version=$(tr -d '\r\n' < VERSION)
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME is not VERSION's v$version: run \`just set-version\`, commit, and tag that commit"
+            exit 1
+          fi
+      - name: Toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          tool: just@1.40.0
+      - name: protoc (angzarr-build's codegen)
+        env:
+          PROTOC_ASSET: ${{ matrix.protoc }}
+          PROTOC_SHA256: ${{ matrix.protoc_sha256 }}
+        run: |
+          cd "$RUNNER_TEMP"
+          zip="protoc-$PROTOC_VERSION-$PROTOC_ASSET.zip"
+          curl -fsSL -o "$zip" "https://github.com/protocolbuffers/protobuf/releases/download/v$PROTOC_VERSION/$zip"
+          if command -v sha256sum >/dev/null; then
+            echo "$PROTOC_SHA256  $zip" | sha256sum -c -
+          else
+            echo "$PROTOC_SHA256  $zip" | shasum -a 256 -c -
+          fi
+          if [ "$RUNNER_OS" = Windows ]; then
+            7z x -bso0 -oprotoc "$zip"
+            cygpath -w "$PWD/protoc/bin" >> "$GITHUB_PATH"
+          else
+            unzip -q "$zip" -d protoc
+            echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
+          fi
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26.9"
+          cache: false
+      - name: versionator (build.rs's version stamp)
+        run: |
+          go install github.com/benjaminabbitt/versionator@v0.3.0
+          if [ "$RUNNER_OS" = Windows ]; then
+            cygpath -w "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          else
+            echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          fi
+      - name: Tool versions
+        run: just --version; protoc --version; jq --version; command -v versionator
+      # The plain binary, named for the release by its stamp and platform,
+      # stripped next to its debug file.
+      - name: Package the plain release binary
+        id: binary
+        env:
+          OS: ${{ matrix.os }}
+          PLATFORM: ${{ matrix.os }}-${{ matrix.arch }}
+        run: |
+          bin=$(just release-binary)
+          stamp=$("$bin" version --format json | jq -r .version | tr -d '\r')
+          name="ctxloom-$stamp-$PLATFORM"
+          just release-package "$OS" dist "$name" > packaged
+          cat packaged
+          [ "$(wc -l < packaged)" -eq 2 ]
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          # Relative paths: the upload action does not read an MSYS path.
+          echo "file=dist/$(basename "$(sed -n 1p packaged)")" >> "$GITHUB_OUTPUT"
+          echo "debug=dist/$(basename "$(sed -n 2p packaged)")" >> "$GITHUB_OUTPUT"
+          ls -l dist
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.binary.outputs.name }}
+          path: ${{ steps.binary.outputs.file }}
+          if-no-files-found: error
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.binary.outputs.name }}-debug
+          path: ${{ steps.binary.outputs.debug }}
+          if-no-files-found: error
+      - name: The gate's log
+        if: failure()
+        run: shopt -s nullglob; for log in target/logs/*.log; do echo "::group::$log"; cat "$log"; echo "::endgroup::"; done
+
+  checksums:
+    name: checksums
+    needs: binary
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: ctxloom-*
+          path: dist
+          merge-multiple: true
+      - name: SHA256SUMS
+        run: |
+          cd dist
+          sha256sum ctxloom-* > SHA256SUMS
+          cat SHA256SUMS
+          # Three platforms, each a binary and its debug file.
+          [ "$(wc -l < SHA256SUMS)" -eq 6 ]
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: SHA256SUMS
+          path: dist/SHA256SUMS
+          if-no-files-found: error
+
+  release:
+    name: release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: checksums
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write # create the release and attach its assets
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist
+          merge-multiple: true
+      - name: The release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          cd dist
+          sha256sum -c SHA256SUMS
+          pre=(); case "$TAG" in *-*) pre=(--prerelease) ;; esac
+          gh release create "$TAG" --verify-tag --title "$TAG" --generate-notes "${pre[@]}" ctxloom-* SHA256SUMS

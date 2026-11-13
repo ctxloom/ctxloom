@@ -839,6 +839,15 @@ off: `crypto`, `pem`, `ring`). They bring rustls, ring, rustls-webpki and
 their small dependencies; `ISC` (ring, untrusted, rustls-webpki) is in
 `deny.toml`'s allow list for them, as MIT and BSD are. No aws-lc is to enter
 the lock: rustls with two providers and none installed panics at config build.
+forge-github's HTTPS is the same stack (owner, 2026-11-12): reqwest's
+provider-less rustls backend (`rustls-tls-manual-roots-no-provider`, no
+default features), handed forge-github's own `ClientConfig` (`tls.rs`: ring,
+and the roots of the system's certificate store as rustls-native-certs reads
+them; a store with none is refused), so no OpenSSL is linked (`ldd` of the
+Linux binary names no libssl or libcrypto). It added hyper-rustls and
+rustls-native-certs to the lock and removed native-tls and openssl with their
+helpers; rustls-platform-verifier was measured and not taken (its lock brings
+jni and its family for Android).
 
 The driving edge's shared shims (`cli-support`: `Call<G>`, `Failure` with its
 `refusals`, the notices printers, `report_failure`, `say_failure` and its json
@@ -1390,7 +1399,7 @@ isolation.
 `crates/root/bin/ctxloom/Cargo.toml` `package.version` in step) hold it;
 `just show-version`, `set-version <v>`, `bump-patch|minor|major` and `bump`
 change it (and record it in Cargo.lock; no release recipe: a human cuts
-releases). The binary's `build.rs` runs versionator (v0.3.0 or newer: `go
+releases, "Releases" below). The binary's `build.rs` runs versionator (v0.3.0 or newer: `go
 install github.com/benjaminabbitt/versionator@v0.3.0`) and passes the stamp to
 rustc as `CTXLOOM_VERSION_STAMP`, so THE BUILD NEEDS VERSIONATOR ON PATH: none,
 or a stamp not of the shape, fails it, naming why. The stamp is the Go
@@ -1467,6 +1476,40 @@ dependency is a public https git pin, so no credential is needed. For
 Windows, nextest's setup script runs under `sh` (`cfg(windows)` entry in
 `.config/nextest.toml`; the unix one is unchanged), and the plain-binary
 checks find `ctxloom.exe` and give it a USERPROFILE, TEMP and SYSTEMROOT.
+
+On a push to `main`, each job, once its gates pass, builds the plain binary
+in the `ci-artifact` profile (`just release-binary ci-artifact`: no
+test-support, no session-destroy, cargo's release defaults, no LTO,
+unstripped, the two plain-build checks; it prints the binary's path) and
+uploads it as the artifact `ctxloom-<stamp>-<os>-<arch>` (`linux-x86_64`,
+`macos-arm64`, `windows-x86_64`, holding `ctxloom` or `ctxloom.exe`); no other
+push or pull request builds it.
+
+The release profile (owner ruling 2026-11-12, Cargo.toml's
+`[profile.release]`) is fat LTO, one codegen unit, opt-level 3,
+`debug = "line-tables-only"` and `strip = "none"`, unwinding panics; cargo's
+strip is not used, because it deletes what the debug file needs. Stripping is
+packaging's: `just release-package <linux|macos|windows> [out] [name]`
+(`scripts/release-package.sh`) builds the release binary and writes it
+stripped NEXT TO its debug file: linux `<name>` (`objcopy --strip-all
+--add-gnu-debuglink`) and `<name>.debug` (`--only-keep-debug
+--compress-debug-sections=zlib`), the build ids checked equal and, with an
+llvm-symbolizer found, `main` of the stripped binary resolved to file:line
+through the debug file (`scripts/release-package.selftest.sh` proves the same
+on a C program); macOS `<name>` (stripped after the dSYM, signed again ad
+hoc, its UUID the dSYM's) and `<name>.dSYM.zip`; Windows `<name>.exe` as
+built and `<name>.pdb`. `split-debuginfo` is cargo's default.
+
+Releases (`.github/workflows/release.yml`, owner ruling 2026-11-12): a person
+runs `just set-version <v>`, commits, and pushes the tag `v<v>` on that
+commit (agents never tag). The workflow refuses a tag that is not VERSION's,
+packages the same three plain binaries (`just release-package <os>`), named
+`ctxloom-<stamp>-<os>-<arch>[.exe]`, each with its debug file (two artifacts,
+`<name>` and `<name>-debug`), and `SHA256SUMS` over all six, and attaches
+them to a GitHub release for the tag (`gh` with the default token;
+`contents: write` for that job alone; a pre-release when the version has
+one). Its `workflow_dispatch` builds and uploads them as the run's artifacts
+and creates no release.
 
 A test that needs a fake program (an `sh` script through
 `fixture_program::install_program`, which refuses `Unsupported` off unix),

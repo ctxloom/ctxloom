@@ -12,6 +12,7 @@ mod encode;
 #[cfg(any(test, feature = "test-support"))]
 #[path = "stub.test.rs"]
 pub mod stub;
+mod tls;
 
 use std::fmt;
 use std::sync::Arc;
@@ -78,6 +79,7 @@ impl GitHub {
             HeaderValue::from_static("2022-11-28"),
         );
         let mut client = Client::builder()
+            .use_preconfigured_tls(tls::platform()?)
             .user_agent("ctxloom")
             .default_headers(headers)
             .timeout(TIMEOUT);

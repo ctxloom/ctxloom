@@ -199,6 +199,56 @@ impl Remotes {
         );
         self.advance_with(name, &files);
     }
+
+    /// Go's `a git remote "<name>" serving a bundle "<bundle>" whose profile
+    /// "<profile>" draws on bundle "<target>" of the remote "<other>"`,
+    /// registered in `project`.
+    pub(crate) fn git_remote_reaching(
+        &mut self,
+        project: &Project,
+        env: &[(&str, &str)],
+        name: &str,
+        (bundle, profile): (&str, &str),
+        (target, other): (&str, &str),
+    ) {
+        let other_url = files::file_url(&self.seeded[other]);
+        let root = tree_bundle(bundle);
+        let files = vec![
+            (
+                format!("{root}/bundle.yaml"),
+                "version: \"1.0.0\"\ndescription: \"reaches elsewhere\"\n".to_string(),
+            ),
+            (
+                format!("{root}/profiles/{profile}.yaml"),
+                format!("bundles:\n  - ctxloom+{other_url}//bundles/{target}\n"),
+            ),
+        ];
+        let bare = self.seed_bare(&files);
+        self.register(project, env, name, bare);
+    }
+
+    /// Go's `the profile "<profile>" draws on a bundle straight from an
+    /// unregistered git repository`, in `project`.
+    pub(crate) fn profile_from_unregistered(&mut self, project: &Project, profile: &str) {
+        let files = demo_tree(
+            "1.0.0",
+            "Demo bundle",
+            "demo-frag",
+            "Demo fragment content.",
+            true,
+        );
+        let bare = self.seed_bare(&files);
+        project.profile(
+            profile,
+            &format!("ctxloom+{}//bundles/demo", files::file_url(&bare)),
+        );
+    }
+
+    /// Go's `the remote "<name>" changes fragment "<fragment>" to "<content>"`.
+    pub(crate) fn changes_fragment(&mut self, name: &str, fragment: &str, content: &str) {
+        let files = demo_tree("1.1.0", "Demo bundle", fragment, content, true);
+        self.advance_with(name, &files);
+    }
 }
 
 /// A project, and the git remotes its scenario seeds.
@@ -225,14 +275,6 @@ impl World {
         self.project.run_with(env, args)
     }
 
-    fn seed_bare(&mut self, files: &[(String, String)]) -> PathBuf {
-        self.remotes.seed_bare(files)
-    }
-
-    fn register(&mut self, name: &str, bare: PathBuf) {
-        self.remotes.register(&self.project, &[], name, bare);
-    }
-
     /// Go's `a git remote "<name>" serving a ctxloom bundle`.
     pub(crate) fn git_remote(&mut self, name: &str) {
         self.remotes.git_remote(&self.project, &[], name);
@@ -248,37 +290,20 @@ impl World {
         target: &str,
         other: &str,
     ) {
-        let other_url = files::file_url(&self.remotes.seeded[other]);
-        let root = tree_bundle(bundle);
-        let files = vec![
-            (
-                format!("{root}/bundle.yaml"),
-                "version: \"1.0.0\"\ndescription: \"reaches elsewhere\"\n".to_string(),
-            ),
-            (
-                format!("{root}/profiles/{profile}.yaml"),
-                format!("bundles:\n  - ctxloom+{other_url}//bundles/{target}\n"),
-            ),
-        ];
-        let bare = self.seed_bare(&files);
-        self.register(name, bare);
+        self.remotes.git_remote_reaching(
+            &self.project,
+            &[],
+            name,
+            (bundle, profile),
+            (target, other),
+        );
     }
 
     /// Go's `the profile "<profile>" draws on a bundle straight from an
     /// unregistered git repository`.
     pub(crate) fn profile_from_unregistered(&mut self, profile: &str) {
-        let files = demo_tree(
-            "1.0.0",
-            "Demo bundle",
-            "demo-frag",
-            "Demo fragment content.",
-            true,
-        );
-        let bare = self.seed_bare(&files);
-        self.project.profile(
-            profile,
-            &format!("ctxloom+{}//bundles/demo", files::file_url(&bare)),
-        );
+        self.remotes
+            .profile_from_unregistered(&self.project, profile);
     }
 
     /// The canonical reference to `bundle` of the remote `name`, as `profile
@@ -328,8 +353,7 @@ impl World {
 
     /// Go's `the remote "<name>" changes fragment "<fragment>" to "<content>"`.
     pub(crate) fn changes_fragment(&mut self, name: &str, fragment: &str, content: &str) {
-        let files = demo_tree("1.1.0", "Demo bundle", fragment, content, true);
-        self.advance_with(name, &files);
+        self.remotes.changes_fragment(name, fragment, content);
     }
 
     /// Go's `the remote "<name>" ships an MCP server "<server>" running

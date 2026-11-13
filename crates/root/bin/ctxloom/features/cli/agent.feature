@@ -905,7 +905,6 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the output contains "not defined yet"
       And the file ".ctxloom/config.yaml" contains "default_agent: ghost"
 
-  @pending
   Rule: Removing reports before it destroys
 
     A bare `remove` is a PREVIEW: it prints what would go and removes nothing,

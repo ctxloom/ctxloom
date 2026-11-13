@@ -1,8 +1,8 @@
 # world: surfaces
 # Ported from cli/search.feature (rev f36e8dfb2)
-# NOT ported: the Rules tagged @pending: their outlines' placeholders hold a
-#   space ("<result count>"), which the runner's cucumber (0.21) leaves
-#   unexpanded, so no step can read the row.
+# NOT ported: the Rule tagged @pending, the tag search: its `--format text`
+#   row reads the tags with `the output reports "..." containing "..."`, a
+#   step that reads json alone.
 
 @doc
 Feature: search — finding content by name, tag and type, here and upstream
@@ -39,7 +39,6 @@ Feature: search — finding content by name, tag and type, here and upstream
   query matches everything, and dumping the library in response to a mistyped
   command is the failure mode this refusal exists for.
 
-  @pending
   Rule: A search must be told what to look for
 
     # A command that fails writes its error to stderr and stdout stays empty
@@ -88,7 +87,6 @@ Feature: search — finding content by name, tag and type, here and upstream
         | --format json | 1            |
         | --format text | Results (1): |
 
-  @pending
   Rule: A name search reaches every kind of local content at once
 
     # One query, every local kind, grouped by kind in the answer. The fixture
@@ -118,7 +116,6 @@ Feature: search — finding content by name, tag and type, here and upstream
         | --format json | 2            | fragment            | command            |
         | --format text | Results (2): | - testing           | - testing-review   |
 
-  @pending
   Rule: --type narrows to one kind, and that is a claim about exclusion
 
     # RESTRICT is a claim about what is left OUT, and asserting only that the
@@ -231,7 +228,6 @@ Feature: search — finding content by name, tag and type, here and upstream
         | --format json | 1            | example                |
         | --format text | Results (1): | - example [example]    |
 
-  @pending
   Rule: --local and --remote choose the source, and browsing is not installing
 
     # A remote's catalog is readable without pulling anything: the remote half

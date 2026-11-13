@@ -450,3 +450,22 @@ fn test_edit_of_an_item_nobody_has_is_refused_before_the_editor_runs() {
     assert!(mem.edits().is_empty());
     assert_eq!(mem.writes(), 0);
 }
+
+// A bundle that is there and cannot be read is never made again by a create
+// into it: the create is refused for what the bundle is, and writes nothing.
+#[test]
+fn test_create_by_reference_into_an_unreadable_bundle_is_refused_and_writes_nothing() {
+    let broken: &[(&str, &str)] = &[("bundle.yaml", "")];
+    let (library, mem) = Setup {
+        bundles: &[("demo", DEMO), ("broken", broken)],
+        layers: &[CONFIG],
+        ..Setup::default()
+    }
+    .fixture();
+    mem.set_editor(|_, content| Ok(format!("{content}\nEDITED-BY-TEST\n")));
+    let got = err(library.item_create_at(&plain(), Kind::Fragment, "broken#fragments/deploy"));
+    assert!(got.contains("BundleUnreadable"), "{got}");
+    assert!(mem.edits().is_empty(), "{:?}", mem.edits());
+    assert_eq!(mem.writes(), 0);
+    assert_eq!(mem.text("broken", "bundle.yaml").as_deref(), Some(""));
+}

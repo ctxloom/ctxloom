@@ -219,3 +219,21 @@ fn test_the_doctor_s_query_names_each_agent_that_loses_something() {
     );
     assert_eq!(found[0].not_carried[0].event, "session_end");
 }
+
+// An agent with no profiles configures nothing, so it loses nothing, even on
+// an engine that cannot carry a registered companion's hook.
+#[test]
+fn test_an_agent_with_no_profiles_loses_nothing() {
+    use ctxloom_ports::CompanionLoadout::Loaded;
+    const GUARD: &str = "run:\n  version: 1.0.0\n  hooks:\n    pre_tool:\n      - command: guard\n        type: command\n";
+    let (library, _) = Setup {
+        bundles: &[("house", HOUSE), ("project", PROJECT)],
+        layers: &["schema_version: 9\nagents:\n  bare:\n    engine: opencode\ncompanions:\n  guard:\n    command: [guard]\n"],
+        companions: &[("guard", Loaded(GUARD.to_string()))],
+        ..Setup::default()
+    }
+    .fixture();
+    let library = library.with_hook_losses(losses());
+    let found = library.agents_losses(&plain()).result.unwrap();
+    assert!(found.is_empty(), "{found:?}");
+}

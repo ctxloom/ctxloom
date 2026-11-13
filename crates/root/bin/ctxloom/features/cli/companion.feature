@@ -1,5 +1,9 @@
 # Ported from cli/companion.feature (rev f36e8dfb2)
 # NOT ported: any of it yet (the Feature is @pending).
+# OD-40 (aip/configuration, 2026-11-13; OQ-19): the JSON steps read the AIP resources
+#   (library.proto's `ListCompanionsResponse` and `Companion`, design §3.9, §5.7): a list is
+#   `{companions: [...]}`, a companion is named `projects/{project}/companions/<name>`, and
+#   whether its program is there is `resolves`. Still pending (M4).
 
 @doc
 @pending
@@ -83,8 +87,8 @@ Feature: companion — which programs ctxloom runs alongside your session
         """
       When I run "ctxloom companion list --format json"
       Then the command succeeds
-      And the output reports "0.name" as "acme"
-      And the output reports "1.name" as "beta"
+      And the output reports "companions.0.name" as "projects/{project}/companions/acme"
+      And the output reports "companions.1.name" as "projects/{project}/companions/beta"
 
     Scenario: An empty project list does not unregister a home companion
       Given an initialized ctxloom project
@@ -97,7 +101,7 @@ Feature: companion — which programs ctxloom runs alongside your session
         """
       When I run "ctxloom companion list --format json"
       Then the command succeeds
-      And the output reports "0.name" as "acme"
+      And the output reports "companions.0.name" as "projects/{project}/companions/acme"
 
   Rule: add checks the companion before it records anything
 
@@ -130,9 +134,9 @@ Feature: companion — which programs ctxloom runs alongside your session
       When I run "ctxloom companion add acme"
       And I run "ctxloom companion list --format json"
       Then the command succeeds
-      And the output reports "0.name" as "acme"
-      And the output reports "0.bin" as "ctxloom-companion-acme"
-      And the output reports "0.resolves" as "true"
+      And the output reports "companions.0.name" as "projects/{project}/companions/acme"
+      And the output reports "companions.0.bin" as "ctxloom-companion-acme"
+      And the output reports "companions.0.resolves" as "true"
 
     Scenario: Bare companion lists the registered companions
       Given an initialized ctxloom project

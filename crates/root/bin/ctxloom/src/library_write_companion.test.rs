@@ -162,8 +162,8 @@ fn test_a_projects_companions_are_added_to_the_home_registrations_by_add() {
     let ran = run(&project, &bin, &["companion", "list", "--format", "json"]);
     ran.succeeds();
     let doc = ran.json();
-    assert_eq!(reports_as(&doc, "0.name"), "acme");
-    assert_eq!(reports_as(&doc, "1.name"), "beta");
+    assert!(reports_as(&doc, "companions.0.name").ends_with("/companions/acme"));
+    assert!(reports_as(&doc, "companions.1.name").ends_with("/companions/beta"));
 }
 
 // companion.feature: Scenario: An empty project map does not unregister a
@@ -194,7 +194,7 @@ fn test_an_empty_project_map_does_not_unregister_a_home_companion_after_add() {
     );
     let ran = run(&project, &bin, &["companion", "list", "--format", "json"]);
     ran.succeeds();
-    assert_eq!(reports_as(&ran.json(), "0.name"), "acme");
+    assert!(reports_as(&ran.json(), "companions.0.name").ends_with("/companions/acme"));
 }
 
 // companion.feature: Scenario: A command whose program does not exist is
@@ -292,7 +292,7 @@ fn test_add_checks_the_companion_before_it_records_anything() {
         ],
     );
     ran.succeeds();
-    assert_eq!(reports_as(&ran.json(), "name"), "ltk");
+    assert!(reports_as(&ran.json(), "companion.name").ends_with("/companions/ltk"));
 }
 
 // operations.AddCompanion (documented condition): the answer, in each format,
@@ -322,9 +322,10 @@ fn test_add_answers_and_a_second_add_registers_nothing_twice() {
     );
     first.succeeds();
     let doc = first.json();
-    assert_eq!(reports_as(&doc, "name"), "acme");
-    assert_eq!(reports_as(&doc, "command.0"), program);
-    assert_eq!(reports_as(&doc, "added"), "true");
+    // OD-40: `CreateCompanionResponse`, applied when the registration is new.
+    assert!(reports_as(&doc, "companion.name").ends_with("/companions/acme"));
+    assert_eq!(reports_as(&doc, "companion.command.0"), program);
+    assert_eq!(reports_as(&doc, "applied"), "true");
     assert_eq!(bin.ran().lines().count(), 1, "one probe: {}", bin.ran());
     let again = run(
         &project,
@@ -405,8 +406,9 @@ fn test_remove_without_yes_names_the_apply_command_and_changes_nothing() {
         &bin,
         &["companion", "remove", "acme", "--yes", "--format", "json"],
     );
-    assert_eq!(reports_as(&applied.json(), "removed"), "true");
-    assert_eq!(reports_as(&applied.json(), "name"), "acme");
+    // OD-40: `DeleteCompanionResponse`, applied, naming what went.
+    assert_eq!(reports_as(&applied.json(), "applied"), "true");
+    assert!(reports_as(&applied.json(), "companion.name").ends_with("/companions/acme"));
     let text = {
         add(&project);
         run(
@@ -446,9 +448,9 @@ fn test_list_answers_each_names_command_and_whether_its_program_exists_after_add
     let ran = run(&project, &bin, &["companion", "list", "--format", "json"]);
     ran.succeeds();
     let doc = ran.json();
-    assert_eq!(reports_as(&doc, "0.name"), "acme");
-    assert_eq!(reports_as(&doc, "0.command.0"), program);
-    assert_eq!(reports_as(&doc, "0.exists"), "true");
+    assert!(reports_as(&doc, "companions.0.name").ends_with("/companions/acme"));
+    assert_eq!(reports_as(&doc, "companions.0.command.0"), program);
+    assert_eq!(reports_as(&doc, "companions.0.resolves"), "true");
     assert_eq!(bin.ran().lines().count(), probes, "listing ran nothing");
 }
 

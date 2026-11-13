@@ -3,16 +3,25 @@
 mod read {
     use crate::tests::*;
 
-    // companion.feature (moved from the four-noun test of lib.test.rs, unchanged)
+    // companion.feature; OD-40 (design §3.9, §5.7): a list is
+    // `ListCompanionsResponse`, each companion named under the project the
+    // daemon names, whether its program is there `resolves`, printed true or
+    // false (OQ-7).
     #[test]
     fn test_companion_list() {
         let companions = json_of(&["companion", "list"]);
         assert_eq!(
-            companions[0],
-            serde_json::json!({"name": "acme", "command": ["acme-bin", "--as", "acme"], "exists": false})
+            companions,
+            serde_json::json!({"companions": [{
+                "name": "projects/calm-otter/companions/acme",
+                "command": ["acme-bin", "--as", "acme"],
+                "resolves": false,
+            }]})
         );
         assert_eq!(json_of(&["companion"]), companions);
         assert!(text_of(&["companion"]).contains("NOT FOUND"));
+        let none = go(&["companion", "list"], JSON, &["schema_version: 9\n"]);
+        assert_eq!(none.out, "{}\n");
     }
 }
 
@@ -64,9 +73,42 @@ mod write {
             text(&library, &["companion", "remove", "acme"]),
             "Would remove companion \"acme\".\n\nNothing was removed. Re-run with --yes to apply:\n  ctxloom companion remove acme --yes\n"
         );
+        // OD-40: a removal's preview is `DeleteCompanionResponse`, `applied`
+        // false and the command that applies.
+        assert_eq!(
+            json(&library, &["companion", "remove", "acme"]),
+            serde_json::json!({
+                "companion": {"name": "projects/calm-otter/companions/acme"},
+                "applied": false,
+                "apply_command": "ctxloom companion remove acme --yes",
+            })
+        );
         assert_eq!(
             text(&library, &["companion", "rm", "acme", "--yes"]),
             "Removed companion 'acme'\n"
+        );
+        // An add is `CreateCompanionResponse`: the companion as registered (its
+        // program answered the probe, so it resolves), applied when the
+        // registration is new or changed; the same again changes nothing.
+        let added = serde_json::json!({
+            "companion": {
+                "name": "projects/calm-otter/companions/acme",
+                "command": ["acme-bin"],
+                "resolves": true,
+            },
+            "applied": true,
+        });
+        let add = ["companion", "add", "acme", "--command", "acme-bin"];
+        assert_eq!(json(&library, &add), added);
+        let mut again = added.clone();
+        again["applied"] = serde_json::json!(false);
+        assert_eq!(json(&library, &add), again);
+        assert_eq!(
+            json(&library, &["companion", "rm", "acme", "--yes"]),
+            serde_json::json!({
+                "companion": {"name": "projects/calm-otter/companions/acme"},
+                "applied": true,
+            })
         );
     }
 

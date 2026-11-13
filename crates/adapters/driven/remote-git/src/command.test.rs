@@ -130,7 +130,11 @@ fn a_timeout_is_told_apart_from_a_failure() {
         git.attempt(Some(dir.root()), &["status"], None, &none),
         Err(Failed::TimedOut(_))
     ));
-    let (dir, git) = stub("#!/bin/sh\necho no >&2\nexit 1\n");
+    // A failure is judged under a deadline it cannot meet by accident: TINY
+    // is the hang's deadline, and a loaded host can take longer than it just
+    // to start the script, which then reads as a timeout.
+    let (dir, _) = stub("#!/bin/sh\necho no >&2\nexit 1\n");
+    let git = Git::new(dir.root().join("git"), Duration::from_secs(30), env());
     assert!(matches!(
         git.attempt(Some(dir.root()), &["status"], None, &none),
         Err(Failed::Said(why)) if why == "git status: no"

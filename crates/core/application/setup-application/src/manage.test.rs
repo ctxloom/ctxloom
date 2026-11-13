@@ -172,6 +172,69 @@ fn test_check_reports_every_engine_and_what_ctxloom_has_materialized() {
     assert_eq!(report.surfaces[0].route, Kind::Context.name());
 }
 
+// j001900: an export the team's context has moved on from is named stale;
+// one that is what materialize would write now is current.
+#[test]
+fn test_check_names_an_export_the_context_moved_on_from_as_stale() {
+    let w = bare();
+    w.setup
+        .materialize(&crate::MaterializeRequest {
+            yes: true,
+            engines: vec!["claude-code".into()],
+            surfaces: vec![
+                crate::SurfaceSpec::parse("context").unwrap(),
+                crate::SurfaceSpec::parse("mcp").unwrap(),
+            ],
+            ..crate::MaterializeRequest::default()
+        })
+        .unwrap();
+    let status = |w: &crate::fakes::World| -> Vec<(String, String)> {
+        w.setup
+            .check(&Flags::default())
+            .unwrap()
+            .value
+            .surfaces
+            .into_iter()
+            .map(|s| (s.route, s.status))
+            .collect()
+    };
+    assert_eq!(
+        status(&w),
+        [
+            ("context".to_string(), "materialized".to_string()),
+            ("mcp".to_string(), "materialized".to_string())
+        ]
+    );
+    // The team's context moves on: what was exported is no longer what
+    // materialize would write.
+    {
+        let mut state = w.store.state();
+        let claims = state
+            .claims
+            .get_mut(&("claude-code".to_string(), Kind::Context))
+            .expect("the context was exported");
+        claims[0] = surface_ports::Claim::Section {
+            path: claims[0].path().to_string(),
+            text: "THE CONTEXT AS IT WAS LAST MONTH".to_string(),
+        };
+    }
+    let log = w.store.state().log.len();
+    assert_eq!(
+        status(&w),
+        [
+            ("context".to_string(), "stale".to_string()),
+            ("mcp".to_string(), "materialized".to_string())
+        ]
+    );
+    assert!(
+        w.store.state().log[log..]
+            .iter()
+            .all(|l| l.ends_with("dry=true")),
+        "a check writes nothing: {:?}",
+        w.store.state().log
+    );
+}
+
 // manage.feature: Scenario: An unknown event name is refused rather than
 // answered empty
 #[test]

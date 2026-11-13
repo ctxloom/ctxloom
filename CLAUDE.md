@@ -998,6 +998,18 @@ library's `bundle` noun and owns `remote` and `deps`.
   withheld red tests for them are `#[ignore]`d in `bundle_remote.test.rs`.
   angzarr-yaml cannot read Go's `? key` form for lock keys over 128 bytes.
 
+Milestone M7 (j001900, diagnosis) adds, in these crates: `deps hold <ref>
+--undo` (the vocabulary's toggle undo; `deps unhold` stays for deps.feature)
+and `deps upgrade <ref> [--yes]` (`deps::plan::only`: that one pin moves, or
+is dropped when nothing reaches it, every other lock entry carried; a name
+the lock does not hold is `deps-application-nothing-to-hold`);
+`fragment|command create <bundle>#<kind>s/<name>`, the one-ref form, which
+opens the editor on the template and makes a bare bundle nobody had (the
+two-word Go form keeps Go's placeholder, no editor, and its refusal of a
+missing bundle); and `manage check`, which names an export in the project
+`stale` where a dry `materialize --yes` of the default agent's profiles, for
+the kinds the record says it claimed, would change or take something out.
+
 ## Built-in content (owner rulings 110, 111, narrowed by 117, 123, 126-128)
 
 ctxloom ships ONE bundle in the binary, `ctxloom`, its operational prompts:

@@ -353,7 +353,7 @@ mutants-batch base="" head="HEAD":
 
 # One shard of a mutation run over the WHOLE workspace (owner ruling
 # 2026-11-12: the nightly's full mutation run, scored by tier): cargo-mutants'
-# `--shard k/n` (k from 0, round-robin), in place (CI's checkout is
+# `--shard k/n` (k from 0; its default slice sharding, consecutive mutants), in place (CI's checkout is
 # throwaway), no feature (`_mutants-no-features`), .cargo/mutants.toml as
 # ever (each mutant judged by its own crate's tests, under nextest). Its
 # mutants.out and its cargo-mutants exit (`exit`) go to `out`. Exit 0 when

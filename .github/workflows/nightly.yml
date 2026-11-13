@@ -4,10 +4,15 @@
 # whole workspace with mutation SCORING by tier.
 #
 # The mutation run is sharded (`just mutants-shard k/n`, cargo-mutants'
-# round-robin `--shard`): a GitHub-hosted job may run for at most 6 hours
+# `--shard`, its default slice sharding: consecutive mutants, so a shard's
+# builds share their crates): a GitHub-hosted job may run for at most 6 hours
 # (https://docs.github.com/en/actions/reference/limits), and one job over
 # the whole workspace would not fit. Each shard has `timeout-minutes` under
-# that cap; `score` merges the shards' outcomes.json and judges them with
+# that cap. n is 10 (measured 2026-11-13, run 43357349404: shard 0 of 20,
+# 457 of the workspace's 9,139 mutants, took 47 min on ubuntu-24.04, about
+# 10 mutants a minute after a 4-minute baseline; so about 95 min a shard at
+# n = 10, 3.5 times under the cap, and half the org's 20 concurrent jobs);
+# `score` merges the shards' outcomes.json and judges them with
 # the gates' own verdict (`just mutants-score`, which runs
 # gates/gates.just's `_mutants-verdict` against `mutation_thresholds`),
 # uploads `mutation-scores` (scores.json, one object per tier, and the
@@ -33,7 +38,7 @@ on:
       shards:
         description: How many mutation shards (n)
         type: number
-        default: 20
+        default: 10
       only-shard:
         description: Run only this shard k (0 to n-1); empty runs them all
         type: string
@@ -56,7 +61,7 @@ jobs:
     steps:
       - id: plan
         env:
-          N: ${{ inputs.shards || 20 }}
+          N: ${{ inputs.shards || 10 }}
           ONLY: ${{ inputs.only-shard }}
           SUITES: ${{ github.event_name != 'workflow_dispatch' || inputs.suites }}
         run: |
@@ -192,7 +197,10 @@ jobs:
           N: ${{ needs.plan.outputs.n }}
         run: |
           set -euo pipefail
-          mapfile -t dirs < <(find shards -mindepth 1 -maxdepth 1 -type d | sort -V)
+          # One artifact is downloaded into shards/ itself, several each into
+          # shards/<name>/: a shard's directory is wherever its `exit` is.
+          mapfile -t dirs < <(find shards -name exit -type f -printf '%h\n' | sort -V)
+          [ "${#dirs[@]}" -gt 0 ] || { echo "::error::no shard's outputs were downloaded"; exit 1; }
           echo "${#dirs[@]} shard(s) of $N"
           rc=0
           just mutants-score scores "${dirs[@]}" || rc=$?

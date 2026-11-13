@@ -64,29 +64,16 @@
     "PATH": "/home/node/.local/bin:${containerEnv:PATH}",
     // gh, from the host's environment; no gh config is mounted. Unset on the
     // host, it is empty here and gh is signed out.
-    "GH_TOKEN": "${localEnv:GH_TOKEN}"
+    "GH_TOKEN": "${localEnv:GH_TOKEN}",
 
-    // Engine credentials. None is passed by default: which login an agent in
-    // here may use is the owner's decision. Each option, uncommented, is one
-    // choice.
-    //
-    // 1. Tokens from the host's environment (nothing on disk is shared; a
-    //    child run needs a variable anyway, a file authenticates only the
-    //    primary session):
-    // ,"ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}"
-    // ,"CLAUDE_CODE_OAUTH_TOKEN": "${localEnv:CLAUDE_CODE_OAUTH_TOKEN}"
-    // ,"OPENAI_API_KEY": "${localEnv:OPENAI_API_KEY}"
-    //
-    // 2. The host's logins, mounted READ-ONLY into "mounts" above. A refresh
-    //    of an OAuth login rewrites the file in place, which a read-only
-    //    mount refuses, so the login works until its token expires:
-    // ,"source=${localEnv:HOME}/.claude/.credentials.json,target=/home/node/.claude/.credentials.json,type=bind,readonly"
-    // ,"source=${localEnv:HOME}/.local/share/opencode/auth.json,target=/home/node/.local/share/opencode/auth.json,type=bind,readonly"
-    //
-    // 3. A login of the container's own, kept on a volume (sign in once
-    //    inside; the host's login is never seen), into "mounts" above:
-    // ,"source=ctxloom-claude-${devcontainerId},target=/home/node/.claude,type=volume"
-    // ,"source=ctxloom-opencode-${devcontainerId},target=/home/node/.local/share/opencode,type=volume"
+    // Engine credentials (owner, 2026-11-12): TOKENS from the host's
+    // environment only. No login file is mounted or copied in: several agents
+    // refreshing one OAuth login sign each other out, and a child run needs a
+    // variable anyway. Unset on the host, each is empty here. `claude
+    // setup-token` gives a CLAUDE_CODE_OAUTH_TOKEN.
+    "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}",
+    "CLAUDE_CODE_OAUTH_TOKEN": "${localEnv:CLAUDE_CODE_OAUTH_TOKEN}",
+    "OPENAI_API_KEY": "${localEnv:OPENAI_API_KEY}"
   },
 
   // The host's git identity, name and email only (no signing key, credential

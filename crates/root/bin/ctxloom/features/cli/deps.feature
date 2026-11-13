@@ -157,7 +157,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And the output contains "ctxloom remote create <name> file://"
       And the file ".ctxloom/lock.yaml" does not exist
       When I run "ctxloom remote list --format json"
-      Then the JSON output array "remotes" contains no object whose "name" is "remote"
+      Then the output reports no "remotes[name$=/remotes/remote]"
 
     # A profile shipped in a repository may name only that repository's
     # content: registering one remote must never admit another repository its

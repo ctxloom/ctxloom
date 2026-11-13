@@ -33,6 +33,15 @@ const PROG: &str = "ctxloom";
 
 pub use cli_support::{Call, Failure};
 
+/// Where a remote's, a dependency's and a bundle's resource names are rooted
+/// (OD-40; OQ-2, OQ-3): the project as the daemon's `ResolveProject` names
+/// it, `projects/{harp}`, or `users/me` outside a project. Asked only when a
+/// json answer prints a name, so a text answer reaches no daemon.
+pub trait Names {
+    /// The parent of this command's resources.
+    fn parent(&self) -> Result<String, Failure>;
+}
+
 /// An application error as the failure it ends the command in.
 trait IntoFailure {
     fn into_failure(self) -> Failure;
@@ -53,10 +62,12 @@ struct Context<'a> {
 }
 
 /// Run `noun` (given the matches of the whole line); `refresh` is the project
-/// refresh a pull ends with.
+/// refresh a pull ends with, `names` where its json answer's names are rooted.
+#[allow(clippy::too_many_arguments)]
 pub fn run<G>(
     deps: &Deps,
     refresh: &dyn ProjectRefresh,
+    _names: &dyn Names,
     noun: &str,
     call: &Call<'_, G>,
     catalog: &Catalog,

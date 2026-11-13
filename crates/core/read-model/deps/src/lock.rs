@@ -37,6 +37,15 @@ pub struct Entry {
     pub held: bool,
 }
 
+/// A Dependency's ID (OD-40, OQ-15): the first 16 lowercase hexadecimal
+/// digits of the SHA-256 of its lock `identity`, so its resource name is
+/// `<parent>/dependencies/<id>` whatever characters the identity holds.
+pub fn dependency_id(identity: &str) -> String {
+    let mut hex = library::sha256::hex(identity.as_bytes());
+    hex.truncate(16);
+    hex
+}
+
 /// The lock: entries by bundle identity.
 #[derive(Clone, Default, PartialEq, Eq, Debug)]
 pub struct Lock {

@@ -187,18 +187,31 @@ fn builtins_withheld(_: &EnvSnapshot) -> bool {
     false
 }
 
-/// The library's names, rooted where the daemon's `ResolveProject` says
-/// (OD-40, OQ-2): asked only when a json answer prints a name.
-struct DaemonNames {
-    env: Arc<EnvSnapshot>,
-    version: String,
+/// The library's names (and the remotes' and dependencies', B4), rooted
+/// where the daemon's `ResolveProject` says (OD-40, OQ-2): asked only when a
+/// json answer prints a name.
+pub(crate) struct DaemonNames {
+    pub(crate) env: Arc<EnvSnapshot>,
+    pub(crate) version: String,
 }
 
-impl library_cli::Names for DaemonNames {
+impl DaemonNames {
     fn parent(&self) -> Result<String, Failure> {
         let wiring =
             Wiring::new(Arc::clone(&self.env)).map_err(|e| Failure::new(e, Exit::FAILED))?;
         crate::daemon::library_parent(&wiring, &self.version)
+    }
+}
+
+impl library_cli::Names for DaemonNames {
+    fn parent(&self) -> Result<String, Failure> {
+        DaemonNames::parent(self)
+    }
+}
+
+impl deps_cli::Names for DaemonNames {
+    fn parent(&self) -> Result<String, Failure> {
+        DaemonNames::parent(self)
     }
 }
 

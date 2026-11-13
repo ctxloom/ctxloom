@@ -316,14 +316,15 @@ fn test_discover_lists_repositories_from_a_forge() {
         .write(".ctxloom/remotes.yaml", &forge_registry(&stub.url(), ""));
     let ran = world.run(&["remote", "discover", "ctxloom", "--source", "github"]);
     ran.succeeds();
+    // OD-40: `DiscoverRemotesResponse`, each repository by its forge name.
     let doc = ran.json();
-    assert_eq!(reports_as(&doc, "count"), "2");
+    assert_eq!(entries(&doc, "repositories"), 2);
     assert_eq!(
-        reports_as(&doc, "repositories[name=ctxloom-golang].add_command"),
+        reports_as(&doc, "repositories[repository=ctxloom-golang].add_command"),
         "ctxloom remote create ctxloom-golang bob/ctxloom-golang"
     );
     assert_eq!(
-        reports_as(&doc, "repositories[name=ctxloom].url"),
+        reports_as(&doc, "repositories[repository=ctxloom].url"),
         "https://github.com/alice/ctxloom"
     );
     let ask = stub.requests().remove(0);

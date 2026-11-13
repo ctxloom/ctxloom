@@ -220,6 +220,7 @@ impl Deps {
             })?;
         Ok(CheckedRef {
             reference: reference.to_string(),
+            identity: remote.identity.clone(),
             in_lockfile: !current.0.is_empty(),
             up_to_date: !current.0.is_empty() && current.0 == latest,
             current_sha: current.0,

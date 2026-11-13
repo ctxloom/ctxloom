@@ -1360,6 +1360,7 @@ dependencies = [
  "angzarr-yaml",
  "clap",
  "cli-support",
+ "daemon-proto",
  "deps-application",
  "deps-ports",
  "mutants",

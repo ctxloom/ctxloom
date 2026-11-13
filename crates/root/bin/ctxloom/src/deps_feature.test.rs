@@ -119,9 +119,16 @@ fn test_pulling_straight_from_an_unregistered_address_is_refused() {
         "no lock is written"
     );
     let listed = world.run(&["remote", "list", "--format", "json"]);
+    // OD-40: `ListRemotesResponse`, each remote by its resource name; none
+    // registered is `{}`.
     let doc = listed.json();
-    let names = doc["remotes"].as_array().expect("remotes");
-    assert!(names.iter().all(|r| r["name"] != "remote"), "{doc}");
+    let names = doc["remotes"].as_array().cloned().unwrap_or_default();
+    assert!(
+        names.iter().all(|r| !r["name"]
+            .as_str()
+            .is_some_and(|name| name.ends_with("/remotes/remote"))),
+        "{doc}"
+    );
 }
 
 // deps.feature: Scenario: A remote profile reaching into another repository is refused

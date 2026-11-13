@@ -498,6 +498,10 @@ impl Extension for Commands {
             .unwrap_or_default()
             .to_string();
         let env = Arc::clone(&self.env);
+        let names = crate::library::DaemonNames {
+            env: Arc::clone(&self.env),
+            version: self.version.clone(),
+        };
         let wired = self.wired().map_err(|e| Failure::new(e, Exit::FAILED))?;
         if noun == "run" {
             let run = call.matches.subcommand_matches("run");
@@ -517,7 +521,7 @@ impl Extension for Commands {
             setup: &wired.surface,
             flags: call.globals.clone(),
         };
-        deps_cli::run(&wired.deps, &refresh, noun, call, catalog, out, err)
+        deps_cli::run(&wired.deps, &refresh, &names, noun, call, catalog, out, err)
     }
 }
 

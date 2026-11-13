@@ -72,6 +72,24 @@ fn go(fx: &Fixture, line: &[&str], how: How) -> Ran {
     go_refreshing(fx, &FakeRefresh::default(), line, how)
 }
 
+/// The project the names are rooted at, as the daemon's `ResolveProject`
+/// would name it (OD-40, OQ-2).
+pub(crate) const PARENT: &str = "projects/calm-otter";
+
+/// The names a test's json answers are rooted at.
+struct Project;
+
+impl Names for Project {
+    fn parent(&self) -> Result<String, Failure> {
+        Ok(PARENT.to_string())
+    }
+}
+
+/// A resource name under [`PARENT`].
+fn named(rest: &str) -> String {
+    format!("{PARENT}/{rest}")
+}
+
 fn go_refreshing(fx: &Fixture, refresh: &FakeRefresh, line: &[&str], how: How) -> Ran {
     let mut argv = vec!["ctxloom"];
     argv.extend_from_slice(line);
@@ -91,7 +109,7 @@ fn go_refreshing(fx: &Fixture, refresh: &FakeRefresh, line: &[&str], how: How) -
     .expect("a catalog");
     let (mut out, mut err) = (Vec::new(), Vec::new());
     let exit = run(
-        &fx.deps, refresh, &noun, &call, &catalog, &mut out, &mut err,
+        &fx.deps, refresh, &Project, &noun, &call, &catalog, &mut out, &mut err,
     )
     .map(|exit| exit.code(true))
     .map_err(|f| (f.cause.code().to_string(), f.exit.code(true)));
@@ -119,8 +137,9 @@ fn pulled() -> (Fixture, String) {
 #[test]
 fn test_remote_list_json_and_text_and_the_bare_noun() {
     let fx = Fixture::new();
+    // OD-40: `ListRemotesResponse`; an empty registry is `{}`.
     let empty = go(&fx, &["remote", "list"], JSON);
-    assert_eq!(empty.json(), serde_json::json!({"remotes": [], "count": 0}));
+    assert_eq!(empty.json(), serde_json::json!({}));
     assert_eq!(
         go(&fx, &["remote"], TEXT).ok().out,
         "No remotes configured.\nUse 'ctxloom remote create <name> <url>' to add a remote.\nUse 'ctxloom remote discover' to find public repositories.\n"
@@ -130,7 +149,10 @@ fn test_remote_list_json_and_text_and_the_bare_noun() {
     go(&fx, &["remote", "default", "zeta"], JSON).ok();
     assert_eq!(
         go(&fx, &["remote", "ls"], JSON).json(),
-        serde_json::json!({"remotes": [{"name": "alpha", "url": "file:///a.git"}, {"name": "zeta", "url": "file:///z.git"}], "count": 2, "default": "zeta"})
+        serde_json::json!({"remotes": [
+            {"name": named("remotes/alpha"), "url": "file:///a.git", "default": false},
+            {"name": named("remotes/zeta"), "url": "file:///z.git", "default": true},
+        ]})
     );
     assert_eq!(
         go(&fx, &["remote", "list"], TEXT).ok().out,
@@ -158,11 +180,14 @@ fn test_remote_create_says_what_was_added_and_warns_of_a_clone_that_failed() {
         JSON,
     );
     json.ok();
-    assert_eq!(json.json()["status"], "added");
-    assert!(json.json()["warning"]
-        .as_str()
-        .expect("a warning")
-        .starts_with("gone: clone failed: "));
+    // OD-40: `CreateRemoteResponse`; the clone that failed is a notice alone.
+    assert_eq!(
+        json.json(),
+        serde_json::json!({
+            "remote": {"name": named("remotes/gone"), "url": "file:///nonexistent/x.git"},
+            "applied": true,
+        })
+    );
     let said: serde_json::Value = serde_json::from_str(json.err.trim_end()).expect("a json line");
     assert_eq!(said["prog"], "ctxloom");
     assert!(said["warning"]
@@ -231,11 +256,26 @@ fn test_remote_edit_reads_a_flag_given_even_when_it_is_empty() {
         format!("Edited remote \"up\" (name, url)\n  name:  origin \u{2192} up\n  url:   {URL} \u{2192} file:///moved.git\n  the default remote followed the rename\n")
     );
     let json = go(&fx, &["remote", "edit", "up", "--forge", "git"], JSON);
-    let json = json.ok().json();
-    assert_eq!(json["status"], "edited");
-    assert_eq!(json["changed"], serde_json::json!(["forge"]));
-    assert_eq!(json["before"]["name"], "up");
-    assert!(json.get("default_pointer_updated").is_none());
+    // OD-40: `UpdateRemoteResponse`, the remote after the write and its
+    // `changes` (OQ-18); the default that followed a rename says so.
+    assert_eq!(
+        json.ok().json(),
+        serde_json::json!({
+            "remote": {"name": named("remotes/up"), "url": "file:///moved.git", "forge": "git"},
+            "applied": true,
+            "changes": ["forge"],
+        })
+    );
+    let renamed = go(&fx, &["remote", "edit", "up", "--name", "upper"], JSON);
+    assert_eq!(renamed.ok().json()["remote"]["default"], true);
+    let unchanged = go(&fx, &["remote", "edit", "upper", "--name", "upper"], JSON);
+    assert_eq!(
+        unchanged.ok().json(),
+        serde_json::json!({
+            "remote": {"name": named("remotes/upper"), "url": "file:///moved.git", "forge": "git"},
+            "applied": false,
+        })
+    );
 }
 
 #[test]
@@ -249,13 +289,25 @@ fn test_remote_remove_previews_and_then_removes() {
     );
     assert_eq!(
         go(&fx, &["remote", "rm", "origin"], JSON).json(),
-        serde_json::json!({"status": "preview", "applied": false, "target": "remote \"origin\"", "apply": "ctxloom remote remove origin --yes"})
+        serde_json::json!({
+            "remote": {"name": named("remotes/origin")},
+            "applied": false,
+            "detail": ["remote \"origin\""],
+            "apply_command": "ctxloom remote remove origin --yes",
+        })
     );
     assert_eq!(
         go(&fx, &["remote", "remove", "origin", "--yes"], TEXT)
             .ok()
             .out,
         "Removed remote 'origin'\n"
+    );
+    fx.register("again", "file:///again.git");
+    assert_eq!(
+        go(&fx, &["remote", "remove", "again", "--yes"], JSON)
+            .ok()
+            .json(),
+        serde_json::json!({"remote": {"name": named("remotes/again")}, "applied": true})
     );
     assert_eq!(
         go(&fx, &["remote", "remove", "origin"], TEXT).refused(),
@@ -281,11 +333,11 @@ fn test_remote_default_sets_clears_and_wants_a_name() {
     );
     assert_eq!(
         go(&fx, &["remote", "default", "origin"], JSON).json(),
-        serde_json::json!({"status": "set", "name": "origin"})
+        serde_json::json!({"remote": named("remotes/origin"), "applied": true})
     );
     assert_eq!(
         go(&fx, &["remote", "default", "--clear"], JSON).json(),
-        serde_json::json!({"status": "cleared"})
+        serde_json::json!({"applied": true})
     );
     assert_eq!(
         go(&fx, &["remote", "default"], TEXT).refused(),
@@ -301,9 +353,21 @@ fn test_remote_show_lists_what_is_published_and_what_is_not() {
         go(&fx, &["remote", "show", "origin", "--recursive=false"], TEXT).ok().out,
         format!("Bundles in origin ({URL}):\n\n  {}\n\nUse one: add its ref to a profile (ctxloom profile create/edit), then ctxloom deps pull\n", demo_ref())
     );
+    // OD-40: `BrowseRemoteResponse`; a browsed bundle has no resource name.
     let json = go(&fx, &["remote", "show", "origin", "-r"], JSON);
-    assert_eq!(json.json()["items"][0]["pull_ref"], demo_ref());
-    assert_eq!(json.json()["count"], 1);
+    assert_eq!(
+        json.json(),
+        serde_json::json!({
+            "remote": named("remotes/origin"),
+            "url": URL,
+            "items": [{
+                "item": "demo",
+                "kind": "BUNDLE",
+                "path": "demo",
+                "pull_reference": demo_ref(),
+            }],
+        })
+    );
     fx.remotes.serve("file:///srv/empty.git");
     fx.remotes
         .commit("file:///srv/empty.git", &[("README.md", "x")]);
@@ -409,7 +473,8 @@ fn test_the_table_aligns_wide_characters_by_display_width() {
 }
 
 #[test]
-fn test_remote_discover_json_is_the_repositories_the_count_and_the_errors() {
+fn test_remote_discover_json_is_the_repositories_found() {
+    // OD-40: `DiscoverRemotesResponse`; nothing found is `{}`.
     let fx = two_repositories();
     let ran = go(&fx, &["remote", "discover", "--stars", "5"], JSON);
     assert_eq!(
@@ -417,17 +482,17 @@ fn test_remote_discover_json_is_the_repositories_the_count_and_the_errors() {
         serde_json::json!({
             "repositories": [{
                 "owner": "bob",
-                "name": "ctxloom-golang",
+                "repository": "ctxloom-golang",
                 "description": "bob's context",
-                "stars": 10,
+                "star_count": 10,
                 "url": "https://github.com/bob/ctxloom-golang",
                 "forge": "github",
                 "add_command": "ctxloom remote create ctxloom-golang bob/ctxloom-golang",
             }],
-            "count": 1,
-            "errors": [],
         })
     );
+    let none = go(&fx, &["remote", "discover", "--stars", "500"], JSON);
+    assert_eq!(none.ok().json(), serde_json::json!({}));
 }
 
 #[test]

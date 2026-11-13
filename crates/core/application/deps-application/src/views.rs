@@ -245,6 +245,10 @@ pub struct CheckReport {
 pub struct CheckedRef {
     #[serde(rename = "ref")]
     pub reference: String,
+    /// The lock identity the reference expands to (its Dependency's name
+    /// is read from it, OQ-15).
+    #[serde(skip)]
+    pub identity: String,
     pub in_lockfile: bool,
     pub current_sha: String,
     pub latest_sha: String,
@@ -268,6 +272,9 @@ pub struct HoldResult {
     /// `held`, `released`, or `not_tracked` for a bundle of this project.
     pub status: &'static str,
     pub name: String,
+    /// The lock identity held or released; empty for `not_tracked`.
+    #[serde(skip)]
+    pub identity: String,
 }
 
 /// `bundle push`.

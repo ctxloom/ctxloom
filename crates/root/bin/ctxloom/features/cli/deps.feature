@@ -38,10 +38,10 @@ Feature: deps — the installed dependency closure, and everything that moves it
     been deleted — and the reason it deliberately says nothing about whether
     anything newer exists upstream.
 
-    # Tabled by format: `deps list` is wired to emit(), so off a terminal
-    # (which this harness always is) the no-flag row now gets the JSON
-    # depsListing (an empty "deps" array), not the "No dependencies
-    # installed." text line. Reuses the branch's shared empty-collection step.
+    # Tabled by format: off a terminal (which this harness always is) the
+    # no-flag row gets the JSON ListDependenciesResponse (OD-40: its empty
+    # "dependencies" left out, `{}`), not the "No dependencies installed."
+    # text line. Reuses the branch's shared empty-collection step.
     Scenario Outline: A project with nothing installed reports an empty closure
       Given an initialized ctxloom project
       When Alice asks what she has installed:
@@ -49,7 +49,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
         ctxloom <flags> deps list
         """
       Then the command succeeds
-      And the output reports "deps" as empty, saying "No dependencies installed"
+      And the output reports "dependencies" as empty, saying "No dependencies installed"
 
       @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
@@ -60,8 +60,9 @@ Feature: deps — the installed dependency closure, and everything that moves it
 
     # NOT tabled, pinned to --format text: this remedy line
     # ("run 'ctxloom deps pull' to install it") is written straight to
-    # renderDepsList's text-only branch — depsListing carries only {deps,
-    # count}, no hint field — so a json row has nothing to assert here.
+    # renderDepsList's text-only branch — ListDependenciesResponse carries
+    # only {dependencies}, no hint field — so a json row has nothing to
+    # assert here.
     Scenario: A project with nothing installed says what to run next
       Given an initialized ctxloom project
       When Alice asks what she has installed:
@@ -93,7 +94,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Given an initialized ctxloom project
       When I run "ctxloom <flags> deps"
       Then the command succeeds
-      And the output reports "deps" as empty, saying "No dependencies installed"
+      And the output reports "dependencies" as empty, saying "No dependencies installed"
       And the output does not contain "Available Commands:"
 
       @json-default

@@ -406,13 +406,20 @@ fn held_at_older(w: &mut World) {
 #[then("she sees the runbook named as held at the older version")]
 fn listed_held(w: &mut World) {
     let listing = w.diagnosis_ran("ctxloom deps list").succeeds().json();
-    let runbook = listing["deps"]
+    // OD-40: `ListDependenciesResponse`, each bundle by its resource name.
+    let runbook = listing["dependencies"]
         .as_array()
-        .and_then(|deps| deps.iter().find(|d| d["name"] == "runbook"))
+        .and_then(|deps| {
+            deps.iter().find(|d| {
+                d["bundle"]
+                    .as_str()
+                    .is_some_and(|b| b.ends_with("/bundles/runbook"))
+            })
+        })
         .unwrap_or_else(|| panic!("the listing does not name the runbook: {listing}"));
     assert_eq!(runbook["held"], true, "not named as held: {runbook}");
     assert_eq!(
-        runbook["sha"].as_str(),
+        runbook["commit"].as_str(),
         Some(w.diagnosis.older_commit.as_str()),
         "not held at the older version: {runbook}"
     );

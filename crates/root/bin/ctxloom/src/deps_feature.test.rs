@@ -41,7 +41,7 @@ fn test_a_project_with_nothing_installed_reports_an_empty_closure() {
         if is_text(flags) {
             ran.contains("No dependencies installed");
         } else {
-            assert_eq!(entries(&ran.json(), "deps"), 0);
+            assert_eq!(entries(&ran.json(), "dependencies"), 0);
         }
     }
 }
@@ -62,12 +62,13 @@ fn test_the_listing_names_each_dependency_its_commit_and_its_origin() {
     let world = World::pulled_dev();
     let ran = world.run(&["deps", "list"]);
     ran.succeeds().contains("demo").contains("origin");
+    // OD-40: `ListDependenciesResponse`, the bundle and remote by name.
     let doc = ran.json();
-    assert_eq!(reports_as(&doc, "count"), "1");
-    assert_eq!(reports_as(&doc, "deps.0.name"), "demo");
-    assert_eq!(reports_as(&doc, "deps.0.origin"), "origin");
-    assert_eq!(reports_as(&doc, "deps.0.held"), "false");
-    assert_eq!(reports_as(&doc, "deps.0.sha").len(), 40);
+    assert_eq!(entries(&doc, "dependencies"), 1);
+    assert!(reports_as(&doc, "dependencies.0.bundle").ends_with("/remotes/origin/bundles/demo"));
+    assert!(reports_as(&doc, "dependencies.0.remote").ends_with("/remotes/origin"));
+    assert_eq!(reports_as(&doc, "dependencies.0.held"), "false");
+    assert_eq!(reports_as(&doc, "dependencies.0.commit").len(), 40);
 }
 
 // deps.feature: Scenario Outline: Bare deps lists the closure
@@ -82,7 +83,7 @@ fn test_bare_deps_lists_the_closure() {
         if is_text(flags) {
             ran.contains("No dependencies installed");
         } else {
-            assert_eq!(entries(&ran.json(), "deps"), 0);
+            assert_eq!(entries(&ran.json(), "dependencies"), 0);
         }
     }
 }

@@ -4,6 +4,7 @@
 
 use angzarr_presentation::{Catalog, Format};
 use clap::Command;
+use deps_application::dependency_id;
 use deps_application::fakes::{demo, FakeRefresh, Fixture, BUNDLES};
 
 use super::*;
@@ -549,16 +550,27 @@ fn test_a_remote_discover_that_failed_closes_the_progress_line_and_warns_why() {
 #[test]
 fn test_deps_list_in_both_formats_and_the_bare_noun() {
     let fx = Fixture::new();
-    assert_eq!(
-        go(&fx, &["deps"], JSON).json(),
-        serde_json::json!({"deps": [], "count": 0})
-    );
+    // OD-40: `ListDependenciesResponse`; nothing installed is `{}`.
+    assert_eq!(go(&fx, &["deps"], JSON).json(), serde_json::json!({}));
     assert_eq!(
         go(&fx, &["deps", "list"], TEXT).ok().out,
         "No dependencies installed.\nA profile that names a remote bundle gets one; run 'ctxloom deps pull' to install it.\n"
     );
     let (fx, sha) = pulled();
     go(&fx, &["deps", "hold", "origin/demo"], JSON).ok();
+    // Each dependency by its name (OQ-15), the bundle and remote by theirs.
+    assert_eq!(
+        go(&fx, &["deps", "list"], JSON).json(),
+        serde_json::json!({"dependencies": [{
+            "name": named(&format!("dependencies/{}", dependency_id(&demo_ref()))),
+            "reference": demo_ref(),
+            "bundle": named("remotes/origin/bundles/demo"),
+            "commit": sha,
+            "held": true,
+            "remote": named("remotes/origin"),
+            "url": URL,
+        }]})
+    );
     assert_eq!(
         go(&fx, &["deps", "ls"], TEXT).ok().out,
         format!(
@@ -578,10 +590,13 @@ fn test_deps_list_in_both_formats_and_the_bare_noun() {
             &sha[..7]
         )
     );
+    // No remote matches: the bundle keeps its text (OQ-16), no remote.
     let json = go(&fx, &["deps", "list"], JSON).json();
-    assert_eq!(json["deps"][0]["constraint"], "main");
-    assert_eq!(json["deps"][0]["held"], false);
-    assert!(json["deps"][0].get("origin").is_none());
+    let row = &json["dependencies"][0];
+    assert_eq!(row["constraint"], "main");
+    assert_eq!(row["held"], false);
+    assert_eq!(row["bundle"], "demo");
+    assert!(row.get("remote").is_none(), "{json}");
 }
 
 #[test]
@@ -919,7 +934,7 @@ fn test_hold_undo_releases_the_hold() {
         "Released hold on \"origin/demo\"; the next 'ctxloom deps upgrade' may advance it.\n"
     );
     let listing = go(&fx, &["deps", "list"], JSON).json();
-    assert_eq!(listing["deps"][0]["held"], false, "{listing}");
+    assert_eq!(listing["dependencies"][0]["held"], false, "{listing}");
 }
 
 // j001900: `upgrade <ref>` previews and applies the one pin.
@@ -959,14 +974,24 @@ fn test_hold_and_unhold_say_what_they_did() {
         go(&fx, &["deps", "unhold", "origin/demo"], TEXT).ok().out,
         "Released hold on \"origin/demo\"; the next 'ctxloom deps upgrade' may advance it.\n"
     );
+    // OD-40: HoldDependency and ReleaseDependency answer the Dependency
+    // (AIP-136), held or not.
+    let held = go(&fx, &["deps", "hold", "origin/demo"], JSON).json();
+    assert_eq!(held["reference"], demo_ref());
     assert_eq!(
-        go(&fx, &["deps", "hold", "origin/demo"], JSON).json(),
-        serde_json::json!({"status": "held", "name": "origin/demo"})
+        held["name"],
+        named(&format!("dependencies/{}", dependency_id(&demo_ref())))
     );
+    assert_eq!(held["held"], true);
+    let released = go(&fx, &["deps", "unhold", "origin/demo"], JSON).json();
+    assert_eq!(released["held"], false, "{released}");
     fx.files.author("mine", &[("bundle.yaml", "v: 1\n")]);
     let local = go(&fx, &["deps", "hold", "mine"], TEXT);
     assert_eq!(local.ok().out, "");
     assert!(local.err.contains("nothing to hold"), "{}", local.err);
+    // A local bundle is no dependency: nothing to answer but the notice.
+    let local = go(&fx, &["deps", "hold", "mine"], JSON);
+    assert_eq!(local.ok().json(), serde_json::json!({}));
     assert_eq!(
         go(&fx, &["deps", "hold", "typo"], TEXT).refused(),
         ("deps-application-nothing-to-hold", 20)

@@ -62,6 +62,9 @@ pub struct LibraryCommands {
     library: Option<Library>,
     /// What the library reads of the remotes, where the program has them.
     remotes: Option<Rc<dyn RemoteLibrary>>,
+    /// This binary's stamp, which the daemon that names the project must
+    /// share (M3).
+    version: String,
 }
 
 impl LibraryCommands {
@@ -70,7 +73,15 @@ impl LibraryCommands {
             env,
             library: None,
             remotes: None,
+            version: String::new(),
         }
+    }
+
+    /// The library naming its resources under the project the daemon of
+    /// this stamp names (OD-40, OQ-2).
+    pub fn with_version(mut self, version: &str) -> LibraryCommands {
+        self.version = version.to_string();
+        self
     }
 
     /// The library reading the remotes too.
@@ -176,6 +187,21 @@ fn builtins_withheld(_: &EnvSnapshot) -> bool {
     false
 }
 
+/// The library's names, rooted where the daemon's `ResolveProject` says
+/// (OD-40, OQ-2): asked only when a json answer prints a name.
+struct DaemonNames {
+    env: Arc<EnvSnapshot>,
+    version: String,
+}
+
+impl library_cli::Names for DaemonNames {
+    fn parent(&self) -> Result<String, Failure> {
+        let wiring =
+            Wiring::new(Arc::clone(&self.env)).map_err(|e| Failure::new(e, Exit::FAILED))?;
+        crate::daemon::library_parent(&wiring, &self.version)
+    }
+}
+
 impl Extension for LibraryCommands {
     fn nouns(&self) -> Vec<clap::Command> {
         library_cli::nouns()
@@ -189,8 +215,12 @@ impl Extension for LibraryCommands {
         out: &mut dyn Write,
         err: &mut dyn Write,
     ) -> Result<Exit, Failure> {
+        let names = DaemonNames {
+            env: Arc::clone(&self.env),
+            version: self.version.clone(),
+        };
         let library = self.wired().map_err(|e| Failure::new(e, Exit::FAILED))?;
-        library_cli::run(library, noun, call, catalog, out, err)
+        library_cli::run(library, &names, noun, call, catalog, out, err)
     }
 }
 

@@ -20,6 +20,9 @@ use crate::client::CallError;
 /// Every project's sessions, as a `ListSessions` parent.
 const EVERY_PROJECT: &str = "projects/-";
 
+/// The home layer's root, outside a project (OQ-3).
+const HOME_PARENT: &str = "users/me";
+
 /// What a command asks of its daemon, besides the call: its project (none
 /// outside one) and its environment.
 pub struct Client<D> {
@@ -150,6 +153,19 @@ impl<D: Daemons> Client<D> {
             Err(Called::Unreachable { .. }) => Ok(None),
             answered => Ok(Some(answered?)),
         }
+    }
+
+    /// Where a library verb's resource names are rooted (OD-40; OQ-2, OQ-3):
+    /// this client's project as the daemon's `ResolveProject` names it
+    /// (`projects/{harp}`, registered or rechecked, so the daemon is reached,
+    /// started if none serves), or `users/me` outside a project, where no
+    /// daemon is asked.
+    pub async fn library_parent(&self) -> Result<String, CallError> {
+        if self.project.is_none() {
+            return Ok(HOME_PARENT.to_string());
+        }
+        self.on_daemon(async |api: &D::Api| self.project(api).await)
+            .await
     }
 
     /// `call` on a reached daemon, once more on the daemon reached again if

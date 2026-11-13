@@ -60,7 +60,7 @@ Feature: auth — how ctxloom-launched engines authenticate
       And the output contains "opencode token: not needed: none of ANTHROPIC_API_KEY, OPENAI_API_KEY is exported, so opencode runs keyless on its free models"
       When I run "ctxloom engine show opencode --format json"
       Then the command succeeds
-      And the output reports "auth.state" as "not-needed"
+      And the output reports "auth.state" as "AUTH_STATE_NOT_NEEDED"
 
   Rule: ctxloom takes no credential
 

@@ -844,6 +844,28 @@ pub(crate) fn client<'a>(wiring: &'a Wiring, stamp: &str) -> daemon_api::Client<
     .with_request_ids(Box::new(request_id))
 }
 
+/// Where this process's library resource names are rooted (OD-40, OQ-2,
+/// OQ-3): its project as the daemon's `ResolveProject` names it
+/// (`projects/{harp}`; the daemon reached, started if none serves), or
+/// `users/me` outside a project. A call that fails fails the command in
+/// its own class.
+pub(crate) fn library_parent(wiring: &Wiring, stamp: &str) -> Result<String, Failure> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| {
+            failed(LibError::NoRuntime {
+                detail: e.to_string(),
+            })
+        })?;
+    runtime
+        .block_on(client(wiring, stamp).library_parent())
+        .map_err(|e| {
+            let exit = e.exit();
+            Failure::new(e, exit)
+        })
+}
+
 /// A write's request id (S8): a fresh UUIDv7, unique per call.
 fn request_id() -> String {
     uuid::Uuid::now_v7().to_string()

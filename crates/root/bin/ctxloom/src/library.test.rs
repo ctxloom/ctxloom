@@ -461,7 +461,9 @@ impl Ran {
 /// The value at a path in a JSON document, in the notation of Go's
 /// `the output reports "<path>" as ...` (`steps_cli.go`): `$` is the root, a
 /// segment is a key, an index (`runs.0` or `runs[0]`), or a selector
-/// `[key=value]` that picks the element of an array whose `key` is `value`.
+/// `[key=value]` that picks the element of an array whose `key` is `value`,
+/// or `[key$=suffix]` whose `key` ends with `suffix` (a resource name read
+/// without its project, OD-40: `engines[name$=/engines/claude-code]`).
 pub(crate) fn at<'a>(doc: &'a Value, path: &str) -> Option<&'a Value> {
     let mut here = doc;
     if path == "$" {
@@ -471,6 +473,14 @@ pub(crate) fn at<'a>(doc: &'a Value, path: &str) -> Option<&'a Value> {
     for segment in split_path(path) {
         here = match segment.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
             Some(selector) => match selector.split_once('=') {
+                Some((key, suffix)) if key.ends_with('$') => {
+                    let key = &key[..key.len() - 1];
+                    here.as_array()?.iter().find(|element| {
+                        element[key]
+                            .as_str()
+                            .is_some_and(|text| text.ends_with(suffix))
+                    })?
+                }
                 Some((key, value)) => here
                     .as_array()?
                     .iter()
@@ -528,12 +538,37 @@ pub(crate) fn reports_as(doc: &Value, path: &str) -> String {
     }
 }
 
-/// Go's `the output reports "<path>" having "<n>" entries`.
+/// Go's `the output reports "<path>" having "<n>" entries`. A list nobody
+/// printed is empty: proto3 JSON leaves an empty list out (OD-40, design
+/// §8.1), so an absent one has none.
 pub(crate) fn entries(doc: &Value, path: &str) -> usize {
     match at(doc, path) {
         Some(Value::Array(a)) => a.len(),
         Some(Value::Object(o)) => o.len(),
+        None => 0,
         other => panic!("no list at {path}: {other:?} in {doc}"),
+    }
+}
+
+/// What proto3 JSON leaves out, read back as text: a false, a zero, an
+/// empty text. An absent field reads as its default (OD-40, design §8.1).
+const DEFAULTS: [&str; 3] = ["false", "0", ""];
+
+/// The step `the output reports "<path>" as "<value>"`: the scalar at
+/// `path` is `value`, or, absent, `value` is a default proto3 JSON leaves
+/// out (a fact that must print `false` has presence, so it is never absent).
+pub(crate) fn holds(doc: &Value, path: &str, value: &str) -> Result<(), String> {
+    match at(doc, path) {
+        None if DEFAULTS.contains(&value) => Ok(()),
+        None => Err(format!("no {path} in {doc}")),
+        Some(_) => {
+            let found = reports_as(doc, path);
+            if found == value {
+                Ok(())
+            } else {
+                Err(format!("{path} is {found:?}, not {value:?}"))
+            }
+        }
     }
 }
 
@@ -545,4 +580,32 @@ pub(crate) fn contains_value(doc: &Value, path: &str, value: &str) -> bool {
         Some(Value::String(text)) => text.contains(value),
         _ => false,
     }
+}
+
+// OD-40 (design §8.1): a resource name is selected by its suffix, so a step
+// needs no harp; an empty list proto3 JSON left out has no entries; an
+// absent field reads as its default, and only a default.
+#[test]
+fn test_the_steps_read_proto3_json_a_suffix_selects_and_absent_is_the_default() {
+    let doc = serde_json::json!({"engines": [
+        {"name": "projects/calm-otter/engines/claude-code", "runtime": {"value": "host"}},
+        {"name": "projects/calm-otter/engines/opencode"},
+    ]});
+    assert_eq!(
+        reports_as(&doc, "engines[name$=/engines/opencode].name"),
+        "projects/calm-otter/engines/opencode"
+    );
+    assert_eq!(
+        reports_as(&doc, "engines[name$=/claude-code].runtime.value"),
+        "host"
+    );
+    assert!(at(&doc, "engines[name$=/engines/mock]").is_none());
+    assert_eq!(entries(&doc, "engines"), 2);
+    assert_eq!(entries(&doc, "engines[name$=/opencode].agents"), 0);
+    assert!(holds(&doc, "engines[name$=/opencode].held", "false").is_ok());
+    assert!(holds(&doc, "engines[name$=/opencode].count", "0").is_ok());
+    assert!(holds(&doc, "engines[name$=/opencode].via", "").is_ok());
+    assert!(holds(&doc, "engines[name$=/opencode].via", "x").is_err());
+    assert!(holds(&doc, "engines[name$=/claude-code].runtime.value", "host").is_ok());
+    assert!(holds(&doc, "engines[name$=/claude-code].runtime.value", "false").is_err());
 }

@@ -54,9 +54,21 @@ fn failed(error: AppError) -> Failure {
     error.into_failure()
 }
 
+/// Where a library resource's name is rooted (OD-40; OQ-2, OQ-3): the
+/// project as the daemon's `ResolveProject` names it, `projects/{harp}`, or
+/// `users/me` outside a project. Asked only when a name is printed (a json
+/// answer), so a text answer reaches no daemon.
+pub trait Names {
+    /// The parent of this command's resources.
+    fn parent(&self) -> Result<String, Failure>;
+}
+
 /// Everything a command needs to answer.
 struct Context<'a> {
     library: &'a Library,
+    // RED: read by the engine's json, the next (GREEN) commit.
+    #[allow(dead_code)]
+    names: &'a dyn Names,
     flags: Flags,
     format: Format,
     explicit: bool,
@@ -66,6 +78,7 @@ struct Context<'a> {
 /// Run `noun` (given the matches of the whole line).
 pub fn run(
     library: &Library,
+    names: &dyn Names,
     noun: &str,
     call: &Call<'_>,
     catalog: &Catalog,
@@ -85,6 +98,7 @@ pub fn run(
     });
     let cx = Context {
         library,
+        names,
         flags,
         format,
         explicit: call.explicit_format.is_some(),

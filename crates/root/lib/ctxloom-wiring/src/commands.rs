@@ -366,7 +366,9 @@ impl Commands {
         if self.wired.is_none() {
             let wiring = Wiring::new(Arc::clone(&self.env))?;
             let deps = Rc::new(build_deps(&wiring)?);
-            let library = LibraryCommands::new(Arc::clone(&self.env)).with_remotes(deps.clone());
+            let library = LibraryCommands::new(Arc::clone(&self.env))
+                .with_remotes(deps.clone())
+                .with_version(&self.version);
             let surface = build_setup(&wiring, deps.clone())?;
             let setup = SetupUseCases::build(&wiring, deps.clone(), &self.version)?;
             self.wired = Some(Wired {
@@ -453,6 +455,7 @@ impl Extension for Commands {
             let env = Arc::clone(&self.env);
             return crate::test_commands::run(
                 || Wiring::new(env),
+                &self.version,
                 self.samples,
                 call,
                 catalog,

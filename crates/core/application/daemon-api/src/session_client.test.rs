@@ -518,3 +518,18 @@ async fn a_client_given_no_ids_sends_none() {
         .unwrap();
     assert_eq!(daemons.template.request_ids.lock().unwrap().clone(), ["1:"]);
 }
+
+// OD-40 (OQ-2, OQ-3): a library verb's names are rooted at the project the
+// daemon's ResolveProject names, or at `users/me` outside a project, where
+// no daemon is reached.
+#[tokio::test]
+async fn a_library_verbs_parent_is_the_resolved_project_or_the_home() {
+    let daemons = Fakes::new();
+    let parent = in_project(&daemons).library_parent().await.unwrap();
+    assert_eq!(parent, "projects/calm-otter");
+    assert_eq!(daemons.asked(), ["1:resolve"]);
+    let outside_daemons = Fakes::new();
+    let home = outside(&outside_daemons).library_parent().await.unwrap();
+    assert_eq!(home, "users/me");
+    assert!(outside_daemons.asked().is_empty());
+}

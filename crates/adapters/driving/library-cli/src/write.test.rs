@@ -56,9 +56,17 @@ fn run_on(library: &Library, line: &[&str], how: How) -> Ran {
     };
     let catalog = Catalog::en_us(&[library_application::EN_US]).unwrap();
     let (mut out, mut err) = (Vec::new(), Vec::new());
-    let exit = run(library, &noun, &call, &catalog, &mut out, &mut err)
-        .map(|exit| exit.code(true))
-        .map_err(|f| format!("{}:{}", f.cause.code(), f.exit.code(true)));
+    let exit = run(
+        library,
+        &crate::tests::Project,
+        &noun,
+        &call,
+        &catalog,
+        &mut out,
+        &mut err,
+    )
+    .map(|exit| exit.code(true))
+    .map_err(|f| format!("{}:{}", f.cause.code(), f.exit.code(true)));
     Ran {
         exit,
         out: String::from_utf8(out).unwrap(),

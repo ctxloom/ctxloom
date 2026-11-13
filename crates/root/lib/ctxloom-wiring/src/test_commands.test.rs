@@ -42,7 +42,8 @@ fn the_noun_is_hidden_and_has_a_verb_for_each_test_command() {
             "session-id",
             "run-id",
             "open-store",
-            "seed-session"
+            "seed-session",
+            "project-name"
         ]
     );
 }
@@ -106,6 +107,7 @@ fn an_answer_that_cannot_be_written_is_a_failure_with_exit_10() {
     let catalog = Catalog::en_us(&[crate::EN_US, ctxloom_cli::EN_US]).unwrap();
     let failed = run(
         || unreachable!("a session id needs no home"),
+        "v0.0.0-test",
         Vec::new,
         &call,
         &catalog,

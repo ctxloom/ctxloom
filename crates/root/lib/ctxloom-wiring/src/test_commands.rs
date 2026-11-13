@@ -55,6 +55,9 @@ enum TestVerb {
     /// Plant a session in the cwd's project store, and the files a fixture
     /// writes beside it; print its stable id
     SeedSession(SeedArgs),
+    /// Print where the library's resource names are rooted: the cwd's
+    /// project as the daemon names it (`projects/<harp>`), or `users/me`
+    ProjectName,
 }
 
 /// What `ctxloom test seed-session` plants (see the acceptance tests).
@@ -166,6 +169,7 @@ fn output(written: std::io::Result<()>) -> Result<(), Failure> {
 /// Run the `test` noun's verb.
 pub(crate) fn run(
     wiring: impl FnOnce() -> Result<Wiring, LibError>,
+    version: &str,
     samples: Samples,
     call: &Call<'_>,
     catalog: &Catalog,
@@ -203,6 +207,11 @@ pub(crate) fn run(
             let wiring = wiring().map_err(failed)?;
             let id = wiring.seed_session(&seed.into()).map_err(failed)?;
             output(writeln!(out, "{id}"))
+        }
+        TestVerb::ProjectName => {
+            let wiring = wiring().map_err(failed)?;
+            let parent = crate::daemon::library_parent(&wiring, version)?;
+            output(writeln!(out, "{parent}"))
         }
         TestVerb::OpenStore { project } => {
             let path = wiring()

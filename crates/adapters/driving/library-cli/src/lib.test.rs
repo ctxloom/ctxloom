@@ -94,7 +94,61 @@ const TEXT: How = How {
     degraded: false,
 };
 
+/// The names of a project the daemon calls `calm-otter` (OD-40).
+pub(crate) struct Project;
+
+impl Names for Project {
+    fn parent(&self) -> Result<String, Failure> {
+        Ok("projects/calm-otter".to_string())
+    }
+}
+
+/// Outside a project (OQ-3).
+struct Home;
+
+impl Names for Home {
+    fn parent(&self) -> Result<String, Failure> {
+        Ok("users/me".to_string())
+    }
+}
+
+/// No daemon to name the project: the call fails, as one unreached does.
+struct Unreachable;
+
+#[derive(Debug)]
+struct NoDaemon;
+
+impl std::fmt::Display for NoDaemon {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("no daemon")
+    }
+}
+
+impl Diagnostic for NoDaemon {
+    fn code(&self) -> &str {
+        "daemon-api-unreached"
+    }
+
+    fn args(&self) -> Vec<(&str, angzarr_diagnostic::Arg)> {
+        Vec::new()
+    }
+}
+
+impl Names for Unreachable {
+    fn parent(&self) -> Result<String, Failure> {
+        Err(Failure::new(NoDaemon, Exit::FAILED))
+    }
+}
+
 fn go(line: &[&str], how: How, layers: &[&str]) -> Ran {
+    go_in(line, how, layers, &Project)
+}
+
+fn go_named(line: &[&str], how: How, names: &dyn Names) -> Ran {
+    go_in(line, how, &[ENGINE_HOME, ENGINE_PROJECT], names)
+}
+
+fn go_in(line: &[&str], how: How, layers: &[&str], names: &dyn Names) -> Ran {
     let setup = Setup {
         bundles: &[("demo", DEMO), ("project", PROJECT)],
         layers,
@@ -123,9 +177,17 @@ fn go(line: &[&str], how: How, layers: &[&str]) -> Ran {
     };
     let catalog = Catalog::en_us(&[library_application::EN_US]).unwrap();
     let (mut out, mut err) = (Vec::new(), Vec::new());
-    let exit = run(&setup.library(), &noun, &call, &catalog, &mut out, &mut err)
-        .map(|exit| exit.code(true))
-        .map_err(|f| format!("{}:{}", f.cause.code(), f.exit.code(true)));
+    let exit = run(
+        &setup.library(),
+        names,
+        &noun,
+        &call,
+        &catalog,
+        &mut out,
+        &mut err,
+    )
+    .map(|exit| exit.code(true))
+    .map_err(|f| format!("{}:{}", f.cause.code(), f.exit.code(true)));
     Ran {
         exit,
         out: String::from_utf8(out).unwrap(),
@@ -583,7 +645,10 @@ fn test_running_a_noun_the_line_does_not_name_is_refused() {
     let library = Setup::default().library();
     let catalog = Catalog::en_us(&[library_application::EN_US]).unwrap();
     let (mut out, mut err) = (Vec::new(), Vec::new());
-    let wrong = run(&library, "bundle", &call, &catalog, &mut out, &mut err).unwrap_err();
+    let wrong = run(
+        &library, &Project, "bundle", &call, &catalog, &mut out, &mut err,
+    )
+    .unwrap_err();
     assert_eq!(wrong.cause.code(), "library-application-search-nothing");
     assert!(out.is_empty());
 }
@@ -621,6 +686,7 @@ fn test_an_answer_that_cannot_be_written_fails_with_its_cause() {
     let catalog = Catalog::en_us(&[library_application::EN_US]).unwrap();
     let failure = run(
         &library,
+        &Project,
         "companion",
         &call,
         &catalog,
@@ -677,14 +743,74 @@ fn test_a_bare_engine_lists_and_json_carries_the_same_rows() {
     let bare = go(&["engine"], JSON, &[ENGINE_HOME, ENGINE_PROJECT]);
     let list = go(&["engine", "list"], JSON, &[ENGINE_HOME, ENGINE_PROJECT]);
     assert_eq!(bare.out, list.out);
-    assert_eq!(bare.json()[0]["name"], "claude-code");
+    // OD-40: the AIP resources, named under the project the daemon names.
+    assert_eq!(
+        bare.json()["engines"][0]["name"],
+        "projects/calm-otter/engines/claude-code"
+    );
     let show = go(
         &["engine", "show", "opencode"],
         JSON,
         &[ENGINE_HOME, ENGINE_PROJECT],
     );
-    assert_eq!(show.json()["name"], "opencode");
+    assert_eq!(show.json()["name"], "projects/calm-otter/engines/opencode");
     assert_eq!(show.json()["session_home"]["value"], "host");
+}
+
+// OD-40 (design §5.6): `engine show`'s json is the `Engine` message's proto3
+// JSON, exactly: a default left out (an unset model is no `value`), the
+// auth state the enum's name, an agent row's name `agent`, a permissions
+// document the object itself.
+#[test]
+fn test_engine_show_json_is_the_engine_resource() {
+    let show = go(
+        &["engine", "show", "claude-code"],
+        JSON,
+        &[ENGINE_HOME, ENGINE_PROJECT],
+    );
+    let engine = show.json();
+    assert_eq!(engine["name"], "projects/calm-otter/engines/claude-code");
+    assert_eq!(
+        engine["command"],
+        serde_json::json!({"value": "/opt/claude", "source": "engine"})
+    );
+    assert_eq!(
+        engine["auth"],
+        serde_json::json!({"value": {"word": "none"}, "source": "engine", "state": "AUTH_STATE_NOT_NEEDED"})
+    );
+    assert_eq!(
+        engine["agents"][0],
+        serde_json::json!({
+            "agent": "dev",
+            "model": {"value": "haiku", "source": "agent"},
+            "effort": {"source": "default"},
+            "permissions": {"value": {"defaultMode": "acceptEdits"}, "source": "default"},
+            "runtime": {
+                "value": "host",
+                "source": "agent",
+                "overrides": "container-rootless",
+                "overrides_source": "project",
+                "change": "weakens",
+            },
+            "env": {
+                "value": ["HTTPS_PROXY"],
+                "source": "engine",
+                "keys": [{"variable": "HTTPS_PROXY", "source": "engine"}],
+            },
+        })
+    );
+}
+
+// Outside a project the names are rooted at the home (OQ-3); a text answer
+// asks for no name at all, so it reaches no daemon (OQ-2).
+#[test]
+fn test_engine_names_are_rooted_where_the_names_say_and_text_asks_for_none() {
+    let home = go_named(&["engine", "show", "opencode"], JSON, &Home);
+    assert_eq!(home.json()["name"], "users/me/engines/opencode");
+    let text = go_named(&["engine", "list"], TEXT, &Unreachable);
+    assert_eq!(text.exit, Ok(0), "{}", text.err);
+    let json = go_named(&["engine", "list"], JSON, &Unreachable);
+    assert_eq!(json.exit, Err("daemon-api-unreached:10".to_string()));
 }
 
 // An agent that makes a launch more contained than the layers below says so; an

@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use cucumber::gherkin::{Feature, GherkinEnv, Rule, Scenario, Step};
 use serde_json::Value;
 
-use super::library::{contains_value, entries, reports_as, Project};
+use super::library::{contains_value, entries, holds, Project};
 use super::Ran;
 use crate::tests::files;
 
@@ -162,6 +162,7 @@ impl Common {
             ran.contains(value);
             return;
         };
+        let (path, value) = (&self.named(path), &self.named(value));
         assert!(
             contains_value(&doc, path, value),
             "{path} should contain {value}: {}",
@@ -179,6 +180,7 @@ impl Common {
             ran.lacks(value);
             return;
         };
+        let (path, value) = (&self.named(path), &self.named(value));
         assert!(
             !contains_value(&doc, path, value),
             "{path} should not contain {value}: {}",
@@ -195,17 +197,45 @@ impl Common {
             ran.contains(n);
             return;
         };
+        let path = &self.named(path);
         assert_eq!(entries(&doc, path).to_string(), n, "{path}: {}", ran.said());
     }
 
     pub(crate) fn output_reports(&self, path: &str, value: &str) {
         let ran = self.ran();
         match serde_json::from_str::<Value>(&ran.stdout) {
-            Ok(doc) => assert_eq!(reports_as(&doc, path), value, "{}", ran.said()),
+            Ok(doc) => {
+                let (path, value) = (self.named(path), self.named(value));
+                if let Err(why) = holds(&doc, &path, &value) {
+                    panic!("{why}: {}", ran.said());
+                }
+            }
             Err(_) => {
                 ran.contains(value);
             }
         }
+    }
+
+    /// `text` with `{project}` as the project's harp (OD-40, design §8.1):
+    /// what the daemon's `ResolveProject` names this project (OQ-2), asked
+    /// through the hidden `ctxloom test project-name`, which answers
+    /// `projects/<harp>`. Text without it is as written, and nothing is asked.
+    pub(crate) fn named(&self, text: &str) -> String {
+        if !text.contains("{project}") {
+            return text.to_string();
+        }
+        let env: Vec<(&str, &str)> = self
+            .env
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+        let ran = self.project.run_with(&env, &["test", "project-name"]);
+        assert_eq!(ran.code, 0, "the project has no name: {}", ran.said());
+        let name = ran.stdout.trim();
+        let harp = name
+            .strip_prefix("projects/")
+            .unwrap_or_else(|| panic!("{name:?} names no project"));
+        text.replace("{project}", harp)
     }
 }
 

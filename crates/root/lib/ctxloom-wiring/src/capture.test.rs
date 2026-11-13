@@ -18,14 +18,25 @@ use surface_ports::{HookEvent, ToolCall};
 use super::*;
 use crate::InProcessCore;
 
-const SESSION: &str = "5f0c7a52-1111-5111-8111-000000000001";
+/// The session's resource name, as `CTXLOOM_SESSION` carries it (s3-Q3).
+const SESSION: &str = "projects/amber-quiet-heron/sessions/amber-swift-owl";
 const HARP: &str = "amber-swift-owl";
 
 type Store = FaultyStore<MemoryStore>;
 type TheEdge = EmbeddedEdge<crate::CoreStores<Store>>;
 
 fn session_id() -> Uuid {
-    Uuid::from_bytes(*uuid::Uuid::parse_str(SESSION).unwrap().as_bytes())
+    Uuid::from_bytes(
+        *sessions::SessionName::parse(SESSION)
+            .unwrap()
+            .id()
+            .as_bytes(),
+    )
+}
+
+/// The session's stable id, as text.
+fn session_uid() -> String {
+    sessions::SessionName::parse(SESSION).unwrap().uid()
 }
 
 fn session_cover() -> Cover {
@@ -225,8 +236,8 @@ fn a_hook_with_no_listener_names_each_observation_it_could_not_record() {
     assert_eq!(
         what,
         [
-            format!("hook:tool:{SESSION}:a"),
-            format!("hook:tool:{SESSION}:b")
+            format!("hook:tool:{}:a", session_uid()),
+            format!("hook:tool:{}:b", session_uid())
         ]
     );
     assert!(

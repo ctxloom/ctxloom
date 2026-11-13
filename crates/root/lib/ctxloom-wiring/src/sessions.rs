@@ -19,9 +19,6 @@ use crate::{Commands, HookRecording, HookSink, RunIds, Sessions, Wiring};
 /// The nouns these commands own.
 pub(crate) const NOUNS: [&str; 2] = ["session", "hook"];
 
-/// The environment variable naming the session the hooks run in.
-const SESSION_HARP: &str = run_ports::HARP_VARIABLE;
-
 /// The two nouns, shaped like the command line's own.
 pub(crate) fn nouns() -> Vec<Command> {
     vec![shaped(session_cli::noun()), shaped(hook_cli::noun())]
@@ -179,7 +176,8 @@ impl Commands {
         let hook = hook_cli::Hook::from_arg_matches(matches_of(call, "hook"))
             .unwrap_or_else(|e| unreachable!("clap parsed it: {e}"));
         let format: Format = call.format();
-        let harp = self.env.utf8(SESSION_HARP).unwrap_or_default().to_string();
+        // The session the hooks run in, by its resource name (s3-Q3).
+        let harp = crate::capture::harp_of(self.env.utf8(run_ports::SESSION_VARIABLE));
         let hook_cli::HookVerb::Execute { hook_name } = &hook.verb;
         // The bind is asked for while the setup use cases are borrowed, and
         // made once they are let go (both live on this command's state).

@@ -139,9 +139,10 @@ fn remote_advances(w: &mut World, name: String) {
 
 #[given(expr = "the session harp is {string}")]
 fn session_harp(w: &mut World, name: String) {
-    w.common
-        .env
-        .push(("CTXLOOM_SESSION_HARP".to_string(), name));
+    w.common.env.push((
+        "CTXLOOM_SESSION".to_string(),
+        format!("projects/amber-quiet-heron/sessions/{name}"),
+    ));
 }
 
 #[given(expr = "the session index records harp {string} on engine {string}")]

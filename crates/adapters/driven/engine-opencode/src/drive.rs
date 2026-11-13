@@ -100,7 +100,6 @@ pub const ENV_ALLOWLIST: &[&str] = &[
     run_ports::RUN_VARIABLE,
     run_ports::TLS_CERT_VARIABLE,
     run_ports::SESSION_VARIABLE,
-    run_ports::HARP_VARIABLE,
 ];
 
 /// The variables of the caller's environment the human's session is given:
@@ -143,7 +142,6 @@ pub const INTERACTIVE_ENV_ALLOWLIST: &[&str] = &[
     run_ports::RUN_VARIABLE,
     run_ports::TLS_CERT_VARIABLE,
     run_ports::SESSION_VARIABLE,
-    run_ports::HARP_VARIABLE,
 ];
 
 /// The variables a command is given whatever the config names: opencode's

@@ -77,7 +77,7 @@ for payload in "$here"/payloads/*.json; do
     echo "$?" > "$fired/$id.code"
   done
 done
-ctxloom session transcript show "$CTXLOOM_SESSION_HARP" --format json > "$here/live-transcript" 2> "$here/live-transcript.err" || true
+ctxloom session transcript show "${CTXLOOM_SESSION##*/}" --format json > "$here/live-transcript" 2> "$here/live-transcript.err" || true
 "#;
 
 /// The stub child: a `claude -p` turn. It reads the ONE `--settings` file its
@@ -97,7 +97,7 @@ done
 echo "$seen" > "$here/settings-flags"
 jq -r '.hooks | keys[]' "$settings" > "$here/registered"
 prompt="$(cat)"
-for v in CTXLOOM_ENDPOINT CTXLOOM_BEARER CTXLOOM_RUN CTXLOOM_HOME CTXLOOM_SESSION_HARP CTXLOOM_TLS_CERT CLAUDE_CONFIG_DIR; do
+for v in CTXLOOM_ENDPOINT CTXLOOM_BEARER CTXLOOM_RUN CTXLOOM_HOME CTXLOOM_SESSION CTXLOOM_TLS_CERT CLAUDE_CONFIG_DIR; do
   eval "[ -n \"\${$v:-}\" ]" || echo "$v" >> "$here/engine-missing"
 done
 [ "${HOME:-}" = "$CLAUDE_CONFIG_DIR" ] || echo "HOME" >> "$here/engine-had"
@@ -630,7 +630,7 @@ fn late_hook(w: &mut World) {
 /// terminal's commands itself, while it runs (so no wait is needed: the
 /// order is the stub's own), and records what each said.
 const WATCHED_STUB: &str = r#"here="$(dirname "$0")"
-harp="$CTXLOOM_SESSION_HARP"
+harp="${CTXLOOM_SESSION##*/}"
 echo "$harp" > "$here/watched-harp"
 ctxloom session list --format json > "$here/live-list" 2> "$here/live-list.err"
 ctxloom session rename "$harp" "titled while live" --format json > "$here/live-rename" 2>&1
@@ -776,7 +776,7 @@ fn still_under_its_harp(w: &mut World) {
 /// was asked.
 const STOPPED_STUB: &str = r#"here="$(dirname "$0")"
 trap 'echo asked > "$here/asked"; exit 0' TERM
-echo "$CTXLOOM_SESSION_HARP" > "$here/watched-harp"
+echo "${CTXLOOM_SESSION##*/}" > "$here/watched-harp"
 echo "$$" > "$here/pid.tmp" && mv "$here/pid.tmp" "$here/pid"
 sleep 30 &
 wait

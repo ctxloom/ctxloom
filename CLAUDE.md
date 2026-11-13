@@ -569,8 +569,11 @@ a hook process receives, through the engine env (like `CTXLOOM_HOME`; both of
 `engine-claude`'s allowlists, `ENV_ALLOWLIST` for a child's turn since ruling
 51 and `INTERACTIVE_ENV_ALLOWLIST`; always the run's own values: an inherited
 one from an enclosing session is replaced, never passed on), with
-`CTXLOOM_SESSION_HARP`, the session's harp (for its statusline), and
-`CTXLOOM_SESSION`, the session's stable id, what a hook addresses its facts to
+`CTXLOOM_SESSION`, the session's resource name `projects/{p}/sessions/{s}`
+(slice 3, s3-Q3: the ONE session variable, a terminal's, a one-shot turn's and
+a hosted child's alike; `CTXLOOM_SESSION_HARP` is retired, hard migrate), whose
+last segment is the harp a statusline shows and whose UUIDv5
+(`sessions::SessionName::id`) is the stable id a hook addresses its facts to
 (review finding 6: the wiring's `RunIds`; a fact's session must be its run's,
 an addressing check; a hook also reads the user daemon's discovery file, to
 deliver there first with the user bearer it names): `CTXLOOM_ENDPOINT`, the URL of the run's TCP

@@ -10,7 +10,8 @@
 use super::library::Project;
 use super::surfaces::additional_context;
 
-const HARP: &str = "brisk-copper-moth";
+/// The session's resource name, as `CTXLOOM_SESSION` carries it (s3-Q3).
+const NAMED: &str = "projects/amber-quiet-heron/sessions/brisk-copper-moth";
 
 /// Go's `steps_turn_transcript.go`: one user prompt, one assistant message.
 const TRANSCRIPT: &str = concat!(
@@ -79,7 +80,7 @@ fn test_a_mate_the_session_already_invoked_is_not_named_again() {
     let ran = project.run_input(
         &["hook", "claude-code", "execute", "PostToolUse"],
         &payload(&project, "Skill", r#"{"skill":"admit","args":""}"#),
-        &[("CTXLOOM_SESSION_HARP", HARP)],
+        &[("CTXLOOM_SESSION", NAMED)],
     );
     ran.succeeds();
     assert_eq!(additional_context(&ran), "");

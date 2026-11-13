@@ -49,7 +49,7 @@ const J002000_HARP: &str = "amber-quiet-heron";
 
 /// The stub claude: records what it was handed, and exits.
 const CLAUDE_STUB: &str = r#"here="$(dirname "$0")"
-dir="$here/runs/$CTXLOOM_SESSION_HARP"
+dir="$here/runs/${CTXLOOM_SESSION##*/}"
 mkdir -p "$dir"
 echo claude-code > "$dir/engine"
 pwd > "$dir/cwd"
@@ -61,7 +61,7 @@ for a in "$@"; do printf '%s\n' "$a" >> "$dir/args"; done
 /// The stub opencode: records what it was handed, then runs every plugin of
 /// its config dir under node over a session's start.
 const OPENCODE_STUB: &str = r#"here="$(dirname "$0")"
-dir="$here/runs/$CTXLOOM_SESSION_HARP"
+dir="$here/runs/${CTXLOOM_SESSION##*/}"
 mkdir -p "$dir"
 echo opencode > "$dir/engine"
 pwd > "$dir/cwd"

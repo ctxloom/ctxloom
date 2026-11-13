@@ -104,7 +104,7 @@ fn test_hud_prints_gos_line_without_a_newline() {
     let ran = env.run_hook(
         &["hook", "claude-code", "execute", "statusline"],
         HUD_PAYLOAD,
-        &[("CTXLOOM_SESSION_HARP", "brisk-copper-moth")],
+        &[("CTXLOOM_SESSION", RECORDED_SESSION)],
     );
     assert!(
         ran.stdout
@@ -129,7 +129,7 @@ fn test_hud_records_nothing() {
     let ran = env.run_hook(
         &["hook", "claude-code", "execute", "statusline"],
         HUD_PAYLOAD,
-        &[("CTXLOOM_SESSION_HARP", "brisk-copper-moth")],
+        &[("CTXLOOM_SESSION", RECORDED_SESSION)],
     );
     assert_eq!(ran.code, 0, "{}", ran.said());
     assert_eq!(tree(env.home()), before, "the home is as it was");
@@ -200,7 +200,7 @@ fn test_execute_statusline_renders_the_engines_half_and_ctxloom_s_own() {
     let ran = env.run_hook(
         &["hook", "claude-code", "execute", "statusline"],
         HUD_PAYLOAD,
-        &[("CTXLOOM_SESSION_HARP", "brisk-copper-moth")],
+        &[("CTXLOOM_SESSION", RECORDED_SESSION)],
     );
     assert_eq!(ran.code, 0, "{}", ran.said());
     for want in ["Opus 5", "42%", "brisk-copper-moth"] {
@@ -300,7 +300,7 @@ fn test_execute_of_the_data_events_answers_silence_and_notes_what_it_did_not_rec
         let ran = env.run_hook(
             &["hook", "claude-code", "execute", native],
             payload,
-            &[("CTXLOOM_SESSION_HARP", "brisk-copper-moth")],
+            &[("CTXLOOM_SESSION", RECORDED_SESSION)],
         );
         assert_eq!(ran.code, 0, "{native}: {}", ran.said());
         assert_eq!(ran.stdout.trim(), "{}", "{native}");
@@ -308,15 +308,15 @@ fn test_execute_of_the_data_events_answers_silence_and_notes_what_it_did_not_rec
     }
 }
 
-const RECORDED_HARP: &str = "brisk-copper-moth";
 const STOP: &str = r#"{"session_id":"s","prompt_id":"p","hook_event_name":"Stop","last_assistant_message":"done"}"#;
 /// A well formed bearer: `<run>.<64 hex>`.
 const A_BEARER: &str = "0a1b2c3d-0000-4000-8000-000000000001.\
     abababababababababababababababababababababababababababababababab"; // gitleaks:allow
 
-/// The session a run's hook is told by id (`CTXLOOM_SESSION`, review finding
-/// 6): what it addresses its facts to, with no session directory to read.
-const RECORDED_SESSION: &str = "0a1b2c3d-0000-4000-8000-0000000000aa";
+/// The session a run's hook is told by its resource name (`CTXLOOM_SESSION`,
+/// review finding 6, s3-Q3): what it addresses its facts to, its UUIDv5, with
+/// no session directory to read.
+const RECORDED_SESSION: &str = "projects/amber-quiet-heron/sessions/brisk-copper-moth";
 
 // The hook's delivery with no endpoint in its environment is as it was before
 // the listener: the observation is not recorded, said once, and the hook
@@ -327,10 +327,7 @@ fn test_a_hook_with_no_endpoint_says_the_listener_is_not_running() {
     let ran = env.run_hook(
         &["hook", "claude-code", "execute", "Stop"],
         STOP,
-        &[
-            ("CTXLOOM_SESSION_HARP", RECORDED_HARP),
-            ("CTXLOOM_SESSION", RECORDED_SESSION),
-        ],
+        &[("CTXLOOM_SESSION", RECORDED_SESSION)],
     );
     assert_eq!(ran.code, 0, "{}", ran.said());
     assert_eq!(ran.stdout.trim(), "{}");
@@ -352,11 +349,7 @@ fn test_a_hook_finds_its_session_from_the_run_with_no_session_directory() {
     let ran = env.run_hook(
         &["hook", "claude-code", "execute", "Stop"],
         STOP,
-        &[
-            ("CTXLOOM_SESSION_HARP", RECORDED_HARP),
-            ("CTXLOOM_SESSION", RECORDED_SESSION),
-            ("CTXLOOM_SESSION", "0a1b2c3d-0000-4000-8000-0000000000aa"),
-        ],
+        &[("CTXLOOM_SESSION", RECORDED_SESSION)],
     );
     assert_eq!(ran.code, 0, "{}", ran.said());
     assert_eq!(ran.stdout.trim(), "{}");
@@ -389,7 +382,6 @@ fn test_a_hook_with_a_malformed_bearer_fails_open_without_echoing_it() {
         &["hook", "claude-code", "execute", "Stop"],
         STOP,
         &[
-            ("CTXLOOM_SESSION_HARP", RECORDED_HARP),
             ("CTXLOOM_SESSION", RECORDED_SESSION),
             ("CTXLOOM_ENDPOINT", &closed_endpoint()),
             ("CTXLOOM_BEARER", "not-a-bearer-zzz"),
@@ -409,7 +401,6 @@ fn test_a_hook_whose_endpoint_is_dead_says_it_could_not_reach_the_listener() {
         &["hook", "claude-code", "execute", "Stop"],
         STOP,
         &[
-            ("CTXLOOM_SESSION_HARP", RECORDED_HARP),
             ("CTXLOOM_SESSION", RECORDED_SESSION),
             ("CTXLOOM_ENDPOINT", &closed_endpoint()),
             ("CTXLOOM_BEARER", A_BEARER),
@@ -443,7 +434,6 @@ fn test_a_hook_without_a_usable_certificate_is_refused_and_says_so() {
         let env = Env::new();
         let endpoint = closed_endpoint();
         let mut vars = vec![
-            ("CTXLOOM_SESSION_HARP", RECORDED_HARP),
             ("CTXLOOM_SESSION", RECORDED_SESSION),
             ("CTXLOOM_ENDPOINT", endpoint.as_str()),
             ("CTXLOOM_BEARER", A_BEARER),
@@ -468,7 +458,6 @@ fn test_a_hook_with_a_plaintext_endpoint_is_refused_and_says_so() {
         &["hook", "claude-code", "execute", "Stop"],
         STOP,
         &[
-            ("CTXLOOM_SESSION_HARP", RECORDED_HARP),
             ("CTXLOOM_SESSION", RECORDED_SESSION),
             ("CTXLOOM_ENDPOINT", "http://127.0.0.1:9"),
             ("CTXLOOM_BEARER", A_BEARER),
@@ -549,7 +538,7 @@ fn test_a_hook_process_without_home_finds_the_home_through_ctxloom_home() {
         payload,
         &[
             ("CTXLOOM_HOME", &home),
-            ("CTXLOOM_SESSION_HARP", "brisk-copper-moth"),
+            ("CTXLOOM_SESSION", RECORDED_SESSION),
         ],
     );
     assert_eq!(ran.code, 0, "{}", ran.said());

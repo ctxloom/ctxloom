@@ -438,11 +438,10 @@ fn the_terminal_and_a_childs_turn_are_both_passed_the_listener_variables() {
         // s3-Q3: retired; the session's name is `CTXLOOM_SESSION`'s alone.
         assert!(!command.env.contains_key("CTXLOOM_SESSION_HARP"));
     }
-    for name in run_ports::HOOK_VARIABLES.into_iter().chain([
-        run_ports::HOME_VARIABLE,
-        run_ports::HARP_VARIABLE,
-        run_ports::ROOT_VARIABLE,
-    ]) {
+    for name in run_ports::HOOK_VARIABLES
+        .into_iter()
+        .chain([run_ports::HOME_VARIABLE, run_ports::ROOT_VARIABLE])
+    {
         assert!(INTERACTIVE_ENV_ALLOWLIST.contains(&name), "{name}");
         assert!(ENV_ALLOWLIST.contains(&name), "{name} reaches a turn");
     }
@@ -795,7 +794,10 @@ fn the_primarys_token_is_never_a_childs_whatever_the_config_says() {
         ("CTXLOOM_ENDPOINT", "e"),
         ("CTXLOOM_RUN", "r"),
         ("CTXLOOM_HOME", "/h"),
-        ("CTXLOOM_SESSION_HARP", "brisk-copper-moth"),
+        (
+            "CTXLOOM_SESSION",
+            "projects/amber-quiet-heron/sessions/brisk-copper-moth",
+        ),
         ("ANTHROPIC_AUTH_TOKEN", "primary-only"), // gitleaks:allow
     ]);
     let turn = Claude::new().drive_turn(&asked).unwrap();

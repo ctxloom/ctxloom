@@ -21,6 +21,8 @@ use super::{Env, Ran};
 use crate::tests::files;
 
 const HARP: &str = "amber-swift-owl";
+/// The session's resource name, as `CTXLOOM_SESSION` carries it (s3-Q3).
+const NAMED: &str = "projects/amber-quiet-heron/sessions/amber-swift-owl";
 
 /// The one store under `home` (T14).
 fn store_under(home: &Path) -> PathBuf {
@@ -109,7 +111,7 @@ fn test_a_hook_that_binds_its_session_closes_the_store_before_it_answers() {
     let ran = env.run_hook(
         &["hook", "claude-code", "execute", "SessionStart"],
         &payload,
-        &[("CTXLOOM_SESSION_HARP", HARP)],
+        &[("CTXLOOM_SESSION", NAMED)],
     );
     ok(&ran, "SessionStart");
     assert!(!logged(&store), "the log holds nothing");

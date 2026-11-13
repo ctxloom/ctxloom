@@ -319,6 +319,9 @@ mod capture;
 #[path = "gherkin_capture_opencode.test.rs"]
 mod capture_opencode;
 
+#[path = "gherkin_recall.test.rs"]
+mod recall;
+
 // ------------------------------------------------------------------ given
 
 #[given(expr = "the environment variable {string} is set to {string}")]

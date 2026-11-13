@@ -994,9 +994,24 @@ fn test_bundle_push_and_move_say_where_the_bundle_went() {
             &head[..7]
         )
     );
+    // OD-40: `PushBundleResponse`, its outcome a state (AIP-216).
     let json = go(&fx, &["bundle", "push", "authored", "team"], JSON).json();
-    assert_eq!(json["status"], "pushed");
-    assert_eq!(json["title"], "Update bundle: authored");
+    let head = fx.remotes.head("file:///srv/team.git");
+    assert_eq!(
+        json,
+        serde_json::json!({
+            "bundle": named("bundles/authored"),
+            "path": "/p/.ctxloom/content/bundles/v2/authored/bundle.yaml",
+            "applied": true,
+            "remote": named("remotes/team"),
+            "target_path": ".ctxloom/content/bundles/v2/authored",
+            "title": "Update bundle: authored",
+            "state": "COMMITTED",
+            "size_bytes": json["size_bytes"],
+            "commit": head,
+        })
+    );
+    assert!(json["size_bytes"].is_string(), "uint64 is a string: {json}");
     assert_eq!(
         go(&fx, &["bundle", "push", "authored", "team", "--pr"], TEXT).refused(),
         ("deps-application-pull-request-needs-forge", 20)
@@ -1008,9 +1023,13 @@ fn test_bundle_push_and_move_say_where_the_bundle_went() {
         "Created pull request: https://github.com/acme/hub/pull/7\n"
     );
     let json = go(&fx, &["bundle", "push", "authored", "hub", "--pr"], JSON).json();
-    assert_eq!(json["status"], "pr-created");
-    assert_eq!(json["pr_url"], "https://github.com/acme/hub/pull/7");
-    assert_eq!(json["create_pr"], true);
+    assert_eq!(json["state"], "PULL_REQUEST_OPENED");
+    assert_eq!(
+        json["pull_request_url"],
+        "https://github.com/acme/hub/pull/7"
+    );
+    assert_eq!(json["remote"], named("remotes/hub"));
+    assert!(json.get("create_pr").is_none(), "{json}");
     fx.files.directory("other-project");
     let moved = go(
         &fx,
@@ -1031,13 +1050,53 @@ fn test_bundle_push_and_move_say_where_the_bundle_went() {
         TEXT,
     );
     let head = fx.remotes.head("file:///srv/team.git");
+    let shown = remote.ok().out.clone();
     assert_eq!(
-        remote.ok().out,
+        shown,
         format!("Moved /p/.ctxloom/content/bundles/v2/second/bundle.yaml -> .ctxloom/content/bundles/v2/second (remote team, commit {})\n", &head[..7])
     );
     assert_eq!(
         go(&fx, &["bundle", "move", "ghost", "--to", "team"], JSON).refused(),
         ("deps-application-bundle-not-found", 20)
+    );
+}
+
+#[test]
+fn test_bundle_move_json_names_where_the_bundle_went() {
+    let fx = Fixture::new();
+    fx.origin("team", "file:///srv/team.git");
+    fx.files.directory("other-project");
+    fx.files
+        .author("third", &[("bundle.yaml", "description: d\n")]);
+    // OD-40: `MoveBundleResponse`: to a remote, the bundle under its new
+    // name with the commit it landed in; to a directory, where it went.
+    let json = go(&fx, &["bundle", "move", "third", "--to", "team"], JSON).json();
+    assert_eq!(
+        json,
+        serde_json::json!({
+            "bundle": {
+                "name": named("remotes/team/bundles/third"),
+                "origin": "REMOTE",
+                "commit": fx.remotes.head("file:///srv/team.git"),
+            },
+            "path": ".ctxloom/content/bundles/v2/third",
+            "applied": true,
+        })
+    );
+    fx.files
+        .author("fourth", &[("bundle.yaml", "description: d\n")]);
+    let json = go(
+        &fx,
+        &["bundle", "move", "fourth", "--to", "other-project"],
+        JSON,
+    )
+    .json();
+    assert_eq!(
+        json,
+        serde_json::json!({
+            "path": "other-project/.ctxloom/content/bundles/v2/fourth",
+            "applied": true,
+        })
     );
 }
 

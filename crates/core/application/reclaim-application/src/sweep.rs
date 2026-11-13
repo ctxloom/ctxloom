@@ -13,9 +13,12 @@
 //! | otherwise                                     | purged (planned without `yes`) |
 //!
 //! Before its row, each session's scratch worktrees are rows of their own
-//! (`worktree`), asked of the worktree leaf with the sweep's own apply
-//! decision: reaped (done), reapable (planned), spared in place (held) or
-//! skipped, each saying why.
+//! (`worktree`), classified by the worktree leaf first, changing nothing:
+//! reapable (planned), spared in place (held) or skipped, each saying why.
+//! A session one checkout spares or skips keeps EVERY checkout (owner
+//! ruling 2026-11-13: no partial teardown, as `session remove`), its clean
+//! ones held, naming why; only otherwise, on `yes`, are the reapable ones
+//! removed (done).
 //!
 //! Nothing is decided by a model: the same sessions give the same report.
 //! The purge acts through `session remove`'s own order ([`crate::remove`],
@@ -131,9 +134,23 @@ pub async fn sweep<S: Removals + Send>(
     for view in views {
         let harp = view.record.harp.as_str();
         let project = Some(view.record.project_id.as_str()).filter(|id| !id.is_empty());
-        let checkouts = worktree_rows(service, project, harp, request.yes)?;
+        // Classified first, changing nothing: a session one checkout spares
+        // keeps every checkout, its clean ones too (owner ruling 2026-11-13,
+        // `session remove`'s whole or not at all). Only a session none
+        // spares has them applied, and one that went dirty in between spares
+        // it still.
+        let mut checkouts = worktree_rows(service, project, harp, false)?;
+        if request.yes
+            && preserved_worktree(&checkouts).is_none()
+            && checkouts.iter().any(|c| c.reapable)
+        {
+            checkouts = worktree_rows(service, project, harp, true)?;
+        }
         let preserved = preserved_worktree(&checkouts).map(str::to_string);
-        rows.extend(checkouts.into_iter().map(|c| c.row));
+        rows.extend(checkouts.into_iter().map(|c| match &preserved {
+            Some(worktree) if c.reapable => kept_whole(harp, &c.worktree, worktree),
+            _ => c.row,
+        }));
         let purge = format!("ctxloom session remove {harp} --yes");
         let decided = match view.state {
             State::Live => Some(row(
@@ -229,10 +246,29 @@ fn tally(rows: &[SweepRow]) -> BTreeMap<&'static str, u64> {
     counts
 }
 
-/// One checkout's row, and whether it must be preserved.
+/// One checkout's row, whether it must be preserved, and whether it was
+/// classified reapable (clean, its owner dead, not yet removed).
 struct Checkout {
     row: SweepRow,
     preserved: Option<String>,
+    reapable: bool,
+    /// The checkout's directory name.
+    worktree: String,
+}
+
+/// The row of a clean checkout its spared session keeps: held, saying which
+/// checkout spares the session, and naming no command (a removal of the
+/// session is refused whole).
+fn kept_whole(harp: &str, clean: &str, preserved: &str) -> SweepRow {
+    row(
+        harp,
+        "worktree",
+        Verdict::Held,
+        &format!(
+            "{clean} kept: its session is spared whole, every checkout with it, because its scratch worktree {preserved} must be preserved"
+        ),
+        String::new(),
+    )
 }
 
 /// The first checkout that must be preserved (spared in place, or skipped:
@@ -262,6 +298,8 @@ fn worktree_rows<S: Removals>(
             row: worktree_row(harp, checkout),
             preserved: matches!(checkout.verdict, Worktree::Spared | Worktree::Skipped)
                 .then(|| checkout.worktree.clone()),
+            reapable: checkout.verdict == Worktree::Reapable,
+            worktree: checkout.worktree.clone(),
         })
         .collect())
 }

@@ -41,7 +41,7 @@ Feature: The close-out — the end of a workstream
   # the work where she left it. A session she marked to keep is left, and she
   # is told how to release it. The rest are gone, and gone from the listing.
   Scenario: The sweep removes only what it can prove is safe, and says why it left the rest
-    # substitution: the verb is `session remove --older-than` (owner ruling 98); a purged session is gone from the listing, and a session holding uncommitted work keeps its clean worktree too.
+    # substitution: the verb is `session remove --older-than` (owner ruling 98); a purged session is gone from the listing.
     Given a finished session "amber-quiet-heron" whose transcript retention has passed
     And a finished session "brisk-copper-moth" marked keep
     And an internal one-shot session "gray-oneshot-wisp" that finished an hour ago

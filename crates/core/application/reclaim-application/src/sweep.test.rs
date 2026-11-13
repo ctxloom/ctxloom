@@ -353,7 +353,9 @@ fn yes_purges_the_planned_session() {
 
 // j001300 "The sweep removes only what it can prove is safe": the scratch
 // worktrees are reclaimed through the worktree leaf, which the sweep asks
-// with its own apply decision, and each outcome is a row of the report.
+// first to classify them, changing nothing, yes or not (owner ruling
+// 2026-11-13: a spared session keeps every checkout), and each outcome is a
+// row of the report.
 #[test]
 fn the_sweep_asks_the_worktree_leaf_for_each_session_with_its_own_decision() {
     let mut fake = Fake {
@@ -363,8 +365,8 @@ fn the_sweep_asks_the_worktree_leaf_for_each_session_with_its_own_decision() {
         ],
         ..Fake::default()
     };
-    // Each session's first ask is the sweep's own, with its decision; a
-    // purge then classifies again, through `session remove`'s order.
+    // Each session's first ask is the sweep's own classification; a purge
+    // then classifies again, through `session remove`'s order.
     let first = |asked: &[(Option<String>, bool)]| {
         let mut seen: Vec<(Option<String>, bool)> = Vec::new();
         for ask in asked {
@@ -384,7 +386,9 @@ fn the_sweep_asks_the_worktree_leaf_for_each_session_with_its_own_decision() {
     );
     fake.worktrees_asked.clear();
     ready(sweep(&mut fake, &request(true))).unwrap();
-    assert!(first(&fake.worktrees_asked).iter().all(|(_, apply)| *apply));
+    assert!(first(&fake.worktrees_asked)
+        .iter()
+        .all(|(_, apply)| !*apply));
 }
 
 // A planned purge carries its removal, its file plan whole.
@@ -404,11 +408,12 @@ fn a_planned_purge_carries_its_removal() {
 fn each_scratch_checkout_is_a_row_with_its_verdict_and_reason() {
     let mut fake = Fake {
         views: vec![
+            view("amber-quiet-heron", State::Ended, 120, false),
             view("olive-dirty-finch", State::Ended, 120, false),
             view("teal-running-wren", State::Live, 0, false),
         ],
         scratch: vec![
-            scratch("olive-dirty-finch", "clean", Worktree::Reaped, ""),
+            scratch("amber-quiet-heron", "clean", Worktree::Reapable, ""),
             scratch(
                 "olive-dirty-finch",
                 "wip",
@@ -454,7 +459,7 @@ fn a_session_with_a_preserved_worktree_is_spared_from_purge() {
                 view("amber-quiet-heron", State::Ended, 120, false),
             ],
             scratch: vec![
-                scratch("olive-dirty-finch", "clean", Worktree::Reaped, ""),
+                scratch("olive-dirty-finch", "clean", Worktree::Reapable, ""),
                 scratch("olive-dirty-finch", "wip", verdict, "uncommitted changes"),
             ],
             ..Fake::default()

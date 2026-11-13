@@ -279,7 +279,12 @@ removal refused if one is spared or skipped
 (`isolation-application-keeps-session`; `--even-if-live` reaches no
 worktree), else the clean ones removed,
 then the session destroyed (F2; a worktree that went dirty in between is
-left and the session kept). The streams go first, so a
+left and the session kept). The sweep (both verbs' age form) is as whole
+(owner ruling 2026-11-13): each session's checkouts are classified first,
+changing nothing, and a session one of them spares or skips keeps EVERY
+checkout, its clean ones held in the report saying which checkout spared
+it; only a session none spares has its clean ones removed on `--yes`
+(`reclaim_application::sweep`). The streams go first, so a
 failure removing the directory leaves a session nothing lists. A hook fact
 redelivered after it finds no session and records nothing. It is refused, as
 before, for a session whose lock does not prove it ended (held, or none;

@@ -60,13 +60,13 @@ Feature: session worktrees - the scratch checkouts a session left behind
     # stays in place, read back by its own bytes, and its session is refused
     # whole, so a purged session is always entirely gone.
     Scenario: Emptying a session spares the uncommitted work living inside it
-      # substitution: purge is all or nothing, so a session holding uncommitted work is refused whole (its clean sibling stays too) and the report names the worktree.
+      # substitution: purge is all or nothing, so a session holding uncommitted work is refused whole (its clean sibling stays too) and the report names the worktree, by its row (its path is the platform's, `\` on Windows).
       Given a finished session "amber-quiet-heron" whose transcript retention has passed
       And session "amber-quiet-heron" left a clean scratch worktree
       And session "amber-quiet-heron" left a scratch worktree holding uncommitted work
       When I run "ctxloom session remove amber-quiet-heron --yes"
       Then the command fails
-      And the output contains "amber-quiet-heron/wip"
+      And the output reports "worktrees.worktrees[worktree=wip].verdict" as "spared"
       And the uncommitted work is still there, spared in place
       And the scratch worktree is still registered with git
       And the machine-written bulk of "amber-quiet-heron" is still there

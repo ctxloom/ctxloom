@@ -724,14 +724,22 @@ fn sweep_kept(w: &mut World, harp: String, named: String) {
 fn worktrees_named(w: &mut World) {
     // plan supersedes Go: the owner is named by the state its lock proves,
     // not by the pid Go's lock file carried.
-    let ran = w.ran();
-    ran.succeeds()
-        .contains("amber-quiet-heron/clean")
-        .contains("amber-quiet-heron/wip")
-        .contains("amber-quiet-heron")
-        .contains("dead")
-        .contains("reapable")
-        .contains("spared");
+    // Each row by its fields: its path is the platform's (`C:\...\clean`
+    // on Windows), so it is read as a path, never matched as text.
+    w.ran().succeeds();
+    let doc = w.json();
+    for (name, verdict) in [("clean", "reapable"), ("wip", "spared")] {
+        let row = at(&doc, &format!("worktrees[worktree={name}]"))
+            .unwrap_or_else(|| panic!("no worktree {name} in {doc}"));
+        assert_eq!(row["harp"], "amber-quiet-heron", "{row}");
+        assert_eq!(row["owner_state"], "dead", "{row}");
+        assert_eq!(row["verdict"], verdict, "{row}");
+        let path = Path::new(row["path"].as_str().unwrap_or_default());
+        assert!(
+            path.ends_with(Path::new("amber-quiet-heron").join(name)),
+            "{row}"
+        );
+    }
 }
 
 #[then("only the clean, provably-orphaned worktree is gone from disk")]
@@ -802,7 +810,10 @@ fn foreign_untouched(w: &mut World) {
     );
     for dir in &w.planted_foreign {
         assert!(files::is_dir(dir), "{} was removed", dir.display());
-        w.ran().lacks(&dir.display().to_string());
+        // As the json spells it too: a Windows path's `\` is escaped there.
+        let shown = dir.display().to_string();
+        let quoted = serde_json::to_string(&shown).expect("a string");
+        w.ran().lacks(&shown).lacks(quoted.trim_matches('"'));
     }
 }
 
@@ -811,12 +822,29 @@ fn still_registered(w: &mut World) {
     let listed = w.git(w.common.project.dir(), &["worktree", "list", "--porcelain"]);
     for (harp, name, dirty) in &w.planted_scratch {
         if *dirty {
+            let dir = files::canonical(w.scratch_dir(harp, name));
             assert!(
-                listed.contains(&w.scratch_dir(harp, name).display().to_string()),
-                "{listed}"
+                listed_worktrees(&listed).contains(&dir),
+                "{} is not registered: {listed}",
+                dir.display()
             );
         }
     }
+}
+
+/// The worktrees `git worktree list --porcelain` names, each resolved: git
+/// spells a path its own way (`C:/a/b` on Windows), so a listed worktree is
+/// compared as a path, never as text.
+fn listed_worktrees(porcelain: &str) -> Vec<PathBuf> {
+    porcelain
+        .lines()
+        .filter_map(|line| line.strip_prefix("worktree "))
+        .map(|p| {
+            files::fs()
+                .canonicalize(Path::new(p))
+                .unwrap_or_else(|_| PathBuf::from(p))
+        })
+        .collect()
 }
 
 // ------------------------------------------------------------ the features

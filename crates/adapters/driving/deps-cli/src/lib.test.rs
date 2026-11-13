@@ -1039,7 +1039,28 @@ fn test_deps_upgrade_previews_applies_and_says_when_there_is_nothing() {
         current.err,
         "Resolving latest commits for pinned dependencies...\n"
     );
+    // OD-40: `UpgradeDependenciesResponse`; nothing to move applied nothing.
+    let json = go(&fx, &["deps", "upgrade", "-y"], JSON).json();
+    assert_eq!(json, serde_json::json!({"applied": true}));
     let later = fx.remotes.commit(URL, &demo("1.1.0", "two edition"));
+    // A preview that would move a pin: each move as `PinChange`, and the
+    // command that applies it.
+    let json = go(&fx, &["deps", "upgrade"], JSON);
+    let json = json.would_change().json();
+    assert_eq!(json["applied"], false, "{json}");
+    assert_eq!(
+        json["apply_command"], "ctxloom deps upgrade --yes",
+        "{json}"
+    );
+    let change = &json["changes"][0];
+    assert_eq!(change["reference"], demo_ref(), "{json}");
+    assert_eq!(change["old_commit"], sha, "{json}");
+    assert_eq!(change["new_commit"], later, "{json}");
+    assert_eq!(change["compatibility"], "COMPATIBLE", "{json}");
+    assert_eq!(
+        change["items"][0],
+        serde_json::json!({"kind": "FRAGMENT", "item": "demo-frag", "change": "MODIFIED"})
+    );
     let preview = go(&fx, &["deps", "upgrade"], TEXT);
     assert_eq!(
         preview.would_change().out,
@@ -1052,9 +1073,7 @@ fn test_deps_upgrade_previews_applies_and_says_when_there_is_nothing() {
         applied.out
     );
     let json = go(&fx, &["deps", "upgrade", "-y"], JSON).json();
-    assert_eq!(json["applied"], true);
-    assert_eq!(json["changes"], serde_json::json!([]));
-    assert_eq!(json["removed"], serde_json::json!([]));
+    assert_eq!(json, serde_json::json!({"applied": true}));
 }
 
 #[test]
@@ -1065,6 +1084,16 @@ fn test_deps_upgrade_names_what_it_drops_what_it_could_not_reach_and_what_is_not
     fx.profile("dev", &[&demo_ref(), &other]);
     go(&fx, &["deps", "pull"], JSON).ok();
     fx.profile("dev", &[&demo_ref()]);
+    // OD-40: a dropped pin is `removed_references`, and would change.
+    let json = go(&fx, &["deps", "upgrade"], JSON);
+    assert_eq!(
+        json.would_change().json(),
+        serde_json::json!({
+            "applied": false,
+            "apply_command": "ctxloom deps upgrade --yes",
+            "removed_references": [other],
+        })
+    );
     let preview = go(&fx, &["deps", "upgrade"], TEXT);
     assert_eq!(
         preview.would_change().out,
@@ -1076,9 +1105,15 @@ fn test_deps_upgrade_names_what_it_drops_what_it_could_not_reach_and_what_is_not
         format!("Removed {other} from the lockfile: nothing this project composes depends on it any more.\nEverything is up to date.\n")
     );
     fx.remotes.set_unreachable(URL, true);
+    let json = go(&fx, &["deps", "upgrade"], JSON).json();
+    assert_eq!(json["incomplete"], true, "{json}");
     let incomplete = go(&fx, &["deps", "upgrade"], TEXT);
     assert!(incomplete.ok().out.starts_with("No pins advanced among what could be resolved \u{2014} part of the dependency closure was unreachable this round"), "{}", incomplete.out);
     let empty = Fixture::new();
+    assert_eq!(
+        go(&empty, &["deps", "upgrade"], JSON).json(),
+        serde_json::json!({"applied": false, "nothing_declared": true})
+    );
     let nothing = go(&empty, &["deps", "upgrade"], TEXT);
     assert!(nothing.ok().out.starts_with("Nothing to upgrade: no dependencies are declared here, so there was nothing to check and no lockfile was written.\n  If you expected some"), "{}", nothing.out);
     assert!(
@@ -1119,6 +1154,12 @@ fn test_deps_upgrade_of_one_reference_moves_that_pin() {
             .contains(&format!("({} -> {})", &sha[..7], &later[..7])),
         "{}",
         preview.out
+    );
+    // OD-40: one reference's preview applies with that reference.
+    let json = go(&fx, &["deps", "upgrade", "origin/demo"], JSON);
+    assert_eq!(
+        json.would_change().json()["apply_command"],
+        "ctxloom deps upgrade origin/demo --yes"
     );
     let applied = go(&fx, &["deps", "upgrade", "origin/demo", "--yes"], TEXT);
     assert!(

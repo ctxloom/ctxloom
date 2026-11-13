@@ -214,8 +214,20 @@ fn item_writes(noun: Command, word: &'static str, dir: &'static str) -> Command 
                 "fragment" => "Create a new fragment",
                 _ => "Create a new command",
             })
-            .arg(one("bundle", "The bundle"))
-            .arg(one("name", "The new item's name")),
+            .arg(one(
+                "bundle",
+                match dir {
+                    "fragments" => {
+                        "bundle#fragments/name (the bundle is made when nobody has it), or the bundle"
+                    }
+                    _ => "bundle#commands/name (the bundle is made when nobody has it), or the bundle",
+                },
+            ))
+            .arg(
+                Arg::new("name")
+                    .value_name("NAME")
+                    .help("The new item's name, after a bundle (no editor is opened)"),
+            ),
     )
     .subcommand(
         remove(match word {

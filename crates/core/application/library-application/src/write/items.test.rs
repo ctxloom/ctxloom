@@ -106,6 +106,101 @@ fn test_create_refuses_a_name_that_is_there_or_no_name_or_a_missing_bundle() {
     );
 }
 
+// j001900: `fragment create <bundle>#fragments/<name>` opens the editor on
+// the template and stores what she wrote.
+#[test]
+fn test_create_by_reference_stores_what_the_editor_wrote() {
+    let (library, mem) = world();
+    let made = library
+        .item_create_at(&plain(), Kind::Fragment, "demo#fragments/fresh")
+        .result
+        .unwrap();
+    assert_eq!(
+        (made.bundle.as_str(), made.name.as_str()),
+        ("demo", "fresh")
+    );
+    assert!(!made.bundle_created);
+    assert_eq!(
+        mem.text("demo", "fragments/fresh.md").unwrap(),
+        "# fresh\n\nAdd content here.\nEDITED-BY-TEST\n"
+    );
+    let command = library
+        .item_create_at(&plain(), Kind::Command, "demo#commands/go")
+        .result
+        .unwrap();
+    assert_eq!(command.kind, "command");
+    assert!(mem
+        .text("demo", "prompts/go.md")
+        .unwrap()
+        .contains("EDITED-BY-TEST"));
+}
+
+// j001900: an editor that changes nothing leaves the template, as the
+// two-word form writes it.
+#[test]
+fn test_create_by_reference_with_an_editor_that_changes_nothing_keeps_the_template() {
+    let (library, mem) = world();
+    mem.set_editor(|_, content| Ok(content.to_string()));
+    library
+        .item_create_at(&plain(), Kind::Fragment, "demo#fragments/fresh")
+        .result
+        .unwrap();
+    assert_eq!(
+        mem.text("demo", "fragments/fresh.md").unwrap(),
+        "# fresh\n\nAdd content here."
+    );
+}
+
+// j001900: packaging loose notes into a bundle nobody made yet makes it.
+#[test]
+fn test_create_by_reference_into_a_bundle_nobody_has_makes_the_bundle() {
+    let (library, mem) = world();
+    let made = library
+        .item_create_at(&plain(), Kind::Fragment, "runbook#fragments/deploy")
+        .result
+        .unwrap();
+    assert!(made.bundle_created);
+    assert_eq!(made.bundle, "runbook");
+    assert!(mem.text("runbook", "bundle.yaml").is_some());
+    assert!(mem
+        .text("runbook", "fragments/deploy.md")
+        .unwrap()
+        .contains("EDITED-BY-TEST"));
+    assert!(
+        mem.text("runbook", "fragments/example.md").is_none(),
+        "a bundle made for one fragment carries that fragment alone"
+    );
+}
+
+// j001900: what the reference form refuses, it refuses before anything is
+// written, the editor's failure and an emptied file included.
+#[test]
+fn test_create_by_reference_refuses_and_writes_nothing() {
+    let (library, mem) = world();
+    for (reference, want) in [
+        ("demo#fragments/testing", "ItemExists"),
+        ("demo#commands/x", "WrongKind"),
+        ("demo", "BadReference"),
+        ("demo#fragments/a.b/c", ""),
+        ("../x#fragments/y", "BadBundleName"),
+    ] {
+        let got = err(library.item_create_at(&plain(), Kind::Fragment, reference));
+        assert!(got.contains(want), "{reference}: {got}");
+    }
+    mem.set_editor(|_, _| Ok(String::new()));
+    assert!(
+        err(library.item_create_at(&plain(), Kind::Fragment, "runbook#fragments/deploy"))
+            .contains("EmptyEdit")
+    );
+    mem.set_editor(|_, _| Err("editor exited with error".to_string()));
+    assert!(
+        !err(library.item_create_at(&plain(), Kind::Fragment, "runbook#fragments/deploy"))
+            .is_empty()
+    );
+    assert_eq!(mem.writes(), 0);
+    assert!(mem.text("runbook", "bundle.yaml").is_none());
+}
+
 // fragment.feature: Bare fragment remove reports and destroys nothing
 #[test]
 fn test_remove_without_yes_says_what_would_go_and_writes_nothing() {

@@ -262,6 +262,27 @@ fn test_bundle_export_and_import_say_where_they_went() {
     assert!(said.starts_with("Imported: "), "{said}");
 }
 
+// j001900: `fragment create <ref>` writes what the editor wrote, and makes a
+// bundle nobody had, saying so.
+#[test]
+fn test_fragment_create_by_reference_says_it_made_the_bundle() {
+    let (library, mem) = world();
+    mem.set_editor(|_, content| Ok(format!("{content}\nNOTES")));
+    assert_eq!(
+        text(&library, &["fragment", "create", "runbook#fragments/deploy"]),
+        "Created bundle \"runbook\"\nCreated fragment \"deploy\" in bundle \"runbook\"\nEdit with: ctxloom fragment edit runbook#fragments/deploy\n"
+    );
+    assert!(mem
+        .text("runbook", "fragments/deploy.md")
+        .unwrap()
+        .ends_with("NOTES"));
+    let doc = json(&library, &["command", "create", "demo#commands/third"]);
+    assert_eq!(doc["name"], "third");
+    assert!(doc.get("bundle_created").is_none(), "{doc}");
+    let doc = json(&library, &["fragment", "create", "fresh#fragments/one"]);
+    assert_eq!(doc["bundle_created"], true, "{doc}");
+}
+
 // fragment.feature / command.feature: create, remove, edit
 #[test]
 fn test_fragment_and_command_create_remove_and_edit() {

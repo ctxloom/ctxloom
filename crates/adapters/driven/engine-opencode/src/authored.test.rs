@@ -46,7 +46,8 @@ fn lines(doc: &Json, trigger: &str) -> Vec<String> {
         .collect()
 }
 
-// Each unified event the plugin can hear is its trigger's, in firing order;
+// Each unified event the plugin can hear is its trigger's (the events in
+// their names' order, each's hooks in firing order);
 // a narrowed one names opencode's tools.
 #[test]
 fn test_each_authored_hook_is_its_triggers_in_order() {
@@ -63,7 +64,7 @@ fn test_each_authored_hook_is_its_triggers_in_order() {
     ]);
     assert_eq!(
         lines(&doc, "tool.before"),
-        ["echo PRE []", "echo SH [bash]", "echo PRESHELL [bash]"]
+        ["echo PRESHELL [bash]", "echo PRE []", "echo SH [bash]"]
     );
     assert_eq!(
         lines(&doc, "tool.after"),

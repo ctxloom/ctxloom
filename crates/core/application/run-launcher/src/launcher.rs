@@ -206,6 +206,15 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         self.engine(engine).map(|e| e.credentials())
     }
 
+    /// What the engine of this name says of `planned` (owner ruling 168):
+    /// its notices, never a refusal; an engine that cannot be driven says
+    /// nothing.
+    pub fn advise(&self, engine: &str, planned: &run_ports::Planned) -> Vec<run_ports::Advice> {
+        self.engine(engine)
+            .map(|e| e.advise(planned))
+            .unwrap_or_default()
+    }
+
     /// The names of the engines that can be driven.
     pub fn engines(&self) -> Vec<String> {
         self.engines.iter().map(|e| e.name().to_string()).collect()

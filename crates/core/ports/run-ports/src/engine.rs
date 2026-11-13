@@ -278,13 +278,21 @@ impl Credentials {
 /// What the plan resolved for a run on an engine, which the engine may
 /// advise on ([`Engine::advise`]): the agent (empty with none), the model and
 /// the effort (empty: none set) and the permissions document (JSON text as
-/// written; none, no document).
+/// written; none, no document). At the launch of the human's terminal
+/// session the run asks again, of how it is signed in: the OS it runs on
+/// (`std::env::consts::OS`, as the composition root gives it; empty at the
+/// plan, which knows none), that it is the terminal session, and whether one
+/// of the engine's primary credential variables is set (by name: no value
+/// is ever here).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Planned {
     pub agent: String,
     pub model: String,
     pub effort: String,
     pub permissions: Option<String>,
+    pub os: String,
+    pub interactive: bool,
+    pub credential_set: bool,
 }
 
 /// An engine's word on a plan (owner ruling 168): a diagnostic of the

@@ -14,6 +14,7 @@
 //! session), so `.mcp.json` carries only the servers the profiles' bundles
 //! ship, and no file is conjured for none.
 
+mod advice;
 mod codec;
 mod commands;
 mod drive;
@@ -26,6 +27,9 @@ use surface_ports::{
     SurfaceStore, Wiring,
 };
 
+#[cfg(any(test, feature = "test-support"))]
+pub use advice::diagnostic_samples;
+pub use advice::{ClaudeNotice, EN_US};
 pub use codec::Codec;
 pub use drive::{CONTEXT_PROMPT_FILE, COPY_IN_ALLOWLIST, ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST};
 

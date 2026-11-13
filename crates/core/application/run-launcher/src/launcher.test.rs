@@ -511,8 +511,7 @@ async fn a_failed_turn_is_recorded_with_its_class_and_says_nothing_in_the_transc
             detail: "slow down".to_string(),
             native_id: None,
         },
-        refuses_to_drive: false,
-        left_out: Vec::new(),
+        ..ScriptedEngine::answering("", None)
     };
     let mut rig = rig(engine, ScriptedRunner::exits(1), orders_with(order("fake")));
     enqueued(&rig.edge, SESSION, HARP).await;
@@ -573,8 +572,7 @@ async fn each_failure_class_is_the_runs_own() {
                 detail: String::new(),
                 native_id: None,
             },
-            refuses_to_drive: false,
-            left_out: Vec::new(),
+            ..ScriptedEngine::answering("", None)
         };
         let mut rig = rig(engine, ScriptedRunner::exits(0), orders_with(order("fake")));
         enqueued(&rig.edge, SESSION, HARP).await;

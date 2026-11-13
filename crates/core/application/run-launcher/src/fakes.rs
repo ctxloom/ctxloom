@@ -387,6 +387,10 @@ pub struct ScriptedEngine {
     pub refuses_to_drive: bool,
     /// What its prepare says it left out of the home (owner ruling 169).
     pub left_out: Vec<run_ports::LeftOut>,
+    /// Whether it advises (owner ruling 168): one notice for every plan it
+    /// is asked of, the plans it was asked of kept in `advised`.
+    pub advises: bool,
+    pub advised: Arc<Mutex<Vec<run_ports::Planned>>>,
 }
 
 impl ScriptedEngine {
@@ -398,6 +402,8 @@ impl ScriptedEngine {
             },
             refuses_to_drive: false,
             left_out: Vec::new(),
+            advises: false,
+            advised: Arc::default(),
         }
     }
 
@@ -418,6 +424,17 @@ impl ScriptedEngine {
 impl Engine for ScriptedEngine {
     fn name(&self) -> &str {
         "fake"
+    }
+
+    fn advise(&self, planned: &run_ports::Planned) -> Vec<run_ports::Advice> {
+        self.advised.lock().unwrap().push(planned.clone());
+        if !self.advises {
+            return Vec::new();
+        }
+        vec![Box::new(EngineError::NotYet {
+            engine: "fake".to_string(),
+            operation: "advice".to_string(),
+        })]
     }
 
     fn prepare(&self, request: &PrepareRequest) -> Result<Prepared, EngineError> {
@@ -550,6 +567,9 @@ impl Engine for Credentialed {
     }
     fn credentials(&self) -> run_ports::Credentials {
         self.1
+    }
+    fn advise(&self, planned: &run_ports::Planned) -> Vec<run_ports::Advice> {
+        self.0.advise(planned)
     }
     fn drive_interactive(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError> {
         self.0.drive_interactive(request)

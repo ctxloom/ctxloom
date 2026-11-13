@@ -244,6 +244,7 @@ impl Project {
                         .map(|e| e.value.clone())
                         .unwrap_or_default(),
                     permissions: permissions.clone(),
+                    ..run_ports::Planned::default()
                 };
                 self.notices
                     .extend(advice_of(&self.engines, &effective.engine.value, &planned));

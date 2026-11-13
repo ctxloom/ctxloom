@@ -36,7 +36,7 @@ use sessions::{
     SESSION_DOMAIN,
 };
 
-use crate::credential::{credential_evidence, share_login};
+use crate::credential::{credential_evidence, holds, share_login};
 use crate::error::RunError;
 
 /// How many names are tried for a session before a taken one is the error.
@@ -657,18 +657,43 @@ where
         );
         // The primary is handed her login before her engine starts.
         if interactive {
-            if let Some(credentials) = self.launcher.credentials(&started.engine) {
-                notices.extend(share_login(
-                    &mut *self.links,
-                    &settings.credentials(credentials),
-                    &self.env,
-                    self.place.user_home.as_deref(),
-                    &self.os,
-                    &started.harp,
-                ));
-            }
+            notices.extend(self.sign_in(&settings, &started));
         }
         Ok((serving, started))
+    }
+
+    /// What the primary's terminal session is told of how it is signed in,
+    /// having been handed her login where it is shared. The engine is asked
+    /// first (owner ruling 168's seam): where it advises (claude on Windows
+    /// with no token, which is token-only there, owner ruling 2026-11-12),
+    /// its notice is what she is told, and no login is shared.
+    fn sign_in(&mut self, settings: &run_ports::EngineSettings, started: &Started) -> Vec<Notice> {
+        let Some(credentials) = self.launcher.credentials(&started.engine) else {
+            return Vec::new();
+        };
+        let policy = settings.credentials(credentials);
+        let advice = self.launcher.advise(
+            &started.engine,
+            &run_ports::Planned {
+                os: self.os.clone(),
+                interactive: true,
+                credential_set: holds(&self.env, &policy.primary_env),
+                ..run_ports::Planned::default()
+            },
+        );
+        if !advice.is_empty() {
+            return advice.into_iter().map(Notice::Engine).collect();
+        }
+        share_login(
+            &mut *self.links,
+            &policy,
+            &self.env,
+            self.place.user_home.as_deref(),
+            &self.os,
+            &started.harp,
+        )
+        .into_iter()
+        .collect()
     }
 
     /// Launch what is owed, stop the listener (a hook still in flight as

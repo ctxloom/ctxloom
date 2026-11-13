@@ -689,7 +689,16 @@ the login is is the engine's `Credentials` (`user_dir`, `user_dir_variable`,
 session dir), and so is what the human is told when none is shared
 (`sign_in`, the engine's own words), whether a missing one is worth saying
 (`login_optional`), where it is never linked (`no_link_on`: claude's macOS
-keychain and Windows' symlink privilege) and where a link that cannot be made
+keychain and Windows' symlink privilege; on Windows claude is TOKEN ONLY,
+owner ruling of 2026-11-12: the terminal session's engine is asked first,
+through `Engine::advise` (`Planned`'s `os`, `interactive` and
+`credential_set`, the last by name only), and engine-claude's
+`engine-claude-windows-token-only` notice, which says this is a workaround
+for claude's own credential handling (one session's token rotation signs the
+others out) and whose fix is `claude setup-token` then export
+`CLAUDE_CODE_OAUTH_TOKEN`, replaces the login sharing; a NOTICE, not a
+refusal: `/login` in the session still signs that session in, and a refusal
+would block init's interview) and where a link that cannot be made
 is a copy (`copy_on`: opencode's Windows, ruling 80; `LoginLinks::copy`, a
 new 0600 file). The platform is the OS name the caller gives; macOS and
 Windows are unverified live. Settings apply to the engine the plan resolved, and `run --engine

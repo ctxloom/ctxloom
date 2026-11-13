@@ -175,11 +175,20 @@ impl Engine for Opencode {
             SessionHome::Host => (surface_ports::Json::Object(Vec::new()), None),
         };
         Ok(Prepared {
-            files: home::files(
-                &request.context,
-                &home::config(base, permissions.as_ref()),
-                &self.program,
-            ),
+            files: {
+                let mut files = home::files(
+                    &request.context,
+                    &home::config(base, permissions.as_ref()),
+                    &self.program,
+                );
+                // The bundles' authored hooks ride the launch, for the
+                // plugin to run (owner ruling 2026-11-12).
+                files.push(HomeFile {
+                    rel: crate::authored::AUTHORED_FILE.to_string(),
+                    bytes: crate::authored::authored(&request.surfaces.0.hooks).into_bytes(),
+                });
+                files
+            },
             // No file of the user's own opencode configuration crosses as
             // it is (her config is the base of the home's, above).
             copy_in: Vec::new(),

@@ -146,6 +146,7 @@ fn test_a_session_home_holds_the_context_the_plugin_and_the_preseed_and_nothing_
             files,
             [
                 ("AGENTS.md", b"the project's context".as_slice()),
+                ("ctxloom-authored-hooks.json", b"{}\n".as_slice()),
                 ("node_modules/.ctxloom", b"".as_slice()),
                 ("opencode.json", b"{}\n".as_slice()),
                 ("package-lock.json", PRESEED_LOCK.as_bytes()),
@@ -716,4 +717,135 @@ fn test_on_windows_a_state_home_with_a_drive_is_where_it_is() {
         user_model_file(Some(r"C:\Users\u"), Some("/state"), "windows").as_deref(),
         Some(r"C:\Users\u/.local/state/opencode/model.json")
     );
+}
+
+// ------------------------------------------------- the authored hooks
+
+// Owner ruling 2026-11-12: the authored hooks ride the launch, as the
+// plugin reads them in the session home.
+#[test]
+fn test_a_session_home_holds_the_authored_hooks_the_plugin_runs() {
+    let mut hooks = std::collections::BTreeMap::new();
+    hooks.insert(
+        "turn_end".to_string(),
+        vec![surface_ports::Hook {
+            command: "echo DONE".to_string(),
+            ..Default::default()
+        }],
+    );
+    let prepared = Opencode::new()
+        .prepare(&PrepareRequest {
+            home: HOME.to_string(),
+            context: "c".to_string(),
+            offered: Vec::new(),
+            interactive: false,
+            cwd: None,
+            existing: Default::default(),
+            permissions: None,
+            session_home: run_ports::SessionHome::Session,
+            surfaces: run_ports::LaunchSurfaces(surface_ports::Inputs {
+                hooks,
+                ..Default::default()
+            }),
+        })
+        .unwrap();
+    let file = prepared
+        .files
+        .iter()
+        .find(|f| f.rel == crate::AUTHORED_FILE)
+        .expect("the authored hooks");
+    let doc = Json::parse(std::str::from_utf8(&file.bytes).unwrap()).unwrap();
+    assert!(doc.get("turn.end").is_some(), "{}", doc.pretty());
+}
+
+/// The driver of the authored hooks: the plugin loaded with the session home
+/// (`OPENCODE_CONFIG_DIR`) holding them, a bash call before and after, a read
+/// call before, a blocked call, a prompt and its idle, then dispose; each
+/// outcome printed on a line.
+const AUTHORED_DRIVER: &str = r#"import { pathToFileURL } from "node:url"
+const [plugin] = process.argv.slice(2)
+const at = await (await import(pathToFileURL(plugin).href)).CtxloomPlugin({})
+const S = "ses_authored"
+const said = []
+const tried = async (name, call) => {
+  try { await call(); said.push(name + " ok") } catch (e) { said.push(name + " blocked: " + e.message) }
+}
+await tried("bash", () => at["tool.execute.before"]({ tool: "bash", sessionID: S, callID: "c1" }, { args: { command: "ls" } }))
+await tried("read", () => at["tool.execute.before"]({ tool: "read", sessionID: S, callID: "c2" }, { args: {} }))
+await tried("after", () => at["tool.execute.after"]({ tool: "bash", sessionID: S, callID: "c1" }, { title: "", output: "x", metadata: {} }))
+await tried("rm", () => at["tool.execute.before"]({ tool: "bash", sessionID: S, callID: "c3" }, { args: { command: "rm -rf /" } }))
+await at["chat.message"]({ sessionID: S }, { message: { id: "msg_1", sessionID: S }, parts: [{ type: "text", text: "hi" }] })
+await at.event({ event: { id: "evt_9", type: "session.idle", properties: { sessionID: S } } })
+await at.dispose()
+console.log(said.join("\n"))
+"#;
+
+// Needs node on PATH. Each authored hook runs on its trigger with the call
+// on stdin, a narrowed one only for its tools; a pre-tool hook that exits 2
+// blocks the call, saying why; the turn's end runs its hooks after the
+// prompt, and dispose waits for them.
+#[test]
+fn test_the_plugin_runs_the_authored_hooks_on_their_triggers() {
+    if !runs_scripts() {
+        return;
+    }
+    let dir = Rooted::temp().unwrap();
+    let plugin = put(&dir, "/home/plugins/ctxloom.js", PLUGIN);
+    dir.create_dir_all(&os::fixture("/marks"), Mode::DIR)
+        .unwrap();
+    let marks = dir.real_path(&os::fixture("/marks")).unwrap();
+    put(
+        &dir,
+        &format!("/home/{}", crate::AUTHORED_FILE),
+        r#"{
+  "tool.before": [
+    {"command": "cat > \"$MARKS/pre-$(date +%N)\"", "tools": ["bash"]},
+    {"command": "grep -q 'rm -rf' && { echo 'no rm' >&2; exit 2; } || exit 0"}
+  ],
+  "tool.after": [{"command": "cat > \"$MARKS/after\""}],
+  "turn.end": [{"command": "cat > \"$MARKS/end\"", "timeout": 5}]
+}"#,
+    );
+    let home = dir.real_path(&os::fixture("/home")).unwrap();
+    let driver = put(&dir, "/authored.mjs", AUTHORED_DRIVER);
+    dir.create_dir_all(&os::fixture("/bin"), Mode::DIR).unwrap();
+    let fake =
+        fixture_program::install_program(&dir, &os::fixture("/bin/ctxloom"), FAKE_CTXLOOM).unwrap();
+    dir.create_dir_all(&os::fixture("/got"), Mode::DIR).unwrap();
+    let out = Command::new("sh")
+        .arg("-c")
+        .arg(r#"PATH="$FAKE_BIN:$PATH" exec node "$@""#)
+        .arg("sh")
+        .args([&driver, &plugin])
+        .env("FAKE_BIN", fake.parent().unwrap())
+        .env("OPENCODE_CONFIG_DIR", &home)
+        .env("MARKS", &marks)
+        .output()
+        .expect("sh runs");
+    assert!(
+        out.status.success(),
+        "node ran the plugin (is node on PATH?): {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim(),
+        "bash ok\nread ok\nafter ok\nrm blocked: no rm"
+    );
+    let mut pre: Vec<String> = dir
+        .read_dir(&os::fixture("/marks"))
+        .unwrap()
+        .into_iter()
+        .map(|e| e.name.to_string_lossy().into_owned())
+        .filter(|n| n.starts_with("pre-"))
+        .collect();
+    pre.sort();
+    // The bash call and the blocked one; never the read.
+    assert_eq!(pre.len(), 2, "{pre:?}");
+    let mark = |name: &str| dir.read_to_string(&os::fixture(&format!("/marks/{name}")));
+    let first = mark(&pre[0]).unwrap();
+    let call = Json::parse(&first).unwrap();
+    assert_eq!(call.get("tool").and_then(Json::as_str), Some("bash"));
+    assert!(mark("after").is_ok());
+    let end = Json::parse(&mark("end").unwrap()).unwrap();
+    assert_eq!(end.get("event").and_then(Json::as_str), Some("turn.end"));
 }

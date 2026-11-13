@@ -17,6 +17,7 @@
 //! and skills at rest are not built for opencode.
 
 mod advice;
+mod authored;
 mod codec;
 mod drive;
 mod home;
@@ -29,6 +30,7 @@ use surface_ports::{
 #[cfg(any(test, feature = "test-support"))]
 pub use advice::diagnostic_samples;
 pub use advice::{OpencodeNotice, EN_US};
+pub use authored::AUTHORED_FILE;
 pub use codec::Codec;
 pub use drive::{ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST, LOGIN_FILE, PROVIDER_KEYS, SIGN_IN};
 pub use home::{

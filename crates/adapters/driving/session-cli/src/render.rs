@@ -607,3 +607,7 @@ pub(crate) fn sweep_text(
         count.done, count.planned, count.held, count.left, count.skipped, count.failed
     )
 }
+
+#[cfg(test)]
+#[path = "render.test.rs"]
+mod tests;

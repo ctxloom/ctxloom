@@ -4,7 +4,7 @@ use daemon_proto::v1;
 use serde_json::json;
 use sessions_application::Timestamp;
 
-use super::{daemon, session, sessions};
+use super::{daemon, deletion, session, sessions};
 
 // A field at its default is left out; an enum is its name; a Timestamp is
 // RFC 3339 with Z; a uint32 a number.
@@ -93,5 +93,63 @@ fn the_daemon_is_its_proto3_json() {
             "runs": [{"harp": "brisk-copper-moth", "kind": "RUN_KIND_CHILD"}],
             "idle_limit_seconds": "600",
         })
+    );
+}
+
+// A session's rotation lineage is a list of its rotations, each its fields.
+#[test]
+fn a_sessions_rotations_are_their_proto3_json() {
+    let s = v1::Session {
+        rotations: vec![v1::SessionRotation {
+            native_id: "id-1".to_string(),
+            transcript_path: "/t/id-1.jsonl".to_string(),
+            rotated_at: Some(Timestamp {
+                seconds: 1_784_309_252,
+                nanos: 0,
+            }),
+        }],
+        ..v1::Session::default()
+    };
+    assert_eq!(
+        session(&s),
+        json!({"rotations": [{
+            "native_id": "id-1",
+            "transcript_path": "/t/id-1.jsonl",
+            "rotated_at": "2026-07-17T17:27:32Z",
+        }]})
+    );
+}
+
+// A removal's worktrees are the report, each checkout its fields.
+#[test]
+fn a_removals_worktrees_are_their_proto3_json() {
+    let removal = v1::DeleteSessionResponse {
+        worktrees: Some(v1::WorktreeReport {
+            worktrees: vec![v1::ScratchWorktree {
+                harp: "amber-swift-owl".to_string(),
+                worktree: "ctxloom-wt-wip".to_string(),
+                path: "/h/wt".to_string(),
+                owner_state: "dead".to_string(),
+                verdict: "spared".to_string(),
+                reason: "uncommitted changes".to_string(),
+            }],
+            spared: 1,
+            ..v1::WorktreeReport::default()
+        }),
+        ..v1::DeleteSessionResponse::default()
+    };
+    assert_eq!(
+        deletion(&removal),
+        json!({"worktrees": {
+            "worktrees": [{
+                "harp": "amber-swift-owl",
+                "worktree": "ctxloom-wt-wip",
+                "path": "/h/wt",
+                "owner_state": "dead",
+                "verdict": "spared",
+                "reason": "uncommitted changes",
+            }],
+            "spared": "1",
+        }})
     );
 }

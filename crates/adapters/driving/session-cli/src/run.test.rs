@@ -1890,3 +1890,20 @@ fn a_preview_that_would_destroy_says_it_would_change_and_an_applied_one_does_not
     ];
     assert!(!sweep(1, &yes), "applied");
 }
+
+// Only `remove` and `sweep` are the daemon's destroys; a read or a
+// worktree listing is not.
+#[test]
+fn only_remove_and_sweep_are_destroys() {
+    for words in [
+        vec![],
+        vec!["list"],
+        vec!["show", "amber-swift-owl"],
+        vec!["worktrees"],
+    ] {
+        assert!(!crate::is_destroy(&parsed(&words)), "{words:?}");
+    }
+    for words in [vec!["remove", "amber-swift-owl"], vec!["sweep"]] {
+        assert!(crate::is_destroy(&parsed(&words)), "{words:?}");
+    }
+}

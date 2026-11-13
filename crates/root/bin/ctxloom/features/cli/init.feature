@@ -36,7 +36,8 @@ Feature: init — the setup interview, and what it does to a project that alread
   a lesser case — it is what every re-run of `init` does, and it is where the
   flags that were once silently ignored live. The setup session itself is launched with a terminal stood in, against
   a stub engine, in j000200_setup.feature — on a new project, where init's one
-  built question (where a session's outputs go, owner rulings 89, 106) is
+  built questions (where a session's outputs go, owner rulings 89, 106, and
+  when conditional guidance loads, owner ruling of 2026-11-12) are
   answered before the interview.
 
   The interactive interview needs a terminal too. Off one, init resolves the
@@ -359,8 +360,14 @@ Feature: init — the setup interview, and what it does to a project that alread
     Init asks where a session's outputs go (`output.dir`), suggesting
     `ctxloom/` in the project and saying it is not gitignored, so what a
     session leaves there can be committed; a bare Enter takes the suggestion.
-    This one question is BUILT (owner rulings 89, 106; j000200 scenario 2 and
-    setup-cli's tests hold it); the rest of this Rule is not.
+    Then it asks whether conditional guidance (a fragment with a premise)
+    loads only when it applies, which keeps the context smaller, or always,
+    suggesting on-demand; a bare Enter takes the suggestion, and the answer
+    is written as `config.premised`. Off a terminal neither is asked and
+    nothing is written: the defaults stand. These two questions are BUILT
+    (owner rulings 89, 106, and of 2026-11-12; j000200's terminal scenarios
+    and setup-cli's and init-application's tests hold them); the rest of
+    this Rule is not.
 
     Init also offers to add companions, by name. It seeds the offer with the
     companions ctxloom ships whose programs are on her machine, each one she

@@ -49,10 +49,13 @@ Feature: Setting up ctxloom on a project
       """
     Then her assistant receives her company repository's content
 
-  # On a terminal, a first init asks one thing itself before the interview:
+  # On a terminal, a first init asks two things itself before the interview:
   # where her sessions' outputs go, suggesting `ctxloom/` in the project and
   # saying it is not gitignored, so what they leave there can be committed
-  # (owner rulings 89, 106). Then setup interviews her. The interview runs in a session that
+  # (owner rulings 89, 106); then whether conditional guidance (a fragment
+  # with a premise) loads only when it applies, the suggestion, which keeps
+  # the context smaller, or always (`config.premised`, owner ruling of
+  # 2026-11-12). Then setup interviews her. The interview runs in a session that
   # cannot see what it has just configured, so ctxloom offers to restart her
   # into the configured one. The offer is [Y/n]: a bare Enter accepts it; n or no
   # declines it, and so does a closed input (no one answered).
@@ -65,6 +68,7 @@ Feature: Setting up ctxloom on a project
       ctxloom init --remote https://github.com/alice/ctxloom-content
       """
     And she keeps the output directory init suggests
+    And she keeps init's suggestion that conditional guidance loads only when it applies
     And in the setup interview she adds her company's repository as a remote
     And the setup interview composes her agents' profiles from the sources' fragments
     And ctxloom offers to restart into her newly configured session
@@ -72,6 +76,29 @@ Feature: Setting up ctxloom on a project
     Then her restarted assistant receives her personal repository's content
     And her restarted assistant receives her company repository's content
     And the output contains "Session outputs go to ctxloom/ (not gitignored: they can be committed)"
+    And the output contains "Conditional guidance loads only when it applies (config.premised: on-demand)"
+    And the file ".ctxloom/config.yaml" contains "premised: on-demand"
+
+  # She may instead have every fragment load at launch, premised ones too:
+  # init writes her answer, and the context her restarted session is handed
+  # carries the premised fragment itself and no index to ask from.
+  Scenario: She chooses at init that conditional guidance always loads
+    # new: owner ruling of 2026-11-12.
+    Given Alice has a personal ctxloom repository
+    And her personal repository carries a fragment with a premise
+    When Alice sets ctxloom up at a terminal, naming her personal repository:
+      """
+      ctxloom init --remote https://github.com/alice/ctxloom-content
+      """
+    And she keeps the output directory init suggests
+    And she answers that conditional guidance always loads
+    And the setup interview composes her agent's profile from her personal repository
+    And ctxloom offers to restart into her newly configured session
+    And Alice accepts the restart
+    Then her restarted assistant receives her personal repository's content
+    And her restarted assistant receives her personal repository's premised fragment, and no premise index
+    And the output contains "Conditional guidance always loads (config.premised: always)"
+    And the file ".ctxloom/config.yaml" contains "premised: always"
 
   # With a real assistant: it can use what it was handed.
   @live @pending

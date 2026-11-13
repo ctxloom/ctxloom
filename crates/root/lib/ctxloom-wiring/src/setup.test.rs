@@ -53,6 +53,21 @@ fn the_output_directory_is_written_into_the_new_projects_config() {
     );
 }
 
+// Owner ruling of 2026-11-12: init's answer on when conditional guidance
+// loads lands in the new project's config as `config.premised`.
+#[test]
+fn the_premised_answer_is_written_into_the_new_projects_config() {
+    let world = World::new("setup-premised");
+    let create = scaffold(&world);
+    create.create().expect("scaffolded");
+    create.set_premised("always").expect("written");
+    let bytes = crate::fixtures::fs()
+        .read(&world.dir().join("work/.ctxloom/config.yaml"))
+        .unwrap();
+    let config = String::from_utf8(bytes).unwrap();
+    assert!(config.contains("config:\n  premised: always\n"), "{config}");
+}
+
 // Without a project there is nowhere to write it: refused, not Ok.
 #[test]
 fn an_output_directory_without_a_project_is_refused() {

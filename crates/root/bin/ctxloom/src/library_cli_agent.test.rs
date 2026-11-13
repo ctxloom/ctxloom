@@ -47,14 +47,13 @@ fn test_the_listing_reads_each_axis_of_a_binding_back() {
         } else {
             let doc = ran.json();
             let developer = "agents[name$=/agents/developer]";
-            assert_eq!(
-                reports_as(&doc, &format!("{developer}.engine")),
-                "claude-code"
+            assert!(
+                reports_as(&doc, &format!("{developer}.engine")).ends_with("/engines/claude-code")
             );
-            assert!(contains_value(
+            assert!(names_ending(
                 &doc,
                 &format!("{developer}.profiles"),
-                "dev"
+                "/bundles/project/profiles/dev"
             ));
             assert_eq!(
                 reports_as(&doc, &format!("{developer}.runtime")),
@@ -112,10 +111,14 @@ fn test_showing_one_binding_reports_what_was_declared_and_what_it_resolves_to() 
             let doc = ran.json();
             // OD-40: the `Agent` resource; its definition is the resource.
             assert!(reports_as(&doc, "name").ends_with("/agents/developer"));
-            assert_eq!(reports_as(&doc, "engine"), "claude-code");
+            assert!(reports_as(&doc, "engine").ends_with("/engines/claude-code"));
             assert_eq!(reports_as(&doc, "runtime"), "container-rootless");
-            assert!(contains_value(&doc, "profiles", "dev"));
-            assert_eq!(reports_as(&doc, "resolved.engine"), "claude-code");
+            assert!(names_ending(
+                &doc,
+                "profiles",
+                "/bundles/project/profiles/dev"
+            ));
+            assert!(reports_as(&doc, "resolved.engine").ends_with("/engines/claude-code"));
             assert!(contains_value(
                 &doc,
                 "resolved.fragments",

@@ -14,8 +14,8 @@ mod read {
             agents["agents"][0],
             serde_json::json!({
                 "name": "projects/calm-otter/agents/dev",
-                "engine": "claude-code",
-                "profiles": ["dev"],
+                "engine": "projects/calm-otter/engines/claude-code",
+                "profiles": ["projects/calm-otter/bundles/project/profiles/dev"],
                 "runtime": "host",
                 "default": true,
             })
@@ -23,10 +23,13 @@ mod read {
         assert_eq!(json_of(&["agent"]), agents);
         let show = json_of(&["agent", "show", "dev"]);
         assert_eq!(show["name"], "projects/calm-otter/agents/dev");
-        assert_eq!(show["engine"], "claude-code");
+        assert_eq!(show["engine"], "projects/calm-otter/engines/claude-code");
         assert_eq!(show["default"], true);
         assert!(show.get("definition").is_none(), "{show}");
-        assert_eq!(show["resolved"]["engine"], "claude-code");
+        assert_eq!(
+            show["resolved"]["engine"],
+            "projects/calm-otter/engines/claude-code"
+        );
         assert!(text_of(&["agent", "show", "dev"])
             .starts_with("Agent: dev\nEngine (declared): claude-code\n"));
         assert!(text_of(&["agent"]).starts_with("Agents (1):\n"));
@@ -125,11 +128,44 @@ mod read {
         assert!(listing.contains("    session_home: session\n"), "{listing}");
     }
 
-    // Outside a project an agent is named under the home (OQ-3).
+    // Outside a project an agent is named under the home (OQ-3), and so are
+    // the resources it references.
     #[test]
     fn test_agent_names_are_rooted_where_the_names_say() {
         let home = go_named(&["agent", "show", "dev"], JSON, &Home);
         assert_eq!(home.json()["name"], "users/me/agents/dev");
+        assert_eq!(home.json()["engine"], "users/me/engines/claude-code");
+    }
+
+    // Design §2 (AIP-122): an agent's references are resource names, the
+    // engine's and each profile's; a reference that names no place keeps its
+    // configured text (OQ-16), and an agent that names no engine names none.
+    #[test]
+    fn test_an_agent_s_references_are_resource_names() {
+        let layers = ["schema_version: 9\nagents:\n  dev:\n    engine: opencode\n    profiles: [dev, acme/base, \"demo#profiles/team\"]\n  bare:\n    profiles: [dev]\n"];
+        let listed = go(&["agent", "list"], JSON, &layers).json();
+        let row = |name: &str| {
+            listed["agents"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|a| a["name"].as_str().unwrap().ends_with(name))
+                .cloned()
+                .unwrap()
+        };
+        assert_eq!(
+            row("/dev")["engine"],
+            "projects/calm-otter/engines/opencode"
+        );
+        assert_eq!(
+            row("/dev")["profiles"],
+            serde_json::json!([
+                "projects/calm-otter/bundles/project/profiles/dev",
+                "acme/base",
+                "projects/calm-otter/bundles/demo/profiles/team",
+            ])
+        );
+        assert!(row("/bare").get("engine").is_none(), "{listed}");
     }
 }
 
@@ -174,8 +210,9 @@ mod write {
         // OD-40 (design §4): a write answers its method's response, the
         // resource after the write and `applied` printed.
         let doc = json(&library, &["agent", "edit", "dev", "--env", ""]);
-        assert_eq!(doc["agent"]["name"], "projects/calm-otter/agents/dev");
-        assert_eq!(doc["agent"]["engine"], "claude-code");
+        let (named, engine) = (&doc["agent"]["name"], &doc["agent"]["engine"]);
+        assert_eq!(named, "projects/calm-otter/agents/dev");
+        assert_eq!(engine, "projects/calm-otter/engines/claude-code");
         assert_eq!(doc["applied"], true);
         let bad = refused_code(
             &library,
@@ -235,7 +272,7 @@ mod write {
             serde_json::json!({
                 "agent": {
                     "name": "projects/calm-otter/agents/dev",
-                    "engine": "claude-code",
+                    "engine": "projects/calm-otter/engines/claude-code",
                     "default": true,
                 },
                 "applied": true,

@@ -11,7 +11,7 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 
 use cucumber::gherkin::Step;
-use cucumber::{given, then};
+use cucumber::{given, then, when};
 use serde_json::Value;
 
 use super::gherkin_common::{common_steps, doc, Common, CommonWorld};
@@ -60,6 +60,9 @@ struct World {
     planted_foreign: Vec<PathBuf>,
     /// The sessions planted with a free lock that is not held.
     lock_free_dead: Vec<String>,
+    /// The design notes nobody filed: the session, and each note's path
+    /// relative to its directory (j001300).
+    design_notes: Vec<(String, Vec<String>)>,
     /// Every session the steps planted, by harp, once seeded.
     seeded_harps: Vec<String>,
     /// Every byte of the sessions' directories and scratch checkouts, as the
@@ -131,6 +134,7 @@ impl World {
             planted_scratch: Vec::new(),
             planted_foreign: Vec::new(),
             lock_free_dead: Vec::new(),
+            design_notes: Vec::new(),
             seeded_harps: Vec::new(),
             before: Vec::new(),
             adopt: adopt::State::default(),
@@ -498,6 +502,22 @@ fn authored_file(w: &mut World, harp: String, rel: String) {
     files::put(w.session_dir(&harp).join(rel), "notes nobody filed\n");
 }
 
+/// The notes a person wrote in a session's directory and never filed
+/// (j001300): what a destroy takes with it after a warning (ruling 104).
+const DESIGN_NOTES: [&str; 2] = ["design-notes.md", "notes/api-shape.md"];
+
+#[given(
+    expr = "a finished session {string} carrying design notes nobody filed, whose transcript retention has passed"
+)]
+fn finished_with_notes(w: &mut World, harp: String) {
+    w.plant(&harp, "finished");
+    for rel in DESIGN_NOTES {
+        files::put(w.session_dir(&harp).join(rel), format!("{harp}: {rel}\n"));
+    }
+    w.design_notes
+        .push((harp, DESIGN_NOTES.iter().map(|r| r.to_string()).collect()));
+}
+
 #[given("the feature shipped on Friday and Alice is closing the workstream out")]
 #[given("the feature shipped on Monday and Alice is closing the workstream out the next week")]
 fn closing_out(w: &mut World) {
@@ -538,6 +558,56 @@ fn idle(w: &mut World, days: u64) {
 }
 
 // ------------------------------------------------------------------- when
+
+/// The notes the steps planted in `harp`.
+fn notes_of(w: &World, harp: &str) -> Vec<String> {
+    w.design_notes
+        .iter()
+        .find(|(h, _)| h == harp)
+        .map(|(_, notes)| notes.clone())
+        .unwrap_or_else(|| panic!("no design notes were planted in {harp}"))
+}
+
+/// She files them where a session's outputs live, `<project>/<output.dir>/
+/// <harp>`: outside the session's directory, so a destroy leaves them.
+#[when(expr = "Alice files her design notes into the output dir of {string}")]
+fn files_notes(w: &mut World, harp: String) {
+    for rel in notes_of(w, &harp) {
+        let to = w.output_dir(&harp).join(&rel);
+        files::mkdirs(to.parent().expect("a parent"));
+        files::rename(w.session_dir(&harp).join(&rel), to);
+    }
+}
+
+/// She takes her uncommitted work out of the checkout, to a place of her
+/// own, so the checkout is clean.
+#[when(expr = "Alice saves the work she wants out of the scratch worktree of {string}")]
+fn saves_work(w: &mut World, harp: String) {
+    let dirty: Vec<String> = w
+        .planted_scratch
+        .iter()
+        .filter(|(h, _, dirty)| *h == harp && *dirty)
+        .map(|(_, name, _)| name.clone())
+        .collect();
+    assert!(
+        !dirty.is_empty(),
+        "no uncommitted work was seeded in {harp}"
+    );
+    for name in dirty {
+        let saved = w
+            .common
+            .project
+            .home()
+            .join("saved-work")
+            .join(&harp)
+            .join(&name);
+        files::mkdirs(&saved);
+        files::rename(
+            w.scratch_dir(&harp, &name).join("in-flight.go"),
+            saved.join("in-flight.go"),
+        );
+    }
+}
 
 // ------------------------------------------------------------------- then
 
@@ -753,6 +823,35 @@ fn bulk_gone(w: &mut World, harp: String) {
         "{harp} is still recorded: {}",
         w.ran().said()
     );
+}
+
+/// The preview names each note it would destroy, in ruling 104's warning
+/// (`sessions-application-destroys-authored`), and destroyed nothing.
+#[then(expr = "the preview warns it would destroy the design notes of {string}, naming each")]
+fn warns_of_notes(w: &mut World, harp: String) {
+    let notes = notes_of(w, &harp);
+    let mut ran = w.ran().succeeds().contains(&format!(
+        "session {harp} holds files a person wrote, and removing it destroys them with it"
+    ));
+    for rel in &notes {
+        ran = ran.contains(rel);
+    }
+    assert!(recorded(w, &harp), "the preview destroyed {harp}");
+    for rel in &notes {
+        assert!(
+            files::exists(w.session_dir(&harp).join(rel)),
+            "the preview destroyed {rel}"
+        );
+    }
+}
+
+#[then(expr = "her filed design notes are in the output dir of {string}")]
+fn notes_filed(w: &mut World, harp: String) {
+    for rel in notes_of(w, &harp) {
+        let body = files::read(w.output_dir(&harp).join(&rel))
+            .unwrap_or_else(|e| panic!("her filed note {rel} is GONE: {e}"));
+        assert_eq!(body, format!("{harp}: {rel}\n"));
+    }
 }
 
 #[then(expr = "the machine-written bulk of {string} is still there")]

@@ -107,6 +107,76 @@ pub struct EnginePackage {
     pub has_profiles: bool,
 }
 
+impl EnginePackage {
+    /// What the engines are asked to deliver of it, with `context` as the
+    /// context: at rest, or at a launch (its context riding on its own, so
+    /// none here). ctxloom's own MCP server is the session's, injected while
+    /// it runs: nothing is registered for a server `served_by` the session.
+    pub fn inputs(&self, context: String) -> surface_ports::Inputs {
+        use surface_ports::{Command, Hook, McpServer, Skill, SkillFile};
+        let mut hooks: BTreeMap<String, Vec<Hook>> = BTreeMap::new();
+        for packaged in &self.hooks {
+            let h = &packaged.hook;
+            hooks.entry(packaged.event.clone()).or_default().push(Hook {
+                kind: h.kind.clone(),
+                command: h.command.clone(),
+                args: h.args.clone(),
+                prompt: h.prompt.clone(),
+                timeout: h.timeout,
+                is_async: h.is_async,
+                tool: h.tool.clone(),
+                matcher: String::new(),
+            });
+        }
+        surface_ports::Inputs {
+            context,
+            context_file: None,
+            mcp: self
+                .mcp
+                .iter()
+                .filter(|m| m.served_by.is_empty())
+                .map(|m| McpServer {
+                    name: m.name.clone(),
+                    command: m.command.clone(),
+                    args: m.args.clone(),
+                    env: m.env.clone(),
+                    url: m.url.clone(),
+                    headers: m.headers.clone(),
+                })
+                .collect(),
+            hooks,
+            deny_tools: self.deny_tools.clone(),
+            statusline: self.statusline,
+            commands: self
+                .commands
+                .iter()
+                .map(|c| Command {
+                    name: c.name.clone(),
+                    description: c.description.clone(),
+                    body: c.body.clone(),
+                })
+                .collect(),
+            skills: self
+                .skills
+                .iter()
+                .map(|s| Skill {
+                    name: s.name.clone(),
+                    description: s.description.clone(),
+                    files: s
+                        .files
+                        .iter()
+                        .map(|f| SkillFile {
+                            path: f.path.clone(),
+                            bytes: f.bytes.clone(),
+                            executable: f.executable,
+                        })
+                        .collect(),
+                })
+                .collect(),
+        }
+    }
+}
+
 /// `entry`'s commands as `<owner>/<name>`, each once.
 fn push_commands(
     owner: &str,
@@ -160,15 +230,35 @@ impl Project {
         let mut findings: Vec<Finding> = Vec::new();
         let set = self.resolve_profiles(&names, &mut findings)?;
         let assembled = self.assemble_set(&set, &[], &[], &mut findings);
+        let mut package = self.carried(&set, &assembled.selection, &mut findings);
+        package.profiles = assembled.selection.profiles.clone();
+        package.context = assembled.context.clone();
+
+        let degraded = self.flags.degraded;
+        for finding in &findings {
+            if finding.class == Class::Fail && !degraded {
+                package.fatal.push(Notice::finding(finding));
+            }
+            self.notices.push(Notice::finding(finding));
+        }
+        Ok(package)
+    }
+
+    /// What a resolved profile set and its composed selection carry for an
+    /// engine besides the context: the servers, commands, skills and hooks,
+    /// the deny list and the project's switches. At rest (`package`) and at a
+    /// launch (`launch_surfaces`) alike.
+    pub(crate) fn carried(
+        &mut self,
+        set: &[library::profile::ResolvedProfile],
+        selection: &library::compose::Selection,
+        findings: &mut Vec<Finding>,
+    ) -> EnginePackage {
         // The registered companions' loadouts (asked once for the command)
         // ride the catalog the items are read from.
         let catalog = self.catalog_with_companions();
-        let served = self.served_from(&catalog, &set, &mut findings);
-        let selection = &assembled.selection;
-
+        let served = self.served_from(&catalog, set, findings);
         let mut package = EnginePackage {
-            profiles: assembled.selection.profiles.clone(),
-            context: assembled.context.clone(),
             deny_tools: selection.deny_tools.clone(),
             statusline: self.config.statusline(),
             use_distilled: self.config.prefers_distilled(),
@@ -195,16 +285,25 @@ impl Project {
             });
         }
         self.items_of(&catalog, selection, &mut package);
-        package.hooks = self.hooks_of(&catalog, &set, selection);
+        package.hooks = self.hooks_of(&catalog, set, selection);
+        package
+    }
 
-        let degraded = self.flags.degraded;
-        for finding in &findings {
-            if finding.class == Class::Fail && !degraded {
-                package.fatal.push(Notice::finding(finding));
-            }
-            self.notices.push(Notice::finding(finding));
-        }
-        Ok(package)
+    /// What a launch carries besides its context (owner ruling 2026-11-12:
+    /// everything rides the launch, in every directory): the run's own
+    /// selection's, `profiles` resolved again (their findings were said by
+    /// the plan's composition) and `selection` the plan composed.
+    pub(crate) fn launch_surfaces(
+        &mut self,
+        profiles: &[String],
+        selection: &library::compose::Selection,
+    ) -> surface_ports::Inputs {
+        let mut said = Vec::new();
+        let set = self
+            .resolve_profiles(profiles, &mut said)
+            .unwrap_or_default();
+        self.carried(&set, selection, &mut said)
+            .inputs(String::new())
     }
 
     /// The commands and skills the profiles curate by reference when they

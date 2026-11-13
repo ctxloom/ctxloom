@@ -344,6 +344,7 @@ impl Project {
             })
             .collect();
         let fatal = rows.iter().filter(|r| r.fatal).cloned().collect();
+        let surfaces = self.launch_surfaces(&selection.profiles, &package.selection);
         let plan = DryRun {
             agent: request.agent.clone(),
             workspace: request.workspace.clone(),
@@ -370,7 +371,7 @@ impl Project {
                 .as_ref()
                 .map(|a| a.name.clone())
                 .unwrap_or_default(),
-            surfaces: surface_ports::Inputs::default(),
+            surfaces,
         };
         Ok(Previewed { plan, fatal })
     }

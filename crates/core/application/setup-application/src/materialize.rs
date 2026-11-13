@@ -10,10 +10,7 @@ use std::collections::BTreeMap;
 use angzarr_diagnostic::Diagnostic;
 use library_application::{EnginePackage, Flags, PackageRequest};
 use serde::Serialize;
-use surface_ports::{
-    Command, EngineSurfaces, Hook, Inputs, Inspected, Kind, McpServer, Skill, SkillFile,
-    SurfaceError,
-};
+use surface_ports::{EngineSurfaces, Inputs, Inspected, Kind, SurfaceError};
 
 use crate::owner_voice::with_own_fragment;
 use crate::{Done, Setup, SetupError};
@@ -515,70 +512,9 @@ fn carries_items(package: &EnginePackage, kind: Kind) -> bool {
     }
 }
 
-/// What the engines are asked to deliver. ctxloom's own MCP server is the
-/// session's, injected while it runs: at rest nothing is registered for a
-/// server `served_by` the session.
+/// What the engines are asked to deliver (`EnginePackage::inputs`).
 fn inputs_of(package: &EnginePackage, context: String) -> Inputs {
-    let mut hooks: BTreeMap<String, Vec<Hook>> = BTreeMap::new();
-    for packaged in &package.hooks {
-        let h = &packaged.hook;
-        hooks.entry(packaged.event.clone()).or_default().push(Hook {
-            kind: h.kind.clone(),
-            command: h.command.clone(),
-            args: h.args.clone(),
-            prompt: h.prompt.clone(),
-            timeout: h.timeout,
-            is_async: h.is_async,
-            tool: h.tool.clone(),
-            matcher: String::new(),
-        });
-    }
-    Inputs {
-        context,
-        context_file: None,
-        mcp: package
-            .mcp
-            .iter()
-            .filter(|m| m.served_by.is_empty())
-            .map(|m| McpServer {
-                name: m.name.clone(),
-                command: m.command.clone(),
-                args: m.args.clone(),
-                env: m.env.clone(),
-                url: m.url.clone(),
-                headers: m.headers.clone(),
-            })
-            .collect(),
-        hooks,
-        deny_tools: package.deny_tools.clone(),
-        statusline: package.statusline,
-        commands: package
-            .commands
-            .iter()
-            .map(|c| Command {
-                name: c.name.clone(),
-                description: c.description.clone(),
-                body: c.body.clone(),
-            })
-            .collect(),
-        skills: package
-            .skills
-            .iter()
-            .map(|s| Skill {
-                name: s.name.clone(),
-                description: s.description.clone(),
-                files: s
-                    .files
-                    .iter()
-                    .map(|f| SkillFile {
-                        path: f.path.clone(),
-                        bytes: f.bytes.clone(),
-                        executable: f.executable,
-                    })
-                    .collect(),
-            })
-            .collect(),
-    }
+    package.inputs(context)
 }
 
 #[cfg(test)]

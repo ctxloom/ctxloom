@@ -1251,6 +1251,12 @@ fn test_a_dry_run_on_another_engine_takes_the_agent_s_block_for_it() {
             &crate::RunRequest {
                 agent: agent.to_string(),
                 engine: engine.to_string(),
+                // no agent: a selection by hand
+                profile: if agent.is_empty() {
+                    "p".to_string()
+                } else {
+                    String::new()
+                },
                 ..crate::RunRequest::default()
             },
         ))
@@ -1474,13 +1480,20 @@ fn test_a_launch_that_weakens_the_engine_s_runtime_says_so() {
 // `--engine` resolved it, and with no agent too; a session home of its own,
 // said or not, is said nothing of.
 fn host_notices(layers: &[&str], agent: &str, engine: &str) -> Vec<Notice> {
-    with(&[], layers)
+    let files: &[(&str, &str)] = &[ENVELOPE, ("profiles/p.yaml", "description: p\n")];
+    with(&[("project", files)], layers)
         .library()
         .dry_run(
             &plain(),
             &crate::RunRequest {
                 agent: agent.to_string(),
                 engine: engine.to_string(),
+                // no agent: a selection by hand
+                profile: if agent.is_empty() {
+                    "p".to_string()
+                } else {
+                    String::new()
+                },
                 ..crate::RunRequest::default()
             },
         )
@@ -1502,9 +1515,6 @@ fn test_a_launch_on_her_own_engine_setup_says_so() {
         matches!(said.as_slice(), [Notice::SessionHomeHost { engine }] if engine == "claude-code"),
         "{said:?}"
     );
-    assert!(said[0]
-        .to_string()
-        .contains("a relocation, not confinement"));
     // `--engine` asks the plan for that engine's block
     assert_eq!(host_notices(&layers, "oc", "claude-code").len(), 1);
     assert!(host_notices(&layers, "dev", "opencode").is_empty());
@@ -1512,7 +1522,8 @@ fn test_a_launch_on_her_own_engine_setup_says_so() {
     assert!(host_notices(&layers, "oc", "").is_empty());
     let none = ["schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n"];
     assert!(host_notices(&none, "dev", "").is_empty());
-    // a launch with no agent, on the default engine's own block
+    // a launch with no agent (a selection by hand), on the default engine's
+    // own block
     assert_eq!(host_notices(&layers, "", "").len(), 1);
 }
 

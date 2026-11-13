@@ -366,7 +366,12 @@ opencode's, a terminal's and a child's turn alike; under `session_home: host`
 the user's own), so what its tools keep under `~` lands in
 `.ctxloom/sessions/<harp>/home/`, never in the project (a relocation, not
 confinement: the engine runs as the user and reaches her files by absolute
-path); the cost: they see none of the user's dotfiles. On Windows the session home is also its
+path); the cost: they see none of the user's dotfiles. A plan on
+`session_home: host` says that it runs on her own engine setup, unsafe as
+hygiene, not as security, as the notice
+`library-application-notice-session-home-host` (`Notice::SessionHomeHost`,
+from the plan's drive in the dry run, so a dry run and a launch say it alike,
+with an agent or none; never a refusal; j002200). On Windows the session home is also its
 `USERPROFILE` (node's `os.homedir()` reads it there), and `APPDATA` and
 `LOCALAPPDATA` are `<home>/AppData/Roaming` and `<home>/AppData/Local`
 (`run_ports::WINDOWS_PROFILE_VARIABLES`, `session_profile`; under `host`

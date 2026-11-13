@@ -1,15 +1,23 @@
 //! The proto3 JSON of the well-known types the package uses, written by
 //! hand (pbjson-build leaves them to the caller): a `Timestamp` is RFC 3339
 //! in UTC, `Z` and a fraction of 0, 3, 6 or 9 digits (what
-//! `session_cli::proto_json` wrote before, OQ-21); a `FieldMask` is its
-//! paths in lowerCamelCase, joined by commas.
+//! `session_cli::proto_json` wrote before, OQ-21); a `Struct` is the object
+//! itself, its keys in order (the map is a `BTreeMap`); a `Value` is the
+//! JSON value it holds, a whole number without a fraction; a `FieldMask` is
+//! its paths in lowerCamelCase, joined by commas.
 
-use serde::de;
+use std::collections::BTreeMap;
+use std::fmt;
+
+use serde::de::{self, MapAccess, SeqAccess, Visitor};
+use serde::ser::{SerializeMap, SerializeSeq};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
-use crate::google::protobuf::{FieldMask, Timestamp};
+use crate::google::protobuf::{
+    value::Kind, FieldMask, ListValue, NullValue, Struct, Timestamp, Value,
+};
 
 impl From<prost_types::Timestamp> for Timestamp {
     fn from(at: prost_types::Timestamp) -> Timestamp {
@@ -119,6 +127,142 @@ impl<'de> Deserialize<'de> for FieldMask {
                 .map(snake)
                 .collect(),
         })
+    }
+}
+
+impl Serialize for Struct {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut map = serializer.serialize_map(Some(self.fields.len()))?;
+        for (key, value) in &self.fields {
+            map.serialize_entry(key, value)?;
+        }
+        map.end()
+    }
+}
+
+impl Serialize for ListValue {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut seq = serializer.serialize_seq(Some(self.values.len()))?;
+        for value in &self.values {
+            seq.serialize_element(value)?;
+        }
+        seq.end()
+    }
+}
+
+/// The largest whole number a double holds exactly (2^53).
+const EXACT: f64 = 9_007_199_254_740_992.0;
+
+impl Serialize for Value {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match &self.kind {
+            None | Some(Kind::NullValue(_)) => serializer.serialize_unit(),
+            Some(Kind::NumberValue(n)) if n.is_nan() => serializer.serialize_str("NaN"),
+            Some(Kind::NumberValue(n)) if n.is_infinite() && *n > 0.0 => {
+                serializer.serialize_str("Infinity")
+            }
+            Some(Kind::NumberValue(n)) if n.is_infinite() => serializer.serialize_str("-Infinity"),
+            // A whole number is written without a fraction, as proto3 JSON
+            // writes one (`1`, not `1.0`).
+            #[allow(clippy::cast_possible_truncation, clippy::float_cmp)]
+            Some(Kind::NumberValue(n)) if n.fract() == 0.0 && n.abs() <= EXACT => {
+                serializer.serialize_i64(*n as i64)
+            }
+            Some(Kind::NumberValue(n)) => serializer.serialize_f64(*n),
+            Some(Kind::StringValue(s)) => serializer.serialize_str(s),
+            Some(Kind::BoolValue(b)) => serializer.serialize_bool(*b),
+            Some(Kind::StructValue(s)) => s.serialize(serializer),
+            Some(Kind::ListValue(l)) => l.serialize(serializer),
+        }
+    }
+}
+
+/// Any JSON value, as a `Value`.
+struct ValueVisitor;
+
+impl<'de> Visitor<'de> for ValueVisitor {
+    type Value = Value;
+
+    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("a JSON value")
+    }
+
+    fn visit_unit<E: de::Error>(self) -> Result<Value, E> {
+        Ok(kind(Kind::NullValue(NullValue::NullValue.into())))
+    }
+
+    fn visit_none<E: de::Error>(self) -> Result<Value, E> {
+        self.visit_unit()
+    }
+
+    fn visit_bool<E: de::Error>(self, b: bool) -> Result<Value, E> {
+        Ok(kind(Kind::BoolValue(b)))
+    }
+
+    #[allow(clippy::cast_precision_loss)]
+    fn visit_i64<E: de::Error>(self, n: i64) -> Result<Value, E> {
+        Ok(kind(Kind::NumberValue(n as f64)))
+    }
+
+    #[allow(clippy::cast_precision_loss)]
+    fn visit_u64<E: de::Error>(self, n: u64) -> Result<Value, E> {
+        Ok(kind(Kind::NumberValue(n as f64)))
+    }
+
+    fn visit_f64<E: de::Error>(self, n: f64) -> Result<Value, E> {
+        Ok(kind(Kind::NumberValue(n)))
+    }
+
+    fn visit_str<E: de::Error>(self, s: &str) -> Result<Value, E> {
+        Ok(kind(Kind::StringValue(s.to_string())))
+    }
+
+    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Value, A::Error> {
+        let mut values = Vec::new();
+        while let Some(value) = seq.next_element::<Value>()? {
+            values.push(value);
+        }
+        Ok(kind(Kind::ListValue(ListValue { values })))
+    }
+
+    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Value, A::Error> {
+        let mut fields = BTreeMap::new();
+        while let Some((key, value)) = map.next_entry::<String, Value>()? {
+            fields.insert(key, value);
+        }
+        Ok(kind(Kind::StructValue(Struct { fields })))
+    }
+}
+
+fn kind(kind: Kind) -> Value {
+    Value { kind: Some(kind) }
+}
+
+impl<'de> Deserialize<'de> for Value {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Value, D::Error> {
+        deserializer.deserialize_any(ValueVisitor)
+    }
+}
+
+impl<'de> Deserialize<'de> for Struct {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Struct, D::Error> {
+        match Value::deserialize(deserializer)?.kind {
+            Some(Kind::StructValue(s)) => Ok(s),
+            _ => Err(de::Error::custom(
+                "a google.protobuf.Struct is a JSON object",
+            )),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ListValue {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<ListValue, D::Error> {
+        match Value::deserialize(deserializer)?.kind {
+            Some(Kind::ListValue(l)) => Ok(l),
+            _ => Err(de::Error::custom(
+                "a google.protobuf.ListValue is a JSON array",
+            )),
+        }
     }
 }
 

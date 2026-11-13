@@ -1,6 +1,8 @@
 //! The well-known types' proto3 JSON.
 
-use crate::google::protobuf::{FieldMask, Timestamp};
+use std::collections::BTreeMap;
+
+use crate::google::protobuf::{value::Kind, FieldMask, ListValue, Struct, Timestamp, Value};
 
 fn json<T: serde::Serialize>(value: &T) -> String {
     serde_json::to_string(value).expect("serializes")
@@ -55,4 +57,54 @@ fn test_a_field_mask_is_its_camel_case_paths_joined() {
     assert_eq!(read, mask);
     let empty: FieldMask = serde_json::from_str(r#""""#).expect("reads");
     assert!(empty.paths.is_empty());
+}
+
+fn number(n: f64) -> Value {
+    Value {
+        kind: Some(Kind::NumberValue(n)),
+    }
+}
+
+#[test]
+fn test_a_struct_is_the_object_itself_its_keys_in_order() {
+    let mut fields = BTreeMap::new();
+    fields.insert(
+        "defaultMode".to_string(),
+        Value {
+            kind: Some(Kind::StringValue("acceptEdits".to_string())),
+        },
+    );
+    fields.insert(
+        "allow".to_string(),
+        Value {
+            kind: Some(Kind::ListValue(ListValue {
+                values: vec![
+                    Value {
+                        kind: Some(Kind::BoolValue(true)),
+                    },
+                    number(1.0),
+                    number(1.5),
+                    Value { kind: None },
+                ],
+            })),
+        },
+    );
+    let document = Struct { fields };
+    assert_eq!(
+        json(&document),
+        r#"{"allow":[true,1,1.5,null],"defaultMode":"acceptEdits"}"#
+    );
+    let read: Struct = serde_json::from_str(&json(&document)).expect("reads");
+    assert_eq!(json(&read), json(&document));
+    assert!(serde_json::from_str::<Struct>("[1]").is_err());
+    assert!(serde_json::from_str::<ListValue>("{}").is_err());
+}
+
+#[test]
+fn test_a_number_no_double_holds_as_json_is_its_word() {
+    assert_eq!(json(&number(f64::NAN)), r#""NaN""#);
+    assert_eq!(json(&number(f64::INFINITY)), r#""Infinity""#);
+    assert_eq!(json(&number(f64::NEG_INFINITY)), r#""-Infinity""#);
+    assert_eq!(json(&number(-3.0)), "-3");
+    assert_eq!(json(&number(1e300)), "1e+300");
 }

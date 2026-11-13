@@ -9,7 +9,8 @@
 //! an enum by its value's name, a 64-bit integer as a decimal string. The
 //! well-known types the package uses are this crate's own
 //! ([`google::protobuf`]), with their JSON mapping written by hand
-//! (`wkt.rs`): a `Timestamp` RFC 3339 in UTC,
+//! (`wkt.rs`): a `Timestamp` RFC 3339 in UTC, a `Struct` the object itself
+//! (its keys sorted),
 //! a `FieldMask` its paths in one string.
 
 /// The generated package, nested as its proto package is.

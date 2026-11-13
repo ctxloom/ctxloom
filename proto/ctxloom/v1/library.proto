@@ -1,0 +1,1758 @@
+syntax = "proto3";
+
+// THE LIBRARY AS AIP RESOURCES (OD-40; the design is
+// library-aip-resources.md, ruled by the owner 2026-11-13, OQ-1 to OQ-21).
+// Every library verb's `--format json` is the proto3 JSON of its API
+// message, generated (OQ-21), converted from library-application's views at
+// the CLI's edge (design §6: views unchanged; at T13 the same mapping moves
+// into the daemon). The `Ctxloom` service's methods over these messages are
+// in daemon.proto; this file holds the messages alone (S1 amended: one
+// service, one package, AIP-215).
+//
+// THE RESOURCE TREE (AIP-121, 122, 123; type domain `ctxloom.dev`). Each
+// pattern's order is fixed once published (AIP-123):
+//
+//   ctxloom.dev/Project     projects/{project}                  (daemon.proto)
+//   ctxloom.dev/User        users/me                            the home layer,
+//                                                               outside a project (OQ-3)
+//   ctxloom.dev/Bundle      1 projects/{project}/bundles/{bundle}
+//                           2 projects/{project}/remotes/{remote}/bundles/{bundle}
+//                           3 projects/{project}/companions/{companion}/bundles/{bundle}
+//                           4 users/me/bundles/{bundle}
+//   ctxloom.dev/Fragment    each Bundle pattern + /fragments/{fragment}
+//   ctxloom.dev/Command     each Bundle pattern + /commands/{command}
+//   ctxloom.dev/Skill       each Bundle pattern + /skills/{skill}
+//   ctxloom.dev/McpServer   each Bundle pattern + /mcpServers/{mcp_server}
+//   ctxloom.dev/Profile     each Bundle pattern + /profiles/{profile}
+//   ctxloom.dev/Agent       projects/{project}/agents/{agent}, users/me/agents/{agent}
+//   ctxloom.dev/Engine      projects/{project}/engines/{engine}, users/me/engines/{engine}
+//   ctxloom.dev/Companion   projects/{project}/companions/{companion},
+//                           users/me/companions/{companion}
+//   ctxloom.dev/Remote      projects/{project}/remotes/{remote}
+//   ctxloom.dev/Dependency  projects/{project}/dependencies/{dependency}
+//   ctxloom.dev/Config      projects/{project}/config, users/me/config (singletons, AIP-156)
+//   ctxloom.dev/PremiseIndex projects/{project}/premiseIndex (a singleton)
+//
+// ORIGIN IS IN THE NAME (OQ-4): a project's bundle and the built-in one are
+// `projects/{p}/bundles/{b}` (a project bundle named `ctxloom` overrides the
+// built-in whole: one name whose `origin` flips, ruling 128); an installed
+// remote bundle is `projects/{p}/remotes/{r}/bundles/{b}`; a companion's
+// loadout `projects/{p}/companions/{c}/bundles/loadout`. Outside a project
+// the root is `users/me` (OQ-3), so the built-in bundle is
+// `users/me/bundles/ctxloom`. Two bundles never share a name.
+//
+// IDS (AIP-122: an ID's format must be documented). The owner ruled a
+// STRICTER grammar for items (OQ-6, a hard migrate of content names; one in
+// another person's remote bundle that breaks it is refused, with a fix), and
+// a nested local bundle name (`team/rules`) refused (OQ-5):
+//
+//   item-id = letter [ *61( letter / digit / "-" ) ( letter / digit ) ]
+//   letter  = %x61-7A          ; a to z: lowercase ASCII only
+//   digit   = %x30-39          ; 0 to 9
+//
+// that is, as a regular expression, `^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$`:
+// one to 63 characters, lowercase ASCII letters, digits and hyphens, starting
+// with a letter and not ending with a hyphen (RFC 1034's label, AIP-122's
+// recommendation). No uppercase, underscore, dot, space, `/` or `\`. It is
+// the ID of a Bundle, Fragment, Command, Skill, McpServer and Profile (the
+// file or directory name on disk, which must therefore be one).
+//
+//   - An Engine's ID is the fixed engine name (`claude-code`, `opencode`;
+//     `mock*` only under test-support), which the grammar holds.
+//   - An Agent's, a Companion's and a Remote's ID is its config key,
+//     verbatim: one name segment (no `/`), as the config's own decode
+//     admits it.
+//   - A Project's is its harp (S42), and so is a session's (daemon.proto).
+//   - A Dependency's ID is the first 16 lowercase hexadecimal digits of the
+//     SHA-256 of its lock identity (OQ-15; `reference` holds the identity):
+//     `^[0-9a-f]{16}$`.
+//   - `uid`, where a resource has one, is a field and never part of a name.
+//
+// CONVENTIONS (design §2):
+//   - Field numbers: 1 `name` (or `parent`); 2..69 the resource's own; 70
+//     `etag` on a resource; 80, 81 paging; 90+ the request and the response
+//     fields (90 `needs`, 91 `etag`, 92 `notices`).
+//   - Field behaviours (AIP-203) are COMMENTS until the vendored annotations
+//     land (daemon.proto's TODO(S36)): IDENTIFIER on `name`; OUTPUT_ONLY on
+//     everything derived.
+//   - `name` is reserved for the resource's name (AIP-122): a sub-row that
+//     said `name` says what it is (`agent`, `variable`, `resource`).
+//   - A reference is a resource name; one that resolves to nothing keeps its
+//     configured text and is said in a notice (OQ-16).
+//   - A field readable from the name is not repeated (`bundle`, `remote`,
+//     `bundle_label`, `is_remote`, `display_name` are gone).
+//   - DEFAULTS ARE LEFT OUT (OQ-7, proto3 JSON): false, 0, "" and [] are not
+//     printed. The yes/no facts a reader must see as `false` have presence
+//     (`optional`): `applied`, `held`, `default`, `resolves`, `no_distill`.
+//   - Counts and token estimates are `uint32` (JSON numbers), byte sizes
+//     `uint64` (JSON strings) (OQ-12).
+//   - A free-form document (an engine's permissions, the config) is a
+//     `google.protobuf.Struct` (OQ-11): printed as the object itself, so its
+//     paths keep their shape; schema-less, so nothing of claude's or
+//     opencode's configuration is encoded here (the owner's condition); its
+//     numbers are doubles for display only, and the engine still receives
+//     the document verbatim from the config, never from this message.
+//   - Every write method answers a response of ITS OWN (OQ-9:
+//     `CreateBundleResponse`, `UpdateBundleResponse`, ..., not a per-noun
+//     wrapper), each carrying the resource, `path`, `applied`, `detail`,
+//     `apply_command` (OQ-8: the exact command that applies a preview),
+//     `needs` (90), `etag` (91) and `notices` (92). Nothing in process
+//     computes needs or an etag before T13.
+//   - A stale etag is ABORTED (OQ-10, AIP-154): daemon.proto's `PlanStale`.
+//   - Every List is AIP-132's from the start: `page_size` 80, `page_token`
+//     81, `next_page_token` 80; in process every page is the whole list.
+//   - Views (AIP-157): BASIC is a list row, FULL is `show`, CONTENT (a
+//     bundle) is `view`; UNSPECIFIED is BASIC for a List and FULL for a Get.
+package ctxloom.v1;
+
+import "google/protobuf/field_mask.proto";
+import "google/protobuf/struct.proto";
+import "ctxloom/v1/needs.proto";
+
+// region shared
+
+// Where a bundle comes from.
+enum Origin {
+  ORIGIN_UNSPECIFIED = 0;
+  // The project's own (`.ctxloom/content/bundles/...`).
+  ORIGIN_PROJECT = 1;
+  // ctxloom's built-in bundle (`ctxloom/builtin`, ruling 127).
+  ORIGIN_BUILTIN = 2;
+  // An installed remote bundle.
+  ORIGIN_REMOTE = 3;
+  // A companion's loadout.
+  ORIGIN_COMPANION = 4;
+  // users/me's own bundles, if any exist (OQ-3).
+  ORIGIN_HOME = 5;
+}
+
+// A value and the config place that said it (ruling 72): `agent`, `engine`,
+// `project` or `default`. was: SourcedValue.
+message SourcedText {
+  string value = 1;
+  string source = 2;
+}
+
+message SourcedList {
+  repeated string value = 1;
+  string source = 2;
+}
+
+// An engine's own document (rulings 133-139), as written; none is unset.
+message SourcedDocument {
+  google.protobuf.Struct value = 1;
+  string source = 2;
+}
+
+// The runtime an agent runs in, and what its own replaced (never silent):
+// `overrides` the value that would have stood, `overrides_source` its
+// layer, `change` how they differ (`weakens`, `strengthens`,
+// `ownership-swap`). was: RuntimeSetting.
+message RuntimeSetting {
+  string value = 1;
+  string source = 2;
+  string overrides = 3;
+  string overrides_source = 4;
+  string change = 5;
+}
+
+// One name of an agent's env and the layer that said it. was: EnvKey
+// (`name` -> `variable`, AIP-122).
+message EnvKey {
+  string variable = 1;
+  string source = 2;
+}
+
+// The names a launch passes through (ruling 66). was: EnvSetting.
+message EnvSetting {
+  repeated string value = 1;
+  string source = 2;
+  repeated EnvKey keys = 3;
+}
+
+// What an agent resolves to on an engine. was: AgentSettings.
+message AgentSettings {
+  SourcedText model = 1;
+  SourcedText effort = 2;
+  SourcedDocument permissions = 3;
+  RuntimeSetting runtime = 4;
+  EnvSetting env = 5;
+}
+
+// An engine surface an agent's selection cannot reach. was: NotCarried.
+message NotCarried {
+  string engine = 1;
+  string surface = 2;
+  string event = 3;
+  string reason = 4;
+}
+
+// What a write answers (OQ-8, OQ-9): the fields every per-method response
+// repeats, at the same numbers. This message is not used itself; it
+// documents the shape.
+//   2 path            the one atomic operation's target (T25)
+//   3 applied         printed false on a preview (OQ-7)
+//   4 detail          what the preview would change. was: Preview.detail
+//   5 apply_command   the exact command that applies. was: apply
+//   6 changes         an edit's changes; empty, nothing changed
+//   90 needs, 91 etag, 92 notices
+
+// endregion
+
+// region bundles: ctxloom.dev/Bundle
+
+enum BundleView {
+  BUNDLE_VIEW_UNSPECIFIED = 0;
+  // `bundle list`.
+  BUNDLE_VIEW_BASIC = 1;
+  // `bundle show`.
+  BUNDLE_VIEW_FULL = 2;
+  // `bundle view <bundle>`.
+  BUNDLE_VIEW_CONTENT = 3;
+}
+
+message Bundle {
+  // IDENTIFIER: one of the four Bundle patterns.
+  string name = 1;
+  // OUTPUT_ONLY. was: origin.
+  Origin origin = 2;
+  // OUTPUT_ONLY. was: ref (`ctxloom+local:demo`, `<url>@bundles/x`).
+  string reference = 3;
+  // OUTPUT_ONLY, a remote bundle's commit. was: RemoteOrigin.sha.
+  string commit = 4;
+  // OUTPUT_ONLY: its bundle.yaml.
+  string path = 5;
+  string version = 6;
+  // FULL.
+  string author = 7;
+  string description = 8;
+  repeated string tags = 9;
+  // FULL.
+  string notes = 10;
+  // FULL.
+  string installation = 11;
+  // OUTPUT_ONLY counts.
+  uint32 fragment_count = 12;
+  uint32 command_count = 13;
+  // was: mcp_count.
+  uint32 mcp_server_count = 14;
+  uint32 profile_count = 15;
+  uint32 skill_count = 16;
+  // OUTPUT_ONLY, a remote bundle's: always printed when known.
+  optional bool held = 17;
+  // OUTPUT_ONLY, FULL: each child summarised by its name (OQ-14).
+  repeated BundleItem fragments = 20;
+  repeated BundleItem commands = 21;
+  repeated BundleItem skills = 22;
+  repeated BundleItem mcp_servers = 23;
+  // OUTPUT_ONLY, FULL: Profile names.
+  repeated string profiles = 24;
+  // OUTPUT_ONLY, FULL: hook labels.
+  repeated string hooks = 25;
+  // OUTPUT_ONLY, CONTENT: each file of `bundle view`.
+  repeated BundleFile files = 26;
+  // OUTPUT_ONLY, CONTENT: the distilled forms were asked.
+  optional bool distilled = 27;
+  string etag = 70;
+}
+
+// One child as `bundle show` summarises it (AIP-122: the referenced
+// resource is not embedded). was: ShownFragment, ShownCommand, ShownSkill,
+// ShownMcp.
+message BundleItem {
+  // The child's resource name.
+  string item = 1;
+  repeated string tags = 2;
+  // Commands.
+  string description = 3;
+  // Fragments, commands: the first line.
+  string preview = 4;
+  DistilledState distilled = 5;
+  // Printed true or false (OQ-7).
+  optional bool no_distill = 6;
+  // Fragments.
+  string premise = 7;
+  // MCP servers.
+  string command = 8;
+  repeated string args = 9;
+  // MCP servers: values included, as shown today (OQ-17).
+  map<string, string> env = 10;
+  string notes = 11;
+  string installation = 12;
+  // Skills.
+  string path = 13;
+}
+
+// One file of `bundle view <bundle>`.
+message BundleFile {
+  string path = 1;
+  string content = 2;
+}
+
+message GetBundleRequest {
+  string name = 1;
+  BundleView view = 2;
+  // `--distilled`: a distilled form where one is fresh.
+  bool prefer_distilled = 3;
+}
+
+message ListBundlesRequest {
+  // `projects/{project}` answers the whole catalog, every origin (a lint
+  // exception to AIP-132's "parent identifies the type", design §1.2);
+  // `projects/{project}/remotes/-` every remote bundle alone (AIP-159).
+  string parent = 1;
+  BundleView view = 2;
+  int32 page_size = 80;
+  string page_token = 81;
+}
+
+message ListBundlesResponse {
+  repeated Bundle bundles = 1;
+  string next_page_token = 80;
+}
+
+message CreateBundleRequest {
+  string parent = 1;
+  string bundle_id = 2;
+  Bundle bundle = 3;
+  string request_id = 90;
+  bool validate_only = 92;
+  repeated Answer answers = 93;
+  EnvVars env = 94;
+  Presentable presentable = 95;
+  Globals globals = 96;
+}
+
+message CreateBundleResponse {
+  Bundle bundle = 1;
+  string path = 2;
+  optional bool applied = 3;
+  repeated string detail = 4;
+  string apply_command = 5;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+message UpdateBundleRequest {
+  Bundle bundle = 1;
+  // Exactly ONE path (T29); more is refused `OneChangePerCall`.
+  google.protobuf.FieldMask update_mask = 2;
+  string request_id = 90;
+  string etag = 91;
+  bool validate_only = 92;
+  repeated Answer answers = 93;
+  Presentable presentable = 95;
+  Globals globals = 96;
+}
+
+message UpdateBundleResponse {
+  Bundle bundle = 1;
+  string path = 2;
+  optional bool applied = 3;
+  repeated string detail = 4;
+  string apply_command = 5;
+  repeated string changes = 6;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+message DeleteBundleRequest {
+  string name = 1;
+  string request_id = 90;
+  string etag = 91;
+  // Without `--yes`: the preview.
+  bool validate_only = 92;
+  repeated Answer answers = 93;
+  Presentable presentable = 95;
+  Globals globals = 96;
+}
+
+// A delete answers the resource as it was.
+message DeleteBundleResponse {
+  Bundle bundle = 1;
+  string path = 2;
+  optional bool applied = 3;
+  repeated string detail = 4;
+  string apply_command = 5;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+// `bundle export <bundle> <dest>` (AIP-136).
+message ExportBundleRequest {
+  string name = 1;
+  string destination = 2;
+  string request_id = 90;
+  bool validate_only = 92;
+  Globals globals = 96;
+}
+
+// was: {status, name, source, dest}.
+message ExportBundleResponse {
+  string bundle = 1;
+  string source = 2;
+  string destination = 3;
+  optional bool applied = 4;
+  string apply_command = 5;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+// `bundle import <path> [--force]` (AIP-136, on the collection).
+message ImportBundleRequest {
+  string parent = 1;
+  string source = 2;
+  bool force = 3;
+  string request_id = 90;
+  string etag = 91;
+  bool validate_only = 92;
+  repeated Answer answers = 93;
+  Presentable presentable = 95;
+  Globals globals = 96;
+}
+
+// The bundle imported, with its counts. was: {status, source, dest,
+// version, fragments, commands, mcp}.
+message ImportBundleResponse {
+  Bundle bundle = 1;
+  string path = 2;
+  optional bool applied = 3;
+  repeated string detail = 4;
+  string apply_command = 5;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+// `bundle move <bundle> --to` (AIP-136; Move is its exception for
+// imperative verbs). The bundle under its new name. was: {status, dest}.
+message MoveBundleRequest {
+  string name = 1;
+  // The new parent (a project or a remote).
+  string destination = 2;
+  string request_id = 90;
+  bool validate_only = 92;
+  Globals globals = 96;
+}
+
+message MoveBundleResponse {
+  Bundle bundle = 1;
+  string path = 2;
+  optional bool applied = 3;
+  repeated string detail = 4;
+  string apply_command = 5;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+// `bundle push <bundle> <remote>` (AIP-136). Its response's fields are
+// B4's to write (the design gives `Pushed`, "field for field"; see the
+// open note at the end of this file).
+message PushBundleRequest {
+  string name = 1;
+  string remote = 2;
+  string request_id = 90;
+  bool validate_only = 92;
+  Globals globals = 96;
+}
+
+// endregion
+
+// region fragments and commands: ctxloom.dev/Fragment, ctxloom.dev/Command
+
+enum DistilledState {
+  DISTILLED_STATE_UNSPECIFIED = 0;
+  // No distilled form.
+  DISTILLED_STATE_NONE = 1;
+  // Its recorded source digest matches the `.md` now.
+  DISTILLED_STATE_FRESH = 2;
+  // It does not, or records none (T30).
+  DISTILLED_STATE_STALE = 3;
+}
+
+enum ItemView {
+  ITEM_VIEW_UNSPECIFIED = 0;
+  ITEM_VIEW_BASIC = 1;
+  ITEM_VIEW_FULL = 2;
+}
+
+message Fragment {
+  // IDENTIFIER: a Bundle pattern + `/fragments/{fragment}`.
+  string name = 1;
+  // OUTPUT_ONLY. was: ref (`demo#fragments/x`).
+  string reference = 2;
+  // OUTPUT_ONLY: the bundle's tags, then its own.
+  repeated string tags = 3;
+  // FULL. was: ItemShow.content.
+  string body = 4;
+  // OUTPUT_ONLY.
+  DistilledState distilled = 5;
+  optional bool no_distill = 6;
+  string premise = 7;
+  // OUTPUT_ONLY: the first line.
+  string preview = 8;
+  // OUTPUT_ONLY, FULL: the body served is the distilled form.
+  bool body_is_distilled = 9;
+  // OUTPUT_ONLY.
+  string path = 10;
+  string etag = 70;
+}
+
+message Command {
+  // IDENTIFIER: a Bundle pattern + `/commands/{command}`.
+  string name = 1;
+  string reference = 2;
+  repeated string tags = 3;
+  string body = 4;
+  DistilledState distilled = 5;
+  optional bool no_distill = 6;
+  string description = 7;
+  string preview = 8;
+  bool body_is_distilled = 9;
+  string path = 10;
+  string etag = 70;
+}
+
+message GetFragmentRequest {
+  string name = 1;
+  ItemView view = 2;
+  bool prefer_distilled = 3;
+}
+
+message ListFragmentsRequest {
+  // A bundle, or `projects/{project}/bundles/-` (AIP-159).
+  string parent = 1;
+  repeated string tags = 2;
+  ItemView view = 3;
+  int32 page_size = 80;
+  string page_token = 81;
+}
+
+message ListFragmentsResponse {
+  repeated Fragment fragments = 1;
+  string next_page_token = 80;
+}
+
+message CreateFragmentRequest {
+  string parent = 1;
+  string fragment_id = 2;
+  Fragment fragment = 3;
+  string request_id = 90;
+  bool validate_only = 92;
+  repeated Answer answers = 93;
+  EnvVars env = 94;
+  Presentable presentable = 95;
+  Globals globals = 96;
+}
+
+message CreateFragmentResponse {
+  Fragment fragment = 1;
+  string path = 2;
+  optional bool applied = 3;
+  repeated string detail = 4;
+  string apply_command = 5;
+  // The bundle was made for it. was: ItemCreated.bundle_created.
+  bool bundle_created = 7;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+message UpdateFragmentRequest {
+  Fragment fragment = 1;
+  google.protobuf.FieldMask update_mask = 2;
+  string request_id = 90;
+  string etag = 91;
+  bool validate_only = 92;
+  repeated Answer answers = 93;
+  EnvVars env = 94;
+  Presentable presentable = 95;
+  Globals globals = 96;
+}
+
+message UpdateFragmentResponse {
+  Fragment fragment = 1;
+  string path = 2;
+  optional bool applied = 3;
+  repeated string detail = 4;
+  string apply_command = 5;
+  repeated string changes = 6;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+message DeleteFragmentRequest {
+  string name = 1;
+  string request_id = 90;
+  string etag = 91;
+  bool validate_only = 92;
+  repeated Answer answers = 93;
+  Presentable presentable = 95;
+  Globals globals = 96;
+}
+
+message DeleteFragmentResponse {
+  Fragment fragment = 1;
+  string path = 2;
+  optional bool applied = 3;
+  repeated string detail = 4;
+  string apply_command = 5;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+// `fragment distill` (T30, the distill step's): the `.distilled.md` alone,
+// recording the source's digest; `clear` removes it.
+message DistillFragmentRequest {
+  string name = 1;
+  bool clear = 2;
+  string request_id = 90;
+  bool validate_only = 92;
+  EnvVars env = 94;
+  Globals globals = 96;
+}
+
+message DistillFragmentResponse {
+  Fragment fragment = 1;
+  string path = 2;
+  optional bool applied = 3;
+  repeated string detail = 4;
+  string apply_command = 5;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+// `fragment draft-premise` (the distill step's).
+message DraftFragmentPremiseRequest {
+  string name = 1;
+  string request_id = 90;
+  bool validate_only = 92;
+  EnvVars env = 94;
+  Globals globals = 96;
+}
+
+message DraftFragmentPremiseResponse {
+  Fragment fragment = 1;
+  string path = 2;
+  optional bool applied = 3;
+  repeated string detail = 4;
+  string apply_command = 5;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+message GetCommandRequest {
+  string name = 1;
+  ItemView view = 2;
+  bool prefer_distilled = 3;
+}
+
+message ListCommandsRequest {
+  string parent = 1;
+  repeated string tags = 2;
+  ItemView view = 3;
+  int32 page_size = 80;
+  string page_token = 81;
+}
+
+message ListCommandsResponse {
+  repeated Command commands = 1;
+  string next_page_token = 80;
+}
+
+message CreateCommandRequest {
+  string parent = 1;
+  string command_id = 2;
+  Command command = 3;
+  string request_id = 90;
+  bool validate_only = 92;
+  repeated Answer answers = 93;
+  EnvVars env = 94;
+  Presentable presentable = 95;
+  Globals globals = 96;
+}
+
+message CreateCommandResponse {
+  Command command = 1;
+  string path = 2;
+  optional bool applied = 3;
+  repeated string detail = 4;
+  string apply_command = 5;
+  bool bundle_created = 7;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+message UpdateCommandRequest {
+  Command command = 1;
+  google.protobuf.FieldMask update_mask = 2;
+  string request_id = 90;
+  string etag = 91;
+  bool validate_only = 92;
+  repeated Answer answers = 93;
+  EnvVars env = 94;
+  Presentable presentable = 95;
+  Globals globals = 96;
+}
+
+message UpdateCommandResponse {
+  Command command = 1;
+  string path = 2;
+  optional bool applied = 3;
+  repeated string detail = 4;
+  string apply_command = 5;
+  repeated string changes = 6;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+message DeleteCommandRequest {
+  string name = 1;
+  string request_id = 90;
+  string etag = 91;
+  bool validate_only = 92;
+  repeated Answer answers = 93;
+  Presentable presentable = 95;
+  Globals globals = 96;
+}
+
+message DeleteCommandResponse {
+  Command command = 1;
+  string path = 2;
+  optional bool applied = 3;
+  repeated string detail = 4;
+  string apply_command = 5;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+message DistillCommandRequest {
+  string name = 1;
+  bool clear = 2;
+  string request_id = 90;
+  bool validate_only = 92;
+  EnvVars env = 94;
+  Globals globals = 96;
+}
+
+message DistillCommandResponse {
+  Command command = 1;
+  string path = 2;
+  optional bool applied = 3;
+  repeated string detail = 4;
+  string apply_command = 5;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+// `fragment premises`: the premise index (a singleton).
+message PremiseEntry {
+  // The Fragment's name. was: PremiseRow.name.
+  string fragment = 1;
+  string premise = 2;
+}
+
+message PremiseIndex {
+  // `projects/{project}/premiseIndex`.
+  string name = 1;
+  string instruction = 2;
+  repeated PremiseEntry fragments = 3;
+}
+
+message GetPremiseIndexRequest {
+  string name = 1;
+}
+
+// endregion
+
+// region skills: ctxloom.dev/Skill
+
+message SkillFile {
+  string path = 1;
+  string sha256 = 2;
+  // The sidecar's `executable:` list (owner 2026-11-12). was: mode.
+  bool executable = 3;
+}
+
+message Skill {
+  // IDENTIFIER: a Bundle pattern + `/skills/{skill}`.
+  string name = 1;
+  string description = 2;
+  repeated string tags = 3;
+  // FULL.
+  string license = 4;
+  string compatibility = 5;
+  repeated string allowed_tools = 6;
+  string body = 7;
+  // OUTPUT_ONLY, FULL.
+  repeated SkillFile files = 8;
+  // OUTPUT_ONLY.
+  uint32 file_count = 9;
+  string notes = 10;
+  // OUTPUT_ONLY: the directory.
+  string path = 11;
+  string etag = 70;
+}
+
+message GetSkillRequest {
+  string name = 1;
+  ItemView view = 2;
+}
+
+message ListSkillsRequest {
+  string parent = 1;
+  ItemView view = 2;
+  int32 page_size = 80;
+  string page_token = 81;
+}
+
+message ListSkillsResponse {
+  repeated Skill skills = 1;
+  string next_page_token = 80;
+}
+
+message CreateSkillRequest {
+  string parent = 1;
+  string skill_id = 2;
+  Skill skill = 3;
+  string request_id = 90;
+  bool validate_only = 92;
+  repeated Answer answers = 93;
+  EnvVars env = 94;
+  Presentable presentable = 95;
+  Globals globals = 96;
+}
+
+message CreateSkillResponse {
+  Skill skill = 1;
+  string path = 2;
+  optional bool applied = 3;
+  repeated string detail = 4;
+  string apply_command = 5;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+message DeleteSkillRequest {
+  string name = 1;
+  string request_id = 90;
+  string etag = 91;
+  bool validate_only = 92;
+  repeated Answer answers = 93;
+  Presentable presentable = 95;
+  Globals globals = 96;
+}
+
+message DeleteSkillResponse {
+  Skill skill = 1;
+  string path = 2;
+  optional bool applied = 3;
+  repeated string detail = 4;
+  string apply_command = 5;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+// `skill export` (AIP-136): the skill as one zip.
+message ExportSkillRequest {
+  string name = 1;
+  string destination = 2;
+  string request_id = 90;
+  bool validate_only = 92;
+  Globals globals = 96;
+}
+
+message ExportSkillResponse {
+  string skill = 1;
+  string zip_path = 2;
+  uint64 bytes = 3;
+  optional bool applied = 4;
+  string apply_command = 5;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+// `skill import` (AIP-136, on the collection).
+message ImportSkillRequest {
+  string parent = 1;
+  string source = 2;
+  bool force = 3;
+  string request_id = 90;
+  bool validate_only = 92;
+  repeated Answer answers = 93;
+  Presentable presentable = 95;
+  Globals globals = 96;
+}
+
+message ImportSkillResponse {
+  Skill skill = 1;
+  string path = 2;
+  optional bool applied = 3;
+  repeated string detail = 4;
+  string apply_command = 5;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+// endregion
+
+// region MCP servers: ctxloom.dev/McpServer
+
+message McpServer {
+  // IDENTIFIER: a Bundle pattern + `/mcpServers/{mcp_server}`.
+  string name = 1;
+  string command = 2;
+  repeated string args = 3;
+  // Values included, as `mcp server show` prints them today (OQ-17: kept).
+  map<string, string> env = 4;
+  string url = 5;
+  // OUTPUT_ONLY: the Companion that serves it.
+  string served_by = 6;
+  string notes = 7;
+  string installation = 8;
+  string etag = 70;
+}
+
+message GetMcpServerRequest {
+  string name = 1;
+}
+
+message ListMcpServersRequest {
+  // A bundle, or `projects/{project}/bundles/-`.
+  string parent = 1;
+  // `mcp server show <short name>`: the servers of every bundle with this
+  // ID (a typed filter, API Q8); none matching is an empty list and the
+  // existing notice.
+  string mcp_server_id = 2;
+  int32 page_size = 80;
+  string page_token = 81;
+}
+
+message ListMcpServersResponse {
+  repeated McpServer mcp_servers = 1;
+  string next_page_token = 80;
+}
+
+// `mcp server set|edit`: create-on-update for a client-named resource
+// (AIP-134 `allow_missing`).
+message UpdateMcpServerRequest {
+  McpServer mcp_server = 1;
+  google.protobuf.FieldMask update_mask = 2;
+  bool allow_missing = 3;
+  string request_id = 90;
+  string etag = 91;
+  bool validate_only = 92;
+  repeated Answer answers = 93;
+  EnvVars env = 94;
+  Presentable presentable = 95;
+  Globals globals = 96;
+}
+
+message UpdateMcpServerResponse {
+  McpServer mcp_server = 1;
+  string path = 2;
+  optional bool applied = 3;
+  repeated string detail = 4;
+  string apply_command = 5;
+  repeated string changes = 6;
+  // It did not exist: the update created it. was: status `created`.
+  bool created = 7;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+// endregion
+
+// region profiles: ctxloom.dev/Profile
+
+message Profile {
+  // IDENTIFIER: a Bundle pattern + `/profiles/{profile}`; a project's own
+  // are in its bundle `project`.
+  string name = 1;
+  string description = 2;
+  // Profile names. was: the asks.
+  repeated string parents = 3;
+  repeated string tags = 4;
+  // Bundle names.
+  repeated string bundles = 5;
+  // FULL.
+  map<string, string> variables = 6;
+  repeated string exclude_fragments = 7;
+  // was: exclude_mcp.
+  repeated string exclude_mcp_servers = 8;
+  // OUTPUT_ONLY: a default profile, printed true or false (OQ-7).
+  optional bool default = 9;
+  // OUTPUT_ONLY.
+  string path = 10;
+  string etag = 70;
+}
+
+message GetProfileRequest {
+  string name = 1;
+  ItemView view = 2;
+}
+
+message ListProfilesRequest {
+  string parent = 1;
+  ItemView view = 2;
+  int32 page_size = 80;
+  string page_token = 81;
+}
+
+message ListProfilesResponse {
+  repeated Profile profiles = 1;
+  string next_page_token = 80;
+}
+
+message CreateProfileRequest {
+  string parent = 1;
+  string profile_id = 2;
+  Profile profile = 3;
+  string request_id = 90;
+  bool validate_only = 92;
+  repeated Answer answers = 93;
+  EnvVars env = 94;
+  Presentable presentable = 95;
+  Globals globals = 96;
+}
+
+message CreateProfileResponse {
+  Profile profile = 1;
+  string path = 2;
+  optional bool applied = 3;
+  repeated string detail = 4;
+  string apply_command = 5;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+message UpdateProfileRequest {
+  Profile profile = 1;
+  google.protobuf.FieldMask update_mask = 2;
+  string request_id = 90;
+  string etag = 91;
+  bool validate_only = 92;
+  repeated Answer answers = 93;
+  EnvVars env = 94;
+  Presentable presentable = 95;
+  Globals globals = 96;
+}
+
+message UpdateProfileResponse {
+  Profile profile = 1;
+  string path = 2;
+  optional bool applied = 3;
+  repeated string detail = 4;
+  string apply_command = 5;
+  repeated string changes = 6;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+message DeleteProfileRequest {
+  string name = 1;
+  string request_id = 90;
+  string etag = 91;
+  bool validate_only = 92;
+  repeated Answer answers = 93;
+  Presentable presentable = 95;
+  Globals globals = 96;
+}
+
+message DeleteProfileResponse {
+  Profile profile = 1;
+  string path = 2;
+  optional bool applied = 3;
+  repeated string detail = 4;
+  string apply_command = 5;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+message ExportProfileRequest {
+  string name = 1;
+  string destination = 2;
+  string request_id = 90;
+  bool validate_only = 92;
+  Globals globals = 96;
+}
+
+message ExportProfileResponse {
+  string profile = 1;
+  string source = 2;
+  string destination = 3;
+  optional bool applied = 4;
+  string apply_command = 5;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+message ImportProfileRequest {
+  string parent = 1;
+  string source = 2;
+  bool force = 3;
+  string request_id = 90;
+  bool validate_only = 92;
+  repeated Answer answers = 93;
+  Presentable presentable = 95;
+  Globals globals = 96;
+}
+
+message ImportProfileResponse {
+  Profile profile = 1;
+  string path = 2;
+  optional bool applied = 3;
+  repeated string detail = 4;
+  string apply_command = 5;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+// endregion
+
+// region agents: ctxloom.dev/Agent
+
+// An agent's block for one engine (ruling 57): what is in that engine's
+// vocabulary. was: agents.<n>.engines.<e>.
+message AgentEngine {
+  string model = 1;
+  string effort = 2;
+  // The engine's own document, verbatim (rulings 133-139).
+  google.protobuf.Struct permissions = 3;
+}
+
+message RequirementSource {
+  string kind = 1;
+  string reference = 2;
+}
+
+message Requirement {
+  string command = 1;
+  repeated RequirementSource sources = 2;
+}
+
+// What an agent resolves to (its settings flattened, as today). was:
+// ResolvedAgent.
+message ResolvedAgent {
+  repeated string profiles = 1;
+  // The Engine's name.
+  string engine = 2;
+  SourcedText model = 3;
+  SourcedText effort = 4;
+  SourcedDocument permissions = 5;
+  RuntimeSetting runtime = 6;
+  EnvSetting env = 7;
+  string context = 8;
+  repeated string fragments = 9;
+  string driving = 10;
+  string session_home = 11;
+  string command = 12;
+}
+
+enum AgentView {
+  AGENT_VIEW_UNSPECIFIED = 0;
+  AGENT_VIEW_BASIC = 1;
+  AGENT_VIEW_FULL = 2;
+}
+
+message Agent {
+  // IDENTIFIER: `projects/{project}/agents/{agent}`, `users/me/agents/{agent}`.
+  string name = 1;
+  // The Engine's name.
+  string engine = 2;
+  // Profile names.
+  repeated string profiles = 3;
+  string runtime = 4;
+  string driving = 5;
+  repeated string env = 6;
+  // Keyed by engine ID, so `engines.<e>.model` keeps its path.
+  map<string, AgentEngine> engines = 7;
+  // OUTPUT_ONLY: the default agent, printed true or false (OQ-7).
+  optional bool default = 8;
+  // OUTPUT_ONLY, FULL.
+  ResolvedAgent resolved = 20;
+  string resolution_error = 21;
+  repeated Requirement requirements = 22;
+  string requirements_error = 23;
+  repeated NotCarried not_carried = 24;
+  string etag = 70;
+}
+
+message GetAgentRequest {
+  string name = 1;
+  AgentView view = 2;
+}
+
+message ListAgentsRequest {
+  string parent = 1;
+  AgentView view = 2;
+  int32 page_size = 80;
+  string page_token = 81;
+}
+
+message ListAgentsResponse {
+  repeated Agent agents = 1;
+  string next_page_token = 80;
+}
+
+message CreateAgentRequest {
+  string parent = 1;
+  string agent_id = 2;
+  Agent agent = 3;
+  string request_id = 90;
+  bool validate_only = 92;
+  repeated Answer answers = 93;
+  EnvVars env = 94;
+  Presentable presentable = 95;
+  Globals globals = 96;
+}
+
+message CreateAgentResponse {
+  Agent agent = 1;
+  string path = 2;
+  optional bool applied = 3;
+  repeated string detail = 4;
+  string apply_command = 5;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+message UpdateAgentRequest {
+  Agent agent = 1;
+  google.protobuf.FieldMask update_mask = 2;
+  string request_id = 90;
+  string etag = 91;
+  bool validate_only = 92;
+  repeated Answer answers = 93;
+  EnvVars env = 94;
+  Presentable presentable = 95;
+  Globals globals = 96;
+}
+
+// An engine swap's preview adds `from`, `to` and `not_carried`. was:
+// AgentWritten, SwapPreview.
+message UpdateAgentResponse {
+  Agent agent = 1;
+  string path = 2;
+  optional bool applied = 3;
+  repeated string detail = 4;
+  string apply_command = 5;
+  repeated string changes = 6;
+  // The Engine names of a swap.
+  string from = 7;
+  string to = 8;
+  repeated NotCarried not_carried = 9;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+message DeleteAgentRequest {
+  string name = 1;
+  string request_id = 90;
+  string etag = 91;
+  bool validate_only = 92;
+  repeated Answer answers = 93;
+  Presentable presentable = 95;
+  Globals globals = 96;
+}
+
+message DeleteAgentResponse {
+  Agent agent = 1;
+  string path = 2;
+  optional bool applied = 3;
+  repeated string detail = 4;
+  string apply_command = 5;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+// `agent default <agent>` (AIP-136).
+message SetDefaultAgentRequest {
+  // The project (or `users/me`).
+  string parent = 1;
+  // The Agent's name.
+  string agent = 2;
+  string request_id = 90;
+  bool validate_only = 92;
+  Globals globals = 96;
+}
+
+message SetDefaultAgentResponse {
+  // The Agent's name.
+  string agent = 1;
+  // It is defined (a default may name an agent nobody defined).
+  bool defined = 2;
+  optional bool applied = 3;
+  string apply_command = 5;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+// endregion
+
+// region engines: ctxloom.dev/Engine (read-only, ruling 43)
+
+// Where an engine's credential comes from: a word (`none`, `login`,
+// `token`), or a source of variables and a file. A name or a path, never a
+// value. was: AuthSetting.value.
+message AuthValue {
+  string word = 1;
+  repeated string env = 2;
+  string file = 3;
+}
+
+enum AuthState {
+  AUTH_STATE_UNSPECIFIED = 0;
+  AUTH_STATE_PRESENT = 1;
+  AUTH_STATE_MISSING = 2;
+  AUTH_STATE_NOT_NEEDED = 3;
+}
+
+// was: AuthSetting.
+message EngineAuth {
+  AuthValue value = 1;
+  string source = 2;
+  AuthState state = 3;
+  // The variable's name or the file's path that authenticates.
+  string via = 4;
+}
+
+// One agent of an engine (bound to it, or with a block for it, ruling 57)
+// and what it resolves to there. Its settings are flat (design §3.8's
+// recommendation, for path stability: `agents[...].model.value`). was:
+// EngineAgent (`name` -> `agent`, AIP-122).
+message EngineAgent {
+  // The Agent's name.
+  string agent = 1;
+  SourcedText model = 2;
+  SourcedText effort = 3;
+  SourcedDocument permissions = 4;
+  RuntimeSetting runtime = 5;
+  EnvSetting env = 6;
+}
+
+message Engine {
+  // IDENTIFIER: `projects/{project}/engines/{engine}`,
+  // `users/me/engines/{engine}`. Everything else is OUTPUT_ONLY: derived
+  // from the layered config.
+  string name = 1;
+  SourcedText command = 2;
+  SourcedText session_home = 3;
+  SourcedText runtime = 4;
+  SourcedList env = 5;
+  EngineAuth auth = 6;
+  repeated EngineAgent agents = 7;
+}
+
+message GetEngineRequest {
+  string name = 1;
+}
+
+message ListEnginesRequest {
+  string parent = 1;
+  int32 page_size = 80;
+  string page_token = 81;
+}
+
+message ListEnginesResponse {
+  repeated Engine engines = 1;
+  string next_page_token = 80;
+}
+
+// endregion
+
+// region companions: ctxloom.dev/Companion
+
+message Companion {
+  // IDENTIFIER.
+  string name = 1;
+  // OUTPUT_ONLY: `ctxloom-companion-<name>`.
+  string bin = 2;
+  // was: CompanionRow.command.
+  repeated string command = 3;
+  // OUTPUT_ONLY: its program resolves, printed true or false. was: exists.
+  optional bool resolves = 4;
+  // M4 adds (additive): enabled, the layer that registered it.
+}
+
+message ListCompanionsRequest {
+  string parent = 1;
+  int32 page_size = 80;
+  string page_token = 81;
+}
+
+message ListCompanionsResponse {
+  repeated Companion companions = 1;
+  string next_page_token = 80;
+}
+
+message CreateCompanionRequest {
+  string parent = 1;
+  string companion_id = 2;
+  Companion companion = 3;
+  string request_id = 90;
+  bool validate_only = 92;
+  Globals globals = 96;
+}
+
+// was: CompanionAdded{name, command, added}.
+message CreateCompanionResponse {
+  Companion companion = 1;
+  string path = 2;
+  optional bool applied = 3;
+  repeated string detail = 4;
+  string apply_command = 5;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+message DeleteCompanionRequest {
+  string name = 1;
+  string request_id = 90;
+  string etag = 91;
+  bool validate_only = 92;
+  Globals globals = 96;
+}
+
+// was: CompanionRemoved{name, removed}, Preview.
+message DeleteCompanionResponse {
+  Companion companion = 1;
+  string path = 2;
+  optional bool applied = 3;
+  repeated string detail = 4;
+  string apply_command = 5;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+// endregion
+
+// region remotes: ctxloom.dev/Remote
+
+message Remote {
+  // IDENTIFIER: `projects/{project}/remotes/{remote}`.
+  string name = 1;
+  string url = 2;
+  string forge = 3;
+  // OUTPUT_ONLY: the default remote, printed true or false (OQ-7). was:
+  // RemoteListing.default (one name).
+  optional bool default = 4;
+  string etag = 70;
+}
+
+message GetRemoteRequest {
+  string name = 1;
+}
+
+message ListRemotesRequest {
+  string parent = 1;
+  int32 page_size = 80;
+  string page_token = 81;
+}
+
+message ListRemotesResponse {
+  repeated Remote remotes = 1;
+  string next_page_token = 80;
+}
+
+message CreateRemoteRequest {
+  string parent = 1;
+  string remote_id = 2;
+  Remote remote = 3;
+  string request_id = 90;
+  bool validate_only = 92;
+  Globals globals = 96;
+}
+
+// The warning of today's `Created` is a notice.
+message CreateRemoteResponse {
+  Remote remote = 1;
+  string path = 2;
+  optional bool applied = 3;
+  repeated string detail = 4;
+  string apply_command = 5;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+message UpdateRemoteRequest {
+  Remote remote = 1;
+  google.protobuf.FieldMask update_mask = 2;
+  string request_id = 90;
+  string etag = 91;
+  bool validate_only = 92;
+  Globals globals = 96;
+}
+
+// The remote after the write and its `changes`, no `before` (OQ-18).
+message UpdateRemoteResponse {
+  Remote remote = 1;
+  string path = 2;
+  optional bool applied = 3;
+  repeated string detail = 4;
+  string apply_command = 5;
+  repeated string changes = 6;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+message DeleteRemoteRequest {
+  string name = 1;
+  string request_id = 90;
+  string etag = 91;
+  bool validate_only = 92;
+  Globals globals = 96;
+}
+
+message DeleteRemoteResponse {
+  Remote remote = 1;
+  string path = 2;
+  optional bool applied = 3;
+  repeated string detail = 4;
+  string apply_command = 5;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+// `remote default [r] [--clear]` (AIP-136).
+message SetDefaultRemoteRequest {
+  string parent = 1;
+  // The Remote's name; empty clears it.
+  string remote = 2;
+  string request_id = 90;
+  bool validate_only = 92;
+  Globals globals = 96;
+}
+
+message SetDefaultRemoteResponse {
+  // The Remote's name; empty, none.
+  string remote = 1;
+  optional bool applied = 3;
+  string apply_command = 5;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+// endregion
+
+// region dependencies: ctxloom.dev/Dependency
+
+message Dependency {
+  // IDENTIFIER: `projects/{project}/dependencies/{dependency}`, the ID the
+  // 16 hex digits of the SHA-256 of its lock identity (OQ-15).
+  string name = 1;
+  // OUTPUT_ONLY: the lock identity.
+  string reference = 2;
+  // OUTPUT_ONLY: the Bundle (or Profile) it installs. was: name.
+  string bundle = 3;
+  // OUTPUT_ONLY. was: sha.
+  string commit = 4;
+  string constraint = 5;
+  // Printed true or false (OQ-7).
+  optional bool held = 6;
+  // OUTPUT_ONLY: the Remote's name, empty when none matches. was: origin.
+  string remote = 7;
+  // OUTPUT_ONLY.
+  string url = 8;
+}
+
+message ListDependenciesRequest {
+  string parent = 1;
+  int32 page_size = 80;
+  string page_token = 81;
+}
+
+message ListDependenciesResponse {
+  repeated Dependency dependencies = 1;
+  string next_page_token = 80;
+}
+
+// `deps hold <ref>` (AIP-136): the dependency, held.
+message HoldDependencyRequest {
+  string name = 1;
+  string request_id = 90;
+  Globals globals = 96;
+}
+
+// `deps unhold <ref>`, `deps hold --undo`.
+message ReleaseDependencyRequest {
+  string name = 1;
+  string request_id = 90;
+  Globals globals = 96;
+}
+
+// endregion
+
+// region config: ctxloom.dev/Config
+
+enum ConfigView {
+  CONFIG_VIEW_UNSPECIFIED = 0;
+  // `config show`: the layered config in effect.
+  CONFIG_VIEW_EFFECTIVE = 1;
+  // `config show --raw`: what the layers set.
+  CONFIG_VIEW_SET = 2;
+}
+
+message Config {
+  // IDENTIFIER: `projects/{project}/config`, `users/me/config`.
+  string name = 1;
+  // What `config show [section]` printed: `document.agents.default.engine`.
+  google.protobuf.Struct document = 2;
+  string etag = 70;
+}
+
+message GetConfigRequest {
+  string name = 1;
+  ConfigView view = 2;
+  // One top-level section (AIP-157 deprecates a read mask, AIP-161).
+  string section = 3;
+  Globals globals = 96;
+}
+
+// `config set` (T29): one key per call.
+message UpdateConfigRequest {
+  string name = 1;
+  string path = 2;
+  string value = 3;
+  bool home = 4;
+  string request_id = 90;
+  string etag = 91;
+  bool validate_only = 92;
+  repeated Answer answers = 93;
+  EnvVars env = 94;
+  Presentable presentable = 95;
+  Globals globals = 96;
+}
+
+message UpdateConfigResponse {
+  Config config = 1;
+  string path = 2;
+  optional bool applied = 3;
+  repeated string detail = 4;
+  string apply_command = 5;
+  repeated string changes = 6;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+// `config create` (AIP-136: AIP-156 forbids Create on a singleton).
+message ScaffoldConfigRequest {
+  string name = 1;
+  string request_id = 90;
+  bool validate_only = 92;
+  Globals globals = 96;
+}
+
+message ScaffoldConfigResponse {
+  Config config = 1;
+  string path = 2;
+  optional bool applied = 3;
+  repeated string detail = 4;
+  string apply_command = 5;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+// endregion
+
+// region search: `projects/{project}:searchLibrary` (AIP-136, stateless)
+
+enum ItemKind {
+  ITEM_KIND_UNSPECIFIED = 0;
+  ITEM_KIND_BUNDLE = 1;
+  ITEM_KIND_FRAGMENT = 2;
+  ITEM_KIND_COMMAND = 3;
+  ITEM_KIND_SKILL = 4;
+  ITEM_KIND_MCP_SERVER = 5;
+  ITEM_KIND_PROFILE = 6;
+}
+
+// A local hit. was: a hit's `name` (-> `resource`), `type` (-> `kind`).
+message SearchHit {
+  string resource = 1;
+  ItemKind kind = 2;
+  repeated string tags = 3;
+  string source = 4;
+  string match = 5;
+}
+
+// A remote's item, not installed (so no resource name): `item` is its path
+// in the remote.
+message RemoteFound {
+  // The Remote's name.
+  string remote = 1;
+  string item = 2;
+  ItemKind kind = 3;
+  repeated string tags = 4;
+  string description = 5;
+  string author = 6;
+  string pull_reference = 7;
+}
+
+message SearchLibraryRequest {
+  string parent = 1;
+  string query = 2;
+  repeated string tags = 3;
+  ItemKind kind = 4;
+  bool local = 5;
+  bool remote = 6;
+  int32 page_size = 80;
+  string page_token = 81;
+  Globals globals = 96;
+}
+
+message SearchLibraryResponse {
+  string query = 1;
+  repeated SearchHit local = 2;
+  repeated RemoteFound remote = 3;
+  uint32 count = 4;
+  uint32 hidden_local = 5;
+  string next_page_token = 80;
+}
+
+// endregion
+
+// NOT YET WRITTEN, B4's (remotes) on a ruling: the responses of
+// `PushBundle`, `BrowseRemote`, `DiscoverRemotes`, `PullDependencies`,
+// `CheckDependencies` and `UpgradeDependencies`. The design gives them as
+// today's views "field for field" (`Pushed`, `Browsed`, `Discovered`,
+// `PullReport`, `CheckReport`/`CheckedRef`, `UpgradeReport`), whose
+// yes/no facts (`create_pr`, `is_dir`, `incomplete`, `in_lockfile`,
+// `up_to_date`, `nothing_declared`) lie outside OQ-7's five with presence,
+// and whose `ref`/`type`/`name` keys AIP-122 renames: their shapes wait on
+// the owner.

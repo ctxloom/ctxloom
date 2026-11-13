@@ -100,3 +100,15 @@ message Notice {
   repeated NeedArg args = 2;
   string text = 3;
 }
+
+// The caller's environment (S7).
+message EnvVars {
+  repeated EnvVar vars = 1;
+}
+
+// The global flags (`library_application::Flags`).
+message Globals {
+  bool degraded = 1;
+  bool no_companions = 2;
+  repeated string config_set = 3;
+}

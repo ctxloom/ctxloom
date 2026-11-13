@@ -1412,7 +1412,17 @@ push or pull request builds it.
 The release profile (owner ruling 2026-11-12, Cargo.toml's
 `[profile.release]`) is fat LTO, one codegen unit, opt-level 3,
 `debug = "line-tables-only"` and `strip = "none"`, unwinding panics; cargo's
-strip is not used, because it deletes what a debug file needs.
+strip is not used, because it deletes what the debug file needs. Stripping is
+packaging's: `just release-package <linux|macos|windows> [out] [name]`
+(`scripts/release-package.sh`) builds the release binary and writes it
+stripped NEXT TO its debug file: linux `<name>` (`objcopy --strip-all
+--add-gnu-debuglink`) and `<name>.debug` (`--only-keep-debug
+--compress-debug-sections=zlib`), the build ids checked equal and, with an
+llvm-symbolizer found, `main` of the stripped binary resolved to file:line
+through the debug file (`scripts/release-package.selftest.sh` proves the same
+on a C program); macOS `<name>` (stripped after the dSYM, signed again ad
+hoc, its UUID the dSYM's) and `<name>.dSYM.zip`; Windows `<name>.exe` as
+built and `<name>.pdb`. `split-debuginfo` is cargo's default.
 
 Releases (`.github/workflows/release.yml`, owner ruling 2026-11-12): a person
 runs `just set-version <v>`, commits, and pushes the tag `v<v>` on that

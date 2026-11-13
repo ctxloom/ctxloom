@@ -229,6 +229,28 @@ release-binary profile="release":
     [ -f "$built.exe" ] && built=$built.exe
     echo "$built"
 
+# The release's files for `os` (linux, macos or windows): the release-profile
+# binary, stripped, next to its debug file (linux `<name>.debug` by its
+# .gnu_debuglink and build id, macOS `<name>.dSYM.zip`, Windows `<name>.exe`
+# with `<name>.pdb`), in `out`, named `<name>` (release.yml's
+# `ctxloom-<stamp>-<os>-<arch>`; by default `ctxloom-<stamp>-<os>-<machine>`).
+# scripts/release-package.sh does the work; on linux it also proves the debug
+# file resolves an address of the stripped binary to file:line when an
+# llvm-symbolizer is found. stdout: the files' paths, one per line.
+[group('install')]
+[doc("Package the release binary with its debug file: release-package <linux|macos|windows> [out] [name]")]
+[no-exit-message]
+release-package os out="dist" name="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    bin=$(just --justfile {{TOP}}/justfile release-binary release)
+    name='{{name}}'
+    if [ -z "$name" ]; then
+        stamp=$("$bin" version --format json | jq -r .version | tr -d '\r')
+        name="ctxloom-$stamp-{{os}}-$(uname -m)"
+    fi
+    {{TOP}}/scripts/release-package.sh '{{os}}' "${bin%.exe}" '{{out}}' "$name"
+
 # Install the arch-lint binary at the pinned ctxloom-lib commit, unless it is
 # there; and refuse a pin that differs from the one Cargo.toml has.
 [private]
@@ -360,6 +382,7 @@ selftest:
     @{{TOP}}/scripts/dev-local.selftest.sh
     @{{TOP}}/scripts/path-deps-check.selftest.sh
     @{{TOP}}/scripts/commit-msg.selftest.sh
+    @{{TOP}}/scripts/release-package.selftest.sh
 
 # Run the ctxloom binary (cargo run, quiet) with the given arguments.
 [group('dev')]

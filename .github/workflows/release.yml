@@ -1,8 +1,12 @@
 # The release (owner ruling 2026-11-12): on a pushed `v*` tag, the PLAIN
-# binary (`just release-binary`: no test-support, no session-destroy, cargo's
-# release profile, versionator-stamped by build.rs) for linux x86_64, windows
-# x86_64 and macOS arm64, and a SHA-256 checksums file, attached to a GitHub
-# release for the tag. A person cuts it: `just set-version <v>`, commit, push
+# binary (no test-support, no session-destroy, Cargo.toml's release profile,
+# versionator-stamped by build.rs) for linux x86_64, windows x86_64 and macOS
+# arm64, each stripped NEXT TO its debug file (`just release-package <os>`:
+# linux `<name>` and `<name>.debug`, macOS `<name>` and `<name>.dSYM.zip`,
+# Windows `<name>.exe` and `<name>.pdb`), and a SHA-256 checksums file
+# covering every one of them, all attached to a GitHub release for the tag.
+# Each platform's binary and debug file are two artifacts: `<name>` and
+# `<name>-debug`. A person cuts it: `just set-version <v>`, commit, push
 # the tag `v<v>` (CLAUDE.md, "Releases"). The tag must be VERSION's, or the
 # build refuses: the stamp says VERSION, and a release named otherwise would
 # lie.
@@ -111,25 +115,34 @@ jobs:
           fi
       - name: Tool versions
         run: just --version; protoc --version; jq --version; command -v versionator
-      # The plain binary, named for the release by its stamp and platform.
-      - name: Build the plain release binary
+      # The plain binary, named for the release by its stamp and platform,
+      # stripped next to its debug file.
+      - name: Package the plain release binary
         id: binary
         env:
+          OS: ${{ matrix.os }}
           PLATFORM: ${{ matrix.os }}-${{ matrix.arch }}
         run: |
           bin=$(just release-binary)
           stamp=$("$bin" version --format json | jq -r .version | tr -d '\r')
-          ext=; [ "$RUNNER_OS" = Windows ] && ext=.exe
           name="ctxloom-$stamp-$PLATFORM"
-          mkdir -p dist
-          cp "$bin" "dist/$name$ext"
+          just release-package "$OS" dist "$name" > packaged
+          cat packaged
+          [ "$(wc -l < packaged)" -eq 2 ]
           echo "name=$name" >> "$GITHUB_OUTPUT"
-          echo "file=dist/$name$ext" >> "$GITHUB_OUTPUT"
-          echo "$name$ext"
+          # Relative paths: the upload action does not read an MSYS path.
+          echo "file=dist/$(basename "$(sed -n 1p packaged)")" >> "$GITHUB_OUTPUT"
+          echo "debug=dist/$(basename "$(sed -n 2p packaged)")" >> "$GITHUB_OUTPUT"
+          ls -l dist
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ steps.binary.outputs.name }}
           path: ${{ steps.binary.outputs.file }}
+          if-no-files-found: error
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.binary.outputs.name }}-debug
+          path: ${{ steps.binary.outputs.debug }}
           if-no-files-found: error
       - name: The gate's log
         if: failure()
@@ -150,6 +163,8 @@ jobs:
           cd dist
           sha256sum ctxloom-* > SHA256SUMS
           cat SHA256SUMS
+          # Three platforms, each a binary and its debug file.
+          [ "$(wc -l < SHA256SUMS)" -eq 6 ]
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: SHA256SUMS

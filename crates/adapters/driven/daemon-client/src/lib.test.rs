@@ -239,6 +239,10 @@ async fn the_debug_withholds_the_bearer() {
     let found = serve(&certificate(), &token(0xab)).await;
     let shown = format!("{:?}", DaemonClient::new(&found, WITHIN));
     assert!(!shown.contains(&token(0xab).to_text()), "{shown}");
+    // It says which daemon, and that the bearer is withheld.
+    assert!(shown.starts_with("DaemonClient {"), "{shown}");
+    assert!(shown.contains(&found.endpoint), "{shown}");
+    assert!(shown.contains("bearer: \"<redacted>\""), "{shown}");
 }
 
 // angzarr's own UNAUTHENTICATED carries a google.rpc.ErrorInfo detail: it is

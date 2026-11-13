@@ -86,9 +86,13 @@ fn test_creating_a_bundle_answers_in_json_and_in_text() {
                 format!("Created bundle: {manifest}\nEdit its item files to add your fragments and prompts.\n")
             );
         } else {
+            // OD-40: `CreateBundleResponse`.
             let doc = ran.json();
-            assert_eq!(reports_as(&doc, "status"), "created");
-            assert_eq!(reports_as(&doc, "name"), "demo");
+            assert_eq!(reports_as(&doc, "applied"), "true");
+            assert!(
+                reports_as(&doc, "bundle.name").ends_with("/bundles/demo"),
+                "{doc}"
+            );
             assert_eq!(reports_as(&doc, "path"), manifest);
         }
     }
@@ -161,8 +165,14 @@ fn test_the_listing_follows_an_edit_by_version_and_by_what_it_holds() {
                 .contains("Contains: 2 fragments");
         } else {
             let doc = ran.json();
-            assert_eq!(reports_as(&doc, "[name=demo].version"), "2.0.0");
-            assert_eq!(reports_as(&doc, "[name=demo].fragment_count"), "2");
+            assert_eq!(
+                reports_as(&doc, "bundles[name$=/bundles/demo].version"),
+                "2.0.0"
+            );
+            assert_eq!(
+                reports_as(&doc, "bundles[name$=/bundles/demo].fragment_count"),
+                "2"
+            );
         }
     }
 }
@@ -176,7 +186,7 @@ fn test_an_attached_mcp_server_is_reached_by_the_selector() {
         .run(&["bundle", "edit", "demo", "--add-mcp", "tree-sitter"])
         .succeeds();
     project
-        .run(&["bundle", "view", "demo#mcp/tree-sitter"])
+        .run(&["bundle", "view", "demo#mcp/tree-sitter", "--format", "text"])
         .succeeds()
         .contains("# MCP Server: tree-sitter")
         .contains("command: tree-sitter");
@@ -309,7 +319,9 @@ fn test_an_edit_names_what_it_changed() {
         "json",
     ]);
     again.succeeds();
-    assert_eq!(reports_as(&again.json(), "status"), "no_changes");
+    // OD-40: `UpdateBundleResponse`, nothing applied and no change listed.
+    assert_eq!(reports_as(&again.json(), "applied"), "false");
+    assert_eq!(entries(&again.json(), "changes"), 0);
     let removed = project.run(&[
         "bundle",
         "edit",
@@ -322,7 +334,7 @@ fn test_an_edit_names_what_it_changed() {
         "json",
     ]);
     let doc = removed.json();
-    assert_eq!(reports_as(&doc, "status"), "updated");
+    assert_eq!(reports_as(&doc, "applied"), "true");
     assert_eq!(reports_as(&doc, "changes.0"), "removed tag: golang");
     assert_eq!(reports_as(&doc, "changes.1"), "removed fragment: testing");
 }
@@ -339,7 +351,8 @@ fn test_an_edit_that_was_told_to_change_nothing_says_so() {
         if is_text(flags) {
             ran.contains("No changes made.");
         } else {
-            assert_eq!(reports_as(&ran.json(), "status"), "no_changes");
+            assert_eq!(reports_as(&ran.json(), "applied"), "false");
+            assert_eq!(entries(&ran.json(), "changes"), 0);
         }
         project.file_contains(&format!("{DEMO}/bundle.yaml"), "acceptance fixture bundle");
         assert_eq!(project.tree(DEMO), before, "a no-op edit wrote something");
@@ -361,7 +374,8 @@ fn test_an_edit_restating_what_is_there_changes_nothing_and_a_missing_bundle_is_
         all.extend(args);
         let ran = project.run(&all);
         ran.succeeds();
-        assert_eq!(reports_as(&ran.json(), "status"), "no_changes", "{all:?}");
+        assert_eq!(reports_as(&ran.json(), "applied"), "false", "{all:?}");
+        assert_eq!(entries(&ran.json(), "changes"), 0, "{all:?}");
     }
     assert_eq!(project.tree(DEMO), before);
     project
@@ -435,11 +449,15 @@ fn test_export_and_import_answer_and_carry_the_whole_tree() {
                 format!("Exported: {} -> out/demo\n", manifest)
             );
         } else {
+            // OD-40: `ExportBundleResponse`.
             let doc = exported.json();
-            assert_eq!(reports_as(&doc, "status"), "exported");
-            assert_eq!(reports_as(&doc, "name"), "demo");
+            assert_eq!(reports_as(&doc, "applied"), "true");
+            assert!(
+                reports_as(&doc, "bundle").ends_with("/bundles/demo"),
+                "{doc}"
+            );
             assert_eq!(reports_as(&doc, "source"), manifest);
-            assert_eq!(reports_as(&doc, "dest"), "out/demo");
+            assert_eq!(reports_as(&doc, "destination"), "out/demo");
         }
         assert_eq!(project.tree("out/demo"), project.tree(DEMO));
         project
@@ -456,13 +474,18 @@ fn test_export_and_import_answer_and_carry_the_whole_tree() {
                 )
             );
         } else {
+            // OD-40: `ImportBundleResponse`, the bundle with its counts.
             let doc = imported.json();
-            assert_eq!(reports_as(&doc, "status"), "imported");
-            assert_eq!(reports_as(&doc, "source"), "out/demo");
-            assert_eq!(reports_as(&doc, "version"), "1.0.0");
-            assert_eq!(reports_as(&doc, "fragments"), "1");
-            assert_eq!(reports_as(&doc, "commands"), "1");
-            assert_eq!(reports_as(&doc, "mcp"), "1");
+            assert_eq!(reports_as(&doc, "applied"), "true");
+            assert!(
+                reports_as(&doc, "bundle.name").ends_with("/bundles/demo"),
+                "{doc}"
+            );
+            assert_eq!(reports_as(&doc, "path"), project.shown(DEMO));
+            assert_eq!(reports_as(&doc, "bundle.version"), "1.0.0");
+            assert_eq!(reports_as(&doc, "bundle.fragment_count"), "1");
+            assert_eq!(reports_as(&doc, "bundle.command_count"), "1");
+            assert_eq!(reports_as(&doc, "bundle.mcp_server_count"), "1");
         }
         assert_eq!(project.tree(DEMO), project.tree("out/demo"));
     }
@@ -554,13 +577,16 @@ fn test_bare_bundle_remove_reports_what_would_go_and_destroys_nothing() {
                 "Would remove bundle \"demo\":\n  2 fragment(s), 1 command(s)\n\nNothing was removed. Re-run with --yes to apply:\n  ctxloom bundle remove demo --yes\n"
             );
         } else {
+            // OD-40: `DeleteBundleResponse`, the preview's.
             let doc = ran.json();
-            assert_eq!(reports_as(&doc, "status"), "preview");
             assert_eq!(reports_as(&doc, "applied"), "false");
-            assert_eq!(reports_as(&doc, "target"), "bundle \"demo\"");
+            assert!(
+                reports_as(&doc, "bundle.name").ends_with("/bundles/demo"),
+                "{doc}"
+            );
             assert_eq!(reports_as(&doc, "detail.0"), "2 fragment(s), 1 command(s)");
             assert_eq!(
-                reports_as(&doc, "apply"),
+                reports_as(&doc, "apply_command"),
                 "ctxloom bundle remove demo --yes"
             );
         }
@@ -572,7 +598,10 @@ fn test_bare_bundle_remove_reports_what_would_go_and_destroys_nothing() {
         );
         let listed = with_flags(&project, &["bundle", "list"], flags);
         if !is_text(flags) {
-            assert_eq!(reports_as(&listed.json(), "[name=demo].name"), "demo");
+            assert!(
+                reports_as(&listed.json(), "bundles[name$=/bundles/demo].name")
+                    .ends_with("/bundles/demo")
+            );
         }
     }
 }
@@ -594,8 +623,11 @@ fn test_removing_a_bundle_with_yes_takes_the_file_and_the_listing_entry() {
             assert_eq!(ran.stdout, format!("Removed bundle: {}\n", manifest));
         } else {
             let doc = ran.json();
-            assert_eq!(reports_as(&doc, "status"), "deleted");
-            assert_eq!(reports_as(&doc, "name"), "demo");
+            assert_eq!(reports_as(&doc, "applied"), "true");
+            assert!(
+                reports_as(&doc, "bundle.name").ends_with("/bundles/demo"),
+                "{doc}"
+            );
             assert_eq!(reports_as(&doc, "path"), manifest);
         }
         // Exactly the target: the whole bundle's tree, items included (Go
@@ -607,8 +639,11 @@ fn test_removing_a_bundle_with_yes_takes_the_file_and_the_listing_entry() {
             listed.lacks("demo (v");
         } else {
             let doc = listed.json();
-            assert_eq!(entries(&doc, "$"), 1);
-            assert_eq!(reports_as(&doc, "[name=keep].name"), "keep");
+            assert_eq!(entries(&doc, "bundles"), 1);
+            assert!(
+                reports_as(&doc, "bundles.0.name").ends_with("/bundles/keep"),
+                "{doc}"
+            );
         }
     }
     let project = Project::initialized().on_gos_catalog();

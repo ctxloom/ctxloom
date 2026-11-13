@@ -97,11 +97,14 @@ fn test_alice_authors_a_skill_package_and_its_listing_and_show_reflect_the_real_
                 )
             );
         } else {
+            // OD-40: `CreateSkillResponse`.
             let doc = ran.json();
-            assert_eq!(reports_as(&doc, "status"), "created");
-            assert_eq!(reports_as(&doc, "bundle"), "vault");
-            assert_eq!(reports_as(&doc, "name"), "reviewer");
-            assert_eq!(reports_as(&doc, "dir"), dir);
+            assert_eq!(reports_as(&doc, "applied"), "true");
+            assert!(
+                reports_as(&doc, "skill.name").ends_with("/bundles/vault/skills/reviewer"),
+                "{doc}"
+            );
+            assert_eq!(reports_as(&doc, "path"), dir);
         }
         assert_eq!(
             project.read(&format!("{VAULT}/skills/reviewer/SKILL.md")).as_deref(),
@@ -184,7 +187,7 @@ fn test_removing_a_skill_drops_its_on_disk_directory() {
             let doc = ran.json();
             assert_eq!(reports_as(&doc, "applied"), "false");
             assert_eq!(
-                reports_as(&doc, "apply"),
+                reports_as(&doc, "apply_command"),
                 "ctxloom skill remove vault#skills/reviewer --yes"
             );
         }
@@ -208,8 +211,11 @@ fn test_removing_a_skill_drops_its_on_disk_directory() {
         ]);
         applied.succeeds();
         let doc = applied.json();
-        assert_eq!(reports_as(&doc, "name"), "reviewer");
-        assert_eq!(reports_as(&doc, "bundle"), "vault");
+        assert_eq!(reports_as(&doc, "applied"), "true");
+        assert!(
+            reports_as(&doc, "skill.name").ends_with("/bundles/vault/skills/reviewer"),
+            "{doc}"
+        );
         project.file_is_absent(&format!("{VAULT}/skills/reviewer"));
         // Exactly the target: the package and its sidecar; the neighbour stays.
         project.file_is_absent(&format!("{VAULT}/skills/.reviewer.meta.yaml"));
@@ -254,8 +260,12 @@ fn test_a_skills_files_survive_export_and_import_byte_for_byte() {
         );
         exported.succeeds();
         if !is_text(flags) {
+            // OD-40: `ExportSkillResponse`, its bytes a uint64 (OQ-12).
             let doc = exported.json();
-            assert_eq!(reports_as(&doc, "name"), "reviewer");
+            assert!(
+                reports_as(&doc, "skill").ends_with("/bundles/vault/skills/reviewer"),
+                "{doc}"
+            );
             assert_eq!(reports_as(&doc, "zip_path"), "reviewer.zip");
             let bytes: usize = reports_as(&doc, "bytes").parse().expect("a size");
             assert_eq!(
@@ -279,12 +289,15 @@ fn test_a_skills_files_survive_export_and_import_byte_for_byte() {
                 )
             );
         } else {
+            // OD-40: `ImportSkillResponse`.
             let doc = imported.json();
-            assert_eq!(reports_as(&doc, "status"), "imported");
-            assert_eq!(reports_as(&doc, "bundle"), "landed");
-            assert_eq!(reports_as(&doc, "name"), "reviewer");
-            assert_eq!(reports_as(&doc, "dir"), dir);
-            assert_eq!(reports_as(&doc, "file_count"), "3");
+            assert_eq!(reports_as(&doc, "applied"), "true");
+            assert!(
+                reports_as(&doc, "skill.name").ends_with("/bundles/landed/skills/reviewer"),
+                "{doc}"
+            );
+            assert_eq!(reports_as(&doc, "path"), dir);
+            assert_eq!(reports_as(&doc, "skill.file_count"), "3");
         }
         assert_eq!(
             project.tree(&format!("{LANDED}/skills/reviewer")),

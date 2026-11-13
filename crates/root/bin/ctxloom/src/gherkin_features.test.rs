@@ -284,8 +284,9 @@ fn the_not_containing_step_fails_where_containing_passes() {
 }
 
 /// `the skill list output includes "<skill>" from bundle "<bundle>"`: the
-/// listing has that skill of that bundle, json (`name` `<bundle>/<skill>`,
-/// `source` the bundle) or text (`- <bundle>/<skill>`), and no other.
+/// listing has that skill of that bundle, json (named
+/// `.../bundles/<bundle>/skills/<skill>`, OD-40) or text
+/// (`- <bundle>/<skill>`), and no other.
 #[test]
 fn the_skill_list_step_finds_a_skill_of_its_bundle_alone() {
     let project = super::library::Project::bare();

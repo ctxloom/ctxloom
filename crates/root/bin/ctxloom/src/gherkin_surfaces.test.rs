@@ -278,10 +278,12 @@ fn skill_listed(w: &mut World, skill: String, bundle: String) {
         ran.contains(&format!("- {name}"));
         return;
     };
-    let listed = doc.as_array().is_some_and(|skills| {
+    // OD-40: `ListSkillsResponse`, each skill named below its bundle.
+    let suffix = format!("/bundles/{bundle}/skills/{skill}");
+    let listed = doc["skills"].as_array().is_some_and(|skills| {
         skills
             .iter()
-            .any(|s| s["name"].as_str() == Some(&name) && s["source"].as_str() == Some(&bundle))
+            .any(|s| s["name"].as_str().is_some_and(|n| n.ends_with(&suffix)))
     });
     assert!(listed, "no skill {name} of bundle {bundle}: {}", ran.said());
 }

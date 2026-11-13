@@ -46,7 +46,14 @@ fn test_a_skills_listing_and_show_reflect_the_real_tree() {
     let file = |path: &str| files.iter().find(|f| f["path"] == path);
     assert!(file("SKILL.md").is_some(), "{doc}");
     let script = file("scripts/run.sh").expect("the script is listed");
-    assert_eq!(script["mode"], "0755", "{doc}");
+    // OD-40: the `Skill`'s file says it is executable, as its sidecar does.
+    assert_eq!(script["executable"], true, "{doc}");
+    assert!(
+        doc["name"]
+            .as_str()
+            .is_some_and(|n| n.ends_with("/bundles/vault/skills/reviewer")),
+        "{doc}"
+    );
     assert!(script["sha256"]
         .as_str()
         .is_some_and(|s| s.starts_with("sha256:")));

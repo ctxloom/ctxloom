@@ -367,7 +367,13 @@ fn profile_lacks_runbook(w: &mut World) {
         "agent show does not name the profile her agent runs: {agent}"
     );
     let profile = w.diagnosis_ran("ctxloom profile show").succeeds().json();
-    assert_eq!(profile["name"], "default", "{profile}");
+    // OD-40: the `Profile`, named in the project's own bundle.
+    assert!(
+        profile["name"]
+            .as_str()
+            .is_some_and(|n| n.ends_with("/bundles/project/profiles/default")),
+        "{profile}"
+    );
     let bundles: Vec<&str> = profile["bundles"]
         .as_array()
         .map(|b| b.iter().filter_map(Value::as_str).collect())

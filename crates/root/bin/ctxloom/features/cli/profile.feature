@@ -1,6 +1,10 @@
 # world: surfaces
 # Ported from cli/profile.feature (rev f36e8dfb2)
 # NOT ported: the scenarios tagged @pending.
+# OD-40 (aip/catalog, 2026-11-13): the JSON steps read the AIP resources of library.proto
+#   (design §5.5): a listing is `ListProfilesResponse` (`{profiles: [...]}`), a project's
+#   own profile is named `projects/{project}/bundles/project/profiles/<p>`, its parents and
+#   bundles are resource names, and a removal's preview says `apply_command`.
 @doc
 Feature: profile — the composition that decides what an agent actually receives
 
@@ -53,7 +57,7 @@ Feature: profile — the composition that decides what an agent actually receive
     # ONE BODY, ONCE PER ENCODING. Off a terminal ctxloom derives JSON, so the
     # no-flag row exercises the DEFAULT every script receives; the explicit
     # rows prove a typed --format wins in both directions. The count claim
-    # rides the text column — the payload is a bare array with no length
+    # rides the text column — the payload's `profiles` list has no length
     # field — while the structured rows address the entry BY PATH.
     Scenario Outline: Creating a profile writes its definition and it is listed back
       Given an initialized ctxloom project
@@ -70,14 +74,14 @@ Feature: profile — the composition that decides what an agent actually receive
       And the file ".ctxloom/content/bundles/v2/project/profiles/dev.yaml" contains "day-to-day-work"
       When I run "ctxloom profile list <flags>"
       Then the command succeeds
-      And the output reports "$.0.name" as "<the sole entry>"
-      And the output reports "$.0.description" as "<names the description>"
+      And the output reports "profiles.0.name" as "<the sole entry>"
+      And the output reports "profiles.0.description" as "<names the description>"
 
       @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | the sole entry | names the description |
-        |               | dev            | day-to-day-work        |
-        | --format json | dev            | day-to-day-work        |
+        |               | projects/{project}/bundles/project/profiles/dev | day-to-day-work |
+        | --format json | projects/{project}/bundles/project/profiles/dev | day-to-day-work |
         | --format text | Profiles (1):  | day-to-day-work        |
 
     # A profile with nothing to draw on has nothing to compose, so creation
@@ -112,8 +116,8 @@ Feature: profile — the composition that decides what an agent actually receive
       @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | names the profile | the composed bundle |
-        |               | dev                | demo                 |
-        | --format json | dev                | demo                 |
+        |               | projects/{project}/bundles/project/profiles/dev | projects/{project}/bundles/demo |
+        | --format json | projects/{project}/bundles/project/profiles/dev | projects/{project}/bundles/demo |
         | --format text | Profile: dev       | - demo               |
 
     # The bare noun answers rather than teaches, through the same seam
@@ -126,17 +130,17 @@ Feature: profile — the composition that decides what an agent actually receive
       And a profile "dev" with bundle "demo"
       When I run "ctxloom profile <flags>"
       Then the command succeeds
-      And the output reports "$.0.name" as "<the sole entry>"
+      And the output reports "profiles.0.name" as "<the sole entry>"
       And the output does not contain "Available Commands:"
       When I run "ctxloom profile ls <flags>"
       Then the command succeeds
-      And the output reports "$.0.name" as "<the sole entry>"
+      And the output reports "profiles.0.name" as "<the sole entry>"
 
       @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | the sole entry |
-        |               | dev            |
-        | --format json | dev            |
+        |               | projects/{project}/bundles/project/profiles/dev |
+        | --format json | projects/{project}/bundles/project/profiles/dev |
         | --format text | dev            |
 
   Rule: Composition is by attachment, and detaching takes the content back out
@@ -213,8 +217,8 @@ Feature: profile — the composition that decides what an agent actually receive
       @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | inherits the parent |
-        |               | base                 |
-        | --format json | base                 |
+        |               | projects/{project}/bundles/project/profiles/base |
+        | --format json | projects/{project}/bundles/project/profiles/base |
         | --format text | - base               |
 
     # A parent that does not exist is a composition that can never assemble.
@@ -236,11 +240,10 @@ Feature: profile — the composition that decides what an agent actually receive
 
     # `modify` with nothing to do must not read as a successful change.
     #
-    # NOT TABLED. `profile modify` is format debt
-    # (format_coverage_test.go's formatDebtAllowlist): it prints this prose
-    # regardless of the resolved format, and an EXPLICIT --format json
-    # request errors outright rather than rendering one — so there is no
-    # json row this scenario could give.
+    # NOT TABLED. `profile modify` prints this prose by default whatever the
+    # resolved format (it was Go's format debt); only an EXPLICIT --format
+    # json answers `UpdateProfileResponse` (OD-40, design §5.5), so the
+    # no-flag row this outline would give is prose, not json.
     Scenario: A modify that was told to change nothing says so
       Given an initialized ctxloom project
       And a bundle "demo" exists
@@ -337,8 +340,8 @@ Feature: profile — the composition that decides what an agent actually receive
     # nothing. The description-rewriting editor keeps the document valid, so
     # the round-trip is assertable on the file AND on the read-back surface.
     #
-    # NOT TABLED. `profile edit` is format debt, the same allowlist entry as
-    # `profile modify` above: prose only, no json row to give.
+    # NOT TABLED. `profile edit` answers prose by default, as `profile
+    # modify` above does: only an explicit --format json is json.
     Scenario: Editing a profile in the configured editor round-trips into the file
       Given a ctxloom project with a description-rewriting editor
       And a bundle "demo" exists
@@ -422,7 +425,7 @@ Feature: profile — the composition that decides what an agent actually receive
         """
       Then the command succeeds
       When I run "ctxloom profile list <flags>"
-      Then the output reports "$.0.name" as "<the reimported profile>"
+      Then the output reports "profiles.0.name" as "<the reimported profile>"
       When I run "ctxloom profile show dev <flags>"
       Then the command succeeds
       And the output reports "bundles" containing "<the composed bundle>"
@@ -430,8 +433,8 @@ Feature: profile — the composition that decides what an agent actually receive
       @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | the reimported profile | the composed bundle |
-        |               | dev                     | demo                 |
-        | --format json | dev                     | demo                 |
+        |               | projects/{project}/bundles/project/profiles/dev | projects/{project}/bundles/demo |
+        | --format json | projects/{project}/bundles/project/profiles/dev | projects/{project}/bundles/demo |
         | --format text | dev                     | - demo               |
 
     # The clobber guard, proven by what SURVIVES the refusal rather than by the
@@ -515,20 +518,20 @@ Feature: profile — the composition that decides what an agent actually receive
       Then the command succeeds
       And the output reports "applied" as "<nothing was applied>"
       And the output reports "detail" containing "<the cost>"
-      And the output reports "apply" as "<the command to actually do it>"
+      And the output reports "apply_command" as "<the command to actually do it>"
       And the file ".ctxloom/content/bundles/v2/project/profiles/dev.yaml" exists
       When I run "ctxloom profile list <flags>"
-      Then the output reports "$.0.name" as "<the profile survives>"
+      Then the output reports "profiles.0.name" as "<the profile survives>"
 
       @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | nothing was applied                              | the cost    | the command to actually do it    | the profile survives |
-        |               | false                                             | 1 bundle(s) | ctxloom profile remove dev --yes | dev                   |
-        | --format json | false                                             | 1 bundle(s) | ctxloom profile remove dev --yes | dev                   |
+        |               | false                                             | 1 bundle(s) | ctxloom profile remove dev --yes | projects/{project}/bundles/project/profiles/dev |
+        | --format json | false                                             | 1 bundle(s) | ctxloom profile remove dev --yes | projects/{project}/bundles/project/profiles/dev |
         | --format text | Nothing was removed. Re-run with --yes to apply: | 1 bundle(s) | ctxloom profile remove dev --yes | dev                   |
 
-    # NOT TABLED. `profile list`'s payload is a bare array with no length
-    # field, so an EMPTY result has no path a structured row could address —
+    # NOT TABLED. `profile list`'s payload of no profiles is `{}`, so an EMPTY
+    # result has no path a structured row could address —
     # the same gap the count claim in the scenario above works around by
     # riding the text column only. Pinned to --format text explicitly, since
     # the derived default off a terminal is JSON and a bare "output contains"

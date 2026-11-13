@@ -92,7 +92,7 @@ Feature: fragment — reusable context units, and the engine surface each one re
       When I run "ctxloom fragment remove demo#fragments/testing <flags>"
       Then the command succeeds
       And the output reports "applied" as "<reports nothing removed>"
-      And the output reports "apply" as "<names the apply command>"
+      And the output reports "apply_command" as "<names the apply command>"
       And the file ".ctxloom/content/bundles/v2/demo/fragments/testing.md" contains "FRAGMENT-BODY-testing"
 
     @json-default

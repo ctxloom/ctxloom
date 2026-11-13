@@ -30,7 +30,7 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
       And I run "ctxloom agent default dev"
       When I run "ctxloom mcp server list"
       Then the command succeeds
-      And the output reports "servers[name=toolserver].command" as "j000400-mcp-tool-9e1b52"
+      And the output reports "mcp_servers[name$=/mcpServers/toolserver].command" as "j000400-mcp-tool-9e1b52"
 
   @pending
   Rule: ctxloom's own MCP server ships in ctxloom's own companion loadout, so it needs no configuration
@@ -62,8 +62,10 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
     # `show` DESCRIBES that — there is no command to print, and printing one
     # would be describing a server that does not exist.
     # Tabled by format: `mcp server show` is wired to emit(), so off a
-    # terminal (which this harness always is) the no-flag row gets the JSON
-    # GetMCPServerResult, not the text lines.
+    # terminal (which this harness always is) the no-flag row gets the JSON,
+    # not the text lines. OD-40: the JSON is `ListMcpServersResponse` filtered
+    # by the ID (design §3.5), each server named below its bundle, so the
+    # bundle identity is the name's parent.
     Scenario Outline: Showing an MCP server's configuration
       Given an initialized ctxloom project
       When Alice inspects the server's configuration:
@@ -71,15 +73,15 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
         ctxloom <flags> mcp server show ctxloom
         """
       Then the command succeeds
-      And the output reports "entries.0.source" as "<names the bundle>"
-      And the output reports "entries.0.served_by" as "<names the endpoint>"
+      And the output reports "mcp_servers.0.name" as "<names the bundle>"
+      And the output reports "mcp_servers.0.served_by" as "<names the endpoint>"
       And the output does not contain "mcp serve"
 
       @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | names the bundle            | names the endpoint                        |
-        |               | ctxloom+companion:ctxloom   | session-endpoint                          |
-        | --format json | ctxloom+companion:ctxloom   | session-endpoint                          |
+        |               | projects/{project}/companions/ctxloom/bundles/loadout/mcpServers/ctxloom | session-endpoint |
+        | --format json | projects/{project}/companions/ctxloom/bundles/loadout/mcpServers/ctxloom | session-endpoint |
         | --format text | ctxloom+companion:ctxloom   | Served by: the running session's endpoint |
 
   @pending
@@ -189,8 +191,9 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
     # implementation that rewrote the whole entry from the flags would satisfy
     # the first half alone. A server's tags, notes and installation live in
     # its `.<name>.meta.yaml` sidecar beside the runtime file. The output is
-    # SetBundleMCPResult (JSON off a terminal), whose status separates a new
-    # entry from a changed one.
+    # `UpdateMcpServerResponse` (JSON off a terminal; OD-40, AIP-134
+    # `allow_missing`), whose `created` separates a new entry from a changed
+    # one.
     Background:
       Given an initialized ctxloom project
       And the project already has the bundle "demo":
@@ -209,7 +212,9 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
     Scenario: A name the bundle lacks is created as a remote server
       When I run "ctxloom mcp server set demo#mcp/search --url https://mcp.example.com/v1 --header X-Team=core --tag search-index --notes 'Team search index' --installation 'Ask core for a seat'"
       Then the command succeeds
-      And the output reports "status" as "created"
+      And the output reports "applied" as "true"
+      And the output reports "created" as "true"
+      And the output reports "mcp_server.name" as "projects/{project}/bundles/demo/mcpServers/search"
       And the file ".ctxloom/content/bundles/v2/demo/mcp/search.yaml" contains "url: https://mcp.example.com/v1"
       And the file ".ctxloom/content/bundles/v2/demo/mcp/search.yaml" contains "X-Team: core"
       And the file ".ctxloom/content/bundles/v2/demo/mcp/.search.meta.yaml" contains "search-index"
@@ -223,7 +228,8 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
     Scenario: Updating an existing server replaces its arguments and keeps what was not passed
       When I run "ctxloom mcp server set demo#mcp/tools --command search-mcp --arg=--stdio --env LOG_LEVEL=debug"
       Then the command succeeds
-      And the output reports "status" as "updated"
+      And the output reports "applied" as "true"
+      And the output reports "created" as "false"
       And the file ".ctxloom/content/bundles/v2/demo/mcp/tools.yaml" contains "command: search-mcp"
       And the file ".ctxloom/content/bundles/v2/demo/mcp/tools.yaml" contains "--stdio"
       And the file ".ctxloom/content/bundles/v2/demo/mcp/tools.yaml" contains "LOG_LEVEL: debug"

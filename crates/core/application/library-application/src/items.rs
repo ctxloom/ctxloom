@@ -239,6 +239,7 @@ impl Project {
         let use_distilled = distilled && !body.distilled.is_empty();
         Ok(ItemShow {
             name,
+            bundle: entry.name.clone(),
             reference: reference.to_string(),
             content: if use_distilled {
                 body.distilled.clone()

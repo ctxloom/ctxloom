@@ -67,7 +67,8 @@ fn test_editing_an_mcp_server_that_does_not_exist_fails_instead_of_creating_one(
 
 // cli/bundle_items.go runBundleMCPEdit (documented condition): an editor that
 // changes nothing says so; one that empties the file, or leaves what is not a
-// server, is refused and the server survives; json is not offered.
+// server, is refused and the server survives; json, asked for by name, is
+// `UpdateMcpServerResponse` (OD-40).
 #[test]
 fn test_an_mcp_edit_that_changes_nothing_or_breaks_the_server_leaves_it_alone() {
     let project = Project::initialized();
@@ -89,8 +90,8 @@ fn test_an_mcp_edit_that_changes_nothing_or_breaks_the_server_leaves_it_alone() 
             "--format",
             "json",
         ])
-        .fails()
-        .contains("does not support it yet");
+        .succeeds()
+        .contains("\"applied\": false");
     let empties = Project::with_editor(Editor::Empties);
     demo_with_tools(&empties, "x");
     let before = empties.tree(DEMO);
@@ -132,10 +133,14 @@ fn test_a_name_the_bundle_lacks_is_created_as_a_remote_server() {
         "Ask core for a seat",
     ]);
     ran.succeeds();
+    // OD-40: `UpdateMcpServerResponse`, made where the bundle lacked it.
     let doc = ran.json();
-    assert_eq!(reports_as(&doc, "status"), "created");
-    assert_eq!(reports_as(&doc, "bundle"), "demo");
-    assert_eq!(reports_as(&doc, "name"), "search");
+    assert_eq!(reports_as(&doc, "created"), "true");
+    assert_eq!(reports_as(&doc, "applied"), "true");
+    assert!(
+        reports_as(&doc, "mcp_server.name").ends_with("/bundles/demo/mcpServers/search"),
+        "{doc}"
+    );
     assert_eq!(reports_as(&doc, "path"), manifest);
     // Go's bytes.
     assert_eq!(
@@ -167,7 +172,8 @@ fn test_updating_an_existing_server_replaces_its_arguments_and_keeps_what_was_no
         "LOG_LEVEL=debug",
     ]);
     ran.succeeds();
-    assert_eq!(reports_as(&ran.json(), "status"), "updated");
+    assert_eq!(reports_as(&ran.json(), "applied"), "true");
+    assert!(super::library::at(&ran.json(), "created").is_none());
     project
         .file_contains(&format!("{DEMO}/mcp/tools.yaml"), "command: search-mcp")
         .file_contains(&format!("{DEMO}/mcp/tools.yaml"), "--stdio")

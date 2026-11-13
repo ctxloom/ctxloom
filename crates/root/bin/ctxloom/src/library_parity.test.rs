@@ -32,6 +32,12 @@
 //!   (`config.premised`, owner ruling of 2026-11-12): Go never put it there,
 //!   so a dry run's context, its token estimate and its text are compared
 //!   without it (`without_index`).
+//! - The JSON of the catalog verbs (OD-40, design §8.1: Go parity ends for
+//!   JSON): bundle, fragment, command, skill, mcp and profile print their
+//!   AIP resources (library.proto), not Go's shapes, so such a row is held
+//!   to its exit code and to answering JSON at all (`aip_json`); the shapes
+//!   are asserted by `library_cli_<noun>`, `library_write_<noun>` and the
+//!   features. Their text rows stay Go parity.
 //! - Error texts. A failing command's stdout is empty in both and its exit
 //!   code is compared; the words are asserted in `library_cli.test.rs` from
 //!   the Gherkin. A usage error is exit 20 here (D28, ruled), where Go's
@@ -243,6 +249,23 @@ fn carries_retired_llm(golden: &str) -> bool {
         || golden.contains("\"backend\"")
 }
 
+/// The nouns whose JSON is their AIP resources (OD-40, B1), not Go's.
+const AIP_NOUNS: [&str; 6] = ["bundle", "fragment", "command", "skill", "mcp", "profile"];
+
+/// Whether `row` asks a noun of [`AIP_NOUNS`] for json (`bundle push` and
+/// `bundle move` are not converted yet): its stdout is not Go's.
+fn aip_json(row: &Row) -> bool {
+    let words: Vec<&str> = row
+        .args
+        .iter()
+        .map(String::as_str)
+        .filter(|w| !w.starts_with('-') && *w != "json")
+        .collect();
+    let noun = words.first().copied().unwrap_or_default();
+    let verb = words.get(1).copied().unwrap_or_default();
+    AIP_NOUNS.contains(&noun) && !(noun == "bundle" && matches!(verb, "push" | "move"))
+}
+
 /// A dry run's text sections that print later slices' surfaces.
 const DRY_RUN_SECTIONS: [&str; 5] = ["Environment", "Delivery", "Context File", "LLM", "Engine"];
 
@@ -361,6 +384,9 @@ fn mismatch(row: &Row, project: &Project) -> Option<String> {
         return (!got.trim().is_empty()).then(|| format!("stdout should be empty: {got:?}"));
     }
     match serde_json::from_str::<Value>(&want) {
+        Ok(_) if aip_json(row) => serde_json::from_str::<Value>(&got)
+            .is_err()
+            .then(|| format!("stdout is not JSON: {got:?}")),
         Ok(want) => {
             let Ok(got) = serde_json::from_str::<Value>(&got) else {
                 return Some(format!("stdout is not JSON: {got:?}"));

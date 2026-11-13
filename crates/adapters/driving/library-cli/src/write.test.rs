@@ -99,11 +99,6 @@ pub(crate) const JSON_EXPLICIT: How = JSON;
 fn test_the_text_only_verbs_refuse_json_and_write_nothing() {
     let (library, mem) = world();
     for line in [
-        vec!["profile", "create", "x", "-i", "demo"],
-        vec!["profile", "modify", "dev", "-d", "x"],
-        vec!["profile", "edit", "dev"],
-        vec!["profile", "export", "dev", "o"],
-        vec!["profile", "import", "pout/kid.yaml"],
         vec!["config", "create"],
         vec!["config", "edit"],
         vec!["agent", "default"],

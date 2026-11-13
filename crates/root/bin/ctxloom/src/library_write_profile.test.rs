@@ -10,7 +10,7 @@
 //! answer in text only (its format debt): an explicit `--format json` is
 //! refused before anything is written, as Go refuses it.
 
-use super::library::{contains_value, reports_as, Editor, Project};
+use super::library::{reports_as, Editor, Project};
 
 const FORMATS: [&[&str]; 3] = [&[], &["--format", "json"], &["--format", "text"]];
 
@@ -79,9 +79,16 @@ fn test_creating_a_profile_writes_its_definition_and_it_is_listed_back() {
         if is_text(flags) {
             ran.contains("Profiles (1):").contains("day-to-day-work");
         } else {
+            // OD-40: `ListProfilesResponse`.
             let doc = ran.json();
-            assert_eq!(reports_as(&doc, "$.0.name"), "dev");
-            assert_eq!(reports_as(&doc, "$.0.description"), "day-to-day-work");
+            assert!(
+                reports_as(&doc, "profiles.0.name").ends_with("/bundles/project/profiles/dev"),
+                "{doc}"
+            );
+            assert_eq!(
+                reports_as(&doc, "profiles.0.description"),
+                "day-to-day-work"
+            );
         }
     }
 }
@@ -170,9 +177,10 @@ fn test_create_says_what_it_wrote_and_refuses_what_it_must() {
             "--format",
             "json",
         ])
-        .fails()
-        .contains("does not support it yet");
-    project.file_is_absent(&format!("{PROFILES}/dev9.yaml"));
+        .succeeds()
+        .contains("\"applied\": true");
+    // OD-40 (design §5.5): json asked for by name is `CreateProfileResponse`.
+    project.file_contains(&format!("{PROFILES}/dev9.yaml"), "- demo");
 }
 
 // profile.feature: Scenario: A profile that names neither a bundle nor a
@@ -290,7 +298,9 @@ fn test_a_parent_profiles_content_is_inherited_and_detaching_the_parent_takes_it
         if is_text(flags) {
             shown.contains("- base");
         } else {
-            assert!(contains_value(&shown.json(), "parents", "base"));
+            assert!(
+                reports_as(&shown.json(), "parents.0").ends_with("/bundles/project/profiles/base")
+            );
         }
         let inherited = assembled(&project, "dev");
         assert!(
@@ -568,9 +578,10 @@ fn test_modify_names_each_change_and_leaves_the_rest_of_the_file_alone() {
         .file_contains(DEV_YAML, "  - f2");
     project
         .run(&["profile", "modify", "dev", "--format", "json", "-d", "x"])
-        .fails()
-        .contains("does not support it yet");
-    project.file_contains(DEV_YAML, "description: new d");
+        .succeeds()
+        .contains("\"changes\"");
+    // OD-40: json asked for by name is `UpdateProfileResponse`.
+    project.file_contains(DEV_YAML, "description: x");
 }
 
 // ---------------------------------------------------------------- export, import
@@ -609,8 +620,9 @@ fn test_export_remove_and_re_import_a_profile() {
             listed.contains("dev");
             shown.contains("- demo");
         } else {
-            assert_eq!(reports_as(&listed.json(), "$.0.name"), "dev");
-            assert!(contains_value(&shown.json(), "bundles", "demo"));
+            assert!(reports_as(&listed.json(), "profiles.0.name")
+                .ends_with("/bundles/project/profiles/dev"));
+            assert!(reports_as(&shown.json(), "bundles.0").ends_with("/bundles/demo"));
         }
         assert_eq!(
             project.read("pexport/dev.yaml"),
@@ -695,6 +707,8 @@ fn test_export_carries_the_definition() {
 fn test_bare_profile_remove_reports_what_would_go_and_destroys_nothing() {
     for flags in FORMATS {
         let project = demo_and_dev();
+        // A json answer names the project (OD-40, OQ-2): its id is written once.
+        project.run(&["test", "project-name"]).succeeds();
         let before = project.tree(".ctxloom");
         let ran = with_flags(&project, &["profile", "remove", "dev"], flags);
         ran.succeeds();
@@ -708,7 +722,7 @@ fn test_bare_profile_remove_reports_what_would_go_and_destroys_nothing() {
             assert_eq!(reports_as(&doc, "applied"), "false");
             assert_eq!(reports_as(&doc, "detail.0"), "1 bundle(s)");
             assert_eq!(
-                reports_as(&doc, "apply"),
+                reports_as(&doc, "apply_command"),
                 "ctxloom profile remove dev --yes"
             );
         }
@@ -716,7 +730,8 @@ fn test_bare_profile_remove_reports_what_would_go_and_destroys_nothing() {
         assert_eq!(project.tree(".ctxloom"), before);
         let listed = with_flags(&project, &["profile", "list"], flags);
         if !is_text(flags) {
-            assert_eq!(reports_as(&listed.json(), "$.0.name"), "dev");
+            assert!(reports_as(&listed.json(), "profiles.0.name")
+                .ends_with("/bundles/project/profiles/dev"));
         }
     }
 }
@@ -732,9 +747,13 @@ fn test_removing_a_profile_with_yes_takes_exactly_the_file_and_the_listing_entry
         let ran = with_flags(&project, &["profile", "remove", "dev", "--yes"], flags);
         ran.succeeds();
         if !is_text(flags) {
+            // OD-40: `DeleteProfileResponse`.
             let doc = ran.json();
-            assert_eq!(reports_as(&doc, "status"), "deleted");
-            assert_eq!(reports_as(&doc, "profile"), "dev");
+            assert_eq!(reports_as(&doc, "applied"), "true");
+            assert!(
+                reports_as(&doc, "profile.name").ends_with("/bundles/project/profiles/dev"),
+                "{doc}"
+            );
         } else {
             assert_eq!(ran.stdout, "Removed profile \"dev\"\n");
         }

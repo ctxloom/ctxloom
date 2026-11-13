@@ -11,8 +11,8 @@ use library::CatalogError;
 use crate::error::AppError;
 use crate::project::{Library, Outcome, Project};
 use crate::views::{
-    BundleList, BundleRow, BundleShow, BundleView, ShownCommand, ShownFragment, ShownMcp,
-    ShownSkill,
+    BundleList, BundleRow, BundleShow, BundleView, ProfileShow, ShownCommand, ShownFragment,
+    ShownMcp, ShownSkill, Viewed,
 };
 use crate::Flags;
 
@@ -55,6 +55,7 @@ fn row(entry: &Entry, origin: Option<&RemoteOrigin>, builtin: bool) -> BundleRow
         mcp_count: bundle.mcp.len() as u64,
         profile_count: bundle.profiles.len() as u64,
         held: false,
+        commit: origin.map(|o| o.sha.clone()).unwrap_or_default(),
     }
 }
 
@@ -109,7 +110,13 @@ impl Project {
             Err(_) if !self.has_root => return Err(AppError::NoBundlesDir),
             found => found?,
         };
-        Ok(show_of(entry))
+        let mut shown = show_of(entry);
+        shown.listing = row(
+            entry,
+            self.catalog.origin(&entry.name),
+            self.catalog.is_builtin(&entry.name),
+        );
+        Ok(shown)
     }
 
     /// The files of the bundle `entry`, as it is: installed from a remote,
@@ -135,14 +142,17 @@ impl Project {
                 distilled: false,
                 content: tree::dump(&files),
                 item: false,
+                viewed: Viewed::Files(files_in_order(&files)),
             });
         }
+        let (content, viewed) = view_item(&entry.bundle, item_path, distilled)?;
         Ok(BundleView {
             bundle: name.to_string(),
             path: item_path.to_string(),
             distilled,
-            content: view_item(&entry.bundle, item_path, distilled)?,
+            content,
             item: true,
+            viewed,
         })
     }
 }
@@ -222,6 +232,7 @@ fn show_of(entry: &Entry) -> BundleShow {
             .collect::<BTreeMap<_, _>>(),
         profiles: bundle.profiles.keys().cloned().collect(),
         hooks: bundle.hook_ids(),
+        listing: BundleRow::default(),
     }
 }
 
@@ -239,7 +250,8 @@ pub(crate) fn library_preview(content: &str) -> String {
 }
 
 /// One item of a bundle, as `bundle view` prints it.
-fn view_item(bundle: &Bundle, path: &str, distilled: bool) -> Result<String, AppError> {
+/// One item of a bundle, as `bundle view` renders it and as data.
+fn view_item(bundle: &Bundle, path: &str, distilled: bool) -> Result<(String, Viewed), AppError> {
     if let Some(name) = path.strip_prefix("profiles/") {
         let profile = bundle
             .profiles
@@ -248,35 +260,53 @@ fn view_item(bundle: &Bundle, path: &str, distilled: bool) -> Result<String, App
                 kind: "profile".to_string(),
                 name: name.to_string(),
             })?;
-        return Ok(format!(
-            "# Profile: {name}\n{}",
-            crate::yamlout::profile(profile)
+        let shown = ProfileShow {
+            name: name.to_string(),
+            description: profile.description.clone(),
+            parents: profile.parents.clone(),
+            tags: profile.tags.clone(),
+            bundles: profile.bundles.clone(),
+            variables: profile.variables.clone(),
+            exclude_fragments: profile.exclude_fragments.clone(),
+            exclude_mcp: profile.exclude_mcp.clone(),
+            ..ProfileShow::default()
+        };
+        return Ok((
+            format!("# Profile: {name}\n{}", crate::yamlout::profile(profile)),
+            Viewed::Profile(shown),
         ));
     }
     let (kind, name) = refs::parse_selector(path).map_err(|cause| AppError::ViewPath {
         cause: Box::new(cause),
     })?;
     match kind {
-        ItemKind::Fragment => {
-            let fragment = bundle
-                .fragments
-                .get(&name)
-                .ok_or_else(|| missing("fragment", &name))?;
-            Ok(view_content(
-                &fragment.body.content,
-                &fragment.body.distilled,
-                distilled,
-            ))
-        }
-        ItemKind::Prompt => {
-            let command = bundle
-                .commands
-                .get(&name)
-                .ok_or_else(|| missing("command", &name))?;
-            Ok(view_content(
-                &command.body.content,
-                &command.body.distilled,
-                distilled,
+        ItemKind::Fragment | ItemKind::Prompt => {
+            let (body, dir) = if kind == ItemKind::Fragment {
+                let fragment = bundle
+                    .fragments
+                    .get(&name)
+                    .ok_or_else(|| missing("fragment", &name))?;
+                (&fragment.body, "fragments")
+            } else {
+                let command = bundle
+                    .commands
+                    .get(&name)
+                    .ok_or_else(|| missing("command", &name))?;
+                (&command.body, "commands")
+            };
+            let served_distilled = distilled && !body.distilled.is_empty();
+            Ok((
+                view_content(&body.content, &body.distilled, distilled),
+                Viewed::Body {
+                    kind: dir.to_string(),
+                    name: name.clone(),
+                    body: if served_distilled {
+                        body.distilled.clone()
+                    } else {
+                        body.content.clone()
+                    },
+                    distilled: served_distilled,
+                },
             ))
         }
         ItemKind::Mcp => {
@@ -292,9 +322,9 @@ fn view_item(bundle: &Bundle, path: &str, distilled: bool) -> Result<String, App
                 }
                 None => return Err(missing("mcp server", &name)),
             };
-            Ok(format!(
-                "# MCP Server: {shown}\n{}",
-                crate::yamlout::mcp(server)
+            Ok((
+                format!("# MCP Server: {shown}\n{}", crate::yamlout::mcp(server)),
+                Viewed::Mcp(crate::config::mcp_row(&shown, server, "")),
             ))
         }
         ItemKind::Skill => {
@@ -302,13 +332,41 @@ fn view_item(bundle: &Bundle, path: &str, distilled: bool) -> Result<String, App
                 .skills
                 .get(&name)
                 .ok_or_else(|| missing("skill", &name))?;
-            Ok(format!("# Skill: {name}\n{}", crate::yamlout::skill(skill)))
+            Ok((
+                format!("# Skill: {name}\n{}", crate::yamlout::skill(skill)),
+                Viewed::Skill {
+                    name: name.clone(),
+                    skill: ShownSkill {
+                        path: skill.path.clone(),
+                        tags: skill.tags.clone(),
+                        notes: skill.notes.clone(),
+                    },
+                },
+            ))
         }
         ItemKind::Hook => Err(AppError::NotViewable {
             dir: kind.dir().to_string(),
             path: path.to_string(),
         }),
     }
+}
+
+/// A bundle's files as text, in the order `bundle view` dumps them: its
+/// manifest first, then the rest by path.
+fn files_in_order(files: &tree::Files) -> Vec<(String, String)> {
+    let text = |bytes: &Vec<u8>| String::from_utf8_lossy(bytes).into_owned();
+    let manifest = files
+        .get_key_value(tree::MANIFEST)
+        .map(|(path, bytes)| (path.clone(), text(bytes)));
+    manifest
+        .into_iter()
+        .chain(
+            files
+                .iter()
+                .filter(|(path, _)| path.as_str() != tree::MANIFEST)
+                .map(|(path, bytes)| (path.clone(), text(bytes))),
+        )
+        .collect()
 }
 
 fn missing(kind: &str, name: &str) -> AppError {

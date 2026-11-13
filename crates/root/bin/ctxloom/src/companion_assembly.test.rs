@@ -126,8 +126,10 @@ fn a_premised_companion_fragment_is_offered_in_the_premise_index_and_delivered_w
     let (project, _stub, _dir) = world(LOADOUT);
     let premises = project.run(&["fragment", "premises", "--format", "json"]);
     premises.succeeds();
+    // OD-40: the `PremiseIndex` names the companion's fragment by its
+    // resource name, below the companion's loadout.
     premises
-        .contains("ctxloom+companion:acme#fragments/later")
+        .contains("/companions/acme/bundles/loadout/fragments/later\"")
         .contains("you are about to do the later thing");
     let named = project.run(&[
         "context",

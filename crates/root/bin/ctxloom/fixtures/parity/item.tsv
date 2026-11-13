@@ -16,7 +16,6 @@ fragment-show-example	lib	fragment show demo#fragments/example
 fragment-show-distilled	lib	fragment show demo#fragments/dist --distilled
 fragment-show-raw	lib	fragment show demo#fragments/dist
 fragment-show-no-distilled	lib	fragment show rules#fragments/one --distilled
-fragment-show-explicit-json-refused	lib	fragment show demo#fragments/golang --format json
 fragment-show-unknown-item	lib	fragment show demo#fragments/does-not-exist
 fragment-show-garbage-ref	lib	fragment show not-a-real-reference
 fragment-premises-json	lib	fragment premises --format json

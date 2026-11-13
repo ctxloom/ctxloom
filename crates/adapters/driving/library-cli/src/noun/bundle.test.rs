@@ -5,32 +5,90 @@ mod read {
 
     // bundle.feature: list, show and view; the bare noun lists.
     #[test]
-    fn test_bundle_list_show_and_view() {
+    fn test_bundle_list_names_each_bundle_under_the_project() {
+        // OD-40: `ListBundlesResponse`, each bundle named under the project.
         let list = json_of(&["bundle", "list"]);
-        assert_eq!(list[0]["name"], "demo");
-        assert_eq!(list[0]["fragment_count"], 4);
+        let demo = &list["bundles"][0];
+        assert_eq!(demo["name"], "projects/calm-otter/bundles/demo");
+        assert_eq!(demo["origin"], "PROJECT");
+        assert_eq!(demo["reference"], "ctxloom+local:demo");
+        assert_eq!(demo["fragment_count"], 4);
+        assert_eq!(demo["mcp_server_count"], 1);
+        assert!(demo.get("profile_count").is_none(), "a zero is left out");
         assert_eq!(json_of(&["bundle"]), list);
         assert_eq!(json_of(&["bundle", "ls"]), list);
         assert!(text_of(&["bundle"]).starts_with("Installed bundles (2):\n"));
+    }
+
+    // bundle.feature: show names each child (OQ-14).
+    #[test]
+    fn test_bundle_show_summarises_each_child_by_name() {
+        // The `Bundle` (FULL): each child summarised by its name (OQ-14).
         let show = json_of(&["bundle", "show", "demo"]);
-        assert_eq!(show["name"], "demo");
+        assert_eq!(show["name"], "projects/calm-otter/bundles/demo");
+        assert_eq!(show["origin"], "PROJECT");
+        let golang = show["fragments"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|f| f["item"] == "projects/calm-otter/bundles/demo/fragments/golang")
+            .expect("golang summarised");
+        assert_eq!(golang["premise"], "when editing Go code");
+        assert_eq!(golang["no_distill"], false);
+        assert_eq!(golang["distilled"], "NONE");
         assert_eq!(
-            show["fragments"]["golang"]["premise"],
-            "when editing Go code"
+            show["mcp_servers"][0]["item"],
+            "projects/calm-otter/bundles/demo/mcpServers/tree-sitter"
+        );
+        assert_eq!(
+            show["skills"][0]["item"],
+            "projects/calm-otter/bundles/demo/skills/reviewer"
         );
         let text = text_of(&["bundle", "show", "demo"]);
         assert!(text.starts_with("Bundle: demo\nVersion: 1.0.0\n"));
+    }
+
+    // bundle.feature: view hands back bytes, the bundle's or one item's.
+    #[test]
+    fn test_bundle_view_is_the_bundles_files_or_the_items_resource() {
+        // `bundle view <bundle>`: the `Bundle` (CONTENT), file by file.
         let view = json_of(&["bundle", "view", "demo"]);
-        assert!(view["content"]
-            .as_str()
+        assert_eq!(view["name"], "projects/calm-otter/bundles/demo");
+        assert_eq!(view["files"][0]["path"], "bundle.yaml");
+        assert!(view["files"]
+            .as_array()
             .unwrap()
-            .contains("==> fragments/golang.md <=="));
+            .iter()
+            .any(|f| f["path"] == "fragments/golang.md"));
         assert!(text_of(&["bundle", "view", "demo"]).starts_with("==> bundle.yaml <==\n"));
+        // An item's path: the item's own resource, its body the bytes served.
         let long = json_of(&["bundle", "view", "demo#fragments/dist"]);
-        assert_eq!(long["content"], "long form\n");
+        assert_eq!(
+            long["name"],
+            "projects/calm-otter/bundles/demo/fragments/dist"
+        );
+        assert_eq!(long["body"], "long form\n");
+        assert!(long.get("body_is_distilled").is_none());
         let short = json_of(&["bundle", "view", "demo#fragments/dist", "-d"]);
-        assert_eq!(short["distilled"], true);
-        assert_eq!(short["content"], "# (distilled version)\nshort form\n");
+        assert_eq!(short["body_is_distilled"], true);
+        assert_eq!(short["body"], "short form\n");
+        let command = json_of(&["bundle", "view", "demo#prompts/review"]);
+        assert_eq!(
+            command["name"],
+            "projects/calm-otter/bundles/demo/commands/review"
+        );
+        let server = json_of(&["bundle", "view", "demo#mcp/tree-sitter"]);
+        assert_eq!(
+            server["name"],
+            "projects/calm-otter/bundles/demo/mcpServers/tree-sitter"
+        );
+        assert_eq!(server["command"], "tree-sitter");
+        assert_eq!(server["args"][0], "--stdio");
+        let skill = json_of(&["bundle", "view", "demo#skills/reviewer"]);
+        assert_eq!(
+            skill["name"],
+            "projects/calm-otter/bundles/demo/skills/reviewer"
+        );
         assert_eq!(
             go(&["bundle", "show", "nosuch"], JSON, BARE).refused(),
             "library-catalog-bundle-not-found:20"
@@ -57,9 +115,18 @@ mod write {
             .text("fresh", "bundle.yaml")
             .unwrap()
             .contains("my bundle"));
+        // OD-40: `CreateBundleResponse`, the bundle by its name.
         let doc = json(&library, &["bundle", "create", "second"]);
-        assert_eq!(doc["status"], "created");
-        assert_eq!(doc["name"], "second");
+        assert_eq!(doc["bundle"]["name"], "projects/calm-otter/bundles/second");
+        assert_eq!(doc["applied"], true);
+        assert!(
+            doc["path"]
+                .as_str()
+                .unwrap()
+                .ends_with("second/bundle.yaml"),
+            "{doc}"
+        );
+        assert!(doc.get("status").is_none());
     }
 
     // bundle.feature: Metadata edits land in the file
@@ -123,10 +190,17 @@ mod write {
             "No changes made.\n"
         );
         assert_eq!(mem.writes(), before);
+        // `UpdateBundleResponse`: no change listed, nothing applied.
+        let unchanged = json(&library, &["bundle", "edit", "demo"]);
+        assert_eq!(unchanged["applied"], false);
+        assert!(unchanged.get("changes").is_none(), "{unchanged}");
         assert_eq!(
-            json(&library, &["bundle", "edit", "demo"])["status"],
-            "no_changes"
+            unchanged["bundle"]["name"],
+            "projects/calm-otter/bundles/demo"
         );
+        let changed = json(&library, &["bundle", "edit", "demo", "--version", "3.0.0"]);
+        assert_eq!(changed["applied"], true);
+        assert_eq!(changed["changes"][0], "updated version");
     }
 
     // bundle.feature: Bare bundle remove reports what would go and destroys nothing
@@ -145,12 +219,23 @@ mod write {
             "{said}"
         );
         assert!(mem.has_bundle("demo"));
-        assert_eq!(json(&library, &["bundle", "rm", "demo"])["applied"], false);
+        // `DeleteBundleResponse`: the preview names the bundle, what would go
+        // and the command that applies it.
+        let preview = json(&library, &["bundle", "rm", "demo"]);
+        assert_eq!(preview["applied"], false);
+        assert_eq!(
+            preview["bundle"]["name"],
+            "projects/calm-otter/bundles/demo"
+        );
+        assert_eq!(preview["apply_command"], "ctxloom bundle remove demo --yes");
+        assert!(preview["detail"].as_array().is_some_and(|d| !d.is_empty()));
         let said = text(&library, &["bundle", "remove", "demo", "--yes"]);
         assert!(said.starts_with("Removed bundle: "), "{said}");
         assert!(!mem.has_bundle("demo"));
         let doc = json(&library, &["bundle", "del", "project", "-y"]);
-        assert_eq!(doc["status"], "deleted");
+        assert_eq!(doc["applied"], true);
+        assert_eq!(doc["bundle"]["name"], "projects/calm-otter/bundles/project");
+        assert!(doc.get("status").is_none());
     }
 
     // Ruling 153: a removal's preview would change something, the
@@ -205,8 +290,11 @@ mod write {
         assert!(said.starts_with("Exported: "), "{said}");
         assert!(said.ends_with(" -> out/demo\n"), "{said}");
         assert!(mem.user_paths().iter().any(|p| p.starts_with("out/demo/")));
+        // `ExportBundleResponse`.
         let doc = json(&library, &["bundle", "export", "demo", "-o", "elsewhere"]);
-        assert_eq!(doc["dest"], "elsewhere");
+        assert_eq!(doc["destination"], "elsewhere");
+        assert_eq!(doc["bundle"], "projects/calm-otter/bundles/demo");
+        assert_eq!(doc["applied"], true);
         let _ = text(&library, &["bundle", "remove", "demo", "--yes"]);
         let said = text(&library, &["bundle", "import", "out/demo"]);
         assert!(said.starts_with("Imported: out/demo -> "), "{said}");
@@ -218,5 +306,12 @@ mod write {
         assert!(refused.contains("exists"), "{refused}");
         let said = text(&library, &["bundle", "import", "out/demo", "--force"]);
         assert!(said.starts_with("Imported: "), "{said}");
+        // `ImportBundleResponse`: the bundle with its version and counts.
+        let doc = json(&library, &["bundle", "import", "out/demo", "--force"]);
+        assert_eq!(doc["bundle"]["name"], "projects/calm-otter/bundles/demo");
+        assert_eq!(doc["bundle"]["version"], "1.0.0");
+        assert_eq!(doc["bundle"]["fragment_count"], 1);
+        assert_eq!(doc["bundle"]["mcp_server_count"], 1);
+        assert_eq!(doc["applied"], true);
     }
 }

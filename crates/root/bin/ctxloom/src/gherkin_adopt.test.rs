@@ -736,15 +736,14 @@ fn last_launch(w: &World) -> String {
     }
 }
 
-/// The argument after `flag` in the last launch, if it was handed one.
+/// The argument after `flag` in the last launch, if it was handed one. The
+/// stub writes a file argument's bytes after it, and a file that does not
+/// end in a newline runs into the next argument's line, so `flag` is found
+/// where its line ends, not where one starts.
 fn last_argument_after(w: &World, flag: &str) -> Option<String> {
     let launch = last_launch(w);
-    let lines: Vec<&str> = launch.lines().collect();
-    lines
-        .iter()
-        .position(|line| *line == flag)
-        .and_then(|at| lines.get(at + 1))
-        .map(|value| (*value).to_string())
+    let at = launch.find(&format!("{flag}\n"))? + flag.len() + 1;
+    launch[at..].lines().next().map(str::to_string)
 }
 
 /// The servers of the MCP config the last launch named (`--mcp-config`):

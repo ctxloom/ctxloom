@@ -285,15 +285,23 @@ Feature: run — assembling a project's context and handing it to an engine
       And a bundle "demo" exists
       And a fragment "testing" in bundle "demo" exists
       And a profile "dev" with bundle "demo"
+      And the project already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        agents:
+          default:
+            profiles: [dev]
+        default_agent: default
+        """
       When Alice checks what her default agent would be sent:
         """
-        ctxloom --config-set agents.default.profiles=dev --config-set default_agent=default run --dry-run hello
+        ctxloom run --dry-run hello
         """
       Then the command succeeds
       And the output contains "FRAGMENT-BODY-testing"
       When Alice checks what it would be sent with no context:
         """
-        ctxloom --config-set agents.default.profiles=dev --config-set default_agent=default run --dry-run --no-context --format json hello
+        ctxloom run --dry-run --no-context --format json hello
         """
       Then the command succeeds
       And the output does not contain "FRAGMENT-BODY-testing"

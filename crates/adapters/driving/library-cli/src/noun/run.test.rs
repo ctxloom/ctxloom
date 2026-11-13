@@ -62,6 +62,25 @@ mod read {
         );
     }
 
+    // run.feature (OD-38): `--no-context` reaches the plan, which then holds
+    // none of the default agent's profile; beside a profile it is refused.
+    #[test]
+    fn test_a_dry_run_with_no_context_holds_none_of_the_profile() {
+        let plan = json_of(&["run", "--dry-run", "--no-context", "hello"]);
+        assert_eq!(plan["prompt"], "hello");
+        assert!(plan.get("profiles").is_none(), "{plan}");
+        assert!(plan.get("context").is_none(), "{plan}");
+        assert_eq!(
+            go(
+                &["run", "--dry-run", "--no-context", "-p", "dev", "hello"],
+                JSON,
+                BARE
+            )
+            .refused(),
+            "library-application-no-context-exclusive:20"
+        );
+    }
+
     // fault_tolerance.feature: fatal findings abort a preview (exit 21) after the
     // plan is printed; --degraded previews past them.
     #[test]

@@ -147,6 +147,38 @@ impl Project {
         self.binding(&self.config.default_agent())
     }
 
+    /// What a run with no context is bound to (OD-38): the agent asked
+    /// for, else the default agent where there is one, else none (the
+    /// default engine); never a profile, fragment or tag, and one asked for
+    /// beside it is refused.
+    fn contextless(&self, request: &RunRequest) -> Result<Selection, AppError> {
+        let other = if !request.profile.is_empty() {
+            Some("--profile")
+        } else if !request.fragments.is_empty() {
+            Some("--fragment")
+        } else if !request.tags.is_empty() {
+            Some("--tag")
+        } else {
+            None
+        };
+        if let Some(other) = other {
+            return Err(AppError::NoContextExclusive {
+                other: other.to_string(),
+            });
+        }
+        let agent = if request.agent.is_empty() {
+            self.config.agent(&self.config.default_agent())
+        } else {
+            self.binding(&request.agent)?.agent
+        };
+        Ok(Selection {
+            agent,
+            profiles: Vec::new(),
+            fragments: Vec::new(),
+            tags: Vec::new(),
+        })
+    }
+
     fn binding(&self, name: &str) -> Result<Selection, AppError> {
         match self.config.agent(name) {
             Some(agent) => Ok(Selection {
@@ -320,9 +352,8 @@ impl Project {
             });
         }
         let prompt = self.prompt_of(request)?;
-        let selection = self.selection(request)?;
         let mut findings = Vec::new();
-        let package = self.compose(&selection, &mut findings)?;
+        let (selection, package) = self.selected(request, &mut findings)?;
         let Launch {
             engine,
             model,
@@ -359,7 +390,7 @@ impl Project {
             })
             .collect();
         let fatal = rows.iter().filter(|r| r.fatal).cloned().collect();
-        let surfaces = self.launch_surfaces(&selection.profiles, &package.selection);
+        let surfaces = self.surfaces_of(request, &selection, &package);
         let plan = DryRun {
             agent: request.agent.clone(),
             workspace: request.workspace.clone(),
@@ -389,6 +420,41 @@ impl Project {
             surfaces,
         };
         Ok(Previewed { plan, fatal })
+    }
+
+    /// What a run is bound to, and the package it composes. No context
+    /// (OD-38) composes nothing, not even the companions' guidance or the
+    /// premise index.
+    fn selected(
+        &mut self,
+        request: &RunRequest,
+        findings: &mut Vec<Finding>,
+    ) -> Result<(Selection, Package), AppError> {
+        if request.no_context {
+            return Ok((self.contextless(request)?, Package::default()));
+        }
+        let selection = self.selection(request)?;
+        let package = self.compose(&selection, findings)?;
+        Ok((selection, package))
+    }
+
+    /// What the launch carries besides its context. No context carries no
+    /// surface of the profiles' either, and no MCP server at all (OD-38: a
+    /// server's instructions are context); the statusline is the engine's
+    /// own setup and stays as configured.
+    fn surfaces_of(
+        &mut self,
+        request: &RunRequest,
+        selection: &Selection,
+        package: &Package,
+    ) -> surface_ports::Inputs {
+        if request.no_context {
+            return surface_ports::Inputs {
+                statusline: self.config.statusline(),
+                ..surface_ports::Inputs::default()
+            };
+        }
+        self.launch_surfaces(&selection.profiles, &package.selection)
     }
 
     /// The package of a selection: profiles resolved, the bundles they name

@@ -720,6 +720,12 @@ fn run() -> Command {
                 .help("Session workspace axis (none|worktree; empty = project default)"),
         )
         .arg(
+            Arg::new("no-context")
+                .long("no-context")
+                .action(ArgAction::SetTrue)
+                .help("Hand the engine no context and no MCP server (its hooks stay); excludes -p/-f/-t"),
+        )
+        .arg(
             Arg::new("dry-run")
                 .short('n')
                 .long("dry-run")

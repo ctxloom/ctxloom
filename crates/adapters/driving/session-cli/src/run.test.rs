@@ -810,7 +810,8 @@ fn a_removal_report_is_the_plan_and_says_nothing_was_removed() {
     let ran = destroy_go(&daemon, Format::Json, &["remove", "amber-swift-owl"]);
     let doc = json_of(&ran);
     assert_eq!(doc["harp"], "amber-swift-owl");
-    assert_eq!(doc.get("applied"), None, "false is left out");
+    // OQ-7: `applied` has presence, so a plan says `false`, never leaves it out.
+    assert_eq!(doc["applied"], false, "a plan prints applied false");
     assert_eq!(doc.get("events_destroyed"), None);
     assert_eq!(doc["files"][0]["rel"], "native/history.jsonl");
     assert_eq!(doc["files"][0]["class"], "MACHINE");

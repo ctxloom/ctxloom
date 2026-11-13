@@ -46,11 +46,10 @@ pub(crate) fn assembled(parent: &str, assembled: &Assembled) -> v1::AssembledCon
                 v1::AssembledFragment {
                     fragment: named(reference, used.map(|u| &u.located), "fragments"),
                     form: if used.is_some_and(|u| u.distilled) {
-                        "distilled"
+                        v1::assembled_fragment::Form::Distilled
                     } else {
-                        "original"
-                    }
-                    .to_string(),
+                        v1::assembled_fragment::Form::Original
+                    } as i32,
                 }
             })
             .collect(),

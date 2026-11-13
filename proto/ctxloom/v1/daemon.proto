@@ -449,8 +449,16 @@ message AssembleContextRequest {
 message AssembledFragment {
   // `projects/{project}/bundles/{bundle}/fragments/{fragment}`.
   string fragment = 1;
-  // `distilled` (its digest matched) or `original`.
-  string form = 2;
+  // The form a fragment was used in (AIP-126: nested in its one owner, its
+  // values unprefixed).
+  enum Form {
+    FORM_UNSPECIFIED = 0;
+    // Its original content.
+    ORIGINAL = 1;
+    // Its distilled form (its digest matched).
+    DISTILLED = 2;
+  }
+  Form form = 2;
 }
 
 message AssembledContext {

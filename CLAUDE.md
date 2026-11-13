@@ -1585,7 +1585,7 @@ and `notices` 92. Every enum of `ctxloom.v1` follows AIP-216 and AIP-126
 (owner ruling 2026-11-13, OQ-B1): a state is `State`, nested in the message
 it describes, `STATE_UNSPECIFIED` its zero; another enum's zero is
 `<NAME>_UNSPECIFIED`, its other values unprefixed, nested in its one owner
-(`Launch.Kind`, `Launch.Stdio`, `HostedRun.Kind`, `Session.State`,
+(`AssembledFragment.Form`, `Launch.Kind`, `Launch.Stdio`, `HostedRun.Kind`, `Session.State`,
 `RemovalFile.Class`, `Run.Mode`, `RemovalRefused.Reason`, `Bundle.Origin`,
 `Bundle.View`, `Agent.View`, `EngineAuth.State`, `Config.View`); the three
 shared by several messages stay top-level, unprefixed but their zero
@@ -1668,7 +1668,7 @@ empty lists are left out (`{"query": "x"}` when nothing matched).
 `context assemble` is an `AssembledContext` (daemon.proto, its defects
 fixed: `tokens` uint32, OQ-12, and `profiles`, `missing_fragments` and
 `missing_tags` added, design §5.9): its profiles named, each fragment it
-used `{fragment, form}` (`distilled|original`), a fragment asked for and
+used `{fragment, form}` (`AssembledFragment.Form`, `ORIGINAL|DISTILLED`), a fragment asked for and
 not found kept as the text it was asked by (OQ-16); its `notices` field is
 left unfilled, the notices said on stderr. Where an item is comes from
 library-application, which knows the catalog: `Located {bundle, item}`,

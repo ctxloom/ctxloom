@@ -119,9 +119,11 @@ store (owner rulings 87a, T14, which reverses 87's store per project): a
 session's state goes through angzarr-embedded over the ONE per-user
 `<ctxloom home>/.ctxloom/ctxloom.db` (machine-local; see "Storage is
 angzarr-store-sqlite"), every project's streams in it, each rooted on its
-resource name (below), every hook's fact an event when it is delivered. `session list`, `search`, `show` and
-`transcript show` catch up from it on each read, so a live session shows what
-was delivered so far; nothing projects the events into a file (no
+resource name (below), every hook's fact an event when it is delivered. `session list`, `search` and `show`
+are the daemon's reads (slice 2 step 6, "The daemon's API"), from the session
+index it keeps warm, each waiting for the daemon's next round so it answers
+what was committed before it was asked; `transcript show` catches up from the
+store on each read; so a live session shows what was delivered so far; nothing projects the events into a file (no
 `transcripts/transcript.jsonl`, `records/*.jsonl`, position file or
 `metadata.json`). A session's directory, `.ctxloom/sessions/<harp>/` in the
 project, holds what its engine needs (the session home, its native history,
@@ -965,14 +967,20 @@ account's, as `HOME`). The hosted engines are composed as every launch's
 are (`oneshot::launch_engines`, `commands::hosted_engines(wiring, program)`):
 calling the running program (ruling 163), claude over her own
 `settings.json` (ruling 169), opencode seeding her `model.json` (ruling 167)
-and over her config; the daemon reads them, once at its start, under the
-account's home with the daemon's own environment (no `CLAUDE_CONFIG_DIR` or
-XDG base of a launcher's: cost, a hosted child's base is the account's
-default place, and an edit while the daemon runs reaches the next daemon).
-Not yet: a hosted child's permissions document (ruling 137, `permissions:
-None`), and `run_ports::check_command_line` does not measure a hosted
-child's command: it carries no prompt (its turns are fed over the child's
-stream), only paths, model and effort.
+and over her config, each read AT EVERY LAUNCH (T21): a hosted engine is
+composed anew for each launch (`HostedEngine::for_launch`, the wiring's
+`daemon::launch_engines_for`), under the account's home, where the LAUNCHER
+finds her settings: `daemon launch` hands off its caller's
+`daemon::SETTINGS_PLACES` (`CLAUDE_CONFIG_DIR`, `XDG_CONFIG_HOME`,
+`XDG_DATA_HOME`, `XDG_STATE_HOME`) beside the child's environment
+(`daemon_application::HandOff`'s `launcher`, the hand-off file's format 2,
+a `@NAME=value` line each), never into it, and never the daemon's own
+environment. A hosted child's session home is prepared with its agent's
+permissions document for the engine, verbatim (rulings 133-137,
+`run_application::HostedChild::permissions`). Not yet:
+`run_ports::check_command_line` does not measure a hosted child's command:
+it carries no prompt (its turns are fed over the child's stream), only
+paths, model and effort.
 
 A daemon is LIVE when it answers the standard `grpc.health.v1.Health`
 Check SERVING (T16, M11: `hook-sink-grpc`'s `serving`, tonic-health's
@@ -1071,7 +1079,35 @@ tonic, pinning the discovery file's certificate as its sole root and
 presenting the user bearer, each call within a deadline; a detail that is a
 `google.rpc.ErrorInfo` is no typed refusal. The application's client use
 cases are `daemon-api`'s `stop`, `resolve` and `reconcile` (`CallError`:
-a refusal 20, a failed call 10).
+a refusal 20, a failed call 10), and its `Client` (slice 2 step 6), what
+the commands that are the daemon's clients call: `daemon status` and
+`daemon stop` and the session reads (`SessionReads`: `session list`, the
+bare noun, `search`, `show`; `session_cli::read`, which opens no store).
+A `Client` reaches its daemon through daemon-ports' `Daemons` (the wiring's
+`daemon::Reach`): `serving` finds the one the discovery file names, live
+and this home's, and never starts one (S14: `daemon status|stop` are
+answered locally when none serves, status printing `no ctxloom daemon is
+serving`, the empty message in json); `reach` reconciles a daemon of
+another stamp first (M3), else spawns one and waits (S16's bound), and with
+none started is `Unreached::NotStarted`, `daemon-ports-not-started` (exit
+10, naming its log as `~/.ctxloom/daemon/daemon.log` under the home);
+another home's or a busy other version's is `Unreached::Declined` (20).
+Each call resolves its project first (`ResolveProject`, S6; outside a
+project a read of its own is `ProjectUnknown`; `--all` lists `projects/-`),
+sends the caller's WHOLE environment in every request (`EnvVars env = 94`,
+S7; the reads ignore it), and a call whose daemon could not be reached
+mid-call is made once more, whole, on the daemon reached again (S8). Their
+`--format json` is the answer's proto3 JSON (ruling 146,
+`session_cli::proto_json`: proto field names, a default left out, an enum
+by its name, a 64-bit integer as a decimal string, a Timestamp RFC 3339
+with `Z` and 0, 3, 6 or 9 fraction digits, `session_index::stamp::proto3`);
+their text is the table and the facts it was (a session's owner and
+children by resource name). The `Session` the daemon answers carries what
+`show` says: its native id, its project's root, its output folder, its
+rotations and (GetSession) its pending messages; a live one's end is
+blank. Not yet clients: `session remove` and `session sweep`
+(`DeleteSession`/`SweepSessions` stay unserved in every build), the
+library, config, deps, init, doctor and run.
 
 VERSION SKEW (M3): a client whose stamp is not the serving daemon's asks it
 (`GetDaemon`); hosting nothing, it is stopped (`StopDaemon`), waited out and

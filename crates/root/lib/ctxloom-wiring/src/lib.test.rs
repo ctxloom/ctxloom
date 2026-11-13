@@ -128,6 +128,46 @@ fn test_a_test_starts_from_none_of_an_enclosing_session_s_variables() {
     assert_eq!(names, ["PATH", "LANG", "HOME"]);
 }
 
+/// The variables that place ctxloom's home or an engine's state, which a
+/// test run never inherits from the shell it was started in (OD-34).
+const GUARDED_HOMES: [&str; 7] = [
+    "CTXLOOM_HOME",
+    "CLAUDE_CONFIG_DIR",
+    "OPENCODE_CONFIG_DIR",
+    "XDG_CONFIG_HOME",
+    "XDG_DATA_HOME",
+    "XDG_STATE_HOME",
+    "XDG_CACHE_HOME",
+];
+
+// OD-34: the wiring's fixtures once started from the process's environment
+// with CTXLOOM_HOME in it (it outranks HOME), so a test run from the owner's
+// shell registered 85 temporary projects in the owner's real ctxloom home.
+// The run itself holds no such home now: nextest's setup script
+// `guard-homes` names each of these variables as a FILE, under which nothing
+// can be created, so a test that reads one from the process and writes under
+// it fails instead of writing into the caller's. Read only, never written.
+#[test]
+fn test_the_run_inherits_no_home_a_test_could_write_into() {
+    let process = {
+        let _held = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        EnvSnapshot::from_process()
+    };
+    let open: Vec<String> = GUARDED_HOMES
+        .iter()
+        .filter_map(|name| {
+            let value = process.var(name)?;
+            let kind = fs().metadata(Path::new(value)).map(|meta| meta.kind);
+            (!matches!(kind, Ok(file_system::Kind::File)))
+                .then(|| format!("{name}={} ({kind:?})", value.to_string_lossy()))
+        })
+        .collect();
+    assert!(
+        open.is_empty(),
+        "the test run inherits a home a test could write into: {open:#?}"
+    );
+}
+
 /// A hold on the process's environment and working directory: what a test
 /// sets is put back when it ends, however it ends.
 struct Env {

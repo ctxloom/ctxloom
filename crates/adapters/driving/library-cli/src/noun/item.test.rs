@@ -7,12 +7,18 @@ mod read {
     // (text only), premises; a bare noun lists.
     #[test]
     fn test_fragment_and_command_list_show_and_premises() {
+        // OD-40: `ListFragmentsResponse`; an empty list is `{}`.
         let fragments = json_of(&["fragment", "list"]);
-        assert_eq!(fragments.as_array().unwrap().len(), 4);
+        assert_eq!(fragments["fragments"].as_array().unwrap().len(), 4);
+        assert_eq!(
+            fragments["fragments"][0]["name"],
+            "projects/calm-otter/bundles/demo/fragments/ctl"
+        );
+        assert_eq!(fragments["fragments"][0]["reference"], "demo#fragments/ctl");
         assert_eq!(json_of(&["fragment"]), fragments);
         assert_eq!(
             json_of(&["fragment", "list", "--bundle", "project"]),
-            serde_json::json!([])
+            serde_json::json!({})
         );
         assert_eq!(
             go(&["fragment", "list", "--bundle", "nosuch"], JSON, BARE).refused(),
@@ -20,7 +26,11 @@ mod read {
         );
         assert!(text_of(&["fragment", "list"]).starts_with("Fragments (4):\n"));
         let commands = json_of(&["command", "list"]);
-        assert_eq!(commands[0]["ref"], "demo#commands/review");
+        assert_eq!(
+            commands["commands"][0]["name"],
+            "projects/calm-otter/bundles/demo/commands/review"
+        );
+        assert_eq!(commands["commands"][0]["reference"], "demo#commands/review");
         assert_eq!(json_of(&["command"]), commands);
         assert_eq!(
             text_of(&["fragment", "show", "demo#fragments/golang"]),
@@ -39,18 +49,30 @@ mod read {
                 .refused()
                 .is_empty()
         );
+        // The `PremiseIndex` singleton, each entry naming its fragment.
         let premises = json_of(&["fragment", "premises"]);
-        assert_eq!(premises["fragments"][0]["name"], "demo#fragments/golang");
+        assert_eq!(premises["name"], "projects/calm-otter/premiseIndex");
+        assert_eq!(
+            premises["fragments"][0]["fragment"],
+            "projects/calm-otter/bundles/demo/fragments/golang"
+        );
+        assert_eq!(premises["fragments"][0]["premise"], "when editing Go code");
         assert!(text_of(&["fragment", "premises"])
             .ends_with("- demo#fragments/golang: when editing Go code\n"));
     }
 
-    // fragment_show.go: a structured --format is refused for `show` when it was
-    // asked for, not when it was the default.
+    // OD-40 (design §5.2): `show` answers json when it is asked for by name,
+    // the item's resource with its body; by default it stays the body's text
+    // (an agent's shell runs it off a terminal).
     #[test]
-    fn test_an_item_show_refuses_an_asked_for_json_but_not_a_default_one() {
+    fn test_an_item_show_answers_an_asked_for_json_and_a_default_text() {
         let asked = go(&["fragment", "show", "demo#fragments/golang"], JSON, BARE);
-        assert_eq!(asked.refused(), "library-application-unsupported-format:20");
+        let fragment = asked.json();
+        assert_eq!(
+            fragment["name"],
+            "projects/calm-otter/bundles/demo/fragments/golang"
+        );
+        assert_eq!(fragment["body"], "GO-RULES\n");
         let by_default = How {
             explicit: None,
             terminal: false,
@@ -63,10 +85,20 @@ mod read {
         );
         assert_eq!(ran.code(), 0);
         assert_eq!(ran.out, "golang\n\nGO-RULES\n");
+        let command = go(&["command", "show", "demo#commands/review"], JSON, BARE).json();
         assert_eq!(
-            go(&["command", "show", "demo#commands/review"], JSON, BARE).refused(),
-            "library-application-unsupported-format:20"
+            command["name"],
+            "projects/calm-otter/bundles/demo/commands/review"
         );
+        assert_eq!(command["body"], "REVIEW-BODY\n");
+        let short = go(
+            &["fragment", "show", "demo#fragments/dist", "-d"],
+            JSON,
+            BARE,
+        )
+        .json();
+        assert_eq!(short["body_is_distilled"], true);
+        assert_eq!(short["body"], "short form\n");
     }
 }
 
@@ -88,11 +120,20 @@ mod write {
             .text("runbook", "fragments/deploy.md")
             .unwrap()
             .ends_with("NOTES"));
+        // OD-40: `CreateCommandResponse` and `CreateFragmentResponse`.
         let doc = json(&library, &["command", "create", "demo#commands/third"]);
-        assert_eq!(doc["name"], "third");
+        assert_eq!(
+            doc["command"]["name"],
+            "projects/calm-otter/bundles/demo/commands/third"
+        );
+        assert_eq!(doc["applied"], true);
         assert!(doc.get("bundle_created").is_none(), "{doc}");
         let doc = json(&library, &["fragment", "create", "fresh#fragments/one"]);
         assert_eq!(doc["bundle_created"], true, "{doc}");
+        assert_eq!(
+            doc["fragment"]["name"],
+            "projects/calm-otter/bundles/fresh/fragments/one"
+        );
     }
 
     // fragment.feature / command.feature: create, remove, edit
@@ -108,8 +149,19 @@ mod write {
             "Created command \"second\" in bundle \"demo\"\nEdit with: ctxloom command edit demo#commands/second\n"
         );
         assert_eq!(
-            json(&library, &["fragment", "create", "demo", "third"])["name"],
-            "third"
+            json(&library, &["fragment", "create", "demo", "third"])["fragment"]["name"],
+            "projects/calm-otter/bundles/demo/fragments/third"
+        );
+        // `DeleteFragmentResponse`: the preview names the fragment.
+        let preview = json(&library, &["fragment", "remove", "demo#fragments/testing"]);
+        assert_eq!(preview["applied"], false);
+        assert_eq!(
+            preview["fragment"]["name"],
+            "projects/calm-otter/bundles/demo/fragments/testing"
+        );
+        assert_eq!(
+            preview["apply_command"],
+            "ctxloom fragment remove demo#fragments/testing --yes"
         );
         assert_eq!(
             text(&library, &["fragment", "remove", "demo#fragments/testing"]),
@@ -155,9 +207,22 @@ mod write {
             text(&library, &["fragment", "edit", "demo#fragments/example"]),
             "No changes made.\n"
         );
+        // `UpdateFragmentResponse`: an edit that changed nothing applied
+        // nothing.
+        let unchanged = json(&library, &["fragment", "edit", "demo#fragments/example"]);
+        assert_eq!(unchanged["applied"], false);
         assert_eq!(
-            json(&library, &["fragment", "edit", "demo#fragments/example"])["status"],
-            "unchanged"
+            unchanged["fragment"]["name"],
+            "projects/calm-otter/bundles/demo/fragments/example"
+        );
+        let removed = json(
+            &library,
+            &["fragment", "remove", "demo#fragments/third", "-y"],
+        );
+        assert_eq!(removed["applied"], true);
+        assert_eq!(
+            removed["fragment"]["name"],
+            "projects/calm-otter/bundles/demo/fragments/third"
         );
     }
 }

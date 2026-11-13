@@ -6,13 +6,26 @@ mod read {
     // profile.feature (moved from the four-noun test of lib.test.rs, unchanged)
     #[test]
     fn test_profile_list_and_show() {
+        // OD-40: `ListProfilesResponse`; a project's own profiles are in its
+        // bundle `project`, a reference a resource name.
         let profiles = json_of(&["profile", "list"]);
-        assert_eq!(profiles[1]["name"], "dev");
-        assert_eq!(json_of(&["profile"]), profiles);
+        let dev = &profiles["profiles"][1];
         assert_eq!(
-            json_of(&["profile", "show", "dev"])["description"],
-            "dev profile"
+            dev["name"],
+            "projects/calm-otter/bundles/project/profiles/dev"
         );
+        assert_eq!(dev["bundles"][0], "projects/calm-otter/bundles/demo");
+        assert_eq!(dev["default"], true);
+        assert_eq!(profiles["profiles"][0]["default"], false);
+        assert!(dev.get("display_name").is_none() && dev.get("is_remote").is_none());
+        assert_eq!(json_of(&["profile"]), profiles);
+        let show = json_of(&["profile", "show", "dev"]);
+        assert_eq!(show["description"], "dev profile");
+        assert_eq!(
+            show["name"],
+            "projects/calm-otter/bundles/project/profiles/dev"
+        );
+        assert_eq!(show["tags"][0], "team");
         assert!(text_of(&["profile", "show", "dev"]).starts_with("Profile: dev\n"));
         assert!(text_of(&["profile"]).starts_with("Profiles (2):\n"));
     }
@@ -24,7 +37,7 @@ mod write {
 
     // profile.feature
     #[test]
-    fn test_profile_verbs_answer_in_text_and_refuse_json() {
+    fn test_profile_verbs_answer_in_text() {
         let (library, mem) = world();
         let said = text(
             &library,
@@ -140,9 +153,82 @@ mod write {
             text(&library, &["profile", "remove", "base", "--yes"]),
             "Removed profile \"base\"\n"
         );
+        // `DeleteProfileResponse`, the preview's and the removal's.
+        let preview = json(&library, &["profile", "remove", "kid"]);
+        assert_eq!(preview["applied"], false);
         assert_eq!(
-            json(&library, &["profile", "remove", "kid", "-y"])["status"],
-            "deleted"
+            preview["profile"]["name"],
+            "projects/calm-otter/bundles/project/profiles/kid"
+        );
+        assert_eq!(preview["apply_command"], "ctxloom profile remove kid --yes");
+        let done = json(&library, &["profile", "remove", "kid", "-y"]);
+        assert_eq!(done["applied"], true);
+        assert_eq!(
+            done["profile"]["name"],
+            "projects/calm-otter/bundles/project/profiles/kid"
+        );
+    }
+
+    // OD-40 (design §5.5): the verbs that answered in text only answer
+    // their method's response when json is asked for by name, and stay text
+    // by default.
+    #[test]
+    fn test_profile_writes_answer_their_response_when_json_is_asked_for() {
+        let (library, mem) = world();
+        let made = json(
+            &library,
+            &["profile", "create", "base", "-i", "demo", "-d", "d"],
+        );
+        assert_eq!(
+            made["profile"]["name"],
+            "projects/calm-otter/bundles/project/profiles/base"
+        );
+        assert_eq!(
+            made["profile"]["bundles"][0],
+            "projects/calm-otter/bundles/demo"
+        );
+        assert_eq!(made["applied"], true);
+        let modified = json(&library, &["profile", "modify", "base", "-d", "other"]);
+        assert_eq!(modified["applied"], true);
+        assert_eq!(modified["changes"][0], "updated description");
+        let unchanged = json(&library, &["profile", "modify", "base"]);
+        assert_eq!(unchanged["applied"], false);
+        mem.set_editor(|_, content| Ok(content.to_string()));
+        let edited = json(&library, &["profile", "edit", "base"]);
+        assert_eq!(edited["applied"], false);
+        assert_eq!(
+            edited["profile"]["name"],
+            "projects/calm-otter/bundles/project/profiles/base"
+        );
+        let exported = json(&library, &["profile", "export", "base", "pout"]);
+        assert_eq!(exported["destination"], "pout/base.yaml");
+        assert_eq!(
+            exported["profile"],
+            "projects/calm-otter/bundles/project/profiles/base"
+        );
+        let imported = json(
+            &library,
+            &["profile", "import", "pout/base.yaml", "--bundle", "demo"],
+        );
+        assert_eq!(
+            imported["profile"]["name"],
+            "projects/calm-otter/bundles/demo/profiles/base"
+        );
+        assert_eq!(imported["applied"], true);
+        let unasked = crate::tests::How {
+            explicit: None,
+            terminal: false,
+            degraded: false,
+        };
+        let said = run_on(
+            &library,
+            &["profile", "create", "other", "-i", "demo"],
+            unasked,
+        );
+        assert!(
+            said.out.starts_with("Created profile \"other\""),
+            "{}",
+            said.out
         );
     }
 

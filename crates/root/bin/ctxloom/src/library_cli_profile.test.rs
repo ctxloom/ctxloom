@@ -26,9 +26,17 @@ fn test_a_profile_is_listed_back_with_its_description() {
         if is_text(flags) {
             ran.contains("Profiles (1):").contains("day-to-day-work");
         } else {
+            // OD-40: `ListProfilesResponse`, the project's own profile named
+            // in its bundle `project`.
             let doc = ran.json();
-            assert_eq!(reports_as(&doc, "$.0.name"), "dev");
-            assert_eq!(reports_as(&doc, "$.0.description"), "day-to-day-work");
+            assert!(
+                reports_as(&doc, "profiles.0.name").ends_with("/bundles/project/profiles/dev"),
+                "{doc}"
+            );
+            assert_eq!(
+                reports_as(&doc, "profiles.0.description"),
+                "day-to-day-work"
+            );
         }
     }
 }
@@ -46,8 +54,14 @@ fn test_showing_a_profile_reads_its_composition_back() {
             ran.contains("Profile: dev").contains("- demo");
         } else {
             let doc = ran.json();
-            assert_eq!(reports_as(&doc, "name"), "dev");
-            assert!(contains_value(&doc, "bundles", "demo"), "{doc}");
+            assert!(
+                reports_as(&doc, "name").ends_with("/bundles/project/profiles/dev"),
+                "{doc}"
+            );
+            assert!(
+                reports_as(&doc, "bundles.0").ends_with("/bundles/demo"),
+                "{doc}"
+            );
         }
     }
 }
@@ -66,7 +80,8 @@ fn test_bare_profile_lists_the_profiles_and_so_does_ls() {
             if is_text(flags) {
                 ran.contains("dev");
             } else {
-                assert_eq!(reports_as(&ran.json(), "$.0.name"), "dev");
+                assert!(reports_as(&ran.json(), "profiles.0.name")
+                    .ends_with("/bundles/project/profiles/dev"));
             }
         }
     }
@@ -89,7 +104,9 @@ fn test_a_profile_show_names_its_parent() {
         if is_text(flags) {
             ran.contains("- base");
         } else {
-            assert!(contains_value(&ran.json(), "parents", "base"));
+            assert!(
+                reports_as(&ran.json(), "parents.0").ends_with("/bundles/project/profiles/base")
+            );
         }
     }
 }

@@ -39,13 +39,12 @@ Feature: skill — authoring an Agent Skill package, curating it, and shipping i
       When I run "ctxloom skill remove vault#skills/reviewer <flags>"
       Then the command succeeds
       And the output reports "applied" as "<reports nothing removed>"
-      And the output reports "apply" as "<names the apply command>"
+      And the output reports "apply_command" as "<names the apply command>"
       When I run "ctxloom skill list"
       Then the skill list output includes "reviewer" from bundle "vault"
       When I run "ctxloom skill remove vault#skills/reviewer --yes"
       Then the command succeeds
-      And the output reports "name" as "reviewer"
-      And the output reports "bundle" as "vault"
+      And the output reports "skill.name" as "projects/{project}/bundles/vault/skills/reviewer"
       And the file ".ctxloom/content/bundles/v2/vault/skills/reviewer" does not exist
       When I run "ctxloom skill list"
       Then the output does not contain "reviewer"

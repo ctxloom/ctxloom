@@ -274,7 +274,7 @@ fn test_a_body_rendered_inert_is_noted_and_json_is_raw() {
         "ctxloom: warning: demo#fragments/ctl is publisher-authored and was rendered inert for this terminal (1 control character(s) escaped); use --format json for the raw bytes\n"
     );
     let json = go(&["bundle", "view", "demo#fragments/ctl"], JSON, BARE);
-    assert_eq!(json.json()["content"], "a\u{7}b\n");
+    assert_eq!(json.json()["body"], "a\u{7}b\n");
     assert!(json.err.is_empty());
 }
 

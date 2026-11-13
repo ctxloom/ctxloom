@@ -25,7 +25,10 @@ fn test_mcp_server_list_names_the_servers_the_default_agents_bundles_ship() {
     let ran = project.run(&["mcp", "server", "list"]);
     ran.succeeds();
     assert_eq!(
-        reports_as(&ran.json(), "servers[name=toolserver].command"),
+        reports_as(
+            &ran.json(),
+            "mcp_servers[name$=/bundles/demo/mcpServers/toolserver].command"
+        ),
         "j000400-mcp-tool-9e1b52"
     );
 }

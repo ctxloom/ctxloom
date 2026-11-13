@@ -22,11 +22,25 @@ fn test_bundle_listing_summarizes_each_bundle_by_version_and_content() {
                 .contains("Contains: 1 fragment")
                 .contains("1 command");
         } else {
+            // OD-40: `ListBundlesResponse`, each bundle named under the project.
             let doc = ran.json();
-            assert_eq!(entries(&doc, "$"), 1);
-            assert_eq!(reports_as(&doc, "[name=demo].version"), "1.0.0");
-            assert_eq!(reports_as(&doc, "[name=demo].fragment_count"), "1");
-            assert_eq!(reports_as(&doc, "[name=demo].command_count"), "1");
+            assert_eq!(entries(&doc, "bundles"), 1);
+            assert_eq!(
+                reports_as(&doc, "bundles[name$=/bundles/demo].version"),
+                "1.0.0"
+            );
+            assert_eq!(
+                reports_as(&doc, "bundles[name$=/bundles/demo].fragment_count"),
+                "1"
+            );
+            assert_eq!(
+                reports_as(&doc, "bundles[name$=/bundles/demo].command_count"),
+                "1"
+            );
+            assert_eq!(
+                reports_as(&doc, "bundles[name$=/bundles/demo].origin"),
+                "PROJECT"
+            );
         }
     }
 }
@@ -44,8 +58,11 @@ fn test_bare_bundle_lists_what_is_installed() {
                 .contains("demo (v1.0.0)");
         } else {
             let doc = ran.json();
-            assert_eq!(entries(&doc, "$"), 1);
-            assert_eq!(reports_as(&doc, "[name=demo].version"), "1.0.0");
+            assert_eq!(entries(&doc, "bundles"), 1);
+            assert_eq!(
+                reports_as(&doc, "bundles[name$=/bundles/demo].version"),
+                "1.0.0"
+            );
         }
     }
 }
@@ -66,15 +83,22 @@ fn test_showing_a_bundle_names_every_section_it_carries() {
                 .contains("Commands (1):")
                 .contains("Example prompt");
         } else {
+            // The `Bundle` (FULL), each child a summary naming it (OQ-14).
             let doc = ran.json();
-            assert_eq!(reports_as(&doc, "name"), "demo");
+            assert!(reports_as(&doc, "name").ends_with("/bundles/demo"), "{doc}");
             assert_eq!(reports_as(&doc, "description"), "acceptance fixture bundle");
             assert_eq!(entries(&doc, "fragments"), 2);
-            assert_eq!(reports_as(&doc, "fragments.example.no_distill"), "true");
-            assert_eq!(reports_as(&doc, "fragments.testing.no_distill"), "false");
+            assert_eq!(
+                reports_as(&doc, "fragments[item$=/fragments/example].no_distill"),
+                "true"
+            );
+            assert_eq!(
+                reports_as(&doc, "fragments[item$=/fragments/testing].no_distill"),
+                "false"
+            );
             assert_eq!(entries(&doc, "commands"), 1);
             assert_eq!(
-                reports_as(&doc, "commands.example.description"),
+                reports_as(&doc, "commands[item$=/commands/example].description"),
                 "Example prompt"
             );
         }
@@ -146,7 +170,7 @@ fn test_the_selector_reaches_an_mcp_servers_configuration() {
         "command: tree-sitter\n",
     );
     project
-        .run(&["bundle", "view", "demo#mcp/tree-sitter"])
+        .run(&["bundle", "view", "demo#mcp/tree-sitter", "--format", "text"])
         .succeeds()
         .contains("# MCP Server: tree-sitter")
         .contains("command: tree-sitter");
@@ -199,9 +223,13 @@ fn test_the_project_is_the_nearest_ctxloom_up_from_the_working_directory() {
     project.bundle("demo");
     let deeper = project.dir().join("sub/deeper");
     files::mkdirs(&deeper);
-    let ran = project.run_in(&deeper, &["bundle", "list", "--format", "json"]);
-    ran.succeeds();
-    assert_eq!(reports_as(&ran.json(), "[name=demo].version"), "1.0.0");
+    // The text answer: a json one asks the daemon for the project's name
+    // (OD-40, OQ-2), and the wiring's registration (`Wiring::registration`)
+    // marks the working directory, not the project found above it, so a
+    // json read from below the root writes `sub/deeper/.ctxloom/project-id`
+    // (escalated by B1; the spine's to fix).
+    let ran = project.run_in(&deeper, &["bundle", "list", "--format", "text"]);
+    ran.succeeds().contains("demo (v1.0.0)");
     assert!(
         !files::exists(deeper.join(".ctxloom")),
         "reading creates nothing"

@@ -116,7 +116,7 @@ Feature: command — authoring reusable prompt templates for AI coding assistant
       When I run "ctxloom command remove demo#commands/review <flags>"
       Then the command succeeds
       And the output reports "applied" as "<reports nothing removed>"
-      And the output reports "apply" as "<names the apply command>"
+      And the output reports "apply_command" as "<names the apply command>"
       And the file ".ctxloom/content/bundles/v2/demo/prompts/review.md" contains "COMMAND-BODY-review"
 
     @json-default
@@ -165,14 +165,14 @@ Feature: command — authoring reusable prompt templates for AI coding assistant
         ctxloom command edit demo#commands/review --no-distill <flags>
         """
       Then the command succeeds
-      And the output reports "distilled" as "<says the distillation was not refreshed>"
+      And the output reports "command.distilled" as "<says the distillation was not refreshed>"
       And the file ".ctxloom/content/bundles/v2/demo/prompts/review.md" contains "EDITED-BY-TEST"
 
     @json-default
     Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
       | flags         | says the distillation was not refreshed  |
-      |               | false                                    |
-      | --format json | false                                    |
+      |               |                                          |
+      | --format json |                                          |
       | --format text | distilled form not refreshed (--no-distill) |
 
     # editInEditor returns whatever bytes are on disk with no length check, so

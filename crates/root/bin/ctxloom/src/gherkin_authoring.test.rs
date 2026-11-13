@@ -641,14 +641,18 @@ fn sees_bundle(w: &mut World, bundle: String) {
         None,
     );
     ran.succeeds();
+    // OD-40: the `Bundle` lists each child as a summary naming it.
     let shown = ran.json();
     for (kind, name) in [
         ("fragments", "house-style"),
         ("commands", "conventional-commits"),
         ("skills", "review-checklist"),
     ] {
+        let suffix = format!("/{kind}/{name}");
         assert!(
-            shown.get(kind).and_then(|k| k.get(name)).is_some(),
+            shown[kind].as_array().is_some_and(|items| items
+                .iter()
+                .any(|i| i["item"].as_str().is_some_and(|n| n.ends_with(&suffix)))),
             "the bundle shows no {kind} {name}: {}",
             ran.said()
         );

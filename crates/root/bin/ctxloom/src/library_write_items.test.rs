@@ -80,10 +80,13 @@ fn test_creating_an_item_answers_and_refuses_what_it_must() {
                 "Created fragment \"testing\" in bundle \"demo\"\nEdit with: ctxloom fragment edit demo#fragments/testing\n"
             );
         } else {
+            // OD-40: `CreateFragmentResponse`.
             let doc = ran.json();
-            assert_eq!(reports_as(&doc, "status"), "created");
-            assert_eq!(reports_as(&doc, "bundle"), "demo");
-            assert_eq!(reports_as(&doc, "name"), "testing");
+            assert_eq!(reports_as(&doc, "applied"), "true");
+            assert!(
+                reports_as(&doc, "fragment.name").ends_with("/bundles/demo/fragments/testing"),
+                "{doc}"
+            );
             assert_eq!(reports_as(&doc, "path"), manifest);
         }
     }
@@ -112,6 +115,8 @@ fn test_bare_fragment_remove_reports_and_destroys_nothing() {
         let project = Project::initialized().on_gos_catalog();
         demo(&project);
         project.fragment("demo", "testing");
+        // A json answer names the project (OD-40, OQ-2): its id is written once.
+        project.run(&["test", "project-name"]).succeeds();
         let before = project.tree(".ctxloom");
         let ran = with_flags(
             &project,
@@ -125,15 +130,15 @@ fn test_bare_fragment_remove_reports_and_destroys_nothing() {
                 "Would remove fragment \"testing\" from bundle \"demo\".\n\nNothing was removed. Re-run with --yes to apply:\n  ctxloom fragment remove demo#fragments/testing --yes\n"
             );
         } else {
+            // OD-40: `DeleteFragmentResponse`, the preview's.
             let doc = ran.json();
-            assert_eq!(reports_as(&doc, "status"), "preview");
             assert_eq!(reports_as(&doc, "applied"), "false");
-            assert_eq!(
-                reports_as(&doc, "target"),
-                "fragment \"testing\" from bundle \"demo\""
+            assert!(
+                reports_as(&doc, "fragment.name").ends_with("/bundles/demo/fragments/testing"),
+                "{doc}"
             );
             assert_eq!(
-                reports_as(&doc, "apply"),
+                reports_as(&doc, "apply_command"),
                 "ctxloom fragment remove demo#fragments/testing --yes"
             );
         }
@@ -181,9 +186,11 @@ fn test_removing_a_fragment_removes_exactly_it() {
             );
         } else {
             let doc = ran.json();
-            assert_eq!(reports_as(&doc, "status"), "deleted");
-            assert_eq!(reports_as(&doc, "bundle"), "demo");
-            assert_eq!(reports_as(&doc, "name"), "testing");
+            assert_eq!(reports_as(&doc, "applied"), "true");
+            assert!(
+                reports_as(&doc, "fragment.name").ends_with("/bundles/demo/fragments/testing"),
+                "{doc}"
+            );
         }
         project.file_is_absent(&format!("{DEMO}/fragments/testing.md"));
         project.file_is_absent(&format!("{DEMO}/fragments/testing.distilled.md"));
@@ -242,6 +249,8 @@ fn test_bare_command_remove_reports_and_destroys_nothing() {
         let project = Project::initialized().on_gos_catalog();
         demo(&project);
         project.command("demo", "review");
+        // A json answer names the project (OD-40, OQ-2): its id is written once.
+        project.run(&["test", "project-name"]).succeeds();
         let before = project.tree(".ctxloom");
         let ran = with_flags(
             &project,
@@ -287,7 +296,7 @@ fn test_removing_a_command_removes_exactly_it() {
             ])
             .json()
     };
-    assert_eq!(reports_as(&doc, "status"), "deleted");
+    assert_eq!(reports_as(&doc, "applied"), "true");
 }
 
 // command.feature: Scenario Outline: Editing with --no-distill warns instead
@@ -313,7 +322,14 @@ fn test_editing_with_no_distill_warns_instead_of_leaving_a_stale_distillation_un
                 .contains("Updated command \"review\" in bundle \"demo\"")
                 .contains("ctxloom bundle push demo [remote]");
         } else {
-            assert_eq!(reports_as(&ran.json(), "distilled"), "false");
+            // OD-40: `UpdateCommandResponse` claims no distilled form it did
+            // not refresh.
+            let doc = ran.json();
+            assert!(
+                super::library::at(&doc, "command.distilled").is_none(),
+                "{doc}"
+            );
+            assert_eq!(reports_as(&doc, "applied"), "true");
         }
         project.file_contains(&format!("{DEMO}/prompts/review.md"), "EDITED-BY-TEST");
         // Never stale: the old distillation does not outlive the content.
@@ -406,9 +422,11 @@ fn test_an_edit_keeps_the_front_matter_and_says_when_nothing_changed() {
         "json",
     ]);
     let doc = json.json();
-    assert_eq!(reports_as(&doc, "status"), "updated");
-    assert_eq!(reports_as(&doc, "bundle"), "demo");
-    assert_eq!(reports_as(&doc, "name"), "plain");
+    assert_eq!(reports_as(&doc, "applied"), "true");
+    assert!(
+        reports_as(&doc, "fragment.name").ends_with("/bundles/demo/fragments/plain"),
+        "{doc}"
+    );
     assert_eq!(
         project
             .read(&format!("{DEMO}/fragments/plain.md"))
@@ -448,9 +466,13 @@ fn test_an_editor_that_changes_nothing_says_so() {
         if is_text(flags) {
             assert_eq!(ran.stdout, "No changes made.\n");
         } else {
+            // OD-40: `UpdateFragmentResponse`, nothing applied.
             let doc = ran.json();
-            assert_eq!(reports_as(&doc, "status"), "unchanged");
-            assert_eq!(reports_as(&doc, "distilled"), "false");
+            assert_eq!(reports_as(&doc, "applied"), "false");
+            assert!(
+                super::library::at(&doc, "fragment.distilled").is_none(),
+                "{doc}"
+            );
         }
         assert_eq!(project.tree(DEMO), before);
     }

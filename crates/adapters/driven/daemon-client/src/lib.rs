@@ -4,10 +4,15 @@
 //! its SOLE root (no system roots, no plaintext), presents the user bearer,
 //! and is bounded by a deadline. A status is read back as [`Called`]: a
 //! refusal as its typed message from `google.rpc.Status.details` (S11).
+//! A domain write goes to angzarr's command coordinator the daemon serves
+//! beside the service, `HandleSync` (slice 3 step 4), the same way.
 
 use std::time::Duration;
 
-use daemon_ports::{Called, DaemonApi};
+use angzarr_embedded::v1::{CommandBook, DeliveryOutcome};
+use angzarr_proto_transport_distributed::v1::command_handler_coordinator_service_client::CommandHandlerCoordinatorServiceClient;
+use angzarr_proto_transport_distributed::v1::HandleSyncRequest;
+use daemon_ports::{Called, DaemonApi, Synced};
 use daemon_proto::service::ctxloom_client::CtxloomClient;
 use daemon_proto::v1;
 use prost::Message;
@@ -63,6 +68,18 @@ impl DaemonClient {
     /// `within`; each call is bounded by its own deadline, so a call past
     /// it is unreachable, never a cancelled status).
     async fn client(&self) -> Result<CtxloomClient<Channel>, Called> {
+        Ok(CtxloomClient::new(self.channel().await?))
+    }
+
+    /// The coordinator's client, over a fresh channel.
+    async fn coordinator(&self) -> Result<CommandHandlerCoordinatorServiceClient<Channel>, Called> {
+        Ok(CommandHandlerCoordinatorServiceClient::new(
+            self.channel().await?,
+        ))
+    }
+
+    /// A fresh channel to the daemon, pinning its certificate.
+    async fn channel(&self) -> Result<Channel, Called> {
         let unreachable = |detail: String| Called::Unreachable { detail };
         let dial = parse_endpoint(&self.endpoint).map_err(|e| unreachable(e.to_string()))?;
         let tls = ClientTlsConfig::new()
@@ -76,7 +93,7 @@ impl DaemonClient {
             .connect()
             .await
             .map_err(|e| unreachable(chain(&e)))?;
-        Ok(CtxloomClient::new(channel))
+        Ok(channel)
     }
 
     /// `message`, with the user bearer.
@@ -162,8 +179,11 @@ macro_rules! call {
         call!($self, $method, $name, $message, $self.within)
     }};
     ($self:ident, $method:ident, $name:literal, $message:expr, $within:expr) => {{
+        call!($self, client, $method, $name, $message, $within)
+    }};
+    ($self:ident, $client:ident, $method:ident, $name:literal, $message:expr, $within:expr) => {{
         let within: Duration = $within;
-        let mut client = $self.client().await?;
+        let mut client = $self.$client().await?;
         let request = $self.request($message)?;
         let answered = tokio::time::timeout(within, client.$method(request)).await;
         match answered {
@@ -212,6 +232,50 @@ impl DaemonApi for DaemonClient {
         request: v1::SearchSessionsRequest,
     ) -> Result<v1::ListSessionsResponse, Called> {
         call!(self, search_sessions, "SearchSessions", request)
+    }
+
+    async fn get_transcript(
+        &self,
+        request: v1::GetTranscriptRequest,
+    ) -> Result<v1::Transcript, Called> {
+        call!(self, get_transcript, "GetTranscript", request)
+    }
+
+    async fn assemble_context(
+        &self,
+        request: v1::AssembleContextRequest,
+    ) -> Result<v1::AssembledContext, Called> {
+        // An assembly runs companions in the daemon: a destroy's deadline.
+        call!(
+            self,
+            assemble_context,
+            "AssembleContext",
+            request,
+            self.destroying
+        )
+    }
+
+    async fn handle_sync(
+        &self,
+        book: CommandBook,
+        projectors: Vec<String>,
+    ) -> Result<Synced, Called> {
+        let request = HandleSyncRequest {
+            command: Some(book),
+            projectors,
+        };
+        let result: angzarr_proto_transport_distributed::v1::CommandSyncResult = call!(
+            self,
+            coordinator,
+            handle_sync,
+            "HandleSync",
+            request,
+            self.within
+        )?;
+        Ok(Synced {
+            applied: result.delivery != DeliveryOutcome::Duplicate as i32,
+            projections: result.projections,
+        })
     }
 
     async fn delete_session(

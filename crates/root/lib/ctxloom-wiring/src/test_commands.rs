@@ -58,6 +58,12 @@ enum TestVerb {
     /// Print where the library's resource names are rooted: the cwd's
     /// project as the daemon names it (`projects/<harp>`), or `users/me`
     ProjectName,
+    /// Print the events of the cwd's project's session, as json: each one's
+    /// type, and a message's id and text
+    SessionEvents {
+        /// The session's harp
+        harp: String,
+    },
 }
 
 /// What `ctxloom test seed-session` plants (see the acceptance tests).
@@ -212,6 +218,11 @@ pub(crate) fn run(
             let wiring = wiring().map_err(failed)?;
             let parent = crate::daemon::library_parent(&wiring, version)?;
             output(writeln!(out, "{parent}"))
+        }
+        TestVerb::SessionEvents { harp } => {
+            let wiring = wiring().map_err(failed)?;
+            let events = wiring.session_events(&harp).map_err(failed)?;
+            output(writeln!(out, "{events}"))
         }
         TestVerb::OpenStore { project } => {
             let path = wiring()

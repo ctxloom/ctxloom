@@ -99,6 +99,10 @@ pub enum ApiRejection {
     SessionNotFound {
         name: String,
     },
+    /// A session whose hooks have delivered no transcript yet.
+    TranscriptEmpty {
+        name: String,
+    },
     ProjectNotFound {
         name: String,
     },
@@ -127,6 +131,7 @@ impl Diagnostic for ApiRejection {
         match self {
             ApiRejection::NameInvalid { .. } => code!("name-invalid"),
             ApiRejection::SessionNotFound { .. } => code!("session-not-found"),
+            ApiRejection::TranscriptEmpty { .. } => code!("transcript-empty"),
             ApiRejection::ProjectNotFound { .. } => code!("project-not-found"),
             ApiRejection::ProjectUnknown { .. } => code!("project-unknown"),
             ApiRejection::DaemonHosting { .. } => code!("daemon-hosting"),
@@ -141,7 +146,9 @@ impl Diagnostic for ApiRejection {
                 ("name", name.as_str().into()),
                 ("reason", reason.as_str().into()),
             ],
-            ApiRejection::SessionNotFound { name } | ApiRejection::ProjectNotFound { name } => {
+            ApiRejection::SessionNotFound { name }
+            | ApiRejection::TranscriptEmpty { name }
+            | ApiRejection::ProjectNotFound { name } => {
                 vec![("name", name.as_str().into())]
             }
             ApiRejection::ProjectUnknown { cwd } => vec![("cwd", cwd.as_str().into())],
@@ -304,6 +311,8 @@ pub fn rejection_of(refusal: &Any) -> Option<Rejection> {
         }),
         "ctxloom.v1.SessionNotFound" => decode::<v1::SessionNotFound>(refusal)
             .and_then(|r| api(ApiRejection::SessionNotFound { name: r.name })),
+        "ctxloom.v1.TranscriptEmpty" => decode::<v1::TranscriptEmpty>(refusal)
+            .and_then(|r| api(ApiRejection::TranscriptEmpty { name: r.name })),
         "ctxloom.v1.ProjectNotFound" => decode::<v1::ProjectNotFound>(refusal)
             .and_then(|r| api(ApiRejection::ProjectNotFound { name: r.name })),
         "ctxloom.v1.ProjectUnknown" => decode::<v1::ProjectUnknown>(refusal)
@@ -386,6 +395,9 @@ pub(crate) fn samples() -> Vec<Box<dyn Diagnostic>> {
         }),
         Box::new(ApiRejection::ProjectNotFound {
             name: "projects/calm-otter".to_string(),
+        }),
+        Box::new(ApiRejection::TranscriptEmpty {
+            name: "projects/calm-otter/sessions/amber-swift-owl".to_string(),
         }),
         Box::new(ApiRejection::ProjectUnknown {
             cwd: "/tmp".to_string(),

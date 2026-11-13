@@ -726,3 +726,115 @@ async fn a_name_whose_segment_is_no_harp_says_why() {
     assert_eq!(invalid.name, name);
     assert_eq!(invalid.reason, "whitespace");
 }
+
+// Slice 3 step 5: GetTranscript of a session whose hooks delivered nothing
+// is refused `TranscriptEmpty`; one nothing holds, not found; a name that is
+// no session's transcript, invalid.
+#[tokio::test]
+async fn get_transcript_refuses_what_has_no_lines() {
+    let f = fixture(vec!["calm-quiet-heron"]);
+    f.api.resolve_project(resolve(COMMIT, "")).await.unwrap();
+    f.mint("amber-swift-owl").await;
+    f.catch_up().await;
+    let name = "projects/calm-quiet-heron/sessions/amber-swift-owl";
+    let (code, empty): (_, v1::TranscriptEmpty) = refused(
+        f.api
+            .get_transcript(v1::GetTranscriptRequest {
+                name: format!("{name}/transcript"),
+            })
+            .await,
+    );
+    assert_eq!(
+        code,
+        <v1::TranscriptEmpty as daemon_proto::Refusal>::REFUSAL_STATUS
+    );
+    assert_eq!(empty.name, name);
+    let (_, missing): (_, v1::SessionNotFound) = refused(
+        f.api
+            .get_transcript(v1::GetTranscriptRequest {
+                name: "projects/calm-quiet-heron/sessions/far-heron/transcript".to_string(),
+            })
+            .await,
+    );
+    assert_eq!(missing.name, "projects/calm-quiet-heron/sessions/far-heron");
+    let (_, invalid): (_, v1::NameInvalid) = refused(
+        f.api
+            .get_transcript(v1::GetTranscriptRequest {
+                name: "amber-swift-owl/transcript".to_string(),
+            })
+            .await,
+    );
+    assert_eq!(invalid.reason, "shape");
+}
+
+/// An assembly that records where it was made and answers its fragments.
+#[derive(Default)]
+struct Assembling(std::sync::Mutex<Vec<(String, Vec<String>)>>);
+
+impl crate::Assemblies for Assembling {
+    fn assemble(
+        &self,
+        root: &str,
+        request: &v1::AssembleContextRequest,
+    ) -> Result<v1::AssembledContext, ApiError> {
+        self.0
+            .lock()
+            .unwrap()
+            .push((root.to_string(), request.fragments.clone()));
+        Ok(v1::AssembledContext {
+            context: request.fragments.join(","),
+            ..v1::AssembledContext::default()
+        })
+    }
+}
+
+// Slice 3 step 6: AssembleContext is made at the project's REGISTERED root;
+// a project nothing registered is not found; a daemon that makes none fails.
+#[tokio::test]
+async fn assemble_context_is_made_at_the_projects_registered_root() {
+    let f = fixture(vec!["calm-quiet-heron"]);
+    let none = f
+        .api
+        .assemble_context(v1::AssembleContextRequest {
+            name: "projects/calm-quiet-heron".to_string(),
+            ..v1::AssembleContextRequest::default()
+        })
+        .await;
+    let _: (_, v1::ProjectNotFound) = refused(none);
+    f.api.resolve_project(resolve(COMMIT, "")).await.unwrap();
+    f.catch_up().await;
+    let unmade = f
+        .api
+        .assemble_context(v1::AssembleContextRequest {
+            name: "projects/calm-quiet-heron".to_string(),
+            ..v1::AssembleContextRequest::default()
+        })
+        .await;
+    assert!(matches!(unmade, Err(ApiError::Failed { .. })), "{unmade:?}");
+    let assemblies = Arc::new(Assembling::default());
+    let api = f
+        .restarted()
+        .await
+        .assembling(Arc::clone(&assemblies) as Arc<dyn crate::Assemblies>);
+    let made = api
+        .assemble_context(v1::AssembleContextRequest {
+            name: "projects/calm-quiet-heron".to_string(),
+            fragments: vec!["demo#fragments/go".to_string()],
+            ..v1::AssembleContextRequest::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(made.context, "demo#fragments/go");
+    assert_eq!(
+        *assemblies.0.lock().unwrap(),
+        [(ROOT.to_string(), vec!["demo#fragments/go".to_string()])]
+    );
+    let (_, invalid): (_, v1::NameInvalid) = refused(
+        api.assemble_context(v1::AssembleContextRequest {
+            name: "calm".to_string(),
+            ..v1::AssembleContextRequest::default()
+        })
+        .await,
+    );
+    assert_eq!(invalid.reason, "shape");
+}

@@ -41,6 +41,7 @@ daemon-ports.workspace = true
 setup-application.workspace = true
 surface-ports.workspace = true
 session-cli.workspace = true
+mcp-server.workspace = true
 session-files.workspace = true
 sessions-application.workspace = true
 sessions.workspace = true
@@ -79,6 +80,7 @@ test-support = [
     "setup-application/test-support",
     "surface-ports/test-support",
     "session-cli/test-support",
+    "mcp-server/test-support",
     "session-files/test-support",
     "sessions/test-support",
     "sessions-application/test-support",

@@ -46,6 +46,28 @@ fn safe(name: &str) -> bool {
 /// its name: a program as `{type: local, command: [program, ...args],
 /// environment}`, a URL as `{type: remote, url, headers}`. A server of the
 /// user's own of another name is left as it is.
+/// `doc` with ctxloom's own server set (slice 3 step 3, T20): a local
+/// entry running `program`'s `mcp serve`, with no identity in it (opencode's
+/// environment carries the session's name), replacing any of that name
+/// (OD-6).
+pub(crate) fn with_ctxloom(mut doc: Json, program: &str) -> Json {
+    if !matches!(doc.get("mcp"), Some(Json::Object(_))) {
+        doc.set("mcp", Json::Object(Vec::new()));
+    }
+    let mut command = vec![program.to_string()];
+    command.extend(surface_ports::ctxloom_server_args());
+    let servers = doc.get_mut("mcp").expect("the member was just set");
+    servers.set(
+        surface_ports::CTXLOOM_SERVER,
+        Json::object([
+            ("type", Json::text("local")),
+            ("command", Json::strings(&command)),
+            ("enabled", Json::Bool(true)),
+        ]),
+    );
+    doc
+}
+
 pub(crate) fn with_servers(mut doc: Json, mcp: &[McpServer]) -> Json {
     if mcp.is_empty() {
         return doc;

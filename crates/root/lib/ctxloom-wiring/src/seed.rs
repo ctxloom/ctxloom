@@ -58,6 +58,69 @@ fn seed_error(detail: impl ToString) -> TestError {
 }
 
 impl Wiring {
+    /// The events of the cwd's project's session `harp`, as `ctxloom test
+    /// session-events` prints them (slice 3: a write applied once): each
+    /// one's type name, and a message's id and text.
+    pub fn session_events(&self, harp: &str) -> Result<serde_json::Value, TestError> {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(seed_error)?;
+        runtime.block_on(self.events_of(harp))
+    }
+
+    async fn events_of(&self, harp: &str) -> Result<serde_json::Value, TestError> {
+        use angzarr_embedded::v1::event_page;
+        use angzarr_embedded::{EventStore, StreamRef};
+        let mut sessions = self.sessions();
+        let named = sessions
+            .use_cases
+            .name_project(sessions_application::NameProjectRequest {
+                project: None,
+                harps: crate::fresh_project_harps(),
+            })
+            .await
+            .map_err(|e| seed_error(angzarr_diagnostic::Diagnostic::code(&e)))?;
+        let project = sessions
+            .use_cases
+            .identity
+            .for_write(None)
+            .map_err(seed_error_of)?;
+        let mut stores = sessions.use_cases.stores;
+        let read = async {
+            let store = stores.open(&project).await.map_err(seed_error)?;
+            let name = sessions::SessionName::new(&named.harp, harp).map_err(seed_error)?;
+            let cover = Cover {
+                domain: SESSION_DOMAIN.to_string(),
+                root: Some(name.root()),
+                edition: None,
+            };
+            let stream = StreamRef::try_from(&cover).map_err(seed_error)?;
+            let slice = store.read(stream, 0, None).await.map_err(seed_error)?;
+            let mut events = Vec::new();
+            for page in slice.pages {
+                let Some(event_page::Body::Event(event)) = page.body else {
+                    continue;
+                };
+                let kind = event.type_url.rsplit('.').next().unwrap_or_default();
+                let mut row = serde_json::json!({"type": kind});
+                if let Ok(sessions::SessionEvent::MessageSent(sent)) =
+                    <sessions::SessionEvent as Payload>::from_any(&event)
+                {
+                    row["message_id"] = sent.message_id.into();
+                    row["text"] = sent.text.into();
+                }
+                events.push(row);
+            }
+            Ok::<_, TestError>(serde_json::Value::Array(events))
+        }
+        .await;
+        let closed = stores.close().await.map_err(seed_error);
+        let events = read?;
+        closed?;
+        Ok(events)
+    }
+
     /// Plant `seed`; its stable id.
     pub fn seed_session(&self, seed: &Seed) -> Result<String, TestError> {
         let runtime = tokio::runtime::Builder::new_current_thread()

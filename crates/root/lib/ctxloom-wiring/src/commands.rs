@@ -423,6 +423,11 @@ impl Extension for Commands {
                 if noun.get_name() == "run" {
                     return run_cli::with_one_shot(noun);
                 }
+                // ctxloom's own MCP server, hidden, beside the library's
+                // `mcp server` listing (slice 3, T20).
+                if noun.get_name() == crate::mcp::NOUN {
+                    return noun.subcommand(mcp_server::verb());
+                }
                 if noun.get_name() != "bundle" {
                     return noun;
                 }
@@ -464,6 +469,16 @@ impl Extension for Commands {
         }
         if noun == crate::daemon::NOUN {
             return crate::daemon::run(&self.env, &self.version, call, catalog, out);
+        }
+        let verb_of = |noun: &str| {
+            call.matches
+                .subcommand_matches(noun)
+                .and_then(|m| m.subcommand_name())
+                .unwrap_or_default()
+                .to_string()
+        };
+        if crate::mcp::is_serve(noun, &verb_of(noun)) {
+            return crate::mcp::serve(&self.env, &self.version, out);
         }
         // A hook answers its engine whatever the store (it never fails the
         // engine); every other command in a project that still has a store

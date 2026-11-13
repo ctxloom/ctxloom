@@ -471,7 +471,9 @@ hooks and ctxloom's own callbacks (session-start, skill-mates) into
 lives (the session home's `settings.json`, or the hooks file under `host`);
 the servers not served by the session are `ctxloom-mcp.json`, written at
 every launch and named by `--mcp-config` (variadic: an option always follows
-it; a turn's, the terminal's and a hosted child's, `drive::push_mcp_config`);
+it; a turn's, the terminal's and a hosted child's, `drive::push_mcp_config`),
+and it ALWAYS lists ctxloom's own MCP server, `ctxloom` (below, "ctxloom's
+own MCP server");
 the commands and skills are the session home's `commands/` and
 `skills/` (claude's user scope under CLAUDE_CONFIG_DIR), and under
 `session_home: host` files written into the session's checkout alone
@@ -1802,6 +1804,49 @@ in the gitignored `.cargo/config.toml`. `scripts/path-deps-check.sh` (`just
 lint-path-deps`, part of `just lint`, and lefthook's pre-commit `path-deps`
 gate, third in order) judges the staged index; its self-test is in `just
 selftest`.
+
+## ctxloom's own MCP server (daemon slice 3, T20; OD-1 to OD-7)
+
+`ctxloom mcp serve` (hidden; `adapters/driving/mcp-server`, on rmcp pinned
+`=3.9.0`, default features off, `server` and `transport-io` only: ruling 150;
+3.9.0 because cargo-deny refuses 3.8.0's advisory, and it brings sha2 0.11
+and its family into the lock) is the runner's callback into the daemon.
+Every session home registers it: claude's `ctxloom-mcp.json` as
+`"ctxloom": {"command": <program>, "args": ["mcp", "serve"]}`, opencode's
+`opencode.json` as `mcp.ctxloom = {type: local, command: [<program>, "mcp",
+"serve"], enabled: true}` (`surface_ports::CTXLOOM_SERVER`; a carried server
+of that name is shadowed, OD-6). The entry holds no identity: the server is
+the session `CTXLOOM_SESSION` names in the environment it inherits from its
+engine (whether claude passes that environment to a stdio server is OD-7's
+live probe, `scripts/mcp-env-probe.sh`, not yet run), and with none it is
+refused, `mcp-server-no-session` (exit 20). `initialize` and `tools/list`
+reach no daemon. The command line holds stdout locked, so the server's
+lines reach it through a channel and are written on the command's thread
+(`mcp_server::serve(server, out)`). Its tools (`mcp_server::TOOL_NAMES`)
+are `session_list`, `session_show`, `transcript_show`, `context_assemble`
+(its `bundles` argument is `AssembleContext`'s `fragments`), `child_send`,
+`child_close` and `child_clear`. `child_launch` (step 8) and
+`approval_prompt` (OD-1) are not offered until they are built. Each tool is
+a call of `daemon_api::Caller`, a SESSION as the daemon's client. Its
+project is its name's (`projects/{p}`, OD-2), never resolved from a cwd.
+Its reads are the service's (`GetTranscript` and `AssembleContext` are now
+served: the transcript from the warm index, refused `TranscriptEmpty` with
+no lines; the assembly at the project's REGISTERED root in the caller's
+environment, by the wiring's `ProjectAssemblies`, a missing fragment or tag
+a notice). Its writes are the domain's commands through the coordinator's
+`HandleSync` (`DaemonApi::handle_sync`, `daemon-client` over angzarr's
+coordinator client), its `requester` the caller (project uid from
+`GetProject`, its own stable id), its evidence from the target as the daemon
+has it (s3-Q4), its command id keyed by an id minted once per call (a
+message's, a clear's; a close's `close:<uid>`), so the one retry on a new
+daemon is a DUPLICATE. The answer is the session-index projection, or
+`GetSession` when none came back. A daemon of another stamp is refused
+`daemon-api-version-skew` and never stopped (OD-3, `Reach::never_stopping`;
+the old daemon's drain is not built). Under test-support, a
+`test-die-after-apply` file in the daemon's directory kills the daemon once
+a client's `HandleSync` is applied and before it answers
+(`serve.rs`'s `Dying`, taken by the daemon that finds it), and `ctxloom test
+session-events <harp>` lists a session's events.
 
 ## opencode is heard through its plugin (ruling 58)
 

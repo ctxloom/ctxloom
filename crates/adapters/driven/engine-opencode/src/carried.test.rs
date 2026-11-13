@@ -105,13 +105,34 @@ fn test_each_server_is_set_under_mcp_of_the_session_config() {
     assert_eq!(
         config,
         Json::parse(
-            r#"{"mcp":{"toolserver":{"type":"local","command":["tool-cmd","--flag"],"environment":{"K":"V"}},"remote":{"type":"remote","url":"https://mcp.example/","headers":{"X":"Y"}}},"permission":{"edit":"ask"}}"#
+            r#"{"mcp":{"toolserver":{"type":"local","command":["tool-cmd","--flag"],"environment":{"K":"V"}},"remote":{"type":"remote","url":"https://mcp.example/","headers":{"X":"Y"}},"ctxloom":{"type":"local","command":["ctxloom","mcp","serve"],"enabled":true}},"permission":{"edit":"ask"}}"#
         )
         .unwrap()
     );
-    // None to register: no member is made.
+    // Slice 3 step 3 (T20): ctxloom's own server is every session's, the
+    // running program's `mcp serve`, no identity in the entry.
     let bare = Json::parse(&file(&prepare(Inputs::default()), CONFIG_FILE).unwrap()).unwrap();
-    assert!(bare.get("mcp").is_none());
+    assert_eq!(
+        bare.get("mcp").unwrap(),
+        &Json::parse(
+            r#"{"ctxloom":{"type":"local","command":["ctxloom","mcp","serve"],"enabled":true}}"#
+        )
+        .unwrap()
+    );
+    // Hers of the same name is replaced (OD-6: ctxloom's own keeps it).
+    let replaced = super::with_ctxloom(
+        Json::parse(r#"{"mcp":{"ctxloom":{"type":"remote","url":"https://x/"}}}"#).unwrap(),
+        "ctxloom",
+    );
+    assert_eq!(
+        replaced
+            .get("mcp")
+            .unwrap()
+            .get("ctxloom")
+            .unwrap()
+            .get("type"),
+        Some(&Json::text("local"))
+    );
     // Hers of another name stays.
     let hers = super::with_servers(
         Json::parse(r#"{"mcp":{"mine":{"type":"local","command":["own"]}}}"#).unwrap(),

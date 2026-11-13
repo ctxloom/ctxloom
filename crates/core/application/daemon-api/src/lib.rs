@@ -22,23 +22,28 @@
 //! - [`Client`]: a command as the daemon's client (slice 2 step 6):
 //!   `daemon status|stop` and the session reads ([`SessionReads`]), each
 //!   reaching a daemon, resolving its project and sending its environment,
-//!   retried once on a new daemon (S8).
+//!   retried once on a new daemon (S8);
+//! - [`Caller`]: a SESSION as the daemon's client (slice 3, ctxloom's MCP
+//!   server's): its project its name's (OD-2), its reads, and its writes
+//!   through the coordinator's `HandleSync`, the requester itself.
 
+mod caller;
 mod client;
 mod destroy;
 mod refusal;
 mod server;
 mod session_client;
 
+pub use caller::{urgency_of, Caller, Written};
 pub use client::{reconcile, resolve, stop, CallError, Reconciled, SkewError};
 pub use destroy::{Places, Purges};
 pub use refusal::{rejection_of, ApiError, ApiRefusal, ApiRejection, Rejection, RemovalRejection};
-pub use server::{About, Answer, Api, Calls, Harps, Hosting, Parts, SessionStates};
+pub use server::{About, Answer, Api, Assemblies, Calls, Harps, Hosting, Parts, SessionStates};
 pub use session_client::{Client, Removed, RequestIds, SessionReads, SessionRemovals};
 
 /// What a call can come to, and why no daemon could be called: the port's,
 /// as a driving adapter names them (it sees the application alone).
-pub use daemon_ports::{Called, Unreached};
+pub use daemon_ports::{Called, DaemonApi, Daemons, Unreached};
 
 /// This crate's en-US messages, its name first.
 pub const EN_US: (&str, &str) = (

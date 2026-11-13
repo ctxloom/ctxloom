@@ -1691,9 +1691,37 @@ fn the_servers_ride_an_mcp_config_the_command_names() {
         None,
         surface_ports::Inputs::default(),
     );
+    // Slice 3 step 3 (T20): every session home registers ctxloom's own
+    // server, the running program's `mcp serve`, with no identity in the
+    // entry (the engine's environment carries it).
+    let ours = surface_ports::Json::parse(&file_of(&none, MCP_CONFIG_FILE).unwrap()).unwrap();
     assert_eq!(
-        file_of(&none, MCP_CONFIG_FILE).unwrap().trim(),
-        "{\n  \"mcpServers\": {}\n}"
+        ours,
+        surface_ports::Json::parse(
+            r#"{"mcpServers":{"ctxloom":{"command":"ctxloom","args":["mcp","serve"]}}}"#
+        )
+        .unwrap()
+    );
+    assert_eq!(
+        mcp.get("mcpServers")
+            .and_then(|s| s.get("ctxloom"))
+            .and_then(|t| t.get("command"))
+            .and_then(surface_ports::Json::as_str),
+        Some("ctxloom")
+    );
+    // OD-6: a bundle's server named `ctxloom` is shadowed by ctxloom's own.
+    let mut shadowing = carried();
+    shadowing.mcp[0].name = "ctxloom".to_string();
+    let shadowed = prepare_carrying(false, SessionHome::Session, None, shadowing);
+    let shadowed =
+        surface_ports::Json::parse(&file_of(&shadowed, MCP_CONFIG_FILE).unwrap()).unwrap();
+    assert_eq!(
+        shadowed
+            .get("mcpServers")
+            .and_then(|s| s.get("ctxloom"))
+            .and_then(|t| t.get("command"))
+            .and_then(surface_ports::Json::as_str),
+        Some("ctxloom")
     );
     let mut asked = request();
     asked.prompt = "the opening".to_string();

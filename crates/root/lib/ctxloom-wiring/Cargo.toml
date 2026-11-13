@@ -43,6 +43,7 @@ surface-ports.workspace = true
 engine-claude.workspace = true
 engine-opencode.workspace = true
 hook-cli.workspace = true
+mcp-server.workspace = true
 hook-listener.workspace = true
 hook-tls.workspace = true
 session-cli.workspace = true
@@ -105,6 +106,7 @@ session-ports.workspace = true
 daemon-proto.workspace = true
 # The test-only commands' sample list and the daemon's answers.
 serde.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 # A projection's view, decoded (S32).

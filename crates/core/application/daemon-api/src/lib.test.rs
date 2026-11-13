@@ -14,11 +14,13 @@ fn the_samples_hold_every_diagnostic_of_the_crate() {
             "daemon-api-name-invalid",
             "daemon-api-session-not-found",
             "daemon-api-project-not-found",
+            "daemon-api-transcript-empty",
             "daemon-api-project-unknown",
             "daemon-api-daemon-hosting",
             "daemon-api-age-invalid",
             "daemon-api-config-unreadable",
             "daemon-api-version-skew-busy",
+            "daemon-api-version-skew",
         ]
     );
 }

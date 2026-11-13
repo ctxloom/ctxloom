@@ -750,6 +750,9 @@ fn serving_here(
 pub(crate) struct Reach<'a> {
     wiring: &'a Wiring,
     stamp: String,
+    /// Whether a daemon of another version is refused, never stopped (OD-3:
+    /// a session's MCP server's calls).
+    never_stops: bool,
 }
 
 impl<'a> Reach<'a> {
@@ -759,6 +762,16 @@ impl<'a> Reach<'a> {
         Reach {
             wiring,
             stamp: own_stamp(wiring.env(), stamp).to_string(),
+            never_stops: false,
+        }
+    }
+
+    /// This reach, a daemon of another version refused with a typed
+    /// mismatch, never stopped (OD-3: an MCP call never stops a daemon).
+    pub(crate) fn never_stopping(self) -> Reach<'a> {
+        Reach {
+            never_stops: true,
+            ..self
         }
     }
 
@@ -794,6 +807,15 @@ impl Daemons for Reach<'_> {
     async fn reach(&self) -> Result<daemon_client::DaemonClient, Unreached> {
         let files = files_of(self.wiring);
         if let Some(found) = serving_here(self.wiring, &files).map_err(declined)? {
+            if self.never_stops {
+                return match found.stamp == self.stamp {
+                    true => Ok(client_of(&found)),
+                    false => Err(declined(daemon_api::SkewError::Mismatch {
+                        own: self.stamp.clone(),
+                        daemon: found.stamp,
+                    })),
+                };
+            }
             match daemon_api::reconcile(&client_of(&found), &self.stamp, &found.stamp).await {
                 Ok(daemon_api::Reconciled::Same) => return Ok(client_of(&found)),
                 Ok(daemon_api::Reconciled::Stopped) => {
@@ -867,7 +889,7 @@ pub(crate) fn library_parent(wiring: &Wiring, stamp: &str) -> Result<String, Fai
 }
 
 /// A write's request id (S8): a fresh UUIDv7, unique per call.
-fn request_id() -> String {
+pub(crate) fn request_id() -> String {
     uuid::Uuid::now_v7().to_string()
 }
 

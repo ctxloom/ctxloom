@@ -80,6 +80,15 @@ pub struct McpServer {
 /// told when it is built and which is this word when nothing else is known.
 pub const CALLBACK_PROGRAM: &str = "ctxloom";
 
+/// The name every session's engine registers ctxloom's own MCP server under
+/// (slice 3, T20; OD-6: a carried server of this name is shadowed by it).
+pub const CTXLOOM_SERVER: &str = "ctxloom";
+
+/// The arguments that start ctxloom's own MCP server: `<program> mcp serve`.
+pub fn ctxloom_server_args() -> Vec<String> {
+    vec!["mcp".to_string(), "serve".to_string()]
+}
+
 /// A lifecycle hook, in a unified event.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct Hook {

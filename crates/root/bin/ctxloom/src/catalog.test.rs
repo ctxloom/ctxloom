@@ -199,6 +199,7 @@ fn test_the_binary_reports_the_diagnostics_of_every_crate_composed_in() {
         "isolation-application",
         "library",
         "library-application",
+        "mcp-server",
         "project-dir",
         "reclaim-application",
         "run-application",

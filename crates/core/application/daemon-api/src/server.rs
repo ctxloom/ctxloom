@@ -30,6 +30,9 @@ use crate::refusal::{ApiError, ApiRefusal};
 /// The daemon's singleton name (AIP-156).
 const DAEMON: &str = "daemon";
 
+/// A session's transcript, as its resource name ends.
+const TRANSCRIPT: &str = "/transcript";
+
 /// A `ListSessions` parent naming every project.
 pub(crate) const EVERY_PROJECT: &str = "projects/-";
 
@@ -48,6 +51,18 @@ pub trait Hosting: Send + Sync {
     /// before it was asked (bounded: a round that does not come is waited
     /// for no longer than the loop's own pace allows).
     fn fresh(&self) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
+}
+
+/// A project's context, assembled as a process in it would (slice 3 step
+/// 6, the smallest piece of T13): the root composes the library over the
+/// project's registered root, in the caller's environment (S7).
+pub trait Assemblies: Send + Sync {
+    /// The context of the project at `root`, as `request` asks it.
+    fn assemble(
+        &self,
+        root: &str,
+        request: &v1::AssembleContextRequest,
+    ) -> Result<v1::AssembledContext, ApiError>;
 }
 
 /// A session's state now, from its liveness lock in its project.
@@ -121,6 +136,26 @@ pub trait Calls: Send + Sync {
         &self,
         request: v1::SweepSessionsRequest,
     ) -> Answer<'_, v1::SweepSessionsResponse>;
+    /// `GetTranscript` (slice 3 step 5); an edge that serves none fails it.
+    fn get_transcript(&self, request: v1::GetTranscriptRequest) -> Answer<'_, v1::Transcript> {
+        let _ = request;
+        Box::pin(async { Err(not_served("GetTranscript")) })
+    }
+    /// `AssembleContext` (slice 3 step 6); as `GetTranscript`.
+    fn assemble_context(
+        &self,
+        request: v1::AssembleContextRequest,
+    ) -> Answer<'_, v1::AssembledContext> {
+        let _ = request;
+        Box::pin(async { Err(not_served("AssembleContext")) })
+    }
+}
+
+/// A call this edge does not serve, failed.
+fn not_served(method: &str) -> ApiError {
+    ApiError::Failed {
+        detail: format!("{method} is not served here"),
+    }
 }
 
 impl<E: Edge + 'static> Calls for Api<E> {
@@ -171,6 +206,17 @@ impl<E: Edge + 'static> Calls for Api<E> {
     ) -> Answer<'_, v1::SweepSessionsResponse> {
         Box::pin(Api::sweep_sessions(self, request))
     }
+
+    fn get_transcript(&self, request: v1::GetTranscriptRequest) -> Answer<'_, v1::Transcript> {
+        Box::pin(Api::get_transcript(self, request))
+    }
+
+    fn assemble_context(
+        &self,
+        request: v1::AssembleContextRequest,
+    ) -> Answer<'_, v1::AssembledContext> {
+        Box::pin(Api::assemble_context(self, request))
+    }
 }
 
 /// The use cases of the daemon's API.
@@ -178,6 +224,8 @@ pub struct Api<E> {
     pub(crate) parts: Parts<E>,
     /// The destroys applied, by request id, for the daemon's life (S8).
     pub(crate) applied: crate::destroy::Applied,
+    /// Where an assembly is made; none, `AssembleContext` fails.
+    assemblies: Option<Arc<dyn Assemblies>>,
 }
 
 impl<E: Edge> Api<E> {
@@ -185,7 +233,77 @@ impl<E: Edge> Api<E> {
         Api {
             parts,
             applied: crate::destroy::Applied::default(),
+            assemblies: None,
         }
+    }
+
+    /// The API, its assemblies made by `assemblies`.
+    #[must_use]
+    pub fn assembling(self, assemblies: Arc<dyn Assemblies>) -> Api<E> {
+        Api {
+            assemblies: Some(assemblies),
+            ..self
+        }
+    }
+
+    /// `GetTranscript` (slice 3 step 5): a session's D27 lines, from the
+    /// warm index, as its hooks have delivered them so far; one with none
+    /// is refused `TranscriptEmpty`.
+    pub async fn get_transcript(
+        &self,
+        request: v1::GetTranscriptRequest,
+    ) -> Result<v1::Transcript, ApiError> {
+        let session = request
+            .name
+            .strip_suffix(TRANSCRIPT)
+            .unwrap_or(request.name.as_str());
+        let name =
+            SessionName::parse(session).map_err(|rejection| invalid(&request.name, &rejection))?;
+        self.parts.hosting.fresh().await;
+        let index = self.parts.index.index();
+        let record = index.find_by_id(&name.uid()).ok_or_else(|| {
+            ApiError::from(ApiRefusal::of(&v1::SessionNotFound {
+                name: session.to_string(),
+            }))
+        })?;
+        let text = index.transcript(&record.id).ok_or_else(|| {
+            ApiError::from(ApiRefusal::of(&v1::TranscriptEmpty {
+                name: session.to_string(),
+            }))
+        })?;
+        Ok(v1::Transcript {
+            name: format!("{name}{TRANSCRIPT}"),
+            lines: text
+                .lines()
+                .filter(|line| !line.is_empty())
+                .map(|line| v1::TranscriptLine {
+                    json: line.to_string(),
+                })
+                .collect(),
+        })
+    }
+
+    /// `AssembleContext` (slice 3 step 6): the context of the project
+    /// `request.name` names, assembled at its REGISTERED root in the
+    /// caller's environment.
+    pub async fn assemble_context(
+        &self,
+        request: v1::AssembleContextRequest,
+    ) -> Result<v1::AssembledContext, ApiError> {
+        let name = ProjectName::parse(&request.name)
+            .map_err(|rejection| invalid(&request.name, &rejection))?;
+        self.parts.hosting.fresh().await;
+        let row = self.parts.index.index().project_named_by(name.harp());
+        let root = row.map(|row| row.root).filter(|root| !root.is_empty());
+        let root = root.ok_or_else(|| {
+            ApiError::from(ApiRefusal::of(&v1::ProjectNotFound {
+                name: request.name.clone(),
+            }))
+        })?;
+        let assemblies = self.assemblies.as_ref().ok_or_else(|| ApiError::Failed {
+            detail: "this daemon makes no assembly".to_string(),
+        })?;
+        assemblies.assemble(&root, &request)
     }
 
     /// `GetDaemon`: the daemon, what it hosts and its idle time. Never its

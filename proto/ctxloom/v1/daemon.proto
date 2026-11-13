@@ -4,7 +4,8 @@ syntax = "proto3";
 // daemon-proto (its messages, each refusal's status, and the `Ctxloom`
 // service's stubs). Served so far (slice 2 steps 5, 6): GetDaemon, StopDaemon,
 // ResolveProject, GetProject, GetSession, ListSessions, SearchSessions, and
-// in a `session-destroy` build DeleteSession and SweepSessions; every other
+// in a `session-destroy` build DeleteSession and SweepSessions; slice 3 adds
+// GetTranscript and AssembleContext (its fragments and tags); every other
 // method answers UNIMPLEMENTED.
 //
 // THE USER'S DAEMON'S API (T1-T30; the owner's API rulings Q1-Q13; rulings
@@ -441,6 +442,13 @@ message AssembleContextRequest {
   string name = 1;
   string agent = 2;
   repeated string profiles = 3;
+  // The fragments to load by name (slice 3 step 6, S46's
+  // `context_assemble`, whose `bundles` argument they are: the names a
+  // premise index lists); an assembly that names only fragments and tags
+  // takes no default profile.
+  repeated string fragments = 4;
+  // The tags whose fragments to load.
+  repeated string tags = 5;
   EnvVars env = 94;
   Globals globals = 96;
 }
@@ -964,6 +972,14 @@ message NameInvalid {
 
   string name = 1;
   string reason = 2;
+}
+
+// `GetTranscript` of a session whose hooks have delivered nothing yet (the
+// CLI's `no captured transcript`).
+message TranscriptEmpty {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_NOT_FOUND;
+
+  string name = 1;
 }
 
 // A session's resource name no session holds.

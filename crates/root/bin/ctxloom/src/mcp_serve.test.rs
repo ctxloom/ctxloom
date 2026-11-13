@@ -16,12 +16,12 @@ use serde_json::{json, Value};
 
 use super::library::Project;
 
-/// The tools the server offers before approvals are built (OD-1: the
-/// approval prompt is not listed until it is).
-const TOOLS: [&str; 8] = [
+/// The tools the server offers, sorted: not the approval prompt until
+/// approvals are built (OD-1), nor `child_launch` until it is (slice 3
+/// step 8, deferred).
+const TOOLS: [&str; 7] = [
     "child_clear",
     "child_close",
-    "child_launch",
     "child_send",
     "context_assemble",
     "session_list",

@@ -194,7 +194,7 @@ impl Engine for Claude {
             },
             HomeFile {
                 rel: MCP_CONFIG_FILE.to_string(),
-                bytes: mcp_config(&request.surfaces.0).into_bytes(),
+                bytes: mcp_config(&request.surfaces.0, &self.program).into_bytes(),
             },
         ];
         // The commands and skills: the session home's own (its
@@ -407,13 +407,24 @@ fn with_deny(document: Option<Json>, deny: &[String]) -> Option<Json> {
 }
 
 /// The servers the launch carries, as claude's MCP config (`--mcp-config`):
-/// `{"mcpServers": {...}}`, empty with none.
-fn mcp_config(surfaces: &surface_ports::Inputs) -> String {
-    let servers = surfaces
+/// `{"mcpServers": {...}}`, and always ctxloom's own (slice 3 step 3, T20):
+/// `program`'s `mcp serve`, with no identity in the entry (the engine's
+/// environment carries the session's name, `CTXLOOM_SESSION`). A carried
+/// server named `ctxloom` is shadowed by it (OD-6; the plan names it).
+fn mcp_config(surfaces: &surface_ports::Inputs, program: &str) -> String {
+    let mut servers = surfaces
         .mcp
         .iter()
+        .filter(|server| server.name != surface_ports::CTXLOOM_SERVER)
         .map(|server| (server.name.clone(), crate::mcp_entry(server)))
         .collect::<Vec<_>>();
+    servers.push((
+        surface_ports::CTXLOOM_SERVER.to_string(),
+        Json::object([
+            ("command", Json::text(program)),
+            ("args", Json::strings(surface_ports::ctxloom_server_args())),
+        ]),
+    ));
     let doc = Json::object([("mcpServers", Json::Object(servers))]);
     format!("{}\n", doc.pretty())
 }

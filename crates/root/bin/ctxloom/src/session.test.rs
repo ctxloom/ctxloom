@@ -144,9 +144,10 @@ fn harps(rows: &[Value]) -> Vec<String> {
     rows.iter().map(harp_of).collect()
 }
 
-/// A state word as proto3 JSON names the API's enum.
+/// A state word as proto3 JSON names the API's enum (`Session.State`,
+/// AIP-216: its values unprefixed).
 fn state(word: &str) -> String {
-    format!("SESSION_STATE_{}", word.to_uppercase())
+    word.to_uppercase()
 }
 
 // ------------------------------------------------------ "Reading the record"

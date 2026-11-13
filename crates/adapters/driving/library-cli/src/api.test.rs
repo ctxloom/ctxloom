@@ -82,17 +82,17 @@ fn setting(value: serde_json::Value, state: &'static str) -> AuthSetting {
 fn test_an_auth_source_is_its_value_and_its_state_the_enum() {
     assert_eq!(
         json_of(&auth(&setting(json!("login"), "present"))),
-        json!({"value": {"word": "login"}, "source": "engine", "state": "AUTH_STATE_PRESENT"})
+        json!({"value": {"word": "login"}, "source": "engine", "state": "PRESENT"})
     );
     let mut source = setting(json!({"env": ["A", "B"], "file": "~/k"}), "missing");
     source.via = Some("A".to_string());
     assert_eq!(
         json_of(&auth(&source)),
-        json!({"value": {"env": ["A", "B"], "file": "~/k"}, "source": "engine", "state": "AUTH_STATE_MISSING", "via": "A"})
+        json!({"value": {"env": ["A", "B"], "file": "~/k"}, "source": "engine", "state": "MISSING", "via": "A"})
     );
     assert_eq!(
         json_of(&auth(&setting(json!({"env": ["A"]}), "not-needed"))),
-        json!({"value": {"env": ["A"]}, "source": "engine", "state": "AUTH_STATE_NOT_NEEDED"})
+        json!({"value": {"env": ["A"]}, "source": "engine", "state": "NOT_NEEDED"})
     );
     assert_eq!(
         json_of(&auth(&setting(json!(7), "unheard-of"))),

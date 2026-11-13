@@ -776,7 +776,7 @@ fn test_engine_show_json_is_the_engine_resource() {
     );
     assert_eq!(
         engine["auth"],
-        serde_json::json!({"value": {"word": "none"}, "source": "engine", "state": "AUTH_STATE_NOT_NEEDED"})
+        serde_json::json!({"value": {"word": "none"}, "source": "engine", "state": "NOT_NEEDED"})
     );
     assert_eq!(
         engine["agents"][0],

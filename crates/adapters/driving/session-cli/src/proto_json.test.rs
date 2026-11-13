@@ -37,7 +37,7 @@ fn a_session_is_its_proto3_json() {
         json!({
             "name": "projects/calm-otter/sessions/amber-swift-owl",
             "uid": "u-1",
-            "state": "SESSION_STATE_ENDED",
+            "state": "ENDED",
             "engine": "claude-code",
             "start_time": "2026-07-17T17:27:32Z",
             "kept": true,
@@ -90,7 +90,7 @@ fn the_daemon_is_its_proto3_json() {
             "name": "daemon",
             "pid": 4242,
             "endpoint": "https://127.0.0.1:5000",
-            "runs": [{"harp": "brisk-copper-moth", "kind": "RUN_KIND_CHILD"}],
+            "runs": [{"harp": "brisk-copper-moth", "kind": "CHILD"}],
             "idle_limit_seconds": "600",
         })
     );

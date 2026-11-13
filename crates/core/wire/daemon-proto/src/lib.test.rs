@@ -45,7 +45,7 @@ fn test_a_fact_with_presence_prints_false_and_a_default_is_left_out() {
         serde_json::json!({
             "bundle": {
                 "name": "projects/calm-otter/bundles/demo",
-                "origin": "ORIGIN_PROJECT",
+                "origin": "PROJECT",
                 "fragment_count": 2,
             },
             "applied": false,

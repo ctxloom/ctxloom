@@ -68,7 +68,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
     # branch's shared empty-collection step rather than a new spelling.
     # @pending at the merge of main into the daemon line (2026-11-13): it
     # asserts the listing's JSON as rows with `harp` and a `live` state; the
-    # daemon answers `{sessions: [{name, uid, state: SESSION_STATE_...}]}`.
+    # daemon answers `{sessions: [{name, uid, state: LIVE|ENDED|UNKNOWN}]}`.
     # Re-expressing it in the daemon's shape is the owner's to rule.
     @pending
     Scenario Outline: A fresh project has recorded nothing
@@ -88,7 +88,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
     # recorded transcript: the listing, the search and `show` all carry it.
     # @pending at the merge of main into the daemon line (2026-11-13): it
     # asserts the listing's JSON as rows with `harp` and a `live` state; the
-    # daemon answers `{sessions: [{name, uid, state: SESSION_STATE_...}]}`.
+    # daemon answers `{sessions: [{name, uid, state: LIVE|ENDED|UNKNOWN}]}`.
     # Re-expressing it in the daemon's shape is the owner's to rule.
     @pending
     Scenario: Showing a session prints its record, titled by its first prompt
@@ -124,7 +124,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
     # live session's end is blank rather than a stamp from its previous run.
     # @pending at the merge of main into the daemon line (2026-11-13): it
     # asserts the listing's JSON as rows with `harp` and a `live` state; the
-    # daemon answers `{sessions: [{name, uid, state: SESSION_STATE_...}]}`.
+    # daemon answers `{sessions: [{name, uid, state: LIVE|ENDED|UNKNOWN}]}`.
     # Re-expressing it in the daemon's shape is the owner's to rule.
     @pending
     Scenario: The listing takes each session's state from its lock, not its end stamp
@@ -144,7 +144,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
 
     # @pending at the merge of main into the daemon line (2026-11-13): it
     # asserts the listing's JSON as rows with `harp` and a `live` state; the
-    # daemon answers `{sessions: [{name, uid, state: SESSION_STATE_...}]}`.
+    # daemon answers `{sessions: [{name, uid, state: LIVE|ENDED|UNKNOWN}]}`.
     # Re-expressing it in the daemon's shape is the owner's to rule.
     @pending
     Scenario Outline: --state keeps only the sessions in that state
@@ -194,7 +194,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
     @json-default
     # @pending at the merge of main into the daemon line (2026-11-13): it
     # asserts the listing's JSON as rows with `harp` and a `live` state; the
-    # daemon answers `{sessions: [{name, uid, state: SESSION_STATE_...}]}`.
+    # daemon answers `{sessions: [{name, uid, state: LIVE|ENDED|UNKNOWN}]}`.
     # Re-expressing it in the daemon's shape is the owner's to rule.
     @pending
     Scenario: A rename sets the title, and the harp, its directory and its output folder stay

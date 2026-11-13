@@ -293,7 +293,7 @@ fn a_listing_in_json_is_the_daemons_answer() {
         json!({"sessions": [{
             "name": "projects/calm-otter/sessions/amber-swift-owl",
             "uid": "01010101-0101-0101-0101-010101010101",
-            "state": "SESSION_STATE_ENDED",
+            "state": "ENDED",
             "engine": "claude-code",
             "summary": "Seeded prompt for amber-swift-owl.",
             "start_time": "2026-07-17T12:00:00Z",
@@ -381,10 +381,7 @@ fn a_bare_session_lists() {
         json_of(&ran)["sessions"][0]["name"],
         "projects/calm-otter/sessions/amber-swift-owl"
     );
-    assert_eq!(
-        *reads.asked.borrow(),
-        ["list false SESSION_STATE_UNSPECIFIED"]
-    );
+    assert_eq!(*reads.asked.borrow(), ["list false STATE_UNSPECIFIED"]);
 }
 
 #[test]
@@ -395,11 +392,7 @@ fn all_and_state_reach_the_daemon() {
     read_go(&reads, Format::Json, &["list", "--state", "unknown"]);
     assert_eq!(
         *reads.asked.borrow(),
-        [
-            "list true SESSION_STATE_ENDED",
-            "list false SESSION_STATE_LIVE",
-            "list false SESSION_STATE_UNKNOWN"
-        ]
+        ["list true ENDED", "list false LIVE", "list false UNKNOWN"]
     );
 }
 
@@ -456,7 +449,7 @@ fn a_search_carries_its_words_and_scope() {
     );
     assert_eq!(
         *reads.asked.borrow(),
-        ["search lockfile migration true SESSION_STATE_LIVE"]
+        ["search lockfile migration true LIVE"]
     );
 }
 
@@ -541,7 +534,7 @@ fn show_in_json_is_the_session() {
     };
     let doc = json_of(&read_go(&reads, Format::Json, &["show", "amber-swift-owl"]));
     assert_eq!(doc["name"], "projects/calm-otter/sessions/amber-swift-owl");
-    assert_eq!(doc["state"], "SESSION_STATE_ENDED");
+    assert_eq!(doc["state"], "ENDED");
     assert_eq!(doc["title"], "the auth refactor");
     assert!(doc.get("end_time").is_none(), "{doc}");
 }
@@ -820,9 +813,9 @@ fn a_removal_report_is_the_plan_and_says_nothing_was_removed() {
     assert_eq!(doc.get("applied"), None, "false is left out");
     assert_eq!(doc.get("events_destroyed"), None);
     assert_eq!(doc["files"][0]["rel"], "native/history.jsonl");
-    assert_eq!(doc["files"][0]["class"], "FILE_CLASS_MACHINE");
+    assert_eq!(doc["files"][0]["class"], "MACHINE");
     assert_eq!(doc["files"][0]["bytes"], "9");
-    assert_eq!(doc["files"][1]["class"], "FILE_CLASS_AUTHORED");
+    assert_eq!(doc["files"][1]["class"], "AUTHORED");
     assert_eq!(doc["authored"], json!(["notes.md"]));
     let notices = without_authored(ran.result.unwrap());
     assert_eq!(notices.len(), 1);

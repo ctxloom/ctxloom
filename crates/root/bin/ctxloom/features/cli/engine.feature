@@ -276,7 +276,7 @@ Feature: engine — the programs ctxloom drives, and the settings they share
       And the output reports "auth.source" as "default"
       And the output reports "auth.value.env" containing "CLAUDE_CODE_OAUTH_TOKEN"
       And the output reports "auth.value.env" containing "ANTHROPIC_API_KEY"
-      And the output reports "auth.state" as "AUTH_STATE_PRESENT"
+      And the output reports "auth.state" as "PRESENT"
       And the output reports "auth.via" as "ANTHROPIC_API_KEY"
 
     Scenario: A source the project names is the one read
@@ -295,11 +295,11 @@ Feature: engine — the programs ctxloom drives, and the settings they share
       When I run "ctxloom engine show claude-code --format json"
       Then the command succeeds
       And the output reports "auth.source" as "engine"
-      And the output reports "auth.state" as "AUTH_STATE_MISSING"
+      And the output reports "auth.state" as "MISSING"
       Given the environment variable "TEAM_CLAUDE_TOKEN" is set to "team-token-acceptance-fixture-not-real"
       And I run "ctxloom engine show claude-code --format json"
       Then the command succeeds
-      And the output reports "auth.state" as "AUTH_STATE_PRESENT"
+      And the output reports "auth.state" as "PRESENT"
       And the output reports "auth.via" as "TEAM_CLAUDE_TOKEN"
       And the output does not contain "team-token-acceptance-fixture-not-real"
 
@@ -315,7 +315,7 @@ Feature: engine — the programs ctxloom drives, and the settings they share
         """
       When I run "ctxloom engine show claude-code --format json"
       Then the command succeeds
-      And the output reports "auth.state" as "AUTH_STATE_NOT_NEEDED"
+      And the output reports "auth.state" as "NOT_NEEDED"
 
     Scenario: A secret written where a variable name belongs is refused, and not repeated
       # new: config is committed; a key that invites a secret is how one is pushed

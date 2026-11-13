@@ -212,7 +212,7 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
       When I run "ctxloom daemon status --format json"
       Then the command succeeds
       And the output reports "runs[0].harp" as "brisk-copper-moth"
-      And the output reports "runs[0].kind" as "RUN_KIND_CHILD"
+      And the output reports "runs[0].kind" as "CHILD"
       And the output reports "idle_limit_seconds" as "600"
 
     Scenario: Stopping a daemon that hosts nothing ends it, and the next command starts another

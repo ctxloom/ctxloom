@@ -68,6 +68,8 @@ struct World {
     authoring: authoring::State,
     /// What j000400's and j002000's sessions keep.
     engines: engines::State,
+    /// What the j001900 scenarios keep.
+    diagnosis: diagnosis::State,
 }
 
 impl fmt::Debug for World {
@@ -91,6 +93,7 @@ impl CommonWorld for World {
             || capture_opencode::forwards(self, step)
             || capture_opencode::reports_login(self, step)
             || engines::starts(self, step)
+            || diagnosis::runs(self, step)
         {
             return;
         }
@@ -123,6 +126,7 @@ impl World {
             capture: capture::State::default(),
             authoring: authoring::State::default(),
             engines: engines::State::default(),
+            diagnosis: diagnosis::State::default(),
         }
     }
 
@@ -344,6 +348,8 @@ mod workspace;
 #[path = "gherkin_recall.test.rs"]
 mod recall;
 
+#[path = "gherkin_diagnosis.test.rs"]
+mod diagnosis;
 #[path = "gherkin_engines.test.rs"]
 mod engines;
 
@@ -353,6 +359,21 @@ mod engines;
 fn env_set(w: &mut World, name: String, value: String) {
     w.common.env.retain(|(n, _)| *n != name);
     w.common.env.push((name, value));
+}
+
+/// The mock LLM. In j001200 it is that journey's stub claude
+/// ([`recall::mock_responds`]); elsewhere the mock engine is the default
+/// agent's, and no reply is ever asked of it on this World (a dry run
+/// launches nothing), so the reply is not kept.
+#[given(expr = "the mock LLM responds {string}")]
+fn mock_responds(w: &mut World, reply: String) {
+    if recall::mock_responds(w, &reply) {
+        return;
+    }
+    w.common.project.write(
+        ".ctxloom/config.yaml",
+        "schema_version: 9\nagents:\n  default:\n    engine: mock\ndefault_agent: default\n",
+    );
 }
 
 #[given(expr = "the home already has the file {string}:")]

@@ -24,12 +24,10 @@
 //! session.
 
 use cucumber::{given, then};
-use serde_json::Value;
 
 use super::World;
 use crate::tests::files;
 use crate::tests::gherkin_common::CommonWorld;
-use crate::tests::library::at;
 
 /// The marker in the question the March session was opened with.
 const TITLE_MARKER: &str = "J001200-TITLE-WORKTREE-QUESTION";
@@ -142,15 +140,21 @@ fn march(w: &mut World) {
     w.record_session(NEIGHBOUR, "unrelated chatter", "unrelated reply");
 }
 
-/// A fresh mock: its answer, and nothing it was asked yet.
-#[given(expr = "the mock LLM responds {string}")]
-fn mock_responds(w: &mut World, reply: String) {
+/// "the mock LLM responds" where the model is this file's stub (staged by
+/// the journey's Background, which leaves its reply beside it): a fresh
+/// mock, its answer, and nothing it was asked yet. False, and nothing done,
+/// in any other scenario of the World (the base step's mock engine).
+pub(super) fn mock_responds(w: &mut World, reply: &str) -> bool {
     let dir = w.model_dir();
+    if !files::exists(dir.join("model-reply")) {
+        return false;
+    }
     files::put(dir.join("model-reply"), reply);
     let input = dir.join("model-input");
     if files::exists(&input) {
         files::remove(&input);
     }
+    true
 }
 
 #[given("Alice has already resumed the March session")]
@@ -243,20 +247,6 @@ fn no_model_asked(w: &mut World) {
         "the model was asked something: {}",
         w.ran().said()
     );
-}
-
-#[then(expr = "the output reports {string} as empty, saying {string}")]
-fn reports_empty(w: &mut World, path: String, saying: String) {
-    if w.common.text_asked() {
-        w.ran().contains(&saying);
-        return;
-    }
-    let doc = w.ran().json();
-    match at(&doc, &path) {
-        None | Some(Value::Null) => {}
-        Some(Value::Array(a)) => assert!(a.is_empty(), "{path}: {a:?}"),
-        Some(other) => panic!("{path} is {other}, so the command did find something"),
-    }
 }
 
 #[then(

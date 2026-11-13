@@ -21,10 +21,9 @@ use std::fmt;
 use std::path::Path;
 
 use cucumber::{given, then};
-use serde_json::Value;
 
 use super::gherkin_common::{common_steps, Common, CommonWorld};
-use super::library::{at, reports_as};
+use super::library::reports_as;
 use crate::tests::files;
 
 #[derive(cucumber::World)]
@@ -217,20 +216,6 @@ fn record_tree(w: &mut World) {
 // ------------------------------------------------------------------- when
 
 // ------------------------------------------------------------------- then
-
-#[then(expr = "the output reports {string} as empty, saying {string}")]
-fn reports_empty(w: &mut World, path: String, saying: String) {
-    if w.common.text_asked() {
-        w.ran().contains(&saying);
-        return;
-    }
-    let doc = w.ran().json();
-    match at(&doc, &path) {
-        None | Some(Value::Null) => {}
-        Some(Value::Array(a)) => assert!(a.is_empty(), "{path}: {a:?}"),
-        Some(other) => panic!("{path} is {other}, so the command did find something"),
-    }
-}
 
 #[then(expr = "the output reports {string} matching {string}")]
 fn reports_matching(w: &mut World, path: String, expected: String) {

@@ -251,13 +251,19 @@ pub(crate) fn item(
     let reference = text_arg(sub, "ref");
     let code = match verb {
         "create" => {
-            let outcome = cx.library.item_create(
-                &cx.flags,
-                kind,
-                &text_arg(sub, "bundle"),
-                &text_arg(sub, "name"),
-            );
+            let outcome = match given(sub, "name") {
+                Some(name) => {
+                    cx.library
+                        .item_create(&cx.flags, kind, &text_arg(sub, "bundle"), &name)
+                }
+                None => cx
+                    .library
+                    .item_create_at(&cx.flags, kind, &text_arg(sub, "bundle")),
+            };
             finish(cx, outcome, out, err, |made, out, _| {
+                if made.bundle_created {
+                    writeln!(out, "Created bundle \"{}\"", made.bundle)?;
+                }
                 writeln!(
                     out,
                     "Created {} \"{}\" in bundle \"{}\"",

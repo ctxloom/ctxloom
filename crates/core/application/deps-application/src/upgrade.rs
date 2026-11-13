@@ -25,53 +25,36 @@ impl Deps {
     /// `deps upgrade`: a preview, or with `apply` the advance itself.
     pub fn upgrade(&self, apply: bool) -> Outcome<UpgradeReport> {
         let mut notices = Vec::new();
-        let result = self.upgrading(apply, None, &mut notices);
+        let result = self.upgrading(None, apply, &mut notices);
         Outcome { result, notices }
     }
 
-    /// `deps upgrade <reference>`: as [`Deps::upgrade`], moving the one
-    /// dependency `reference` names (`<remote>/<bundle>` or its canonical
-    /// reference) and keeping every other entry where it is. A reference the
-    /// lock does not hold is refused.
-    pub fn upgrade_reference(&self, reference: &str, apply: bool) -> Outcome<UpgradeReport> {
+    /// `deps upgrade <name>`: the same round, held to the one dependency
+    /// `name` (a short or canonical reference the lock holds); every other
+    /// pin stays where it is. A name the lock does not hold is refused.
+    pub fn upgrade_only(&self, name: &str, apply: bool) -> Outcome<UpgradeReport> {
         let mut notices = Vec::new();
-        let result = self.upgrading(apply, Some(reference), &mut notices);
+        let result = self.upgrading(Some(name), apply, &mut notices);
         Outcome { result, notices }
-    }
-
-    /// The lock entry `reference` names: its identity.
-    fn locked_identity(
-        &self,
-        registry: &deps::registry::Registry,
-        active: &Lock,
-        reference: &str,
-    ) -> Result<String, AppError> {
-        let local = |base: &str| self.files.local_bundle(base).ok().flatten().is_some();
-        let expanded = deps::short::expand(
-            reference,
-            &|alias| registry.get(alias).map(|r| r.url),
-            &local,
-        );
-        RemoteRef::parse(&expanded)
-            .map(|r| r.identity)
-            .filter(|identity| active.entries.contains_key(identity))
-            .ok_or_else(|| AppError::NothingToHold {
-                name: reference.to_string(),
-                verb: "upgrade".to_string(),
-            })
     }
 
     fn upgrading(
         &self,
-        apply: bool,
         only: Option<&str>,
+        apply: bool,
         notices: &mut Vec<Notice>,
     ) -> Result<UpgradeReport, AppError> {
         let registry = self.registry()?;
         let (active, text) = self.lock()?;
-        let only = only
-            .map(|reference| self.locked_identity(&registry, &active, reference))
-            .transpose()?;
+        let only = match only {
+            None => None,
+            Some(name) => Some(self.locked_identity(&active, &registry, name).ok_or_else(
+                || AppError::NothingToHold {
+                    name: name.to_string(),
+                    verb: "upgrade".to_string(),
+                },
+            )?),
+        };
         let locals = self.local_profiles()?;
         let mut walk = Walk::new(self, &registry, &active, &locals, Mode::Upgrade);
         // Every repository the lock records is refreshed, those reached only
@@ -96,12 +79,10 @@ impl Deps {
         }
         let unexpanded = walk.closure.unexpanded().len();
         let fetch_failed = walk.fetched.values().any(Result::is_err);
-        let pins = walk.closure.pins();
+        let decided = plan::upgrade(&active, &walk.closure.pins(), unexpanded, fetch_failed);
         let decided = match &only {
-            Some(identity) => {
-                plan::upgrade_only(&active, &pins, identity, unexpanded, fetch_failed)
-            }
-            None => plan::upgrade(&active, &pins, unexpanded, fetch_failed),
+            Some(identity) => plan::only(&active, decided, identity),
+            None => decided,
         };
         if unexpanded > 0 {
             notices.push(Notice::text(format!(

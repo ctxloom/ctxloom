@@ -120,6 +120,37 @@ fn test_a_second_move_shows_before_and_after_with_fingerprinted_values() {
     );
 }
 
+// j001900: `deps upgrade <ref> --yes` moves that one pin and no other
+#[test]
+fn test_an_upgrade_of_one_reference_moves_its_pin_alone() {
+    let (fx, _) = pulled();
+    let other_url = "file:///srv/other.git";
+    let first = fx.origin("other", other_url);
+    let other = Fixture::reference(other_url, "demo");
+    fx.profile("dev", &[&demo_ref(), &other]);
+    ok(fx.deps.pull(false, true));
+    let later = commit(&fx, &mcp("1.1.0", "fixture-mcp-one", "ONE"));
+    let refs: Vec<(String, String)> = mcp("1.1.0", "fixture-mcp-two", "TWO");
+    let refs: Vec<(&str, &str)> = refs.iter().map(|(p, t)| (p.as_str(), t.as_str())).collect();
+    let other_later = fx.remotes.commit(other_url, &refs);
+    let preview = ok(fx.deps.upgrade_only("origin/demo", false));
+    assert!(!preview.applied);
+    assert_eq!(preview.changes.len(), 1, "only origin/demo is shown moving");
+    let report = ok(fx.deps.upgrade_only("origin/demo", true));
+    assert!(report.applied);
+    assert_eq!(report.changes.len(), 1);
+    assert_eq!(report.changes[0].to_sha, later);
+    let lock = fx.files.lock_text().expect("a lock");
+    let pinned =
+        |reference: &str, sha: &str| lock.contains(&format!("{reference}:\n    sha: {sha}\n"));
+    assert!(pinned(&demo_ref(), &later), "{lock}");
+    assert!(
+        pinned(&other, &first),
+        "the other pin stays where it was: {lock}"
+    );
+    assert_ne!(first, other_later, "the other remote did move upstream");
+}
+
 // deps.feature: A held dependency is not upgraded
 #[test]
 fn test_a_held_dependency_is_frozen() {
@@ -159,9 +190,10 @@ fn test_a_dependency_no_profile_names_any_more_is_named_and_dropped() {
 }
 
 // `deps upgrade <ref>` (docs/plans/ctxloom-features.md, "Added"; j000700):
-// the named dependency moves, and the other stays at its commit.
+// the named dependency moves, by its short or its canonical reference, and
+// the other stays at its commit.
 #[test]
-fn test_an_upgrade_of_one_reference_moves_that_dependency_alone() {
+fn test_an_upgrade_by_short_or_canonical_reference_moves_that_dependency_alone() {
     let (fx, _) = pulled();
     let other_url = "file:///srv/other.git";
     let other_sha = fx.origin("other", other_url);
@@ -172,17 +204,17 @@ fn test_an_upgrade_of_one_reference_moves_that_dependency_alone() {
     let other_later = fx
         .remotes
         .commit(other_url, &crate::fakes::demo("1.1.0", "Other content."));
-    let preview = ok(fx.deps.upgrade_reference("origin/demo", false));
+    let preview = ok(fx.deps.upgrade_only("origin/demo", false));
     assert!(!preview.applied);
     assert_eq!(preview.changes.len(), 1, "{:?}", preview.changes);
-    let applied = ok(fx.deps.upgrade_reference("origin/demo", true));
+    let applied = ok(fx.deps.upgrade_only("origin/demo", true));
     assert!(applied.applied && applied.removed.is_empty());
     let lock = fx.files.lock_text().expect("a lock");
     assert_eq!(locked_sha(&lock, &demo_ref()), later, "{lock}");
     assert_eq!(locked_sha(&lock, &other), other_sha, "{lock}");
     assert!(fx.files.installed_at(&demo_ref(), &later).is_some());
     // By its canonical reference too; the other then moves.
-    ok(fx.deps.upgrade_reference(&other, true));
+    ok(fx.deps.upgrade_only(&other, true));
     let lock = fx.files.lock_text().expect("a lock");
     assert_eq!(locked_sha(&lock, &other), other_later, "{lock}");
 }
@@ -197,17 +229,20 @@ fn locked_sha(lock: &str, identity: &str) -> String {
     line.to_string()
 }
 
+// j000700, j001900: a name the lock does not hold has nothing to upgrade,
+// and nothing is written.
 #[test]
 fn test_an_upgrade_of_a_reference_the_lock_does_not_hold_is_refused() {
     let (fx, _) = pulled();
     let writes = fx.files.lock_writes();
     for name in ["origin/nothing", "typo"] {
-        let refused = fx.deps.upgrade_reference(name, true).result.unwrap_err();
+        let refused = fx.deps.upgrade_only(name, true).result.unwrap_err();
         assert!(
             matches!(&refused, AppError::NothingToHold { name: n, verb } if n == name && verb == "upgrade"),
             "{refused:?}"
         );
         assert_eq!(refused.code(), "deps-application-nothing-to-hold");
+        assert!(refused.to_string().contains("verb=upgrade"), "{refused}");
     }
     assert_eq!(fx.files.lock_writes(), writes);
 }

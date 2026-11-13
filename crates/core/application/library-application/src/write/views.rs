@@ -153,6 +153,10 @@ pub struct ItemCreated {
     /// `fragment` or `command`, for the text.
     #[serde(skip)]
     pub kind: String,
+    /// The bundle was made for the item (`create <bundle>#...` into a
+    /// bundle nobody had).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub bundle_created: bool,
 }
 
 /// `fragment remove --yes` and `command remove --yes`.

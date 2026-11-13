@@ -1,9 +1,10 @@
+# world: surfaces
 # Ported from cli/deps.feature (rev f36e8dfb2)
 # Ported from journeys/j001400_bundle_distribution.feature (rev f36e8dfb2)
-# NOT ported: any of it yet (the Feature is @pending).
+# NOT ported: the Rules tagged @pending, which no journey has reached yet
+#   (deps_feature.test.rs holds their contract against the binary meanwhile).
 
 @doc
-@pending
 Feature: deps — the installed dependency closure, and everything that moves it
 
   Covers: `ctxloom deps list`, `deps pull`, `deps check`, `deps upgrade`,
@@ -118,6 +119,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Then the command succeeds
       And the output contains "held"
 
+  @pending
   Rule: Pull installs exactly what is pinned, and never overstates what happened
 
     `deps pull` records the pin straight into the active lock. It is also
@@ -228,6 +230,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And the file "out/CLAUDE.md" contains "Demo fragment content."
       And the file "out/CLAUDE.md" does not contain "MARKER-SKIPPED-PULL-never-seen"
 
+  @pending
   Rule: Pull writes the project's engine files only with --yes
 
     After a pull installs remote content, a project refresh brings the
@@ -309,6 +312,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And the file ".claude/settings.json" does not contain "SessionStart"
       And the output does not contain "Project refresh skipped"
 
+  @pending
   Rule: Pull reconciles to upstream — it removes what upstream no longer has
 
     Installed content is a PROJECTION of remote state, not user data: every
@@ -333,6 +337,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And the output contains "demo"
       And the file ".ctxloom/lock.yaml" does not contain "//bundles/demo"
 
+  @pending
   Rule: "I could not reach upstream" is never "upstream deleted everything"
 
     THE PATHOLOGICAL CASE, and the one this whole rule exists for. An
@@ -436,6 +441,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Then the output does not contain "Everything is up to date"
       And the output contains "unreachable"
 
+  @pending
   Rule: Check reads, upgrade shows, and upgrade --yes writes
 
     `deps check` reaches the network and reports; it changes nothing, which is
@@ -517,6 +523,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Then the command succeeds
       And the output does not contain "ctxloom deps upgrade"
 
+  @pending
   Rule: Only upgrade moves a pin, and it shows the move before --yes applies it
 
     A pin is the decision to run what a bundle ships, so moving one is shown
@@ -689,6 +696,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Then the command succeeds
       And the output contains "Applied 1 pin(s)."
 
+  @pending
   Rule: What lands in the lockfile is not what reaches the agent
 
     The pin is not the point: what actually lands in front of the agent is.
@@ -735,6 +743,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And the file "out/CLAUDE.md" contains "MARKER-STALE-CHECKOUT-current"
       And the file "out/CLAUDE.md" does not contain "Demo fragment content."
 
+  @pending
   Rule: A pull keeps a published bundle's tree exactly as it was published
 
     A pulled bundle is the publisher's tree, file for file. Each kind keeps its

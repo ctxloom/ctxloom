@@ -303,15 +303,21 @@ impl Setup {
                 status_line: wiring.statusline,
                 mcp_present: wiring.mcp_present,
             });
-            for kind in self
+            let claimed = self
                 .store
                 .claimed(&self.project_dir, &name)
-                .map_err(SetupError::cause)?
-            {
+                .map_err(SetupError::cause)?;
+            let stale = self.stale_kinds(&name, &claimed, flags);
+            for kind in claimed {
+                let word = if stale.contains(&kind.name().to_string()) {
+                    "stale"
+                } else {
+                    "materialized"
+                };
                 surfaces.push(SurfaceCurrency {
                     route: kind.name().to_string(),
                     backend: name.clone(),
-                    status: "materialized".to_string(),
+                    status: word.to_string(),
                 });
             }
         }
@@ -324,6 +330,43 @@ impl Setup {
             },
             notices: outcome.notices,
         })
+    }
+
+    /// The kinds of `engine` an export in the project's directory holds that
+    /// are no longer what `materialize --yes` would write there now (the
+    /// default agent's profiles, every kind it claimed): a dry run of that
+    /// materialize, which writes nothing, says which would change (be
+    /// written anew, or taken out for want of anything to carry). An export
+    /// whose currency cannot be told (the plan refused) is named stale by
+    /// nothing.
+    fn stale_kinds(&self, engine: &str, claimed: &[Kind], flags: &Flags) -> Vec<String> {
+        if claimed.is_empty() {
+            return Vec::new();
+        }
+        let request = crate::MaterializeRequest {
+            yes: true,
+            engines: vec![engine.to_string()],
+            surfaces: claimed
+                .iter()
+                .map(|kind| crate::SurfaceSpec {
+                    kind: *kind,
+                    mechanism: String::new(),
+                    dest: String::new(),
+                })
+                .collect(),
+            dry_run: true,
+            flags: flags.clone(),
+            ..crate::MaterializeRequest::default()
+        };
+        self.materialize(&request)
+            .map(|done| {
+                done.value
+                    .engines
+                    .into_iter()
+                    .flat_map(|outcome| outcome.wrote.into_iter().chain(outcome.released))
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// `manage hooks list`: the hooks that will fire, per event, in the order

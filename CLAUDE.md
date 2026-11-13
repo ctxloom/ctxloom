@@ -97,12 +97,15 @@ tree still reads, then hands the changes to the port; a refused write has
 written nothing. A config write replaces the section it owns whole, never
 heals a file that does not parse. `loadout --format yaml` is the one yaml
 output; its prose is withheld until the owner rules (D24, D8).
-Every item verb takes one reference, `create` too: `fragment|command|skill
-create <bundle>#<kind>s/<name>` (or the bundle and the name, the Go-ported
-form). A fragment or command create opens the editor on its template and
-stores what the editor gives back (an editor that saves nothing stores the
-template; an empty buffer is `library-application-write-empty-edit` and
-writes nothing); `skill create` scaffolds its `SKILL.md` and opens none.
+Every item verb takes one reference, `create` too (M3, M7): `fragment|command
+create <bundle>#<kind>s/<name>` (`Library::item_create_at`) opens the editor
+on its template and stores what the editor gives back (an editor that saves
+nothing stores the template; an empty buffer is
+`library-application-write-empty-edit` and writes nothing), and makes a bare
+bundle nobody had (`ItemCreated::bundle_created`); the two-word Go form
+(`<bundle> <name>`) keeps Go's placeholder, no editor, and its refusal of a
+missing bundle. `skill create <bundle>#skills/<name>` (or the two words)
+scaffolds its `SKILL.md` and opens none.
 Skill zips are written and read by `library::write::archive` over the `zip`
 crate (deflate only, default features off) and crc32fast.
 A file's executability is ONLY its skill sidecar's `executable:` list
@@ -1129,10 +1132,13 @@ library's `bundle` noun and owns `remote` and `deps`.
 
 - Evidence rule: content is removed upstream only on a not-found from a
   repository proven readable this run; an unreachable remote keeps everything.
-- `deps upgrade <reference>` (`<remote>/<bundle>` or canonical) moves that
-  one dependency: every other lock entry keeps its commit and hold
-  (`deps::plan::upgrade_only`); a first pin its closure needs is still made;
-  a reference the lock does not hold is `deps-application-nothing-to-hold`.
+- `deps upgrade <reference> [--yes]` (`<remote>/<bundle>` or canonical;
+  `Deps::upgrade_only`, `deps::plan::only`; M3, M7) moves that one pin, or
+  drops it when nothing reaches it; every other lock entry keeps its commit
+  and hold, and no other reference gets a first pin; a reference the lock
+  does not hold is `deps-application-nothing-to-hold`. `deps hold <ref>
+  --undo` (M7, the vocabulary's toggle undo) releases a hold; `deps unhold`
+  stays for deps.feature.
 - Lock schema 3 has no timestamps and rewrites byte-identically at unchanged
   pins; a corrupt lock is refused, never overwritten; an empty lock never
   replaces a populated one. Registry schema 1: unstamped is refused
@@ -1147,6 +1153,11 @@ library's `bundle` noun and owns `remote` and `deps`.
   forge API (`forge-github`, `remote discover`, `bundle push --pr`). The
   withheld red tests for them are `#[ignore]`d in `bundle_remote.test.rs`.
   angzarr-yaml cannot read Go's `? key` form for lock keys over 128 bytes.
+
+Milestone M7 (j001900, diagnosis) also adds `manage check` naming an export
+in the project `stale` where a dry `materialize --yes` of the default
+agent's profiles, for the kinds the record says it claimed, would change or
+take something out.
 
 ## Built-in content (owner rulings 110, 111, narrowed by 117, 123, 126-128)
 

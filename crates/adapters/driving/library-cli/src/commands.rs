@@ -222,11 +222,17 @@ fn item_writes(noun: Command, word: &'static str, dir: &'static str) -> Command 
             .arg(one(
                 "bundle",
                 match dir {
-                    "fragments" => "The new fragment's reference, bundle#fragments/name (or the bundle, then NAME)",
-                    _ => "The new command's reference, bundle#commands/name (or the bundle, then NAME)",
+                    "fragments" => {
+                        "bundle#fragments/name (the bundle is made when nobody has it), or the bundle"
+                    }
+                    _ => "bundle#commands/name (the bundle is made when nobody has it), or the bundle",
                 },
             ))
-            .arg(optional_name("The new item's name, when BUNDLE is a bundle")),
+            .arg(
+                Arg::new("name")
+                    .value_name("NAME")
+                    .help("The new item's name, after a bundle (no editor is opened)"),
+            ),
     )
     .subcommand(
         remove(match word {

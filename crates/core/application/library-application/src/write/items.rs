@@ -2,20 +2,24 @@
 //! `DeleteItem`, `SetItemContent`, and the editor round trip of
 //! `cli/item_crud.go`).
 
+use library::tree::Files;
+use library::write::envelope::new_envelope;
 use library::write::item;
+use library::CatalogError;
 
 use crate::error::AppError;
 use crate::items::Kind;
 use crate::project::{Library, Outcome, Project};
+use crate::write::bundles::valid_bundle_name;
 use crate::write::editor::editor_command;
+use crate::write::plan::Plan;
 use crate::write::views::{ItemCreated, ItemEdited, ItemRemoved, Preview, Removal};
 use crate::write::WriteError;
 use crate::Flags;
 
 impl Library {
-    /// `fragment create <bundle>#fragments/<name>` (or `<bundle> <name>`),
-    /// `command create`: a template, opened in the editor, and what the
-    /// editor gives back stored in the bundle's tree.
+    /// `fragment create <bundle> <name>`, `command create`: a placeholder in
+    /// the bundle's tree.
     pub fn item_create(
         &self,
         flags: &Flags,
@@ -24,6 +28,21 @@ impl Library {
         name: &str,
     ) -> Outcome<ItemCreated> {
         self.run(flags, |p| p.item_create(kind, bundle, name))
+    }
+
+    /// `fragment create <bundle>#fragments/<name>`, `command create
+    /// <bundle>#commands/<name>`: the editor opened on the template, and what
+    /// it wrote stored (an editor that changes nothing leaves the template;
+    /// one that empties it is refused). A bundle nobody has yet is made, bare,
+    /// for the item: packaging content into a bundle of its own needs no
+    /// `bundle create` first. Nothing is written until the editor is done.
+    pub fn item_create_at(
+        &self,
+        flags: &Flags,
+        kind: Kind,
+        reference: &str,
+    ) -> Outcome<ItemCreated> {
+        self.run(flags, |p| p.item_create_at(kind, reference))
     }
 
     /// `fragment remove <bundle>#fragments/<name> [--yes]`: the item and its
@@ -57,13 +76,6 @@ impl Library {
 impl Project {
     fn item_create(&self, kind: Kind, bundle: &str, name: &str) -> Result<ItemCreated, AppError> {
         self.require_project()?;
-        // One reference (`<bundle>#fragments/<name>`) or a bundle and a name.
-        let (bundle, name) = if name.is_empty() {
-            self.item_target(kind, bundle)?
-        } else {
-            (bundle.to_string(), name.to_string())
-        };
-        let (bundle, name) = (bundle.as_str(), name.as_str());
         let entry = self.bundle(bundle)?;
         if !item::valid_name(name) {
             return Err(WriteError::BadItemName {
@@ -81,26 +93,7 @@ impl Project {
             }
             .into());
         }
-        // The template, through the editor: what comes back is stored, and
-        // an empty buffer writes nothing.
-        let ports = self.write_ports()?;
-        let command = editor_command(&self.config, &self.environ);
-        let written = ports
-            .editor
-            .edit(
-                &command,
-                &format!("{name}.md"),
-                &item::placeholder_fragment(name),
-            )
-            .map_err(AppError::Cause)?;
-        if written.trim().is_empty() {
-            return Err(WriteError::EmptyEdit {
-                kind: kind.word().to_string(),
-                name: name.to_string(),
-            }
-            .into());
-        }
-        plan.write(&path, written);
+        plan.write(&path, item::placeholder_fragment(name));
         self.commit(&entry.name, plan)?;
         Ok(ItemCreated {
             status: "created".to_string(),
@@ -108,6 +101,85 @@ impl Project {
             name: name.to_string(),
             path: entry.manifest_path.clone(),
             kind: kind.word().to_string(),
+            bundle_created: false,
+        })
+    }
+
+    fn item_create_at(&self, kind: Kind, reference: &str) -> Result<ItemCreated, AppError> {
+        self.require_project()?;
+        let (bundle, name) = self.item_target(kind, reference)?;
+        if !item::valid_name(&name) {
+            return Err(WriteError::BadItemName {
+                kind: kind.word().to_string(),
+                name,
+            }
+            .into());
+        }
+        let existing = match self.catalog.lookup(&bundle) {
+            Ok(entry) => Some(entry),
+            Err(CatalogError::BundleNotFound { .. } | CatalogError::ItemNotBundle { .. })
+                if !self.unreadable.contains_key(&bundle) =>
+            {
+                None
+            }
+            Err(_) => Some(self.bundle(&bundle)?),
+        };
+        let path = item::item_path(kind.tree_dir(), &name);
+        let (mut plan, manifest) = match existing {
+            Some(entry) => {
+                let plan = self.plan_of(&entry.name)?;
+                if plan.has(&path) {
+                    return Err(WriteError::ItemExists {
+                        kind: kind.word().to_string(),
+                        name,
+                    }
+                    .into());
+                }
+                (plan, entry.manifest_path.clone())
+            }
+            None => {
+                if !valid_bundle_name(&bundle) {
+                    return Err(WriteError::BadBundleName {}.into());
+                }
+                let mut plan = Plan::of(Files::new(), Default::default());
+                plan.write("bundle.yaml", new_envelope("1.0.0", ""));
+                (plan, self.content.manifest_path(&bundle))
+            }
+        };
+        let template = item::placeholder_fragment(&name);
+        let ports = self.write_ports()?;
+        let command = editor_command(&self.config, &self.environ);
+        let edited = ports
+            .editor
+            .edit(&command, &format!("{name}.md"), &template)
+            .map_err(AppError::Cause)?;
+        if edited.trim().is_empty() {
+            return Err(WriteError::EmptyEdit {
+                kind: kind.word().to_string(),
+                name,
+            }
+            .into());
+        }
+        plan.write(&path, edited);
+        let bundle_created = existing.is_none();
+        if bundle_created {
+            if !self.content.claim(&bundle).map_err(AppError::Cause)? {
+                return Err(WriteError::BundleExists { path: manifest }.into());
+            }
+            if let Err(error) = self.commit(&bundle, plan) {
+                let _ = self.content.remove_bundle(&bundle);
+                return Err(error);
+            }
+        } else {
+            self.commit(&bundle, plan)?;
+        }
+        Ok(ItemCreated {
+            status: "created".to_string(),
+            bundle,
+            name,
+            path: manifest,
+            kind: kind.word().to_string(),
+            bundle_created,
         })
     }
 

@@ -278,13 +278,12 @@ fn dependencies(
         "check" => return check(cx, args, out, err),
         "upgrade" => {
             let _ = writeln!(err, "Resolving latest commits for pinned dependencies...");
-            let reference = text_arg(args, "reference");
-            let upgraded = if reference.is_empty() {
-                deps.upgrade(flag(args, "yes"))
-            } else {
-                deps.upgrade_reference(&reference, flag(args, "yes"))
+            let yes = flag(args, "yes");
+            let outcome = match args.get_one::<String>("reference") {
+                Some(reference) => deps.upgrade_only(reference, yes),
+                None => deps.upgrade(yes),
             };
-            let report = answer(cx, upgraded, err)?;
+            let report = answer(cx, outcome, err)?;
             emit(cx.format, out, &report, |out| text::upgrade(out, &report))?;
             // Ruling 153: a preview with a pin `--yes` would move or drop.
             let moves = !report.changes.is_empty() || !report.removed.is_empty();
@@ -293,7 +292,7 @@ fn dependencies(
             }
         }
         verb => {
-            let held = verb == "hold";
+            let held = verb == "hold" && !flag(args, "undo");
             let result = answer(cx, deps.hold(&text_arg(args, "name"), held), err)?;
             emit(cx.format, out, &result, |out| text::hold(out, &result))?;
         }

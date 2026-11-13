@@ -98,9 +98,9 @@ fn demo_tree(
     files
 }
 
-/// A project, and the git remotes its scenario seeds.
-pub(crate) struct World {
-    pub(crate) project: Project,
+/// The git remotes a scenario seeds, each a bare repository in a scratch
+/// directory of its own; the Gherkin Worlds share them with [`World`].
+pub(crate) struct Remotes {
     scratch: file_system::Rooted,
     /// Remote name to its bare repository (moved by `becomes unreachable`).
     bare: BTreeMap<String, PathBuf>,
@@ -110,25 +110,14 @@ pub(crate) struct World {
     count: usize,
 }
 
-impl World {
-    /// Go's "an initialized ctxloom project".
-    pub(crate) fn initialized() -> World {
-        World {
-            project: Project::initialized(),
+impl Remotes {
+    pub(crate) fn new() -> Remotes {
+        Remotes {
             scratch: files::root(),
             bare: BTreeMap::new(),
             seeded: BTreeMap::new(),
             count: 0,
         }
-    }
-
-    pub(crate) fn run(&self, args: &[&str]) -> Ran {
-        self.project.run(args)
-    }
-
-    /// `ran` with these environment variables too.
-    pub(crate) fn run_with(&self, env: &[(&str, &str)], args: &[&str]) -> Ran {
-        self.project.run_with(env, args)
     }
 
     /// Go's `SeedRemote`: a bare repository whose `main` holds `files`.
@@ -151,16 +140,19 @@ impl World {
         bare
     }
 
-    fn register(&mut self, name: &str, bare: PathBuf) {
+    /// `bare` registered in `project` as the remote `name`.
+    fn register(&mut self, project: &Project, env: &[(&str, &str)], name: &str, bare: PathBuf) {
         let url = files::file_url(&bare);
         self.bare.insert(name.to_string(), bare.clone());
         self.seeded.insert(name.to_string(), bare);
-        self.run(&["remote", "create", name, &url, "--forge", "git"])
+        project
+            .run_with(env, &["remote", "create", name, &url, "--forge", "git"])
             .succeeds();
     }
 
-    /// Go's `a git remote "<name>" serving a ctxloom bundle`.
-    pub(crate) fn git_remote(&mut self, name: &str) {
+    /// Go's `a git remote "<name>" serving a ctxloom bundle`, registered in
+    /// `project` (its commands given `env` too).
+    pub(crate) fn git_remote(&mut self, project: &Project, env: &[(&str, &str)], name: &str) {
         let files = demo_tree(
             "1.0.0",
             "Demo bundle",
@@ -169,7 +161,81 @@ impl World {
             true,
         );
         let bare = self.seed_bare(&files);
-        self.register(name, bare);
+        self.register(project, env, name, bare);
+    }
+
+    fn work_clone(&mut self, name: &str) -> PathBuf {
+        self.count += 1;
+        let work = self.scratch.root().join(format!("work-{}", self.count));
+        let bare = self.bare[name].clone();
+        git_in(
+            self.scratch.root(),
+            &[
+                "clone",
+                bare.to_str().expect("utf-8"),
+                work.to_str().expect("utf-8"),
+            ],
+        );
+        work
+    }
+
+    /// Go's `AdvanceRemote`: a commit that rewrites `files`.
+    pub(crate) fn advance_with(&mut self, name: &str, files: &[(String, String)]) {
+        let work = self.work_clone(name);
+        write_files(&work, files);
+        git_in(&work, &["add", "-A"]);
+        git_in(&work, &["commit", "-m", "advance"]);
+        git_in(&work, &["push", "origin", "main"]);
+    }
+
+    /// Go's `the remote "<name>" advances its bundle`.
+    pub(crate) fn advances(&mut self, name: &str) {
+        let files = demo_tree(
+            "2.0.0",
+            "Demo bundle v2",
+            "demo-frag",
+            "Demo fragment content, version two.",
+            false,
+        );
+        self.advance_with(name, &files);
+    }
+}
+
+/// A project, and the git remotes its scenario seeds.
+pub(crate) struct World {
+    pub(crate) project: Project,
+    remotes: Remotes,
+}
+
+impl World {
+    /// Go's "an initialized ctxloom project".
+    pub(crate) fn initialized() -> World {
+        World {
+            project: Project::initialized(),
+            remotes: Remotes::new(),
+        }
+    }
+
+    pub(crate) fn run(&self, args: &[&str]) -> Ran {
+        self.project.run(args)
+    }
+
+    /// `ran` with these environment variables too.
+    pub(crate) fn run_with(&self, env: &[(&str, &str)], args: &[&str]) -> Ran {
+        self.project.run_with(env, args)
+    }
+
+    fn seed_bare(&mut self, files: &[(String, String)]) -> PathBuf {
+        self.remotes.seed_bare(files)
+    }
+
+    fn register(&mut self, name: &str, bare: PathBuf) {
+        self.remotes.register(&self.project, &[], name, bare);
+    }
+
+    /// Go's `a git remote "<name>" serving a ctxloom bundle`.
+    pub(crate) fn git_remote(&mut self, name: &str) {
+        self.remotes.git_remote(&self.project, &[], name);
     }
 
     /// Go's `a git remote "<name>" serving a bundle "<bundle>" whose profile
@@ -182,7 +248,7 @@ impl World {
         target: &str,
         other: &str,
     ) {
-        let other_url = files::file_url(&self.seeded[other]);
+        let other_url = files::file_url(&self.remotes.seeded[other]);
         let root = tree_bundle(bundle);
         let files = vec![
             (
@@ -220,7 +286,7 @@ impl World {
     pub(crate) fn reference(&self, name: &str, bundle: &str) -> String {
         format!(
             "ctxloom+{}//bundles/{bundle}",
-            files::file_url(&self.seeded[name])
+            files::file_url(&self.remotes.seeded[name])
         )
     }
 
@@ -247,39 +313,17 @@ impl World {
     }
 
     fn work_clone(&mut self, name: &str) -> PathBuf {
-        self.count += 1;
-        let work = self.scratch.root().join(format!("work-{}", self.count));
-        let bare = self.bare[name].clone();
-        git_in(
-            self.scratch.root(),
-            &[
-                "clone",
-                bare.to_str().expect("utf-8"),
-                work.to_str().expect("utf-8"),
-            ],
-        );
-        work
+        self.remotes.work_clone(name)
     }
 
     /// Go's `AdvanceRemote`: a commit that rewrites `files`.
     pub(crate) fn advance_with(&mut self, name: &str, files: &[(String, String)]) {
-        let work = self.work_clone(name);
-        write_files(&work, files);
-        git_in(&work, &["add", "-A"]);
-        git_in(&work, &["commit", "-m", "advance"]);
-        git_in(&work, &["push", "origin", "main"]);
+        self.remotes.advance_with(name, files);
     }
 
     /// Go's `the remote "<name>" advances its bundle`.
     pub(crate) fn advances(&mut self, name: &str) {
-        let files = demo_tree(
-            "2.0.0",
-            "Demo bundle v2",
-            "demo-frag",
-            "Demo fragment content, version two.",
-            false,
-        );
-        self.advance_with(name, &files);
+        self.remotes.advances(name);
     }
 
     /// Go's `the remote "<name>" changes fragment "<fragment>" to "<content>"`.
@@ -336,20 +380,20 @@ impl World {
     /// Go's `BreakRemote`: the bare repository renamed out from under its
     /// `file://` address, so every later clone or fetch fails.
     pub(crate) fn becomes_unreachable(&mut self, name: &str) {
-        let bare = self.bare[name].clone();
+        let bare = self.remotes.bare[name].clone();
         let broken = PathBuf::from(format!("{}.unreachable", bare.display()));
         files::rename(&bare, &broken);
-        self.bare.insert(name.to_string(), broken);
+        self.remotes.bare.insert(name.to_string(), broken);
     }
 
     /// Tag the remote's default branch tip `tag`.
     pub(crate) fn tag_remote(&self, name: &str, tag: &str) {
-        git_in(&self.bare[name], &["tag", tag, "HEAD"]);
+        git_in(&self.remotes.bare[name], &["tag", tag, "HEAD"]);
     }
 
     /// Go's `RemoteFile`: `path` as the remote's default branch holds it.
     pub(crate) fn remote_file(&self, name: &str, path: &str) -> String {
-        git_in(&self.bare[name], &["show", &format!("HEAD:{path}")])
+        git_in(&self.remotes.bare[name], &["show", &format!("HEAD:{path}")])
     }
 
     /// Go's `the remote "<name>"'s cached clone is forced back to its first

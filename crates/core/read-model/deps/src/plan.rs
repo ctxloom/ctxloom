@@ -218,28 +218,31 @@ pub fn upgrade(active: &Lock, proposed: &[Pin], unexpanded: usize, fetch_failed:
     }
 }
 
-/// `deps upgrade <reference>`: [`upgrade`], with every other entry the lock
-/// holds kept as it is (its commit, its hold), so only the dependency
-/// `identity` moves. A pin the closure first makes is still made (the moved
-/// dependency may need it); no entry but `identity`'s can be dropped.
-pub fn upgrade_only(
-    active: &Lock,
-    proposed: &[Pin],
-    identity: &str,
-    unexpanded: usize,
-    fetch_failed: bool,
-) -> Upgrade {
-    let mut decided = upgrade(active, proposed, unexpanded, fetch_failed);
-    decided
-        .moved
-        .retain(|pin| pin.identity == identity || !active.entries.contains_key(&pin.identity));
-    for (other, entry) in &active.entries {
-        if other != identity {
-            decided.next.entries.insert(other.clone(), entry.clone());
+/// `deps upgrade <ref>`: the round `decided` held to the one `identity`.
+/// Only its pin moves (or is dropped, when the closure no longer reaches
+/// it); every other entry of `active` is carried as it is, and no other
+/// reference gets a first pin.
+pub fn only(active: &Lock, decided: Upgrade, identity: &str) -> Upgrade {
+    let mut next = active.clone();
+    match decided.next.entries.get(identity) {
+        Some(entry) => {
+            next.entries.insert(identity.to_string(), entry.clone());
+        }
+        None => {
+            next.entries.remove(identity);
         }
     }
-    decided.removed = dropped(active, &decided.next);
-    decided
+    Upgrade {
+        removed: dropped(active, &next),
+        moved: decided
+            .moved
+            .into_iter()
+            .filter(|pin| pin.identity == identity)
+            .collect(),
+        incomplete: decided.incomplete,
+        nothing_declared: false,
+        next,
+    }
 }
 
 /// A pin kept at its commit although the manifest now asks for something else.

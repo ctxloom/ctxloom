@@ -56,8 +56,6 @@ struct World {
     team: Option<(String, String)>,
     /// The context the old engine's surface held before the switch (j002000).
     before: Option<String>,
-    /// What each inspector spelling Alice tried said (j001900).
-    probes: Vec<String>,
     /// The team's bare origin and Bob's clone of it (j000700).
     origin: Option<PathBuf>,
     bob: Option<PathBuf>,
@@ -65,6 +63,8 @@ struct World {
     command: String,
     /// What the onboarding scenarios keep (j000800).
     onboarding: onboarding::State,
+    /// The git remotes the scenario seeds (search, deps), made on first use.
+    remotes: Option<super::deps::Remotes>,
 }
 
 impl fmt::Debug for World {
@@ -90,11 +90,11 @@ impl World {
             hand_authored: None,
             team: None,
             before: None,
-            probes: Vec::new(),
             origin: None,
             bob: None,
             command: String::new(),
             onboarding: onboarding::State::default(),
+            remotes: None,
         }
     }
 
@@ -112,32 +112,29 @@ mod onboarding;
 
 // ------------------------------------------------------------------ given
 
-#[given(expr = "a bundle {string} exists")]
-fn bundle(w: &mut World, name: String) {
-    w.common.project.bundle(&name);
+/// Go's `a git remote "<name>" serving a ctxloom bundle`: a bare repository
+/// whose `main` publishes the bundle `demo`, registered in the project.
+#[given(expr = "a git remote {string} serving a ctxloom bundle")]
+fn git_remote(w: &mut World, name: String) {
+    let env: Vec<(&str, &str)> = w
+        .common
+        .env
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+    w.remotes
+        .get_or_insert_with(super::deps::Remotes::new)
+        .git_remote(&w.common.project, &env, &name);
 }
 
-#[given(expr = "a fragment {string} in bundle {string} exists")]
-fn fragment(w: &mut World, name: String, bundle: String) {
-    w.common.project.fragment(&bundle, &name);
-}
-
-#[given(expr = "a command {string} in bundle {string} exists")]
-fn command(w: &mut World, name: String, bundle: String) {
-    w.common.project.command(&bundle, &name);
-}
-
-/// Go's fixture: a dedicated `<name>-base` bundle, so the profile stands alone.
-#[given(expr = "a profile {string} exists")]
-fn profile_exists(w: &mut World, name: String) {
-    let base = format!("{name}-base");
-    w.common.project.bundle(&base);
-    w.common.project.profile(&name, &base);
-}
-
-#[given(expr = "a profile {string} with bundle {string}")]
-fn profile(w: &mut World, name: String, bundle: String) {
-    w.common.project.profile(&name, &bundle);
+/// Go's `the remote "<name>" advances its bundle`: version two, its fragment
+/// rewritten.
+#[given(expr = "the remote {string} advances its bundle")]
+fn remote_advances(w: &mut World, name: String) {
+    w.remotes
+        .as_mut()
+        .expect("a git remote was seeded")
+        .advances(&name);
 }
 
 #[given(expr = "the session harp is {string}")]
@@ -378,6 +375,24 @@ fn matches(pattern: &str, text: &str) -> bool {
         (0..=text.len())
             .filter(|i| text.is_char_boundary(*i))
             .any(|i| go(pattern, &text[i..], false))
+    }
+}
+
+/// "No such content" is said, never answered with no output: in text the
+/// words, in json an answer whose count is 0 and whose lists are empty.
+/// An empty collection said: in text the words, in json nothing (or an
+/// empty list) at `path`.
+#[then("the search said, in so many words, that nothing matched")]
+fn search_said_nothing(w: &mut World) {
+    let ran = w.ran().succeeds();
+    if w.common.text_asked() {
+        ran.contains("No results found");
+        return;
+    }
+    let doc = ran.json();
+    assert_eq!(doc["count"], 0, "{doc}");
+    for side in ["local", "remote"] {
+        assert_eq!(doc[side], serde_json::json!([]), "{side}: {doc}");
     }
 }
 
@@ -667,8 +682,6 @@ fn j002000_setup(w: &mut World) {
 const J002000_AGENT: &str = "dev";
 const J002000_OLD: &str = "claude-code";
 const J002000_NEW: &str = "mock-lossy";
-/// Go's `j001200Harp`: the session recorded before the switch.
-const J002000_HARP: &str = "amber-quiet-heron";
 
 /// Go's `j002000Materialize`: the default profile materialized for `engine`,
 /// and the bytes of the context file that engine reads.
@@ -760,44 +773,6 @@ fn j002000_after(w: &mut World) {
         before.trim(),
         after.trim(),
         "the composed context differs across the switch"
-    );
-}
-
-/// Go's `a session was recorded under the old engine before the switch`: an
-/// ended session with its canonical transcript, seeded through `ctxloom test
-/// seed-session` (the Rust store has no sidecar to write).
-#[given("a session was recorded under the old engine before the switch")]
-fn j002000_session(w: &mut World) {
-    let ran = w.common.project.run(&[
-        "test",
-        "seed-session",
-        J002000_HARP,
-        "--transcript",
-        "--lock",
-        "free",
-        "--started-ago",
-        "7200",
-        "--ended-ago",
-        "3600",
-    ]);
-    assert_eq!(ran.code, 0, "seeding {J002000_HARP}: {}", ran.said());
-}
-
-/// Asserted on the listing's rows, parsed out of stdout, never on the
-/// combined output (Go's note: a reap warning names the harp it deleted).
-#[then("the sessions recorded under the old engine are still listed after the switch")]
-fn j002000_listed(w: &mut World) {
-    w.common
-        .run_lines("ctxloom session list --all --format json", "");
-    w.ran().succeeds();
-    let rows = w.json();
-    let rows = rows.as_array().cloned().unwrap_or_default();
-    assert!(
-        rows.iter()
-            .any(|r| r["harp"].as_str() == Some(J002000_HARP)),
-        "the session recorded before the switch is no longer a row ({} row(s)): {}",
-        rows.len(),
-        w.ran().said()
     );
 }
 
@@ -1062,105 +1037,4 @@ common_steps!();
 /// scenario's outcome.
 pub(super) fn run(file: &Path) -> super::gherkin_common::FeatureRun {
     super::gherkin_common::run_feature::<World>(file)
-}
-
-// ------------------------------------------------ j001900: the day it goes blind
-
-/// Go's `j001900DeployMarker`: the deploy guidance.
-const J001900_MARKER: &str = "J001900-DEPLOY-PROCESS-MARKER";
-const J001900_BUNDLE: &str = "deploy-runbook";
-
-/// Go's `j001900Setup`: a hermetic project with one engine (`claude-code`), a
-/// seed bundle and a `default` profile.
-#[given("Alice's team ships its deploy process as ctxloom content")]
-fn j001900_setup(w: &mut World) {
-    w.common.project = Project::initialized();
-    w.common
-        .project
-        .write(".ctxloom/config.yaml", "schema_version: 9\n");
-    w.common.run_lines(
-        "ctxloom bundle create seed -d \"J000200 seed bundle\"\nctxloom profile create default --include seed -d \"J000200 default profile\"",
-        "",
-    );
-    w.ran().succeeds();
-}
-
-/// Go's `j001900Delivered`: the default profile materialized for claude-code,
-/// and the bytes of the CLAUDE.md that landed.
-fn j001900_delivered(w: &mut World) -> String {
-    w.common.run_lines(
-        "ctxloom materialize default --target out --backend claude-code",
-        "",
-    );
-    w.common
-        .project
-        .read("out/CLAUDE.md")
-        .unwrap_or_else(|| panic!("materializing wrote no out/CLAUDE.md: {}", w.ran().said()))
-}
-
-/// Where Bob's delivered context is kept: beside the project, not in it.
-fn j001900_bobs_file(w: &World) -> std::path::PathBuf {
-    w.common
-        .project
-        .dir()
-        .parent()
-        .expect("the project has a parent")
-        .join("bob-delivered")
-        .join("CLAUDE.md")
-}
-
-#[given("Bob's checkout of the same project delivers the deploy guidance and Alice's does not")]
-fn j001900_bob_has_it(w: &mut World) {
-    let root = format!(".ctxloom/content/bundles/v2/{J001900_BUNDLE}");
-    w.common.project.write(
-        &format!("{root}/bundle.yaml"),
-        "schema_version: 4\nversion: 1.0.0\n",
-    );
-    w.common.project.write(
-        &format!("{root}/fragments/deploy-process.md"),
-        &format!("{J001900_MARKER}\n"),
-    );
-    // Bob's machine: the runbook composed into his profile, materialized, and
-    // kept outside Alice's project so the two are separate deliveries.
-    w.common.run_lines(
-        &format!("ctxloom profile edit default --add-bundle {J001900_BUNDLE}"),
-        "",
-    );
-    w.ran().succeeds();
-    let bobs = j001900_delivered(w);
-    let file = j001900_bobs_file(w);
-    crate::tests::files::put(&file, bobs);
-    // Alice's machine: the runbook removed from her profile.
-    w.common.run_lines(
-        &format!("ctxloom profile edit default --remove-bundle {J001900_BUNDLE}"),
-        "",
-    );
-    w.ran().succeeds();
-    let hers = j001900_delivered(w);
-    assert!(
-        !hers.contains(J001900_MARKER),
-        "Alice's context still carries the guidance: {hers}"
-    );
-}
-
-/// Go probes three spellings and passes if any answers; only
-/// `materialize --diff` exists here.
-#[when("Alice asks ctxloom to compare her delivered context with Bob's")]
-fn j001900_compare(w: &mut World) {
-    let bobs = j001900_bobs_file(w).display().to_string();
-    w.common
-        .run_lines(&format!("ctxloom materialize default --diff {bobs}"), "");
-    let said = w.ran().said();
-    w.probes.push(said);
-}
-
-#[then("ctxloom reports the deploy guidance as present for Bob and absent for her")]
-fn j001900_reported(w: &mut World) {
-    assert!(!w.probes.is_empty(), "no inspector was probed");
-    assert!(
-        w.probes.iter().any(|p| p.contains(J001900_MARKER)),
-        "no ctxloom surface answered the question: none of the {} probed invocations reported {J001900_MARKER:?}:\n{}",
-        w.probes.len(),
-        w.probes.join("\n---\n")
-    );
 }

@@ -125,6 +125,22 @@ impl Common {
         .to_string()
     }
 
+    /// `the output reports "<path>" as empty, saying "<words>"`: asked for
+    /// text, the words are said; otherwise the json holds nothing at `path`,
+    /// null or an empty list there.
+    pub(crate) fn output_reports_empty(&self, path: &str, saying: &str) {
+        if self.text_asked() {
+            self.ran().contains(saying);
+            return;
+        }
+        let doc = self.ran().json();
+        match super::library::at(&doc, path) {
+            None | Some(Value::Null) => {}
+            Some(Value::Array(a)) => assert!(a.is_empty(), "{path}: {a:?}"),
+            Some(other) => panic!("{path} is {other}, so the command did find something"),
+        }
+    }
+
     /// `the output reports no "<path>"`: the json holds nothing at `path`.
     pub(crate) fn output_reports_no(&self, path: &str) {
         let ran = self.ran();
@@ -254,6 +270,37 @@ macro_rules! common_steps {
                 w.common_mut().project = Project::bare();
             }
 
+            /// Go's fixture bundle: a manifest, an example fragment and an
+            /// example command (`Project::bundle`).
+            #[given(expr = "a bundle {string} exists")]
+            fn bundle(w: &mut World, name: String) {
+                w.common().project.bundle(&name);
+            }
+
+            #[given(expr = "a fragment {string} in bundle {string} exists")]
+            fn fragment(w: &mut World, name: String, bundle: String) {
+                w.common().project.fragment(&bundle, &name);
+            }
+
+            #[given(expr = "a command {string} in bundle {string} exists")]
+            fn command(w: &mut World, name: String, bundle: String) {
+                w.common().project.command(&bundle, &name);
+            }
+
+            /// Go's fixture: a dedicated `<name>-base` bundle, so the profile
+            /// stands alone.
+            #[given(expr = "a profile {string} exists")]
+            fn profile_exists(w: &mut World, name: String) {
+                let base = format!("{name}-base");
+                w.common().project.bundle(&base);
+                w.common().project.profile(&name, &base);
+            }
+
+            #[given(expr = "a profile {string} with bundle {string}")]
+            fn profile(w: &mut World, name: String, bundle: String) {
+                w.common().project.profile(&name, &bundle);
+            }
+
             #[given(expr = "the project already has the file {string}:")]
             fn project_file(w: &mut World, step: &Step, rel: String) {
                 w.common().project.write(&rel, &format!("{}\n", doc(step)));
@@ -317,6 +364,11 @@ macro_rules! common_steps {
             #[then(expr = "the output reports no {string}")]
             fn output_reports_no(w: &mut World, path: String) {
                 w.common().output_reports_no(&path);
+            }
+
+            #[then(expr = "the output reports {string} as empty, saying {string}")]
+            fn output_reports_empty(w: &mut World, path: String, saying: String) {
+                w.common().output_reports_empty(&path, &saying);
             }
 
             #[then(expr = "the output reports {string} containing {string}")]

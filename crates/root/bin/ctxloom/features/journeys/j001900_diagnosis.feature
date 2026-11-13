@@ -1,7 +1,7 @@
+# world: base
 # Ported from journeys/j001900_diagnosis.feature (rev f36e8dfb2)
 # NOT ported: the engine-ingestion inspector; the walk ends with her assistant answering.
 @doc
-@pending
 Feature: The day the assistant goes blind
 
   Monday morning. "The assistant knew our deploy process on Friday. It doesn't

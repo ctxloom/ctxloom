@@ -172,3 +172,13 @@ fn the_child_carries_its_agents_permissions_document() {
     );
     assert_eq!(plain.permissions, None);
 }
+
+// Merge item 3 (main into the daemon line, 2026-11-13): a hosted child's
+// plan carries the run agent's surfaces, as every launch's plan does.
+#[test]
+fn the_child_carries_its_agents_surfaces() {
+    let mut planned = previewed("claude-code", builtin(), 0);
+    planned.plan.surfaces.deny_tools = vec!["Bash".to_string()];
+    let child = hosted_child(&planned, "claude-code", &drivable(), CLAUDE, &env(&[]));
+    assert_eq!(child.surfaces.0.deny_tools, ["Bash"]);
+}

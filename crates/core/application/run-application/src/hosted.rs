@@ -29,6 +29,9 @@ pub struct HostedChild {
     /// The agent's permissions document for the engine, JSON text as it
     /// was written (rulings 133-137); none: the engine's default document.
     pub permissions: Option<String>,
+    /// What the run agent's selection carries into the launch (its
+    /// commands, skills, hooks and servers), as every launch's plan does.
+    pub surfaces: run_ports::LaunchSurfaces,
     pub evidence: Evidence,
 }
 
@@ -64,6 +67,7 @@ pub fn hosted_child(
         model: plan.model.clone(),
         effort: plan.effort.clone(),
         permissions: plan.permissions.clone(),
+        surfaces: run_ports::LaunchSurfaces::default(),
         settings,
         evidence,
     }

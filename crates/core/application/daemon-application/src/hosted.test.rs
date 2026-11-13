@@ -120,6 +120,13 @@ impl Engine for Scripted {
                 bytes: permissions.as_bytes().to_vec(),
             });
         }
+        let denied = &request.surfaces.0.deny_tools;
+        if !denied.is_empty() {
+            files.push(HomeFile {
+                rel: "denied.txt".to_string(),
+                bytes: denied.join(",").into_bytes(),
+            });
+        }
         Ok(Prepared {
             files,
             copy_in: Vec::new(),
@@ -663,6 +670,59 @@ async fn a_hosted_childs_home_is_prepared_with_its_agents_permissions() {
         None,
         "none written: the engine's default"
     );
+}
+
+/// A plan of the child whose run agent denies a tool.
+struct Surfaced;
+
+impl ChildPlans for Surfaced {
+    fn preview(
+        &self,
+        engine: &str,
+        project_dir: &str,
+        env: &BTreeMap<String, String>,
+    ) -> Result<Previewed, String> {
+        let mut previewed = Plans.preview(engine, project_dir, env)?;
+        previewed.plan.surfaces.deny_tools = vec!["Bash".to_string()];
+        Ok(previewed)
+    }
+
+    fn git_user(
+        &self,
+        project_dir: &str,
+        env: &BTreeMap<String, String>,
+    ) -> Option<run_ports::GitUser> {
+        Plans.git_user(project_dir, env)
+    }
+}
+
+// Merge item 3 (main into the daemon line, 2026-11-13; the owner's "one
+// session-setup path"): a hosted child is set up by the one function every
+// launch is, so its home is prepared with its run agent's surfaces, and its
+// engine is told the live project as CTXLOOM_ROOT.
+#[tokio::test]
+async fn a_hosted_child_is_set_up_with_its_surfaces_and_told_the_project() {
+    let mut world = World::new(Box::new(Surfaced));
+    world.mint(OWNER, "boss", None).await;
+    world.mint(CHILD, "kid", Some(OWNER)).await;
+    world.tick().await;
+    assert_eq!(world.daemon.hosting(), 1, "hosted");
+    assert_eq!(
+        world
+            .homes
+            .text("/work", "kid", "home/denied.txt")
+            .as_deref(),
+        Some("Bash")
+    );
+    let started = world.engine.started.lock().unwrap().clone();
+    let [spec] = started.as_slice() else {
+        panic!("one start: {started:?}");
+    };
+    assert_eq!(
+        spec.env.get(run_ports::ROOT_VARIABLE).map(String::as_str),
+        Some("/work")
+    );
+    assert_eq!(spec.cwd.as_deref(), Some("/work"), "no axis: the project");
 }
 
 // T21: each launch's engine is composed for it, from where ITS launcher

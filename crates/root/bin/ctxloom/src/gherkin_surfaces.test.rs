@@ -267,6 +267,25 @@ fn directory_bundle(w: &mut World, name: String) {
     );
 }
 
+/// The listing has skill `skill` of bundle `bundle`: in json an entry named
+/// `<bundle>/<skill>` whose `source` is the bundle, in text its
+/// `- <bundle>/<skill>` line.
+#[then(expr = "the skill list output includes {string} from bundle {string}")]
+fn skill_listed(w: &mut World, skill: String, bundle: String) {
+    let ran = w.common.ran();
+    let name = format!("{bundle}/{skill}");
+    let Ok(doc) = serde_json::from_str::<serde_json::Value>(&ran.stdout) else {
+        ran.contains(&format!("- {name}"));
+        return;
+    };
+    let listed = doc.as_array().is_some_and(|skills| {
+        skills
+            .iter()
+            .any(|s| s["name"].as_str() == Some(&name) && s["source"].as_str() == Some(&bundle))
+    });
+    assert!(listed, "no skill {name} of bundle {bundle}: {}", ran.said());
+}
+
 #[given(expr = "Alice starts a ctxloom-doctor skill in {string} described as {string}")]
 fn start_skill(w: &mut World, bundle: String, described: String) {
     w.common.run_lines(

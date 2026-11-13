@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use cucumber::gherkin::{Feature, GherkinEnv, Rule, Scenario, Step};
 use serde_json::Value;
 
-use super::library::{contains_value, reports_as, Project};
+use super::library::{contains_value, entries, reports_as, Project};
 use super::Ran;
 use crate::tests::files;
 
@@ -154,16 +154,31 @@ impl Common {
     }
 
     /// `the output reports "<path>" containing "<value>"`: the list at `path`
-    /// has `value` among its entries.
+    /// has `value` among its entries; an output that is not json (a text
+    /// row) says `value`, as [`Common::output_reports`] reads one.
     pub(crate) fn output_reports_containing(&self, path: &str, value: &str) {
         let ran = self.ran();
-        let doc = serde_json::from_str::<Value>(&ran.stdout)
-            .unwrap_or_else(|e| panic!("not json ({e}): {}", ran.said()));
+        let Ok(doc) = serde_json::from_str::<Value>(&ran.stdout) else {
+            ran.contains(value);
+            return;
+        };
         assert!(
             contains_value(&doc, path, value),
             "{path} should contain {value}: {}",
             ran.said()
         );
+    }
+
+    /// `the output reports "<path>" having "<n>" entries`: the list (or
+    /// object) at `path` has `n` entries; an output that is not json (a text
+    /// row) says `n`'s words, as [`Common::output_reports`] reads one.
+    pub(crate) fn output_reports_having(&self, path: &str, n: &str) {
+        let ran = self.ran();
+        let Ok(doc) = serde_json::from_str::<Value>(&ran.stdout) else {
+            ran.contains(n);
+            return;
+        };
+        assert_eq!(entries(&doc, path).to_string(), n, "{path}: {}", ran.said());
     }
 
     pub(crate) fn output_reports(&self, path: &str, value: &str) {
@@ -374,6 +389,11 @@ macro_rules! common_steps {
             #[then(expr = "the output reports {string} containing {string}")]
             fn output_reports_containing(w: &mut World, path: String, value: String) {
                 w.common().output_reports_containing(&path, &value);
+            }
+
+            #[then(expr = "the output reports {string} having {string} entries")]
+            fn output_reports_having(w: &mut World, path: String, n: String) {
+                w.common().output_reports_having(&path, &n);
             }
 
             #[given(expr = "the file {string} contains {string}")]

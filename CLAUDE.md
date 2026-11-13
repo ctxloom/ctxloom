@@ -1540,7 +1540,12 @@ agent's, companion's and remote's its config key) and the conventions: a
 default left out, presence (`optional`) on `applied`, `held`, `default`,
 `resolves` and `no_distill` alone (OQ-7); `uint32` counts and tokens,
 `uint64` bytes (OQ-12); a free-form document (permissions, the config) a
-`google.protobuf.Struct` (OQ-11, no proto of any engine's configuration);
+`google.protobuf.Value` (OQ-11, owner ruling 2026-11-13, superseding
+Struct: printed as written whatever its kind, so a permissions document
+that is a list or a word round-trips; no proto of any engine's
+configuration; numbers doubles for display, read exactly under
+`arbitrary_precision` by `daemon-proto`'s `wkt.rs`, which also watches
+library.proto in its build script);
 every write its OWN response (`CreateBundleResponse`, ...; OQ-9), each with
 `path`, `applied`, `detail`, `apply_command` (OQ-8), `needs` 90, `etag` 91
 and `notices` 92. `EnvVars` and `Globals` moved to needs.proto (library.proto

@@ -108,3 +108,22 @@ fn test_a_number_no_double_holds_as_json_is_its_word() {
     assert_eq!(json(&number(-3.0)), "-3");
     assert_eq!(json(&number(1e300)), "1e+300");
 }
+
+// A free-form document is a `Value` (OQ-11): any JSON value reads in and
+// is written back as it was, its numbers read under serde_json's
+// `arbitrary_precision` (as the binary builds it).
+#[test]
+fn test_a_value_reads_back_any_json_value_it_wrote() {
+    for written in [
+        r#"{"allow":["Bash",2,1.5],"mode":"plan","none":null,"on":true}"#,
+        r#"["Bash",{"deny":"WebFetch"},-3]"#,
+        r#""plan""#,
+        "7",
+        "1.5",
+        "false",
+        "null",
+    ] {
+        let read: Value = serde_json::from_str(written).expect("reads");
+        assert_eq!(json(&read), written);
+    }
+}

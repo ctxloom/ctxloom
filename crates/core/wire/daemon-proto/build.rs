@@ -47,6 +47,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ],
         &["../../../../proto"],
     )?;
+    // The files the four import are compiled too, but only the four are
+    // watched by `wire`: a change to library.proto (imported by
+    // daemon.proto) must rebuild the types as well.
+    for imported in IMPORTED {
+        println!("cargo:rerun-if-changed=../../../../proto/{imported}");
+    }
     let out = PathBuf::from(std::env::var("OUT_DIR")?);
     let set = std::fs::read(out.join("angzarr.descriptors"))?;
     std::fs::write(out.join("refusals.rs"), refusals(&set)?)?;
@@ -58,6 +64,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     Ok(())
 }
+
+/// The package's files the compiled ones import, which `wire` does not
+/// watch.
+const IMPORTED: &[&str] = &["ctxloom/v1/library.proto"];
 
 /// The well-known types the package's messages use, compiled into this
 /// crate (`google::protobuf`) so that they can carry proto3 JSON.

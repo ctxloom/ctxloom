@@ -122,7 +122,7 @@ pub(crate) fn settings(settings: &AgentSettings) -> v1::AgentSettings {
         model: optional(&settings.model.value, settings.model.source),
         effort: optional(&settings.effort.value, settings.effort.source),
         permissions: Some(v1::SourcedDocument {
-            value: settings.permissions.value.as_ref().and_then(document),
+            value: settings.permissions.value.as_ref().map(document),
             source: settings.permissions.source.to_string(),
         }),
         runtime: Some(v1::RuntimeSetting {
@@ -148,13 +148,10 @@ pub(crate) fn settings(settings: &AgentSettings) -> v1::AgentSettings {
     }
 }
 
-/// A free-form document as a `Struct` (OQ-11): its object, for display;
-/// what is not an object has no `Struct` and is left out.
-pub(crate) fn document(json: &serde_json::Value) -> Option<Struct> {
-    match value(json).kind {
-        Some(Kind::StructValue(document)) => Some(document),
-        _ => None,
-    }
+/// A free-form document as a `google.protobuf.Value` (OQ-11, owner ruling
+/// 2026-11-13): whatever was written, an object or not, for display.
+pub(crate) fn document(json: &serde_json::Value) -> Value {
+    value(json)
 }
 
 /// A JSON value as a `google.protobuf.Value` (numbers as doubles, OQ-11).

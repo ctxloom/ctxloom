@@ -9,9 +9,9 @@
 //! an enum by its value's name, a 64-bit integer as a decimal string. The
 //! well-known types the package uses are this crate's own
 //! ([`google::protobuf`]), with their JSON mapping written by hand
-//! (`wkt.rs`): a `Timestamp` RFC 3339 in UTC, a `Struct` the object itself
-//! (its keys sorted),
-//! a `FieldMask` its paths in one string.
+//! (`wkt.rs`): a `Timestamp` RFC 3339 in UTC, a `Value` the JSON value it
+//! holds, whatever its kind (a free-form document, OQ-11), a `Struct` the
+//! object itself (its keys sorted), a `FieldMask` its paths in one string.
 
 /// The generated package, nested as its proto package is.
 pub mod ctxloom {

@@ -58,35 +58,49 @@ fn test_a_fact_with_presence_prints_false_and_a_default_is_left_out() {
     );
 }
 
-// OQ-11: a free-form document is the object itself, so its paths keep
-// their shape; OQ-12: a byte size is a decimal string.
+// OQ-11: a free-form document is the JSON value itself (a Value, owner
+// ruling 2026-11-13), so an object's paths keep their shape and what is no
+// object is printed as written; OQ-12: a byte size is a decimal string.
 #[test]
-fn test_a_document_is_the_object_itself_and_bytes_a_decimal_string() {
-    use crate::google::protobuf::{value::Kind, Struct, Value};
-    let document = Struct {
-        fields: [(
-            "defaultMode".to_string(),
-            Value {
-                kind: Some(Kind::StringValue("acceptEdits".to_string())),
-            },
-        )]
-        .into_iter()
-        .collect(),
+fn test_a_document_is_the_value_itself_and_bytes_a_decimal_string() {
+    use crate::google::protobuf::{value::Kind, ListValue, Struct, Value};
+    let word = |text: &str| Value {
+        kind: Some(Kind::StringValue(text.to_string())),
     };
-    let agent = v1::EngineAgent {
+    let document = Value {
+        kind: Some(Kind::StructValue(Struct {
+            fields: [("defaultMode".to_string(), word("acceptEdits"))]
+                .into_iter()
+                .collect(),
+        })),
+    };
+    let agent = |value: Value| v1::EngineAgent {
         agent: "plain".to_string(),
         permissions: Some(v1::SourcedDocument {
-            value: Some(document),
+            value: Some(value),
             source: "default".to_string(),
         }),
         ..v1::EngineAgent::default()
     };
     assert_eq!(
-        json(&agent),
+        json(&agent(document)),
         serde_json::json!({
             "agent": "plain",
             "permissions": {"value": {"defaultMode": "acceptEdits"}, "source": "default"},
         })
+    );
+    let listed = Value {
+        kind: Some(Kind::ListValue(ListValue {
+            values: vec![word("Bash")],
+        })),
+    };
+    assert_eq!(
+        json(&agent(listed))["permissions"]["value"],
+        serde_json::json!(["Bash"])
+    );
+    assert_eq!(
+        json(&agent(word("plan")))["permissions"]["value"],
+        serde_json::json!("plan")
     );
     let exported = v1::ExportSkillResponse {
         bytes: 4096,

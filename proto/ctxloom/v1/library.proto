@@ -87,11 +87,14 @@ syntax = "proto3";
 //   - Counts and token estimates are `uint32` (JSON numbers), byte sizes
 //     `uint64` (JSON strings) (OQ-12).
 //   - A free-form document (an engine's permissions, the config) is a
-//     `google.protobuf.Struct` (OQ-11): printed as the object itself, so its
-//     paths keep their shape; schema-less, so nothing of claude's or
-//     opencode's configuration is encoded here (the owner's condition); its
-//     numbers are doubles for display only, and the engine still receives
-//     the document verbatim from the config, never from this message.
+//     `google.protobuf.Value` (OQ-11, owner ruling 2026-11-13, superseding
+//     Struct): printed as the JSON value itself, an object, a list, a word,
+//     a number, a yes/no or null, so whatever was written round-trips and an
+//     object's paths keep their shape; schema-less, so nothing of claude's
+//     or opencode's configuration is encoded here (the owner's condition); a
+//     client switches on the value's kind (the accepted cost); its numbers
+//     are doubles for display only, and the engine still receives the
+//     document verbatim from the config, never from this message.
 //   - Every write method answers a response of ITS OWN (OQ-9:
 //     `CreateBundleResponse`, `UpdateBundleResponse`, ..., not a per-noun
 //     wrapper), each carrying the resource, `path`, `applied`, `detail`,
@@ -140,7 +143,7 @@ message SourcedList {
 
 // An engine's own document (rulings 133-139), as written; none is unset.
 message SourcedDocument {
-  google.protobuf.Struct value = 1;
+  google.protobuf.Value value = 1;
   string source = 2;
 }
 
@@ -1141,7 +1144,7 @@ message AgentEngine {
   string model = 1;
   string effort = 2;
   // The engine's own document, verbatim (rulings 133-139).
-  google.protobuf.Struct permissions = 3;
+  google.protobuf.Value permissions = 3;
 }
 
 message RequirementSource {
@@ -1630,7 +1633,7 @@ message Config {
   // IDENTIFIER: `projects/{project}/config`, `users/me/config`.
   string name = 1;
   // What `config show [section]` printed: `document.agents.default.engine`.
-  google.protobuf.Struct document = 2;
+  google.protobuf.Value document = 2;
   string etag = 70;
 }
 

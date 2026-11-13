@@ -11,8 +11,8 @@ use isolation_ports::{
 };
 
 use super::{
-    branch_of, checkout_name, is_name, nested_under, same_path, sanitize, GitWorkspaces, Listed,
-    EXCLUDE_HEADER,
+    branch_of, checkout_name, is_name, nested_under, parse_worktree_list, same_path, sanitize,
+    GitWorkspaces, Listed, EXCLUDE_HEADER,
 };
 use crate::fixtures::{
     canonical, exists, fs, is_dir, link, mkdirs, put, root, runs_scripts, slurp,
@@ -25,6 +25,16 @@ const PATTERNS: [&str; 5] = [
     ".mcp.json",
     "CLAUDE.md",
 ];
+
+/// Whether git lists `path` among the project's worktrees, read as the
+/// adapter reads the listing: git spells a path its own way (`C:/a/b` on
+/// Windows, where the checkout's own is `C:\a\b`), so the two are compared as
+/// paths, never as text.
+fn registered(project: &Path, path: &str) -> bool {
+    parse_worktree_list(&git(project, &["worktree", "list", "--porcelain"]))
+        .iter()
+        .any(|w| same_path(&*fs(), &w.path, Path::new(path)))
+}
 
 /// git with a clean identity and none of the caller's environment.
 fn git(dir: &Path, args: &[&str]) -> String {
@@ -428,8 +438,11 @@ fn removing_a_clean_checkout_removes_it_its_registration_and_its_merged_branch()
     let removal = f.adapter().remove(&checkout.repo_dir, &checkout.path);
     assert_eq!(removal, Removal::Removed);
     assert!(!exists(&checkout.path));
-    let listed = git(&f.project, &["worktree", "list", "--porcelain"]);
-    assert!(!listed.contains(&checkout.path), "{listed}");
+    assert!(
+        !registered(&f.project, &checkout.path),
+        "{}",
+        git(&f.project, &["worktree", "list", "--porcelain"])
+    );
     let branches = git(
         &f.project,
         &["branch", "--list", "ctxloom/amber-quiet-heron/clean"],
@@ -511,8 +524,11 @@ fn removing_a_checkout_with_uncommitted_work_leaves_it_in_place() {
     let removal = f.adapter().remove(&checkout.repo_dir, &checkout.path);
     assert!(matches!(removal, Removal::Left(_)), "{removal:?}");
     assert_eq!(slurp(&wip), "// WIP-MARKER\n");
-    let listed = git(&f.project, &["worktree", "list", "--porcelain"]);
-    assert!(listed.contains(&checkout.path), "{listed}");
+    assert!(
+        registered(&f.project, &checkout.path),
+        "{}",
+        git(&f.project, &["worktree", "list", "--porcelain"])
+    );
 }
 
 // Go: teardownWorktree: a dirty nested worktree aborts the whole teardown.
@@ -677,6 +693,48 @@ fn paths_are_the_same_when_equal_or_when_they_resolve_alike() {
     );
     assert!(same_path(&*fs(), &real, &link_path));
     assert!(!same_path(&*fs(), &real, &gone));
+}
+
+#[test]
+fn the_porcelain_listing_is_read_into_each_worktree_s_path_and_branch() {
+    let out = "worktree /p\nHEAD 1111\nbranch refs/heads/main\n\nworktree /h/s/wip\nHEAD 2222\nbranch refs/heads/ctxloom/s/wip\n\nworktree /h/s/loose\nHEAD 3333\ndetached\n\n";
+    let listed = parse_worktree_list(out);
+    let got: Vec<(PathBuf, Option<String>)> =
+        listed.into_iter().map(|w| (w.path, w.branch)).collect();
+    assert_eq!(
+        got,
+        vec![
+            (PathBuf::from("/p"), Some("main".to_string())),
+            (PathBuf::from("/h/s/wip"), Some("ctxloom/s/wip".to_string())),
+            (PathBuf::from("/h/s/loose"), None),
+        ]
+    );
+}
+
+// git on Windows lists a worktree as `C:/a/b`; the checkout's own path is
+// `C:\a\b`. Read as paths they are one directory there (std's Windows paths
+// take `/` and `\` alike) and two elsewhere, where `\` is a file name's
+// character: the adapter compares them as paths, never as text, so it agrees
+// with the platform on both. Runs on every host; on unix it holds the other
+// half.
+#[test]
+fn git_s_spelling_of_a_windows_path_is_compared_as_the_platform_reads_it() {
+    let listed = parse_worktree_list(
+        "worktree C:/a/b\nbranch refs/heads/ctxloom/a/b\n\nworktree C:/a/b/inner\ndetached\n",
+    );
+    let target = Path::new(r"C:\a\b");
+    let windows = os::host().flavor() == os::Flavor::Windows;
+    assert_eq!(
+        same_path(&*fs(), &listed[0].path, target),
+        windows,
+        "C:/a/b and C:\\a\\b"
+    );
+    let want: Vec<PathBuf> = if windows {
+        vec![PathBuf::from("C:/a/b/inner")]
+    } else {
+        Vec::new()
+    };
+    assert_eq!(nested_under(&*fs(), &listed, target), want);
 }
 
 #[test]

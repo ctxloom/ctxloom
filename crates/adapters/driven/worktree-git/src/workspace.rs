@@ -109,7 +109,16 @@ struct Listed {
 }
 
 fn worktree_list(git: &Git, repo: &Path) -> Result<Vec<Listed>, GitError> {
-    let out = git.run(repo, &["worktree", "list", "--porcelain"])?;
+    Ok(parse_worktree_list(
+        &git.run(repo, &["worktree", "list", "--porcelain"])?,
+    ))
+}
+
+/// The entries of `git worktree list --porcelain`'s output. Each path is
+/// git's spelling (on Windows `C:/a/b`, forward slashes), so it is only ever
+/// compared as a [`Path`], which on Windows reads `/` and `\` alike, never
+/// as text.
+fn parse_worktree_list(out: &str) -> Vec<Listed> {
     let mut listed = Vec::new();
     for block in out.split("\n\n") {
         let mut path = None;
@@ -125,7 +134,7 @@ fn worktree_list(git: &Git, repo: &Path) -> Result<Vec<Listed>, GitError> {
             listed.push(Listed { path, branch });
         }
     }
-    Ok(listed)
+    listed
 }
 
 /// Whether two paths name the same directory: equal, or both resolvable and

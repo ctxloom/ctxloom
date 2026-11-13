@@ -372,6 +372,7 @@ fn minted(n: u8, harp: &str) -> EventBook {
             started_at: None,
             depth: 0,
             owner: None,
+            workspace: None,
         })
         .to_any(),
     )];

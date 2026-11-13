@@ -9,9 +9,9 @@ use std::io::{self, Write};
 use angzarr_presentation::Format;
 use clap::ArgMatches;
 use library_application::{
-    AgentRequest, AppError, BundleEditRequest, DefaultAgent, ItemKind, McpEdited, McpPatch,
-    Outcome, Preview, ProfileCreateRequest, ProfileEdit, ProfileEdited, Removal, WriteError,
-    LOADOUT,
+    AgentRequest, AgentRow, AgentWritten, AppError, BundleEditRequest, DefaultAgent, ItemKind,
+    McpEdited, McpPatch, Outcome, Preview, ProfileCreateRequest, ProfileEdit, ProfileEdited,
+    Removal, SwapPreview, WriteError, LOADOUT,
 };
 use serde::Serialize;
 
@@ -251,13 +251,19 @@ pub(crate) fn item(
     let reference = text_arg(sub, "ref");
     let code = match verb {
         "create" => {
-            let outcome = cx.library.item_create(
-                &cx.flags,
-                kind,
-                &text_arg(sub, "bundle"),
-                &text_arg(sub, "name"),
-            );
+            let outcome = match given(sub, "name") {
+                Some(name) => {
+                    cx.library
+                        .item_create(&cx.flags, kind, &text_arg(sub, "bundle"), &name)
+                }
+                None => cx
+                    .library
+                    .item_create_at(&cx.flags, kind, &text_arg(sub, "bundle")),
+            };
             finish(cx, outcome, out, err, |made, out, _| {
+                if made.bundle_created {
+                    writeln!(out, "Created bundle \"{}\"", made.bundle)?;
+                }
                 writeln!(
                     out,
                     "Created {} \"{}\" in bundle \"{}\"",
@@ -577,6 +583,50 @@ fn agent_request(sub: &ArgMatches) -> Result<AgentRequest, Failure> {
     })
 }
 
+/// The binding a create or an edit wrote, in the config's shape.
+fn agent_written(row: &AgentRow, verb: &str, out: &mut dyn Write) -> io::Result<()> {
+    let mut parts = Vec::new();
+    if !row.engine.is_empty() {
+        parts.push(format!("engine: {}", row.engine));
+    }
+    if !row.profiles.is_empty() {
+        parts.push(format!("profiles: {}", row.profiles.join(", ")));
+    }
+    if !row.runtime.is_empty() {
+        parts.push(format!("runtime: {}", row.runtime));
+    }
+    // Ruling 67: what is shown is what is written; ruling 139:
+    // permissions are said to be passed on unchecked.
+    for line in &row.engine_lines {
+        parts.push(line.line.clone());
+    }
+    for line in row.engine_lines.iter().filter(|l| l.permissions) {
+        parts.push(format!(
+            "permissions {}",
+            library_application::passed_verbatim(&line.engine)
+        ));
+    }
+    if !row.env.is_empty() {
+        parts.push(format!("env: {}", row.env.join(", ")));
+    }
+    writeln!(out, "{verb} agent \"{}\" ({})", row.name, parts.join(", "))
+}
+
+/// The swap's preview: what the new engine cannot carry, and how to apply it.
+fn swap_preview_text(out: &mut dyn Write, preview: &SwapPreview) -> io::Result<()> {
+    writeln!(
+        out,
+        "Moving agent \"{}\" from {} to {} gives up what {} cannot carry:",
+        preview.agent, preview.from, preview.to, preview.to
+    )?;
+    for lost in &preview.not_carried {
+        writeln!(out, "  {}", lost.line())?;
+    }
+    writeln!(out)?;
+    writeln!(out, "Nothing was changed. Re-run with --yes to apply:")?;
+    writeln!(out, "  {}", preview.apply)
+}
+
 pub(crate) fn agent(
     cx: &Context<'_>,
     (verb, sub): (&str, &ArgMatches),
@@ -587,36 +637,27 @@ pub(crate) fn agent(
     let code = match verb {
         "create" | "edit" => {
             let request = agent_request(sub)?;
-            let created = verb == "create";
-            let outcome = cx.library.agent_write(&cx.flags, &name, &request, !created);
-            finish(cx, outcome, out, err, |row, out, _| {
-                let mut parts = Vec::new();
-                if !row.engine.is_empty() {
-                    parts.push(format!("engine: {}", row.engine));
-                }
-                if !row.profiles.is_empty() {
-                    parts.push(format!("profiles: {}", row.profiles.join(", ")));
-                }
-                if !row.runtime.is_empty() {
-                    parts.push(format!("runtime: {}", row.runtime));
-                }
-                // Ruling 67: what is shown is what is written; ruling 139:
-                // permissions are said to be passed on unchecked.
-                for line in &row.engine_lines {
-                    parts.push(line.line.clone());
-                }
-                for line in row.engine_lines.iter().filter(|l| l.permissions) {
-                    parts.push(format!(
-                        "permissions {}",
-                        library_application::passed_verbatim(&line.engine)
-                    ));
-                }
-                if !row.env.is_empty() {
-                    parts.push(format!("env: {}", row.env.join(", ")));
-                }
-                let verb = if created { "Created" } else { "Updated" };
-                writeln!(out, "{verb} agent \"{}\" ({})", row.name, parts.join(", "))
-            })?
+            if verb == "create" {
+                let outcome = cx.library.agent_write(&cx.flags, &name, &request, false);
+                finish(cx, outcome, out, err, |row, out, _| {
+                    agent_written(row, "Created", out)
+                })?
+            } else {
+                let outcome = cx
+                    .library
+                    .agent_edit(&cx.flags, &name, &request, flag(sub, "yes"));
+                crate::answer(cx, outcome, out, err, |value, out, _| {
+                    emit(cx.format, out, &value, |out| match &value {
+                        AgentWritten::Preview(preview) => swap_preview_text(out, preview),
+                        AgentWritten::Done(row) => agent_written(row, "Updated", out),
+                    })?;
+                    // A preview would change the binding (ruling 153).
+                    Ok(match value {
+                        AgentWritten::Preview(_) => Exit::WOULD_CHANGE,
+                        AgentWritten::Done(_) => Exit::OK,
+                    })
+                })?
+            }
         }
         "default" => {
             text_only(cx, "agent default")?;

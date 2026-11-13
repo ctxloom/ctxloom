@@ -184,6 +184,8 @@ pub(crate) struct Engine {
     pub kinds: Vec<Kind>,
     pub wire: Wire,
     pub rides_launch: bool,
+    /// The kinds besides the context its launch carries itself.
+    pub launch_kinds: Vec<Kind>,
     /// The hook events it has no native form for, with their reasons.
     pub hook_losses: Vec<(String, String)>,
 }
@@ -195,6 +197,7 @@ impl Engine {
             kinds: Kind::ALL.to_vec(),
             wire: Wire,
             rides_launch: false,
+            launch_kinds: Vec::new(),
             hook_losses: Vec::new(),
         }
     }
@@ -213,6 +216,10 @@ impl EngineSurfaces for Engine {
         self.rides_launch
     }
 
+    fn rides_launch(&self, kind: Kind) -> bool {
+        self.launch_kinds.contains(&kind) || (kind == Kind::Context && self.rides_launch)
+    }
+
     fn hook_losses(&self) -> Vec<(String, String)> {
         self.hook_losses.clone()
     }
@@ -226,9 +233,10 @@ impl EngineSurfaces for Engine {
         } else {
             format!("{}/{}", self.name, kind.name())
         };
-        // Settings and mcp with nothing to say claim nothing, as claude's do.
+        // A kind with nothing to say claims nothing, as claude's do.
         let empty = match kind {
             Kind::Mcp => inputs.mcp.is_empty(),
+            Kind::Hooks => inputs.hooks.is_empty(),
             Kind::Settings => !inputs.statusline && inputs.deny_tools.is_empty(),
             Kind::Commands => inputs.commands.is_empty(),
             Kind::Skills => inputs.skills.is_empty(),
@@ -319,6 +327,7 @@ pub(crate) fn world(config: &'static str) -> World {
                 kinds: vec![Kind::Context],
                 wire: Wire,
                 rides_launch: false,
+                launch_kinds: Vec::new(),
                 hook_losses: Vec::new(),
             }),
         ],

@@ -32,7 +32,8 @@ pub(crate) const RESUMED: &str = "resume";
 /// What a resume records (owner ruling 115): the session's next incarnation
 /// owed. Refused for a stream holding no session (a destroyed one: the
 /// caller asks only for a claimed name), while an incarnation is open, before
-/// the engine bound a native session, and for another engine.
+/// the engine bound a native session, for another engine, and for another
+/// workspace axis than the one it was minted on (none recorded: `none`).
 pub(crate) fn resumed(
     held: &SessionState,
     resume: &ResumeSession,
@@ -49,6 +50,15 @@ pub(crate) fn resumed(
             harp: harp(),
             engine: held.engine.clone(),
             asked: resume.engine.clone(),
+        });
+    }
+    // A session from before its axis was recorded worked in the project.
+    let workspace = held.workspace.as_deref().unwrap_or("none");
+    if !resume.workspace.is_empty() && resume.workspace != workspace {
+        return Err(SessionRejection::WorkspaceMismatch {
+            harp: harp(),
+            workspace: workspace.to_string(),
+            asked: resume.workspace.clone(),
         });
     }
     if held.native_id.is_empty() {

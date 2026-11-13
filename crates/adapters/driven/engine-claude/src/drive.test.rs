@@ -42,6 +42,8 @@ fn a_turn_is_one_print_command_that_streams_json() {
             "--verbose",
             "--append-system-prompt-file",
             "/p/.ctxloom/sessions/h/home/ctxloom-context.md",
+            "--mcp-config",
+            "/p/.ctxloom/sessions/h/home/ctxloom-mcp.json",
             "--settings",
             "/p/.ctxloom/sessions/h/home/ctxloom-hooks.json",
         ]
@@ -122,13 +124,14 @@ fn preparing_a_home_writes_the_context_file_it_names() {
             existing: Default::default(),
             permissions: None,
             session_home: run_ports::SessionHome::Session,
+            surfaces: Default::default(),
         })
         .unwrap();
     assert_eq!(prepared.context_path, format!("/h/{CONTEXT_PROMPT_FILE}"));
-    // The context, ctxloom's hooks (the `--settings` file), the user-scope
-    // settings that hold the agent's permissions (ruling 145), and claude's
-    // own state (ruling 113).
-    assert_eq!(prepared.files.len(), 4);
+    // The context, ctxloom's hooks (the `--settings` file), its MCP config
+    // (the `--mcp-config` file), the user-scope settings that hold the
+    // agent's permissions (ruling 145), and claude's own state (ruling 113).
+    assert_eq!(prepared.files.len(), 5);
     assert_eq!(prepared.files[0].rel, CONTEXT_PROMPT_FILE);
     assert_eq!(prepared.files[0].bytes, b"the context");
     // Nothing of the user's own configuration is on the allowlist yet.
@@ -147,6 +150,8 @@ fn the_interactive_run_is_the_terminal_command_with_the_context_and_no_print_mod
         vec![
             "--append-system-prompt-file",
             "/p/.ctxloom/sessions/h/home/ctxloom-context.md",
+            "--mcp-config",
+            "/p/.ctxloom/sessions/h/home/ctxloom-mcp.json",
             "--settings",
             "/p/.ctxloom/sessions/h/home/ctxloom-hooks.json"
         ]
@@ -215,6 +220,7 @@ fn prepared(interactive: bool) -> run_ports::Prepared {
             existing: Default::default(),
             permissions: None,
             session_home: run_ports::SessionHome::Session,
+            surfaces: Default::default(),
         })
         .unwrap()
 }
@@ -312,8 +318,8 @@ fn a_childs_home_registers_the_per_turn_events_and_not_the_per_process_ones() {
     let prepared = prepared(false);
     assert_eq!(
         prepared.files.len(),
-        4,
-        "the context, the hooks, the permissions settings and claude's state (ruling 113)"
+        5,
+        "the context, the hooks, the MCP config, the permissions settings and claude's state (ruling 113)"
     );
     assert_eq!(
         registered_events(&prepared),
@@ -431,10 +437,11 @@ fn the_terminal_and_a_childs_turn_are_both_passed_the_listener_variables() {
         }
         assert_eq!(command.env["CTXLOOM_SESSION_HARP"], "brisk-copper-moth");
     }
-    for name in run_ports::HOOK_VARIABLES
-        .into_iter()
-        .chain([run_ports::HOME_VARIABLE, run_ports::HARP_VARIABLE])
-    {
+    for name in run_ports::HOOK_VARIABLES.into_iter().chain([
+        run_ports::HOME_VARIABLE,
+        run_ports::HARP_VARIABLE,
+        run_ports::ROOT_VARIABLE,
+    ]) {
         assert!(INTERACTIVE_ENV_ALLOWLIST.contains(&name), "{name}");
         assert!(ENV_ALLOWLIST.contains(&name), "{name} reaches a turn");
     }
@@ -565,6 +572,7 @@ fn prepare_home(
             existing,
             permissions: permissions.map(String::from),
             session_home: run_ports::SessionHome::Session,
+            surfaces: Default::default(),
         })
         .unwrap()
 }
@@ -697,6 +705,7 @@ fn a_document_that_is_not_json_is_refused() {
         existing: Default::default(),
         permissions: Some("{not json".to_string()),
         session_home: run_ports::SessionHome::Session,
+        surfaces: Default::default(),
     });
     assert!(
         matches!(&refused, Err(EngineError::BadPermissions { engine, .. }) if engine == "claude-code"),
@@ -981,6 +990,7 @@ fn claude_state(existing: Option<&str>, cwd: Option<&str>) -> Option<String> {
                 .unwrap_or_default(),
             permissions: None,
             session_home: run_ports::SessionHome::Session,
+            surfaces: Default::default(),
         })
         .unwrap();
     prepared
@@ -1073,6 +1083,7 @@ fn under_a_host_home_the_block_stays_in_the_hooks_file_and_no_user_settings_are_
                 existing: Default::default(),
                 permissions: Some(DOCUMENT.to_string()),
                 session_home: SessionHome::Host,
+                surfaces: Default::default(),
             })
             .unwrap();
         assert_eq!(file_of(&prepared, "settings.json"), None);
@@ -1094,6 +1105,7 @@ fn under_a_host_home_the_block_stays_in_the_hooks_file_and_no_user_settings_are_
             existing: Default::default(),
             permissions: Some("{nope".to_string()),
             session_home: home,
+            surfaces: Default::default(),
         });
         assert!(
             matches!(&refused, Err(EngineError::BadPermissions { .. })),
@@ -1117,6 +1129,7 @@ fn a_home_prepared_by_a_claude_calling_another_program_calls_that_program() {
                 existing: Default::default(),
                 permissions: None,
                 session_home: run_ports::SessionHome::Session,
+                surfaces: Default::default(),
             })
             .unwrap();
         let settings = prepared
@@ -1180,6 +1193,7 @@ fn prepare_over(
             existing: BTreeMap::new(),
             permissions: permissions.map(str::to_string),
             session_home,
+            surfaces: Default::default(),
         })
         .unwrap()
 }
@@ -1428,4 +1442,341 @@ fn claude_advises_nothing_of_a_plan() {
         ..run_ports::Planned::default()
     };
     assert!(Claude::new().advise(&planned).is_empty());
+}
+
+use crate::drive::MCP_CONFIG_FILE;
+
+// ------------------------------------------- what a launch carries (claude)
+//
+// Owner ruling 2026-11-12: everything ctxloom delivered at rest rides the
+// launch, from the run agent's selection, in every working directory. Probed
+// on claude 2.1.322 (no model call: the stream's `init` event, from a
+// temporary project and a temporary CLAUDE_CONFIG_DIR):
+// - `--mcp-config <file>` loads its servers (`source: dynamic`, connected),
+//   and a server of the same name as a project `.mcp.json` one replaces it;
+// - `commands/<name>.md` and `skills/<name>/SKILL.md` under CLAUDE_CONFIG_DIR
+//   are offered (`slash_commands`, `skills`);
+// - `--disallowedTools` is variadic, so it is not used: the deny list is
+//   `permissions.deny` where the agent's document lives.
+
+/// What a launch with `surfaces` prepares for a session home (`host`: the
+/// user's own config dir).
+fn prepare_carrying(
+    interactive: bool,
+    session_home: SessionHome,
+    permissions: Option<&str>,
+    surfaces: surface_ports::Inputs,
+) -> run_ports::Prepared {
+    Claude::new()
+        .prepare(&PrepareRequest {
+            home: "/h".to_string(),
+            context: "c".to_string(),
+            offered: Vec::new(),
+            interactive,
+            cwd: Some("/p".to_string()),
+            existing: Default::default(),
+            permissions: permissions.map(String::from),
+            session_home,
+            surfaces: run_ports::LaunchSurfaces(surfaces),
+        })
+        .unwrap()
+}
+
+fn hook(command: &str, args: &[&str]) -> surface_ports::Hook {
+    surface_ports::Hook {
+        command: command.to_string(),
+        args: args.iter().map(ToString::to_string).collect(),
+        ..Default::default()
+    }
+}
+
+fn carried() -> surface_ports::Inputs {
+    let mut hooks = std::collections::BTreeMap::new();
+    hooks.insert("pre_shell".to_string(), vec![hook("echo", &["AUTHORED"])]);
+    hooks.insert(
+        "session_start".to_string(),
+        vec![hook("ctxloom", &["hook", "session-start"])],
+    );
+    hooks.insert(
+        "post_tool".to_string(),
+        vec![surface_ports::Hook {
+            tool: "skill".to_string(),
+            ..hook("ctxloom", &["hook", "skill-mates"])
+        }],
+    );
+    surface_ports::Inputs {
+        hooks,
+        statusline: true,
+        deny_tools: vec!["Bash".to_string(), "WebFetch".to_string()],
+        mcp: vec![surface_ports::McpServer {
+            name: "tool".to_string(),
+            command: "tool-cmd".to_string(),
+            args: vec!["--flag".to_string()],
+            ..Default::default()
+        }],
+        commands: vec![surface_ports::Command {
+            name: "demo/example".to_string(),
+            description: "Example".to_string(),
+            body: "EXAMPLE-BODY".to_string(),
+        }],
+        skills: vec![surface_ports::Skill {
+            name: "reviewer".to_string(),
+            description: "Reviews".to_string(),
+            files: vec![surface_ports::SkillFile {
+                path: "SKILL.md".to_string(),
+                bytes: b"---\nname: reviewer\n---\n".to_vec(),
+                executable: false,
+            }],
+        }],
+        ..Default::default()
+    }
+}
+
+fn hooks_doc(prepared: &run_ports::Prepared) -> surface_ports::Json {
+    surface_ports::Json::parse(&file_of(prepared, HOOKS_FILE).expect("the hooks file")).unwrap()
+}
+
+/// Every hook command line of `event` in a claude settings document.
+fn commands_of(doc: &surface_ports::Json, event: &str) -> Vec<String> {
+    doc.get("hooks")
+        .and_then(|h| h.get(event))
+        .and_then(surface_ports::Json::as_array)
+        .into_iter()
+        .flatten()
+        .flat_map(|group| {
+            group
+                .get("hooks")
+                .and_then(surface_ports::Json::as_array)
+                .cloned()
+                .unwrap_or_default()
+        })
+        .map(|h| {
+            let mut line = vec![h
+                .get("command")
+                .and_then(surface_ports::Json::as_str)
+                .unwrap_or_default()
+                .to_string()];
+            for arg in h
+                .get("args")
+                .and_then(surface_ports::Json::as_array)
+                .cloned()
+                .unwrap_or_default()
+            {
+                line.push(arg.as_str().unwrap_or_default().to_string());
+            }
+            line.join(" ")
+        })
+        .collect()
+}
+
+// The authored hooks and ctxloom's own callbacks are the hooks file's,
+// beside the capture events, each once.
+#[test]
+fn the_authored_hooks_and_ctxlooms_callbacks_ride_the_hooks_file() {
+    let prepared = prepare_carrying(true, SessionHome::Session, None, carried());
+    let doc = hooks_doc(&prepared);
+    let pre = commands_of(&doc, "PreToolUse");
+    assert!(pre.contains(&"echo AUTHORED".to_string()), "{pre:?}");
+    let start = commands_of(&doc, "SessionStart");
+    assert_eq!(
+        start,
+        ["ctxloom hook claude-code execute SessionStart"],
+        "the capture callback and the session-start one are one entry"
+    );
+    let post = commands_of(&doc, "PostToolUse");
+    assert!(
+        post.contains(&"ctxloom hook claude-code execute PostToolUse".to_string()),
+        "skill-mates: {post:?}"
+    );
+    // The capture events are still there.
+    assert!(!commands_of(&doc, "Stop").is_empty());
+}
+
+// A child's turn registers no SessionStart or SessionEnd (owner ruling 51:
+// `claude -p` fires them once per process), whatever the selection carries.
+#[test]
+fn a_childs_turn_carries_no_session_start_hook() {
+    let prepared = prepare_carrying(false, SessionHome::Session, None, carried());
+    let doc = hooks_doc(&prepared);
+    assert!(commands_of(&doc, "SessionStart").is_empty());
+    assert!(commands_of(&doc, "PreToolUse").contains(&"echo AUTHORED".to_string()));
+}
+
+// The statusline rides the hooks file (the `--settings` file outranks user
+// scope); none when the project manages none.
+#[test]
+fn the_statusline_rides_the_hooks_file() {
+    let prepared = prepare_carrying(true, SessionHome::Session, None, carried());
+    let doc = hooks_doc(&prepared);
+    assert_eq!(
+        doc.get("statusLine")
+            .and_then(|s| s.get("command"))
+            .and_then(surface_ports::Json::as_str),
+        Some("ctxloom hook claude-code execute statusline")
+    );
+    let none = prepare_carrying(
+        true,
+        SessionHome::Session,
+        None,
+        surface_ports::Inputs::default(),
+    );
+    assert!(hooks_doc(&none).get("statusLine").is_none());
+}
+
+// deny_tools is the session home's `permissions.deny`, laid over the agent's
+// document (its own deny kept, each once); with no document, the deny alone.
+#[test]
+fn deny_tools_ride_the_permissions_where_the_document_lives() {
+    let doc = |prepared: &run_ports::Prepared| {
+        surface_ports::Json::parse(&file_of(prepared, "settings.json").unwrap()).unwrap()
+    };
+    let deny = |doc: &surface_ports::Json| -> Vec<String> {
+        doc.get("permissions")
+            .and_then(|p| p.get("deny"))
+            .and_then(surface_ports::Json::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect()
+    };
+    let with = prepare_carrying(
+        false,
+        SessionHome::Session,
+        Some(r#"{"defaultMode":"plan","deny":["WebFetch"]}"#),
+        carried(),
+    );
+    assert_eq!(deny(&doc(&with)), ["WebFetch", "Bash"]);
+    assert_eq!(
+        doc(&with)
+            .get("permissions")
+            .and_then(|p| p.get("defaultMode"))
+            .and_then(surface_ports::Json::as_str),
+        Some("plan")
+    );
+    let alone = prepare_carrying(false, SessionHome::Session, None, carried());
+    assert_eq!(deny(&doc(&alone)), ["Bash", "WebFetch"]);
+    // Under `host` the user's settings are never written: the deny list is
+    // the hooks file's permissions, beside the document.
+    let host = prepare_carrying(false, SessionHome::Host, None, carried());
+    assert!(file_of(&host, "settings.json").is_none());
+    assert_eq!(deny(&hooks_doc(&host)), ["Bash", "WebFetch"]);
+}
+
+// The servers ride `ctxloom-mcp.json`, written at every launch (`{}` of
+// servers with none), which the command names with `--mcp-config`.
+#[test]
+fn the_servers_ride_an_mcp_config_the_command_names() {
+    let prepared = prepare_carrying(false, SessionHome::Session, None, carried());
+    let mcp = surface_ports::Json::parse(&file_of(&prepared, MCP_CONFIG_FILE).unwrap()).unwrap();
+    assert_eq!(
+        mcp.get("mcpServers")
+            .and_then(|s| s.get("tool"))
+            .and_then(|t| t.get("command"))
+            .and_then(surface_ports::Json::as_str),
+        Some("tool-cmd")
+    );
+    let none = prepare_carrying(
+        false,
+        SessionHome::Session,
+        None,
+        surface_ports::Inputs::default(),
+    );
+    assert_eq!(
+        file_of(&none, MCP_CONFIG_FILE).unwrap().trim(),
+        "{\n  \"mcpServers\": {}\n}"
+    );
+    let mut asked = request();
+    asked.prompt = "the opening".to_string();
+    for command in [
+        Claude::new().drive_turn(&asked).unwrap(),
+        Claude::new().drive_interactive(&asked).unwrap(),
+    ] {
+        let at = command
+            .args
+            .iter()
+            .position(|a| a == "--mcp-config")
+            .expect("--mcp-config");
+        assert_eq!(
+            command.args[at + 1],
+            format!("{}/{MCP_CONFIG_FILE}", asked.home)
+        );
+        // It takes many files: an option follows it, never the prompt.
+        assert!(command.args[at + 2].starts_with("--"), "{:?}", command.args);
+    }
+}
+
+// The commands and skills are the session home's (the session's
+// CLAUDE_CONFIG_DIR): claude's user-scope `commands/` and `skills/`.
+#[test]
+fn the_commands_and_skills_ride_the_session_home() {
+    let prepared = prepare_carrying(true, SessionHome::Session, None, carried());
+    assert_eq!(
+        file_of(&prepared, "commands/demo-example.md").unwrap(),
+        "---\ndescription: Example\n---\n\nEXAMPLE-BODY"
+    );
+    assert!(file_of(&prepared, "skills/reviewer/SKILL.md").is_some());
+}
+
+// Owner ruling 2026-11-12 (Q3): under `session_home: host` the config dir is
+// the user's own `~/.claude`, never written, so the commands and skills the
+// launch carries are written into the checkout the engine works in (the
+// project's `.claude/`), hidden from git there; in a session home they are
+// its own.
+#[test]
+fn under_a_host_home_the_commands_and_skills_ride_into_the_checkout() {
+    let host = prepare_carrying(true, SessionHome::Host, None, carried());
+    let rels: Vec<&str> = host
+        .workspace_files
+        .iter()
+        .map(|f| f.rel.as_str())
+        .collect();
+    assert_eq!(
+        rels,
+        [
+            ".claude/commands/demo-example.md",
+            ".claude/skills/reviewer/SKILL.md"
+        ]
+    );
+    assert!(file_of(&host, "commands/demo-example.md").is_none());
+    assert_eq!(
+        Claude::new().workspace_patterns(SessionHome::Host),
+        [".claude/commands/", ".claude/skills/"]
+    );
+    let session = prepare_carrying(true, SessionHome::Session, None, carried());
+    assert!(session.workspace_files.is_empty());
+    assert!(Claude::new()
+        .workspace_patterns(SessionHome::Session)
+        .is_empty());
+}
+
+// A hook the launch carries that claude cannot narrow (a tool class it has
+// no tool for) refuses the launch, never dropped unsaid (M6).
+#[test]
+fn a_hook_claude_cannot_narrow_refuses_the_launch() {
+    let mut surfaces = carried();
+    surfaces.hooks.insert(
+        "pre_tool".to_string(),
+        vec![surface_ports::Hook {
+            tool: "browser".to_string(),
+            ..hook("x", &[])
+        }],
+    );
+    let refused = Claude::new()
+        .prepare(&PrepareRequest {
+            home: "/h".to_string(),
+            context: "c".to_string(),
+            offered: Vec::new(),
+            interactive: true,
+            cwd: Some("/p".to_string()),
+            existing: Default::default(),
+            permissions: None,
+            session_home: SessionHome::Session,
+            surfaces: run_ports::LaunchSurfaces(surfaces),
+        })
+        .unwrap_err();
+    assert!(
+        matches!(&refused, EngineError::CannotCarry { engine, ext_err_txt }
+            if engine == "claude-code" && ext_err_txt.contains("\"browser\"")),
+        "{refused:?}"
+    );
 }

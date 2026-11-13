@@ -2,10 +2,14 @@
 
 ctxloom is the Rust ctxloom: a port of the Go ctxloom onto angzarr-embedded,
 one user journey at a time, with architect review of each milestone. The plan
-(`ctxloom-rs-port.plan.md`, §10) orders the milestones by journey
-(`crates/root/bin/ctxloom/features/journeys/`); each makes its journey's
+(`ctxloom.plan.md`'s roadmap, §3, the one integrated plan, owner 2026-11-13)
+orders the milestones by journey
+(`crates/root/bin/ctxloom/features/journeys/`), with work on
+`daemon/integration`; each makes its journey's
 scenarios pass, with the cli contracts it touches. A milestone starts as red
 tests, committed red on `port/<milestone>`, reviewed, then implemented green.
+All work is cut from and landed on `daemon/integration` (owner 2026-11-13:
+"One line: all work on integration"); it carries everything `main` had.
 
 The repository is `ctxloom` (github.com/ctxloom/ctxloom); the Go ctxloom is
 preserved on its `go-final` branch. The primary checkout's leaf is `ctxloom`.
@@ -97,6 +101,15 @@ tree still reads, then hands the changes to the port; a refused write has
 written nothing. A config write replaces the section it owns whole, never
 heals a file that does not parse. `loadout --format yaml` is the one yaml
 output; its prose is withheld until the owner rules (D24, D8).
+Every item verb takes one reference, `create` too (M3, M7): `fragment|command
+create <bundle>#<kind>s/<name>` (`Library::item_create_at`) opens the editor
+on its template and stores what the editor gives back (an editor that saves
+nothing stores the template; an empty buffer is
+`library-application-write-empty-edit` and writes nothing), and makes a bare
+bundle nobody had (`ItemCreated::bundle_created`); the two-word Go form
+(`<bundle> <name>`) keeps Go's placeholder, no editor, and its refusal of a
+missing bundle. `skill create <bundle>#skills/<name>` (or the two words)
+scaffolds its `SKILL.md` and opens none.
 Skill zips are written and read by `library::write::archive` over the `zip`
 crate (deflate only, default features off) and crc32fast.
 A file's executability is ONLY its skill sidecar's `executable:` list
@@ -126,9 +139,38 @@ what was committed before it was asked; `transcript show` catches up from the
 store on each read; so a live session shows what was delivered so far; nothing projects the events into a file (no
 `transcripts/transcript.jsonl`, `records/*.jsonl`, position file or
 `metadata.json`). A session's directory, `.ctxloom/sessions/<harp>/` in the
-project, holds what its engine needs (the session home, its native history,
-its worktree), and `<harp>.lock` beside it is held by its run for its life. A
-name is unique because its claim is. Accepted cost: a clone has no session
+project, holds what its engine needs (the session home, its native
+history), and `<harp>.lock` beside it is held by its run for its life. Its
+scratch checkouts are NOT there (owner ruling 2026-11-12, Q1): they are under
+ctxloom's home, outside the project,
+`<home>/.ctxloom/worktrees/<project-id>/<harp>/<agent>`
+(`isolation_ports::session_worktrees`, a `Request`'s `work_dir`), each on the
+session's own branch for its agent, `ctxloom/<harp>/<agent>` (F1: two
+sessions of one agent no longer collide), its path canonical (macOS's
+`/private/var`, the trust key), and every git `worktree-git` runs is `git -c
+core.longpaths=true ...`; `GitWorkspaces` lists, knows and reclaims them
+there (a session is known by its directory, its lock or its checkouts). A
+run's engine is PLACED where every launch is set up, run-launcher's
+`Launcher::prepare` (`place_workspace`, through `Launcher::with_workspaces`,
+the wiring's `GitWorkspaces`), for every launch path alike: the plan's axis
+(`DryRun.axes.0`, the flag else the config's `workspace`) rides the `Order`
+(`Order.workspace`: the axis, the session's checkouts directory from
+`Place.worktrees`, the agent), and the placed directory is the
+`PrepareRequest`'s and the `TurnRequest`'s `cwd` and `RunnerStarted.workspace`
+(`Order.cwd` stays the live project), so claude's trust entry
+(`seeded_state`, `projects.<cwd>.hasTrustDialogAccepted`) is the checkout's
+resolved path. `none` is the project; a checkout is
+its path; one that cannot be had (not a git repository, the add failed, no
+checkouts directory or no workspaces port) is the project and the notice
+`library-application-notice-workspace-unavailable`; one the port refuses
+fails the launch (`LaunchFailed`). Once the engine has exited and the
+listener stopped, and before the session's lock is let go, the run lets the
+checkout go (`Launcher::release`, the port's WIP-safe `remove`, never
+forced; owner ruling 2026-11-12, Q2): a clean one is removed (`git worktree
+remove` drops its own record; never a repository-wide `git worktree prune`),
+its branch deleted when merged; one holding work, or that will not go, is left and
+said, `library-application-notice-checkout-left` (path, branch, why). A
+resume re-enters or re-creates the same path. A name is unique because its claim is. Accepted cost: a clone has no session
 history (the store is machine-local; `sessions/` was always gitignored), and
 the store grows without bound (ruling 90; compaction is taskloom
 `untried-slander`).
@@ -229,8 +271,8 @@ worktrees go first, in ONE safe order both verbs share
 removal refused if one is spared or skipped
 (`isolation-application-keeps-session`; `--even-if-live` reaches no
 worktree), else the clean ones removed,
-then the session destroyed (the worktrees' location is this branch's
-worktree-git's). The streams go first, so a
+then the session destroyed (F2; a worktree that went dirty in between is
+left and the session kept). The streams go first, so a
 failure removing the directory leaves a session nothing lists. A hook fact
 redelivered after it finds no session and records nothing. It is refused, as
 before, for a session whose lock does not prove it ended (held, or none;
@@ -287,14 +329,33 @@ per-run listener certificate's mint, see the credentials paragraph below).
 
 An engine may advise on a plan (owner ruling 168): `Engine::advise(&Planned)
 -> Vec<Advice>` is shown what the plan resolved for it (`run_ports::Planned`:
-the agent, model, effort and permissions document) and answers zero or more
-diagnostics of its own crate (`Advice`, a boxed `Diagnostic`: code, args,
-en-US message, an optional `-fix`), said as notices and never a refusal; by
-default it says nothing (claude-code). The library asks the plan's engine in
+the agent, model, effort and permissions document, the OS, whether the launch
+is interactive and whether a primary credential variable is set, by name
+only) and answers zero or more diagnostics of its own crate (`Advice`, a
+boxed `Diagnostic`: code, args, en-US message, an optional `-fix`), said as
+notices and never a refusal; by default it says nothing (claude-code says
+only `engine-claude-windows-token-only`, at a Windows terminal launch with
+no token set). The library asks the plan's engine in
 `launch_of`, beside the runtime-weakening notice
 (`Library::with_engines`, the wiring's real engines;
 `Notice::Engine`), so a dry run and a launch, which plans through the same
 dry run, say them alike, text and json.
+A command's program is FOUND before it is spawned, a child's turn and the
+terminal's alike, in the one launch path (`Launcher::prepare` asks
+`RunnerLauncher::find_program`; `host-launcher`'s `find`, given the wiring's
+filesystem by `HostLauncher::searching`): on the command's own `PATH` (the
+engine's, led by the program's directory), by `os::Flavor::candidates` (on
+Windows PATHEXT's, the command's own or cmd.exe's default), an executable
+preferred to a batch file wherever each is on the PATH; the file found is
+spawned. std's spawn would try `<name>.exe` alone, so an npm `claude.cmd` was
+"program not found" (owner, 2026-11-12). Found nowhere, the run is not
+started: `run-ports-program-not-found` (or `-no-path`), naming the names and
+directories searched, exit 10. A batch file is run by std through cmd.exe
+with its own quoting (Go's `batchcmdline.go` rules, usable-epileptic), and
+std refuses it an argument with a line break or NUL; `run_ports::
+check_batch_arguments` refuses that before the spawn (on Windows: a
+multi-line opening prompt to `claude.cmd`), `run-ports-batch-arguments`, exit
+20, its fix claude's native build or no opening prompt.
 An engine's hooks are its adapter's: `ctxloom hook <engine> execute
 <NativeHookName>` (hidden) resolves the engine through `surface_ports::Registry`
 and its `HookCodec` decodes the payload. The settings an older ctxloom wrote
@@ -323,7 +384,12 @@ it; nothing reads the environment's `HOME` for it (Git Bash sets its own).
 ctxloom's home reaches its hook processes as
 `CTXLOOM_HOME` (`run_ports::HOME_VARIABLE`; the wiring takes it as the home
 FIRST, before `HOME`, and names the resolved home in a run's env; both
-allowlists pass it on). The session home is seeded, once (one there is left
+allowlists pass it on). The live project reaches them as `CTXLOOM_ROOT`
+(`run_ports::ROOT_VARIABLE`, set by `Launcher::prepare` to the order's
+project, over any the caller had, owned so no permit replaces it, on both
+engines' allowlists), so a hook or the agent's own `ctxloom` call from a
+checkout resolves the project (`find_app_dir` honours it before the walk;
+the checkout's `.ctxloom` is the tracked config alone). The session home is seeded, once (one there is left
 as it is), with a `.gitconfig` of the user's `[user] name/email` alone, as git
 resolves them in the project (`worktree-git`'s `Git::user`,
 `run_ports::git_config`, written by the launcher): a file, not
@@ -384,7 +450,47 @@ turn, message, tool-batch and compaction (`PreCompact`, `PostCompact`) events.
 A one-shot CHILD's home (owner ruling 51) registers the per-turn ones only:
 `UserPromptSubmit`, `PostToolBatch`, `MessageDisplay`, `Stop`, `PreCompact`,
 `PostCompact`; never `SessionStart` or `SessionEnd`, which `claude -p` fires
-once per PROCESS (every turn), and whose slow hook claude cancels. The hook
+once per PROCESS (every turn), and whose slow hook claude cancels.
+EVERYTHING ctxloom delivered at rest rides the launch (owner ruling
+2026-11-12), from the RUN agent's selection (`DryRun.surfaces`, library-
+application's `launch_surfaces` over `Project::carried`, the same as
+`package`; `Order.surfaces` -> `PrepareRequest.surfaces`, a
+`run_ports::LaunchSurfaces` whose `Debug` names what it carries and withholds
+every value), in every working directory: claude lays the bundles' authored
+hooks and ctxloom's own callbacks (session-start, skill-mates) into
+`ctxloom-hooks.json` beside the capture events, each once (a child: no
+`SessionStart`/`SessionEnd`), and the statusline (`statusLine`) there too;
+`deny_tools` is `permissions.deny` laid over the agent's document where it
+lives (the session home's `settings.json`, or the hooks file under `host`);
+the servers not served by the session are `ctxloom-mcp.json`, written at
+every launch and named by `--mcp-config` (variadic: an option always follows
+it); the commands and skills are the session home's `commands/` and
+`skills/` (claude's user scope under CLAUDE_CONFIG_DIR), and under
+`session_home: host` files written into the session's checkout alone
+(`Prepared::workspace_files`, hidden by `Engine::workspace_patterns`,
+`.claude/commands/` and `.claude/skills/`; never the live project), taken out
+at the release before the checkout goes. Probed live on claude 2.1.322 (the
+stream's `init` event, temporary project and CLAUDE_CONFIG_DIR, no model
+call): `--mcp-config` loads (`source: dynamic`) and replaces a same-named
+project server, user-scope `commands/` and `skills/` are offered, and
+`--disallowedTools` (variadic, so unused) removes a tool. A hook claude
+cannot narrow (a tool class it has no tool for) is never dropped unsaid: the
+launch is `run-ports-engine-cannot-carry` (`EngineError::CannotCarry`),
+nothing launched (M6). opencode's
+plugin runs the bundles' authored hooks (`ctxloom-authored-hooks.json` in its
+session home: `tool.execute.before`, where exit 2 blocks the call,
+`tool.execute.after`, `session.created`, `chat.message`, `session.idle`; read
+from opencode 1.18.4's plugin interface, not run live), and its session home
+(`OPENCODE_CONFIG_DIR`, in both home modes) takes the commands as
+`commands/<name, / as ->.md` and the servers as `mcp.<name>` of its
+`opencode.json` (`{type: local, command: [program, ...args], environment}`
+or `{type: remote, url, headers}`; `engine_opencode`'s `carried`, M6, from
+opencode's docs, not run live; a command a later launch no longer carries is
+left there). A project refresh
+gives back at rest what a launch carries (`EngineSurfaces::rides_launch`:
+every kind for claude; the context left as before), and `manage check` says
+`hooks_at_launch`; an explicit `materialize` still writes them at rest; a
+bare `claude` started without ctxloom has none of them (accepted). The hook
 command is the bare FILE NAME of the running binary (owner rulings 163, 164;
 `ctxloom` for a binary of that name, which is what `just install`
 installs): claude's hooks and statusline, at rest and in a session
@@ -549,7 +655,10 @@ swept other processes' dead runs; the session aggregate's `ResumeSession`
 then owes the NEXT incarnation (`IncarnationOwed{n+1, "resume"}`, refused
 while one is open, `sessions-session-running`; with no bound native id,
 `sessions-no-native-session`; for an `--engine` not the session's,
-`sessions-engine-mismatch`) BEFORE the run of `(session, n+1)` is enqueued,
+`sessions-engine-mismatch`; for a `--workspace` not the axis the session
+was minted on, `MintSession.workspace` (none recorded reads `none`),
+`sessions-workspace-mismatch`, and with none given it is planned on the
+session's own, so it re-enters its checkout) BEFORE the run of `(session, n+1)` is enqueued,
 so a refused resume burns no run stream; a refused enqueue ends the owed
 incarnation (`launch-failed`). The run is planned on the session's engine,
 reuses its harp, directory and session home (no mint, no claim), and the
@@ -630,8 +739,7 @@ Under `session_home: host` (the config dir is the user's own `~/.claude`,
 never written) the block stays the `permissions` of the hooks file, with the
 cost that a bad value there disables the hooks too. No `--permission-mode` is
 passed, claude's mode is the document's `defaultMode`. A profile's
-`deny_tools` stays `permissions.deny` of the project's `.claude/settings.json`
-(surface apply), and claude merges the files' lists itself. engine-opencode writes the session home's `opencode.json`
+`deny_tools` rides the launch (above), laid into the same `permissions.deny`. engine-opencode writes the session home's `opencode.json`
 (`OPENCODE_CONFIG_DIR`, which opencode 1.18.4 reads after the project's) with
 the document as its `permission` object (none, no `permission`, so no earlier
 run's lingers; read from the 1.18.4 bundle, not run live), over the user's
@@ -746,7 +854,16 @@ the login is is the engine's `Credentials` (`user_dir`, `user_dir_variable`,
 session dir), and so is what the human is told when none is shared
 (`sign_in`, the engine's own words), whether a missing one is worth saying
 (`login_optional`), where it is never linked (`no_link_on`: claude's macOS
-keychain and Windows' symlink privilege) and where a link that cannot be made
+keychain and Windows' symlink privilege; on Windows claude is TOKEN ONLY,
+owner ruling of 2026-11-12: the terminal session's engine is asked first,
+through `Engine::advise` (`Planned`'s `os`, `interactive` and
+`credential_set`, the last by name only), and engine-claude's
+`engine-claude-windows-token-only` notice, which says this is a workaround
+for claude's own credential handling (one session's token rotation signs the
+others out) and whose fix is `claude setup-token` then export
+`CLAUDE_CODE_OAUTH_TOKEN`, replaces the login sharing; a NOTICE, not a
+refusal: `/login` in the session still signs that session in, and a refusal
+would block init's interview) and where a link that cannot be made
 is a copy (`copy_on`: opencode's Windows, ruling 80; `LoginLinks::copy`, a
 new 0600 file). The platform is the OS name the caller gives; macOS and
 Windows are unverified live. Settings apply to the engine the plan resolved, and `run --engine
@@ -837,6 +954,15 @@ off: `crypto`, `pem`, `ring`). They bring rustls, ring, rustls-webpki and
 their small dependencies; `ISC` (ring, untrusted, rustls-webpki) is in
 `deny.toml`'s allow list for them, as MIT and BSD are. No aws-lc is to enter
 the lock: rustls with two providers and none installed panics at config build.
+forge-github's HTTPS is the same stack (owner, 2026-11-12): reqwest's
+provider-less rustls backend (`rustls-tls-manual-roots-no-provider`, no
+default features), handed forge-github's own `ClientConfig` (`tls.rs`: ring,
+and the roots of the system's certificate store as rustls-native-certs reads
+them; a store with none is refused), so no OpenSSL is linked (`ldd` of the
+Linux binary names no libssl or libcrypto). It added hyper-rustls and
+rustls-native-certs to the lock and removed native-tls and openssl with their
+helpers; rustls-platform-verifier was measured and not taken (its lock brings
+jni and its family for Android).
 
 The driving edge's shared shims (`cli-support`: `Call<G>`, `Failure` with its
 `refusals`, the notices printers, `report_failure`, `say_failure` and its json
@@ -979,7 +1105,7 @@ the platform joins it (`run_ports::search_path_led_by`, on the daemon's
 platform compares names (`os::Flavor::env_key`). ONE SESSION-SETUP PATH
 (owner, 2026-11-12): every launch's session home is set up by
 `run_launcher::set_up_home` (`HomeSetup`: harp, context, interactive, cwd,
-permissions, `session_home`, git user), the launcher's `prepare` and the
+permissions, `session_home`, git user, the launch's surfaces), the launcher's `prepare` and the
 daemon's `Daemon::spawn_child` alike: the engine's merge files read back
 (ruling 113), its files written, its seeds once, and in a session home the
 user's git identity as `.gitconfig` (ruling 112). The daemon reaches the
@@ -1341,7 +1467,8 @@ carries an `Exit`; `ctxloom_cli::run` turns it into the status with
   without `--yes`; `deps upgrade` without `--yes` with a pin to move or
   drop; `clean` without `--yes` with a target present; `session remove`
   without `--yes` that is not refused; `session sweep` without `--yes`
-  with a planned destroy;
+  with a planned destroy; `agent edit --engine` without `--yes` whose
+  new engine cannot carry what the old one did (the swap preview);
 - **10** failed: ctxloom tried and something broke (an adapter's error,
   I/O, the store or the kernel, an engine, git, a clone, a fetch, a
   publish, a pull, the retry budget);
@@ -1369,6 +1496,31 @@ session's, init's interview) is said in these classes by
 `Exit::from_child_status`, never passed through: 0 ok, 128+n the signal,
 any other failed (10).
 
+## What an engine cannot carry (M6, j002000)
+
+An engine's word on what it cannot carry is its surface half's
+`EngineSurfaces::hook_losses` (the unified hook events it has no form for,
+each with why), handed to the library as data by the composition root
+(`Library::with_hook_losses`, from `commands::engines()`, the mocks
+included under `test-support`). A profile's hook on such an event is LOST
+on that engine (ctxloom's own callbacks are not the profile's):
+`library_application::NotCarried {engine, surface: hooks, event, reason}`.
+`agent show` gives the agent's losses on its engine (`not_carried`, text
+`Not carried by <engine>:`); doctor's `DOCTOR-CHECK-NOT-CARRIED-r8` warns
+of each agent that has one (`Doctor::reporting_losses`, the library's
+`agents_losses`); and `agent edit <name> --engine <new>` whose new engine
+loses something the old did not is the SWAP PREVIEW without `--yes`
+(`Library::agent_edit`, `AgentWritten::Preview`, `SwapPreview`: `status:
+preview`, `applied: false`, `from`, `to`, `not_carried`, `apply`, the edit
+judged as the write would judge it first; nothing written; exit 1 under
+`--detailed-exitcode`). An edit that changes no engine, or loses nothing,
+writes as ever, and `agent create` never previews. Only hooks are judged:
+a kind an engine does not carry in a session at all is not reported yet.
+opencode's losses are the unified events its plugin has no trigger for
+(`authored::carries`): `session_end` (opencode has no native one),
+`permission_ask`, `post_tool_batch`, `message_display` and the two
+compaction events.
+
 ## Remotes and dependencies (slice S3)
 
 Crates: `deps` and `pin-changes` (core/read-model: addresses, references,
@@ -1390,6 +1542,13 @@ library's `bundle` noun and owns `remote` and `deps`.
 
 - Evidence rule: content is removed upstream only on a not-found from a
   repository proven readable this run; an unreachable remote keeps everything.
+- `deps upgrade <reference> [--yes]` (`<remote>/<bundle>` or canonical;
+  `Deps::upgrade_only`, `deps::plan::only`; M3, M7) moves that one pin, or
+  drops it when nothing reaches it; every other lock entry keeps its commit
+  and hold, and no other reference gets a first pin; a reference the lock
+  does not hold is `deps-application-nothing-to-hold`. `deps hold <ref>
+  --undo` (M7, the vocabulary's toggle undo) releases a hold; `deps unhold`
+  stays for deps.feature.
 - Lock schema 3 has no timestamps and rewrites byte-identically at unchanged
   pins; a corrupt lock is refused, never overwritten; an empty lock never
   replaces a populated one. Registry schema 1: unstamped is refused
@@ -1404,6 +1563,11 @@ library's `bundle` noun and owns `remote` and `deps`.
   forge API (`forge-github`, `remote discover`, `bundle push --pr`). The
   withheld red tests for them are `#[ignore]`d in `bundle_remote.test.rs`.
   angzarr-yaml cannot read Go's `? key` form for lock keys over 128 bytes.
+
+Milestone M7 (j001900, diagnosis) also adds `manage check` naming an export
+in the project `stale` where a dry `materialize --yes` of the default
+agent's profiles, for the kinds the record says it claimed, would change or
+take something out.
 
 ## Built-in content (owner rulings 110, 111, narrowed by 117, 123, 126-128)
 
@@ -1681,7 +1845,24 @@ prerelease, no `schema_version` bump: each old key is an ordinary unknown key
 | `permissions.network: true\|false` (and an agent's) | deleted (ruling 134), with `approver`, `approval_timeout`, `sandbox` | |
 | `output_dir` (top level, unread) | `output.dir` | `ctxloom/` |
 | (new, ruling 162) | `legacy.go: present\|retired` (home config only) | `present` |
+| (new, owner ruling of 2026-11-12) | `config.premised: on-demand\|always` | `on-demand` |
 
+`config.premised` says when a fragment with a premise loads (owner ruling of
+2026-11-12; `library::compose::Premised`, read by `Config::premised`):
+`on-demand` holds it back (unless the caller named it) and ends the
+assembled context with the premise index of what was held back
+(`library::premise::render`, each name once, sorted), so `context
+assemble`, the dry run, `run` and materialize carry the index; `always`
+loads every fragment with the rest and renders no index (the static
+assembly). The index's instruction (`library::premise::INSTRUCTION`) is the
+owner's Go text but for its last clause, which tells the agent to run
+`ctxloom fragment show <name>` for each name it chose, not Go's
+`assemble_context` MCP tool (not built: T20; the wording is pending the
+owner's approval); `fragment show` reads a companion's fragment
+(`ctxloom+companion:<bin>#fragments/<name>`) by asking the companions for
+their loadouts. Divergence from Go: Go never put the index in the context
+(it served it over MCP); the parity tests compare a dry run without it, and
+Go's goldens with the clause reworded.
 The scaffold writes no `config:` section; `manage statusline install|
 uninstall` writes `ctxloom`/`none`. Output JSON may keep booleans for yes/no
 facts. `sync.on_run: missing` makes the run (one-shot, session, init's
@@ -1692,7 +1873,11 @@ pull). A session's outputs are `<project root>/<output.dir>/<harp>`
 `~/Documents/ctxloom/<basename>/<harp>`; nothing gitignores them, and a
 harp never changes, so nothing moves the folder (S55). A first init at a terminal asks for `output.dir`
 before the interview (suggesting `ctxloom/`, saying outputs are committable)
-and writes the answer.
+and writes the answer; then, in the same style, whether conditional guidance
+loads only when it applies or always (`init_application::PREMISED_QUESTION`,
+suggesting `on-demand`; an answer that is neither word is asked again, at
+most three times, then the suggestion stands), and writes it as
+`config.premised`. Off a terminal neither is asked and nothing is written.
 
 `legacy.go` (owner ruling 162) says whether Go ctxloom still runs on this
 machine beside this one; both write hook entries into the user's shared
@@ -1734,7 +1919,7 @@ isolation.
 `crates/root/bin/ctxloom/Cargo.toml` `package.version` in step) hold it;
 `just show-version`, `set-version <v>`, `bump-patch|minor|major` and `bump`
 change it (and record it in Cargo.lock; no release recipe: a human cuts
-releases). The binary's `build.rs` runs versionator (v0.3.0 or newer: `go
+releases, "Releases" below). The binary's `build.rs` runs versionator (v0.3.0 or newer: `go
 install github.com/benjaminabbitt/versionator@v0.3.0`) and passes the stamp to
 rustc as `CTXLOOM_VERSION_STAMP`, so THE BUILD NEEDS VERSIONATOR ON PATH: none,
 or a stamp not of the shape, fails it, naming why. The stamp is the Go
@@ -1798,19 +1983,95 @@ branch (`scripts/tests-exit.selftest.sh`).
 
 ## CI (`.github/workflows/ci.yml`)
 
-GitHub Actions, modelled on angzarr-platform's: every action pinned to a
-commit, every tool to a version (just, cargo-nextest, cargo-deny by
-taiki-e/install-action; protoc 3.21.12 by checksum; node 22; ltk from the Go
-ctxloom's go-final, for `ltk-rules-check.sh`), the gates' logs dumped and
-uploaded on a failure. Linux (`ubuntu-24.04`) runs every gate but mutation
-(closeout's): `just build`, `fmt-check`, `lint`, `lint-os`, `lint-deps`,
-`test`, `check-windows`, `selftest`. Windows (`windows-latest`, MSVC, Git
-Bash) runs `just build` and `just test` natively, the whole workspace, and so
-does macOS (`macos-15`, arm64; protoc's osx-aarch_64 by checksum). Every
-dependency is a public https git pin, so no credential is needed. For
-Windows, nextest's setup script runs under `sh` (`cfg(windows)` entry in
-`.config/nextest.toml`; the unix one is unchanged), and the plain-binary
-checks find `ctxloom.exe` and give it a USERPROFILE, TEMP and SYSTEMROOT.
+GitHub Actions, as thin callers of the shared CI repository
+github.com/ctxloom/ci (owner rulings 2026-11-12): its composite actions
+`setup-rust` (rust-toolchain.toml, made the default; pinned tools by
+taiki-e/install-action; rust-cache, saved on main only), `setup-protoc`
+(3.21.12 by checksum), `setup-versionator` (v0.3.0's release binary by
+checksum, so no job sets up Go for it), `setup-ltk` (ltk from the Go
+ctxloom's go-final, go-installed on a cache miss only, for
+`ltk-rules-check.sh`), `gate-logs` (the logs dumped and uploaded on a
+failure) and `package-binary`, and its reusable workflows `binaries.yml` and
+`release.yml`, all pinned at ONE commit of its main (bump them together).
+Every action is pinned to a commit, every tool to a version. Linux
+(`ubuntu-24.04`; it moves into the dev container once that image is
+published, a commented `container:` line marks the place) runs every gate
+but mutation: `just build`, `fmt-check`, `lint`, `lint-os`, `lint-deps`,
+`test`, `check-windows`, `selftest`, the whole suite. Windows
+(`windows-latest`, MSVC, Git Bash) and macOS (`macos-15`, arm64) run `just
+build` and `just test` natively: the WHOLE suite on main, pull requests and
+tags, and on any other branch push the nextest profile `ci-platform`
+(`NEXTEST_PROFILE`, which nextest reads itself and `_tests` names in its
+log): its `default-filter` (`.config/nextest.toml`) is every crate depending
+on `os`, `file-system` or `run-within` (`rdeps()` of each of their direct
+users, listed because nextest's `rdeps()` names workspace crates only;
+`scripts/ci-platform-check.sh`, in the Linux job, fails on one missing),
+`test(/::os::/)` (no test is in an
+`os` module yet, so that term selects nothing until the OS-specific tests
+are moved), and the path-handling core crates run-ports, setup-application,
+reclaim-application, library-application, run-application and run-launcher.
+`just test` everywhere else stays the full suite. Every dependency is a
+public https git pin, so no credential is needed. For Windows, nextest's
+setup script runs under `sh` (`cfg(windows)` entry in `.config/nextest.toml`;
+the unix one is unchanged), and the plain-binary checks find `ctxloom.exe`
+and give it a USERPROFILE, TEMP and SYSTEMROOT.
+
+The binaries are a workflow of their own, parallel to CI
+(`.github/workflows/binaries.yml`, on a push to main or a dispatch): the
+shared binaries workflow builds the plain binary in the `ci-artifact`
+profile (`just release-binary ci-artifact`: no test-support, no
+session-destroy, cargo's release defaults, no LTO, no debug info, the two
+plain-build checks) for linux-x86_64, windows-x86_64, macos-arm64 and
+macos-x86_64 (cross-built on the macos-15 runner with `CARGO_BUILD_TARGET`,
+which `release-binary` honours, and run under Rosetta), each the artifact
+`ctxloom-<stamp>-<os>-<arch>.tar.gz` (`.zip` on Windows) holding `ctxloom`
+(`ctxloom.exe`): tar keeps the exec bit that upload-artifact's zip drops.
+`release-package <os> <out> <name> ci-artifact` packages the binary alone.
+
+The nightly (`.github/workflows/nightly.yml`, on main at 03:17 UTC, and on a
+dispatch) runs the whole suite on linux, windows, macos-15 and
+macos-15-intel (x86_64 tested natively there only), and a FULL mutation run
+scored by tier: `just mutants-shard <k/n>` (cargo-mutants' `--shard`, the
+whole workspace, in place, no feature) in n parallel jobs, each under the
+hosted job's 6-hour cap, then `just mutants-score` merges their
+outcomes.json and judges them with the gates' own `_mutants-verdict`
+against `mutation_thresholds`, writing `scores.json` (per tier: killed,
+viable, percent, threshold, pass), uploaded as `mutation-scores` and
+appended to the run's summary. A tier below its threshold fails the score
+job, after the scores are kept.
+
+The release profile (owner ruling 2026-11-12, Cargo.toml's
+`[profile.release]`) is fat LTO, one codegen unit, opt-level 3,
+`debug = "line-tables-only"` and `strip = "none"`, unwinding panics; cargo's
+strip is not used, because it deletes what the debug file needs. Stripping is
+packaging's: `just release-package <linux|macos|windows> [out] [name]`
+(`scripts/release-package.sh`) builds the release binary and writes it
+stripped NEXT TO its debug file: linux `<name>` (`objcopy --strip-all
+--add-gnu-debuglink`) and `<name>.debug` (`--only-keep-debug
+--compress-debug-sections=zlib`), the build ids checked equal and, with an
+llvm-symbolizer found, `main` of the stripped binary resolved to file:line
+through the debug file (`scripts/release-package.selftest.sh` proves the same
+on a C program); macOS `<name>` (stripped after the dSYM, signed again ad
+hoc, its UUID the dSYM's) and `<name>.dSYM.zip`; Windows `<name>.exe` as
+built and `<name>.pdb`. `split-debuginfo` is cargo's default.
+
+Releases (`.github/workflows/release.yml`, owner rulings 2026-11-12): a person
+runs `just set-version <v>`, commits, and pushes the tag `v<v>` on that
+commit (agents never tag). The shared binaries workflow refuses a tag that is
+not VERSION's, then packages the four plain binaries (`just release-package
+<os>`) named `ctxloom-<stamp>-<os>-<arch>`, each archived (`.tar.gz`, `.zip`
+on Windows) beside its debug file (`.debug`, `.dSYM.zip`, `.pdb`); the
+shared release workflow adds `install.sh` and `install.ps1` (ctxloom/ci's
+installers, their defaults set to this repository and `ctxloom`: checksum
+verified against SHA256SUMS, refused with no checker; `~/.local/lib/ctxloom/
+ctxloom` plus a `~/.local/bin/ctxloom` wrapper and the quarantine cleared on
+macOS; `%LOCALAPPDATA%\Programs\ctxloom`, HKCU Path and Unblock-File on
+Windows), `SHA256SUMS` over all of them, and attaches them to a GitHub
+release for the tag (`gh` with the default token; `contents: write` for that
+job alone; a pre-release when the version has one). Its `workflow_dispatch`
+builds them as the run's artifacts and creates no release. The released
+wrapper sets no `CTXLOOM_HOME` (the release workflow's `wrapper-env`, an
+owner decision).
 
 A test that needs a fake program (an `sh` script through
 `fixture_program::install_program`, which refuses `Unsupported` off unix),
@@ -1836,6 +2097,16 @@ them), and again after a change to the gates names a new hook
 (`gates/MIGRATING.md`). They came from the shared gates repository that
 taskloom and annals also copied; a change here does not reach them.
 
+A throwaway worktree (the staged tree, the mutants batch's, the ratchet
+base's) is let go by `gates/drop-worktree.sh <top> <path>`: its directory and
+its OWN record under `.git/worktrees/`, nothing else. Nothing runs `git
+worktree prune` (`scripts/drop-worktree.selftest.sh` holds the gates, the
+justfile and the scripts to it; worktree-git's removal ran one too): prune
+judges every worktree of the repository and deletes the record of each whose
+directory it cannot see, so a gate run in the dev container, which mounts only
+the checkout, cut every other worktree on the host off from the repository
+(2026-11-12).
+
 lefthook runs the gates one at a time, stopping at the first failure, and
 shows each gate's pass line and any failure's extract. Gates 1 to 5 run in
 pre-commit (the private recipes `fmt-staged`, `secrets-scan-staged`,
@@ -1848,7 +2119,8 @@ verdict. It is REQUIRED before a batch of work reaches the default branch; no
 hook enforces it (a fast-forward of `main` runs none), so merging without it
 is how 280 survivors reached `main` once (2026-11-04). Nothing runs
 cargo-mutants but the `mutants-staged` gate recipe, which `mutants-batch`
-drives. A failing gate is a finding: fix the cause and commit again; never
+drives, and the nightly's whole-workspace `mutants-shard` (scored by
+`mutants-score`, through `_mutants-verdict`), which no gate runs. A failing gate is a finding: fix the cause and commit again; never
 `--no-verify`, and never weaken a gate to get through.
 
 No commit carries an attribution trailer (owner ruling 170), and the
@@ -1877,7 +2149,19 @@ hook with `just hooks-install` once more (`gates/MIGRATING.md`).
 5. **tests**: `just test-staged` tests the changed crates and their
    dependents in the staged tree (HEAD plus the staged diff, a sibling
    worktree of the checkout); a staged `workspace_wide` file tests the whole
-   workspace.
+   workspace (`scripts/test-staged.selftest.sh`: a library's change selects
+   the binary depending on it). Red tests are committed off the default
+   branch only (`test-commit`), and only red the commit may carry: the
+   gates' `red_judge`, ctxloom's `scripts/red-commit-judge.sh`, refuses a
+   commit that turns red a scenario of a feature file it does not stage,
+   judged by the feature runner's lists (GHERKIN_RATCHET) of the staged tree
+   and of HEAD (`just ratchet-base HEAD`, cached by sha): ruling 165's
+   ratchet at each commit, so a RED commit may still add scenarios or change
+   one in its own feature file. Commit fd50e0b77 broke `run.feature`
+   untouched and was committed as RED; its branch's fast-forward of `main`
+   ran no hook. A red unit test is not compared with HEAD (allowed as
+   before). The cost: a red feature runner off `main` builds HEAD once per
+   sha (`target/ratchet-base`) before the commit is judged.
 6. **mutants** (no hook; at close-out, `just mutants-batch`): `mutants-staged` mutation-tests the staged diff
    (`cargo mutants --in-diff`), holding new logic to its tier: every
    hand-written tier (domain, read models, ports, application and adapters)

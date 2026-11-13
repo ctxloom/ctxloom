@@ -16,9 +16,13 @@
 //!
 //! At a directory's root (the surface half) ctxloom gives opencode its context
 //! alone, as a section of `AGENTS.md`; MCP servers, settings, hooks, commands
-//! and skills at rest are not built for opencode.
+//! and skills at rest are not built for opencode. A session's home carries
+//! what the launch does: the authored hooks ([`authored`]), the commands and
+//! the MCP servers ([`carried`]).
 
 mod advice;
+mod authored;
+mod carried;
 mod child;
 mod codec;
 mod conversation;
@@ -33,6 +37,7 @@ use surface_ports::{
 #[cfg(any(test, feature = "test-support"))]
 pub use advice::diagnostic_samples;
 pub use advice::{OpencodeNotice, EN_US};
+pub use authored::AUTHORED_FILE;
 pub use codec::Codec;
 pub use drive::{ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST, LOGIN_FILE, PROVIDER_KEYS, SIGN_IN};
 pub use home::{
@@ -42,6 +47,24 @@ pub use home::{
 
 /// The engine's name.
 pub const NAME: &str = "opencode";
+
+/// Every unified hook event, in event order: those the plugin has no
+/// trigger for ([`authored`]'s routes) are opencode's losses.
+const UNIFIED_HOOK_EVENTS: &[&str] = &[
+    "pre_tool",
+    "post_tool",
+    "session_start",
+    "session_end",
+    "turn_end",
+    "turn_start",
+    "pre_shell",
+    "post_file_edit",
+    "permission_ask",
+    "post_tool_batch",
+    "message_display",
+    "compaction_before",
+    "compaction_after",
+];
 
 /// opencode.
 pub struct Opencode {
@@ -108,6 +131,21 @@ impl EngineSurfaces for Opencode {
 
     fn carries(&self, kind: Kind) -> bool {
         kind == Kind::Context
+    }
+
+    fn hook_losses(&self) -> Vec<(String, String)> {
+        UNIFIED_HOOK_EVENTS
+            .iter()
+            .filter(|event| !authored::carries(event))
+            .map(|event| {
+                let reason = if *event == "session_end" {
+                    format!("{NAME} has no native {event} event")
+                } else {
+                    format!("ctxloom's {NAME} plugin runs no {event} hook")
+                };
+                ((*event).to_string(), reason)
+            })
+            .collect()
     }
 
     /// A session's home holds the context (`AGENTS.md` in

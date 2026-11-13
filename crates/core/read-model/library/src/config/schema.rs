@@ -329,6 +329,9 @@ fn root() -> Node {
                     // Owner ruling 59: what a fragment delivers, and whose
                     // statusline; words, never booleans.
                     ("content_form", choice(&["distilled", "original"])),
+                    // Owner ruling of 2026-11-12: when a fragment with a
+                    // premise loads (`on-demand`, the default, or `always`).
+                    ("premised", choice(&["on-demand", "always"])),
                     ("statusline", choice(&["ctxloom", "none"])),
                 ]),
             ),

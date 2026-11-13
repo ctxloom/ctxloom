@@ -66,6 +66,12 @@ struct World {
     setup: setup::State,
     /// What j001000's stub-engine scenario keeps.
     capture: capture::State,
+    /// What j000700's scenarios keep.
+    authoring: authoring::State,
+    /// What j000400's and j002000's sessions keep.
+    engines: engines::State,
+    /// What the j001900 scenarios keep.
+    diagnosis: diagnosis::State,
 }
 
 impl fmt::Debug for World {
@@ -89,6 +95,8 @@ impl CommonWorld for World {
             || capture_opencode::forwards(self, step)
             || capture_opencode::reports_login(self, step)
             || daemon_spec::claims(self, step)
+            || engines::starts(self, step)
+            || diagnosis::runs(self, step)
         {
             return;
         }
@@ -120,6 +128,9 @@ impl World {
             adopt: adopt::State::default(),
             setup: setup::State::default(),
             capture: capture::State::default(),
+            authoring: authoring::State::default(),
+            engines: engines::State::default(),
+            diagnosis: diagnosis::State::default(),
         }
     }
 
@@ -244,14 +255,23 @@ impl World {
         self.lock_free_dead.iter().any(|h| h == harp)
     }
 
+    /// A session's scratch checkout: under ctxloom's home, by the project's
+    /// id and the session's harp (owner ruling 2026-11-12, Q1), named by its
+    /// agent. The id is the project's marker, which the seed writes.
     fn scratch_dir(&self, harp: &str, name: &str) -> PathBuf {
-        self.session_dir(harp)
-            .join("work")
-            .join(format!("ctxloom-wt-{name}"))
+        let marker = self.common.project.dir().join(".ctxloom/project-id");
+        let id = files::read(&marker).unwrap_or_else(|e| panic!("{}: {e}", marker.display()));
+        self.common
+            .project
+            .home()
+            .join(".ctxloom/worktrees")
+            .join(id.trim())
+            .join(harp)
+            .join(name)
     }
 
     /// Plant the scratch worktrees the steps described: genuine `git
-    /// worktree add` checkouts in the sessions' work directories, and the
+    /// worktree add` checkouts in the sessions' checkouts directories, and the
     /// uncommitted work that no reaper may ever destroy.
     fn seed_scratch(&mut self) {
         if self.scratch.is_empty() && self.foreign.is_empty() {
@@ -317,6 +337,9 @@ mod adopt;
 #[path = "gherkin_setup.test.rs"]
 mod setup;
 
+#[path = "gherkin_authoring.test.rs"]
+mod authoring;
+
 #[path = "gherkin_capture.test.rs"]
 mod capture;
 
@@ -325,6 +348,16 @@ mod capture_opencode;
 
 #[path = "gherkin_daemon.test.rs"]
 mod daemon_spec;
+#[path = "gherkin_workspace.test.rs"]
+mod workspace;
+
+#[path = "gherkin_recall.test.rs"]
+mod recall;
+
+#[path = "gherkin_diagnosis.test.rs"]
+mod diagnosis;
+#[path = "gherkin_engines.test.rs"]
+mod engines;
 
 // ------------------------------------------------------------------ given
 
@@ -332,6 +365,21 @@ mod daemon_spec;
 fn env_set(w: &mut World, name: String, value: String) {
     w.common.env.retain(|(n, _)| *n != name);
     w.common.env.push((name, value));
+}
+
+/// The mock LLM. In j001200 it is that journey's stub claude
+/// ([`recall::mock_responds`]); elsewhere the mock engine is the default
+/// agent's, and no reply is ever asked of it on this World (a dry run
+/// launches nothing), so the reply is not kept.
+#[given(expr = "the mock LLM responds {string}")]
+fn mock_responds(w: &mut World, reply: String) {
+    if recall::mock_responds(w, &reply) {
+        return;
+    }
+    w.common.project.write(
+        ".ctxloom/config.yaml",
+        "schema_version: 9\nagents:\n  default:\n    engine: mock\ndefault_agent: default\n",
+    );
 }
 
 #[given(expr = "the home already has the file {string}:")]
@@ -638,11 +686,22 @@ fn sweep_skipped(w: &mut World, running: String, unproven: String) {
     }
 }
 
+/// Whether the store still records `harp`: its transcript is its events
+/// (ruling 87a), so the machine-written bulk is the session's record, and
+/// `session show` finds it.
+fn recorded(w: &World, harp: &str) -> bool {
+    w.common
+        .project
+        .run(&["session", "show", harp, "--format", "json"])
+        .code
+        == 0
+}
+
 #[then(expr = "the machine-written bulk of {string} is gone")]
 fn bulk_gone(w: &mut World, harp: String) {
     assert!(
-        !files::exists(w.session_dir(&harp).join("transcripts/transcript.jsonl")),
-        "{harp}'s transcript is still there: {}",
+        !recorded(w, &harp),
+        "{harp} is still recorded: {}",
         w.ran().said()
     );
 }
@@ -650,8 +709,8 @@ fn bulk_gone(w: &mut World, harp: String) {
 #[then(expr = "the machine-written bulk of {string} is still there")]
 fn bulk_still_there(w: &mut World, harp: String) {
     assert!(
-        files::exists(w.session_dir(&harp).join("transcripts/transcript.jsonl")),
-        "{harp}'s transcript is gone: {}",
+        recorded(w, &harp),
+        "{harp} is no longer recorded: {}",
         w.ran().said()
     );
 }
@@ -671,14 +730,22 @@ fn sweep_kept(w: &mut World, harp: String, named: String) {
 fn worktrees_named(w: &mut World) {
     // plan supersedes Go: the owner is named by the state its lock proves,
     // not by the pid Go's lock file carried.
-    let ran = w.ran();
-    ran.succeeds()
-        .contains("ctxloom-wt-clean")
-        .contains("ctxloom-wt-wip")
-        .contains("amber-quiet-heron")
-        .contains("dead")
-        .contains("reapable")
-        .contains("spared");
+    // Each row by its fields: its path is the platform's (`C:\...\clean`
+    // on Windows), so it is read as a path, never matched as text.
+    w.ran().succeeds();
+    let doc = w.json();
+    for (name, verdict) in [("clean", "reapable"), ("wip", "spared")] {
+        let row = at(&doc, &format!("worktrees[worktree={name}]"))
+            .unwrap_or_else(|| panic!("no worktree {name} in {doc}"));
+        assert_eq!(row["harp"], "amber-quiet-heron", "{row}");
+        assert_eq!(row["owner_state"], "dead", "{row}");
+        assert_eq!(row["verdict"], verdict, "{row}");
+        let path = Path::new(row["path"].as_str().unwrap_or_default());
+        assert!(
+            path.ends_with(Path::new("amber-quiet-heron").join(name)),
+            "{row}"
+        );
+    }
 }
 
 #[then("only the clean, provably-orphaned worktree is gone from disk")]
@@ -749,7 +816,10 @@ fn foreign_untouched(w: &mut World) {
     );
     for dir in &w.planted_foreign {
         assert!(files::is_dir(dir), "{} was removed", dir.display());
-        w.ran().lacks(&dir.display().to_string());
+        // As the json spells it too: a Windows path's `\` is escaped there.
+        let shown = dir.display().to_string();
+        let quoted = serde_json::to_string(&shown).expect("a string");
+        w.ran().lacks(&shown).lacks(quoted.trim_matches('"'));
     }
 }
 
@@ -758,12 +828,29 @@ fn still_registered(w: &mut World) {
     let listed = w.git(w.common.project.dir(), &["worktree", "list", "--porcelain"]);
     for (harp, name, dirty) in &w.planted_scratch {
         if *dirty {
+            let dir = files::canonical(w.scratch_dir(harp, name));
             assert!(
-                listed.contains(&w.scratch_dir(harp, name).display().to_string()),
-                "{listed}"
+                listed_worktrees(&listed).contains(&dir),
+                "{} is not registered: {listed}",
+                dir.display()
             );
         }
     }
+}
+
+/// The worktrees `git worktree list --porcelain` names, each resolved: git
+/// spells a path its own way (`C:/a/b` on Windows), so a listed worktree is
+/// compared as a path, never as text.
+fn listed_worktrees(porcelain: &str) -> Vec<PathBuf> {
+    porcelain
+        .lines()
+        .filter_map(|line| line.strip_prefix("worktree "))
+        .map(|p| {
+            files::fs()
+                .canonicalize(Path::new(p))
+                .unwrap_or_else(|_| PathBuf::from(p))
+        })
+        .collect()
 }
 
 // ------------------------------------------------------------ the features

@@ -68,6 +68,32 @@ fn test_a_valid_ctxloom_root_names_the_project_and_nothing_is_created() {
     );
 }
 
+// j002200: an engine placed in a checkout of its own works outside the
+// project, in a tree holding the project's TRACKED `.ctxloom` (its config,
+// never its id, sessions or cache). The launch names the live project as
+// CTXLOOM_ROOT, and that, not the checkout's `.ctxloom` the walk would find
+// first, is the project its hooks and the agent's `ctxloom` calls resolve.
+#[test]
+fn test_ctxloom_root_names_the_project_over_the_checkout_the_engine_works_in() {
+    let fs = rooted();
+    dir(&fs, "/work/proj/.ctxloom");
+    let checkout = "/home/u/.ctxloom/worktrees/calm-otter/amber-swift-owl/reviewer";
+    file(
+        &fs,
+        &format!("{checkout}/.ctxloom/config.yaml"),
+        "schema_version: 1\n",
+    );
+    let found = find_app_dir(&*fs, &around(Some("/work/proj"), checkout));
+    assert_eq!(found.path, Path::new("/work/proj/.ctxloom"));
+    assert_eq!(found.source, Source::Project);
+    let walked = find_app_dir(&*fs, &around(None, checkout));
+    assert_eq!(
+        walked.path,
+        Path::new(checkout).join(".ctxloom"),
+        "without it, the checkout"
+    );
+}
+
 // findappdir_test.go: invalid_root_falls_through_and_creates_nothing
 #[test]
 fn test_an_invalid_ctxloom_root_is_ignored_and_said() {

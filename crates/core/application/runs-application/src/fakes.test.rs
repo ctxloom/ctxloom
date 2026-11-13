@@ -284,6 +284,7 @@ impl World {
                 started_at: None,
                 depth,
                 owner: None,
+                workspace: None,
             },
         ))
         .await

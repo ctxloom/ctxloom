@@ -205,3 +205,14 @@ fn test_a_callback_is_installed_to_run_the_program_it_is_given() {
 fn test_an_engine_declares_no_hook_losses_unless_it_says_so() {
     assert!(Plain.hook_losses().is_empty());
 }
+
+// By default only the context rides a launch, and only when the engine says
+// its context does.
+#[test]
+fn only_the_context_rides_a_launch_by_default() {
+    assert!(!Plain.rides_launch(Kind::Context));
+    assert!(Named("x", true).rides_launch(Kind::Context));
+    for kind in Kind::ALL.into_iter().filter(|k| *k != Kind::Context) {
+        assert!(!Named("x", true).rides_launch(kind), "{kind:?}");
+    }
+}

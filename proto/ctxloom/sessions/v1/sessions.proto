@@ -73,6 +73,9 @@ message SessionState {
   repeated Child children = 25;
   // The free-text title `session rename` sets (S55); empty when none is.
   string title = 26;
+  // The workspace axis it was minted on (`SessionMinted.workspace`); absent:
+  // none was recorded, read as `none`.
+  optional string workspace = 27;
 }
 
 // Who a session was minted for (Go's Origin): an empty origin reads as a
@@ -127,6 +130,11 @@ message MintSession {
   // The owner a child is minted for, by the launch policy (K2, D26); absent
   // for a top-level session.
   optional SessionRef owner = 9;
+  // The workspace axis the session was minted on (`none`, `worktree`; a
+  // session trait, owner ruling 2026-11-12): a resume works in the same
+  // place. Absent on a session from before it was recorded, which reads as
+  // `none`.
+  optional string workspace = 10;
 }
 
 // Record what the SessionStart hook bound: the engine's session id and
@@ -223,6 +231,11 @@ message SessionMinted {
   optional google.protobuf.Timestamp started_at = 7;
   uint32 depth = 8;
   optional SessionRef owner = 9;
+  // The workspace axis the session was minted on (`none`, `worktree`; a
+  // session trait, owner ruling 2026-11-12): a resume works in the same
+  // place. Absent on a session from before it was recorded, which reads as
+  // `none`.
+  optional string workspace = 10;
 }
 
 // The binding the session holds after a bind. A bind that displaced an
@@ -316,8 +329,8 @@ message RecordIncarnationEnded {
 // engine's own session (its bound native id) in the same session home. Sent
 // for a harp whose name is claimed, so a stream holding no session is one
 // `session remove` destroyed. Refused while an incarnation is open (its run
-// has not ended), before the engine bound a native session, and for another
-// engine than the session's.
+// has not ended), before the engine bound a native session, for another
+// engine than the session's, and for another workspace axis.
 message ResumeSession {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.sessions.v1.SessionState"
@@ -327,12 +340,17 @@ message ResumeSession {
     refuses: "ctxloom.sessions.v1.SessionRunning"
     refuses: "ctxloom.sessions.v1.NoNativeSession"
     refuses: "ctxloom.sessions.v1.EngineMismatch"
+    refuses: "ctxloom.sessions.v1.WorkspaceMismatch"
   };
 
   // The name the session was asked for by.
   string harp = 1;
   // The engine the resume would drive; empty is the session's own.
   string engine = 2;
+  // The workspace axis the resume was asked for (`--workspace`); empty is
+  // the session's own. Another is refused: claude keys a conversation by
+  // its working directory, so a resume elsewhere would not find it.
+  string workspace = 3;
 }
 
 message IncarnationOwed {
@@ -437,6 +455,15 @@ message EngineMismatch {
 
   string harp = 1;
   string engine = 2;
+  string asked = 3;
+}
+
+// A resume asked for another workspace axis than the session's.
+message WorkspaceMismatch {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+
+  string harp = 1;
+  string workspace = 2;
   string asked = 3;
 }
 

@@ -699,6 +699,7 @@ impl<E: Edge, T: TokenSource> Daemon<E, T> {
                 permissions: child.permissions.clone(),
                 session_home: child.settings.session_home,
                 git_user: self.plans.git_user(project_dir, sent),
+                surfaces: run_ports::LaunchSurfaces::default(),
             },
         )?;
         let home = set_up.home;

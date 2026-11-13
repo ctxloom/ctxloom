@@ -24,6 +24,7 @@ use std::fmt;
 use std::time::Duration;
 
 use crate::hook::RedactedEnv;
+use crate::ProgramNotFound;
 
 /// The command of one turn: the program, its arguments, its WHOLE
 /// environment (the launcher adds none), what it is fed on stdin, and where
@@ -185,6 +186,16 @@ pub trait RunnerLauncher: Send + Sync {
     /// [`Running::finish`] is how it ended (`TurnOutput`'s streams are empty).
     /// An `Err` started nothing.
     fn launch_terminal(&self, command: &TurnCommand) -> Result<Box<dyn Running>, LaunchFailure>;
+
+    /// The file `command`'s program is spawned as, found on the command's
+    /// own `PATH` by the file names the host looks a command up by (on
+    /// Windows PATHEXT's, which std's spawn does not try: it appends `.exe`
+    /// alone), or why it is on none of them. The launch spawns what this
+    /// answers. The default is the program as it is named, for a launcher
+    /// that searches nothing (a fake).
+    fn find_program(&self, command: &TurnCommand) -> Result<String, ProgramNotFound> {
+        Ok(command.program.clone())
+    }
 }
 
 #[cfg(test)]

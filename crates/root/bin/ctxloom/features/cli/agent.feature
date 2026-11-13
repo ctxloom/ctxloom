@@ -151,7 +151,6 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       Then the command fails
       And the output contains "nosuchagent"
 
-  @pending
   Rule: create and edit are NOT an upsert — each refuses the case the other owns
 
     `create` refuses a name that already names an agent; `edit` refuses a name
@@ -905,7 +904,6 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the output contains "not defined yet"
       And the file ".ctxloom/config.yaml" contains "default_agent: ghost"
 
-  @pending
   Rule: Removing reports before it destroys
 
     A bare `remove` is a PREVIEW: it prints what would go and removes nothing,

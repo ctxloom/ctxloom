@@ -33,6 +33,12 @@ use crate::{stream, Claude, NAME};
 /// for one invalid value).
 pub const HOOKS_FILE: &str = "ctxloom-hooks.json";
 
+/// ctxloom's MCP config in the session home: the servers the run's selection
+/// carries, which the command names with `--mcp-config` (owner ruling
+/// 2026-11-12: they ride the launch). Written at every launch, `{}` of
+/// servers with none.
+pub const MCP_CONFIG_FILE: &str = "ctxloom-mcp.json";
+
 /// The user-scope settings file of claude's config dir: in the session home,
 /// which is the session's CLAUDE_CONFIG_DIR, it holds the user's own
 /// settings with the agent's permissions document as their `permissions`
@@ -53,7 +59,8 @@ const PROGRAM: &str = "claude";
 /// programs, locale and temp space, the proxy and certificate settings a
 /// network needs, the two ways claude is handed a credential, and what the
 /// turn's hook processes need (owner ruling 51): ctxloom's home by name (their
-/// `HOME` is the session home, ruling 112), the session's harp, and the run's
+/// `HOME` is the session home, ruling 112), the live project's root
+/// (`CTXLOOM_ROOT`: the engine may work in a checkout), the session's harp, and the run's
 /// listener (the endpoint, the bearer, the hook bearer, the run
 /// and the listener's public certificate). On Windows,
 /// what a program needs to start (`run_ports::WINDOWS_STARTUP_VARIABLES`) and
@@ -87,6 +94,7 @@ pub const ENV_ALLOWLIST: &[&str] = &[
     "CLAUDE_CODE_OAUTH_TOKEN",
     "ANTHROPIC_API_KEY",
     run_ports::HOME_VARIABLE,
+    run_ports::ROOT_VARIABLE,
     run_ports::ENDPOINT_VARIABLE,
     run_ports::BEARER_VARIABLE,
     run_ports::RUN_VARIABLE,
@@ -129,6 +137,7 @@ pub const INTERACTIVE_ENV_ALLOWLIST: &[&str] = &[
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
     run_ports::HOME_VARIABLE,
+    run_ports::ROOT_VARIABLE,
     run_ports::ENDPOINT_VARIABLE,
     run_ports::BEARER_VARIABLE,
     run_ports::RUN_VARIABLE,
@@ -184,7 +193,32 @@ impl Engine for Claude {
                 rel: HOOKS_FILE.to_string(),
                 bytes: hooks_settings(request, &self.program)?.into_bytes(),
             },
+            HomeFile {
+                rel: MCP_CONFIG_FILE.to_string(),
+                bytes: mcp_config(&request.surfaces.0).into_bytes(),
+            },
         ];
+        // The commands and skills: the session home's own (its
+        // CLAUDE_CONFIG_DIR's user scope); under `host` the config dir is
+        // the user's, never written, so they ride into the checkout the
+        // engine works in (owner ruling 2026-11-12, Q3).
+        let items = items(&request.surfaces.0);
+        let workspace_files = match request.session_home {
+            SessionHome::Session => {
+                files.extend(items.into_iter().map(|file| {
+                    HomeFile {
+                        rel: file
+                            .rel
+                            .strip_prefix(".claude/")
+                            .unwrap_or(&file.rel)
+                            .to_string(),
+                        bytes: file.bytes,
+                    }
+                }));
+                Vec::new()
+            }
+            SessionHome::Host => items,
+        };
         let mut left_out = Vec::new();
         if request.session_home == SessionHome::Session {
             let (base, skipped) = user_base(self.user_settings.as_ref());
@@ -207,11 +241,22 @@ impl Engine for Claude {
             seeds: Vec::new(),
             context_path: format!("{}/{CONTEXT_PROMPT_FILE}", request.home),
             left_out,
+            workspace_files,
         })
     }
 
     fn merges(&self) -> &'static [&'static str] {
         &[STATE_FILE]
+    }
+
+    fn workspace_patterns(&self, session_home: SessionHome) -> Vec<String> {
+        match session_home {
+            SessionHome::Session => Vec::new(),
+            SessionHome::Host => vec![
+                ".claude/commands/".to_string(),
+                ".claude/skills/".to_string(),
+            ],
+        }
     }
 
     fn drive_turn(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError> {
@@ -221,6 +266,7 @@ impl Engine for Claude {
             .to_vec();
         command.args.push("--append-system-prompt-file".to_string());
         command.args.push(request.context_path.clone());
+        push_mcp_config(&mut command.args, request);
         // The turn's hooks: the session dir's settings, as the terminal's.
         push_settings(&mut command.args, request);
         push_model_and_effort(&mut command.args, request)?;
@@ -256,6 +302,10 @@ impl Engine for Claude {
         stream::read_turn(output)
     }
 
+    fn advise(&self, planned: &run_ports::Planned) -> Vec<run_ports::Advice> {
+        crate::advice::advise(planned)
+    }
+
     /// The human's terminal run: no print mode, no stream, the context in
     /// the system prompt, and the prompt (when she gave one) as the
     /// conversation's opening. The command is given her terminal.
@@ -263,6 +313,7 @@ impl Engine for Claude {
         let mut command = TurnCommand::new(program(request));
         command.args.push("--append-system-prompt-file".to_string());
         command.args.push(request.context_path.clone());
+        push_mcp_config(&mut command.args, request);
         push_settings(&mut command.args, request);
         push_model_and_effort(&mut command.args, request)?;
         if let Some(native_id) = &request.resume {
@@ -318,7 +369,7 @@ fn document(request: &PrepareRequest) -> Result<Option<Json>, EngineError> {
 /// project file's `permissions.deny` (surface apply), merged by claude.
 fn user_settings(request: &PrepareRequest, base: Json) -> Result<String, EngineError> {
     let mut doc = base;
-    match document(request)? {
+    match with_deny(document(request)?, &request.surfaces.0.deny_tools) {
         Some(permissions) => {
             doc.set("permissions", permissions);
         }
@@ -327,6 +378,62 @@ fn user_settings(request: &PrepareRequest, base: Json) -> Result<String, EngineE
         }
     }
     Ok(format!("{}\n", doc.pretty()))
+}
+
+/// The agent's permissions document with the selection's `deny_tools` laid
+/// over it (owner ruling 2026-11-12: they ride the launch): each tool in its
+/// `deny` once, after the document's own; with no document, the deny list
+/// alone; with neither, none.
+fn with_deny(document: Option<Json>, deny: &[String]) -> Option<Json> {
+    let deny: Vec<&String> = deny.iter().filter(|t| !t.is_empty()).collect();
+    if deny.is_empty() {
+        return document;
+    }
+    let mut permissions = match document {
+        Some(doc @ Json::Object(_)) => doc,
+        _ => Json::Object(Vec::new()),
+    };
+    let mut list = match permissions.get("deny") {
+        Some(Json::Array(items)) => items.clone(),
+        _ => Vec::new(),
+    };
+    for tool in deny {
+        let tool = Json::text(tool.as_str());
+        if !list.contains(&tool) {
+            list.push(tool);
+        }
+    }
+    permissions.set("deny", Json::Array(list));
+    Some(permissions)
+}
+
+/// The servers the launch carries, as claude's MCP config (`--mcp-config`):
+/// `{"mcpServers": {...}}`, empty with none.
+fn mcp_config(surfaces: &surface_ports::Inputs) -> String {
+    let servers = surfaces
+        .mcp
+        .iter()
+        .map(|server| (server.name.clone(), crate::mcp_entry(server)))
+        .collect::<Vec<_>>();
+    let doc = Json::object([("mcpServers", Json::Object(servers))]);
+    format!("{}\n", doc.pretty())
+}
+
+/// The commands and skills the launch carries, as the files a project's
+/// `.claude/commands/` and `.claude/skills/` hold: the session home's
+/// `commands/` and `skills/` take them without the `.claude/`.
+fn items(surfaces: &surface_ports::Inputs) -> Vec<HomeFile> {
+    let mut planned = surface_ports::Planned::default();
+    crate::commands::plan(&surfaces.commands, &mut planned);
+    crate::skills::plan(&surfaces.skills, &mut planned);
+    planned
+        .claims
+        .into_iter()
+        .filter_map(|claim| match claim {
+            surface_ports::Claim::Whole { path, bytes, .. } => Some(HomeFile { rel: path, bytes }),
+            _ => None,
+        })
+        .collect()
 }
 
 /// What the session home's settings start from (owner ruling 169): the
@@ -362,15 +469,37 @@ fn user_base(user: Option<&run_ports::UserSettings>) -> (Json, Option<LeftOut>) 
 /// session home: one invalid value in them disables the hooks too.
 fn hooks_settings(request: &PrepareRequest, program: &str) -> Result<String, EngineError> {
     let hooks = crate::hooks::home_settings(request.interactive, program);
-    let permissions = document(request)?.filter(|_| request.session_home == SessionHome::Host);
-    let Some(permissions) = permissions else {
-        return Ok(hooks);
-    };
     let mut settings = Json::parse(&hooks).map_err(|ext_err_txt| EngineError::BadPermissions {
         engine: NAME.to_string(),
         ext_err_txt,
     })?;
-    settings.set("permissions", permissions);
+    // What the run's selection carries rides here (owner ruling
+    // 2026-11-12): the authored hooks and ctxloom's own callbacks beside the
+    // capture events, and the statusline.
+    let surfaces = &request.surfaces.0;
+    let ops = crate::hooks::launch_ops(&surfaces.hooks, program, request.interactive).map_err(
+        |ext_err_txt| EngineError::CannotCarry {
+            engine: NAME.to_string(),
+            ext_err_txt,
+        },
+    )?;
+    for op in ops {
+        crate::hooks::lay(&mut settings, op);
+    }
+    if surfaces.statusline {
+        settings.set(
+            "statusLine",
+            Json::object([
+                ("type", Json::text("command")),
+                ("command", Json::text(crate::statusline(program))),
+            ]),
+        );
+    }
+    if request.session_home == SessionHome::Host {
+        if let Some(permissions) = with_deny(document(request)?, &surfaces.deny_tools) {
+            settings.set("permissions", permissions);
+        }
+    }
     Ok(format!("{}\n", settings.pretty()))
 }
 
@@ -414,6 +543,15 @@ fn object_at<'a>(parent: &'a mut Json, key: &str) -> &'a mut Json {
 pub(crate) fn push_settings(args: &mut Vec<String>, request: &TurnRequest) {
     args.push("--settings".to_string());
     args.push(format!("{}/{HOOKS_FILE}", request.home));
+}
+
+/// `--mcp-config <session home>/ctxloom-mcp.json`: the servers the launch
+/// carries (`source: dynamic`, connected, probed on 2.1.322; one named as a
+/// project `.mcp.json` server replaces it). It takes many files, so it is
+/// always followed by another option, never by the prompt.
+fn push_mcp_config(args: &mut Vec<String>, request: &TurnRequest) {
+    args.push("--mcp-config".to_string());
+    args.push(format!("{}/{MCP_CONFIG_FILE}", request.home));
 }
 
 /// The effort levels `claude --effort` takes (`claude --help`, 2.1.321).

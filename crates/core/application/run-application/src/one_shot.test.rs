@@ -192,6 +192,8 @@ struct ScriptedPlan {
     drive: library_application::Drive,
     error: Option<fn() -> PlanError>,
     asked: Arc<Mutex<Vec<RunRequest>>>,
+    axis: String,
+    agent: String,
 }
 
 impl Planner for ScriptedPlan {
@@ -207,7 +209,7 @@ impl Planner for ScriptedPlan {
             };
         }
         let plan = DryRun {
-            agent: String::new(),
+            agent: self.agent.clone(),
             workspace: String::new(),
             runtime: String::new(),
             engine: self.backend.clone(),
@@ -217,13 +219,25 @@ impl Planner for ScriptedPlan {
             tokens: 0,
             prompt: self.prompt.clone(),
             findings: Vec::new(),
-            axes: (String::new(), "host".to_string()),
+            // The flag, else the "config's" default, as the library settles it.
+            axes: (
+                if request.workspace.is_empty() {
+                    self.axis.clone()
+                } else {
+                    request.workspace.clone()
+                },
+                "host".to_string(),
+            ),
             model: self.model.clone(),
             effort: self.effort.clone(),
             permissions: self.permissions.clone(),
             drive: self.drive.clone(),
             settings: None,
             settings_agent: String::new(),
+            surfaces: surface_ports::Inputs {
+                deny_tools: vec!["PLANNED-DENY".to_string()],
+                ..Default::default()
+            },
         };
         Outcome {
             result: Ok(Previewed {
@@ -574,6 +588,12 @@ struct Script {
     certs_refuse: Option<&'static str>,
     /// The user's git identity, if known.
     git_user: Option<run_ports::GitUser>,
+    /// The workspace the plan settles on (`DryRun.axes.0`), and its agent.
+    axis: &'static str,
+    agent: &'static str,
+    /// How the launcher's workspaces port answers; none: the launcher has
+    /// none.
+    workspaces: Option<Arc<run_launcher::fakes::ScriptedWorkspaces>>,
 }
 
 impl Script {
@@ -599,6 +619,9 @@ impl Script {
             hooks_refuse: None,
             certs_refuse: None,
             git_user: None,
+            axis: "",
+            agent: "",
+            workspaces: None,
         }
     }
 }
@@ -619,6 +642,21 @@ fn place(script: &Script) -> Place {
             .iter()
             .find(|(name, _)| *name == "HOME")
             .map(|(_, home)| home.to_string()),
+        worktrees: WORKTREES.to_string(),
+    }
+}
+
+/// The project's checkouts directory the scripted run is told.
+const WORKTREES: &str = "/h/.ctxloom/worktrees/calm-otter";
+
+/// The launcher, placing worktrees through the script's workspaces, if any.
+fn placing_through(
+    launcher: Launcher<Seen, ScriptedRunner, MemoryRecords>,
+    workspaces: Option<Arc<run_launcher::fakes::ScriptedWorkspaces>>,
+) -> Launcher<Seen, ScriptedRunner, MemoryRecords> {
+    match workspaces {
+        Some(workspaces) => launcher.with_workspaces(workspaces),
+        None => launcher,
     }
 }
 
@@ -647,6 +685,7 @@ fn rig(script: Script) -> Rig {
         Limits::new(std::time::Duration::from_secs(5)),
     )
     .on_os(script.os);
+    let launcher = placing_through(launcher, script.workspaces.clone());
     let hooks = Hooks {
         runner: Some(script.runner.clone()),
         refuse: script.hooks_refuse,
@@ -681,6 +720,8 @@ fn rig(script: Script) -> Rig {
             drive: script.drive.clone(),
             error: script.plan_error,
             asked: Arc::clone(&asked),
+            axis: script.axis.to_string(),
+            agent: script.agent.to_string(),
         }),
         identity: Box::new(FixedProject(script.project_error)),
         names: Box::new(ScriptedNames(
@@ -1103,8 +1144,7 @@ async fn a_rate_limited_turn_is_that_error_and_the_run_still_ended() {
             detail: "slow down".to_string(),
             native_id: None,
         },
-        refuses_to_drive: false,
-        left_out: Vec::new(),
+        ..ScriptedEngine::answering("", None)
     };
     let mut rig = rig(Script {
         engine,
@@ -1130,8 +1170,7 @@ async fn a_credential_the_engine_refused_is_that_error() {
             detail: "401".to_string(),
             native_id: None,
         },
-        refuses_to_drive: false,
-        left_out: Vec::new(),
+        ..ScriptedEngine::answering("", None)
     };
     let mut rig = rig(Script {
         engine,
@@ -1549,6 +1588,85 @@ async fn the_primary_on_macos_is_not_linked_and_is_told_to_set_a_token() {
         Notice::Finding { remedy, .. } if remedy.contains("CLAUDE_CODE_OAUTH_TOKEN"))));
 }
 
+// Owner ruling 2026-11-12: the terminal session's engine is asked how it is
+// signed in, by the OS the wiring passes, whether a primary credential is
+// set (by name) and that it is the terminal; where it advises (claude on
+// Windows with no token), its notice is said and no login is shared.
+#[tokio::test]
+async fn the_terminal_sessions_engine_is_asked_and_its_advice_replaces_the_login() {
+    let mut script = needing_a_token();
+    script.os = "windows";
+    script.engine.advises = true;
+    let advised = Arc::clone(&script.engine.advised);
+    let mut rig = rig(script);
+    let done = rig.runs.interactive(&Flags::default(), &ask()).await;
+    assert!(done.result.is_ok(), "{:?}", done.result.err());
+    assert!(rig.links.made.lock().unwrap().is_empty());
+    let launch = advised
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|planned| planned.interactive)
+        .cloned()
+        .expect("asked at the launch");
+    assert_eq!(launch.os, "windows");
+    assert!(!launch.credential_set);
+    assert!(done.notices.iter().any(|n| matches!(n,
+        Notice::Engine(advice) if advice.code() == "run-ports-engine-not-yet")));
+    assert!(
+        !done
+            .notices
+            .iter()
+            .any(|n| matches!(n, Notice::Finding { text, .. } if text.contains("login"))),
+        "no word of a login is said beside the advice: {:?}",
+        done.notices
+    );
+}
+
+// A primary credential set is told by name; an engine that does not advise
+// leaves the login shared as before.
+#[tokio::test]
+async fn an_engine_asked_with_a_token_set_and_no_advice_shares_the_login_as_before() {
+    let mut script = needing_a_token();
+    script.env = vec![("HOME", "/home/u"), ("ANTHROPIC_AUTH_TOKEN", "t")]; // gitleaks:allow
+    let advised = Arc::clone(&script.engine.advised);
+    let mut first = rig(script);
+    assert!(first
+        .runs
+        .interactive(&Flags::default(), &ask())
+        .await
+        .result
+        .is_ok());
+    let asked = advised.lock().unwrap().clone();
+    assert!(
+        asked
+            .iter()
+            .any(|p| p.interactive && p.credential_set && p.os == "linux"),
+        "{asked:?}"
+    );
+
+    let mut script = needing_a_token();
+    let advised = Arc::clone(&script.engine.advised);
+    script.env = vec![("HOME", "/home/u")];
+    let mut again = rig(script);
+    assert!(again
+        .runs
+        .interactive(&Flags::default(), &ask())
+        .await
+        .result
+        .is_ok());
+    assert!(advised
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|p| p.interactive && !p.credential_set));
+    assert_eq!(
+        again.links.made.lock().unwrap().len(),
+        1,
+        "her login is shared"
+    );
+}
+
 #[tokio::test]
 async fn an_engine_that_asks_for_nothing_shares_nothing_and_notices_nothing_of_it() {
     let mut script = Script::answering();
@@ -1694,6 +1812,7 @@ async fn the_bearer_is_in_no_debug_or_error_rendering() {
                 env: command.env.clone(),
                 user_home: None,
                 cwd: None,
+                workspace: Default::default(),
                 interactive: true,
                 model: String::new(),
                 effort: String::new(),
@@ -1702,6 +1821,7 @@ async fn the_bearer_is_in_no_debug_or_error_rendering() {
                 owned: Vec::new(),
                 git_user: None,
                 resume: None,
+                surfaces: Default::default(),
             }
         ),
     ] {
@@ -2304,6 +2424,70 @@ async fn the_settings_of_the_planned_engine_are_not_applied_to_another() {
     let answer = rig.runs.one_shot(&Flags::default(), &asked).await.result;
     assert!(answer.is_ok(), "{answer:?}");
     assert_eq!(rig.runner.seen.lock().unwrap()[0].program, "fake");
+}
+
+// Owner, 2026-11-12 (Windows): claude found as an npm `claude.cmd` cannot be
+// handed a multi-line opening prompt (std: "batch file arguments are
+// invalid"), so the session is refused before the spawn, typed and
+// crate-prefixed, exit 20, its fix naming claude's native build.
+#[tokio::test]
+async fn a_batch_file_session_with_a_multi_line_opening_prompt_is_refused() {
+    let mut script = Script::answering();
+    script.os = "windows";
+    script.prompt = "one\ntwo";
+    script.runner = ScriptedRunner::exits(0).finding(Ok(r"C:\npm\claude.cmd".to_string()));
+    let mut rig = rig(script);
+    let error = rig
+        .runs
+        .interactive(&Flags::default(), &ask())
+        .await
+        .result
+        .expect_err("refused");
+    assert!(
+        matches!(&error, RunError::BatchArguments(refusal) if refusal.program == r"C:\npm\claude.cmd"),
+        "{error:?}"
+    );
+    assert_eq!(error.code(), "run-ports-batch-arguments");
+    assert_eq!(error.exit(), Exit::REFUSED);
+    assert!(rig.runner.seen_terminal.lock().unwrap().is_empty());
+}
+
+// Owner, 2026-11-12 (Windows: "the engine was not started: program not
+// found"): a program on no directory of the engine's PATH is not started,
+// typed, naming what was looked for and where; a failure (10), as before.
+#[tokio::test]
+async fn a_program_found_nowhere_is_not_started_naming_what_was_searched() {
+    for interactive in [false, true] {
+        let mut script = Script::answering();
+        script.runner = ScriptedRunner::exits(0).finding(Err(run_ports::ProgramNotFound {
+            program: "claude".to_string(),
+            names: vec!["claude.exe".to_string(), "claude.cmd".to_string()],
+            dirs: vec![r"C:\bin".to_string()],
+        }));
+        let mut rig = rig(script);
+        let error = if interactive {
+            rig.runs
+                .interactive(&Flags::default(), &ask())
+                .await
+                .result
+                .map(drop)
+        } else {
+            rig.runs
+                .one_shot(&Flags::default(), &ask())
+                .await
+                .result
+                .map(drop)
+        }
+        .expect_err("not started");
+        assert!(
+            matches!(&error, RunError::ProgramNotFound(missing) if missing.dirs == [r"C:\bin"]),
+            "{error:?}"
+        );
+        assert_eq!(error.code(), "run-ports-program-not-found");
+        assert_eq!(error.exit(), Exit::FAILED);
+        assert!(rig.runner.seen.lock().unwrap().is_empty());
+        assert!(rig.runner.seen_terminal.lock().unwrap().is_empty());
+    }
 }
 
 // Owner ruling 2026-11-12: a terminal session whose opening prompt is too long
@@ -3220,4 +3404,271 @@ async fn a_resume_of_a_session_with_no_native_id_is_refused() {
     let events = session_events(&rig.edge, &first.session).await;
     assert!(!events.iter().any(|e| matches!(e,
         sessions::SessionEvent::IncarnationOwed(o) if o.incarnation == 2)));
+}
+
+// ------------------------------------------------------------ the workspace
+
+/// The plan settles on `axis` for agent `reviewer`, the launcher's
+/// workspaces answering with `answer`.
+fn placing(
+    axis: &'static str,
+    answer: fn(
+        &isolation_ports::Request,
+    ) -> Result<isolation_ports::Prepared, isolation_ports::Failure>,
+) -> (Script, Arc<run_launcher::fakes::ScriptedWorkspaces>) {
+    let workspaces = Arc::new(run_launcher::fakes::ScriptedWorkspaces::new(answer));
+    let mut script = Script::answering();
+    script.axis = axis;
+    script.agent = "reviewer";
+    script.workspaces = Some(Arc::clone(&workspaces));
+    (script, workspaces)
+}
+
+/// Where the run's `RunnerStarted` says its runner works.
+async fn started_in(rig: &Rig, session: &str) -> String {
+    run_events(&rig.edge, session)
+        .await
+        .into_iter()
+        .find_map(|e| match e {
+            runs::RunEvent::RunnerStartedRecorded(s) => Some(s.workspace),
+            _ => None,
+        })
+        .expect("a runner started")
+}
+
+// j002200 "The same run lands in the workspace its axis dictates": the axis
+// the plan settles on (the flag, else the config's default: `axes.0`) asks
+// the launcher for the session's checkout for its agent, under the
+// project's checkouts directory; the engine runs there, and its start says
+// so.
+#[tokio::test]
+async fn a_worktree_run_works_in_its_sessions_checkout_for_its_agent() {
+    let (script, workspaces) = placing("worktree", run_launcher::fakes::worktree_checkout);
+    let mut rig = rig(script);
+    let answer = rig
+        .runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let path = format!("{WORKTREES}/{}/reviewer", answer.harp);
+    assert_eq!(
+        rig.runner.seen.lock().unwrap()[0].cwd.as_deref(),
+        Some(path.as_str())
+    );
+    assert_eq!(started_in(&rig, &answer.session).await, path);
+    let asked = workspaces.asked.lock().unwrap();
+    assert_eq!(asked[0].project_dir, "/work/proj");
+    assert_eq!(asked[0].work_dir, format!("{WORKTREES}/{}", answer.harp));
+    assert_eq!(asked[0].agent, "reviewer");
+}
+
+// The live project (`none`, or no axis at all) asks for no checkout.
+#[tokio::test]
+async fn a_run_in_the_project_asks_for_no_checkout() {
+    for axis in ["none", ""] {
+        let (script, workspaces) = placing(axis, run_launcher::fakes::worktree_checkout);
+        let mut rig = rig(script);
+        rig.runs
+            .one_shot(&Flags::default(), &ask())
+            .await
+            .result
+            .unwrap();
+        assert!(workspaces.asked.lock().unwrap().is_empty(), "{axis:?}");
+        assert_eq!(
+            rig.runner.seen.lock().unwrap()[0].cwd.as_deref(),
+            Some("/work/proj")
+        );
+    }
+}
+
+// "Asking for a worktree outside git runs in the live project directory
+// instead of refusing", and the run says why.
+#[tokio::test]
+async fn a_worktree_that_cannot_be_had_runs_in_the_project_and_says_so() {
+    let (script, _) = placing("worktree", run_launcher::fakes::worktree_unavailable);
+    let mut rig = rig(script);
+    let done = rig.runs.one_shot(&Flags::default(), &ask()).await;
+    done.result.unwrap();
+    assert_eq!(
+        rig.runner.seen.lock().unwrap()[0].cwd.as_deref(),
+        Some("/work/proj")
+    );
+    assert!(done.notices.iter().any(|n| matches!(n,
+        Notice::WorkspaceUnavailable { reason } if reason.contains("not a git repository"))));
+}
+
+// A worktree the port refuses starts no engine: the run's launch failed.
+#[tokio::test]
+async fn a_refused_worktree_fails_the_launch() {
+    let (script, _) = placing("worktree", run_launcher::fakes::worktree_refused);
+    let mut rig = rig(script);
+    let error = rig
+        .runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap_err();
+    assert!(matches!(error, RunError::NotStarted { .. }), "{error:?}");
+    assert!(rig.runner.seen.lock().unwrap().is_empty());
+}
+
+// Owner ruling 2026-11-12: the workspace axis is a session trait, recorded at
+// its mint as the plan settled it.
+#[tokio::test]
+async fn a_session_is_minted_on_the_workspace_its_plan_settled() {
+    for (axis, recorded) in [("worktree", "worktree"), ("none", "none"), ("", "none")] {
+        let (script, _) = placing(axis, run_launcher::fakes::worktree_checkout);
+        let mut rig = rig(script);
+        let answer = rig
+            .runs
+            .one_shot(&Flags::default(), &ask())
+            .await
+            .result
+            .unwrap();
+        let events = session_events(&rig.edge, &answer.session).await;
+        assert!(
+            events.iter().any(|e| matches!(e,
+                sessions::SessionEvent::SessionMinted(m) if m.workspace.as_deref() == Some(recorded))),
+            "{axis:?}"
+        );
+    }
+}
+
+// A resume works where its session worked: planned on the session's axis
+// when no `--workspace` is given, and in the same checkout for its agent.
+#[tokio::test]
+async fn a_resume_works_in_its_sessions_workspace_and_checkout() {
+    let (script, workspaces) = placing("worktree", run_launcher::fakes::worktree_checkout);
+    let mut rig = rig(script);
+    let first = rig
+        .runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    rig.runs
+        .one_shot(&Flags::default(), &resume(&first.harp))
+        .await
+        .result
+        .unwrap();
+    assert_eq!(rig.asked.lock().unwrap()[1].workspace, "worktree");
+    let asked = workspaces.asked.lock().unwrap();
+    assert_eq!(asked.len(), 2);
+    assert_eq!(asked[0], asked[1], "the same checkout, re-entered");
+    let seen = rig.runner.seen.lock().unwrap();
+    assert_eq!(seen[0].cwd, seen[1].cwd);
+}
+
+// A resume asked for another workspace than its session's is refused by the
+// session, and owes nothing.
+#[tokio::test]
+async fn a_resume_in_another_workspace_is_refused() {
+    let (script, _) = placing("worktree", run_launcher::fakes::worktree_checkout);
+    let mut rig = rig(script);
+    let first = rig
+        .runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let mut again = resume(&first.harp);
+    again.run.workspace = "none".to_string();
+    let error = rig
+        .runs
+        .one_shot(&Flags::default(), &again)
+        .await
+        .result
+        .unwrap_err();
+    assert_eq!(refused_code(&error), "sessions-workspace-mismatch");
+    assert_eq!(rig.runner.seen.lock().unwrap().len(), 1, "nothing launched");
+}
+
+// Owner ruling 2026-11-12 (Q2): a run's checkout is let go once its engine
+// has exited and its listener has stopped, while the session's lock is still
+// held: removed when clean.
+#[tokio::test]
+async fn a_runs_clean_checkout_is_removed_after_the_listener_and_before_the_lock() {
+    let (script, workspaces) = placing("worktree", run_launcher::fakes::worktree_checkout);
+    let mut rig = rig(script);
+    let (locks, hooks) = (rig.locks.clone(), rig.hooks.clone());
+    *workspaces.witness.lock().unwrap() = Some(Box::new(move || {
+        let stopped = hooks.log.lock().unwrap().iter().any(|(w, _)| w == "stop");
+        let released = locks.released.lock().unwrap().len();
+        format!("listener stopped {stopped}, locks let go {released}")
+    }));
+    let done = rig.runs.one_shot(&Flags::default(), &ask()).await;
+    let answer = done.result.unwrap();
+    let path = format!("{WORKTREES}/{}/reviewer", answer.harp);
+    assert_eq!(
+        *workspaces.removed.lock().unwrap(),
+        [("/work/proj".to_string(), path)]
+    );
+    assert_eq!(
+        *workspaces.witnessed.lock().unwrap(),
+        ["listener stopped true, locks let go 0"]
+    );
+    assert!(!done
+        .notices
+        .iter()
+        .any(|n| matches!(n, Notice::CheckoutLeft { .. })));
+}
+
+// A checkout holding work (or that would not go) is left, and the run says
+// where it is, its branch, and why.
+#[tokio::test]
+async fn a_checkout_left_at_the_runs_end_is_said_by_path_and_branch() {
+    let workspaces = Arc::new(
+        run_launcher::fakes::ScriptedWorkspaces::new(run_launcher::fakes::worktree_checkout)
+            .leaving("it has uncommitted changes; left in place to preserve WIP"),
+    );
+    let (mut script, _) = placing("worktree", run_launcher::fakes::worktree_checkout);
+    script.workspaces = Some(Arc::clone(&workspaces));
+    let mut rig = rig(script);
+    let done = rig.runs.one_shot(&Flags::default(), &ask()).await;
+    let answer = done.result.unwrap();
+    let left = done
+        .notices
+        .iter()
+        .find_map(|n| match n {
+            Notice::CheckoutLeft {
+                path,
+                branch,
+                reason,
+            } => Some((path.clone(), branch.clone(), reason.clone())),
+            _ => None,
+        })
+        .expect("the checkout left is said");
+    assert_eq!(left.0, format!("{WORKTREES}/{}/reviewer", answer.harp));
+    assert_eq!(left.1, "ctxloom/amber-swift-owl/reviewer");
+    assert!(left.2.contains("uncommitted"));
+}
+
+// A run in the project has no checkout to let go.
+#[tokio::test]
+async fn a_run_in_the_project_releases_nothing() {
+    let (script, workspaces) = placing("none", run_launcher::fakes::worktree_checkout);
+    let mut rig = rig(script);
+    rig.runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    assert!(workspaces.removed.lock().unwrap().is_empty());
+}
+
+// What the plan says the run's selection carries is what its engine is
+// prepared with.
+#[tokio::test]
+async fn the_plans_surfaces_reach_the_engines_prepare() {
+    let script = Script::answering();
+    let prepared = Arc::clone(&script.engine.prepared);
+    let mut rig = rig(script);
+    rig.runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let prepared = prepared.lock().unwrap();
+    assert_eq!(prepared[0].surfaces.0.deny_tools, ["PLANNED-DENY"]);
 }

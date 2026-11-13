@@ -24,7 +24,7 @@ use crate::{
     NoNativeSession, NoSession, RecordEnd, RecordIncarnationEnded, ResumeSession, SessionAdopted,
     SessionCommand, SessionDestroyed, SessionEvent, SessionExists, SessionMinted, SessionRejection,
     SessionRunning, SessionState, SessionUnknown, SetKept, SetSessionTitle, StopOrdered,
-    StopSession, TitleSet,
+    StopSession, TitleSet, WorkspaceMismatch,
 };
 use crate::{
     daemon, ChildEnded, ChildForgotten, ChildLaunchFailed, ChildLaunched, ClearChild,
@@ -289,7 +289,8 @@ impl SessionAggregate {
             SessionDestroyed,
             SessionRunning,
             NoNativeSession,
-            EngineMismatch
+            EngineMismatch,
+            WorkspaceMismatch
         )
     )]
     fn resume(
@@ -303,7 +304,7 @@ impl SessionAggregate {
                 SessionRejection,
                 rejection,
                 Refuses<Self, ResumeSession>,
-                [SessionUnknown{harp} => SessionUnknown, SessionDestroyed{harp} => SessionDestroyed, SessionRunning{harp} => SessionRunning, NoNativeSession{harp} => NoNativeSession, EngineMismatch{harp, engine, asked} => EngineMismatch]
+                [SessionUnknown{harp} => SessionUnknown, SessionDestroyed{harp} => SessionDestroyed, SessionRunning{harp} => SessionRunning, NoNativeSession{harp} => NoNativeSession, EngineMismatch{harp, engine, asked} => EngineMismatch, WorkspaceMismatch{harp, workspace, asked} => WorkspaceMismatch]
             )
         })
     }

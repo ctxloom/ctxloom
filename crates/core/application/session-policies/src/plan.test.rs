@@ -68,6 +68,7 @@ fn minted(harp: &str, owner: Option<&str>) -> Vec<SessionEvent> {
             started_at: None,
             depth: u32::from(owner.is_some()),
             owner: owner.map(at),
+            workspace: None,
         }),
         SessionEvent::IncarnationOwed(IncarnationOwed {
             incarnation: 1,

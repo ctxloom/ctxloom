@@ -14,7 +14,9 @@ use crate::project::{Library, Outcome, Project};
 use crate::views::AgentRow;
 use crate::write::engines;
 use crate::write::requests::AgentRequest;
-use crate::write::views::{AgentRemoved, DefaultAgent, Preview, Removal};
+use crate::write::views::{
+    AgentRemoved, AgentWritten, DefaultAgent, Preview, Removal, SwapPreview,
+};
 use crate::write::WriteError;
 use crate::Flags;
 use library::config::engines::{self as config_engines, Override, Source};
@@ -30,6 +32,21 @@ impl Library {
         must_exist: bool,
     ) -> Outcome<AgentRow> {
         self.run(flags, |p| p.agent_write(name, request, must_exist))
+    }
+
+    /// `agent edit <name> ... [--yes]`: as [`Library::agent_write`] for an
+    /// agent that is there, except that a change of its engine to one that
+    /// cannot carry what the old one did of its profiles is the swap's
+    /// preview without `yes` (nothing written; what would be given up, and
+    /// the command that applies it).
+    pub fn agent_edit(
+        &self,
+        flags: &Flags,
+        name: &str,
+        request: &AgentRequest,
+        yes: bool,
+    ) -> Outcome<AgentWritten> {
+        self.run(flags, |p| p.agent_edit(name, request, yes))
     }
 
     /// `agent default [name]`: the agent a bare run binds, or bind one (one
@@ -96,6 +113,67 @@ fn pairs_map(pairs: &[(String, String)]) -> Option<Value> {
                 .collect(),
         )
     })
+}
+
+/// A word of a command line as a shell reads it back: quoted where it holds
+/// anything but plain characters, or is empty.
+fn shell_word(word: &str) -> String {
+    let plain = !word.is_empty()
+        && word
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-_./:=,@+%".contains(c));
+    if plain {
+        word.to_string()
+    } else {
+        format!("'{}'", word.replace('\'', r"'\''"))
+    }
+}
+
+/// The `agent edit` that applies `request` to `name`: its flags as given,
+/// then `--yes`.
+fn apply_command(name: &str, request: &AgentRequest) -> String {
+    let mut words = vec![
+        "ctxloom".to_string(),
+        "agent".to_string(),
+        "edit".to_string(),
+        shell_word(name),
+    ];
+    let mut flag = |flag: &str, value: &str| {
+        words.push(flag.to_string());
+        words.push(shell_word(value));
+    };
+    let single = [
+        ("--engine", &request.engine),
+        ("--model", &request.model),
+        ("--effort", &request.effort),
+        ("--runtime", &request.runtime),
+    ];
+    for (name, value) in single {
+        if let Some(value) = value {
+            flag(name, value);
+        }
+    }
+    if let Some(profiles) = &request.profiles {
+        flag("--profiles", &profiles.join(","));
+    }
+    for (name, pairs) in [("--surface", &request.surfaces), ("--root", &request.roots)] {
+        for (kind, value) in pairs.iter().flatten() {
+            flag(name, &format!("{kind}={value}"));
+        }
+        if pairs.as_ref().is_some_and(Vec::is_empty) {
+            flag(name, "");
+        }
+    }
+    if let Some(env) = &request.env {
+        if env.is_empty() {
+            flag("--env", "");
+        }
+        for variable in env {
+            flag("--env", variable);
+        }
+    }
+    words.push("--yes".to_string());
+    words.join(" ")
 }
 
 impl Project {
@@ -292,6 +370,84 @@ impl Project {
         })?;
         self.notices.extend(said);
         written.ok_or_else(|| WriteError::NotWired {}.into())
+    }
+
+    fn agent_edit(
+        &mut self,
+        name: &str,
+        request: &AgentRequest,
+        yes: bool,
+    ) -> Result<AgentWritten, AppError> {
+        if !yes {
+            if let Some(preview) = self.swap_preview(name, request)? {
+                return Ok(AgentWritten::Preview(preview));
+            }
+        }
+        self.agent_write(name, request, true)
+            .map(AgentWritten::Done)
+    }
+
+    /// The preview of an edit that moves the agent to an engine that cannot
+    /// carry what its engine did of its profiles; none for any other edit
+    /// (one that does not change the engine, or loses nothing, is written as
+    /// ever). The edit is judged first as the write would judge it, so a
+    /// preview is never shown for an edit the write would refuse.
+    fn swap_preview(
+        &mut self,
+        name: &str,
+        request: &AgentRequest,
+    ) -> Result<Option<SwapPreview>, AppError> {
+        let Some(agent) = self.config.agent(name) else {
+            return Ok(None);
+        };
+        let Some(to) = request.engine.as_deref().filter(|e| engines::known(e)) else {
+            return Ok(None);
+        };
+        let from = crate::losses::engine_or_default(&agent.engine);
+        if to == from {
+            return Ok(None);
+        }
+        let profiles = request
+            .profiles
+            .clone()
+            .unwrap_or_else(|| agent.profiles.clone());
+        let lost = self.swap_losses(&profiles, &from, to);
+        if lost.is_empty() {
+            return Ok(None);
+        }
+        self.require_project()?;
+        let held = self.held_agent(name)?;
+        self.check_agent(name, request, &held)?;
+        self.agent_entry(name, request, held)?;
+        Ok(Some(SwapPreview::of(
+            name,
+            &from,
+            to,
+            lost,
+            apply_command(name, request),
+        )))
+    }
+
+    /// The entry the project's config holds for `name`; an empty mapping for
+    /// none.
+    fn held_agent(&self, name: &str) -> Result<Value, AppError> {
+        let text = self
+            .files
+            .layer(Scope::Project)
+            .map_err(AppError::Cause)?
+            .map(|layer| layer.text)
+            .unwrap_or_default();
+        let agents = library::write::section::section(&text, "agents").map_err(|e| {
+            WriteError::ConfigCorrupt {
+                path: self.files.layer_path(Scope::Project),
+                cause: e.to_string(),
+            }
+        })?;
+        Ok(agents
+            .as_ref()
+            .and_then(|a| a.get(name))
+            .cloned()
+            .unwrap_or_else(|| Value::Map(Vec::new())))
     }
 
     /// What the runtime an entry names replaces, said where it is written: an

@@ -425,6 +425,16 @@ pub enum Notice {
     /// (or could not be read), so a session home started without them
     /// (owner ruling 169): by path, never their content.
     UserSettingsLeftOut { engine: String, path: String },
+    /// A worktree was asked for and none could be had, so the engine worked
+    /// in the project instead: `reason` is the workspaces port's.
+    WorkspaceUnavailable { reason: String },
+    /// A run's checkout was left in place at its end (work in it, or one
+    /// that would not go): by path and branch, and why.
+    CheckoutLeft {
+        path: String,
+        branch: String,
+        reason: String,
+    },
 }
 
 impl Notice {
@@ -465,6 +475,8 @@ impl Diagnostic for Notice {
             Notice::LoadoutUnparseable { .. } => code!("loadout-unparseable"),
             Notice::DefaultEngineBlock { .. } => code!("notice-default-engine-block"),
             Notice::UserSettingsLeftOut { .. } => code!("notice-user-settings-left-out"),
+            Notice::WorkspaceUnavailable { .. } => code!("notice-workspace-unavailable"),
+            Notice::CheckoutLeft { .. } => code!("notice-checkout-left"),
             Notice::RuntimeOverride { change, .. } => match change {
                 library::config::engines::Change::Weakens => code!("notice-runtime-weakens"),
                 library::config::engines::Change::Strengthens => {
@@ -526,6 +538,16 @@ impl Diagnostic for Notice {
             Notice::UserSettingsLeftOut { engine, path } => vec![
                 ("engine", engine.as_str().into()),
                 ("path", path.as_str().into()),
+            ],
+            Notice::WorkspaceUnavailable { reason } => vec![("reason", reason.as_str().into())],
+            Notice::CheckoutLeft {
+                path,
+                branch,
+                reason,
+            } => vec![
+                ("path", path.as_str().into()),
+                ("branch", branch.as_str().into()),
+                ("reason", reason.as_str().into()),
             ],
         }
     }
@@ -716,6 +738,14 @@ fn notice_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(Notice::UserSettingsLeftOut {
             engine: s("claude-code"),
             path: s("/home/u/.claude/settings.json"),
+        }),
+        Box::new(Notice::WorkspaceUnavailable {
+            reason: s("worktree isolation: /work/proj is not a git repository"),
+        }),
+        Box::new(Notice::CheckoutLeft {
+            path: s("/h/.ctxloom/worktrees/calm-otter/amber-swift-owl/reviewer"),
+            branch: s("ctxloom/amber-swift-owl/reviewer"),
+            reason: s("it has uncommitted changes; left in place to preserve WIP"),
         }),
         Box::new(runtime_override(library::config::engines::Change::Weakens)),
         Box::new(runtime_override(

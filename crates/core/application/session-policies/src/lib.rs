@@ -311,6 +311,9 @@ pub fn launch(owner: &SessionRef, launched: &ChildLaunched, output_dir: &str) ->
                 started_at: None,
                 depth: launched.depth,
                 owner: Some(owner.clone()),
+                // A hosted child works in the live project until its
+                // launch carries a workspace axis: none recorded reads `none`.
+                workspace: None,
             },
         },
     })

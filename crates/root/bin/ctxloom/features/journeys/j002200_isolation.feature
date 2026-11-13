@@ -1,10 +1,13 @@
+# world: base
 # Ported from journeys/j002200_isolation.feature (rev f36e8dfb2)
-# NOT ported: the scenarios tagged @pending: they wait for `ctxloom run` to
-#   launch an engine. The container gates, the dry-run preview, the worktree's
-#   git exclude and the credential refusals are cli/run.feature's.
+# NOT ported: the scenarios tagged @pending: the container lane, which waits
+#   for a container launch, and the session-home outlines, which wait for
+#   their own steps. The container gates, the dry-run preview, the
+#   worktree's git exclude and the credential refusals are cli/run.feature's.
+#   The "mock agent" is claude-code, a stub on PATH that records where it
+#   ran and writes a note there.
 
 @doc
-@pending
 Feature: Bounding what the agent can reach, even with permissions bypassed
 
   Alice runs an agent with its permission prompts turned off. She is not
@@ -36,7 +39,10 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
 
   # The workspace changes where the agent works, and where its work lands:
   # in the project itself, or in a checkout of its own that its session owns,
-  # inside the project's .ctxloom where she can see it and git cannot. It holds on her machine and in a container alike.
+  # under ctxloom's home and outside the project
+  # (`~/.ctxloom/worktrees/<project-id>/<session>/<agent>`), on a branch of
+  # its own (`ctxloom/<session>/<agent>`). It holds on her machine and in a
+  # container alike.
   @every-runtime
   Scenario Outline: The same run lands in the workspace its axis dictates
     # substitution: said as where the agent's work lands, on every runtime lane
@@ -49,7 +55,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
     Examples:
       | workspace | where                                                      |
       | none      | the project                                                |
-      | worktree  | a checkout its session owns, inside the project's .ctxloom |
+      | worktree  | a checkout its session owns, under ctxloom's home          |
 
   # A checkout of its own is a convenience: outside a git repository there is
   # nothing to check out, so the agent works in the project instead. Losing it
@@ -64,7 +70,8 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
     Then what the agent wrote is in the project
 
   # Two agents each working in a checkout of their own never share one, and
-  # neither works in the project.
+  # neither works in the project: each is under ctxloom's home, in its own
+  # session's directory there.
   Scenario: Two isolated runs share no workspace between them
     # substitution: told as the user's flow, with the commands she runs.
     When Alice runs the mock agent twice, each under workspace "worktree":
@@ -72,7 +79,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
       ctxloom run --one-shot --agent mock --workspace worktree "fix the login bug"
       ctxloom run --one-shot --agent mock --workspace worktree "update the changelog"
       """
-    Then the two runs' workdirs are distinct and neither is under the project directory
+    Then the two runs' workdirs are distinct, neither is under the project directory, and each is in its own session's directory under ctxloom's home
 
   # When the agent is done, Alice's project shows nothing it did not ask for.
   Scenario: A worktree run leaves the project tree clean
@@ -85,6 +92,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
 
   # Alice asks for a container on a machine that cannot run one. The run
   # stops and tells her why, and saying --degraded does not change that.
+  @pending
   Scenario Outline: Requesting a container with no runtime REFUSES, and --degraded does not rescue it
     # substitution: told as the user's flow, with the commands she runs.
     When Alice runs her container-bound agent "sandboxed":
@@ -102,6 +110,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # It is gone, and so are its logs; what the container program said as it
   # dropped the container is the only account there is, and Alice is given it
   # with the refusal.
+  @pending
   Scenario: A container the daemon kills before it runs is refused with the daemon's own reason
     # substitution: told as the user's flow, with the commands she runs.
     When Alice runs her container-bound agent "sandboxed", whose container the daemon kills, saying why:
@@ -113,6 +122,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
 
   # Alice's agent runs from its own session home, whether or not its agent
   # says so: her own engine setup is never opened, and is left as it was.
+  @pending
   Scenario Outline: An in-tree AGENT run gets a per-session config-home instance instead of Alice's own home
     # substitution: one scenario for a session's own home, with the agent declaring it or not
     Given Alice has a git-backed project
@@ -133,6 +143,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
 
   # An agent can opt into Alice's own engine setup. It gets exactly that, and
   # ctxloom tells her the choice is unsafe.
+  @pending
   Scenario Outline: An in-tree AGENT run that declares session_home: host keeps Alice's own real home
     # new: Go's scenario of this name says engine_home; the vocabulary ruling (2026-11-06) renamed the setting to session_home, so the scenario carries the new name. The run says the choice is unsafe; no session home is what Alice sees
     Given Alice has a git-backed project

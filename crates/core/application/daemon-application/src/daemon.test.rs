@@ -197,6 +197,7 @@ async fn mint(edge: &TestEdge, session: &str, harp: &str, engine: &str, owner: O
                 project_id: "calm-otter".to_string(),
                 session: owner.to_string(),
             }),
+            workspace: None,
         }),
     );
     edge.handle(book).await.unwrap();

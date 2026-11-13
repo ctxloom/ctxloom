@@ -1,7 +1,7 @@
 # world: surfaces
 # Ported from cli/skill.feature (rev f36e8dfb2)
-# NOT ported: the Rules tagged @pending: authoring and removal, and the export
-#   and import round trip (the zip import of a skill package).
+# NOT ported: the Rule tagged @pending: the export and import round trip (the
+#   zip import of a skill package).
 @doc
 Feature: skill — authoring an Agent Skill package, curating it, and shipping it
 
@@ -25,7 +25,6 @@ Feature: skill — authoring an Agent Skill package, curating it, and shipping i
   # strictly weaker than j000600's, asserted nothing j000600 does not, and is gone. What
   # remains here is what the noun itself owns.
 
-  @pending
   Rule: A skill package can be created and removed
 
     Before `skill remove`, a skill package could be created and never

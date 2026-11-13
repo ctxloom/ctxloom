@@ -16,7 +16,7 @@ use crate::{
     ChildCannotStop, DelegationLimit, EngineMismatch, HarpInvalid, NamesTaken, NoClaim,
     NoNativeSession, NoOpenIncarnation, NoSession, NotHolder, NotOwner, OwnerClosed,
     SessionDestroyed, SessionExists, SessionIsClosed, SessionRejection, SessionRunning,
-    SessionUnknown, UntrustedTarget, UrgencyUnsupported,
+    SessionUnknown, UntrustedTarget, UrgencyUnsupported, WorkspaceMismatch,
 };
 
 /// What a command handler fails with for `rejection`: the typed refusal
@@ -116,6 +116,18 @@ impl TryFrom<&TypedRefusal> for SessionRejection {
             return Ok(SessionRejection::EngineMismatch {
                 harp,
                 engine,
+                asked,
+            });
+        }
+        if let Some(WorkspaceMismatch {
+            harp,
+            workspace,
+            asked,
+        }) = refusal.object()
+        {
+            return Ok(SessionRejection::WorkspaceMismatch {
+                harp,
+                workspace,
                 asked,
             });
         }

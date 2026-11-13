@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use cucumber::gherkin::{Feature, GherkinEnv, Rule, Scenario, Step};
 use serde_json::Value;
 
-use super::library::{contains_value, reports_as, Project};
+use super::library::{contains_value, entries, reports_as, Project};
 use super::Ran;
 use crate::tests::files;
 
@@ -28,6 +28,11 @@ pub(crate) struct Common {
     pub(crate) ran: Option<Ran>,
     /// The last command line, as written.
     pub(crate) line: String,
+    /// Names a scenario writes that the test minted under another, each
+    /// `(written, minted)`, put in a command line's words before it runs: a
+    /// session's harp is minted, never chosen (owner S55), so a journey's
+    /// "amber-quiet-heron" is whichever harp its session was given.
+    pub(crate) aliases: Vec<(String, String)>,
 }
 
 impl Common {
@@ -37,6 +42,7 @@ impl Common {
             env: Vec::new(),
             ran: None,
             line: String::new(),
+            aliases: Vec::new(),
         }
     }
 
@@ -50,7 +56,15 @@ impl Common {
         let in_json = &quoted[1..quoted.len() - 1];
         for line in lines.lines().map(str::trim).filter(|l| !l.is_empty()) {
             let line = line.replace("$PROJECT_DIR", &dir);
-            let words = split(&line);
+            let words: Vec<String> = split(&line)
+                .into_iter()
+                .map(|word| {
+                    self.aliases
+                        .iter()
+                        .find(|(written, _)| *written == word)
+                        .map_or(word.clone(), |(_, minted)| minted.clone())
+                })
+                .collect();
             assert_eq!(words.first().map(String::as_str), Some("ctxloom"), "{line}");
             let args: Vec<&str> = words[1..].iter().map(String::as_str).collect();
             let env: Vec<(&str, &str)> = self
@@ -111,6 +125,22 @@ impl Common {
         .to_string()
     }
 
+    /// `the output reports "<path>" as empty, saying "<words>"`: asked for
+    /// text, the words are said; otherwise the json holds nothing at `path`,
+    /// null or an empty list there.
+    pub(crate) fn output_reports_empty(&self, path: &str, saying: &str) {
+        if self.text_asked() {
+            self.ran().contains(saying);
+            return;
+        }
+        let doc = self.ran().json();
+        match super::library::at(&doc, path) {
+            None | Some(Value::Null) => {}
+            Some(Value::Array(a)) => assert!(a.is_empty(), "{path}: {a:?}"),
+            Some(other) => panic!("{path} is {other}, so the command did find something"),
+        }
+    }
+
     /// `the output reports no "<path>"`: the json holds nothing at `path`.
     pub(crate) fn output_reports_no(&self, path: &str) {
         let ran = self.ran();
@@ -124,16 +154,48 @@ impl Common {
     }
 
     /// `the output reports "<path>" containing "<value>"`: the list at `path`
-    /// has `value` among its entries.
+    /// has `value` among its entries; an output that is not json (a text
+    /// row) says `value`, as [`Common::output_reports`] reads one.
     pub(crate) fn output_reports_containing(&self, path: &str, value: &str) {
         let ran = self.ran();
-        let doc = serde_json::from_str::<Value>(&ran.stdout)
-            .unwrap_or_else(|e| panic!("not json ({e}): {}", ran.said()));
+        let Ok(doc) = serde_json::from_str::<Value>(&ran.stdout) else {
+            ran.contains(value);
+            return;
+        };
         assert!(
             contains_value(&doc, path, value),
             "{path} should contain {value}: {}",
             ran.said()
         );
+    }
+
+    /// `the output reports "<path>" not containing "<value>"`: the negation
+    /// of [`Common::output_reports_containing`]: the list at `path` does not
+    /// hold `value` (nothing there holds nothing); an output that is not json
+    /// (a text row) does not say `value`.
+    pub(crate) fn output_reports_not_containing(&self, path: &str, value: &str) {
+        let ran = self.ran();
+        let Ok(doc) = serde_json::from_str::<Value>(&ran.stdout) else {
+            ran.lacks(value);
+            return;
+        };
+        assert!(
+            !contains_value(&doc, path, value),
+            "{path} should not contain {value}: {}",
+            ran.said()
+        );
+    }
+
+    /// `the output reports "<path>" having "<n>" entries`: the list (or
+    /// object) at `path` has `n` entries; an output that is not json (a text
+    /// row) says `n`'s words, as [`Common::output_reports`] reads one.
+    pub(crate) fn output_reports_having(&self, path: &str, n: &str) {
+        let ran = self.ran();
+        let Ok(doc) = serde_json::from_str::<Value>(&ran.stdout) else {
+            ran.contains(n);
+            return;
+        };
+        assert_eq!(entries(&doc, path).to_string(), n, "{path}: {}", ran.said());
     }
 
     pub(crate) fn output_reports(&self, path: &str, value: &str) {
@@ -240,6 +302,37 @@ macro_rules! common_steps {
                 w.common_mut().project = Project::bare();
             }
 
+            /// Go's fixture bundle: a manifest, an example fragment and an
+            /// example command (`Project::bundle`).
+            #[given(expr = "a bundle {string} exists")]
+            fn bundle(w: &mut World, name: String) {
+                w.common().project.bundle(&name);
+            }
+
+            #[given(expr = "a fragment {string} in bundle {string} exists")]
+            fn fragment(w: &mut World, name: String, bundle: String) {
+                w.common().project.fragment(&bundle, &name);
+            }
+
+            #[given(expr = "a command {string} in bundle {string} exists")]
+            fn command(w: &mut World, name: String, bundle: String) {
+                w.common().project.command(&bundle, &name);
+            }
+
+            /// Go's fixture: a dedicated `<name>-base` bundle, so the profile
+            /// stands alone.
+            #[given(expr = "a profile {string} exists")]
+            fn profile_exists(w: &mut World, name: String) {
+                let base = format!("{name}-base");
+                w.common().project.bundle(&base);
+                w.common().project.profile(&name, &base);
+            }
+
+            #[given(expr = "a profile {string} with bundle {string}")]
+            fn profile(w: &mut World, name: String, bundle: String) {
+                w.common().project.profile(&name, &bundle);
+            }
+
             #[given(expr = "the project already has the file {string}:")]
             fn project_file(w: &mut World, step: &Step, rel: String) {
                 w.common().project.write(&rel, &format!("{}\n", doc(step)));
@@ -305,9 +398,24 @@ macro_rules! common_steps {
                 w.common().output_reports_no(&path);
             }
 
+            #[then(expr = "the output reports {string} as empty, saying {string}")]
+            fn output_reports_empty(w: &mut World, path: String, saying: String) {
+                w.common().output_reports_empty(&path, &saying);
+            }
+
             #[then(expr = "the output reports {string} containing {string}")]
             fn output_reports_containing(w: &mut World, path: String, value: String) {
                 w.common().output_reports_containing(&path, &value);
+            }
+
+            #[then(expr = "the output reports {string} not containing {string}")]
+            fn output_reports_not_containing(w: &mut World, path: String, value: String) {
+                w.common().output_reports_not_containing(&path, &value);
+            }
+
+            #[then(expr = "the output reports {string} having {string} entries")]
+            fn output_reports_having(w: &mut World, path: String, n: String) {
+                w.common().output_reports_having(&path, &n);
             }
 
             #[given(expr = "the file {string} contains {string}")]
@@ -377,7 +485,8 @@ where
     let skips = std::sync::Arc::clone(&unsupported);
     let named = feature.clone();
     let writer = futures::executor::block_on(
-        W::cucumber()
+        W::cucumber::<&Path>()
+            .with_parser(SpacedPlaceholders)
             .after(move |feature, rule, scenario, finished, _| {
                 let id = scenario_id(&named, rule, scenario);
                 if let Some(why) = unsupported_here(finished) {
@@ -422,6 +531,110 @@ where
         scenarios.push((outside_id(&feature), false));
     }
     FeatureRun { passed, scenarios }
+}
+
+/// cucumber 0.21's parser for one feature file, except that an outline's
+/// placeholder whose name holds a space (Go's `<result count>`) is filled from
+/// its column like any other. cucumber expands only `<[^>\s]+>` and leaves
+/// such a placeholder as written, so before it expands the examples each such
+/// column is renamed ([`join_spaced_placeholders`]); the feature's text is
+/// never changed.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct SpacedPlaceholders;
+
+impl<I: AsRef<Path>> cucumber::Parser<I> for SpacedPlaceholders {
+    type Cli = cucumber::cli::Empty;
+    type Output = futures::stream::Iter<std::vec::IntoIter<cucumber::parser::Result<Feature>>>;
+
+    fn parse(self, input: I, _: Self::Cli) -> Self::Output {
+        use cucumber::feature::Ext as _;
+        let parsed = Feature::parse_path(input.as_ref(), GherkinEnv::default())
+            .map_err(cucumber::parser::Error::from)
+            .and_then(|feature| {
+                join_spaced_placeholders(feature)
+                    .expand_examples()
+                    .map_err(cucumber::parser::Error::from)
+            });
+        futures::stream::iter(vec![parsed])
+    }
+}
+
+/// The feature with every outline's spaced column names joined: a header
+/// cell `result count` of its Examples becomes `result_count` (underscores
+/// added until no other column of the outline has the name), and each
+/// `<result count>` in the outline's name, its steps' text, docstrings and
+/// table cells becomes `<result_count>`, so cucumber fills it from the
+/// column. A `<...>` that names no column is left as it is, as cucumber
+/// leaves it. The data rows are untouched, so a scenario's id is too.
+pub(crate) fn join_spaced_placeholders(mut feature: Feature) -> Feature {
+    for scenario in feature.scenarios.iter_mut().chain(
+        feature
+            .rules
+            .iter_mut()
+            .flat_map(|r| r.scenarios.iter_mut()),
+    ) {
+        join_in_scenario(scenario);
+    }
+    feature
+}
+
+fn join_in_scenario(scenario: &mut Scenario) {
+    let headers: Vec<String> = scenario
+        .examples
+        .iter()
+        .filter_map(|ex| ex.table.as_ref()?.rows.first())
+        .flatten()
+        .cloned()
+        .collect();
+    let mut taken: std::collections::BTreeSet<String> = headers.iter().cloned().collect();
+    let mut renames: Vec<(String, String)> = Vec::new();
+    for header in &headers {
+        if !header.chars().any(char::is_whitespace) || renames.iter().any(|(old, _)| old == header)
+        {
+            continue;
+        }
+        let mut joined = header.split_whitespace().collect::<Vec<_>>().join("_");
+        while taken.contains(&joined) {
+            joined.push('_');
+        }
+        taken.insert(joined.clone());
+        renames.push((header.clone(), joined));
+    }
+    if renames.is_empty() {
+        return;
+    }
+    let rename = |text: &mut String| {
+        for (old, new) in &renames {
+            let from = format!("<{old}>");
+            if text.contains(&from) {
+                *text = text.replace(&from, &format!("<{new}>"));
+            }
+        }
+    };
+    rename(&mut scenario.name);
+    for step in &mut scenario.steps {
+        rename(&mut step.value);
+        if let Some(doc) = step.docstring.as_mut() {
+            rename(doc);
+        }
+        for cell in step
+            .table
+            .iter_mut()
+            .flat_map(|t| t.rows.iter_mut().flatten())
+        {
+            rename(cell);
+        }
+    }
+    for header in scenario
+        .examples
+        .iter_mut()
+        .filter_map(|ex| ex.table.as_mut()?.rows.first_mut())
+        .flatten()
+    {
+        if let Some((_, new)) = renames.iter().find(|(old, _)| old == header) {
+            *header = new.clone();
+        }
+    }
 }
 
 /// The reason, when a scenario failed only because its step found the host
@@ -574,4 +787,35 @@ fn only_the_unsupported_host_panic_skips_a_scenario() {
     assert_eq!(unsupported_here(&panicked(std::sync::Arc::new(7_u8))), None);
     assert_eq!(unsupported_here(&ScenarioFinished::StepPassed), None);
     assert_eq!(unsupported_here(&ScenarioFinished::StepSkipped), None);
+}
+
+/// Each spaced column is joined in its header and wherever the outline names
+/// it (its name, a step's text, docstring and table), a joined name that
+/// another column has takes another underscore, and what names no column, or
+/// a data row, is left as written.
+#[test]
+fn spaced_columns_are_joined_in_the_header_and_wherever_the_outline_names_them() {
+    let text = "Feature: f\n  Rule: r\n    Scenario Outline: o <the count>\n      Then it says \"<the count>\" and <the_count> and <no such>\n        \"\"\"\n        <the count> <the  kind>\n        \"\"\"\n      And a table:\n        | <the count> | <the  kind> |\n\n      Examples:\n        | the count | the_count | the  kind |\n        | a b       | 2         | x y       |\n";
+    let feature =
+        join_spaced_placeholders(Feature::parse(text, GherkinEnv::default()).expect("it parses"));
+    let scenario = &feature.rules[0].scenarios[0];
+    assert_eq!(scenario.name, "o <the_count_>");
+    assert_eq!(
+        scenario.steps[0].value,
+        "it says \"<the_count_>\" and <the_count> and <no such>"
+    );
+    assert_eq!(
+        scenario.steps[0].docstring.as_deref().map(str::trim),
+        Some("<the_count_> <the_kind>")
+    );
+    assert_eq!(
+        scenario.steps[1].table.as_ref().expect("a table").rows,
+        vec![vec!["<the_count_>".to_string(), "<the_kind>".to_string()]]
+    );
+    let rows = &scenario.examples[0].table.as_ref().expect("a table").rows;
+    assert_eq!(rows[0], vec!["the_count_", "the_count", "the_kind"]);
+    assert_eq!(rows[1], vec!["a b", "2", "x y"]);
+    use cucumber::feature::Ext as _;
+    let expanded = feature.expand_examples().expect("it expands");
+    assert_eq!(expanded.rules[0].scenarios[0].name, "o a b");
 }

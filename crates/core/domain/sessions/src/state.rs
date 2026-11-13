@@ -57,6 +57,9 @@ pub struct SessionState {
     pub children: Vec<Child>,
     /// The free-text title `session rename` sets (S55); empty when none is.
     pub title: String,
+    /// The workspace axis it was minted on; none recorded (a session from
+    /// before it was): `none`.
+    pub workspace: Option<String>,
 }
 
 impl From<SessionState> for sessions_proto::v1::SessionState {
@@ -92,6 +95,7 @@ impl From<SessionState> for sessions_proto::v1::SessionState {
                 .map(sessions_proto::v1::Child::from)
                 .collect(),
             title: value.title,
+            workspace: value.workspace,
         }
     }
 }
@@ -144,6 +148,7 @@ impl TryFrom<sessions_proto::v1::SessionState> for SessionState {
                 .map(Child::try_from)
                 .collect::<Result<Vec<_>, _>>()?,
             title: value.title,
+            workspace: value.workspace,
         })
     }
 }

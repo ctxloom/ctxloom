@@ -42,7 +42,12 @@ struct Fake {
     report: Option<ImportReport>,
     imports: usize,
     wt_report: Option<isolation_application::Report>,
+    /// What an applied worktree question answers, when it differs from the
+    /// plan (`wt_report`): a removal's outcome.
+    wt_applied: Option<isolation_application::Report>,
     wt_asked: Vec<(Option<String>, bool)>,
+    /// Every worktree question and every removal, in the order asked.
+    log: Vec<&'static str>,
     /// Answer every worktree question with a refusal that is not "no session".
     wt_fails: bool,
 }
@@ -54,6 +59,11 @@ impl isolation_application::WorktreeUse for Fake {
         apply: bool,
     ) -> Result<isolation_application::Report, isolation_application::IsolationError> {
         self.wt_asked.push((harp.map(str::to_string), apply));
+        self.log.push(if apply {
+            "worktrees apply"
+        } else {
+            "worktrees plan"
+        });
         if self.wt_fails {
             return Err(isolation_application::IsolationError::NothingRemoved {
                 harp: harp.unwrap_or_default().to_string(),
@@ -61,11 +71,14 @@ impl isolation_application::WorktreeUse for Fake {
                 skipped: 0,
             });
         }
-        self.wt_report
-            .clone()
-            .ok_or(isolation_application::IsolationError::NoSession {
-                harp: harp.unwrap_or_default().to_string(),
-            })
+        let answer = if apply {
+            self.wt_applied.clone().or_else(|| self.wt_report.clone())
+        } else {
+            self.wt_report.clone()
+        };
+        answer.ok_or(isolation_application::IsolationError::NoSession {
+            harp: harp.unwrap_or_default().to_string(),
+        })
     }
 }
 

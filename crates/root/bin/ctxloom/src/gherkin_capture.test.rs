@@ -364,12 +364,16 @@ fn child_registered(w: &mut World) {
         .map(String::from)
         .collect();
     registered.sort();
+    // The per-turn capture events, and PostToolUse: ctxloom's skill-mates
+    // callback, which rides the launch (owner ruling 2026-11-12); never
+    // SessionStart or SessionEnd (ruling 51).
     assert_eq!(
         registered,
         [
             "MessageDisplay",
             "PostCompact",
             "PostToolBatch",
+            "PostToolUse",
             "PreCompact",
             "Stop",
             "UserPromptSubmit"

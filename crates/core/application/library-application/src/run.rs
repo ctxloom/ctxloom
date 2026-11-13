@@ -173,7 +173,7 @@ impl Project {
     }
 
     /// The selection of `set` and the caller's asks, assembled. Whether the
-    /// premised fragments load or are indexed follows the engine.
+    /// premised fragments load or are indexed follows `config.premised`.
     pub(crate) fn assemble_set(
         &mut self,
         set: &[ResolvedProfile],
@@ -188,7 +188,7 @@ impl Project {
         let selection = compose::select(set, &self.catalog, &request, findings);
         let options = Options {
             prefer_distilled: self.config.prefers_distilled(),
-            static_assembly: false,
+            premised: self.config.premised(),
         };
         // The registered companions' fragments follow the selected ones, and
         // are read from a catalog that holds their loadouts.
@@ -244,6 +244,7 @@ impl Project {
                         .map(|e| e.value.clone())
                         .unwrap_or_default(),
                     permissions: permissions.clone(),
+                    ..run_ports::Planned::default()
                 };
                 self.notices
                     .extend(advice_of(&self.engines, &effective.engine.value, &planned));
@@ -344,6 +345,7 @@ impl Project {
             })
             .collect();
         let fatal = rows.iter().filter(|r| r.fatal).cloned().collect();
+        let surfaces = self.launch_surfaces(&selection.profiles, &package.selection);
         let plan = DryRun {
             agent: request.agent.clone(),
             workspace: request.workspace.clone(),
@@ -370,6 +372,7 @@ impl Project {
                 .as_ref()
                 .map(|a| a.name.clone())
                 .unwrap_or_default(),
+            surfaces,
         };
         Ok(Previewed { plan, fatal })
     }

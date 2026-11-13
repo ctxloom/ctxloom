@@ -53,6 +53,7 @@ impl World {
             started_at: None,
             depth: 0,
             owner: None,
+            workspace: None,
         };
         let cover = Cover {
             domain: sessions::SESSION_DOMAIN.to_string(),
@@ -442,6 +443,7 @@ fn mint_book(harp: &str) -> CommandBook {
             started_at: None,
             depth: 0,
             owner: None,
+            workspace: None,
         }),
     )
 }

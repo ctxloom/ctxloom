@@ -48,7 +48,6 @@ Feature: profile — the composition that decides what an agent actually receive
   and journeys/j000400_multi_engine.feature. This file owns the composition
   itself.
 
-  @pending
   Rule: A created profile is a real file, and every read surface agrees with it
 
     # ONE BODY, ONCE PER ENCODING. Off a terminal ctxloom derives JSON, so the
@@ -140,7 +139,6 @@ Feature: profile — the composition that decides what an agent actually receive
         | --format json | dev            |
         | --format text | dev            |
 
-  @pending
   Rule: Composition is by attachment, and detaching takes the content back out
 
     A bundle or a parent is attached by name and detached by the same name.
@@ -405,7 +403,6 @@ Feature: profile — the composition that decides what an agent actually receive
     # scenario would pass just as happily against a `remove` that reported and
     # destroyed nothing, since the re-import would recreate the file either
     # way.
-    @pending
     Scenario Outline: Export, remove, and re-import a profile
       Given an initialized ctxloom project
       And a bundle "demo" exists
@@ -501,7 +498,6 @@ Feature: profile — the composition that decides what an agent actually receive
       Then the command succeeds
       And the materialize report names each surface mock-launch does not carry, with a reason
 
-  @pending
   Rule: Removal reports first and destroys only when told to
 
     # Bare `remove` is a preview: it must name what it would destroy AND leave

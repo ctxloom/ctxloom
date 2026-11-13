@@ -1,0 +1,46 @@
+# The release (owner rulings 2026-11-12), on a pushed `v*` tag: ctxloom/ci's
+# reusable binaries workflow builds the PLAIN binary (no test-support, no
+# session-destroy, Cargo.toml's release profile, versionator-stamped by
+# build.rs) for linux-x86_64, windows-x86_64, macos-arm64 and macos-x86_64,
+# each stripped NEXT TO its debug file (`just release-package <os>`: linux
+# `<name>.debug`, macOS `<name>.dSYM.zip`, Windows `<name>.pdb`), the binary
+# archived as `<name>.tar.gz` (`<name>.zip` on Windows). Its reusable release
+# workflow then adds install.sh and install.ps1 (defaults set to this
+# repository and `ctxloom`), writes SHA256SUMS over the eight files and the
+# installers, and creates the GitHub release; only that job may write the
+# repository's contents. A person cuts it: `just set-version <v>`, commit,
+# push the tag `v<v>` (CLAUDE.md, "Releases"); a tag that is not VERSION's
+# is refused before anything is built.
+#
+# `workflow_dispatch` builds the same files and uploads them as the run's
+# artifacts (`release-files` holds SHA256SUMS and the installers), and
+# creates NO release.
+
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  binaries:
+    uses: ctxloom/ci/.github/workflows/binaries.yml@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
+    with:
+      bin: ctxloom
+      profile: release
+
+  release:
+    needs: binaries
+    permissions:
+      contents: write # the release job alone creates the release
+    uses: ctxloom/ci/.github/workflows/release.yml@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
+    with:
+      bin: ctxloom
+      ci-ref: fa01764571615bd3174313e84631bdd5c13a02e6
+      # Four archives and four debug files.
+      expected-files: 8

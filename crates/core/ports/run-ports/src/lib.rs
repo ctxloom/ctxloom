@@ -22,6 +22,7 @@ mod launcher;
 mod locks;
 mod login;
 mod permit;
+mod program;
 mod records;
 mod serving;
 mod settings;
@@ -41,8 +42,9 @@ pub use discovery::{
 };
 pub use edge::{Arrival, Edge, SyncAnswered, Unserved};
 pub use engine::{
-    copy_in, Advice, Credentials, Engine, EngineError, FailureClass, HomeFile, LeftOut, Planned,
-    PrepareRequest, Prepared, TurnOutcome, TurnRequest, UserSettings, HOME_VARIABLE,
+    copy_in, Advice, Credentials, Engine, EngineError, FailureClass, HomeFile, LaunchSurfaces,
+    LeftOut, Planned, PrepareRequest, Prepared, TurnOutcome, TurnRequest, UserSettings,
+    HOME_VARIABLE, ROOT_VARIABLE,
 };
 pub use git::{git_config, GitUser, GIT_CONFIG_FILE};
 pub use hook::{
@@ -61,6 +63,7 @@ pub use launcher::{
 pub use locks::{HeldLock, LockError, LockProbe, RunLocks};
 pub use login::{LinkState, LoginLinks};
 pub use permit::{apply_permits, permits, Ignored, Permits, PERMIT_PREFIX};
+pub use program::{check_batch_arguments, is_batch_file, BatchArguments, ProgramNotFound};
 pub use records::{check_rel, RecordsError, SessionRecords};
 pub use serving::{BoxFuture, HookServer, Serving};
 pub use settings::{AuthSetting, CredentialPolicy, EngineSettings, SessionHome};
@@ -80,6 +83,19 @@ pub fn diagnostic_samples() -> Vec<Box<dyn angzarr_diagnostic::Diagnostic>> {
         length: 40_000,
         limit: WINDOWS_COMMAND_LINE,
     }));
+    samples.push(Box::new(ProgramNotFound {
+        program: "claude".to_string(),
+        names: vec!["claude.exe".to_string(), "claude.cmd".to_string()],
+        dirs: vec![r"C:\Users\a\bin".to_string()],
+    }));
+    samples.push(Box::new(ProgramNotFound {
+        program: "claude".to_string(),
+        names: vec!["claude".to_string()],
+        dirs: Vec::new(),
+    }));
+    samples.push(Box::new(BatchArguments {
+        program: r"C:\Users\a\AppData\Roaming\npm\claude.cmd".to_string(),
+    }));
     samples.extend(tls::diagnostic_samples());
     samples.extend(child::diagnostic_samples());
     samples.push(Box::new(EngineError::NotYet {
@@ -97,6 +113,10 @@ pub fn diagnostic_samples() -> Vec<Box<dyn angzarr_diagnostic::Diagnostic>> {
     samples.push(Box::new(EngineError::BadPermissions {
         engine: "claude-code".to_string(),
         ext_err_txt: "expected value at line 1".to_string(),
+    }));
+    samples.push(Box::new(EngineError::CannotCarry {
+        engine: "claude-code".to_string(),
+        ext_err_txt: "it has no \"browser\" tool".to_string(),
     }));
     samples.push(Box::new(RecordsError::BadPath {
         rel: "..".to_string(),

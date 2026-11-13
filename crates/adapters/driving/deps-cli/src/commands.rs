@@ -191,12 +191,23 @@ fn deps() -> Command {
     .subcommand(
         Command::new("upgrade")
             .about("Show, then apply, the newest pins your constraints allow")
+            .arg(
+                Arg::new("reference")
+                    .value_name("REFERENCE")
+                    .help("Move only this dependency's pin (every other pin stays)"),
+            )
             .arg(yes("Apply the upgrade this invocation would report (default: report only)")),
     )
     .subcommand(
         Command::new("hold")
             .about("Freeze a dependency at its locked commit so `upgrade` cannot advance it")
-            .arg(one("name", "The dependency")),
+            .arg(one("name", "The dependency"))
+            .arg(
+                Arg::new("undo")
+                    .long("undo")
+                    .action(ArgAction::SetTrue)
+                    .help("Release the hold so `upgrade` can advance the dependency again"),
+            ),
     )
     .subcommand(
         Command::new("unhold")

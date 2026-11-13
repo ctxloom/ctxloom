@@ -198,6 +198,7 @@ pub fn minted_in(
             started_at: None,
             depth: 0,
             owner: None,
+            workspace: None,
         },
     );
 }

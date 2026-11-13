@@ -115,3 +115,31 @@ fn test_an_agent_takes_no_env_host() {
         assert!(parse(&["agent", verb, "dev", "--env", "A"]).is_ok());
     }
 }
+
+// Each item noun's create names the reference form of its own kind.
+#[test]
+fn test_each_item_create_names_its_own_reference_form() {
+    let help = |noun: &str| -> String {
+        let noun = nouns()
+            .into_iter()
+            .find(|n| n.get_name() == noun)
+            .expect("the noun");
+        let create = noun.find_subcommand("create").expect("create").clone();
+        let text = create
+            .get_arguments()
+            .find(|a| a.get_id() == "bundle")
+            .and_then(|a| a.get_help().map(ToString::to_string))
+            .expect("the bundle argument's help");
+        text
+    };
+    assert!(
+        help("fragment").starts_with("bundle#fragments/name"),
+        "{}",
+        help("fragment")
+    );
+    assert!(
+        help("command").starts_with("bundle#commands/name"),
+        "{}",
+        help("command")
+    );
+}

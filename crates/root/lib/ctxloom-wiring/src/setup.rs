@@ -50,6 +50,16 @@ impl Create for ConfigCreate {
             .map(|_| ())
             .map_err(|e| Box::new(e) as Failure)
     }
+
+    fn set_premised(&self, word: &str) -> Result<(), Failure> {
+        let wiring = Wiring::new(Arc::clone(&self.1)).map_err(|e| Box::new(e) as Failure)?;
+        let library = crate::library::build(&wiring, None).map_err(|e| Box::new(e) as Failure)?;
+        library
+            .set_premised(&library_application::Flags::default(), word)
+            .result
+            .map(|_| ())
+            .map_err(|e| Box::new(e) as Failure)
+    }
 }
 
 /// The identity git commits with in the directory ctxloom was run in, asked
@@ -104,7 +114,17 @@ impl SetupUseCases {
         )
         // An entry running this binary, by its file name, is ctxloom's too
         // (owner ruling 163).
-        .calling(&crate::program::running().name);
+        .calling(&crate::program::running().name)
+        // What each agent's engine cannot carry, as the library reports it.
+        .reporting_losses({
+            let library = crate::library::build(wiring, None)?;
+            Box::new(move || {
+                library
+                    .agents_losses(&library_application::Flags::default())
+                    .result
+                    .unwrap_or_default()
+            })
+        });
         let init = Init::new(
             Arc::new(ScaffoldFs::new(Arc::clone(&fs), &around.cwd)),
             user,

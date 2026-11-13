@@ -259,6 +259,7 @@ impl Fixture {
             started_at: None,
             depth: 0,
             owner: None,
+            workspace: None,
         };
         let book = sessions::keyed_book(cover, &mint, &format!("mint:{harp}"));
         self.world.handle(book).await.unwrap();

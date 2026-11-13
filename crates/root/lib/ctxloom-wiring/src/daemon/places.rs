@@ -68,6 +68,7 @@ impl daemon_api::Places for ProjectPlaces {
             GitWorkspaces::new(
                 Arc::clone(&self.fs),
                 dir.clone(),
+                None,
                 self.snapshot(project_dir, env),
             ),
             LockFiles::new(Arc::clone(&self.fs), dir),

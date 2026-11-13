@@ -1,8 +1,8 @@
+# world: surfaces
 # Ported from cli/search.feature (rev f36e8dfb2)
-# NOT ported: any of it yet (the Feature is @pending).
+# NOT ported: nothing
 
 @doc
-@pending
 Feature: search — finding content by name, tag and type, here and upstream
 
   Covers: `ctxloom search`, in full. It is a SOLO VERB — there are no

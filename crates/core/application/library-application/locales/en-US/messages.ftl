@@ -86,6 +86,9 @@ library-application-notice-default-engine-block = agent { $agent } names no engi
 library-application-notice-default-engine-block-fix = to write another engine's block, name it with --engine
 library-application-notice-user-settings-left-out = { $path } is not a JSON object, so the { $engine } session started without these settings of yours
 library-application-notice-user-settings-left-out-fix = make { $path } a JSON object, or move it aside
+library-application-notice-workspace-unavailable = no worktree could be had, so the engine works in the project itself: { $reason }
+library-application-notice-checkout-left = the session's checkout { $path } (branch { $branch }) was left in place: { $reason }
+library-application-notice-checkout-left-fix = commit or discard its work; the session's next run re-enters it, and `ctxloom session remove` takes it once it is clean
 library-application-notice-root-ignored = CTXLOOM_ROOT={ $root } is not a directory; ignoring it
 
 ## Writes (S2). A refused write has written nothing.

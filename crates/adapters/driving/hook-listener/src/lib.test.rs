@@ -224,6 +224,7 @@ impl World {
                 started_at: None,
                 depth: 0,
                 owner: None,
+                workspace: None,
             };
             edge.handle(CommandBook::command_of(
                 cover(sessions::SESSION_DOMAIN, &uuid(session)),

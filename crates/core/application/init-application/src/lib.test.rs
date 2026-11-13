@@ -55,6 +55,7 @@ mod init {
 
     use crate::{
         Create, Init, InitError, InitRequest, Terminal, OUTPUT_DIR_QUESTION, OUTPUT_DIR_SUGGESTED,
+        PREMISED_ALWAYS, PREMISED_QUESTION, PREMISED_SUGGESTED, PREMISED_TRIES,
     };
 
     /// The scaffold, counting how often it was asked for, and the output
@@ -65,6 +66,8 @@ mod init {
         refuses: bool,
         outputs: RefCell<Vec<String>>,
         refuses_output: bool,
+        /// The `config.premised` words written into its config.
+        premised: RefCell<Vec<String>>,
         /// The dependency use cases over the project once created; none,
         /// a fixture of its own.
         project: Option<Rc<deps_application::Deps>>,
@@ -87,6 +90,14 @@ mod init {
             Ok(())
         }
 
+        fn set_premised(&self, word: &str) -> Result<(), Failure> {
+            if self.refuses_output {
+                return Err(Box::new(deps_application::AppError::DefaultNeedsName));
+            }
+            self.premised.borrow_mut().push(word.to_string());
+            Ok(())
+        }
+
         fn deps(&self) -> Result<Rc<deps_application::Deps>, Failure> {
             Ok(self
                 .project
@@ -100,6 +111,8 @@ mod init {
     struct Typed {
         terminal: bool,
         line: Option<&'static str>,
+        /// The lines she types first, one an ask, before `line`.
+        first: RefCell<Vec<Option<&'static str>>>,
         asked: RefCell<Vec<(String, String)>>,
     }
 
@@ -108,8 +121,15 @@ mod init {
             Typed {
                 terminal,
                 line,
+                first: RefCell::new(Vec::new()),
                 asked: RefCell::new(Vec::new()),
             }
+        }
+
+        /// She types `first`, in order, then `line` to every later ask.
+        fn after(mut self, first: &[Option<&'static str>]) -> Typed {
+            self.first = RefCell::new(first.iter().rev().copied().collect());
+            self
         }
     }
 
@@ -124,7 +144,8 @@ mod init {
             self.asked
                 .borrow_mut()
                 .push((question.to_string(), suggested.to_string()));
-            self.line.map(String::from)
+            let typed = self.first.borrow_mut().pop().unwrap_or(self.line);
+            typed.map(String::from)
         }
     }
 
@@ -158,6 +179,91 @@ mod init {
         assert_eq!(OUTPUT_DIR_SUGGESTED, "ctxloom/");
         assert!(OUTPUT_DIR_QUESTION.contains("not gitignored"), "it says so");
         assert!(OUTPUT_DIR_QUESTION.contains("committed"), "it says so");
+    }
+
+    // Owner ruling of 2026-11-12: a first init at a terminal asks whether
+    // conditional guidance loads only when it applies (`on-demand`, the
+    // suggestion) or always, and writes the answer as `config.premised`; a
+    // bare Enter or a closed input takes the suggestion, the answer is
+    // trimmed and taken in any case.
+    #[test]
+    fn a_first_init_at_a_terminal_asks_when_conditional_guidance_loads_and_writes_it() {
+        for (line, want) in [
+            (Some("always\n"), PREMISED_ALWAYS),
+            (Some("  Always \n"), PREMISED_ALWAYS),
+            (Some("on-demand\n"), PREMISED_SUGGESTED),
+            (Some("\n"), PREMISED_SUGGESTED),
+            (None, PREMISED_SUGGESTED),
+        ] {
+            let creator = Rc::new(Creator::default());
+            let terminal = Typed::new(true, line);
+            let chosen = init_with(Ok(false), creator.clone(), Fixture::new())
+                .choose_premised(&terminal)
+                .expect("written");
+            assert_eq!(chosen.as_deref(), Some(want), "{line:?}");
+            assert_eq!(*creator.premised.borrow(), [want.to_string()]);
+            assert_eq!(
+                *terminal.asked.borrow(),
+                [(
+                    PREMISED_QUESTION.to_string(),
+                    PREMISED_SUGGESTED.to_string()
+                )]
+            );
+        }
+        assert_eq!(PREMISED_SUGGESTED, "on-demand");
+        assert_eq!(PREMISED_ALWAYS, "always");
+        assert!(PREMISED_QUESTION.contains("only when it applies"));
+        assert!(PREMISED_QUESTION.contains("smaller"));
+        assert!(PREMISED_QUESTION.contains("always"));
+    }
+
+    // An answer that is neither word is asked again; one that never becomes
+    // a word leaves the suggestion standing after the last try.
+    #[test]
+    fn an_answer_that_is_neither_word_is_asked_again_then_the_suggestion_stands() {
+        let creator = Rc::new(Creator::default());
+        let terminal = Typed::new(true, Some("\n")).after(&[Some("sometimes\n"), Some("always\n")]);
+        let chosen = init_with(Ok(false), creator.clone(), Fixture::new())
+            .choose_premised(&terminal)
+            .expect("written");
+        assert_eq!(chosen.as_deref(), Some(PREMISED_ALWAYS));
+        assert_eq!(terminal.asked.borrow().len(), 2, "asked again once");
+
+        let creator = Rc::new(Creator::default());
+        let terminal = Typed::new(true, Some("yes please\n"));
+        let chosen = init_with(Ok(false), creator.clone(), Fixture::new())
+            .choose_premised(&terminal)
+            .expect("written");
+        assert_eq!(chosen.as_deref(), Some(PREMISED_SUGGESTED));
+        assert_eq!(*creator.premised.borrow(), [PREMISED_SUGGESTED.to_string()]);
+        assert_eq!(terminal.asked.borrow().len(), PREMISED_TRIES);
+        assert_eq!(PREMISED_TRIES, 3);
+    }
+
+    // Off a terminal the question is not put and nothing is written.
+    #[test]
+    fn off_a_terminal_when_conditional_guidance_loads_is_not_asked() {
+        let creator = Rc::new(Creator::default());
+        let terminal = Typed::new(false, Some("always\n"));
+        let chosen = init_with(Ok(false), creator.clone(), Fixture::new())
+            .choose_premised(&terminal)
+            .expect("ok");
+        assert_eq!(chosen, None);
+        assert!(terminal.asked.borrow().is_empty());
+        assert!(creator.premised.borrow().is_empty());
+    }
+
+    // A write of the answer that is refused ends init with its reason.
+    #[test]
+    fn a_premised_answer_that_cannot_be_written_ends_init() {
+        let creator = Rc::new(Creator {
+            refuses_output: true,
+            ..Creator::default()
+        });
+        let error = init_with(Ok(false), creator, Fixture::new())
+            .choose_premised(&Typed::new(true, Some("always\n")))
+            .expect_err("refused");
+        assert!(matches!(error, InitError::Create(_)));
     }
 
     // Off a terminal nobody is asked and nothing is written: the default

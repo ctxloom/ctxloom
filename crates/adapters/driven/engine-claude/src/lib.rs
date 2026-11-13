@@ -15,6 +15,7 @@
 //! session), so `.mcp.json` carries only the servers the profiles' bundles
 //! ship, and no file is conjured for none.
 
+mod advice;
 mod child;
 mod codec;
 mod commands;
@@ -29,9 +30,15 @@ use surface_ports::{
     SurfaceStore, Wiring,
 };
 
+#[cfg(any(test, feature = "test-support"))]
+pub use advice::diagnostic_samples;
+pub use advice::{ClaudeNotice, EN_US};
 pub use child::{launcher_environment, transcripts_of};
 pub use codec::Codec;
-pub use drive::{CONTEXT_PROMPT_FILE, COPY_IN_ALLOWLIST, ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST};
+pub use drive::{
+    CONTEXT_PROMPT_FILE, COPY_IN_ALLOWLIST, ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST,
+    MCP_CONFIG_FILE,
+};
 
 /// The engine's name.
 pub const NAME: &str = "claude-code";
@@ -106,6 +113,13 @@ impl EngineSurfaces for Claude {
     }
 
     fn context_rides_launch(&self) -> bool {
+        true
+    }
+
+    /// Everything rides claude's launch (owner ruling 2026-11-12): the
+    /// hooks, statusline, deny list, servers, commands and skills of the run
+    /// agent's selection, in its session home, in every directory.
+    fn rides_launch(&self, _kind: Kind) -> bool {
         true
     }
 
@@ -214,7 +228,7 @@ impl EngineSurfaces for Claude {
 
 /// One server as `.mcp.json` spells it: a command to spawn, or a URL to
 /// reach.
-fn mcp_entry(server: &McpServer) -> Json {
+pub(crate) fn mcp_entry(server: &McpServer) -> Json {
     let map = |m: &std::collections::BTreeMap<String, String>| {
         Json::Object(
             m.iter()

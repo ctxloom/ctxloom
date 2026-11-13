@@ -101,14 +101,35 @@ fn test_create_with_no_description_writes_the_default_one() {
 fn test_create_refuses_what_is_there_a_bad_name_and_a_missing_bundle() {
     let (library, mem) = world();
     assert!(err(library.skill_create(&plain(), "vault", "reviewer", "d")).contains("SkillExists"));
-    for bad in ["a/b", ".x", "..", "", "a\\b"] {
+    for bad in ["a/b", ".x", "..", "a\\b"] {
         assert!(
             err(library.skill_create(&plain(), "vault", bad, "d")).contains("BadSkillName"),
             "{bad:?}"
         );
     }
     assert!(err(library.skill_create(&plain(), "nobundle", "x", "d")).contains("BundleNotFound"));
+    // No name: the first word is a reference, and a bundle alone is none.
+    assert!(err(library.skill_create(&plain(), "vault", "", "d")).contains("SkillReference"));
     assert_eq!(mem.writes(), 0);
+}
+
+// The decided verbs (docs/plans/ctxloom-features.md): every item verb takes
+// one reference, `create` too.
+#[test]
+fn test_create_by_reference_scaffolds_the_named_package() {
+    let (library, mem) = world();
+    let done = library
+        .skill_create(&plain(), "landed#skills/fresh", "", "SKILL-MARKER-fresh")
+        .result
+        .unwrap();
+    assert_eq!(
+        (done.bundle.as_str(), done.name.as_str()),
+        ("landed", "fresh")
+    );
+    assert!(mem
+        .text("landed", "skills/fresh/SKILL.md")
+        .unwrap()
+        .contains("description: SKILL-MARKER-fresh"));
 }
 
 // skill.feature: Removing a skill drops its on-disk directory

@@ -227,7 +227,14 @@ fn init(
         .init(&request)
         .map_err(|e| failure(e, Exit::FAILED))?;
     if done.existed {
-        writeln!(out, "ctxloom directory already exists: {}", done.app_dir).map_err(output)?;
+        // A re-run is no refusal: the directory is kept and init goes on, to
+        // the remotes it was given, the token guide and the interview.
+        writeln!(
+            out,
+            "ctxloom directory already exists: {} (kept as it is; init goes on)",
+            done.app_dir
+        )
+        .map_err(output)?;
     } else {
         writeln!(out, "Created ctxloom directory: {}", done.app_dir).map_err(output)?;
         // A first init at a terminal asks where a session's outputs go
@@ -242,6 +249,20 @@ fn init(
                 "Session outputs go to {dir} (not gitignored: they can be committed)"
             )
             .map_err(output)?;
+        }
+        // Then when conditional guidance loads (owner ruling of 2026-11-12);
+        // off a terminal, on-demand stands unasked.
+        if let Some(word) = uses
+            .init
+            .choose_premised(uses.terminal)
+            .map_err(|e| failure(e, Exit::FAILED))?
+        {
+            let said = if word == init_application::PREMISED_ALWAYS {
+                "Conditional guidance always loads"
+            } else {
+                "Conditional guidance loads only when it applies"
+            };
+            writeln!(out, "{said} (config.premised: {word})").map_err(output)?;
         }
     }
     for remote in &done.remotes {

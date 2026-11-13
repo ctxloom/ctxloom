@@ -51,6 +51,7 @@ async fn world() -> (Store, Arc<TheEdge>) {
         started_at: None,
         depth: 0,
         owner: None,
+        workspace: None,
     };
     edge.handle(angzarr_embedded::v1::CommandBook::command_of(
         session_cover(),

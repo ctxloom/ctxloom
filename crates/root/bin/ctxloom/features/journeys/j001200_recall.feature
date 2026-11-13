@@ -1,8 +1,11 @@
+# world: base
 # Ported from journeys/j001200_recall.feature (rev f36e8dfb2)
-# NOT ported: any of it yet (the Feature is @pending).
+# NOT ported: nothing. Owner ruling 115: a resume hands the engine its own
+#   session (claude's `--resume <id>`, in the same session home), so the
+#   mock model is a stub claude that keeps its own history there and records
+#   what it was given; nothing folds ctxloom's record into the context.
 
 @doc
-@pending
 Feature: The archaeologist — what did we decide in March?
 
   Somebody asks why the worktree layout is the way it is. Three people remember

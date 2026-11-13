@@ -841,6 +841,48 @@ fn test_deps_upgrade_names_what_it_drops_what_it_could_not_reach_and_what_is_not
     );
 }
 
+// j001900: `hold --undo` is the toggle's undo (vocabulary: every toggle
+// undoes with `--undo`), and says what `unhold` says.
+#[test]
+fn test_hold_undo_releases_the_hold() {
+    let (fx, _) = pulled();
+    go(&fx, &["deps", "hold", "origin/demo"], JSON).ok();
+    assert_eq!(
+        go(&fx, &["deps", "hold", "origin/demo", "--undo"], TEXT)
+            .ok()
+            .out,
+        "Released hold on \"origin/demo\"; the next 'ctxloom deps upgrade' may advance it.\n"
+    );
+    let listing = go(&fx, &["deps", "list"], JSON).json();
+    assert_eq!(listing["deps"][0]["held"], false, "{listing}");
+}
+
+// j001900: `upgrade <ref>` previews and applies the one pin.
+#[test]
+fn test_deps_upgrade_of_one_reference_moves_that_pin() {
+    let (fx, sha) = pulled();
+    let later = fx.remotes.commit(URL, &demo("1.1.0", "two edition"));
+    let preview = go(&fx, &["deps", "upgrade", "origin/demo"], TEXT);
+    assert!(
+        preview
+            .would_change()
+            .out
+            .contains(&format!("({} -> {})", &sha[..7], &later[..7])),
+        "{}",
+        preview.out
+    );
+    let applied = go(&fx, &["deps", "upgrade", "origin/demo", "--yes"], TEXT);
+    assert!(
+        applied.ok().out.ends_with("Applied 1 pin(s).\n"),
+        "{}",
+        applied.out
+    );
+    assert_eq!(
+        go(&fx, &["deps", "upgrade", "origin/typo", "--yes"], TEXT).refused(),
+        ("deps-application-nothing-to-hold", 20)
+    );
+}
+
 #[test]
 fn test_hold_and_unhold_say_what_they_did() {
     let (fx, _) = pulled();

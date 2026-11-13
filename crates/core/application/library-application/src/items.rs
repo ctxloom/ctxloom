@@ -205,13 +205,22 @@ impl Project {
     }
 
     fn item_show(
-        &self,
+        &mut self,
         kind: Kind,
         reference: &str,
         distilled: bool,
     ) -> Result<ItemShow, AppError> {
         let (bundle, name) = self.item_target(kind, reference)?;
-        let entry = self.bundle(&bundle)?;
+        // A companion's bundle is in the catalog only with the companions'
+        // loadouts, which are asked for only when one is named (the premise
+        // index names a companion's fragments, for `fragment show`).
+        let with_companions;
+        let entry = if is_companion(&bundle) {
+            with_companions = self.catalog_with_companions();
+            with_companions.lookup(&bundle).map_err(AppError::cause)?
+        } else {
+            self.bundle(&bundle)?
+        };
         let body = match kind {
             Kind::Fragment => entry.bundle.fragments.get(&name).map(|f| &f.body),
             Kind::Command => entry.bundle.commands.get(&name).map(|c| &c.body),
@@ -423,6 +432,11 @@ fn library_yaml(text: &str) -> Result<angzarr_yaml::Value, String> {
         return Ok(angzarr_yaml::Value::Null);
     }
     angzarr_yaml::parse(text).map_err(|e| format!("invalid SKILL.md frontmatter: {e}"))
+}
+
+/// Whether `bundle` is a companion's reference (`ctxloom+companion:<bin>`).
+fn is_companion(bundle: &str) -> bool {
+    refs::Parts::parse(bundle).is_ok_and(|parts| parts.class == refs::SourceClass::Companion)
 }
 
 fn show_of(skill: LoadedSkill) -> SkillShow {

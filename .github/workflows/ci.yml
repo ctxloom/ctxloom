@@ -1,11 +1,14 @@
-# The gates, on every push and pull request (modelled on angzarr-platform's
-# ci.yml). On Linux every gate but mutation (closeout's, never CI's): the
-# justfile's build, lint (lint-arch and lint-path-deps with it), lint-os,
-# check-windows and selftest, and gates/gates.just's fmt-check, lint-deps and
-# test. On macOS (arm64), natively, build and test, as on Windows. On Windows,
-# natively, build and test: the whole workspace's tests run,
-# and a test whose fake programs are sh scripts says `SKIP <test>: <why>`
-# (CLAUDE.md, "CI").
+# The gates, on every push and pull request, as thin callers of the shared
+# setup actions of github.com/ctxloom/ci (owner rulings 2026-11-12), every
+# one pinned at one commit of its main. On Linux every gate but mutation
+# (closeout's and the nightly's): the justfile's build, lint (lint-arch and
+# lint-path-deps with it), lint-os, check-windows and selftest, and
+# gates/gates.just's fmt-check, lint-deps and test, the whole suite. On
+# Windows and macOS (arm64), natively, build and test: the WHOLE suite on
+# main, pull requests and tags, and on any other branch push the nextest
+# profile `ci-platform` (.config/nextest.toml), the tests that touch the
+# platform. A test whose fake programs are sh scripts says `SKIP <test>:
+# <why>` on Windows (CLAUDE.md, "CI").
 #
 # A plain checkout: every dependency outside this repository is a public git
 # dependency over https, pinned by commit (Cargo.toml), so no credential is
@@ -13,16 +16,16 @@
 #
 # Every action is pinned to a commit, its release in the comment; every tool
 # to a version: the repository's own pins where it has one (rust-toolchain.toml,
-# .config/nextest.toml's recommended nextest, the justfile's arch-lint rev,
-# the Containerfile's cargo-deny and node), else the version the gates are run
-# with locally (just 1.40.0, protoc 3.21.12, ltk at f36e8df of go-final,
-# versionator v0.3.0).
+# .config/nextest.toml's recommended nextest, the justfile's arch-lint rev),
+# else the version the gates are run with locally (just 1.40.0, cargo-deny
+# 0.20.2, protoc 3.21.12, node 22, ltk at f36e8df of go-final, versionator
+# v0.3.0). versionator (build.rs's version stamp: no versionator, no build)
+# is its release binary by checksum, so no job sets up Go; ltk (Linux only,
+# for selftest's ltk-rules-check.sh) is go-installed on a cache miss only.
 #
-# The binary's build.rs stamps the version through versionator (no versionator,
-# no build), so every job install it with Go before anything builds. It reads
-# HEAD alone (its short hash, the build time, whether the tree is dirty): the
-# checkout's default depth of 1, with no tags, is enough (a tag count it cannot
-# make renders empty and is not in the stamp).
+# The binaries are binaries.yml's (a push to main) and release.yml's (a tag).
+# The nightly (full suites everywhere, macOS x86_64, mutation scoring) is
+# nightly.yml.
 
 name: ci
 
@@ -36,59 +39,40 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: never
-  PROTOC_VERSION: "21.12"
 
 jobs:
   linux:
-    name: gates (linux)
+    name: build and test (linux)
     runs-on: ubuntu-24.04
+    # Owner ruling 2026-11-12: the Linux job runs IN the dev container, once
+    # its image is published (by digest, as every pin):
+    # container: ghcr.io/ctxloom/ctxloom-dev@sha256:<digest>
     defaults:
       run:
         shell: bash
-    env:
-      TOOLS: just@1.40.0,cargo-nextest@0.9.146,cargo-deny@0.20.2
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # The default too: `just selftest` runs the gates on fixture workspaces
-      # outside the checkout, which rust-toolchain.toml does not reach.
-      - name: Toolchain (rust-toolchain.toml, also the default) and the Windows target
-        run: |
-          rustup show active-toolchain || rustup toolchain install
-          rustup default "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)"
-          rustup target add x86_64-pc-windows-gnu
-      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
-          tool: ${{ env.TOOLS }}
-      - name: protoc (angzarr-build's codegen)
-        run: |
-          cd "$RUNNER_TEMP"
-          zip="protoc-$PROTOC_VERSION-linux-x86_64.zip"
-          curl -fsSL -o "$zip" "https://github.com/protocolbuffers/protobuf/releases/download/v$PROTOC_VERSION/$zip"
-          echo "3a4c1e5f2516c639d3079b1586e703fc7bcfa2136d58bda24d1d54f949c315e8  $zip" | sha256sum -c -
-          unzip -q "$zip" -d protoc
-          echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
+          persist-credentials: false
+      # The Windows target for check-windows. The toolchain is made the
+      # default too: `just selftest` runs the gates on fixture workspaces
+      # outside the checkout, which rust-toolchain.toml does not reach.
+      - uses: ctxloom/ci/.github/actions/setup-rust@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
+        with:
+          tools: just@1.40.0,cargo-nextest@0.9.146,cargo-deny@0.20.2
+          targets: x86_64-pc-windows-gnu
+      - uses: ctxloom/ci/.github/actions/setup-protoc@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
+      - uses: ctxloom/ci/.github/actions/setup-versionator@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
+      - uses: ctxloom/ci/.github/actions/setup-ltk@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
       # The opencode plugin's tests run it under node.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
-      # ltk, for `just selftest`'s ltk-rules-check.sh: it lives in the Go
-      # ctxloom (go-final), the commit the rules were last checked with.
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version: "1.26.9"
-          cache: false
-      - name: ltk
-        run: go install github.com/ctxloom/ctxloom/cmd/ltk@f36e8dfb21e4f0179a86acc36f39939320f7fff9
-      - name: versionator (build.rs's version stamp)
-        run: |
-          go install github.com/benjaminabbitt/versionator@v0.3.0
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - name: Tool versions
         run: |
           just --version; cargo nextest --version; cargo deny --version
           protoc --version; node --version; jq --version; ltk --version
           command -v versionator
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       # The arch-lint binary `just lint-arch` installs at the justfile's
       # arch_lint_rev (`_arch-lint-ready`), outside cargo's target.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -96,6 +80,8 @@ jobs:
           path: ~/.cache/ctxloom-arch-lint
           key: arch-lint-${{ runner.os }}-${{ hashFiles('justfile') }}
       - run: just build
+      # The ci-platform profile lists every crate on the platform seams.
+      - run: scripts/ci-platform-check.sh
       - run: just fmt-check
       - run: just lint
       - run: just lint-os
@@ -103,15 +89,10 @@ jobs:
       - run: just test
       - run: just check-windows
       - run: just selftest
-      - name: The gates' logs
-        if: failure()
-        run: shopt -s nullglob; for log in target/logs/*.log; do echo "::group::$log"; cat "$log"; echo "::endgroup::"; done
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: failure()
+      - if: failure()
+        uses: ctxloom/ci/.github/actions/gate-logs@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
         with:
-          name: gate-logs-linux
-          path: target/logs/
-          if-no-files-found: ignore
+          name: linux
 
   macos:
     name: build and test (macos)
@@ -120,49 +101,28 @@ jobs:
       run:
         shell: bash
     env:
-      TOOLS: just@1.40.0,cargo-nextest@0.9.146
+      NEXTEST_PROFILE: ${{ (github.ref == 'refs/heads/main' || github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/')) && 'default' || 'ci-platform' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Toolchain (rust-toolchain.toml)
-        run: rustup show active-toolchain || rustup toolchain install
-      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
-          tool: ${{ env.TOOLS }}
-      - name: protoc (angzarr-build's codegen)
-        run: |
-          cd "$RUNNER_TEMP"
-          zip="protoc-$PROTOC_VERSION-osx-aarch_64.zip"
-          curl -fsSL -o "$zip" "https://github.com/protocolbuffers/protobuf/releases/download/v$PROTOC_VERSION/$zip"
-          echo "96839af0caed64352442fc8236f4bdf7c1cd6efcfaa98fa5db37307a73fc7c70  $zip" | shasum -a 256 -c -
-          unzip -q "$zip" -d protoc
-          echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
+          persist-credentials: false
+      - uses: ctxloom/ci/.github/actions/setup-rust@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
+        with:
+          tools: just@1.40.0,cargo-nextest@0.9.146
+      - uses: ctxloom/ci/.github/actions/setup-protoc@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
+      - uses: ctxloom/ci/.github/actions/setup-versionator@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
       # The opencode plugin's tests run it under node.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
-      # Go, for versionator (build.rs's version stamp): the Linux job's pin.
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version: "1.26.9"
-          cache: false
-      - name: versionator (build.rs's version stamp)
-        run: |
-          go install github.com/benjaminabbitt/versionator@v0.3.0
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - name: Tool versions
-        run: just --version; cargo nextest --version; protoc --version; node --version; jq --version; command -v versionator
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        run: just --version; cargo nextest --version; protoc --version; node --version; jq --version; command -v versionator; echo "nextest profile $NEXTEST_PROFILE"
       - run: just build
       - run: just test
-      - name: The gates' logs
-        if: failure()
-        run: shopt -s nullglob; for log in target/logs/*.log; do echo "::group::$log"; cat "$log"; echo "::endgroup::"; done
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: failure()
+      - if: failure()
+        uses: ctxloom/ci/.github/actions/gate-logs@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
         with:
-          name: gate-logs-macos
-          path: target/logs/
-          if-no-files-found: ignore
+          name: macos
 
   windows:
     name: build and test (windows)
@@ -171,47 +131,26 @@ jobs:
       run:
         shell: bash
     env:
-      TOOLS: just@1.40.0,cargo-nextest@0.9.146
+      NEXTEST_PROFILE: ${{ (github.ref == 'refs/heads/main' || github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/')) && 'default' || 'ci-platform' }}
     steps:
       # Some test paths are longer than Windows' 260 characters.
       - name: Long paths
         run: git config --global core.longpaths true
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Toolchain (rust-toolchain.toml, the MSVC host)
-        run: rustup show active-toolchain || rustup toolchain install
-      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
-          tool: ${{ env.TOOLS }}
-      - name: protoc (angzarr-build's codegen)
-        run: |
-          cd "$RUNNER_TEMP"
-          zip="protoc-$PROTOC_VERSION-win64.zip"
-          curl -fsSL -o "$zip" "https://github.com/protocolbuffers/protobuf/releases/download/v$PROTOC_VERSION/$zip"
-          echo "71852a30cf62975358edfcbbff93086e8857a079c8e4d6904881aa968d65c7f9  $zip" | sha256sum -c -
-          7z x -bso0 -oprotoc "$zip"
-          cygpath -w "$PWD/protoc/bin" >> "$GITHUB_PATH"
-      # Go, for versionator (build.rs's version stamp): the Linux job's pin.
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+          persist-credentials: false
+      - uses: ctxloom/ci/.github/actions/setup-rust@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
         with:
-          go-version: "1.26.9"
-          cache: false
-      - name: versionator (build.rs's version stamp)
-        run: |
-          go install github.com/benjaminabbitt/versionator@v0.3.0
-          cygpath -w "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          tools: just@1.40.0,cargo-nextest@0.9.146
+      - uses: ctxloom/ci/.github/actions/setup-protoc@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
+      - uses: ctxloom/ci/.github/actions/setup-versionator@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
       # jq: the build's plain-binary checks and nextest's setup script read
       # cargo's JSON with it (the runner image has it).
       - name: Tool versions
-        run: just --version; cargo nextest --version; protoc --version; jq --version; sh --version | head -n 1; command -v versionator
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        run: just --version; cargo nextest --version; protoc --version; jq --version; sh --version | head -n 1; command -v versionator; echo "nextest profile $NEXTEST_PROFILE"
       - run: just build
       - run: just test
-      - name: The gates' logs
-        if: failure()
-        run: shopt -s nullglob; for log in target/logs/*.log; do echo "::group::$log"; cat "$log"; echo "::endgroup::"; done
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: failure()
+      - if: failure()
+        uses: ctxloom/ci/.github/actions/gate-logs@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
         with:
-          name: gate-logs-windows
-          path: target/logs/
-          if-no-files-found: ignore
+          name: windows

@@ -84,3 +84,47 @@ filter = '''
     | (package(ctxloom) & test(/^tests::hook::/))
 '''
 test-group = 'ports'
+
+# The Windows and macOS subset CI runs on a branch push (owner ruling
+# 2026-11-12; ci.yml sets NEXTEST_PROFILE=ci-platform there, `default` on
+# main, pull requests, tags and the nightly). It inherits everything above
+# (the setup scripts, the `ports` group, the timeouts) and narrows what runs
+# to the tests that touch the platform: every workspace crate that depends,
+# however far, on a workspace crate that uses the platform seams (os,
+# file-system, run-within: nextest's `rdeps()` names workspace packages only,
+# so the seams' direct users are listed, and
+# scripts/ci-platform-check.sh, run by CI's Linux job, fails when one is
+# missing), the OS-specific tests by name (`::os::` modules; none are named
+# so yet, so that term selects nothing until they are moved), and the core
+# crates whose path handling Windows has broken before.
+# `--ignore-default-filter` runs them all. `just test` stays the full suite
+# everywhere: the default profile has no filter.
+[profile.ci-platform]
+default-filter = '''
+    rdeps(cache-files)
+    | rdeps(companion-probe)
+    | rdeps(config-files)
+    | rdeps(container-runtime)
+    | rdeps(content-fs)
+    | rdeps(ctxloom)
+    | rdeps(ctxloom-store-sqlite)
+    | rdeps(ctxloom-wiring)
+    | rdeps(deps-files)
+    | rdeps(editor-process)
+    | rdeps(engine-opencode)
+    | rdeps(host-launcher)
+    | rdeps(liveness)
+    | rdeps(remote-git)
+    | rdeps(session-files)
+    | rdeps(stub-companion)
+    | rdeps(surface-files)
+    | rdeps(taskloom-cli-client)
+    | rdeps(worktree-git)
+    | test(/::os::/)
+    | package(run-ports)
+    | package(setup-application)
+    | package(reclaim-application)
+    | package(library-application)
+    | package(run-application)
+    | package(run-launcher)
+'''

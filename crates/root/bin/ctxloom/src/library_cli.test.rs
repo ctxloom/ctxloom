@@ -1167,6 +1167,203 @@ fn test_context_assemble_holds_a_premised_fragment_back_unless_it_is_named() {
         .contains("GO-RULES-BODY"));
 }
 
+// ---------------------------------------------------------------- config.premised
+
+// Owner ruling of 2026-11-12: `config.premised` decides when a fragment with
+// a premise loads. `on-demand` (the default) holds it back and ends the
+// context with the premise index of what was held back; `always` loads it
+// with the rest and renders no index.
+
+/// demo's `testing`, and `golang`, which carries a premise; `dev` composes
+/// the bundle.
+fn demo_with_a_premise() -> Project {
+    let project = demo_with_testing();
+    project.write(
+        ".ctxloom/content/bundles/v2/demo/fragments/golang.md",
+        "---\ndescription: when editing Go code\n---\nGO-RULES-BODY\n",
+    );
+    project.profile("dev", "demo");
+    project
+}
+
+/// The index's first line.
+const INDEX_HEADING: &str = "# Conditional guidance";
+
+/// A context held `golang` back and offered it in the index.
+fn held_back_and_indexed(context: &str) {
+    assert!(context.contains("FRAGMENT-BODY-testing"), "{context}");
+    assert!(!context.contains("GO-RULES-BODY"), "held back: {context}");
+    assert!(context.contains(INDEX_HEADING), "indexed: {context}");
+    assert!(
+        context.contains("demo#fragments/golang: when editing Go code"),
+        "the index names it and its premise: {context}"
+    );
+}
+
+/// A context loaded `golang` with the rest and rendered no index.
+fn loaded_and_unindexed(context: &str) {
+    assert!(context.contains("FRAGMENT-BODY-testing"), "{context}");
+    assert!(context.contains("GO-RULES-BODY"), "loaded: {context}");
+    assert!(!context.contains(INDEX_HEADING), "no index: {context}");
+}
+
+#[test]
+fn test_context_assemble_on_demand_ends_with_the_index_of_what_it_held_back() {
+    let project = demo_with_a_premise();
+    for prefix in [&[][..], &["--config-set", "config.premised=on-demand"][..]] {
+        let args = [
+            prefix,
+            &["context", "assemble", "-p", "dev", "--format", "json"],
+        ]
+        .concat();
+        let ran = project.run(&args);
+        ran.succeeds();
+        held_back_and_indexed(ran.json()["context"].as_str().unwrap());
+    }
+}
+
+// The index tells the agent to run `ctxloom fragment show <name>` for each
+// name it chose (owner ruling of 2026-11-12): each name it gives is one that
+// command shows.
+#[test]
+fn test_each_name_in_the_index_is_one_fragment_show_shows() {
+    let project = demo_with_a_premise();
+    let ran = project.run(&["context", "assemble", "-p", "dev", "--format", "json"]);
+    ran.succeeds();
+    let context = ran.json()["context"].as_str().unwrap().to_string();
+    assert!(
+        context.contains("`ctxloom fragment show <name>`"),
+        "{context}"
+    );
+    let names: Vec<&str> = context
+        .lines()
+        .filter_map(|l| l.strip_prefix("- "))
+        .filter_map(|l| l.split_once(": ").map(|(name, _)| name))
+        .collect();
+    assert_eq!(names, ["ctxloom+local:demo#fragments/golang"], "{context}");
+    for name in names {
+        let shown = project.run(&["fragment", "show", name]);
+        shown.succeeds();
+        assert!(shown.stdout.contains("GO-RULES-BODY"), "{}", shown.said());
+    }
+}
+
+#[test]
+fn test_context_assemble_with_premised_always_loads_every_fragment_and_no_index() {
+    let project = demo_with_a_premise();
+    let ran = project.run(&[
+        "--config-set",
+        "config.premised=always",
+        "context",
+        "assemble",
+        "-p",
+        "dev",
+        "--format",
+        "json",
+    ]);
+    ran.succeeds();
+    loaded_and_unindexed(ran.json()["context"].as_str().unwrap());
+}
+
+#[test]
+fn test_a_dry_run_honours_premised_from_the_config_file() {
+    let project = demo_with_a_premise();
+    let dry = [
+        "run",
+        "--dry-run",
+        "--profile",
+        "dev",
+        "--format",
+        "json",
+        "hello",
+    ];
+    let on_demand = project.run(&dry);
+    on_demand.succeeds();
+    held_back_and_indexed(on_demand.json()["context"].as_str().unwrap());
+    project.write(
+        ".ctxloom/config.yaml",
+        &format!("{MINIMAL_CONFIG}config:\n  premised: always\n"),
+    );
+    let always = project.run(&dry);
+    always.succeeds();
+    loaded_and_unindexed(always.json()["context"].as_str().unwrap());
+}
+
+#[test]
+fn test_a_premised_word_nobody_knows_is_refused() {
+    let project = demo_with_a_premise();
+    let ran = project.run(&[
+        "--config-set",
+        "config.premised=sometimes",
+        "context",
+        "assemble",
+        "-p",
+        "dev",
+    ]);
+    assert_eq!(ran.code, 20, "{}", ran.said());
+    ran.contains("config.premised");
+}
+
+/// A claude child that keeps every file it was given (the appended system
+/// prompt among them) in `given`, then answers its turn.
+const RECORDING_CHILD: &str = r#"here="$(dirname "$0")"
+for a in "$@"; do
+  [ -f "$a" ] && cat "$a" >> "$here/given"
+done
+cat > /dev/null
+echo '{"type":"system","subtype":"init","session_id":"9d764b45-a56a-48d7-ac9d-c2a16c5669f1"}'
+echo '{"type":"result","subtype":"success","is_error":false,"result":"PREMISED-REPLY","session_id":"9d764b45-a56a-48d7-ac9d-c2a16c5669f1"}'
+"#;
+
+#[test]
+fn test_a_one_shot_hands_the_engine_the_context_premised_decides() {
+    if !files::runs_scripts() {
+        return;
+    }
+    let project = demo_with_a_premise();
+    let bin = project.home().join("bin");
+    files::put_program(bin.join("claude"), RECORDING_CHILD);
+    let path = match crate::tests::host_var("PATH") {
+        Some(host) => format!("{}:{}", bin.display(), host.to_string_lossy()),
+        None => bin.display().to_string(),
+    };
+    let env = [
+        ("PATH", path.as_str()),
+        ("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-fixture-not-real"), // gitleaks:allow
+    ];
+    // What this run gave: the record past what the runs before it left.
+    let mut seen = 0;
+    let mut given = || {
+        let text = files::read(bin.join("given")).unwrap_or_default();
+        let fresh = text[seen..].to_string();
+        seen = text.len();
+        fresh
+    };
+    for (word, judge) in [
+        ("on-demand", held_back_and_indexed as fn(&str)),
+        ("always", loaded_and_unindexed),
+    ] {
+        let set = format!("config.premised={word}");
+        let ran = project.run_with(
+            &env,
+            &[
+                "--config-set",
+                &set,
+                "run",
+                "--profile",
+                "dev",
+                "--one-shot",
+                "hello",
+                "--format",
+                "json",
+            ],
+        );
+        assert_eq!(ran.code, 0, "{word}: {}", ran.said());
+        assert!(ran.stdout.contains("PREMISED-REPLY"), "{}", ran.said());
+        judge(&given());
+    }
+}
+
 // premise_test.go: an unknown ask is reported missing, not silently empty; an
 // ask that loads nothing at all is refused (context.go refuseEmptySelection).
 #[test]

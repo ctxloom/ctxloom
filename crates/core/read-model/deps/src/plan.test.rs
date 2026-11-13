@@ -197,6 +197,70 @@ fn test_an_upgrade_moves_what_moved_and_keeps_a_held_entry_frozen() {
     assert!(!got.nothing_declared);
 }
 
+// `deps upgrade <ref>` (docs/plans/ctxloom-features.md, "Added"; j000700):
+// one the closure no longer reaches is kept unless it is the one named, and
+// a held entry asked for by name stays frozen.
+#[test]
+fn test_an_upgrade_of_one_reference_drops_the_named_alone_and_keeps_a_held_one_frozen() {
+    let active = lock(&[(A, pin(A, H1).entry()), (B, pin(B, H1).entry())]);
+    let got = only(&active, upgrade(&active, &[pin(A, H2)], 0, false), A);
+    assert_eq!(got.next.entries[B].sha, H1);
+    assert!(got.removed.is_empty());
+    let got = only(&active, upgrade(&active, &[pin(B, H1)], 0, false), A);
+    assert_eq!(got.removed, vec![A]);
+    assert!(got.moved.is_empty());
+    let mut held = pin(A, H1).entry();
+    held.held = true;
+    let frozen = lock(&[(A, held.clone())]);
+    let got = only(&frozen, upgrade(&frozen, &[pin(A, H2)], 0, false), A);
+    assert_eq!(got.next.entries[A], held);
+    assert!(got.moved.is_empty());
+}
+
+#[test]
+fn test_an_upgrade_of_one_reference_moves_it_alone_and_carries_every_other_entry() {
+    let active = lock(&[(A, pin(A, H1).entry()), (C, pin(C, H1).entry())]);
+    let decided = upgrade(&active, &[pin(A, H2), pin(B, H1), pin(C, H1)], 0, false);
+    let got = only(&active, decided, C);
+    assert_eq!(got.next, active, "nothing but C may move, and C did not");
+    assert!(got.moved.is_empty());
+    assert!(
+        got.removed.is_empty(),
+        "C's upgrade drops nothing it was not asked to"
+    );
+
+    let decided = upgrade(&active, &[pin(A, H2), pin(B, H1), pin(C, H2)], 0, true);
+    let got = only(&active, decided, A);
+    assert_eq!(got.next.entries[A].sha, H2);
+    assert_eq!(
+        got.next.entries[C], active.entries[C],
+        "C is carried as it was"
+    );
+    assert!(
+        !got.next.entries.contains_key(B),
+        "B's first pin is not A's upgrade"
+    );
+    assert_eq!(
+        got.moved
+            .iter()
+            .map(|p| p.identity.as_str())
+            .collect::<Vec<_>>(),
+        vec![A]
+    );
+    assert!(got.incomplete, "an incomplete round stays incomplete");
+    assert!(!got.nothing_declared);
+}
+
+#[test]
+fn test_an_upgrade_of_one_reference_the_closure_dropped_drops_it() {
+    let active = lock(&[(A, pin(A, H1).entry()), (C, pin(C, H1).entry())]);
+    let decided = upgrade(&active, &[pin(C, H1)], 0, false);
+    let got = only(&active, decided, A);
+    assert!(!got.next.entries.contains_key(A));
+    assert_eq!(got.removed, vec![A.to_string()]);
+    assert_eq!(got.next.entries[C], active.entries[C]);
+}
+
 #[test]
 fn test_a_first_pin_is_a_move_and_a_dropped_one_is_named() {
     let active = lock(&[(A, pin(A, H1).entry())]);

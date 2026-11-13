@@ -656,6 +656,7 @@ async fn launched_child(f: &Fixture, owner: &str, child: &str) {
         started_at: None,
         depth: 1,
         owner: Some(at_session(owner)),
+        workspace: None,
     };
     let book = sessions::keyed_book(cover_of(child), &mint, &format!("mint:{child}"));
     f.world.handle(book).await.unwrap();

@@ -31,16 +31,25 @@
 
 use std::cell::Cell;
 use std::sync::mpsc;
+use std::sync::Arc;
 use std::thread::JoinHandle;
 
-use run_ports::{Exit, LaunchFailure, Limits, RunnerLauncher, Running, TurnCommand, TurnOutput};
+use file_system::Fs;
+use run_ports::{
+    Exit, LaunchFailure, Limits, ProgramNotFound, RunnerLauncher, Running, TurnCommand, TurnOutput,
+};
 pub use run_within::Stop;
 use run_within::{run_terminal, run_within_stopped_by, RunError, Spec, Within};
+
+mod find;
 
 /// Launches a command on this host.
 #[derive(Clone, Debug, Default)]
 pub struct HostLauncher {
     stop: Stop,
+    /// The filesystem a command's program is looked for on; none, the
+    /// program is spawned as named ([`RunnerLauncher::find_program`]).
+    fs: Option<Arc<dyn Fs>>,
 }
 
 impl HostLauncher {
@@ -48,7 +57,15 @@ impl HostLauncher {
     /// requested: a turn's tree asked to stop, then killed after the grace; a
     /// terminal session's direct child killed.
     pub fn stopped_by(stop: Stop) -> HostLauncher {
-        HostLauncher { stop }
+        HostLauncher { stop, fs: None }
+    }
+
+    /// The same, finding each command's program on its own `PATH` through
+    /// `fs`, by the rules of `fs`'s OS (PATHEXT on Windows, which std's spawn
+    /// does not try), before it is spawned.
+    pub fn searching(mut self, fs: Arc<dyn Fs>) -> HostLauncher {
+        self.fs = Some(fs);
+        self
     }
 }
 
@@ -159,6 +176,13 @@ impl RunnerLauncher for HostLauncher {
                 drain_incomplete: outcome.drain_incomplete,
             })
         })
+    }
+
+    fn find_program(&self, command: &TurnCommand) -> Result<String, ProgramNotFound> {
+        match &self.fs {
+            Some(fs) => find::find(fs.as_ref(), fs.os().flavor(), command),
+            None => Ok(command.program.clone()),
+        }
     }
 
     fn launch_terminal(&self, command: &TurnCommand) -> Result<Box<dyn Running>, LaunchFailure> {

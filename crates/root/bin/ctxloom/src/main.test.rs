@@ -117,6 +117,7 @@ pub(crate) fn feed(mut stdin: std::process::ChildStdin, payload: &str) -> bool {
 }
 
 /// One finished process.
+#[derive(Clone)]
 pub(crate) struct Ran {
     /// The exit code; -1 when a signal ended the process.
     pub(crate) code: i32,

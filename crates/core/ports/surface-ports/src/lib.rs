@@ -469,6 +469,15 @@ pub trait EngineSurfaces {
         false
     }
 
+    /// Whether a launched session carries `kind` itself (owner ruling
+    /// 2026-11-12: from the run agent's selection, in every directory), so
+    /// a project refresh gives back what was delivered of it at rest: the
+    /// context when [`EngineSurfaces::context_rides_launch`], and nothing
+    /// else unless the engine says so.
+    fn rides_launch(&self, kind: Kind) -> bool {
+        kind == Kind::Context && self.context_rides_launch()
+    }
+
     /// The unified hook events the engine has no native form for, each with
     /// the reason, in event order. The engine carries hooks generally and
     /// leaves these out of its hook file; a report names each one a profile

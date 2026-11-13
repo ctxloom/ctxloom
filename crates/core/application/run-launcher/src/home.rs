@@ -8,7 +8,9 @@
 //! user's own engine settings (ruling 169) and the program its callbacks run
 //! (ruling 163) are the engine's own, as the composition root built it.
 
-use run_ports::{Engine, GitUser, LeftOut, PrepareRequest, SessionHome, SessionRecords};
+use run_ports::{
+    Engine, GitUser, HomeFile, LaunchSurfaces, LeftOut, PrepareRequest, SessionHome, SessionRecords,
+};
 
 /// What a session's home is set up from.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -28,6 +30,9 @@ pub struct HomeSetup {
     pub session_home: SessionHome,
     /// The user's git identity in the project; none, none is seeded.
     pub git_user: Option<GitUser>,
+    /// What the run agent's selection carries (its commands, skills, hooks
+    /// and MCP servers), each engine carrying it its own way.
+    pub surfaces: LaunchSurfaces,
 }
 
 /// A home set up: where it is, the context file the engine named, and the
@@ -37,6 +42,9 @@ pub struct HomeSetUp {
     pub home: String,
     pub context_path: String,
     pub left_out: Vec<LeftOut>,
+    /// What the engine reads only from where it works, for the checkout it
+    /// is placed in (none is written in the live project).
+    pub workspace_files: Vec<HomeFile>,
 }
 
 /// Set up `setup`'s session home in `records` for `engine`: the one
@@ -71,6 +79,7 @@ pub fn set_up_home(
             existing,
             permissions: setup.permissions.clone(),
             session_home: setup.session_home,
+            surfaces: setup.surfaces.clone(),
         })
         .map_err(|e| e.to_string())?;
     for file in &prepared.files {
@@ -86,6 +95,7 @@ pub fn set_up_home(
         home,
         context_path: prepared.context_path,
         left_out: prepared.left_out,
+        workspace_files: prepared.workspace_files,
     })
 }
 

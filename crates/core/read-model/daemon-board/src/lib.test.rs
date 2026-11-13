@@ -63,6 +63,7 @@ fn minted(owner: Option<&str>) -> Vec<Any> {
                 project_id: "calm-otter".to_string(),
                 session: session.to_string(),
             }),
+            workspace: None,
         })
         .to_any(),
         SessionEvent::IncarnationOwed(IncarnationOwed {

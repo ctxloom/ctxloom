@@ -87,6 +87,7 @@ pub fn apply(state: &mut SessionState, event: &SessionEvent, recorded_at: Timest
             state.started_at = minted.started_at.unwrap_or(recorded_at);
             state.depth = minted.depth;
             state.owner = minted.owner.clone();
+            state.workspace = minted.workspace.clone();
         }
         SessionEvent::EngineSessionBound(bound) => {
             if let Some(displaced) = &bound.displaced {
@@ -192,6 +193,7 @@ fn session_minted(
         started_at: mint.started_at,
         depth: mint.depth,
         owner: mint.owner.clone(),
+        workspace: mint.workspace.clone(),
     })
 }
 

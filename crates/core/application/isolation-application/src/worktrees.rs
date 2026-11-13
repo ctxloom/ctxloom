@@ -13,7 +13,7 @@
 //! | dead | clean | reapable; reaped on `yes`, re-checked at removal |
 //!
 //! A long-lived worktree ctxloom did not create lives outside the sessions'
-//! work directories and is never listed here.
+//! checkouts directories and is never listed here.
 
 use std::collections::BTreeMap;
 use std::path::Path;

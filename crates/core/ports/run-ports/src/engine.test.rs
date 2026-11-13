@@ -147,3 +147,26 @@ fn the_users_settings_render_their_path_and_never_their_bytes() {
         r#"UserSettings { path: "/p", bytes: "<unread>" }"#
     );
 }
+
+// A launch's surfaces render by name: a server's environment and headers may
+// hold a credential, and none of their values is shown.
+#[test]
+fn launch_surfaces_render_their_names_and_withhold_every_value() {
+    let surfaces = crate::LaunchSurfaces(surface_ports::Inputs {
+        mcp: vec![surface_ports::McpServer {
+            name: "tool".to_string(),
+            command: "tool-cmd".to_string(),
+            env: [("TOKEN".to_string(), "TOPSECRET".to_string())].into(),
+            headers: [("Authorization".to_string(), "Bearer HIDDEN".to_string())].into(),
+            ..Default::default()
+        }],
+        deny_tools: vec!["Bash".to_string()],
+        ..Default::default()
+    });
+    let shown = format!("{surfaces:?}");
+    assert!(shown.contains("tool") && shown.contains("Bash"), "{shown}");
+    assert!(
+        !shown.contains("TOPSECRET") && !shown.contains("HIDDEN"),
+        "{shown}"
+    );
+}

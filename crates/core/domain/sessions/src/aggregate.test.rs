@@ -210,6 +210,7 @@ pub(crate) fn mint(harp: &str) -> MintSession {
         started_at: None,
         depth: 0,
         owner: None,
+        workspace: None,
     }
 }
 

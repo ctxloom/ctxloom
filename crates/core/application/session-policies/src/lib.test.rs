@@ -254,6 +254,7 @@ fn a_launch_mints_the_child_in_the_target_store_for_its_owner() {
             started_at: None,
             depth: 1,
             owner: Some(at(OWNER)),
+            workspace: None,
         }
     );
 }
@@ -307,6 +308,7 @@ fn child_stream() -> Harness<SessionAggregate> {
         started_at: None,
         depth: 1,
         owner: Some(at(OWNER)),
+        workspace: None,
     }
     .into();
     harness.when(mint).result().unwrap();

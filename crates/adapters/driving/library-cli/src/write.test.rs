@@ -262,6 +262,27 @@ fn test_bundle_export_and_import_say_where_they_went() {
     assert!(said.starts_with("Imported: "), "{said}");
 }
 
+// j001900: `fragment create <ref>` writes what the editor wrote, and makes a
+// bundle nobody had, saying so.
+#[test]
+fn test_fragment_create_by_reference_says_it_made_the_bundle() {
+    let (library, mem) = world();
+    mem.set_editor(|_, content| Ok(format!("{content}\nNOTES")));
+    assert_eq!(
+        text(&library, &["fragment", "create", "runbook#fragments/deploy"]),
+        "Created bundle \"runbook\"\nCreated fragment \"deploy\" in bundle \"runbook\"\nEdit with: ctxloom fragment edit runbook#fragments/deploy\n"
+    );
+    assert!(mem
+        .text("runbook", "fragments/deploy.md")
+        .unwrap()
+        .ends_with("NOTES"));
+    let doc = json(&library, &["command", "create", "demo#commands/third"]);
+    assert_eq!(doc["name"], "third");
+    assert!(doc.get("bundle_created").is_none(), "{doc}");
+    let doc = json(&library, &["fragment", "create", "fresh#fragments/one"]);
+    assert_eq!(doc["bundle_created"], true, "{doc}");
+}
+
 // fragment.feature / command.feature: create, remove, edit
 #[test]
 fn test_fragment_and_command_create_remove_and_edit() {
@@ -820,4 +841,47 @@ fn test_profile_edit_given_a_flag_patches_instead_of_opening_the_editor() {
     let (library, _mem) = world();
     let said = text(&library, &["profile", "edit", "dev", "-d", "words"]);
     assert!(said.ends_with("Modified profile \"dev\"\n"), "{said}");
+}
+
+// j002000: a swap to an engine that cannot carry a profile's hook is shown
+// in text as what it gives up and the command that applies it, and writes
+// nothing.
+#[test]
+fn test_an_engine_swap_that_gives_something_up_previews_in_text() {
+    let house: &[(&str, &str)] = &[
+        ENVELOPE,
+        ("fragments/guide.md", "GUIDE"),
+        (
+            "hooks/session_end/h0.yaml",
+            "type: command\ncommand: echo END\n",
+        ),
+    ];
+    let project: &[(&str, &str)] = &[ENVELOPE, ("profiles/team.yaml", "bundles: [house]\n")];
+    let (library, mem) = Setup {
+        bundles: &[("house", house), ("project", project)],
+        layers: &[
+            "schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n    profiles: [team]\n",
+        ],
+        ..Setup::default()
+    }
+    .fixture();
+    let library = library.with_hook_losses(
+        [(
+            "opencode".to_string(),
+            vec![("session_end".to_string(), "no session_end".to_string())],
+        )]
+        .into_iter()
+        .collect(),
+    );
+    let before = mem.config(Scope::Project);
+    let ran = run_on(
+        &library,
+        &["agent", "edit", "dev", "--engine", "opencode"],
+        TEXT,
+    );
+    assert_eq!(
+        ran.out,
+        "Moving agent \"dev\" from claude-code to opencode gives up what opencode cannot carry:\n  hooks: session_end (no session_end)\n\nNothing was changed. Re-run with --yes to apply:\n  ctxloom agent edit dev --engine opencode --yes\n"
+    );
+    assert_eq!(mem.config(Scope::Project), before, "nothing is written");
 }

@@ -184,7 +184,18 @@ fn an_end_for_an_incarnation_already_ended_records_nothing() {
 
 /// A session whose first run bound the engine's session `native-1` and ended.
 fn bound_and_ended() -> Session {
-    let mut session = Session::minted();
+    bound_and_ended_in(None)
+}
+
+/// The same, minted on the workspace axis `workspace` (none recorded).
+fn bound_and_ended_in(workspace: Option<&str>) -> Session {
+    let mut session = Session::new();
+    session
+        .run(MintSession {
+            workspace: workspace.map(str::to_string),
+            ..mint(crate::aggregate::tests::HARP)
+        })
+        .unwrap();
     session
         .bound(crate::BindEngineSession {
             native_id: "native-1".to_string(),
@@ -200,6 +211,7 @@ fn resume(engine: &str) -> crate::ResumeSession {
     crate::ResumeSession {
         harp: crate::aggregate::tests::HARP.to_string(),
         engine: engine.to_string(),
+        workspace: String::new(),
     }
 }
 
@@ -269,4 +281,59 @@ fn a_resume_of_a_stream_holding_no_session_is_refused_as_destroyed() {
     let (code, args) = session.run(resume("")).unwrap_err();
     assert_eq!(code, "sessions-session-destroyed");
     assert_eq!(args["harp"], crate::aggregate::tests::HARP);
+}
+
+// Owner ruling 2026-11-12: the workspace axis is a session trait, recorded at
+// its mint, so a resume works where the session worked.
+#[test]
+fn a_mint_records_the_sessions_workspace() {
+    let mut session = Session::new();
+    let events = session
+        .run(MintSession {
+            workspace: Some("worktree".to_string()),
+            ..mint(crate::aggregate::tests::HARP)
+        })
+        .unwrap();
+    assert!(matches!(&events[0],
+        SessionEvent::SessionMinted(minted) if minted.workspace.as_deref() == Some("worktree")));
+    assert_eq!(session.state().workspace.as_deref(), Some("worktree"));
+}
+
+fn resume_in(workspace: &str) -> crate::ResumeSession {
+    crate::ResumeSession {
+        workspace: workspace.to_string(),
+        ..resume("")
+    }
+}
+
+// A resume asking for another workspace than the session's is refused,
+// naming both (claude keys its conversation by where it works).
+#[test]
+fn a_resume_in_another_workspace_is_refused_naming_both() {
+    let mut session = bound_and_ended_in(Some("worktree"));
+    let (code, args) = session.run(resume_in("none")).unwrap_err();
+    assert_eq!(code, "sessions-workspace-mismatch");
+    assert_eq!(args["workspace"], "worktree");
+    assert_eq!(args["asked"], "none");
+    assert_eq!(session.state().incarnation, 1, "nothing owed");
+}
+
+// The session's own workspace, asked or not, resumes it.
+#[test]
+fn a_resume_in_the_sessions_own_workspace_or_none_asked_resumes_it() {
+    for asked in ["", "worktree"] {
+        let mut session = bound_and_ended_in(Some("worktree"));
+        assert!(session.run(resume_in(asked)).is_ok(), "{asked:?}");
+    }
+}
+
+// A session from before the axis was recorded worked in the project.
+#[test]
+fn a_session_with_no_workspace_recorded_resumes_as_one_in_the_project() {
+    let mut session = bound_and_ended_in(None);
+    assert!(session.run(resume_in("none")).is_ok());
+    let mut session = bound_and_ended_in(None);
+    let (code, args) = session.run(resume_in("worktree")).unwrap_err();
+    assert_eq!(code, "sessions-workspace-mismatch");
+    assert_eq!(args["workspace"], "none");
 }

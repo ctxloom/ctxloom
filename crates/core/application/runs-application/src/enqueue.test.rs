@@ -38,6 +38,7 @@ async fn minted(edge: &KernelEdge) {
             started_at: None,
             depth: 0,
             owner: None,
+            workspace: None,
         },
     ))
     .await

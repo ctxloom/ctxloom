@@ -126,6 +126,7 @@ impl Engine for Scripted {
             seeds: vec![seed("model.json"), seed("kept.json")],
             left_out: Vec::new(),
             context_path: format!("{}/CONTEXT.md", request.home),
+            workspace_files: Vec::new(),
         })
     }
 
@@ -191,6 +192,7 @@ impl ChildPlans for Plans {
                 },
                 settings: None,
                 settings_agent: String::new(),
+                surfaces: Default::default(),
             },
             fatal: Vec::new(),
         })
@@ -438,6 +440,7 @@ impl World {
                 started_at: None,
                 depth: u32::from(owner.is_some()),
                 owner: owner.map(here),
+                workspace: None,
             },
         )
         .await;

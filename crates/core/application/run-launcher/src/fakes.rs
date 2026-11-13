@@ -182,6 +182,7 @@ pub async fn enqueued_by(edge: &TestEdge, session: &str, harp: &str, launcher_lo
         started_at: None,
         depth: 0,
         owner: None,
+        workspace: None,
     }
     .into();
     edge.handle(command_book(session_cover(session), mint.to_any()))
@@ -278,6 +279,8 @@ pub struct ScriptedRunner {
     pub at_spawn: Arc<Mutex<Option<Window>>>,
     /// The pid of the spawned command.
     pub pid: u32,
+    /// What finding the program answers; none, the program as named.
+    pub finds: Option<Result<String, run_ports::ProgramNotFound>>,
 }
 
 /// The pid a scripted command has.
@@ -329,6 +332,15 @@ impl ScriptedRunner {
             during: Arc::default(),
             at_spawn: Arc::default(),
             pid: SCRIPTED_PID,
+            finds: None,
+        }
+    }
+
+    /// The same, finding every program as `finds` says.
+    pub fn finding(self, finds: Result<String, run_ports::ProgramNotFound>) -> ScriptedRunner {
+        ScriptedRunner {
+            finds: Some(finds),
+            ..self
         }
     }
 
@@ -359,6 +371,12 @@ impl RunnerLauncher for ScriptedRunner {
         self.seen_terminal.lock().unwrap().push(command.clone());
         self.spawn()
     }
+
+    fn find_program(&self, command: &TurnCommand) -> Result<String, run_ports::ProgramNotFound> {
+        self.finds
+            .clone()
+            .unwrap_or_else(|| Ok(command.program.clone()))
+    }
 }
 
 /// An engine that puts the context in its home, drives a command that names
@@ -369,6 +387,12 @@ pub struct ScriptedEngine {
     pub refuses_to_drive: bool,
     /// What its prepare says it left out of the home (owner ruling 169).
     pub left_out: Vec<run_ports::LeftOut>,
+    /// Every prepare it was asked, shared by its clones.
+    pub prepared: Arc<Mutex<Vec<PrepareRequest>>>,
+    /// Whether it advises (owner ruling 168): one notice for every plan it
+    /// is asked of, the plans it was asked of kept in `advised`.
+    pub advises: bool,
+    pub advised: Arc<Mutex<Vec<run_ports::Planned>>>,
 }
 
 impl ScriptedEngine {
@@ -380,6 +404,9 @@ impl ScriptedEngine {
             },
             refuses_to_drive: false,
             left_out: Vec::new(),
+            prepared: Arc::default(),
+            advises: false,
+            advised: Arc::default(),
         }
     }
 
@@ -402,7 +429,19 @@ impl Engine for ScriptedEngine {
         "fake"
     }
 
+    fn advise(&self, planned: &run_ports::Planned) -> Vec<run_ports::Advice> {
+        self.advised.lock().unwrap().push(planned.clone());
+        if !self.advises {
+            return Vec::new();
+        }
+        vec![Box::new(EngineError::NotYet {
+            engine: "fake".to_string(),
+            operation: "advice".to_string(),
+        })]
+    }
+
     fn prepare(&self, request: &PrepareRequest) -> Result<Prepared, EngineError> {
+        self.prepared.lock().unwrap().push(request.clone());
         let mut files = vec![HomeFile {
             rel: "ctx.md".to_string(),
             bytes: request.context.clone().into_bytes(),
@@ -420,6 +459,7 @@ impl Engine for ScriptedEngine {
             seeds: Vec::new(),
             context_path: format!("{}/ctx.md", request.home),
             left_out: self.left_out.clone(),
+            workspace_files: Vec::new(),
         })
     }
 
@@ -533,6 +573,9 @@ impl Engine for Credentialed {
     fn credentials(&self) -> run_ports::Credentials {
         self.1
     }
+    fn advise(&self, planned: &run_ports::Planned) -> Vec<run_ports::Advice> {
+        self.0.advise(planned)
+    }
     fn drive_interactive(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError> {
         self.0.drive_interactive(request)
     }
@@ -601,6 +644,42 @@ impl Engine for Merging {
     }
     fn merges(&self) -> &'static [&'static str] {
         &["state.json"]
+    }
+}
+
+/// An engine whose launch carries files it reads only from where it works
+/// (`PLACED`, under `.placed/`), as claude's commands and skills under
+/// `session_home: host`.
+pub struct Placing(pub ScriptedEngine);
+
+/// What [`Placing`] carries into the directory it works in.
+pub const PLACED: &str = ".placed/command.md";
+
+// A test double shipped for tests only; its tests are the callers' own.
+#[cfg_attr(test, mutants::skip)]
+impl Engine for Placing {
+    fn name(&self) -> &str {
+        self.0.name()
+    }
+    fn prepare(&self, request: &PrepareRequest) -> Result<Prepared, EngineError> {
+        let mut prepared = self.0.prepare(request)?;
+        prepared.workspace_files.push(HomeFile {
+            rel: PLACED.to_string(),
+            bytes: b"PLACED".to_vec(),
+        });
+        Ok(prepared)
+    }
+    fn drive_turn(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError> {
+        self.0.drive_turn(request)
+    }
+    fn finish_turn(&self, output: &TurnOutput) -> TurnOutcome {
+        self.0.finish_turn(output)
+    }
+    fn drive_interactive(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError> {
+        self.0.drive_interactive(request)
+    }
+    fn workspace_patterns(&self, _: run_ports::SessionHome) -> Vec<String> {
+        vec![".placed/".to_string()]
     }
 }
 
@@ -741,6 +820,7 @@ pub fn order(engine: &str) -> Order {
         env: BTreeMap::from([("PATH".to_string(), "/bin".to_string())]),
         user_home: None,
         cwd: Some("/work/proj".to_string()),
+        workspace: Default::default(),
         interactive: false,
         model: String::new(),
         effort: String::new(),
@@ -749,6 +829,7 @@ pub fn order(engine: &str) -> Order {
         owned: Vec::new(),
         git_user: None,
         resume: None,
+        surfaces: Default::default(),
     }
 }
 
@@ -756,4 +837,153 @@ pub fn orders_with(order: Order) -> Arc<Orders> {
     let orders = Arc::new(Orders::new());
     orders.place(SESSION, 1, order);
     orders
+}
+
+/// A workspaces port that answers every prepare as scripted and every
+/// removal with `removal`, and keeps what it was asked.
+pub struct ScriptedWorkspaces {
+    pub answer: fn(
+        &isolation_ports::Request,
+    ) -> Result<isolation_ports::Prepared, isolation_ports::Failure>,
+    pub removal: isolation_ports::Removal,
+    pub asked: Mutex<Vec<isolation_ports::Request>>,
+    /// Each removal asked: the repository and the checkout.
+    pub removed: Mutex<Vec<(String, String)>>,
+    /// Every file placed in a checkout, `<checkout>/<rel>`, and every one
+    /// taken out (`-<checkout>/<rel>`), in order, beside the removals
+    /// (`remove <checkout>`).
+    pub files: Mutex<Vec<String>>,
+    /// Asked at each removal, its answer kept in `witnessed`: what the
+    /// caller's world was then.
+    pub witness: Mutex<Option<Witness>>,
+    pub witnessed: Mutex<Vec<String>>,
+}
+
+/// What a test reads of its world at the instant a checkout is removed.
+pub type Witness = Box<dyn Fn() -> String + Send>;
+
+impl ScriptedWorkspaces {
+    pub fn new(
+        answer: fn(
+            &isolation_ports::Request,
+        ) -> Result<isolation_ports::Prepared, isolation_ports::Failure>,
+    ) -> ScriptedWorkspaces {
+        ScriptedWorkspaces {
+            answer,
+            removal: isolation_ports::Removal::Removed,
+            asked: Mutex::new(Vec::new()),
+            removed: Mutex::new(Vec::new()),
+            files: Mutex::new(Vec::new()),
+            witness: Mutex::new(None),
+            witnessed: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// The same, leaving every checkout it is asked to remove, for `why`.
+    // A test double shipped for tests only; its tests are the callers' own.
+    #[cfg_attr(test, mutants::skip)]
+    pub fn leaving(self, why: &str) -> ScriptedWorkspaces {
+        ScriptedWorkspaces {
+            removal: isolation_ports::Removal::Left(why.to_string()),
+            ..self
+        }
+    }
+}
+
+impl isolation_ports::Workspaces for ScriptedWorkspaces {
+    fn prepare(
+        &self,
+        request: &isolation_ports::Request,
+    ) -> Result<isolation_ports::Prepared, isolation_ports::Failure> {
+        self.asked.lock().unwrap().push(request.clone());
+        (self.answer)(request)
+    }
+    // Test double; behaviour not under test: no launcher test asks it.
+    #[cfg_attr(test, mutants::skip)]
+    fn session_known(&self, _: &str) -> Result<bool, isolation_ports::Failure> {
+        Ok(false)
+    }
+    fn place_files(
+        &self,
+        checkout: &str,
+        files: &[(String, Vec<u8>)],
+    ) -> Result<(), isolation_ports::Failure> {
+        let mut placed = self.files.lock().unwrap();
+        placed.extend(files.iter().map(|(rel, _)| format!("{checkout}/{rel}")));
+        Ok(())
+    }
+    fn remove_files(&self, checkout: &str, rels: &[String]) {
+        let mut placed = self.files.lock().unwrap();
+        placed.extend(rels.iter().map(|rel| format!("-{checkout}/{rel}")));
+    }
+    // Test double; equivalent: its mutant `Ok(vec![])` is this same empty list.
+    #[cfg_attr(test, mutants::skip)]
+    fn scratch(
+        &self,
+        _: Option<&str>,
+    ) -> Result<Vec<isolation_ports::Scratch>, isolation_ports::Failure> {
+        Ok(Vec::new())
+    }
+    fn inspect(&self, _: &str) -> isolation_ports::Standing {
+        isolation_ports::Standing::Unresolved(String::new())
+    }
+    fn remove(&self, repo_dir: &str, path: &str) -> isolation_ports::Removal {
+        self.removed
+            .lock()
+            .unwrap()
+            .push((repo_dir.to_string(), path.to_string()));
+        self.files.lock().unwrap().push(format!("remove {path}"));
+        if let Some(witness) = &*self.witness.lock().unwrap() {
+            self.witnessed.lock().unwrap().push(witness());
+        }
+        self.removal.clone()
+    }
+}
+
+/// A checkout at `<work_dir>/<agent>`, on the session's branch for it.
+pub fn worktree_checkout(
+    request: &isolation_ports::Request,
+) -> Result<isolation_ports::Prepared, isolation_ports::Failure> {
+    Ok(isolation_ports::Prepared::Checkout(
+        isolation_ports::Checkout {
+            path: format!("{}/{}", request.work_dir, request.agent),
+            branch: format!("ctxloom/{HARP}/{}", request.agent),
+            repo_dir: request.project_dir.clone(),
+            reused: false,
+        },
+    ))
+}
+
+/// No worktree: the project is not a git repository.
+pub fn worktree_unavailable(
+    request: &isolation_ports::Request,
+) -> Result<isolation_ports::Prepared, isolation_ports::Failure> {
+    Ok(isolation_ports::Prepared::Unavailable(format!(
+        "worktree isolation: {} is not a git repository",
+        request.project_dir
+    )))
+}
+
+/// A worktree refused: something at its path it will not adopt.
+pub fn worktree_refused(
+    _: &isolation_ports::Request,
+) -> Result<isolation_ports::Prepared, isolation_ports::Failure> {
+    Err(Box::new(RecordsError::BadPath {
+        rel: "reviewer".to_string(),
+    }))
+}
+
+/// The session's checkouts directory the fakes' orders name.
+pub const WORK_DIR: &str = "/h/.ctxloom/worktrees/calm-otter/amber-swift-owl";
+
+/// The order a one-shot places asking for a worktree for `agent`.
+pub fn worktree_order(engine: &str, agent: &str) -> Order {
+    Order {
+        workspace: crate::Workspace {
+            axis: crate::Axis::Worktree,
+            work_dir: WORK_DIR.to_string(),
+            agent: agent.to_string(),
+        },
+        ..order(engine)
+    }
 }

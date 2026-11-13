@@ -647,3 +647,56 @@ fn without_her_home_none_of_her_files_is_read() {
         .iter()
         .any(|c| c.marker == "DOCTOR-CHECK-STALE-HOOKS-n5" && c.status == Status::Warn));
 }
+
+// The Go-era rows follow the stale row directly, and the losses row and the
+// stated limit keep their place after them.
+#[test]
+fn the_go_era_rows_follow_the_stale_row() {
+    let mem = project();
+    mem.files.lock().unwrap().insert(
+        "/home/u/.claude/settings.json".to_string(),
+        GO_AND_RUST.to_string(),
+    );
+    let markers: Vec<String> = doctor(&mem, true)
+        .report(false)
+        .checks
+        .into_iter()
+        .map(|c| c.marker.to_string())
+        .collect();
+    let stale = markers
+        .iter()
+        .position(|m| m == "DOCTOR-CHECK-STALE-HOOKS-n5")
+        .unwrap();
+    assert_eq!(
+        markers[stale + 1..stale + 4],
+        [
+            "DOCTOR-CHECK-GO-ERA-HOOK-n6",
+            "DOCTOR-CHECK-GO-ERA-HOOK-n6",
+            "DOCTOR-CHECK-NOT-CARRIED-r8"
+        ]
+    );
+    assert_eq!(markers.len(), stale + 5);
+}
+
+// A doctor reporting losses asks for them, and the row names what is lost.
+#[test]
+fn a_doctor_reporting_losses_warns_of_each() {
+    use library_application::{AgentLosses, NotCarried};
+    let report = doctor(&project(), true)
+        .reporting_losses(Box::new(|| {
+            vec![AgentLosses {
+                agent: "dev".to_string(),
+                engine: "opencode".to_string(),
+                not_carried: vec![NotCarried {
+                    engine: "opencode".to_string(),
+                    surface: "hooks".to_string(),
+                    event: "session_end".to_string(),
+                    reason: "no session_end".to_string(),
+                }],
+            }]
+        }))
+        .report(false);
+    let lost = row(&report, "DOCTOR-CHECK-NOT-CARRIED-r8");
+    assert_eq!(lost.status, Status::Warn);
+    assert!(lost.detail.contains("agent dev on opencode cannot carry"));
+}

@@ -511,8 +511,7 @@ async fn a_failed_turn_is_recorded_with_its_class_and_says_nothing_in_the_transc
             detail: "slow down".to_string(),
             native_id: None,
         },
-        refuses_to_drive: false,
-        left_out: Vec::new(),
+        ..ScriptedEngine::answering("", None)
     };
     let mut rig = rig(engine, ScriptedRunner::exits(1), orders_with(order("fake")));
     enqueued(&rig.edge, SESSION, HARP).await;
@@ -573,8 +572,7 @@ async fn each_failure_class_is_the_runs_own() {
                 detail: String::new(),
                 native_id: None,
             },
-            refuses_to_drive: false,
-            left_out: Vec::new(),
+            ..ScriptedEngine::answering("", None)
         };
         let mut rig = rig(engine, ScriptedRunner::exits(0), orders_with(order("fake")));
         enqueued(&rig.edge, SESSION, HARP).await;
@@ -1836,4 +1834,455 @@ async fn the_users_home_reaches_the_engine_as_the_order_placed_it() {
         command.env.get("FAKE_USER_HOME").map(String::as_str),
         Some(r"C:\Users\her")
     );
+}
+
+// ------------------------------------------------------------ the workspace
+
+/// A rig whose launcher places worktrees through `workspaces`, for one order.
+fn rig_placing(order: crate::Order, workspaces: Arc<crate::fakes::ScriptedWorkspaces>) -> Rig {
+    let mut rig = rig(
+        ScriptedEngine::answering("A", None),
+        ScriptedRunner::exits(0),
+        orders_with(order),
+    );
+    rig.launcher = rig.launcher.with_workspaces(workspaces);
+    rig
+}
+
+/// The `RunnerStarted` the launch recorded: where it said the runner works.
+async fn started_in(edge: &Arc<TestEdge>) -> String {
+    run_events(edge, SESSION)
+        .await
+        .into_iter()
+        .find_map(|e| match e {
+            RunEvent::RunnerStartedRecorded(s) => Some(s.workspace),
+            _ => None,
+        })
+        .expect("a runner started")
+}
+
+// j002200 "The same run lands in the workspace its axis dictates": the
+// engine is placed in the checkout, as every launch's setup is, in the
+// launcher's prepare: its home is prepared for it, its command runs in it,
+// and its start says so.
+#[tokio::test]
+async fn a_worktree_run_is_prepared_driven_and_recorded_in_its_checkout() {
+    use crate::fakes::{worktree_checkout, worktree_order, ScriptedWorkspaces, WORK_DIR};
+    let workspaces = Arc::new(ScriptedWorkspaces::new(worktree_checkout));
+    let mut rig = rig_placing(worktree_order("fake", "reviewer"), Arc::clone(&workspaces));
+    enqueued(&rig.edge, SESSION, HARP).await;
+    let launched = rig.step().await;
+    let path = format!("{WORK_DIR}/reviewer");
+    assert_eq!(
+        rig.runner.seen.lock().unwrap()[0].cwd.as_deref(),
+        Some(path.as_str())
+    );
+    assert_eq!(started_in(&rig.edge).await, path);
+    assert_eq!(launched[0].checkout.as_ref().unwrap().path, path);
+    assert_eq!(launched[0].workspace_warning, None);
+    let asked = workspaces.asked.lock().unwrap();
+    assert_eq!(asked.len(), 1);
+    assert_eq!(asked[0].project_dir, "/work/proj");
+    assert_eq!(asked[0].work_dir, WORK_DIR);
+    assert_eq!(asked[0].agent, "reviewer");
+}
+
+// "Asking for a worktree outside git runs in the live project directory
+// instead of refusing", and says why.
+#[tokio::test]
+async fn a_worktree_that_cannot_be_had_runs_in_the_project_with_a_warning() {
+    use crate::fakes::{worktree_order, worktree_unavailable, ScriptedWorkspaces};
+    let workspaces = Arc::new(ScriptedWorkspaces::new(worktree_unavailable));
+    let mut rig = rig_placing(worktree_order("fake", "reviewer"), workspaces);
+    enqueued(&rig.edge, SESSION, HARP).await;
+    let launched = rig.step().await;
+    assert_eq!(
+        rig.runner.seen.lock().unwrap()[0].cwd.as_deref(),
+        Some("/work/proj")
+    );
+    assert_eq!(started_in(&rig.edge).await, "/work/proj");
+    assert_eq!(launched[0].checkout, None);
+    assert!(launched[0]
+        .workspace_warning
+        .as_deref()
+        .is_some_and(|w| w.contains("not a git repository")));
+}
+
+// A worktree the port refuses (an occupant it will not adopt, a git that
+// hung) starts nothing: the launch fails, deterministically.
+#[tokio::test]
+async fn a_refused_worktree_ends_the_run_as_a_failed_launch() {
+    use crate::fakes::{worktree_order, worktree_refused, ScriptedWorkspaces};
+    let workspaces = Arc::new(ScriptedWorkspaces::new(worktree_refused));
+    let mut rig = rig_placing(worktree_order("fake", "reviewer"), workspaces);
+    enqueued(&rig.edge, SESSION, HARP).await;
+    let launched = rig.step().await;
+    assert!(
+        matches!(&launched[0].outcome, Outcome::NotStarted { detail } if detail.contains("run-ports-records-bad-path")),
+        "{:?}",
+        launched[0].outcome
+    );
+    assert!(
+        rig.runner.seen.lock().unwrap().is_empty(),
+        "nothing spawned"
+    );
+    let events = run_events(&rig.edge, SESSION).await;
+    assert!(events.iter().any(|e| matches!(e,
+        RunEvent::RunEnded(ended) if ended.cause == EndCause::LaunchFailed)));
+}
+
+// A launcher with no workspaces port places a worktree run in the project,
+// and says so.
+#[tokio::test]
+async fn a_worktree_run_with_no_workspaces_port_runs_in_the_project_with_a_warning() {
+    let mut rig = rig(
+        ScriptedEngine::answering("A", None),
+        ScriptedRunner::exits(0),
+        orders_with(crate::fakes::worktree_order("fake", "reviewer")),
+    );
+    enqueued(&rig.edge, SESSION, HARP).await;
+    let launched = rig.step().await;
+    assert_eq!(
+        rig.runner.seen.lock().unwrap()[0].cwd.as_deref(),
+        Some("/work/proj")
+    );
+    assert!(launched[0].workspace_warning.is_some());
+}
+
+// The live project asks the port nothing.
+#[tokio::test]
+async fn a_run_in_the_project_asks_no_workspace() {
+    use crate::fakes::{worktree_checkout, ScriptedWorkspaces};
+    let workspaces = Arc::new(ScriptedWorkspaces::new(worktree_checkout));
+    let mut rig = rig_placing(order("fake"), Arc::clone(&workspaces));
+    enqueued(&rig.edge, SESSION, HARP).await;
+    let launched = rig.step().await;
+    assert!(workspaces.asked.lock().unwrap().is_empty());
+    assert_eq!(launched[0].checkout, None);
+    assert_eq!(started_in(&rig.edge).await, "/work/proj");
+}
+
+// Owner ruling 2026-11-12 (Q2): a checkout is let go once its engine is over:
+// removed when clean, through the workspaces port, which removes it
+// WIP-safely and says what it left.
+#[tokio::test]
+async fn a_checkout_is_released_through_the_workspaces_port() {
+    use crate::fakes::{worktree_checkout, worktree_order, ScriptedWorkspaces};
+    let workspaces = Arc::new(ScriptedWorkspaces::new(worktree_checkout).leaving("it has work"));
+    let mut rig = rig_placing(worktree_order("fake", "reviewer"), Arc::clone(&workspaces));
+    enqueued(&rig.edge, SESSION, HARP).await;
+    let launched = rig.step().await;
+    let checkout = launched[0].checkout.clone().unwrap();
+    assert!(
+        workspaces.removed.lock().unwrap().is_empty(),
+        "not at launch"
+    );
+    assert_eq!(
+        rig.launcher.release(&checkout, &[]),
+        isolation_ports::Removal::Left("it has work".to_string())
+    );
+    assert_eq!(
+        *workspaces.removed.lock().unwrap(),
+        [(checkout.repo_dir.clone(), checkout.path.clone())]
+    );
+}
+
+// A launcher that makes no worktrees removes none.
+#[tokio::test]
+async fn a_launcher_with_no_workspaces_leaves_a_checkout() {
+    let rig = rig(
+        ScriptedEngine::answering("A", None),
+        ScriptedRunner::exits(0),
+        orders_with(order("fake")),
+    );
+    let checkout = isolation_ports::Checkout {
+        path: "/h/w/reviewer".to_string(),
+        branch: "ctxloom/h/reviewer".to_string(),
+        repo_dir: "/work/proj".to_string(),
+        reused: false,
+    };
+    assert!(matches!(
+        rig.launcher.release(&checkout, &[]),
+        isolation_ports::Removal::Left(_)
+    ));
+}
+
+// A placed engine works outside the project: the launch names the live
+// project to it, and so to its hook processes and the agent's own `ctxloom`
+// calls, as CTXLOOM_ROOT, over any the caller had, and no permit replaces it.
+#[tokio::test]
+async fn the_engine_is_told_the_live_project_whatever_its_workspace() {
+    use crate::fakes::{worktree_checkout, worktree_order, ScriptedWorkspaces};
+    let mut order = worktree_order("fake", "reviewer");
+    order.env.insert(
+        run_ports::ROOT_VARIABLE.to_string(),
+        "/elsewhere".to_string(),
+    );
+    order.env.insert(
+        "CTXLOOM_PERMIT_CTXLOOM_ROOT".to_string(),
+        "/permitted".to_string(),
+    );
+    let workspaces = Arc::new(ScriptedWorkspaces::new(worktree_checkout));
+    let mut rig = rig_placing(order, workspaces);
+    enqueued(&rig.edge, SESSION, HARP).await;
+    rig.step().await;
+    let seen = rig.runner.seen.lock().unwrap();
+    assert_eq!(
+        seen[0]
+            .env
+            .get(run_ports::ROOT_VARIABLE)
+            .map(String::as_str),
+        Some("/work/proj")
+    );
+    assert_ne!(seen[0].cwd.as_deref(), Some("/work/proj"), "placed");
+}
+
+// An order with no project names none.
+#[tokio::test]
+async fn an_order_with_no_project_names_no_root() {
+    let mut order = order("fake");
+    order.cwd = None;
+    let mut rig = rig(
+        ScriptedEngine::answering("A", None),
+        ScriptedRunner::exits(0),
+        orders_with(order),
+    );
+    enqueued(&rig.edge, SESSION, HARP).await;
+    rig.step().await;
+    assert!(!rig.runner.seen.lock().unwrap()[0]
+        .env
+        .contains_key(run_ports::ROOT_VARIABLE));
+}
+
+// The trust entry (plan §6): an engine that keys its state by the directory
+// it runs in (claude's `.claude.json`, `projects.<cwd>.hasTrustDialogAccepted`,
+// which `seeded_state` writes from `PrepareRequest.cwd`) is prepared with the
+// checkout's path as the workspaces port gave it, which `GitWorkspaces`
+// resolves (macOS's `/private/var`), so the checkout is the directory
+// trusted, not the project.
+#[tokio::test]
+async fn the_engines_state_is_keyed_by_the_checkout_it_is_placed_in() {
+    use crate::fakes::{worktree_checkout, worktree_order, Merging, ScriptedWorkspaces, WORK_DIR};
+    let mut rig = rig(
+        Merging(ScriptedEngine::answering("A", None)),
+        ScriptedRunner::exits(0),
+        orders_with(worktree_order("fake", "reviewer")),
+    );
+    rig.launcher = rig
+        .launcher
+        .with_workspaces(Arc::new(ScriptedWorkspaces::new(worktree_checkout)));
+    enqueued(&rig.edge, SESSION, HARP).await;
+    rig.step().await;
+    assert_eq!(
+        rig.records.text(HARP, "home/state.json"),
+        Some(format!("+{WORK_DIR}/reviewer"))
+    );
+}
+
+// Owner ruling 2026-11-12: what the run's selection carries rides its launch,
+// handed to the engine's prepare whatever its workspace.
+#[tokio::test]
+async fn the_engine_is_prepared_with_the_launchs_surfaces() {
+    let engine = ScriptedEngine::answering("A", None);
+    let prepared = Arc::clone(&engine.prepared);
+    let mut order = order("fake");
+    order.surfaces = run_ports::LaunchSurfaces(surface_ports::Inputs {
+        deny_tools: vec!["Bash".to_string()],
+        statusline: true,
+        ..Default::default()
+    });
+    let mut rig = rig(engine, ScriptedRunner::exits(0), orders_with(order.clone()));
+    enqueued(&rig.edge, SESSION, HARP).await;
+    rig.step().await;
+    let prepared = prepared.lock().unwrap();
+    assert_eq!(prepared.len(), 1);
+    assert_eq!(prepared[0].surfaces, order.surfaces);
+}
+
+// Owner ruling 2026-11-12 (Q3): what a launch carries that its engine reads
+// only from where it works is written into the session's checkout, hidden
+// from git there, and taken out at its release, before the checkout goes.
+#[tokio::test]
+async fn files_the_engine_reads_where_it_works_go_into_its_checkout_and_out_at_release() {
+    use crate::fakes::{
+        worktree_checkout, worktree_order, Placing, ScriptedWorkspaces, PLACED, WORK_DIR,
+    };
+    let workspaces = Arc::new(ScriptedWorkspaces::new(worktree_checkout));
+    let mut rig = rig(
+        Placing(ScriptedEngine::answering("A", None)),
+        ScriptedRunner::exits(0),
+        orders_with(worktree_order("fake", "reviewer")),
+    );
+    rig.launcher = rig.launcher.with_workspaces(Arc::clone(&workspaces) as _);
+    enqueued(&rig.edge, SESSION, HARP).await;
+    let launched = rig.step().await;
+    let path = format!("{WORK_DIR}/reviewer");
+    assert_eq!(
+        workspaces.asked.lock().unwrap()[0].artifact_patterns,
+        [".placed/"]
+    );
+    assert_eq!(
+        *workspaces.files.lock().unwrap(),
+        [format!("{path}/{PLACED}")]
+    );
+    assert_eq!(launched[0].checkout_files, [PLACED]);
+    let checkout = launched[0].checkout.clone().unwrap();
+    rig.launcher.release(&checkout, &launched[0].checkout_files);
+    assert_eq!(
+        *workspaces.files.lock().unwrap(),
+        [
+            format!("{path}/{PLACED}"),
+            format!("-{path}/{PLACED}"),
+            format!("remove {path}")
+        ]
+    );
+}
+
+// In the live project nothing of it is written: the project is not the
+// launch's to write.
+#[tokio::test]
+async fn files_the_engine_reads_where_it_works_never_go_into_the_live_project() {
+    use crate::fakes::{worktree_order, worktree_unavailable, Placing, ScriptedWorkspaces};
+    let workspaces = Arc::new(ScriptedWorkspaces::new(worktree_unavailable));
+    let mut rig = rig(
+        Placing(ScriptedEngine::answering("A", None)),
+        ScriptedRunner::exits(0),
+        orders_with(worktree_order("fake", "reviewer")),
+    );
+    rig.launcher = rig.launcher.with_workspaces(Arc::clone(&workspaces) as _);
+    enqueued(&rig.edge, SESSION, HARP).await;
+    let launched = rig.step().await;
+    assert!(workspaces.files.lock().unwrap().is_empty());
+    assert!(launched[0].checkout_files.is_empty());
+}
+
+// Owner, 2026-11-12 (Windows): std's spawn searches PATH for `<name>.exe`
+// alone, so the launch finds the program itself, on the command's own PATH,
+// and spawns the file found: a child's turn and the terminal's alike.
+#[tokio::test]
+async fn the_program_found_is_the_file_spawned_for_a_turn_and_for_the_terminal() {
+    for interactive in [false, true] {
+        let mut ordered = order("fake");
+        ordered.interactive = interactive;
+        let mut rig = rig(
+            ScriptedEngine::answering("A", None),
+            ScriptedRunner::exits(0).finding(Ok(r"C:\npm\claude.cmd".to_string())),
+            orders_with(ordered),
+        );
+        enqueued(&rig.edge, SESSION, HARP).await;
+        rig.step().await;
+        let seen = if interactive {
+            rig.runner.seen_terminal.lock().unwrap().clone()
+        } else {
+            rig.runner.seen.lock().unwrap().clone()
+        };
+        assert_eq!(seen.len(), 1, "interactive {interactive}");
+        assert_eq!(seen[0].program, r"C:\npm\claude.cmd");
+    }
+}
+
+// A program found on no directory of the PATH is not started, in the words
+// that say what was looked for and where; nothing is spawned.
+#[tokio::test]
+async fn a_program_found_nowhere_is_not_started_naming_what_was_searched() {
+    let missing = run_ports::ProgramNotFound {
+        program: "claude".to_string(),
+        names: vec!["claude.exe".to_string(), "claude.cmd".to_string()],
+        dirs: vec![r"C:\bin".to_string()],
+    };
+    let mut rig = rig(
+        ScriptedEngine::answering("A", None),
+        ScriptedRunner::exits(0).finding(Err(missing)),
+        orders_with(order("fake")),
+    );
+    enqueued(&rig.edge, SESSION, HARP).await;
+    let launched = rig.step().await;
+    assert!(
+        matches!(&launched[0].outcome, Outcome::ProgramNotFound(missing)
+            if missing.names == ["claude.exe", "claude.cmd"] && missing.dirs == [r"C:\bin"]),
+        "{launched:?}"
+    );
+    assert_eq!(
+        names(&run_events(&rig.edge, SESSION).await),
+        ["RunEnqueued", "RunEnded"]
+    );
+    assert!(rig.runner.seen.lock().unwrap().is_empty());
+}
+
+// std refuses a batch file an argument of more than one line ("batch file
+// arguments are invalid"): on Windows the terminal's multi-line opening
+// prompt to a `claude.cmd` is refused, typed, before the spawn. One line, an
+// executable, or another OS is spawned.
+#[tokio::test]
+async fn a_batch_files_multi_line_prompt_is_refused_before_the_spawn_on_windows() {
+    let launch = |os: &str, prompt: &str, found: &str| {
+        let mut interactive = order("fake");
+        interactive.interactive = true;
+        interactive.prompt = prompt.to_string();
+        let mut rig = rig(
+            ScriptedEngine::answering("A", None),
+            ScriptedRunner::exits(0).finding(Ok(found.to_string())),
+            orders_with(interactive),
+        );
+        rig.launcher = rig.launcher.on_os(os);
+        rig
+    };
+    let mut refused = launch("windows", "one\ntwo", r"C:\npm\claude.cmd");
+    enqueued(&refused.edge, SESSION, HARP).await;
+    let launched = refused.step().await;
+    assert!(
+        matches!(&launched[0].outcome, Outcome::BatchArguments(refusal)
+            if refusal.program == r"C:\npm\claude.cmd"),
+        "{launched:?}"
+    );
+    assert!(refused.runner.seen_terminal.lock().unwrap().is_empty());
+    assert_eq!(
+        names(&run_events(&refused.edge, SESSION).await),
+        ["RunEnqueued", "RunEnded"]
+    );
+
+    for (os, prompt, found) in [
+        ("windows", "one line", r"C:\npm\claude.cmd"),
+        ("windows", "one\ntwo", r"C:\bin\claude.exe"),
+        ("linux", "one\ntwo", "/bin/claude.cmd"),
+    ] {
+        let mut spawned = launch(os, prompt, found);
+        enqueued(&spawned.edge, SESSION, HARP).await;
+        let launched = spawned.step().await;
+        assert!(
+            matches!(launched[0].outcome, Outcome::Ended { .. }),
+            "{os} {found}: {launched:?}"
+        );
+    }
+}
+
+// Ruling 168's seam at the launch: the launcher asks the engine of the name,
+// and an engine it cannot drive says nothing.
+#[test]
+fn the_launcher_asks_the_named_engine_for_its_advice() {
+    let engine = ScriptedEngine {
+        advises: true,
+        ..ScriptedEngine::answering("A", None)
+    };
+    let advised = Arc::clone(&engine.advised);
+    let rig = rig(engine, ScriptedRunner::exits(0), orders_with(order("fake")));
+    let planned = run_ports::Planned {
+        os: "windows".to_string(),
+        interactive: true,
+        ..run_ports::Planned::default()
+    };
+    assert_eq!(rig.launcher.advise("fake", &planned).len(), 1);
+    assert_eq!(*advised.lock().unwrap(), vec![planned.clone()]);
+    assert!(rig.launcher.advise("other", &planned).is_empty());
+
+    let quiet = rig_quiet();
+    assert!(quiet.launcher.advise("fake", &planned).is_empty());
+}
+
+fn rig_quiet() -> Rig {
+    rig(
+        ScriptedEngine::answering("A", None),
+        ScriptedRunner::exits(0),
+        orders_with(order("fake")),
+    )
 }

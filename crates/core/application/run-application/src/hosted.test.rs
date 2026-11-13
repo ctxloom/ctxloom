@@ -44,6 +44,7 @@ fn previewed(engine: &str, auth: Sourced<AuthSource>, fatal: usize) -> Previewed
             },
             settings: None,
             settings_agent: String::new(),
+            surfaces: surface_ports::Inputs::default(),
         },
         fatal: vec![row; fatal],
     }

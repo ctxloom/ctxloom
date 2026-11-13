@@ -334,6 +334,7 @@ mod pinned {
             kinds: vec![Kind::Context],
             wire: Wire,
             rides_launch: false,
+            launch_kinds: Vec::new(),
             hook_losses: Vec::new(),
         })]
     }
@@ -412,6 +413,7 @@ mod pinned {
                 kinds: Kind::ALL.to_vec(),
                 wire: Wire,
                 rides_launch: true,
+                launch_kinds: Vec::new(),
                 hook_losses: Vec::new(),
             }),
             Box::new(Engine::all("stays")),
@@ -431,6 +433,63 @@ mod pinned {
         assert!(!wrote(&done, "rides").contains(&"context".to_string()));
         assert!(wrote(&done, "rides").contains(&"hooks".to_string()));
         assert!(wrote(&done, "stays").contains(&"context".to_string()));
+    }
+
+    fn released(done: &MaterializeResult, engine: &str) -> Vec<String> {
+        outcome(done, engine).released
+    }
+
+    // Owner ruling 2026-11-12: everything an engine's launch carries itself
+    // is given back at rest by the next refresh, as the context already is
+    // left; what it does not carry is delivered as ever.
+    #[test]
+    fn a_refresh_gives_back_every_kind_the_launch_carries() {
+        let engines: Vec<Box<dyn EngineSurfaces>> = vec![Box::new(Engine {
+            name: "carries",
+            kinds: Kind::ALL.to_vec(),
+            wire: Wire,
+            rides_launch: true,
+            launch_kinds: vec![Kind::Hooks, Kind::Settings, Kind::Commands],
+            hook_losses: Vec::new(),
+        })];
+        let w = world_of(CONFIG_DEV, crate::fakes::bundles(), engines);
+        let mut r = request(&["carries"]);
+        r.leave_launch_context = true;
+        let done = w.setup.materialize(&r).unwrap().value;
+        let gave_back = released(&done, "carries");
+        for kind in ["hooks", "settings", "commands"] {
+            assert!(
+                gave_back.contains(&kind.to_string()),
+                "{kind}: {gave_back:?}"
+            );
+            assert!(
+                !wrote(&done, "carries").contains(&kind.to_string()),
+                "{kind}"
+            );
+        }
+        assert!(wrote(&done, "carries").contains(&"skills".to_string()));
+        assert!(!wrote(&done, "carries").contains(&"context".to_string()));
+        assert!(
+            !gave_back.contains(&"context".to_string()),
+            "the context is left"
+        );
+    }
+
+    // An explicit materialize (no refresh) delivers what a launch carries
+    // too: it is asked for.
+    #[test]
+    fn an_explicit_materialize_still_delivers_what_the_launch_carries() {
+        let engines: Vec<Box<dyn EngineSurfaces>> = vec![Box::new(Engine {
+            name: "carries",
+            kinds: Kind::ALL.to_vec(),
+            wire: Wire,
+            rides_launch: true,
+            launch_kinds: Kind::ALL.to_vec(),
+            hook_losses: Vec::new(),
+        })];
+        let w = world_of(CONFIG_DEV, crate::fakes::bundles(), engines);
+        let done = w.setup.materialize(&request(&["carries"])).unwrap().value;
+        assert!(wrote(&done, "carries").contains(&"hooks".to_string()));
     }
 
     #[test]
@@ -540,6 +599,7 @@ mod hook_losses {
             kinds: Kind::ALL.to_vec(),
             wire: Wire,
             rides_launch: false,
+            launch_kinds: Vec::new(),
             hook_losses: events
                 .iter()
                 .map(|e| (e.to_string(), format!("lossy has no native {e} event")))
@@ -612,6 +672,7 @@ mod hook_losses {
                 kinds: vec![Kind::Context],
                 wire: Wire,
                 rides_launch: false,
+                launch_kinds: Vec::new(),
                 hook_losses: vec![("session_start".into(), "x".into())],
             })],
         );

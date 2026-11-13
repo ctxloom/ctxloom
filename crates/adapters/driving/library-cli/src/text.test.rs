@@ -242,6 +242,7 @@ fn test_an_unresolved_agent_show_says_its_permissions_are_passed_verbatim() {
         resolution_error: st("nope"),
         requirements: Vec::new(),
         requirements_error: String::new(),
+        not_carried: Vec::new(),
     };
     let text = shown(|out| agent_show(out, &show));
     assert!(
@@ -285,6 +286,30 @@ fn test_an_agent_listing_says_project_default_for_no_engine() {
     assert!(shown(|out| agent_list(out, &[])).starts_with("No agents defined.\n"));
 }
 
+// The capability-loss report: what the agent's engine cannot carry of its
+// profiles, one line each, named by the engine.
+#[test]
+fn test_an_agent_show_names_what_its_engine_cannot_carry() {
+    let show = AgentShow {
+        definition: agent_row("opencode"),
+        resolved: None,
+        resolution_error: st("nope"),
+        requirements: Vec::new(),
+        requirements_error: String::new(),
+        not_carried: vec![library_application::NotCarried {
+            engine: st("opencode"),
+            surface: st("hooks"),
+            event: st("session_end"),
+            reason: st("opencode has no native session_end event"),
+        }],
+    };
+    let text = shown(|out| agent_show(out, &show));
+    assert!(
+        text.ends_with("Not carried by opencode:\n  - hooks: session_end (opencode has no native session_end event)\n"),
+        "{text}"
+    );
+}
+
 // agent.go renderAgentShow: a resolution that failed ends the view.
 #[test]
 fn test_agent_show_says_a_resolution_failed_and_carries_on() {
@@ -294,6 +319,7 @@ fn test_agent_show_says_a_resolution_failed_and_carries_on() {
         resolution_error: "agent \"dev\": compose profiles: nope".to_string(),
         requirements: Vec::new(),
         requirements_error: String::new(),
+        not_carried: Vec::new(),
     };
     let text = shown(|out| agent_show(out, &show));
     assert!(text.starts_with(
@@ -704,6 +730,7 @@ fn test_an_agent_show_prints_no_posture() {
             }],
         }],
         requirements_error: String::new(),
+        not_carried: Vec::new(),
     };
     let text = shown(|out| agent_show(out, &show));
     assert!(text.contains(
@@ -849,6 +876,7 @@ fn plan() -> DryRun {
         drive: Default::default(),
         settings: None,
         settings_agent: st("dev"),
+        surfaces: Default::default(),
     }
 }
 

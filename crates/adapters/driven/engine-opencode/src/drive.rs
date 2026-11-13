@@ -94,6 +94,7 @@ pub const ENV_ALLOWLIST: &[&str] = &[
     "ANTHROPIC_API_KEY",
     "OPENAI_API_KEY",
     run_ports::HOME_VARIABLE,
+    run_ports::ROOT_VARIABLE,
     run_ports::ENDPOINT_VARIABLE,
     run_ports::BEARER_VARIABLE,
     run_ports::RUN_VARIABLE,
@@ -135,6 +136,7 @@ pub const INTERACTIVE_ENV_ALLOWLIST: &[&str] = &[
     "ANTHROPIC_API_KEY",
     "OPENAI_API_KEY",
     run_ports::HOME_VARIABLE,
+    run_ports::ROOT_VARIABLE,
     run_ports::ENDPOINT_VARIABLE,
     run_ports::BEARER_VARIABLE,
     run_ports::RUN_VARIABLE,
@@ -172,12 +174,26 @@ impl Engine for Opencode {
             SessionHome::Session => home::user_base(self.user_config.as_ref()),
             SessionHome::Host => (surface_ports::Json::Object(Vec::new()), None),
         };
+        let carried = &request.surfaces.0;
+        // The launch's MCP servers in the session's config (M6, j000400).
+        let base = crate::carried::with_servers(base, &carried.mcp);
         Ok(Prepared {
-            files: home::files(
-                &request.context,
-                &home::config(base, permissions.as_ref()),
-                &self.program,
-            ),
+            files: {
+                let mut files = home::files(
+                    &request.context,
+                    &home::config(base, permissions.as_ref()),
+                    &self.program,
+                );
+                // The bundles' authored hooks ride the launch, for the
+                // plugin to run (owner ruling 2026-11-12).
+                files.push(HomeFile {
+                    rel: crate::authored::AUTHORED_FILE.to_string(),
+                    bytes: crate::authored::authored(&carried.hooks).into_bytes(),
+                });
+                // And its commands, in the config dir's `commands/`.
+                files.extend(crate::carried::command_files(&carried.commands));
+                files
+            },
             // No file of the user's own opencode configuration crosses as
             // it is (her config is the base of the home's, above).
             copy_in: Vec::new(),
@@ -193,6 +209,7 @@ impl Engine for Opencode {
             },
             context_path: format!("{}/{CONTEXT_FILE}", request.home),
             left_out: left_out.into_iter().collect(),
+            workspace_files: Vec::new(),
         })
     }
 

@@ -18,9 +18,6 @@ use crate::git::{Git, GitError};
 pub const EXCLUDE_HEADER: &str =
     "# ctxloom per-agent worktree config (isolation; NEVER merge back)";
 
-/// What every checkout directory is named after.
-const PREFIX: &str = "ctxloom-wt-";
-
 /// The ref namespace every per-agent branch lives under.
 const BRANCH_PREFIX: &str = "ctxloom/";
 
@@ -46,40 +43,52 @@ pub fn sanitize(agent: &str) -> String {
     }
 }
 
-/// The checkout directory's name for an agent: `ctxloom-wt-<agent>`.
+/// The checkout directory's name for an agent: the agent, as one path
+/// segment. It lives in its session's checkouts directory, so the session
+/// is the directory above it.
 pub fn checkout_name(agent: &str) -> String {
-    format!("{PREFIX}{}", sanitize(agent))
+    sanitize(agent)
 }
 
-/// The branch a checkout directory is on: its name with the scratch prefix
-/// swapped for the `ctxloom/` namespace. A pure function of the path, so
-/// whoever holds the checkout can name the branch with no side table.
+/// The branch a checkout is on: `ctxloom/<harp>/<agent>`, its session's (the
+/// directory above it) and its agent's (its name), so two sessions of one
+/// agent never share one (F1: git refuses a branch another worktree has
+/// checked out). A pure function of the path, so whoever holds the checkout
+/// can name the branch with no side table.
 pub fn branch_of(checkout: &str) -> String {
-    let name = Path::new(checkout)
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let rest = name.strip_prefix(PREFIX).unwrap_or(&name);
-    format!("{BRANCH_PREFIX}{rest}")
+    let path = Path::new(checkout);
+    let segment = |p: Option<&Path>| {
+        p.and_then(Path::file_name)
+            .map(|n| sanitize(&n.to_string_lossy()))
+            .unwrap_or_default()
+    };
+    let agent = segment(Some(path));
+    let harp = segment(path.parent());
+    format!("{BRANCH_PREFIX}{harp}/{agent}")
 }
 
-/// Workspaces under one project's sessions.
+/// Workspaces of one project's sessions.
 pub struct GitWorkspaces {
     fs: Arc<dyn Fs>,
     sessions: PathBuf,
+    worktrees: Option<PathBuf>,
     git: Git,
 }
 
 impl GitWorkspaces {
-    /// The sessions of the project directory `project` (`<project>/.ctxloom/sessions`), over the git
-    /// run in `env`'s environment.
+    /// The sessions of the project directory `project` (`<project>/.ctxloom/sessions`),
+    /// their checkouts under `worktrees` (`isolation_ports::worktrees_root`;
+    /// none where there is no project, and then there are none), over the
+    /// git run in `env`'s environment.
     pub fn new(
         fs: Arc<dyn Fs>,
         project: impl Into<PathBuf>,
+        worktrees: Option<PathBuf>,
         env: Arc<EnvSnapshot>,
     ) -> GitWorkspaces {
         GitWorkspaces {
             sessions: project.into().join(".ctxloom").join("sessions"),
+            worktrees,
             git: Git::on(Arc::clone(&fs), env),
             fs,
         }
@@ -100,7 +109,16 @@ struct Listed {
 }
 
 fn worktree_list(git: &Git, repo: &Path) -> Result<Vec<Listed>, GitError> {
-    let out = git.run(repo, &["worktree", "list", "--porcelain"])?;
+    Ok(parse_worktree_list(
+        &git.run(repo, &["worktree", "list", "--porcelain"])?,
+    ))
+}
+
+/// The entries of `git worktree list --porcelain`'s output. Each path is
+/// git's spelling (on Windows `C:/a/b`, forward slashes), so it is only ever
+/// compared as a [`Path`], which on Windows reads `/` and `\` alike, never
+/// as text.
+fn parse_worktree_list(out: &str) -> Vec<Listed> {
     let mut listed = Vec::new();
     for block in out.split("\n\n") {
         let mut path = None;
@@ -116,7 +134,7 @@ fn worktree_list(git: &Git, repo: &Path) -> Result<Vec<Listed>, GitError> {
             listed.push(Listed { path, branch });
         }
     }
-    Ok(listed)
+    listed
 }
 
 /// Whether two paths name the same directory: equal, or both resolvable and
@@ -276,8 +294,9 @@ fn skip_tracked(git: &Git, checkout: &Path, patterns: &[String]) {
     }
 }
 
-/// The checkouts directly under a session's work directory. A missing work
-/// directory is none; any other failure to read it is an error.
+/// The checkouts directly under a session's checkouts directory (every
+/// directory there: the tree is ctxloom's). A missing one is none; any other
+/// failure to read it is an error.
 fn checkouts_in(fs: &dyn Fs, work: &Path, harp: &str) -> Result<Vec<Scratch>, Failure> {
     let entries = match fs.read_dir(work) {
         Ok(entries) => entries,
@@ -292,7 +311,6 @@ fn checkouts_in(fs: &dyn Fs, work: &Path, harp: &str) -> Result<Vec<Scratch>, Fa
     let mut found: Vec<Scratch> = entries
         .into_iter()
         .filter(|e| e.kind == Kind::Dir)
-        .filter(|e| e.name.to_string_lossy().starts_with(PREFIX))
         .map(|e| Scratch {
             harp: harp.to_string(),
             path: work.join(&e.name).display().to_string(),
@@ -300,6 +318,16 @@ fn checkouts_in(fs: &dyn Fs, work: &Path, harp: &str) -> Result<Vec<Scratch>, Fa
         .collect();
     found.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(found)
+}
+
+/// Whether `rel` is a path inside a directory: relative, and climbing
+/// nowhere.
+fn plainly_inside(rel: &str) -> bool {
+    let path = Path::new(rel);
+    !rel.is_empty()
+        && path
+            .components()
+            .all(|c| matches!(c, std::path::Component::Normal(_)))
 }
 
 /// Whether `harp` is one path segment that could name a session.
@@ -362,10 +390,11 @@ impl Workspaces for GitWorkspaces {
         }
         let path = Path::new(&request.work_dir).join(checkout_name(&request.agent));
         let branch = branch_of(&path.display().to_string());
+        let path = path.as_path();
         let reused =
-            reuse(&*self.fs, git, project, &path, &branch).map_err(|e| Box::new(e) as Failure)?;
+            reuse(&*self.fs, git, project, path, &branch).map_err(|e| Box::new(e) as Failure)?;
         if !reused {
-            if let Err(why) = add_checkout(git, project, &path, &branch) {
+            if let Err(why) = add_checkout(git, project, path, &branch) {
                 if let Some(timed_out) = why.diagnostic() {
                     return Err(Box::new(timed_out));
                 }
@@ -373,7 +402,13 @@ impl Workspaces for GitWorkspaces {
             }
         }
         exclude_config(&*self.fs, git, project, &request.artifact_patterns);
-        skip_tracked(git, &path, &request.artifact_patterns);
+        skip_tracked(git, path, &request.artifact_patterns);
+        // The resolved path, as the engine will know its working directory
+        // (macOS's `/var` is `/private/var`; claude keys its trust by it).
+        let path = self
+            .fs
+            .canonicalize(path)
+            .unwrap_or_else(|_| path.to_path_buf());
         Ok(Prepared::Checkout(Checkout {
             path: path.display().to_string(),
             branch,
@@ -382,22 +417,79 @@ impl Workspaces for GitWorkspaces {
         }))
     }
 
+    fn place_files(&self, checkout: &str, files: &[(String, Vec<u8>)]) -> Result<(), Failure> {
+        let root = Path::new(checkout);
+        for (rel, _) in files {
+            if !plainly_inside(rel) {
+                return Err(Box::new(WorktreeError::Unreadable {
+                    path: root.join(rel).display().to_string(),
+                    why: "not a path inside the checkout".to_string(),
+                }));
+            }
+        }
+        for (rel, bytes) in files {
+            let path = root.join(rel);
+            let failed = |e: std::io::Error| -> Failure {
+                Box::new(WorktreeError::Unreadable {
+                    path: path.display().to_string(),
+                    why: e.to_string(),
+                })
+            };
+            if let Some(parent) = path.parent() {
+                self.fs
+                    .create_dir_all(parent, Mode::from_bits(0o777))
+                    .map_err(failed)?;
+            }
+            self.fs
+                .write_atomic(&path, bytes, Perms::KeepOr(Mode::FILE))
+                .map_err(failed)?;
+        }
+        Ok(())
+    }
+
+    fn remove_files(&self, checkout: &str, rels: &[String]) {
+        let root = Path::new(checkout);
+        for rel in rels.iter().filter(|rel| plainly_inside(rel)) {
+            let _ = self.fs.remove_file(&root.join(rel));
+            // A directory left empty is gone too: git lists an empty one an
+            // exclude matches as ignored, which would keep the checkout.
+            let mut dir = Path::new(rel).parent();
+            while let Some(at) = dir.filter(|d| !d.as_os_str().is_empty()) {
+                let path = root.join(at);
+                let empty = self.fs.read_dir(&path).is_ok_and(|e| e.is_empty());
+                if !empty || self.fs.remove_dir_all(&path).is_err() {
+                    break;
+                }
+                dir = at.parent();
+            }
+        }
+    }
+
     fn session_known(&self, harp: &str) -> Result<bool, Failure> {
-        Ok(is_name(harp)
-            && self
-                .fs
-                .metadata(&self.sessions.join(harp))
-                .is_ok_and(|meta| meta.kind == Kind::Dir))
+        if !is_name(harp) {
+            return Ok(false);
+        }
+        let is =
+            |path: &Path, kind: Kind| self.fs.metadata(path).is_ok_and(|meta| meta.kind == kind);
+        Ok(is(&self.sessions.join(harp), Kind::Dir)
+            || is(&self.sessions.join(format!("{harp}.lock")), Kind::File)
+            || self
+                .worktrees
+                .as_ref()
+                .is_some_and(|root| is(&root.join(harp), Kind::Dir)))
     }
 
     fn scratch(&self, harp: Option<&str>) -> Result<Vec<Scratch>, Failure> {
+        let Some(root) = &self.worktrees else {
+            return Ok(Vec::new());
+        };
         if let Some(harp) = harp {
             if !is_name(harp) {
                 return Ok(Vec::new());
             }
-            return checkouts_in(&*self.fs, &self.sessions.join(harp).join("work"), harp);
+            return checkouts_in(&*self.fs, &root.join(harp), harp);
         }
-        let Ok(entries) = self.fs.read_dir(&self.sessions) else {
+        let Ok(entries) = self.fs.read_dir(root) else {
             return Ok(Vec::new());
         };
         let mut all = Vec::new();
@@ -406,11 +498,9 @@ impl Workspaces for GitWorkspaces {
                 continue;
             }
             let name = entry.name.to_string_lossy().into_owned();
-            // A session whose work directory cannot be read has nothing to
-            // sweep; only a single-session question reports it.
-            if let Ok(found) =
-                checkouts_in(&*self.fs, &self.sessions.join(&name).join("work"), &name)
-            {
+            // A session whose checkouts directory cannot be read has nothing
+            // to sweep; only a single-session question reports it.
+            if let Ok(found) = checkouts_in(&*self.fs, &root.join(&name), &name) {
                 all.extend(found);
             }
         }
@@ -463,7 +553,11 @@ impl Workspaces for GitWorkspaces {
         if let Err(why) = remove_one(git, repo, target) {
             return Removal::Left(format!("cannot remove it: {why}"));
         }
-        let _ = git.run(repo, &["worktree", "prune"]);
+        // `git worktree remove` dropped this checkout's own record. Never a
+        // `git worktree prune`: it judges every worktree of the repository and
+        // deletes the record of each whose directory this process cannot see
+        // (a container that mounts only the project), the user's other work
+        // cut off from the repository.
         delete_merged_branch(git, repo, &branch_of(path));
         if self.fs.exists(target).unwrap_or(false) {
             Removal::Left("it is still on disk after git removed it".to_string())

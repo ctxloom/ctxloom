@@ -172,6 +172,69 @@ fn test_check_reports_every_engine_and_what_ctxloom_has_materialized() {
     assert_eq!(report.surfaces[0].route, Kind::Context.name());
 }
 
+// j001900: an export the team's context has moved on from is named stale;
+// one that is what materialize would write now is current.
+#[test]
+fn test_check_names_an_export_the_context_moved_on_from_as_stale() {
+    let w = bare();
+    w.setup
+        .materialize(&crate::MaterializeRequest {
+            yes: true,
+            engines: vec!["claude-code".into()],
+            surfaces: vec![
+                crate::SurfaceSpec::parse("context").unwrap(),
+                crate::SurfaceSpec::parse("mcp").unwrap(),
+            ],
+            ..crate::MaterializeRequest::default()
+        })
+        .unwrap();
+    let status = |w: &crate::fakes::World| -> Vec<(String, String)> {
+        w.setup
+            .check(&Flags::default())
+            .unwrap()
+            .value
+            .surfaces
+            .into_iter()
+            .map(|s| (s.route, s.status))
+            .collect()
+    };
+    assert_eq!(
+        status(&w),
+        [
+            ("context".to_string(), "materialized".to_string()),
+            ("mcp".to_string(), "materialized".to_string())
+        ]
+    );
+    // The team's context moves on: what was exported is no longer what
+    // materialize would write.
+    {
+        let mut state = w.store.state();
+        let claims = state
+            .claims
+            .get_mut(&("claude-code".to_string(), Kind::Context))
+            .expect("the context was exported");
+        claims[0] = surface_ports::Claim::Section {
+            path: claims[0].path().to_string(),
+            text: "THE CONTEXT AS IT WAS LAST MONTH".to_string(),
+        };
+    }
+    let log = w.store.state().log.len();
+    assert_eq!(
+        status(&w),
+        [
+            ("context".to_string(), "stale".to_string()),
+            ("mcp".to_string(), "materialized".to_string())
+        ]
+    );
+    assert!(
+        w.store.state().log[log..]
+            .iter()
+            .all(|l| l.ends_with("dry=true")),
+        "a check writes nothing: {:?}",
+        w.store.state().log
+    );
+}
+
 // manage.feature: Scenario: An unknown event name is refused rather than
 // answered empty
 #[test]
@@ -239,4 +302,84 @@ fn test_the_install_plan_names_the_engine_only_when_it_would_scaffold() {
         .set_scaffold_for_test("config.yaml", "schema_version: 8\n");
     let plan = w.setup.install_plan(Some("mock")).unwrap();
     assert!(plan.ctxloom_dir_exists && plan.engine.is_empty());
+}
+
+// Owner ruling 2026-11-12: an engine whose launch carries its hooks says so,
+// so a project refresh that gave them back at rest reads as wired at launch.
+#[test]
+fn test_check_says_which_engines_carry_their_hooks_at_launch() {
+    let engines: Vec<Box<dyn surface_ports::EngineSurfaces>> = vec![
+        Box::new(crate::fakes::Engine {
+            launch_kinds: vec![Kind::Hooks],
+            ..crate::fakes::Engine::all("claude-code")
+        }),
+        Box::new(crate::fakes::Engine::all("mock")),
+    ];
+    let w = crate::fakes::world_of("schema_version: 9\n", crate::fakes::bundles(), engines);
+    let report = w.setup.check(&Flags::default()).unwrap().value;
+    let at_launch: Vec<(String, bool)> = report
+        .backends
+        .iter()
+        .map(|b| (b.backend.clone(), b.hooks_at_launch))
+        .collect();
+    assert_eq!(
+        at_launch,
+        [
+            ("claude-code".to_string(), true),
+            ("mock".to_string(), false)
+        ]
+    );
+}
+
+// j001900: the check's dry run asks the store of the kinds the export
+// claimed alone, never of a kind it did not make.
+#[test]
+fn test_check_plans_only_the_kinds_the_export_claimed() {
+    let w = bare();
+    w.setup
+        .materialize(&crate::MaterializeRequest {
+            yes: true,
+            engines: vec!["claude-code".into()],
+            surfaces: vec![crate::SurfaceSpec::parse("mcp").unwrap()],
+            ..crate::MaterializeRequest::default()
+        })
+        .unwrap();
+    let log = w.store.state().log.len();
+    w.setup.check(&Flags::default()).unwrap();
+    assert_eq!(
+        w.store.state().log[log..],
+        ["deliver claude-code mcp dry=true".to_string()]
+    );
+}
+
+// The check plans with the command's own flags: a `--config-set` that
+// changes what materialize would write makes the export stale.
+#[test]
+fn test_check_plans_with_the_commands_flags() {
+    let w = bare();
+    w.setup
+        .materialize(&crate::MaterializeRequest {
+            yes: true,
+            engines: vec!["claude-code".into()],
+            surfaces: vec![crate::SurfaceSpec::parse("context").unwrap()],
+            ..crate::MaterializeRequest::default()
+        })
+        .unwrap();
+    let status = |flags: &Flags| -> Vec<(String, String)> {
+        w.setup
+            .check(flags)
+            .unwrap()
+            .value
+            .surfaces
+            .into_iter()
+            .map(|s| (s.route, s.status))
+            .collect()
+    };
+    let word = |s: &str| vec![("context".to_string(), s.to_string())];
+    assert_eq!(status(&Flags::default()), word("materialized"));
+    let original = Flags {
+        config_set: vec!["config.content_form=original".to_string()],
+        ..Flags::default()
+    };
+    assert_eq!(status(&original), word("stale"));
 }

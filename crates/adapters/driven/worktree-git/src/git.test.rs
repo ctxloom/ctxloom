@@ -245,12 +245,26 @@ fn a_git_that_finishes_within_its_limit_is_not_disturbed() {
         return;
     }
     // Output larger than a pipe's buffer, then a failure's own words.
-    let (dir, _, _) = stub("#!/bin/sh\nif [ \"$1\" = fail ]; then echo oops >&2; exit 3; fi\nhead -c 200000 /dev/zero | tr '\\0' x\n");
+    let (dir, _, _) = stub("#!/bin/sh\nif [ \"$3\" = fail ]; then echo oops >&2; exit 3; fi\nhead -c 200000 /dev/zero | tr '\\0' x\n");
     let git = Git::new(fs(), dir.root().join("git"), Duration::from_secs(60), env());
     let out = git.run(dir.root(), &["big"]).unwrap();
     assert_eq!(out.len(), 200_000);
     let said = git.run(dir.root(), &["fail"]).unwrap_err();
     assert_eq!(said, GitError::Said("oops".to_string()));
+}
+
+// Every invocation lets git use paths past Windows' MAX_PATH: a deep
+// repository's `worktree add` would otherwise fail, and the run quietly use
+// the live project. Other platforms ignore it; no repository config changes.
+#[test]
+fn every_git_invocation_allows_long_paths() {
+    if !runs_scripts() {
+        return;
+    }
+    let (dir, _, _) = stub("#!/bin/sh\nprintf '%s\\n' \"$@\"\n");
+    let git = Git::new(fs(), dir.root().join("git"), Duration::from_secs(60), env());
+    let out = git.run(dir.root(), &["worktree", "list"]).unwrap();
+    assert_eq!(out, "-c\ncore.longpaths=true\nworktree\nlist\n");
 }
 
 #[test]
@@ -267,8 +281,8 @@ fn the_user_is_gits_name_and_email_for_the_directory() {
     }
     let (dir, git, _) = stub(
         r#"case "$*" in
-  "config --get user.name") echo "Alice Example" ;;
-  "config --get user.email") echo "alice@example.com" ;;
+  "-c core.longpaths=true config --get user.name") echo "Alice Example" ;;
+  "-c core.longpaths=true config --get user.email") echo "alice@example.com" ;;
   *) exit 1 ;;
 esac"#,
     );
@@ -291,7 +305,7 @@ fn a_key_git_does_not_know_is_empty() {
     }
     let (dir, _, _) = stub(
         r#"case "$*" in
-  "config --get user.email") echo "a@x" ;;
+  "-c core.longpaths=true config --get user.email") echo "a@x" ;;
   *) exit 1 ;;
 esac"#,
     );
@@ -314,8 +328,8 @@ fn a_repositorys_identity_is_its_common_dir_and_its_least_root_commit() {
     }
     let (dir, _, _) = stub(
         r#"case "$*" in
-  "rev-parse --path-format=absolute --git-common-dir") echo "/work/calm/.git" ;;
-  "rev-list --max-parents=0 HEAD") printf 'bbbb\naaaa\n' ;;
+  "-c core.longpaths=true rev-parse --path-format=absolute --git-common-dir") echo "/work/calm/.git" ;;
+  "-c core.longpaths=true rev-list --max-parents=0 HEAD") printf 'bbbb\naaaa\n' ;;
   *) exit 1 ;;
 esac"#,
     );

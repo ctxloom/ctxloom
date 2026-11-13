@@ -3,7 +3,7 @@
 # Ported from journeys/j001200_recall.feature (rev f36e8dfb2): the Rule on resuming a session
 # Ported from journeys/j002200_isolation.feature (rev f36e8dfb2): the last three Rules
 # NOT ported: the scenarios tagged @pending (the mock engine's recorded input,
-#   one-shot, dry-run, tag and agent selection, deny_tools, the opencode TUI):
+#   one-shot, tag and agent selection, deny_tools, the opencode TUI):
 #   they need `run` to launch an engine. Plan override: clap's usage error says
 #   "unexpected argument" where cobra said "unknown flag"; the step maps one to
 #   the other (plan 8.2).
@@ -212,7 +212,6 @@ Feature: run — assembling a project's context and handing it to an engine
       And the output contains "MOCK-REPLY"
       And the mock recorded input contains "COMMAND-BODY-review"
 
-  @pending
   Rule: A dry run renders what would be sent, and sends nothing
 
     `--dry-run` is the inspection surface: it stops before anything stateful or
@@ -968,7 +967,7 @@ Feature: run — assembling a project's context and handing it to an engine
   # where they go: relative to the project root unless absolute, `ctxloom/`
   # when the config names nowhere. It is NOT gitignored: what a session leaves
   # there can be committed. Each session's outputs are `<output.dir>/<harp>/`,
-  # and a rename moves that folder with the name.
+  # and a harp never changes (S55), so neither does that folder.
   Rule: A session's outputs go under the project's output directory
 
     Scenario: A session's outputs go under ctxloom/ in her project

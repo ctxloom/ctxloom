@@ -46,6 +46,15 @@ pub enum RunError {
     /// terminal session's opening prompt): refused before the spawn, in
     /// run-ports' own words.
     TooLong(Box<run_ports::CommandTooLong>),
+    /// The engine's program is a batch file (an npm `claude.cmd` on
+    /// Windows), which cannot be handed the terminal session's opening
+    /// prompt of more than one line: refused before the spawn, in run-ports'
+    /// own words.
+    BatchArguments(Box<run_ports::BatchArguments>),
+    /// The engine's program is on no directory of its PATH: not started, in
+    /// run-ports' words, which name what was looked for and where. A failure
+    /// (10), as any command that could not be started.
+    ProgramNotFound(Box<run_ports::ProgramNotFound>),
     /// The turn failed, in the class the engine named.
     Turn { class: FailureClass, detail: String },
     /// The turn answered with nothing.
@@ -77,7 +86,8 @@ impl ExitClass for RunError {
             RunError::Refused(_)
             | RunError::Bind(_)
             | RunError::Resume(_)
-            | RunError::TooLong(_) => Exit::REFUSED,
+            | RunError::TooLong(_)
+            | RunError::BatchArguments(_) => Exit::REFUSED,
             RunError::Session(CoreError::Refused { .. }) => Exit::REFUSED,
             // Held by another process: the session or run is live (ruling
             // 152); a lock file not made is a failure, below.
@@ -132,6 +142,8 @@ impl Diagnostic for RunError {
             RunError::Resume(rejection) => rejection.code(),
             RunError::Bind(error) => error.code(),
             RunError::TooLong(refusal) => refusal.code(),
+            RunError::BatchArguments(refusal) => refusal.code(),
+            RunError::ProgramNotFound(missing) => missing.code(),
             RunError::Project(_) => code!("project"),
             RunError::Listener(_) => code!("listener"),
             RunError::Lock(_) => code!("lock"),
@@ -158,6 +170,8 @@ impl Diagnostic for RunError {
             RunError::Resume(rejection) => rejection.args(),
             RunError::Bind(error) => error.args(),
             RunError::TooLong(refusal) => refusal.args(),
+            RunError::BatchArguments(refusal) => refusal.args(),
+            RunError::ProgramNotFound(missing) => missing.args(),
             RunError::Project(report) => vec![("reason", report.code().into())],
             RunError::Listener(report) => vec![("reason", report.code().into())],
             RunError::Lock(error) => vec![("reason", error.report().code().into())],

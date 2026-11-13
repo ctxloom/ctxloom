@@ -36,7 +36,7 @@ use sessions::{
     SESSION_DOMAIN,
 };
 
-use crate::credential::{credential_evidence, share_login};
+use crate::credential::{credential_evidence, holds, share_login};
 use crate::error::RunError;
 
 /// How many names are tried for a session before a taken one is the error.
@@ -87,8 +87,9 @@ fn ours(launched: Vec<Launched>, session: &str) -> Option<Launched> {
 }
 
 /// The permits the launcher did not follow, said by the permit's name (owner
-/// rulings 78, 78b), and the user's own settings files the session home was
-/// not started from, by path (owner ruling 169).
+/// rulings 78, 78b), the user's own settings files the session home was not
+/// started from, by path (owner ruling 169), and a worktree asked for that
+/// could not be had.
 fn said_permits(launched: &Launched, notices: &mut Vec<Notice>) {
     notices.extend(
         launched
@@ -103,6 +104,15 @@ fn said_permits(launched: &Launched, notices: &mut Vec<Notice>) {
             .map(|left_out| Notice::UserSettingsLeftOut {
                 engine: left_out.engine.clone(),
                 path: left_out.path.clone(),
+            }),
+    );
+    // A worktree asked for and not had: the engine worked in the project.
+    notices.extend(
+        launched
+            .workspace_warning
+            .iter()
+            .map(|reason| Notice::WorkspaceUnavailable {
+                reason: reason.clone(),
             }),
     );
 }
@@ -172,6 +182,11 @@ pub struct Place {
     /// unset. Her login is found under it, and `session_home: host` gives it
     /// to the engine.
     pub user_home: Option<String>,
+    /// The project's checkouts directory under ctxloom's home
+    /// (`isolation_ports::worktrees_root`); each session's checkouts are
+    /// `<worktrees>/<harp>`. Empty: none, and a worktree asked for is
+    /// unavailable.
+    pub worktrees: String,
 }
 
 /// The run use cases over their ports.
@@ -229,6 +244,8 @@ struct Resume {
     harp: String,
     engine: String,
     native_id: String,
+    /// The workspace axis it was minted on (none recorded: `none`).
+    workspace: String,
 }
 
 /// The engine a run is on: the one asked for, else the plan's.
@@ -391,8 +408,9 @@ where
     }
 
     /// The request as it is planned, and the session it resumes, if it names
-    /// one (owner ruling 115): planned on the session's own engine unless
-    /// `--engine` names one (the session's aggregate refuses another).
+    /// one (owner ruling 115): planned on the session's own engine and
+    /// workspace unless `--engine` or `--workspace` names one (the session's
+    /// aggregate refuses another).
     async fn resolve(&mut self, request: &OneShot) -> Result<(OneShot, Option<Resume>), RunError> {
         if request.session.is_empty() {
             return Ok((request.clone(), None));
@@ -402,6 +420,11 @@ where
         if request.engine.is_empty() {
             request.engine = resume.engine.clone();
             request.run.engine = resume.engine.clone();
+        }
+        // A resume works where its session worked (owner ruling
+        // 2026-11-12); another `--workspace` is the session's to refuse.
+        if request.run.workspace.is_empty() {
+            request.run.workspace = resume.workspace.clone();
         }
         Ok((request, Some(resume)))
     }
@@ -456,6 +479,7 @@ where
             harp: state.harp,
             engine: state.engine,
             native_id: state.native_id,
+            workspace: state.workspace.unwrap_or_else(|| "none".to_string()),
         })
     }
 
@@ -487,13 +511,15 @@ where
         Ok(state)
     }
 
-    /// Owe `resume`'s session its next incarnation on `engine` (the
-    /// aggregate's `ResumeSession`, which refuses a session running, one with
-    /// no native session, or another engine): the incarnation owed.
-    async fn owe(&self, resume: &Resume, engine: &str) -> Result<u32, RunError> {
+    /// Owe `resume`'s session its next incarnation on `engine` in
+    /// `workspace` (the aggregate's `ResumeSession`, which refuses a session
+    /// running, one with no native session, another engine or another
+    /// workspace): the incarnation owed.
+    async fn owe(&self, resume: &Resume, engine: &str, workspace: &str) -> Result<u32, RunError> {
         let command: SessionCommand = ResumeSession {
             harp: resume.harp.clone(),
             engine: engine.to_string(),
+            workspace: workspace.to_string(),
         }
         .into();
         self.core
@@ -576,7 +602,9 @@ where
     ) -> Result<(Box<dyn run_ports::Serving>, Started), RunError> {
         let engine = chosen_engine(&previewed.plan, request);
         let settings = settings_of(&previewed.plan, &engine);
-        let (session, incarnation, chosen) = self.placing(resume.as_ref(), &engine).await?;
+        let axis = run_launcher::Axis::of(&previewed.plan.axes.0);
+        let (session, incarnation, chosen) =
+            self.placing(resume.as_ref(), &engine, axis.word()).await?;
         let enqueued = match self
             .enqueue(
                 &previewed,
@@ -609,7 +637,10 @@ where
         };
         let made = match (&resume, chosen) {
             (Some(resume), _) => Ok(resume.harp.clone()),
-            (None, Some(chosen)) => self.make(&session, chosen, &engine, interactive).await,
+            (None, Some(chosen)) => {
+                self.make(&session, chosen, &engine, axis, interactive)
+                    .await
+            }
             (None, None) => Err(RunError::Session(CoreError::Failed {
                 reason: "no name was chosen".to_string(),
             })),
@@ -655,35 +686,79 @@ where
         );
         // The primary is handed her login before her engine starts.
         if interactive {
-            if let Some(credentials) = self.launcher.credentials(&started.engine) {
-                notices.extend(share_login(
-                    &mut *self.links,
-                    &settings.credentials(credentials),
-                    &self.env,
-                    self.place.user_home.as_deref(),
-                    &self.os,
-                    &started.harp,
-                ));
-            }
+            notices.extend(self.sign_in(&settings, &started));
         }
         Ok((serving, started))
     }
 
+    /// What the primary's terminal session is told of how it is signed in,
+    /// having been handed her login where it is shared. The engine is asked
+    /// first (owner ruling 168's seam): where it advises (claude on Windows
+    /// with no token, which is token-only there, owner ruling 2026-11-12),
+    /// its notice is what she is told, and no login is shared.
+    fn sign_in(&mut self, settings: &run_ports::EngineSettings, started: &Started) -> Vec<Notice> {
+        let Some(credentials) = self.launcher.credentials(&started.engine) else {
+            return Vec::new();
+        };
+        let policy = settings.credentials(credentials);
+        let advice = self.launcher.advise(
+            &started.engine,
+            &run_ports::Planned {
+                os: self.os.clone(),
+                interactive: true,
+                credential_set: holds(&self.env, &policy.primary_env),
+                ..run_ports::Planned::default()
+            },
+        );
+        if !advice.is_empty() {
+            return advice.into_iter().map(Notice::Engine).collect();
+        }
+        share_login(
+            &mut *self.links,
+            &policy,
+            &self.env,
+            self.place.user_home.as_deref(),
+            &self.os,
+            &started.harp,
+        )
+        .into_iter()
+        .collect()
+    }
+
     /// Launch what is owed, stop the listener (a hook still in flight as
-    /// the engine exits is delivered before it has drained), then tell the
-    /// session its incarnation ended (ruling 85). This run's launch, its
+    /// the engine exits is delivered before it has drained), let go of the
+    /// engine's checkout, then tell the session its incarnation ended
+    /// (ruling 85). This run's launch, its
     /// run's end checked. The session's lock is let go by the caller, after.
     async fn drive(
         &mut self,
         serving: Box<dyn run_ports::Serving>,
         started: &Started,
+        notices: &mut Vec<Notice>,
     ) -> Result<Launched, RunError> {
         let launched = self.launch().await;
         serving.stop().await;
         let launched = launched?;
         let ours = ours(launched, &started.session).ok_or_else(|| not_ended(&started.session))?;
+        // The engine is over and its listener stopped: its checkout is let
+        // go while the session's lock is still held (owner ruling
+        // 2026-11-12, Q2), removed when clean, else left and said.
+        if let Some(checkout) = &ours.checkout {
+            if let isolation_ports::Removal::Left(reason) =
+                self.launcher.release(checkout, &ours.checkout_files)
+            {
+                notices.push(Notice::CheckoutLeft {
+                    path: checkout.path.clone(),
+                    branch: checkout.branch.clone(),
+                    reason,
+                });
+            }
+        }
         let cause = match ours.outcome {
-            Turn::NotStarted { .. } | Turn::TooLong(_) => LAUNCH_FAILED,
+            Turn::NotStarted { .. }
+            | Turn::TooLong(_)
+            | Turn::BatchArguments(_)
+            | Turn::ProgramNotFound(_) => LAUNCH_FAILED,
             _ => RUNNER_EXIT,
         };
         self.incarnation_ended(&started.session, started.incarnation, cause)
@@ -709,7 +784,7 @@ where
         let (serving, started) = self
             .ready(previewed, request, resume, true, notices)
             .await?;
-        let launched = self.drive(serving, &started).await?;
+        let launched = self.drive(serving, &started, notices).await?;
         said_permits(&launched, notices);
         let Started {
             session,
@@ -728,6 +803,8 @@ where
             }),
             Turn::NotStarted { detail } => Err(RunError::NotStarted { detail }),
             Turn::TooLong(refusal) => Err(RunError::TooLong(Box::new(refusal))),
+            Turn::BatchArguments(refusal) => Err(RunError::BatchArguments(Box::new(refusal))),
+            Turn::ProgramNotFound(missing) => Err(RunError::ProgramNotFound(Box::new(missing))),
             other => Err(RunError::Turn {
                 class: run_ports::FailureClass::EngineError,
                 detail: format!("{other:?}"),
@@ -818,10 +895,11 @@ where
         session: &str,
         chosen: Chosen,
         engine: &str,
+        axis: run_launcher::Axis,
         interactive: bool,
     ) -> Result<String, RunError> {
         let project = self.identity.for_write(None).map_err(RunError::Project)?;
-        self.mint(&project, session, chosen, engine, interactive)
+        self.mint(&project, session, chosen, engine, axis, interactive)
             .await
     }
 
@@ -835,11 +913,12 @@ where
         &mut self,
         resume: Option<&Resume>,
         engine: &str,
+        workspace: &str,
     ) -> Result<(String, u32, Option<Chosen>), RunError> {
         if let Some(resume) = resume {
             return Ok((
                 resume.session.clone(),
-                self.owe(resume, engine).await?,
+                self.owe(resume, engine, workspace).await?,
                 None,
             ));
         }
@@ -955,6 +1034,7 @@ where
         let plan = previewed.plan;
         let engine = chosen_engine(&plan, request);
         let settings = settings_of(&plan, &engine);
+        let workspace = self.workspace(&plan, &harp);
         // The order is placed once the run's tokens exist: the hook bearer
         // reaches the engine's environment through it (the terminal session's
         // and a one-shot child's alike, ruling 51), and the caller's own
@@ -1008,6 +1088,7 @@ where
                 env,
                 user_home: self.place.user_home.clone(),
                 cwd: Some(self.place.project_dir.clone()),
+                workspace,
                 interactive,
                 model: plan.model,
                 effort: plan.effort,
@@ -1016,6 +1097,7 @@ where
                 owned,
                 git_user: self.git_user.clone(),
                 resume,
+                surfaces: run_ports::LaunchSurfaces(plan.surfaces),
             },
         );
         Started {
@@ -1025,6 +1107,28 @@ where
             run: enqueued.run.clone(),
             incarnation,
             lock,
+        }
+    }
+
+    /// What the run asks of the workspace axis: the axis the plan settled
+    /// on (`axes.0`: the flag, else the config's default), the session's
+    /// checkouts directory under the project's, and the agent the checkout
+    /// is for (the plan's, else the default agent it took). The launcher
+    /// places the engine.
+    fn workspace(&self, plan: &library_application::DryRun, harp: &str) -> run_launcher::Workspace {
+        let agent = [&plan.agent, &plan.settings_agent]
+            .into_iter()
+            .find(|a| !a.is_empty())
+            .cloned()
+            .unwrap_or_default();
+        run_launcher::Workspace {
+            axis: run_launcher::Axis::of(&plan.axes.0),
+            work_dir: if self.place.worktrees.is_empty() {
+                String::new()
+            } else {
+                format!("{}/{harp}", self.place.worktrees)
+            },
+            agent,
         }
     }
 
@@ -1049,7 +1153,7 @@ where
         let (serving, started) = self
             .ready(previewed, request, resume, false, notices)
             .await?;
-        let ours = self.drive(serving, &started).await?;
+        let ours = self.drive(serving, &started, notices).await?;
         said_permits(&ours, notices);
         let Started {
             session,
@@ -1070,6 +1174,8 @@ where
             Turn::Failed { class, detail } => Err(RunError::Turn { class, detail }),
             Turn::NotStarted { detail } => Err(RunError::NotStarted { detail }),
             Turn::TooLong(refusal) => Err(RunError::TooLong(Box::new(refusal))),
+            Turn::BatchArguments(refusal) => Err(RunError::BatchArguments(Box::new(refusal))),
+            Turn::ProgramNotFound(missing) => Err(RunError::ProgramNotFound(Box::new(missing))),
             Turn::Ended { .. } => Err(RunError::Turn {
                 class: run_ports::FailureClass::EngineError,
                 detail: "a turn ended as a session".to_string(),
@@ -1089,6 +1195,7 @@ where
         session: &str,
         chosen: Chosen,
         engine: &str,
+        axis: run_launcher::Axis,
         interactive: bool,
     ) -> Result<String, RunError> {
         let edge = self.core.edge();
@@ -1111,7 +1218,7 @@ where
         {
             Ok(_) => {
                 let minted = self
-                    .mint_on(&edge, project, engine, session, &harp, interactive)
+                    .mint_on(project, engine, session, &harp, axis, interactive)
                     .await;
                 if minted.is_err() {
                     let release = NameClaimCommand::from(ReleaseName {
@@ -1134,11 +1241,11 @@ where
 
     async fn mint_on(
         &self,
-        edge: &Arc<K::Edge>,
         project: &Project,
         engine: &str,
         session: &str,
         harp: &str,
+        axis: run_launcher::Axis,
         interactive: bool,
     ) -> Result<(), RunError> {
         let mint: SessionCommand = MintSession {
@@ -1155,6 +1262,8 @@ where
             started_at: None,
             depth: 0,
             owner: None,
+            // The axis is a session trait: a resume works in the same place.
+            workspace: Some(axis.word().to_string()),
         }
         .into();
         let root = uuid::Uuid::parse_str(session).map_or_else(
@@ -1166,7 +1275,9 @@ where
             root: Some(root),
             edition: None,
         };
-        edge.handle(angzarr_embedded::v1::CommandBook::command_of(cover, &mint))
+        self.core
+            .edge()
+            .handle(angzarr_embedded::v1::CommandBook::command_of(cover, &mint))
             .await
             .map(drop)
             .map_err(|failure| RunError::Session(CoreError::from_failure(failure)))

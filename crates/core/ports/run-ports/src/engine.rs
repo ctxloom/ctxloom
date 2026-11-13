@@ -26,6 +26,15 @@ use crate::launcher::{TurnCommand, TurnOutput};
 /// ctxloom's home through this one explicit variable.
 pub const HOME_VARIABLE: &str = "CTXLOOM_HOME";
 
+/// The variable that names the live project's root in an engine's
+/// environment (the terminal session's and a one-shot child's), set by the
+/// launch to the project the run is of. An engine placed in a checkout of
+/// its own works outside the project, so its hook processes, and the
+/// agent's own `ctxloom` calls, find the project through this one variable
+/// rather than from their working directory (the checkout holds the
+/// project's tracked `.ctxloom`, never its id, sessions or cache).
+pub const ROOT_VARIABLE: &str = "CTXLOOM_ROOT";
+
 /// A file to write under a session home.
 #[derive(Clone, PartialEq, Eq)]
 pub struct HomeFile {
@@ -78,6 +87,47 @@ pub struct LeftOut {
     pub path: String,
 }
 
+/// What a launch carries for its engine besides the context (owner ruling
+/// 2026-11-12: everything rides the launch, from the run agent's selection,
+/// in every directory): ctxloom's own callbacks and the authored hooks, the
+/// statusline, `deny_tools`, the MCP servers, the commands and the skills,
+/// in the engines' surface terms (`surface_ports::Inputs`; its context is
+/// empty). Its `Debug` names what it carries and withholds every value: a
+/// server's environment and headers may hold a credential.
+#[derive(Clone, Default, PartialEq, Eq)]
+pub struct LaunchSurfaces(pub surface_ports::Inputs);
+
+impl fmt::Debug for LaunchSurfaces {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let inputs = &self.0;
+        let names = |items: Vec<&str>| items.join(",");
+        f.debug_struct("LaunchSurfaces")
+            .field(
+                "hooks",
+                &inputs
+                    .hooks
+                    .iter()
+                    .map(|(event, hooks)| format!("{event}:{}", hooks.len()))
+                    .collect::<Vec<_>>(),
+            )
+            .field("statusline", &inputs.statusline)
+            .field("deny_tools", &inputs.deny_tools)
+            .field(
+                "mcp",
+                &names(inputs.mcp.iter().map(|m| m.name.as_str()).collect()),
+            )
+            .field(
+                "commands",
+                &names(inputs.commands.iter().map(|c| c.name.as_str()).collect()),
+            )
+            .field(
+                "skills",
+                &names(inputs.skills.iter().map(|s| s.name.as_str()).collect()),
+            )
+            .finish()
+    }
+}
+
 /// What [`Engine::prepare`] is asked.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PrepareRequest {
@@ -109,6 +159,10 @@ pub struct PrepareRequest {
     /// Whose engine configuration directory the run gets (`session_home`):
     /// under `host` it is the user's own, which an engine never writes.
     pub session_home: crate::settings::SessionHome,
+    /// What the launch carries besides the context: the engine puts each
+    /// where it reads it for this run (claude: its hooks file, its
+    /// settings, its MCP config, its commands and skills).
+    pub surfaces: LaunchSurfaces,
 }
 
 /// What [`Engine::prepare`] answers: the session home's surfaces.
@@ -129,6 +183,13 @@ pub struct Prepared {
     /// The user's own settings the engine would have started the home's
     /// settings from and left out (owner ruling 169): the run says each.
     pub left_out: Vec<LeftOut>,
+    /// Files the launch carries that the engine reads only from the
+    /// directory it works in (claude's commands and skills under
+    /// `session_home: host`, owner ruling 2026-11-12, Q3), relative to it:
+    /// written into a checkout of the session's own alone (hidden from git
+    /// by [`Engine::workspace_patterns`]) and taken out at its release;
+    /// never into the live project.
+    pub workspace_files: Vec<HomeFile>,
 }
 
 /// One turn to drive.
@@ -278,13 +339,21 @@ impl Credentials {
 /// What the plan resolved for a run on an engine, which the engine may
 /// advise on ([`Engine::advise`]): the agent (empty with none), the model and
 /// the effort (empty: none set) and the permissions document (JSON text as
-/// written; none, no document).
+/// written; none, no document). At the launch of the human's terminal
+/// session the run asks again, of how it is signed in: the OS it runs on
+/// (`std::env::consts::OS`, as the composition root gives it; empty at the
+/// plan, which knows none), that it is the terminal session, and whether one
+/// of the engine's primary credential variables is set (by name: no value
+/// is ever here).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Planned {
     pub agent: String,
     pub model: String,
     pub effort: String,
     pub permissions: Option<String>,
+    pub os: String,
+    pub interactive: bool,
+    pub credential_set: bool,
 }
 
 /// An engine's word on a plan (owner ruling 168): a diagnostic of the
@@ -344,6 +413,18 @@ pub trait Engine: Send + Sync {
     fn merges(&self) -> &'static [&'static str] {
         &[]
     }
+
+    /// The paths [`Prepared::workspace_files`] are written under, as git
+    /// exclude patterns, for a run whose engine home is `session_home`: the
+    /// checkout hides them from git (its shared `info/exclude`; the accepted
+    /// cost, owner ruling 2026-11-12 Q3: they hide matching untracked files
+    /// in the main tree too).
+    // `vec![]` is `Vec::new()`: the mutant is the default itself.
+    #[cfg_attr(test, mutants::skip)]
+    fn workspace_patterns(&self, session_home: crate::settings::SessionHome) -> Vec<String> {
+        let _ = session_home;
+        Vec::new()
+    }
 }
 
 /// The names on `allowed` that `offered` holds, sorted, once each. A name that is not exactly on the
@@ -376,6 +457,10 @@ pub enum EngineError {
     /// ([`PrepareRequest::permissions`] is ctxloom's own rendering, so this is
     /// a bug of the caller, said rather than written).
     BadPermissions { engine: String, ext_err_txt: String },
+    /// Something the launch carries the engine has no way to carry (a hook
+    /// narrowed to a tool class it has no tool for, say): refused before
+    /// anything is launched, never dropped unsaid.
+    CannotCarry { engine: String, ext_err_txt: String },
 }
 
 impl fmt::Display for EngineError {
@@ -391,6 +476,7 @@ impl Diagnostic for EngineError {
             EngineError::UnknownEffort { .. } => code!("engine-unknown-effort"),
             EngineError::NoHostHome { .. } => code!("engine-no-host-home"),
             EngineError::BadPermissions { .. } => code!("engine-bad-permissions"),
+            EngineError::CannotCarry { .. } => code!("engine-cannot-carry"),
         }
     }
 
@@ -411,6 +497,10 @@ impl Diagnostic for EngineError {
             ],
             EngineError::NoHostHome { engine } => vec![("engine", engine.as_str().into())],
             EngineError::BadPermissions {
+                engine,
+                ext_err_txt,
+            }
+            | EngineError::CannotCarry {
                 engine,
                 ext_err_txt,
             } => vec![

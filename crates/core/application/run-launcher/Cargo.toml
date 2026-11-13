@@ -10,6 +10,7 @@ publish.workspace = true
 [dependencies]
 angzarr-diagnostic.workspace = true
 angzarr-embedded.workspace = true
+isolation-ports.workspace = true
 pending-launches.workspace = true
 ports.workspace = true
 run-ports.workspace = true
@@ -19,6 +20,7 @@ sessions.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+surface-ports.workspace = true
 angzarr-embedded = { workspace = true, features = ["test-support"] }
 run-ports = { workspace = true, features = ["test-support"] }
 mutants.workspace = true

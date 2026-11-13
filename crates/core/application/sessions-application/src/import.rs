@@ -398,6 +398,7 @@ fn commands(
             started_at: Some(entry.started_at),
             depth: 0,
             owner: None,
+            workspace: None,
         }
         .into_input(),
     )];

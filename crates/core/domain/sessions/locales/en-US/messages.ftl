@@ -34,3 +34,5 @@ sessions-no-native-session = session { $harp } has no engine session to resume: 
 sessions-no-native-session-fix = start a new session with `ctxloom run`
 sessions-engine-mismatch = session { $harp } runs on { $engine }, and cannot be resumed on { $asked }
 sessions-engine-mismatch-fix = resume it without `--engine`, or with `--engine { $engine }`
+sessions-workspace-mismatch = session { $harp } works in workspace { $workspace }, and cannot be resumed in { $asked }: its engine keeps its conversation by where it works
+sessions-workspace-mismatch-fix = resume it without `--workspace`, or with `--workspace { $workspace }`

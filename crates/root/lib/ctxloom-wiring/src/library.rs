@@ -122,7 +122,10 @@ pub(crate) fn build(
     ))))
     // The engines a plan is shown to, for what they say of it (owner ruling
     // 168): the real ones, as the run drives them.
-    .with_engines(advising_engines());
+    .with_engines(advising_engines())
+    // What each engine cannot carry, in its own word (its surface half): the
+    // capability-loss report and the swap preview read it.
+    .with_hook_losses(hook_losses());
     // ctxloom's default content, built in (owner rulings 110, 111).
     let library = if builtins_withheld(wiring.env()) {
         library
@@ -143,6 +146,20 @@ fn advising_engines() -> Vec<Arc<dyn run_ports::Engine>> {
         Arc::new(engine_claude::Claude::calling(program)),
         Arc::new(engine_opencode::Opencode::calling(program)),
     ]
+}
+
+/// Each composed engine's hook events it has no native form for, with why
+/// (`EngineSurfaces::hook_losses`), by its name.
+fn hook_losses() -> library_application::HookLosses {
+    let engines = crate::commands::engines();
+    engines
+        .names()
+        .into_iter()
+        .filter_map(|name| {
+            let losses = engines.get(&name)?.hook_losses();
+            Some((name, losses))
+        })
+        .collect()
 }
 
 /// Under `test-support`, `CTXLOOM_TEST_NO_BUILTINS` withholds the built-in

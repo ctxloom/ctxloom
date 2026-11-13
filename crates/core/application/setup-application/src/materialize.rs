@@ -10,10 +10,7 @@ use std::collections::BTreeMap;
 use angzarr_diagnostic::Diagnostic;
 use library_application::{EnginePackage, Flags, PackageRequest};
 use serde::Serialize;
-use surface_ports::{
-    Command, EngineSurfaces, Hook, Inputs, Inspected, Kind, McpServer, Skill, SkillFile,
-    SurfaceError,
-};
+use surface_ports::{EngineSurfaces, Inputs, Inspected, Kind, SurfaceError};
 
 use crate::owner_voice::with_own_fragment;
 use crate::{Done, Setup, SetupError};
@@ -302,13 +299,17 @@ impl Setup {
             let Some(engine) = self.engines.get(name) else {
                 continue;
             };
-            let outcome = if request.leave_launch_context && engine.context_rides_launch() {
+            let outcome = if request.leave_launch_context {
+                // A refresh: the context a launch carries is left alone, and
+                // every other kind it carries is given back at rest (owner
+                // ruling 2026-11-12: planned from nothing, so released).
                 let kept: Vec<Kind> = kinds
                     .iter()
                     .copied()
-                    .filter(|k| *k != Kind::Context)
+                    .filter(|k| *k != Kind::Context || !engine.rides_launch(*k))
                     .collect();
-                self.deliver(engine, &kept, &inputs, package, request, result)
+                let launched = launch_carried(engine, &inputs);
+                self.deliver(engine, &kept, &launched, package, request, result)
             } else {
                 self.deliver(engine, kinds, &inputs, package, request, result)
             };
@@ -462,6 +463,30 @@ fn status(request: &MaterializeRequest, result: &MaterializeResult, ok: &str) ->
     .to_string()
 }
 
+/// `inputs` with what `engine`'s launch carries itself emptied: what a
+/// refresh delivers of those kinds is nothing, which gives back what an
+/// earlier delivery wrote.
+fn launch_carried(engine: &dyn EngineSurfaces, inputs: &Inputs) -> Inputs {
+    let mut left = inputs.clone();
+    if engine.rides_launch(Kind::Mcp) {
+        left.mcp.clear();
+    }
+    if engine.rides_launch(Kind::Settings) {
+        left.deny_tools.clear();
+        left.statusline = false;
+    }
+    if engine.rides_launch(Kind::Hooks) {
+        left.hooks.clear();
+    }
+    if engine.rides_launch(Kind::Commands) {
+        left.commands.clear();
+    }
+    if engine.rides_launch(Kind::Skills) {
+        left.skills.clear();
+    }
+    left
+}
+
 /// The kinds a request selects (every kind when none is named), in delivery
 /// order, and the context's destination.
 fn kinds_of(request: &MaterializeRequest) -> Result<(Vec<Kind>, String), SetupError> {
@@ -515,70 +540,9 @@ fn carries_items(package: &EnginePackage, kind: Kind) -> bool {
     }
 }
 
-/// What the engines are asked to deliver. ctxloom's own MCP server is the
-/// session's, injected while it runs: at rest nothing is registered for a
-/// server `served_by` the session.
+/// What the engines are asked to deliver (`EnginePackage::inputs`).
 fn inputs_of(package: &EnginePackage, context: String) -> Inputs {
-    let mut hooks: BTreeMap<String, Vec<Hook>> = BTreeMap::new();
-    for packaged in &package.hooks {
-        let h = &packaged.hook;
-        hooks.entry(packaged.event.clone()).or_default().push(Hook {
-            kind: h.kind.clone(),
-            command: h.command.clone(),
-            args: h.args.clone(),
-            prompt: h.prompt.clone(),
-            timeout: h.timeout,
-            is_async: h.is_async,
-            tool: h.tool.clone(),
-            matcher: String::new(),
-        });
-    }
-    Inputs {
-        context,
-        context_file: None,
-        mcp: package
-            .mcp
-            .iter()
-            .filter(|m| m.served_by.is_empty())
-            .map(|m| McpServer {
-                name: m.name.clone(),
-                command: m.command.clone(),
-                args: m.args.clone(),
-                env: m.env.clone(),
-                url: m.url.clone(),
-                headers: m.headers.clone(),
-            })
-            .collect(),
-        hooks,
-        deny_tools: package.deny_tools.clone(),
-        statusline: package.statusline,
-        commands: package
-            .commands
-            .iter()
-            .map(|c| Command {
-                name: c.name.clone(),
-                description: c.description.clone(),
-                body: c.body.clone(),
-            })
-            .collect(),
-        skills: package
-            .skills
-            .iter()
-            .map(|s| Skill {
-                name: s.name.clone(),
-                description: s.description.clone(),
-                files: s
-                    .files
-                    .iter()
-                    .map(|f| SkillFile {
-                        path: f.path.clone(),
-                        bytes: f.bytes.clone(),
-                        executable: f.executable,
-                    })
-                    .collect(),
-            })
-            .collect(),
-    }
+    package.inputs(context)
 }
 
 #[cfg(test)]

@@ -136,6 +136,7 @@ test-support = [
     "ctxloom-cli/test-support",
     "dep:engine-mock",
     "library-application/test-support",
+    "engine-claude/test-support",
     "engine-opencode/test-support",
 ]
 

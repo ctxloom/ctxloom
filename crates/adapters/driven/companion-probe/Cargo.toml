@@ -1,7 +1,7 @@
 [package]
 name = "companion-probe"
 version = "0.1.0"
-description = "The LoadoutProbe port as a process: a companion asked for its loadout, bounded in time (S2)"
+description = "The CompanionProbe port as a process: a companion found on the caller's PATH and asked for its loadout, bounded in time (S2, OD-8)"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -9,6 +9,8 @@ publish.workspace = true
 
 [dependencies]
 ctxloom-ports.workspace = true
+file-system.workspace = true
+os.workspace = true
 process-env.workspace = true
 run-within.workspace = true
 

@@ -95,8 +95,12 @@ const CONFIG_REFUSALS: [&str; 14] = [
 
 /// Rows where the owner overrides Go (D15, 2026-11-03): a config whose
 /// `schema_version` is newer, older, unstamped or not a number is refused with
-/// exit 20, where Go warned and read on (`config_version_refusal_test.go`).
-const OWNER_REFUSALS: [&str; 8] = [
+/// exit 20, where Go warned and read on (`config_version_refusal_test.go`);
+/// and a value the schema breaks where Go took it.
+const OWNER_REFUSALS: [&str; 9] = [
+    // `--config-set companions=zzz`: a registration is a mapping of names
+    // (OD-10), and a string breaks the schema where Go took it.
+    "cfg-layers-set-json",
     "cfg-newer-show-json",
     "cfg-newer-bundle-list",
     "cfg-older-show-json",
@@ -106,6 +110,11 @@ const OWNER_REFUSALS: [&str; 8] = [
     "cfg-notint-show-json",
     "cfg-notint-bundle-list",
 ];
+
+/// Fixtures every row of which is a refusal (exit 20, no answer) where Go
+/// answered: `cfg/v8` holds keys a hard migrate made unknown (the top-level
+/// `auth`, engines track 1; an agent's `permissions`, owner ruling 134).
+const REFUSED_FIXTURES: [&str; 1] = ["cfg/v8"];
 
 /// Rows where the owner overrides Go (2026-11-12): a skill file's mode is its
 /// sidecar's `executable:` declaration, on every OS, never the mode on disk
@@ -128,18 +137,9 @@ fn as_declared(id: &str, golden: String) -> String {
         .replace(&format!("0644  {SCRIPT}"), &format!("0755  {SCRIPT}"))
 }
 
-/// Fixtures Go reads that register companions by bare name (`companions:
-/// [acme]`, schema 8): from schema 9 a companion is a name and the command
-/// that runs it, and the bare list is refused, never migrated (virtuous-word,
-/// owner ruling 2026-11-06). Their rows hold the refusal (exit 20, no answer)
-/// where Go answered; the new shape's behaviour is held by `library_config`'s
-/// layering test on `cfg/layers9`, and by `library_cli`'s companion tests.
-const BARE_COMPANION_FIXTURES: [&str; 3] = ["cfg/v8", "cfg/layers", "cfg/layers-empty-companions"];
-
-/// Go's golden as this build words it where the owner changed it (virtuous-word,
-/// 2026-11-06): the schema stamp (Go writes 8, this build 9: the companions
-/// registration) and the hint under an empty `companion list` (a companion is
-/// added with the command that runs it); and Go's boolean
+/// Go's golden as this build words it where the owner changed it: the schema
+/// stamp (Go writes 8, this build 9; Go's bare-name companions list is read
+/// as generation 9's names, OD-10); and Go's boolean
 /// `config.use_distilled` as the word that replaced it, `config.content_form`
 /// (owner ruling 59: the fixtures say the word, Go's goldens stay Go's).
 fn as_changed(golden: &str) -> String {
@@ -160,10 +160,6 @@ fn as_changed(golden: &str) -> String {
         // Owner ruling 134: an agent has no engine-neutral `permissions` (Go
         // listed an empty one).
         .replace(",\n    \"permissions\": {}", "")
-        .replace(
-            "Use 'ctxloom companion add <name>' to register one.",
-            "Use 'ctxloom companion add <name> --command <program> [args...]' to register one.",
-        )
 }
 
 /// The premise index's own first line: on demand (`config.premised`, owner
@@ -364,8 +360,7 @@ fn mismatch(row: &Row, project: &Project) -> Option<String> {
         .trim()
         .parse()
         .expect("an exit code");
-    if OWNER_REFUSALS.contains(&row.id.as_str())
-        || BARE_COMPANION_FIXTURES.contains(&row.fixture.as_str())
+    if OWNER_REFUSALS.contains(&row.id.as_str()) || REFUSED_FIXTURES.contains(&row.fixture.as_str())
     {
         // owner override of Go, D15, 2026-11-03
         return (ran.code != 20 || !ran.stdout.trim().is_empty())

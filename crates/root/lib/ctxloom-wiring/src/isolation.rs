@@ -7,7 +7,6 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use angzarr_presentation::Catalog;
-use companion_probe::ProcessProbe;
 use container_runtime::HostRuntimes;
 use content_fs::UserFilesFs;
 use ctxloom_cli::{Call, Failure};
@@ -42,40 +41,28 @@ impl Backends for Engines {
     }
 }
 
-/// The registered companions' declarations: only a REGISTERED companion is
-/// ever run; one on the PATH nobody registered declares nothing.
+/// The registered companions' declarations: only a REGISTERED, enabled
+/// companion is ever run, through the library's one probe (OD-8); one on the
+/// PATH nobody registered declares nothing.
 struct Registered {
     library: Rc<Library>,
     flags: Flags,
-    env: Arc<EnvSnapshot>,
 }
 
 impl Companions for Registered {
     fn tooling(&self) -> Result<Vec<Tooling>, PortFailure> {
-        let probe = ProcessProbe::standard(Arc::clone(&self.env));
-        let Ok(rows) = self.library.companion_list(&self.flags).result else {
+        let Ok(inits) = self.library.companion_inits(&self.flags).result else {
             return Ok(Vec::new());
         };
-        Ok(rows
+        Ok(inits
             .into_iter()
-            .filter(|row| row.exists)
-            .filter_map(|row| {
-                let text = probe.loadout(&row.command).ok()?;
-                let tooling = declared(&text)?;
-                Some(Tooling {
-                    source: row.name,
-                    content: tooling,
-                })
+            .filter(|c| !c.init.tooling.is_empty())
+            .map(|c| Tooling {
+                source: c.name,
+                content: c.init.tooling,
             })
             .collect())
     }
-}
-
-/// The `init.tooling` of a loadout document.
-fn declared(text: &str) -> Option<String> {
-    let doc = angzarr_yaml::parse(text).ok()?;
-    let tooling = doc.get("init")?.get("tooling")?.as_str()?.to_string();
-    (!tooling.is_empty()).then_some(tooling)
 }
 
 /// Run `ctxloom container ...`.
@@ -99,7 +86,6 @@ pub(crate) fn container(
         Registered {
             library: Rc::clone(&library),
             flags,
-            env: Arc::clone(env),
         },
         UserFilesFs::new(wiring.fs()),
     );

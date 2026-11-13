@@ -6,5 +6,5 @@ agents:
     engine: claude-code
     profiles: [x]
 companions:
-  beta: {command: [other-beta]}
-  gamma: {command: [gamma-bin]}
+  beta: {state: enabled}
+  gamma: {}

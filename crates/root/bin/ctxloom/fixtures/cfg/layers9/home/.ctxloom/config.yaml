@@ -11,5 +11,5 @@ agents:
     engine: mock
     profiles: [overridden]
 companions:
-  acme: {command: [acme-bin]}
-  beta: {command: [beta-bin]}
+  acme: {}
+  beta: {state: disabled}

@@ -16,10 +16,6 @@ pub enum Note {
     NotInteger,
     /// A file with no configuration keys at all (empty, or all comments).
     Keyless,
-    /// Companions registered by bare name, as generation 8 wrote them: a
-    /// registration is a name and the command that runs it from generation 9,
-    /// and a name alone is not migrated into one.
-    LegacyCompanions { found: u64, names: Vec<String> },
 }
 
 /// A layer, read.
@@ -56,26 +52,9 @@ pub fn read(text: &str) -> Result<Read, ConfigError> {
             found,
             oldest: u64::from(OLDEST),
         }),
-        Ok(found) => match bare_companions(&value, found) {
-            Some(names) => notes.push(Note::LegacyCompanions { found, names }),
-            None => migrate(&mut value, found),
-        },
+        Ok(found) => migrate(&mut value, found),
     }
     Ok(Read { value, notes })
-}
-
-/// The names a generation before 9 registered companions by, when it has any.
-fn bare_companions(value: &Value, found: u64) -> Option<Vec<String>> {
-    if found >= 9 {
-        return None;
-    }
-    let names: Vec<String> = value
-        .get("companions")?
-        .as_seq()?
-        .iter()
-        .filter_map(|n| n.as_str().map(ToString::to_string))
-        .collect();
-    (!names.is_empty()).then_some(names)
 }
 
 /// The generation a layer declares: none is 0.
@@ -104,13 +83,27 @@ fn migrate(value: &mut Value, found: u64) {
             }
         }
     }
-    // 8 to 9: companions are registered with their command. A list with names
-    // in it was refused before this; an empty one registers nothing.
-    if value
-        .get("companions")
-        .is_some_and(|c| !matches!(c, Value::Map(_)))
-    {
-        value.remove("companions");
+    // 8 to 9: a companion's registration is a mapping keyed by its name
+    // (OD-9, OD-10): each name of the list registered, enabled; an empty or
+    // null list registers nothing. Anything else is left for the strict
+    // decode to refuse.
+    match value.get("companions") {
+        Some(Value::Seq(names)) => {
+            let registered: Vec<(String, Value)> = names
+                .iter()
+                .filter_map(|n| n.as_str())
+                .map(|n| (n.to_string(), Value::Map(Vec::new())))
+                .collect();
+            if registered.is_empty() {
+                value.remove("companions");
+            } else {
+                *value.entry("companions") = Value::Map(registered);
+            }
+        }
+        Some(Value::Null) => {
+            value.remove("companions");
+        }
+        _ => {}
     }
     *value.entry("schema_version") = Value::Scalar(CURRENT.to_string());
 }
@@ -118,9 +111,8 @@ fn migrate(value: &mut Value, found: u64) {
 /// The layers merged, lowest first. Mappings merge key by key; anything else
 /// the higher layer replaces; an agent binding replaces the lower layer's of
 /// the same name wholesale; `companions` names union (a project cannot
-/// unregister a home companion), a name's command the highest layer's that
-/// registers it (both are what the mappings' key-by-key merge gives, and a
-/// list replaces).
+/// unregister a home companion), a name's state the highest layer's that
+/// says one (both are what the mappings' key-by-key merge gives).
 pub fn merge_layers(layers: &[Value]) -> Value {
     let mut merged = Value::Map(Vec::new());
     for layer in layers {

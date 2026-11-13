@@ -36,7 +36,10 @@ pub mod write;
 mod yamlout;
 
 pub use agents::ENGINES;
-pub use config::{load as load_config, Flags, LegacyGo, OnRun, OUTPUT_DIR_DEFAULT};
+pub use companions::CompanionInit;
+pub use config::{
+    load as load_config, Flags, LegacyGo, OnRun, RegisteredCompanion, OUTPUT_DIR_DEFAULT,
+};
 pub use config_show::ConfigShown;
 pub use engine_noun::{
     AgentSettings, AuthSetting, EngineAgent, EngineRow, EnvKey, EnvSetting, PermissionsSetting,
@@ -46,6 +49,7 @@ pub use engine_noun::{
 pub use error::diagnostic_samples;
 pub use error::{AppError, Notice, EN_US};
 pub use items::Kind as ItemKind;
+pub use library::companion::{program as companion_program, State as CompanionState};
 #[allow(unused_imports)]
 pub use library::config::engines::{AuthSource, Drive, Source, Sourced};
 pub use library::write::loadout::DOCUMENT as LOADOUT;

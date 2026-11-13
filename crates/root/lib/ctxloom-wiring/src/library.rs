@@ -9,7 +9,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use angzarr_presentation::Catalog;
-use companion_probe::{ProcessCompanions, ProcessProbe};
+use companion_probe::ProcessProbe;
 use config_files::{ConfigFilesFs, ScaffoldFs};
 use content_fs::{ContentFs, UserFilesFs};
 use ctxloom_cli::{Call, Extension, Failure};
@@ -111,7 +111,6 @@ pub(crate) fn build(
     let (around, app) = wiring.locate();
     let content = ContentFs::new(Arc::clone(&fs), &app.path);
     let files = ConfigFilesFs::new(Arc::clone(&fs), app, &home);
-    let binaries = wiring.path_search();
     // Overrides are text: a variable that is not UTF-8 is none (it is never
     // an error, as `std::env::vars` made it).
     let environ = wiring.env().vars_utf8().into_iter().collect();
@@ -119,24 +118,23 @@ pub(crate) fn build(
         user: Arc::new(UserFilesFs::new(Arc::clone(&fs))),
         scaffold: Arc::new(ScaffoldFs::new(Arc::clone(&fs), &around.cwd)),
         editor: Arc::new(ProcessEditor::new(Arc::clone(&fs), &around.temp_root)),
-        probe: Arc::new(ProcessProbe::standard(Arc::clone(wiring.env()))),
     };
-    let library = Library::new(
-        Arc::new(content),
-        Arc::new(files),
-        Arc::new(binaries),
-        environ,
-    )
-    .with_write_ports(ports)
-    .with_companions(Arc::new(ProcessCompanions::new(ProcessProbe::standard(
-        Arc::clone(wiring.env()),
-    ))))
-    // The engines a plan is shown to, for what they say of it (owner ruling
-    // 168): the real ones, as the run drives them.
-    .with_engines(advising_engines())
-    // What each engine cannot carry, in its own word (its surface half): the
-    // capability-loss report and the swap preview read it.
-    .with_hook_losses(hook_losses());
+    let library = Library::new(Arc::new(content), Arc::new(files), environ)
+        .with_write_ports(ports)
+        // The one companion probe (OD-8): it holds no environment or
+        // directory; each call names its site (D1), the caller's environment
+        // and the project's root, else the working directory here.
+        .with_companions(Arc::new(ProcessProbe::standard(
+            Arc::clone(&fs),
+            wiring.env().flavor(),
+        )))
+        .with_probe_cwd(around.cwd.display().to_string())
+        // The engines a plan is shown to, for what they say of it (owner ruling
+        // 168): the real ones, as the run drives them.
+        .with_engines(advising_engines())
+        // What each engine cannot carry, in its own word (its surface half): the
+        // capability-loss report and the swap preview read it.
+        .with_hook_losses(hook_losses());
     // ctxloom's default content, built in (owner rulings 110, 111).
     let library = if builtins_withheld(wiring.env()) {
         library

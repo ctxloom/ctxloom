@@ -459,6 +459,59 @@ fn test_an_engine_that_cannot_carry_an_agent_s_hook_is_a_warning_naming_each() {
         .contains("ctxloom agent edit <name> --engine <engine>"));
 }
 
+// companion.feature: doctor asks each enabled registered companion for its
+// loadout; one that answered is named, one that gives nothing is a warning
+// saying why.
+#[test]
+fn test_the_registered_companions_are_named_and_one_that_gives_nothing_is_a_warning() {
+    use library_application::{CompanionInit, Notice, Outcome};
+    let answered = |names: &[&str]| -> Vec<CompanionInit> {
+        names
+            .iter()
+            .map(|n| CompanionInit {
+                name: (*n).to_string(),
+                init: library::loadout::InitLoadout::default(),
+            })
+            .collect()
+    };
+    let none = checks::companions(&Outcome {
+        result: Ok(Vec::new()),
+        notices: Vec::new(),
+    });
+    assert_eq!(none.marker, "DOCTOR-CHECK-COMPANIONS-m4");
+    assert_eq!(
+        (none.status, none.detail.as_str()),
+        (Status::Ok, "no enabled companion gives a loadout")
+    );
+    let ok = checks::companions(&Outcome {
+        result: Ok(answered(&["acme", "ltk"])),
+        notices: Vec::new(),
+    });
+    assert_eq!(
+        (ok.status, ok.detail.as_str()),
+        (Status::Ok, "answering: acme, ltk")
+    );
+    let warned = checks::companions(&Outcome {
+        result: Ok(answered(&["acme"])),
+        notices: vec![
+            Notice::CompanionNotOnPath {
+                name: "reprise".to_string(),
+                program: "reprise".to_string(),
+            },
+            Notice::LoadoutProbeFailed {
+                name: "x".to_string(),
+                detail: "did not answer within 3000ms".to_string(),
+            },
+        ],
+    });
+    assert_eq!(warned.status, Status::Warn);
+    assert_eq!(
+        warned.detail,
+        "reprise: its program reprise is not on PATH; x: its loadout probe failed (did not answer within 3000ms)"
+    );
+    assert!(warned.remedy.contains("ctxloom companion disable <name>"));
+}
+
 // j001300 "Worktrees ctxloom did not create are reported, never touched":
 // each foreign worktree is named with its measured states and the exact
 // commands that remove it (Go: doctorCheckForeignWorktrees), the forced

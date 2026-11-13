@@ -62,7 +62,7 @@ Feature: init — the setup interview, and what it does to a project that alread
     # nothing, owner rulings 110, 111, 117); it still says nothing was written
     # beside the config.
     Scenario: A second init reports the directory and leaves the configuration alone
-      # substitution: the stamp asserted is this port's, 9 (a companion is registered with the command that runs it), where Go's is 8.
+      # substitution: the stamp asserted is this port's, 9 (a companion is registered by name, with its state), where Go's is 8.
       Given an initialized ctxloom project
       And the file ".ctxloom/config.yaml" contains "schema_version: 9"
       And the environment variable "CLAUDE_CODE_OAUTH_TOKEN" is set to "sk-ant-oat01-acceptance-fixture-not-real"

@@ -703,13 +703,13 @@ pub fn engine_show(out: &mut dyn Write, row: &EngineRow) -> io::Result<()> {
     Ok(())
 }
 
-/// `companion list`: the name, the command, and whether the program is
-/// there (it is not run to say so).
+/// `companion list`: the name, the program it stands for, whether that is
+/// on PATH (it is not run to say so), and a disabled one marked.
 pub fn companion_list(out: &mut dyn Write, rows: &[CompanionRow]) -> io::Result<()> {
     if rows.is_empty() {
         return writeln!(
             out,
-            "No companions registered.\nUse 'ctxloom companion add <name> --command <program> [args...]' to register one."
+            "No companions registered.\nUse 'ctxloom companion add <name>' to register one."
         );
     }
     for row in rows {
@@ -717,17 +717,15 @@ pub fn companion_list(out: &mut dyn Write, rows: &[CompanionRow]) -> io::Result<
             "found".to_string()
         } else {
             format!(
-                "NOT FOUND \u{2014} fix the command, or: ctxloom companion remove {} --yes",
-                row.name
+                "NOT FOUND \u{2014} install {} on PATH, or: ctxloom companion remove {} --yes",
+                row.program, row.name
             )
         };
-        writeln!(
-            out,
-            "{:<12} {:<28} {}",
-            row.name,
-            row.command.join(" "),
-            status
-        )?;
+        let state = match row.state {
+            library_application::CompanionState::Enabled => "",
+            library_application::CompanionState::Disabled => " (disabled)",
+        };
+        writeln!(out, "{:<12} {:<28} {status}{state}", row.name, row.program)?;
     }
     Ok(())
 }

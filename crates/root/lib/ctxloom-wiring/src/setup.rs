@@ -131,6 +131,12 @@ impl SetupUseCases {
                     .result
                     .unwrap_or_default()
             })
+        })
+        // The enabled registered companions, each asked through the
+        // library's one probe (OD-8), as a session's assembly asks them.
+        .reporting_companions({
+            let library = crate::library::build(wiring, None)?;
+            Box::new(move || library.companion_inits(&library_application::Flags::default()))
         });
         let init = Init::new(
             Arc::new(ScaffoldFs::new(Arc::clone(&fs), &around.cwd)),

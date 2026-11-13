@@ -80,19 +80,24 @@ pub(crate) struct Served {
 }
 
 impl Project {
-    /// The registered companions, each with whether its program exists. Only
-    /// that is checked: a companion is never run to list it.
+    /// The registered companions, each with its program, whether that is on
+    /// the `PATH` of the probe site (D1), and its state. Only that is
+    /// checked: a companion is never run to list it.
     fn companion_list(&self) -> Vec<CompanionRow> {
         self.config
             .companions()
             .into_iter()
-            .map(|companion| CompanionRow {
-                exists: companion
-                    .command
-                    .first()
-                    .is_some_and(|program| self.binaries.find(program).is_some()),
-                name: companion.name,
-                command: companion.command,
+            .map(|companion| {
+                let program = companion.program();
+                CompanionRow {
+                    exists: self
+                        .companions
+                        .as_ref()
+                        .is_some_and(|probe| probe.find(&program, &self.probe_site).is_some()),
+                    program,
+                    name: companion.name,
+                    state: companion.state,
+                }
             })
             .collect()
     }

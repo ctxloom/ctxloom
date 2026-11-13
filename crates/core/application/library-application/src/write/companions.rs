@@ -1,28 +1,29 @@
-//! `companion add|remove` (Go's `operations.AddCompanion`, `RemoveCompanion`).
-//! A companion is registered in the user's home config as a name and the
-//! command that runs it; only a registered command is ever run, and nothing
-//! is searched for. Adding one asks it for its loadout once, as Go's add does,
-//! before anything is recorded.
+//! `companion add|remove|enable|disable` (Go's `operations.AddCompanion`,
+//! `RemoveCompanion`). A companion is registered in the user's home config by
+//! its NAME alone (OD-10): never a path or a command, so the registration
+//! holds wherever its program is installed, and the program is found where
+//! the agent runs, on that place's `PATH`, each time. Adding one asks its
+//! program for its loadout once, as Go's add does, before anything is
+//! recorded. Its state is a word (OD-9): `companions.<n>.state: enabled`
+//! (the default) or `disabled`, which keeps it registered and contributing
+//! nothing. Each write replaces the one section it owns, in one atomic write,
+//! and a write that changes nothing writes nothing (D3).
 
 use angzarr_yaml::Value;
-use ctxloom_ports::{Scope, Unanswered};
+use ctxloom_ports::{CompanionLoadout, Scope};
+use library::companion::{program, State};
 
 use crate::error::AppError;
 use crate::project::{Library, Outcome, Project};
-use crate::write::views::{CompanionAdded, CompanionRemoved, Preview, Removal};
+use crate::write::views::{CompanionAdded, CompanionRemoved, CompanionStateSet, Preview, Removal};
 use crate::write::WriteError;
 use crate::Flags;
 
 impl Library {
-    /// `companion add <name> --command <program> [args...]`: the command is
-    /// asked for its loadout before anything is recorded.
-    pub fn companion_add(
-        &self,
-        flags: &Flags,
-        name: &str,
-        command: &[String],
-    ) -> Outcome<CompanionAdded> {
-        self.run(flags, |p| p.companion_add(name, command))
+    /// `companion add <name>`: its program is found on the `PATH` and asked
+    /// for its loadout before anything is recorded.
+    pub fn companion_add(&self, flags: &Flags, name: &str) -> Outcome<CompanionAdded> {
+        self.run(flags, |p| p.companion_add(name))
     }
 
     /// `companion remove <name> [--yes]`.
@@ -34,6 +35,17 @@ impl Library {
     ) -> Outcome<Removal<CompanionRemoved>> {
         self.run(flags, |p| p.companion_remove(name, yes))
     }
+
+    /// `companion enable <name>` and `companion disable <name>`: the
+    /// registration's state set in the home config (OD-9).
+    pub fn companion_set_state(
+        &self,
+        flags: &Flags,
+        name: &str,
+        state: State,
+    ) -> Outcome<CompanionStateSet> {
+        self.run(flags, |p| p.companion_set_state(name, state))
+    }
 }
 
 /// Whether `name` can be a companion's: it starts with a letter or digit and
@@ -44,78 +56,78 @@ pub(crate) fn valid_name(name: &str) -> bool {
         && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
 }
 
-/// A registration as the config holds it.
-fn registration(command: &[String]) -> Value {
+/// A registration in `state`, as the config holds it.
+fn registration(state: State) -> Value {
     Value::Map(vec![(
-        "command".to_string(),
-        Value::Seq(command.iter().cloned().map(Value::Scalar).collect()),
+        "state".to_string(),
+        Value::Scalar(state.word().to_string()),
     )])
 }
 
-/// The companions a `companions` value registers, as `(name, registration)`.
+/// The companions a `companions` value registers, as `(name, registration)`:
+/// a mapping's entries, or the names of generation 8's list (each enabled).
 fn registered(current: Option<&Value>) -> Vec<(String, Value)> {
-    current
-        .and_then(Value::as_map)
-        .map(<[_]>::to_vec)
-        .unwrap_or_default()
+    match current {
+        Some(Value::Map(entries)) => entries.to_vec(),
+        Some(Value::Seq(names)) => names
+            .iter()
+            .filter_map(Value::as_str)
+            .map(|n| (n.to_string(), Value::Map(Vec::new())))
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// The state a registration's body says.
+fn state_of(body: &Value) -> State {
+    State::of(body.get("state").and_then(Value::as_str).unwrap_or(""))
 }
 
 impl Project {
-    fn companion_add(&self, name: &str, command: &[String]) -> Result<CompanionAdded, AppError> {
+    fn companion_add(&self, name: &str) -> Result<CompanionAdded, AppError> {
         if !valid_name(name) {
             return Err(WriteError::CompanionName {
                 name: name.to_string(),
             }
             .into());
         }
-        if command.first().is_none_or(|program| program.is_empty()) {
-            return Err(WriteError::CompanionNoCommand {
-                name: name.to_string(),
-            }
-            .into());
-        }
-        let ports = self.write_ports()?;
-        let shown = command.join(" ");
-        match ports.probe.answers(command) {
-            Ok(()) => {}
-            Err(Unanswered::Missing(_)) => {
+        self.write_ports()?;
+        let Some(probe) = self.companions.clone() else {
+            return Err(WriteError::NotWired {}.into());
+        };
+        let bin = program(name);
+        match probe.loadout(&bin, &self.probe_site) {
+            CompanionLoadout::Loaded(_) => {}
+            CompanionLoadout::Absent => {
                 return Err(WriteError::CompanionProgramMissing {
-                    program: command[0].clone(),
+                    program: bin,
                     name: name.to_string(),
                 }
                 .into())
             }
-            Err(Unanswered::Failed(detail) | Unanswered::Exited(detail)) => {
+            CompanionLoadout::NoLoadout(detail) | CompanionLoadout::ProbeFailed(detail) => {
                 return Err(WriteError::NotACompanion {
-                    command: shown,
+                    command: bin,
                     detail,
                 }
                 .into())
             }
-            Err(Unanswered::Silent) => {
-                return Err(WriteError::CompanionSilent { command: shown }.into())
+            CompanionLoadout::Silent => {
+                return Err(WriteError::CompanionSilent { command: bin }.into())
             }
         }
         let mut added = false;
         self.update_config(Scope::Home, "companions", |current| {
             let mut held = registered(current.as_ref());
-            let wanted = registration(command);
-            match held.iter_mut().find(|(n, _)| n == name) {
-                Some((_, existing)) if *existing == wanted => {}
-                Some((_, existing)) => {
-                    *existing = wanted;
-                    added = true;
-                }
-                None => {
-                    held.push((name.to_string(), wanted));
-                    added = true;
-                }
+            if !held.iter().any(|(n, _)| n == name) {
+                held.push((name.to_string(), registration(State::Enabled)));
+                added = true;
             }
             Ok(Some(Value::Map(held)))
         })?;
         Ok(CompanionAdded {
             name: name.to_string(),
-            command: command.to_vec(),
+            program: bin,
             added,
         })
     }
@@ -151,6 +163,33 @@ impl Project {
             name: name.to_string(),
             removed: true,
         }))
+    }
+
+    /// The home registration of `name` set to `state`; one already so
+    /// writes nothing. A name the home does not register is refused (a
+    /// project's companion is the project's to change).
+    fn companion_set_state(&self, name: &str, state: State) -> Result<CompanionStateSet, AppError> {
+        let mut changed = false;
+        self.update_config(Scope::Home, "companions", |current| {
+            let mut held = registered(current.as_ref());
+            let Some((_, body)) = held.iter_mut().find(|(n, _)| n == name) else {
+                return Err(WriteError::CompanionNotRegistered {
+                    name: name.to_string(),
+                }
+                .into());
+            };
+            if state_of(body) != state || body.get("state").is_none() {
+                changed = state_of(body) != state;
+                *body = registration(state);
+            }
+            Ok(Some(Value::Map(held)))
+        })?;
+        Ok(CompanionStateSet {
+            name: name.to_string(),
+            program: program(name),
+            state,
+            changed,
+        })
     }
 }
 

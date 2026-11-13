@@ -1,6 +1,6 @@
 //! The registered companions' loadouts joined to every assembly (virtuous-word,
 //! companions slice 1): Go's `companionAsks` and `Prober.ProbeCompanionLoadouts`
-//! over the `CompanionLoadouts` port's fake.
+//! over the `CompanionProbe` port's fake.
 
 use ctxloom_ports::CompanionLoadout::{self, Absent, Loaded, NoLoadout, ProbeFailed};
 
@@ -9,7 +9,7 @@ use crate::{AppError, AssembleRequest, Assembled, Flags, Library, Notice, Outcom
 
 const BUNDLE: &[(&str, &str)] = &[ENVELOPE, ("fragments/own.md", "OWN-BODY\n")];
 
-const CONFIG_WITH: &str = "schema_version: 9\ncompanions:\n  reprise:\n    command: [reprise]\n";
+const CONFIG_WITH: &str = "schema_version: 9\ncompanions:\n  reprise: {}\n";
 
 /// The premise index of the loadout's `later`, which on demand ends the
 /// context (config.premised, owner ruling of 2026-11-12).
@@ -230,14 +230,18 @@ fn a_companion_not_on_the_path_is_a_warning_and_nothing_more() {
     let (context, notices) = context(&library, &plain());
     assert_eq!(context, "OWN-BODY");
     assert!(
-        matches!(notices.as_slice(), [Notice::CompanionNotOnPath { name }] if name == "reprise"),
+        matches!(notices.as_slice(), [Notice::CompanionNotOnPath { name, program }] if name == "reprise" && program == "reprise"),
         "{notices:?}"
     );
 }
 
 #[test]
 fn a_companion_with_no_loadout_is_quiet() {
-    let (library, _) = setup(&[CONFIG_WITH], &only_reprise(NoLoadout), &[]);
+    let (library, _) = setup(
+        &[CONFIG_WITH],
+        &only_reprise(NoLoadout("exit status: 1".to_string())),
+        &[],
+    );
     let (context, notices) = context(&library, &plain());
     assert_eq!(context, "OWN-BODY");
     assert!(notices.is_empty(), "{notices:?}");
@@ -293,7 +297,7 @@ fn a_failing_companion_is_a_warning_under_strict_too() {
 
 #[test]
 fn one_companion_failing_does_not_cost_another_its_fragments() {
-    let layers = ["schema_version: 9\ncompanions:\n  acme: {command: [acme]}\n  reprise: {command: [reprise]}\n  ltk: {command: [ltk]}\n"];
+    let layers = ["schema_version: 9\ncompanions:\n  acme: {}\n  reprise: {}\n  ltk: {}\n"];
     let companions = [
         ("acme", Absent),
         ("reprise", Loaded(LOADOUT.to_string())),
@@ -315,7 +319,10 @@ fn one_companion_failing_does_not_cost_another_its_fragments() {
         )
     );
     assert_eq!(notices.len(), 1);
-    assert_eq!(mem.asked_companions(), ["acme", "ltk", "reprise"]);
+    assert_eq!(
+        mem.asked_companions(),
+        ["ctxloom-companion-acme", "ltk", "reprise"]
+    );
 }
 
 #[test]
@@ -343,7 +350,7 @@ fn a_command_that_assembles_twice_asks_each_companion_once_and_warns_once() {
 
 #[test]
 fn a_registered_name_that_is_no_plain_name_is_said_and_never_asked() {
-    let layers = ["schema_version: 9\ncompanions:\n  -x: {command: [x]}\n  a/b: {command: [x]}\n"];
+    let layers = ["schema_version: 9\ncompanions:\n  -x: {}\n  a/b: {}\n"];
     let (library, mem) = setup(&layers, &[], &[]);
     let (context, notices) = context(&library, &plain());
     assert_eq!(context, "OWN-BODY");

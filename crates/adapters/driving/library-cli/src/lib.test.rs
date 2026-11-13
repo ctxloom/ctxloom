@@ -45,7 +45,7 @@ pub(crate) const PROJECT: &[(&str, &str)] = &[
     ),
 ];
 
-pub(crate) const AGENTS: &str = "schema_version: 9\ncompanions:\n  acme: {command: [acme-bin, --as, acme]}\nagents:\n  dev:\n    engine: claude-code\n    profiles: [dev]\n    runtime: host\ndefault_agent: dev\n";
+pub(crate) const AGENTS: &str = "schema_version: 9\ncompanions:\n  acme: {}\nagents:\n  dev:\n    engine: claude-code\n    profiles: [dev]\n    runtime: host\ndefault_agent: dev\n";
 
 /// What one invocation left behind.
 pub(crate) struct Ran {
@@ -152,7 +152,6 @@ pub(crate) fn go_in(line: &[&str], how: How, layers: &[&str], names: &dyn Names)
     let setup = Setup {
         bundles: &[("demo", DEMO), ("project", PROJECT)],
         layers,
-        path: &[("acme", "/usr/bin/acme")],
         ..Setup::default()
     };
     let program = Command::new("ctxloom")
@@ -297,9 +296,9 @@ fn test_the_format_is_asked_for_a_terminals_or_the_configurations() {
         ..default
     };
     assert!(go(&line, terminal, BARE).out.starts_with("acme"));
-    let text_config = ["schema_version: 9\ncompanions:\n  acme: {command: [acme-bin, --as, acme]}\nnon_tty_format: text\n"];
+    let text_config = ["schema_version: 9\ncompanions:\n  acme: {}\nnon_tty_format: text\n"];
     assert!(go(&line, default, &text_config).out.starts_with("acme"));
-    let json_config = ["schema_version: 9\ncompanions:\n  acme: {command: [acme-bin, --as, acme]}\nnon_tty_format: json\n"];
+    let json_config = ["schema_version: 9\ncompanions:\n  acme: {}\nnon_tty_format: json\n"];
     assert!(go(&line, default, &json_config).out.starts_with('{'));
     assert!(go(&line, JSON, &text_config).out.starts_with('{'));
 }

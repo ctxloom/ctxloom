@@ -377,10 +377,14 @@ fn root() -> Node {
             // project root unless absolute.
             ("output", object(vec![("dir", non_empty())])),
             ("isolation_engines", list(non_empty())),
-            // A registration: the name, and the command that runs it.
+            // A registration is the name alone (OD-10); its state a word
+            // (OD-9: `enabled`, the default, or `disabled`).
             (
                 "companions",
-                map_of(object(vec![("command", list(non_empty()))])),
+                map_of(object(vec![(
+                    "state",
+                    choice(&crate::companion::STATE_WORDS),
+                )])),
             ),
             ("agents", map_of(binding())),
             ("default_agent", string()),

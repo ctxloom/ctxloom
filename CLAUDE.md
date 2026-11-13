@@ -94,7 +94,7 @@ Slice S2 (library write side) adds, in the S1 crates, a write half: `library::wr
 skill/profile files, the scaffold, the loadout, the skill zip codec),
 `library-application::write` (create, edit and remove, previews unless `--yes`,
 export/import, the editor round trips), `ContentRepo::apply`/`claim`,
-`UserFiles`, `Scaffold`, `Editor` and `LoadoutProbe` ports, and the driven
+`UserFiles`, `Scaffold`, `Editor` and `CompanionProbe` ports, and the driven
 crates `editor-process` and `companion-probe` beside the writes of `content-fs`
 and `config-files`. Files are the truth: a command plans the files, checks the
 tree still reads, then hands the changes to the port; a refused write has
@@ -1700,12 +1700,35 @@ removal's by name alone), `applied`, a preview's `apply_command` and
 reference (an agent's `engine` and `profiles`) still prints its configured
 text, as the engine noun's agent rows do. `agent default` is still text
 only. `companion list` is `ListCompanionsResponse`, each companion named
-`projects/{harp}/companions/<name>`, its `command`, and `resolves` (was
-`exists`); `companion add` answers `CreateCompanionResponse` (`applied`
-when the registration is new or changed, `resolves` true: its program
-answered the probe) and `remove` `DeleteCompanionResponse`; `bin` is left
-unset (a companion is a name and the command that runs it, not Go's
-`ctxloom-companion-<name>`). `loadout` is unchanged. `config show
+`projects/{harp}/companions/<name>`, its program `bin`, `resolves` (was
+`exists`) and its `state` (`ENABLED`/`DISABLED`); `companion add` answers
+`CreateCompanionResponse` (`applied` when the registration is new,
+`resolves` true: its program answered the probe), `remove`
+`DeleteCompanionResponse`, and `enable`/`disable` the `Companion` itself
+(AIP-136, `EnableCompanion`/`DisableCompanion`). `loadout` is unchanged.
+
+Companions (M4; owner rulings OD-8 to OD-10, OD-22, 2026-11-13): a companion
+is registered by NAME alone (`companions.<n>: {state: enabled|disabled}`,
+config schema 9, `enabled` the default; a hard migrate from the command form
+an earlier build wrote, whose `command:` is now an unknown key, and
+`Companion.command` field 3 is reserved; Go's generation-8 name list is
+migrated in memory, each name enabled). Its program is
+`library::companion::program` (`ltk`, `taskloom`, `reprise` their own, any
+other `ctxloom-companion-<n>`), found where it is asked. ONE probe,
+`companion-probe`'s `ProcessProbe` behind `ctxloom_ports::CompanionProbe`
+(`find`, never run; `loadout`), serves every caller (an assembly, `companion
+add`'s check, `companion list`'s `resolves`, doctor's
+`DOCTOR-CHECK-COMPANIONS-m4`, `container tooling` through
+`Library::companion_inits`): it holds no environment or directory, and each
+call names its `ProbeSite` (D1): the caller's environment (whose `PATH` is
+searched) and the project's root as the program's working directory
+(`Library::with_probe_cwd`, the caller's directory outside a project).
+`companion enable|disable` write the home's registration, one section
+replace, nothing when it is so already (D3); a disabled companion is listed
+and asked by nothing. An enabled companion whose program is absent is the
+notice `library-application-companion-not-on-path` (name and program), never
+a refusal. A companion's hooks count in every agent's losses, one with no
+profiles too (OD-22, `Project::losses_on`). `config show
 [section] [--raw]` is the `Config` singleton, `projects/{harp}/config`
 (`users/me/config` outside a project), the document it printed before
 under `document` (so `agents.default.engine` reads

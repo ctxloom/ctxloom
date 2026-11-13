@@ -183,28 +183,16 @@ fn test_a_config_of_another_generation_is_refused() {
     }
 }
 
-// generation 9 (virtuous-word): a bare-name `companions:` list is refused with
-// what to do about it, never migrated; a config without one loads as before.
+// generation 9 (OD-10): Go's bare-name `companions:` list is read as the
+// names it registers, each enabled.
 #[test]
-fn test_a_config_registering_companions_by_bare_name_is_refused_not_migrated() {
+fn test_a_config_registering_companions_by_bare_name_is_migrated_to_names() {
     for generation in [7, 8] {
         let layer = format!("schema_version: {generation}\ncompanions: [acme, ltk]\n");
         let layers = [layer.as_str()];
-        let refused = setup(&layers)
-            .library()
-            .config_show(&plain(), Some("editor"), false)
-            .result
-            .err()
-            .expect("refused");
-        match &refused {
-            AppError::ConfigCompanionsBare { path, found, names } => {
-                assert_eq!(path, "/p/.ctxloom/layer-0.yaml");
-                assert_eq!(*found, generation);
-                assert_eq!(names, "acme, ltk");
-            }
-            other => panic!("{other:?}"),
-        }
-        assert_eq!(refused.exit(), Exit::REFUSED);
+        let rows = ok(setup(&layers).library().companion_list(&plain()));
+        let names: Vec<&str> = rows.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(names, ["acme", "ltk"]);
     }
 }
 
@@ -407,37 +395,43 @@ fn test_the_registered_servers_follow_the_default_agents_profiles_and_their_excl
     assert!(none.servers.is_empty());
 }
 
-// companion.feature: a registered companion is listed with its command and
-// whether its program is there; nothing is run to say so.
+// companion.feature: a registered companion is listed with the program its
+// name stands for, whether that is on the PATH, and its state; nothing is
+// run to say so.
 #[test]
-fn test_a_companion_is_listed_with_its_command_and_whether_the_program_exists() {
-    let layers = ["schema_version: 9\ncompanions:\n  acme:\n    command: [/bin/acme, --as, acme]\n  ltk:\n    command: [ltk]\n  none: {}\n"];
+fn test_a_companion_is_listed_with_its_program_and_whether_it_is_on_the_path() {
+    use ctxloom_ports::CompanionLoadout;
+    let layers =
+        ["schema_version: 9\ncompanions:\n  acme: {}\n  ltk: {state: disabled}\n  none: {}\n"];
     let (library, mem) = Setup {
-        path: &[("/bin/acme", "/bin/acme")],
+        companions: &[("none", CompanionLoadout::Absent)],
         ..setup(&layers)
     }
     .fixture();
     let rows = ok(library.companion_list(&plain()));
-    let shown: Vec<(&str, Vec<&str>, bool)> = rows
+    let shown: Vec<(&str, &str, bool, crate::CompanionState)> = rows
         .iter()
-        .map(|r| {
-            (
-                r.name.as_str(),
-                r.command.iter().map(String::as_str).collect(),
-                r.exists,
-            )
-        })
+        .map(|r| (r.name.as_str(), r.program.as_str(), r.exists, r.state))
         .collect();
     assert_eq!(
         shown,
         [
-            ("acme", vec!["/bin/acme", "--as", "acme"], true),
-            ("ltk", vec!["ltk"], false),
-            ("none", vec![], false),
+            (
+                "acme",
+                "ctxloom-companion-acme",
+                true,
+                crate::CompanionState::Enabled
+            ),
+            ("ltk", "ltk", true, crate::CompanionState::Disabled),
+            (
+                "none",
+                "ctxloom-companion-none",
+                false,
+                crate::CompanionState::Enabled
+            ),
         ]
     );
     assert!(mem.asked_companions().is_empty(), "nothing is run to list");
-    assert!(mem.probed_commands().is_empty());
 }
 
 // search.feature: name matches rank before tag matches; a search needs a

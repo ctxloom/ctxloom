@@ -15,7 +15,7 @@
 
 use std::sync::Arc;
 
-use ctxloom_ports::{Editor, LoadoutProbe, Scaffold, UserFiles};
+use ctxloom_ports::{Editor, Scaffold, UserFiles};
 
 mod agents;
 mod bundles;
@@ -53,11 +53,11 @@ pub(crate) fn require_id(kind: &str, name: &str) -> Result<(), crate::AppError> 
 
 /// The ports the write side needs beyond the library's: the user's own files
 /// (where export writes and import reads), the scaffold of a new project, the
-/// editor, and the probe a companion is asked to answer.
+/// editor. A companion is checked through the library's probe
+/// ([`Library::with_companions`](crate::Library::with_companions)).
 #[derive(Clone)]
 pub struct WritePorts {
     pub user: Arc<dyn UserFiles>,
     pub scaffold: Arc<dyn Scaffold>,
     pub editor: Arc<dyn Editor>,
-    pub probe: Arc<dyn LoadoutProbe>,
 }

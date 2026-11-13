@@ -55,7 +55,15 @@ pub struct Doctor {
     losses: Option<Box<dyn Fn() -> Vec<AgentLosses>>>,
     /// The project's worktrees ctxloom did not create; none wired, no row.
     worktrees: Option<Arc<dyn ForeignWorktrees>>,
+    /// The enabled registered companions, each asked for its loadout through
+    /// the library's one probe, when the report is made; none wired, no row.
+    companions: Option<CompanionsAsked>,
 }
+
+/// Asks the enabled registered companions for their loadouts: what
+/// answered, and what was noticed of the rest.
+pub type CompanionsAsked =
+    Box<dyn Fn() -> library_application::Outcome<Vec<library_application::CompanionInit>>>;
 
 impl Doctor {
     pub fn new(
@@ -78,6 +86,16 @@ impl Doctor {
             program: "ctxloom".to_string(),
             losses: None,
             worktrees: None,
+            companions: None,
+        }
+    }
+
+    /// This doctor, asking the registered companions for their loadouts
+    /// (each enabled one is run: only a registered name ever is).
+    pub fn reporting_companions(self, companions: CompanionsAsked) -> Doctor {
+        Doctor {
+            companions: Some(companions),
+            ..self
         }
     }
 
@@ -237,6 +255,10 @@ impl Doctor {
         report
             .checks
             .splice(at..at, checks::go_era_hooks(&left_alone));
+        if let Some(ask) = &self.companions {
+            let at = report.checks.len() - 1;
+            report.checks.insert(at, checks::companions(&ask()));
+        }
         if let Some(worktrees) = &self.worktrees {
             let listing = match &root {
                 Some(root) => worktrees.foreign(root),

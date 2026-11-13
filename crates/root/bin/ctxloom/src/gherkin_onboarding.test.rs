@@ -378,19 +378,19 @@ fn companion_presence(w: &mut World, name: String, presence: String) {
             .clone()
             .unwrap_or_else(|| panic!("no loadout was given for the {name:?} companion"));
         let stub = Stub::install(&scratch.join("companions"), &name, &loadout);
+        w.common.project.put_on_path(stub.bin());
         let args = stub.add_args(&name);
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
         let ran = w.common.project.run_with(&[], &args);
         ran.succeeds();
         return;
     }
-    let gone = scratch.join("not-installed").join(&name);
     let held = w
         .common
         .project
         .read_home(".ctxloom/config.yaml")
         .unwrap_or_else(|| "schema_version: 9\n".to_string());
-    let entry = format!("  {name}:\n    command: [{}]\n", gone.display());
+    let entry = format!("  {name}: {{}}\n");
     let config = if held.contains("\ncompanions:\n") {
         held.replacen("\ncompanions:\n", &format!("\ncompanions:\n{entry}"), 1)
     } else {
@@ -469,6 +469,7 @@ fn alice_companions(w: &mut World) {
     ];
     for (name, loadout) in loadouts {
         let stub = Stub::install(&scratch.join("companions"), name, &loadout);
+        w.common.project.put_on_path(stub.bin());
         let args = stub.add_args(name);
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
         w.common.project.run_with(&[], &args).succeeds();

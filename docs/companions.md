@@ -1,51 +1,59 @@
 # Companions
 
 A companion is a program ctxloom runs to ask what it contributes to a session.
-ctxloom runs only the companions you register, with the command you give it.
-Nothing is searched for: there is no name-to-binary rule and no scan of the
-`PATH`. (The operating system may find a bare program name when the command is
-run, as it does for any command.)
+ctxloom runs only the companions you register, and you register one by NAME
+alone (OD-10): never a path or a command, so the registration holds wherever
+the program is installed (a container's paths are not the host's). Its program
+is found where the agent runs, on that place's `PATH`, every time it is asked:
+the shipped companions `ltk`, `taskloom` and `reprise` are their own
+programs, and any other name `<n>` is the program `ctxloom-companion-<n>`. A
+program of that name earlier on the `PATH` is the one that runs. Nothing else
+on the `PATH` is ever run for being there.
 
 ## Registering one
 
-    ctxloom companion add acme --command /opt/acme/bin/acme --as-team core
+    ctxloom companion add acme      # finds ctxloom-companion-acme on PATH
 
-`--command` takes the program, then its arguments (everything after the
-program is the program's; put `--format` before `--command`). ctxloom runs
-`<command...> loadout --format yaml` once, and records the registration only
-if the command exits successfully and prints a loadout.
+ctxloom finds the program and runs `<program> loadout --format yaml` once, in
+the project's root with your environment, and records the name only if it
+exits successfully and prints a loadout. A name whose program is not on the
+`PATH` is refused, naming the program it looked for.
 
-    ctxloom companion list      # name, command, whether the program exists
+    ctxloom companion list            # name, program, whether it is on PATH
+    ctxloom companion disable acme    # stays registered, contributes nothing
+    ctxloom companion enable acme
     ctxloom companion remove acme --yes
 
-`companion list` only checks that the program exists; it never runs a
-companion. `companion remove` without `--yes` says what it would do.
+`companion list` only looks for each program; it never runs a companion.
+`companion remove` without `--yes` says what it would do. `enable` and
+`disable` of a companion already so write nothing.
 
 The registration lives in your home config (`~/.ctxloom/config.yaml`); a
-project's config may add names, and cannot remove one the home registers. The
-command of a name registered in both is the project's.
+project's config may add names, and cannot remove one the home registers.
+`ctxloom doctor` asks each enabled registered companion for its loadout and
+says which answered.
 
 ## The config shape (schema 9)
 
     schema_version: 9
     companions:
       acme:
-        command: [/opt/acme/bin/acme, --as-team, core]
+        state: enabled
+      ltk:
+        state: disabled
 
-Names are `^[A-Za-z0-9][A-Za-z0-9._-]*$`. `command` is the program, then its
-arguments.
+Names are `^[A-Za-z0-9][A-Za-z0-9._-]*$`. `state` is a word (OD-9):
+`enabled`, the default, or `disabled`. A name's state is the highest layer's
+that says one. Anything else in a registration is an unknown key, refused: the
+`command:` an earlier build recorded is gone (a hard migrate; register the
+name again).
 
 ### Go compatibility
 
 Go ctxloom reads schema 8 only, where `companions` is a list of bare names
-(`companions: [ltk]`) that Go resolves to a binary by name. Schema 9 is not
-readable by Go, and ctxloom does not write schema 8.
-
-A schema 7 or 8 file that lists bare names is refused, naming the file and the
-names, with exit 20: a name alone says nothing of what to run, so ctxloom does
-not convert it. Register each companion again with `companion add --command`,
-then remove the old list. A file with no companions (or an empty list) loads
-as before and is read as schema 9 in memory; it is not rewritten.
+(`companions: [ltk]`). This build reads such a list (schema 7 or 8) as the
+names it registers, each enabled, in memory; the file is not rewritten until
+a companion write replaces the section.
 
 ## What a companion contributes
 
@@ -61,7 +69,10 @@ fragments, companions by name and fragments by name, under the reference
 is held back from the context and offered in the premise index, as any
 fragment is. A companion fragment that duplicates one already assembled is
 assembled once. The loadout is fetched fresh at each command, under a
-3-second limit.
+3-second limit. A disabled companion is not asked. An enabled one whose
+program is not on the `PATH` costs only what it would have brought: the
+session starts, and a notice names the companion and the program that would
+bring its guidance.
 
 It also delivers the bundle's hooks, commands and MCP servers to the engine's
 native files (`materialize`, and the hook listing), by the same path

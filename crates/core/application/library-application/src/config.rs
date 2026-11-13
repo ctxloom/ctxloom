@@ -3,7 +3,7 @@
 //! typed reading of what it says.
 
 use angzarr_yaml::Value;
-use ctxloom_ports::{ConfigFiles, LayerText, RegisteredCompanion, Scope, Source};
+use ctxloom_ports::{ConfigFiles, LayerText, Scope, Source};
 use library::compose::Premised;
 use library::config::engines;
 use library::config::layer::{self, Note};
@@ -14,6 +14,7 @@ use library::ConfigError;
 
 use crate::error::{AppError, Notice};
 use crate::views::{AgentRow, McpRow};
+use library::companion::State as CompanionState;
 
 /// The flags and variables that bear on the configuration.
 #[derive(Clone, Debug, Default)]
@@ -153,15 +154,6 @@ fn read_layer(layer: &LayerText, notices: &mut Vec<Notice>) -> Result<Value, App
                     path,
                     found,
                     oldest,
-                })
-            }
-            // Registered by name alone: refused, never migrated into a
-            // registration (a name says nothing of what to run).
-            Note::LegacyCompanions { found, names } => {
-                return Err(AppError::ConfigCompanionsBare {
-                    path,
-                    found,
-                    names: names.join(", "),
                 })
             }
             Note::NotInteger => return Err(AppError::ConfigVersionUnreadable { path }),
@@ -469,8 +461,8 @@ impl Config {
         library::config::engines::engines_in_use(&self.value)
     }
 
-    /// The registered companions, by name: each with the command that runs
-    /// it (empty where the registration holds none).
+    /// The registered companions, by name, each with its state (OD-9, OD-10:
+    /// a registration is a name; its program is found where it is asked).
     pub fn companions(&self) -> Vec<RegisteredCompanion> {
         let Some(Value::Map(registered)) = self.value.get("companions") else {
             return Vec::new();
@@ -479,7 +471,7 @@ impl Config {
             .iter()
             .map(|(name, body)| RegisteredCompanion {
                 name: name.clone(),
-                command: list_at(body, "command"),
+                state: CompanionState::of(&text_at(body, "state")),
             })
             .collect();
         all.sort_by(|a, b| a.name.cmp(&b.name));
@@ -575,6 +567,22 @@ fn stamp(value: &mut Value) {
         *value = Value::Map(Vec::new());
     }
     *value.entry("schema_version") = Value::Scalar(CURRENT.to_string());
+}
+
+/// A companion as the configuration registers it: its name and its state.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct RegisteredCompanion {
+    /// The name it is registered under.
+    pub name: String,
+    /// Whether it contributes.
+    pub state: CompanionState,
+}
+
+impl RegisteredCompanion {
+    /// The program its name stands for (`library::companion::program`).
+    pub fn program(&self) -> String {
+        library::companion::program(&self.name)
+    }
 }
 
 #[cfg(test)]

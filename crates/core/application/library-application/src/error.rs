@@ -40,13 +40,6 @@ pub enum AppError {
         found: u64,
         oldest: u64,
     },
-    /// A config layer that registers companions by bare name, as the
-    /// generations before 9 wrote them; `found` is its generation.
-    ConfigCompanionsBare {
-        path: String,
-        found: u64,
-        names: String,
-    },
     /// A config layer whose `schema_version` is not an integer.
     ConfigVersionUnreadable { path: String },
     /// A config with a key the schema does not know: each violation.
@@ -197,7 +190,6 @@ impl Diagnostic for AppError {
             AppError::ConfigUnparsable { .. } => code!("config-unparsable"),
             AppError::ConfigNewer { .. } => code!("config-newer"),
             AppError::ConfigOlder { .. } => code!("config-older"),
-            AppError::ConfigCompanionsBare { .. } => code!("config-companions-bare"),
             AppError::ConfigVersionUnreadable { .. } => code!("config-version-unreadable"),
             AppError::ConfigUnknownKey { .. } => code!("config-unknown-key"),
             AppError::ConfigBreaksSchema { .. } => code!("config-breaks-schema"),
@@ -247,7 +239,6 @@ impl Diagnostic for AppError {
             ],
             AppError::ConfigNewer { .. }
             | AppError::ConfigOlder { .. }
-            | AppError::ConfigCompanionsBare { .. }
             | AppError::ConfigVersionUnreadable { .. } => version_args(self),
             AppError::ConfigUnknownKey { violations }
             | AppError::ConfigBreaksSchema { violations } => {
@@ -364,11 +355,6 @@ fn version_args(error: &AppError) -> Vec<(&str, Arg)> {
             ("found", (*found).into()),
             ("current", (*current).into()),
         ],
-        AppError::ConfigCompanionsBare { path, found, names } => vec![
-            ("path", path.as_str().into()),
-            ("found", (*found).into()),
-            ("names", names.as_str().into()),
-        ],
         AppError::ConfigOlder {
             path,
             found,
@@ -404,8 +390,10 @@ pub enum Notice {
     RootIgnored { root: String },
     /// The dependencies installed from remotes could not be read.
     RemotesUnreadable { cause: angzarr_diagnostic::Report },
-    /// A registered companion whose binary is not on the `PATH`.
-    CompanionNotOnPath { name: String },
+    /// A registered, enabled companion whose program is not on the `PATH`
+    /// where the agent runs: what it would bring is left out, and nothing
+    /// fails (j000800).
+    CompanionNotOnPath { name: String, program: String },
     /// A registered companion that could not be asked for its loadout.
     LoadoutProbeFailed { name: String, detail: String },
     /// A registered companion whose loadout does not parse.
@@ -518,7 +506,10 @@ impl Diagnostic for Notice {
             Notice::RemotesUnreadable { cause } => {
                 vec![("cause", Arg::Nested(Box::new(cause.clone())))]
             }
-            Notice::CompanionNotOnPath { name } => vec![("name", name.as_str().into())],
+            Notice::CompanionNotOnPath { name, program } => vec![
+                ("name", name.as_str().into()),
+                ("program", program.as_str().into()),
+            ],
             Notice::LoadoutProbeFailed { name, detail } => vec![
                 ("name", name.as_str().into()),
                 ("detail", detail.as_str().into()),
@@ -578,11 +569,6 @@ fn version_samples() -> Vec<Box<dyn Diagnostic>> {
             path: path(),
             found: 9,
             current: 8,
-        }),
-        Box::new(AppError::ConfigCompanionsBare {
-            path: path(),
-            found: 8,
-            names: "acme, ltk".to_string(),
         }),
         Box::new(AppError::ConfigOlder {
             path: path(),
@@ -737,7 +723,10 @@ fn notice_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(Notice::RemotesUnreadable {
             cause: angzarr_diagnostic::Report::of(&BundleError::NoManifest { bundle: s("demo") }),
         }),
-        Box::new(Notice::CompanionNotOnPath { name: s("reprise") }),
+        Box::new(Notice::CompanionNotOnPath {
+            name: s("reprise"),
+            program: s("reprise"),
+        }),
         Box::new(Notice::DefaultEngineBlock {
             agent: s("p"),
             block: s("engines.claude-code"),

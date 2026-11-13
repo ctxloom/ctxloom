@@ -1,9 +1,10 @@
 //! Go's acceptance scenarios for the companion noun's write side (S2),
 //! `tests/acceptance/features/cli/companion.feature` at release/0.7
 //! ca14d6046, ported: each test names its scenario. A companion is registered
-//! as a name and the command that runs it (schema 9; nothing is searched
-//! for), and answers `<command> loadout --format yaml`; the fakes here are
-//! shell scripts in a directory of their own.
+//! by its name alone (OD-10): its program, `ctxloom-companion-<name>` (or a
+//! shipped companion's own name), is found on the PATH and answers
+//! `<program> loadout --format yaml`; the fakes here are shell scripts in a
+//! directory of their own, first on the PATH.
 //!
 //! Not here: what `ctxloom doctor` runs (S12): the witness-file scenarios'
 //! registration and removal halves are, and the executions are read off the
@@ -26,8 +27,7 @@ impl Bin {
         Bin { dir: files::root() }
     }
 
-    /// `ctxloom-companion-<name>` (a file name only: the registration holds
-    /// its path), answering the loadout probe and counting
+    /// `ctxloom-companion-<name>`, answering the loadout probe and counting
     /// its runs in `ran.log`.
     fn companion(&self, name: &str) -> PathBuf {
         self.script(
@@ -81,39 +81,24 @@ fn home_companions(project: &Project) -> String {
 
 // companion.feature: Scenario: A registered companion runs, and removing it
 // stops it (the registration and the removal: the home config holds the name
-// and the command, which is the path it was given; doctor's execution is S12's)
+// alone; doctor's execution is S12's)
 #[test]
-fn test_a_registered_companion_is_recorded_with_its_command_and_removing_it_unrecords_it() {
+fn test_a_registered_companion_is_recorded_by_name_and_removing_it_unrecords_it() {
     if !files::runs_scripts() {
         return;
     }
     let project = Project::initialized();
     let bin = Bin::new();
-    let path = bin.script(
-        "acme-bin",
-        "#!/bin/sh\nprintf 'run:\\n  version: 1.0.0\\n'\n",
-    );
-    let program = path.to_str().expect("utf-8");
-    let added = run(
-        &project,
-        &bin,
-        &[
-            "companion",
-            "add",
-            "acme",
-            "--command",
-            program,
-            "--as",
-            "acme",
-        ],
-    );
-    added.succeeds();
+    bin.companion("acme");
+    run(&project, &bin, &["companion", "add", "acme"]).succeeds();
     let home = home_companions(&project);
     assert!(
-        home.contains(&format!(
-            "companions:\n  acme:\n    command:\n      - {program}\n      - --as\n      - acme\n"
-        )),
+        home.contains("companions:\n  acme:\n    state: enabled\n"),
         "{home}"
+    );
+    assert!(
+        !home.contains(&bin.dir.root().display().to_string()),
+        "no path: {home}"
     );
     assert!(
         home.contains("editor:"),
@@ -142,22 +127,11 @@ fn test_a_projects_companions_are_added_to_the_home_registrations_by_add() {
     }
     let project = Project::initialized();
     let bin = Bin::new();
-    let path = bin.companion("acme");
-    run(
-        &project,
-        &bin,
-        &[
-            "companion",
-            "add",
-            "acme",
-            "--command",
-            path.to_str().unwrap(),
-        ],
-    )
-    .succeeds();
+    bin.companion("acme");
+    run(&project, &bin, &["companion", "add", "acme"]).succeeds();
     project.write(
         ".ctxloom/config.yaml",
-        "schema_version: 9\ncompanions:\n  beta: {command: [beta-bin]}\n",
+        "schema_version: 9\ncompanions:\n  beta: {}\n",
     );
     let ran = run(&project, &bin, &["companion", "list", "--format", "json"]);
     ran.succeeds();
@@ -175,19 +149,8 @@ fn test_an_empty_project_map_does_not_unregister_a_home_companion_after_add() {
     }
     let project = Project::initialized();
     let bin = Bin::new();
-    let path = bin.companion("acme");
-    run(
-        &project,
-        &bin,
-        &[
-            "companion",
-            "add",
-            "acme",
-            "--command",
-            path.to_str().unwrap(),
-        ],
-    )
-    .succeeds();
+    bin.companion("acme");
+    run(&project, &bin, &["companion", "add", "acme"]).succeeds();
     project.write(
         ".ctxloom/config.yaml",
         "schema_version: 9\ncompanions: {}\n",
@@ -197,27 +160,17 @@ fn test_an_empty_project_map_does_not_unregister_a_home_companion_after_add() {
     assert!(reports_as(&ran.json(), "companions.0.name").ends_with("/companions/acme"));
 }
 
-// companion.feature: Scenario: A command whose program does not exist is
-// refused, naming it, and nothing is recorded
+// companion.feature: Scenario: A name with nothing on PATH is refused, naming
+// the program it looked for, and nothing is recorded
 #[test]
-fn test_a_command_whose_program_does_not_exist_is_refused_naming_it() {
+fn test_a_name_whose_program_is_not_on_path_is_refused_naming_it() {
     let project = Project::initialized();
     let bin = Bin::new();
     let before = project.read_home(HOME_CONFIG);
-    run(
-        &project,
-        &bin,
-        &[
-            "companion",
-            "add",
-            "nowhere",
-            "--command",
-            "/no/such/program",
-        ],
-    )
-    .fails()
-    .contains("/no/such/program")
-    .contains("companion program not found");
+    run(&project, &bin, &["companion", "add", "nowhere"])
+        .fails()
+        .contains("ctxloom-companion-nowhere")
+        .contains("is not on PATH");
     assert_eq!(project.read_home(HOME_CONFIG), before);
     run(&project, &bin, &["companion", "list", "--format", "text"])
         .succeeds()
@@ -225,9 +178,8 @@ fn test_a_command_whose_program_does_not_exist_is_refused_naming_it() {
 }
 
 // operations.AddCompanion (documented conditions): a name that is no name, a
-// command that does not answer the probe, one that answers nothing: each is
-// refused and records nothing. No name means a binary: a first-party name is
-// registered with the command it is given like any other.
+// program that does not answer the probe, one that answers nothing: each is
+// refused and records nothing. A shipped companion's program is its own name.
 #[test]
 fn test_add_checks_the_companion_before_it_records_anything() {
     if !files::runs_scripts() {
@@ -235,69 +187,35 @@ fn test_add_checks_the_companion_before_it_records_anything() {
     }
     let project = Project::initialized();
     let bin = Bin::new();
-    let sick = bin.broken("sick");
-    let mute = bin.silent("mute");
+    bin.broken("sick");
+    bin.silent("mute");
     let before = project.read_home(HOME_CONFIG);
-    run(
-        &project,
-        &bin,
-        &[
-            "companion",
-            "add",
-            "sick",
-            "--command",
-            sick.to_str().unwrap(),
-        ],
-    )
-    .fails()
-    .contains("command does not answer the companion loadout probe");
-    run(
-        &project,
-        &bin,
-        &[
-            "companion",
-            "add",
-            "mute",
-            "--command",
-            mute.to_str().unwrap(),
-        ],
-    )
-    .fails()
-    .contains("printed no loadout");
+    run(&project, &bin, &["companion", "add", "sick"])
+        .fails()
+        .contains("does not answer the companion loadout probe");
+    run(&project, &bin, &["companion", "add", "mute"])
+        .fails()
+        .contains("printed no loadout");
     for bad in ["-x", "a b", "../x", ""] {
-        run(
-            &project,
-            &bin,
-            &["companion", "add", bad, "--command", "true"],
-        )
-        .fails()
-        .contains("invalid companion name");
+        run(&project, &bin, &["companion", "add", bad])
+            .fails()
+            .contains("invalid companion name");
     }
-    run(&project, &bin, &["companion", "add", "x", "--command", ""])
-        .fails()
-        .contains("has no command");
     assert_eq!(project.read_home(HOME_CONFIG), before);
-    let ltk = bin.script("ltk", "#!/bin/sh\nprintf 'run:\\n  version: 1.0.0\\n'\n");
+    bin.script("ltk", "#!/bin/sh\nprintf 'run:\\n  version: 1.0.0\\n'\n");
     let ran = run(
         &project,
         &bin,
-        &[
-            "companion",
-            "add",
-            "ltk",
-            "--format",
-            "json",
-            "--command",
-            ltk.to_str().unwrap(),
-        ],
+        &["companion", "add", "ltk", "--format", "json"],
     );
     ran.succeeds();
     assert!(reports_as(&ran.json(), "companion.name").ends_with("/companions/ltk"));
+    assert_eq!(reports_as(&ran.json(), "companion.bin"), "ltk");
 }
 
 // operations.AddCompanion (documented condition): the answer, in each format,
-// a second add of the same registration is not a second registration, and the
-// probe is run once.
+// a second add of the same name is not a second registration, and the probe
+// is run once.
 #[test]
 fn test_add_answers_and_a_second_add_registers_nothing_twice() {
     if !files::runs_scripts() {
@@ -305,63 +223,38 @@ fn test_add_answers_and_a_second_add_registers_nothing_twice() {
     }
     let project = Project::initialized();
     let bin = Bin::new();
-    let path = bin.companion("acme");
-    let program = path.to_string_lossy().to_string();
+    bin.companion("acme");
     let first = run(
         &project,
         &bin,
-        &[
-            "companion",
-            "add",
-            "acme",
-            "--format",
-            "json",
-            "--command",
-            &program,
-        ],
+        &["companion", "add", "acme", "--format", "json"],
     );
     first.succeeds();
     let doc = first.json();
     // OD-40: `CreateCompanionResponse`, applied when the registration is new.
     assert!(reports_as(&doc, "companion.name").ends_with("/companions/acme"));
-    assert_eq!(reports_as(&doc, "companion.command.0"), program);
+    assert_eq!(reports_as(&doc, "companion.bin"), "ctxloom-companion-acme");
     assert_eq!(reports_as(&doc, "applied"), "true");
     assert_eq!(bin.ran().lines().count(), 1, "one probe: {}", bin.ran());
     let again = run(
         &project,
         &bin,
-        &[
-            "companion",
-            "add",
-            "acme",
-            "--format",
-            "text",
-            "--command",
-            &program,
-        ],
+        &["companion", "add", "acme", "--format", "text"],
     );
     assert_eq!(
         again.stdout,
-        format!("Companion 'acme' is already registered ({program})\n")
+        "Companion 'acme' is already registered (ctxloom-companion-acme)\n"
     );
     assert_eq!(home_companions(&project).matches("acme:").count(), 1);
     let project2 = Project::initialized();
     let text = run(
         &project2,
         &bin,
-        &[
-            "companion",
-            "add",
-            "acme",
-            "--format",
-            "text",
-            "--command",
-            &program,
-        ],
+        &["companion", "add", "acme", "--format", "text"],
     );
     assert_eq!(
         text.stdout,
-        format!("Registered companion 'acme' (answers: {program})\n")
+        "Registered companion 'acme' (its program ctxloom-companion-acme answers)\n"
     );
 }
 
@@ -374,15 +267,9 @@ fn test_remove_without_yes_names_the_apply_command_and_changes_nothing() {
     }
     let project = Project::initialized();
     let bin = Bin::new();
-    let path = bin.companion("acme");
-    let program = path.to_string_lossy().to_string();
+    bin.companion("acme");
     let add = |project: &Project| {
-        let ran = run(
-            project,
-            &bin,
-            &["companion", "add", "acme", "--command", &program],
-        );
-        ran.succeeds();
+        run(project, &bin, &["companion", "add", "acme"]).succeeds();
     };
     add(&project);
     let before = project.read_home(HOME_CONFIG);
@@ -427,31 +314,38 @@ fn test_remove_without_yes_names_the_apply_command_and_changes_nothing() {
     }
 }
 
-// companion.feature: Scenario: List answers each registered name's command and
-// whether its program exists (after add); the program is looked for, never run.
+// companion.feature: Scenario: List answers which program each registered
+// name resolves to (after add); the program is looked for, never run.
 #[test]
-fn test_list_answers_each_names_command_and_whether_its_program_exists_after_add() {
+fn test_list_answers_each_names_program_and_whether_it_resolves_after_add() {
     if !files::runs_scripts() {
         return;
     }
     let project = Project::initialized();
     let bin = Bin::new();
-    let path = bin.companion("acme");
-    let program = path.to_string_lossy().to_string();
-    run(
-        &project,
-        &bin,
-        &["companion", "add", "acme", "--command", &program],
-    )
-    .succeeds();
+    bin.companion("acme");
+    run(&project, &bin, &["companion", "add", "acme"]).succeeds();
     let probes = bin.ran().lines().count();
     let ran = run(&project, &bin, &["companion", "list", "--format", "json"]);
     ran.succeeds();
     let doc = ran.json();
     assert!(reports_as(&doc, "companions.0.name").ends_with("/companions/acme"));
-    assert_eq!(reports_as(&doc, "companions.0.command.0"), program);
+    assert_eq!(
+        reports_as(&doc, "companions.0.bin"),
+        "ctxloom-companion-acme"
+    );
     assert_eq!(reports_as(&doc, "companions.0.resolves"), "true");
     assert_eq!(bin.ran().lines().count(), probes, "listing ran nothing");
+    // Off the PATH it was found on, it no longer resolves (OD-10: the name
+    // is found where it is asked).
+    let elsewhere = project.run_with(
+        &[("PATH", "/usr/bin:/bin")],
+        &["companion", "list", "--format", "json"],
+    );
+    assert_eq!(
+        reports_as(&elsewhere.json(), "companions.0.resolves"),
+        "false"
+    );
 }
 
 // companion.feature: Scenario: Bare companion lists the registered companions
@@ -463,53 +357,62 @@ fn test_bare_companion_lists_the_registered_companions_after_add() {
     }
     let project = Project::initialized();
     let bin = Bin::new();
-    let path = bin.companion("acme");
-    run(
-        &project,
-        &bin,
-        &[
-            "companion",
-            "add",
-            "acme",
-            "--command",
-            path.to_str().unwrap(),
-        ],
-    )
-    .succeeds();
+    bin.companion("acme");
+    run(&project, &bin, &["companion", "add", "acme"]).succeeds();
     run(&project, &bin, &["companion", "--format", "text"])
         .succeeds()
         .contains("acme")
+        .contains("ctxloom-companion-acme")
         .contains("found")
         .lacks("Available Commands:");
 }
 
 // companion.feature: Scenario: A companion an npm dependency drops on PATH is
-// never run (adding or removing a name runs only the command given)
+// never run (adding or removing a name runs only that name's program)
 #[test]
-fn test_only_the_registered_command_is_ever_run_by_add() {
+fn test_only_the_registered_name_is_ever_run_by_add() {
     if !files::runs_scripts() {
         return;
     }
     let project = Project::initialized();
     let bin = Bin::new();
-    let acme = bin.companion("acme");
+    bin.companion("acme");
     bin.companion("evil");
-    run(
-        &project,
-        &bin,
-        &[
-            "companion",
-            "add",
-            "acme",
-            "--command",
-            acme.to_str().unwrap(),
-        ],
-    )
-    .succeeds();
+    run(&project, &bin, &["companion", "add", "acme"]).succeeds();
     let ran = bin.ran();
     assert!(ran.contains("loadout"), "{ran}");
     run(&project, &bin, &["companion", "list"]).succeeds();
     run(&project, &bin, &["companion", "remove", "acme", "--yes"]).succeeds();
     let log = bin.ran();
     assert_eq!(log.lines().count(), 1, "something else ran: {log}");
+}
+
+// companion.feature: disable keeps a companion registered and listed, its
+// state written as a word (OD-9); enable restores it.
+#[test]
+fn test_disable_and_enable_write_the_state_word_in_the_home() {
+    if !files::runs_scripts() {
+        return;
+    }
+    let project = Project::initialized();
+    let bin = Bin::new();
+    bin.companion("acme");
+    run(&project, &bin, &["companion", "add", "acme"]).succeeds();
+    run(
+        &project,
+        &bin,
+        &["companion", "disable", "acme", "--format", "text"],
+    )
+    .succeeds()
+    .contains("Companion 'acme' is disabled");
+    assert!(home_companions(&project).contains("  acme:\n    state: disabled\n"));
+    let listed = run(&project, &bin, &["companion", "list", "--format", "json"]);
+    assert_eq!(reports_as(&listed.json(), "companions.0.state"), "DISABLED");
+    run(
+        &project,
+        &bin,
+        &["companion", "enable", "acme", "--format", "json"],
+    )
+    .succeeds();
+    assert!(home_companions(&project).contains("  acme:\n    state: enabled\n"));
 }

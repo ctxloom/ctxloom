@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use ctxloom_ports::{CompanionLoadouts, ConfigFiles, ContentRepo, Executables, Source};
+use ctxloom_ports::{CompanionProbe, ConfigFiles, ContentRepo, ProbeSite, Source};
 use deps_ports::RemoteLibrary;
 use library::catalog::{Catalog, Entry, RemoteOrigin};
 use library::model::Bundle;
@@ -34,11 +34,13 @@ pub struct RunSettings {
 pub struct Library {
     content: Arc<dyn ContentRepo>,
     files: Arc<dyn ConfigFiles>,
-    binaries: Arc<dyn Executables>,
     pub(crate) environ: Vec<(String, String)>,
     pub(crate) ports: Option<WritePorts>,
     remotes: Option<Rc<dyn RemoteLibrary>>,
-    pub(crate) companions: Option<Arc<dyn CompanionLoadouts>>,
+    pub(crate) companions: Option<Arc<dyn CompanionProbe>>,
+    /// The directory a companion is probed in when the caller names no
+    /// project root of its own: where the command was run (D1).
+    pub(crate) probe_cwd: String,
     /// ctxloom's built-in bundles join every project's catalog.
     pub(crate) builtins: bool,
     /// The engines a plan is shown to, for what they say of it (owner
@@ -54,7 +56,6 @@ pub struct Project {
     pub(crate) catalog: Catalog,
     pub(crate) content: Arc<dyn ContentRepo>,
     pub(crate) files: Arc<dyn ConfigFiles>,
-    pub(crate) binaries: Arc<dyn Executables>,
     pub(crate) environ: Vec<(String, String)>,
     pub(crate) ports: Option<WritePorts>,
     pub(crate) remotes: Option<Rc<dyn RemoteLibrary>>,
@@ -64,8 +65,11 @@ pub struct Project {
     /// Bundles that are there and cannot be read, by name.
     pub(crate) unreadable: BTreeMap<String, BundleError>,
     pub(crate) notices: Vec<Notice>,
-    /// Where a registered companion's loadout is asked for.
-    pub(crate) companions: Option<Arc<dyn CompanionLoadouts>>,
+    /// Where a registered companion is found and asked for its loadout.
+    pub(crate) companions: Option<Arc<dyn CompanionProbe>>,
+    /// Where a companion is probed (D1): the caller's environment and the
+    /// project's root (the caller's directory with no project).
+    pub(crate) probe_site: ProbeSite,
     /// `--no-companions` or `CTXLOOM_NO_COMPANIONS`: no companion is asked.
     pub(crate) no_companions: bool,
     /// The `run:` bundles of the registered companions, asked for once per
@@ -83,17 +87,16 @@ impl Library {
     pub fn new(
         content: Arc<dyn ContentRepo>,
         files: Arc<dyn ConfigFiles>,
-        binaries: Arc<dyn Executables>,
         environ: Vec<(String, String)>,
     ) -> Library {
         Library {
             content,
             files,
-            binaries,
             environ,
             ports: None,
             remotes: None,
             companions: None,
+            probe_cwd: String::new(),
             builtins: false,
             engines: Vec::new(),
             hook_losses: crate::losses::HookLosses::new(),
@@ -117,9 +120,17 @@ impl Library {
     }
 
     /// The library joining the registered companions' loadouts to every
-    /// assembly, asked for through `companions`.
-    pub fn with_companions(mut self, companions: Arc<dyn CompanionLoadouts>) -> Library {
-        self.companions = Some(companions);
+    /// assembly, and checking one before it is registered, through `probe`:
+    /// the one probe every caller uses (OD-8).
+    pub fn with_companions(mut self, probe: Arc<dyn CompanionProbe>) -> Library {
+        self.companions = Some(probe);
+        self
+    }
+
+    /// The directory a companion is probed in where there is no project:
+    /// the caller's own (D1). In a project it is the project's root.
+    pub fn with_probe_cwd(mut self, cwd: impl Into<String>) -> Library {
+        self.probe_cwd = cwd.into();
         self
     }
 
@@ -248,7 +259,6 @@ impl Library {
             catalog,
             content: Arc::clone(&self.content),
             files: Arc::clone(&self.files),
-            binaries: Arc::clone(&self.binaries),
             environ: self.environ.clone(),
             ports: self.ports.clone(),
             remotes: self.remotes.clone(),
@@ -257,6 +267,10 @@ impl Library {
             unreadable,
             notices: Vec::new(),
             companions: self.companions.clone(),
+            probe_site: ProbeSite {
+                env: self.environ.clone(),
+                cwd: self.probe_dir(reads_content),
+            },
             no_companions: flags.no_companions
                 || crate::companions::switch_on(&self.environ, "CTXLOOM_NO_COMPANIONS"),
             companion_bundles: None,
@@ -267,6 +281,23 @@ impl Library {
 }
 
 impl Library {
+    /// Where a companion runs: the project's root (the parent of its
+    /// `.ctxloom`) in a project, else the caller's directory (D1, and the
+    /// verified gap: a probe that names none inherits its process's).
+    fn probe_dir(&self, in_project: bool) -> String {
+        let app = self.files.app_dir();
+        if in_project {
+            if let Some(root) = app
+                .strip_suffix(".ctxloom")
+                .map(|r| r.trim_end_matches(['/', '\\']))
+                .filter(|r| !r.is_empty())
+            {
+                return root.to_string();
+            }
+        }
+        self.probe_cwd.clone()
+    }
+
     /// The bundles installed from remotes, read and added to `entries`; where
     /// each came from, by the name it is known by. One that cannot be read is
     /// skipped and said.

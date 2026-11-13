@@ -12,8 +12,6 @@
 #
 # cli/companion.feature
 companion-list-text	lib	companion list --format text
-# Configuration: schema 8 and older, layering, strict decode (cli/config.feature, fault_tolerance.feature)
-cfg-layers-companion-list-json	cfg/layers	companion list --format json
 # Nothing there: no content directory at all, and an empty one (empty_listing_hint, cli/agent.feature)
 empty-companion-list-text	empty	companion list --format text
 emptybundles-companion-list-text	emptybundles	companion list --format text

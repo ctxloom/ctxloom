@@ -271,58 +271,60 @@ pub trait Editor {
     fn open(&self, command: &EditorCommand, path: &str) -> Result<(), Failure>;
 }
 
-/// Why a program is no companion.
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub enum Unanswered {
-    /// It could not be run, failed, or took too long: what happened.
-    Failed(String),
-    /// The program does not exist: what the system said.
-    Missing(String),
-    /// It ran and exited with a status other than success: the program is
-    /// there and offers no loadout.
-    Exited(String),
-    /// It ran and printed no loadout.
-    Silent,
+/// Where a companion is probed (D1): the caller's environment and the
+/// directory it runs in, handed in with every call, never a snapshot the
+/// adapter holds, so the same probe serves whoever calls it from wherever
+/// the agent runs (OD-8). Its `Debug` names the variables and withholds every
+/// value (the environment may hold a secret).
+#[derive(Clone, PartialEq, Eq, Default)]
+pub struct ProbeSite {
+    /// The environment the program runs in, exactly; its `PATH` is where the
+    /// program is found.
+    pub env: Vec<(String, String)>,
+    /// The directory it runs in: the caller's project root (its working
+    /// directory where there is no project).
+    pub cwd: String,
 }
 
-/// Whether a command answers the companion probe.
-pub trait LoadoutProbe {
-    /// `<command...> loadout --format yaml`, bounded in time: it must
-    /// succeed and print something. `command` is the program, then its
-    /// arguments; nothing searches for it.
-    fn answers(&self, command: &[String]) -> Result<(), Unanswered>;
+impl std::fmt::Debug for ProbeSite {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let names: Vec<&str> = self.env.iter().map(|(name, _)| name.as_str()).collect();
+        f.debug_struct("ProbeSite")
+            .field("env", &names)
+            .field("cwd", &self.cwd)
+            .finish()
+    }
 }
 
-/// A companion as the configuration registers it.
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct RegisteredCompanion {
-    /// The name it is registered under.
-    pub name: String,
-    /// The program, then its arguments.
-    pub command: Vec<String>,
-}
-
-/// What asking a registered companion for its loadout came to.
+/// What asking a companion's program for its loadout came to.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum CompanionLoadout {
     /// It printed a loadout document: its text.
     Loaded(String),
-    /// Its program does not exist.
+    /// Its program is not on the site's `PATH`.
     Absent,
     /// It ran and exited with a status other than success: the program is
-    /// there and offers no loadout.
-    NoLoadout,
+    /// there and offers no loadout. The status, as shown.
+    NoLoadout(String),
+    /// It ran, succeeded and printed nothing.
+    Silent,
     /// It could not be run, was killed, or took too long: what happened.
     ProbeFailed(String),
 }
 
-/// The loadouts of the companions a project registers, fetched fresh each
-/// time they are asked for (Go's `Prober.ProbeCompanionLoadouts`): the one
-/// place a companion's program is run for its session-time contribution.
-pub trait CompanionLoadouts {
-    /// The loadout of `companion`. Never fatal: every way it can fail is an
-    /// outcome.
-    fn loadout(&self, companion: &RegisteredCompanion) -> CompanionLoadout;
+/// A companion's program, found and asked (Go's `companions.Verify` and
+/// `Prober.ProbeCompanionLoadouts`): the one place a companion is run, for
+/// every caller (OD-8). A program is named, never a path: it is found on the
+/// `PATH` of the site it is asked at (OD-10).
+pub trait CompanionProbe {
+    /// The path `program` resolves to on `site`'s `PATH`: looked for, never
+    /// run; none where it is not there.
+    fn find(&self, program: &str, site: &ProbeSite) -> Option<String>;
+
+    /// `<program> loadout --format yaml`, the program found on `site`'s
+    /// `PATH` and run in `site.cwd` with `site.env` exactly, bounded in time.
+    /// Never fatal: every way it can fail is an outcome.
+    fn loadout(&self, program: &str, site: &ProbeSite) -> CompanionLoadout;
 }
 
 /// The project's regenerable cache (`.ctxloom/cache`): measured and removed

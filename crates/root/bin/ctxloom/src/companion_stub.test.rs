@@ -2,9 +2,11 @@
 //! `ctxloom-companion-stub` (the `stub-companion` crate), a real program the
 //! binary under test execs, answering `version` and `loadout --format yaml`
 //! from files this module writes. One built binary stands in for any
-//! companion: a test registers `[stub, --files, <dir>/<name>]` as the
-//! command and the files beside that prefix say what it prints. Nothing is
-//! written executable and nothing is looked up on a `PATH`.
+//! companion: a companion is registered by name (OD-10), so its program
+//! (`ctxloom-companion-<name>`, or a shipped companion's own name) is put in
+//! a `bin` directory for the run's `PATH`, a script (`files::put_program`,
+//! unix only) that execs the stub with `--files <dir>/<name>`, and the files
+//! beside that prefix say what it prints.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -64,14 +66,37 @@ pub(crate) enum Misbehaving {
 /// A stub companion standing in for `name`, whose files are under `dir`.
 pub(crate) struct Stub {
     prefix: PathBuf,
+    /// The directory its program is in, for the `PATH`.
+    bin: PathBuf,
 }
 
 impl Stub {
-    /// A stub that prints `loadout` for `loadout --format yaml`.
+    /// A stub that prints `loadout` for `loadout --format yaml`, its program
+    /// `<dir>/bin/<program of name>` (see the module's doc; unix only, as
+    /// any test program).
     pub(crate) fn install(dir: &Path, name: &str, loadout: &str) -> Stub {
         let prefix = dir.join(name);
         files::put(format!("{}.loadout", prefix.display()), loadout);
-        Stub { prefix }
+        let bin = dir.join("bin");
+        let program = if ["ltk", "taskloom", "reprise"].contains(&name) {
+            name.to_string()
+        } else {
+            format!("ctxloom-companion-{name}")
+        };
+        files::put_program(
+            bin.join(program),
+            &format!(
+                "#!/bin/sh\nexec '{}' --files '{}' \"$@\"\n",
+                binary().display(),
+                prefix.display()
+            ),
+        );
+        Stub { prefix, bin }
+    }
+
+    /// The directory its program is in.
+    pub(crate) fn bin(&self) -> &Path {
+        &self.bin
     }
 
     /// The same, with a way of misbehaving.
@@ -99,14 +124,13 @@ impl Stub {
         ]
     }
 
-    /// `companion add <name> --command ...` as the arguments `ctxloom` takes.
+    /// `companion add <name>` as the arguments `ctxloom` takes (run with
+    /// [`Stub::bin`] on the `PATH`).
     pub(crate) fn add_args(&self, name: &str) -> Vec<String> {
-        let mut args: Vec<String> = ["companion", "add", name, "--command"]
+        ["companion", "add", name]
             .iter()
             .map(ToString::to_string)
-            .collect();
-        args.extend(self.command());
-        args
+            .collect()
     }
 }
 
@@ -115,6 +139,9 @@ impl Stub {
 // the binary a test registers is the one that was built and answers).
 #[test]
 fn the_compiled_stub_answers_version_and_loadout_through_a_real_exec() {
+    if !files::runs_scripts() {
+        return;
+    }
     let dir = files::root();
     let stub = Stub::install(dir.root(), "acme", "run:\n  version: 1.0.0\n");
     let command = stub.command();

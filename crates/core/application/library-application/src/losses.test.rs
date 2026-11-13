@@ -229,7 +229,9 @@ fn test_an_agent_with_no_profiles_loses_what_a_companion_hooks() {
     const GUARD: &str = "run:\n  version: 1.0.0\n  hooks:\n    pre_tool:\n      - command: guard\n        type: command\n";
     let (library, _) = Setup {
         bundles: &[("house", HOUSE), ("project", PROJECT)],
-        layers: &["schema_version: 9\nagents:\n  bare:\n    engine: opencode\ncompanions:\n  guard:\n    command: [guard]\n"],
+        layers: &[
+            "schema_version: 9\nagents:\n  bare:\n    engine: opencode\ncompanions:\n  guard: {}\n",
+        ],
         companions: &[("guard", Loaded(GUARD.to_string()))],
         ..Setup::default()
     }

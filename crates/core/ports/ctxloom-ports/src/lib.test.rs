@@ -85,3 +85,21 @@ fn test_a_plain_relative_name_has_no_windows_separator_root_or_drive() {
         assert!(!is_plain_relative(bad), "{bad:?}");
     }
 }
+
+// D1: a probe site's environment may hold a secret, so its Debug names each
+// variable and shows no value.
+#[test]
+fn test_a_probe_site_shows_its_variables_names_and_withholds_their_values() {
+    let site = ProbeSite {
+        env: vec![
+            ("PATH".to_string(), "/secret/bin".to_string()),
+            ("TOKEN".to_string(), "sk-not-shown".to_string()),
+        ],
+        cwd: "/work/project".to_string(),
+    };
+    let shown = format!("{site:?}");
+    assert_eq!(
+        shown,
+        "ProbeSite { env: [\"PATH\", \"TOKEN\"], cwd: \"/work/project\" }"
+    );
+}

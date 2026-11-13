@@ -10,6 +10,7 @@
 //! arguments become a request of the application, and its answer is written
 //! as json or as text, with what it noticed said on the error stream.
 
+mod api;
 mod commands;
 pub mod inert;
 mod text;
@@ -66,8 +67,6 @@ pub trait Names {
 /// Everything a command needs to answer.
 struct Context<'a> {
     library: &'a Library,
-    // RED: read by the engine's json, the next (GREEN) commit.
-    #[allow(dead_code)]
     names: &'a dyn Names,
     flags: Flags,
     format: Format,
@@ -424,14 +423,39 @@ fn engine(
 ) -> Result<Exit, Failure> {
     if verb == "show" {
         let outcome = cx.library.engine_show(&cx.flags, &text_arg(sub, "engine"));
-        return answer(cx, outcome, out, err, |row, out, _| {
-            emit(cx.format, out, &row, |out| text::engine_show(out, &row))
-        });
+        return resource(cx, outcome, out, err, api::engine, text::engine_show);
     }
     let outcome = cx.library.engine_list(&cx.flags);
-    answer(cx, outcome, out, err, |rows, out, _| {
-        emit(cx.format, out, &rows, |out| text::engine_list(out, &rows))
-    })
+    resource(
+        cx,
+        outcome,
+        out,
+        err,
+        |parent, rows: &Vec<_>| api::engines(parent, rows),
+        |out, rows| text::engine_list(out, rows),
+    )
+}
+
+/// A converted noun's answer (OD-40): the notices, said; then its error,
+/// or its json, the view as its API message named under the parent the
+/// names give (asked only here), or its text.
+fn resource<T, M: Serialize>(
+    cx: &Context<'_>,
+    outcome: library_application::Outcome<T>,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+    message: impl FnOnce(&str, &T) -> M,
+    text: impl FnOnce(&mut dyn Write, &T) -> io::Result<()>,
+) -> Result<Exit, Failure> {
+    say_notices(&outcome.notices, PROG, cx.format, cx.catalog, err);
+    let value = outcome.result.map_err(failed)?;
+    if cx.format == Format::Json {
+        let parent = cx.names.parent()?;
+        api::print(out, &message(&parent, &value)).map_err(output_failure)?;
+    } else {
+        text(out, &value).map_err(output_failure)?;
+    }
+    Ok(Exit::OK)
 }
 
 fn companion(cx: &Context<'_>, out: &mut dyn Write, err: &mut dyn Write) -> Result<Exit, Failure> {

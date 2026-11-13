@@ -1549,6 +1549,33 @@ custom methods' responses (push, browse, discover, pull, check, upgrade),
 their shapes on a ruling. `PlanStale` stays FAILED_PRECONDITION: OQ-10 rules
 ABORTED, and angzarr's `RefusalStatus` has no such value yet.
 
+Conversion is at the CLI's edge (design §6): library-application's views
+are unchanged, and `library-cli`'s `api.rs` is the ONE path from a view to
+its message, printed as the message's generated proto3 JSON. A resource
+name's parent comes from `library_cli::Names`, asked only when a json
+answer prints one (text reaches no daemon): the wiring's is the daemon's
+`ResolveProject` (`daemon_api::Client::library_parent`, the wiring's
+`daemon::library_parent`; OQ-2, so a json answer may start the daemon), or
+`users/me` outside a project, where no daemon is asked (OQ-3). Converted:
+the `engine` noun (the worked example): `engine list` is
+`ListEnginesResponse` (`{engines: [...]}`), `engine show` an `Engine`
+named `projects/{harp}/engines/<engine>`, its agent rows' name `agent`,
+their settings flat (`agents[agent=x].model.value`), the auth state
+`AUTH_STATE_PRESENT|MISSING|NOT_NEEDED`, an unset model no `value`; its
+text is unchanged. `scripts/plain-engines-check.sh` reads the TEXT
+listing, so `just build` reaches no daemon. Every other noun still prints
+its view, until its branch (B1 catalog, B2 configuration, B3 queries, B4
+remotes) converts it.
+
+The feature steps read proto3 JSON (design §8.1, the binary's
+`library.test.rs` and `gherkin_common.test.rs`): a selector `[key$=suffix]`
+picks the element whose `key` ends so (`engines[name$=/engines/opencode]`);
+`{project}` in a step's path or value is the project's harp, which the
+harness asks the hidden `ctxloom test project-name` (test-support; it
+prints the `Names` parent, `projects/<harp>` or `users/me`); an absent field
+reads as its default (`as "false"`, `"0"` or `""` passes where proto3 JSON
+left it out, anything else does not), and an absent list has 0 entries.
+
 ## What an engine cannot carry (M6, j002000)
 
 An engine's word on what it cannot carry is its surface half's

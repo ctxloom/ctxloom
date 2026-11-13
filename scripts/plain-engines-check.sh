@@ -36,9 +36,12 @@ fi
 jq() { command jq "$@" | tr -d '\r'; }
 ctxloom() { (cd "$home" && env -i PATH="$PATH" HOME="$home" TMPDIR="$home" ${windows[@]+"${windows[@]}"} "$bin" "$@"); }
 
-listed=$(ctxloom engine list --format json) || {
+# The text listing: its json names each engine under the project the daemon
+# names (OD-40), and this check reaches no daemon. Each engine is a line of
+# its own, its settings indented below it.
+listed=$(ctxloom engine list --format text) || {
     echo "plain build: engine list failed"; echo "$listed"; exit 1; }
-mocks=$(jq -r '.[].name | select(startswith("mock"))' <<< "$listed")
+mocks=$(grep -E '^mock' <<< "$listed" || true)
 if [ -n "$mocks" ]; then
     echo "plain build: engine list names a test engine: $(tr '\n' ' ' <<< "$mocks")"
     exit 1

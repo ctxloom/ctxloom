@@ -2816,6 +2816,7 @@ dependencies = [
  "angzarr-presentation",
  "clap",
  "cli-support",
+ "daemon-proto",
  "library-application",
  "serde",
  "serde_json",

@@ -37,6 +37,11 @@ fn one(name: &'static str, help: &'static str) -> Arg {
         .help(help)
 }
 
+/// The `NAME` after a `BUNDLE` that is a bundle, not a reference.
+fn optional_name(help: &'static str) -> Arg {
+    Arg::new("name").value_name("NAME").help(help)
+}
+
 fn yes() -> Arg {
     Arg::new("yes")
         .short('y')
@@ -214,8 +219,14 @@ fn item_writes(noun: Command, word: &'static str, dir: &'static str) -> Command 
                 "fragment" => "Create a new fragment",
                 _ => "Create a new command",
             })
-            .arg(one("bundle", "The bundle"))
-            .arg(one("name", "The new item's name")),
+            .arg(one(
+                "bundle",
+                match dir {
+                    "fragments" => "The new fragment's reference, bundle#fragments/name (or the bundle, then NAME)",
+                    _ => "The new command's reference, bundle#commands/name (or the bundle, then NAME)",
+                },
+            ))
+            .arg(optional_name("The new item's name, when BUNDLE is a bundle")),
     )
     .subcommand(
         remove(match word {
@@ -297,8 +308,13 @@ fn skill() -> Command {
         .subcommand(
             Command::new("create")
                 .about("Scaffold a new Agent Skill package in a bundle")
-                .arg(one("bundle", "The bundle"))
-                .arg(one("name", "The new skill's name"))
+                .arg(one(
+                    "bundle",
+                    "The new skill's reference, bundle#skills/name (or the bundle, then NAME)",
+                ))
+                .arg(optional_name(
+                    "The new skill's name, when BUNDLE is a bundle",
+                ))
                 .arg(description(
                     "SKILL.md frontmatter description (default: a TODO placeholder)",
                 )),

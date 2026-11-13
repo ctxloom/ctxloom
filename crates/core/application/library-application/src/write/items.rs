@@ -13,8 +13,9 @@ use crate::write::WriteError;
 use crate::Flags;
 
 impl Library {
-    /// `fragment create <bundle> <name>`, `command create`: a placeholder in
-    /// the bundle's tree.
+    /// `fragment create <bundle>#fragments/<name>` (or `<bundle> <name>`),
+    /// `command create`: a template, opened in the editor, and what the
+    /// editor gives back stored in the bundle's tree.
     pub fn item_create(
         &self,
         flags: &Flags,
@@ -56,6 +57,13 @@ impl Library {
 impl Project {
     fn item_create(&self, kind: Kind, bundle: &str, name: &str) -> Result<ItemCreated, AppError> {
         self.require_project()?;
+        // One reference (`<bundle>#fragments/<name>`) or a bundle and a name.
+        let (bundle, name) = if name.is_empty() {
+            self.item_target(kind, bundle)?
+        } else {
+            (bundle.to_string(), name.to_string())
+        };
+        let (bundle, name) = (bundle.as_str(), name.as_str());
         let entry = self.bundle(bundle)?;
         if !item::valid_name(name) {
             return Err(WriteError::BadItemName {
@@ -73,7 +81,26 @@ impl Project {
             }
             .into());
         }
-        plan.write(&path, item::placeholder_fragment(name));
+        // The template, through the editor: what comes back is stored, and
+        // an empty buffer writes nothing.
+        let ports = self.write_ports()?;
+        let command = editor_command(&self.config, &self.environ);
+        let written = ports
+            .editor
+            .edit(
+                &command,
+                &format!("{name}.md"),
+                &item::placeholder_fragment(name),
+            )
+            .map_err(AppError::Cause)?;
+        if written.trim().is_empty() {
+            return Err(WriteError::EmptyEdit {
+                kind: kind.word().to_string(),
+                name: name.to_string(),
+            }
+            .into());
+        }
+        plan.write(&path, written);
         self.commit(&entry.name, plan)?;
         Ok(ItemCreated {
             status: "created".to_string(),

@@ -55,3 +55,79 @@ fn now_is_the_clocks() {
     let root = fixtures::root();
     assert!(places(&root).now().seconds > 1_700_000_000);
 }
+
+/// git in `dir` with a clean identity and none of the caller's environment.
+fn git(dir: &std::path::Path, args: &[&str]) {
+    let output = std::process::Command::new("git")
+        .args(["-c", "user.name=Test", "-c", "user.email=test@example.com"])
+        .args([
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            "init.defaultBranch=main",
+        ])
+        .args(args)
+        .current_dir(dir)
+        .env_clear()
+        .env("PATH", path())
+        .env("HOME", dir)
+        .output()
+        .expect("git runs");
+    assert!(
+        output.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// The host's `PATH`, which finds git.
+fn path() -> String {
+    crate::tests::host_snapshot()
+        .utf8("PATH")
+        .unwrap_or_default()
+        .to_string()
+}
+
+// Merge item 1 (main into the daemon line, 2026-11-13): a session's
+// checkouts are under the account's ctxloom home, by its project's id
+// (owner ruling 2026-11-12, Q1), so the daemon's destroy finds them there: a
+// checkout holding uncommitted work is spared, and keeps its session.
+#[test]
+fn a_sessions_checkout_under_the_account_home_is_found_and_spared() {
+    let root = fixtures::root();
+    let home = root.root().join("home");
+    let project = root.root().join("work/calm");
+    fixtures::mkdirs(project.join(".ctxloom/sessions/amber-swift-owl"));
+    fixtures::put_mode(
+        project.join(".ctxloom/sessions/amber-swift-owl.lock"),
+        "",
+        0o644,
+    );
+    fixtures::put_mode(project.join("README.md"), "calm", 0o644);
+    git(&project, &["init", "-q"]);
+    git(&project, &["add", "README.md"]);
+    git(&project, &["commit", "-q", "-m", "first"]);
+    let checkout =
+        isolation_ports::session_worktrees(&home, "calm-otter", "amber-swift-owl").join("dev");
+    fixtures::mkdirs(checkout.parent().unwrap());
+    git(
+        &project,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "ctxloom/amber-swift-owl/dev",
+            &checkout.display().to_string(),
+        ],
+    );
+    fixtures::put_mode(checkout.join("wip.txt"), "unsaved", 0o644);
+    let mut worktrees = places(&root).worktrees(
+        &project.display().to_string(),
+        "calm-otter",
+        &[("PATH".to_string(), path())],
+    );
+    let report = worktrees.worktrees(Some("amber-swift-owl"), false).unwrap();
+    assert_eq!(report.worktrees.len(), 1, "{report:?}");
+    assert_eq!(report.spared, 1, "{report:?}");
+}

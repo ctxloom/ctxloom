@@ -43,10 +43,15 @@ use crate::server::{invalid, Answer, Api, EVERY_PROJECT};
 pub trait Places: Send + Sync {
     /// The session directories of the project at `project_dir`.
     fn files(&self, project_dir: &str) -> Box<dyn SessionFiles + Send>;
-    /// The scratch worktrees of the project at `project_dir`, git run in the
+    /// The scratch worktrees of the project `project_id` at `project_dir`
+    /// (its checkouts are under ctxloom's home, by the id), git run in the
     /// caller's environment `env` (S7).
-    fn worktrees(&self, project_dir: &str, env: &[(String, String)])
-        -> Box<dyn WorktreeUse + Send>;
+    fn worktrees(
+        &self,
+        project_dir: &str,
+        project_id: &str,
+        env: &[(String, String)],
+    ) -> Box<dyn WorktreeUse + Send>;
     /// The configuration of the project registered at `root`, its
     /// overrides the caller's environment `env`.
     fn settings(&self, root: &str, env: &[(String, String)]) -> Box<dyn SweepConfig + Send>;
@@ -217,7 +222,7 @@ impl<E: Edge> Removals for Removing<'_, E> {
         self.api
             .parts
             .places
-            .worktrees(&record.project_dir, &self.env)
+            .worktrees(&record.project_dir, &record.project_id, &self.env)
             .worktrees(Some(harp), apply)
     }
 }

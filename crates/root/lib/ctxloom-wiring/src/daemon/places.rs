@@ -61,6 +61,7 @@ impl daemon_api::Places for ProjectPlaces {
     fn worktrees(
         &self,
         project_dir: &str,
+        _project_id: &str,
         env: &[(String, String)],
     ) -> Box<dyn WorktreeUse + Send> {
         let dir = PathBuf::from(project_dir);

@@ -118,6 +118,7 @@ impl Project {
             }
             .into());
         }
+        super::require_id("skill", name)?;
         let entry = self.bundle(bundle)?;
         let mut plan = self.plan_of(&entry.name)?;
         let dir = skill::package_dir(name);
@@ -227,6 +228,7 @@ impl Project {
         if !valid_name(&name) {
             return Err(WriteError::BadSkillName { name }.into());
         }
+        super::require_id("skill", &name)?;
         let Some(descriptor) = unpacked.entries.iter().find(|e| e.path == "SKILL.md") else {
             return Err(invalid(&name, "SKILL.md is required"));
         };

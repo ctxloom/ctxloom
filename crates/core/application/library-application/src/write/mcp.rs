@@ -70,6 +70,10 @@ impl Project {
         let (bundle, name) = split_reference(reference)?;
         let entry = self.bundle(&bundle)?;
         let held = entry.bundle.mcp.get(&name);
+        if held.is_none() {
+            // A server set creates is minted here, so its name is an ID.
+            super::require_id("mcp server", &name)?;
+        }
         let server = mcpfile::patched(&held.cloned().unwrap_or_default(), patch);
         refuse_fault(&name, &server)?;
         let mut plan = self.plan_of(&entry.name)?;

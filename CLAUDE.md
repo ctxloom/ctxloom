@@ -1536,7 +1536,16 @@ the spec of the resource tree (`projects/{project}/...`, `users/me/...`
 outside a project, OQ-3; a bundle's origin in its name, OQ-4), the ID
 grammar (OQ-6: a bundle's or item's ID is `^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$`;
 a dependency's 16 hex digits of its identity's SHA-256, OQ-15; an engine's,
-agent's, companion's and remote's its config key) and the conventions: a
+agent's, companion's and remote's its config key; the item grammar is
+enforced where a write MINTS a name, `library::write::item::valid_id`
+through library-application's one `write::require_id`: bundle create
+(nested `team/rules` refused, OQ-5, a hard migrate of Go's nested create)
+and import, fragment and command create (either form, and the bare bundle
+the reference form makes), `bundle edit --add-fragment|--add-prompt|
+--add-mcp` of a name not already there, skill create and import, profile
+create and import, and `mcp server set` of a server the bundle lacks;
+`library-application-write-bad-id`, exit 20, with a `-fix`; a name already
+on disk is read as before, its refusal B1's) and the conventions: a
 default left out, presence (`optional`) on `applied`, `held`, `default`,
 `resolves` and `no_distill` alone (OQ-7; the session's too:
 `DeleteSessionResponse.applied` and `WorktreeReport.applied`, so a

@@ -93,6 +93,7 @@ impl Project {
             }
             .into());
         }
+        super::require_id(kind.word(), name)?;
         plan.write(&path, item::placeholder_fragment(name));
         self.commit(&entry.name, plan)?;
         Ok(ItemCreated {
@@ -115,6 +116,7 @@ impl Project {
             }
             .into());
         }
+        super::require_id(kind.word(), &name)?;
         let existing = match self.catalog.lookup(&bundle) {
             Ok(entry) => Some(entry),
             Err(CatalogError::BundleNotFound { .. } | CatalogError::ItemNotBundle { .. })
@@ -141,6 +143,7 @@ impl Project {
                 if !valid_bundle_name(&bundle) {
                     return Err(WriteError::BadBundleName {}.into());
                 }
+                super::require_id("bundle", &bundle)?;
                 let mut plan = Plan::of(Files::new(), Default::default());
                 plan.write("bundle.yaml", new_envelope("1.0.0", ""));
                 (plan, self.content.manifest_path(&bundle))

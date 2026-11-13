@@ -95,6 +95,7 @@ fn add_names(
         if plan.has(&path(name)) {
             continue;
         }
+        super::require_id(kind, name)?;
         for (file, text) in content(name) {
             plan.write(&file, text);
         }
@@ -110,6 +111,7 @@ impl Project {
         if !valid_bundle_name(name) {
             return Err(WriteError::BadBundleName {}.into());
         }
+        super::require_id("bundle", name)?;
         let manifest = self.content.manifest_path(name);
         if !self.content.claim(name).map_err(AppError::Cause)? {
             return Err(WriteError::BundleExists { path: manifest }.into());
@@ -320,6 +322,7 @@ impl Project {
         if !valid_bundle_name(&name) || name == "." {
             return Err(WriteError::BadBundleName {}.into());
         }
+        super::require_id("bundle", &name)?;
         let bundle = library::tree::read_tree(&name, &files).map_err(|cause| {
             WriteError::ImportUnreadable {
                 path: dir.to_string(),

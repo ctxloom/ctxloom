@@ -56,6 +56,10 @@ write_errors! {
     ItemExists { kind, name } = "write-item-exists";
     /// An item name that is no single path segment.
     BadItemName { kind, name } = "write-bad-item-name";
+    /// A name created, imported or added that is no ID (OQ-6, design
+    /// §1.3): a bundle, fragment, command, skill, MCP server or profile; a
+    /// nested bundle name is none (OQ-5).
+    BadId { kind, name } = "write-bad-id";
     /// An item nobody has.
     ItemNotFound { kind, name } = "write-item-not-found";
     /// An editor that returned nothing.

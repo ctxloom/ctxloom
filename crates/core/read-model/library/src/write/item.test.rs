@@ -118,3 +118,30 @@ fn test_replacing_the_body_of_a_file_that_is_not_front_matter_replaces_it_all() 
     assert_eq!(replace_body("---\nunterminated", "new"), "new");
     assert_eq!(replace_body("", "new"), "new");
 }
+
+// OQ-6: an ID is `^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$`.
+#[test]
+fn test_an_id_is_a_lowercase_label_of_one_to_63() {
+    let longest = format!("a{}", "b".repeat(62));
+    for good in ["a", "z9", "house-rules", "a-1", longest.as_str()] {
+        assert!(valid_id(good), "{good}");
+    }
+    let over = format!("a{}", "b".repeat(63));
+    for bad in [
+        "",
+        "-a",
+        "a-",
+        "9a",
+        "Upper",
+        "aB",
+        "under_score",
+        "dot.ted",
+        "two words",
+        "team/rules",
+        "a\\b",
+        "\u{e9}",
+        over.as_str(),
+    ] {
+        assert!(!valid_id(bad), "{bad:?}");
+    }
+}

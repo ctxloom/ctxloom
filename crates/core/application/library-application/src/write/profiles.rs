@@ -174,7 +174,7 @@ impl Project {
             }
             .into());
         }
-        Ok(())
+        super::require_id("profile", name)
     }
 
     fn profile_create(&self, request: &ProfileCreateRequest) -> Result<ProfileCreated, AppError> {

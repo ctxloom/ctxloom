@@ -274,7 +274,11 @@ fn test_the_context_is_the_selection_in_order_substituted() {
     );
     assert_eq!(
         pkg.context,
-        "Prefer small functions.\n\n---\n\nRules for golden."
+        format!(
+            "Prefer small functions.\n\n---\n\nRules for golden.{SECTION_SEPARATOR}{}",
+            maybe_index()
+        ),
+        "on demand, the index of what was held back ends the context"
     );
     assert!(!pkg.hash.is_empty());
     assert_eq!(refs(&pkg.fragments), [ALPHA_STYLE, ALPHA_RULES]);
@@ -291,9 +295,19 @@ fn test_the_context_is_the_selection_in_order_substituted() {
     );
 }
 
-// assemble_test.go: TestAssemble_PremisedFragmentsLoadWhenExplicitOrStatic
+/// The premise index of alpha's one premised fragment, held back.
+fn maybe_index() -> String {
+    crate::premise::render(&[crate::premise::Entry {
+        name: ALPHA_MAYBE.to_string(),
+        premise: "the agent is about to touch a signed bundle".to_string(),
+    }])
+}
+
+// assemble_test.go: TestAssemble_PremisedFragmentsLoadWhenExplicitOrStatic;
+// `always` is the static assembly (config.premised, owner ruling of
+// 2026-11-12).
 #[test]
-fn test_a_premised_fragment_loads_when_named_or_when_the_assembly_is_static() {
+fn test_a_premised_fragment_loads_when_named_or_when_premised_is_always() {
     let named = package(
         &[],
         &SelectRequest {
@@ -304,23 +318,85 @@ fn test_a_premised_fragment_loads_when_named_or_when_the_assembly_is_static() {
     );
     assert_eq!(refs(&named.fragments), [ALPHA_MAYBE]);
     assert!(named.premised.is_empty());
+    assert_eq!(
+        named.context, "Do not edit a signed bundle in place.",
+        "nothing held back, so no index"
+    );
 
-    let static_pkg = package(
+    let always = package(
         &[alpha_with_project("golden")],
         &SelectRequest::default(),
         Options {
-            static_assembly: true,
+            premised: Premised::Always,
             ..Options::default()
         },
     );
     assert_eq!(
-        refs(&static_pkg.fragments),
+        refs(&always.fragments),
         [ALPHA_MAYBE, ALPHA_STYLE, ALPHA_RULES]
     );
-    assert!(static_pkg.premised.is_empty());
-    assert!(static_pkg
-        .context
-        .contains("Do not edit a signed bundle in place."));
+    assert!(always.premised.is_empty());
+    assert_eq!(
+        always.context,
+        format!(
+            "Do not edit a signed bundle in place.{SECTION_SEPARATOR}Prefer small functions.{SECTION_SEPARATOR}Rules for golden."
+        ),
+        "every fragment loads, and no index is rendered"
+    );
+}
+
+// config.premised `on-demand`: the index lists what THIS assembly held back,
+// sorted by name, once each; one the caller named is loaded, not listed.
+#[test]
+fn test_on_demand_the_index_lists_what_was_held_back_sorted_once_each() {
+    let catalog = crate::testdata::catalog_of(&[(
+        "sel",
+        "version: 1.0.0\nfragments:\n  plain:\n    content: PLAIN\n  zed:\n    premise: PZ\n    content: ZED\n  ant:\n    premise: PA\n    content: ANT\n  named:\n    premise: PN\n    content: NAMED\n",
+    )]);
+    let mut selection = Selection {
+        fragments: ["zed", "plain", "ant", "zed", "named"]
+            .iter()
+            .map(|n| ask(&format!("ctxloom+local:sel#fragments/{n}"), 0))
+            .collect(),
+        ..Selection::default()
+    };
+    selection
+        .explicit
+        .push("ctxloom+local:sel#fragments/named".to_string());
+    let pkg = assemble(&catalog, &selection, &Options::default());
+    let entry = |n: &str, p: &str| crate::premise::Entry {
+        name: format!("ctxloom+local:sel#fragments/{n}"),
+        premise: p.to_string(),
+    };
+    assert_eq!(
+        pkg.context,
+        format!(
+            "PLAIN{SECTION_SEPARATOR}NAMED{SECTION_SEPARATOR}{}",
+            crate::premise::render(&[entry("ant", "PA"), entry("zed", "PZ")])
+        )
+    );
+    assert_eq!(pkg.hash, crate::sha256::hex(pkg.context.as_bytes()));
+}
+
+// An assembly that loaded nothing but held something back is the index alone.
+#[test]
+fn test_on_demand_an_assembly_of_held_back_fragments_alone_is_the_index() {
+    let catalog = crate::testdata::catalog_of(&[(
+        "sel",
+        "version: 1.0.0\nfragments:\n  only:\n    premise: PO\n    content: ONLY\n",
+    )]);
+    let selection = Selection {
+        fragments: vec![ask("ctxloom+local:sel#fragments/only", 0)],
+        ..Selection::default()
+    };
+    let pkg = assemble(&catalog, &selection, &Options::default());
+    assert_eq!(
+        pkg.context,
+        crate::premise::render(&[crate::premise::Entry {
+            name: "ctxloom+local:sel#fragments/only".to_string(),
+            premise: "PO".to_string(),
+        }])
+    );
 }
 
 // assemble_test.go: TestAssemble_AnAskThatDoesNotLoadIsAFinding
@@ -621,7 +697,13 @@ fn test_a_companion_fragment_is_delivered_unless_it_has_a_premise() {
     let package = assemble(&catalog, &selection, &Options::default());
     assert_eq!(
         package.context,
-        format!("Prefer small functions.{SECTION_SEPARATOR}Companion guide.")
+        format!(
+            "Prefer small functions.{SECTION_SEPARATOR}Companion guide.{SECTION_SEPARATOR}{}",
+            crate::premise::render(&[crate::premise::Entry {
+                name: "ctxloom+companion:reprise#fragments/later".to_string(),
+                premise: "about to do the later thing".to_string(),
+            }])
+        )
     );
     assert_eq!(package.premised.len(), 1);
     assert_eq!(
@@ -650,7 +732,16 @@ fn test_a_companion_fragment_the_profile_names_too_is_assembled_once() {
     let catalog = corpus_with_companion();
     let selection = companion_selection(&catalog, &["ctxloom+companion:reprise#fragments/guide"]);
     let package = assemble(&catalog, &selection, &Options::default());
-    assert_eq!(package.context, "Companion guide.");
+    assert_eq!(
+        package.context,
+        format!(
+            "Companion guide.{SECTION_SEPARATOR}{}",
+            crate::premise::render(&[crate::premise::Entry {
+                name: "ctxloom+companion:reprise#fragments/later".to_string(),
+                premise: "about to do the later thing".to_string(),
+            }])
+        )
+    );
     assert_eq!(package.fragments.len(), 1);
 }
 

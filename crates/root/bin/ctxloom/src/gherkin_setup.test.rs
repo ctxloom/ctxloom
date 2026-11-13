@@ -37,6 +37,8 @@ const COMPANY_URL: &str = "https://github.com/acme/ctxloom-content";
 /// The bundle of her own repository, and the marker its fragment carries.
 const PERSONAL_BUNDLE: &str = "house-rules";
 const PERSONAL_MARKER: &str = "J000200-PERSONAL-REPO-CONTEXT-MARKER";
+/// The marker of the fragment with a premise her own repository may carry.
+const PREMISED_MARKER: &str = "J000200-PERSONAL-REPO-PREMISED-MARKER";
 /// The bundle of her company's, and its marker.
 const COMPANY_BUNDLE: &str = "standards";
 const COMPANY_MARKER: &str = "J000200-COMPANY-REPO-CONTEXT-MARKER";
@@ -105,6 +107,27 @@ fn personal(w: &mut World) {
 fn company(w: &mut World) {
     w.machine();
     w.serve_repository("company", COMPANY_URL, COMPANY_BUNDLE, COMPANY_MARKER);
+}
+
+/// A second fragment in her own repository's bundle, this one with a premise
+/// (its description), committed and pushed over the first.
+#[given("her personal repository carries a fragment with a premise")]
+fn personal_premised(w: &mut World) {
+    let root = w.adopt_scratch().join("repository-personal");
+    let work = root.join("work");
+    files::put(
+        work.join(format!(
+            ".ctxloom/content/bundles/v2/{PERSONAL_BUNDLE}/fragments/premised.md"
+        )),
+        format!("---\ndescription: you are about to cut a release\n---\n{PREMISED_MARKER}\n"),
+    );
+    git_in(&work, &["add", "-A"]);
+    git_in(&work, &["commit", "-q", "-m", "premised"]);
+    let bare = root.join("repository.git");
+    git_in(
+        &work,
+        &["push", "-q", bare.to_str().expect("utf-8"), "main"],
+    );
 }
 
 /// The second half of her setup: the commands in the docstring, run in turn.
@@ -223,6 +246,27 @@ fn keeps_output_dir(w: &mut World) {
     w.setup.answers.push('\n');
 }
 
+/// Init's second question (owner ruling of 2026-11-12): a bare Enter takes
+/// the suggested `on-demand`.
+#[when("she keeps init's suggestion that conditional guidance loads only when it applies")]
+fn keeps_premised(w: &mut World) {
+    w.setup.answers.push('\n');
+}
+
+/// Init's second question, answered `always`.
+#[when("she answers that conditional guidance always loads")]
+fn premised_always(w: &mut World) {
+    w.setup.answers.push_str("always\n");
+}
+
+#[when("the setup interview composes her agent's profile from her personal repository")]
+fn interview_composes_personal(w: &mut World) {
+    w.setup.interview.push(format!(
+        "profile edit default --add-bundle personal/{PERSONAL_BUNDLE}"
+    ));
+    w.setup.interview.push("deps pull".to_string());
+}
+
 /// Said by the run that follows; nothing to stage.
 #[when("ctxloom offers to restart into her newly configured session")]
 fn offers_restart(_: &mut World) {}
@@ -258,6 +302,18 @@ fn restarted_receives_personal(w: &mut World) {
     w.ran().succeeds();
     interviewed_then_restarted(w);
     handed(w, PERSONAL_MARKER);
+}
+
+/// `always`: the premised fragment itself was handed, and no index to ask
+/// from.
+#[then("her restarted assistant receives her personal repository's premised fragment, and no premise index")]
+fn restarted_receives_premised(w: &mut World) {
+    handed(w, PREMISED_MARKER);
+    let record = w.launch_record();
+    assert!(
+        !record.contains("# Conditional guidance"),
+        "no premise index under always: {record}"
+    );
 }
 
 #[then("her restarted assistant receives her company repository's content")]

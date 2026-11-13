@@ -35,8 +35,9 @@ struct World {
 struct Person {
     terminal: bool,
     yes: bool,
-    /// The line she types when asked (none: the input closed).
-    line: Option<&'static str>,
+    /// The lines she types when asked, one an ask; past the last the input
+    /// is closed.
+    lines: &'static [&'static str],
     asked: Mutex<Vec<String>>,
 }
 
@@ -51,8 +52,10 @@ impl Terminal for Person {
     }
 
     fn ask(&self, question: &str, _: &str) -> Option<String> {
-        self.asked.lock().unwrap().push(question.to_string());
-        self.line.map(String::from)
+        let mut asked = self.asked.lock().unwrap();
+        let typed = self.lines.get(asked.len()).map(|l| (*l).to_string());
+        asked.push(question.to_string());
+        typed
     }
 }
 
@@ -126,6 +129,10 @@ impl init_application::Create for Made {
     }
 
     fn set_output_dir(&self, _: &str) -> Result<(), PortFailure> {
+        Ok(())
+    }
+
+    fn set_premised(&self, _: &str) -> Result<(), PortFailure> {
         Ok(())
     }
 
@@ -606,7 +613,7 @@ fn init_of_a_new_project_says_what_it_made_and_pulls_nothing() {
 fn a_first_init_at_a_terminal_asks_for_the_output_directory_and_says_where_outputs_go() {
     let person = Person {
         terminal: true,
-        line: Some("docs/sessions\n"),
+        lines: &["docs/sessions\n"],
         ..Person::default()
     };
     let mut out = Vec::new();
@@ -628,7 +635,60 @@ fn a_first_init_at_a_terminal_asks_for_the_output_directory_and_says_where_outpu
         "{out}"
     );
     let asked = person.asked.lock().unwrap().clone();
-    assert_eq!(asked, [init_application::OUTPUT_DIR_QUESTION.to_string()]);
+    assert_eq!(
+        asked,
+        [
+            init_application::OUTPUT_DIR_QUESTION.to_string(),
+            init_application::PREMISED_QUESTION.to_string()
+        ]
+    );
+}
+
+// Owner ruling of 2026-11-12: after the output directory, a first init at a
+// terminal asks when conditional guidance loads, and says what it chose; a
+// closed input (no one answered) takes on-demand.
+#[test]
+fn a_first_init_at_a_terminal_asks_when_conditional_guidance_loads_and_says_it() {
+    for (lines, said) in [
+        (
+            &["\n", "always\n"][..],
+            "Conditional guidance always loads (config.premised: always)",
+        ),
+        (
+            &["\n", "\n"][..],
+            "Conditional guidance loads only when it applies (config.premised: on-demand)",
+        ),
+        (
+            &["\n"][..],
+            "Conditional guidance loads only when it applies (config.premised: on-demand)",
+        ),
+    ] {
+        let person = Person {
+            terminal: true,
+            lines,
+            ..Person::default()
+        };
+        let mut out = Vec::new();
+        go_with(
+            &["init"],
+            Format::Text,
+            |world, _| world.fresh.store(true, std::sync::atomic::Ordering::SeqCst),
+            &mut out,
+            &person,
+            &Launches {
+                interview_code: Some(1),
+                ..Launches::default()
+            },
+        );
+        let out = String::from_utf8(out).unwrap();
+        assert!(out.contains(said), "{lines:?}: {out}");
+        let asked = person.asked.lock().unwrap().clone();
+        assert_eq!(
+            asked[1],
+            init_application::PREMISED_QUESTION,
+            "asked after the output directory"
+        );
+    }
 }
 
 // A re-run on a project that has one asks nothing about it.
@@ -636,7 +696,7 @@ fn a_first_init_at_a_terminal_asks_for_the_output_directory_and_says_where_outpu
 fn a_second_init_does_not_ask_for_the_output_directory() {
     let person = Person {
         terminal: true,
-        line: Some("docs/sessions\n"),
+        lines: &["docs/sessions\n"],
         ..Person::default()
     };
     let mut out = Vec::new();
@@ -653,6 +713,7 @@ fn a_second_init_does_not_ask_for_the_output_directory() {
     );
     let out = String::from_utf8(out).unwrap();
     assert!(!out.contains("Session outputs"), "{out}");
+    assert!(!out.contains("Conditional guidance"), "{out}");
     assert!(person.asked.lock().unwrap().is_empty());
 }
 

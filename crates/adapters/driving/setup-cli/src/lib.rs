@@ -243,6 +243,20 @@ fn init(
             )
             .map_err(output)?;
         }
+        // Then when conditional guidance loads (owner ruling of 2026-11-12);
+        // off a terminal, on-demand stands unasked.
+        if let Some(word) = uses
+            .init
+            .choose_premised(uses.terminal)
+            .map_err(|e| failure(e, Exit::FAILED))?
+        {
+            let said = if word == init_application::PREMISED_ALWAYS {
+                "Conditional guidance always loads"
+            } else {
+                "Conditional guidance loads only when it applies"
+            };
+            writeln!(out, "{said} (config.premised: {word})").map_err(output)?;
+        }
     }
     for remote in &done.remotes {
         writeln!(out, "Added remote \"{}\": {}", remote.name, remote.url).map_err(output)?;

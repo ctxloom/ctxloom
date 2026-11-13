@@ -28,6 +28,10 @@
 //!   held to its exit code (`carries_retired_llm`); the new schema's output is
 //!   asserted by `library_config` and `library_cli`, and the rows of the
 //!   retired `llm` noun itself are gone with it.
+//! - The premise index that ends an assembled context on demand
+//!   (`config.premised`, owner ruling of 2026-11-12): Go never put it there,
+//!   so a dry run's context, its token estimate and its text are compared
+//!   without it (`without_index`).
 //! - Error texts. A failing command's stdout is empty in both and its exit
 //!   code is compared; the words are asserted in `library_cli.test.rs` from
 //!   the Gherkin. A usage error is exit 20 here (D28, ruled), where Go's
@@ -128,6 +132,13 @@ const BARE_COMPANION_FIXTURES: [&str; 3] = ["cfg/v8", "cfg/layers", "cfg/layers-
 /// (owner ruling 59: the fixtures say the word, Go's goldens stay Go's).
 fn as_changed(golden: &str) -> String {
     golden
+        // Owner ruling of 2026-11-12: the premise index's instruction loads
+        // what was chosen through the CLI, not Go's MCP tool (T20).
+        .replace(GO_LOAD_CLAUSE, LOAD_CLAUSE)
+        .replace(
+            &GO_LOAD_CLAUSE.replace('\n', "\\n"),
+            &LOAD_CLAUSE.replace('\n', "\\n"),
+        )
         .replace("\"use_distilled\": true", "\"content_form\": \"distilled\"")
         .replace("\"use_distilled\": false", "\"content_form\": \"original\"")
         .replace("use_distilled: true", "content_form: distilled")
@@ -142,6 +153,74 @@ fn as_changed(golden: &str) -> String {
             "Use 'ctxloom companion add <name> --command <program> [args...]' to register one.",
         )
 }
+
+/// The premise index's own first line: on demand (`config.premised`, owner
+/// ruling of 2026-11-12) it ends the assembled context, which Go never did
+/// (Go served it over MCP alone), so it is taken out of this build's answer
+/// before Go's is compared; its own contract is `library_cli`'s and
+/// `compose`'s.
+const PREMISE_INDEX: &str =
+    "# Conditional guidance\n\nSome of this project's guidance applies CONDITIONALLY.";
+
+/// `context` without the premise index that ends it, if one does.
+fn without_index(context: &str) -> Option<String> {
+    let at = context.rfind(&format!("\n\n---\n\n{PREMISE_INDEX}"))?;
+    Some(context[..at].to_string())
+}
+
+/// A dry run's JSON without the premise index: the context, and the token
+/// estimate made of it.
+fn json_without_index(mut got: Value) -> Value {
+    let context = got["context"].as_str().and_then(without_index);
+    if let Some(context) = context {
+        got["tokens"] = Value::from(library::tokens::estimate(&context) as u64);
+        got["context"] = Value::String(context);
+    }
+    got
+}
+
+/// A dry run's text without the premise index (the section's `---` and the
+/// index up to the next `=== Section ===`), and, where it had one, the
+/// context's token estimate in its heading unsaid (the JSON row holds it).
+fn text_without_index(text: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let first = PREMISE_INDEX.lines().next().unwrap_or_default();
+    let Some(start) = lines.iter().position(|l| *l == first) else {
+        return text.to_string();
+    };
+    let end = lines[start..]
+        .iter()
+        .position(|l| l.starts_with("=== "))
+        .map_or(lines.len(), |n| start + n);
+    // Back over the blank lines and the separator before the index.
+    let mut cut = start;
+    while cut > 0 && (lines[cut - 1].is_empty() || lines[cut - 1] == "---") {
+        cut -= 1;
+    }
+    let mut kept: Vec<String> = lines[..cut].iter().map(ToString::to_string).collect();
+    if end < lines.len() {
+        kept.push(String::new());
+    }
+    kept.extend(lines[end..].iter().map(ToString::to_string));
+    kept.iter()
+        .map(|l| unsay_tokens(l))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// `=== Assembled Context (~N tokens) ===` with its count unsaid.
+fn unsay_tokens(line: &str) -> String {
+    match line.strip_prefix("=== Assembled Context (~") {
+        Some(_) => "=== Assembled Context (~? tokens) ===".to_string(),
+        None => line.to_string(),
+    }
+}
+
+/// The premise index instruction's last clause as Go said it, and as the
+/// owner reworded it (2026-11-12).
+const GO_LOAD_CLAUSE: &str = "Then call the ctxloom\n`assemble_context` tool with the names you chose (the `bundles` argument)\nand follow what it returns.";
+const LOAD_CLAUSE: &str =
+    "Then run\n`ctxloom fragment show <name>` for each name you chose and follow what it\nreturns.";
 
 /// A dry run's keys that are compared (D16); the rest print later slices'
 /// surfaces.
@@ -277,14 +356,28 @@ fn mismatch(row: &Row, project: &Project) -> Option<String> {
             let Ok(got) = serde_json::from_str::<Value>(&got) else {
                 return Some(format!("stdout is not JSON: {got:?}"));
             };
+            let got = if is_dry_run(&row.id) {
+                json_without_index(got)
+            } else {
+                got
+            };
             json_mismatch(&row.id, &want, &got)
         }
         Err(_) => {
             let (want, got) = if is_dry_run(&row.id) {
-                (
-                    without_sections(&want, &DRY_RUN_SECTIONS),
-                    without_sections(&got, &DRY_RUN_SECTIONS),
-                )
+                let want = without_sections(&want, &DRY_RUN_SECTIONS);
+                let got = without_sections(&got, &DRY_RUN_SECTIONS);
+                let unindexed = text_without_index(&got);
+                if unindexed == got {
+                    (want, got)
+                } else {
+                    let want = want
+                        .lines()
+                        .map(unsay_tokens)
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    (want, unindexed)
+                }
             } else {
                 (want, got)
             };

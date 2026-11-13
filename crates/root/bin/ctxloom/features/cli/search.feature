@@ -1,8 +1,6 @@
 # world: surfaces
 # Ported from cli/search.feature (rev f36e8dfb2)
-# NOT ported: the Rule tagged @pending, the tag search: its `--format text`
-#   row reads the tags with `the output reports "..." containing "..."`, a
-#   step that reads json alone.
+# NOT ported: nothing
 
 @doc
 Feature: search — finding content by name, tag and type, here and upstream
@@ -196,7 +194,6 @@ Feature: search — finding content by name, tag and type, here and upstream
         | --format json | 1            | profile                 |
         | --format text | Results (1): | - dev                   |
 
-  @pending
   Rule: A tag search is answered from the tags, not from the name
 
     # `--tag` matches what an author LABELLED, which is the whole point:

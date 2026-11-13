@@ -451,11 +451,37 @@ impl Wiring {
     /// project registration): its project's id (taskloom's identity, so a
     /// worktree is its primary checkout's), its root, the repository's
     /// common dir and root commit (worktree-git's, empty outside git), and
-    /// its working directory. `None` outside any project.
+    /// its working directory. `None` outside any project: no `.ctxloom` up
+    /// from the working directory (or named by `CTXLOOM_ROOT`) but the
+    /// home's, so its answer is `users/me` and no daemon is asked (OQ-3),
+    /// and nothing is written.
+    ///
+    /// The project is the ctxloom project, the nearest `.ctxloom` up (OD-40,
+    /// OQ-2): its identity is resolved at that root, never at the registry's
+    /// own work root (a git top, or the working directory), so a read from a
+    /// subdirectory names the project its root names. An identity already
+    /// bound is read, never minted; a project no run has named yet is named
+    /// once, at its root (`.ctxloom/project-id`), as its first run would.
     pub(crate) fn registration(&self) -> Option<daemon_proto::v1::ResolveProjectRequest> {
         use ports::ProjectIdentity as _;
-        let mut identity = registry(Arc::clone(&self.fs), self.environment(), HarpNames);
-        let project = identity.for_write(None).ok()?;
+        let (_, app) = self.locate();
+        if !matches!(app.source, ctxloom_ports::Source::Project) {
+            return None;
+        }
+        let at = app.path.parent()?.to_path_buf();
+        if at == self.home {
+            return None;
+        }
+        let environment = Environment {
+            root: Some(at),
+            ..self.environment()
+        };
+        let mut identity = registry(Arc::clone(&self.fs), environment, HarpNames);
+        let project = match identity.for_read(None) {
+            Ok(Some(project)) => project,
+            Ok(None) => identity.for_write(None).ok()?,
+            Err(_) => return None,
+        };
         let root = project
             .root
             .unwrap_or_else(|| self.project_dir().display().to_string());

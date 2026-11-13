@@ -1459,6 +1459,16 @@ them), and again after a change to the gates names a new hook
 (`gates/MIGRATING.md`). They came from the shared gates repository that
 taskloom and annals also copied; a change here does not reach them.
 
+A throwaway worktree (the staged tree, the mutants batch's, the ratchet
+base's) is let go by `gates/drop-worktree.sh <top> <path>`: its directory and
+its OWN record under `.git/worktrees/`, nothing else. Nothing runs `git
+worktree prune` (`scripts/drop-worktree.selftest.sh` holds the gates, the
+justfile and the scripts to it; worktree-git's removal ran one too): prune
+judges every worktree of the repository and deletes the record of each whose
+directory it cannot see, so a gate run in the dev container, which mounts only
+the checkout, cut every other worktree on the host off from the repository
+(2026-11-12).
+
 lefthook runs the gates one at a time, stopping at the first failure, and
 shows each gate's pass line and any failure's extract. Gates 1 to 5 run in
 pre-commit (the private recipes `fmt-staged`, `secrets-scan-staged`,

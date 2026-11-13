@@ -17,6 +17,7 @@ fail() { echo "FAIL output-budget.selftest: $*" >&2; [ "${BUDGET:-}" = off ] || 
 fx=$tmp/fx
 mkdir -p "$fx/gates" "$fx/crates/a/src"
 cp "$gates" "$fx/gates/gates.just"
+cp "$(dirname "$gates")/drop-worktree.sh" "$fx/gates/drop-worktree.sh"
 cat > "$fx/Cargo.toml" <<'T'
 [workspace]
 members = ["crates/a"]

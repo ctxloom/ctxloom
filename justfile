@@ -390,9 +390,10 @@ clean-target:
 
 # The self-tests of this repository's scripts against fixture trees.
 [group('check')]
-[doc("Self-tests of the scripts: mutants-batch, closeout, closeout-ratchet, ltk rules, output budget, tests exit, test-staged, red-commit judge, exec-mode check, path deps")]
+[doc("Self-tests of the scripts: drop-worktree, mutants-batch, closeout, closeout-ratchet, ltk rules, output budget, tests exit, test-staged, red-commit judge, exec-mode check, path deps")]
 [no-exit-message]
 selftest:
+    @{{TOP}}/scripts/drop-worktree.selftest.sh
     @{{TOP}}/scripts/mutants-batch.selftest.sh
     @{{TOP}}/scripts/mutants-verdict.selftest.sh
     @{{TOP}}/scripts/closeout.selftest.sh

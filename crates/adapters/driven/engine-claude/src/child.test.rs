@@ -158,6 +158,9 @@ fn started(id: &str) -> ChildObservation {
     }
 }
 
+// Merge item 4 (main into the daemon line, 2026-11-13): a hosted child names
+// the servers its launch carries with `--mcp-config`, as a turn and the
+// terminal do, through the same helper, always followed by an option.
 #[test]
 fn the_child_command_streams_both_ways_and_echoes_what_it_is_given() {
     let command = child_command(&spec("")).unwrap();
@@ -174,6 +177,8 @@ fn the_child_command_streams_both_ways_and_echoes_what_it_is_given() {
             "--replay-user-messages",
             "--append-system-prompt-file",
             "/nowhere/home/ctxloom-context.md",
+            "--mcp-config",
+            "/nowhere/home/ctxloom-mcp.json",
             "--settings",
             "/nowhere/home/ctxloom-hooks.json",
         ]

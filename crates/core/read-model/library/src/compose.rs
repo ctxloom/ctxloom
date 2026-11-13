@@ -20,6 +20,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::catalog::{Catalog, ItemRead};
 use crate::findings::Finding;
 use crate::mustache;
+use crate::premise;
 use crate::profile::ResolvedProfile;
 use crate::refs::{self, ItemKind, Parts};
 use crate::sha256;
@@ -526,8 +527,34 @@ pub fn assemble(catalog: &Catalog, selection: &Selection, options: &Options) -> 
         package.fragments.push(item);
     }
     package.context = ingest.join();
+    // On demand, what was held back is offered in the premise index, which
+    // ends the context; nothing held back renders nothing.
+    let index = premise::render(&index_of(&package.premised));
+    if !index.is_empty() {
+        if !package.context.is_empty() {
+            package.context.push_str(SECTION_SEPARATOR);
+        }
+        package.context.push_str(&index);
+    }
     package.hash = sha256::hex(package.context.as_bytes());
     package
+}
+
+/// The premise index of the fragments an assembly held back: each once, by
+/// the reference its ask named, sorted by it (the same selection always
+/// renders the same index).
+fn index_of(held_back: &[Delivered]) -> Vec<premise::Entry> {
+    let by_name: BTreeMap<&str, &str> = held_back
+        .iter()
+        .map(|d| (d.reference.as_str(), d.premise.as_str()))
+        .collect();
+    by_name
+        .into_iter()
+        .map(|(name, premise)| premise::Entry {
+            name: name.to_string(),
+            premise: premise.to_string(),
+        })
+        .collect()
 }
 
 /// An ask that did not load, as the finding that voices it.

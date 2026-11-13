@@ -11,6 +11,19 @@ const BUNDLE: &[(&str, &str)] = &[ENVELOPE, ("fragments/own.md", "OWN-BODY\n")];
 
 const CONFIG_WITH: &str = "schema_version: 9\ncompanions:\n  reprise:\n    command: [reprise]\n";
 
+/// The premise index of the loadout's `later`, which on demand ends the
+/// context (config.premised, owner ruling of 2026-11-12).
+fn later_index() -> String {
+    format!(
+        "{}{}",
+        library::compose::SECTION_SEPARATOR,
+        library::premise::render(&[library::premise::Entry {
+            name: "ctxloom+companion:reprise#fragments/later".to_string(),
+            premise: "about to do the later thing".to_string(),
+        }])
+    )
+}
+
 const LOADOUT: &str = "run:\n  version: 1.0.0\n  fragments:\n    guide:\n      content: COMPANION-MARKER\n    later:\n      premise: about to do the later thing\n      content: LATER-BODY\n";
 
 fn setup<'a>(
@@ -52,7 +65,10 @@ fn a_registered_companions_fragment_joins_the_context_after_the_selected_ones() 
     let companions = only_reprise(Loaded(LOADOUT.to_string()));
     let (library, mem) = setup(&[CONFIG_WITH], &companions, &[]);
     let (context, notices) = context(&library, &plain());
-    assert_eq!(context, "OWN-BODY\n\n---\n\nCOMPANION-MARKER");
+    assert_eq!(
+        context,
+        format!("OWN-BODY\n\n---\n\nCOMPANION-MARKER{}", later_index())
+    );
     assert!(notices.is_empty(), "{notices:?}");
     assert_eq!(mem.asked_companions(), ["reprise"]);
 }
@@ -274,7 +290,10 @@ fn one_companion_failing_does_not_cost_another_its_fragments() {
     // Companion references in order: ltk before reprise whatever the registry's.
     assert_eq!(
         context,
-        "OWN-BODY\n\n---\n\nLTK-BODY\n\n---\n\nCOMPANION-MARKER"
+        format!(
+            "OWN-BODY\n\n---\n\nLTK-BODY\n\n---\n\nCOMPANION-MARKER{}",
+            later_index()
+        )
     );
     assert_eq!(notices.len(), 1);
     assert_eq!(mem.asked_companions(), ["acme", "ltk", "reprise"]);
@@ -323,7 +342,10 @@ fn companions_are_assembled_even_when_nothing_else_is_selected() {
     let (library, _) = setup(&[CONFIG_WITH], &companions, &[]);
     let outcome = library.assemble(&plain(), &AssembleRequest::default());
     let assembled = outcome.result.unwrap();
-    assert_eq!(assembled.context, "COMPANION-MARKER");
+    assert_eq!(
+        assembled.context,
+        format!("COMPANION-MARKER{}", later_index())
+    );
     assert_eq!(
         assembled.fragments_loaded,
         ["ctxloom+companion:reprise#fragments/guide"]

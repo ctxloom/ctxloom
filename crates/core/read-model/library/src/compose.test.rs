@@ -732,7 +732,16 @@ fn test_a_companion_fragment_the_profile_names_too_is_assembled_once() {
     let catalog = corpus_with_companion();
     let selection = companion_selection(&catalog, &["ctxloom+companion:reprise#fragments/guide"]);
     let package = assemble(&catalog, &selection, &Options::default());
-    assert_eq!(package.context, "Companion guide.");
+    assert_eq!(
+        package.context,
+        format!(
+            "Companion guide.{SECTION_SEPARATOR}{}",
+            crate::premise::render(&[crate::premise::Entry {
+                name: "ctxloom+companion:reprise#fragments/later".to_string(),
+                premise: "about to do the later thing".to_string(),
+            }])
+        )
+    );
     assert_eq!(package.fragments.len(), 1);
 }
 

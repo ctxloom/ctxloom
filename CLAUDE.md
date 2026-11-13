@@ -1270,7 +1270,17 @@ prerelease, no `schema_version` bump: each old key is an ordinary unknown key
 | `permissions.network: true\|false` (and an agent's) | deleted (ruling 134), with `approver`, `approval_timeout`, `sandbox` | |
 | `output_dir` (top level, unread) | `output.dir` | `ctxloom/` |
 | (new, ruling 162) | `legacy.go: present\|retired` (home config only) | `present` |
+| (new, owner ruling of 2026-11-12) | `config.premised: on-demand\|always` | `on-demand` |
 
+`config.premised` says when a fragment with a premise loads (owner ruling of
+2026-11-12; `library::compose::Premised`, read by `Config::premised`):
+`on-demand` holds it back (unless the caller named it) and ends the
+assembled context with the premise index of what was held back
+(`library::premise::render`, each name once, sorted), so `context
+assemble`, the dry run, `run` and materialize carry the index; `always`
+loads every fragment with the rest and renders no index (the static
+assembly). Divergence from Go: Go never put the index in the context (it
+served it over MCP); the parity tests compare a dry run without it.
 The scaffold writes no `config:` section; `manage statusline install|
 uninstall` writes `ctxloom`/`none`. Output JSON may keep booleans for yes/no
 facts. `sync.on_run: missing` makes the run (one-shot, session, init's

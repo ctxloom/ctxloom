@@ -421,7 +421,10 @@ impl Config {
     /// When a premised fragment loads: `config.premised` is `on-demand`
     /// unless it says `always` (owner ruling of 2026-11-12).
     pub fn premised(&self) -> Premised {
-        Premised::OnDemand
+        match self.text("config.premised").as_str() {
+            "always" => Premised::Always,
+            _ => Premised::OnDemand,
+        }
     }
 
     /// What a run does with the dependencies at its start: `sync.on_run`,

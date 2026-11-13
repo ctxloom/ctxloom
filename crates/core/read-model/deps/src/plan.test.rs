@@ -197,6 +197,39 @@ fn test_an_upgrade_moves_what_moved_and_keeps_a_held_entry_frozen() {
     assert!(!got.nothing_declared);
 }
 
+// `deps upgrade <ref>` (docs/plans/ctxloom-features.md, "Added"): the named
+// dependency moves, every other entry stays at its commit; a first pin is
+// still made, and only the named entry can be dropped.
+#[test]
+fn test_an_upgrade_of_one_reference_moves_it_alone() {
+    let active = lock(&[(A, pin(A, H1).entry()), (B, pin(B, H1).entry())]);
+    let proposed = [pin(A, H2), pin(B, H2), pin(C, H1)];
+    let got = upgrade_only(&active, &proposed, A, 0, false);
+    assert_eq!(got.next.entries[A].sha, H2);
+    assert_eq!(
+        got.next.entries[B].sha, H1,
+        "another dependency never moves"
+    );
+    assert_eq!(got.next.entries[C].sha, H1, "a first pin is made");
+    let moved: Vec<&str> = got.moved.iter().map(|p| p.identity.as_str()).collect();
+    assert_eq!(moved, vec![C, A]);
+    assert!(got.removed.is_empty());
+    // One the closure no longer reaches is kept unless it is the one named.
+    let got = upgrade_only(&active, &[pin(A, H2)], A, 0, false);
+    assert_eq!(got.next.entries[B].sha, H1);
+    assert!(got.removed.is_empty());
+    let got = upgrade_only(&active, &[pin(B, H1)], A, 0, false);
+    assert_eq!(got.removed, vec![A]);
+    assert!(got.moved.is_empty());
+    // Asked by a held entry's name, it stays frozen.
+    let mut held = pin(A, H1).entry();
+    held.held = true;
+    let frozen = lock(&[(A, held.clone())]);
+    let got = upgrade_only(&frozen, &[pin(A, H2)], A, 0, false);
+    assert_eq!(got.next.entries[A], held);
+    assert!(got.moved.is_empty());
+}
+
 #[test]
 fn test_a_first_pin_is_a_move_and_a_dropped_one_is_named() {
     let active = lock(&[(A, pin(A, H1).entry())]);

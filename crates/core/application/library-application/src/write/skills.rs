@@ -105,6 +105,13 @@ impl Project {
         description: &str,
     ) -> Result<SkillCreated, AppError> {
         self.require_project()?;
+        // One reference (`<bundle>#skills/<name>`) or a bundle and a name.
+        let (bundle, name) = if name.is_empty() {
+            split_reference(bundle)?
+        } else {
+            (bundle.to_string(), name.to_string())
+        };
+        let (bundle, name) = (bundle.as_str(), name.as_str());
         if !valid_name(name) {
             return Err(WriteError::BadSkillName {
                 name: name.to_string(),

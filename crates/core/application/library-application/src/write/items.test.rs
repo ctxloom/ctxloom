@@ -43,6 +43,8 @@ fn err<T>(out: crate::Outcome<T>) -> String {
 #[test]
 fn test_create_writes_go_s_placeholder_and_answers_the_manifest_path() {
     let (library, mem) = world();
+    // An editor that saves what it was given: the template is stored.
+    mem.set_editor(|_, content| Ok(content.to_string()));
     let made = library
         .item_create(&plain(), Kind::Fragment, "demo", "fresh")
         .result
@@ -89,7 +91,7 @@ fn test_create_refuses_a_name_that_is_there_or_no_name_or_a_missing_bundle() {
     assert!(
         err(library.item_create(&plain(), Kind::Command, "demo", "review")).contains("ItemExists")
     );
-    for bad in ["a/b", ".x", "", "a\\b"] {
+    for bad in ["a/b", ".x", "a\\b"] {
         assert!(
             err(library.item_create(&plain(), Kind::Fragment, "demo", bad)).contains("BadItemName"),
             "{bad:?}"
@@ -99,11 +101,74 @@ fn test_create_refuses_a_name_that_is_there_or_no_name_or_a_missing_bundle() {
         err(library.item_create(&plain(), Kind::Fragment, "nobundle", "x"))
             .contains("BundleNotFound")
     );
+    // No name: the first word is a reference, and a bundle alone is none.
+    assert!(
+        err(library.item_create(&plain(), Kind::Fragment, "demo", "")).contains("BadReference")
+    );
+    assert!(
+        err(library.item_create(&plain(), Kind::Fragment, "demo#commands/x", ""))
+            .contains("WrongKind")
+    );
+    assert!(
+        err(library.item_create(&plain(), Kind::Fragment, "demo#fragments/a/b", ""))
+            .contains("BadItemName")
+    );
+    // A refusal is said before the editor is opened.
+    assert!(mem.edits().is_empty(), "{:?}", mem.edits());
     assert_eq!(mem.writes(), 0);
     assert_eq!(
         mem.text("demo", "fragments/testing.md").unwrap(),
         "FRAGMENT-BODY-testing"
     );
+}
+
+// The decided `create` (docs/plans/ctxloom-features.md, "Verbs"): given no
+// content, it opens the editor on a template and stores what comes back; one
+// reference names the bundle and the item.
+#[test]
+fn test_create_by_reference_stores_what_the_editor_gives_back() {
+    let (library, mem) = world();
+    mem.set_editor(|_, _| Ok("HOUSE-STYLE: short functions.\n".to_string()));
+    let made = library
+        .item_create(&plain(), Kind::Fragment, "demo#fragments/house-style", "")
+        .result
+        .unwrap();
+    assert_eq!(
+        (made.bundle.as_str(), made.name.as_str()),
+        ("demo", "house-style")
+    );
+    assert_eq!(
+        mem.text("demo", "fragments/house-style.md").unwrap(),
+        "HOUSE-STYLE: short functions.\n"
+    );
+    assert_eq!(
+        mem.edits(),
+        [(
+            "house-style.md".to_string(),
+            "# house-style\n\nAdd content here.".to_string()
+        )]
+    );
+    library
+        .item_create(&plain(), Kind::Command, "demo#commands/commits", "")
+        .result
+        .unwrap();
+    assert_eq!(
+        mem.text("demo", "prompts/commits.md").unwrap(),
+        "HOUSE-STYLE: short functions.\n"
+    );
+}
+
+#[test]
+fn test_create_whose_editor_returns_nothing_or_fails_writes_nothing() {
+    let (library, mem) = world();
+    mem.set_editor(|_, _| Ok(" \n".to_string()));
+    assert!(
+        err(library.item_create(&plain(), Kind::Fragment, "demo", "fresh")).contains("EmptyEdit")
+    );
+    mem.set_editor(|_, _| Err("editor exited with error".to_string()));
+    assert!(!err(library.item_create(&plain(), Kind::Command, "demo", "fresh")).is_empty());
+    assert_eq!(mem.writes(), 0);
+    assert!(mem.text("demo", "fragments/fresh.md").is_none());
 }
 
 // fragment.feature: Bare fragment remove reports and destroys nothing

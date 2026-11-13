@@ -24,7 +24,7 @@ pub(crate) fn read(
 }
 
 /// An engine's resource name under `parent`.
-fn engine_name(parent: &str, engine: &str) -> String {
+pub(crate) fn engine_name(parent: &str, engine: &str) -> String {
     format!("{parent}/engines/{engine}")
 }
 

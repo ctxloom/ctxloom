@@ -297,14 +297,19 @@ fn resolve(commit: &str, name: &str) -> v1::ResolveProjectRequest {
 }
 
 /// The typed refusal of an error, decoded as `T`, and its code.
-pub(crate) fn refused<T: Message + Default>(
+/// The refusal's status and message, held to be of type `T`: a refusal of
+/// another type fails the test, never decoded as `T` by accident.
+pub(crate) fn refused<T: Message + Default + prost::Name>(
     result: Result<impl std::fmt::Debug, ApiError>,
 ) -> (i32, T) {
     match result {
-        Err(ApiError::Refused(ApiRefusal { code, refusal })) => (
-            code,
-            T::decode(refusal.value.as_slice()).expect("the refusal's type"),
-        ),
+        Err(ApiError::Refused(ApiRefusal { code, refusal })) => {
+            assert_eq!(refusal.type_url, T::type_url(), "the refusal's type");
+            (
+                code,
+                T::decode(refusal.value.as_slice()).expect("the refusal's bytes"),
+            )
+        }
         other => panic!("not refused: {other:?}"),
     }
 }

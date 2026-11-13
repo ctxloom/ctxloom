@@ -548,8 +548,21 @@ fn new_credentials(_: &mut World) {
 // ---------------------------------------------------- then: cli/daemon
 
 #[then("a ctxloom daemon serves for this home, started detached in a session of its own")]
-fn started_detached(_: &mut World) {
-    red("a ctxloom daemon serves, started detached")
+fn started_detached(w: &mut World) {
+    let bytes = files::read_bytes(discovery_path(w)).unwrap_or_default();
+    let found = run_ports::Discovery::decode(&bytes).expect("a daemon advertises itself");
+    // T3: detached, it leads a session of its own (its session id is its
+    // pid). Seen through procfs, so on Linux alone; elsewhere its discovery
+    // file is what is seen.
+    if let Ok(stat) = files::read(format!("/proc/{}/stat", found.pid)) {
+        let after = &stat[stat.rfind(')').expect("a stat line") + 2..];
+        let session: u32 = after
+            .split(' ')
+            .nth(3)
+            .and_then(|s| s.parse().ok())
+            .expect("a session id");
+        assert_eq!(session, found.pid, "it leads a session of its own");
+    }
 }
 
 #[then(expr = "the daemon's output goes to {string}")]

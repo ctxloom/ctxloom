@@ -879,3 +879,97 @@ fn a_client_of_another_version_stops_an_idle_daemon_and_starts_its_own() {
     assert_ne!(new.pid, old.pid, "another daemon serves");
     let _ = world.run(&["daemon", "stop"]);
 }
+
+/// The test-support variable naming the OS account's home (the system's
+/// otherwise; under test-support, HOME when none is named).
+const ACCOUNT_HOME: &str = "CTXLOOM_TEST_ACCOUNT_HOME";
+
+// M4, one daemon per OS USER: the daemon's home is the ACCOUNT's, never the
+// HOME it was started with: its discovery file, its log and its files are
+// the account's, and it names the account's home as the one it serves.
+#[test]
+fn a_daemons_home_is_its_accounts_never_the_home_it_was_started_with() {
+    let world = World::new();
+    let account = world.project.home().to_path_buf();
+    let moved = account.join("moved-home");
+    files::put(moved.join(".keep"), b"");
+    let account_text = account.to_str().unwrap();
+    let moved_text = moved.to_str().unwrap();
+    let mut env = ENV.to_vec();
+    env.extend([
+        ("HOME", moved_text),
+        ("USERPROFILE", moved_text),
+        (ACCOUNT_HOME, account_text),
+    ]);
+    let mut daemon = Killed(
+        world
+            .project
+            .start_with(&env, &["daemon", "serve", "--idle-seconds", "30"]),
+    );
+    let bytes = world.until("the discovery file at the account's home", |_| {
+        files::read_bytes(account.join(".ctxloom/daemon/daemon.discovery"))
+            .ok()
+            .filter(|b| !b.is_empty())
+    });
+    assert_eq!(
+        field(&bytes, 8).as_deref(),
+        Some(account_text.as_bytes()),
+        "it serves the account's home"
+    );
+    assert!(
+        !files::exists(moved.join(".ctxloom")),
+        "nothing under the HOME it was started with"
+    );
+    let _ = world.run(&["daemon", "stop"]);
+    assert_eq!(
+        exited_within(&mut daemon.0, Duration::from_secs(20)),
+        Some(0),
+        "its log:\n{}",
+        world.log()
+    );
+}
+
+/// What procfs says of process `pid`: its session id, and the names of its
+/// environment's variables. None off Linux.
+fn proc_of(pid: u32) -> Option<(u32, Vec<String>)> {
+    let stat = files::read(format!("/proc/{pid}/stat")).ok()?;
+    // `pid (comm) state ppid pgrp session ...`; comm may hold spaces.
+    let after = &stat[stat.rfind(')')? + 2..];
+    let session = after.split(' ').nth(3)?.parse().ok()?;
+    let environ = files::read_bytes(format!("/proc/{pid}/environ")).ok()?;
+    let names = environ
+        .split(|b| *b == 0)
+        .filter_map(|pair| std::str::from_utf8(pair).ok())
+        .filter_map(|pair| pair.split_once('=').map(|(name, _)| name.to_string()))
+        .collect();
+    Some((session, names))
+}
+
+// T3, M8: a daemon a client starts is DETACHED, in a session of its own
+// (it leads it: no terminal's hangup or the client's group reaches it), and
+// is given no HOME or USERPROFILE of its spawner's (its home is the
+// account's). Linux alone: procfs is how it is seen.
+#[test]
+fn a_daemon_a_client_starts_is_detached_and_given_none_of_its_homes() {
+    if !files::exists("/proc/self/stat") {
+        return;
+    }
+    let world = World::new();
+    repository(&world, "first");
+    let ran = world.run(&["daemon", "resolve"]);
+    assert_eq!(ran.code, 0, "{}\n{}", ran.said(), world.log());
+    let bytes = files::read_bytes(
+        world
+            .project
+            .home()
+            .join(".ctxloom/daemon/daemon.discovery"),
+    )
+    .unwrap();
+    let pid = run_ports::Discovery::decode(&bytes).unwrap().pid;
+    let (session, names) = proc_of(pid).expect("the daemon's procfs");
+    assert_eq!(session, pid, "it leads a session of its own");
+    for name in ["HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA"] {
+        assert!(!names.iter().any(|n| n == name), "{name} in {names:?}");
+    }
+    let _ = world.run(&["daemon", "stop"]);
+}

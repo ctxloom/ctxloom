@@ -80,7 +80,7 @@ const HEALTH_WAIT: Duration = Duration::from_secs(1);
 fn daemon_env<N: AsRef<OsStr>, V: AsRef<OsStr>>(
     flavor: os::Flavor,
     vars: impl IntoIterator<Item = (N, V)>,
-    home: &Path,
+    home: Option<&Path>,
 ) -> Vec<(OsString, OsString)> {
     let kept: Vec<String> = DAEMON_ENV
         .iter()
@@ -96,11 +96,31 @@ fn daemon_env<N: AsRef<OsStr>, V: AsRef<OsStr>>(
         })
         .map(|(name, value)| (name.as_ref().to_os_string(), value.as_ref().to_os_string()))
         .collect();
-    env.push((
-        run_ports::HOME_VARIABLE.into(),
-        home.as_os_str().to_os_string(),
-    ));
+    if let Some(home) = home {
+        env.push((
+            run_ports::HOME_VARIABLE.into(),
+            home.as_os_str().to_os_string(),
+        ));
+    }
     env
+}
+
+/// The test-support variable naming the OS account's home (RED stub).
+#[allow(dead_code)]
+pub(crate) const ACCOUNT_HOME_VARIABLE: &str = "CTXLOOM_TEST_ACCOUNT_HOME";
+
+/// The OS account's home (RED stub: HOME).
+#[allow(dead_code)]
+fn account_home(env: &EnvSnapshot) -> Option<PathBuf> {
+    env.home().map(PathBuf::from)
+}
+
+/// The daemon's home (RED stub: as any process resolves it).
+#[allow(dead_code)]
+fn daemon_home(env: &EnvSnapshot) -> Option<PathBuf> {
+    env.non_empty(run_ports::HOME_VARIABLE)
+        .map(PathBuf::from)
+        .or_else(|| env.home().map(PathBuf::from))
 }
 
 /// The variable a client passes on as the spawned daemon's idle time, in
@@ -744,7 +764,7 @@ fn ensure(wiring: &Wiring, env: &EnvSnapshot) {
     // The daemon's own environment is what it needs to run, nothing more: a
     // child's is its launcher's (S6, D-N45), so no spawner's credential
     // lives in the daemon.
-    let mut kept = daemon_env(env.flavor(), env.vars(), wiring.home());
+    let mut kept = daemon_env(env.flavor(), env.vars(), Some(wiring.home()));
     // A test's place for the single-instance lock is the daemon's too.
     if let Some(dir) = instance_override(env) {
         kept.push((files::INSTANCE_DIR_VARIABLE.into(), dir.into_os_string()));

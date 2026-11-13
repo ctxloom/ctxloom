@@ -9,9 +9,9 @@ use angzarr_diagnostic::{Arg, Diagnostic};
 use angzarr_presentation::text;
 use daemon_proto::v1;
 use serde::Serialize;
+use sessions_application::{stamp, ImportReport, Titled, TranscriptRow, NO_SUMMARY};
 #[cfg(feature = "session-destroy")]
 use sessions_application::{Class, FilePlan, PlanItem, Removal};
-use sessions_application::{ImportReport, Titled, TranscriptRow, NO_SUMMARY};
 
 /// Columns by display width, two spaces between, no trailing spaces.
 pub(crate) fn table(headers: &[&str], rows: &[Vec<String>]) -> String {
@@ -39,16 +39,118 @@ pub(crate) fn table(headers: &[&str], rows: &[Vec<String>]) -> String {
     out
 }
 
-/// The listing the daemon answered, as text: the placeholder, or a table.
-pub(crate) fn listing_text(sessions: &[v1::Session], out: &mut dyn Write) -> io::Result<()> {
-    let _ = (sessions, out, NO_SUMMARY);
-    todo!("RED: slice 2 step 6")
+/// A session's harp: the last segment of its resource name.
+fn harp_of(name: &str) -> &str {
+    name.rsplit('/').next().unwrap_or(name)
 }
 
-/// One fact per line, absent facts left out rather than printed blank.
+/// A session's state, as the rows say it.
+fn state_word(state: i32) -> &'static str {
+    match v1::SessionState::try_from(state) {
+        Ok(v1::SessionState::Live) => "live",
+        Ok(v1::SessionState::Ended) => "ended",
+        _ => "unknown",
+    }
+}
+
+/// Its title: the one set, else its first prompt (S55).
+fn title_of(session: &v1::Session) -> Option<&str> {
+    [session.title.as_str(), session.summary.as_str()]
+        .into_iter()
+        .find(|text| !text.is_empty())
+}
+
+/// The row's summary: the title, or [`NO_SUMMARY`], with a badge for a kept
+/// one.
+fn summary_of(session: &v1::Session) -> String {
+    let mut summary = title_of(session).unwrap_or(NO_SUMMARY).to_string();
+    if session.kept {
+        summary.push_str("  \u{1f4cc} kept (transcript kept at any age)");
+    }
+    summary
+}
+
+/// A time as the text rows show it; blank when unset.
+fn when(at: Option<sessions_application::Timestamp>) -> String {
+    at.map(stamp::text).unwrap_or_default()
+}
+
+/// The listing the daemon answered, as text: the placeholder, or a table.
+pub(crate) fn listing_text(sessions: &[v1::Session], out: &mut dyn Write) -> io::Result<()> {
+    if sessions.is_empty() {
+        return writeln!(out, "(no sessions)");
+    }
+    let rows: Vec<Vec<String>> = sessions
+        .iter()
+        .map(|s| {
+            vec![
+                harp_of(&s.name).to_string(),
+                summary_of(s),
+                state_word(s.state).to_string(),
+                when(s.start_time),
+                when(s.end_time),
+            ]
+        })
+        .collect();
+    write!(
+        out,
+        "{}",
+        table(&["HARP", "SUMMARY", "STATE", "START", "END"], &rows)
+    )
+}
+
+/// One fact per line, absent facts left out rather than printed blank (Go:
+/// `renderSessionShow`).
 pub(crate) fn session_text(session: &v1::Session, out: &mut dyn Write) -> io::Result<()> {
-    let _ = (session, out);
-    todo!("RED: slice 2 step 6")
+    let title = title_of(session).unwrap_or(NO_SUMMARY);
+    writeln!(out, "{}\n{title}\n", harp_of(&session.name))?;
+    writeln!(out, "state:    {}", state_word(session.state))?;
+    writeln!(out, "engine:   {}", session.engine)?;
+    if !session.native_session.is_empty() {
+        writeln!(out, "native:   {}", session.native_session)?;
+    }
+    writeln!(out, "project:  {}", session.project_root)?;
+    writeln!(out, "started:  {}", when(session.start_time))?;
+    if session.end_time.is_some() {
+        writeln!(out, "ended:    {}", when(session.end_time))?;
+    }
+    if session.kept {
+        writeln!(
+            out,
+            "kept:     its transcript is kept at any age (`ctxloom session keep --undo` releases it)"
+        )?;
+    }
+    // The owner link, the close and the children (D-N35), as the json has
+    // them: each left out when unset.
+    if !session.owner.is_empty() {
+        writeln!(out, "owner:    {}", session.owner)?;
+    }
+    if session.closed {
+        writeln!(out, "closed:   yes")?;
+    }
+    if !session.children.is_empty() {
+        writeln!(out, "children: {} held", session.children.len())?;
+        for child in &session.children {
+            writeln!(out, "  {child}")?;
+        }
+    }
+    if !session.pending.is_empty() {
+        let count = session.pending.len();
+        let plural = if count == 1 { "" } else { "s" };
+        writeln!(
+            out,
+            "pending:  {count} message{plural} no turn has carried yet"
+        )?;
+        for message in &session.pending {
+            let first = message.text.lines().next().unwrap_or_default();
+            writeln!(
+                out,
+                "  {} ({}): {first}",
+                message.message_id, message.urgency
+            )?;
+        }
+    }
+    Ok(())
 }
 
 /// `session rename`'s answer: the session, its title and whether it changed.

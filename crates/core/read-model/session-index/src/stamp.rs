@@ -33,7 +33,21 @@ pub fn rfc3339(at: Timestamp) -> String {
 /// RFC 3339 in UTC as proto3 JSON writes a `google.protobuf.Timestamp`:
 /// `Z`, and the fraction in 0, 3, 6 or 9 digits (`...32Z`, `...32.481Z`).
 pub fn proto3(at: Timestamp) -> String {
-    rfc3339(at)
+    let parsed: Result<Vec<FormatItem<'_>>, _> = time::format_description::parse_borrowed::<2>(
+        "[year]-[month]-[day]T[hour]:[minute]:[second]",
+    );
+    let Ok(format) = parsed else {
+        return String::new();
+    };
+    let whole = datetime(at).format(&format).unwrap_or_default();
+    let nanos = u32::try_from(at.nanos).unwrap_or(0);
+    let fraction = match nanos {
+        0 => String::new(),
+        n if n % 1_000_000 == 0 => format!(".{:03}", n / 1_000_000),
+        n if n % 1_000 == 0 => format!(".{:06}", n / 1_000),
+        n => format!(".{n:09}"),
+    };
+    format!("{whole}{fraction}Z")
 }
 
 /// `2006-01-02 15:04:05` in UTC: the compact line the text table and the

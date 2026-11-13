@@ -9,7 +9,7 @@
 //! daemon could not be reached mid-call is made ONCE more, on the daemon
 //! reached again (a new one, S8); the reads are idempotent.
 
-use daemon_ports::{Called, Daemons};
+use daemon_ports::{Called, DaemonApi, Daemons};
 use daemon_proto::v1;
 
 use crate::client::CallError;
@@ -69,14 +69,89 @@ impl<D: Daemons> Client<D> {
 
     /// `daemon status`: the serving daemon, or none (S14: none is started).
     pub async fn status(&self) -> Result<Option<v1::Daemon>, CallError> {
-        let _ = (&self.daemons, &self.project, &self.cwd, &self.env);
-        todo!("RED: slice 2 step 6")
+        let Some(api) = self.daemons.serving().await.map_err(CallError::Unreached)? else {
+            return Ok(None);
+        };
+        let request = v1::GetDaemonRequest {
+            name: "daemon".to_string(),
+            env: Some(self.env.clone()),
+        };
+        // One that stopped answering since it was found serves no more.
+        match api.get_daemon(request).await {
+            Err(Called::Unreachable { .. }) => Ok(None),
+            answered => Ok(Some(answered?)),
+        }
     }
 
-    /// `daemon stop`: ask the serving daemon to stop.
+    /// `daemon stop`: ask the serving daemon to stop (S12: refused while it
+    /// hosts live runs, unless `even_if_live`); none serving, nothing to do.
     pub async fn stop(&self, even_if_live: bool) -> Result<Option<v1::Daemon>, CallError> {
-        let _ = even_if_live;
-        todo!("RED: slice 2 step 6")
+        let Some(api) = self.daemons.serving().await.map_err(CallError::Unreached)? else {
+            return Ok(None);
+        };
+        let request = v1::StopDaemonRequest {
+            name: "daemon".to_string(),
+            even_if_live,
+            env: Some(self.env.clone()),
+            ..v1::StopDaemonRequest::default()
+        };
+        match api.stop_daemon(request).await {
+            Err(Called::Unreachable { .. }) => Ok(None),
+            answered => Ok(Some(answered?)),
+        }
+    }
+
+    /// `call` on a reached daemon, once more on the daemon reached again if
+    /// this one could not be reached (S8).
+    async fn on_daemon<T>(
+        &self,
+        call: impl AsyncFn(&D::Api) -> Result<T, Called>,
+    ) -> Result<T, CallError> {
+        let api = self.daemons.reach().await.map_err(CallError::Unreached)?;
+        match call(&api).await {
+            Err(Called::Unreachable { .. }) => {
+                let again = self.daemons.reach().await.map_err(CallError::Unreached)?;
+                Ok(call(&again).await?)
+            }
+            answered => Ok(answered?),
+        }
+    }
+
+    /// This client's project, resolved with `api` (registered or rechecked):
+    /// its resource name. Outside a project it is refused.
+    async fn project(&self, api: &D::Api) -> Result<String, Called> {
+        let Some(request) = &self.project else {
+            return Err(refused(&v1::ProjectUnknown {
+                cwd: self.cwd.clone(),
+            }));
+        };
+        let request = v1::ResolveProjectRequest {
+            env: Some(self.env.clone()),
+            ..request.clone()
+        };
+        Ok(api.resolve_project(request).await?.name)
+    }
+
+    /// The parent a listing reads under: every project's (this one, if any,
+    /// resolved first all the same), or this one's.
+    async fn parent(&self, api: &D::Api, all: bool) -> Result<String, Called> {
+        match (all, self.project.is_some()) {
+            (true, false) => Ok(EVERY_PROJECT.to_string()),
+            (true, true) => {
+                self.project(api).await?;
+                Ok(EVERY_PROJECT.to_string())
+            }
+            (false, _) => self.project(api).await,
+        }
+    }
+}
+
+/// The daemon's own refusal `message`, as a call answered with it.
+fn refused<T: daemon_proto::Refusal>(message: &T) -> Called {
+    let refusal = crate::ApiRefusal::of(message);
+    Called::Refused {
+        code: refusal.code,
+        refusal: refusal.refusal,
     }
 }
 
@@ -86,8 +161,16 @@ impl<D: Daemons> SessionReads for Client<D> {
         all: bool,
         state: v1::SessionState,
     ) -> Result<v1::ListSessionsResponse, CallError> {
-        let _ = (all, state, EVERY_PROJECT, Called::Unauthenticated);
-        todo!("RED: slice 2 step 6")
+        self.on_daemon(async |api: &D::Api| {
+            let request = v1::ListSessionsRequest {
+                parent: self.parent(api, all).await?,
+                state: state as i32,
+                env: Some(self.env.clone()),
+                ..v1::ListSessionsRequest::default()
+            };
+            api.list_sessions(request).await
+        })
+        .await
     }
 
     async fn search_sessions(
@@ -96,13 +179,28 @@ impl<D: Daemons> SessionReads for Client<D> {
         all: bool,
         state: v1::SessionState,
     ) -> Result<v1::ListSessionsResponse, CallError> {
-        let _ = (words, all, state);
-        todo!("RED: slice 2 step 6")
+        self.on_daemon(async |api: &D::Api| {
+            let request = v1::SearchSessionsRequest {
+                parent: self.parent(api, all).await?,
+                words: words.clone(),
+                state: state as i32,
+                env: Some(self.env.clone()),
+                ..v1::SearchSessionsRequest::default()
+            };
+            api.search_sessions(request).await
+        })
+        .await
     }
 
     async fn get_session(&self, harp: &str) -> Result<v1::Session, CallError> {
-        let _ = harp;
-        todo!("RED: slice 2 step 6")
+        self.on_daemon(async |api: &D::Api| {
+            let request = v1::GetSessionRequest {
+                name: format!("{}/sessions/{harp}", self.project(api).await?),
+                env: Some(self.env.clone()),
+            };
+            api.get_session(request).await
+        })
+        .await
     }
 }
 

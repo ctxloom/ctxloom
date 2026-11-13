@@ -62,6 +62,36 @@ mod read {
         );
     }
 
+    // Owner ruling of 2026-11-13: the dry run's Settings say the agent's
+    // session_home with the place that said it.
+    #[test]
+    fn test_a_dry_run_s_settings_say_the_session_home_and_its_place() {
+        let home = "schema_version: 9\nengines:\n  opencode:\n    session_home: host\nagents:\n  own:\n    engine: claude-code\n    session_home: host\n  kept:\n    engine: opencode\n";
+        let layers = [home, "schema_version: 9\n"];
+        let own = go(&["run", "--dry-run", "--agent", "own", "hi"], TEXT, &layers);
+        assert!(
+            own.out.contains("  session_home  host  (agents.own)\n"),
+            "{}",
+            own.out
+        );
+        let kept = go(
+            &["run", "--dry-run", "--agent", "kept", "hi"],
+            TEXT,
+            &layers,
+        );
+        assert!(
+            kept.out
+                .contains("  session_home  host  (engines.opencode)\n"),
+            "{}",
+            kept.out
+        );
+        let json = go(&["run", "--dry-run", "--agent", "own", "hi"], JSON, &layers);
+        assert_eq!(
+            json.json()["settings"]["session_home"],
+            serde_json::json!({"value": "host", "source": "agent"})
+        );
+    }
+
     // fault_tolerance.feature: fatal findings abort a preview (exit 21) after the
     // plan is printed; --degraded previews past them.
     #[test]
@@ -125,6 +155,7 @@ mod read {
                     "source": "engine",
                     "keys": [{"variable": "HTTPS_PROXY", "source": "engine"}],
                 },
+                "session_home": {"value": "session", "source": "default"},
             })
         );
         // A run with no agent has no settings, and an empty selection prints

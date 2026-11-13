@@ -360,6 +360,10 @@ pub struct AgentRow {
     pub driving: String,
     #[serde(skip_serializing_if = "no_items")]
     pub env: Vec<String>,
+    /// `session` | `host` as the binding says it; empty, unsaid (its engine
+    /// block's then stands; owner ruling of 2026-11-13).
+    #[serde(skip_serializing_if = "no_text")]
+    pub session_home: String,
     /// The agent's per-engine blocks as the config holds them
     /// (`agents.<n>.engines`, owner rulings 57 and 67); absent when none.
     #[serde(skip_serializing_if = "no_blocks")]

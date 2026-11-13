@@ -186,6 +186,7 @@ fn test_a_profile_listing_summarizes_each_profile() {
 
 fn agent_row(engine: &str) -> AgentRow {
     AgentRow {
+        session_home: String::new(),
         name: "dev".to_string(),
         engine: engine.to_string(),
         profiles: vec!["p1".to_string(), "p2".to_string()],
@@ -211,6 +212,7 @@ fn line(engine: &str, line: &str, permissions: bool) -> library_application::Eng
 #[test]
 fn test_an_agent_listing_shows_the_engine_blocks_in_the_config_s_shape() {
     let row = AgentRow {
+        session_home: String::new(),
         engine_lines: vec![
             line(
                 "claude-code",
@@ -233,6 +235,7 @@ fn test_an_agent_listing_shows_the_engine_blocks_in_the_config_s_shape() {
 fn test_an_unresolved_agent_show_says_its_permissions_are_passed_verbatim() {
     let show = AgentShow {
         definition: AgentRow {
+            session_home: String::new(),
             engine_lines: vec![line(
                 "opencode",
                 "engines.opencode: {permissions: {edit: deny}}",

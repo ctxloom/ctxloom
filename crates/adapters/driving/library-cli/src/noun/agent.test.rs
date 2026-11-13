@@ -90,6 +90,41 @@ mod read {
         assert_eq!(none.out, "{}\n");
     }
 
+    // Owner ruling of 2026-11-13 (superseding 44(b) for this key): an agent's
+    // binding says its own session_home, and it resolves with the layer
+    // that said it.
+    #[test]
+    fn test_an_agent_s_session_home_is_shown_as_said_and_resolved_with_its_source() {
+        let home = "schema_version: 9\nengines:\n  claude-code:\n    session_home: host\nagents:\n  own:\n    engine: claude-code\n    session_home: session\n  kept:\n    engine: claude-code\n";
+        let layers = [home, "schema_version: 9\n"];
+        let listed = go(&["agent", "list"], JSON, &layers).json();
+        let row = |name: &str| {
+            listed["agents"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|a| a["name"].as_str().unwrap().ends_with(name))
+                .cloned()
+                .unwrap()
+        };
+        assert_eq!(row("/own")["session_home"], "session");
+        assert!(row("/kept").get("session_home").is_none());
+        let own = go(&["agent", "show", "own"], JSON, &layers).json();
+        assert_eq!(
+            own["resolved"]["session_home"],
+            serde_json::json!({"value": "session", "source": "agent"})
+        );
+        let kept = go(&["agent", "show", "kept"], JSON, &layers).json();
+        assert_eq!(
+            kept["resolved"]["session_home"],
+            serde_json::json!({"value": "host", "source": "engine"})
+        );
+        let text = go(&["agent", "show", "kept"], TEXT, &layers).out;
+        assert!(text.contains("Session home: host (engine)\n"), "{text}");
+        let listing = go(&["agent", "list"], TEXT, &layers).out;
+        assert!(listing.contains("    session_home: session\n"), "{listing}");
+    }
+
     // Outside a project an agent is named under the home (OQ-3).
     #[test]
     fn test_agent_names_are_rooted_where_the_names_say() {
@@ -210,6 +245,46 @@ mod write {
             text(&library, &["agent", "remove", "dev", "--yes"]),
             "Removed agent \"dev\"\n"
         );
+    }
+
+    // Owner ruling of 2026-11-13: `--session-home` writes the agent's own
+    // word (a config word, never a boolean) into its binding.
+    #[test]
+    fn test_session_home_is_written_to_the_agent() {
+        let (library, mem) = world();
+        assert_eq!(
+            text(
+                &library,
+                &[
+                    "agent",
+                    "create",
+                    "dev",
+                    "--engine",
+                    "claude-code",
+                    "--session-home",
+                    "session"
+                ]
+            ),
+            "Created agent \"dev\" (engine: claude-code, session_home: session)\n"
+        );
+        assert!(mem
+            .config(Scope::Project)
+            .unwrap()
+            .contains("session_home: session"));
+        let doc = json(
+            &library,
+            &["agent", "edit", "dev", "--session-home", "session"],
+        );
+        assert_eq!(doc["agent"]["session_home"], "session");
+        // an empty word clears it
+        json(&library, &["agent", "edit", "dev", "--session-home", ""]);
+        assert!(!mem.config(Scope::Project).unwrap().contains("session_home"));
+        let bad = refused_code(
+            &library,
+            &["agent", "edit", "dev", "--session-home", "elsewhere"],
+            TEXT,
+        );
+        assert!(bad.contains("session-home"), "{bad}");
     }
 
     // j002000: a swap to an engine that cannot carry a profile's hook is shown

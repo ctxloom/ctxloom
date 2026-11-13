@@ -84,6 +84,58 @@ fn test_create_records_every_axis_the_config_sorted_and_answers_the_binding() {
     );
 }
 
+// Owner ruling of 2026-11-13 (superseding 44(b) for this key): an agent's
+// session_home is written into its binding, in its words only; empty clears
+// it, and the edit's apply command carries it.
+#[test]
+fn test_session_home_is_written_to_the_binding_in_its_words_only() {
+    let (library, mem) = world();
+    let row = write(
+        &library,
+        "dev2",
+        &AgentRequest {
+            session_home: Some("session".to_string()),
+            ..dev()
+        },
+        false,
+    )
+    .result
+    .unwrap();
+    assert_eq!(row.session_home, "session");
+    assert!(mem
+        .config(Scope::Project)
+        .unwrap()
+        .contains("    session_home: session\n"));
+    let cleared = write(
+        &library,
+        "dev2",
+        &AgentRequest {
+            session_home: Some(String::new()),
+            ..AgentRequest::default()
+        },
+        true,
+    )
+    .result
+    .unwrap();
+    assert_eq!(cleared.session_home, "");
+    assert!(!mem.config(Scope::Project).unwrap().contains("session_home"));
+    let bad = AgentRequest {
+        session_home: Some("elsewhere".to_string()),
+        ..AgentRequest::default()
+    };
+    assert!(err(write(&library, "dev2", &bad, true)).contains("UnknownSessionHome"));
+    assert_eq!(
+        super::apply_command(
+            "dev2",
+            &AgentRequest {
+                session_home: Some("host".to_string()),
+                ..AgentRequest::default()
+            }
+        ),
+        "ctxloom agent edit dev2 --session-home host --yes"
+    );
+}
+
 // Owner rulings 135, 138: no write touches an engine's permissions
 // document; a block written by hand is kept exactly as it was by an edit of
 // another key of the same engine block.

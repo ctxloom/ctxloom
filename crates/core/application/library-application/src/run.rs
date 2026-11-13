@@ -546,6 +546,7 @@ fn host_notice(
         place,
     })
 }
+
 /// The notice for a runtime the agent chose that is not the one the lower
 /// layers gave: a container replaced by the host weakens isolation, and the
 /// two container ownerships are never interchangeable. A stronger runtime

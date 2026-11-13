@@ -104,6 +104,7 @@ fn engine_agent(agent: &EngineAgent) -> v1::EngineAgent {
         permissions: settings.permissions,
         runtime: settings.runtime,
         env: settings.env,
+        session_home: None,
     }
 }
 

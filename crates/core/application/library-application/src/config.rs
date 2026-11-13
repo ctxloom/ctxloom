@@ -538,6 +538,7 @@ impl Agent {
             runtime: self.runtime.clone(),
             driving: self.driving.clone(),
             env: self.env.clone(),
+            session_home: String::new(),
             engines: crate::json::permissions(&self.engines),
             engine_lines,
         }

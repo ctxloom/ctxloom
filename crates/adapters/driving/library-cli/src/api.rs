@@ -70,6 +70,7 @@ pub(crate) fn settings(settings: &AgentSettings) -> v1::AgentSettings {
                 })
                 .collect(),
         }),
+        session_home: None,
     }
 }
 

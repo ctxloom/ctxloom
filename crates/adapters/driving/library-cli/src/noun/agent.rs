@@ -225,7 +225,7 @@ fn resolved(agent: &ResolvedAgent) -> v1::ResolvedAgent {
         context: agent.context.clone(),
         fragments: agent.fragments.clone(),
         driving: agent.driving.clone(),
-        session_home: agent.settings.session_home.value.clone(),
+        session_home: None,
         command: agent.command.clone(),
     }
 }
@@ -291,6 +291,7 @@ fn agent_request(sub: &ArgMatches) -> Result<AgentRequest, Failure> {
         surfaces: given_pairs(sub, "surface")?,
         roots: given_pairs(sub, "root")?,
         env: given_list(sub, "env"),
+        session_home: None,
     })
 }
 

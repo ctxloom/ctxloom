@@ -880,9 +880,9 @@ daemon-application`'s `Daemon`. Its first step, `start_up`, is the sweep
 plans each project on the board (`session-policies`), and takes the steps
 (launch, start, feed, clear, end), recording what each child said as its
 run's facts. Its ports: the engine registry (`HostedEngine`, an `Engine`
-beside its `ChildEngine`, resolved by NAME; the wiring's `hosted_engines()`
+beside its `ChildEngine`, resolved by NAME; the wiring's `hosted_engines(wiring, program)`
 composes claude and opencode, and nothing in the launcher names an adapter),
-`ChildPlans` (the child's project's dry run on its own engine), `HandOffs`,
+`ChildPlans` (the child's project's dry run on its own engine, and her git identity there), `HandOffs`,
 `ChildHomes`, `Ears` (the root pumps each child's observations off a thread:
 no thread in the core), `RunLocks`, `TokenSource` and the edge.
 `ctxloom-wiring/src/daemon/serve.rs` only composes it, with the single-instance lock,

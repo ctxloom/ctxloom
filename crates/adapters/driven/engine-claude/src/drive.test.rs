@@ -1152,7 +1152,11 @@ fn a_home_prepared_by_a_claude_calling_another_program_calls_that_program() {
 #[test]
 fn the_terminal_session_is_told_the_terminal_and_its_colours() {
     let mut asked = request();
-    asked.env = env(&[("TERM", "xterm-256color"), ("COLORTERM", "truecolor")]);
+    asked.env = env(&[
+        ("TERM", "xterm-256color"),
+        ("COLORTERM", "truecolor"),
+        ("NO_COLOR", "1"),
+    ]);
     let command = Claude::new().drive_interactive(&asked).unwrap();
     assert_eq!(
         command.env.get("TERM").map(String::as_str),
@@ -1164,6 +1168,9 @@ fn the_terminal_session_is_told_the_terminal_and_its_colours() {
     );
     let turn = Claude::new().drive_turn(&asked).unwrap();
     assert!(!turn.env.contains_key("TERM"), "{:?}", turn.env.keys());
+    // Her colour choice (no-color.org) reaches the terminal session too.
+    assert_eq!(command.env.get("NO_COLOR").map(String::as_str), Some("1"));
+    assert!(!turn.env.contains_key("NO_COLOR"), "{:?}", turn.env.keys());
     assert!(!turn.env.contains_key("COLORTERM"), "{:?}", turn.env.keys());
 }
 

@@ -106,10 +106,11 @@ pub const ENV_ALLOWLIST: &[&str] = &[
 /// The variables of the caller's environment the human's session is given:
 /// a turn's (the TUI is heard through the same plugin), and the terminal's
 /// type and colour depth (`TERM`, `COLORTERM`), without which the TUI draws
-/// in no colour.
+/// in no colour, with her choice to have none (`NO_COLOR`, no-color.org).
 pub const INTERACTIVE_ENV_ALLOWLIST: &[&str] = &[
     "TERM",
     "COLORTERM",
+    "NO_COLOR",
     "PATH",
     "LANG",
     "LC_ALL",

@@ -444,8 +444,9 @@ before. A command over a limit is `run-ports-command-too-long` (exit 20,
 launch-failed, nothing is spawned), its fix: start the session without the
 prompt and paste it, or `run --one-shot`, which reads the prompt from
 stdin. The terminal session (claude's and opencode's TUI) is
-also given `TERM` and `COLORTERM`, without which it draws in no colour; a
-child's turn is given neither. The session home's `ctxloom-hooks.json` calls `ctxloom
+also given `TERM` and `COLORTERM`, without which it draws in no colour, and
+`NO_COLOR`, her choice to have none (no-color.org); a
+child's turn is given none of the three. The session home's `ctxloom-hooks.json` calls `ctxloom
 hook claude-code execute <Event>`. The interactive home registers the session,
 turn, message, tool-batch and compaction (`PreCompact`, `PostCompact`) events.
 A one-shot CHILD's home (owner ruling 51) registers the per-turn ones only:

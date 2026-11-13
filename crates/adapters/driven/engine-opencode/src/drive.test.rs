@@ -473,7 +473,11 @@ fn test_its_login_links_everywhere_and_is_copied_on_windows_when_no_link_can_be_
 #[test]
 fn test_the_tui_is_told_the_terminal_and_its_colours() {
     let mut asked = request();
-    asked.env = env(&[("TERM", "xterm-256color"), ("COLORTERM", "truecolor")]);
+    asked.env = env(&[
+        ("TERM", "xterm-256color"),
+        ("COLORTERM", "truecolor"),
+        ("NO_COLOR", "1"),
+    ]);
     let command = terminal(&asked);
     assert_eq!(
         command.env.get("TERM").map(String::as_str),
@@ -485,6 +489,13 @@ fn test_the_tui_is_told_the_terminal_and_its_colours() {
     );
     let child = turn(&asked);
     assert!(!child.env.contains_key("TERM"), "{:?}", child.env.keys());
+    // Her colour choice (no-color.org) reaches the terminal session too.
+    assert_eq!(command.env.get("NO_COLOR").map(String::as_str), Some("1"));
+    assert!(
+        !child.env.contains_key("NO_COLOR"),
+        "{:?}",
+        child.env.keys()
+    );
     assert!(
         !child.env.contains_key("COLORTERM"),
         "{:?}",

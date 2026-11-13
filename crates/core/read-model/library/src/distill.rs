@@ -45,18 +45,18 @@ impl DistilledState {
 /// `recorded` as its source's digest, against `source`, the digest of the
 /// source as it is now.
 pub fn state(distilled: &str, recorded: &str, source: &str) -> DistilledState {
-    let _ = (recorded, source);
     if distilled.is_empty() {
         DistilledState::None
-    } else {
+    } else if !recorded.is_empty() && recorded == source {
         DistilledState::Fresh
+    } else {
+        DistilledState::Stale
     }
 }
 
 /// The digest a source file is recorded by: the SHA-256 of its bytes, hex.
 pub fn source_digest(source: &[u8]) -> String {
-    let _ = source;
-    String::new()
+    crate::sha256::hex(source)
 }
 
 /// Whether `answer` is implausibly short for `source`: under
@@ -64,24 +64,30 @@ pub fn source_digest(source: &[u8]) -> String {
 /// "Too short" means something only against what was sent, so the floor is
 /// proportional, never absolute.
 pub fn implausibly_short(source: &str, answer: &str) -> bool {
-    let _ = (source, answer);
-    false
+    let sent = source.trim().chars().count();
+    let got = answer.trim().chars().count();
+    got * 100 < sent * FLOOR_PERCENT
 }
 
 /// What a distiller is asked: the distill prompt (`ctxloom#prompts/distill`,
 /// owner ruling 128), then the item's body inside the `content_to_compress`
 /// tags the prompt names.
 pub fn request(instruction: &str, body: &str) -> String {
-    let _ = (instruction, body);
-    String::new()
+    format!(
+        "{}\n\n<content_to_compress>\n{}\n</content_to_compress>\n",
+        instruction.trim_end(),
+        body.trim()
+    )
 }
 
 /// The `.distilled.md` of `answer`, distilled from a source whose digest is
 /// `digest`: the digest in its front matter, then the answer, trimmed, with
 /// one final newline.
 pub fn distilled_file(digest: &str, answer: &str) -> String {
-    let _ = (digest, answer);
-    String::new()
+    format!(
+        "---\n{SOURCE_DIGEST_KEY}: {digest}\n---\n{}\n",
+        answer.trim()
+    )
 }
 
 #[cfg(test)]

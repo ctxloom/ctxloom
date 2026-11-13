@@ -91,7 +91,7 @@ library-application-notice-session-home-host = { $engine } runs in your own home
 library-application-notice-session-home-host-fix = to give each run a session home of its own, remove session_home: host from engines.{ $engine } in your home config
 library-application-notice-checkout-left = the session's checkout { $path } (branch { $branch }) was left in place: { $reason }
 library-application-notice-checkout-left-fix = commit or discard its work; the session's next run re-enters it, and `ctxloom session remove` takes it once it is clean
-library-application-stale-distilled = the distilled form of { $reference } is stale: it does not match its source as it is now, or records no digest of it, so the original was used
+library-application-stale-distilled = the distilled form of the { $kind } { $reference } is stale: it does not match its source as it is now, or records no digest of it, so the original was used
 library-application-stale-distilled-fix = run `ctxloom { $kind } distill { $reference }` to distill it again
 library-application-notice-root-ignored = CTXLOOM_ROOT={ $root } is not a directory; ignoring it
 

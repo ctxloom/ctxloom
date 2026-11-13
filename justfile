@@ -443,6 +443,17 @@ closeout base="":
 closeout-ratchet base:
     @{{TOP}}/scripts/closeout-ratchet.sh '{{base}}'
 
+# The landing gate of a branch on an integration branch (owner ruling of
+# 2026-11-13): closeout-ratchet's gates and ratchet without mutation
+# (scripts/closeout-ratchet.sh --no-mutation). Each branch landing on the
+# integration branch runs it; closeout-ratchet, mutation included, runs once
+# per batch and before main.
+[group('closeout')]
+[doc("Landing gate on an integration branch, no mutation: land-ratchet <base>")]
+[no-exit-message]
+land-ratchet base:
+    @{{TOP}}/scripts/closeout-ratchet.sh --no-mutation '{{base}}'
+
 # The base's scenario list for the ratchet, cached by its sha
 # (scripts/ratchet-base.sh): the feature runner on the base's tip in a
 # throwaway worktree.

@@ -2327,8 +2327,14 @@ hook with `just hooks-install` once more (`gates/MIGRATING.md`).
    `scripts/mutants-verdict.selftest.sh` (`just selftest`).
 
 A slice landing on an integration branch that carries a red spec on purpose
-(daemon/integration, its daemon scenarios red) closes out with `just
-closeout-ratchet <base>` (owner ruling 165; `scripts/closeout-ratchet.sh`):
+(daemon/integration, its daemon scenarios red) lands through `just
+land-ratchet <base>` (owner ruling of 2026-11-13; `scripts/closeout-ratchet.sh
+--no-mutation`): `closeout-ratchet`'s gates (build, lint, lint-deps, the full
+test, lint-os) and its ratchet, without mutation (no mutants-batch, even
+one `RATCHET_GATES` names), each line and the summary said as `land-ratchet`.
+Each branch landing on the integration branch runs it; the full `just
+closeout-ratchet <base>` runs once per batch and before main. `just
+closeout-ratchet <base>` (owner ruling 165; `scripts/closeout-ratchet.sh`) is
 closeout's six gates as usual, mutation included (over merge-base(<base>,
 HEAD)..HEAD), except that the feature runner may fail where the base's does
 and nowhere else: the slice's red scenarios must be a SUBSET of the base

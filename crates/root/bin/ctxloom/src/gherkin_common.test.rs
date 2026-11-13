@@ -443,7 +443,8 @@ where
     let skips = std::sync::Arc::clone(&unsupported);
     let named = feature.clone();
     let writer = futures::executor::block_on(
-        W::cucumber()
+        W::cucumber::<&Path>()
+            .with_parser(SpacedPlaceholders)
             .after(move |feature, rule, scenario, finished, _| {
                 let id = scenario_id(&named, rule, scenario);
                 if let Some(why) = unsupported_here(finished) {
@@ -488,6 +489,110 @@ where
         scenarios.push((outside_id(&feature), false));
     }
     FeatureRun { passed, scenarios }
+}
+
+/// cucumber 0.21's parser for one feature file, except that an outline's
+/// placeholder whose name holds a space (Go's `<result count>`) is filled from
+/// its column like any other. cucumber expands only `<[^>\s]+>` and leaves
+/// such a placeholder as written, so before it expands the examples each such
+/// column is renamed ([`join_spaced_placeholders`]); the feature's text is
+/// never changed.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct SpacedPlaceholders;
+
+impl<I: AsRef<Path>> cucumber::Parser<I> for SpacedPlaceholders {
+    type Cli = cucumber::cli::Empty;
+    type Output = futures::stream::Iter<std::vec::IntoIter<cucumber::parser::Result<Feature>>>;
+
+    fn parse(self, input: I, _: Self::Cli) -> Self::Output {
+        use cucumber::feature::Ext as _;
+        let parsed = Feature::parse_path(input.as_ref(), GherkinEnv::default())
+            .map_err(cucumber::parser::Error::from)
+            .and_then(|feature| {
+                join_spaced_placeholders(feature)
+                    .expand_examples()
+                    .map_err(cucumber::parser::Error::from)
+            });
+        futures::stream::iter(vec![parsed])
+    }
+}
+
+/// The feature with every outline's spaced column names joined: a header
+/// cell `result count` of its Examples becomes `result_count` (underscores
+/// added until no other column of the outline has the name), and each
+/// `<result count>` in the outline's name, its steps' text, docstrings and
+/// table cells becomes `<result_count>`, so cucumber fills it from the
+/// column. A `<...>` that names no column is left as it is, as cucumber
+/// leaves it. The data rows are untouched, so a scenario's id is too.
+pub(crate) fn join_spaced_placeholders(mut feature: Feature) -> Feature {
+    for scenario in feature.scenarios.iter_mut().chain(
+        feature
+            .rules
+            .iter_mut()
+            .flat_map(|r| r.scenarios.iter_mut()),
+    ) {
+        join_in_scenario(scenario);
+    }
+    feature
+}
+
+fn join_in_scenario(scenario: &mut Scenario) {
+    let headers: Vec<String> = scenario
+        .examples
+        .iter()
+        .filter_map(|ex| ex.table.as_ref()?.rows.first())
+        .flatten()
+        .cloned()
+        .collect();
+    let mut taken: std::collections::BTreeSet<String> = headers.iter().cloned().collect();
+    let mut renames: Vec<(String, String)> = Vec::new();
+    for header in &headers {
+        if !header.chars().any(char::is_whitespace) || renames.iter().any(|(old, _)| old == header)
+        {
+            continue;
+        }
+        let mut joined = header.split_whitespace().collect::<Vec<_>>().join("_");
+        while taken.contains(&joined) {
+            joined.push('_');
+        }
+        taken.insert(joined.clone());
+        renames.push((header.clone(), joined));
+    }
+    if renames.is_empty() {
+        return;
+    }
+    let rename = |text: &mut String| {
+        for (old, new) in &renames {
+            let from = format!("<{old}>");
+            if text.contains(&from) {
+                *text = text.replace(&from, &format!("<{new}>"));
+            }
+        }
+    };
+    rename(&mut scenario.name);
+    for step in &mut scenario.steps {
+        rename(&mut step.value);
+        if let Some(doc) = step.docstring.as_mut() {
+            rename(doc);
+        }
+        for cell in step
+            .table
+            .iter_mut()
+            .flat_map(|t| t.rows.iter_mut().flatten())
+        {
+            rename(cell);
+        }
+    }
+    for header in scenario
+        .examples
+        .iter_mut()
+        .filter_map(|ex| ex.table.as_mut()?.rows.first_mut())
+        .flatten()
+    {
+        if let Some((_, new)) = renames.iter().find(|(old, _)| old == header) {
+            *header = new.clone();
+        }
+    }
 }
 
 /// The reason, when a scenario failed only because its step found the host
@@ -640,4 +745,35 @@ fn only_the_unsupported_host_panic_skips_a_scenario() {
     assert_eq!(unsupported_here(&panicked(std::sync::Arc::new(7_u8))), None);
     assert_eq!(unsupported_here(&ScenarioFinished::StepPassed), None);
     assert_eq!(unsupported_here(&ScenarioFinished::StepSkipped), None);
+}
+
+/// Each spaced column is joined in its header and wherever the outline names
+/// it (its name, a step's text, docstring and table), a joined name that
+/// another column has takes another underscore, and what names no column, or
+/// a data row, is left as written.
+#[test]
+fn spaced_columns_are_joined_in_the_header_and_wherever_the_outline_names_them() {
+    let text = "Feature: f\n  Rule: r\n    Scenario Outline: o <the count>\n      Then it says \"<the count>\" and <the_count> and <no such>\n        \"\"\"\n        <the count> <the  kind>\n        \"\"\"\n      And a table:\n        | <the count> | <the  kind> |\n\n      Examples:\n        | the count | the_count | the  kind |\n        | a b       | 2         | x y       |\n";
+    let feature =
+        join_spaced_placeholders(Feature::parse(text, GherkinEnv::default()).expect("it parses"));
+    let scenario = &feature.rules[0].scenarios[0];
+    assert_eq!(scenario.name, "o <the_count_>");
+    assert_eq!(
+        scenario.steps[0].value,
+        "it says \"<the_count_>\" and <the_count> and <no such>"
+    );
+    assert_eq!(
+        scenario.steps[0].docstring.as_deref().map(str::trim),
+        Some("<the_count_> <the_kind>")
+    );
+    assert_eq!(
+        scenario.steps[1].table.as_ref().expect("a table").rows,
+        vec![vec!["<the_count_>".to_string(), "<the_kind>".to_string()]]
+    );
+    let rows = &scenario.examples[0].table.as_ref().expect("a table").rows;
+    assert_eq!(rows[0], vec!["the_count_", "the_count", "the_kind"]);
+    assert_eq!(rows[1], vec!["a b", "2", "x y"]);
+    use cucumber::feature::Ext as _;
+    let expanded = feature.expand_examples().expect("it expands");
+    assert_eq!(expanded.rules[0].scenarios[0].name, "o a b");
 }

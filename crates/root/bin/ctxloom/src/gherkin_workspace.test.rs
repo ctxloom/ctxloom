@@ -15,6 +15,7 @@ use crate::tests::gherkin_common::CommonWorld;
 /// note written where it works, and a reply.
 const STUB: &str = r#"here="$(dirname "$0")"
 pwd -P >> "$here/cwds"
+printf '%s\t%s\n' "$HOME" "$CLAUDE_CONFIG_DIR" >> "$here/homes"
 cat > /dev/null
 echo "a short note" > note.txt
 echo '{"type":"system","subtype":"init","session_id":"0c3f2c1e-7b9a-4d1e-9a51-2f6c1d0e8b7a"}'
@@ -140,4 +141,230 @@ fn project_clean(w: &mut World) {
     w.ran().succeeds();
     let status = w.git(w.common.project.dir(), &["status", "--porcelain"]);
     assert_eq!(status.trim(), "", "{status}");
+}
+
+// ------------------------------------------------- the session-home outlines
+//
+// Step 6a (OD-47): where the agent's engine runs from. Her own claude setup
+// is a fixed set of files in her home, so whether the run touched it is read
+// against what was put there. ctxloom has no agent-level `session_home`: an
+// agent "declares" it through its engine's block (`engines.claude-code.
+// session_home`), and `host` is honoured from the home config alone (ruling
+// 46), so that is where it is written.
+
+/// Alice's own claude setup, in her home: her login, her settings and her
+/// memory (`~/.claude`).
+const HER_CLAUDE: [(&str, &str); 3] = [
+    (
+        ".claude/.credentials.json",
+        "{\"claudeAiOauth\":{\"accessToken\":\"alice-own-login-not-real\"}}\n", // gitleaks:allow
+    ),
+    (".claude/settings.json", "{\"model\":\"alice-own-model\"}\n"),
+    (".claude/CLAUDE.md", "Alice's own memory.\n"),
+];
+
+/// The agent `isolated`, on claude-code; its engine's block holds
+/// `session_home` when it is said, in the project unless it is `host`.
+fn isolated_config(session_home: Option<&str>) -> String {
+    let block = match session_home {
+        Some(home) if home != "host" => {
+            format!("engines:\n  claude-code:\n    session_home: {home}\n")
+        }
+        _ => String::new(),
+    };
+    format!(
+        "schema_version: 9\n{block}agents:\n  isolated:\n    engine: claude-code\ndefault_agent: isolated\n"
+    )
+}
+
+impl World {
+    /// Each turn's `HOME` and `CLAUDE_CONFIG_DIR`, in order, as the stub saw
+    /// them.
+    fn turn_homes(&self) -> Vec<(PathBuf, PathBuf)> {
+        files::read(self.workspace_bin().join("homes"))
+            .unwrap_or_default()
+            .lines()
+            .map(|line| {
+                let (home, config) = line.split_once('\t').expect("HOME\tCLAUDE_CONFIG_DIR");
+                (PathBuf::from(home), PathBuf::from(config))
+            })
+            .collect()
+    }
+
+    /// The one turn's `HOME` and `CLAUDE_CONFIG_DIR`, the run having
+    /// succeeded.
+    fn one_turn_home(&self) -> (PathBuf, PathBuf) {
+        self.ran().succeeds().contains("J002200-NOTE-WRITTEN");
+        match self.turn_homes().as_slice() {
+            [one] => one.clone(),
+            other => panic!("one turn, not {other:?}"),
+        }
+    }
+
+    /// The codes of the json documents the run said on its error stream.
+    fn said_codes(&self) -> Vec<String> {
+        serde_json::Deserializer::from_str(&self.ran().stderr)
+            .into_iter::<serde_json::Value>()
+            .map(|doc| {
+                let doc = doc.unwrap_or_else(|e| panic!("{e}: {}", self.ran().said()));
+                doc["code"].as_str().unwrap_or_default().to_string()
+            })
+            .collect()
+    }
+
+    /// Her own claude setup is exactly what was put there.
+    fn her_claude_untouched(&self) {
+        let home = self.common.project.home();
+        let mut held = Vec::new();
+        collect(&home.join(".claude"), home, &mut held);
+        held.sort();
+        let mut put: Vec<(String, String)> = HER_CLAUDE
+            .iter()
+            .map(|(rel, body)| ((*rel).to_string(), (*body).to_string()))
+            .collect();
+        put.sort();
+        assert_eq!(held, put, "her own claude setup changed");
+    }
+}
+
+/// Every file below `dir`, by its path relative to `top`, with its text.
+fn collect(dir: &Path, top: &Path, out: &mut Vec<(String, String)>) {
+    for path in files::children(dir) {
+        if files::is_dir(&path) {
+            collect(&path, top, out);
+        } else {
+            let rel = path.strip_prefix(top).expect("below the home");
+            out.push((
+                rel.to_string_lossy().replace('\\', "/"),
+                files::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display())),
+            ));
+        }
+    }
+}
+
+#[given("Alice has a git-backed project")]
+fn git_backed_project(w: &mut World) {
+    // The Background made it one, with its first commit.
+    w.git_backed();
+    assert!(files::exists(w.common.project.dir().join(".git")));
+}
+
+#[given(regex = r#"^Alice has whatever credentials "([^"]+)" needs to authenticate$"#)]
+fn credentials_for(w: &mut World, engine: String) {
+    assert_eq!(
+        engine, "claude-code",
+        "the host lane's engine is claude-code"
+    );
+    // A child authenticates by its token (the Background's); her own login
+    // and setup are in her home, as for anyone who uses claude herself.
+    w.common.set_env(
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        "sk-ant-oat01-acceptance-fixture-not-real".to_string(), // gitleaks:allow
+    );
+    for (rel, body) in HER_CLAUDE {
+        w.common.project.write_home(rel, body);
+    }
+}
+
+#[given("Alice has trusted the project in her own claude")]
+fn trusted_in_her_claude(w: &mut World) {
+    let project = resolved(w.common.project.dir())
+        .to_string_lossy()
+        .into_owned();
+    let mut projects = serde_json::Map::new();
+    projects.insert(
+        project,
+        serde_json::json!({ "hasTrustDialogAccepted": true }),
+    );
+    let state = serde_json::json!({
+        "hasCompletedOnboarding": true,
+        "projects": projects,
+    });
+    w.common
+        .project
+        .write_home(".claude.json", &format!("{state}\n"));
+}
+
+#[given(regex = r#"^Alice's agent declares session_home "([^"]+)"$"#)]
+fn declares_session_home(w: &mut World, home: String) {
+    w.common
+        .project
+        .write(".ctxloom/config.yaml", &isolated_config(Some(&home)));
+    if home == "host" {
+        w.common.project.write_home(
+            ".ctxloom/config.yaml",
+            "schema_version: 9\nengines:\n  claude-code:\n    session_home: host\n",
+        );
+    }
+}
+
+#[given("Alice's agent declares no session_home")]
+fn declares_no_session_home(w: &mut World) {
+    w.common
+        .project
+        .write(".ctxloom/config.yaml", &isolated_config(None));
+}
+
+#[then("the run reports no isolation finding")]
+fn no_isolation_finding(w: &mut World) {
+    let ran = w.ran();
+    ran.succeeds().contains("J002200-NOTE-WRITTEN");
+    let codes = w.said_codes();
+    assert!(
+        codes.iter().all(|code| !code.starts_with("isolation-")),
+        "{codes:?}"
+    );
+}
+
+#[then("the agent ran from its own session home")]
+fn ran_from_session_home(w: &mut World) {
+    let (home, config) = w.one_turn_home();
+    let harp = w.json()["harp"]
+        .as_str()
+        .expect("the run's harp")
+        .to_string();
+    let expected = resolved(
+        &w.common
+            .project
+            .dir()
+            .join(".ctxloom/sessions")
+            .join(&harp)
+            .join("home"),
+    );
+    assert_eq!(resolved(&home), expected);
+    assert_eq!(resolved(&config), expected);
+}
+
+#[then(regex = r#"^Alice's own "([^"]+)" setup was never touched by the run$"#)]
+fn her_setup_untouched(w: &mut World, engine: String) {
+    assert_eq!(engine, "claude-code");
+    w.ran().succeeds();
+    w.her_claude_untouched();
+    let state = w.common.project.home().join(".claude.json");
+    assert!(!files::exists(&state), "{} was written", state.display());
+}
+
+#[then("the run tells Alice it is running on her own engine setup, which is unsafe")]
+fn says_her_own_setup(w: &mut World) {
+    let codes = w.said_codes();
+    assert!(
+        codes
+            .iter()
+            .any(|code| code == "library-application-notice-session-home-host"),
+        "{codes:?}: {}",
+        w.ran().said()
+    );
+    w.ran()
+        .contains("unsafe")
+        .contains("a relocation, not confinement");
+}
+
+#[then("the agent ran with no session home of its own")]
+fn ran_with_no_session_home(w: &mut World) {
+    let (home, config) = w.one_turn_home();
+    let her = resolved(w.common.project.home());
+    assert_eq!(resolved(&home), her);
+    assert_eq!(resolved(&config), her.join(".claude"));
+    // her own setup is what the engine ran on, and ctxloom wrote none of it
+    w.her_claude_untouched();
 }

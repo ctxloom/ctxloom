@@ -1251,6 +1251,12 @@ fn test_a_dry_run_on_another_engine_takes_the_agent_s_block_for_it() {
             &crate::RunRequest {
                 agent: agent.to_string(),
                 engine: engine.to_string(),
+                // no agent: a selection by hand
+                profile: if agent.is_empty() {
+                    "p".to_string()
+                } else {
+                    String::new()
+                },
                 ..crate::RunRequest::default()
             },
         ))
@@ -1466,6 +1472,59 @@ fn test_a_launch_that_weakens_the_engine_s_runtime_says_so() {
     // a host engine strengthened by a container agent is no warning either
     let up = "schema_version: 9\nagents:\n  c:\n    engine: claude-code\n    runtime: container-rootless\n";
     assert!(notices_of(up, "c").iter().all(|n| !n.contains("replaces")));
+}
+
+// j002200 (step 6a, OD-47): a launch on `session_home: host` runs on the
+// user's own engine setup, and the plan says so (a relocation, not
+// confinement, separation §5.2 item 9), whether the agent's engine or
+// `--engine` resolved it, and with no agent too; a session home of its own,
+// said or not, is said nothing of.
+fn host_notices(layers: &[&str], agent: &str, engine: &str) -> Vec<Notice> {
+    let files: &[(&str, &str)] = &[ENVELOPE, ("profiles/p.yaml", "description: p\n")];
+    with(&[("project", files)], layers)
+        .library()
+        .dry_run(
+            &plain(),
+            &crate::RunRequest {
+                agent: agent.to_string(),
+                engine: engine.to_string(),
+                // no agent: a selection by hand
+                profile: if agent.is_empty() {
+                    "p".to_string()
+                } else {
+                    String::new()
+                },
+                ..crate::RunRequest::default()
+            },
+        )
+        .notices
+        .into_iter()
+        .filter(|n| {
+            angzarr_diagnostic::Diagnostic::code(n)
+                == "library-application-notice-session-home-host"
+        })
+        .collect()
+}
+
+#[test]
+fn test_a_launch_on_her_own_engine_setup_says_so() {
+    let home = "schema_version: 9\nengines:\n  claude-code:\n    session_home: host\n  opencode:\n    session_home: session\nagents:\n  dev:\n    engine: claude-code\n  oc:\n    engine: opencode\n";
+    let layers = [home, "schema_version: 9\n"];
+    let said = host_notices(&layers, "dev", "");
+    assert!(
+        matches!(said.as_slice(), [Notice::SessionHomeHost { engine }] if engine == "claude-code"),
+        "{said:?}"
+    );
+    // `--engine` asks the plan for that engine's block
+    assert_eq!(host_notices(&layers, "oc", "claude-code").len(), 1);
+    assert!(host_notices(&layers, "dev", "opencode").is_empty());
+    // a session home, said or not, is no notice
+    assert!(host_notices(&layers, "oc", "").is_empty());
+    let none = ["schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n"];
+    assert!(host_notices(&none, "dev", "").is_empty());
+    // a launch with no agent (a selection by hand), on the default engine's
+    // own block
+    assert_eq!(host_notices(&layers, "", "").len(), 1);
 }
 
 // Rulings 59, 60, 89, 106: a run reads where its outputs go and what it does

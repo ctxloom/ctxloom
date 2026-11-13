@@ -326,6 +326,14 @@ impl Project {
             drive,
             settings,
         } = self.launch_of(request, selection.agent.as_ref())?;
+        // A launch on the user's own engine setup is never silent (j002200):
+        // a session home is a relocation, not confinement, and `host` gives
+        // up even that. Said from the plan, so a dry run and a launch alike.
+        if drive.session_home == "host" {
+            self.notices.push(Notice::SessionHomeHost {
+                engine: engine.clone(),
+            });
+        }
         let degraded = self.flags.degraded;
         // Each finding is said once: a fatal one by the refusal that lists
         // it, any other as a warning.

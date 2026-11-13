@@ -9,7 +9,7 @@ use library_application::fakes::{Setup, ENVELOPE};
 
 use super::*;
 
-const DEMO: &[(&str, &str)] = &[
+pub(crate) const DEMO: &[(&str, &str)] = &[
     ENVELOPE,
     (
         "fragments/golang.md",
@@ -36,7 +36,7 @@ const DEMO: &[(&str, &str)] = &[
     ),
 ];
 
-const PROJECT: &[(&str, &str)] = &[
+pub(crate) const PROJECT: &[(&str, &str)] = &[
     ENVELOPE,
     ("profiles/broken.yaml", "bundles: [does-not-exist]\n"),
     (
@@ -45,50 +45,50 @@ const PROJECT: &[(&str, &str)] = &[
     ),
 ];
 
-const AGENTS: &str = "schema_version: 9\ncompanions:\n  acme: {command: [acme-bin, --as, acme]}\nagents:\n  dev:\n    engine: claude-code\n    profiles: [dev]\n    runtime: host\ndefault_agent: dev\n";
+pub(crate) const AGENTS: &str = "schema_version: 9\ncompanions:\n  acme: {command: [acme-bin, --as, acme]}\nagents:\n  dev:\n    engine: claude-code\n    profiles: [dev]\n    runtime: host\ndefault_agent: dev\n";
 
 /// What one invocation left behind.
-struct Ran {
-    exit: Result<u8, String>,
-    out: String,
-    err: String,
+pub(crate) struct Ran {
+    pub(crate) exit: Result<u8, String>,
+    pub(crate) out: String,
+    pub(crate) err: String,
 }
 
 impl Ran {
-    fn code(&self) -> u8 {
+    pub(crate) fn code(&self) -> u8 {
         match &self.exit {
             Ok(code) => *code,
             Err(failure) => panic!("failed: {failure}"),
         }
     }
 
-    fn refused(&self) -> &str {
+    pub(crate) fn refused(&self) -> &str {
         match &self.exit {
             Ok(code) => panic!("exit {code}, not a failure: {}", self.out),
             Err(failure) => failure,
         }
     }
 
-    fn json(&self) -> serde_json::Value {
+    pub(crate) fn json(&self) -> serde_json::Value {
         serde_json::from_str(&self.out).unwrap_or_else(|e| panic!("{e}: {}", self.out))
     }
 }
 
 /// How an invocation is made.
 #[derive(Clone, Copy)]
-struct How {
-    explicit: Option<Format>,
-    terminal: bool,
-    degraded: bool,
+pub(crate) struct How {
+    pub(crate) explicit: Option<Format>,
+    pub(crate) terminal: bool,
+    pub(crate) degraded: bool,
 }
 
-const JSON: How = How {
+pub(crate) const JSON: How = How {
     explicit: Some(Format::Json),
     terminal: false,
     degraded: false,
 };
 
-const TEXT: How = How {
+pub(crate) const TEXT: How = How {
     explicit: Some(Format::Text),
     terminal: false,
     degraded: false,
@@ -104,7 +104,7 @@ impl Names for Project {
 }
 
 /// Outside a project (OQ-3).
-struct Home;
+pub(crate) struct Home;
 
 impl Names for Home {
     fn parent(&self) -> Result<String, Failure> {
@@ -113,10 +113,10 @@ impl Names for Home {
 }
 
 /// No daemon to name the project: the call fails, as one unreached does.
-struct Unreachable;
+pub(crate) struct Unreachable;
 
 #[derive(Debug)]
-struct NoDaemon;
+pub(crate) struct NoDaemon;
 
 impl std::fmt::Display for NoDaemon {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -140,15 +140,15 @@ impl Names for Unreachable {
     }
 }
 
-fn go(line: &[&str], how: How, layers: &[&str]) -> Ran {
+pub(crate) fn go(line: &[&str], how: How, layers: &[&str]) -> Ran {
     go_in(line, how, layers, &Project)
 }
 
-fn go_named(line: &[&str], how: How, names: &dyn Names) -> Ran {
+pub(crate) fn go_named(line: &[&str], how: How, names: &dyn Names) -> Ran {
     go_in(line, how, &[ENGINE_HOME, ENGINE_PROJECT], names)
 }
 
-fn go_in(line: &[&str], how: How, layers: &[&str], names: &dyn Names) -> Ran {
+pub(crate) fn go_in(line: &[&str], how: How, layers: &[&str], names: &dyn Names) -> Ran {
     let setup = Setup {
         bundles: &[("demo", DEMO), ("project", PROJECT)],
         layers,
@@ -195,348 +195,25 @@ fn go_in(line: &[&str], how: How, layers: &[&str], names: &dyn Names) -> Ran {
     }
 }
 
-const BARE: &[&str] = &[AGENTS];
+// The engine noun's layers (`go_named`'s, and noun/engine.test.rs's).
+pub(crate) const ENGINE_HOME: &str = "schema_version: 9\nruntime: container-rootless\nengines:\n  claude-code:\n    command: /opt/claude\n    env: [HTTPS_PROXY]\n    auth: none\n  opencode:\n    session_home: host\n";
+
+pub(crate) const ENGINE_PROJECT: &str = "schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n    engines:\n      claude-code:\n        model: haiku\n    runtime: host\n    profiles: [dev]\n  strict:\n    engine: claude-code\n    runtime: container-rootful\n    profiles: [dev]\n  same:\n    engine: claude-code\n    runtime: container-rootless\n  plain:\n    engine: opencode\n";
+
+pub(crate) const BARE: &[&str] = &[AGENTS];
 
 /// A success's json: ok, or a dry run's would-launch (ruling 153), which its
 /// own test holds to its code.
-fn json_of(line: &[&str]) -> serde_json::Value {
+pub(crate) fn json_of(line: &[&str]) -> serde_json::Value {
     let ran = go(line, JSON, BARE);
     assert!(ran.code() < 10, "{line:?}: a success");
     ran.json()
 }
 
-fn text_of(line: &[&str]) -> String {
+pub(crate) fn text_of(line: &[&str]) -> String {
     let ran = go(line, TEXT, BARE);
     assert!(ran.code() < 10, "{line:?}: a success");
     ran.out
-}
-
-// config.feature: `config show` prints the effective configuration, one
-// section, or only what the files set (--raw); a bare `config` is `show`.
-#[test]
-fn test_config_show_prints_the_effective_configuration_a_section_or_the_raw_layers() {
-    let all = json_of(&["config", "show"]);
-    assert_eq!(all["default_agent"], "dev");
-    assert_eq!(all["agents"]["dev"]["engine"], "claude-code");
-    assert_eq!(json_of(&["config"]), all);
-    assert_eq!(
-        json_of(&["config", "show", "companions"]),
-        serde_json::json!({"acme": {"command": ["acme-bin", "--as", "acme"]}})
-    );
-    let raw = json_of(&["config", "show", "--raw"]);
-    assert_eq!(
-        raw["companions"],
-        serde_json::json!({"acme": {"command": ["acme-bin", "--as", "acme"]}})
-    );
-    assert!(text_of(&["config", "show", "companions"]).starts_with("acme:\n  command:\n"));
-    assert!(text_of(&["config"]).contains("default_agent: dev\n"));
-    assert_eq!(
-        go(&["config", "show", "nosuch"], JSON, BARE).refused(),
-        "library-application-unknown-section:20"
-    );
-}
-
-// bundle.feature: list, show and view; the bare noun lists.
-#[test]
-fn test_bundle_list_show_and_view() {
-    let list = json_of(&["bundle", "list"]);
-    assert_eq!(list[0]["name"], "demo");
-    assert_eq!(list[0]["fragment_count"], 4);
-    assert_eq!(json_of(&["bundle"]), list);
-    assert_eq!(json_of(&["bundle", "ls"]), list);
-    assert!(text_of(&["bundle"]).starts_with("Installed bundles (2):\n"));
-    let show = json_of(&["bundle", "show", "demo"]);
-    assert_eq!(show["name"], "demo");
-    assert_eq!(
-        show["fragments"]["golang"]["premise"],
-        "when editing Go code"
-    );
-    let text = text_of(&["bundle", "show", "demo"]);
-    assert!(text.starts_with("Bundle: demo\nVersion: 1.0.0\n"));
-    let view = json_of(&["bundle", "view", "demo"]);
-    assert!(view["content"]
-        .as_str()
-        .unwrap()
-        .contains("==> fragments/golang.md <=="));
-    assert!(text_of(&["bundle", "view", "demo"]).starts_with("==> bundle.yaml <==\n"));
-    let long = json_of(&["bundle", "view", "demo#fragments/dist"]);
-    assert_eq!(long["content"], "long form\n");
-    let short = json_of(&["bundle", "view", "demo#fragments/dist", "-d"]);
-    assert_eq!(short["distilled"], true);
-    assert_eq!(short["content"], "# (distilled version)\nshort form\n");
-    assert_eq!(
-        go(&["bundle", "show", "nosuch"], JSON, BARE).refused(),
-        "library-catalog-bundle-not-found:20"
-    );
-}
-
-// fragment.feature, command.feature: list (filtered by --bundle), show
-// (text only), premises; a bare noun lists.
-#[test]
-fn test_fragment_and_command_list_show_and_premises() {
-    let fragments = json_of(&["fragment", "list"]);
-    assert_eq!(fragments.as_array().unwrap().len(), 4);
-    assert_eq!(json_of(&["fragment"]), fragments);
-    assert_eq!(
-        json_of(&["fragment", "list", "--bundle", "project"]),
-        serde_json::json!([])
-    );
-    assert_eq!(
-        go(&["fragment", "list", "--bundle", "nosuch"], JSON, BARE).refused(),
-        "library-application-no-bundle-named:20"
-    );
-    assert!(text_of(&["fragment", "list"]).starts_with("Fragments (4):\n"));
-    let commands = json_of(&["command", "list"]);
-    assert_eq!(commands[0]["ref"], "demo#commands/review");
-    assert_eq!(json_of(&["command"]), commands);
-    assert_eq!(
-        text_of(&["fragment", "show", "demo#fragments/golang"]),
-        "golang\n\nGO-RULES\n"
-    );
-    assert_eq!(
-        text_of(&["command", "show", "demo#commands/review"]),
-        "review\n\nREVIEW-BODY\n"
-    );
-    assert_eq!(
-        text_of(&["fragment", "show", "demo#fragments/dist", "-d"]),
-        "# (distilled version)\ndist\n\nshort form\n"
-    );
-    assert!(
-        !go(&["fragment", "show", "demo#commands/review"], TEXT, BARE)
-            .refused()
-            .is_empty()
-    );
-    let premises = json_of(&["fragment", "premises"]);
-    assert_eq!(premises["fragments"][0]["name"], "demo#fragments/golang");
-    assert!(text_of(&["fragment", "premises"])
-        .ends_with("- demo#fragments/golang: when editing Go code\n"));
-}
-
-// fragment_show.go: a structured --format is refused for `show` when it was
-// asked for, not when it was the default.
-#[test]
-fn test_an_item_show_refuses_an_asked_for_json_but_not_a_default_one() {
-    let asked = go(&["fragment", "show", "demo#fragments/golang"], JSON, BARE);
-    assert_eq!(asked.refused(), "library-application-unsupported-format:20");
-    let by_default = How {
-        explicit: None,
-        terminal: false,
-        degraded: false,
-    };
-    let ran = go(
-        &["fragment", "show", "demo#fragments/golang"],
-        by_default,
-        BARE,
-    );
-    assert_eq!(ran.code(), 0);
-    assert_eq!(ran.out, "golang\n\nGO-RULES\n");
-    assert_eq!(
-        go(&["command", "show", "demo#commands/review"], JSON, BARE).refused(),
-        "library-application-unsupported-format:20"
-    );
-}
-
-// skill.feature
-#[test]
-fn test_skill_list_and_show() {
-    let list = json_of(&["skill", "list"]);
-    assert_eq!(list[0]["name"], "demo/reviewer");
-    assert_eq!(json_of(&["skill"]), list);
-    assert_eq!(
-        json_of(&["skill", "list", "--bundle", "project"]),
-        serde_json::json!([])
-    );
-    let show = json_of(&["skill", "show", "demo#skills/reviewer"]);
-    assert_eq!(show["body"], "SKILL-BODY\n");
-    assert!(text_of(&["skill", "show", "demo#skills/reviewer"])
-        .starts_with("demo#skills/reviewer\n\ndescription: Reviews code\n"));
-    assert!(text_of(&["skill"]).starts_with("Skills (1):\n"));
-}
-
-// profile.feature, agent.feature, companion.feature, mcp.feature
-#[test]
-fn test_profile_agent_companion_and_mcp_commands() {
-    let profiles = json_of(&["profile", "list"]);
-    assert_eq!(profiles[1]["name"], "dev");
-    assert_eq!(json_of(&["profile"]), profiles);
-    assert_eq!(
-        json_of(&["profile", "show", "dev"])["description"],
-        "dev profile"
-    );
-    assert!(text_of(&["profile", "show", "dev"]).starts_with("Profile: dev\n"));
-    assert!(text_of(&["profile"]).starts_with("Profiles (2):\n"));
-    let agents = json_of(&["agent", "list"]);
-    assert_eq!(agents[0]["name"], "dev");
-    assert_eq!(json_of(&["agent"]), agents);
-    let show = json_of(&["agent", "show", "dev"]);
-    assert_eq!(show["resolved"]["engine"], "claude-code");
-    assert!(text_of(&["agent", "show", "dev"])
-        .starts_with("Agent: dev\nEngine (declared): claude-code\n"));
-    assert!(text_of(&["agent"]).starts_with("Agents (1):\n"));
-    let companions = json_of(&["companion", "list"]);
-    assert_eq!(
-        companions[0],
-        serde_json::json!({"name": "acme", "command": ["acme-bin", "--as", "acme"], "exists": false})
-    );
-    assert_eq!(json_of(&["companion"]), companions);
-    assert!(text_of(&["companion"]).contains("NOT FOUND"));
-    let servers = json_of(&["mcp", "server", "list"]);
-    assert_eq!(servers["servers"][0]["name"], "tree-sitter");
-    assert_eq!(json_of(&["mcp", "server"]), servers);
-    assert_eq!(
-        json_of(&["mcp", "server", "show", "tree-sitter"])["found"],
-        true
-    );
-    assert!(
-        text_of(&["mcp", "server", "show", "tree-sitter"]).starts_with("MCP Server: tree-sitter\n")
-    );
-    // plan supersedes Go: mcp.feature (S2) refuses the bare noun, which
-    // listed the servers in S1.
-    assert!(go(&["mcp"], TEXT, BARE).refused().contains("mcp-bare"));
-    assert!(go(&["mcp"], JSON, BARE).refused().contains("mcp-bare-json"));
-}
-
-// search.feature: query, --tag, --type, --local; --remote is refused here.
-#[test]
-fn test_search_filters_by_tag_and_type_and_refuses_remote() {
-    let hits = json_of(&["search", "golang"]);
-    assert_eq!(hits["count"], 1);
-    assert_eq!(hits["local"][0]["name"], "golang");
-    assert_eq!(json_of(&["search", "-t", "go", "--local"])["count"], 1);
-    assert_eq!(
-        json_of(&["search", "--tag", "nosuch", "golang"])["count"],
-        0
-    );
-    assert_eq!(
-        json_of(&["search", "--type", "skill", "rev"])["local"][0]["type"],
-        "skill"
-    );
-    assert_eq!(json_of(&["search", "--type", "command", "rev"])["count"], 1);
-    assert_eq!(
-        json_of(&["search", "--type", "fragment", "rev"])["count"],
-        0
-    );
-    assert_eq!(
-        go(&["search", "--remote", "x"], JSON, BARE).refused(),
-        "library-application-search-remote:20"
-    );
-    assert!(text_of(&["search", "golang"]).starts_with("Results (1):\n"));
-}
-
-// context.feature
-#[test]
-fn test_context_assemble_takes_profiles_fragments_and_tags() {
-    let by_profile = json_of(&["context", "assemble", "-p", "dev"]);
-    assert_eq!(by_profile["profiles"], serde_json::json!(["dev"]));
-    assert_eq!(
-        json_of(&["context", "assemble", "--profile", "dev"]),
-        by_profile
-    );
-    let by_fragment = json_of(&["context", "assemble", "-f", "demo#fragments/golang"]);
-    assert_eq!(by_fragment["context"], "GO-RULES");
-    let several = json_of(&[
-        "context",
-        "assemble",
-        "-f",
-        "demo#fragments/golang,demo#fragments/testing",
-    ]);
-    assert_eq!(several["fragments_loaded"].as_array().unwrap().len(), 2);
-    let by_tag = go(
-        &[
-            "context",
-            "assemble",
-            "-f",
-            "demo#fragments/golang",
-            "-t",
-            "nosuch",
-        ],
-        JSON,
-        BARE,
-    );
-    assert_eq!(by_tag.refused(), "library-application-no-fragments:20");
-    assert_eq!(json_of(&["context"]), by_profile);
-    // On demand (config.premised) the held-back `golang` is offered in the
-    // premise index, which ends the context.
-    let text = text_of(&["context", "assemble", "-p", "dev"]);
-    assert!(text.contains("short form\n"), "{text}");
-    assert!(
-        text.ends_with("demo#fragments/golang: when editing Go code\n"),
-        "{text}"
-    );
-}
-
-// Ruling 153: a dry run whose plan found nothing fatal would launch, the
-// distinguishing success 1 (said only under `--detailed-exitcode`).
-#[test]
-fn test_a_dry_run_that_would_launch_would_change() {
-    assert_eq!(go(&["run", "--dry-run", "hello"], JSON, BARE).code(), 1);
-    assert_eq!(go(&["run", "--dry-run", "hello"], TEXT, BARE).code(), 1);
-    assert_eq!(go(&["context"], JSON, BARE).code(), 0, "a read is ok");
-}
-
-// run.feature: `run --dry-run` previews; without it this build refuses.
-#[test]
-fn test_a_dry_run_carries_its_arguments_into_the_plan() {
-    let plan = json_of(&["run", "--dry-run", "hello", "big", "world"]);
-    assert_eq!(plan["prompt"], "hello big world");
-    assert_eq!(plan["profiles"], serde_json::json!(["dev"]));
-    assert_eq!(
-        json_of(&["run", "--dry-run", "--prompt", "pp", "hello"])["prompt"],
-        "pp"
-    );
-    assert_eq!(
-        json_of(&["run", "--dry-run", "-r", "review"])["prompt"],
-        "REVIEW-BODY\n"
-    );
-    let agent = json_of(&[
-        "run",
-        "--dry-run",
-        "--workspace",
-        "worktree",
-        "--agent",
-        "dev",
-    ]);
-    assert_eq!(
-        (agent["agent"].as_str(), agent["workspace"].as_str()),
-        (Some("dev"), Some("worktree"))
-    );
-    let only = json_of(&[
-        "run",
-        "--dry-run",
-        "-f",
-        "demo#fragments/golang",
-        "-t",
-        "go",
-    ]);
-    assert_eq!(
-        only["fragments"],
-        serde_json::json!(["ctxloom+local:demo#fragments/golang"])
-    );
-    assert!(text_of(&["run", "--dry-run", "hello"]).starts_with("=== Engine ===\nclaude-code\n"));
-    assert!(text_of(&["run", "--dry-run", "--agent", "dev"]).starts_with("=== Agent ===\ndev ("));
-    assert_eq!(
-        go(&["run"], JSON, BARE).refused(),
-        "library-application-run-needs-dry-run:20"
-    );
-}
-
-// fault_tolerance.feature: fatal findings abort a preview (exit 21) after the
-// plan is printed; --degraded previews past them.
-#[test]
-fn test_fatal_findings_print_the_plan_and_abort() {
-    let ran = go(&["run", "--dry-run", "-p", "broken"], JSON, BARE);
-    assert_eq!(ran.refused(), "library-application-startup-aborted:21");
-    assert_eq!(ran.json()["findings"][0]["fatal"], true);
-    // hand-test 2 2026-11-11: the refusal alone names the fatal finding; no
-    // warning says it first.
-    assert!(!ran.err.contains("\"warning\""), "{}", ran.err);
-    let degraded = How {
-        degraded: true,
-        ..JSON
-    };
-    let past = go(&["run", "--dry-run", "-p", "broken"], degraded, BARE);
-    assert_eq!(past.code(), 1, "past its findings it would launch");
-    assert_eq!(past.json()["findings"][0]["fatal"], false);
 }
 
 // clidiag.Warn: a notice is one json line under json, words and a fix line
@@ -654,7 +331,7 @@ fn test_running_a_noun_the_line_does_not_name_is_refused() {
 }
 
 /// A stream that cannot be written.
-struct Broken;
+pub(crate) struct Broken;
 
 impl Write for Broken {
     fn write(&mut self, _: &[u8]) -> io::Result<usize> {
@@ -707,128 +384,4 @@ fn test_an_answer_that_cannot_be_written_fails_with_its_cause() {
 }
 
 #[path = "write.test.rs"]
-mod write_verbs;
-
-// ---- engine list|show, exactly as printed ----
-
-const ENGINE_HOME: &str = "schema_version: 9\nruntime: container-rootless\nengines:\n  claude-code:\n    command: /opt/claude\n    env: [HTTPS_PROXY]\n    auth: none\n  opencode:\n    session_home: host\n";
-const ENGINE_PROJECT: &str = "schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n    engines:\n      claude-code:\n        model: haiku\n    runtime: host\n    profiles: [dev]\n  strict:\n    engine: claude-code\n    runtime: container-rootful\n    profiles: [dev]\n  same:\n    engine: claude-code\n    runtime: container-rootless\n  plain:\n    engine: opencode\n";
-
-#[test]
-fn test_engine_show_prints_the_settings_their_layers_and_each_agents_resolution() {
-    let ran = go(
-        &["engine", "show", "claude-code"],
-        TEXT,
-        &[ENGINE_HOME, ENGINE_PROJECT],
-    );
-    assert_eq!(ran.code(), 0);
-    assert_eq!(
-        ran.out,
-        "claude-code\n  command: /opt/claude (engine)\n  session_home: session (default)\n  runtime: container-rootless (project)\n  env: HTTPS_PROXY (engine)\n  auth: not-needed (engine)\n  agents:\n    dev\n      model: haiku (agent)\n      effort: engine default, no flag passed (default)\n      permissions: {defaultMode: acceptEdits} (default)\n        passed to claude-code verbatim; ctxloom does not check it\n      runtime: host (agent; replaces project container-rootless: weakens isolation)\n      env: HTTPS_PROXY (engine)\n    same\n      model: engine default, no flag passed (default)\n      effort: engine default, no flag passed (default)\n      permissions: {defaultMode: acceptEdits} (default)\n        passed to claude-code verbatim; ctxloom does not check it\n      runtime: container-rootless (agent)\n      env: HTTPS_PROXY (engine)\n    strict\n      model: engine default, no flag passed (default)\n      effort: engine default, no flag passed (default)\n      permissions: {defaultMode: acceptEdits} (default)\n        passed to claude-code verbatim; ctxloom does not check it\n      runtime: container-rootful (agent; replaces project container-rootless: ownership differs, not interchangeable)\n      env: HTTPS_PROXY (engine)\n"
-    );
-}
-
-#[test]
-fn test_engine_list_prints_every_engine_and_only_the_agents_it_has() {
-    let ran = go(&["engine", "list"], TEXT, &[ENGINE_HOME, ENGINE_PROJECT]);
-    assert_eq!(ran.code(), 0);
-    assert_eq!(
-        ran.out,
-        "claude-code\n  command: /opt/claude (engine)\n  session_home: session (default)\n  runtime: container-rootless (project)\n  env: HTTPS_PROXY (engine)\n  auth: not-needed (engine)\n  agents: dev, same, strict\nmock\n  command: mock (default)\n  session_home: session (default)\n  runtime: container-rootless (project)\n  env: none (default)\n  auth: not-needed (default)\nmock-launch\n  command: mock-launch (default)\n  session_home: session (default)\n  runtime: container-rootless (project)\n  env: none (default)\n  auth: not-needed (default)\nmock-lossy\n  command: mock-lossy (default)\n  session_home: session (default)\n  runtime: container-rootless (project)\n  env: none (default)\n  auth: not-needed (default)\nmock-noskills\n  command: mock-noskills (default)\n  session_home: session (default)\n  runtime: container-rootless (project)\n  env: none (default)\n  auth: not-needed (default)\nopencode\n  command: opencode (default)\n  session_home: host (engine)\n  runtime: container-rootless (project)\n  env: none (default)\n  auth: not-needed (default)\n  agents: plain\n"
-    );
-}
-
-#[test]
-fn test_a_bare_engine_lists_and_json_carries_the_same_rows() {
-    let bare = go(&["engine"], JSON, &[ENGINE_HOME, ENGINE_PROJECT]);
-    let list = go(&["engine", "list"], JSON, &[ENGINE_HOME, ENGINE_PROJECT]);
-    assert_eq!(bare.out, list.out);
-    // OD-40: the AIP resources, named under the project the daemon names.
-    assert_eq!(
-        bare.json()["engines"][0]["name"],
-        "projects/calm-otter/engines/claude-code"
-    );
-    let show = go(
-        &["engine", "show", "opencode"],
-        JSON,
-        &[ENGINE_HOME, ENGINE_PROJECT],
-    );
-    assert_eq!(show.json()["name"], "projects/calm-otter/engines/opencode");
-    assert_eq!(show.json()["session_home"]["value"], "host");
-}
-
-// OD-40 (design §5.6): `engine show`'s json is the `Engine` message's proto3
-// JSON, exactly: a default left out (an unset model is no `value`), the
-// auth state the enum's name, an agent row's name `agent`, a permissions
-// document the object itself.
-#[test]
-fn test_engine_show_json_is_the_engine_resource() {
-    let show = go(
-        &["engine", "show", "claude-code"],
-        JSON,
-        &[ENGINE_HOME, ENGINE_PROJECT],
-    );
-    let engine = show.json();
-    assert_eq!(engine["name"], "projects/calm-otter/engines/claude-code");
-    assert_eq!(
-        engine["command"],
-        serde_json::json!({"value": "/opt/claude", "source": "engine"})
-    );
-    assert_eq!(
-        engine["auth"],
-        serde_json::json!({"value": {"word": "none"}, "source": "engine", "state": "NOT_NEEDED"})
-    );
-    assert_eq!(
-        engine["agents"][0],
-        serde_json::json!({
-            "agent": "dev",
-            "model": {"value": "haiku", "source": "agent"},
-            "effort": {"source": "default"},
-            "permissions": {"value": {"defaultMode": "acceptEdits"}, "source": "default"},
-            "runtime": {
-                "value": "host",
-                "source": "agent",
-                "overrides": "container-rootless",
-                "overrides_source": "project",
-                "change": "weakens",
-            },
-            "env": {
-                "value": ["HTTPS_PROXY"],
-                "source": "engine",
-                "keys": [{"variable": "HTTPS_PROXY", "source": "engine"}],
-            },
-        })
-    );
-}
-
-// Outside a project the names are rooted at the home (OQ-3); a text answer
-// asks for no name at all, so it reaches no daemon (OQ-2).
-#[test]
-fn test_engine_names_are_rooted_where_the_names_say_and_text_asks_for_none() {
-    let home = go_named(&["engine", "show", "opencode"], JSON, &Home);
-    assert_eq!(home.json()["name"], "users/me/engines/opencode");
-    let text = go_named(&["engine", "list"], TEXT, &Unreachable);
-    assert_eq!(text.exit, Ok(0), "{}", text.err);
-    let json = go_named(&["engine", "list"], JSON, &Unreachable);
-    assert_eq!(json.exit, Err("daemon-api-unreached:10".to_string()));
-}
-
-// An agent that makes a launch more contained than the layers below says so; an
-// engine no agent is bound to says it has none.
-#[test]
-fn test_engine_show_says_when_an_agent_strengthens_isolation_and_when_there_is_none() {
-    let layers = [
-        "schema_version: 9\nruntime: host\n",
-        "schema_version: 9\nagents:\n  tight:\n    engine: claude-code\n    runtime: container-rootless\n    profiles: [dev]\n",
-    ];
-    let ran = go(&["engine", "show", "claude-code"], TEXT, &layers);
-    assert!(
-        ran.out.contains(
-            "      runtime: container-rootless (agent; replaces project host: strengthens isolation)\n"
-        ),
-        "{}",
-        ran.out
-    );
-    let none = go(&["engine", "show", "opencode"], TEXT, &layers);
-    assert!(none.out.ends_with("  agents: none\n"), "{}", none.out);
-}
+pub(crate) mod write_verbs;

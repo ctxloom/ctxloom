@@ -1,0 +1,55 @@
+# Go-parity commands: id <TAB> fixture <TAB> [ENV=value ...] arguments
+# Each line, in every file of fixtures/parity/ (one per noun, design §8.4),
+# is run by scripts/go-library-goldens.sh against Go ctxloom
+# (release/0.7 860336c4e) to make fixtures/golden/<id>.stdout and .exit, and
+# by the Rust acceptance test (library_parity.test.rs) against this binary.
+# Source of every line: the Go feature named in the id's group comment.
+#
+# cli/fragment.feature, cli/read_extras.feature, fault_tolerance.feature
+fragment-list-json	lib	fragment list --format json
+fragment-list-text	lib	fragment list --format text
+fragment-bare-json	lib	fragment --format json
+fragment-list-bundle	lib	fragment list --bundle demo --format json
+fragment-list-bundle-nosuch	lib	fragment list --bundle nosuch
+fragment-show	lib	fragment show demo#fragments/golang
+fragment-show-example	lib	fragment show demo#fragments/example
+fragment-show-distilled	lib	fragment show demo#fragments/dist --distilled
+fragment-show-raw	lib	fragment show demo#fragments/dist
+fragment-show-no-distilled	lib	fragment show rules#fragments/one --distilled
+fragment-show-explicit-json-refused	lib	fragment show demo#fragments/golang --format json
+fragment-show-unknown-item	lib	fragment show demo#fragments/does-not-exist
+fragment-show-garbage-ref	lib	fragment show not-a-real-reference
+fragment-premises-json	lib	fragment premises --format json
+fragment-premises-text	lib	fragment premises --format text
+# cli/command.feature
+command-list-json	lib	command list --format json
+command-list-text	lib	command list --format text
+command-bare-json	lib	command --format json
+command-list-bundle-nosuch	lib	command list --bundle nosuchbundle
+command-show	lib	command show demo#commands/review
+command-show-unknown	lib	command show demo#commands/nope
+# ctxloom-project bundle, adapters/content's tree fixtures, a premised bundle
+gold-fragment-list-json	gold	fragment list --format json
+gold-fragment-list-text	gold	fragment list --format text
+gold-fragment-premises-json	gold	fragment premises --format json
+gold-fragment-premises-text	gold	fragment premises --format text
+gold-fragment-show-tricky	gold	fragment show code-quality#fragments/tricky
+gold-fragment-show-solid-distilled	gold	fragment show code-quality#fragments/solid --distilled
+gold-command-list-json	gold	command list --format json
+gold-command-show-review	gold	command show code-quality#commands/review
+# Envelope generations 0 to 4 (bundles/upgrade.go envelopeSteps): one model whatever the stamp
+gens-fragment-list-json	gens	fragment list --format json
+gens-command-list-json	gens	command list --format json
+# Malformed bundles are skipped with a warning, never read around (fault_tolerance.feature)
+bad-fragment-show	bad	fragment show newer#fragments/f
+# Nothing there: no content directory at all, and an empty one (empty_listing_hint, cli/agent.feature)
+empty-fragment-list-json	empty	fragment list --format json
+empty-command-list-text	empty	command list --format text
+empty-fragment-premises-text	empty	fragment premises --format text
+empty-fragment-premises-json	empty	fragment premises --format json
+emptybundles-fragment-list-json	emptybundles	fragment list --format json
+emptybundles-command-list-text	emptybundles	command list --format text
+emptybundles-fragment-premises-text	emptybundles	fragment premises --format text
+emptybundles-fragment-premises-json	emptybundles	fragment premises --format json
+# No project here (configload/appdir.go: no .ctxloom up the path, so the home's config alone)
+noproject-command-list-text	noproject	CTXLOOM_ROOT= command list --format text

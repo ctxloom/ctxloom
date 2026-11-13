@@ -1,7 +1,7 @@
 //! Go parity (S1): the same commands on the same fixtures give what Go
 //! ctxloom gave.
 //!
-//! `fixtures/parity.tsv` lists the commands; `scripts/go-library-goldens.sh`
+//! `fixtures/parity/<noun>.tsv` (one file per noun, design §8.4) list the commands; `scripts/go-library-goldens.sh`
 //! ran each against Go ctxloom (release/0.7, 860336c4e, which is ca14d6046 or
 //! later) in a copy of its fixture, and kept the output as
 //! `fixtures/golden/<id>.stdout` and `<id>.exit`. These tests run the same
@@ -254,7 +254,16 @@ struct Row {
 }
 
 fn rows() -> Vec<Row> {
-    let text = files::read(fixtures().join("parity.tsv")).expect("parity.tsv");
+    let mut tables: Vec<_> = files::children(fixtures().join("parity"))
+        .into_iter()
+        .filter(|path| path.extension().is_some_and(|e| e == "tsv"))
+        .collect();
+    tables.sort();
+    let text: String = tables
+        .iter()
+        .map(|path| files::read(path).unwrap_or_else(|e| panic!("{}: {e}", path.display())))
+        .collect::<Vec<_>>()
+        .join("\n");
     text.lines()
         .filter(|l| !l.is_empty() && !l.starts_with('#'))
         .map(|line| {

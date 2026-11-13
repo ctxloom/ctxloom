@@ -1,0 +1,26 @@
+# Go-parity commands: id <TAB> fixture <TAB> [ENV=value ...] arguments
+# Each line, in every file of fixtures/parity/ (one per noun, design §8.4),
+# is run by scripts/go-library-goldens.sh against Go ctxloom
+# (release/0.7 860336c4e) to make fixtures/golden/<id>.stdout and .exit, and
+# by the Rust acceptance test (library_parity.test.rs) against this binary.
+# Source of every line: the Go feature named in the id's group comment.
+#
+# cli/search.feature
+search-name-json	lib	search --local golang --format json
+search-name-text	lib	search --local golang --format text
+search-two-kinds	lib	search --local review --format json
+search-type-fragment	lib	search --local --type fragment testing --format json
+search-type-command	lib	search --local --type command review --format json
+search-type-profile	lib	search --local --type profile dev --format json
+search-tag	lib	search --local --tag review --format json
+search-mcp	lib	search --local tree --format json
+search-no-query	lib	search --local
+search-bad-type	lib	search --local --type widget testing
+# ctxloom-project bundle, adapters/content's tree fixtures, a premised bundle
+gold-search-solid-json	gold	search --local solid --format json
+gold-search-tag-json	gold	search --local --tag golden --format json
+gold-search-tag-text	gold	search --local --tag golden --format text
+gold-search-mcp-json	gold	search --local postgres --format json
+# Nothing there: no content directory at all, and an empty one (empty_listing_hint, cli/agent.feature)
+empty-search-json	empty	search --local x --format json
+emptybundles-search-json	emptybundles	search --local x --format json

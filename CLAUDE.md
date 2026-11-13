@@ -1577,8 +1577,18 @@ their shapes on a ruling. `PlanStale` stays FAILED_PRECONDITION: OQ-10 rules
 ABORTED, and angzarr's `RefusalStatus` has no such value yet.
 
 Conversion is at the CLI's edge (design §6): library-application's views
-are unchanged, and `library-cli`'s `api.rs` is the ONE path from a view to
-its message, printed as the message's generated proto3 JSON. A resource
+are unchanged, and each noun's module in `library-cli` (`noun/<noun>.rs`,
+design §8.4) is the ONE path from its views to its messages, over the
+helpers they share in `api.rs`, printed as the message's generated proto3
+JSON. One file per noun, so the converting branches touch none in common:
+`noun/<noun>.rs` and `.test.rs` (read verbs, write verbs, the mapping),
+the binary's `library_cli_<noun>.test.rs` and `fixtures/parity/<noun>.tsv`
+(B1 `bundle`, `item` for fragment, command and `fragment premises`,
+`skill`, `mcp`, `profile`; B2 `agent`, `config`, `companion` with
+`loadout`, `run` for `run --dry-run`; B3 `search`, `context`); the shared
+ones (`lib.rs`'s dispatch and prelude, `api.rs`, `write.rs`'s helpers,
+`text.rs`, `commands.rs`, the harnesses `lib.test.rs`, `write.test.rs` and
+`library_cli.test.rs`) are not a noun's. A resource
 name's parent comes from `library_cli::Names`, asked only when a json
 answer prints one (text reaches no daemon): the wiring's is the daemon's
 `ResolveProject` (`daemon_api::Client::library_parent`, the wiring's

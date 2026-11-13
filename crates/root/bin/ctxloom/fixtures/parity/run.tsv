@@ -1,0 +1,56 @@
+# Go-parity commands: id <TAB> fixture <TAB> [ENV=value ...] arguments
+# Each line, in every file of fixtures/parity/ (one per noun, design §8.4),
+# is run by scripts/go-library-goldens.sh against Go ctxloom
+# (release/0.7 860336c4e) to make fixtures/golden/<id>.stdout and .exit, and
+# by the Rust acceptance test (library_parity.test.rs) against this binary.
+# Source of every line: the Go feature named in the id's group comment.
+#
+# cli/run.feature (run --dry-run)
+run-dry-dev-json	lib	run --dry-run --profile dev hello --format json
+run-dry-dev-text	lib	run --dry-run --profile dev hello --format text
+run-dry-default-json	lib	run --dry-run hello --format json
+run-dry-agent-json	lib	run --dry-run --agent developer hello --format json
+run-dry-fragment-json	lib	run --dry-run -f demo#fragments/testing --format json
+run-dry-fragment-bare-json	lib	run --dry-run -f testing --format json
+run-dry-fragment-premised-json	lib	run --dry-run -f golang --format json
+run-dry-tag-json	lib	run --dry-run -t house --format json
+run-dry-tag-none	lib	run --dry-run -t no-such-tag-anywhere hello
+run-dry-fragment-none	lib	run --dry-run -f nosuch --format json
+run-dry-profile-unknown	lib	run --dry-run -p nosuch hello
+run-dry-agent-unknown	lib	run --dry-run --agent nosuch hello
+run-dry-agent-and-profile	lib	run --dry-run --agent developer --profile dev hello
+# ctxloom-project bundle, adapters/content's tree fixtures, a premised bundle
+gold-run-dry-auto-json	gold	run --dry-run -p golden-auto --format json
+gold-run-dry-auto-text	gold	run --dry-run -p golden-auto --format text
+gold-run-dry-curated-json	gold	run --dry-run -p golden-curated --format json
+gold-run-dry-default-json	gold	run --dry-run --format json
+gold-run-dry-explicit-premised-json	gold	run --dry-run -p golden-auto -f premised#fragments/sometimes --format json
+# Profile resolution (core/profiles/profiles.go, composite/select.go)
+prof-run-top	prof	run --dry-run -p top --format json
+prof-run-excl-parent	prof	run --dry-run -p excl-parent --format json
+prof-run-excl-child	prof	run --dry-run -p excl-child --format json
+prof-run-cycle-a	prof	run --dry-run -p cycle-a --format json
+prof-run-selfish	prof	run --dry-run -p selfish --format json
+prof-run-orphan	prof	run --dry-run -p orphan --format json
+prof-run-orphan-degraded	prof	run --dry-run --degraded -p orphan --format json
+prof-run-bookend	prof	run --dry-run -p bookend --format json
+prof-run-missing-bundle	prof	run --dry-run -p missing-bundle --format json
+prof-run-missing-bundle-degraded	prof	run --dry-run --degraded -p missing-bundle --format json
+prof-run-missing-fragment	prof	run --dry-run -p missing-fragment --format json
+prof-run-missing-fragment-degraded	prof	run --dry-run --degraded -p missing-fragment --format json
+prof-run-mustache	prof	run --dry-run -p mustache --format json
+prof-run-pinned	prof	run --dry-run -p pinned --format json
+prof-run-pinned-degraded	prof	run --dry-run --degraded -p pinned --format json
+prof-run-deep-0	prof	run --dry-run -p deep-0 --format json
+prof-run-deep-1	prof	run --dry-run -p deep-1 --format json
+prof-run-deep-2	prof	run --dry-run -p deep-2 --format json
+prof-run-ok-0	prof	run --dry-run -p ok-0 --format json
+prof-run-default-json	prof	run --dry-run --format json
+prof-context-top	prof	run --dry-run -p top -t nosuch --format json
+# Nothing there: no content directory at all, and an empty one (empty_listing_hint, cli/agent.feature)
+empty-run---dry-run-json	empty	run --dry-run --format json
+empty-run---dry-run-text	empty	run --dry-run --format text
+emptybundles-run---dry-run-json	emptybundles	run --dry-run --format json
+emptybundles-run---dry-run-text	emptybundles	run --dry-run --format text
+# No project here (configload/appdir.go: no .ctxloom up the path, so the home's config alone)
+noproject-run-dry-text	noproject	CTXLOOM_ROOT= run --dry-run --format json

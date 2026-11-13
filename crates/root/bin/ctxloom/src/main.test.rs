@@ -300,6 +300,36 @@ mod library;
 #[path = "library_cli.test.rs"]
 mod library_cli;
 
+#[path = "library_cli_agent.test.rs"]
+mod library_cli_agent;
+
+#[path = "library_cli_bundle.test.rs"]
+mod library_cli_bundle;
+
+#[path = "library_cli_companion.test.rs"]
+mod library_cli_companion;
+
+#[path = "library_cli_context.test.rs"]
+mod library_cli_context;
+
+#[path = "library_cli_item.test.rs"]
+mod library_cli_item;
+
+#[path = "library_cli_mcp.test.rs"]
+mod library_cli_mcp;
+
+#[path = "library_cli_profile.test.rs"]
+mod library_cli_profile;
+
+#[path = "library_cli_run.test.rs"]
+mod library_cli_run;
+
+#[path = "library_cli_search.test.rs"]
+mod library_cli_search;
+
+#[path = "library_cli_skill.test.rs"]
+mod library_cli_skill;
+
 #[path = "library_config.test.rs"]
 mod library_config;
 

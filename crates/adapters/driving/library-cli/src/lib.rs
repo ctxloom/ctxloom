@@ -13,8 +13,35 @@
 mod api;
 mod commands;
 pub mod inert;
+mod noun;
 mod text;
 mod write;
+
+/// What every noun's module uses: the shared helpers here, in `write` and
+/// in `api`, and the types they speak.
+mod prelude {
+    pub(crate) use std::io::{self, Write};
+
+    pub(crate) use angzarr_diagnostic::Diagnostic;
+    pub(crate) use angzarr_presentation::Format;
+    pub(crate) use clap::ArgMatches;
+    pub(crate) use cli_support::{flag, many, say_notices, Exit};
+    pub(crate) use library_application::{
+        AgentRequest, AgentRow, AgentWritten, AppError, AssembleRequest, AuthSetting,
+        BundleEditRequest, ConfigShown, DefaultAgent, EngineAgent, EngineRow, ItemKind, McpEdited,
+        McpPatch, ProfileCreateRequest, ProfileEdit, ProfileEdited, RunRequest, SearchRequest,
+        SwapPreview, WriteError, LOADOUT,
+    };
+
+    pub(crate) use crate::write::{
+        finish, finish_text, given, given_list, given_map, given_pairs, nothing, removal, text_only,
+    };
+    pub(crate) use crate::{
+        answer, api, emit, failed, output_failure, resource, text, text_arg, verb, Context,
+        Failure, IntoFailure, PROG,
+    };
+    pub(crate) use daemon_proto::v1;
+}
 
 use cli_support::{Exit, ExitClass};
 use std::io::{self, Write};
@@ -22,17 +49,14 @@ use std::io::{self, Write};
 use angzarr_diagnostic::Diagnostic;
 use angzarr_presentation::{Catalog, Format};
 use clap::ArgMatches;
-use cli_support::{flag, many, one, say_notices};
-use library_application::{
-    AppError, AssembleRequest, ConfigShown, Flags, ItemKind, Library, Notice, RunRequest,
-    SearchRequest,
-};
+use cli_support::{one, say_notices};
+use library_application::{AppError, Flags, ItemKind, Library, Notice};
 use serde::Serialize;
 
 pub use commands::nouns;
 
 /// The program's name, for the warnings.
-const PROG: &str = "ctxloom";
+pub(crate) const PROG: &str = "ctxloom";
 
 pub use cli_support::Failure;
 
@@ -40,7 +64,7 @@ pub use cli_support::Failure;
 pub type Call<'a> = cli_support::Call<'a, Flags>;
 
 /// An application error as the failure it ends the command in.
-trait IntoFailure {
+pub(crate) trait IntoFailure {
     fn into_failure(self) -> Failure;
 }
 
@@ -51,7 +75,7 @@ impl IntoFailure for AppError {
     }
 }
 
-fn failed(error: AppError) -> Failure {
+pub(crate) fn failed(error: AppError) -> Failure {
     error.into_failure()
 }
 
@@ -65,7 +89,7 @@ pub trait Names {
 }
 
 /// Everything a command needs to answer.
-struct Context<'a> {
+pub(crate) struct Context<'a> {
     library: &'a Library,
     names: &'a dyn Names,
     flags: Flags,
@@ -112,7 +136,7 @@ pub fn run(
 }
 
 /// The verb of a noun's matches, or its default.
-fn verb<'a>(sub: &'a ArgMatches, default: &'a str) -> (&'a str, &'a ArgMatches) {
+pub(crate) fn verb<'a>(sub: &'a ArgMatches, default: &'a str) -> (&'a str, &'a ArgMatches) {
     match sub.subcommand() {
         Some((name, matches)) => (name, matches),
         None => (default, sub),
@@ -127,11 +151,11 @@ fn dispatch(
     err: &mut dyn Write,
 ) -> Result<Exit, Failure> {
     match noun {
-        "config" => written(write::config(cx, verb(sub, "show"), out, err), || {
-            config(cx, verb(sub, "show").1, out, err)
+        "config" => written(noun::config::write(cx, verb(sub, "show"), out, err), || {
+            noun::config::read(cx, verb(sub, "show").1, out, err)
         }),
-        "bundle" => written(write::bundle(cx, verb(sub, "list"), out, err), || {
-            bundle(cx, verb(sub, "list"), out, err)
+        "bundle" => written(noun::bundle::write(cx, verb(sub, "list"), out, err), || {
+            noun::bundle::read(cx, verb(sub, "list"), out, err)
         }),
         "fragment" | "command" => {
             let kind = if noun == "fragment" {
@@ -139,28 +163,31 @@ fn dispatch(
             } else {
                 ItemKind::Command
             };
-            written(write::item(cx, kind, verb(sub, "list"), out, err), || {
-                items(cx, noun, verb(sub, "list"), out, err)
-            })
+            written(
+                noun::item::write(cx, kind, verb(sub, "list"), out, err),
+                || noun::item::read(cx, noun, verb(sub, "list"), out, err),
+            )
         }
-        "skill" => written(write::skill(cx, verb(sub, "list"), out, err), || {
-            skill(cx, verb(sub, "list"), out, err)
+        "skill" => written(noun::skill::write(cx, verb(sub, "list"), out, err), || {
+            noun::skill::read(cx, verb(sub, "list"), out, err)
         }),
-        "profile" => written(write::profile(cx, verb(sub, "list"), out, err), || {
-            profile(cx, verb(sub, "list"), out, err)
+        "profile" => written(
+            noun::profile::write(cx, verb(sub, "list"), out, err),
+            || noun::profile::read(cx, verb(sub, "list"), out, err),
+        ),
+        "agent" => written(noun::agent::write(cx, verb(sub, "list"), out, err), || {
+            noun::agent::read(cx, verb(sub, "list"), out, err)
         }),
-        "agent" => written(write::agent(cx, verb(sub, "list"), out, err), || {
-            agent(cx, verb(sub, "list"), out, err)
-        }),
-        "engine" => engine(cx, verb(sub, "list"), out, err),
-        "mcp" => mcp(cx, sub, out, err),
-        "companion" => written(write::companion(cx, verb(sub, "list"), out, err), || {
-            companion(cx, out, err)
-        }),
-        "loadout" => write::loadout(sub, out),
-        "search" => search(cx, sub, out, err),
-        "context" => context(cx, verb(sub, "assemble").1, out, err),
-        _ => run_command(cx, sub, out, err),
+        "engine" => noun::engine::read(cx, verb(sub, "list"), out, err),
+        "mcp" => noun::mcp::read(cx, sub, out, err),
+        "companion" => written(
+            noun::companion::write(cx, verb(sub, "list"), out, err),
+            || noun::companion::read(cx, out, err),
+        ),
+        "loadout" => noun::companion::loadout(sub, out),
+        "search" => noun::search::read(cx, sub, out, err),
+        "context" => noun::context::read(cx, verb(sub, "assemble").1, out, err),
+        _ => noun::run::read(cx, sub, out, err),
     }
 }
 
@@ -176,7 +203,7 @@ fn written(
 }
 
 /// The notices, said; then the answer's error or its output.
-fn answer<T>(
+pub(crate) fn answer<T>(
     cx: &Context<'_>,
     outcome: library_application::Outcome<T>,
     out: &mut dyn Write,
@@ -192,7 +219,7 @@ fn answer<T>(
     Ok(code)
 }
 
-fn output_failure(error: io::Error) -> Failure {
+pub(crate) fn output_failure(error: io::Error) -> Failure {
     Failure::new(OutputFailure(error.to_string()), Exit::FAILED)
 }
 
@@ -217,7 +244,7 @@ impl Diagnostic for OutputFailure {
 }
 
 /// Write `value` as json, or as `text` says; the exit code is 0.
-fn emit<T: Serialize>(
+pub(crate) fn emit<T: Serialize>(
     format: Format,
     out: &mut dyn Write,
     value: &T,
@@ -227,219 +254,14 @@ fn emit<T: Serialize>(
     Ok(Exit::OK)
 }
 
-fn text_arg(matches: &ArgMatches, name: &str) -> String {
+pub(crate) fn text_arg(matches: &ArgMatches, name: &str) -> String {
     one(matches, name).unwrap_or_default()
-}
-
-fn config(
-    cx: &Context<'_>,
-    sub: &ArgMatches,
-    out: &mut dyn Write,
-    err: &mut dyn Write,
-) -> Result<Exit, Failure> {
-    let section = text_arg(sub, "section");
-    let outcome = cx.library.config_show(
-        &cx.flags,
-        (!section.is_empty()).then_some(section.as_str()),
-        flag(sub, "raw"),
-    );
-    answer(cx, outcome, out, err, |shown: ConfigShown, out, _| {
-        emit(cx.format, out, &shown.json, |out| {
-            write!(out, "{}", shown.text)
-        })
-    })
-}
-
-fn bundle(
-    cx: &Context<'_>,
-    (verb, sub): (&str, &ArgMatches),
-    out: &mut dyn Write,
-    err: &mut dyn Write,
-) -> Result<Exit, Failure> {
-    match verb {
-        "show" => {
-            let outcome = cx.library.bundle_show(&cx.flags, &text_arg(sub, "name"));
-            answer(cx, outcome, out, err, |show, out, notes| {
-                emit(cx.format, out, &show, |out| {
-                    let mut said = text::Notes(Vec::new());
-                    let written = text::bundle_show(out, &mut said, &show);
-                    notes.extend(said.0);
-                    written
-                })
-            })
-        }
-        "view" => {
-            let ask = text_arg(sub, "name");
-            let outcome = cx
-                .library
-                .bundle_view(&cx.flags, &ask, flag(sub, "distilled"));
-            answer(cx, outcome, out, err, |view, out, notes| {
-                emit(cx.format, out, &view, |out| {
-                    let mut said = text::Notes(Vec::new());
-                    let written = text::bundle_view(out, &mut said, &view, &ask);
-                    notes.extend(said.0);
-                    written
-                })
-            })
-        }
-        _ => {
-            let outcome = cx.library.bundle_list(&cx.flags);
-            answer(cx, outcome, out, err, |list, out, _| {
-                emit(cx.format, out, &list.rows, |out| {
-                    text::bundle_list(out, &list)
-                })
-            })
-        }
-    }
-}
-
-fn items(
-    cx: &Context<'_>,
-    kind: &str,
-    (verb, sub): (&str, &ArgMatches),
-    out: &mut dyn Write,
-    err: &mut dyn Write,
-) -> Result<Exit, Failure> {
-    let kind_of = if kind == "fragment" {
-        ItemKind::Fragment
-    } else {
-        ItemKind::Command
-    };
-    match verb {
-        "show" => {
-            if cx.explicit && cx.format == Format::Json {
-                return Err(AppError::UnsupportedFormat {
-                    command: format!("{kind} show"),
-                    format: "json".to_string(),
-                }
-                .into_failure());
-            }
-            let outcome = cx.library.item_show(
-                &cx.flags,
-                kind_of,
-                &text_arg(sub, "ref"),
-                flag(sub, "distilled"),
-            );
-            answer(cx, outcome, out, err, |show, out, notes| {
-                let mut said = text::Notes(Vec::new());
-                let written = text::item_show(out, &mut said, &show);
-                notes.extend(said.0);
-                written.map(|()| Exit::OK)
-            })
-        }
-        "premises" => {
-            let outcome = cx.library.premises(&cx.flags);
-            answer(cx, outcome, out, err, |premises, out, _| {
-                emit(cx.format, out, &premises, |out| {
-                    text::premises(out, &premises)
-                })
-            })
-        }
-        _ => {
-            let outcome = cx
-                .library
-                .item_list(&cx.flags, kind_of, &text_arg(sub, "bundle"));
-            answer(cx, outcome, out, err, |list, out, _| {
-                emit(cx.format, out, &list.rows, |out| {
-                    text::item_list(out, &list)
-                })
-            })
-        }
-    }
-}
-
-fn skill(
-    cx: &Context<'_>,
-    (verb, sub): (&str, &ArgMatches),
-    out: &mut dyn Write,
-    err: &mut dyn Write,
-) -> Result<Exit, Failure> {
-    if verb == "show" {
-        let outcome = cx.library.skill_show(&cx.flags, &text_arg(sub, "ref"));
-        return answer(cx, outcome, out, err, |show, out, notes| {
-            emit(cx.format, out, &show, |out| {
-                let mut said = text::Notes(Vec::new());
-                let written = text::skill_show(out, &mut said, &show);
-                notes.extend(said.0);
-                written
-            })
-        });
-    }
-    let outcome = cx.library.skill_list(&cx.flags, &text_arg(sub, "bundle"));
-    answer(cx, outcome, out, err, |list, out, _| {
-        emit(cx.format, out, &list.rows, |out| {
-            text::skill_list(out, &list)
-        })
-    })
-}
-
-fn profile(
-    cx: &Context<'_>,
-    (verb, sub): (&str, &ArgMatches),
-    out: &mut dyn Write,
-    err: &mut dyn Write,
-) -> Result<Exit, Failure> {
-    if verb == "show" {
-        let outcome = cx.library.profile_show(&cx.flags, &text_arg(sub, "name"));
-        return answer(cx, outcome, out, err, |show, out, _| {
-            emit(cx.format, out, &show, |out| text::profile_show(out, &show))
-        });
-    }
-    let outcome = cx.library.profile_list(&cx.flags);
-    answer(cx, outcome, out, err, |list, out, _| {
-        emit(cx.format, out, &list.rows, |out| {
-            text::profile_list(out, &list)
-        })
-    })
-}
-
-fn agent(
-    cx: &Context<'_>,
-    (verb, sub): (&str, &ArgMatches),
-    out: &mut dyn Write,
-    err: &mut dyn Write,
-) -> Result<Exit, Failure> {
-    if verb == "show" {
-        let catalog = cx.catalog;
-        let say = |d: &dyn Diagnostic| catalog.message(d);
-        let outcome = cx
-            .library
-            .agent_show(&cx.flags, &text_arg(sub, "name"), &say);
-        return answer(cx, outcome, out, err, |show, out, _| {
-            emit(cx.format, out, &show, |out| text::agent_show(out, &show))
-        });
-    }
-    let outcome = cx.library.agent_list(&cx.flags);
-    answer(cx, outcome, out, err, |rows, out, _| {
-        emit(cx.format, out, &rows, |out| text::agent_list(out, &rows))
-    })
-}
-
-fn engine(
-    cx: &Context<'_>,
-    (verb, sub): (&str, &ArgMatches),
-    out: &mut dyn Write,
-    err: &mut dyn Write,
-) -> Result<Exit, Failure> {
-    if verb == "show" {
-        let outcome = cx.library.engine_show(&cx.flags, &text_arg(sub, "engine"));
-        return resource(cx, outcome, out, err, api::engine, text::engine_show);
-    }
-    let outcome = cx.library.engine_list(&cx.flags);
-    resource(
-        cx,
-        outcome,
-        out,
-        err,
-        |parent, rows: &Vec<_>| api::engines(parent, rows),
-        |out, rows| text::engine_list(out, rows),
-    )
 }
 
 /// A converted noun's answer (OD-40): the notices, said; then its error,
 /// or its json, the view as its API message named under the parent the
 /// names give (asked only here), or its text.
-fn resource<T, M: Serialize>(
+pub(crate) fn resource<T, M: Serialize>(
     cx: &Context<'_>,
     outcome: library_application::Outcome<T>,
     out: &mut dyn Write,
@@ -456,116 +278,6 @@ fn resource<T, M: Serialize>(
         text(out, &value).map_err(output_failure)?;
     }
     Ok(Exit::OK)
-}
-
-fn companion(cx: &Context<'_>, out: &mut dyn Write, err: &mut dyn Write) -> Result<Exit, Failure> {
-    let outcome = cx.library.companion_list(&cx.flags);
-    answer(cx, outcome, out, err, |rows, out, _| {
-        emit(cx.format, out, &rows, |out| {
-            text::companion_list(out, &rows)
-        })
-    })
-}
-
-fn mcp(
-    cx: &Context<'_>,
-    sub: &ArgMatches,
-    out: &mut dyn Write,
-    err: &mut dyn Write,
-) -> Result<Exit, Failure> {
-    let Some(("server", server)) = sub.subcommand() else {
-        return Err(write::mcp_bare(cx));
-    };
-    let (name, args) = verb(server, "list");
-    if let Some(code) = write::mcp(cx, (name, args), out, err)? {
-        return Ok(code);
-    }
-    if name == "show" {
-        let outcome = cx.library.mcp_show(&cx.flags, &text_arg(args, "name"));
-        return answer(cx, outcome, out, err, |show, out, _| {
-            emit(cx.format, out, &show, |out| text::mcp_show(out, &show))
-        });
-    }
-    let outcome = cx.library.mcp_list(&cx.flags);
-    answer(cx, outcome, out, err, |list, out, _| {
-        emit(cx.format, out, &list, |out| text::mcp_list(out, &list))
-    })
-}
-
-fn search(
-    cx: &Context<'_>,
-    sub: &ArgMatches,
-    out: &mut dyn Write,
-    err: &mut dyn Write,
-) -> Result<Exit, Failure> {
-    let request = SearchRequest {
-        query: text_arg(sub, "query"),
-        tags: many(sub, "tag"),
-        kind: text_arg(sub, "type"),
-        local: flag(sub, "local"),
-        remote: flag(sub, "remote"),
-    };
-    let outcome = cx.library.search(&cx.flags, &request);
-    answer(cx, outcome, out, err, |results, out, _| {
-        emit(cx.format, out, &results, |out| text::search(out, &results))
-    })
-}
-
-fn context(
-    cx: &Context<'_>,
-    sub: &ArgMatches,
-    out: &mut dyn Write,
-    err: &mut dyn Write,
-) -> Result<Exit, Failure> {
-    let request = AssembleRequest {
-        profiles: many(sub, "profile"),
-        fragments: many(sub, "fragment"),
-        tags: many(sub, "tag"),
-    };
-    let outcome = cx.library.assemble(&cx.flags, &request);
-    answer(cx, outcome, out, err, |assembled, out, _| {
-        emit(cx.format, out, &assembled, |out| {
-            writeln!(out, "{}", assembled.context)
-        })
-    })
-}
-
-fn run_command(
-    cx: &Context<'_>,
-    sub: &ArgMatches,
-    out: &mut dyn Write,
-    err: &mut dyn Write,
-) -> Result<Exit, Failure> {
-    if !flag(sub, "dry-run") {
-        return Err(AppError::RunNeedsDryRun.into_failure());
-    }
-    let mut prompt = text_arg(sub, "prompt");
-    if prompt.is_empty() {
-        prompt = many(sub, "prompt_words").join(" ");
-    }
-    let request = RunRequest {
-        agent: text_arg(sub, "agent"),
-        profile: text_arg(sub, "profile"),
-        fragments: many(sub, "fragment"),
-        tags: many(sub, "tag"),
-        engine: text_arg(sub, "engine"),
-        prompt,
-        saved_command: text_arg(sub, "command"),
-        workspace: text_arg(sub, "workspace"),
-    };
-    let outcome = cx.library.dry_run(&cx.flags, &request);
-    say_notices(&outcome.notices, PROG, cx.format, cx.catalog, err);
-    let previewed = outcome.result.map_err(failed)?;
-    emit(cx.format, out, &previewed.plan, |out| {
-        text::dry_run(out, &previewed.plan)
-    })
-    .map_err(output_failure)?;
-    // A dry run that found nothing fatal would launch (ruling 153): the
-    // distinguishing success 1, said only under `--detailed-exitcode`.
-    if previewed.fatal.is_empty() {
-        return Ok(Exit::WOULD_CHANGE);
-    }
-    Err(AppError::aborted(&previewed.fatal).into_failure())
 }
 
 #[cfg(test)]

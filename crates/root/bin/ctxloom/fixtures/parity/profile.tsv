@@ -1,0 +1,34 @@
+# Go-parity commands: id <TAB> fixture <TAB> [ENV=value ...] arguments
+# Each line, in every file of fixtures/parity/ (one per noun, design §8.4),
+# is run by scripts/go-library-goldens.sh against Go ctxloom
+# (release/0.7 860336c4e) to make fixtures/golden/<id>.stdout and .exit, and
+# by the Rust acceptance test (library_parity.test.rs) against this binary.
+# Source of every line: the Go feature named in the id's group comment.
+#
+# cli/profile.feature
+profile-list-json	lib	profile list --format json
+profile-list-text	lib	profile list --format text
+profile-bare-json	lib	profile --format json
+profile-ls-json	lib	profile ls --format json
+profile-show-dev-json	lib	profile show dev --format json
+profile-show-dev-text	lib	profile show dev --format text
+profile-show-base-text	lib	profile show base --format text
+profile-show-unknown	lib	profile show nope
+# ctxloom-project bundle, adapters/content's tree fixtures, a premised bundle
+gold-profile-list-json	gold	profile list --format json
+gold-profile-list-text	gold	profile list --format text
+gold-profile-show-curated-json	gold	profile show golden-curated --format json
+gold-profile-show-curated-text	gold	profile show golden-curated --format text
+# Envelope generations 0 to 4 (bundles/upgrade.go envelopeSteps): one model whatever the stamp
+gens-profile-legacy-json	gens	profile show legacy --format json
+gens-profile-list-json	gens	profile list --format json
+# Profile resolution (core/profiles/profiles.go, composite/select.go)
+prof-profile-list-json	prof	profile list --format json
+prof-profile-show-top-json	prof	profile show top --format json
+# Nothing there: no content directory at all, and an empty one (empty_listing_hint, cli/agent.feature)
+empty-profile-list-text	empty	profile list --format text
+empty-profile-list-json	empty	profile list --format json
+emptybundles-profile-list-text	emptybundles	profile list --format text
+emptybundles-profile-list-json	emptybundles	profile list --format json
+# No project here (configload/appdir.go: no .ctxloom up the path, so the home's config alone)
+noproject-profile-list-text	noproject	CTXLOOM_ROOT= profile list --format text

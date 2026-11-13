@@ -12,7 +12,7 @@ crates/core/read-model/library/src/write/archive.test.rs | .mode(0o104_755) | th
 crates/core/read-model/library/src/write/archive.test.rs | .mode(0o100_001) | the mode field of an in-memory zip entry, no file written
 crates/core/read-model/library/src/write/archive.test.rs | .mode(0o100_100) | the mode field of an in-memory zip entry, no file written
 crates/core/read-model/library/src/write/archive.test.rs | (0o120_777, true) | the mode of an in-memory zip entry (a symlink), no file written
-crates/root/bin/ctxloom/src/library_cli.test.rs | files::set_mode(project.dir().join(&script), 0o755) | the execute bit is what `skill show` reports of a skill's script; never run
+crates/root/bin/ctxloom/src/library_cli_skill.test.rs | files::set_mode(project.dir().join(&script), 0o755) | the execute bit is what `skill show` reports of a skill's script; never run
 crates/root/bin/ctxloom/src/library.test.rs | files::set_mode(self.project.join(rel), 0o755) | the execute bit is what a skill package's listing reports; never run
 crates/root/lib/ctxloom-wiring/src/lib.test.rs | executable(&first, "plain", 0o755) | the PATH search finds only executable files; never run
 crates/root/lib/ctxloom-wiring/src/lib.test.rs | executable(&second, "both", 0o755) | the PATH search finds only executable files; never run

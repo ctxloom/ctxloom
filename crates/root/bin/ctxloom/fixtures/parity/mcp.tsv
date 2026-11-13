@@ -1,0 +1,22 @@
+# Go-parity commands: id <TAB> fixture <TAB> [ENV=value ...] arguments
+# Each line, in every file of fixtures/parity/ (one per noun, design §8.4),
+# is run by scripts/go-library-goldens.sh against Go ctxloom
+# (release/0.7 860336c4e) to make fixtures/golden/<id>.stdout and .exit, and
+# by the Rust acceptance test (library_parity.test.rs) against this binary.
+# Source of every line: the Go feature named in the id's group comment.
+#
+# cli/mcp.feature
+mcp-server-list-json	lib	mcp server list --format json
+mcp-server-list-text	lib	mcp server list --format text
+mcp-server-show-json	lib	mcp server show tree-sitter --format json
+mcp-server-show-text	lib	mcp server show tree-sitter --format text
+mcp-server-show-excluded	lib	mcp server show remote
+mcp-server-show-unknown	lib	mcp server show nosuch
+# ctxloom-project bundle, adapters/content's tree fixtures, a premised bundle
+gold-mcp-server-list-json	gold	mcp server list --format json
+gold-mcp-server-show-postgres	gold	mcp server show postgres --format json
+# Envelope generations 0 to 4 (bundles/upgrade.go envelopeSteps): one model whatever the stamp
+gens-mcp-show	gens	mcp server show m --format json
+# Nothing there: no content directory at all, and an empty one (empty_listing_hint, cli/agent.feature)
+empty-mcp-server-list-json	empty	mcp server list --format json
+emptybundles-mcp-server-list-json	emptybundles	mcp server list --format json

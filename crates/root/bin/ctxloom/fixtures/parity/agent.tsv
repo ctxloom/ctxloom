@@ -1,0 +1,28 @@
+# Go-parity commands: id <TAB> fixture <TAB> [ENV=value ...] arguments
+# Each line, in every file of fixtures/parity/ (one per noun, design §8.4),
+# is run by scripts/go-library-goldens.sh against Go ctxloom
+# (release/0.7 860336c4e) to make fixtures/golden/<id>.stdout and .exit, and
+# by the Rust acceptance test (library_parity.test.rs) against this binary.
+# Source of every line: the Go feature named in the id's group comment.
+#
+# cli/agent.feature
+agent-list-json	lib	agent list --format json
+agent-list-text	lib	agent list --format text
+agent-bare-json	lib	agent --format json
+agent-show-developer-json	lib	agent show developer --format json
+agent-show-developer-text	lib	agent show developer --format text
+agent-show-reviewer-json	lib	agent show reviewer --format json
+agent-show-unknown	lib	agent show nosuchagent
+# ctxloom-project bundle, adapters/content's tree fixtures, a premised bundle
+gold-agent-list-json	gold	agent list --format json
+gold-agent-show-json	gold	agent show default --format json
+# Configuration: schema 8 and older, layering, strict decode (cli/config.feature, fault_tolerance.feature)
+cfg-v8-agent-show-json	cfg/v8	agent show dev --format json
+cfg-layers-agent-list-json	cfg/layers	agent list --format json
+# Nothing there: no content directory at all, and an empty one (empty_listing_hint, cli/agent.feature)
+empty-agent-list-text	empty	agent list --format text
+empty-agent-list-json	empty	agent list --format json
+emptybundles-agent-list-text	emptybundles	agent list --format text
+emptybundles-agent-list-json	emptybundles	agent list --format json
+# No project here (configload/appdir.go: no .ctxloom up the path, so the home's config alone)
+noproject-agent-list-text	noproject	CTXLOOM_ROOT= agent list --format text

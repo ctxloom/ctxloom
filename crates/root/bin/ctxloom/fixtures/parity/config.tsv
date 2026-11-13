@@ -1,0 +1,56 @@
+# Go-parity commands: id <TAB> fixture <TAB> [ENV=value ...] arguments
+# Each line, in every file of fixtures/parity/ (one per noun, design §8.4),
+# is run by scripts/go-library-goldens.sh against Go ctxloom
+# (release/0.7 860336c4e) to make fixtures/golden/<id>.stdout and .exit, and
+# by the Rust acceptance test (library_parity.test.rs) against this binary.
+# Source of every line: the Go feature named in the id's group comment.
+#
+# cli/config.feature
+config-show-json	lib	config show --format json
+config-show-text	lib	config show --format text
+config-bare-json	lib	config --format json
+config-show-agents-json	lib	config show agents --format json
+config-show-raw-json	lib	config show --raw --format json
+config-show-unknown-section	lib	config show nonsense
+config-set-json	lib	--config-set editor.command=vim config show editor --format json
+config-env-json	lib	CTXLOOM_CONFIG_EDITOR_COMMAND=nano config show editor --format json
+config-misspelled-subcommand	lib	config shwo
+# ctxloom-project bundle, adapters/content's tree fixtures, a premised bundle
+gold-config-show-json	gold	config show --format json
+# Configuration: schema 8 and older, layering, strict decode (cli/config.feature, fault_tolerance.feature)
+cfg-v8-show-json	cfg/v8	config show --format json
+cfg-v7-show-json	cfg/v7	config show --format json
+cfg-v7-only-essence-show-json	cfg/v7-only-essence	config show --format json
+cfg-unstamped-show-json	cfg/unstamped	config show --format json
+cfg-older-show-json	cfg/older	config show --format json
+cfg-newer-show-json	cfg/newer	config show --format json
+cfg-notint-show-json	cfg/notint	config show --format json
+cfg-badyaml-show-json	cfg/badyaml	config show --format json
+cfg-unknownkey-show-json	cfg/unknownkey	config show --format json
+cfg-inline-profiles-show-json	cfg/inline-profiles	config show --format json
+cfg-bad-agent-key-show-json	cfg/bad-agent-key	config show --format json
+cfg-bad-enum-show-json	cfg/bad-enum	config show --format json
+cfg-bad-delegation-show-json	cfg/bad-delegation	config show --format json
+cfg-engineless-agent-show-json	cfg/engineless-agent	config show --format json
+cfg-native-mcp-show-json	cfg/native-mcp	config show --format json
+cfg-retired-turn-cap-show-json	cfg/retired-turn-cap	config show --format json
+cfg-layers-show-json	cfg/layers	config show --format json
+cfg-layers-empty-companions-show-json	cfg/layers-empty-companions	config show --format json
+cfg-v8-show-text	cfg/v8	config show --format text
+cfg-v8-show-raw-json	cfg/v8	config show --raw --format json
+cfg-v7-show-text	cfg/v7	config show --format text
+cfg-v7-show-raw-json	cfg/v7	config show --raw --format json
+cfg-layers-show-text	cfg/layers	config show --format text
+cfg-layers-show-raw-json	cfg/layers	config show --raw --format json
+cfg-unknownkey-degraded-show-json	cfg/unknownkey	--degraded config show --format json
+cfg-bad-enum-degraded-show-json	cfg/bad-enum	--degraded config show --format json
+cfg-engineless-agent-degraded-show-json	cfg/engineless-agent	--degraded config show --format json
+cfg-v8-section-delegation-json	cfg/v8	config show delegation --format json
+cfg-v8-section-delegation-text	cfg/v8	config show delegation --format text
+cfg-v8-section-agents-text	cfg/v8	config show agents --format text
+cfg-layers-set-json	cfg/layers	--config-set companions=zzz config show companions --format json
+# Nothing there: no content directory at all, and an empty one (empty_listing_hint, cli/agent.feature)
+empty-config-show-json	empty	config show --format json
+emptybundles-config-show-json	emptybundles	config show --format json
+# No project here (configload/appdir.go: no .ctxloom up the path, so the home's config alone)
+noproject-config-show-editor-json	noproject	CTXLOOM_ROOT= config show editor --format json

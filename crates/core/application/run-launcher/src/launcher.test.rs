@@ -1943,7 +1943,7 @@ async fn a_checkout_is_released_through_the_workspaces_port() {
         "not at launch"
     );
     assert_eq!(
-        rig.launcher.release(&checkout),
+        rig.launcher.release(&checkout, &[]),
         isolation_ports::Removal::Left("it has work".to_string())
     );
     assert_eq!(
@@ -1967,7 +1967,7 @@ async fn a_launcher_with_no_workspaces_leaves_a_checkout() {
         reused: false,
     };
     assert!(matches!(
-        rig.launcher.release(&checkout),
+        rig.launcher.release(&checkout, &[]),
         isolation_ports::Removal::Left(_)
     ));
 }
@@ -2062,4 +2062,61 @@ async fn the_engine_is_prepared_with_the_launchs_surfaces() {
     let prepared = prepared.lock().unwrap();
     assert_eq!(prepared.len(), 1);
     assert_eq!(prepared[0].surfaces, order.surfaces);
+}
+
+// Owner ruling 2026-11-12 (Q3): what a launch carries that its engine reads
+// only from where it works is written into the session's checkout, hidden
+// from git there, and taken out at its release, before the checkout goes.
+#[tokio::test]
+async fn files_the_engine_reads_where_it_works_go_into_its_checkout_and_out_at_release() {
+    use crate::fakes::{
+        worktree_checkout, worktree_order, Placing, ScriptedWorkspaces, PLACED, WORK_DIR,
+    };
+    let workspaces = Arc::new(ScriptedWorkspaces::new(worktree_checkout));
+    let mut rig = rig(
+        Placing(ScriptedEngine::answering("A", None)),
+        ScriptedRunner::exits(0),
+        orders_with(worktree_order("fake", "reviewer")),
+    );
+    rig.launcher = rig.launcher.with_workspaces(Arc::clone(&workspaces) as _);
+    enqueued(&rig.edge, SESSION, HARP).await;
+    let launched = rig.step().await;
+    let path = format!("{WORK_DIR}/reviewer");
+    assert_eq!(
+        workspaces.asked.lock().unwrap()[0].artifact_patterns,
+        [".placed/"]
+    );
+    assert_eq!(
+        *workspaces.files.lock().unwrap(),
+        [format!("{path}/{PLACED}")]
+    );
+    assert_eq!(launched[0].checkout_files, [PLACED]);
+    let checkout = launched[0].checkout.clone().unwrap();
+    rig.launcher.release(&checkout, &launched[0].checkout_files);
+    assert_eq!(
+        *workspaces.files.lock().unwrap(),
+        [
+            format!("{path}/{PLACED}"),
+            format!("-{path}/{PLACED}"),
+            format!("remove {path}")
+        ]
+    );
+}
+
+// In the live project nothing of it is written: the project is not the
+// launch's to write.
+#[tokio::test]
+async fn files_the_engine_reads_where_it_works_never_go_into_the_live_project() {
+    use crate::fakes::{worktree_order, worktree_unavailable, Placing, ScriptedWorkspaces};
+    let workspaces = Arc::new(ScriptedWorkspaces::new(worktree_unavailable));
+    let mut rig = rig(
+        Placing(ScriptedEngine::answering("A", None)),
+        ScriptedRunner::exits(0),
+        orders_with(worktree_order("fake", "reviewer")),
+    );
+    rig.launcher = rig.launcher.with_workspaces(Arc::clone(&workspaces) as _);
+    enqueued(&rig.edge, SESSION, HARP).await;
+    let launched = rig.step().await;
+    assert!(workspaces.files.lock().unwrap().is_empty());
+    assert!(launched[0].checkout_files.is_empty());
 }

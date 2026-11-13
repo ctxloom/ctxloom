@@ -398,6 +398,15 @@ impl Workspaces for GitWorkspaces {
         }))
     }
 
+    fn place_files(&self, checkout: &str, files: &[(String, Vec<u8>)]) -> Result<(), Failure> {
+        let _ = (checkout, files);
+        Ok(())
+    }
+
+    fn remove_files(&self, checkout: &str, rels: &[String]) {
+        let _ = (checkout, rels);
+    }
+
     fn session_known(&self, harp: &str) -> Result<bool, Failure> {
         if !is_name(harp) {
             return Ok(false);

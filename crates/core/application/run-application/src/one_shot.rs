@@ -720,7 +720,9 @@ where
         // go while the session's lock is still held (owner ruling
         // 2026-11-12, Q2), removed when clean, else left and said.
         if let Some(checkout) = &ours.checkout {
-            if let isolation_ports::Removal::Left(reason) = self.launcher.release(checkout) {
+            if let isolation_ports::Removal::Left(reason) =
+                self.launcher.release(checkout, &ours.checkout_files)
+            {
                 notices.push(Notice::CheckoutLeft {
                     path: checkout.path.clone(),
                     branch: checkout.branch.clone(),

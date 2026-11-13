@@ -1716,3 +1716,35 @@ fn the_commands_and_skills_ride_the_session_home() {
     );
     assert!(file_of(&prepared, "skills/reviewer/SKILL.md").is_some());
 }
+
+// Owner ruling 2026-11-12 (Q3): under `session_home: host` the config dir is
+// the user's own `~/.claude`, never written, so the commands and skills the
+// launch carries are written into the checkout the engine works in (the
+// project's `.claude/`), hidden from git there; in a session home they are
+// its own.
+#[test]
+fn under_a_host_home_the_commands_and_skills_ride_into_the_checkout() {
+    let host = prepare_carrying(true, SessionHome::Host, None, carried());
+    let rels: Vec<&str> = host
+        .workspace_files
+        .iter()
+        .map(|f| f.rel.as_str())
+        .collect();
+    assert_eq!(
+        rels,
+        [
+            ".claude/commands/demo-example.md",
+            ".claude/skills/reviewer/SKILL.md"
+        ]
+    );
+    assert!(file_of(&host, "commands/demo-example.md").is_none());
+    assert_eq!(
+        Claude::new().workspace_patterns(SessionHome::Host),
+        [".claude/commands/", ".claude/skills/"]
+    );
+    let session = prepare_carrying(true, SessionHome::Session, None, carried());
+    assert!(session.workspace_files.is_empty());
+    assert!(Claude::new()
+        .workspace_patterns(SessionHome::Session)
+        .is_empty());
+}

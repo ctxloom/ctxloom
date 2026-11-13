@@ -766,3 +766,50 @@ mod hung_git {
         assert!(is_dir(&checkout.path));
     }
 }
+
+// Owner ruling 2026-11-12 (Q3): what a launch carries that its engine reads
+// only from where it works is placed in the checkout, hidden from git, and
+// taken out again before the checkout is removed: excluded, it would read as
+// work and keep the checkout (an ignored file is never safe).
+#[test]
+fn files_placed_in_a_checkout_are_hidden_and_taken_out_before_its_removal() {
+    let f = Fixture::new();
+    let mut request = f.request("amber-quiet-heron", "reviewer");
+    request.artifact_patterns = vec![".claude/commands/".to_string()];
+    let Ok(Prepared::Checkout(checkout)) = f.adapter().prepare(&request) else {
+        panic!("no checkout");
+    };
+    let ws = f.adapter();
+    let rel = ".claude/commands/demo-example.md".to_string();
+    ws.place_files(&checkout.path, &[(rel.clone(), b"BODY".to_vec())])
+        .unwrap();
+    let placed = Path::new(&checkout.path).join(&rel);
+    assert_eq!(slurp(&placed), "BODY");
+    assert_eq!(
+        git(Path::new(&checkout.path), &["status", "--porcelain"]).trim(),
+        ""
+    );
+    assert!(matches!(
+        ws.remove(&checkout.repo_dir, &checkout.path),
+        Removal::Left(_)
+    ));
+    ws.remove_files(&checkout.path, &[rel]);
+    assert!(!exists(&placed));
+    assert_eq!(
+        ws.remove(&checkout.repo_dir, &checkout.path),
+        Removal::Removed
+    );
+}
+
+// A path that is not plainly relative is refused, and nothing written.
+#[test]
+fn a_placed_file_may_not_climb_out_of_its_checkout() {
+    let f = Fixture::new();
+    let checkout = f.prepared("amber-quiet-heron", "reviewer");
+    let refused = f.adapter().place_files(
+        &checkout.path,
+        &[("../escape.md".to_string(), b"x".to_vec())],
+    );
+    assert!(refused.is_err());
+    assert!(!exists(Path::new(&checkout.path).join("../escape.md")));
+}

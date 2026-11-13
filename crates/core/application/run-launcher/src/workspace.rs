@@ -71,15 +71,22 @@ pub struct Placement {
     pub warning: Option<String>,
 }
 
+/// What a launch placed in its checkout: the files (relative to it) its
+/// engine reads only from where it works, taken out again at its release.
+pub type CheckoutFiles = Vec<String>;
+
 /// Place a launch: see the module's table. `project_dir` is the live
-/// project, `work_dir` the session's checkouts directory.
+/// project, `work_dir` the session's checkouts directory, `patterns` what the
+/// launch writes into a checkout (hidden from git there).
 pub fn place_workspace(
     axis: Axis,
     project_dir: &str,
     work_dir: &str,
     agent: &str,
+    patterns: &[String],
     workspaces: &dyn Workspaces,
 ) -> Result<Placement, Failure> {
+    let _ = patterns;
     let live = |warning: Option<String>| Placement {
         cwd: project_dir.to_string(),
         checkout: None,
@@ -95,8 +102,8 @@ pub fn place_workspace(
         project_dir: project_dir.to_string(),
         work_dir: work_dir.to_string(),
         agent: agent.to_string(),
-        // Nothing is written into a checkout at a launch (the surfaces ride
-        // the launch), so nothing needs hiding from git.
+        // What the launch writes into the checkout (the engine's), hidden
+        // from git.
         artifact_patterns: Vec::new(),
     };
     Ok(match workspaces.prepare(&request)? {

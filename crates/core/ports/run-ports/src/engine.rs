@@ -183,6 +183,13 @@ pub struct Prepared {
     /// The user's own settings the engine would have started the home's
     /// settings from and left out (owner ruling 169): the run says each.
     pub left_out: Vec<LeftOut>,
+    /// Files the launch carries that the engine reads only from the
+    /// directory it works in (claude's commands and skills under
+    /// `session_home: host`, owner ruling 2026-11-12, Q3), relative to it:
+    /// written into a checkout of the session's own alone (hidden from git
+    /// by [`Engine::workspace_patterns`]) and taken out at its release;
+    /// never into the live project.
+    pub workspace_files: Vec<HomeFile>,
 }
 
 /// One turn to drive.
@@ -397,6 +404,18 @@ pub trait Engine: Send + Sync {
     #[cfg_attr(test, mutants::skip)]
     fn merges(&self) -> &'static [&'static str] {
         &[]
+    }
+
+    /// The paths [`Prepared::workspace_files`] are written under, as git
+    /// exclude patterns, for a run whose engine home is `session_home`: the
+    /// checkout hides them from git (its shared `info/exclude`; the accepted
+    /// cost, owner ruling 2026-11-12 Q3: they hide matching untracked files
+    /// in the main tree too).
+    // `vec![]` is `Vec::new()`: the mutant is the default itself.
+    #[cfg_attr(test, mutants::skip)]
+    fn workspace_patterns(&self, session_home: crate::settings::SessionHome) -> Vec<String> {
+        let _ = session_home;
+        Vec::new()
     }
 }
 

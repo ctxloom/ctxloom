@@ -125,6 +125,14 @@ impl Workspaces for &Fake {
         unreachable!("the worktree commands prepare nothing")
     }
 
+    fn place_files(&self, _: &str, _: &[(String, Vec<u8>)]) -> Result<(), Failure> {
+        unreachable!("the worktree commands place nothing")
+    }
+
+    fn remove_files(&self, _: &str, _: &[String]) {
+        unreachable!("the worktree commands place nothing")
+    }
+
     fn session_known(&self, harp: &str) -> Result<bool, Failure> {
         Ok(self.known.iter().any(|k| k == harp))
     }

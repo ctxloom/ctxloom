@@ -123,6 +123,17 @@ pub trait Workspaces {
     /// directories ([`worktrees_root`]): one session's, or every session's.
     fn scratch(&self, harp: Option<&str>) -> Result<Vec<Scratch>, Failure>;
 
+    /// Write `files` (each a path relative to the checkout and its bytes)
+    /// into the checkout at `checkout`, its directories made: what a launch
+    /// carries that its engine reads only from where it works. A path that
+    /// is not plainly relative is refused, and nothing outside it written.
+    fn place_files(&self, checkout: &str, files: &[(String, Vec<u8>)]) -> Result<(), Failure>;
+
+    /// Take out of the checkout at `checkout` the files at `rels` that a
+    /// launch placed there, best effort, so they do not keep it from being
+    /// removed (git counts an excluded file as work).
+    fn remove_files(&self, checkout: &str, rels: &[String]);
+
     /// What `path` is, changing nothing.
     fn inspect(&self, path: &str) -> Standing;
 

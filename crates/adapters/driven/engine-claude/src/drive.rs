@@ -223,6 +223,7 @@ impl Engine for Claude {
             seeds: Vec::new(),
             context_path: format!("{}/{CONTEXT_PROMPT_FILE}", request.home),
             left_out,
+            workspace_files: Vec::new(),
         })
     }
 

@@ -426,6 +426,7 @@ impl Engine for ScriptedEngine {
             seeds: Vec::new(),
             context_path: format!("{}/ctx.md", request.home),
             left_out: self.left_out.clone(),
+            workspace_files: Vec::new(),
         })
     }
 
@@ -610,6 +611,42 @@ impl Engine for Merging {
     }
 }
 
+/// An engine whose launch carries files it reads only from where it works
+/// (`PLACED`, under `.placed/`), as claude's commands and skills under
+/// `session_home: host`.
+pub struct Placing(pub ScriptedEngine);
+
+/// What [`Placing`] carries into the directory it works in.
+pub const PLACED: &str = ".placed/command.md";
+
+// A test double shipped for tests only; its tests are the callers' own.
+#[cfg_attr(test, mutants::skip)]
+impl Engine for Placing {
+    fn name(&self) -> &str {
+        self.0.name()
+    }
+    fn prepare(&self, request: &PrepareRequest) -> Result<Prepared, EngineError> {
+        let mut prepared = self.0.prepare(request)?;
+        prepared.workspace_files.push(HomeFile {
+            rel: PLACED.to_string(),
+            bytes: b"PLACED".to_vec(),
+        });
+        Ok(prepared)
+    }
+    fn drive_turn(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError> {
+        self.0.drive_turn(request)
+    }
+    fn finish_turn(&self, output: &TurnOutput) -> TurnOutcome {
+        self.0.finish_turn(output)
+    }
+    fn drive_interactive(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError> {
+        self.0.drive_interactive(request)
+    }
+    fn workspace_patterns(&self, _: run_ports::SessionHome) -> Vec<String> {
+        vec![".placed/".to_string()]
+    }
+}
+
 /// An engine that seeds its home with `seed.json` (`SEED`), once.
 #[derive(Clone)]
 pub struct Seeding(pub ScriptedEngine);
@@ -776,6 +813,10 @@ pub struct ScriptedWorkspaces {
     pub asked: Mutex<Vec<isolation_ports::Request>>,
     /// Each removal asked: the repository and the checkout.
     pub removed: Mutex<Vec<(String, String)>>,
+    /// Every file placed in a checkout, `<checkout>/<rel>`, and every one
+    /// taken out (`-<checkout>/<rel>`), in order, beside the removals
+    /// (`remove <checkout>`).
+    pub files: Mutex<Vec<String>>,
     /// Asked at each removal, its answer kept in `witnessed`: what the
     /// caller's world was then.
     pub witness: Mutex<Option<Witness>>,
@@ -796,6 +837,7 @@ impl ScriptedWorkspaces {
             removal: isolation_ports::Removal::Removed,
             asked: Mutex::new(Vec::new()),
             removed: Mutex::new(Vec::new()),
+            files: Mutex::new(Vec::new()),
             witness: Mutex::new(None),
             witnessed: Mutex::new(Vec::new()),
         }
@@ -823,6 +865,19 @@ impl isolation_ports::Workspaces for ScriptedWorkspaces {
     fn session_known(&self, _: &str) -> Result<bool, isolation_ports::Failure> {
         Ok(false)
     }
+    fn place_files(
+        &self,
+        checkout: &str,
+        files: &[(String, Vec<u8>)],
+    ) -> Result<(), isolation_ports::Failure> {
+        let mut placed = self.files.lock().unwrap();
+        placed.extend(files.iter().map(|(rel, _)| format!("{checkout}/{rel}")));
+        Ok(())
+    }
+    fn remove_files(&self, checkout: &str, rels: &[String]) {
+        let mut placed = self.files.lock().unwrap();
+        placed.extend(rels.iter().map(|rel| format!("-{checkout}/{rel}")));
+    }
     fn scratch(
         &self,
         _: Option<&str>,
@@ -837,6 +892,7 @@ impl isolation_ports::Workspaces for ScriptedWorkspaces {
             .lock()
             .unwrap()
             .push((repo_dir.to_string(), path.to_string()));
+        self.files.lock().unwrap().push(format!("remove {path}"));
         if let Some(witness) = &*self.witness.lock().unwrap() {
             self.witnessed.lock().unwrap().push(witness());
         }

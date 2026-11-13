@@ -127,6 +127,9 @@ pub struct Launched {
     /// The checkout the engine worked in (the workspace axis); none in the
     /// live project. Its run releases it once the engine is over.
     pub checkout: Option<isolation_ports::Checkout>,
+    /// What the launch placed in the checkout (relative to it): taken out
+    /// at its release, before the checkout is removed.
+    pub checkout_files: crate::workspace::CheckoutFiles,
     /// Why a worktree asked for could not be had: the engine worked in the
     /// project, and the run says so.
     pub workspace_warning: Option<String>,
@@ -363,6 +366,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             ignored: ignored.clone(),
             left_out: left_out.clone(),
             checkout: checkout.clone(),
+            checkout_files: Vec::new(),
             workspace_warning: workspace_warning.clone(),
         };
         let (engine, command) = match prepared {
@@ -677,7 +681,12 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
     /// branch with it when merged), one holding work, or that will not go,
     /// is left, and why; never forced. A launcher that makes no worktrees
     /// leaves it.
-    pub fn release(&self, checkout: &isolation_ports::Checkout) -> isolation_ports::Removal {
+    pub fn release(
+        &self,
+        checkout: &isolation_ports::Checkout,
+        files: &[String],
+    ) -> isolation_ports::Removal {
+        let _ = files;
         match &self.workspaces {
             Some(workspaces) => workspaces.remove(&checkout.repo_dir, &checkout.path),
             None => isolation_ports::Removal::Left(crate::workspace::NO_WORKSPACES.to_string()),
@@ -706,6 +715,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             project,
             &asked.work_dir,
             &asked.agent,
+            &[],
             workspaces.as_ref(),
         )
         .map(Some)

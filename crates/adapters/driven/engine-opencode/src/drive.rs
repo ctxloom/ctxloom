@@ -204,6 +204,7 @@ impl Engine for Opencode {
             },
             context_path: format!("{}/{CONTEXT_FILE}", request.home),
             left_out: left_out.into_iter().collect(),
+            workspace_files: Vec::new(),
         })
     }
 

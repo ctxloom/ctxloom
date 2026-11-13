@@ -151,7 +151,6 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       Then the command fails
       And the output contains "nosuchagent"
 
-  @pending
   Rule: create and edit are NOT an upsert — each refuses the case the other owns
 
     `create` refuses a name that already names an agent; `edit` refuses a name

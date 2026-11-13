@@ -445,7 +445,11 @@ fn loose_notes(w: &mut World) {
 #[then("she sees that nothing packaged carries the deploy process")]
 fn nothing_packaged(w: &mut World) {
     let search = w.diagnosis_ran("ctxloom search").succeeds().json();
-    assert_eq!(search["count"], 0, "the search found something: {search}");
+    // proto3 JSON (OD-40) leaves a zero count out.
+    assert!(
+        search.get("count").is_none_or(|count| count == 0),
+        "the search found something: {search}"
+    );
     assert!(
         w.common
             .project

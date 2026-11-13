@@ -4,6 +4,13 @@
 
 use super::library_cli::*;
 
+/// The parent the daemon names `project` by (OD-40, OQ-2): `projects/<harp>`.
+fn parent(project: &Project) -> String {
+    let ran = project.run(&["test", "project-name"]);
+    ran.succeeds();
+    ran.stdout.trim().to_string()
+}
+
 // ---------------------------------------------------------------- context assemble
 
 // There is no Go CLI for `context assemble`: Go serves it as the MCP tool
@@ -26,7 +33,11 @@ fn test_context_assemble_holds_a_premised_fragment_back_unless_it_is_named() {
     let by_profile = project.run(&["context", "assemble", "-p", "dev", "--format", "json"]);
     by_profile.succeeds();
     let doc = by_profile.json();
-    assert_eq!(doc["profiles"], serde_json::json!(["dev"]));
+    // OD-40 (design §5.9): `AssembledContext`, its profiles named.
+    assert_eq!(
+        doc["profiles"],
+        serde_json::json!([format!("{}/bundles/project/profiles/dev", parent(&project))])
+    );
     let context = doc["context"].as_str().unwrap();
     assert!(context.contains("FRAGMENT-BODY-testing"), "{doc}");
     assert!(
@@ -145,11 +156,18 @@ fn test_context_assemble_reports_a_missing_ask_and_refuses_one_that_loads_nothin
         doc["missing_fragments"],
         serde_json::json!(["ctxloom+local:demo#fragments/nope"])
     );
-    assert!(doc["fragments_loaded"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|f| f == "ctxloom+local:demo#fragments/testing"));
+    // OD-40: each fragment it used, named; one asked for and not found keeps
+    // the text it was asked by (OQ-16).
+    let testing = format!("{}/bundles/demo/fragments/testing", parent(&project));
+    assert!(
+        doc["fragments"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f["fragment"] == testing.as_str()),
+        "{doc}"
+    );
+    assert!(doc.get("fragments_loaded").is_none(), "{doc}");
     project
         .run(&["context", "assemble", "-f", "nosuch"])
         .fails()

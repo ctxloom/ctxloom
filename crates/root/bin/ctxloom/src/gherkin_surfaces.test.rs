@@ -408,10 +408,11 @@ fn search_said_nothing(w: &mut World) {
         ran.contains("No results found");
         return;
     }
+    // proto3 JSON (OD-40) leaves a zero count and an empty list out.
     let doc = ran.json();
-    assert_eq!(doc["count"], 0, "{doc}");
+    assert!(super::library::holds(&doc, "count", "0").is_ok(), "{doc}");
     for side in ["local", "remote"] {
-        assert_eq!(doc[side], serde_json::json!([]), "{side}: {doc}");
+        assert_eq!(super::library::entries(&doc, side), 0, "{side}: {doc}");
     }
 }
 

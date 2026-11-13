@@ -24,8 +24,10 @@
 # checkout's default depth of 1, with no tags, is enough (a tag count it cannot
 # make renders empty and is not in the stamp).
 #
-# On a push to main, once a job's gates pass, it builds the plain release
-# binary (`just release-binary`) and uploads it as the artifact
+# On a push to main, once a job's gates pass, it builds the plain binary in
+# the `ci-artifact` profile (`just release-binary ci-artifact`: cargo's
+# release defaults, no LTO, unstripped, so the release profile's fat LTO is
+# not every push's) and uploads it as the artifact
 # `ctxloom-<stamp>-<os>-<arch>` (linux-x86_64, macos-arm64, windows-x86_64;
 # owner ruling 2026-11-12). Releases are release.yml's.
 
@@ -115,7 +117,7 @@ jobs:
         id: binary
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
-          bin=$(just release-binary)
+          bin=$(just release-binary ci-artifact)
           stamp=$("$bin" version --format json | jq -r .version | tr -d '\r')
           echo "name=ctxloom-$stamp-linux-x86_64" >> "$GITHUB_OUTPUT"
           echo "file=$bin" >> "$GITHUB_OUTPUT"
@@ -184,7 +186,7 @@ jobs:
         id: binary
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
-          bin=$(just release-binary)
+          bin=$(just release-binary ci-artifact)
           stamp=$("$bin" version --format json | jq -r .version | tr -d '\r')
           echo "name=ctxloom-$stamp-macos-arm64" >> "$GITHUB_OUTPUT"
           echo "file=$bin" >> "$GITHUB_OUTPUT"
@@ -254,7 +256,7 @@ jobs:
         id: binary
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
-          bin=$(just release-binary)
+          bin=$(just release-binary ci-artifact)
           stamp=$("$bin" version --format json | jq -r .version | tr -d '\r')
           echo "name=ctxloom-$stamp-windows-x86_64" >> "$GITHUB_OUTPUT"
           echo "file=$bin" >> "$GITHUB_OUTPUT"

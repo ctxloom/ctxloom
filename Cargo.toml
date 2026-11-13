@@ -212,3 +212,27 @@ non_ascii_literal = "deny"
 cognitive_complexity = "warn"
 too_many_lines = "warn"
 excessive_nesting = "warn"
+
+# The release (owner ruling 2026-11-12): fat LTO in one codegen unit, at
+# opt-level 3, keeping line tables and every symbol (`strip = "none"`), and
+# unwinding panics (no `panic = "abort"`). Cargo's own strip would delete what
+# the debug file needs: stripping is release packaging's, per platform
+# (`just release-package`, scripts/release-package.sh), which ships the
+# stripped binary next to its debug file. `split-debuginfo` is cargo's
+# default (linux: off, so objcopy splits it; macOS: packed, a .dSYM; Windows
+# MSVC: a .pdb).
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+debug = "line-tables-only"
+strip = "none"
+
+# CI's per-push artifact on main (`just release-binary ci-artifact`): cargo's
+# release defaults, no LTO, so the release's link time is not every push's;
+# unstripped (`strip = "none"`, inherited).
+[profile.ci-artifact]
+inherits = "release"
+lto = false
+codegen-units = 16
+debug = 0

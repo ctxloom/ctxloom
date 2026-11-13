@@ -1401,22 +1401,29 @@ Windows, nextest's setup script runs under `sh` (`cfg(windows)` entry in
 `.config/nextest.toml`; the unix one is unchanged), and the plain-binary
 checks find `ctxloom.exe` and give it a USERPROFILE, TEMP and SYSTEMROOT.
 
-On a push to `main`, each job, once its gates pass, builds the plain release
-binary (`just release-binary`: no test-support, no session-destroy, cargo's
-release profile, the two plain-build checks; it prints the binary's path) and
+On a push to `main`, each job, once its gates pass, builds the plain binary
+in the `ci-artifact` profile (`just release-binary ci-artifact`: no
+test-support, no session-destroy, cargo's release defaults, no LTO,
+unstripped, the two plain-build checks; it prints the binary's path) and
 uploads it as the artifact `ctxloom-<stamp>-<os>-<arch>` (`linux-x86_64`,
 `macos-arm64`, `windows-x86_64`, holding `ctxloom` or `ctxloom.exe`); no other
 push or pull request builds it.
 
+The release profile (owner ruling 2026-11-12, Cargo.toml's
+`[profile.release]`) is fat LTO, one codegen unit, opt-level 3,
+`debug = "line-tables-only"` and `strip = "none"`, unwinding panics; cargo's
+strip is not used, because it deletes what a debug file needs.
+
 Releases (`.github/workflows/release.yml`, owner ruling 2026-11-12): a person
 runs `just set-version <v>`, commits, and pushes the tag `v<v>` on that
 commit (agents never tag). The workflow refuses a tag that is not VERSION's,
-builds the same three plain binaries, named
-`ctxloom-<stamp>-<os>-<arch>[.exe]`, and `SHA256SUMS`, and attaches them to a
-GitHub release for the tag (`gh` with the default token; `contents: write`
-for that job alone; a pre-release when the version has one). Its
-`workflow_dispatch` builds and uploads them as the run's artifacts and
-creates no release.
+packages the same three plain binaries (`just release-package <os>`), named
+`ctxloom-<stamp>-<os>-<arch>[.exe]`, each with its debug file (two artifacts,
+`<name>` and `<name>-debug`), and `SHA256SUMS` over all six, and attaches
+them to a GitHub release for the tag (`gh` with the default token;
+`contents: write` for that job alone; a pre-release when the version has
+one). Its `workflow_dispatch` builds and uploads them as the run's artifacts
+and creates no release.
 
 A test that needs a fake program (an `sh` script through
 `fixture_program::install_program`, which refuses `Unsupported` off unix),

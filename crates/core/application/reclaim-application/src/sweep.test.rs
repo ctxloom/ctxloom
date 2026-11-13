@@ -108,11 +108,18 @@ impl Removals for Fake {
     ) -> Result<Report, IsolationError> {
         assert_eq!(project, Some("calm-otter-id"));
         self.worktrees_asked.push((Some(harp.to_string()), apply));
+        // As the leaf does: `apply` removes exactly the reapable ones.
         let rows: Vec<Row> = self
             .scratch
             .iter()
             .filter(|r| r.harp == harp)
             .cloned()
+            .map(|mut r| {
+                if apply && r.verdict == Worktree::Reapable {
+                    r.verdict = Worktree::Reaped;
+                }
+                r
+            })
             .collect();
         let count = |v: Worktree| rows.iter().filter(|r| r.verdict == v).count() as u64;
         Ok(Report {
@@ -566,4 +573,69 @@ fn zero_bytes_are_skipped_and_others_are_not() {
     assert!(crate::sweep::is_zero(&0));
     assert!(!crate::sweep::is_zero(&1));
     assert!(!crate::sweep::is_zero(&10));
+}
+
+// Owner ruling 2026-11-13 (j001300, roadmap step 4): a session the sweep
+// spares keeps EVERY checkout, its clean one too, as `session remove`
+// keeps it whole: no partial teardown. Its checkouts are classified, never
+// applied, and the clean one's row says why it was kept.
+#[test]
+fn a_spared_session_keeps_its_clean_checkout_too() {
+    for verdict in [Worktree::Spared, Worktree::Skipped] {
+        let mut fake = Fake {
+            views: vec![view("olive-dirty-finch", State::Ended, 120, false)],
+            scratch: vec![
+                scratch("olive-dirty-finch", "clean", Worktree::Reapable, ""),
+                scratch("olive-dirty-finch", "wip", verdict, "uncommitted changes"),
+            ],
+            ..Fake::default()
+        };
+        let report = ready(sweep(&mut fake, &request(true))).unwrap();
+        assert!(
+            fake.worktrees_asked.iter().all(|(_, apply)| !apply),
+            "{verdict:?}: a spared session's checkouts are never applied: {:?}",
+            fake.worktrees_asked
+        );
+        let clean = report
+            .rows
+            .iter()
+            .find(|r| r.action == "worktree" && r.reason.contains("ctxloom-wt-clean"))
+            .unwrap_or_else(|| panic!("no row for the clean checkout: {report:?}"));
+        assert_eq!(clean.verdict, Verdict::Held, "{clean:?}");
+        assert!(clean.command.is_empty(), "{clean:?}");
+        assert!(
+            clean.reason.contains("kept")
+                && clean.reason.contains("spared")
+                && clean.reason.contains("ctxloom-wt-wip"),
+            "the clean row says why it was kept: {clean:?}"
+        );
+        assert_eq!(report.counts["done"], 0, "{report:?}");
+        assert!(fake.asked.is_empty(), "{:?}", fake.asked);
+    }
+}
+
+// A session no checkout spares has them applied on `yes`, after they were
+// classified, and the purge follows through `session remove`'s order.
+#[test]
+fn an_unspared_session_has_its_clean_checkouts_reaped_on_yes() {
+    let mut fake = Fake {
+        views: vec![view("amber-quiet-heron", State::Ended, 120, false)],
+        scratch: vec![scratch(
+            "amber-quiet-heron",
+            "clean",
+            Worktree::Reapable,
+            "",
+        )],
+        ..Fake::default()
+    };
+    let report = ready(sweep(&mut fake, &request(true))).unwrap();
+    assert_eq!(
+        fake.worktrees_asked.first(),
+        Some(&(Some("amber-quiet-heron".to_string()), false))
+    );
+    assert!(fake.worktrees_asked.iter().any(|(_, apply)| *apply));
+    let row = report.rows.iter().find(|r| r.action == "worktree").unwrap();
+    assert_eq!(row.verdict, Verdict::Done);
+    assert_eq!(verdict_of(&report, "amber-quiet-heron"), Verdict::Done);
+    assert_eq!(report.rows.last().map(|r| r.verdict), Some(Verdict::Done));
 }

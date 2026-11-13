@@ -7,7 +7,9 @@
 //! behaviour for help, usage errors and the exit ladder); this crate gives it
 //! its [`nouns`] and [`bundle_verbs`] and, given the matches of one, [`run`]s
 //! it: the arguments become a request of the application, and its answer is
-//! written as json or as text, with what it noticed said on the error stream.
+//! written as text, or as json, the proto3 JSON of its `ctxloom.v1` API
+//! message (OD-40, B4: `api.rs`, `remote.rs`, `bundle.rs`, `dependency.rs`),
+//! with what it noticed said on the error stream.
 
 mod api;
 mod bundle;
@@ -340,12 +342,18 @@ fn dependencies(
         "upgrade" => {
             let _ = writeln!(err, "Resolving latest commits for pinned dependencies...");
             let yes = flag(args, "yes");
-            let outcome = match args.get_one::<String>("reference") {
+            let reference = args.get_one::<String>("reference");
+            let outcome = match reference {
                 Some(reference) => deps.upgrade_only(reference, yes),
                 None => deps.upgrade(yes),
             };
             let report = answer(cx, outcome, err)?;
-            emit(cx.format, out, &report, |out| text::upgrade(out, &report))?;
+            respond(
+                cx,
+                out,
+                |_| dependency::upgraded(&report, reference.map(String::as_str)),
+                |out| text::upgrade(out, &report),
+            )?;
             // Ruling 153: a preview with a pin `--yes` would move or drop.
             let moves = !report.changes.is_empty() || !report.removed.is_empty();
             if moves && !report.applied {

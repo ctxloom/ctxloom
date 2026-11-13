@@ -1774,6 +1774,25 @@ spellings, as it removes each cache tree whole. `ctxloom-wiring`'s `Commands`
 composes them with the library: it merges `bundle push|move` into the
 library's `bundle` noun and owns `remote` and `deps`.
 
+- JSON is the API's (OD-40, B4, owner rulings on the B4 draft of
+  2026-11-13): every `remote`, `deps` and `bundle push|move` json answer is
+  the proto3 JSON of its `ctxloom.v1` message (library.proto), mapped from
+  deps-application's views at deps-cli's edge and named under the parent the
+  wiring's `DaemonNames` gives (`deps_cli::Names`; `projects/{harp}`, or
+  `users/me`). A Remote is `<parent>/remotes/<r>`, a Dependency
+  `<parent>/dependencies/<16 hex of SHA-256 of its identity>`
+  (`deps::lock::dependency_id`, OQ-15). `remote show` is
+  `BrowseRemoteResponse` (a browsed bundle has no resource name), `remote
+  discover` `DiscoverRemotesResponse`, `deps pull` `PullDependenciesResponse`
+  (one `results` list by `State`, no status or counts: an empty pull is
+  `{}`), `deps check [ref]` one `CheckDependenciesResponse` (rows by
+  `DependencyCheck.State`; a whole check lists outdated and unchecked only),
+  `deps upgrade` `UpgradeDependenciesResponse`, `deps hold|unhold` the
+  Dependency, `bundle push` `PushBundleResponse` (`State` COMMITTED or
+  PULL_REQUEST_OPENED) and `bundle move` `MoveBundleResponse` (a directory
+  move gives its `path` alone). A pin change is the shared `PinChange`
+  (`old_`/`new_`, `ChangeKind`, `PinChange.Compatibility`, ItemKind's `HOOK`).
+  Text output is unchanged.
 - Evidence rule: content is removed upstream only on a not-found from a
   repository proven readable this run; an unreachable remote keeps everything.
 - `deps upgrade <reference> [--yes]` (`<remote>/<bundle>` or canonical;

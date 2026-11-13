@@ -1,5 +1,7 @@
-//! What the commands answer, in the shapes they print as json (Go's
-//! `operations` results and the `cli` views): every list is always present.
+//! What the commands answer (Go's `operations` results and the `cli`
+//! views). Their json is no longer these shapes: deps-cli maps each to its
+//! `ctxloom.v1` API message at the edge (OD-40, B4), and these stay as they
+//! are until that mapping moves into the daemon (T13).
 
 use serde::Serialize;
 

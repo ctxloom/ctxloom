@@ -5,7 +5,7 @@
 use daemon_proto::v1;
 use deps_application::{
     Change, CheckReport, CheckedRef, Compat, DepRow, DepsListing, ExecSpec, HoldResult, PinChange,
-    PullReport,
+    PullReport, UpgradeReport,
 };
 
 use crate::api::{count, dependency_name, item_kind, remote_name};
@@ -306,6 +306,33 @@ pub(crate) fn checked_one(parent: &str, checked: &CheckedRef) -> v1::CheckDepend
         }],
         refresh_failures: refresh_failures(&checked.refresh_failures),
         ..v1::CheckDependenciesResponse::default()
+    }
+}
+
+/// `deps upgrade [reference]`: `UpgradeDependenciesResponse`; a preview
+/// that would move or drop a pin carries the command that applies it
+/// (`reference` the one asked, if one was).
+pub(crate) fn upgraded(
+    report: &UpgradeReport,
+    reference: Option<&str>,
+) -> v1::UpgradeDependenciesResponse {
+    let moves = !report.changes.is_empty() || !report.removed.is_empty();
+    let apply_command = if moves && !report.applied {
+        match reference {
+            Some(reference) => format!("ctxloom deps upgrade {reference} --yes"),
+            None => "ctxloom deps upgrade --yes".to_string(),
+        }
+    } else {
+        String::new()
+    };
+    v1::UpgradeDependenciesResponse {
+        applied: Some(report.applied),
+        apply_command,
+        changes: report.changes.iter().map(pin_change).collect(),
+        removed_references: report.removed.clone(),
+        incomplete: report.incomplete,
+        nothing_declared: report.nothing_declared,
+        ..v1::UpgradeDependenciesResponse::default()
     }
 }
 

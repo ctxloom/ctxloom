@@ -166,3 +166,28 @@ fn test_a_whole_check_counts_its_entries_and_the_skipped() {
     assert_eq!((message.dependency_count, message.skipped_count), (3, 2));
     assert!(message.checks.is_empty());
 }
+
+// An upgrade that applied its moves has nothing left to apply.
+#[test]
+fn test_an_applied_upgrade_names_no_apply_command() {
+    let report = UpgradeReport {
+        applied: true,
+        changes: vec![change(None)],
+        incomplete: false,
+        nothing_declared: false,
+        removed: vec!["gone".to_string()],
+    };
+    let message = upgraded(&report, None);
+    assert_eq!(message.applied, Some(true));
+    assert_eq!(message.apply_command, "");
+    assert_eq!(message.changes.len(), 1);
+    assert_eq!(message.removed_references, ["gone"]);
+    let preview = UpgradeReport {
+        applied: false,
+        ..report
+    };
+    assert_eq!(
+        upgraded(&preview, Some("origin/kit")).apply_command,
+        "ctxloom deps upgrade origin/kit --yes"
+    );
+}

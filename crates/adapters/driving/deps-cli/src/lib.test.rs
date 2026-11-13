@@ -880,7 +880,17 @@ fn test_deps_check_in_its_five_voices() {
         "Nothing is installed, so there is nothing to check.\nInstall this project's closure with: ctxloom deps pull\n"
     );
     assert_eq!(nothing.err, "");
+    // OD-40: `CheckDependenciesResponse`; nothing to check is `{}`.
+    assert_eq!(
+        go(&fx, &["deps", "check"], JSON).json(),
+        serde_json::json!({})
+    );
     let (fx, sha) = pulled();
+    // A whole check lists the outdated and unchecked entries only.
+    assert_eq!(
+        go(&fx, &["deps", "check"], JSON).json(),
+        serde_json::json!({"dependency_count": 1})
+    );
     let current = go(&fx, &["deps", "check"], TEXT);
     assert_eq!(current.ok().out, "All items are up to date!\n");
     assert_eq!(current.err, "Checking 1 items for updates...\n");
@@ -890,10 +900,32 @@ fn test_deps_check_in_its_five_voices() {
         format!("Found 1 items with updates available:\n\nBundles:\n  {}  (tracking branch default branch)\n    Current: {} \u{2192} Latest: {}\n\nRun 'ctxloom deps upgrade' to advance these pins.\n", demo_ref(), &sha[..7], &later[..7])
     );
     let json = go(&fx, &["deps", "check"], JSON).json();
-    assert_eq!(json["updates"][0]["latest_sha"], later);
-    assert_eq!(json["updates"][0]["selector"], "branch");
-    assert_eq!(json["missing_default_profiles"], serde_json::json!([]));
+    let row = &json["checks"][0];
+    assert_eq!(
+        row["dependency"],
+        named(&format!("dependencies/{}", dependency_id(&demo_ref())))
+    );
+    assert_eq!(row["reference"], demo_ref());
+    assert_eq!(row["kind"], "BUNDLE");
+    assert_eq!(row["state"], "OUTDATED");
+    assert_eq!(row["commit"], sha);
+    assert_eq!(row["latest_commit"], later);
+    assert_eq!(row["selector"], "BRANCH");
+    for gone in [
+        "updates",
+        "unchecked",
+        "entries",
+        "missing_default_profiles",
+    ] {
+        assert!(json.get(gone).is_none(), "{gone}: {json}");
+    }
     fx.remotes.set_unreachable(URL, true);
+    let json = go(&fx, &["deps", "check"], JSON).json();
+    let row = &json["checks"][0];
+    assert_eq!(row["state"], "UNCHECKED", "{json}");
+    assert_eq!(row["reason"], "NOT_REFRESHED", "{json}");
+    assert_eq!(row["url"], URL, "{json}");
+    assert_eq!(json["refresh_failures"][0]["url"], URL, "{json}");
     let unreachable = go(&fx, &["deps", "check"], TEXT);
     let out = unreachable.ok().out.clone();
     assert!(
@@ -922,6 +954,11 @@ fn test_deps_check_describes_a_range_and_says_what_it_could_not_resolve() {
     ));
     let ran = go(&fx, &["deps", "check"], TEXT);
     ran.ok();
+    let checked = go(&fx, &["deps", "check"], JSON).json();
+    let row = &checked["checks"][0];
+    assert_eq!(row["state"], "UNCHECKED", "{checked}");
+    assert_eq!(row["reason"], "UNRESOLVABLE", "{checked}");
+    assert_eq!(row["constraint"], "^1.0", "{checked}");
     assert!(
         ran.err.contains("could not resolve \"^1.0\""),
         "{}",
@@ -950,6 +987,19 @@ fn test_deps_check_describes_a_range_and_says_what_it_could_not_resolve() {
 #[test]
 fn test_deps_check_of_one_reference() {
     let (fx, sha) = pulled();
+    // OD-40: one reference is one `DependencyCheck`, its state three-way.
+    let dependency = named(&format!("dependencies/{}", dependency_id(&demo_ref())));
+    assert_eq!(
+        go(&fx, &["deps", "check", "origin/demo"], JSON).json(),
+        serde_json::json!({"checks": [{
+            "dependency": dependency,
+            "reference": "origin/demo",
+            "kind": "BUNDLE",
+            "state": "CURRENT",
+            "commit": sha,
+            "latest_commit": sha,
+        }]})
+    );
     assert_eq!(
         go(&fx, &["deps", "check", "origin/demo"], TEXT).ok().out,
         format!("origin/demo is up to date (SHA: {})\n", &sha[..7])
@@ -964,10 +1014,16 @@ fn test_deps_check_of_one_reference() {
         go(&fx, &["deps", "check", &other], TEXT).ok().out,
         format!("{other} not found in lockfile, checking latest version...\n\nRun 'ctxloom deps upgrade' to advance it.\n")
     );
-    assert_eq!(
-        go(&fx, &["deps", "check", &demo_ref()], JSON).json()["up_to_date"],
-        false
+    let behind = go(&fx, &["deps", "check", &demo_ref()], JSON).json();
+    assert_eq!(behind["checks"][0]["state"], "OUTDATED", "{behind}");
+    assert_eq!(behind["checks"][0]["latest_commit"], later, "{behind}");
+    let unpinned = go(&fx, &["deps", "check", &other], JSON).json();
+    assert_eq!(unpinned["checks"][0]["state"], "NOT_PINNED", "{unpinned}");
+    assert!(
+        unpinned["checks"][0].get("dependency").is_none(),
+        "{unpinned}"
     );
+    assert!(unpinned["checks"][0].get("commit").is_none(), "{unpinned}");
     assert_eq!(
         go(&fx, &["deps", "check", "demo"], TEXT).refused(),
         ("deps-application-not-remote-reference", 20)

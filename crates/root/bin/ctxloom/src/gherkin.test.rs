@@ -64,6 +64,8 @@ struct World {
     setup: setup::State,
     /// What j001000's stub-engine scenario keeps.
     capture: capture::State,
+    /// What j000700's scenarios keep.
+    authoring: authoring::State,
 }
 
 impl fmt::Debug for World {
@@ -116,6 +118,7 @@ impl World {
             adopt: adopt::State::default(),
             setup: setup::State::default(),
             capture: capture::State::default(),
+            authoring: authoring::State::default(),
         }
     }
 
@@ -312,6 +315,9 @@ mod adopt;
 
 #[path = "gherkin_setup.test.rs"]
 mod setup;
+
+#[path = "gherkin_authoring.test.rs"]
+mod authoring;
 
 #[path = "gherkin_capture.test.rs"]
 mod capture;

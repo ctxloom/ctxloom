@@ -1,3 +1,4 @@
+# world: base
 # Ported from journeys/j000700_team_authoring.feature (rev f36e8dfb2)
 # Ported from journeys/j001400_bundle_distribution.feature (rev f36e8dfb2)
 # NOT ported: Go's "Carol's own active assistant picks up the change she just
@@ -5,7 +6,6 @@
 #   cli/deps.feature; delivery into each workspace and from inside a
 #   container is in cli/materialize.feature.
 @doc
-@pending
 Feature: A team's standards, authored once in a repository of their own, reach every project that depends on them
 
   A team's standards only help if they reach every engineer's assistant the

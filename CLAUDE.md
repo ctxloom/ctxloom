@@ -1983,9 +1983,18 @@ child holding its stdout or stderr past 200 ms FAILS (`leak-timeout`
 finding); the `ports` test group runs the tests that bind a port, or free
 one and dial it, one at a time across binaries (hook-listener,
 hook-sink-grpc, forge-github, the wiring's `oneshot::tests::hooks` and
-`capture`, the binary's `tests::hook`); and the setup script above. The
-wiring's tests read the process environment through `host_snapshot()`,
-under the `ENV_LOCK` its `Env` tests hold while they change it. `_tests`
+`capture`, the binary's `tests::hook`); and the setup script above. A
+second setup script, `guard-homes` (`scripts/nextest-guard-homes.sh`, every
+test on every platform; OD-34: a test once kept the shell's CTXLOOM_HOME and
+registered 85 temporary projects in the owner's real home), names
+CTXLOOM_HOME, CLAUDE_CONFIG_DIR, OPENCODE_CONFIG_DIR and the four XDG bases
+as one FILE, `target/test-guard/inherited-home`, so a test that keeps one
+from the process and writes under it fails (ENOTDIR) instead of writing
+into the caller's; the wiring's
+`test_the_run_inherits_no_home_a_test_could_write_into` holds the run to
+it. The wiring's tests read the process environment through
+`host_snapshot()` (which drops those names, as `Env` unsets them), under
+the `ENV_LOCK` its `Env` tests hold while they change it. `_tests`
 exits with codes of its own, never nextest's passed through (nextest's 102
 is "cargo metadata failed"): 0 passed, 100 a test failed, 101 not built, 120
 a doc test failed, 121 nextest failed otherwise (`nextest exited <code>` in

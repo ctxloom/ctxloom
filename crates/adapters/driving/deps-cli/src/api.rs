@@ -18,6 +18,14 @@ pub(crate) fn bundle_name(parent: &str, bundle: &str) -> String {
     format!("{parent}/bundles/{bundle}")
 }
 
+/// A Dependency's resource name, from its lock identity (OQ-15).
+pub(crate) fn dependency_name(parent: &str, identity: &str) -> String {
+    format!(
+        "{parent}/dependencies/{}",
+        deps_application::dependency_id(identity)
+    )
+}
+
 /// The kind a view's word names (`mcp` is an MCP server, OQ-B5); a word
 /// the API has no kind for is unspecified.
 pub(crate) fn item_kind(word: &str) -> i32 {

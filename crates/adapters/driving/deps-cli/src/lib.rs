@@ -12,6 +12,7 @@
 mod api;
 mod bundle;
 mod commands;
+mod dependency;
 mod pins;
 mod refresh;
 mod remote;
@@ -297,9 +298,12 @@ fn dependencies(
     match verb {
         "" | "list" => {
             let listing = answer(cx, deps.list(), err)?;
-            emit(cx.format, out, &listing, |out| {
-                text::deps_list(out, &listing)
-            })?;
+            respond(
+                cx,
+                out,
+                |parent| dependency::listed(parent, &listing),
+                |out| text::deps_list(out, &listing),
+            )?;
         }
         "pull" => {
             let _ = writeln!(err, "Pulling dependencies...");
@@ -350,7 +354,19 @@ fn dependencies(
         verb => {
             let held = verb == "hold" && !flag(args, "undo");
             let result = answer(cx, deps.hold(&text_arg(args, "name"), held), err)?;
-            emit(cx.format, out, &result, |out| text::hold(out, &result))?;
+            respond(
+                cx,
+                out,
+                |parent| {
+                    // The Dependency after the write, read from the lock.
+                    let listing = deps.list().result.unwrap_or(deps_application::DepsListing {
+                        deps: Vec::new(),
+                        count: 0,
+                    });
+                    dependency::held(parent, &result, &listing)
+                },
+                |out| text::hold(out, &result),
+            )?;
         }
     }
     Ok(Exit::OK)

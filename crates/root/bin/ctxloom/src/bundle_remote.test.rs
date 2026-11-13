@@ -200,7 +200,8 @@ fn test_moving_a_bundle_to_a_remote_publishes_it_then_removes_the_source() {
     ];
     let ran = world.run_with(&identity, &["bundle", "move", "authored", "--to", "team"]);
     ran.succeeds();
-    assert_eq!(reports_as(&ran.json(), "dest_kind"), "remote");
+    // OD-40: `MoveBundleResponse`, the bundle now the remote's.
+    assert_eq!(reports_as(&ran.json(), "bundle.origin"), "REMOTE");
     assert!(world
         .remote_file("team", &format!("{}/bundle.yaml", tree_bundle("authored")))
         .contains("acceptance fixture bundle"));

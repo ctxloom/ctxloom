@@ -230,8 +230,13 @@ fn the_launcher_finds_through_its_filesystem_and_without_one_searches_nothing() 
 
     let (fs, dirs) = machine(&["/bin"]);
     let flavor = os::host().flavor();
-    let name = flavor.program_file("claude");
-    let found = file(&fs, &dirs[0], &name);
+    // Spelled as the candidate is (cmd.exe's default PATHEXT is upper
+    // case), which the search answers whatever the filesystem's case rules.
+    let name = match flavor {
+        Flavor::Unix => "claude",
+        Flavor::Windows => "claude.EXE",
+    };
+    let found = file(&fs, &dirs[0], name);
     let search = match flavor {
         Flavor::Unix => format!("{}", dirs[0].display()),
         Flavor::Windows => windows_path(&dirs),

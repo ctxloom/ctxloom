@@ -1107,7 +1107,9 @@ already-destroyed session, which carries a new id, is answered so too, not
 destroy call's deadline is its own (`DaemonClient::destroying`, the wiring's
 `DESTROY_WAIT`: worktree-git's 30 s timeout times six git invocations times
 ten worktrees, plus `CALL_WAIT`), not a read's five seconds; a call past its
-deadline is unreachable (the client's own timer, no channel timeout). Every other RPC is the generated
+deadline is unreachable (the client's own timer, no channel timeout), as is a call whose
+connection the transport dropped or reset (a status with a source: the
+daemon gone mid-call), never a failed call. Every other RPC is the generated
 default, UNIMPLEMENTED, to the user bearer alone (a plain build's
 `DeleteSession` and `SweepSessions` among them); `scripts/plain-destroy-check.sh` probes the
 plain binary's daemon over curl (HTTP/2): `GetDaemon` and `DeleteSession`

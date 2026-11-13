@@ -130,6 +130,19 @@ pub fn called(method: &str, status: &Status) -> Called {
     }
 }
 
+/// What a call's `status` came to: one the transport raised (it has a
+/// source: the connection dropped or reset mid-call, the daemon gone) is
+/// unreachable, as a daemon not there is; one the daemon answered is
+/// [`called`].
+fn came_to(method: &str, status: &Status) -> Called {
+    match std::error::Error::source(status) {
+        Some(_) => Called::Unreachable {
+            detail: chain(status),
+        },
+        None => called(method, status),
+    }
+}
+
 /// An error with its sources, as one line.
 fn chain(error: &dyn std::error::Error) -> String {
     let mut text = error.to_string();
@@ -155,7 +168,7 @@ macro_rules! call {
         let answered = tokio::time::timeout(within, client.$method(request)).await;
         match answered {
             Ok(Ok(response)) => Ok(response.into_inner()),
-            Ok(Err(status)) => Err(called($name, &status)),
+            Ok(Err(status)) => Err(came_to($name, &status)),
             Err(_) => Err(Called::Unreachable {
                 detail: format!("no answer within {within:?}"),
             }),

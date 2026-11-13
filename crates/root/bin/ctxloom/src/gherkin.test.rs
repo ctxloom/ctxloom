@@ -391,6 +391,9 @@ mod recall;
 
 #[path = "gherkin_diagnosis.test.rs"]
 mod diagnosis;
+
+#[path = "gherkin_companions.test.rs"]
+mod companions;
 #[path = "gherkin_engines.test.rs"]
 mod engines;
 

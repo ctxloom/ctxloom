@@ -60,6 +60,9 @@ pub(crate) struct Project {
     /// The binary its runs run, when not the one under test at its own path
     /// (a copy under another name).
     program: Option<PathBuf>,
+    /// Directories every run's `PATH` starts with (a companion's program),
+    /// unless the run names a `PATH` of its own.
+    path_first: std::sync::Mutex<Vec<PathBuf>>,
 }
 
 impl Project {
@@ -88,7 +91,17 @@ impl Project {
             home,
             gos_catalog: false,
             program: None,
+            path_first: std::sync::Mutex::new(Vec::new()),
         }
+    }
+
+    /// Every later run's `PATH` starts with `dir` (one naming its own `PATH`
+    /// excepted).
+    pub(crate) fn put_on_path(&self, dir: &Path) {
+        self.path_first
+            .lock()
+            .expect("not poisoned")
+            .push(dir.to_path_buf());
     }
 
     /// A copy of `fixtures/<name>/project` and `fixtures/<name>/home`.
@@ -338,6 +351,14 @@ impl Project {
             if let Some(value) = crate::tests::host_var(name) {
                 command.env(name, value);
             }
+        }
+        let first = self.path_first.lock().expect("not poisoned").clone();
+        if !first.is_empty() {
+            let mut paths = first;
+            paths.extend(files::search_path(
+                &crate::tests::host_var("PATH").unwrap_or_default(),
+            ));
+            command.env("PATH", std::env::join_paths(paths).expect("a PATH"));
         }
         if self.gos_catalog {
             command.env("CTXLOOM_TEST_NO_BUILTINS", "1");

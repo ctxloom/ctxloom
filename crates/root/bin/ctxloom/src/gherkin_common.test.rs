@@ -169,6 +169,23 @@ impl Common {
         );
     }
 
+    /// `the output reports "<path>" not containing "<value>"`: the negation
+    /// of [`Common::output_reports_containing`]: the list at `path` does not
+    /// hold `value` (nothing there holds nothing); an output that is not json
+    /// (a text row) does not say `value`.
+    pub(crate) fn output_reports_not_containing(&self, path: &str, value: &str) {
+        let ran = self.ran();
+        let Ok(doc) = serde_json::from_str::<Value>(&ran.stdout) else {
+            ran.lacks(value);
+            return;
+        };
+        assert!(
+            !contains_value(&doc, path, value),
+            "{path} should not contain {value}: {}",
+            ran.said()
+        );
+    }
+
     /// `the output reports "<path>" having "<n>" entries`: the list (or
     /// object) at `path` has `n` entries; an output that is not json (a text
     /// row) says `n`'s words, as [`Common::output_reports`] reads one.
@@ -389,6 +406,11 @@ macro_rules! common_steps {
             #[then(expr = "the output reports {string} containing {string}")]
             fn output_reports_containing(w: &mut World, path: String, value: String) {
                 w.common().output_reports_containing(&path, &value);
+            }
+
+            #[then(expr = "the output reports {string} not containing {string}")]
+            fn output_reports_not_containing(w: &mut World, path: String, value: String) {
+                w.common().output_reports_not_containing(&path, &value);
             }
 
             #[then(expr = "the output reports {string} having {string} entries")]

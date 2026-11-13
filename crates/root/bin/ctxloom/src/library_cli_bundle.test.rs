@@ -243,7 +243,9 @@ fn test_the_project_is_the_nearest_ctxloom_up_from_the_working_directory() {
 // docs/environment.md: the minimal config is all a project needs
 #[test]
 fn test_the_minimal_config_is_enough() {
-    let project = Project::bare().on_gos_catalog();
+    // The id `init` mints is the project's too (owner ruling 2026-11-13: a
+    // json read in a project with none is refused).
+    let project = Project::bare().on_gos_catalog().named();
     project.write(".ctxloom/config.yaml", MINIMAL_CONFIG);
     project
         .run(&["bundle", "list", "--format", "json"])

@@ -19,6 +19,12 @@ use super::{binary, files, Ran};
 /// Go's `minimalConfig` (`steps_fixture.go`): the smallest project config.
 pub(crate) const MINIMAL_CONFIG: &str = "schema_version: 9\n";
 
+/// Where a project's id is kept, as `init` and a run write it.
+pub(crate) const PROJECT_MARKER: &str = ".ctxloom/project-id";
+
+/// The id an initialized fixture project carries, as `init` would mint one.
+pub(crate) const FIXTURE_PROJECT_ID: &str = "initialized-fixture-project";
+
 /// The editors Go's acceptance steps pin in the home config
 /// (`steps_fixture.go`): `sh -c <script> editor <tmpfile>`, so `$1` is the
 /// temporary file the content was written to.
@@ -64,8 +70,24 @@ pub(crate) struct Project {
 
 impl Project {
     /// Go's "an initialized ctxloom project": a config at the current
-    /// schema, in the project and (with a no-op editor) in the home.
+    /// schema, in the project and (with a no-op editor) in the home, and the
+    /// project id `ctxloom init` mints (owner ruling 2026-11-13: only `run`
+    /// and `init` mint one, and a read in a project with none is refused).
     pub(crate) fn initialized() -> Project {
+        Project::configured().named()
+    }
+
+    /// The project with the id `ctxloom init` would mint for it, written
+    /// where init writes it (owner ruling 2026-11-13: a json read in a
+    /// project with none is refused).
+    pub(crate) fn named(self) -> Project {
+        self.write(PROJECT_MARKER, &format!("{FIXTURE_PROJECT_ID}\n"));
+        self
+    }
+
+    /// An initialized project no `init` or run has named: its configs, and
+    /// no project id.
+    pub(crate) fn configured() -> Project {
         let project = Project::bare();
         project.write(".ctxloom/config.yaml", MINIMAL_CONFIG);
         project.write_home(
@@ -98,6 +120,11 @@ impl Project {
         copy_tree(&source.join("project"), &project.project);
         if files::is_dir(source.join("home")) {
             copy_tree(&source.join("home"), &project.home);
+        }
+        // A fixture's ctxloom project stands for an initialized one, which
+        // carries the id init mints (owner ruling 2026-11-13).
+        if files::is_dir(project.project.join(".ctxloom")) && !project.exists(PROJECT_MARKER) {
+            return project.named();
         }
         project
     }
@@ -280,12 +307,13 @@ impl Project {
     }
 
     /// Go's "a ctxloom project with a <kind> editor": the project's config
-    /// minimal, the home's pinning the editor (`steps_fixture.go`).
+    /// minimal, the home's pinning the editor (`steps_fixture.go`), and the
+    /// id init mints.
     pub(crate) fn with_editor(editor: Editor) -> Project {
         let project = Project::bare();
         project.write(".ctxloom/config.yaml", MINIMAL_CONFIG);
         project.write_home(".ctxloom/config.yaml", editor.home_config());
-        project
+        project.named()
     }
 
     /// Run `ctxloom args` in the project, with the project root named by
@@ -305,6 +333,11 @@ impl Project {
     /// walking up from the working directory.
     pub(crate) fn run_in(&self, dir: &Path, args: &[&str]) -> Ran {
         self.spawn(dir, &[], args)
+    }
+
+    /// As [`run_in`](Project::run_in), with these environment variables too.
+    pub(crate) fn run_in_with(&self, dir: &Path, env: &[(&str, &str)], args: &[&str]) -> Ran {
+        self.spawn(dir, env, args)
     }
 
     /// As [`run_with`](Project::run_with), started and not waited for: its

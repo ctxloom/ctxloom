@@ -120,6 +120,52 @@ fn test_a_second_move_shows_before_and_after_with_fingerprinted_values() {
     );
 }
 
+// j001900: `deps upgrade <ref> --yes` moves that one pin and no other
+#[test]
+fn test_an_upgrade_of_one_reference_moves_its_pin_alone() {
+    let (fx, _) = pulled();
+    let other_url = "file:///srv/other.git";
+    let first = fx.origin("other", other_url);
+    let other = Fixture::reference(other_url, "demo");
+    fx.profile("dev", &[&demo_ref(), &other]);
+    ok(fx.deps.pull(false, true));
+    let later = commit(&fx, &mcp("1.1.0", "fixture-mcp-one", "ONE"));
+    let refs: Vec<(String, String)> = mcp("1.1.0", "fixture-mcp-two", "TWO");
+    let refs: Vec<(&str, &str)> = refs.iter().map(|(p, t)| (p.as_str(), t.as_str())).collect();
+    let other_later = fx.remotes.commit(other_url, &refs);
+    let preview = ok(fx.deps.upgrade_only("origin/demo", false));
+    assert!(!preview.applied);
+    assert_eq!(preview.changes.len(), 1, "only origin/demo is shown moving");
+    let report = ok(fx.deps.upgrade_only("origin/demo", true));
+    assert!(report.applied);
+    assert_eq!(report.changes.len(), 1);
+    assert_eq!(report.changes[0].to_sha, later);
+    let lock = fx.files.lock_text().expect("a lock");
+    let pinned =
+        |reference: &str, sha: &str| lock.contains(&format!("{reference}:\n    sha: {sha}\n"));
+    assert!(pinned(&demo_ref(), &later), "{lock}");
+    assert!(
+        pinned(&other, &first),
+        "the other pin stays where it was: {lock}"
+    );
+    assert_ne!(first, other_later, "the other remote did move upstream");
+}
+
+// j001900: a name the lock does not hold has nothing to upgrade
+#[test]
+fn test_an_upgrade_of_a_reference_nothing_locks_is_refused() {
+    let (fx, _) = pulled();
+    let lock = fx.files.lock_text();
+    let err = fx
+        .deps
+        .upgrade_only("origin/nothing", true)
+        .result
+        .expect_err("refused");
+    assert_eq!(err.code(), "deps-application-nothing-to-hold");
+    assert!(err.to_string().contains("verb=upgrade"), "{err}");
+    assert_eq!(fx.files.lock_text(), lock);
+}
+
 // deps.feature: A held dependency is not upgraded
 #[test]
 fn test_a_held_dependency_is_frozen() {

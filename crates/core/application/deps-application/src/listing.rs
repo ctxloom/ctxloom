@@ -68,6 +68,21 @@ impl Deps {
         })
     }
 
+    /// The identity the lock holds `name` (a short or canonical reference)
+    /// under; none where it holds nothing of that name.
+    pub(crate) fn locked_identity(
+        &self,
+        lock: &deps::lock::Lock,
+        registry: &deps::registry::Registry,
+        name: &str,
+    ) -> Option<String> {
+        let local = |base: &str| self.files.local_bundle(base).ok().flatten().is_some();
+        let expanded = short::expand(name, &|alias| registry.get(alias).map(|r| r.url), &local);
+        RemoteRef::parse(&expanded)
+            .map(|r| r.identity)
+            .filter(|identity| lock.entries.contains_key(identity))
+    }
+
     /// `deps hold` (`held`) and `deps unhold`: freeze one locked dependency
     /// against `upgrade`, or release it. A hold is local policy: it edits the
     /// lock, not the bundle. Naming a bundle of this project holds nothing,
@@ -89,9 +104,7 @@ impl Deps {
         let registry = self
             .registry()
             .unwrap_or_else(|_| deps::registry::Registry::empty());
-        let local = |base: &str| self.files.local_bundle(base).ok().flatten().is_some();
-        let expanded = short::expand(name, &|alias| registry.get(alias).map(|r| r.url), &local);
-        let identity = RemoteRef::parse(&expanded).map(|r| r.identity);
+        let identity = self.locked_identity(&lock, &registry, name);
         if let Some(entry) = identity.and_then(|id| lock.entries.get_mut(&id)) {
             if entry.held != held {
                 entry.held = held;

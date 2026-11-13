@@ -218,6 +218,33 @@ pub fn upgrade(active: &Lock, proposed: &[Pin], unexpanded: usize, fetch_failed:
     }
 }
 
+/// `deps upgrade <ref>`: the round `decided` held to the one `identity`.
+/// Only its pin moves (or is dropped, when the closure no longer reaches
+/// it); every other entry of `active` is carried as it is, and no other
+/// reference gets a first pin.
+pub fn only(active: &Lock, decided: Upgrade, identity: &str) -> Upgrade {
+    let mut next = active.clone();
+    match decided.next.entries.get(identity) {
+        Some(entry) => {
+            next.entries.insert(identity.to_string(), entry.clone());
+        }
+        None => {
+            next.entries.remove(identity);
+        }
+    }
+    Upgrade {
+        removed: dropped(active, &next),
+        moved: decided
+            .moved
+            .into_iter()
+            .filter(|pin| pin.identity == identity)
+            .collect(),
+        incomplete: decided.incomplete,
+        nothing_declared: false,
+        next,
+    }
+}
+
 /// A pin kept at its commit although the manifest now asks for something else.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ConstraintChange {

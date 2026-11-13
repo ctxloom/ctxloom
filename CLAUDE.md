@@ -1605,7 +1605,7 @@ listing, so `just build` reaches no daemon. Every other noun still prints
 its view, until its branch (B1 catalog, B2 configuration, B3 queries, B4
 remotes) converts it.
 
-B2 (`aip/configuration`) converted `agent`, `companion` and `config`: `agent list` is
+B2 (`aip/configuration`) converted `agent`, `companion`, `config` and `run --dry-run`: `agent list` is
 `ListAgentsResponse` (`{agents: [...]}`, an empty one `{}`), `agent show`
 the `Agent` itself (no `definition` level: `engine`, `profiles`,
 `engines.<e>.model` at the top, `resolved` beside them, an env key's name
@@ -1628,10 +1628,15 @@ unset (a companion is a name and the command that runs it, not Go's
 (`users/me/config` outside a project), the document it printed before
 under `document` (so `agents.default.engine` reads
 `document.agents.default.engine`); `config create` and `edit` stay text
-only. Go parity ends for these nouns' JSON (design §8.1): their JSON rows
+only. `run --dry-run` is `CreateRun` with `validate_only`, its json the
+`Run` it would create (daemon.proto's `Run`, amended per design §5.9:
+`settings` an `AgentSettings`, `tokens` uint32, and `workspace`,
+`runtime`, `prompt` and `fragments` added; the draft's `Setting` is gone),
+named nothing, so it asks no daemon; a finding's false `fatal` is left out. Go parity ends for these nouns' JSON (design §8.1): their JSON rows
 are retired from `fixtures/parity/`, the text rows stay; `config show`'s
 JSON rows still compare Go's answer, the resource's `document`
-(`library_parity`'s `as_go_printed`).
+(`library_parity`'s `as_go_printed`), and the dry run's compared keys
+read a default proto3 JSON leaves out as Go's printed one (`printed`).
 
 The feature steps read proto3 JSON (design §8.1, the binary's
 `library.test.rs` and `gherkin_common.test.rs`): a selector `[key$=suffix]`

@@ -421,13 +421,28 @@ fn as_go_printed(row: &Row, got: Value) -> Value {
     got
 }
 
+/// A value as proto3 JSON prints it (OD-40: the dry run is the `Run`
+/// message): a default (null, false, a zero, an empty text or list) is left
+/// out, so Go's printed default and this build's absent field agree, and
+/// nothing else does.
+fn printed(value: Option<&Value>) -> Option<&Value> {
+    value.filter(|value| match value {
+        Value::Null => false,
+        Value::Bool(b) => *b,
+        Value::Number(n) => n.as_f64() != Some(0.0),
+        Value::String(s) => !s.is_empty(),
+        Value::Array(a) => !a.is_empty(),
+        Value::Object(_) => true,
+    })
+}
+
 fn json_mismatch(id: &str, want: &Value, got: &Value) -> Option<String> {
     if !is_dry_run(id) {
         return (want != got).then(|| format!("JSON differs\n--- Go\n{want:#}\n--- here\n{got:#}"));
     }
     let mut wrong = Vec::new();
     for key in DRY_RUN_KEYS {
-        if want.get(key) != got.get(key) {
+        if printed(want.get(key)) != printed(got.get(key)) {
             wrong.push(format!(
                 "{key}: Go {:?}, here {:?}",
                 want.get(key),
@@ -437,12 +452,12 @@ fn json_mismatch(id: &str, want: &Value, got: &Value) -> Option<String> {
     }
     // Findings: how many, and which are fatal (their words are the
     // catalog's).
-    let flags = |doc: &Value| -> Vec<(Value, Value)> {
+    let flags = |doc: &Value| -> Vec<(Value, bool)> {
         doc["findings"]
             .as_array()
             .map(|a| {
                 a.iter()
-                    .map(|f| (f["kind"].clone(), f["fatal"].clone()))
+                    .map(|f| (f["kind"].clone(), f["fatal"].as_bool().unwrap_or(false)))
                     .collect()
             })
             .unwrap_or_default()

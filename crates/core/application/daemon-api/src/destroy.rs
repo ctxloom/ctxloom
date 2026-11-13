@@ -690,10 +690,14 @@ impl<E: Edge> Api<E> {
 struct Unconfigured;
 
 impl SweepConfig for Unconfigured {
+    // Equivalent: an empty age is none to purge_cutoff, which trims and drops it.
+    #[cfg_attr(test, mutants::skip)]
     fn purge_age(&mut self) -> Result<Option<String>, reclaim_application::Failure> {
         Ok(None)
     }
 
+    // Unreachable: a removal's retention reads its project's settings, never these.
+    #[cfg_attr(test, mutants::skip)]
     fn retention(&mut self) -> Result<Option<String>, reclaim_application::Failure> {
         Ok(None)
     }

@@ -963,3 +963,52 @@ fn a_removal_refused_is_a_failed_precondition() {
         <v1::RemovalRefused as daemon_proto::Refusal>::REFUSAL_STATUS
     );
 }
+
+// A blank configured retention is none: the default 30 days applies, never
+// a refusal of the blank as no age.
+#[tokio::test]
+async fn a_blank_configured_retention_is_the_default() {
+    let f = finished(HARP, transcript_and_notes(HARP)).await;
+    f.places.held().retention = Some("  ".to_string());
+    let done = f.api.delete_session(delete(NAME, true)).await.unwrap();
+    assert!(done.applied);
+    assert_eq!(f.places.held().destroyed, [HARP]);
+}
+
+// A sweep that names no project reads the configuration of its parent,
+// when that is one project.
+#[tokio::test]
+async fn a_sweep_of_one_projects_parent_reads_its_configuration() {
+    let f = finished(HARP, transcript_and_notes(HARP)).await;
+    f.places.held().purge_age = Some("30d".to_string());
+    let report = f
+        .api
+        .sweep_sessions(v1::SweepSessionsRequest {
+            project: String::new(),
+            ..sweep("", true)
+        })
+        .await
+        .unwrap();
+    assert_eq!(f.places.held().purge_age_asked, [ROOT]);
+    assert_eq!(report.counts.unwrap().done, 1);
+}
+
+// A sweep of every project names no one configuration: with no age given,
+// it reads none and holds every purge.
+#[tokio::test]
+async fn a_sweep_of_every_project_with_no_age_holds_every_purge() {
+    let f = finished(HARP, transcript_and_notes(HARP)).await;
+    f.places.held().purge_age = Some("30d".to_string());
+    let report = f
+        .api
+        .sweep_sessions(v1::SweepSessionsRequest {
+            parent: "projects/-".to_string(),
+            project: "projects/-".to_string(),
+            ..sweep("", true)
+        })
+        .await
+        .unwrap();
+    assert!(f.places.held().purge_age_asked.is_empty());
+    assert!(report.purge_cutoff.is_empty());
+    assert!(f.places.held().destroyed.is_empty());
+}

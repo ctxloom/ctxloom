@@ -263,6 +263,25 @@ impl Fixture {
         let book = sessions::keyed_book(cover, &mint, &format!("mint:{harp}"));
         self.world.handle(book).await.unwrap();
     }
+
+    /// The session `harp`'s last run ended: its record's end stamp.
+    pub(crate) async fn end(&self, harp: &str) {
+        let name = format!("projects/calm-quiet-heron/sessions/{harp}");
+        let root = sessions::SessionName::parse(&name).unwrap().root();
+        let cover = Cover {
+            domain: sessions::SESSION_DOMAIN.to_string(),
+            root: Some(root),
+            edition: None,
+        };
+        let ended = sessions::RecordEnd {
+            at: angzarr_embedded::Timestamp {
+                seconds: 1_000,
+                nanos: 0,
+            },
+        };
+        let book = sessions::keyed_book(cover, &ended, &format!("ended:{harp}"));
+        self.world.handle(book).await.unwrap();
+    }
 }
 
 fn resolve(commit: &str, name: &str) -> v1::ResolveProjectRequest {
@@ -664,6 +683,8 @@ async fn a_live_sessions_end_is_blank() {
     f.api.resolve_project(resolve(COMMIT, "")).await.unwrap();
     f.mint("amber-swift-owl").await;
     f.mint("ended-copper-moth").await;
+    f.end("amber-swift-owl").await;
+    f.end("ended-copper-moth").await;
     f.catch_up().await;
     let listed = f
         .api
@@ -674,8 +695,28 @@ async fn a_live_sessions_end_is_blank() {
         .await
         .unwrap();
     for session in listed.sessions {
-        if session.state == v1::SessionState::Live as i32 {
-            assert_eq!(session.end_time, None, "{}", session.name);
+        match session.state == v1::SessionState::Live as i32 {
+            true => assert_eq!(session.end_time, None, "{}", session.name),
+            // An ended session's end is its record's.
+            false => assert!(session.end_time.is_some(), "{}", session.name),
         }
     }
+}
+
+// A name whose segment is no harp is refused with the harp grammar's
+// reason, not merely its shape.
+#[tokio::test]
+async fn a_name_whose_segment_is_no_harp_says_why() {
+    let f = fixture(vec!["calm-quiet-heron"]);
+    let name = "projects/calm-quiet-heron/sessions/ amber";
+    let (_, invalid): (_, v1::NameInvalid) = refused(
+        f.api
+            .get_session(v1::GetSessionRequest {
+                name: name.to_string(),
+                ..v1::GetSessionRequest::default()
+            })
+            .await,
+    );
+    assert_eq!(invalid.name, name);
+    assert_eq!(invalid.reason, "whitespace");
 }

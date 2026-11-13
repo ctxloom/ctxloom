@@ -53,6 +53,7 @@ impl DaemonApi for Fake {
 
     async fn stop_daemon(&self, r: v1::StopDaemonRequest) -> Result<v1::Daemon, Called> {
         self.ask(&format!("stop {}", r.even_if_live), r.env)?;
+        self.names.lock().unwrap().push(r.name);
         Ok(v1::Daemon::default())
     }
 
@@ -94,7 +95,7 @@ impl DaemonApi for Fake {
         &self,
         r: v1::SearchSessionsRequest,
     ) -> Result<v1::ListSessionsResponse, Called> {
-        self.ask(&format!("search {}", r.words.join(" ")), r.env)?;
+        self.ask(&format!("search {} {}", r.state, r.words.join(" ")), r.env)?;
         self.names.lock().unwrap().push(r.parent);
         Ok(v1::ListSessionsResponse::default())
     }
@@ -297,7 +298,7 @@ async fn show_and_search_address_the_resolved_project() {
         .search_sessions(
             vec!["lock".to_string(), "file".to_string()],
             false,
-            v1::SessionState::Unspecified,
+            v1::SessionState::Live,
         )
         .await
         .unwrap();
@@ -307,9 +308,11 @@ async fn show_and_search_address_the_resolved_project() {
             "1:resolve",
             "1:get-session",
             "2:resolve",
-            "2:search lock file"
+            "2:search 1 lock file"
         ]
     );
+    let envs = daemons.template.envs.lock().unwrap().clone();
+    assert_eq!(envs, vec![Some(env()); 4]);
 }
 
 // S8: a daemon that dies mid-call is replaced: the call is made once more,
@@ -386,6 +389,9 @@ async fn status_and_stop_start_no_daemon() {
     assert_eq!(status.map(|d| d.pid), Some(7));
     outside(&daemons).stop(true).await.unwrap();
     assert_eq!(daemons.asked(), ["0:get", "0:stop true"]);
+    assert_eq!(daemons.names(), ["daemon"]);
+    let envs = daemons.template.envs.lock().unwrap().clone();
+    assert_eq!(envs, vec![Some(env()); 2]);
     assert_eq!(daemons.reaches(), 0);
 }
 
@@ -461,6 +467,8 @@ async fn a_sweep_names_its_parent_and_its_project() {
         ["p-1", "p-1", "projects/-", "projects/calm-otter"]
     );
     assert_eq!(daemons.asked().last().unwrap(), "1:sweep true 90d");
+    let envs = daemons.template.envs.lock().unwrap().clone();
+    assert_eq!(envs.last(), Some(&Some(env())));
     let outside_daemons = Fakes::new();
     outside(&outside_daemons)
         .sweep_sessions(true, None, true)

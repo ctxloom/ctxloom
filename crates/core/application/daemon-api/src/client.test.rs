@@ -16,6 +16,8 @@ struct Daemon {
     hosted: Vec<&'static str>,
     stop: Option<Called>,
     asked: Mutex<Vec<&'static str>>,
+    gets: Mutex<Vec<v1::GetDaemonRequest>>,
+    stops: Mutex<Vec<v1::StopDaemonRequest>>,
 }
 
 impl Daemon {
@@ -29,19 +31,22 @@ impl Daemon {
                     ..v1::HostedRun::default()
                 })
                 .collect(),
+            name: "daemon".to_string(),
             ..v1::Daemon::default()
         }
     }
 }
 
 impl DaemonApi for Daemon {
-    async fn get_daemon(&self, _: v1::GetDaemonRequest) -> Result<v1::Daemon, Called> {
+    async fn get_daemon(&self, r: v1::GetDaemonRequest) -> Result<v1::Daemon, Called> {
         self.asked.lock().unwrap().push("get");
+        self.gets.lock().unwrap().push(r);
         Ok(self.about())
     }
 
-    async fn stop_daemon(&self, _: v1::StopDaemonRequest) -> Result<v1::Daemon, Called> {
+    async fn stop_daemon(&self, r: v1::StopDaemonRequest) -> Result<v1::Daemon, Called> {
         self.asked.lock().unwrap().push("stop");
+        self.stops.lock().unwrap().push(r);
         match &self.stop {
             Some(called) => Err(called.clone()),
             None => Ok(self.about()),
@@ -108,6 +113,11 @@ async fn another_stamp_stops_an_idle_daemon() {
         Ok(Reconciled::Stopped)
     );
     assert_eq!(*daemon.asked.lock().unwrap(), ["get", "stop"]);
+    // It asks the daemon by its name, and stops the daemon it was told of.
+    assert_eq!(daemon.gets.lock().unwrap()[0].name, "daemon");
+    let stopped = &daemon.stops.lock().unwrap()[0];
+    assert_eq!(stopped.name, "daemon");
+    assert!(!stopped.even_if_live);
 }
 
 // Another stamp, hosting live runs: refused (exit 20), naming them, and the
@@ -219,4 +229,58 @@ async fn a_refused_registration_is_the_sessions_domains() {
         "sessions-project-harp-mismatch"
     );
     assert_eq!(refused.exit(), Exit::REFUSED);
+}
+
+// `daemon stop` names the daemon, and says whether it may end live runs.
+#[tokio::test]
+async fn a_stop_names_the_daemon_and_its_override() {
+    let daemon = Daemon::default();
+    stop(&daemon, true).await.unwrap();
+    stop(&daemon, false).await.unwrap();
+    let stops = daemon.stops.lock().unwrap();
+    assert_eq!(
+        stops
+            .iter()
+            .map(|s| (s.name.as_str(), s.even_if_live))
+            .collect::<Vec<_>>(),
+        [("daemon", true), ("daemon", false)]
+    );
+}
+
+// Each error displays as its code and its args.
+#[test]
+fn the_errors_display_their_code_and_args() {
+    let busy = SkewError::Busy {
+        own: "0.2.0+b".to_string(),
+        daemon: "0.1.0+a".to_string(),
+        harps: vec!["brisk-copper-moth".to_string(), "calm-otter".to_string()],
+    };
+    assert_eq!(
+        busy.to_string(),
+        "daemon-api-version-skew-busy own=0.2.0+b daemon=0.1.0+a harps=\"brisk-copper-moth, calm-otter\""
+    );
+    let failed = Called::Failed {
+        code: 13,
+        detail: "the store".to_string(),
+    };
+    assert_eq!(
+        SkewError::Call(failed.clone()).to_string(),
+        "daemon-ports-failed code=13 ext_err_txt=\"the store\""
+    );
+    assert_eq!(
+        CallError::Call(failed).to_string(),
+        "daemon-ports-failed code=13 ext_err_txt=\"the store\""
+    );
+    let refused = CallError::from(Called::Refused {
+        code: 9,
+        refusal: Any::from_msg(&v1::DaemonHosting {
+            runs: 1,
+            harps: vec!["brisk-copper-moth".to_string()],
+        })
+        .unwrap(),
+    });
+    assert_eq!(
+        refused.to_string(),
+        "daemon-api-daemon-hosting runs=1 harps=brisk-copper-moth"
+    );
 }

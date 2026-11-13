@@ -1213,9 +1213,10 @@ uses (`Timestamp`, `FieldMask`) compiled INTO the crate
 (`daemon_proto::google::protobuf`, converting to and from prost-types' own
 with `From`), and `pbjson-build` (`=0.9.0`, runtime `pbjson` `=0.9.0`)
 generates every message's serde, proto field names kept; the well-known
-types' JSON is hand-written (`daemon-proto`'s `wkt.rs`). Its spike holds
-the generated JSON byte-identical to `session_cli::proto_json`'s on the
-same messages (`proto_json.test.rs`; session-cli's tests take serde_json's
+types' JSON is hand-written (`daemon-proto`'s `wkt.rs`). The session verbs
+and `daemon status|stop` print it; its spike holds it byte-identical to the
+hand-written renderer it replaced (`session_cli::proto_json`, now test-only)
+on the same messages (`proto_json.test.rs`; session-cli's tests take serde_json's
 `preserve_order`, as the binary has it through engine-opencode's
 agent-client-protocol). GATE FIRST, EVERYTHING (owner, after
 step 5): the whole generated server is wrapped in `daemon_api_grpc::Gated`,
@@ -1298,10 +1299,12 @@ project a read of its own is `ProjectUnknown`; `--all` lists `projects/-`),
 sends the caller's WHOLE environment in every request (`EnvVars env = 94`,
 S7; the reads ignore it), and a call whose daemon could not be reached
 mid-call is made once more, whole, on the daemon reached again (S8). Their
-`--format json` is the answer's proto3 JSON (ruling 146,
-`session_cli::proto_json`: proto field names, a default left out, an enum
-by its name, a 64-bit integer as a decimal string, a Timestamp RFC 3339
-with `Z` and 0, 3, 6 or 9 fraction digits, `session_index::stamp::proto3`);
+`--format json` is the answer's proto3 JSON (ruling 146, the message's
+generated serde (OQ-21): proto field names, a default left out, an enum by
+its name, a 64-bit integer as a decimal string, a Timestamp RFC 3339 with
+`Z` and 0, 3, 6 or 9 fraction digits, `daemon-proto`'s `wkt.rs`; the
+hand-written `session_cli::proto_json` it replaced is test-only, the
+oracle the generated JSON is held byte-identical to);
 their text is the table and the facts it was (a session's owner and
 children by resource name). The `Session` the daemon answers carries what
 `show` says: its native id, its project's root, its output folder, its
@@ -1310,7 +1313,7 @@ blank. `session remove` and `session sweep` are clients too (owner,
 2026-11-12; `SessionRemovals`, `session_cli::destroy`): a removal answers
 `Removed::Done` or `Removed::Refused` with the plan its refusal carried,
 their previews and `--detailed-exitcode` 1 as before, their json the
-answers' proto3 JSON (`session_cli::proto_json::deletion`, `sweep`), a
+answers' proto3 JSON (`DeleteSessionResponse`'s, `SweepSessionsResponse`'s), a
 `--purge-older-than` that is no age refused before the daemon is asked;
 the write's request id (S8) is not sent yet, so a retry on a new daemon of
 a removal that applied answers `SessionNotFound`. Not yet clients: the

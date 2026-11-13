@@ -24,7 +24,6 @@ use sessions_application::{
 #[cfg(feature = "session-destroy")]
 use sessions_application::{DestroysAuthored, REMOVE_VERB};
 
-use crate::proto_json;
 use crate::render::{
     conversation_text, import_text, listing_text, session_text, transcripts_text, worktrees_text,
     ImportDoc, KeepDoc, TitleDoc, TranscriptsDoc,
@@ -159,7 +158,7 @@ pub fn read<R: SessionReads>(
             Some(SessionVerb::Show(args)) => {
                 let shown = reads.get_session(&args.harp).await.map_err(call_failure)?;
                 wrote(match format {
-                    Format::Json => write_json(out, &proto_json::session(&shown)),
+                    Format::Json => write_json(out, &shown),
                     Format::Text => session_text(&shown, out),
                 })?;
                 Ok(Done::default())
@@ -213,7 +212,7 @@ fn listing(
     out: &mut dyn Write,
 ) -> Result<Done, Failure> {
     wrote(match format {
-        Format::Json => write_json(out, &proto_json::sessions(listed)),
+        Format::Json => write_json(out, listed),
         Format::Text => listing_text(&listed.sessions, out),
     })?;
     Ok(Done::default())
@@ -440,7 +439,7 @@ async fn remove<R: SessionRemovals>(
         .filter(|_| !matches!(why, Some(daemon_api::RemovalRejection::Session(_))))
         .map(report_of);
     wrote(match format {
-        Format::Json => write_json(out, &proto_json::deletion(&plan)),
+        Format::Json => write_json(out, &plan),
         Format::Text => removal_text(&removal_of(&plan), out).and_then(|()| match &worktrees {
             Some(report) => worktrees_text(report, out),
             None => Ok(()),
@@ -500,7 +499,7 @@ async fn sweep<R: SessionRemovals>(
         .await
         .map_err(call_failure)?;
     wrote(match format {
-        Format::Json => write_json(out, &proto_json::sweep(&report)),
+        Format::Json => write_json(out, &report),
         Format::Text => sweep_text(&report, out),
     })?;
     let mut done = Done::default();

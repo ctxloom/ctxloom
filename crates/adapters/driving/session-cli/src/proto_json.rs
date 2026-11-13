@@ -1,5 +1,7 @@
-//! A daemon's answer as `--format json` prints it (ruling 146): the
-//! message's standard proto3 JSON, field names as in the proto (snake_case,
+//! THE ORACLE (OQ-21, test only): the hand-written renderer `--format json`
+//! printed before `daemon-proto` generated each message's serde, kept so
+//! that its test holds the generated JSON byte-identical to it. It wrote
+//! the message's standard proto3 JSON, field names as in the proto (snake_case,
 //! `preserving_proto_field_names`). As proto3 JSON writes them: a field at
 //! its default (empty text, zero, false, an empty list, an unset message) is
 //! left out; an enum is its value's name; a 64-bit integer is a decimal

@@ -255,7 +255,7 @@ struct Status(Option<daemon_proto::v1::Daemon>);
 impl Render for Status {
     fn json(&self) -> impl Serialize + '_ {
         // None serving: the empty message, `{}`.
-        session_cli::proto_json::daemon(&self.0.clone().unwrap_or_default())
+        self.0.clone().unwrap_or_default()
     }
 
     fn text(&self, out: &mut dyn Write) -> std::io::Result<()> {

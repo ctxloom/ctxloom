@@ -47,18 +47,24 @@ fn test_one_query_answers_from_both_sources_and_each_flag_narrows_it_to_one() {
             let doc = both.json();
             assert_eq!(reports_as(&doc, "count"), "2");
             assert_eq!(
-                reports_as(&doc, "local[name=demo-local-note].type"),
-                "fragment"
+                reports_as(
+                    &doc,
+                    "local[resource$=/bundles/notes/fragments/demo-local-note].kind"
+                ),
+                "FRAGMENT"
             );
             let doc = local.json();
             assert_eq!(reports_as(&doc, "count"), "1");
             assert_eq!(
-                reports_as(&doc, "local[name=demo-local-note].type"),
-                "fragment"
+                reports_as(
+                    &doc,
+                    "local[resource$=/bundles/notes/fragments/demo-local-note].kind"
+                ),
+                "FRAGMENT"
             );
             let doc = remote.json();
             assert_eq!(reports_as(&doc, "count"), "1");
-            assert_eq!(reports_as(&doc, "remote[name=demo].type"), "bundle");
+            assert_eq!(reports_as(&doc, "remote[item=demo].kind"), "BUNDLE");
         }
     }
 }
@@ -80,7 +86,7 @@ fn test_narrowing_to_bundles_searches_upstream_alone() {
         } else {
             let doc = narrowed.json();
             assert_eq!(reports_as(&doc, "count"), "1");
-            assert_eq!(reports_as(&doc, "remote[name=demo].type"), "bundle");
+            assert_eq!(reports_as(&doc, "remote[item=demo].kind"), "BUNDLE");
         }
     }
 }
@@ -92,9 +98,9 @@ fn test_a_remote_search_hit_names_its_remote_and_the_reference_that_installs_it(
     let mut world = World::initialized();
     world.git_remote("origin");
     let doc = search(&world, &["--remote", "demo"], &[]).json();
-    assert_eq!(reports_as(&doc, "remote[name=demo].remote"), "origin");
+    assert_eq!(reports_as(&doc, "remote[item=demo].remote"), "origin");
     assert_eq!(
-        reports_as(&doc, "remote[name=demo].pull_ref"),
+        reports_as(&doc, "remote[item=demo].pull_reference"),
         world.reference("origin", "demo")
     );
     assert_eq!(entries(&doc, "local"), 0);

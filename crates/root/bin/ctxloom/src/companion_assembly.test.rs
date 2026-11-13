@@ -55,12 +55,17 @@ fn a_registered_companions_fragment_reaches_context_assemble() {
         !context.contains(LATER),
         "a premise holds it back: {context}"
     );
+    // OD-40 (design §1.2): a companion's fragment is named under its
+    // loadout, `projects/{project}/companions/acme/bundles/loadout`.
     assert!(
-        doc["fragments_loaded"]
+        doc["fragments"]
             .as_array()
             .unwrap()
             .iter()
-            .any(|f| f == "ctxloom+companion:acme#fragments/guidance"),
+            .any(|f| f["fragment"]
+                .as_str()
+                .is_some_and(|name| name.starts_with("projects/")
+                    && name.ends_with("/companions/acme/bundles/loadout/fragments/guidance"))),
         "{doc}"
     );
     assert_eq!(ran.stderr, "", "nothing to warn of");

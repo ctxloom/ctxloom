@@ -14,7 +14,7 @@ use crate::agents::engine_error;
 use crate::config::Agent;
 use crate::error::{AppError, Notice};
 use crate::project::{Library, Outcome, Project};
-use crate::views::{Assembled, DryRun, FindingRow};
+use crate::views::{Assembled, DryRun, FindingRow, UsedFragment};
 use crate::Flags;
 
 /// What `run --dry-run` is asked.
@@ -443,12 +443,37 @@ impl Project {
             .filter(|asked| !package.loaded.contains(asked))
             .cloned()
             .collect();
+        // Where each profile and fragment is (OD-40): a profile by the key
+        // its ask resolved to, a fragment by the reference it loaded by.
+        let profiles_located = package
+            .selection
+            .profiles
+            .iter()
+            .map(|ask| {
+                let key = library::profile::canonical_key(&self.spelled_out(ask)).ok()?;
+                self.locate(&key)
+            })
+            .collect();
+        let used = package
+            .loaded
+            .iter()
+            .map(|reference| UsedFragment {
+                located: self.locate(reference),
+                distilled: package
+                    .fragments
+                    .iter()
+                    .any(|d| d.reference == *reference && d.distilled),
+            })
+            .collect();
         Ok(Assembled {
             profiles: package.selection.profiles.clone(),
             context: package.context.clone(),
             fragments_loaded: package.loaded.clone(),
             missing_fragments,
             missing_tags: package.selection.missing_tags.clone(),
+            profiles_located,
+            used,
+            tokens: tokens::estimate(&package.context) as u64,
         })
     }
 }

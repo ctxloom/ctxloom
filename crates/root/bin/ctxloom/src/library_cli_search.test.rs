@@ -68,10 +68,13 @@ fn test_one_query_finds_matching_content_of_more_than_one_kind() {
         } else {
             let doc = ran.json();
             assert_eq!(reports_as(&doc, "count"), "2");
-            assert_eq!(reports_as(&doc, "local[name=testing].type"), "fragment");
             assert_eq!(
-                reports_as(&doc, "local[name=testing-review].type"),
-                "command"
+                reports_as(&doc, "local[resource$=/fragments/testing].kind"),
+                "FRAGMENT"
+            );
+            assert_eq!(
+                reports_as(&doc, "local[resource$=/commands/testing-review].kind"),
+                "COMMAND"
             );
         }
     }
@@ -81,7 +84,10 @@ fn test_one_query_finds_matching_content_of_more_than_one_kind() {
 // command the same query matched; Restricting to commands drops the fragment
 #[test]
 fn test_restricting_to_a_kind_drops_the_other_kinds() {
-    for (kind, survivor) in [("fragment", "testing"), ("command", "testing-review")] {
+    for (kind, survivor, collection, value) in [
+        ("fragment", "testing", "fragments", "FRAGMENT"),
+        ("command", "testing-review", "commands", "COMMAND"),
+    ] {
         let project = demo_with_testing();
         project.command("demo", "testing-review");
         assert_eq!(
@@ -99,8 +105,11 @@ fn test_restricting_to_a_kind_drops_the_other_kinds() {
         let doc = ran.json();
         assert_eq!(reports_as(&doc, "count"), "1");
         assert_eq!(
-            reports_as(&doc, &format!("local[name={survivor}].type")),
-            kind
+            reports_as(
+                &doc,
+                &format!("local[resource$=/{collection}/{survivor}].kind")
+            ),
+            value
         );
     }
 }
@@ -132,7 +141,10 @@ fn test_restricting_to_profiles_finds_a_composition_and_nothing_else() {
         } else {
             let doc = ran.json();
             assert_eq!(reports_as(&doc, "count"), "1");
-            assert_eq!(reports_as(&doc, "local[name=dev].type"), "profile");
+            assert_eq!(
+                reports_as(&doc, "local[resource$=/profiles/dev].kind"),
+                "PROFILE"
+            );
         }
     }
 }
@@ -145,8 +157,11 @@ fn test_a_tag_search_returns_what_carries_the_tag() {
         let project = demo_with_testing();
         let by_name = project.run(&["search", "--local", "testing"]);
         assert_eq!(
-            reports_as(&by_name.succeeds().json(), "local[name=testing].type"),
-            "fragment"
+            reports_as(
+                &by_name.succeeds().json(),
+                "local[resource$=/fragments/testing].kind"
+            ),
+            "FRAGMENT"
         );
         let ran = run_with_flags(&project, &["search", "--local", "--tag", "example"], flags);
         ran.succeeds();
@@ -155,7 +170,11 @@ fn test_a_tag_search_returns_what_carries_the_tag() {
         } else {
             let doc = ran.json();
             assert_eq!(reports_as(&doc, "count"), "1");
-            assert!(contains_value(&doc, "local[name=example].tags", "example"));
+            assert!(contains_value(
+                &doc,
+                "local[resource$=/fragments/example].tags",
+                "example"
+            ));
         }
     }
 }

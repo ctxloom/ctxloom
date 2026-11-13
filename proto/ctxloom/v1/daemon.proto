@@ -455,8 +455,17 @@ message AssembledFragment {
 
 message AssembledContext {
   string context = 1;
-  uint64 tokens = 2;
+  // The context's token estimate: a count, so uint32 (OQ-12; drafted
+  // uint64, which proto3 JSON prints as a string).
+  uint32 tokens = 2;
   repeated AssembledFragment fragments = 3;
+  // The profiles composed, each a Profile's name (design §5.9).
+  repeated string profiles = 4;
+  // Each fragment asked for by name that did not load, as it was asked:
+  // it names nothing, so it keeps its text (OQ-16).
+  repeated string missing_fragments = 5;
+  // The tags asked for, when none of them matched a fragment.
+  repeated string missing_tags = 6;
   // `stale-distilled` for each distilled form whose digest did not match.
   repeated Notice notices = 92;
 }

@@ -1,6 +1,12 @@
 # world: surfaces
 # Ported from cli/search.feature (rev f36e8dfb2)
 # NOT ported: nothing
+# OD-40 (aip/queries, 2026-11-13): the JSON steps read the AIP message (library.proto's
+#   `SearchLibraryResponse`, design §5.9): a local hit is named by `resource`
+#   (`projects/{project}/bundles/<bundle>/<collection>/<item>`, selected by suffix,
+#   `[resource$=...]`) and says its `kind` as the `ItemKind` value (`FRAGMENT`); a remote
+#   hit is not installed, so it has no resource name: `item` is its name in the remote.
+#   A zero count and an empty list are left out, and read as their defaults.
 
 @doc
 Feature: search — finding content by name, tag and type, here and upstream
@@ -32,6 +38,9 @@ Feature: search — finding content by name, tag and type, here and upstream
   what survived: a total that could only be reached without the excluded item,
   naming what it is, together prove the same fact a membership check on the
   excluded name would — without needing an object-array "does not contain".
+
+  Its JSON is the AIP message (OD-40): `SearchLibraryResponse`, each local hit
+  named by its `resource` and its `kind`, each remote one by its `item`.
 
   A SEARCH WITH NOTHING TO LOOK FOR IS REFUSED rather than answered. An empty
   query matches everything, and dumping the library in response to a mistyped
@@ -90,7 +99,7 @@ Feature: search — finding content by name, tag and type, here and upstream
     # One query, every local kind, grouped by kind in the answer. The fixture
     # seeds a fragment and a command whose names the same query matches, so
     # the result proves the search crossed kinds rather than stopping at the
-    # first one it knows about. The structured rows read TYPE off each named
+    # first one it knows about. The structured rows read KIND off each named
     # result directly — a stronger claim than the rendered grouping headers
     # they replace, which only imply type by which section a name sits under.
     Scenario Outline: One query finds matching content of more than one kind
@@ -104,14 +113,14 @@ Feature: search — finding content by name, tag and type, here and upstream
         """
       Then the command succeeds
       And the output reports "count" as "<result count>"
-      And the output reports "local[name=testing].type" as "<names the fragment>"
-      And the output reports "local[name=testing-review].type" as "<names the command>"
+      And the output reports "local[resource$=/fragments/testing].kind" as "<names the fragment>"
+      And the output reports "local[resource$=/commands/testing-review].kind" as "<names the command>"
 
       @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | result count | names the fragment | names the command |
-        |               | 2            | fragment            | command            |
-        | --format json | 2            | fragment            | command            |
+        |               | 2            | FRAGMENT            | COMMAND            |
+        | --format json | 2            | FRAGMENT            | COMMAND            |
         | --format text | Results (2): | - testing           | - testing-review   |
 
   Rule: --type narrows to one kind, and that is a claim about exclusion
@@ -137,13 +146,13 @@ Feature: search — finding content by name, tag and type, here and upstream
         """
       Then the command succeeds
       And the output reports "count" as "<result count>"
-      And the output reports "local[name=testing].type" as "<the kind that survived>"
+      And the output reports "local[resource$=/fragments/testing].kind" as "<the kind that survived>"
 
       @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | result count | the kind that survived |
-        |               | 1            | fragment                |
-        | --format json | 1            | fragment                |
+        |               | 1            | FRAGMENT                |
+        | --format json | 1            | FRAGMENT                |
         | --format text | Results (1): | - testing               |
 
     # The mirror of the row above, so the flag is shown to select rather than
@@ -160,13 +169,13 @@ Feature: search — finding content by name, tag and type, here and upstream
         """
       Then the command succeeds
       And the output reports "count" as "<result count>"
-      And the output reports "local[name=testing-review].type" as "<the kind that survived>"
+      And the output reports "local[resource$=/commands/testing-review].kind" as "<the kind that survived>"
 
       @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | result count | the kind that survived |
-        |               | 1            | command                 |
-        | --format json | 1            | command                 |
+        |               | 1            | COMMAND                 |
+        | --format json | 1            | COMMAND                 |
         | --format text | Results (1): | - testing-review        |
 
     # Profiles are searchable content too — a composition is something a
@@ -185,13 +194,13 @@ Feature: search — finding content by name, tag and type, here and upstream
         """
       Then the command succeeds
       And the output reports "count" as "<result count>"
-      And the output reports "local[name=dev].type" as "<the kind that survived>"
+      And the output reports "local[resource$=/profiles/dev].kind" as "<the kind that survived>"
 
       @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | result count | the kind that survived |
-        |               | 1            | profile                 |
-        | --format json | 1            | profile                 |
+        |               | 1            | PROFILE                 |
+        | --format json | 1            | PROFILE                 |
         | --format text | Results (1): | - dev                   |
 
   Rule: A tag search is answered from the tags, not from the name
@@ -209,14 +218,14 @@ Feature: search — finding content by name, tag and type, here and upstream
       And a fragment "testing" in bundle "demo" exists
       When I run "ctxloom search --local testing"
       Then the command succeeds
-      And the output reports "local[name=testing].type" as "fragment"
+      And the output reports "local[resource$=/fragments/testing].kind" as "FRAGMENT"
       When Alice searches by the label instead of the name:
         """
         ctxloom search --local --tag example <flags>
         """
       Then the command succeeds
       And the output reports "count" as "<result count>"
-      And the output reports "local[name=example].tags" containing "<the tag that matched>"
+      And the output reports "local[resource$=/fragments/example].tags" containing "<the tag that matched>"
 
       @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
@@ -246,27 +255,27 @@ Feature: search — finding content by name, tag and type, here and upstream
         """
       Then the command succeeds
       And the output reports "count" as "<both count>"
-      And the output reports "local[name=demo-local-note].type" as "<the local proof>"
+      And the output reports "local[resource$=/fragments/demo-local-note].kind" as "<the local proof>"
       When Alice asks only about what is already installed:
         """
         ctxloom search --local demo <flags>
         """
       Then the command succeeds
       And the output reports "count" as "<local-only count>"
-      And the output reports "local[name=demo-local-note].type" as "<the local proof>"
+      And the output reports "local[resource$=/fragments/demo-local-note].kind" as "<the local proof>"
       When Alice asks only about what upstream publishes:
         """
         ctxloom search --remote demo <flags>
         """
       Then the command succeeds
       And the output reports "count" as "<remote-only count>"
-      And the output reports "remote[name=demo].type" as "<the remote proof>"
+      And the output reports "remote[item=demo].kind" as "<the remote proof>"
 
       @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | both count   | local-only count | remote-only count | the local proof   | the remote proof |
-        |               | 2            | 1                 | 1                  | fragment          | bundle           |
-        | --format json | 2            | 1                 | 1                  | fragment          | bundle           |
+        |               | 2            | 1                 | 1                  | FRAGMENT          | BUNDLE           |
+        | --format json | 2            | 1                 | 1                  | FRAGMENT          | BUNDLE           |
         | --format text | Results (2): | Results (1):      | Results (1):       | - demo-local-note | demo             |
 
     # `--type bundle` is the one kind that exists ONLY upstream: a bundle is
@@ -288,13 +297,13 @@ Feature: search — finding content by name, tag and type, here and upstream
         """
       Then the command succeeds
       And the output reports "count" as "<result count>"
-      And the output reports "remote[name=demo].type" as "<the kind that survived>"
+      And the output reports "remote[item=demo].kind" as "<the kind that survived>"
 
       @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | result count | the kind that survived |
-        |               | 1            | bundle                  |
-        | --format json | 1            | bundle                  |
+        |               | 1            | BUNDLE                  |
+        | --format json | 1            | BUNDLE                  |
         | --format text | Results (1): | demo                    |
 
   Rule: A search that matches nothing says so

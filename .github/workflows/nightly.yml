@@ -22,6 +22,11 @@
 name: nightly
 
 on:
+  # TEMPORARY: one shard of 20 on a push to ci/shared, to measure a shard's
+  # time before the workflow is on main (where it can be dispatched).
+  push:
+    branches:
+      - ci/shared
   schedule:
     - cron: "17 3 * * *"
   workflow_dispatch:
@@ -57,8 +62,8 @@ jobs:
       - id: plan
         env:
           N: ${{ inputs.shards || 20 }}
-          ONLY: ${{ inputs.only-shard }}
-          SUITES: ${{ github.event_name != 'workflow_dispatch' || inputs.suites }}
+          ONLY: ${{ github.event_name == 'push' && '0' || inputs.only-shard }}
+          SUITES: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.suites) }}
         run: |
           set -euo pipefail
           [[ "$N" =~ ^[1-9][0-9]*$ ]] || { echo "::error::shards must be a positive number, not $N"; exit 1; }

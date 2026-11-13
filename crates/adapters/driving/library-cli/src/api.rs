@@ -9,8 +9,8 @@
 //! T13 the same mapping moves into the daemon.
 //!
 //! Converted so far: the `engine` noun (the spine's worked example,
-//! `noun/engine.rs`), `agent` and `companion` (whose writes answer
-//! through [`written`]). The other nouns still print their views, until
+//! `noun/engine.rs`), `agent`, `companion` (whose writes answer
+//! through [`written`]) and `config`. The other nouns still print their views, until
 //! their branch converts them.
 
 use std::collections::BTreeMap;

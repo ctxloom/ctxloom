@@ -32,6 +32,12 @@
 //!   (`config.premised`, owner ruling of 2026-11-12): Go never put it there,
 //!   so a dry run's context, its token estimate and its text are compared
 //!   without it (`without_index`).
+//! - A converted noun's JSON shape (OD-40, design §8.1: Go parity ends for
+//!   JSON): an agent's and a companion's JSON rows are retired. Where the AIP
+//!   resource carries Go's answer whole, that answer is still compared:
+//!   `config show`'s `document` (`as_go_printed`) and a dry run's compared
+//!   keys, a default proto3 JSON leaves out read as Go's printed default
+//!   (`printed`).
 //! - Error texts. A failing command's stdout is empty in both and its exit
 //!   code is compared; the words are asserted in `library_cli.test.rs` from
 //!   the Gherkin. A usage error is exit 20 here (D28, ruled), where Go's
@@ -368,7 +374,7 @@ fn mismatch(row: &Row, project: &Project) -> Option<String> {
             let got = if is_dry_run(&row.id) {
                 json_without_index(got)
             } else {
-                got
+                as_go_printed(row, got)
             };
             json_mismatch(&row.id, &want, &got)
         }
@@ -394,6 +400,25 @@ fn mismatch(row: &Row, project: &Project) -> Option<String> {
                 .then(|| format!("text differs\n--- Go\n{want}\n--- here\n{got}"))
         }
     }
+}
+
+/// The noun a row runs: its first word that is no flag and no flag's value.
+fn noun(row: &Row) -> &str {
+    row.args
+        .iter()
+        .find(|word| !word.starts_with('-') && !word.contains('='))
+        .map_or("", String::as_str)
+}
+
+/// This build's json as Go printed it, where the AIP resource (OD-40)
+/// carries Go's answer whole: `config show` is the `Config` singleton, whose
+/// `document` is the configuration Go printed (design §5.8), so that is what
+/// is compared. Every other noun's json is compared as it is.
+fn as_go_printed(row: &Row, got: Value) -> Value {
+    if noun(row) == "config" {
+        return got.get("document").cloned().unwrap_or(got);
+    }
+    got
 }
 
 fn json_mismatch(id: &str, want: &Value, got: &Value) -> Option<String> {

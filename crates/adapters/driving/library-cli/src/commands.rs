@@ -437,10 +437,19 @@ fn agent() -> Command {
             "create",
             "Create a local agent (engine-profile binding)",
         ))
-        .subcommand(agent_write(
-            "edit",
-            "Edit an existing local agent (engine-profile binding)",
-        ))
+        .subcommand(
+            agent_write(
+                "edit",
+                "Edit an existing local agent (engine-profile binding)",
+            )
+            .arg(
+                Arg::new("yes")
+                    .short('y')
+                    .long("yes")
+                    .action(ArgAction::SetTrue)
+                    .help("Apply an engine switch that gives up what the old engine carried (default: preview it)"),
+            ),
+        )
         .subcommand(
             Command::new("default")
                 .about("Show or set the always-bound default agent")

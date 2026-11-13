@@ -424,3 +424,37 @@ fn an_agent_bound_by_profiles_alone_or_engine_alone_is_bound_and_an_empty_list_i
     let empty = "schema_version: 8\nagents:\n  a:\n    profiles: []\n";
     assert_eq!(checks::agents(Some(empty)).status, Status::Warn);
 }
+
+#[test]
+fn test_an_engine_that_cannot_carry_an_agent_s_hook_is_a_warning_naming_each() {
+    use library_application::{AgentLosses, NotCarried};
+    let ok = checks::not_carried(&[]);
+    assert_eq!(ok.marker, "DOCTOR-CHECK-NOT-CARRIED-r8");
+    assert_eq!(ok.status, Status::Ok);
+    let lost = |event: &str| NotCarried {
+        engine: "opencode".to_string(),
+        surface: "hooks".to_string(),
+        event: event.to_string(),
+        reason: format!("no {event}"),
+    };
+    let warned = checks::not_carried(&[
+        AgentLosses {
+            agent: "dev".to_string(),
+            engine: "opencode".to_string(),
+            not_carried: vec![lost("session_end"), lost("pre_tool")],
+        },
+        AgentLosses {
+            agent: "ops".to_string(),
+            engine: "opencode".to_string(),
+            not_carried: vec![lost("turn_end")],
+        },
+    ]);
+    assert_eq!(warned.status, Status::Warn);
+    assert_eq!(
+        warned.detail,
+        "agent dev on opencode cannot carry hooks: session_end (no session_end), hooks: pre_tool (no pre_tool); agent ops on opencode cannot carry hooks: turn_end (no turn_end)"
+    );
+    assert!(warned
+        .remedy
+        .contains("ctxloom agent edit <name> --engine <engine>"));
+}

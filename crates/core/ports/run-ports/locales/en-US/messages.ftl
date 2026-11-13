@@ -5,6 +5,7 @@ run-ports-token-malformed = a token is 64 hexadecimal characters, not { $length 
 run-ports-engine-not-yet = the { $engine } engine has not built { $operation } yet
 run-ports-engine-unknown-effort = the { $engine } engine takes no effort level "{ $level }"; it takes: { $known }
 run-ports-engine-bad-permissions = the permissions document handed to the { $engine } engine is not JSON ({ $ext_err_txt }); nothing was launched
+run-ports-engine-cannot-carry = the { $engine } engine cannot carry what the session's profiles offer: { $ext_err_txt }; nothing was launched
 run-ports-engine-no-host-home = the { $engine } engine is set to use the host's own home (session_home: host), but this environment names no HOME
 run-ports-engine-no-host-home-fix = set HOME, or give the engine a session home of its own (engines.{ $engine }.session_home: session)
 run-ports-records-bad-path = { $rel } is not a path inside a session's directory

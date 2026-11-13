@@ -398,6 +398,10 @@ pub struct AgentShow {
     pub requirements: Vec<Requirement>,
     #[serde(skip_serializing_if = "no_text")]
     pub requirements_error: String,
+    /// What the agent's engine cannot carry of what its profiles configure
+    /// (the capability-loss report); absent when nothing.
+    #[serde(skip_serializing_if = "no_items")]
+    pub not_carried: Vec<crate::NotCarried>,
 }
 
 /// One row of `companion list`.

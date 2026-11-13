@@ -53,6 +53,11 @@ pub(crate) fn authored(hooks: &BTreeMap<String, Vec<Hook>>) -> String {
     format!("{}\n", doc.pretty())
 }
 
+/// Whether the plugin runs an authored hook on the unified `event`.
+pub(crate) fn carries(event: &str) -> bool {
+    route(event).is_some()
+}
+
 /// The plugin's trigger for a unified event, and the tool class an event
 /// narrowed by its name carries.
 fn route(event: &str) -> Option<(&'static str, Option<&'static str>)> {

@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use auth_application::Auth;
 use ctxloom_ports::{ConfigFiles, Executables, Failure, GitIdentity, Scope, Source, UserFiles};
-use library_application::LegacyGo;
+use library_application::{AgentLosses, LegacyGo};
 use serde::Serialize;
 
 use crate::checks::{self, Check, Status};
@@ -48,6 +48,9 @@ pub struct Doctor {
     /// The running binary's file name (owner ruling 163): a hook or server
     /// entry running it is ctxloom's, as one running `ctxloom` is.
     program: String,
+    /// What each agent's engine cannot carry of its profiles, asked when the
+    /// report is made; none asked, none.
+    losses: Option<Box<dyn Fn() -> Vec<AgentLosses>>>,
 }
 
 impl Doctor {
@@ -69,6 +72,16 @@ impl Doctor {
             user_home: user_home.map(str::to_string),
             version: version.to_string(),
             program: "ctxloom".to_string(),
+            losses: None,
+        }
+    }
+
+    /// This doctor, asking `losses` what each agent's engine cannot carry of
+    /// its profiles (the library's capability-loss report).
+    pub fn reporting_losses(self, losses: Box<dyn Fn() -> Vec<AgentLosses>>) -> Doctor {
+        Doctor {
+            losses: Some(losses),
+            ..self
         }
     }
 
@@ -201,11 +214,12 @@ impl Doctor {
                 checks::gitignore(gitignore.as_deref(), &unignored),
                 checks::mcp_invocation(&mcp_and_settings, &self.program),
                 checks::stale_hooks(&stale),
+                checks::not_carried(&self.losses.as_ref().map(|ask| ask()).unwrap_or_default()),
                 checks::ingestion(),
             ],
         };
         // The Go-era rows follow the stale row; the stated limit stays last.
-        let at = report.checks.len() - 1;
+        let at = report.checks.len() - 2;
         report
             .checks
             .splice(at..at, checks::go_era_hooks(&left_alone));

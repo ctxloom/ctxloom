@@ -174,6 +174,9 @@ impl Engine for Opencode {
             SessionHome::Session => home::user_base(self.user_config.as_ref()),
             SessionHome::Host => (surface_ports::Json::Object(Vec::new()), None),
         };
+        let carried = &request.surfaces.0;
+        // The launch's MCP servers in the session's config (M6, j000400).
+        let base = crate::carried::with_servers(base, &carried.mcp);
         Ok(Prepared {
             files: {
                 let mut files = home::files(
@@ -185,8 +188,10 @@ impl Engine for Opencode {
                 // plugin to run (owner ruling 2026-11-12).
                 files.push(HomeFile {
                     rel: crate::authored::AUTHORED_FILE.to_string(),
-                    bytes: crate::authored::authored(&request.surfaces.0.hooks).into_bytes(),
+                    bytes: crate::authored::authored(&carried.hooks).into_bytes(),
                 });
+                // And its commands, in the config dir's `commands/`.
+                files.extend(crate::carried::command_files(&carried.commands));
                 files
             },
             // No file of the user's own opencode configuration crosses as

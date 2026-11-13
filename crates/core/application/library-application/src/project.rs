@@ -44,6 +44,8 @@ pub struct Library {
     /// The engines a plan is shown to, for what they say of it (owner
     /// ruling 168, [`run_ports::Engine::advise`]).
     pub(crate) engines: Vec<Arc<dyn run_ports::Engine>>,
+    /// What each engine cannot carry ([`Library::with_hook_losses`]).
+    pub(crate) hook_losses: crate::losses::HookLosses,
 }
 
 /// A project opened.
@@ -71,6 +73,8 @@ pub struct Project {
     pub(crate) companion_bundles: Option<Vec<(String, Bundle)>>,
     /// The engines a plan is shown to, for what they say of it.
     pub(crate) engines: Vec<Arc<dyn run_ports::Engine>>,
+    /// What each engine cannot carry.
+    pub(crate) hook_losses: crate::losses::HookLosses,
 }
 
 impl Library {
@@ -92,6 +96,7 @@ impl Library {
             companions: None,
             builtins: false,
             engines: Vec::new(),
+            hook_losses: crate::losses::HookLosses::new(),
         }
     }
 
@@ -246,6 +251,7 @@ impl Library {
                 || crate::companions::switch_on(&self.environ, "CTXLOOM_NO_COMPANIONS"),
             companion_bundles: None,
             engines: self.engines.clone(),
+            hook_losses: self.hook_losses.clone(),
         })
     }
 }

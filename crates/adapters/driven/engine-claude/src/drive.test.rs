@@ -1748,3 +1748,35 @@ fn under_a_host_home_the_commands_and_skills_ride_into_the_checkout() {
         .workspace_patterns(SessionHome::Session)
         .is_empty());
 }
+
+// A hook the launch carries that claude cannot narrow (a tool class it has
+// no tool for) refuses the launch, never dropped unsaid (M6).
+#[test]
+fn a_hook_claude_cannot_narrow_refuses_the_launch() {
+    let mut surfaces = carried();
+    surfaces.hooks.insert(
+        "pre_tool".to_string(),
+        vec![surface_ports::Hook {
+            tool: "browser".to_string(),
+            ..hook("x", &[])
+        }],
+    );
+    let refused = Claude::new()
+        .prepare(&PrepareRequest {
+            home: "/h".to_string(),
+            context: "c".to_string(),
+            offered: Vec::new(),
+            interactive: true,
+            cwd: Some("/p".to_string()),
+            existing: Default::default(),
+            permissions: None,
+            session_home: SessionHome::Session,
+            surfaces: run_ports::LaunchSurfaces(surfaces),
+        })
+        .unwrap_err();
+    assert!(
+        matches!(&refused, EngineError::CannotCarry { engine, ext_err_txt }
+            if engine == "claude-code" && ext_err_txt.contains("\"browser\"")),
+        "{refused:?}"
+    );
+}

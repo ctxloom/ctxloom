@@ -51,3 +51,30 @@ fn test_it_carries_the_context_alone_and_a_launch_carries_it_itself() {
     assert!(engine.context_rides_launch());
     assert_eq!(engine.codec().unified_event("chat.message"), "turn_start");
 }
+
+#[test]
+fn test_its_losses_are_the_events_the_plugin_has_no_trigger_for_and_say_why() {
+    let losses = Opencode::new().hook_losses();
+    let events: Vec<&str> = losses.iter().map(|(e, _)| e.as_str()).collect();
+    assert_eq!(
+        events,
+        [
+            "session_end",
+            "permission_ask",
+            "post_tool_batch",
+            "message_display",
+            "compaction_before",
+            "compaction_after",
+        ]
+    );
+    let end = losses
+        .iter()
+        .find(|(e, _)| e == "session_end")
+        .expect("session_end is lost");
+    assert_eq!(end.1, "opencode has no native session_end event");
+    let batch = losses.iter().find(|(e, _)| e == "post_tool_batch").unwrap();
+    assert_eq!(
+        batch.1,
+        "ctxloom's opencode plugin runs no post_tool_batch hook"
+    );
+}

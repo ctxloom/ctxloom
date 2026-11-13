@@ -233,6 +233,8 @@ impl Project {
             });
         };
         let definition = agent.row();
+        let engine = crate::losses::engine_or_default(&agent.engine);
+        let not_carried = self.losses_on(&agent.profiles, &engine);
         match self.resolve_agent(&agent) {
             Ok((resolved, requirements, requirements_error)) => Ok(AgentShow {
                 definition,
@@ -240,6 +242,7 @@ impl Project {
                 resolution_error: String::new(),
                 requirements,
                 requirements_error,
+                not_carried,
             }),
             Err(error) => Ok(AgentShow {
                 definition,
@@ -247,6 +250,7 @@ impl Project {
                 resolution_error: format!("agent {name:?}: {}", why(&error, say)),
                 requirements: Vec::new(),
                 requirements_error: String::new(),
+                not_carried,
             }),
         }
     }

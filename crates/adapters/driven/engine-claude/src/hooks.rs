@@ -164,19 +164,24 @@ const PER_PROCESS: &[&str] = &["SessionStart", "SessionEnd"];
 
 /// What a launch's selection carries of hooks (owner ruling 2026-11-12: the
 /// authored hooks and ctxloom's own callbacks ride the launch), as claims on
-/// the hooks file: each hook its own claim, one claude cannot route (a tool
-/// class it has no matcher for) left out; for a child's turn none of the
-/// per-process events.
+/// the hooks file: each hook its own claim; for a child's turn none of the
+/// per-process events. A hook claude cannot route (narrowed to a tool class
+/// it has no matcher for) is never dropped unsaid: the answer is why
+/// (`run-ports-engine-cannot-carry`, nothing launched).
 pub(crate) fn launch_ops(
     hooks: &BTreeMap<String, Vec<Hook>>,
     program: &str,
     interactive: bool,
-) -> Vec<JsonOp> {
+) -> Result<Vec<JsonOp>, String> {
     let mut all: Vec<JsonOp> = Vec::new();
     for (event, list) in hooks {
         for hook in list {
             let one = BTreeMap::from([(event.clone(), vec![hook.clone()])]);
-            for op in ops(&one, program).unwrap_or_default() {
+            let routed = ops(&one, program).map_err(|e| match e {
+                SurfaceError::Unsupported { what, .. } => what,
+                other => other.to_string(),
+            })?;
+            for op in routed {
                 let per_process = matches!(&op,
                     JsonOp::HookEntry { event, .. } if PER_PROCESS.contains(&event.as_str()));
                 if (interactive || !per_process) && !all.contains(&op) {
@@ -185,7 +190,7 @@ pub(crate) fn launch_ops(
             }
         }
     }
-    all
+    Ok(all)
 }
 
 /// `op` (a hook entry) laid into the settings document `doc`: the entry in

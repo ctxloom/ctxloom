@@ -477,7 +477,13 @@ fn hooks_settings(request: &PrepareRequest, program: &str) -> Result<String, Eng
     // 2026-11-12): the authored hooks and ctxloom's own callbacks beside the
     // capture events, and the statusline.
     let surfaces = &request.surfaces.0;
-    for op in crate::hooks::launch_ops(&surfaces.hooks, program, request.interactive) {
+    let ops = crate::hooks::launch_ops(&surfaces.hooks, program, request.interactive).map_err(
+        |ext_err_txt| EngineError::CannotCarry {
+            engine: NAME.to_string(),
+            ext_err_txt,
+        },
+    )?;
+    for op in ops {
         crate::hooks::lay(&mut settings, op);
     }
     if surfaces.statusline {

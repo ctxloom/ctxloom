@@ -314,6 +314,19 @@ impl Project {
             .inputs(String::new())
     }
 
+    /// Every hook the `profiles` fire, as [`Project::hooks_of`] orders them;
+    /// none where they do not resolve (their findings are another command's
+    /// to say).
+    pub(crate) fn profile_hooks(&mut self, profiles: &[String]) -> Vec<PackagedHook> {
+        let mut findings = Vec::new();
+        let Ok(set) = self.resolve_profiles(profiles, &mut findings) else {
+            return Vec::new();
+        };
+        let assembled = self.assemble_set(&set, &[], &[], &mut findings);
+        let catalog = self.catalog_with_companions();
+        self.hooks_of(&catalog, &set, &assembled.selection)
+    }
+
     /// The commands and skills the profiles curate by reference when they
     /// curate any of that kind; otherwise those of the bundles they include.
     /// Each once (Go's composite assembly: a curation replaces the bundles'

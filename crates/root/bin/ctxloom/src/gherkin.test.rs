@@ -66,6 +66,8 @@ struct World {
     capture: capture::State,
     /// What j000700's scenarios keep.
     authoring: authoring::State,
+    /// What j000400's and j002000's sessions keep.
+    engines: engines::State,
 }
 
 impl fmt::Debug for World {
@@ -88,6 +90,7 @@ impl CommonWorld for World {
             || capture::fires(self, step)
             || capture_opencode::forwards(self, step)
             || capture_opencode::reports_login(self, step)
+            || engines::starts(self, step)
         {
             return;
         }
@@ -119,6 +122,7 @@ impl World {
             setup: setup::State::default(),
             capture: capture::State::default(),
             authoring: authoring::State::default(),
+            engines: engines::State::default(),
         }
     }
 
@@ -339,6 +343,9 @@ mod workspace;
 
 #[path = "gherkin_recall.test.rs"]
 mod recall;
+
+#[path = "gherkin_engines.test.rs"]
+mod engines;
 
 // ------------------------------------------------------------------ given
 

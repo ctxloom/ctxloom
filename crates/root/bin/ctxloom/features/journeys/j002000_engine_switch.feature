@@ -1,10 +1,8 @@
+# world: base
 # Ported from journeys/j002000_engine_switch.feature (rev f36e8dfb2)
-# NOT ported: the scenarios tagged @pending: they wait for the engine-swap
-#   preview, the capability-loss report, and `ctxloom run` launching an
-#   engine. The swap's own contract and the unknown-engine refusal are
-#   cli/agent.feature's.
+# NOT ported: nothing. The swap's own contract and the unknown-engine refusal
+#   are cli/agent.feature's.
 @doc
-@pending
 Feature: Engine switch day
 
   A pricing change, a policy change, a vendor doing something nobody liked:

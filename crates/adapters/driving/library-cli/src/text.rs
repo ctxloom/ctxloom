@@ -512,6 +512,13 @@ pub fn agent_show(out: &mut dyn Write, show: &AgentShow) -> io::Result<()> {
             writeln!(out, "Composed fragments: {}", resolved.fragments.len())?;
         }
     }
+    // The capability-loss report: what the engine cannot carry.
+    if let Some(first) = show.not_carried.first() {
+        writeln!(out, "Not carried by {}:", first.engine)?;
+        for lost in &show.not_carried {
+            writeln!(out, "  - {}", lost.line())?;
+        }
+    }
     if !show.requirements_error.is_empty() {
         return writeln!(out, "Requires: unavailable ({})", show.requirements_error);
     }

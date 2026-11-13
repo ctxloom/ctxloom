@@ -102,6 +102,10 @@ pub fn diagnostic_samples() -> Vec<Box<dyn angzarr_diagnostic::Diagnostic>> {
         engine: "claude-code".to_string(),
         ext_err_txt: "expected value at line 1".to_string(),
     }));
+    samples.push(Box::new(EngineError::CannotCarry {
+        engine: "claude-code".to_string(),
+        ext_err_txt: "it has no \"browser\" tool".to_string(),
+    }));
     samples.push(Box::new(RecordsError::BadPath {
         rel: "..".to_string(),
     }));

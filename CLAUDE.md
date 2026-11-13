@@ -424,11 +424,20 @@ at the release before the checkout goes. Probed live on claude 2.1.322 (the
 stream's `init` event, temporary project and CLAUDE_CONFIG_DIR, no model
 call): `--mcp-config` loads (`source: dynamic`) and replaces a same-named
 project server, user-scope `commands/` and `skills/` are offered, and
-`--disallowedTools` (variadic, so unused) removes a tool. opencode's
+`--disallowedTools` (variadic, so unused) removes a tool. A hook claude
+cannot narrow (a tool class it has no tool for) is never dropped unsaid: the
+launch is `run-ports-engine-cannot-carry` (`EngineError::CannotCarry`),
+nothing launched (M6). opencode's
 plugin runs the bundles' authored hooks (`ctxloom-authored-hooks.json` in its
 session home: `tool.execute.before`, where exit 2 blocks the call,
 `tool.execute.after`, `session.created`, `chat.message`, `session.idle`; read
-from opencode 1.18.4's plugin interface, not run live). A project refresh
+from opencode 1.18.4's plugin interface, not run live), and its session home
+(`OPENCODE_CONFIG_DIR`, in both home modes) takes the commands as
+`commands/<name, / as ->.md` and the servers as `mcp.<name>` of its
+`opencode.json` (`{type: local, command: [program, ...args], environment}`
+or `{type: remote, url, headers}`; `engine_opencode`'s `carried`, M6, from
+opencode's docs, not run live; a command a later launch no longer carries is
+left there). A project refresh
 gives back at rest what a launch carries (`EngineSurfaces::rides_launch`:
 every kind for claude; the context left as before), and `manage check` says
 `hooks_at_launch`; an explicit `materialize` still writes them at rest; a
@@ -1045,7 +1054,8 @@ carries an `Exit`; `ctxloom_cli::run` turns it into the status with
   without `--yes`; `deps upgrade` without `--yes` with a pin to move or
   drop; `clean` without `--yes` with a target present; `session remove`
   without `--yes` that is not refused; `session sweep` without `--yes`
-  with a planned destroy;
+  with a planned destroy; `agent edit --engine` without `--yes` whose
+  new engine cannot carry what the old one did (the swap preview);
 - **10** failed: ctxloom tried and something broke (an adapter's error,
   I/O, the store or the kernel, an engine, git, a clone, a fetch, a
   publish, a pull, the retry budget);
@@ -1072,6 +1082,31 @@ a library error's own class. An engine's own status (an interactive
 session's, init's interview) is said in these classes by
 `Exit::from_child_status`, never passed through: 0 ok, 128+n the signal,
 any other failed (10).
+
+## What an engine cannot carry (M6, j002000)
+
+An engine's word on what it cannot carry is its surface half's
+`EngineSurfaces::hook_losses` (the unified hook events it has no form for,
+each with why), handed to the library as data by the composition root
+(`Library::with_hook_losses`, from `commands::engines()`, the mocks
+included under `test-support`). A profile's hook on such an event is LOST
+on that engine (ctxloom's own callbacks are not the profile's):
+`library_application::NotCarried {engine, surface: hooks, event, reason}`.
+`agent show` gives the agent's losses on its engine (`not_carried`, text
+`Not carried by <engine>:`); doctor's `DOCTOR-CHECK-NOT-CARRIED-r8` warns
+of each agent that has one (`Doctor::reporting_losses`, the library's
+`agents_losses`); and `agent edit <name> --engine <new>` whose new engine
+loses something the old did not is the SWAP PREVIEW without `--yes`
+(`Library::agent_edit`, `AgentWritten::Preview`, `SwapPreview`: `status:
+preview`, `applied: false`, `from`, `to`, `not_carried`, `apply`, the edit
+judged as the write would judge it first; nothing written; exit 1 under
+`--detailed-exitcode`). An edit that changes no engine, or loses nothing,
+writes as ever, and `agent create` never previews. Only hooks are judged:
+a kind an engine does not carry in a session at all is not reported yet.
+opencode's losses are the unified events its plugin has no trigger for
+(`authored::carries`): `session_end` (opencode has no native one),
+`permission_ask`, `post_tool_batch`, `message_display` and the two
+compaction events.
 
 ## Remotes and dependencies (slice S3)
 

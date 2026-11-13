@@ -457,6 +457,10 @@ pub enum EngineError {
     /// ([`PrepareRequest::permissions`] is ctxloom's own rendering, so this is
     /// a bug of the caller, said rather than written).
     BadPermissions { engine: String, ext_err_txt: String },
+    /// Something the launch carries the engine has no way to carry (a hook
+    /// narrowed to a tool class it has no tool for, say): refused before
+    /// anything is launched, never dropped unsaid.
+    CannotCarry { engine: String, ext_err_txt: String },
 }
 
 impl fmt::Display for EngineError {
@@ -472,6 +476,7 @@ impl Diagnostic for EngineError {
             EngineError::UnknownEffort { .. } => code!("engine-unknown-effort"),
             EngineError::NoHostHome { .. } => code!("engine-no-host-home"),
             EngineError::BadPermissions { .. } => code!("engine-bad-permissions"),
+            EngineError::CannotCarry { .. } => code!("engine-cannot-carry"),
         }
     }
 
@@ -492,6 +497,10 @@ impl Diagnostic for EngineError {
             ],
             EngineError::NoHostHome { engine } => vec![("engine", engine.as_str().into())],
             EngineError::BadPermissions {
+                engine,
+                ext_err_txt,
+            }
+            | EngineError::CannotCarry {
                 engine,
                 ext_err_txt,
             } => vec![

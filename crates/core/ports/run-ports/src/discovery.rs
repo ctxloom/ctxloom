@@ -7,8 +7,8 @@
 //! it holds the USER bearer, so what it keeps out is other users. Every
 //! process of the user can read it (the separation model: one principal).
 //!
-//! The file is one `ctxloom.daemon.v1.Discovery` in protobuf's binary
-//! encoding (`proto/ctxloom/daemon/v1/discovery.proto`). The codec is pure:
+//! The file is one `ctxloom.v1.Discovery` in protobuf's binary
+//! encoding (`proto/ctxloom/v1/discovery.proto`). The codec is pure:
 //! the daemon writes [`Discovery::encode`], a reader takes
 //! [`Discovery::decode`], which answers `None` for anything it cannot read
 //! (the daemon is then treated as absent).
@@ -56,7 +56,7 @@ pub struct Discovery {
 }
 
 impl Discovery {
-    /// The file's bytes: one `ctxloom.daemon.v1.Discovery`.
+    /// The file's bytes: one `ctxloom.v1.Discovery`.
     pub fn encode(&self) -> Vec<u8> {
         daemon_proto::v1::Discovery {
             format: DISCOVERY_FORMAT,

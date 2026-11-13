@@ -84,11 +84,11 @@ fn an_unreached_daemon_is_shown_by_its_code_and_args() {
         "NotStarted { log: \"/home/u/.ctxloom/daemon/daemon.log\" }"
     );
     let declined = Unreached::Declined(std::sync::Arc::new(Called::Unimplemented {
-        method: "/ctxloom.daemon.v1.Ctxloom/ListSessions".to_string(),
+        method: "/ctxloom.v1.Ctxloom/ListSessions".to_string(),
     }));
     assert_eq!(
         declined.to_string(),
-        "daemon-ports-unimplemented method=/ctxloom.daemon.v1.Ctxloom/ListSessions"
+        "daemon-ports-unimplemented method=/ctxloom.v1.Ctxloom/ListSessions"
     );
     assert_eq!(
         format!("{declined:?}"),

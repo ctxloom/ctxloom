@@ -290,39 +290,37 @@ pub fn rejection_of(refusal: &Any) -> Option<Rejection> {
     let ours = |rejection| Some(Rejection::Sessions(rejection));
     let name = refusal.type_url.rsplit('/').next().unwrap_or_default();
     match name {
-        "ctxloom.daemon.v1.NameInvalid" => decode::<v1::NameInvalid>(refusal).and_then(|r| {
+        "ctxloom.v1.NameInvalid" => decode::<v1::NameInvalid>(refusal).and_then(|r| {
             api(ApiRejection::NameInvalid {
                 name: r.name,
                 reason: r.reason,
             })
         }),
-        "ctxloom.daemon.v1.SessionNotFound" => decode::<v1::SessionNotFound>(refusal)
+        "ctxloom.v1.SessionNotFound" => decode::<v1::SessionNotFound>(refusal)
             .and_then(|r| api(ApiRejection::SessionNotFound { name: r.name })),
-        "ctxloom.daemon.v1.ProjectNotFound" => decode::<v1::ProjectNotFound>(refusal)
+        "ctxloom.v1.ProjectNotFound" => decode::<v1::ProjectNotFound>(refusal)
             .and_then(|r| api(ApiRejection::ProjectNotFound { name: r.name })),
-        "ctxloom.daemon.v1.ProjectUnknown" => decode::<v1::ProjectUnknown>(refusal)
+        "ctxloom.v1.ProjectUnknown" => decode::<v1::ProjectUnknown>(refusal)
             .and_then(|r| api(ApiRejection::ProjectUnknown { cwd: r.cwd })),
-        "ctxloom.daemon.v1.DaemonHosting" => decode::<v1::DaemonHosting>(refusal).and_then(|r| {
+        "ctxloom.v1.DaemonHosting" => decode::<v1::DaemonHosting>(refusal).and_then(|r| {
             api(ApiRejection::DaemonHosting {
                 runs: r.runs,
                 harps: r.harps,
             })
         }),
-        "ctxloom.daemon.v1.AgeInvalid" => decode::<v1::AgeInvalid>(refusal).and_then(|r| {
+        "ctxloom.v1.AgeInvalid" => decode::<v1::AgeInvalid>(refusal).and_then(|r| {
             api(ApiRejection::AgeInvalid {
                 key: r.key,
                 value: r.value,
             })
         }),
-        "ctxloom.daemon.v1.ConfigUnreadable" => {
-            decode::<v1::ConfigUnreadable>(refusal).and_then(|r| {
-                api(ApiRejection::ConfigUnreadable {
-                    root: r.root,
-                    detail: r.detail,
-                })
+        "ctxloom.v1.ConfigUnreadable" => decode::<v1::ConfigUnreadable>(refusal).and_then(|r| {
+            api(ApiRejection::ConfigUnreadable {
+                root: r.root,
+                detail: r.detail,
             })
-        }
-        "ctxloom.daemon.v1.RemovalRefused" => decode::<v1::RemovalRefused>(refusal).and_then(|r| {
+        }),
+        "ctxloom.v1.RemovalRefused" => decode::<v1::RemovalRefused>(refusal).and_then(|r| {
             let harp = r
                 .plan
                 .as_ref()

@@ -1,4 +1,4 @@
-//! The daemon's `Ctxloom` service (`proto/ctxloom/daemon/v1/daemon.proto`)
+//! The daemon's `Ctxloom` service (`proto/ctxloom/v1/daemon.proto`)
 //! over gRPC, served beside angzarr's coordinator on the daemon's one
 //! listener (slice 2 step 5): translation only.
 //!

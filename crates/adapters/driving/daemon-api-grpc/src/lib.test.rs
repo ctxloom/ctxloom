@@ -224,7 +224,7 @@ async fn a_refusal_carries_its_typed_message_in_the_details() {
     assert_eq!(hosting.harps, ["brisk-copper-moth"]);
     assert!(details.details[0]
         .type_url
-        .ends_with("ctxloom.daemon.v1.DaemonHosting"));
+        .ends_with("ctxloom.v1.DaemonHosting"));
 }
 
 // A failure is INTERNAL.

@@ -17,7 +17,7 @@
 //! - On the projector port it is a [`Held`] (S32): the same instance may be
 //!   registered in the kernel, where a `HandleSync` naming `session-index` is
 //!   answered the command's session as its resource message,
-//!   `ctxloom.daemon.v1.Session`, named by its project's harp and its own
+//!   `ctxloom.v1.Session`, named by its project's harp and its own
 //!   (S42, S54: the index folds the projects' streams for their harps).
 //! - A session's transcript (D27's lines) is folded from its capture events
 //!   too ([`SessionIndex::transcript`], [`Projection`]): no file holds it

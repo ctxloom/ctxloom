@@ -16,7 +16,7 @@ syntax = "proto3";
 // type built from it withholds every environment value (run-ports'
 // `RedactedEnv`). It crosses the wire only on the TLS stream of the client
 // that asked for it.
-package ctxloom.daemon.v1;
+package ctxloom.v1;
 
 // One variable of the engine's environment.
 message EnvVar {

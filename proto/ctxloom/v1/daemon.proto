@@ -114,13 +114,13 @@ syntax = "proto3";
 // REFUSALS (S11): a refused method is answered with the gRPC status its
 // refusal message's `(refusal_status)` declares, the message packed in
 // `google.rpc.Status.details`.
-package ctxloom.daemon.v1;
+package ctxloom.v1;
 
 import "google/protobuf/field_mask.proto";
 import "google/protobuf/timestamp.proto";
 import "io/angzarr/v1/options.proto";
-import "ctxloom/daemon/v1/launch.proto";
-import "ctxloom/daemon/v1/needs.proto";
+import "ctxloom/v1/launch.proto";
+import "ctxloom/v1/needs.proto";
 
 service Ctxloom {
   // region daemon: `daemon` (a singleton, AIP-156). With none serving, the

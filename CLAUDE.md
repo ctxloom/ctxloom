@@ -1076,7 +1076,7 @@ plain-build probe: a plain build has no override, so
 and writes its real discovery file, and so runs in CI alone (`CI` set) and is
 skipped, and said, elsewhere. The daemon advertises itself in
 the discovery file beside the lock, `daemon.discovery`: one
-`ctxloom.daemon.v1.Discovery` in protobuf's binary encoding (S5;
+`ctxloom.v1.Discovery` in protobuf's binary encoding (S5;
 `daemon-proto`, `run_ports::Discovery`'s codec, format 1; the old
 `daemon.endpoint` line file is gone, hard migrate) naming the endpoint, the
 public certificate (DER), the user bearer, the pid, the binary's FULL
@@ -1189,8 +1189,13 @@ no live run for its idle time. The launcher runs inside the runtime's
 serve the listener (M10); the API's use cases run on the blocking pool
 (below).
 
-THE DAEMON'S API (slice 2 step 5; `proto/ctxloom/daemon/v1/daemon.proto`'s
-`Ctxloom` service). The daemon serves it beside angzarr's coordinator on its
+THE DAEMON'S API (slice 2 step 5; `proto/ctxloom/v1/daemon.proto`'s
+`Ctxloom` service). Its package is `ctxloom.v1` (owner OQ-1, 2026-11-13: one
+versioned package, `proto/ctxloom/v1/`, for the daemon, its sessions and the
+library; it was `ctxloom.daemon.v1`, so a refusal's `Any` type URL and every
+method path changed, no field number did; the domain packages
+`ctxloom.sessions.v1`, `runs`, `trust`, `approvals` are not the API and keep
+theirs). The daemon serves it beside angzarr's coordinator on its
 ONE listener (`hook-listener`'s `HookListener::serve_tcp_beside`), each RPC
 admitted by the same `UserGate` first. Its use cases are
 `core/application/daemon-api`'s `Api` (behind `Calls`, boxed, so the edge is
@@ -1266,7 +1271,7 @@ plain binary's daemon over curl (HTTP/2): `GetDaemon` and `DeleteSession`
 without a bearer are 16, and `DeleteSession` and `SweepSessions` presenting
 the user bearer (read from the discovery file's field 5, handed to curl in a
 0600 header file) are 12. The daemon's own refusals are
-`ctxloom.daemon.v1`'s (`NameInvalid`, `SessionNotFound`, `ProjectNotFound`,
+`ctxloom.v1`'s (`NameInvalid`, `SessionNotFound`, `ProjectNotFound`,
 `ProjectUnknown`, `DaemonHosting`); their status is the generated
 `daemon_proto::Refusal::REFUSAL_STATUS`, read by `daemon-proto`'s build from
 each message's option (no markup domain generates it for a package with no
@@ -1359,7 +1364,7 @@ The daemon's kernel registers its read models as projectors (S32):
 `HandleSync` (T16: `run_ports::Edge::serve_sync`, the kernel's `handle_sync`
 behind the exposure; `EdgeCommands::handle_sync` answers core's `Synced`)
 waits for the ones it names and answers each one's view: the session as
-`ctxloom.daemon.v1.Session` (`daemon-proto`, compiled from the daemon's
+`ctxloom.v1.Session` (`daemon-proto`, compiled from the daemon's
 drafts), named `projects/{project harp}/sessions/{harp}` (`SessionRecord.name`,
 `sessions::SessionName`) once its project is named (the `projects` aggregate,
 S54), its title the one set (S55); the session with its pending messages;

@@ -16,7 +16,7 @@ use tonic::transport::{Certificate, Channel, ClientTlsConfig, Endpoint};
 use tonic::{Code, Request, Status};
 
 /// The service's own path, for a method a status names.
-const SERVICE: &str = "/ctxloom.daemon.v1.Ctxloom/";
+const SERVICE: &str = "/ctxloom.v1.Ctxloom/";
 
 /// The daemon a discovery file names, as a client calls it.
 #[derive(Clone)]

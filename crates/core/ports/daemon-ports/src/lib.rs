@@ -1,5 +1,5 @@
 //! The daemon's API as its clients reach it (owner M7, slice 2 step 5): the
-//! `Ctxloom` service's methods (`proto/ctxloom/daemon/v1/daemon.proto`) as a
+//! `Ctxloom` service's methods (`proto/ctxloom/v1/daemon.proto`) as a
 //! port of the application layer, so a command calls its application,
 //! which calls this, and never a transport. `daemon-client` implements it
 //! over tonic (the pinned certificate and the user bearer the discovery
@@ -91,7 +91,7 @@ pub trait DaemonApi: Send + Sync {
 /// A method the daemon does not serve, as a call is answered.
 fn unserved(method: &str) -> Called {
     Called::Unimplemented {
-        method: format!("/ctxloom.daemon.v1.Ctxloom/{method}"),
+        method: format!("/ctxloom.v1.Ctxloom/{method}"),
     }
 }
 
@@ -248,7 +248,7 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         }),
         Box::new(Called::Unauthenticated),
         Box::new(Called::Unimplemented {
-            method: "/ctxloom.daemon.v1.Ctxloom/DeleteSession".to_string(),
+            method: "/ctxloom.v1.Ctxloom/DeleteSession".to_string(),
         }),
         Box::new(Called::Unreachable {
             detail: "connection refused".to_string(),

@@ -17,7 +17,7 @@
 //! stream's start by a process's first step, like `pending-launches`. On the
 //! projector port it is a [`Held`] (S32): the same instance may also be
 //! registered in the kernel, where a `HandleSync` naming `pending-messages`
-//! is answered the stream's session as a `ctxloom.daemon.v1.Session` holding
+//! is answered the stream's session as a `ctxloom.v1.Session` holding
 //! its pending messages.
 
 use std::collections::{BTreeMap, BTreeSet};

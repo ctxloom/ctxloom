@@ -22,9 +22,9 @@ syntax = "proto3";
 //     (API Q12);
 //   - a CLI off a terminal shows the preview and applies nothing (exit 0,
 //     or 1 with `--detailed-exitcode` when it would change something).
-package ctxloom.daemon.v1;
+package ctxloom.v1;
 
-import "ctxloom/daemon/v1/launch.proto";
+import "ctxloom/v1/launch.proto";
 
 // What the caller can present (sent on every write request).
 message Presentable {

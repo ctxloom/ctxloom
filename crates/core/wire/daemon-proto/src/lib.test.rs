@@ -5,7 +5,7 @@ use prost::Name;
 
 #[test]
 fn test_a_session_is_named_by_its_full_name() {
-    assert_eq!(v1::Session::type_url(), "/ctxloom.daemon.v1.Session");
+    assert_eq!(v1::Session::type_url(), "/ctxloom.v1.Session");
 }
 
 // Slice 2 step 5 (S11): a refusal's status is the one its proto declares,

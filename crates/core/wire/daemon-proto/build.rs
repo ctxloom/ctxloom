@@ -32,7 +32,7 @@
 use std::path::{Path, PathBuf};
 
 /// The package the passes read.
-const PACKAGE: &str = "ctxloom.daemon.v1";
+const PACKAGE: &str = "ctxloom.v1";
 
 /// angzarr's `refusal_status` extension of `MessageOptions`.
 const STATUS_EXTENSION: u64 = 50104;
@@ -40,10 +40,10 @@ const STATUS_EXTENSION: u64 = 50104;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     angzarr_build::wire(
         &[
-            "ctxloom/daemon/v1/daemon.proto",
-            "ctxloom/daemon/v1/discovery.proto",
-            "ctxloom/daemon/v1/launch.proto",
-            "ctxloom/daemon/v1/needs.proto",
+            "ctxloom/v1/daemon.proto",
+            "ctxloom/v1/discovery.proto",
+            "ctxloom/v1/launch.proto",
+            "ctxloom/v1/needs.proto",
         ],
         &["../../../../proto"],
     )?;
@@ -68,8 +68,8 @@ const WELL_KNOWN: &[&str] = &[
 ];
 
 /// The messages with their well-known types compiled here, and their
-/// serde impls, into `<out>/json/`: `ctxloom.daemon.v1.rs`,
-/// `google.protobuf.rs` and `ctxloom.daemon.v1.serde.rs`.
+/// serde impls, into `<out>/json/`: `ctxloom.v1.rs`,
+/// `google.protobuf.rs` and `ctxloom.v1.serde.rs`.
 fn json(out: &Path, set: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
     use prost::Message;
     let dir = out.join("json");
@@ -95,7 +95,7 @@ fn json(out: &Path, set: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// The service stubs, into `<out>/services/ctxloom.daemon.v1.rs`.
+/// The service stubs, into `<out>/services/ctxloom.v1.rs`.
 fn services(
     out: &Path,
     set: &[u8],

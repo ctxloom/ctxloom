@@ -169,7 +169,7 @@ fn the_diagnostics_display_their_code_and_args() {
         said(&ApiError::Refused(ApiRefusal::of(
             &v1::ProjectNotFound::default()
         ))),
-        "daemon-api-refused ext_err_txt=/ctxloom.daemon.v1.ProjectNotFound"
+        "daemon-api-refused ext_err_txt=/ctxloom.v1.ProjectNotFound"
     );
     for (rejection, shown) in [
         (

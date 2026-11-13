@@ -64,12 +64,12 @@ impl Ctxloom for Fake {
         .unwrap();
         let details = RpcStatus {
             code: Code::FailedPrecondition as i32,
-            message: "ctxloom.daemon.v1.DaemonHosting".to_string(),
+            message: "ctxloom.v1.DaemonHosting".to_string(),
             details: vec![refusal],
         };
         Err(Status::with_details(
             Code::FailedPrecondition,
-            "ctxloom.daemon.v1.DaemonHosting",
+            "ctxloom.v1.DaemonHosting",
             Bytes::from(details.encode_to_vec()),
         ))
     }
@@ -241,7 +241,7 @@ async fn another_bearer_and_an_unserved_method_are_said() {
             .get_session(v1::GetSessionRequest::default())
             .await,
         Err(Called::Unimplemented {
-            method: "/ctxloom.daemon.v1.Ctxloom/GetSession".to_string()
+            method: "/ctxloom.v1.Ctxloom/GetSession".to_string()
         })
     );
 }

@@ -117,7 +117,7 @@ status() {
     curl -sS -k --http2 --max-time 5 -o /dev/null -D - \
         -H 'content-type: application/grpc' -H 'te: trailers' \
         ${auth[@]+"${auth[@]}"} \
-        --data-binary "@$frame" "$endpoint/ctxloom.daemon.v1.Ctxloom/$1" 2>&1 |
+        --data-binary "@$frame" "$endpoint/ctxloom.v1.Ctxloom/$1" 2>&1 |
         tr -d '\r' | sed -n 's/^grpc-status: *//Ip' | head -1 || true
 }
 for method in GetDaemon DeleteSession; do

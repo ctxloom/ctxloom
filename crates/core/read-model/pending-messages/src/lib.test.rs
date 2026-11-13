@@ -232,7 +232,7 @@ fn the_projector_port_folds_the_book_it_is_handed() {
 }
 
 // S32: what the port answers for a stream is the session's pending messages,
-// as the resource message (`ctxloom.daemon.v1.Session`); a run stream's is
+// as the resource message (`ctxloom.v1.Session`); a run stream's is
 // its run's session's.
 #[test]
 fn the_projection_is_the_sessions_pending_messages_as_its_resource() {

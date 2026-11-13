@@ -12,7 +12,7 @@ syntax = "proto3";
 // What the file keeps out is other USERS: on the host there is one
 // principal, the user, and every process of hers can read this file (the
 // separation model, slice 2).
-package ctxloom.daemon.v1;
+package ctxloom.v1;
 
 import "google/protobuf/timestamp.proto";
 

@@ -13,7 +13,7 @@
 //!   plan;
 //! - [`ApiError`] and [`ApiRefusal`]: a refusal is a typed refusal message
 //!   and the gRPC code its `(refusal_status)` declares (S11), the daemon's
-//!   own (`ctxloom.daemon.v1`, [`daemon_proto::Refusal`]) or a domain's (the
+//!   own (`ctxloom.v1`, [`daemon_proto::Refusal`]) or a domain's (the
 //!   kernel's rejection, as it refused);
 //! - [`rejection_of`]: a typed refusal a client was answered with, as the
 //!   diagnostic a person is told;

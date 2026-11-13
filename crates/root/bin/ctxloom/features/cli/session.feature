@@ -1,7 +1,8 @@
 # world: base
 # Ported from cli/session.feature (rev f36e8dfb2)
 # NOT ported: the Rules tagged @pending (the transcript sub-noun,
-#   approvals and control): not turned on yet; M8 turns on the reading Rule.
+#   approvals and control): not turned on yet. The reading Rule is on, its
+#   listings in the daemon's shape (owner, 2026-11-13).
 #   The rest of Go's file is in the files that say `Ported from cli/session.feature`.
 #   Left out: the `session remove` Rule (retired: `session remove`
 #   is the one destroyer, cli/session_purge.feature) and the `session adopt`
@@ -66,16 +67,14 @@ Feature: session — the record of what your assistant did, and the tools to pru
     # (which this harness always is) the no-flag row now gets the JSON rows
     # array (empty here), not the "(no sessions)" text line. Reuses the
     # branch's shared empty-collection step rather than a new spelling.
-    # @pending at the merge of main into the daemon line (2026-11-13): it
-    # asserts the listing's JSON as rows with `harp` and a `live` state; the
-    # daemon answers `{sessions: [{name, uid, state: LIVE|ENDED|UNKNOWN}]}`.
-    # Re-expressing it in the daemon's shape is the owner's to rule.
-    @pending
+    # The daemon's listing shape (owner, 2026-11-13: rewritten from the
+    # rows with `harp` that it answered before the merge): its proto3 JSON,
+    # `{sessions: [{name, uid, state: LIVE|ENDED|UNKNOWN}]}`, `{}` when empty.
     Scenario Outline: A fresh project has recorded nothing
       Given an initialized ctxloom project
       When I run "ctxloom <flags> session list"
       Then the command succeeds
-      And the output reports "$" as empty, saying "no sessions"
+      And the output reports "sessions" as empty, saying "no sessions"
 
       @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
@@ -86,11 +85,9 @@ Feature: session — the record of what your assistant did, and the tools to pru
 
     # A session's title is the first thing its user asked, read from its
     # recorded transcript: the listing, the search and `show` all carry it.
-    # @pending at the merge of main into the daemon line (2026-11-13): it
-    # asserts the listing's JSON as rows with `harp` and a `live` state; the
-    # daemon answers `{sessions: [{name, uid, state: LIVE|ENDED|UNKNOWN}]}`.
-    # Re-expressing it in the daemon's shape is the owner's to rule.
-    @pending
+    # The daemon's listing shape (owner, 2026-11-13: rewritten from the
+    # rows with `harp` that it answered before the merge): its proto3 JSON,
+    # `{sessions: [{name, uid, state: LIVE|ENDED|UNKNOWN}]}`, `{}` when empty.
     Scenario: Showing a session prints its record, titled by its first prompt
       Given an initialized ctxloom project
       And a recorded session "amber-swift-owl"
@@ -99,7 +96,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
       And the output contains "Seeded prompt for amber-swift-owl."
       And the output contains "engine:"
       When I run "ctxloom session list --format json"
-      Then the JSON output array "$" contains an object whose "harp" is "amber-swift-owl" and whose "summary" is "Seeded prompt for amber-swift-owl."
+      Then the output reports "sessions[name=projects/{project}/sessions/amber-swift-owl].summary" as "Seeded prompt for amber-swift-owl."
 
     # D30: a message sent a session waits until a turn carries it (an inform
     # to an idle session stays there, visibly), and `show` lists what waits,
@@ -122,11 +119,9 @@ Feature: session — the record of what your assistant did, and the tools to pru
     # so it is no answer to "is this running now". The state is the lock's
     # verdict — held is live, free is ended, no lock file is unknown — and a
     # live session's end is blank rather than a stamp from its previous run.
-    # @pending at the merge of main into the daemon line (2026-11-13): it
-    # asserts the listing's JSON as rows with `harp` and a `live` state; the
-    # daemon answers `{sessions: [{name, uid, state: LIVE|ENDED|UNKNOWN}]}`.
-    # Re-expressing it in the daemon's shape is the owner's to rule.
-    @pending
+    # The daemon's listing shape (owner, 2026-11-13: rewritten from the
+    # rows with `harp` that it answered before the merge): its proto3 JSON,
+    # `{sessions: [{name, uid, state: LIVE|ENDED|UNKNOWN}]}`, `{}` when empty.
     Scenario: The listing takes each session's state from its lock, not its end stamp
       Given an initialized ctxloom project
       And a session "amber-swift-owl" with a transcript that is running again
@@ -134,19 +129,17 @@ Feature: session — the record of what your assistant did, and the tools to pru
       And a finished session "calm-dusty-wren" with a transcript but no session lock
       When I run "ctxloom session list --all --format json"
       Then the command succeeds
-      And the JSON output array "$" contains an object whose "harp" is "amber-swift-owl" and whose "state" is "live"
-      And the JSON output array "$" contains an object whose "harp" is "amber-swift-owl" and that has no "end"
-      And the JSON output array "$" contains an object whose "harp" is "brisk-copper-moth" and whose "state" is "ended"
-      And the JSON output array "$" contains an object whose "harp" is "calm-dusty-wren" and whose "state" is "unknown"
+      And the output reports "sessions[name=projects/{project}/sessions/amber-swift-owl].state" as "LIVE"
+      And the output reports no "sessions[name=projects/{project}/sessions/amber-swift-owl].end_time"
+      And the output reports "sessions[name=projects/{project}/sessions/brisk-copper-moth].state" as "ENDED"
+      And the output reports "sessions[name=projects/{project}/sessions/calm-dusty-wren].state" as "UNKNOWN"
       When I run "ctxloom session list --all --format text"
       Then the command succeeds
       And the output contains "STATE"
 
-    # @pending at the merge of main into the daemon line (2026-11-13): it
-    # asserts the listing's JSON as rows with `harp` and a `live` state; the
-    # daemon answers `{sessions: [{name, uid, state: LIVE|ENDED|UNKNOWN}]}`.
-    # Re-expressing it in the daemon's shape is the owner's to rule.
-    @pending
+    # The daemon's listing shape (owner, 2026-11-13: rewritten from the
+    # rows with `harp` that it answered before the merge): its proto3 JSON,
+    # `{sessions: [{name, uid, state: LIVE|ENDED|UNKNOWN}]}`, `{}` when empty.
     Scenario Outline: --state keeps only the sessions in that state
       Given an initialized ctxloom project
       And a session "amber-swift-owl" with a transcript that is running again
@@ -154,17 +147,17 @@ Feature: session — the record of what your assistant did, and the tools to pru
       And a finished session "calm-dusty-wren" with a transcript but no session lock
       When I run "ctxloom session <leaf> --all --state <state> --format json"
       Then the command succeeds
-      And the JSON output array "$" contains an object whose "harp" is "<kept>" and whose "state" is "<state>"
-      And the JSON output array "$" contains no object whose "harp" is "<dropped1>"
-      And the JSON output array "$" contains no object whose "harp" is "<dropped2>"
+      And the output reports "sessions[name=projects/{project}/sessions/<kept>].state" as "<shown>"
+      And the output reports no "sessions[name=projects/{project}/sessions/<dropped1>]"
+      And the output reports no "sessions[name=projects/{project}/sessions/<dropped2>]"
 
       Examples: both listings filter the same way
-        | leaf           | state   | kept              | dropped1          | dropped2          |
-        | list           | live    | amber-swift-owl   | brisk-copper-moth | calm-dusty-wren   |
-        | list           | ended   | brisk-copper-moth | amber-swift-owl   | calm-dusty-wren   |
-        | list           | unknown | calm-dusty-wren   | amber-swift-owl   | brisk-copper-moth |
-        | search seeded  | live    | amber-swift-owl   | brisk-copper-moth | calm-dusty-wren   |
-        | search seeded  | ended   | brisk-copper-moth | amber-swift-owl   | calm-dusty-wren   |
+        | leaf           | state   | shown   | kept              | dropped1          | dropped2          |
+        | list           | live    | LIVE    | amber-swift-owl   | brisk-copper-moth | calm-dusty-wren   |
+        | list           | ended   | ENDED   | brisk-copper-moth | amber-swift-owl   | calm-dusty-wren   |
+        | list           | unknown | UNKNOWN | calm-dusty-wren   | amber-swift-owl   | brisk-copper-moth |
+        | search seeded  | live    | LIVE    | amber-swift-owl   | brisk-copper-moth | calm-dusty-wren   |
+        | search seeded  | ended   | ENDED   | brisk-copper-moth | amber-swift-owl   | calm-dusty-wren   |
 
     Scenario: --state refuses a word that is not a state
       Given an initialized ctxloom project
@@ -191,12 +184,10 @@ Feature: session — the record of what your assistant did, and the tools to pru
     directory, its lock and its output folder (`<project>/<output.dir>/<harp>`)
     stay where they were. The harp-changing `session edit --name` is gone.
 
+    # The daemon's listing shape (owner, 2026-11-13: rewritten from the
+    # rows with `harp` that it answered before the merge): its proto3 JSON,
+    # `{sessions: [{name, uid, state: LIVE|ENDED|UNKNOWN}]}`, `{}` when empty.
     @json-default
-    # @pending at the merge of main into the daemon line (2026-11-13): it
-    # asserts the listing's JSON as rows with `harp` and a `live` state; the
-    # daemon answers `{sessions: [{name, uid, state: LIVE|ENDED|UNKNOWN}]}`.
-    # Re-expressing it in the daemon's shape is the owner's to rule.
-    @pending
     Scenario: A rename sets the title, and the harp, its directory and its output folder stay
       # new: S55, a harp is permanent; replaces "--name renames the harp and moves its output folder".
       Given an initialized ctxloom project
@@ -206,7 +197,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
       And the output contains "the auth refactor"
       And the output file "essence.md" of session "amber-swift-owl" exists
       When I run "ctxloom session list --all"
-      Then the JSON output array "$" contains an object whose "harp" is "amber-swift-owl"
+      Then the output reports "sessions[name=projects/{project}/sessions/amber-swift-owl].name" as "projects/{project}/sessions/amber-swift-owl"
 
     Scenario: The harp-changing edit is gone, not hidden
       # new: S55; replaces "The old rename verb is gone, not hidden".

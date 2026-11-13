@@ -3,6 +3,7 @@ use super::*;
 #[test]
 fn test_the_names_are_rooted_at_the_parent() {
     assert_eq!(remote_name("projects/p", "acme"), "projects/p/remotes/acme");
+    assert_eq!(bundle_name("users/me", "demo"), "users/me/bundles/demo");
 }
 
 #[test]

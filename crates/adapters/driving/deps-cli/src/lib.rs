@@ -10,6 +10,7 @@
 //! written as json or as text, with what it noticed said on the error stream.
 
 mod api;
+mod bundle;
 mod commands;
 mod pins;
 mod refresh;
@@ -409,17 +410,23 @@ fn bundle(
     err: &mut dyn Write,
 ) -> Result<Exit, Failure> {
     if verb == "push" {
+        let name = text_arg(args, "bundle");
         let pushed = answer(
             cx,
             cx.deps.push(&PushRequest {
-                bundle: text_arg(args, "bundle"),
+                bundle: name.clone(),
                 remote: text_arg(args, "remote"),
                 message: text_arg(args, "message"),
                 pr: flag(args, "pr"),
             }),
             err,
         )?;
-        emit(cx.format, out, &pushed, |out| text::pushed(out, &pushed))?;
+        respond(
+            cx,
+            out,
+            |parent| bundle::pushed(parent, &name, &pushed),
+            |out| text::pushed(out, &pushed),
+        )?;
     } else {
         let moved = answer(
             cx,
@@ -431,7 +438,12 @@ fn bundle(
             }),
             err,
         )?;
-        emit(cx.format, out, &moved, |out| text::moved(out, &moved))?;
+        respond(
+            cx,
+            out,
+            |parent| bundle::moved(parent, &moved),
+            |out| text::moved(out, &moved),
+        )?;
     }
     Ok(Exit::OK)
 }

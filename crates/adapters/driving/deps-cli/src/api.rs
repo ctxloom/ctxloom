@@ -13,6 +13,11 @@ pub(crate) fn remote_name(parent: &str, remote: &str) -> String {
     format!("{parent}/remotes/{remote}")
 }
 
+/// A local Bundle's resource name: `<parent>/bundles/<bundle>`.
+pub(crate) fn bundle_name(parent: &str, bundle: &str) -> String {
+    format!("{parent}/bundles/{bundle}")
+}
+
 /// The kind a view's word names (`mcp` is an MCP server, OQ-B5); a word
 /// the API has no kind for is unspecified.
 pub(crate) fn item_kind(word: &str) -> i32 {

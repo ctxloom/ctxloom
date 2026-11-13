@@ -223,13 +223,17 @@ fn test_the_project_is_the_nearest_ctxloom_up_from_the_working_directory() {
     project.bundle("demo");
     let deeper = project.dir().join("sub/deeper");
     files::mkdirs(&deeper);
-    // The text answer: a json one asks the daemon for the project's name
-    // (OD-40, OQ-2), and the wiring's registration (`Wiring::registration`)
-    // marks the working directory, not the project found above it, so a
-    // json read from below the root writes `sub/deeper/.ctxloom/project-id`
-    // (escalated by B1; the spine's to fix).
-    let ran = project.run_in(&deeper, &["bundle", "list", "--format", "text"]);
-    ran.succeeds().contains("demo (v1.0.0)");
+    let ran = project.run_in(&deeper, &["bundle", "list", "--format", "json"]);
+    ran.succeeds();
+    let doc = ran.json();
+    assert_eq!(
+        reports_as(&doc, "bundles[name$=/bundles/demo].version"),
+        "1.0.0"
+    );
+    // Named under the root's project, as a read at the root names it.
+    let at_root = project.run(&["bundle", "list", "--format", "json"]);
+    at_root.succeeds();
+    assert_eq!(at_root.json(), doc);
     assert!(
         !files::exists(deeper.join(".ctxloom")),
         "reading creates nothing"

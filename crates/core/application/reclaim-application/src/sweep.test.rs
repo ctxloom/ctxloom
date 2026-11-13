@@ -482,7 +482,7 @@ fn a_reapable_checkout_is_planned_naming_the_leaf_that_removes_it() {
     assert_eq!(row.verdict, Verdict::Planned);
     assert_eq!(
         row.command,
-        "ctxloom session worktrees purge amber-quiet-heron --yes"
+        "ctxloom session remove amber-quiet-heron --yes"
     );
 }
 

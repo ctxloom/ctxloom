@@ -451,18 +451,26 @@ impl Wiring {
     /// project registration): its project's id (taskloom's identity, so a
     /// worktree is its primary checkout's), its root, the repository's
     /// common dir and root commit (worktree-git's, empty outside git), and
-    /// its working directory. `None` outside any project: no `.ctxloom` up
-    /// from the working directory (or named by `CTXLOOM_ROOT`) but the
-    /// home's, so its answer is `users/me` and no daemon is asked (OQ-3),
-    /// and nothing is written.
-    ///
-    /// The project is the ctxloom project, the nearest `.ctxloom` up (OD-40,
-    /// OQ-2): its identity is resolved at that root, never at the registry's
-    /// own work root (a git top, or the working directory), so a read from a
-    /// subdirectory names the project its root names. An identity already
-    /// bound is read, never minted; a project no run has named yet is named
-    /// once, at its root (`.ctxloom/project-id`), as its first run would.
+    /// its working directory. `None` outside any project. The sessions'
+    /// project: the registry's work root (`CTXLOOM_ROOT`, a git top, or the
+    /// working directory), its identity minted there on first use.
     pub(crate) fn registration(&self) -> Option<daemon_proto::v1::ResolveProjectRequest> {
+        use ports::ProjectIdentity as _;
+        let mut identity = registry(Arc::clone(&self.fs), self.environment(), HarpNames);
+        let project = identity.for_write(None).ok()?;
+        Some(self.registering(project))
+    }
+
+    /// What a library read registers, to name its resources (OD-40): the
+    /// ctxloom project, the nearest `.ctxloom` up from the working directory
+    /// (or named by `CTXLOOM_ROOT`), as every library read finds it. `None`
+    /// where there is none but the home's, so the parent is `users/me`, no
+    /// daemon is asked and nothing is written (OQ-3). Its identity is
+    /// resolved at that root, never at the registry's own work root, so a
+    /// read from a subdirectory names the project its root names (OQ-2): read
+    /// when bound, never minted; a project no run has named yet is named once,
+    /// at its root (`.ctxloom/project-id`), as its first run would name it.
+    pub(crate) fn library_registration(&self) -> Option<daemon_proto::v1::ResolveProjectRequest> {
         use ports::ProjectIdentity as _;
         let (_, app) = self.locate();
         if !matches!(app.source, ctxloom_ports::Source::Project) {
@@ -482,11 +490,16 @@ impl Wiring {
             Ok(None) => identity.for_write(None).ok()?,
             Err(_) => return None,
         };
+        Some(self.registering(project))
+    }
+
+    /// The registration of `project`, found from this process.
+    fn registering(&self, project: ports::Project) -> daemon_proto::v1::ResolveProjectRequest {
         let root = project
             .root
             .unwrap_or_else(|| self.project_dir().display().to_string());
         let vcs = oneshot::identity_git(self).vcs_identity(std::path::Path::new(&root));
-        Some(daemon_proto::v1::ResolveProjectRequest {
+        daemon_proto::v1::ResolveProjectRequest {
             name: String::new(),
             cwd: self
                 .env
@@ -498,7 +511,7 @@ impl Wiring {
             git_common_dir: vcs.git_common_dir,
             root_commit: vcs.root_commit,
             env: None,
-        })
+        }
     }
 
     /// Name the project this process is in (S54), once, in the one store:

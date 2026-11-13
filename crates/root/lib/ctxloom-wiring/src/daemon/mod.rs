@@ -830,6 +830,15 @@ pub(crate) fn env_vars(env: &EnvSnapshot) -> daemon_proto::v1::EnvVars {
 /// This command's client of the daemon (slice 2 step 6): `wiring`'s
 /// project, its working directory and its whole environment.
 pub(crate) fn client<'a>(wiring: &'a Wiring, stamp: &str) -> daemon_api::Client<Reach<'a>> {
+    client_for(wiring, stamp, wiring.registration())
+}
+
+/// A client of the daemon for `registration`'s project (none: outside one).
+fn client_for<'a>(
+    wiring: &'a Wiring,
+    stamp: &str,
+    registration: Option<daemon_proto::v1::ResolveProjectRequest>,
+) -> daemon_api::Client<Reach<'a>> {
     let cwd = wiring
         .env()
         .cwd()
@@ -837,7 +846,7 @@ pub(crate) fn client<'a>(wiring: &'a Wiring, stamp: &str) -> daemon_api::Client<
         .unwrap_or_default();
     daemon_api::Client::new(
         Reach::new(wiring, stamp),
-        wiring.registration(),
+        registration,
         cwd,
         env_vars(wiring.env()),
     )
@@ -859,7 +868,7 @@ pub(crate) fn library_parent(wiring: &Wiring, stamp: &str) -> Result<String, Fai
             })
         })?;
     runtime
-        .block_on(client(wiring, stamp).library_parent())
+        .block_on(client_for(wiring, stamp, wiring.library_registration()).library_parent())
         .map_err(|e| {
             let exit = e.exit();
             Failure::new(e, exit)

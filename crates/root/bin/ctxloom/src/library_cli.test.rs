@@ -1222,6 +1222,39 @@ fn test_context_assemble_on_demand_ends_with_the_index_of_what_it_held_back() {
     }
 }
 
+// The index tells the agent to run `ctxloom fragment show <name>` for each
+// name it chose (owner ruling of 2026-11-12): each name it gives is one that
+// command shows.
+#[test]
+fn test_each_name_in_the_index_is_one_fragment_show_shows() {
+    let project = demo_with_a_premise();
+    let ran = project.run(&["context", "assemble", "-p", "dev", "--format", "json"]);
+    ran.succeeds();
+    let context = ran.json()["context"].as_str().unwrap().to_string();
+    assert!(
+        context.contains("`ctxloom fragment show <name>`"),
+        "{context}"
+    );
+    let names: Vec<&str> = context
+        .lines()
+        .filter_map(|l| l.strip_prefix("- "))
+        .filter_map(|l| l.split_once(": ").map(|(name, _)| name))
+        .collect();
+    assert_eq!(names, ["ctxloom+local:demo#fragments/golang"], "{context}");
+    for name in names {
+        let shown = project.run(&["fragment", "show", name, "--format", "json"]);
+        shown.succeeds();
+        assert!(
+            shown.json()["content"]
+                .as_str()
+                .unwrap()
+                .contains("GO-RULES-BODY"),
+            "{}",
+            shown.said()
+        );
+    }
+}
+
 #[test]
 fn test_context_assemble_with_premised_always_loads_every_fragment_and_no_index() {
     let project = demo_with_a_premise();

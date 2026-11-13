@@ -108,6 +108,25 @@ fn a_companion_fragment_with_a_premise_is_held_back_and_indexed() {
     );
 }
 
+// Owner ruling of 2026-11-12: the premise index tells the agent to run
+// `ctxloom fragment show <name>` for each name it chose, so a companion's
+// name, as the index gives it, is shown too.
+#[test]
+fn a_companion_fragment_is_shown_by_the_name_the_index_gives_it() {
+    let companions = only_reprise(Loaded(LOADOUT.to_string()));
+    let (library, _) = setup(&[CONFIG_WITH], &companions, &[]);
+    let shown = library
+        .item_show(
+            &plain(),
+            crate::ItemKind::Fragment,
+            "ctxloom+companion:reprise#fragments/later",
+            false,
+        )
+        .result
+        .expect("shown");
+    assert_eq!(shown.content.trim(), "LATER-BODY");
+}
+
 #[test]
 fn asking_for_a_premised_companion_fragment_by_name_delivers_it() {
     let companions = only_reprise(Loaded(LOADOUT.to_string()));

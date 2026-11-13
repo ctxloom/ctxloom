@@ -132,6 +132,13 @@ const BARE_COMPANION_FIXTURES: [&str; 3] = ["cfg/v8", "cfg/layers", "cfg/layers-
 /// (owner ruling 59: the fixtures say the word, Go's goldens stay Go's).
 fn as_changed(golden: &str) -> String {
     golden
+        // Owner ruling of 2026-11-12: the premise index's instruction loads
+        // what was chosen through the CLI, not Go's MCP tool (T20).
+        .replace(GO_LOAD_CLAUSE, LOAD_CLAUSE)
+        .replace(
+            &GO_LOAD_CLAUSE.replace('\n', "\\n"),
+            &LOAD_CLAUSE.replace('\n', "\\n"),
+        )
         .replace("\"use_distilled\": true", "\"content_form\": \"distilled\"")
         .replace("\"use_distilled\": false", "\"content_form\": \"original\"")
         .replace("use_distilled: true", "content_form: distilled")
@@ -208,6 +215,12 @@ fn unsay_tokens(line: &str) -> String {
         None => line.to_string(),
     }
 }
+
+/// The premise index instruction's last clause as Go said it, and as the
+/// owner reworded it (2026-11-12).
+const GO_LOAD_CLAUSE: &str = "Then call the ctxloom\n`assemble_context` tool with the names you chose (the `bundles` argument)\nand follow what it returns.";
+const LOAD_CLAUSE: &str =
+    "Then run\n`ctxloom fragment show <name>` for each name you chose and follow what it\nreturns.";
 
 /// A dry run's keys that are compared (D16); the rest print later slices'
 /// surfaces.

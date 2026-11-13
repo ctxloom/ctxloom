@@ -2296,22 +2296,21 @@ hook with `just hooks-install` once more (`gates/MIGRATING.md`).
 3. **clippy**: `just lint`, including the core's purity rules
    (`crates/core/clippy.toml`).
 4. **deps**: `just lint-deps`, cargo-deny (`deny.toml`).
-5. **tests**: `just test-staged` tests the changed crates and their
-   dependents in the staged tree (HEAD plus the staged diff, a sibling
-   worktree of the checkout); a staged `workspace_wide` file tests the whole
-   workspace (`scripts/test-staged.selftest.sh`: a library's change selects
-   the binary depending on it). Red tests are committed off the default
-   branch only (`test-commit`), and only red the commit may carry: the
-   gates' `red_judge`, ctxloom's `scripts/red-commit-judge.sh`, refuses a
-   commit that turns red a scenario of a feature file it does not stage,
-   judged by the feature runner's lists (GHERKIN_RATCHET) of the staged tree
-   and of HEAD (`just ratchet-base HEAD`, cached by sha): ruling 165's
-   ratchet at each commit, so a RED commit may still add scenarios or change
-   one in its own feature file. Commit fd50e0b77 broke `run.feature`
-   untouched and was committed as RED; its branch's fast-forward of `main`
-   ran no hook. A red unit test is not compared with HEAD (allowed as
-   before). The cost: a red feature runner off `main` builds HEAD once per
-   sha (`target/ratchet-base`) before the commit is judged.
+5. **tests**: `just test-staged` runs the changed crates' OWN tests in the
+   staged tree (HEAD plus the staged diff, a sibling worktree of the
+   checkout), no dependent's (owner ruling of 2026-11-13, fast hooks,
+   acceptance at landing): a library's change does not select the binary
+   depending on it, so the binary's acceptance suite runs at commit only
+   when the binary crate itself changed (`scripts/test-staged.selftest.sh`).
+   On the default branch (and wherever the branch cannot be told)
+   `test-commit` asks `test-staged dependents`, which adds the workspace
+   dependents as before, so red is never committed there. A staged
+   `workspace_wide` file tests the whole workspace. Red tests are committed
+   off the default branch only (`test-commit`), and no judge looks at them
+   at commit: ctxloom's `red_judge` is `""` (the red-commit judge is gone,
+   2026-11-13); a red scenario the branch added, or a green one it broke, is
+   refused at landing by the ratchet of `land-ratchet` and
+   `closeout-ratchet` (below).
 6. **mutants** (no hook; at close-out, `just mutants-batch`): `mutants-staged` mutation-tests the staged diff
    (`cargo mutants --in-diff`), holding new logic to its tier: every
    hand-written tier (domain, read models, ports, application and adapters)
@@ -2351,8 +2350,14 @@ hook with `just hooks-install` once more (`gates/MIGRATING.md`).
    `scripts/mutants-verdict.selftest.sh` (`just selftest`).
 
 A slice landing on an integration branch that carries a red spec on purpose
-(daemon/integration, its daemon scenarios red) closes out with `just
-closeout-ratchet <base>` (owner ruling 165; `scripts/closeout-ratchet.sh`):
+(daemon/integration, its daemon scenarios red) lands through `just
+land-ratchet <base>` (owner ruling of 2026-11-13; `scripts/closeout-ratchet.sh
+--no-mutation`): `closeout-ratchet`'s gates (build, lint, lint-deps, the full
+test, lint-os) and its ratchet, without mutation (no mutants-batch, even
+one `RATCHET_GATES` names), each line and the summary said as `land-ratchet`.
+Each branch landing on the integration branch runs it; the full `just
+closeout-ratchet <base>` runs once per batch and before main. `just
+closeout-ratchet <base>` (owner ruling 165; `scripts/closeout-ratchet.sh`) is
 closeout's six gates as usual, mutation included (over merge-base(<base>,
 HEAD)..HEAD), except that the feature runner may fail where the base's does
 and nowhere else: the slice's red scenarios must be a SUBSET of the base

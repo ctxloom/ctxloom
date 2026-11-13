@@ -43,10 +43,11 @@ pre-commit:
       priority: 5
       run: just lint-deps
     tests:
-      # The tests of the crates the commit changes and of their workspace
-      # dependents, over the STAGED tree (`just test-staged` says how). Red
-      # tests are committed on a branch other than the default one, with a
-      # warning, and refused on the default branch (`just test-commit`).
+      # The own tests of the crates the commit changes, over the STAGED tree
+      # (`just test-staged` says how); on the default branch their workspace
+      # dependents' too. Every test runs at landing (`just land-ratchet`).
+      # Red tests are committed on a branch other than the default one, with
+      # a warning, and refused on the default branch (`just test-commit`).
       priority: 6
       run: just test-commit
     # No mutation testing in any hook: the closeout skill runs it, once per batch

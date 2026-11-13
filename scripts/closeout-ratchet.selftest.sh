@@ -11,6 +11,11 @@
 # gate) fails though the list is a subset; a new red fails; on a base with no
 # red scenario (main) one red scenario fails, as the plain closeout would;
 # mutants-batch gets merge-base(base, HEAD) and GHERKIN_RATCHET.
+#
+# The landing gate (`just land-ratchet <base>`: closeout-ratchet.sh
+# --no-mutation <base>): the same gates and judge with no mutants-batch, even
+# one RATCHET_GATES names, said as `land-ratchet`; a subset passes, a new red
+# fails exactly as the closeout's does.
 set -euo pipefail
 while IFS= read -r v; do unset "$v"; done < <(git rev-parse --local-env-vars)
 here=$(cd "$(dirname "$0")" && pwd)
@@ -80,6 +85,10 @@ test:
     @cp "$STUB_LIST" "$GHERKIN_RATCHET"; [ "${STUB_TEST_RC:-0}" = 0 ] || { echo "FAIL test: tests failed: 1 failed (full log: x)" >&2; exit "$STUB_TEST_RC"; }; echo "ok   test (stub) 0.1s"
 mutants-batch base="":
     @echo "ok   mutants-batch (base=[{{base}}] ratchet=[${GHERKIN_RATCHET:-}]) 0.1s"
+lint-deps:
+    @echo "ok   lint-deps (stub) 0.1s"
+lint-os:
+    @echo "ok   lint-os (stub) 0.1s"
 J
 git -C "$r" add justfile
 git -C "$r" -c user.name=t -c user.email=t@t commit -qm base
@@ -129,4 +138,32 @@ rc=0; out=$(closeout) || rc=$?
 # Usage: no base is exit 2.
 rc=0; out=$( (cd "$r" && "$here/closeout-ratchet.sh" 2>&1) ) || rc=$?
 [ "$rc" -eq 2 ] || fail "no base exited $rc: $out"
+
+# The landing gate: no mutation, the ratchet judged as the closeout judges it.
+land() { (cd "$r" && env RATCHET_BASE_LIST="$tmp/base.list" STUB_LIST="$tmp/slice.list" "$@" \
+    "$here/closeout-ratchet.sh" --no-mutation integration 2>&1); }
+list "$tmp/base.list" "red:f/a.feature :: one" "red:f/a.feature :: two" "green:f/b.feature :: three"
+list "$tmp/slice.list" "red:f/a.feature :: one" "green:f/a.feature :: two" "green:f/b.feature :: three"
+rc=0; out=$(land) || rc=$?
+[ "$rc" -eq 0 ] || fail "land-ratchet of a subset exited $rc: $out"
+! grep -q 'mutants-batch' <<< "$out" || fail "land-ratchet ran mutation: $out"
+grep -q '^ok   lint-deps ' <<< "$out" || fail "land-ratchet skipped lint-deps: $out"
+grep -q '^ok   lint-os ' <<< "$out" || fail "land-ratchet skipped lint-os: $out"
+grep -q '^ok   ratchet (base 2 red; here 1 red, 1 turned green)' <<< "$out" || fail "land-ratchet: no ratchet line: $out"
+grep -q '^ok   land-ratchet (5 gates; base [0-9a-f]\{7\}: 2 red, 1 turned green) ' <<< "$out" || fail "land-ratchet summary: $out"
+# Even a gate list naming mutants-batch runs none.
+rc=0; out=$(land RATCHET_GATES="build test mutants-batch") || rc=$?
+[ "$rc" -eq 0 ] || fail "land-ratchet with mutants-batch named exited $rc: $out"
+! grep -q 'mutants-batch' <<< "$out" || fail "land-ratchet ran a named mutants-batch: $out"
+grep -q '^ok   land-ratchet (2 gates; ' <<< "$out" || fail "land-ratchet summary of a named list: $out"
+# A new red fails it, as it fails the closeout.
+list "$tmp/slice.list" "red:f/a.feature :: one" "red:f/b.feature :: three"
+rc=0; out=$(land) || rc=$?
+[ "$rc" -eq 1 ] || fail "land-ratchet with a broken green passed: $out"
+grep -q '^FAIL ratchet: 1 new red scenarios: 1 broke green, 0 added red ' <<< "$out" || fail "land-ratchet new red line: $out"
+grep -q '^FAIL land-ratchet: 1 failed: ratchet ' <<< "$out" || fail "land-ratchet summary of a new red: $out"
+# Its usage is its own.
+rc=0; out=$( (cd "$r" && "$here/closeout-ratchet.sh" --no-mutation 2>&1) ) || rc=$?
+[ "$rc" -eq 2 ] || fail "land-ratchet with no base exited $rc: $out"
+grep -q '^FAIL land-ratchet: usage: land-ratchet <base>' <<< "$out" || fail "land-ratchet usage: $out"
 echo "ok   closeout-ratchet.selftest"

@@ -58,8 +58,13 @@ impl Calls for Scripted {
         })
     }
 
-    fn get_project(&self, _: v1::GetProjectRequest) -> Answer<'_, v1::Project> {
-        Box::pin(async { Ok(v1::Project::default()) })
+    fn get_project(&self, request: v1::GetProjectRequest) -> Answer<'_, v1::Project> {
+        Box::pin(async move {
+            Ok(v1::Project {
+                name: request.name,
+                ..v1::Project::default()
+            })
+        })
     }
 
     fn get_session(&self, request: v1::GetSessionRequest) -> Answer<'_, v1::Session> {
@@ -71,15 +76,34 @@ impl Calls for Scripted {
         })
     }
 
-    fn list_sessions(&self, _: v1::ListSessionsRequest) -> Answer<'_, v1::ListSessionsResponse> {
-        Box::pin(async { Ok(v1::ListSessionsResponse::default()) })
+    fn list_sessions(
+        &self,
+        request: v1::ListSessionsRequest,
+    ) -> Answer<'_, v1::ListSessionsResponse> {
+        Box::pin(async move {
+            Ok(v1::ListSessionsResponse {
+                sessions: vec![v1::Session {
+                    name: format!("{}/sessions/listed", request.parent),
+                    ..v1::Session::default()
+                }],
+                ..v1::ListSessionsResponse::default()
+            })
+        })
     }
 
     fn search_sessions(
         &self,
-        _: v1::SearchSessionsRequest,
+        request: v1::SearchSessionsRequest,
     ) -> Answer<'_, v1::ListSessionsResponse> {
-        Box::pin(async { Ok(v1::ListSessionsResponse::default()) })
+        Box::pin(async move {
+            Ok(v1::ListSessionsResponse {
+                sessions: vec![v1::Session {
+                    name: format!("{}/sessions/{}", request.parent, request.words.join("-")),
+                    ..v1::Session::default()
+                }],
+                ..v1::ListSessionsResponse::default()
+            })
+        })
     }
 
     fn delete_session(
@@ -320,4 +344,95 @@ async fn a_destroy_build_serves_delete_and_sweep() {
         .unwrap()
         .into_inner();
     assert_eq!(swept.purge_cutoff, "2026-08-14");
+}
+
+// The reads are answered with what their use cases answered.
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn the_reads_answer_their_use_cases() {
+    let mut client = CtxloomClient::new(serve(Arc::default()).await);
+    let project = client
+        .get_project(with_bearer(
+            v1::GetProjectRequest {
+                name: "projects/calm-otter".to_string(),
+            },
+            BEARER,
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(project.name, "projects/calm-otter");
+    let names = |listed: v1::ListSessionsResponse| {
+        listed
+            .sessions
+            .into_iter()
+            .map(|session| session.name)
+            .collect::<Vec<_>>()
+    };
+    let listed = client
+        .list_sessions(with_bearer(
+            v1::ListSessionsRequest {
+                parent: "projects/calm-otter".to_string(),
+                ..v1::ListSessionsRequest::default()
+            },
+            BEARER,
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(names(listed), ["projects/calm-otter/sessions/listed"]);
+    let found = client
+        .search_sessions(with_bearer(
+            v1::SearchSessionsRequest {
+                parent: "projects/calm-otter".to_string(),
+                words: vec!["lock".to_string(), "file".to_string()],
+                ..v1::SearchSessionsRequest::default()
+            },
+            BEARER,
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(names(found), ["projects/calm-otter/sessions/lock-file"]);
+}
+
+/// A service ready only when it says so.
+#[derive(Clone)]
+struct Readiness(bool);
+
+impl tonic::codegen::Service<tonic::codegen::http::Request<tonic::body::Body>> for Readiness {
+    type Response = tonic::codegen::http::Response<tonic::body::Body>;
+    type Error = std::convert::Infallible;
+    type Future = std::future::Ready<Result<Self::Response, Self::Error>>;
+
+    fn poll_ready(
+        &mut self,
+        _: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        match self.0 {
+            true => std::task::Poll::Ready(Ok(())),
+            false => std::task::Poll::Pending,
+        }
+    }
+
+    fn call(&mut self, _: tonic::codegen::http::Request<tonic::body::Body>) -> Self::Future {
+        std::future::ready(Ok(tonic::codegen::http::Response::new(
+            tonic::body::Body::empty(),
+        )))
+    }
+}
+
+// The gate is ready when the service it guards is, and not before.
+#[test]
+fn the_gate_is_ready_when_its_service_is() {
+    use tonic::codegen::Service;
+    let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+    let gated = |ready| super::Gated {
+        inner: Readiness(ready),
+        gate: Arc::new(UserGate::new(&run_token())),
+    };
+    assert!(gated(false).poll_ready(&mut cx).is_pending());
+    assert!(matches!(
+        gated(true).poll_ready(&mut cx),
+        std::task::Poll::Ready(Ok(()))
+    ));
 }

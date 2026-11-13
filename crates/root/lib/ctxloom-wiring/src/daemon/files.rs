@@ -40,16 +40,19 @@ const FILE_MODE: u32 = 0o600;
 pub(crate) const INSTANCE_DIR_VARIABLE: &str = "CTXLOOM_TEST_INSTANCE_DIR";
 
 /// Where the single-instance lock is: ONE per OS account, the discovery file
-/// beside it. It is keyed to the account, never to `CTXLOOM_HOME`; but the
-/// platform does not yet resolve the account's home (angzarr-platform's
-/// `os::user_home`, being added) and offers no per-user runtime place, so
-/// until it does the place is under the ctxloom `home`
-/// (`<home>/.ctxloom/daemon/daemon.lock`), and switching to the account's is
-/// this function's one line. `overridden` (a test's, [`INSTANCE_DIR_VARIABLE`])
-/// is the directory instead.
-pub(crate) fn instance_lock_path(home: &Path, overridden: Option<&Path>) -> PathBuf {
+/// beside it, keyed to the account, never to `CTXLOOM_HOME` or `HOME`:
+/// `account` is the ACCOUNT's home (`Os::user_home`, the daemon module's
+/// `account_home`) and the lock `<account>/.ctxloom/daemon/daemon.lock`, the
+/// daemon directory of the account's default ctxloom home. So with no
+/// `CTXLOOM_HOME` the lock, the discovery file and the daemon's own files are
+/// one directory; two ctxloom homes on one account share the lock, and a
+/// client on the other is refused. It is no runtime directory: those are
+/// variables (`XDG_RUNTIME_DIR`), absent on macOS and Windows, or shared
+/// temp space. `overridden` (a test's, [`INSTANCE_DIR_VARIABLE`]) is the
+/// directory instead.
+pub(crate) fn instance_lock_path(account: &Path, overridden: Option<&Path>) -> PathBuf {
     overridden
-        .map_or_else(|| home.join(DAEMON_DIR), Path::to_path_buf)
+        .map_or_else(|| account.join(DAEMON_DIR), Path::to_path_buf)
         .join(DAEMON_LOCK_FILE)
 }
 

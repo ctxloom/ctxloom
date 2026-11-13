@@ -899,14 +899,27 @@ bare UNAUTHENTICATED that says nothing of why (S11); an admitted caller is
 the user, with `user_allowlist` (every session command and fact) on every
 stream the daemon reaches. There is ONE daemon per OS USER, ever (owner,
 after step 3/4: no clustering): its single-instance lock, `daemon.lock`,
-is keyed to the account, never to `CTXLOOM_HOME`, at the place ONE function
-says (`daemon::files::instance_lock_path`). The platform resolves no account
-home yet (angzarr-platform's `os::user_home`, being added) and offers no
-per-user runtime place, so today that place is `<ctxloom home>/.ctxloom/
-daemon/`, and moving it to the account's is that function's one line. Under
-`test-support`, `CTXLOOM_TEST_INSTANCE_DIR` names the directory instead (each
-test's temporary home keeps its own daemon, and two homes can share one; a
-client passes it to the daemon it spawns). The daemon advertises itself in
+is keyed to the account, never to `CTXLOOM_HOME` or `HOME`, at the place
+ONE function says (`daemon::files::instance_lock_path`):
+`<account home>/.ctxloom/daemon/daemon.lock`, the account's home being the
+system's (`daemon::account_home`, angzarr-platform's `Os::user_home`: the
+account database's, never a variable). That is the daemon directory of the
+account's DEFAULT ctxloom home, so with no `CTXLOOM_HOME` the lock, the
+discovery file and the daemon's files are one directory, and two ctxloom
+homes on one account share the lock (no runtime directory: `XDG_RUNTIME_DIR`
+is a variable, absent on macOS and Windows). THE DAEMON'S HOME is its
+`CTXLOOM_HOME` when it was given one, else the ACCOUNT's home, never its
+`HOME` (M4, `daemon::daemon_home`; `daemon serve` is wired with it,
+`Wiring::at`), and the user's own home it tells a hosted child is the
+account's too. Under `test-support` the account's home is
+`CTXLOOM_TEST_ACCOUNT_HOME`, else the process's `HOME` (each test's
+temporary home: no test reaches the real account), and
+`CTXLOOM_TEST_INSTANCE_DIR` names the lock's directory instead (two homes
+can share one); a client passes both to the daemon it spawns. Cost, for the
+plain-build probe: a plain build has no override, so
+`scripts/plain-destroy-check.sh`'s API probe takes the account's real lock
+and writes its real discovery file, and so runs in CI alone (`CI` set) and is
+skipped, and said, elsewhere. The daemon advertises itself in
 the discovery file beside the lock, `daemon.discovery`: one
 `ctxloom.daemon.v1.Discovery` in protobuf's binary encoding (S5;
 `daemon-proto`, `run_ports::Discovery`'s codec, format 1; the old
@@ -933,8 +946,8 @@ session aggregate records nothing on a session that is not live. Accepted
 cost: a buggy client could write to the wrong live session unnoticed. The
 CLI run's own listener keeps its `HookGate` header check (a fact's session
 must be its run's) until runs are hosted. A hosted child is told the user's home as a value
-(`ChildSpec::user_home`, the daemon's `Place::user_home`, resolved once by
-`Wiring::user_home`), and its `PATH` is led by the program's directory as
+(`ChildSpec::user_home`, the daemon's `Place::user_home`, the account's
+home, `daemon::account_home`), and its `PATH` is led by the program's directory as
 the platform joins it (`run_ports::search_path_led_by`, on the daemon's
 `Place::os`); the environment its launcher hands off is keyed as the
 platform compares names (`os::Flavor::env_key`). The hosted engines are
@@ -972,16 +985,19 @@ daemon spawns `ctxloom daemon serve` and waits for a live one to advertise
 itself (the one spawned or another client's, whichever took the single-instance lock)
 within `SPAWN_WAIT`, eight seconds: S16's ten (`HOOK_BOUND`) less a
 delivery's two (`DELIVERY_MARGIN`). A stale file is left for the new daemon
-to publish over. The spawned daemon's environment is `daemon_env`'s: `HOME`,
-`PATH`, `TMPDIR`, `LANG`, `LC_ALL`, `USERPROFILE`, `APPDATA`,
-`LOCALAPPDATA` and `run_ports::WINDOWS_STARTUP_VARIABLES`, matched as the
-platform compares names (`os::Flavor::env_key`, so Windows' `Path` passes),
-and `CTXLOOM_HOME` set to the ctxloom home the spawner resolved; nothing
-else of the spawner's. Its process group is its own (`os::process::spawn_tree`);
-it is not yet a session of its own (no `setsid`) and on Windows not yet
-detached: the platform crates offer neither (escalated). Nor is its user
-home yet independent of its spawner's `HOME` (M4, escalated: the platform
-crates resolve no account home). IDLENESS counts the runs started and not ended (M9:
+to publish over. The spawned daemon's environment is `daemon_env`'s:
+`PATH`, `TMPDIR`, `LANG`, `LC_ALL` and `run_ports::WINDOWS_STARTUP_VARIABLES`,
+matched as the platform compares names (`os::Flavor::env_key`, so Windows'
+`Path` passes), and the spawner's `CTXLOOM_HOME` only when it set one;
+NEVER the spawner's `HOME`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA` or XDG
+bases (its confinement: the daemon's home is the account's), nor anything
+else of the spawner's. It is started DETACHED (`os::process::spawn_detached`:
+`setsid` on unix, so it leads a session of its own with no controlling
+terminal; `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP`, breaking away from
+a job, on Windows), so no hangup, Ctrl-C or kill of the client's group
+reaches it; proved on Linux through procfs (its session id is its pid, and
+none of those variables is in its environment), unverified on macOS and
+Windows. IDLENESS counts the runs started and not ended (M9:
 `Daemon::live_runs`, from `pending-launches`, any process's: the CLI's
 interactive sessions and one-shots as well as its hosted children), asked
 at the idle limit, after the runs whose owner is gone are ended by the

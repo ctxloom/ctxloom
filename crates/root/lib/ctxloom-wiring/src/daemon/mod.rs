@@ -42,20 +42,12 @@ const DELEGATION_LIMIT: u32 = 4;
 
 /// The variables a spawned daemon is given of its spawner's (D-N45), as
 /// the platform compares names: how to find programs, temp space and locale,
-/// the user's home (`HOME`; on Windows her profile, `USERPROFILE`, `APPDATA`
-/// and `LOCALAPPDATA`), and on Windows what a program needs to start
-/// (`run_ports::WINDOWS_STARTUP_VARIABLES`, kept beside these). ctxloom's own
-/// home is not taken from here: it is the one the spawner resolved.
-const DAEMON_ENV: [&str; 8] = [
-    "HOME",
-    "PATH",
-    "TMPDIR",
-    "LANG",
-    "LC_ALL",
-    "USERPROFILE",
-    "APPDATA",
-    "LOCALAPPDATA",
-];
+/// and on Windows what a program needs to start
+/// (`run_ports::WINDOWS_STARTUP_VARIABLES`, kept beside these). Never the
+/// spawner's home or its confinement (`HOME`, `USERPROFILE`, `APPDATA`,
+/// `LOCALAPPDATA`, the XDG bases): the daemon's home is the ACCOUNT's (M4,
+/// one daemon per OS user), whoever spawned it.
+const DAEMON_ENV: [&str; 4] = ["PATH", "TMPDIR", "LANG", "LC_ALL"];
 
 /// S16: how long a hook spends, in all, reaching a daemon (rediscovering
 /// it, or spawning one and waiting) and delivering, before it fails open.
@@ -74,9 +66,10 @@ const HEALTH_WAIT: Duration = Duration::from_secs(1);
 
 /// The environment a spawned daemon is given of its spawner's `vars`
 /// (D-N45): what it needs to run, named as `flavor` compares names (so
-/// Windows' `Path` is `PATH`), and ctxloom's `home` as the spawner resolved
-/// it. Nothing else of the spawner's crosses: a child's environment is its
-/// launcher's (S6).
+/// Windows' `Path` is `PATH`), and ctxloom's `home` when the spawner set
+/// one (its `CTXLOOM_HOME`; with none the daemon serves the account's home,
+/// [`daemon_home`]). Nothing else of the spawner's crosses: a child's
+/// environment is its launcher's (S6).
 fn daemon_env<N: AsRef<OsStr>, V: AsRef<OsStr>>(
     flavor: os::Flavor,
     vars: impl IntoIterator<Item = (N, V)>,
@@ -105,22 +98,40 @@ fn daemon_env<N: AsRef<OsStr>, V: AsRef<OsStr>>(
     env
 }
 
-/// The test-support variable naming the OS account's home (RED stub).
-#[allow(dead_code)]
+/// The test-support variable naming the OS account's home, so a test's
+/// temporary home is the account's for the daemon (and a test can tell the
+/// account's home from a moved HOME). Read only under `test-support`.
+#[cfg(feature = "test-support")]
 pub(crate) const ACCOUNT_HOME_VARIABLE: &str = "CTXLOOM_TEST_ACCOUNT_HOME";
 
-/// The OS account's home (RED stub: HOME).
-#[allow(dead_code)]
-fn account_home(env: &EnvSnapshot) -> Option<PathBuf> {
-    env.home().map(PathBuf::from)
+/// The OS account's home, as the system keeps it (angzarr-platform's
+/// `Os::user_home`: the account database's, never `HOME` or `USERPROFILE`,
+/// so a process whose HOME was moved still finds the account's); none when
+/// the account has none. One daemon per OS USER: the single-instance lock
+/// and the daemon's own home are derived from it.
+#[cfg(not(feature = "test-support"))]
+pub(crate) fn account_home(_: &EnvSnapshot) -> Option<PathBuf> {
+    os::host().user_home().ok()
 }
 
-/// The daemon's home (RED stub: as any process resolves it).
-#[allow(dead_code)]
-fn daemon_home(env: &EnvSnapshot) -> Option<PathBuf> {
+/// Under `test-support` the account's home is the test's
+/// ([`ACCOUNT_HOME_VARIABLE`]), else the process's HOME (each test's
+/// temporary home), never the real account's: no test reaches the real
+/// account's lock or files.
+#[cfg(feature = "test-support")]
+pub(crate) fn account_home(env: &EnvSnapshot) -> Option<PathBuf> {
+    env.non_empty(ACCOUNT_HOME_VARIABLE)
+        .or_else(|| env.home())
+        .map(PathBuf::from)
+}
+
+/// The daemon's ctxloom home (M4): `CTXLOOM_HOME` when it was given one
+/// (its spawner's, [`daemon_env`]), else the ACCOUNT's home, never its HOME:
+/// the daemon serves the account, whoever spawned it.
+pub(crate) fn daemon_home(env: &EnvSnapshot) -> Option<PathBuf> {
     env.non_empty(run_ports::HOME_VARIABLE)
         .map(PathBuf::from)
-        .or_else(|| env.home().map(PathBuf::from))
+        .or_else(|| account_home(env))
 }
 
 /// The variable a client passes on as the spawned daemon's idle time, in
@@ -312,7 +323,12 @@ pub(crate) fn run(
     let verb = DaemonVerb::from_arg_matches(matches)
         .unwrap_or_else(|_| unreachable!("the command line parsed {NOUN}"));
     let format = call.format();
-    let wiring = Wiring::new(Arc::clone(env)).map_err(failed)?;
+    // The daemon's home is the account's (M4), never its HOME; a client's
+    // is the one any command resolves.
+    let wiring = match verb {
+        DaemonVerb::Serve { .. } => daemon_wiring(env)?,
+        _ => Wiring::new(Arc::clone(env)).map_err(failed)?,
+    };
     let files = files_of(&wiring);
     // One daemon per OS user: a command whose ctxloom home is not the
     // serving daemon's is refused before it does anything (`serve` itself
@@ -609,6 +625,17 @@ fn launch(
     launched
 }
 
+/// The daemon's wiring: its home [`daemon_home`]'s; refused, as any command
+/// with no home is, where there is none.
+fn daemon_wiring(env: &Arc<EnvSnapshot>) -> Result<Wiring, Failure> {
+    let home = daemon_home(env).ok_or_else(|| {
+        failed(LibError::NoHome {
+            variable: run_ports::HOME_VARIABLE.to_string(),
+        })
+    })?;
+    Ok(Wiring::at(Arc::clone(env), home))
+}
+
 /// `serve`: this process is the daemon until it exits.
 fn be_the_daemon(
     wiring: &Wiring,
@@ -624,17 +651,22 @@ fn be_the_daemon(
         instance_lock: instance_lock(wiring),
         temp: env.temp_dir().to_path_buf(),
         os: wiring.os_name().to_string(),
-        user_home: wiring.user_home(),
+        // Her own settings and login are the ACCOUNT's (the daemon has no
+        // HOME of its own, M4).
+        user_home: account_home(env),
     };
     serve::serve(wiring.fs(), place, pace, say)
         .map_err(|detail| failed(LibError::NoRuntime { detail }))?;
     Ok(Exit::OK)
 }
 
-/// The single-instance lock of `wiring`'s account ([`instance_lock_path`]),
-/// a test's override first.
-fn instance_lock(wiring: &Wiring) -> PathBuf {
-    instance_lock_path(wiring.home(), instance_override(wiring.env()).as_deref())
+/// The single-instance lock of `wiring`'s ACCOUNT ([`instance_lock_path`]
+/// under [`account_home`], its ctxloom home where the account has none), a
+/// test's override first.
+pub(crate) fn instance_lock(wiring: &Wiring) -> PathBuf {
+    let account = account_home(wiring.env());
+    let base = account.as_deref().unwrap_or(wiring.home());
+    instance_lock_path(base, instance_override(wiring.env()).as_deref())
 }
 
 /// The directory a test names for the single-instance lock
@@ -764,10 +796,16 @@ fn ensure(wiring: &Wiring, env: &EnvSnapshot) {
     // The daemon's own environment is what it needs to run, nothing more: a
     // child's is its launcher's (S6, D-N45), so no spawner's credential
     // lives in the daemon.
-    let mut kept = daemon_env(env.flavor(), env.vars(), Some(wiring.home()));
-    // A test's place for the single-instance lock is the daemon's too.
+    let ctxloom_home = env.non_empty(run_ports::HOME_VARIABLE).map(PathBuf::from);
+    let mut kept = daemon_env(env.flavor(), env.vars(), ctxloom_home.as_deref());
+    // A test's place for the single-instance lock, and its account's home,
+    // are the daemon's too.
     if let Some(dir) = instance_override(env) {
         kept.push((files::INSTANCE_DIR_VARIABLE.into(), dir.into_os_string()));
+    }
+    #[cfg(feature = "test-support")]
+    if let Some(account) = account_home(env) {
+        kept.push((ACCOUNT_HOME_VARIABLE.into(), account.into_os_string()));
     }
     command
         .env_clear()
@@ -776,9 +814,11 @@ fn ensure(wiring: &Wiring, env: &EnvSnapshot) {
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
-    // Its own process group (a Ctrl-C at this terminal does not reach it);
-    // dropped, not killed: it outlives this command.
-    if os::process::spawn_tree(command).is_err() {
+    // DETACHED (T3, M8): a session of its own on unix (setsid), no console
+    // and a process group of its own on Windows, so neither this terminal's
+    // hangup or Ctrl-C nor a kill of this command's group reaches it;
+    // dropped, not waited for: it outlives this command.
+    if os::process::spawn_detached(command).is_err() {
         return;
     }
     let deadline = Instant::now() + SPAWN_WAIT;

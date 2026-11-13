@@ -276,7 +276,6 @@ impl Wiring {
     /// Windows), and the real filesystem over its working directory (with
     /// none when it cannot be read: only what needs it fails).
     pub fn new(env: Arc<EnvSnapshot>) -> Result<Wiring, LibError> {
-        let host = os::host();
         let home = env
             .non_empty(run_ports::HOME_VARIABLE)
             .or_else(|| env.home())
@@ -284,15 +283,22 @@ impl Wiring {
             .ok_or_else(|| LibError::NoHome {
                 variable: env.flavor().home_var().to_string(),
             })?;
+        Ok(Wiring::at(env, home))
+    }
+
+    /// The wiring over `env` with ctxloom's home `home`, resolved by the
+    /// caller (the user daemon's is the account's, never its HOME).
+    pub(crate) fn at(env: Arc<EnvSnapshot>, home: PathBuf) -> Wiring {
+        let host = os::host();
         let fs = match env.cwd().and_then(|cwd| Os::new(host.clone(), &cwd)) {
             Ok(fs) => fs,
             Err(why) => Os::without_cwd(host, why),
         };
-        Ok(Wiring {
+        Wiring {
             fs: Arc::new(fs),
             home,
             env,
-        })
+        }
     }
 
     pub(crate) fn fs(&self) -> Arc<dyn Fs> {

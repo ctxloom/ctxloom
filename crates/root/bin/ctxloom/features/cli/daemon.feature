@@ -67,7 +67,8 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
   commands are, because nobody types it.
 
   FINDING IT. A client reads the discovery file,
-  `~/.ctxloom/daemon/daemon.discovery` under ctxloom's home: the daemon's
+  `~/.ctxloom/daemon/daemon.discovery` under her ACCOUNT's home (one daemon
+  per OS user, whatever ctxloom home a command has): the daemon's
   endpoint (`https://127.0.0.1:<port>`), its public certificate, the user
   bearer and its pid, written when it serves (0600, in the 0700 daemon
   directory). Whoever holds `~/.ctxloom/daemon/daemon.lock` serves, and a

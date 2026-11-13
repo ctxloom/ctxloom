@@ -65,7 +65,24 @@ if ! curl --version 2>/dev/null | grep -qi 'http2'; then
     echo "plain-destroy-check: curl cannot speak HTTP/2; the API probe is skipped" >&2
     exit 0
 fi
-(cd "$home" && env -i PATH="$PATH" HOME="$home" TMPDIR="$home" "${windows[@]}" "$bin" daemon serve --idle-seconds 30 >/dev/null 2>&1) &
+# One daemon per OS USER: the plain daemon's single-instance lock and its
+# discovery file are the ACCOUNT's (`<account home>/.ctxloom/daemon/`), and a
+# plain build has no override, so the probe's daemon takes the account's real
+# lock and writes its real discovery file. Only in CI (`CI` set, as GitHub's
+# runners set it), where the account is the runner's; elsewhere skipped, and
+# said, so a build on her machine never touches her account's daemon.
+if [ -z "${CI:-}" ]; then
+    echo "plain-destroy-check: the API probe runs in CI alone (it takes the account's daemon lock); skipped" >&2
+    exit 0
+fi
+if [ -n "$root" ]; then
+    account=$(cygpath -u "${USERPROFILE:?}")
+else
+    account=$(bash -c "echo ~$(id -un)")
+fi
+# Its ctxloom home is the temporary one; it serves that, under the
+# account's lock.
+(cd "$home" && env -i PATH="$PATH" HOME="$home" CTXLOOM_HOME="$home" TMPDIR="$home" ${windows[@]+"${windows[@]}"} "$bin" daemon serve --idle-seconds 30 >/dev/null 2>&1) &
 daemon=$!
 trap 'kill "$daemon" 2>/dev/null || true; rm -rf "$home"' EXIT
 log="$home/.ctxloom/daemon/daemon.log"
@@ -81,7 +98,7 @@ if [ -z "$endpoint" ]; then
     cat "$log" 2>/dev/null || true
     exit 1
 fi
-discovery="$home/.ctxloom/daemon/daemon.discovery"
+discovery="$account/.ctxloom/daemon/daemon.discovery"
 user_bearer=$( { LC_ALL=C grep -ao '\*@[0-9a-f]\{64\}' "$discovery" 2>/dev/null || true; } | head -1)
 user_bearer=${user_bearer#\*@}
 if [ "${#user_bearer}" -ne 64 ]; then
@@ -117,5 +134,5 @@ for method in DeleteSession SweepSessions; do
         exit 1
     fi
 done
-ctxloom daemon stop >/dev/null 2>&1 || true
+(cd "$home" && env -i PATH="$PATH" HOME="$home" CTXLOOM_HOME="$home" TMPDIR="$home" ${windows[@]+"${windows[@]}"} "$bin" daemon stop >/dev/null 2>&1) || true
 wait "$daemon" 2>/dev/null || true

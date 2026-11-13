@@ -720,8 +720,9 @@ agent's `model` and `effort` reach the engine as the order's `model` and
 unset is no flag; claude takes `low|medium|high|xhigh|max`, any other level is
 refused before launch). Its permissions are the ENGINE'S OWN DOCUMENT (owner
 rulings 133-139): `agents.<n>.engines.<e>.permissions`, copied verbatim and
-never checked (any document is taken; a typo reaches the engine, the accepted
-cost), else the engine's default document (claude-code's `{defaultMode:
+checked only for being an object (owner, 2026-11-13: a list or a word is
+refused at load, `library-application-config-breaks-schema`; any object is
+taken, a typo in it reaches the engine, the accepted cost), else the engine's default document (claude-code's `{defaultMode:
 acceptEdits}`, so an agent with no block runs as before; opencode's none; a
 block written replaces it whole). The plan carries it as JSON text in the
 order it was written (`DryRun::permissions`, `library_application::json::

@@ -1,6 +1,6 @@
 # world: base
 # Ported from journeys/j001300_closeout.feature (rev f36e8dfb2)
-# NOT ported: the scenarios tagged @pending, each saying why.
+# NOT ported: nothing.
 
 @doc
 Feature: The close-out — the end of a workstream
@@ -15,9 +15,10 @@ Feature: The close-out — the end of a workstream
   fate, decided the same way every time, and nothing touched. Then she lets
   it run. It takes what it can prove is safe, a purged session is gone, and
   it says why it left each of the rest. What it left is hers to deal with:
-  work she has not saved, notes she has not filed, a session she marked to
-  keep. Once she has dealt with them, the same command takes the rest. Her own
-  long-lived worktrees were never ctxloom's to take; doctor tells her which
+  work she has not saved, a session she marked to keep. Notes she never
+  filed it names in the preview, before anything is destroyed, so she files
+  them first. Once she has dealt with them, the same command takes the rest.
+  Her own long-lived worktrees were never ctxloom's to take; doctor tells her which
   are merged and how to remove them herself.
 
   Background:
@@ -66,28 +67,24 @@ Feature: The close-out — the end of a workstream
     And the output does not contain "gray-oneshot-wisp"
     And the output contains "olive-dirty-finch"
 
-  # She deals with what it named: she saves the work she wants, files her
-  # notes, and runs the same command again.
-  # @pending (roadmap step 4, escalated to the owner): owner ruling 104 has
-  # a session's authored files go WITH it after a warning, so the first pass
-  # destroys "amber-quiet-heron" and the design notes it carries; there are
-  # then no notes left for Alice to file. The scenario is the all-or-nothing
-  # design ruling 104 replaced, and is the owner's to reword.
-  @pending
+  # She deals with what it named, then runs it again.
   Scenario: Once she has dealt with what it named, the same command takes the rest
-    # new: the close-out's second pass, after Alice has acted on the first one's report.
+    # new: the close-out's second pass, after Alice has acted on the first one's report; reworded to owner ruling 104 (a destroy of authored files warns, then destroys).
     Given a finished session "olive-dirty-finch" whose transcript retention has passed
     And session "olive-dirty-finch" left a scratch worktree holding uncommitted work
     And a finished session "amber-quiet-heron" carrying design notes nobody filed, whose transcript retention has passed
     And every session has been idle for 120 days
-    And Alice has run "ctxloom session remove --older-than 90d --yes" and been told what it left
+    When I run "ctxloom session remove --older-than 90d"
+    Then the preview warns it would destroy the design notes of "amber-quiet-heron", naming each
+    When Alice files her design notes into the output dir of "amber-quiet-heron"
+    And I run "ctxloom session remove --older-than 90d --yes"
+    Then the machine-written bulk of "amber-quiet-heron" is gone
+    And her filed design notes are in the output dir of "amber-quiet-heron"
+    And the sweep kept the transcript of "olive-dirty-finch" and named "wip"
     When Alice saves the work she wants out of the scratch worktree of "olive-dirty-finch"
-    And Alice files her design notes into the output dir of "amber-quiet-heron"
     And I run "ctxloom session remove --older-than 90d --yes"
     Then the command succeeds
     And the machine-written bulk of "olive-dirty-finch" is gone
-    And the machine-written bulk of "amber-quiet-heron" is gone
-    And her filed design notes are in the output dir of "amber-quiet-heron"
 
   # Her own long-lived worktrees were never ctxloom's to take. Doctor tells her
   # which are unmerged or hold work, and the commands she would run to remove

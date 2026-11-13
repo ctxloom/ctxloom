@@ -273,7 +273,9 @@ fn worktree_row(harp: &str, checkout: &Row) -> SweepRow {
         Worktree::Reaped => (Verdict::Done, String::new()),
         Worktree::Reapable => (
             Verdict::Planned,
-            format!("ctxloom session worktrees purge {harp} --yes"),
+            // The one verb that takes a session's worktrees (`session worktrees
+            // purge` is retired): whole or not at all.
+            format!("ctxloom session remove {harp} --yes"),
         ),
         Worktree::Spared => (Verdict::Held, String::new()),
         Worktree::Skipped => (Verdict::Skipped, String::new()),

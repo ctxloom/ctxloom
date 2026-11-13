@@ -247,7 +247,13 @@ crate-prefix rule).
 `session remove` DESTROYS a session (owner rulings 94, 94a-d, 98), and exists
 only under the cargo feature `session-destroy` (binary -> `ctxloom-wiring` ->
 `session-cli` and `daemon-api-grpc`; `session sweep`, whose apply is that
-destroy, too). The DAEMON destroys (owner, 2026-11-12, slice 2 step 6), the
+destroy, too, as is `session remove --older-than <age>`, the one
+destroyer's age form (docs/plans/ctxloom-features.md "Sessions"), which is
+this project's sweep with that purge age, its apply named `session remove
+--older-than <age> --yes`; a session name and `--older-than` are one or the
+other, and `--even-if-live` is the single session's alone). The sweep
+purges a session whose directory holds no file like any other: its record
+is its stream (ruling 87a). The DAEMON destroys (owner, 2026-11-12, slice 2 step 6), the
 store's one owner: both verbs are its clients (`DeleteSession`,
 `SweepSessions`, below, "The daemon's API"), and nothing but the daemon
 opens the store for a destroy (the in-process path, `SessionService::remove`,
@@ -291,7 +297,16 @@ notice `sessions-application-destroys-authored`, never a refusal: on
 `--yes`, in the report and with `--even-if-live` alike, and `session sweep`
 gives it for each session it destroys or plans to (its row's `authored`;
 owner ruling 104: every destroy of authored files warns);
-`features/cli/session_remove.feature` runs the built verb.
+`features/cli/session_remove.feature` runs the built verb, and
+j001300 the age form. Worktrees ctxloom did not create (any but the
+project's own checkout and those under `isolation_ports::scratch_root`,
+`<home>/.ctxloom/worktrees`) are never listed or touched by either verb;
+doctor reports them, `DOCTOR-CHECK-FOREIGN-WORKTREES-s9` (`ctxloom_ports::
+ForeignWorktrees`, worktree-git's `GitForeignWorktrees`, read-only), each
+with its branch's merge state against the project's HEAD and its dirty
+state as git answered them (unknown when git did not), and the `git -C
+<project>` commands that remove it, the forced forms (`worktree remove
+--force`, `branch -D`) only where the safe ones would refuse.
 There is no forget-but-keep (`ForgetSession`, `SessionForgotten` and the
 `sessions-forgotten` refusal are gone) and no transcript destroyer of its own
 (`session transcript purge` is gone): the conversation is the session's
@@ -1324,8 +1339,9 @@ blank. `session remove` and `session sweep` are clients too (owner,
 2026-11-12; `SessionRemovals`, `session_cli::destroy`): a removal answers
 `Removed::Done` or `Removed::Refused` with the plan its refusal carried,
 their previews and `--detailed-exitcode` 1 as before, their json the
-answers' proto3 JSON (`DeleteSessionResponse`'s, `SweepSessionsResponse`'s), a
-`--purge-older-than` that is no age refused before the daemon is asked;
+answers' proto3 JSON (`DeleteSessionResponse`'s, `SweepSessionsResponse`'s), an
+age (`--purge-older-than`, or `session remove --older-than`) that is none
+refused before the daemon is asked, naming the flag given;
 the write's request id (S8) is not sent yet, so a retry on a new daemon of
 a removal that applied answers `SessionNotFound`. Not yet clients: the
 library, config, deps, init, doctor and run.

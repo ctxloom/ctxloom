@@ -60,6 +60,11 @@ struct World {
     planted_foreign: Vec<PathBuf>,
     /// The sessions planted with a free lock that is not held.
     lock_free_dead: Vec<String>,
+    /// Every session the steps planted, by harp, once seeded.
+    seeded_harps: Vec<String>,
+    /// Every byte of the sessions' directories and scratch checkouts, as the
+    /// last command found them.
+    before: Vec<(PathBuf, Vec<u8>)>,
     /// What the j000100 scenarios keep.
     adopt: adopt::State,
     /// What j000200's scenario 2 keeps.
@@ -108,6 +113,7 @@ impl CommonWorld for World {
         self.adopt_record();
         self.seed();
         self.seed_scratch();
+        self.before = self.session_bytes();
     }
 }
 
@@ -125,6 +131,8 @@ impl World {
             planted_scratch: Vec::new(),
             planted_foreign: Vec::new(),
             lock_free_dead: Vec::new(),
+            seeded_harps: Vec::new(),
+            before: Vec::new(),
             adopt: adopt::State::default(),
             setup: setup::State::default(),
             capture: capture::State::default(),
@@ -155,6 +163,8 @@ impl World {
         }
         self.seeded = true;
         let planted = std::mem::take(&mut self.planted);
+        self.seeded_harps
+            .extend(planted.iter().map(|session| session.harp.clone()));
         for session in &planted {
             let ended = session
                 .ended_ago
@@ -247,6 +257,31 @@ impl World {
         files::put(project.join("README.md"), "hello\n");
         self.git(project, &["add", "README.md"]);
         self.git(project, &["commit", "-q", "-m", "initial"]);
+    }
+
+    /// Every file under the project's sessions directory and the project's
+    /// scratch checkouts, with its bytes, sorted by path.
+    fn session_bytes(&self) -> Vec<(PathBuf, Vec<u8>)> {
+        fn walk(dir: &Path, found: &mut Vec<(PathBuf, Vec<u8>)>) {
+            for path in files::children(dir) {
+                if files::is_dir(&path) {
+                    walk(&path, found);
+                } else if let Ok(bytes) = files::read_bytes(&path) {
+                    found.push((path, bytes));
+                }
+            }
+        }
+        let mut found = Vec::new();
+        walk(
+            &self.common.project.dir().join(".ctxloom/sessions"),
+            &mut found,
+        );
+        walk(
+            &self.common.project.home().join(".ctxloom/worktrees"),
+            &mut found,
+        );
+        found.sort();
+        found
     }
 
     /// Whether `harp`'s owner is provably dead: it was planted with a free
@@ -464,6 +499,7 @@ fn authored_file(w: &mut World, harp: String, rel: String) {
 }
 
 #[given("the feature shipped on Friday and Alice is closing the workstream out")]
+#[given("the feature shipped on Monday and Alice is closing the workstream out the next week")]
 fn closing_out(w: &mut World) {
     w.common.project = Project::initialized();
 }
@@ -652,23 +688,33 @@ fn registers_hook(w: &mut World, rel: String, text: String) {
 
 // The sweep (j001300).
 
+/// The report names each (its exit is the scenario's to say: a preview
+/// that would change something is 1 under `--detailed-exitcode`).
 #[then(expr = "the sweep report names {string} and {string}")]
 fn sweep_names(w: &mut World, a: String, b: String) {
-    w.ran().succeeds().contains(&a).contains(&b);
+    w.ran().contains(&a).contains(&b);
 }
 
+/// Nothing the command was run on changed: every session is still
+/// recorded (its transcript is its events, ruling 87a), and every file of
+/// the sessions' directories and scratch checkouts is as it was, byte for
+/// byte.
 #[then("every byte of every session is still on disk")]
 fn bytes_on_disk(w: &mut World) {
-    let sessions = w.common.project.home().join(".ctxloom/sessions");
-    for path in files::children(&sessions) {
-        if files::is_dir(&path) {
-            assert!(
-                files::exists(path.join("transcripts/transcript.jsonl")),
-                "{} lost its transcript",
-                path.display()
-            );
-        }
+    assert!(!w.seeded_harps.is_empty(), "no session was planted");
+    for harp in &w.seeded_harps {
+        assert!(recorded(w, harp), "{harp} is no longer recorded");
     }
+    let after = w.session_bytes();
+    let paths = |files: &[(PathBuf, Vec<u8>)]| -> Vec<PathBuf> {
+        files.iter().map(|(path, _)| path.clone()).collect()
+    };
+    assert_eq!(paths(&after), paths(&w.before), "{}", w.ran().said());
+    assert!(
+        after == w.before,
+        "a session's file changed: {}",
+        w.ran().said()
+    );
 }
 
 #[then(expr = "the sweep skipped {string} and {string} without touching either")]
@@ -679,10 +725,13 @@ fn sweep_skipped(w: &mut World, running: String, unproven: String) {
         .contains("its liveness cannot be proven")
         .contains(&format!("ctxloom session remove {unproven} --even-if-live"));
     for harp in [running, unproven] {
-        assert!(
-            files::exists(w.session_dir(&harp).join("transcripts/transcript.jsonl")),
-            "{harp} was touched"
-        );
+        assert!(recorded(w, &harp), "{harp} is no longer recorded");
+        for (h, name, _) in w.planted_scratch.iter().filter(|(h, _, _)| *h == harp) {
+            assert!(
+                files::is_dir(w.scratch_dir(h, name)),
+                "{h}'s worktree {name} was removed"
+            );
+        }
     }
 }
 
@@ -717,10 +766,8 @@ fn bulk_still_there(w: &mut World, harp: String) {
 
 #[then(expr = "the sweep kept the transcript of {string} and named {string}")]
 fn sweep_kept(w: &mut World, harp: String, named: String) {
-    assert!(
-        files::exists(w.session_dir(&harp).join("transcripts/transcript.jsonl")),
-        "{harp}'s transcript was destroyed"
-    );
+    // Its transcript is its events (ruling 87a): kept while it is recorded.
+    assert!(recorded(w, &harp), "{harp}'s transcript was destroyed");
     w.ran().contains(&harp).contains(&named);
 }
 
@@ -820,6 +867,44 @@ fn foreign_untouched(w: &mut World) {
         let shown = dir.display().to_string();
         let quoted = serde_json::to_string(&shown).expect("a string");
         w.ran().lacks(&shown).lacks(quoted.trim_matches('"'));
+    }
+}
+
+/// j001300: doctor's row names her worktree by its path, its branch unmerged
+/// and its tree dirty, and the exact commands that remove it, the forced
+/// forms (the safe ones would refuse it); and nothing touched it.
+#[then(
+    "the checks name the foreign worktree, that it is unmerged and dirty, and the exact commands to remove it"
+)]
+fn doctor_names_foreign(w: &mut World) {
+    let doc = w.json();
+    let row = array(&doc, "checks")
+        .iter()
+        .find(|c| c["marker"] == "DOCTOR-CHECK-FOREIGN-WORKTREES-s9")
+        .unwrap_or_else(|| panic!("no foreign-worktrees row: {doc}"))
+        .clone();
+    assert_eq!(row["status"], "warn", "{row}");
+    let detail = row["detail"].as_str().unwrap_or_default();
+    let remedy = row["remedy"].as_str().unwrap_or_default();
+    assert!(
+        !w.planted_foreign.is_empty(),
+        "no foreign worktree was seeded"
+    );
+    for dir in &w.planted_foreign {
+        // As git lists it: the path it was added at.
+        let shown = dir.display().to_string();
+        assert!(
+            detail.contains(&format!("{shown} (branch stale-feature, unmerged, dirty)")),
+            "{row}"
+        );
+        assert!(
+            remedy.contains(&format!("worktree remove --force {shown}")),
+            "{row}"
+        );
+        assert!(remedy.contains("branch -D stale-feature"), "{row}");
+        let body = files::read(dir.join("uncommitted.txt"))
+            .unwrap_or_else(|e| panic!("her uncommitted work is GONE: {e}"));
+        assert!(body.contains(WIP_MARKER), "{body}");
     }
 }
 

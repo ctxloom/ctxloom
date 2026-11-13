@@ -14,6 +14,9 @@
 //! checkout is hidden from the project's git status by the repository's
 //! shared exclude file.
 //!
+//! [`GitForeignWorktrees`] lists, read-only, the project's worktrees ctxloom
+//! did not create (doctor's j001300 row), with their merge and dirty states.
+//!
 //! The same adapter finds the scratch checkouts a crashed run left behind and
 //! removes them WIP-safely: nested worktrees first, each checked, never
 //! forced, and a doubtful state is never read as clean.
@@ -25,12 +28,14 @@
 //! a tiny limit.
 
 mod error;
+mod foreign;
 mod git;
 mod workspace;
 
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{WorktreeError, EN_US};
+pub use foreign::GitForeignWorktrees;
 pub use git::{Git, GitError, User, VcsIdentity, DEFAULT_TIMEOUT};
 pub use workspace::{branch_of, checkout_name, sanitize, GitWorkspaces, EXCLUDE_HEADER};
 

@@ -84,6 +84,8 @@ struct Fake {
     scratch: Vec<Row>,
     /// What `worktrees` was asked: the session and whether to apply.
     worktrees_asked: Vec<(Option<String>, bool)>,
+    /// The sessions' directories hold no file: each is its stream alone.
+    no_files: bool,
 }
 
 fn scratch(harp: &str, name: &str, verdict: Worktree, reason: &str) -> Row {
@@ -125,12 +127,14 @@ impl Removals for Fake {
     async fn remove(&mut self, request: RemoveRequest) -> Result<Removal, AppError> {
         self.asked.push((request.harp.clone(), request.yes));
         let mut files = FilePlan::default();
-        files.destroy.push(sessions_application::PlanItem {
-            path: String::new(),
-            rel: "transcripts/transcript.jsonl".to_string(),
-            class: sessions_application::Class::Machine,
-            bytes: 10,
-        });
+        if !self.no_files {
+            files.destroy.push(sessions_application::PlanItem {
+                path: String::new(),
+                rel: "transcripts/transcript.jsonl".to_string(),
+                class: sessions_application::Class::Machine,
+                bytes: 10,
+            });
+        }
         for rel in &self.authored {
             files.destroy.push(sessions_application::PlanItem {
                 path: String::new(),
@@ -229,6 +233,27 @@ fn a_kept_session_is_held_and_the_release_is_named() {
         "ctxloom session keep brisk-copper-moth --undo"
     );
     assert!(fake.asked.is_empty());
+}
+
+// A session's record is its stream (ruling 87a: its transcript is its
+// events, no file holds it), so one whose directory holds no file is purged
+// as any other: the destroy takes its streams (j001300's seeded sessions).
+#[test]
+fn a_session_whose_directory_holds_nothing_is_still_purged() {
+    for yes in [false, true] {
+        let mut fake = Fake {
+            views: vec![view("amber-quiet-heron", State::Ended, 120, false)],
+            no_files: true,
+            ..Fake::default()
+        };
+        let report = ready(sweep(&mut fake, &request(yes))).unwrap();
+        let want = if yes { Verdict::Done } else { Verdict::Planned };
+        assert_eq!(report.rows[0].verdict, want, "yes={yes}: {report:?}");
+        assert_eq!(
+            fake.asked.last(),
+            Some(&("amber-quiet-heron".to_string(), yes))
+        );
+    }
 }
 
 // session sweep --help: "Purging has NO default: without --purge-older-than or

@@ -5,7 +5,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use auth_application::Auth;
-use ctxloom_ports::{ConfigFiles, Executables, Failure, GitIdentity, Scope, Source, UserFiles};
+use ctxloom_ports::{
+    ConfigFiles, Executables, Failure, ForeignWorktrees, GitIdentity, Scope, Source, UserFiles,
+};
 use library_application::{AgentLosses, LegacyGo};
 use serde::Serialize;
 
@@ -51,6 +53,8 @@ pub struct Doctor {
     /// What each agent's engine cannot carry of its profiles, asked when the
     /// report is made; none asked, none.
     losses: Option<Box<dyn Fn() -> Vec<AgentLosses>>>,
+    /// The project's worktrees ctxloom did not create; none wired, no row.
+    worktrees: Option<Arc<dyn ForeignWorktrees>>,
 }
 
 impl Doctor {
@@ -73,6 +77,16 @@ impl Doctor {
             version: version.to_string(),
             program: "ctxloom".to_string(),
             losses: None,
+            worktrees: None,
+        }
+    }
+
+    /// This doctor, reporting the project's worktrees ctxloom did not create
+    /// as `worktrees` lists them (j001300).
+    pub fn reporting_worktrees(self, worktrees: Arc<dyn ForeignWorktrees>) -> Doctor {
+        Doctor {
+            worktrees: Some(worktrees),
+            ..self
         }
     }
 
@@ -223,6 +237,16 @@ impl Doctor {
         report
             .checks
             .splice(at..at, checks::go_era_hooks(&left_alone));
+        if let Some(worktrees) = &self.worktrees {
+            let listing = match &root {
+                Some(root) => worktrees.foreign(root),
+                None => ctxloom_ports::ForeignListing::NotARepository,
+            };
+            let at = report.checks.len() - 1;
+            report
+                .checks
+                .insert(at, checks::foreign_worktrees(root.as_deref(), &listing));
+        }
         report
     }
 

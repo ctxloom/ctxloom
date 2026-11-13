@@ -131,6 +131,39 @@ pub trait GitIdentity {
     fn is_known(&self) -> bool;
 }
 
+/// A git worktree of the project that ctxloom did not create: neither the
+/// project's own checkout nor one under ctxloom's sessions' checkouts
+/// (`isolation_ports::worktrees_root`). Each state is what git answered this
+/// time; none when it could not be measured, never assumed.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct ForeignWorktree {
+    pub path: String,
+    /// Its branch, short (`stale-feature`); empty when detached.
+    pub branch: String,
+    /// Whether its branch is merged into the project's checked-out HEAD.
+    pub merged: Option<bool>,
+    /// Whether it holds uncommitted changes.
+    pub dirty: Option<bool>,
+}
+
+/// What listing the project's foreign worktrees came to.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum ForeignListing {
+    /// The project is not a git repository: nothing to list.
+    NotARepository,
+    /// git could not list them: its words.
+    Unlisted(String),
+    /// Every foreign worktree, sorted by path.
+    Listed(Vec<ForeignWorktree>),
+}
+
+/// The project's worktrees ctxloom did not create (j001300: doctor reports
+/// them, and nothing removes them). Read-only.
+pub trait ForeignWorktrees {
+    /// The foreign worktrees of the repository at `project_dir`.
+    fn foreign(&self, project_dir: &str) -> ForeignListing;
+}
+
 /// The environment ctxloom was launched in, as far as credentials go: whether
 /// a variable is exported with a value, and nothing more. The value is not on
 /// offer, so no use case can print or store it.

@@ -334,16 +334,9 @@ async fn purge_row<S: Removals + Send>(
     if let Some(kept) = kept {
         return row(harp, "purge", Verdict::Held, &kept, String::new());
     }
+    // A session whose directory holds no file is purged too: its record is
+    // its stream (ruling 87a), which the destroy takes.
     let bytes: u64 = removal.files.destroy.iter().map(|i| i.bytes).sum();
-    if removal.files.destroy.is_empty() {
-        return row(
-            harp,
-            "purge",
-            Verdict::Left,
-            "nothing to purge",
-            String::new(),
-        );
-    }
     if !yes {
         let mut r = row(harp, "purge", Verdict::Planned, "", command.to_string());
         r.bytes = bytes;

@@ -115,6 +115,13 @@ impl SetupUseCases {
         // An entry running this binary, by its file name, is ctxloom's too
         // (owner ruling 163).
         .calling(&crate::program::running().name)
+        // The project's worktrees ctxloom did not create (j001300), every
+        // project's scratch checkouts being ctxloom's.
+        .reporting_worktrees(Arc::new(worktree_git::GitForeignWorktrees::new(
+            Arc::clone(&fs),
+            isolation_ports::scratch_root(&home),
+            Arc::clone(wiring.env()),
+        )))
         // What each agent's engine cannot carry, as the library reports it.
         .reporting_losses({
             let library = crate::library::build(wiring, None)?;

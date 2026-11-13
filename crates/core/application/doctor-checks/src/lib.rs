@@ -16,6 +16,7 @@
 //! | `STALE-HOOKS-n5` | no hook entry runs a `ctxloom hook` subcommand this ctxloom lacks (a Go-era one only once `legacy.go: retired`) |
 //! | `GO-ERA-HOOK-n6` | one `info` row per Go-era hook entry, left alone while `legacy.go: present` (owner ruling 162) |
 //! | `NOT-CARRIED-r8` | every agent's engine carries the hooks its profiles configure; one it cannot is a `warn` naming the agent, the engine and each (the capability-loss report `agent show` gives too) |
+//! | `FOREIGN-WORKTREES-s9` | the project's worktrees ctxloom did not create (j001300), each with its merge and dirty state and the commands that remove it; ctxloom removes none (asked only where a worktrees port is wired) |
 //! | `INGESTION-q7` | the stated limit: whether the engine reads what ctxloom wrote |
 //!
 //! Left out here: the run-end and
@@ -33,7 +34,8 @@ pub use checks::{Check, Status};
 /// The ports' types the doctor's services speak, so a driving adapter's tests
 /// fake them without linking the ports.
 pub use ctxloom_ports::{
-    ConfigFiles, Executables, Failure, GitIdentity, LayerText, Put, Scope, Source, UserFiles,
+    ConfigFiles, Executables, Failure, ForeignListing, ForeignWorktree, ForeignWorktrees,
+    GitIdentity, LayerText, Put, Scope, Source, UserFiles,
 };
 pub use doctor::{Doctor, Removed, Report};
 

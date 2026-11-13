@@ -1,8 +1,8 @@
+# world: base
 # Ported from journeys/j001300_closeout.feature (rev f36e8dfb2)
-# NOT ported: any of it yet (the Feature is @pending).
+# NOT ported: the scenarios tagged @pending, each saying why.
 
 @doc
-@pending
 Feature: The close-out — the end of a workstream
 
   The feature shipped on Monday. The next week the debris is real, and none of it is
@@ -68,6 +68,12 @@ Feature: The close-out — the end of a workstream
 
   # She deals with what it named: she saves the work she wants, files her
   # notes, and runs the same command again.
+  # @pending (roadmap step 4, escalated to the owner): owner ruling 104 has
+  # a session's authored files go WITH it after a warning, so the first pass
+  # destroys "amber-quiet-heron" and the design notes it carries; there are
+  # then no notes left for Alice to file. The scenario is the all-or-nothing
+  # design ruling 104 replaced, and is the owner's to reword.
+  @pending
   Scenario: Once she has dealt with what it named, the same command takes the rest
     # new: the close-out's second pass, after Alice has acted on the first one's report.
     Given a finished session "olive-dirty-finch" whose transcript retention has passed

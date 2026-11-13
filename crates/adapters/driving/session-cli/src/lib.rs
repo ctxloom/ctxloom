@@ -10,6 +10,7 @@
 //! ctxloom session rename <harp> <title>
 //! ctxloom session keep <harp> [--undo]
 //! ctxloom session remove <harp> [--yes] [--even-if-live]  (session-destroy)
+//! ctxloom session remove --older-than <age> [--yes]     (session-destroy)
 //! ctxloom session sweep [--purge-older-than <age>] [--yes] (session-destroy)
 //! ctxloom session transcript               (bare: lists)
 //! ctxloom session transcript list [<harp>] [--all]
@@ -95,7 +96,7 @@ pub enum SessionVerb {
     /// Destroy a session: every event of it and of its runs, its directory and its lock; its name stays taken
     #[cfg(feature = "session-destroy")]
     #[command(
-        after_help = "Examples:\n  ctxloom session remove amber-swift-owl\n  ctxloom session remove amber-swift-owl --yes"
+        after_help = "Examples:\n  ctxloom session remove amber-swift-owl\n  ctxloom session remove amber-swift-owl --yes\n  ctxloom session remove --older-than 90d --yes"
     )]
     Remove(RemoveArgs),
     /// Tidy every ended session of this project by rule: destroy what it can prove is safe, report the rest
@@ -163,12 +164,18 @@ pub struct KeepArgs {
     pub undo: bool,
 }
 
+/// One session by its name, or every ended session of this project last
+/// active before an age (the age form is `session sweep`'s, with that age).
 #[cfg(feature = "session-destroy")]
 #[derive(Args, Debug)]
+#[command(group = clap::ArgGroup::new("which").required(true).args(["harp", "older_than"]))]
 pub struct RemoveArgs {
     /// The session's name
     #[arg(value_name = "SESSION-NAME")]
-    pub harp: String,
+    pub harp: Option<String>,
+    /// Instead of one session, every ended session of this project last active before this age (90d, 12w, 720h) or date (2026-01-01), each decided as `session sweep` decides it
+    #[arg(long, value_name = "AGE", conflicts_with_all = ["harp", "even_if_live"])]
+    pub older_than: Option<String>,
     /// Apply the plan this invocation printed (default: report only)
     #[arg(short = 'y', long)]
     pub yes: bool,

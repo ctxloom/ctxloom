@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 angzarr-diagnostic.workspace = true
+ctxloom-ports.workspace = true
 file-system.workspace = true
 isolation-ports.workspace = true
 os.workspace = true

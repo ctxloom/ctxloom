@@ -4,8 +4,9 @@
 # NOT ported: Go's other session destroyers. `session purge` (owner ruling
 #   98: one deleting verb), `session transcript purge` and `session worktrees
 #   purge` are retired: `session remove` is the one destroyer, and a removed
-#   session is gone, from the store and from disk. The age form (`--older-than`,
-#   a configured `session_purge_age`) is `session sweep`'s, not here. The
+#   session is gone, from the store and from disk. The age form (`session
+#   remove --older-than <age>`, `session sweep`'s rows by that age) is
+#   journeys/j001300_closeout.feature's, not here. The
 #   earlier design of this file (a `--force` override; a session holding a
 #   person's files refused whole) is dropped (owner ruling 104): the built
 #   verb's one override is `--even-if-live`, and a person's files go with the

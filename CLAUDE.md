@@ -236,10 +236,13 @@ per-run listener certificate's mint, see the credentials paragraph below).
 
 An engine may advise on a plan (owner ruling 168): `Engine::advise(&Planned)
 -> Vec<Advice>` is shown what the plan resolved for it (`run_ports::Planned`:
-the agent, model, effort and permissions document) and answers zero or more
-diagnostics of its own crate (`Advice`, a boxed `Diagnostic`: code, args,
-en-US message, an optional `-fix`), said as notices and never a refusal; by
-default it says nothing (claude-code). The library asks the plan's engine in
+the agent, model, effort and permissions document, the OS, whether the launch
+is interactive and whether a primary credential variable is set, by name
+only) and answers zero or more diagnostics of its own crate (`Advice`, a
+boxed `Diagnostic`: code, args, en-US message, an optional `-fix`), said as
+notices and never a refusal; by default it says nothing (claude-code says
+only `engine-claude-windows-token-only`, at a Windows terminal launch with
+no token set). The library asks the plan's engine in
 `launch_of`, beside the runtime-weakening notice
 (`Library::with_engines`, the wiring's real engines;
 `Notice::Engine`), so a dry run and a launch, which plans through the same

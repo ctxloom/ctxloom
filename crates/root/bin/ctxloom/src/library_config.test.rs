@@ -473,3 +473,68 @@ fn test_config_show_prints_the_registration_as_a_map_of_commands() {
         .contains("beta:\n  command:\n    - other-beta\n")
         .contains("gamma:\n  command:\n    - gamma-bin\n");
 }
+
+// OD-40 (OQ-3): outside a project a json answer is named under the home,
+// `users/me/config`, with no project to resolve, so no identity is minted
+// and nothing is written where the command ran.
+#[test]
+fn test_outside_a_project_a_json_read_is_named_under_the_home_and_writes_nothing() {
+    let project = Project::bare();
+    project.write_home(".ctxloom/config.yaml", "schema_version: 9\n");
+    let ran = project.run_in(project.dir(), &["config", "show", "--format", "json"]);
+    assert_eq!(
+        reports_as(&ran.succeeds().json(), "name"),
+        "users/me/config"
+    );
+    assert!(project.tree("").is_empty(), "{:?}", project.tree("").keys());
+}
+
+/// The project's name (`projects/<harp>`) as a json read from `dir` gives it.
+fn named_from(project: &Project, dir: &std::path::Path) -> String {
+    let ran = project.run_in(dir, &["config", "show", "--format", "json"]);
+    let name = reports_as(&ran.succeeds().json(), "name");
+    name.strip_suffix("/config")
+        .unwrap_or_else(|| panic!("{name} is no config's name"))
+        .to_string()
+}
+
+// OD-40 (OQ-2): inside a project, a json read from a subdirectory names the
+// project of the nearest `.ctxloom` up from it, the one its root names, and
+// writes nothing: no identity of the subdirectory's own.
+#[test]
+fn test_a_json_read_from_a_subdirectory_names_the_nearest_project_and_writes_nothing() {
+    let project = Project::initialized();
+    let sub = project.dir().join("src").join("deep");
+    files::mkdirs(&sub);
+    let at_root = named_from(&project, project.dir());
+    assert!(at_root.starts_with("projects/"), "{at_root}");
+    let before = project.tree("");
+    assert_eq!(named_from(&project, &sub), at_root);
+    assert_eq!(project.tree(""), before, "a read wrote in the project");
+    assert!(
+        !files::exists(sub.join(".ctxloom")),
+        "the subdirectory got an identity"
+    );
+}
+
+// OD-40: a project no run has named yet is named at its root, from wherever
+// in it the first json read is made: the identity is the project's
+// (`.ctxloom/project-id` beside its config), never a subdirectory's, so the
+// root then names the same project.
+#[test]
+fn test_a_first_json_read_from_a_subdirectory_names_the_project_at_its_root() {
+    let project = Project::initialized();
+    let sub = project.dir().join("src");
+    files::mkdirs(&sub);
+    let from_sub = named_from(&project, &sub);
+    assert!(
+        !files::exists(sub.join(".ctxloom")),
+        "the subdirectory got an identity"
+    );
+    assert!(
+        project.exists(".ctxloom/project-id"),
+        "{:?}",
+        project.tree("").keys()
+    );
+    assert_eq!(named_from(&project, project.dir()), from_sub);
+}

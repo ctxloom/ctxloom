@@ -37,10 +37,11 @@ staged_tree := "../.{name}.staged"
 feature_rules := ""
 features_prepare := ""
 
-# A red commit off the default branch may carry the red it added, never green
-# it broke: `test-commit` asks `_red-judge` (scripts/red-commit-judge.sh), which
-# refuses a scenario turned red in a feature file the commit does not touch.
-red_judge := "_red-judge"
+# No judge of a red commit (owner ruling of 2026-11-13, fast hooks): a red
+# commit off the default branch goes through, and the landing gate's ratchet
+# (`land-ratchet`, `closeout-ratchet`) refuses red scenarios the branch added
+# or green ones it broke.
+red_judge := ""
 
 # Mutation kill-rate thresholds, percent, by crate path: the one place they
 # are stated. A mutant is judged by the longest prefix its file matches; one
@@ -451,23 +452,6 @@ closeout-ratchet base:
 ratchet-base base:
     @{{TOP}}/scripts/ratchet-base.sh '{{base}}'
 
-# `test-commit`'s judge of a red commit (gates/gates.just's `red_judge`):
-# scripts/red-commit-judge.sh, given the tests' exit code.
-[private]
-[no-exit-message]
-_red-judge rc:
-    @{{TOP}}/scripts/red-commit-judge.sh
-
-# The feature runner's scenario list (GHERKIN_RATCHET) of this tree, written
-# to `list`: what the red-commit judge runs in the staged tree. Only
-# `every_feature_runs` runs; it passes whatever failed, the list says what.
-[private]
-[no-exit-message]
-_feature-list list:
-    cd {{TOP}} && GHERKIN_RATCHET='{{list}}' cargo nextest run --manifest-path {{TOP}}/Cargo.toml --package ctxloom \
-        --no-fail-fast --no-tests=fail --status-level fail --final-status-level fail --success-output never \
-        --failure-output final --hide-progress-bar --cargo-quiet -E 'test(=tests::gherkin_features::every_feature_runs)'
-
 # Delete target/ (the only sanctioned `cargo clean`; ltk blocks the raw one).
 [group('setup')]
 [doc("Delete target/ (what `cargo clean` would)")]
@@ -476,7 +460,7 @@ clean-target:
 
 # The self-tests of this repository's scripts against fixture trees.
 [group('check')]
-[doc("Self-tests of the scripts: drop-worktree, mutants-batch, closeout, closeout-ratchet, ltk rules, output budget, tests exit, test-staged, red-commit judge, exec-mode check, path deps")]
+[doc("Self-tests of the scripts: drop-worktree, mutants-batch, closeout, closeout-ratchet, ltk rules, output budget, tests exit, test-staged, exec-mode check, path deps")]
 [no-exit-message]
 selftest:
     @{{TOP}}/scripts/drop-worktree.selftest.sh
@@ -488,7 +472,6 @@ selftest:
     @{{TOP}}/scripts/output-budget.selftest.sh
     @{{TOP}}/scripts/tests-exit.selftest.sh
     @{{TOP}}/scripts/test-staged.selftest.sh
-    @{{TOP}}/scripts/red-commit-judge.selftest.sh
     @{{TOP}}/scripts/exec-mode-check.selftest.sh
     @{{TOP}}/scripts/dev-local.selftest.sh
     @{{TOP}}/scripts/path-deps-check.selftest.sh

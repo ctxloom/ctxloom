@@ -240,3 +240,30 @@ fn test_the_install_plan_names_the_engine_only_when_it_would_scaffold() {
     let plan = w.setup.install_plan(Some("mock")).unwrap();
     assert!(plan.ctxloom_dir_exists && plan.engine.is_empty());
 }
+
+// Owner ruling 2026-11-12: an engine whose launch carries its hooks says so,
+// so a project refresh that gave them back at rest reads as wired at launch.
+#[test]
+fn test_check_says_which_engines_carry_their_hooks_at_launch() {
+    let engines: Vec<Box<dyn surface_ports::EngineSurfaces>> = vec![
+        Box::new(crate::fakes::Engine {
+            launch_kinds: vec![Kind::Hooks],
+            ..crate::fakes::Engine::all("claude-code")
+        }),
+        Box::new(crate::fakes::Engine::all("mock")),
+    ];
+    let w = crate::fakes::world_of("schema_version: 9\n", crate::fakes::bundles(), engines);
+    let report = w.setup.check(&Flags::default()).unwrap().value;
+    let at_launch: Vec<(String, bool)> = report
+        .backends
+        .iter()
+        .map(|b| (b.backend.clone(), b.hooks_at_launch))
+        .collect();
+    assert_eq!(
+        at_launch,
+        [
+            ("claude-code".to_string(), true),
+            ("mock".to_string(), false)
+        ]
+    );
+}

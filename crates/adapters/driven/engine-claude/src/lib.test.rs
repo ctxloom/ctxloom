@@ -235,6 +235,10 @@ fn test_the_engine_carries_every_kind_under_its_name() {
 #[test]
 fn test_claude_takes_its_context_at_launch() {
     assert!(Claude::new().context_rides_launch());
+    // Owner ruling 2026-11-12: everything rides claude's launch.
+    for kind in Kind::ALL {
+        assert!(Claude::new().rides_launch(kind), "{kind:?}");
+    }
 }
 
 // Owner ruling 163: what claude is told to run at rest (the hooks a profile

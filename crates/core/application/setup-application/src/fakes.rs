@@ -184,6 +184,8 @@ pub(crate) struct Engine {
     pub kinds: Vec<Kind>,
     pub wire: Wire,
     pub rides_launch: bool,
+    /// The kinds besides the context its launch carries itself.
+    pub launch_kinds: Vec<Kind>,
     /// The hook events it has no native form for, with their reasons.
     pub hook_losses: Vec<(String, String)>,
 }
@@ -195,6 +197,7 @@ impl Engine {
             kinds: Kind::ALL.to_vec(),
             wire: Wire,
             rides_launch: false,
+            launch_kinds: Vec::new(),
             hook_losses: Vec::new(),
         }
     }
@@ -211,6 +214,10 @@ impl EngineSurfaces for Engine {
 
     fn context_rides_launch(&self) -> bool {
         self.rides_launch
+    }
+
+    fn rides_launch(&self, kind: Kind) -> bool {
+        self.launch_kinds.contains(&kind) || (kind == Kind::Context && self.rides_launch)
     }
 
     fn hook_losses(&self) -> Vec<(String, String)> {
@@ -319,6 +326,7 @@ pub(crate) fn world(config: &'static str) -> World {
                 kinds: vec![Kind::Context],
                 wire: Wire,
                 rides_launch: false,
+                launch_kinds: Vec::new(),
                 hook_losses: Vec::new(),
             }),
         ],

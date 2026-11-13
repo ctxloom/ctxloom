@@ -79,6 +79,9 @@ pub struct BackendStatus {
     pub backend: String,
     pub settings_exists: bool,
     pub hooks_present: bool,
+    /// Whether a launched session carries the engine's hooks itself (owner
+    /// ruling 2026-11-12), so none at rest is not a hook missing.
+    pub hooks_at_launch: bool,
     #[serde(rename = "statusline")]
     pub status_line: bool,
     pub mcp_present: bool,
@@ -296,6 +299,7 @@ impl Setup {
                 backend: name.clone(),
                 settings_exists: wiring.settings_exists,
                 hooks_present: wiring.hooks_present,
+                hooks_at_launch: false,
                 status_line: wiring.statusline,
                 mcp_present: wiring.mcp_present,
             });

@@ -330,3 +330,56 @@ fn test_check_says_which_engines_carry_their_hooks_at_launch() {
         ]
     );
 }
+
+// j001900: the check's dry run asks the store of the kinds the export
+// claimed alone, never of a kind it did not make.
+#[test]
+fn test_check_plans_only_the_kinds_the_export_claimed() {
+    let w = bare();
+    w.setup
+        .materialize(&crate::MaterializeRequest {
+            yes: true,
+            engines: vec!["claude-code".into()],
+            surfaces: vec![crate::SurfaceSpec::parse("mcp").unwrap()],
+            ..crate::MaterializeRequest::default()
+        })
+        .unwrap();
+    let log = w.store.state().log.len();
+    w.setup.check(&Flags::default()).unwrap();
+    assert_eq!(
+        w.store.state().log[log..],
+        ["deliver claude-code mcp dry=true".to_string()]
+    );
+}
+
+// The check plans with the command's own flags: a `--config-set` that
+// changes what materialize would write makes the export stale.
+#[test]
+fn test_check_plans_with_the_commands_flags() {
+    let w = bare();
+    w.setup
+        .materialize(&crate::MaterializeRequest {
+            yes: true,
+            engines: vec!["claude-code".into()],
+            surfaces: vec![crate::SurfaceSpec::parse("context").unwrap()],
+            ..crate::MaterializeRequest::default()
+        })
+        .unwrap();
+    let status = |flags: &Flags| -> Vec<(String, String)> {
+        w.setup
+            .check(flags)
+            .unwrap()
+            .value
+            .surfaces
+            .into_iter()
+            .map(|s| (s.route, s.status))
+            .collect()
+    };
+    let word = |s: &str| vec![("context".to_string(), s.to_string())];
+    assert_eq!(status(&Flags::default()), word("materialized"));
+    let original = Flags {
+        config_set: vec!["config.content_form=original".to_string()],
+        ..Flags::default()
+    };
+    assert_eq!(status(&original), word("stale"));
+}

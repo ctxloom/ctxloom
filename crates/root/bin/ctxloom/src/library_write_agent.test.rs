@@ -14,6 +14,10 @@ use super::library::{contains_value, entries, reports_as, Project};
 
 const FORMATS: [&[&str]; 3] = [&[], &["--format", "json"], &["--format", "text"]];
 
+/// The agent `developer` in a listing's json (OD-40: `ListAgentsResponse`,
+/// each agent named under its project).
+const DEVELOPER: &str = "agents[name$=/agents/developer]";
+
 fn with_flags(project: &Project, base: &[&str], flags: &[&str]) -> super::Ran {
     let mut args = base.to_vec();
     args.extend_from_slice(flags);
@@ -62,7 +66,7 @@ fn test_creating_a_binding_records_every_axis_and_the_listing_reads_each_one_bac
                 "Created agent \"developer\" (engine: claude-code, profiles: dev, runtime: container-rootless)\n"
             );
         } else {
-            assert_eq!(reports_as(&ran.json(), "name"), "developer");
+            assert!(reports_as(&ran.json(), "agent.name").ends_with("/agents/developer"));
         }
         project.file_contains(CONFIG, "developer");
         let listed = with_flags(&project, &["agent", "list"], flags);
@@ -74,10 +78,17 @@ fn test_creating_a_binding_records_every_axis_and_the_listing_reads_each_one_bac
                 .contains("runtime: container-rootless");
         } else {
             let doc = listed.json();
-            assert_eq!(reports_as(&doc, "[name=developer].engine"), "claude-code");
-            assert!(contains_value(&doc, "[name=developer].profiles", "dev"));
             assert_eq!(
-                reports_as(&doc, "[name=developer].runtime"),
+                reports_as(&doc, &format!("{DEVELOPER}.engine")),
+                "claude-code"
+            );
+            assert!(contains_value(
+                &doc,
+                &format!("{DEVELOPER}.profiles"),
+                "dev"
+            ));
+            assert_eq!(
+                reports_as(&doc, &format!("{DEVELOPER}.runtime")),
                 "container-rootless"
             );
         }
@@ -142,10 +153,12 @@ fn test_a_binding_is_written_with_sorted_keys_and_the_rest_of_the_file_is_kept()
             "json",
         ])
         .json();
-    assert_eq!(reports_as(&doc, "name"), "dev3");
-    assert!(contains_value(&doc, "profiles", "dev"));
+    // OD-40: `CreateAgentResponse`, the agent as written.
+    assert!(reports_as(&doc, "agent.name").ends_with("/agents/dev3"));
+    assert!(contains_value(&doc, "agent.profiles", "dev"));
+    assert_eq!(reports_as(&doc, "applied"), "true");
     // Owner ruling 134: an agent has no engine-neutral posture any more.
-    assert_eq!(doc.get("permissions"), None, "{doc}");
+    assert_eq!(doc["agent"].get("permissions"), None, "{doc}");
     let text = project.run(&[
         "agent",
         "edit",
@@ -191,7 +204,7 @@ fn test_create_refuses_an_existing_name_and_leaves_the_live_binding_untouched() 
         shown.succeeds();
         if !is_text(flags) {
             let doc = shown.json();
-            assert!(contains_value(&doc, "definition.profiles", "dev"));
+            assert!(contains_value(&doc, "profiles", "dev"));
             assert!(!contains_value(&doc, "resolved.profiles", "ops"));
         }
     }
@@ -215,7 +228,7 @@ fn test_edit_refuses_a_name_no_agent_has_and_creates_nothing() {
         if is_text(flags) {
             listed.contains("No agents defined");
         } else {
-            assert_eq!(entries(&listed.json(), "$"), 0);
+            assert_eq!(entries(&listed.json(), "agents"), 0);
         }
     }
 }
@@ -262,21 +275,29 @@ fn test_an_edit_naming_only_runtime_leaves_every_other_axis_intact() {
                 .contains("profiles: dev, ops")
                 .contains("engines.claude-code: {model: haiku}");
         } else {
-            assert_eq!(reports_as(&ran.json(), "name"), "developer");
+            assert!(reports_as(&ran.json(), "agent.name").ends_with("/agents/developer"));
         }
         let listed = project.run(&["agent", "list", "--format", "json"]).json();
         assert_eq!(
-            reports_as(&listed, "[name=developer].runtime"),
+            reports_as(&listed, &format!("{DEVELOPER}.runtime")),
             "container-rootless"
         );
         assert_eq!(
-            reports_as(&listed, "[name=developer].engine"),
+            reports_as(&listed, &format!("{DEVELOPER}.engine")),
             "claude-code"
         );
-        assert!(contains_value(&listed, "[name=developer].profiles", "dev"));
-        assert!(contains_value(&listed, "[name=developer].profiles", "ops"));
+        assert!(contains_value(
+            &listed,
+            &format!("{DEVELOPER}.profiles"),
+            "dev"
+        ));
+        assert!(contains_value(
+            &listed,
+            &format!("{DEVELOPER}.profiles"),
+            "ops"
+        ));
         assert_eq!(
-            reports_as(&listed, "[name=developer].engines.claude-code.model"),
+            reports_as(&listed, &format!("{DEVELOPER}.engines.claude-code.model")),
             "haiku"
         );
     }
@@ -314,7 +335,7 @@ fn test_setting_a_surface_delivery_preference_records_it_in_the_binding() {
         if is_text(flags) {
             ran.contains("Updated agent");
         } else {
-            assert_eq!(reports_as(&ran.json(), "name"), "developer");
+            assert!(reports_as(&ran.json(), "agent.name").ends_with("/agents/developer"));
         }
         project.file_contains(CONFIG, "context: system-prompt");
     }
@@ -583,13 +604,13 @@ fn test_bare_agent_remove_reports_and_destroys_nothing() {
             let doc = ran.json();
             assert_eq!(reports_as(&doc, "applied"), "false");
             assert_eq!(
-                reports_as(&doc, "apply"),
+                reports_as(&doc, "apply_command"),
                 "ctxloom agent remove developer --yes"
             );
         }
         assert_eq!(project.read(CONFIG), before, "a preview wrote the config");
         let listed = project.run(&["agent", "list", "--format", "json"]).json();
-        assert_eq!(reports_as(&listed, "[name=developer].name"), "developer");
+        assert!(reports_as(&listed, &format!("{DEVELOPER}.name")).ends_with("/agents/developer"));
     }
 }
 
@@ -612,14 +633,15 @@ fn test_yes_takes_the_binding_out_of_the_config_it_was_written_to() {
             assert_eq!(ran.stdout, "Removed agent \"developer\"\n");
         } else {
             let doc = ran.json();
-            assert_eq!(reports_as(&doc, "status"), "removed");
-            assert_eq!(reports_as(&doc, "name"), "developer");
+            // OD-40: `DeleteAgentResponse`, applied, naming what went.
+            assert_eq!(reports_as(&doc, "applied"), "true");
+            assert!(reports_as(&doc, "agent.name").ends_with("/agents/developer"));
         }
         project.file_lacks(CONFIG, "developer");
         // Exactly the target.
         project.file_contains(CONFIG, "other:");
         let listed = project.run(&["agent", "list", "--format", "json"]).json();
-        assert_eq!(entries(&listed, "$"), 1);
+        assert_eq!(entries(&listed, "agents"), 1);
     }
     let project = with_dev();
     project
@@ -674,13 +696,14 @@ fn test_the_listing_and_the_write_summary_show_the_engine_blocks_in_the_config_s
         .contains("  reviewer (engine: claude-code)\n    profiles: dev\n    engines.claude-code: {model: haiku, permissions: {defaultMode: plan}}\n      permissions passed to claude-code verbatim; ctxloom does not check it\n")
         .lacks("claude-code={mode=plan}");
     let listed = project.run(&["agent", "list", "--format", "json"]).json();
+    let reviewer = &listed["agents"][0];
     assert_eq!(
-        listed[0]["engines"],
+        reviewer["engines"],
         serde_json::json!({"claude-code": {"model": "haiku", "permissions": {"defaultMode": "plan"}}})
     );
     // Owner ruling 134: no engine-neutral posture is listed.
-    assert!(listed[0].get("permissions").is_none(), "{listed}");
-    assert!(listed[0].get("model").is_none(), "{listed}");
+    assert!(reviewer.get("permissions").is_none(), "{listed}");
+    assert!(reviewer.get("model").is_none(), "{listed}");
 }
 
 // agent.feature: Scenario: A setting written for an agent that names no

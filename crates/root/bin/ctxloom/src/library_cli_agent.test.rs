@@ -18,7 +18,9 @@ fn test_a_project_with_no_bindings_says_so_and_where_to_define_one() {
             ran.contains("No agents defined")
                 .contains("'agents:' in .ctxloom/config.yaml");
         } else {
-            assert_eq!(ran.json(), Value::Array(vec![]));
+            // OD-40: the empty `ListAgentsResponse` (proto3 JSON leaves the
+            // empty list out).
+            assert_eq!(ran.json(), Value::Object(serde_json::Map::new()));
         }
     }
 }
@@ -44,10 +46,18 @@ fn test_the_listing_reads_each_axis_of_a_binding_back() {
                 .contains("runtime: container-rootless");
         } else {
             let doc = ran.json();
-            assert_eq!(reports_as(&doc, "[name=developer].engine"), "claude-code");
-            assert!(contains_value(&doc, "[name=developer].profiles", "dev"));
+            let developer = "agents[name$=/agents/developer]";
             assert_eq!(
-                reports_as(&doc, "[name=developer].runtime"),
+                reports_as(&doc, &format!("{developer}.engine")),
+                "claude-code"
+            );
+            assert!(contains_value(
+                &doc,
+                &format!("{developer}.profiles"),
+                "dev"
+            ));
+            assert_eq!(
+                reports_as(&doc, &format!("{developer}.runtime")),
                 "container-rootless"
             );
         }
@@ -70,9 +80,9 @@ fn test_bare_agent_lists_the_bindings() {
         if is_text(flags) {
             ran.contains("developer");
         } else {
-            assert_eq!(
-                reports_as(&ran.json(), "[name=developer].name"),
-                "developer"
+            assert!(
+                reports_as(&ran.json(), "agents[name$=/agents/developer].name")
+                    .starts_with("projects/")
             );
         }
     }
@@ -100,10 +110,11 @@ fn test_showing_one_binding_reports_what_was_declared_and_what_it_resolves_to() 
                 .contains("Composed fragments:");
         } else {
             let doc = ran.json();
-            assert_eq!(reports_as(&doc, "definition.name"), "developer");
-            assert_eq!(reports_as(&doc, "definition.engine"), "claude-code");
-            assert_eq!(reports_as(&doc, "definition.runtime"), "container-rootless");
-            assert!(contains_value(&doc, "definition.profiles", "dev"));
+            // OD-40: the `Agent` resource; its definition is the resource.
+            assert!(reports_as(&doc, "name").ends_with("/agents/developer"));
+            assert_eq!(reports_as(&doc, "engine"), "claude-code");
+            assert_eq!(reports_as(&doc, "runtime"), "container-rootless");
+            assert!(contains_value(&doc, "profiles", "dev"));
             assert_eq!(reports_as(&doc, "resolved.engine"), "claude-code");
             assert!(contains_value(
                 &doc,

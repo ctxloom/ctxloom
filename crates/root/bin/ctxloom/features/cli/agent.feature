@@ -2,6 +2,12 @@
 # Ported from cli/agent.feature (rev f36e8dfb2)
 # Ported from journeys/j002000_engine_switch.feature (rev f36e8dfb2) (the last Rule)
 # NOT ported: the scenarios tagged @pending.
+# OD-40 (aip/configuration, 2026-11-13): the JSON steps read the AIP resources (library.proto's
+#   `ListAgentsResponse`, `Agent` and the write responses, design §5.6): a list is
+#   `{agents: [...]}` (an empty one prints nothing at `agents`), an agent is named
+#   `projects/{project}/agents/<agent>` (selected by suffix, `[name$=...]`), `show` is the resource
+#   itself (no `definition` level), a write answers the agent under `agent` with `applied` and
+#   `apply_command`, and an env key says `variable` (AIP-122 reserves `name`).
 @doc
 Feature: agent — the bindings that decide what runs, on what context, and where
 
@@ -51,8 +57,8 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
         ctxloom agent list <flags>
         """
       Then the command succeeds
-      And the output reports "$" as empty, saying "No agents defined"
-      And the output reports "$" as empty, saying "'agents:' in .ctxloom/config.yaml"
+      And the output reports "agents" as empty, saying "No agents defined"
+      And the output reports "agents" as empty, saying "'agents:' in .ctxloom/config.yaml"
 
       @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
@@ -73,15 +79,15 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
         ctxloom agent create developer --engine claude-code --profiles dev --runtime container-rootless <flags>
         """
       Then the command succeeds
-      And the output reports "name" as "<the binding written>"
+      And the output reports "agent.name" containing "<the binding written>"
       # The EFFECT, not the echo: the confirmation above is printed from the
       # request, so it is true of a writer that saved nothing.
       And the file ".ctxloom/config.yaml" contains "developer"
       When I run "ctxloom agent list <flags>"
       Then the command succeeds
-      And the output reports "[name=developer].engine" as "<the engine>"
-      And the output reports "[name=developer].profiles" containing "<the profile>"
-      And the output reports "[name=developer].runtime" as "<the runtime>"
+      And the output reports "agents[name$=/agents/developer].engine" as "<the engine>"
+      And the output reports "agents[name$=/agents/developer].profiles" containing "<the profile>"
+      And the output reports "agents[name$=/agents/developer].runtime" as "<the runtime>"
 
       @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
@@ -100,15 +106,15 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And I run "ctxloom agent create developer --profiles dev"
       When I run "ctxloom agent <flags>"
       Then the command succeeds
-      And the output reports "[name=developer].name" as "<the binding listed>"
+      And the output reports "agents[name$=/agents/developer].name" as "<the binding listed>"
       And the output does not contain "Available Commands:"
 
       @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
-        | flags         | the binding listed |
-        |               | developer          |
-        | --format json | developer          |
-        | --format text | developer          |
+        | flags         | the binding listed                   |
+        |               | projects/{project}/agents/developer  |
+        | --format json | projects/{project}/agents/developer  |
+        | --format text | developer                            |
 
     # `show` answers two questions a listing cannot: what the definition
     # DECLARES, and what that declaration actually RESOLVES to. Both halves are
@@ -128,18 +134,18 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
         ctxloom agent show developer <flags>
         """
       Then the command succeeds
-      And the output reports "definition.name" as "<the binding named>"
-      And the output reports "definition.engine" as "<the engine declared>"
-      And the output reports "definition.runtime" as "<the runtime declared>"
-      And the output reports "definition.profiles" containing "<the profile declared>"
-      And the output reports "resolved.label" as "<what the engine resolves to>"
+      And the output reports "name" as "<the binding named>"
+      And the output reports "engine" as "<the engine declared>"
+      And the output reports "runtime" as "<the runtime declared>"
+      And the output reports "profiles" containing "<the profile declared>"
+      And the output reports "resolved.engine" as "<what the engine resolves to>"
       And the output reports "resolved.fragments" containing "<what the profiles compose>"
 
       @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | the binding named | the engine declared         | the runtime declared        | the profile declared | what the engine resolves to | what the profiles compose               |
-        |               | developer         | claude-code                 | container-rootless          | dev                  | claude-code                 | ctxloom+local:dev-base#fragments/example |
-        | --format json | developer         | claude-code                 | container-rootless          | dev                  | claude-code                 | ctxloom+local:dev-base#fragments/example |
+        |               | projects/{project}/agents/developer | claude-code | container-rootless | dev | claude-code | ctxloom+local:dev-base#fragments/example |
+        | --format json | projects/{project}/agents/developer | claude-code | container-rootless | dev | claude-code | ctxloom+local:dev-base#fragments/example |
         | --format text | Agent: developer  | Engine (declared): claude-code | Runtime: container-rootless | dev                  | Resolved engine:               | Composed fragments:                     |
 
     # Reporting nothing for a name nobody defined would be a listing of one,
@@ -195,7 +201,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the output contains "ctxloom agent edit developer"
       When I run "ctxloom agent show developer <flags>"
       Then the command succeeds
-      And the output reports "definition.profiles" containing "<the profile that survived>"
+      And the output reports "profiles" containing "<the profile that survived>"
       And the output reports "resolved.profiles" not containing "<the profile that did not survive>"
 
       @json-default
@@ -220,7 +226,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the output contains "ctxloom agent create nosuchagent"
       When I run "ctxloom agent list <flags>"
       Then the command succeeds
-      And the output reports "$" as empty, saying "No agents defined"
+      And the output reports "agents" as empty, saying "No agents defined"
 
       @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
@@ -246,14 +252,14 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
         ctxloom agent edit developer --runtime container-rootless <flags>
         """
       Then the command succeeds
-      And the output reports "name" as "<the binding written>"
+      And the output reports "agent.name" containing "<the binding written>"
       When I run "ctxloom agent list <flags>"
       Then the command succeeds
-      And the output reports "[name=developer].runtime" as "<the axis that changed>"
-      And the output reports "[name=developer].engine" as "<the engine that survived>"
-      And the output reports "[name=developer].profiles" containing "<the first profile>"
-      And the output reports "[name=developer].profiles" containing "<the second profile>"
-      And the output reports "[name=developer].engines.claude-code.model" as "<the model that survived>"
+      And the output reports "agents[name$=/agents/developer].runtime" as "<the axis that changed>"
+      And the output reports "agents[name$=/agents/developer].engine" as "<the engine that survived>"
+      And the output reports "agents[name$=/agents/developer].profiles" containing "<the first profile>"
+      And the output reports "agents[name$=/agents/developer].profiles" containing "<the second profile>"
+      And the output reports "agents[name$=/agents/developer].engines.claude-code.model" as "<the model that survived>"
 
       @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
@@ -276,7 +282,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
         ctxloom agent edit developer --surface context=system-prompt <flags>
         """
       Then the command succeeds
-      And the output reports "name" as "<the binding written>"
+      And the output reports "agent.name" containing "<the binding written>"
       And the file ".ctxloom/config.yaml" contains "context: system-prompt"
 
       @json-default
@@ -423,8 +429,8 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the file ".ctxloom/config.yaml" does not contain "llm:"
       When I run "ctxloom agent show reviewer --format json"
       Then the command succeeds
-      And the output reports "definition.engine" as "claude-code"
-      And the output reports "definition.engines.claude-code.model" as "haiku"
+      And the output reports "engine" as "claude-code"
+      And the output reports "engines.claude-code.model" as "haiku"
       And the output reports "resolved.model.value" as "haiku"
       And the output reports "resolved.model.source" as "agent"
       And the output reports "resolved.effort.value" as "low"
@@ -605,8 +611,8 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the output does not contain "    model: haiku"
       When I run "ctxloom agent list --format json"
       Then the command succeeds
-      And the output reports "[name=reviewer].engines.claude-code.model" as "haiku"
-      And the output reports "[name=reviewer].engines.claude-code.permissions.defaultMode" as "plan"
+      And the output reports "agents[name$=/agents/reviewer].engines.claude-code.model" as "haiku"
+      And the output reports "agents[name$=/agents/reviewer].engines.claude-code.permissions.defaultMode" as "plan"
 
     # Ruling 68 (2026-11-10): an agent that names no engine has its settings
     # written into the default engine's block, and the write says which.
@@ -783,8 +789,8 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the output reports "resolved.env.value" containing "ALPHA_TOKEN"
       And the output reports "resolved.env.value" containing "NPM_TOKEN"
       And the output reports "resolved.env.source" as "agent"
-      And the output reports "resolved.env.keys.[name=NPM_TOKEN].source" as "engine"
-      And the output reports "resolved.env.keys.[name=ALPHA_TOKEN].source" as "agent"
+      And the output reports "resolved.env.keys.[variable=NPM_TOKEN].source" as "engine"
+      And the output reports "resolved.env.keys.[variable=ALPHA_TOKEN].source" as "agent"
       When I run "ctxloom run --dry-run --agent narrow --engine opencode hello --format json"
       Then the command succeeds
       And the output reports "settings.env.value" containing "OPENCODE_ONLY"
@@ -920,17 +926,17 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       When I run "ctxloom agent remove developer <flags>"
       Then the command succeeds
       And the output reports "applied" as "<nothing was applied>"
-      And the output reports "apply" as "<the invocation that would>"
+      And the output reports "apply_command" as "<the invocation that would>"
       # The follow-up listing is what actually catches a guard that reported
       # and destroyed anyway; the exit code cannot see it.
       When I run "ctxloom agent list <flags>"
-      Then the output reports "[name=developer].name" as "<the binding that survived>"
+      Then the output reports "agents[name$=/agents/developer].name" as "<the binding that survived>"
 
       @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | nothing was applied | the invocation that would          | the binding that survived |
-        |               | false               | ctxloom agent remove developer --yes | developer               |
-        | --format json | false               | ctxloom agent remove developer --yes | developer               |
+        |               | false               | ctxloom agent remove developer --yes | projects/{project}/agents/developer |
+        | --format json | false               | ctxloom agent remove developer --yes | projects/{project}/agents/developer |
         | --format text | Nothing was removed | ctxloom agent remove developer --yes | developer               |
 
     # `status` is the one verb in this noun that IS a payload field rather than
@@ -946,16 +952,16 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
         ctxloom agent remove developer --yes <flags>
         """
       Then the command succeeds
-      And the output reports "status" as "<the binding is gone>"
+      And the output reports "applied" as "<the binding is gone>"
       And the file ".ctxloom/config.yaml" does not contain "developer"
       When I run "ctxloom agent list <flags>"
-      Then the output reports "$" as empty, saying "No agents defined"
+      Then the output reports "agents" as empty, saying "No agents defined"
 
       @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | the binding is gone |
-        |               | removed             |
-        | --format json | removed             |
+        |               | true                |
+        | --format json | true                |
         | --format text | Removed agent       |
 
     Scenario: Removing a binding nobody defined fails rather than reporting success

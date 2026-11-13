@@ -973,3 +973,44 @@ fn a_daemon_a_client_starts_is_detached_and_given_none_of_its_homes() {
     }
     let _ = world.run(&["daemon", "stop"]);
 }
+
+// One session-setup path (owner, 2026-11-12): a hosted child's session home
+// is set up by the same code as a CLI run's: her git identity in the project
+// is its `.gitconfig`, claude's own state is seeded (`.claude.json`, ruling
+// 113) and its settings start from hers (ruling 169).
+#[test]
+fn a_hosted_childs_home_is_set_up_as_a_cli_runs_is() {
+    let world = World::new();
+    repository(&world, "first");
+    let dir = world.project.dir().to_path_buf();
+    git(&dir, &["config", "user.name", "Alice Example"]);
+    git(&dir, &["config", "user.email", "alice@example.com"]);
+    files::put(
+        world.project.home().join(".claude/settings.json"),
+        br#"{"theme": "hers-alone"}"#,
+    );
+    let seeded = world.run(&["test", "seed-session", OWNER]);
+    assert_eq!(seeded.code, 0, "{}", seeded.said());
+    spawn_then_launch(&world);
+    world.until("the first notice", |w| {
+        (!w.notices().is_empty()).then_some(())
+    });
+    let home = dir.join(format!(".ctxloom/sessions/{CHILD}/home"));
+    let read = |rel: &str| files::read(home.join(rel)).unwrap_or_default();
+    let git = read(".gitconfig");
+    assert!(
+        git.contains("Alice Example") && git.contains("alice@example.com"),
+        "{git}"
+    );
+    assert!(
+        read(".claude.json").contains("hasCompletedOnboarding"),
+        "{}",
+        read(".claude.json")
+    );
+    assert!(
+        read("settings.json").contains("hers-alone"),
+        "{}",
+        read("settings.json")
+    );
+    let _ = world.run(&["daemon", "stop", "--even-if-live"]);
+}

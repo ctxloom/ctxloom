@@ -35,11 +35,9 @@ fn a_childs_home_and_its_files_are_in_its_projects_session_directory() {
     fixtures::mkdirs(&project);
     let homes = Homes(fixtures::fs());
     let dir = project.display().to_string();
-    let home = homes.home(&dir, "kid");
-    assert_eq!(home, format!("{dir}/.ctxloom/sessions/kid/home"));
-    homes
-        .write(&dir, "kid", "home/settings.json", b"{}")
-        .unwrap();
+    let mut records = homes.records(&dir);
+    assert_eq!(records.dir("kid"), format!("{dir}/.ctxloom/sessions/kid"));
+    records.write("kid", "home/settings.json", b"{}").unwrap();
     assert!(fixtures::exists(
         project.join(".ctxloom/sessions/kid/home/settings.json")
     ));

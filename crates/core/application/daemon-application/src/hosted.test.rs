@@ -91,17 +91,39 @@ impl Engine for Scripted {
         ENGINE
     }
 
+    /// Its settings (the context), a merge into what its home holds of
+    /// `state.json` (as claude's into `.claude.json`), and two seeds.
     fn prepare(&self, request: &PrepareRequest) -> Result<Prepared, EngineError> {
+        let mut state = request
+            .existing
+            .get("state.json")
+            .cloned()
+            .unwrap_or_default();
+        state.extend_from_slice(b"+merged");
+        let seed = |rel: &str| HomeFile {
+            rel: rel.to_string(),
+            bytes: b"seeded".to_vec(),
+        };
         Ok(Prepared {
-            files: vec![HomeFile {
-                rel: "settings.json".to_string(),
-                bytes: request.context.as_bytes().to_vec(),
-            }],
+            files: vec![
+                HomeFile {
+                    rel: "settings.json".to_string(),
+                    bytes: request.context.as_bytes().to_vec(),
+                },
+                HomeFile {
+                    rel: "state.json".to_string(),
+                    bytes: state,
+                },
+            ],
             copy_in: Vec::new(),
-            seeds: Vec::new(),
+            seeds: vec![seed("model.json"), seed("kept.json")],
             left_out: Vec::new(),
             context_path: format!("{}/CONTEXT.md", request.home),
         })
+    }
+
+    fn merges(&self) -> &'static [&'static str] {
+        &["state.json"]
     }
 
     fn drive_turn(&self, _: &TurnRequest) -> Result<TurnCommand, EngineError> {
@@ -166,6 +188,13 @@ impl ChildPlans for Plans {
             fatal: Vec::new(),
         })
     }
+
+    fn git_user(&self, _: &str, _: &BTreeMap<String, String>) -> Option<run_ports::GitUser> {
+        Some(run_ports::GitUser {
+            name: "Alice".to_string(),
+            email: "alice@example.com".to_string(),
+        })
+    }
 }
 
 /// The launcher's hand-off: one environment, taken once.
@@ -177,20 +206,91 @@ impl HandOffs for HandOff {
     }
 }
 
-#[derive(Clone, Default)]
-struct Homes(Arc<Mutex<Vec<(String, String, String)>>>);
+/// A file of a project's session directories: its project, harp and path.
+type HomeKey = (String, String, String);
 
-impl ChildHomes for Homes {
-    fn home(&self, project_dir: &str, harp: &str) -> String {
-        format!("{project_dir}/.ctxloom/sessions/{harp}/home")
+/// Every project's session directories, in memory, shared by every clone.
+#[derive(Clone, Default)]
+struct Homes(Arc<Mutex<BTreeMap<HomeKey, Vec<u8>>>>);
+
+impl Homes {
+    fn key(project_dir: &str, harp: &str, rel: &str) -> HomeKey {
+        (project_dir.to_string(), harp.to_string(), rel.to_string())
     }
 
-    fn write(&self, project_dir: &str, harp: &str, rel: &str, _: &[u8]) -> Result<(), String> {
+    fn put(&self, project_dir: &str, harp: &str, rel: &str, bytes: &[u8]) {
         self.0
             .lock()
             .unwrap()
-            .push((project_dir.to_string(), harp.to_string(), rel.to_string()));
+            .insert(Homes::key(project_dir, harp, rel), bytes.to_vec());
+    }
+
+    fn text(&self, project_dir: &str, harp: &str, rel: &str) -> Option<String> {
+        self.0
+            .lock()
+            .unwrap()
+            .get(&Homes::key(project_dir, harp, rel))
+            .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
+    }
+}
+
+/// One project's session directories of [`Homes`].
+struct ProjectHomes(Homes, String);
+
+impl run_ports::SessionRecords for ProjectHomes {
+    fn dir(&self, harp: &str) -> String {
+        format!("{}/.ctxloom/sessions/{harp}", self.1)
+    }
+
+    fn write(
+        &mut self,
+        harp: &str,
+        rel: &str,
+        bytes: &[u8],
+    ) -> Result<(), run_ports::RecordsError> {
+        self.0.put(&self.1, harp, rel, bytes);
         Ok(())
+    }
+
+    fn append(
+        &mut self,
+        harp: &str,
+        rel: &str,
+        bytes: &[u8],
+    ) -> Result<(), run_ports::RecordsError> {
+        let mut all = self
+            .0
+            .text(&self.1, harp, rel)
+            .unwrap_or_default()
+            .into_bytes();
+        all.extend_from_slice(bytes);
+        self.0.put(&self.1, harp, rel, &all);
+        Ok(())
+    }
+
+    fn read(&mut self, harp: &str, rel: &str) -> Result<Option<Vec<u8>>, run_ports::RecordsError> {
+        Ok(self
+            .0
+             .0
+            .lock()
+            .unwrap()
+            .get(&Homes::key(&self.1, harp, rel))
+            .cloned())
+    }
+
+    fn exists(&mut self, harp: &str) -> bool {
+        self.0
+             .0
+            .lock()
+            .unwrap()
+            .keys()
+            .any(|(p, h, _)| *p == self.1 && h == harp)
+    }
+}
+
+impl ChildHomes for Homes {
+    fn records(&self, project_dir: &str) -> Box<dyn run_ports::SessionRecords> {
+        Box::new(ProjectHomes(self.clone(), project_dir.to_string()))
     }
 }
 
@@ -406,12 +506,11 @@ async fn a_child_is_started_with_its_launchers_environment_and_the_runs_hooks() 
     );
     assert!(spec.env.contains_key(run_ports::BEARER_VARIABLE));
     assert_eq!(
-        *world.homes.0.lock().unwrap(),
-        [(
-            "/work".to_string(),
-            "kid".to_string(),
-            "home/settings.json".to_string()
-        )]
+        world
+            .homes
+            .text("/work", "kid", "home/settings.json")
+            .as_deref(),
+        Some("THE-CONTEXT")
     );
     let started: Vec<u32> = world
         .run_events()
@@ -567,6 +666,35 @@ async fn a_queued_turn_is_fed_informs_first() {
     );
 }
 
+// One session-setup path (owner, 2026-11-12): a hosted child's home is set
+// up by the same code as every other session's: what its engine merges into
+// is read back and merged, each seed is written once (one there is left as
+// it is), and, in a session home, the user's git identity is its
+// `.gitconfig`.
+#[tokio::test]
+async fn a_hosted_childs_home_is_set_up_as_every_sessions_is() {
+    let mut world = World::new(Box::new(Plans));
+    world.homes.put("/work", "kid", "home/state.json", b"old");
+    world.homes.put("/work", "kid", "home/kept.json", b"hers");
+    world.mint(OWNER, "boss", None).await;
+    world.mint(CHILD, "kid", Some(OWNER)).await;
+    world.tick().await;
+    assert_eq!(world.daemon.hosting(), 1, "hosted");
+    let text = |rel: &str| world.homes.text("/work", "kid", rel);
+    assert_eq!(text("home/state.json").as_deref(), Some("old+merged"));
+    assert_eq!(text("home/model.json").as_deref(), Some("seeded"));
+    assert_eq!(
+        text("home/kept.json").as_deref(),
+        Some("hers"),
+        "left as it is"
+    );
+    let git = text("home/.gitconfig").expect("the git identity is seeded");
+    assert!(
+        git.contains("Alice") && git.contains("alice@example.com"),
+        "{git}"
+    );
+}
+
 // The daemon exiting ends every child it hosts.
 #[tokio::test]
 async fn ending_all_ends_each_hosted_child() {
@@ -588,6 +716,10 @@ async fn an_owner_is_told_its_childs_launch_failed() {
             _: &BTreeMap<String, String>,
         ) -> Result<Previewed, String> {
             Err("library-application-no-agent".to_string())
+        }
+
+        fn git_user(&self, _: &str, _: &BTreeMap<String, String>) -> Option<run_ports::GitUser> {
+            None
         }
     }
     let mut world = World::new(Box::new(Failing));

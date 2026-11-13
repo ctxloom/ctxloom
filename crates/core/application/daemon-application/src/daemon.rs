@@ -675,7 +675,8 @@ impl<E: Edge, T: TokenSource> Daemon<E, T> {
         sent: &BTreeMap<String, String>,
         hook_token: &run_ports::Token,
     ) -> Result<(run_ports::StartedChild, Option<String>), String> {
-        let home = self.homes.home(project_dir, harp);
+        let mut records = self.homes.records(project_dir);
+        let home = format!("{}/home", records.dir(harp));
         let prepared = engine
             .engine
             .prepare(&PrepareRequest {
@@ -695,12 +696,9 @@ impl<E: Edge, T: TokenSource> Daemon<E, T> {
             })
             .map_err(|e| e.to_string())?;
         for file in &prepared.files {
-            self.homes.write(
-                project_dir,
-                harp,
-                &format!("home/{}", file.rel),
-                &file.bytes,
-            )?;
+            records
+                .write(harp, &format!("home/{}", file.rel), &file.bytes)
+                .map_err(|e| e.to_string())?;
         }
         // A hosted engine is composed seeding nothing (`Prepared::seeds`,
         // the launcher's write-once seeds, rulings 112 and 167): a hosted

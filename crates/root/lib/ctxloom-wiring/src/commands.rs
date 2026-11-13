@@ -192,7 +192,14 @@ pub fn engines() -> Engines {
 /// The engines the daemon hosts a child on (T18), each its `Engine` beside
 /// its `ChildEngine`, by name: claude, then opencode (its ACP child). The
 /// launcher resolves a child's engine here, never by naming an adapter.
-pub fn hosted_engines() -> Vec<daemon_application::HostedEngine> {
+#[allow(dead_code)]
+pub fn hosted_engines(wiring: &Wiring, program: &str) -> Vec<daemon_application::HostedEngine> {
+    let _ = (wiring, program);
+    hosted_engines_bare()
+}
+
+/// RED stub: the bare hosted engines.
+pub(crate) fn hosted_engines_bare() -> Vec<daemon_application::HostedEngine> {
     let claude = Arc::new(engine_claude::Claude::new());
     let opencode = Arc::new(engine_opencode::Opencode::new());
     vec![

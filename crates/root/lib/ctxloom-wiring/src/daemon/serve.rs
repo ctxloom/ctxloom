@@ -298,7 +298,7 @@ fn launcher(
     Daemon::new(Ports {
         edge: Arc::clone(edge),
         tokens: Arc::new(OsTokenSource),
-        engines: crate::commands::hosted_engines(),
+        engines: crate::commands::hosted_engines_bare(),
         plans: Box::new(Plans {
             home: home.to_path_buf(),
             temp: temp.to_path_buf(),
@@ -546,6 +546,10 @@ impl ChildPlans for Plans {
     ) -> Result<library_application::Previewed, String> {
         super::child_plan(&self.home, &self.temp, engine, project_dir, env)
     }
+
+    fn git_user(&self, _: &str, _: &BTreeMap<String, String>) -> Option<run_ports::GitUser> {
+        None
+    }
 }
 
 /// The hand-off files under the daemon's directory (taken at the child's
@@ -562,14 +566,11 @@ impl HandOffs for HandOffFiles {
 struct Homes(Arc<dyn Fs>);
 
 impl ChildHomes for Homes {
-    fn home(&self, project_dir: &str, harp: &str) -> String {
-        let dirs = SessionDirs::new(Arc::clone(&self.0), PathBuf::from(project_dir));
-        format!("{}/home", SessionRecords::dir(&dirs, harp))
-    }
-
-    fn write(&self, project_dir: &str, harp: &str, rel: &str, bytes: &[u8]) -> Result<(), String> {
-        let mut dirs = SessionDirs::new(Arc::clone(&self.0), Path::new(project_dir).to_path_buf());
-        dirs.write(harp, rel, bytes).map_err(|e| e.to_string())
+    fn records(&self, project_dir: &str) -> Box<dyn SessionRecords> {
+        Box::new(SessionDirs::new(
+            Arc::clone(&self.0),
+            PathBuf::from(project_dir),
+        ))
     }
 }
 

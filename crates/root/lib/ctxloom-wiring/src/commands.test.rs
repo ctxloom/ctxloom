@@ -586,9 +586,92 @@ fn a_command_in_a_project_with_a_store_of_its_own_is_refused() {
 // T18: the daemon hosts a child on claude or opencode, each by its name.
 #[test]
 fn the_daemon_hosts_children_on_claude_and_opencode() {
-    let names: Vec<String> = super::hosted_engines()
+    let env = EnvSnapshot::of([("HOME", "/nowhere")]);
+    let wiring = Wiring::new(std::sync::Arc::new(env)).unwrap();
+    let names: Vec<String> = super::hosted_engines(&wiring, "ctxloom")
         .iter()
         .map(|engine| engine.name().to_string())
         .collect();
     assert_eq!(names, ["claude-code", "opencode"]);
+}
+
+/// What `engine` prepares for a child's home at `/h` (no context, no
+/// permissions): its files and seeds, by path, as text.
+fn prepared(engine: &dyn run_ports::Engine) -> Vec<(String, String)> {
+    let prepared = engine
+        .prepare(&run_ports::PrepareRequest {
+            home: "/h".to_string(),
+            context: String::new(),
+            offered: Vec::new(),
+            interactive: false,
+            cwd: Some("/work".to_string()),
+            existing: std::collections::BTreeMap::new(),
+            permissions: None,
+            session_home: run_ports::SessionHome::Session,
+        })
+        .unwrap();
+    prepared
+        .files
+        .iter()
+        .chain(&prepared.seeds)
+        .map(|file| {
+            (
+                file.rel.clone(),
+                String::from_utf8_lossy(&file.bytes).into_owned(),
+            )
+        })
+        .collect()
+}
+
+// One session-setup path (owner, 2026-11-12): the hosted engines are
+// composed as every launch's are: their callbacks run the running program
+// (`calling`, ruling 163), claude's settings start from hers (ruling 169)
+// and opencode seeds her recent models (ruling 167).
+#[test]
+fn the_hosted_engines_are_composed_as_every_launchs_are() {
+    let dir = crate::fixtures::root();
+    let home = dir.root().join("home");
+    let state = dir.root().join("state");
+    crate::fixtures::mkdirs(home.join(".claude"));
+    crate::fixtures::mkdirs(state.join("opencode"));
+    crate::fixtures::put_mode(
+        home.join(".claude/settings.json"),
+        r#"{"theme": "hers-alone"}"#,
+        0o644,
+    );
+    crate::fixtures::put_mode(
+        state.join("opencode/model.json"),
+        r#"{"recent":["hers"]}"#,
+        0o644,
+    );
+    let env = EnvSnapshot::of([
+        (crate::fixtures::home_var(), home.to_str().unwrap()),
+        ("XDG_STATE_HOME", state.to_str().unwrap()),
+    ]);
+    let wiring = Wiring::new(std::sync::Arc::new(env)).unwrap();
+    let hosted = super::hosted_engines(&wiring, "ctxloom-elsewhere");
+    let claude = prepared(&*hosted[0].engine);
+    let settings = claude
+        .iter()
+        .find(|(rel, _)| rel == "settings.json")
+        .map(|(_, text)| text.clone())
+        .expect("claude's settings");
+    assert!(settings.contains("hers-alone"), "{settings}");
+    assert!(
+        claude
+            .iter()
+            .any(|(_, text)| text.contains("ctxloom-elsewhere hook claude-code execute")),
+        "{claude:?}"
+    );
+    let opencode = prepared(&*hosted[1].engine);
+    assert!(
+        opencode.iter().any(|(_, text)| text.contains("\"hers\"")),
+        "her recent models seeded: {opencode:?}"
+    );
+    assert!(
+        opencode
+            .iter()
+            .any(|(_, text)| text.contains("ctxloom-elsewhere")),
+        "{opencode:?}"
+    );
 }

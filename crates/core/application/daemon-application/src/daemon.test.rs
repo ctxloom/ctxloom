@@ -78,6 +78,10 @@ impl ChildPlans for Plans {
         self.0.lock().unwrap().push(engine.to_string());
         Err("library-application-no-agent".to_string())
     }
+
+    fn git_user(&self, _: &str, _: &BTreeMap<String, String>) -> Option<run_ports::GitUser> {
+        None
+    }
 }
 
 struct NoHandOffs;
@@ -91,12 +95,8 @@ impl HandOffs for NoHandOffs {
 struct NoHomes;
 
 impl ChildHomes for NoHomes {
-    fn home(&self, project_dir: &str, harp: &str) -> String {
-        format!("{project_dir}/.ctxloom/sessions/{harp}/home")
-    }
-
-    fn write(&self, _: &str, _: &str, _: &str, _: &[u8]) -> Result<(), String> {
-        Ok(())
+    fn records(&self, _: &str) -> Box<dyn run_ports::SessionRecords> {
+        Box::new(run_launcher::fakes::MemoryRecords::default())
     }
 }
 

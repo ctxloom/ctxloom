@@ -4,10 +4,11 @@
 
 use daemon_proto::v1;
 use deps_application::{
-    Change, Compat, DepRow, DepsListing, ExecSpec, HoldResult, PinChange, PullReport,
+    Change, CheckReport, CheckedRef, Compat, DepRow, DepsListing, ExecSpec, HoldResult, PinChange,
+    PullReport,
 };
 
-use crate::api::{dependency_name, item_kind, remote_name};
+use crate::api::{count, dependency_name, item_kind, remote_name};
 use crate::refresh::{self, Skipped};
 
 /// One lock entry as its Dependency: named by its identity (OQ-15), its
@@ -205,6 +206,106 @@ pub(crate) fn pulled(
         }),
         skipped_refresh: refresh,
         ..v1::PullDependenciesResponse::default()
+    }
+}
+
+/// How a constraint selects its commit, from its word.
+fn selector(word: &str) -> i32 {
+    use v1::dependency_check::Selector;
+    (match word {
+        "sha" => Selector::Sha,
+        "tag" => Selector::Tag,
+        "version" => Selector::Version,
+        "branch" => Selector::Branch,
+        _ => Selector::Unspecified,
+    }) as i32
+}
+
+/// Why an entry was not checked, from its word.
+fn unchecked_reason(word: &str) -> i32 {
+    use v1::dependency_check::UncheckedReason;
+    (match word {
+        "unparseable" => UncheckedReason::Unparseable,
+        "unresolvable" => UncheckedReason::Unresolvable,
+        "not_refreshed" => UncheckedReason::NotRefreshed,
+        _ => UncheckedReason::Unspecified,
+    }) as i32
+}
+
+fn refresh_failures(failures: &[deps_application::RefreshFailure]) -> Vec<v1::RefreshFailure> {
+    failures
+        .iter()
+        .map(|f| v1::RefreshFailure {
+            url: f.url.clone(),
+            error: f.error.clone(),
+        })
+        .collect()
+}
+
+/// `deps check`: `CheckDependenciesResponse`, the outdated entries then the
+/// unchecked ones (a current entry is not listed, OQ-B6).
+pub(crate) fn checked(parent: &str, report: &CheckReport) -> v1::CheckDependenciesResponse {
+    use v1::dependency_check::State;
+    let outdated = report.updates.iter().map(|row| v1::DependencyCheck {
+        dependency: dependency_name(parent, &row.reference),
+        reference: row.reference.clone(),
+        kind: item_kind(row.kind),
+        state: State::Outdated as i32,
+        commit: row.current_sha.clone(),
+        latest_commit: row.latest_sha.clone(),
+        selector: selector(&row.selector),
+        constraint: row.requested.clone(),
+        resolved_version: row.resolved.clone(),
+        ..v1::DependencyCheck::default()
+    });
+    let unchecked = report.unchecked.iter().map(|row| v1::DependencyCheck {
+        dependency: dependency_name(parent, &row.reference),
+        reference: row.reference.clone(),
+        kind: v1::ItemKind::Bundle as i32,
+        state: State::Unchecked as i32,
+        constraint: row.constraint.clone(),
+        url: row.url.clone(),
+        reason: unchecked_reason(row.reason),
+        error: row.error.clone(),
+        ..v1::DependencyCheck::default()
+    });
+    v1::CheckDependenciesResponse {
+        checks: outdated.chain(unchecked).collect(),
+        dependency_count: count(report.entries),
+        skipped_count: count(report.skipped_empty),
+        refresh_failures: refresh_failures(&report.refresh_failures),
+        ..v1::CheckDependenciesResponse::default()
+    }
+}
+
+/// `deps check <reference>`: `CheckDependenciesResponse` of the one
+/// reference, NOT_PINNED (no Dependency) when the lock does not hold it,
+/// else CURRENT or OUTDATED.
+pub(crate) fn checked_one(parent: &str, checked: &CheckedRef) -> v1::CheckDependenciesResponse {
+    use v1::dependency_check::State;
+    let state = if !checked.in_lockfile {
+        State::NotPinned
+    } else if checked.up_to_date {
+        State::Current
+    } else {
+        State::Outdated
+    };
+    v1::CheckDependenciesResponse {
+        checks: vec![v1::DependencyCheck {
+            dependency: if checked.in_lockfile {
+                dependency_name(parent, &checked.identity)
+            } else {
+                String::new()
+            },
+            reference: checked.reference.clone(),
+            kind: v1::ItemKind::Bundle as i32,
+            state: state as i32,
+            commit: checked.current_sha.clone(),
+            latest_commit: checked.latest_sha.clone(),
+            ..v1::DependencyCheck::default()
+        }],
+        refresh_failures: refresh_failures(&checked.refresh_failures),
+        ..v1::CheckDependenciesResponse::default()
     }
 }
 

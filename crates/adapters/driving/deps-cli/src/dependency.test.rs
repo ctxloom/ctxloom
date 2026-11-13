@@ -127,3 +127,42 @@ fn test_each_pull_status_is_its_state() {
         assert_eq!(pull_state(status), state as i32, "{status}");
     }
 }
+
+#[test]
+fn test_each_selector_and_reason_word_is_its_value() {
+    use v1::dependency_check::{Selector, UncheckedReason};
+    for (word, want) in [
+        ("sha", Selector::Sha),
+        ("tag", Selector::Tag),
+        ("version", Selector::Version),
+        ("branch", Selector::Branch),
+        ("other", Selector::Unspecified),
+    ] {
+        assert_eq!(selector(word), want as i32, "{word}");
+    }
+    for (word, want) in [
+        ("unparseable", UncheckedReason::Unparseable),
+        ("unresolvable", UncheckedReason::Unresolvable),
+        ("not_refreshed", UncheckedReason::NotRefreshed),
+        ("other", UncheckedReason::Unspecified),
+    ] {
+        assert_eq!(unchecked_reason(word), want as i32, "{word}");
+    }
+}
+
+// The counts of a whole check: its entries and those with no commit.
+#[test]
+fn test_a_whole_check_counts_its_entries_and_the_skipped() {
+    let report = CheckReport {
+        entries: 3,
+        updates: Vec::new(),
+        unchecked: Vec::new(),
+        refresh_failures: Vec::new(),
+        skipped_empty: 2,
+        missing_default_profiles: Vec::new(),
+        missing_defaults_error: String::new(),
+    };
+    let message = checked("projects/p", &report);
+    assert_eq!((message.dependency_count, message.skipped_count), (3, 2));
+    assert!(message.checks.is_empty());
+}

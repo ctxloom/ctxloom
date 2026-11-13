@@ -382,9 +382,12 @@ fn check(
     let reference = text_arg(args, "reference");
     if !reference.is_empty() {
         let checked = answer(cx, cx.deps.check_reference(&reference), err)?;
-        emit(cx.format, out, &checked, |out| {
-            text::check_reference(out, &checked)
-        })?;
+        respond(
+            cx,
+            out,
+            |parent| dependency::checked_one(parent, &checked),
+            |out| text::check_reference(out, &checked),
+        )?;
         return Ok(Exit::OK);
     }
     let report = answer(cx, cx.deps.check(), err)?;
@@ -398,7 +401,12 @@ fn check(
             .collect();
         say_notices(&warnings, PROG, cx.format, cx.catalog, err);
     }
-    emit(cx.format, out, &report, |out| text::check(out, &report))?;
+    respond(
+        cx,
+        out,
+        |parent| dependency::checked(parent, &report),
+        |out| text::check(out, &report),
+    )?;
     Ok(Exit::OK)
 }
 

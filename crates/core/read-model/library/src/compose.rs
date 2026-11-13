@@ -10,9 +10,10 @@
 //!   an explicit `@<commit>` over the default), in first-occurrence order,
 //!   then [`bookend`]ed: highest priority first, second-highest last.
 //! - [`assemble`]: every selected fragment loaded, the profile variables
-//!   substituted, a premised fragment held back (and indexed) unless the caller
-//!   named it or the assembly is static, the same item reaching the context
-//!   twice assembled once.
+//!   substituted, a premised fragment held back unless the caller named it or
+//!   `config.premised` is `always`, the premise index of what was held back
+//!   ending the context, the same item reaching the context twice assembled
+//!   once.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -415,15 +416,29 @@ pub fn with_companion_asks(mut selection: Selection, catalog: &Catalog) -> Selec
     selection
 }
 
+/// When a premised fragment loads (config `config.premised`, owner ruling
+/// of 2026-11-12).
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub enum Premised {
+    /// `on-demand`, the default: a premised fragment is held back, unless the
+    /// caller named it, and the premise index of what was held back ends the
+    /// context, so the agent can ask for what applies.
+    #[default]
+    OnDemand,
+    /// `always`: every premised fragment loads with the rest, and there is no
+    /// index (nothing was held back). A static assembly, which nothing behind
+    /// the surface can add to later, is this too.
+    Always,
+}
+
 /// What an assembly takes besides the selection.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub struct Options {
     /// Deliver a fragment's distilled form where it has one (config
     /// `content_form`: `distilled`, the default, unless it says `original`).
     pub prefer_distilled: bool,
-    /// A static assembly (nothing behind the surface can pull a withheld
-    /// fragment later) includes the premised fragments.
-    pub static_assembly: bool,
+    /// When the premised fragments load.
+    pub premised: Premised,
 }
 
 /// A fragment as delivered or held back.
@@ -487,7 +502,7 @@ pub fn assemble(catalog: &Catalog, selection: &Selection, options: &Options) -> 
             distilled,
         };
         let held_back = !loaded.premise.is_empty()
-            && !options.static_assembly
+            && options.premised == Premised::OnDemand
             && !explicit.contains(ask.name.as_str());
         if held_back {
             package.premised.push(item);

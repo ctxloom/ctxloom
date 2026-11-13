@@ -76,8 +76,13 @@ fn test_a_premiseless_corpus_assembles_byte_identically() {
 fn test_a_premised_fragment_is_withheld_and_indexed() {
     let (pkg, withheld) = assembled(true, &[]);
     assert_eq!(
-        pkg.context, "ALPHA-BODY\n\n---\n\nBETA-BODY",
-        "the withheld one left no gap"
+        pkg.context,
+        format!(
+            "ALPHA-BODY\n\n---\n\nBETA-BODY\n\n---\n\n{}",
+            render(&withheld)
+        ),
+        "the withheld one left no gap, and the index of it ends the context \
+         (config.premised `on-demand`, owner ruling of 2026-11-12)"
     );
     assert!(
         !pkg.context.contains("GAMMA-BODY"),

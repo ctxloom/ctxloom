@@ -225,7 +225,7 @@ fn test_every_engine_the_build_names_is_registered() {
 fn test_a_library_command_is_run_over_the_home() {
     let world = World::new("library");
     let (code, out, err) = run_line(&mut world.commands(), &["bundle", "list"]);
-    assert_eq!((code, out.as_str(), err.as_str()), (0, "[]\n", ""));
+    assert_eq!((code, out.as_str(), err.as_str()), (0, "{}\n", ""));
 }
 
 #[test]

@@ -176,11 +176,16 @@ impl<E: Edge + 'static> Calls for Api<E> {
 /// The use cases of the daemon's API.
 pub struct Api<E> {
     pub(crate) parts: Parts<E>,
+    /// The destroys applied, by request id, for the daemon's life (S8).
+    pub(crate) applied: crate::destroy::Applied,
 }
 
 impl<E: Edge> Api<E> {
     pub fn new(parts: Parts<E>) -> Api<E> {
-        Api { parts }
+        Api {
+            parts,
+            applied: crate::destroy::Applied::default(),
+        }
     }
 
     /// `GetDaemon`: the daemon, what it hosts and its idle time. Never its

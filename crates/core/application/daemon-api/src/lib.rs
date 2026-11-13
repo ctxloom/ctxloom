@@ -34,7 +34,7 @@ pub use client::{reconcile, resolve, stop, CallError, Reconciled, SkewError};
 pub use destroy::{Places, Purges};
 pub use refusal::{rejection_of, ApiError, ApiRefusal, ApiRejection, Rejection, RemovalRejection};
 pub use server::{About, Answer, Api, Calls, Harps, Hosting, Parts, SessionStates};
-pub use session_client::{Client, Removed, SessionReads, SessionRemovals};
+pub use session_client::{Client, Removed, RequestIds, SessionReads, SessionRemovals};
 
 /// What a call can come to, and why no daemon could be called: the port's,
 /// as a driving adapter names them (it sees the application alone).

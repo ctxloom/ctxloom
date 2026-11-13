@@ -26,7 +26,6 @@ pub struct DaemonClient {
     bearer: Token,
     within: Duration,
     /// A destroy's deadline (`DeleteSession`, `SweepSessions`).
-    #[allow(dead_code)] // RED: read once the green lands.
     destroying: Duration,
 }
 
@@ -51,7 +50,8 @@ impl DaemonClient {
         }
     }
 
-    /// This client, each destroy bounded by `within` instead.
+    /// This client, each destroy (`DeleteSession`, `SweepSessions`: its
+    /// worktrees' git can outlast a read's deadline) bounded by `within`.
     pub fn destroying(self, within: Duration) -> DaemonClient {
         DaemonClient {
             destroying: within,
@@ -59,7 +59,9 @@ impl DaemonClient {
         }
     }
 
-    /// A client to the daemon, over a fresh channel.
+    /// A client to the daemon, over a fresh channel (connected within
+    /// `within`; each call is bounded by its own deadline, so a call past
+    /// it is unreachable, never a cancelled status).
     async fn client(&self) -> Result<CtxloomClient<Channel>, Called> {
         let unreachable = |detail: String| Called::Unreachable { detail };
         let dial = parse_endpoint(&self.endpoint).map_err(|e| unreachable(e.to_string()))?;
@@ -69,7 +71,6 @@ impl DaemonClient {
         let channel = Endpoint::from_shared(dial.url())
             .map_err(|e| unreachable(chain(&e)))?
             .connect_timeout(self.within)
-            .timeout(self.within)
             .tls_config(tls)
             .map_err(|e| unreachable(chain(&e)))?
             .connect()
@@ -141,17 +142,22 @@ fn chain(error: &dyn std::error::Error) -> String {
     text
 }
 
-/// One call: `$method` of the client with `$message`, its status read back.
+/// One call: `$method` of the client with `$message`, its status read back,
+/// within the client's deadline for a read (or `$within`).
 macro_rules! call {
     ($self:ident, $method:ident, $name:literal, $message:expr) => {{
+        call!($self, $method, $name, $message, $self.within)
+    }};
+    ($self:ident, $method:ident, $name:literal, $message:expr, $within:expr) => {{
+        let within: Duration = $within;
         let mut client = $self.client().await?;
         let request = $self.request($message)?;
-        let answered = tokio::time::timeout($self.within, client.$method(request)).await;
+        let answered = tokio::time::timeout(within, client.$method(request)).await;
         match answered {
             Ok(Ok(response)) => Ok(response.into_inner()),
             Ok(Err(status)) => Err(called($name, &status)),
             Err(_) => Err(Called::Unreachable {
-                detail: format!("no answer within {:?}", $self.within),
+                detail: format!("no answer within {within:?}"),
             }),
         }
     }};
@@ -199,14 +205,26 @@ impl DaemonApi for DaemonClient {
         &self,
         request: v1::DeleteSessionRequest,
     ) -> Result<v1::DeleteSessionResponse, Called> {
-        call!(self, delete_session, "DeleteSession", request)
+        call!(
+            self,
+            delete_session,
+            "DeleteSession",
+            request,
+            self.destroying
+        )
     }
 
     async fn sweep_sessions(
         &self,
         request: v1::SweepSessionsRequest,
     ) -> Result<v1::SweepSessionsResponse, Called> {
-        call!(self, sweep_sessions, "SweepSessions", request)
+        call!(
+            self,
+            sweep_sessions,
+            "SweepSessions",
+            request,
+            self.destroying
+        )
     }
 }
 

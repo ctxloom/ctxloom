@@ -5,8 +5,8 @@ use std::ffi::OsString;
 use std::path::Path;
 
 use super::{
-    account_home, daemon_env, daemon_home, instance_lock, ACCOUNT_HOME_VARIABLE, DELIVERY_MARGIN,
-    HOOK_BOUND, SPAWN_WAIT,
+    account_home, daemon_env, daemon_home, instance_lock, request_id, ACCOUNT_HOME_VARIABLE,
+    CALL_WAIT, DELIVERY_MARGIN, DESTROY_WAIT, HOOK_BOUND, SPAWN_WAIT,
 };
 
 fn vars(pairs: &[(&str, &str)]) -> Vec<(OsString, OsString)> {
@@ -211,4 +211,23 @@ fn a_launch_names_where_its_launcher_finds_its_users_settings() {
         places.keys().map(String::as_str).collect::<Vec<_>>(),
         ["CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME"]
     );
+}
+
+// A destroy's deadline is sized to its worktrees' git, each invocation
+// bounded by worktree-git's own timeout, with a read's wait to spare.
+#[test]
+fn a_destroys_deadline_outlasts_its_worktrees_git() {
+    assert_eq!(
+        DESTROY_WAIT,
+        worktree_git::DEFAULT_TIMEOUT * 60 + CALL_WAIT,
+        "sixty git invocations at their whole timeout, plus a read's wait"
+    );
+}
+
+// Each write's request id is fresh.
+#[test]
+fn each_request_id_is_fresh() {
+    let (one, two) = (request_id(), request_id());
+    assert_ne!(one, two);
+    assert!(uuid::Uuid::parse_str(&one).is_ok(), "{one}");
 }

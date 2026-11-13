@@ -220,7 +220,10 @@ from the store, the session's stream and each run stream UUIDv5(session,
 1..=n), each guarded by the head just read (retried on a conflict), then
 removes the session's whole directory (authored files too, a login link never
 followed) and its lock; the name's claim is kept, and the daemon's warm
-session index and pending messages are told the stream is gone. Its scratch
+session index, pending messages and board are told the streams are gone
+(the board its runs' too, so a destroyed session leaves no board row).
+Before the purge each child the session holds is closed and its owner
+forgets it (`session_policies::destroy`, keyed commands through the core). Its scratch
 worktrees go first, in ONE safe order both verbs share
 (`reclaim_application::remove` over `Removals`): classified first, the whole
 removal refused if one is spared or skipped
@@ -232,8 +235,10 @@ failure removing the directory leaves a session nothing lists. A hook fact
 redelivered after it finds no session and records nothing. It is refused, as
 before, for a session whose lock does not prove it ended (held, or none;
 the daemon reads the lock) unless `--even-if-live` (the one override), for
-a kept one, and within the transcript retention (30 days, the default; the
-key is not read yet). A refused removal is the typed `RemovalRefused`
+a kept one, and within the transcript retention: its project's
+`session_transcript_retention`, read from its REGISTERED root (30 days
+unless configured; one that is no age is `AgeInvalid`, a configuration that
+does not read `ConfigUnreadable`, a sweep's too, the flag or not). A refused removal is the typed `RemovalRefused`
 carrying its PLAN (the files, their classes and bytes, the authored ones,
 the worktrees), so it prints exactly the plan it printed in process, then
 the refusal in the refusing use case's words (`daemon_api::
@@ -1089,7 +1094,20 @@ directories and locks, its worktrees with git in the caller's environment
 age, `ConfigUnreadable` when the configuration does not read). Their
 answers carry the plan (additive: `DeleteSessionResponse`'s harp, applied,
 files, bytes freed, events destroyed and worktrees; `SweepSessionsResponse`'s
-rows, counts, cutoff and each removal). Every other RPC is the generated
+rows, counts, cutoff and each removal). Each carries the client's
+`request_id` (S8: `Client::with_request_ids`, a UUIDv7 minted once per call,
+the SAME on its one retry on a new daemon), and an applied destroy's answer
+is kept by it for the daemon's life (`destroy::Applied`, in memory), so a
+retry already applied is answered with its first result; after a restart a
+retried `DeleteSession` whose session the store says is destroyed (its name
+claimed by it, its stream empty) is answered applied from those facts,
+nothing counted (accepted cost: a fresh `session remove --yes` of an
+already-destroyed session, which carries a new id, is answered so too, not
+`SessionNotFound`), and a retried sweep runs again over what is left. A
+destroy call's deadline is its own (`DaemonClient::destroying`, the wiring's
+`DESTROY_WAIT`: worktree-git's 30 s timeout times six git invocations times
+ten worktrees, plus `CALL_WAIT`), not a read's five seconds; a call past its
+deadline is unreachable (the client's own timer, no channel timeout). Every other RPC is the generated
 default, UNIMPLEMENTED, to the user bearer alone (a plain build's
 `DeleteSession` and `SweepSessions` among them); `scripts/plain-destroy-check.sh` probes the
 plain binary's daemon over curl (HTTP/2): `GetDaemon` and `DeleteSession`

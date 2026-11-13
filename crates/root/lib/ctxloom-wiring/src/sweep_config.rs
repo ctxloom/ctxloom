@@ -1,4 +1,5 @@
-//! `session_purge_age`, read for the sweep from the layered configuration:
+//! `session_purge_age` and `session_transcript_retention`, read for the
+//! daemon's destroy from the layered configuration:
 //! the files, then the environment's overrides, as every other command reads
 //! it.
 
@@ -25,8 +26,19 @@ impl SweepSettings {
 
 impl SweepConfig for SweepSettings {
     fn purge_age(&mut self) -> Result<Option<String>, Failure> {
+        self.key("session_purge_age")
+    }
+
+    fn retention(&mut self) -> Result<Option<String>, Failure> {
+        self.key("session_transcript_retention")
+    }
+}
+
+impl SweepSettings {
+    /// The configuration's `key`, none where it is unset.
+    fn key(&self, key: &str) -> Result<Option<String>, Failure> {
         // The notices the load raises belong to the commands that read the
-        // whole configuration; a sweep needs one key.
+        // whole configuration; a removal needs one key.
         let config = load(
             self.files.as_ref(),
             &self.environ,
@@ -34,11 +46,7 @@ impl SweepConfig for SweepSettings {
             &mut Vec::new(),
         )
         .map_err(|e| Box::new(e) as Failure)?;
-        Ok(Some(config.text("session_purge_age")).filter(|age| !age.is_empty()))
-    }
-
-    fn retention(&mut self) -> Result<Option<String>, Failure> {
-        Ok(None)
+        Ok(Some(config.text(key)).filter(|value| !value.is_empty()))
     }
 }
 

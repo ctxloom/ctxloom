@@ -433,13 +433,29 @@ pub(crate) fn run(
 /// How long one call to the daemon may take.
 const CALL_WAIT: Duration = Duration::from_secs(5);
 
+/// How many git invocations one scratch worktree's removal may take
+/// (resolve, inspect, the merge checks, `worktree remove`, `branch -d`).
+const GIT_CALLS_PER_WORKTREE: u64 = 6;
+
+/// How many scratch worktrees a destroy's deadline is sized for, every git
+/// invocation of each taking its whole timeout.
+const WORKTREES_BOUNDED: u64 = 10;
+
+/// How long one destroy call (`DeleteSession`, `SweepSessions`) may take:
+/// its worktrees' git, each invocation bounded by worktree-git's own
+/// timeout, plus a read's wait as headroom (half an hour and five seconds).
+const DESTROY_WAIT: Duration = Duration::from_secs(
+    worktree_git::DEFAULT_TIMEOUT.as_secs() * GIT_CALLS_PER_WORKTREE * WORKTREES_BOUNDED
+        + CALL_WAIT.as_secs(),
+);
+
 /// How long a client waits for a daemon of another version it stopped to
 /// exit (M3).
 const STOPPED_WAIT: Duration = Duration::from_secs(8);
 
 /// The daemon `found` names, as a client calls it.
 fn client_of(found: &run_ports::Discovery) -> daemon_client::DaemonClient {
-    daemon_client::DaemonClient::new(found, CALL_WAIT)
+    daemon_client::DaemonClient::new(found, CALL_WAIT).destroying(DESTROY_WAIT)
 }
 
 /// `future`, on a runtime of its own.
@@ -825,6 +841,12 @@ pub(crate) fn client<'a>(wiring: &'a Wiring, stamp: &str) -> daemon_api::Client<
         cwd,
         env_vars(wiring.env()),
     )
+    .with_request_ids(Box::new(request_id))
+}
+
+/// A write's request id (S8): a fresh UUIDv7, unique per call.
+fn request_id() -> String {
+    uuid::Uuid::now_v7().to_string()
 }
 
 /// Run `use_case` on the sessions use cases, on a runtime of its own.

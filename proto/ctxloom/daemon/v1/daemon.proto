@@ -1176,7 +1176,8 @@ message RemovalRefused {
   uint64 skipped = 6;
 }
 
-// A configured age (`session_purge_age`) that is neither an age nor a date.
+// A configured age (`session_purge_age`, `session_transcript_retention`)
+// that is neither an age nor a date.
 message AgeInvalid {
   option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
 

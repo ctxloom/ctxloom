@@ -8,7 +8,9 @@
 //! project with it (`ResolveProject`, register-or-recheck, S6), and sends
 //! the caller's whole environment with every request (S7). A call whose
 //! daemon could not be reached mid-call is made ONCE more, on the daemon
-//! reached again (a new one, S8); the reads are idempotent.
+//! reached again (a new one, S8); the reads are idempotent, and a write
+//! (`session remove|sweep`) carries one request id, the same on its retry,
+//! so the daemon answers one already applied with its first result.
 
 use daemon_ports::{Called, DaemonApi, Daemons};
 use daemon_proto::v1;
@@ -26,7 +28,6 @@ pub struct Client<D> {
     cwd: String,
     env: v1::EnvVars,
     /// Mints a write's request id (S8), once per call, retry included.
-    #[allow(dead_code)] // RED: read once the green lands.
     ids: RequestIds,
 }
 
@@ -261,10 +262,13 @@ impl<D: Daemons> SessionRemovals for Client<D> {
         yes: bool,
         even_if_live: bool,
     ) -> Result<Removed, CallError> {
+        // One id for the call, its retry on a new daemon included (S8).
+        let request_id = (self.ids)();
         self.on_daemon(async |api: &D::Api| {
             let request = v1::DeleteSessionRequest {
                 name: format!("{}/sessions/{harp}", self.project(api).await?),
                 even_if_live,
+                request_id: request_id.clone(),
                 validate_only: !yes,
                 env: Some(self.env.clone()),
                 ..v1::DeleteSessionRequest::default()
@@ -295,6 +299,7 @@ impl<D: Daemons> SessionRemovals for Client<D> {
         older_than: Option<String>,
         yes: bool,
     ) -> Result<v1::SweepSessionsResponse, CallError> {
+        let request_id = (self.ids)();
         self.on_daemon(async |api: &D::Api| {
             let parent = self.parent(api, all).await?;
             let project = match self.project.is_some() {
@@ -305,6 +310,7 @@ impl<D: Daemons> SessionRemovals for Client<D> {
                 parent,
                 older_than: older_than.clone().unwrap_or_default(),
                 project,
+                request_id: request_id.clone(),
                 validate_only: !yes,
                 env: Some(self.env.clone()),
                 ..v1::SweepSessionsRequest::default()

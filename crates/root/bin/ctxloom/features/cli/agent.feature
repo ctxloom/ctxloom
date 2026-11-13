@@ -799,11 +799,12 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the output does not contain "NPM_TOKEN"
 
     Scenario: An agent can no longer be given an engine home
-      # new: ruling 44(b), it is the engine's session_home
+      # new: the retired name; the agent's own key is session_home again
+      # (owner ruling of 2026-11-13, superseding ruling 44(b) for it)
       Given an initialized ctxloom project
-      When I run "ctxloom agent edit developer --session-home session"
+      When I run "ctxloom agent edit developer --engine-home session"
       Then the command fails
-      And the output contains "unknown flag: --session-home"
+      And the output contains "unknown flag: --engine-home"
 
   # Owner rulings 133-139: ctxloom has no posture of its own to explain (the
   # approver and its "Headless posture" are gone, ruling 134); what an agent

@@ -127,6 +127,7 @@ library-application-write-agent-not-defined = agent "{ $name }" is not defined
 library-application-write-agent-not-in-config = agent "{ $name }" not found in config.yaml
 library-application-write-unknown-engine = agent "{ $name }": unknown engine "{ $engine }"; valid engines: { $valid }
 library-application-write-unknown-runtime = agent "{ $name }": unknown runtime axis "{ $value }" (known: host|container-rootless|container-rootful)
+library-application-write-unknown-session-home = agent "{ $name }": unknown session_home "{ $value }" (known: session|host)
 library-application-write-agent-without-engine = agent "{ $name }": an agent needs an engine or at least one profile to bind an engine; neither was given
 library-application-write-bad-env = agent "{ $name }": { $detail }
 library-application-write-surface-refused = agent "{ $name }": { $detail }

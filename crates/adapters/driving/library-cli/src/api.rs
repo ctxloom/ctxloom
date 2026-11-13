@@ -70,7 +70,7 @@ pub(crate) fn settings(settings: &AgentSettings) -> v1::AgentSettings {
                 })
                 .collect(),
         }),
-        session_home: None,
+        session_home: text(&settings.session_home.value, settings.session_home.source),
     }
 }
 

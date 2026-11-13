@@ -974,6 +974,7 @@ fn test_a_dry_run_shows_each_setting_with_the_place_that_said_it() {
             "  permissions  {defaultMode: acceptEdits}  (default)\n",
             "               passed to claude-code verbatim; ctxloom does not check it\n",
             "  runtime      host  (agents.dev; replaces engines.claude-code container-rootless: weakens isolation)\n",
+            "  session_home  session  (default)\n",
             "  env          HTTPS_PROXY  (engines.claude-code), ALPHA  (agents.dev)\n",
             "\n=== Profiles ===\n",
         )),
@@ -1006,7 +1007,7 @@ fn test_a_dry_run_shows_each_setting_with_the_place_that_said_it() {
     });
     assert!(
         shown_plan.contains(
-            "  runtime      container-rootless  (runtime)\n  env          none  (default)\n"
+            "  runtime      container-rootless  (runtime)\n  session_home  session  (default)\n  env          none  (default)\n"
         ),
         "{shown_plan}"
     );

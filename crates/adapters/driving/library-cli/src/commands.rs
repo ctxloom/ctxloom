@@ -494,6 +494,10 @@ fn agent_write(name: &'static str, about: &'static str) -> Command {
             "runtime",
             "Runtime axis: host|container-rootless|container-rootful (empty = project default)",
         ))
+        .arg(named(
+            "session-home",
+            "Whose home the engine runs on: session|host (empty = the engine block's, else session)",
+        ))
         .arg(each(
             "surface",
             "Delivery preference: kind=approach (repeatable)",

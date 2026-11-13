@@ -430,7 +430,11 @@ pub fn agent_list(out: &mut dyn Write, rows: &[AgentRow]) -> io::Result<()> {
         if !row.profiles.is_empty() {
             writeln!(out, "    profiles: {}", row.profiles.join(", "))?;
         }
-        for (key, value) in [("runtime", &row.runtime), ("driving", &row.driving)] {
+        for (key, value) in [
+            ("runtime", &row.runtime),
+            ("session_home", &row.session_home),
+            ("driving", &row.driving),
+        ] {
             if !value.is_empty() {
                 writeln!(out, "    {key}: {value}")?;
             }
@@ -602,6 +606,11 @@ fn settings_lines(
     )?;
     if !capital {
         writeln!(out, "{indent}{}", env_line(&s.env))?;
+        writeln!(
+            out,
+            "{indent}session_home: {} ({})",
+            s.session_home.value, s.session_home.source
+        )?;
     }
     Ok(())
 }
@@ -979,6 +988,14 @@ fn dry_run_settings(
         at = format!("{at}; replaces {from} {replaced}: {how}");
     }
     row(out, "runtime", &s.runtime.value, at)?;
+    // The agent's own word, else its engine block's (owner ruling of
+    // 2026-11-13).
+    row(
+        out,
+        "session_home",
+        &s.session_home.value,
+        place(s.session_home.source, false),
+    )?;
     if s.env.keys.is_empty() {
         return row(out, "env", "none", place(s.env.source, false));
     }

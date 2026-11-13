@@ -520,25 +520,40 @@ fn test_an_edit_passing_an_empty_env_clears_the_names_and_clears_nothing_else_it
         .lacks("ALPHA_TOKEN");
 }
 
-// agent.feature: Scenario: An agent can no longer be given an engine home (it
-// is the engine's session_home, ruling 44(b))
+// agent.feature: Scenario: An agent can no longer be given an engine home
+// (the retired name); its session_home is its own again (owner ruling of
+// 2026-11-13, superseding 44(b) for this key), written by `--session-home`.
 #[test]
-fn test_an_agent_takes_no_engine_home() {
+fn test_an_agent_takes_its_session_home_and_no_engine_home() {
     let project = with_dev();
-    for flag in ["--engine-home", "--session-home"] {
-        project
-            .run(&[
-                "agent",
-                "create",
-                "isolated",
-                flag,
-                "session",
-                "--profiles",
-                "dev",
-            ])
-            .fails()
-            .contains(&format!("unexpected argument '{flag}'"));
-    }
+    project
+        .run(&[
+            "agent",
+            "create",
+            "isolated",
+            "--engine-home",
+            "session",
+            "--profiles",
+            "dev",
+        ])
+        .fails()
+        .contains("unexpected argument '--engine-home'");
+    project
+        .run(&[
+            "agent",
+            "create",
+            "isolated",
+            "--session-home",
+            "session",
+            "--profiles",
+            "dev",
+        ])
+        .succeeds();
+    let shown = project
+        .run(&["agent", "show", "isolated", "--format", "json"])
+        .succeeds()
+        .json();
+    assert_eq!(shown["session_home"], "session", "{shown}");
 }
 
 // agent.feature: Scenario: With nothing bound, the report says so; naming an

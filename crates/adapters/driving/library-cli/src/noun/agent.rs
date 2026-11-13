@@ -167,6 +167,7 @@ pub(crate) fn agent(parent: &str, row: &AgentRow, default: &str) -> v1::Agent {
         runtime: row.runtime.clone(),
         driving: row.driving.clone(),
         env: row.env.clone(),
+        session_home: row.session_home.clone(),
         engines: blocks(&row.engines),
         default: Some(row.name == default),
         ..Default::default()
@@ -225,7 +226,7 @@ fn resolved(agent: &ResolvedAgent) -> v1::ResolvedAgent {
         context: agent.context.clone(),
         fragments: agent.fragments.clone(),
         driving: agent.driving.clone(),
-        session_home: None,
+        session_home: settings.session_home,
         command: agent.command.clone(),
     }
 }
@@ -291,7 +292,7 @@ fn agent_request(sub: &ArgMatches) -> Result<AgentRequest, Failure> {
         surfaces: given_pairs(sub, "surface")?,
         roots: given_pairs(sub, "root")?,
         env: given_list(sub, "env"),
-        session_home: None,
+        session_home: given(sub, "session-home"),
     })
 }
 
@@ -320,6 +321,9 @@ fn agent_written(row: &AgentRow, verb: &str, out: &mut dyn Write) -> io::Result<
     }
     if !row.env.is_empty() {
         parts.push(format!("env: {}", row.env.join(", ")));
+    }
+    if !row.session_home.is_empty() {
+        parts.push(format!("session_home: {}", row.session_home));
     }
     writeln!(out, "{verb} agent \"{}\" ({})", row.name, parts.join(", "))
 }

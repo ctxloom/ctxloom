@@ -1,24 +1,37 @@
-# Default agent-image BASE: the shared stage-1 of every locally-built agent
-# image (tagged ctxloom-agent-base:latest). The per-engine Containerfiles under
-# container/production/ layer the agent specifics — engine CLI install, the
-# ctxloom binary, the build gates — onto this via ARG BASE_IMAGE, so the base is
-# the ONE place the common environment lives (DRY), and the one thing a user
-# replaces to bring their own: set isolation_base to devcontainer (`ctxloom
-# container scaffold` seeds one from this file) or to an image ref, and the
-# same agent layers build on top of it instead.
+# ctxloom's development image: the dev container (devcontainer.json beside
+# this file), the image the Linux CI job can run in (ghcr.io/ctxloom/ctxloom-dev,
+# published by nobody yet), and the default agent-image BASE of ctxloom's
+# isolation (a user sets isolation_base to devcontainer, and the per-engine
+# layers build on top of it via ARG BASE_IMAGE).
 #
-# node:22-slim is the default: Debian (apt — the engine layers' install contract)
-# with a current node runtime, which the claude layer's npm install needs anyway.
-# A user base must keep that contract: Debian-family with apt, plus node/npm for
-# claude-backed images (the in-image build gates fail fast when it doesn't).
+# The base contract: the FINAL stage is Debian-family with apt, plus node and
+# npm (the engine layers install with apt and npm, and their in-image build
+# gates fail fast when either is missing). node:22-slim (Debian 12) is it. The
+# only other stage builds ltk, and only its binary is copied in, so the image
+# carries no Go.
 #
-# The tool layer is the coding-agent baseline the engines expect at RUN time:
-# git (repo operations, worktree-in-container), ripgrep (claude's Grep tool —
-# the CLI no longer vendors its own), curl + ca-certificates (fetches, the
-# opencode installer), unzip (installer archives), jq (ubiquitous in hook scripts),
-# strace (the acceptance harness's read-observation probe wraps the engine exec
-# in it; inert under the default seccomp profile, which denies ptrace).
-FROM node:22-slim
+# Every tool is pinned: the base images by digest, downloads by version and
+# SHA-256, cargo installs by version and --locked, npm packages by version.
+# What still floats: Debian's packages (apt, the day the image is built), the
+# npm packages' own dependencies, rustup's installer script (the toolchain it
+# installs is pinned) and serena's Python dependencies. The pins match CI's Linux job
+# (.github/workflows/ci.yml): just, cargo-nextest, cargo-deny, protoc,
+# node 22, the rust toolchain and its Windows target, ltk, versionator.
+#
+# Root-usable and user-usable alike: every tool lives under /usr/local and
+# CARGO_HOME and RUSTUP_HOME are world-writable, so a GitHub Actions
+# `container:` job (root) and the dev container's `node` user (uid 1000,
+# remapped to the host's by updateRemoteUserUID) run the same gates.
+
+# --- ltk: built with Go, copied in as one static binary --------------------
+# The ltk of CI (go-final's f36e8df), the pre-tool hook and `just selftest`'s
+# ltk-rules-check.
+FROM docker.io/library/golang:1.26.9-trixie@sha256:f06b7122f888680048afb247c4e5f49c0069eb6c4c1ccae0f3f4834527a8d22c AS ltk
+ARG LTK_REV=f36e8dfb21e4f0179a86acc36f39939320f7fff9
+RUN CGO_ENABLED=0 GOBIN=/out go install -trimpath github.com/ctxloom/ctxloom/cmd/ltk@${LTK_REV}
+
+# --- the image -------------------------------------------------------------
+FROM docker.io/library/node:22-slim@sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba3ab21ee
 
 # Default TERM so interactive agent runs get color/ANSI. The runtime starts
 # processes with a bare environment, leaving TERM=dumb, which makes every CLI
@@ -28,22 +41,39 @@ FROM node:22-slim
 ENV TERM=xterm-256color \
     COLORTERM=truecolor
 
+# The coding-agent baseline the engines expect at RUN time: git (repo
+# operations, worktree-in-container), ripgrep (claude's Grep tool), curl +
+# ca-certificates (fetches), unzip (installer archives), jq (hook scripts and
+# the gates), strace (the acceptance harness's read-observation probe).
+# Then the workspace's: a C toolchain for build scripts, pkg-config and
+# libssl-dev (native-tls's openssl-sys), xz; python3 (path-deps-check.sh,
+# dev-local), procps (ps, pkill) and util-linux (flock, setsid) for the
+# gates; less for git's pager.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         git ripgrep curl ca-certificates unzip jq strace \
+        build-essential pkg-config libssl-dev xz-utils python3 procps util-linux less \
     && rm -rf /var/lib/apt/lists/*
 
-# --- ctxloom project tooling -------------------------------------------
-# Native build deps for the workspace (rust-development): a C toolchain for
-# build scripts, and protoc for angzarr-build's codegen from proto/.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        build-essential pkg-config protobuf-compiler xz-utils \
-    && rm -rf /var/lib/apt/lists/*
+# protoc 21.12 (libprotoc 3.21.12), CI's own download and hash, for
+# angzarr-build's codegen. Debian 12 packages the same version
+# (3.21.12-3+deb12u1); the upstream zip is used so CI and this image run the
+# same bytes.
+ARG PROTOC_VERSION=21.12
+ARG PROTOC_SHA256=3a4c1e5f2516c639d3079b1586e703fc7bcfa2136d58bda24d1d54f949c315e8
+RUN cd /tmp \
+    && curl -fsSLo protoc.zip https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip \
+    && echo "${PROTOC_SHA256}  protoc.zip" | sha256sum -c - \
+    && unzip -q protoc.zip -d /usr/local bin/protoc 'include/*' \
+    && chmod a+rx /usr/local/bin/protoc && chmod -R a+rX /usr/local/include \
+    && rm protoc.zip
 
-# Rust, pinned to rust-toolchain.toml's channel, with clippy/rustfmt (just lint,
-# just fmt-check) and rust-analyzer (the LSP serena drives). Installed system-wide
-# so whatever uid the agent runs as can use it.
+# Rust, pinned to rust-toolchain.toml's channel and made the default (as CI
+# does: `just selftest` builds fixture workspaces rust-toolchain.toml does not
+# reach), with clippy/rustfmt (just lint, just fmt-check), rust-analyzer (the
+# LSP serena drives), and the x86_64-pc-windows-gnu target (`just
+# check-windows`, which checks only crates without C dependencies, so no mingw
+# is needed). Installed system-wide so whatever uid runs can use it.
 ARG RUST_TOOLCHAIN=1.96.1
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
@@ -51,37 +81,91 @@ ENV RUSTUP_HOME=/usr/local/rustup \
 RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --no-modify-path --profile minimal \
         --default-toolchain ${RUST_TOOLCHAIN} \
         --component clippy,rustfmt,rust-analyzer \
+        --target x86_64-pc-windows-gnu \
     && chmod -R a+rwX ${RUSTUP_HOME} ${CARGO_HOME}
 
-# Cargo-installed tools: just (task runner),
-# cargo-deny (just lint-deps), ast-grep (finder's structural search).
-RUN cargo install --locked just@1.58.0 cargo-deny@0.20.2 ast-grep@0.45.3 \
+# Cargo-installed tools: just (the task runner, CI's 1.40.0), cargo-deny (just
+# lint-deps), cargo-mutants (closeout's mutation gate; the version the gates
+# are run with locally), ast-grep (finder's structural search).
+RUN cargo install --locked just@1.40.0 cargo-deny@0.20.2 cargo-mutants@26.2.0 ast-grep@0.45.3 \
     && rm -rf ${CARGO_HOME}/registry ${CARGO_HOME}/git \
     && chmod -R a+rwX ${CARGO_HOME}
 
 # rtk (Rust Token Killer): token-lean command output for the finder.
 ARG RTK_VERSION=0.51.0
 RUN cargo install --locked --git https://github.com/rtk-ai/rtk --tag v${RTK_VERSION} rtk \
-    && rm -rf ${CARGO_HOME}/registry ${CARGO_HOME}/git
+    && rm -rf ${CARGO_HOME}/registry ${CARGO_HOME}/git \
+    && chmod -R a+rwX ${CARGO_HOME}
 
-# lefthook + gitleaks: the pre-commit secrets scan. Without them a commit made
-# inside the container would skip the scan.
-ARG LEFTHOOK_VERSION=2.1.14
-ARG GITLEAKS_VERSION=8.30.1
-RUN curl -fsSL https://github.com/evilmartians/lefthook/releases/download/v${LEFTHOOK_VERSION}/lefthook_${LEFTHOOK_VERSION}_Linux_x86_64.gz \
-        | gunzip > /usr/local/bin/lefthook && chmod +x /usr/local/bin/lefthook \
-    && curl -fsSL https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz \
-        | tar -xz -C /usr/local/bin gitleaks
-
-# cargo-nextest: `just test` and `just test-staged` run the tests with it, and
-# fail without it. Its prebuilt release, as compiling it takes minutes.
+# Prebuilt binaries, each checked against its SHA-256:
+# - cargo-nextest: `just test` and `just test-staged` run the tests with it,
+#   and fail without it (.config/nextest.toml's recommended version, CI's).
+# - lefthook (the justfile's 1.13.6) and gitleaks: the pre-commit gates.
+# - versionator: build.rs stamps the version through it (no versionator, no
+#   build); CI's v0.3.0, its release binary rather than a Go build.
+# - gh, the GitHub CLI, authenticated by GH_TOKEN from the environment.
 ARG NEXTEST_VERSION=0.9.146
-RUN curl -fsSL https://get.nexte.st/${NEXTEST_VERSION}/linux | tar -xz -C ${CARGO_HOME}/bin
+ARG NEXTEST_SHA256=682c21b777c333e96fd532e114d3a5a894e0729ab88d94c0a9f20f8419695428
+ARG LEFTHOOK_VERSION=1.13.6
+ARG LEFTHOOK_SHA256=c2406f881fd0ee1ddc5e1400d809d7d02ba6c908bb0118139689d925691e884e
+ARG GITLEAKS_VERSION=8.30.1
+ARG GITLEAKS_SHA256=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+ARG VERSIONATOR_VERSION=0.3.0
+ARG VERSIONATOR_SHA256=0769878350b0a3f552c71b116f50fcdbcf6056cbce43b77f7c99aaa9bf1ef61b
+ARG GH_VERSION=2.102.0
+ARG GH_SHA256=bb766f710eef8ede859c18578c72c327597cd4c8a85b06001b1f3843c6019386
+RUN set -eu; cd /tmp; \
+    fetch() { curl -fsSLo "$1" "$2" && echo "$3  $1" | sha256sum -c -; }; \
+    fetch nextest.tar.gz https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-${NEXTEST_VERSION}/cargo-nextest-${NEXTEST_VERSION}-x86_64-unknown-linux-gnu.tar.gz ${NEXTEST_SHA256}; \
+    tar -xzf nextest.tar.gz -C ${CARGO_HOME}/bin cargo-nextest; \
+    fetch lefthook.gz https://github.com/evilmartians/lefthook/releases/download/v${LEFTHOOK_VERSION}/lefthook_${LEFTHOOK_VERSION}_Linux_x86_64.gz ${LEFTHOOK_SHA256}; \
+    gunzip -c lefthook.gz > /usr/local/bin/lefthook; \
+    fetch gitleaks.tar.gz https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz ${GITLEAKS_SHA256}; \
+    tar -xzf gitleaks.tar.gz -C /usr/local/bin gitleaks; \
+    fetch versionator.tar.gz https://github.com/benjaminabbitt/versionator/releases/download/v${VERSIONATOR_VERSION}/versionator_${VERSIONATOR_VERSION}_linux_amd64.tar.gz ${VERSIONATOR_SHA256}; \
+    tar -xzf versionator.tar.gz -C /usr/local/bin versionator; \
+    fetch gh.tar.gz https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz ${GH_SHA256}; \
+    tar -xzf gh.tar.gz --strip-components=2 -C /usr/local/bin gh_${GH_VERSION}_linux_amd64/bin/gh; \
+    chmod 0755 /usr/local/bin/lefthook /usr/local/bin/gitleaks /usr/local/bin/versionator /usr/local/bin/gh ${CARGO_HOME}/bin/cargo-nextest; \
+    rm -f /tmp/*.gz
+
+COPY --from=ltk /out/ltk /usr/local/bin/ltk
+
+# The engine CLIs, at the versions CLAUDE.md names: claude 2.1.322 and
+# opencode 1.18.4. Their self-updaters are off, so the pin holds.
+ARG CLAUDE_CODE_VERSION=2.1.322
+ARG OPENCODE_VERSION=1.18.4
+ENV DISABLE_AUTOUPDATER=1 \
+    OPENCODE_DISABLE_AUTOUPDATE=1
+RUN npm install -g --no-fund --no-audit \
+        @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} opencode-ai@${OPENCODE_VERSION} \
+    && npm cache clean --force
 
 # serena (the serena bundle's MCP server), via uv, on a Python its
 # dependencies build wheels for (tiktoken's PyO3 refuses newer ones).
+ARG UV_VERSION=0.13.8
 ARG SERENA_VERSION=1.7.0
 ENV UV_TOOL_DIR=/usr/local/share/uv/tools \
-    UV_TOOL_BIN_DIR=/usr/local/bin
-RUN curl -fsSL https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh \
-    && uv tool install --python 3.13 serena-agent==${SERENA_VERSION}
+    UV_TOOL_BIN_DIR=/usr/local/bin \
+    UV_PYTHON_INSTALL_DIR=/usr/local/share/uv/python
+RUN curl -fsSL https://astral.sh/uv/${UV_VERSION}/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh \
+    && uv tool install --python 3.13 serena-agent==${SERENA_VERSION} \
+    && chmod -R a+rX /usr/local/share/uv \
+    && rm -rf /root/.cache
+
+# The dev container's target directory: a named volume is mounted here
+# (devcontainer.json's CARGO_TARGET_DIR), and a new volume takes this
+# directory's mode, sticky and world-writable, so whatever uid the dev user is
+# remapped to can build. In CI the target stays in the checkout.
+RUN mkdir -p /cargo-target ${CARGO_HOME}/registry ${CARGO_HOME}/git \
+    && chmod 1777 /cargo-target \
+    && chmod a+rwX ${CARGO_HOME}/registry ${CARGO_HOME}/git
+
+# The dev container only (devcontainer.json passes it; CI and the isolation
+# base leave it empty): the checkout's PARENT directory, made sticky and
+# world-writable. The gates make throwaway worktrees beside the checkout (the
+# staged tree, the mutation batch, the ratchet base), and the runtime would
+# otherwise create that directory, for the bind mount, owned by root. They
+# live in the container, not on the host.
+ARG WORKSPACE_PARENT=
+RUN if [ -n "${WORKSPACE_PARENT}" ]; then mkdir -p "${WORKSPACE_PARENT}" && chmod 1777 "${WORKSPACE_PARENT}"; fi

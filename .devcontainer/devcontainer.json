@@ -1,5 +1,96 @@
+// ctxloom's dev container: agents and every just gate run inside it, the
+// first real boundary between an agent and the host. The image is the
+// Containerfile beside this file (see its header).
+//
+// Open the PRIMARY checkout (its .git is a directory). A linked worktree's
+// .git names the primary's .git/worktrees/<name>, which is not mounted unless
+// the commented `mounts` entry below says where it is.
+//
+// Docker (rootful) is assumed: the `node` user (uid 1000) is remapped to the
+// host's uid (updateRemoteUserUID), so files on the bind mount keep the
+// host user's ownership. Under rootless podman use the commented runArgs
+// instead (keep-id maps the host uid onto the same uid in the container).
+// Rootless docker cannot map the host uid onto a non-root user: there the
+// host user is the container's root.
 {
+  "name": "ctxloom",
   "build": {
-    "dockerfile": "Containerfile"
-  }
+    "dockerfile": "Containerfile",
+    "context": ".",
+    // The checkout's parent, writable, for the gates' throwaway worktrees
+    // (the Containerfile's last step).
+    "args": { "WORKSPACE_PARENT": "${localWorkspaceFolder}/.." }
+  },
+
+  // The repository at its own path, so paths in logs, the git worktrees the
+  // gates make beside the checkout and absolute paths in the store mean the
+  // same thing inside and out.
+  "workspaceMount": "source=${localWorkspaceFolder},target=${localWorkspaceFolder},type=bind",
+  "workspaceFolder": "${localWorkspaceFolder}",
+
+  // cargo's caches and the build output on named volumes, never the host's
+  // /home: the registry and git caches shared by every ctxloom container, the
+  // target dir this container's own. The gates' staged tree and the ratchet
+  // base build under it too (target/staged and target/ratchet-base follow an
+  // outer CARGO_TARGET_DIR); only the gates' logs stay in the checkout's
+  // target/logs.
+  "mounts": [
+    "source=ctxloom-cargo-registry,target=/usr/local/cargo/registry,type=volume",
+    "source=ctxloom-cargo-git,target=/usr/local/cargo/git,type=volume",
+    "source=ctxloom-target-${devcontainerId},target=/cargo-target,type=volume"
+    // A linked worktree: the primary checkout's .git, at its own path.
+    // ,"source=/path/to/primary/.git,target=/path/to/primary/.git,type=bind"
+    //
+    // ctxloom's home (`just install`'s CTXLOOM_HOME, ~/.ctxloom-rs: the
+    // project stores) kept across rebuilds, apart from the host's:
+    // ,"source=ctxloom-home-${devcontainerId},target=/home/node/.ctxloom-rs,type=volume"
+    //
+    // Engine logins: see "Engine credentials" below.
+  ],
+
+  "remoteUser": "node",
+  "containerUser": "node",
+  "updateRemoteUserUID": true,
+  // Rootless podman instead of docker:
+  // "runArgs": ["--userns=keep-id"],
+  // "updateRemoteUserUID": false,
+
+  "containerEnv": {
+    "CARGO_TARGET_DIR": "/cargo-target"
+  },
+
+  "remoteEnv": {
+    // `just install` puts ctxloom in ~/.local/bin.
+    "PATH": "/home/node/.local/bin:${containerEnv:PATH}",
+    // gh, from the host's environment; no gh config is mounted. Unset on the
+    // host, it is empty here and gh is signed out.
+    "GH_TOKEN": "${localEnv:GH_TOKEN}"
+
+    // Engine credentials. None is passed by default: which login an agent in
+    // here may use is the owner's decision. Each option, uncommented, is one
+    // choice.
+    //
+    // 1. Tokens from the host's environment (nothing on disk is shared; a
+    //    child run needs a variable anyway, a file authenticates only the
+    //    primary session):
+    // ,"ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}"
+    // ,"CLAUDE_CODE_OAUTH_TOKEN": "${localEnv:CLAUDE_CODE_OAUTH_TOKEN}"
+    // ,"OPENAI_API_KEY": "${localEnv:OPENAI_API_KEY}"
+    //
+    // 2. The host's logins, mounted READ-ONLY into "mounts" above. A refresh
+    //    of an OAuth login rewrites the file in place, which a read-only
+    //    mount refuses, so the login works until its token expires:
+    // ,"source=${localEnv:HOME}/.claude/.credentials.json,target=/home/node/.claude/.credentials.json,type=bind,readonly"
+    // ,"source=${localEnv:HOME}/.local/share/opencode/auth.json,target=/home/node/.local/share/opencode/auth.json,type=bind,readonly"
+    //
+    // 3. A login of the container's own, kept on a volume (sign in once
+    //    inside; the host's login is never seen), into "mounts" above:
+    // ,"source=ctxloom-claude-${devcontainerId},target=/home/node/.claude,type=volume"
+    // ,"source=ctxloom-opencode-${devcontainerId},target=/home/node/.local/share/opencode,type=volume"
+  },
+
+  // The host's git identity, name and email only (no signing key, credential
+  // helper or alias): read on the host, applied in the container.
+  "initializeCommand": "sh .devcontainer/host-identity.sh",
+  "postCreateCommand": "sh .devcontainer/post-create.sh"
 }

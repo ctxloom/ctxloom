@@ -250,36 +250,46 @@ _extract-trailers log rc:
 test: (_require-nextest "test")
     @just --justfile '{{gates_root}}/justfile' _run test workspace tests just --justfile '{{gates_root}}/justfile' _tests --workspace
 
-# Test what the commit changes: lefthook's pre-commit step. Runs the tests of
-# every crate with a staged change and of the workspace crates depending on
-# them (a change can break a dependent's tests); a staged workspace-wide file
-# (`workspace_wide`), or crate source no crate owns, tests the whole
-# workspace. It judges the STAGED tree, built by `_staged-tree`, so unstaged
-# edits cannot pass or fail it.
+# Test what the commit changes: lefthook's pre-commit step. Runs the OWN
+# tests of every crate with a staged change, and no dependent's (owner ruling
+# of 2026-11-13, fast hooks: a library's change does not run the binary's
+# acceptance suite; the landing gate, `land-ratchet`, runs every test).
+# `scope` `dependents` adds the workspace crates depending on them, as
+# `test-commit` asks on the default branch, where no red may be committed. A
+# staged workspace-wide file (`workspace_wide`), or crate source no crate
+# owns, tests the whole workspace. It judges the STAGED tree, built by
+# `_staged-tree`, so unstaged edits cannot pass or fail it.
 [no-exit-message]
 [private]
 [group('hook')]
-[doc("Tests of the crates the staged change touches, and their dependents")]
-test-staged: (_require-nextest "test-staged")
+[doc("Tests of the crates the staged change touches (with `dependents`, theirs too)")]
+test-staged scope="own": (_require-nextest "test-staged")
     #!/usr/bin/env bash
     set -euo pipefail
     root='{{gates_root}}'
+    scope='{{scope}}'
+    case "$scope" in
+        own|dependents) ;;
+        *) echo "FAIL test-staged: scope is own or dependents, not $scope" >&2; exit 2 ;;
+    esac
     read -ra wide <<< "{{workspace_wide}}"
     mapfile -t dirs < <(cargo metadata --format-version 1 --no-deps --offline --manifest-path "$root/Cargo.toml" \
         | jq -r --arg root "$root/" '.packages[] | .manifest_path | ltrimstr($root) | rtrimstr("/Cargo.toml")')
     while IFS= read -r -d '' path; do
-        [[ $path == *.rs || $path == */Cargo.toml ]] && exec just --justfile "$root/justfile" _staged-tree _test-affected
+        [[ $path == *.rs || $path == */Cargo.toml ]] && exec just --justfile "$root/justfile" _staged-tree _test-affected "$scope"
         for dir in "${dirs[@]}"; do
-            [[ $path == "$dir"/* ]] && exec just --justfile "$root/justfile" _staged-tree _test-affected
+            [[ $path == "$dir"/* ]] && exec just --justfile "$root/justfile" _staged-tree _test-affected "$scope"
         done
         for pattern in "${wide[@]}"; do
-            [[ $path == $pattern ]] && exec just --justfile "$root/justfile" _staged-tree _test-affected
+            [[ $path == $pattern ]] && exec just --justfile "$root/justfile" _staged-tree _test-affected "$scope"
         done
     done < <(git -C "$root" diff --cached --name-only --no-renames -z HEAD)
     echo "ok   test-staged (nothing to test: no staged change is in a crate or a workspace-wide file)"
 
 # The tests of a commit: lefthook's pre-commit `tests` step, and its
-# pre-merge-commit one. `test-staged`, under the red-on-branches rule: red
+# pre-merge-commit one. `test-staged` (off the default branch the changed
+# crates' own tests; on it, and wherever the branch cannot be told, their
+# dependents' too), under the red-on-branches rule: red
 # tests (`_tests`' 100, a failing test, or 120, a failing doc test) are
 # committed on any branch but the default one (`_red-allowed`), with a
 # warning that the branch cannot merge until they pass, and refused on the
@@ -299,14 +309,19 @@ test-staged: (_require-nextest "test-staged")
 test-commit:
     #!/usr/bin/env bash
     set -euo pipefail
-    rc=0
-    just --justfile '{{gates_root}}/justfile' test-staged || rc=$?
+    rc=0 allowed=0
+    where=$(just --justfile '{{gates_root}}/justfile' _red-allowed) || allowed=$?
+    if [ "$allowed" -eq 0 ]; then
+        just --justfile '{{gates_root}}/justfile' test-staged || rc=$?
+    else
+        just --justfile '{{gates_root}}/justfile' test-staged dependents || rc=$?
+    fi
     case "$rc" in
         0) exit 0 ;;
         100|120) ;;
         *) exit "$rc" ;;
     esac
-    if where=$(just --justfile '{{gates_root}}/justfile' _red-allowed); then
+    if [ "$allowed" -eq 0 ]; then
         IFS=$'\t' read -r branch default <<< "$where"
         if [ -n "{{red_judge}}" ] && ! just --justfile '{{gates_root}}/justfile' {{red_judge}} "$rc"; then
             echo "FAIL tests: red tests cannot be committed: red_judge refused them, though $branch is off" \
@@ -321,9 +336,10 @@ test-commit:
     exit "$rc"
 
 # Inside the staged tree: map the staged paths to crates through cargo
-# metadata, close over workspace dependents, and test them.
+# metadata, close over workspace dependents when `scope` is `dependents`, and
+# test them.
 [no-exit-message]
-_test-affected:
+_test-affected scope:
     #!/usr/bin/env bash
     set -euo pipefail
     root='{{gates_root}}'
@@ -356,6 +372,12 @@ _test-affected:
         exit 0
     fi
     changed=$(printf '%s ' "${!selected[@]}")
+    changed=$(printf '%s\n' $changed | sort | tr '\n' ' ')
+    if [ '{{scope}}' != dependents ]; then
+        mapfile -t packages < <(printf '%s\n' "${!selected[@]}" | sort)
+        exec just --justfile "$root/justfile" _run test-staged "changed: ${changed% }" tests \
+            just --justfile "$root/justfile" _tests "${packages[@]}"
+    fi
     # Dependents, transitively: every workspace crate depending (normal, dev or
     # build) on a selected one is selected too, until nothing changes.
     mapfile -t edges < <(jq -r '[.packages[].name] as $ws | .packages[] as $p

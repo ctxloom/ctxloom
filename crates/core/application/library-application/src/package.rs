@@ -403,9 +403,16 @@ impl Project {
     }
 
     fn set_premised(&mut self, word: &str) -> Result<String, AppError> {
-        let _ = word;
         self.require_project()?;
-        Ok(String::new())
+        self.update_config(Scope::Project, "config", |held| {
+            let mut entries = match held {
+                Some(Value::Map(entries)) => entries,
+                _ => Vec::new(),
+            };
+            entries.retain(|(key, _)| key != "premised");
+            entries.push(("premised".to_string(), Value::Scalar(word.to_string())));
+            Ok(Some(Value::Map(entries)))
+        })
     }
 
     fn set_statusline(&mut self, enabled: bool) -> Result<String, AppError> {

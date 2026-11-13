@@ -230,8 +230,24 @@ impl Init {
     /// then the suggestion stands. Off a terminal nothing is asked and
     /// nothing written: the word chosen, if one was.
     pub fn choose_premised(&self, terminal: &dyn Terminal) -> Result<Option<String>, InitError> {
-        let _ = terminal;
-        Ok(None)
+        if !terminal.is_terminal() {
+            return Ok(None);
+        }
+        let mut word = PREMISED_SUGGESTED;
+        for _ in 0..PREMISED_TRIES {
+            let typed = terminal.ask(PREMISED_QUESTION, PREMISED_SUGGESTED);
+            match typed.map(|line| line.trim().to_lowercase()).as_deref() {
+                None | Some("") => break,
+                Some(answer) if answer == PREMISED_SUGGESTED => break,
+                Some(answer) if answer == PREMISED_ALWAYS => {
+                    word = PREMISED_ALWAYS;
+                    break;
+                }
+                Some(_) => {}
+            }
+        }
+        self.create.set_premised(word).map_err(InitError::Create)?;
+        Ok(Some(word.to_string()))
     }
 }
 

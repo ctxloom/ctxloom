@@ -1291,7 +1291,11 @@ pull). A session's outputs are `<project root>/<output.dir>/<harp>`
 `~/Documents/ctxloom/<basename>/<harp>`; nothing gitignores them, and a
 rename moves the folder. A first init at a terminal asks for `output.dir`
 before the interview (suggesting `ctxloom/`, saying outputs are committable)
-and writes the answer.
+and writes the answer; then, in the same style, whether conditional guidance
+loads only when it applies or always (`init_application::PREMISED_QUESTION`,
+suggesting `on-demand`; an answer that is neither word is asked again, at
+most three times, then the suggestion stands), and writes it as
+`config.premised`. Off a terminal neither is asked and nothing is written.
 
 `legacy.go` (owner ruling 162) says whether Go ctxloom still runs on this
 machine beside this one; both write hook entries into the user's shared

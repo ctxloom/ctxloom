@@ -107,35 +107,20 @@ mod read {
 // OD-40 (design §1.2, OQ-4): a bundle's origin is part of its name; its
 // items are named below it, each in its collection.
 mod names {
-    use super::super::{bundle_name, count, item_name};
-    use library_application::Located;
+    use super::super::count;
+    use crate::catalog::item_name;
 
+    // A hit's bundle is named by catalog's names (B1's, which search
+    // shares): a remote's item below its remote's bundle.
     #[test]
-    fn test_a_bundle_is_named_by_its_origin_and_an_item_below_it() {
-        let parent = "projects/calm-otter";
+    fn test_a_hit_is_named_below_its_bundle_by_its_origin() {
         assert_eq!(
-            bundle_name(parent, "demo"),
-            "projects/calm-otter/bundles/demo"
-        );
-        assert_eq!(
-            bundle_name(parent, "acme/rules"),
-            "projects/calm-otter/remotes/acme/bundles/rules"
-        );
-        assert_eq!(
-            bundle_name(parent, "ctxloom+companion:taskloom"),
-            "projects/calm-otter/companions/taskloom/bundles/loadout"
-        );
-        assert_eq!(
-            bundle_name("users/me", "ctxloom"),
-            "users/me/bundles/ctxloom"
-        );
-        let located = Located {
-            bundle: "acme/rules".to_string(),
-            item: "go".to_string(),
-        };
-        assert_eq!(
-            item_name(parent, &located, "fragments"),
+            item_name("projects/calm-otter", "acme/rules", "fragments", "go"),
             "projects/calm-otter/remotes/acme/bundles/rules/fragments/go"
+        );
+        assert_eq!(
+            item_name("projects/calm-otter", "demo", "mcpServers", "tree"),
+            "projects/calm-otter/bundles/demo/mcpServers/tree"
         );
     }
 

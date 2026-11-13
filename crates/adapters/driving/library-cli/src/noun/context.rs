@@ -1,7 +1,8 @@
 //! `context assemble` (B3): its json the `AssembledContext` of
 //! `AssembleContext` (OD-40, design §5.9).
 
-use super::search::{count, item_name};
+use super::search::count;
+use crate::catalog;
 use crate::prelude::*;
 use library_application::{Assembled, Located};
 
@@ -28,9 +29,10 @@ pub(crate) fn read(
 /// said on stderr, as every notice is before T13.
 pub(crate) fn assembled(parent: &str, assembled: &Assembled) -> v1::AssembledContext {
     let named = |text: &String, located: Option<&Option<Located>>, collection: &str| {
-        located
-            .and_then(Option::as_ref)
-            .map_or_else(|| text.clone(), |at| item_name(parent, at, collection))
+        located.and_then(Option::as_ref).map_or_else(
+            || text.clone(),
+            |at| catalog::item_name(parent, &at.bundle, collection, &at.item),
+        )
     };
     v1::AssembledContext {
         context: assembled.context.clone(),

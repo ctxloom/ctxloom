@@ -1,8 +1,9 @@
 //! `search` (B3): its json the `SearchLibraryResponse` of
 //! `projects/{project}:searchLibrary` (OD-40, design §5.9).
 
+use crate::catalog;
 use crate::prelude::*;
-use library_application::{Located, RemoteFound, SearchHit, SearchResults};
+use library_application::{RemoteFound, SearchHit, SearchResults};
 
 pub(crate) fn read(
     cx: &Context<'_>,
@@ -40,7 +41,7 @@ fn local(parent: &str, hit: &SearchHit) -> v1::SearchHit {
     v1::SearchHit {
         resource: hit.located.as_ref().map_or_else(
             || hit.name.clone(),
-            |located| item_name(parent, located, collection),
+            |at| catalog::item_name(parent, &at.bundle, collection, &at.item),
         ),
         kind: kind as i32,
         tags: hit.tags.clone(),
@@ -77,43 +78,11 @@ fn kind(word: &str) -> (v1::ItemKind, &'static str) {
     }
 }
 
-/// A bundle's resource name under `parent`, from the name the catalog gives
-/// it (design §1.2, OQ-4): a project's or the built-in `<bundle>` is
-/// `{parent}/bundles/<bundle>`, one installed from a remote, `<remote>/
-/// <bundle>`, is `{parent}/remotes/<remote>/bundles/<bundle>`, and a
-/// companion's loadout, `ctxloom+companion:<bin>`, is `{parent}/companions/
-/// <bin>/bundles/loadout`. (A nested local bundle is refused, OQ-5, so a
-/// `/` is a remote's.) B1's `catalog::bundle_name` names them alike; one
-/// of the two goes when both land.
-pub(crate) fn bundle_name(parent: &str, bundle: &str) -> String {
-    if let Some(bin) = bundle.strip_prefix(COMPANION_PREFIX) {
-        return format!("{parent}/companions/{bin}/bundles/loadout");
-    }
-    match bundle.split_once('/') {
-        Some((remote, bundle)) => format!("{parent}/remotes/{remote}/bundles/{bundle}"),
-        None => format!("{parent}/bundles/{bundle}"),
-    }
-}
-
-/// An item's resource name under `parent`: its bundle's, then its
-/// `collection` (`fragments`, `commands`, `skills`, `mcpServers`,
-/// `profiles`) and its own name.
-pub(crate) fn item_name(parent: &str, located: &Located, collection: &str) -> String {
-    format!(
-        "{}/{collection}/{}",
-        bundle_name(parent, &located.bundle),
-        located.item
-    )
-}
-
 /// A count or token estimate as the API's `uint32` (OQ-12), saturating: no
 /// list or context comes near it.
 pub(crate) fn count(n: u64) -> u32 {
     u32::try_from(n).unwrap_or(u32::MAX)
 }
-
-/// How a companion's loadout's catalog name begins.
-const COMPANION_PREFIX: &str = "ctxloom+companion:";
 
 #[cfg(test)]
 #[path = "search.test.rs"]

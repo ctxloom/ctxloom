@@ -35,7 +35,8 @@ edition = "2021"
 T
 # `test-staged` stands in for the real one, which needs a staged tree: it
 # exits as FAKE_STAGED_RC says, so `test-commit`'s reading of each code is
-# what is checked.
+# what is checked, and says the scope it was asked for: none (the changed
+# crates' own tests) off the default branch, `dependents` on it.
 cat > "$fx/justfile" <<'J'
 set allow-duplicate-recipes := true
 TOP := `git rev-parse --show-toplevel`
@@ -47,8 +48,8 @@ mutation_thresholds := "crates=90"
 workspace_wide := "Cargo.toml"
 red_judge := "_judge"
 [no-exit-message]
-test-staged:
-    @exit "${FAKE_STAGED_RC}"
+test-staged scope="":
+    @echo "test-staged asked: [{{scope}}]"; exit "${FAKE_STAGED_RC}"
 [no-exit-message]
 _judge rc:
     @echo "judge asked: {{rc}}"; exit "${FAKE_JUDGE_RC:-0}"
@@ -114,6 +115,7 @@ commit_rc() { # branch staged-rc expected [judge-rc]
 commit_rc feature 100 0
 grep -q '^RED  tests: red tests committed on feature' "$tmp/out" || fail "test-commit: a red test off main is not said: $(cat "$tmp/out")"
 grep -q '^judge asked: 100$' "$tmp/out" || fail "test-commit: red off main is not judged by red_judge: $(cat "$tmp/out")"
+grep -qx 'test-staged asked: \[\]' "$tmp/out" || fail "test-commit off main: not the changed crates' own tests: $(cat "$tmp/out")"
 commit_rc feature 120 0
 # A red commit its judge refuses (`red_judge`: red tests it may not carry,
 # such as a green test of a file it does not touch turned red) is refused,
@@ -127,6 +129,7 @@ commit_rc feature 101 101
 commit_rc feature 102 102
 commit_rc main 100 100
 grep -q 'red tests cannot be committed here' "$tmp/out" || fail "test-commit on main: $(cat "$tmp/out")"
+grep -qx 'test-staged asked: \[dependents\]' "$tmp/out" || fail "test-commit on main: dependents not tested: $(cat "$tmp/out")"
 ! grep -q 'judge asked' "$tmp/out" || fail "test-commit on main: the judge was asked: $(cat "$tmp/out")"
 commit_rc main 121 121
 commit_rc main 0 0

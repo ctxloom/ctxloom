@@ -195,6 +195,87 @@ fn a_placeholder_whose_name_holds_a_space_is_filled_from_its_column() {
     assert!(run.passed);
 }
 
+/// Each scenario's outcome, by the part of its id after the feature's path,
+/// sorted.
+fn outcomes(path: &std::path::Path, run: super::gherkin_common::FeatureRun) -> Vec<(String, bool)> {
+    let feature = format!("{} :: ", path.display());
+    let mut got: Vec<(String, bool)> = run
+        .scenarios
+        .into_iter()
+        .map(|(id, ok)| (id.strip_prefix(&feature).unwrap_or(&id).to_string(), ok))
+        .collect();
+    got.sort();
+    got
+}
+
+/// `the output reports "<path>" containing "<value>"` and `... having "<n>"
+/// entries` read the json when it is json, and otherwise the text says the
+/// value (as `the output reports "<path>" as "<value>"` does): a text row
+/// passes on its words, and either form fails on the wrong ones.
+#[test]
+fn the_list_steps_read_the_json_or_the_words_of_a_text_row() {
+    let project = super::library::Project::bare();
+    let path = project.dir().join("lists.feature");
+    files::put(
+        &path,
+        "Feature: f\n  Background:\n    Given an initialized ctxloom project\n    And a bundle \"demo\" exists\n\n  Scenario Outline: containing <case>\n    When I run \"ctxloom search --local --tag example <flags>\"\n    Then the command succeeds\n    And the output reports \"local[name=example].tags\" containing \"<tag>\"\n\n    Examples:\n      | case     | flags         | tag                 |\n      | json     | --format json | example             |\n      | text     | --format text | - example [example] |\n      | bad json | --format json | nope                |\n      | bad text | --format text | - nope              |\n\n  Scenario Outline: having <case>\n    When I run \"ctxloom search --local --tag example <flags>\"\n    Then the command succeeds\n    And the output reports \"local\" having \"<count>\" entries\n\n    Examples:\n      | case     | flags         | count        |\n      | json     | --format json | 1            |\n      | text     | --format text | Results (1): |\n      | bad json | --format json | 2            |\n      | bad text | --format text | Results (2): |\n",
+    );
+    let got = outcomes(&path, super::gherkin::run(&path));
+    let want = |name: &str, row: &str, ok: bool| (format!("{name} :: | {row} |"), ok);
+    let mut expected = vec![
+        want("containing json", "json | --format json | example", true),
+        want(
+            "containing text",
+            "text | --format text | - example [example]",
+            true,
+        ),
+        want(
+            "containing bad json",
+            "bad json | --format json | nope",
+            false,
+        ),
+        want(
+            "containing bad text",
+            "bad text | --format text | - nope",
+            false,
+        ),
+        want("having json", "json | --format json | 1", true),
+        want("having text", "text | --format text | Results (1):", true),
+        want("having bad json", "bad json | --format json | 2", false),
+        want(
+            "having bad text",
+            "bad text | --format text | Results (2):",
+            false,
+        ),
+    ];
+    expected.sort();
+    assert_eq!(got, expected);
+}
+
+/// `the skill list output includes "<skill>" from bundle "<bundle>"`: the
+/// listing has that skill of that bundle, json (`name` `<bundle>/<skill>`,
+/// `source` the bundle) or text (`- <bundle>/<skill>`), and no other.
+#[test]
+fn the_skill_list_step_finds_a_skill_of_its_bundle_alone() {
+    let project = super::library::Project::bare();
+    let path = project.dir().join("skills.feature");
+    files::put(
+        &path,
+        "Feature: f\n  Scenario Outline: listed <case>\n    Given Alice's project has a directory-form bundle \"vault\"\n    And I run \"ctxloom skill create vault reviewer -d d\"\n    When I run \"ctxloom skill list <flags>\"\n    Then the skill list output includes \"<skill>\" from bundle \"<bundle>\"\n\n    Examples:\n      | case         | flags         | skill    | bundle |\n      | json         | --format json | reviewer | vault  |\n      | text         | --format text | reviewer | vault  |\n      | other bundle | --format json | reviewer | other  |\n      | other skill  | --format text | ghost    | vault  |\n",
+    );
+    let got = outcomes(&path, super::gherkin_surfaces::run(&path));
+    let want =
+        |case: &str, row: &str, ok: bool| (format!("listed {case} :: | {case} | {row} |"), ok);
+    let mut expected = vec![
+        want("json", "--format json | reviewer | vault", true),
+        want("text", "--format text | reviewer | vault", true),
+        want("other bundle", "--format json | reviewer | other", false),
+        want("other skill", "--format text | ghost | vault", false),
+    ];
+    expected.sort();
+    assert_eq!(got, expected);
+}
+
 /// A feature that cannot run is red outside its scenarios.
 #[test]
 fn a_feature_that_does_not_parse_is_red_outside_a_scenario() {

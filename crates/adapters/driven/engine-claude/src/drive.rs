@@ -33,6 +33,12 @@ use crate::{stream, Claude, NAME};
 /// for one invalid value).
 pub const HOOKS_FILE: &str = "ctxloom-hooks.json";
 
+/// ctxloom's MCP config in the session home: the servers the run's selection
+/// carries, which the command names with `--mcp-config` (owner ruling
+/// 2026-11-12: they ride the launch). Written at every launch, `{}` of
+/// servers with none.
+pub const MCP_CONFIG_FILE: &str = "ctxloom-mcp.json";
+
 /// The user-scope settings file of claude's config dir: in the session home,
 /// which is the session's CLAUDE_CONFIG_DIR, it holds the user's own
 /// settings with the agent's permissions document as their `permissions`

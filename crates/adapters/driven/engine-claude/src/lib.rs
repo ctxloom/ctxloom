@@ -27,7 +27,10 @@ use surface_ports::{
 };
 
 pub use codec::Codec;
-pub use drive::{CONTEXT_PROMPT_FILE, COPY_IN_ALLOWLIST, ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST};
+pub use drive::{
+    CONTEXT_PROMPT_FILE, COPY_IN_ALLOWLIST, ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST,
+    MCP_CONFIG_FILE,
+};
 
 /// The engine's name.
 pub const NAME: &str = "claude-code";

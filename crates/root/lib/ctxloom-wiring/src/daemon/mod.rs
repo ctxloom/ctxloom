@@ -633,7 +633,7 @@ fn daemon_wiring(env: &Arc<EnvSnapshot>) -> Result<Wiring, Failure> {
             variable: run_ports::HOME_VARIABLE.to_string(),
         })
     })?;
-    Ok(Wiring::at(Arc::clone(env), home))
+    Ok(Wiring::at(Arc::clone(env), home).with_user_home(account_home(env)))
 }
 
 /// `serve`: this process is the daemon until it exits.
@@ -653,7 +653,10 @@ fn be_the_daemon(
         os: wiring.os_name().to_string(),
         // Her own settings and login are the ACCOUNT's (the daemon has no
         // HOME of its own, M4).
-        user_home: account_home(env),
+        user_home: wiring.user_home(),
+        // Composed as every launch's engines are (the one session-setup
+        // path): calling this binary, over her own settings.
+        engines: crate::commands::hosted_engines(wiring, &crate::program::running().name),
     };
     serve::serve(wiring.fs(), place, pace, say)
         .map_err(|detail| failed(LibError::NoRuntime { detail }))?;
@@ -828,6 +831,35 @@ fn ensure(wiring: &Wiring, env: &EnvSnapshot) {
         }
         std::thread::sleep(Duration::from_millis(20));
     }
+}
+
+/// The user's git identity in the child's project at `project_dir` (owner
+/// ruling 112), asked of git as a CLI run asks it: in her own environment,
+/// the one her launcher sent (`env`) with her home (`user_home`, the
+/// account's) as `HOME`. None when git knows neither part.
+pub(crate) fn child_git_user(
+    temp: &Path,
+    user_home: Option<&Path>,
+    project_dir: &str,
+    env: &BTreeMap<String, String>,
+) -> Option<run_ports::GitUser> {
+    let flavor = os::host().flavor();
+    let home_var = flavor.home_var();
+    let mut vars: Vec<(OsString, OsString)> = env
+        .iter()
+        .filter(|(name, _)| flavor.env_key(name) != flavor.env_key(home_var))
+        .map(|(name, value)| (name.into(), value.into()))
+        .collect();
+    let home = user_home?;
+    vars.push((home_var.into(), home.as_os_str().to_os_string()));
+    let snapshot = EnvSnapshot::from_parts(
+        flavor,
+        Ok(PathBuf::from(project_dir)),
+        temp.to_path_buf(),
+        vars,
+    );
+    let wiring = Wiring::new(Arc::new(snapshot)).ok()?;
+    crate::oneshot::git_user(&wiring, Path::new(project_dir))
 }
 
 /// The plan of a child of the project at `project_dir` (D18, D-N46): that

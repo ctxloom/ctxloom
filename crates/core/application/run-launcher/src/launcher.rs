@@ -46,8 +46,8 @@ use angzarr_embedded::v1::Uuid;
 use angzarr_embedded::{Catalog, CatchUp, Processed, ReadStore, Store};
 use pending_launches::{catch_up, PendingLaunch, PendingModel, StartedRun};
 use run_ports::{
-    Edge, Engine, FailureClass, Limits, PrepareRequest, RunnerLauncher, SessionRecords,
-    TurnCommand, TurnOutcome, TurnRequest,
+    Edge, Engine, FailureClass, Limits, RunnerLauncher, SessionRecords, TurnCommand, TurnOutcome,
+    TurnRequest,
 };
 use runs_application::{Facts, Identity, Observation, RunnerFact};
 
@@ -471,46 +471,27 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         let engine = self
             .engine(&order.engine)
             .ok_or_else(|| format!("no engine named {}", order.engine))?;
-        let home = format!("{}/home", self.records.dir(&order.harp));
-        // What the home holds of the files the engine merges into (ruling
-        // 113): a resumed session's home has its engine's own state there.
-        let mut existing = std::collections::BTreeMap::new();
-        for rel in engine.merges() {
-            if let Some(bytes) = self
-                .records
-                .read(&order.harp, &format!("home/{rel}"))
-                .map_err(|e| e.to_string())?
-            {
-                existing.insert((*rel).to_string(), bytes);
-            }
-        }
-        let prepared = engine
-            .prepare(&PrepareRequest {
-                home: home.clone(),
+        // The one session-setup path (owner, 2026-11-12): the daemon's
+        // hosted children are set up by the same function.
+        let set_up = crate::home::set_up_home(
+            &*engine,
+            &mut self.records,
+            &crate::home::HomeSetup {
+                harp: order.harp.clone(),
                 context: order.context.clone(),
-                // Nothing of the user's own engine configuration is offered.
-                offered: Vec::new(),
                 interactive: order.interactive,
                 cwd: order.cwd.clone(),
-                existing,
                 permissions: order.permissions.clone(),
                 session_home: order.settings.session_home,
-            })
-            .map_err(|e| e.to_string())?;
-        left_out.clone_from(&prepared.left_out);
-        for file in &prepared.files {
-            self.records
-                .write(&order.harp, &format!("home/{}", file.rel), &file.bytes)
-                .map_err(|e| e.to_string())?;
-        }
-        for seed in &prepared.seeds {
-            self.seed(order, &format!("home/{}", seed.rel), &seed.bytes)?;
-        }
-        self.seed_git_user(order)?;
+                git_user: order.git_user.clone(),
+            },
+        )?;
+        left_out.clone_from(&set_up.left_out);
+        let home = set_up.home;
         let request = TurnRequest {
             prompt: order.prompt.clone(),
             home,
-            context_path: prepared.context_path,
+            context_path: set_up.context_path,
             resume: order.resume.clone(),
             env: order.env.clone(),
             user_home: order.user_home.clone(),
@@ -535,41 +516,6 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         // line before it is spawned (the terminal's opening prompt is on it).
         run_ports::check_command_line(&self.os, &command).map_err(Unprepared::TooLong)?;
         Ok((engine, command))
-    }
-
-    /// Seed the session home with the user's git identity (owner ruling
-    /// 112: the engine's HOME is the session home, so git reads its global
-    /// configuration there): once, when the home has no `.gitconfig`; one
-    /// already there, which a tool of an earlier run may have written, is
-    /// left as it is. Under `session_home: host` the engine's HOME is the
-    /// user's own, which holds her git identity already, so nothing is
-    /// seeded.
-    fn seed_git_user(&mut self, order: &Order) -> Result<(), String> {
-        if order.settings.session_home == run_ports::SessionHome::Host {
-            return Ok(());
-        }
-        let Some(text) = order.git_user.as_ref().and_then(run_ports::git_config) else {
-            return Ok(());
-        };
-        let rel = format!("home/{}", run_ports::GIT_CONFIG_FILE);
-        self.seed(order, &rel, text.as_bytes())
-    }
-
-    /// Write `bytes` at `rel` of the session's directory once: when nothing
-    /// is there. One already there is left as it is: the `.gitconfig` a
-    /// tool of an earlier run wrote, the engine's seed (opencode's recent
-    /// models, owner ruling 167) the engine has rewritten since.
-    fn seed(&mut self, order: &Order, rel: &str, bytes: &[u8]) -> Result<(), String> {
-        let there = self
-            .records
-            .read(&order.harp, rel)
-            .map_err(|e| e.to_string())?;
-        if there.is_none() {
-            self.records
-                .write(&order.harp, rel, bytes)
-                .map_err(|e| e.to_string())?;
-        }
-        Ok(())
     }
 
     /// Record `observation` on the session's stream.

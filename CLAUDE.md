@@ -950,14 +950,27 @@ must be its run's) until runs are hosted. A hosted child is told the user's home
 home, `daemon::account_home`), and its `PATH` is led by the program's directory as
 the platform joins it (`run_ports::search_path_led_by`, on the daemon's
 `Place::os`); the environment its launcher hands off is keyed as the
-platform compares names (`os::Flavor::env_key`). The hosted engines are
-composed bare (`Claude::new`, `Opencode::new`): no callback program, none
-of the user's own settings (ruling 169: a hosted child's `settings.json` and
-`opencode.json` start from `{}`) and no model seed (ruling 167), so a hosted
-child's home gets no `Prepared::seeds`, no `.gitconfig` and no merge; those
-are follow-ups. The daemon prepares a child's home itself (`Daemon::
-spawn_child` calls `Engine::prepare`), not through `run-launcher`'s
-`Launcher`, so `run_ports::check_command_line` does not measure a hosted
+platform compares names (`os::Flavor::env_key`). ONE SESSION-SETUP PATH
+(owner, 2026-11-12): every launch's session home is set up by
+`run_launcher::set_up_home` (`HomeSetup`: harp, context, interactive, cwd,
+permissions, `session_home`, git user), the launcher's `prepare` and the
+daemon's `Daemon::spawn_child` alike: the engine's merge files read back
+(ruling 113), its files written, its seeds once, and in a session home the
+user's git identity as `.gitconfig` (ruling 112). The daemon reaches the
+child's project through `ChildHomes::records` (the same
+`run_ports::SessionRecords`, `session-files`' `SessionDirs`) and her git
+identity through `ChildPlans::git_user` (the wiring's `child_git_user`: git
+in the project, in her launcher's environment with her home, the
+account's, as `HOME`). The hosted engines are composed as every launch's
+are (`oneshot::launch_engines`, `commands::hosted_engines(wiring, program)`):
+calling the running program (ruling 163), claude over her own
+`settings.json` (ruling 169), opencode seeding her `model.json` (ruling 167)
+and over her config; the daemon reads them, once at its start, under the
+account's home with the daemon's own environment (no `CLAUDE_CONFIG_DIR` or
+XDG base of a launcher's: cost, a hosted child's base is the account's
+default place, and an edit while the daemon runs reaches the next daemon).
+Not yet: a hosted child's permissions document (ruling 137, `permissions:
+None`), and `run_ports::check_command_line` does not measure a hosted
 child's command: it carries no prompt (its turns are fed over the child's
 stream), only paths, model and effort.
 

@@ -150,15 +150,7 @@ impl<'a> OneShots<'a> {
         // The engines' callbacks run this binary, by its file name, and its
         // directory leads their PATH (owner ruling 163).
         let program = crate::program::running();
-        let claude: Arc<dyn Engine> = Arc::new(
-            engine_claude::Claude::calling(&program.name)
-                .over_user_settings(claude_user_settings(wiring)),
-        );
-        let opencode: Arc<dyn Engine> = Arc::new(
-            engine_opencode::Opencode::calling(&program.name)
-                .seeding_model(opencode_recent_models(wiring))
-                .over_user_config(opencode_user_config(wiring)),
-        );
+        let LaunchEngines { claude, opencode } = launch_engines(wiring, &program.name);
         // The run locks: this run's own, and those another process's runs
         // are judged by (rulings 86, 92, 93).
         let run_locks: Arc<dyn run_ports::RunLocks> =
@@ -167,7 +159,7 @@ impl<'a> OneShots<'a> {
             core.edge(),
             HostLauncher::stopped_by(stop),
             SessionDirs::new(wiring.fs(), project_dir.clone()),
-            vec![claude, opencode],
+            vec![claude as Arc<dyn Engine>, opencode as Arc<dyn Engine>],
             Arc::clone(&orders),
             Limits::new(TURN_DEADLINE),
         )
@@ -203,6 +195,31 @@ impl<'a> OneShots<'a> {
             run_locks,
             git_user: git_user(wiring, &project_dir),
         }))
+    }
+}
+
+/// The engines a launch is driven on, as the composition root builds them
+/// for EVERY launch (a CLI run's and a daemon's hosted children alike, the
+/// one session-setup path): their callbacks run `program` (owner ruling
+/// 163), claude's settings start from hers (ruling 169), opencode seeds her
+/// recent models (ruling 167) and starts from her config (169).
+pub(crate) struct LaunchEngines {
+    pub(crate) claude: Arc<engine_claude::Claude>,
+    pub(crate) opencode: Arc<engine_opencode::Opencode>,
+}
+
+/// [`LaunchEngines`] over `wiring`'s user, calling `program`.
+pub(crate) fn launch_engines(wiring: &Wiring, program: &str) -> LaunchEngines {
+    LaunchEngines {
+        claude: Arc::new(
+            engine_claude::Claude::calling(program)
+                .over_user_settings(claude_user_settings(wiring)),
+        ),
+        opencode: Arc::new(
+            engine_opencode::Opencode::calling(program)
+                .seeding_model(opencode_recent_models(wiring))
+                .over_user_config(opencode_user_config(wiring)),
+        ),
     }
 }
 

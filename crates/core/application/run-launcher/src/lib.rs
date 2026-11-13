@@ -15,12 +15,14 @@
 //! (`session_index`).
 
 mod error;
+mod home;
 mod launcher;
 mod orders;
 
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{LaunchError, EN_US};
+pub use home::{set_up_home, HomeSetUp, HomeSetup};
 pub use launcher::{Launched, Launcher, Outcome, Sweeper, Swept};
 pub use orders::{Order, Orders};
 

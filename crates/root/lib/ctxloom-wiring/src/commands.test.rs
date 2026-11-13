@@ -658,9 +658,8 @@ fn the_hosted_engines_are_composed_as_every_launchs_are() {
         .expect("claude's settings");
     assert!(settings.contains("hers-alone"), "{settings}");
     assert!(
-        claude
-            .iter()
-            .any(|(_, text)| text.contains("ctxloom-elsewhere hook claude-code execute")),
+        claude.iter().any(|(rel, text)| rel == "ctxloom-hooks.json"
+            && text.contains(r#""command": "ctxloom-elsewhere""#)),
         "{claude:?}"
     );
     let opencode = prepared(&*hosted[1].engine);

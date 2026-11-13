@@ -55,6 +55,9 @@ pub(crate) struct Place {
     pub(crate) temp: PathBuf,
     pub(crate) os: String,
     pub(crate) user_home: Option<PathBuf>,
+    /// The engines it hosts children on, composed as every launch's are
+    /// (`commands::hosted_engines`).
+    pub(crate) engines: Vec<daemon_application::HostedEngine>,
 }
 
 /// How the daemon paces itself.
@@ -88,6 +91,7 @@ pub(crate) fn serve(
         temp,
         os,
         user_home,
+        engines,
     } = place;
     let home = home.as_path();
     let files = DaemonFiles::with_instance(Arc::clone(&fs), home, instance_lock);
@@ -122,7 +126,7 @@ pub(crate) fn serve(
             (home, &temp),
             &core,
             &kept,
-            (os, user_home, stamp, pace),
+            (os, user_home, stamp, pace, engines),
             (&files, &shared),
             &say,
         )
@@ -189,7 +193,13 @@ async fn start(
     (home, temp): (&Path, &Path),
     core: &InProcessCore<SqliteStore>,
     kept: &Projectors,
-    (os, user_home, stamp, pace): (String, Option<PathBuf>, String, Pace),
+    (os, user_home, stamp, pace, engines): (
+        String,
+        Option<PathBuf>,
+        String,
+        Pace,
+        Vec<daemon_application::HostedEngine>,
+    ),
     (files, shared): (&DaemonFiles, &Arc<Shared>),
     say: &Say,
 ) -> Result<(HookListener, Daemon<CoreEdge, OsTokenSource>, Discovery), String> {
@@ -252,6 +262,7 @@ async fn start(
         (home, temp),
         &edge,
         kept,
+        (engines, user_home.clone()),
         Told {
             home: home.to_string_lossy().into_owned(),
             program_dir: std::env::current_exe()
@@ -292,16 +303,18 @@ fn launcher(
     (home, temp): (&Path, &Path),
     edge: &Arc<CoreEdge>,
     kept: &Projectors,
+    (engines, user_home): (Vec<daemon_application::HostedEngine>, Option<PathBuf>),
     told: Told,
     say: Say,
 ) -> Daemon<CoreEdge, OsTokenSource> {
     Daemon::new(Ports {
         edge: Arc::clone(edge),
         tokens: Arc::new(OsTokenSource),
-        engines: crate::commands::hosted_engines_bare(),
+        engines,
         plans: Box::new(Plans {
             home: home.to_path_buf(),
             temp: temp.to_path_buf(),
+            user_home,
         }),
         hand_offs: Box::new(HandOffFiles(DaemonFiles::new(Arc::clone(fs), home))),
         homes: Box::new(Homes(Arc::clone(fs))),
@@ -535,6 +548,8 @@ fn advertised(own: &Discovery, found: Option<&Discovery>) -> Advertised {
 struct Plans {
     home: PathBuf,
     temp: PathBuf,
+    /// The user's own home (the account's): her git configuration's.
+    user_home: Option<PathBuf>,
 }
 
 impl ChildPlans for Plans {
@@ -547,8 +562,12 @@ impl ChildPlans for Plans {
         super::child_plan(&self.home, &self.temp, engine, project_dir, env)
     }
 
-    fn git_user(&self, _: &str, _: &BTreeMap<String, String>) -> Option<run_ports::GitUser> {
-        None
+    fn git_user(
+        &self,
+        project_dir: &str,
+        env: &BTreeMap<String, String>,
+    ) -> Option<run_ports::GitUser> {
+        super::child_git_user(&self.temp, self.user_home.as_deref(), project_dir, env)
     }
 }
 

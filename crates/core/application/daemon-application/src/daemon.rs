@@ -10,7 +10,7 @@ use pending_launches::{PendingLaunch, PendingModel, StartedRun};
 use pending_messages::PendingMessages;
 use run_ports::{
     ChildControl, ChildMessage, ChildObservation, ChildSpec, Edge, FailureClass, HeldLock,
-    PrepareRequest, PublicCert, RunLocks, TokenSource, TurnOutcome,
+    PublicCert, RunLocks, TokenSource, TurnOutcome,
 };
 use runs::{RunMode, TurnUrgency};
 use runs_application::{EnqueueError, EnqueueRequest, Enqueuer, Facts, Identity, RunnerFact};
@@ -675,37 +675,31 @@ impl<E: Edge, T: TokenSource> Daemon<E, T> {
         sent: &BTreeMap<String, String>,
         hook_token: &run_ports::Token,
     ) -> Result<(run_ports::StartedChild, Option<String>), String> {
+        // The one session-setup path (owner, 2026-11-12): the launcher's,
+        // over the child's project's session directories, so a hosted
+        // child's home gets what every session's does (the engine's merge,
+        // its seeds, her git identity, and what the engine was composed
+        // with: her own settings, the program its callbacks run).
         let mut records = self.homes.records(project_dir);
-        let home = format!("{}/home", records.dir(harp));
-        let prepared = engine
-            .engine
-            .prepare(&PrepareRequest {
-                home: home.clone(),
+        let set_up = run_launcher::set_up_home(
+            &*engine.engine,
+            &mut *records,
+            &run_launcher::HomeSetup {
+                harp: harp.to_string(),
                 context: child.context.clone(),
-                offered: Vec::new(),
                 interactive: false,
                 cwd: Some(project_dir.to_string()),
-                // Nothing read back to merge into yet (ruling 113's merge
-                // reaches the launcher's homes; a hosted child's is a
-                // follow-up).
-                existing: BTreeMap::new(),
                 // A hosted child's permissions passthrough (ruling 137) is a
                 // follow-up.
                 permissions: None,
                 session_home: child.settings.session_home,
-            })
-            .map_err(|e| e.to_string())?;
-        for file in &prepared.files {
-            records
-                .write(harp, &format!("home/{}", file.rel), &file.bytes)
-                .map_err(|e| e.to_string())?;
-        }
-        // A hosted engine is composed seeding nothing (`Prepared::seeds`,
-        // the launcher's write-once seeds, rulings 112 and 167): a hosted
-        // child's seeds are a follow-up, with its git identity and merge.
+                git_user: self.plans.git_user(project_dir, sent),
+            },
+        )?;
+        let home = set_up.home;
         let spec = ChildSpec {
             home,
-            context_path: prepared.context_path,
+            context_path: set_up.context_path,
             env: self.child_environment(at, harp, sent, hook_token),
             user_home: self.place.user_home.clone(),
             cwd: Some(project_dir.to_string()),

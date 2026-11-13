@@ -266,6 +266,8 @@ pub struct Wiring {
     fs: Arc<dyn Fs>,
     home: PathBuf,
     env: Arc<EnvSnapshot>,
+    /// The user's own home ([`Wiring::user_home`]).
+    user_home: Option<PathBuf>,
 }
 
 impl Wiring {
@@ -297,8 +299,16 @@ impl Wiring {
         Wiring {
             fs: Arc::new(fs),
             home,
+            user_home: env.home().map(PathBuf::from),
             env,
         }
+    }
+
+    /// The wiring, the user's own home `user_home` in place of the one its
+    /// environment names (the user daemon's is the account's: it has no
+    /// HOME of its own, M4).
+    pub(crate) fn with_user_home(self, user_home: Option<PathBuf>) -> Wiring {
+        Wiring { user_home, ..self }
     }
 
     pub(crate) fn fs(&self) -> Arc<dyn Fs> {
@@ -311,11 +321,12 @@ impl Wiring {
 
     /// The user's own home: the platform's home variable (`HOME`, and
     /// `USERPROFILE` on Windows, Go's `os.UserHomeDir`), as [`Wiring::new`]
-    /// falls back to it; none when unset or empty. The one place her home is
+    /// falls back to it; none when unset or empty; the user daemon's is the
+    /// account's ([`Wiring::with_user_home`]). The one place her home is
     /// resolved: her login, her claude and opencode settings, and the home a
     /// `session_home: host` engine is given are found under it.
     pub(crate) fn user_home(&self) -> Option<PathBuf> {
-        self.env.home().map(PathBuf::from)
+        self.user_home.clone()
     }
 
     /// The operating system's name the run's platform rules are keyed by

@@ -672,11 +672,20 @@ impl World {
 /// The state a listing (JSON) gives the session `harp`, wherever in the
 /// document its row is.
 fn listed_state(listing: &str, harp: &str) -> Option<String> {
+    // A listing's proto3 JSON (ruling 146): each session by its resource
+    // name, its state the API's enum, said here as the word.
     fn find(value: &Value, harp: &str) -> Option<String> {
+        let named = |map: &serde_json::Map<String, Value>| {
+            map.get("name")
+                .and_then(Value::as_str)
+                .is_some_and(|name| name.ends_with(&format!("/sessions/{harp}")))
+        };
         match value {
-            Value::Object(map) if map.get("harp").and_then(Value::as_str) == Some(harp) => {
-                map.get("state").and_then(Value::as_str).map(str::to_string)
-            }
+            Value::Object(map) if named(map) => map
+                .get("state")
+                .and_then(Value::as_str)
+                .and_then(|state| state.strip_prefix("SESSION_STATE_"))
+                .map(str::to_lowercase),
             Value::Object(map) => map.values().find_map(|v| find(v, harp)),
             Value::Array(items) => items.iter().find_map(|v| find(v, harp)),
             _ => None,
@@ -751,7 +760,7 @@ fn still_under_its_harp(w: &mut World) {
     let doc: Value = serde_json::from_str(&shown.stdout).expect("json");
     assert_eq!(doc["title"], "titled while live", "{}", shown.stdout);
     assert_eq!(
-        doc["state"], "ended",
+        doc["state"], "SESSION_STATE_ENDED",
         "its lock is where it was: {}",
         shown.stdout
     );

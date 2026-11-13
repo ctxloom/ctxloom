@@ -29,6 +29,10 @@ const IDLE_VARIABLE: &str = "CTXLOOM_DAEMON_IDLE_SECONDS";
 /// scenario's wait for it is.
 const IDLE_SECONDS: u64 = 2;
 
+/// The idle time of a daemon a scenario's command starts: long enough to
+/// outlive the scenario's steps, short enough to leave nothing for long.
+const SPAWNED_IDLE_SECONDS: u64 = 15;
+
 /// What a scenario started: the daemon, and the run that keeps it busy. A
 /// World drops this FIRST (its first field), before its home is removed:
 /// the run is released and waited for, the daemon killed outright (T3: it
@@ -43,6 +47,10 @@ pub(super) struct State {
     called: Option<Result<(), daemon_ports::Called>>,
     /// The discovery of a daemon since stopped.
     old: Option<run_ports::Discovery>,
+    /// The daemon a command was seen to start.
+    first: Option<run_ports::Discovery>,
+    /// What two commands run at once came to.
+    both: Vec<crate::tests::Ran>,
 }
 
 impl Drop for State {
@@ -89,19 +97,26 @@ fn run_now(w: &World, args: &[&str]) -> crate::tests::Ran {
     w.common.project.run_with(&env, args)
 }
 
-/// Whether `daemon status` says a daemon serves (its health check).
+/// Whether `daemon status` says a daemon serves (its health check): its
+/// answer is the daemon, which has a pid; none serving, the empty message.
 fn serving_now(w: &World) -> bool {
     let status = run_now(w, &["daemon", "status", "--format", "json"]);
     assert_eq!(status.code, 0, "{}", status.said());
-    status.json()["serving"] == Value::Bool(true)
+    status.json().get("pid").is_some()
 }
 
 /// Start `ctxloom daemon serve` with the scenario's short idle time, and
 /// wait for it to answer.
 fn start_daemon(w: &mut World) {
+    start_daemon_idling(w, IDLE_SECONDS);
+}
+
+/// Start `ctxloom daemon serve` with the idle time `idle` (seconds), and
+/// wait for it to answer.
+fn start_daemon_idling(w: &mut World, idle: u64) {
     let env = env_of(w);
     let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
-    let idle = IDLE_SECONDS.to_string();
+    let idle = idle.to_string();
     let daemon = w
         .common
         .project
@@ -242,8 +257,8 @@ pub(super) fn claims(w: &mut World, step: &cucumber::gherkin::Step) -> bool {
 // ------------------------------------------------------------------ given
 
 #[given("no ctxloom daemon is serving for Alice")]
-fn none_serving_for_alice(_: &mut World) {
-    red("no ctxloom daemon is serving for Alice")
+fn none_serving_for_alice(w: &mut World) {
+    none_serving(w);
 }
 
 #[given(regex = r#"^Alice has a second project, "([^"]+)", set up with ctxloom$"#)]
@@ -264,8 +279,12 @@ fn alices_session_with_child(_: &mut World, _owner: String, _child: String) {
 #[given(
     "Alice's daemon has nothing to do: no session runs, no child is hosted and no command is open"
 )]
-fn alices_daemon_idle(_: &mut World) {
-    red("Alice's daemon has nothing to do")
+fn alices_daemon_idle(w: &mut World) {
+    start_daemon(w);
+    w.daemon_spec.old = Some(discovery_now(w));
+    // The next command's daemon idles out at once too.
+    w.common
+        .set_env(IDLE_VARIABLE, SPAWNED_IDLE_SECONDS.to_string());
 }
 
 #[given("no ctxloom daemon is serving for this home")]
@@ -273,17 +292,39 @@ fn none_serving(w: &mut World) {
     // A fresh home: no daemon has advertised itself there, and one a
     // command starts idles out at once.
     assert!(!files::exists(discovery_path(w)), "a fresh home");
-    w.common.set_env(IDLE_VARIABLE, IDLE_SECONDS.to_string());
+    w.common
+        .set_env(IDLE_VARIABLE, SPAWNED_IDLE_SECONDS.to_string());
 }
 
 #[given("the discovery file names a daemon that no longer runs")]
-fn stale_discovery(_: &mut World) {
-    red("the discovery file names a daemon that no longer runs")
+fn stale_discovery(w: &mut World) {
+    start_daemon(w);
+    let old = discovery_now(w);
+    // Killed outright (T3): its discovery file is left as it was.
+    let mut daemon = w.daemon_spec.daemon.take().expect("the daemon started");
+    let _ = daemon.kill();
+    let _ = daemon.wait();
+    assert_eq!(
+        discovery_now(w),
+        old,
+        "the file names the daemon that is gone"
+    );
+    w.daemon_spec.old = Some(old);
+    w.common
+        .set_env(IDLE_VARIABLE, SPAWNED_IDLE_SECONDS.to_string());
+}
+
+/// The daemon directory of the scenario's home.
+fn daemon_dir(w: &World) -> PathBuf {
+    w.common.project.home().join(".ctxloom/daemon")
 }
 
 #[given("no ctxloom daemon can be started for this home")]
-fn unstartable(_: &mut World) {
-    red("no ctxloom daemon can be started for this home")
+fn unstartable(w: &mut World) {
+    // A file where the daemon's directory goes: no daemon can take its
+    // single-instance lock there, advertise itself or log.
+    assert!(!files::exists(daemon_dir(w)), "a fresh home");
+    files::put(daemon_dir(w), "not a directory");
 }
 
 #[given("a ctxloom daemon is serving for this home")]
@@ -294,9 +335,13 @@ fn serving(w: &mut World) {
 #[given(expr = "a ctxloom daemon is serving for this home, hosting a child {string}")]
 fn serving_hosting(w: &mut World, child: String) {
     assert_eq!(child, "brisk-copper-moth", "the child the harness hosts");
-    start_daemon(w);
+    // Its default idle time: a daemon that hosts a child never idles out.
+    start_daemon_idling(w, DEFAULT_IDLE_SECONDS);
     hosted_child(w);
 }
+
+/// The daemon's idle time when nothing says (`daemon serve`'s default).
+const DEFAULT_IDLE_SECONDS: u64 = 600;
 
 /// The discovery file the serving daemon wrote.
 fn discovery_now(w: &World) -> run_ports::Discovery {
@@ -312,7 +357,7 @@ fn get_daemon(found: &run_ports::Discovery) -> Result<(), daemon_ports::Called> 
         .enable_all()
         .build()
         .unwrap()
-        .block_on(client.get_daemon())
+        .block_on(client.get_daemon(daemon_proto::v1::GetDaemonRequest::default()))
         .map(|_| ())
 }
 
@@ -376,8 +421,8 @@ fn alices_daemon_killed(_: &mut World) {
 }
 
 #[when("her daemon's idle time passes")]
-fn her_idle_passes(_: &mut World) {
-    red("her daemon's idle time passes")
+fn her_idle_passes(w: &mut World) {
+    idle_passes(w);
 }
 
 #[when("the daemon's idle time passes")]
@@ -387,8 +432,20 @@ fn idle_passes(_: &mut World) {
 }
 
 #[when(expr = "two commands are run at once, {string} and {string}")]
-fn two_at_once(_: &mut World, _first: String, _second: String) {
-    red("two commands are run at once")
+fn two_at_once(w: &mut World, first: String, second: String) {
+    let env = env_of(w);
+    let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    let started: Vec<Child> = [first, second]
+        .iter()
+        .map(|line| {
+            let args: Vec<&str> = line.split_whitespace().skip(1).collect();
+            w.common.project.start_with(&env, &args)
+        })
+        .collect();
+    w.daemon_spec.both = started
+        .into_iter()
+        .map(|child| crate::tests::Ran::of(child.wait_with_output().expect("it ran")))
+        .collect();
 }
 
 #[when("a client calls the daemon with a bearer it did not mint")]
@@ -427,14 +484,26 @@ fn unfinished(_: &mut World) {
 
 // ------------------------------------------------------- then: the journey
 
+/// How many daemons logged that they served, in the scenario's home.
+fn daemons_logged(w: &World) -> usize {
+    daemon_log_text(w).matches(" serving at ").count()
+}
+
 #[then("a ctxloom daemon is serving for Alice, started by that command")]
-fn started_by_command(_: &mut World) {
-    red("a ctxloom daemon is serving for Alice, started by that command")
+fn started_by_command(w: &mut World) {
+    started_detached(w);
+    // The one it started, beside the one an earlier step had started.
+    let before = usize::from(w.daemon_spec.old.is_some());
+    assert_eq!(daemons_logged(w), before + 1, "{}", daemon_log_text(w));
+    assert!(serving_now(w), "{}", daemon_log_text(w));
+    w.daemon_spec.first = Some(discovery_now(w));
 }
 
 #[then("that command used the same daemon, and started none")]
-fn same_daemon(_: &mut World) {
-    red("that command used the same daemon, and started none")
+fn same_daemon(w: &mut World) {
+    let first = w.daemon_spec.first.clone().expect("a daemon was started");
+    assert_eq!(discovery_now(w), first, "the same daemon advertises itself");
+    assert_eq!(daemons_logged(w), 1, "{}", daemon_log_text(w));
 }
 
 #[then("both sessions were served by the one daemon")]
@@ -536,13 +605,13 @@ fn rehosted(_: &mut World, _child: String) {
 }
 
 #[then("her daemon has exited, and nothing says it serves")]
-fn her_daemon_exited(_: &mut World) {
-    red("her daemon has exited, and nothing says it serves")
+fn her_daemon_exited(w: &mut World) {
+    daemon_exited(w);
 }
 
 #[then("it proves itself with a new certificate, and knows her by a new credential")]
-fn new_credentials(_: &mut World) {
-    red("a new certificate and a new user bearer")
+fn new_credentials(w: &mut World) {
+    rotated(w);
 }
 
 // ---------------------------------------------------- then: cli/daemon
@@ -566,28 +635,57 @@ fn started_detached(w: &mut World) {
 }
 
 #[then(expr = "the daemon's output goes to {string}")]
-fn daemon_log(_: &mut World, _path: String) {
-    red("the daemon's output goes to its log")
+fn daemon_log(w: &mut World, path: String) {
+    let rel = path.strip_prefix("~/").expect("a path under the home");
+    let log = files::read(w.common.project.home().join(rel)).unwrap_or_default();
+    assert!(
+        log.contains(" serving at "),
+        "the daemon logs there: {log:?}"
+    );
 }
 
 #[then("both commands succeed")]
-fn both_succeed(_: &mut World) {
-    red("both commands succeed")
+fn both_succeed(w: &mut World) {
+    assert_eq!(w.daemon_spec.both.len(), 2, "two commands ran");
+    for ran in &w.daemon_spec.both {
+        assert_eq!(ran.code, 0, "{}", ran.said());
+    }
 }
 
 #[then("exactly one daemon served them both")]
-fn exactly_one(_: &mut World) {
-    red("exactly one daemon served them both")
+fn exactly_one(w: &mut World) {
+    // One daemon took the single-instance lock and served; any other the
+    // two started found it held, and never served.
+    assert_eq!(daemons_logged(w), 1, "{}", daemon_log_text(w));
+    assert!(serving_now(w), "{}", daemon_log_text(w));
 }
 
 #[then("a new daemon serves, and the discovery file names it")]
-fn replaced(_: &mut World) {
-    red("a new daemon serves, and the discovery file names it")
+fn replaced(w: &mut World) {
+    let old = w.daemon_spec.old.clone().expect("a daemon was killed");
+    let new = discovery_now(w);
+    assert_ne!(new.pid, old.pid, "another daemon advertises itself");
+    let status = run_now(w, &["daemon", "status", "--format", "json"]);
+    assert_eq!(
+        status.json()["pid"],
+        Value::from(new.pid),
+        "{}",
+        status.said()
+    );
 }
 
 #[then("no project store was opened, and no engine was started")]
-fn nothing_opened(_: &mut World) {
-    red("no project store was opened, and no engine was started")
+fn nothing_opened(w: &mut World) {
+    let home = w.common.project.home();
+    assert!(
+        !files::exists(home.join(".ctxloom/ctxloom.db")),
+        "the one store was not opened"
+    );
+    assert_eq!(per_project_stores(home), Vec::<PathBuf>::new());
+    assert!(
+        !files::exists(w.common.project.dir().join(".ctxloom/sessions")),
+        "no session was set up, so no engine was started"
+    );
 }
 
 #[then("no ctxloom daemon was started")]
@@ -600,30 +698,61 @@ fn none_started(w: &mut World) {
 #[then(
     "the discovery file is readable by its owner alone, in a directory only its owner can enter"
 )]
-fn discovery_private(_: &mut World) {
-    red("the discovery file is 0600 in a 0700 directory")
+fn discovery_private(w: &mut World) {
+    // Modes are unix's; on Windows the profile's ACL stands (M8).
+    if let Some(mode) = files::mode_of(discovery_path(w)) {
+        assert_eq!(mode & 0o777, 0o600, "the file is 0600");
+        let dir = files::mode_of(daemon_dir(w)).expect("the directory");
+        assert_eq!(dir & 0o777, 0o700, "the directory is 0700");
+    }
 }
 
 #[then(
     "the discovery file names the daemon's endpoint, its certificate, a user bearer and its pid"
 )]
-fn discovery_holds(_: &mut World) {
-    red("the discovery file names the endpoint, certificate, bearer and pid")
+fn discovery_holds(w: &mut World) {
+    let found = discovery_now(w);
+    assert!(
+        found.endpoint.starts_with("https://127.0.0.1:"),
+        "{}",
+        found.endpoint
+    );
+    assert!(!found.cert.to_pem().is_empty(), "a certificate");
+    assert_eq!(found.bearer.to_text().len(), 64, "a 256-bit bearer");
+    assert!(found.pid > 0, "a pid");
+    // What it names is what serves: the daemon answers its bearer.
+    assert_eq!(get_daemon(&found), Ok(()));
 }
 
 #[then(regex = r#"^the output reports "([^"]+)" as the daemon's pid$"#)]
-fn reports_pid(_: &mut World, _path: String) {
-    red("the output reports the daemon's pid")
+fn reports_pid(w: &mut World, path: String) {
+    let doc = w.common.json();
+    let pid = crate::tests::library::reports_as(&doc, &path);
+    assert_eq!(pid, discovery_now(w).pid.to_string(), "{doc}");
 }
 
 #[then(regex = r#"^the output reports "([^"]+)" as the discovery file's endpoint$"#)]
-fn reports_endpoint(_: &mut World, _path: String) {
-    red("the output reports the discovery file's endpoint")
+fn reports_endpoint(w: &mut World, path: String) {
+    let doc = w.common.json();
+    let endpoint = crate::tests::library::reports_as(&doc, &path);
+    assert_eq!(endpoint, discovery_now(w).endpoint, "{doc}");
 }
 
 #[then("neither the output, the daemon's log nor the project's store holds the user bearer")]
-fn bearer_unseen(_: &mut World) {
-    red("the user bearer is never shown, logged or recorded")
+fn bearer_unseen(w: &mut World) {
+    let bearer = discovery_now(w).bearer.to_text();
+    let ran = w.common.ran();
+    assert!(!ran.said().contains(&bearer), "the output holds the bearer");
+    assert!(
+        !daemon_log_text(w).contains(&bearer),
+        "the daemon's log holds the bearer"
+    );
+    let home = w.common.project.home().join(".ctxloom");
+    for name in ["ctxloom.db", "ctxloom.db-wal"] {
+        let bytes = files::read_bytes(home.join(name)).unwrap_or_default();
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(!text.contains(&bearer), "{name} holds the bearer");
+    }
 }
 
 #[then("the call is refused as unauthenticated, and the refusal names no reason")]

@@ -25,12 +25,14 @@
 //! owner's ruling on the watch lines. `rename` sets the title (S55): a
 //! harp is permanent, and the harp-changing `edit --name` is gone.
 //!
-//! JSON rows: `harp, name?, summary, state, start, end?, kept?,
-//! transcript_path?, engine` (D16: Go 0.7's `harp, summary, state, start, end`
-//! plus the plan's additions; the keys that are empty are left out as Go
-//! leaves them).
+//! `list`, `search` and `show` are clients of the user's daemon (slice 2
+//! step 6, through `daemon-api`'s [`daemon_api::SessionReads`]): their
+//! `--format json` is the daemon's answer as its proto3 JSON (ruling 146,
+//! [`proto_json`]: a `ListSessionsResponse`, a `Session`); their text is
+//! the table and the facts it always was.
 
 mod error;
+pub mod proto_json;
 mod render;
 mod run;
 
@@ -39,7 +41,7 @@ use clap::{Args, Command, Subcommand};
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{CliFault, EN_US};
-pub use run::{run, Done, Failure};
+pub use run::{is_read, read, run, Done, Failure};
 
 /// The `session` noun, shaped for mounting on the command line.
 pub fn noun() -> Command {

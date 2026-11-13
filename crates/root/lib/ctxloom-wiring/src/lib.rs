@@ -480,6 +480,7 @@ impl Wiring {
             root,
             git_common_dir: vcs.git_common_dir,
             root_commit: vcs.root_commit,
+            env: None,
         })
     }
 

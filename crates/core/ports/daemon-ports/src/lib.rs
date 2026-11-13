@@ -24,7 +24,10 @@ pub use prost_types::Any;
 /// one RPC; the ones not served yet are not here.
 pub trait DaemonApi: Send + Sync {
     /// `GetDaemon`: the daemon (a singleton), what it hosts and its idle time.
-    fn get_daemon(&self) -> impl Future<Output = Result<v1::Daemon, Called>> + Send;
+    fn get_daemon(
+        &self,
+        request: v1::GetDaemonRequest,
+    ) -> impl Future<Output = Result<v1::Daemon, Called>> + Send;
 
     /// `StopDaemon`: refused `DaemonHosting` while it hosts live runs,
     /// unless `even_if_live`.
@@ -62,6 +65,84 @@ pub trait DaemonApi: Send + Sync {
         &self,
         request: v1::SearchSessionsRequest,
     ) -> impl Future<Output = Result<v1::ListSessionsResponse, Called>> + Send;
+}
+
+/// The user's daemon as a client reaches it (S14, S16): the one serving,
+/// found, or one started for the call and waited for. The root implements it
+/// over the discovery file, the health check and the spawn.
+pub trait Daemons: Send + Sync {
+    /// A daemon's API, as this client calls it.
+    type Api: DaemonApi;
+
+    /// The daemon serving now, if one does. It never starts one (S14:
+    /// `daemon status|stop` are answered locally when none serves).
+    fn serving(&self) -> impl Future<Output = Result<Option<Self::Api>, Unreached>> + Send;
+
+    /// A daemon to call: the one serving, else one started and waited for,
+    /// within S16's bound.
+    fn reach(&self) -> impl Future<Output = Result<Self::Api, Unreached>> + Send;
+}
+
+/// Why no daemon could be called.
+#[derive(Clone)]
+pub enum Unreached {
+    /// None serves, and none could be started: where its log is.
+    NotStarted { log: String },
+    /// One serves that this client may not use, said in its own crate's
+    /// words (another ctxloom home's daemon; a busy daemon of another
+    /// version, M3): a decline.
+    Declined(std::sync::Arc<dyn Diagnostic + Send + Sync>),
+}
+
+impl fmt::Debug for Unreached {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Unreached::NotStarted { log } => {
+                f.debug_struct("NotStarted").field("log", log).finish()
+            }
+            Unreached::Declined(cause) => f.debug_tuple("Declined").field(&cause.code()).finish(),
+        }
+    }
+}
+
+/// The same outcome: the same code and args.
+impl PartialEq for Unreached {
+    fn eq(&self, other: &Unreached) -> bool {
+        let said = |u: &Unreached| -> (String, String) {
+            let args = u
+                .args()
+                .iter()
+                .map(|(name, arg)| format!("{name}={arg:?}"))
+                .collect::<Vec<_>>()
+                .join(",");
+            (u.code().to_string(), args)
+        };
+        said(self) == said(other)
+    }
+}
+
+impl fmt::Display for Unreached {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        angzarr_diagnostic::display(self, f)
+    }
+}
+
+impl std::error::Error for Unreached {}
+
+impl Diagnostic for Unreached {
+    fn code(&self) -> &str {
+        match self {
+            Unreached::NotStarted { .. } => code!("not-started"),
+            Unreached::Declined(cause) => cause.code(),
+        }
+    }
+
+    fn args(&self) -> Vec<(&str, Arg)> {
+        match self {
+            Unreached::NotStarted { log } => vec![("log", log.as_str().into())],
+            Unreached::Declined(cause) => cause.args(),
+        }
+    }
 }
 
 /// What a call came to, when it was not answered.
@@ -147,6 +228,9 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(Called::Failed {
             code: 13,
             detail: "boom".to_string(),
+        }),
+        Box::new(Unreached::NotStarted {
+            log: "~/.ctxloom/daemon/daemon.log".to_string(),
         }),
     ]
 }

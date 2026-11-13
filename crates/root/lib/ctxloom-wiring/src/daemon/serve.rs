@@ -227,6 +227,7 @@ async fn start(
     let calls: Arc<dyn daemon_api::Calls> = Arc::new(daemon_api::Api::new(daemon_api::Parts {
         edge: Arc::clone(&edge),
         index: kept.index.clone().unwrap_or_default(),
+        pending: kept.pending.clone().unwrap_or_default(),
         hosting: Arc::clone(shared) as Arc<dyn daemon_api::Hosting>,
         states: Arc::new(Locks(Arc::clone(fs))),
         harps: Arc::new(FreshHarps),
@@ -389,7 +390,9 @@ async fn run<E: run_ports::Edge, T: run_ports::TokenSource>(
         // Armed before the round reads (S-N2): a commit during it is not
         // missed.
         let commit = core.store().next_commit();
+        let round = shared.round_starts();
         let busy = launcher.tick(core.store(), core.catalog(), draining).await;
+        shared.round_done(round);
         if busy || launcher.hosting() > 0 {
             quiet_since = Instant::now();
         } else if quiet_since.elapsed() >= pace.idle {
@@ -413,9 +416,27 @@ async fn run<E: run_ports::Edge, T: run_ports::TokenSource>(
         // daemon's own writes, its listener's hooks) wakes the next round at
         // once; another process's (a CLI command's) is seen by the poll on
         // `change_token` (S-N4: the required fallback).
-        let _ = tokio::time::timeout(pace.poll, commit).await;
+        // A read of the API asking for a fresh round wakes it too.
+        let _ = tokio::time::timeout(pace.poll, either(commit, shared.wake.notified())).await;
     }
 }
+
+/// Whichever of `a` and `b` is ready first.
+async fn either(a: impl std::future::Future, b: impl std::future::Future) {
+    let mut a = std::pin::pin!(a);
+    let mut b = std::pin::pin!(b);
+    std::future::poll_fn(|cx| {
+        match a.as_mut().poll(cx).is_ready() || b.as_mut().poll(cx).is_ready() {
+            true => std::task::Poll::Ready(()),
+            false => std::task::Poll::Pending,
+        }
+    })
+    .await;
+}
+
+/// How long a read of the API waits for the loop's next round (its catch-up)
+/// before it answers from the folds as they are.
+const FRESH_WAIT: Duration = Duration::from_secs(2);
 
 /// What the loop shares with its API's use cases (slice 2 step 5): where
 /// it serves, what it hosts and since when it has been quiet, as of its
@@ -423,6 +444,12 @@ async fn run<E: run_ports::Edge, T: run_ports::TokenSource>(
 struct Shared {
     index: session_index::SessionIndexes,
     state: Mutex<Round>,
+    /// The rounds the loop has started.
+    started: Mutex<u64>,
+    /// The last round the loop finished.
+    done: tokio::sync::watch::Sender<u64>,
+    /// Wakes the loop for a round a read asked for.
+    wake: tokio::sync::Notify,
 }
 
 #[derive(Default)]
@@ -440,7 +467,22 @@ impl Shared {
         Shared {
             index,
             state: Mutex::new(Round::default()),
+            started: Mutex::new(0),
+            done: tokio::sync::watch::Sender::new(0),
+            wake: tokio::sync::Notify::new(),
         }
+    }
+
+    /// A round starts: its number.
+    fn round_starts(&self) -> u64 {
+        let mut started = self.started.lock().unwrap_or_else(PoisonError::into_inner);
+        *started += 1;
+        *started
+    }
+
+    /// The round `round` is done: a read waiting for it answers.
+    fn round_done(&self, round: u64) {
+        self.done.send_replace(round);
     }
 
     fn round(&self) -> std::sync::MutexGuard<'_, Round> {
@@ -494,6 +536,17 @@ impl daemon_api::Hosting for Shared {
     fn stop(&self, end_hosted: bool) {
         let mut round = self.round();
         round.stop = Some(end_hosted || round.stop.unwrap_or(false));
+    }
+
+    /// The next round to START after this call (so its catch-up reads what
+    /// was committed before it), waited for within [`FRESH_WAIT`].
+    fn fresh(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
+        Box::pin(async move {
+            let mut done = self.done.subscribe();
+            let need = *self.started.lock().unwrap_or_else(PoisonError::into_inner) + 1;
+            self.wake.notify_one();
+            let _ = tokio::time::timeout(FRESH_WAIT, done.wait_for(|round| *round >= need)).await;
+        })
     }
 }
 

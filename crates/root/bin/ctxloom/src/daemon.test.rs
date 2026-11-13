@@ -161,7 +161,11 @@ impl World {
     }
 
     fn serving(&self) -> bool {
-        self.ok(&["daemon", "status", "--format", "json"])["serving"] == Value::Bool(true)
+        // The daemon as it says itself (its proto3 JSON has a pid), or the
+        // empty message when none serves.
+        self.ok(&["daemon", "status", "--format", "json"])
+            .get("pid")
+            .is_some()
     }
 }
 
@@ -299,15 +303,16 @@ fn an_owners_child_runs_its_turns_tells_its_owner_and_ends_with_the_owners_close
     );
     assert!(world.input().contains("first task"), "{}", world.input());
     let child = world.show(CHILD);
-    assert_eq!(child["owner"], Value::String(owner_id.clone()));
+    // Each named by its resource name (ruling 146's proto3 JSON).
+    let owner = world.show(OWNER);
+    assert_eq!(owner["uid"], Value::String(owner_id.clone()));
+    assert_eq!(child["owner"], owner["name"]);
+    assert_eq!(child["uid"], Value::String(child_id.clone()));
     assert_eq!(
         child["native_session"], "S1",
         "the child's native id is bound"
     );
-    assert_eq!(
-        world.show(OWNER)["children"],
-        Value::Array(vec![Value::String(child_id.clone())])
-    );
+    assert_eq!(owner["children"], Value::Array(vec![child["name"].clone()]));
 
     sees_its_launchers_environment_and_its_projects_context(&world);
 
@@ -393,7 +398,7 @@ fn the_daemon_noun_is_hidden_and_a_stop_with_no_daemon_does_nothing() {
     assert_eq!(world.run(&["daemon", "stop"]).code, 0);
     assert!(!world.serving());
     let status = world.run(&["daemon", "status", "--format", "text"]);
-    assert_eq!(status.stdout.trim(), "not serving");
+    assert_eq!(status.stdout.trim(), "no ctxloom daemon is serving");
     let bad = world.run(&["daemon", "send", OWNER, "x", "--urgency", "shout"]);
     // A usage error is refused, 20 (ruling 152).
     assert_eq!(bad.code, 20, "{}", bad.said());
@@ -542,12 +547,7 @@ fn a_daemon_that_holds_the_instance_lock_but_does_not_answer_is_not_serving() {
     let status = world.run(&["daemon", "status", "--format", "json"]);
     signal(daemon.id(), "-CONT");
     assert_eq!(status.code, 0, "{}", status.said());
-    assert_eq!(
-        status.json()["serving"],
-        Value::Bool(false),
-        "{}",
-        status.said()
-    );
+    assert_eq!(status.json(), serde_json::json!({}), "{}", status.said());
     let _ = world.run(&["daemon", "stop"]);
     let _ = daemon.wait();
 }
@@ -666,12 +666,7 @@ fn a_client_on_another_ctxloom_home_is_refused_naming_both_and_starts_no_daemon(
     let status = world
         .project
         .run_with(&env, &["daemon", "status", "--format", "json"]);
-    assert_eq!(
-        status.json()["serving"],
-        Value::Bool(true),
-        "{}",
-        status.said()
-    );
+    assert!(status.json().get("pid").is_some(), "{}", status.said());
     let _ = world.project.run_with(&env, &["daemon", "stop"]);
     assert_eq!(
         exited_within(&mut daemon.0, Duration::from_secs(20)),
@@ -768,8 +763,11 @@ fn a_daemon_serves_its_api_to_the_user_bearer_alone() {
     let (mut daemon, bytes) = served(&world);
     let found = run_ports::Discovery::decode(&bytes).expect("a discovery file");
     let within = Duration::from_secs(5);
-    let about = block_on(daemon_client::DaemonClient::new(&found, within).get_daemon())
-        .unwrap_or_else(|e| panic!("{e:?}; the log:\n{}", world.log()));
+    let about = block_on(
+        daemon_client::DaemonClient::new(&found, within)
+            .get_daemon(daemon_proto::v1::GetDaemonRequest::default()),
+    )
+    .unwrap_or_else(|e| panic!("{e:?}; the log:\n{}", world.log()));
     assert_eq!(about.pid, found.pid);
     assert_eq!(about.endpoint, found.endpoint);
     assert_eq!(about.version, found.stamp);
@@ -780,7 +778,10 @@ fn a_daemon_serves_its_api_to_the_user_bearer_alone() {
         ..found
     };
     assert_eq!(
-        block_on(daemon_client::DaemonClient::new(&other, within).get_daemon()),
+        block_on(
+            daemon_client::DaemonClient::new(&other, within)
+                .get_daemon(daemon_proto::v1::GetDaemonRequest::default())
+        ),
         Err(Called::Unauthenticated)
     );
     let _ = world.run(&["daemon", "stop"]);

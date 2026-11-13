@@ -121,7 +121,10 @@ async fn the_user_bearer_is_answered() {
     let name = "projects/calm-otter/sessions/amber-swift-owl".to_string();
     let session = client
         .get_session(with_bearer(
-            v1::GetSessionRequest { name: name.clone() },
+            v1::GetSessionRequest {
+                name: name.clone(),
+                ..v1::GetSessionRequest::default()
+            },
             BEARER,
         ))
         .await

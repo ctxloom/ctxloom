@@ -13,15 +13,25 @@
 //! - [`rejection_of`]: a typed refusal a client was answered with, as the
 //!   diagnostic a person is told;
 //! - [`reconcile`]: the client's version-skew rule (M3) over the
-//!   `daemon-ports` API.
+//!   `daemon-ports` API;
+//! - [`Client`]: a command as the daemon's client (slice 2 step 6):
+//!   `daemon status|stop` and the session reads ([`SessionReads`]), each
+//!   reaching a daemon, resolving its project and sending its environment,
+//!   retried once on a new daemon (S8).
 
 mod client;
 mod refusal;
 mod server;
+mod session_client;
 
 pub use client::{reconcile, resolve, stop, CallError, Reconciled, SkewError};
 pub use refusal::{rejection_of, ApiError, ApiRefusal, ApiRejection, Rejection};
 pub use server::{About, Answer, Api, Calls, Harps, Hosting, Parts, SessionStates};
+pub use session_client::{Client, SessionReads};
+
+/// What a call can come to, and why no daemon could be called: the port's,
+/// as a driving adapter names them (it sees the application alone).
+pub use daemon_ports::{Called, Unreached};
 
 /// This crate's en-US messages, its name first.
 pub const EN_US: (&str, &str) = (

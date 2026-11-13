@@ -30,6 +30,12 @@ pub fn rfc3339(at: Timestamp) -> String {
     datetime(at).format(&Rfc3339).unwrap_or_default()
 }
 
+/// RFC 3339 in UTC as proto3 JSON writes a `google.protobuf.Timestamp`:
+/// `Z`, and the fraction in 0, 3, 6 or 9 digits (`...32Z`, `...32.481Z`).
+pub fn proto3(at: Timestamp) -> String {
+    rfc3339(at)
+}
+
 /// `2006-01-02 15:04:05` in UTC: the compact line the text table and the
 /// search haystack show (Go's `sessionTime.String`).
 pub fn text(at: Timestamp) -> String {

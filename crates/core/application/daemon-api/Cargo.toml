@@ -13,6 +13,7 @@ angzarr-embedded.workspace = true
 daemon-ports.workspace = true
 daemon-proto.workspace = true
 exit-code.workspace = true
+pending-messages.workspace = true
 prost.workspace = true
 run-ports.workspace = true
 session-index.workspace = true

@@ -9,11 +9,13 @@ use clap::{Args, Command, FromArgMatches};
 use cli_support::Exit;
 use serde_json::{json, Value};
 use sessions_application::{
-    dead_letter_sample, AppError, BindRequest, Bound, Captured, Class, FilePlan, ImportReport,
-    ImportRequest, ImportService, Imported, KeepRequest, Kept, Left, ListQuery, PendingMessage,
-    PlanItem, Refusal, Removal, RemoveRequest, SearchQuery, SessionRecord, SessionService,
-    ShowQuery, State, TitleRequest, Titled, TranscriptQuery, TranscriptRow, View, Why,
+    dead_letter_sample, AppError, BindRequest, Bound, Class, FilePlan, ImportReport, ImportRequest,
+    ImportService, Imported, KeepRequest, Kept, Left, ListQuery, PlanItem, Refusal, Removal,
+    RemoveRequest, SearchQuery, SessionRecord, SessionService, ShowQuery, State, TitleRequest,
+    Titled, TranscriptQuery, TranscriptRow, View, Why,
 };
+
+use daemon_proto::v1;
 
 use super::run;
 use crate::Session;
@@ -211,108 +213,133 @@ fn view(harp: &str, state: State) -> View {
     }
 }
 
-fn keys(value: &Value) -> Vec<String> {
-    value.as_object().unwrap().keys().cloned().collect()
+// -------------------------------------------------- list, search, show
+
+/// The daemon's client as a test sets it: the sessions it answers, and what
+/// it was asked.
+#[derive(Default)]
+struct Reads {
+    sessions: Vec<v1::Session>,
+    /// `list all state`, `search words all state`, `get harp`.
+    asked: std::cell::RefCell<Vec<String>>,
+    /// Answer every call with this, instead.
+    refuse: Option<daemon_api::CallError>,
 }
 
-// ------------------------------------------------------------------------ list
+impl daemon_api::SessionReads for Reads {
+    async fn list_sessions(
+        &self,
+        all: bool,
+        state: v1::SessionState,
+    ) -> Result<v1::ListSessionsResponse, daemon_api::CallError> {
+        self.asked
+            .borrow_mut()
+            .push(format!("list {all} {}", state.as_str_name()));
+        if let Some(refused) = &self.refuse {
+            return Err(refused.clone());
+        }
+        Ok(v1::ListSessionsResponse {
+            sessions: self.sessions.clone(),
+            ..v1::ListSessionsResponse::default()
+        })
+    }
 
-// Go: TestSessionRow_JSONShape: harp/summary/state/start, plus end, purged and
-// kept once set; D16 adds the transcript and the engine.
-#[test]
-fn a_row_has_harp_summary_state_start_and_the_engine() {
-    let mut fake = Fake {
-        views: vec![view("amber-swift-owl", State::Ended)],
-        ..Fake::default()
-    };
-    let rows = json_of(&go(&mut fake, Format::Json, &["list"]));
-    let row = &rows[0];
-    let mut got = keys(row);
-    got.sort();
-    assert_eq!(got, ["engine", "harp", "start", "state", "summary"]);
-    assert_eq!(row["harp"], "amber-swift-owl");
-    assert_eq!(row["summary"], "Seeded prompt for amber-swift-owl.");
-    assert_eq!(row["state"], "ended");
-    assert_eq!(row["start"], "2026-07-17T12:00:00Z");
-    assert_eq!(row["engine"], "claude-code");
+    async fn search_sessions(
+        &self,
+        words: Vec<String>,
+        all: bool,
+        state: v1::SessionState,
+    ) -> Result<v1::ListSessionsResponse, daemon_api::CallError> {
+        self.asked.borrow_mut().push(format!(
+            "search {} {all} {}",
+            words.join(" "),
+            state.as_str_name()
+        ));
+        Ok(v1::ListSessionsResponse {
+            sessions: self.sessions.clone(),
+            ..v1::ListSessionsResponse::default()
+        })
+    }
+
+    async fn get_session(&self, harp: &str) -> Result<v1::Session, daemon_api::CallError> {
+        self.asked.borrow_mut().push(format!("get {harp}"));
+        if let Some(refused) = &self.refuse {
+            return Err(refused.clone());
+        }
+        self.sessions
+            .first()
+            .cloned()
+            .ok_or(daemon_api::CallError::Call(daemon_ports_like_unreachable()))
+    }
 }
 
-// Slice 2 B3: a row and a show carry the session's resource name once its
-// project is named; it is left out while it has none.
+/// A call that came to nothing (no daemon answered).
+fn daemon_ports_like_unreachable() -> daemon_api::Called {
+    daemon_api::Called::Unreachable {
+        detail: "gone".to_string(),
+    }
+}
+
+fn read_go(reads: &Reads, format: Format, words: &[&str]) -> Ran {
+    let session = parsed(words);
+    assert!(crate::is_read(&session), "{words:?} is a read");
+    let mut out = Vec::new();
+    let result = crate::read(&session, reads, format, &mut out);
+    Ran {
+        out: String::from_utf8(out).unwrap(),
+        result,
+    }
+}
+
+/// The session `harp` of the project `calm-otter`, as the daemon answers it.
+fn session(harp: &str, state: v1::SessionState) -> v1::Session {
+    v1::Session {
+        name: format!("projects/calm-otter/sessions/{harp}"),
+        uid: "01010101-0101-0101-0101-010101010101".to_string(),
+        state: state as i32,
+        engine: "claude-code".to_string(),
+        summary: format!("Seeded prompt for {harp}."),
+        start_time: Some(ts(STARTED)),
+        project_root: "/work/proj".to_string(),
+        ..v1::Session::default()
+    }
+}
+
+// Ruling 146: a listing in json is the daemon's answer as its proto3 JSON.
 #[test]
-fn a_row_and_a_show_carry_the_sessions_name() {
-    let mut named = view("amber-swift-owl", State::Ended);
-    named.record.name = "projects/calm-quiet-heron/sessions/amber-swift-owl".to_string();
-    let mut fake = Fake {
-        views: vec![named],
-        ..Fake::default()
+fn a_listing_in_json_is_the_daemons_answer() {
+    let reads = Reads {
+        sessions: vec![session("amber-swift-owl", v1::SessionState::Ended)],
+        ..Reads::default()
     };
-    let rows = json_of(&go(&mut fake, Format::Json, &["list"]));
+    let doc = json_of(&read_go(&reads, Format::Json, &["list"]));
     assert_eq!(
-        rows[0]["name"],
-        "projects/calm-quiet-heron/sessions/amber-swift-owl"
+        doc,
+        json!({"sessions": [{
+            "name": "projects/calm-otter/sessions/amber-swift-owl",
+            "uid": "01010101-0101-0101-0101-010101010101",
+            "state": "SESSION_STATE_ENDED",
+            "engine": "claude-code",
+            "summary": "Seeded prompt for amber-swift-owl.",
+            "start_time": "2026-07-17T12:00:00Z",
+            "project_root": "/work/proj",
+        }]})
     );
-    let shown = json_of(&go(&mut fake, Format::Json, &["show", "amber-swift-owl"]));
-    assert_eq!(
-        shown["name"],
-        "projects/calm-quiet-heron/sessions/amber-swift-owl"
-    );
-}
-
-// Go: end and kept "are omitted when unset" (its purged mark is gone, owner
-// ruling 102); the transcript when it was captured.
-#[test]
-fn end_kept_and_the_transcript_ride_the_row_once_set() {
-    let mut v = view("amber-swift-owl", State::Ended);
-    v.record.ended_at = Some(ts(STARTED + 3600));
-    v.record.kept = true;
-    v.captured = Some(Captured { bytes: 9 });
-    let mut fake = Fake {
-        views: vec![v],
-        ..Fake::default()
-    };
-    let rows = json_of(&go(&mut fake, Format::Json, &["list"]));
-    let row = &rows[0];
-    assert_eq!(row["end"], "2026-07-17T13:00:00Z");
-    assert!(row.get("purged").is_none(), "{row}");
-    assert_eq!(row["kept"], true);
-    // Ruling 87a: no file holds the transcript, so the row names none.
-    assert_eq!(row["transcript_path"], serde_json::Value::Null);
-    assert!(row["summary"].as_str().unwrap().contains("kept"));
-}
-
-// session.feature: "The listing takes each session's state from its lock, not
-// its end stamp": a live session has no end though its record carries one.
-#[test]
-fn a_live_session_has_no_end_in_json() {
-    let mut live = view("amber-swift-owl", State::Live);
-    live.record.ended_at = Some(ts(STARTED + 3600));
-    let mut ended = view("brisk-copper-moth", State::Ended);
-    ended.record.ended_at = Some(ts(STARTED + 3600));
-    let mut fake = Fake {
-        views: vec![live, ended],
-        ..Fake::default()
-    };
-    let rows = json_of(&go(&mut fake, Format::Json, &["list", "--all"]));
-    assert_eq!(rows[0]["state"], "live");
-    assert!(rows[0].get("end").is_none());
-    assert!(rows[1].get("end").is_some());
 }
 
 // session.feature: `session list --all --format text` has a STATE column;
-// session_state_test.go: "the table has a STATE column, and the live row prints
-// no END while the others print theirs".
+// the live row prints no END while the others print theirs.
 #[test]
 fn the_text_table_has_a_state_column_and_a_blank_end_while_live() {
-    let mut live = view("amber-swift-owl", State::Live);
-    live.record.ended_at = Some(ts(STARTED + 3600));
-    let mut ended = view("brisk-copper-moth", State::Ended);
-    ended.record.ended_at = Some(ts(STARTED + 3600));
-    let mut fake = Fake {
-        views: vec![live, ended],
-        ..Fake::default()
+    let live = session("amber-swift-owl", v1::SessionState::Live);
+    let mut ended = session("brisk-copper-moth", v1::SessionState::Ended);
+    ended.end_time = Some(ts(STARTED + 3600));
+    ended.kept = true;
+    let reads = Reads {
+        sessions: vec![live, ended],
+        ..Reads::default()
     };
-    let ran = go(&mut fake, Format::Text, &["list", "--all"]);
+    let ran = read_go(&reads, Format::Text, &["list", "--all"]);
     assert!(ran.result.is_ok());
     let lines: Vec<&str> = ran.out.lines().collect();
     for header in ["HARP", "SUMMARY", "STATE", "START", "END"] {
@@ -334,60 +361,82 @@ fn the_text_table_has_a_state_column_and_a_blank_end_while_live() {
         ended_line.contains("ended") && ended_line.contains("2026-07-17 13:00:00"),
         "{ended_line}"
     );
+    assert!(ended_line.contains("kept (transcript kept at any age)"));
     assert!(live_line.contains("2026-07-17 12:00:00"));
+    assert!(live_line.contains("Seeded prompt for amber-swift-owl."));
 }
 
-// session.feature: "A fresh project has recorded nothing": three examples, json
-// with no flag off a terminal, json and text; empty is an array, empty text is
-// the placeholder.
+// A title the user set is the row's summary, ahead of the first prompt.
 #[test]
-fn an_empty_listing_is_an_empty_array_or_the_placeholder() {
-    let mut fake = Fake::default();
-    let ran = go(&mut fake, Format::Json, &["list"]);
-    assert_eq!(json_of(&ran), json!([]));
-    let ran = go(&mut fake, Format::Text, &["list"]);
+fn a_set_title_is_the_rows_summary() {
+    let mut titled = session("amber-swift-owl", v1::SessionState::Ended);
+    titled.title = "the auth refactor".to_string();
+    let mut bare = session("brisk-copper-moth", v1::SessionState::Ended);
+    bare.summary = String::new();
+    let reads = Reads {
+        sessions: vec![titled, bare],
+        ..Reads::default()
+    };
+    let ran = read_go(&reads, Format::Text, &["list"]);
+    assert!(ran.out.contains("the auth refactor"), "{}", ran.out);
+    assert!(!ran.out.contains("Seeded prompt for amber"), "{}", ran.out);
+    assert!(ran.out.contains("(no summary)"), "{}", ran.out);
+}
+
+// session.feature: "A fresh project has recorded nothing": an empty
+// listing is the empty message in json, the placeholder in text.
+#[test]
+fn an_empty_listing_is_an_empty_message_or_the_placeholder() {
+    let reads = Reads::default();
+    let ran = read_go(&reads, Format::Json, &["list"]);
+    assert_eq!(json_of(&ran), json!({}));
+    let ran = read_go(&reads, Format::Text, &["list"]);
     assert_eq!(ran.out, "(no sessions)\n");
 }
 
 // A bare namespace runs its default verb (D28; Go: groupNodeDefault).
 #[test]
 fn a_bare_session_lists() {
-    let mut fake = Fake {
-        views: vec![view("amber-swift-owl", State::Ended)],
-        ..Fake::default()
+    let reads = Reads {
+        sessions: vec![session("amber-swift-owl", v1::SessionState::Ended)],
+        ..Reads::default()
     };
-    let ran = go(&mut fake, Format::Json, &[]);
-    assert_eq!(json_of(&ran)[0]["harp"], "amber-swift-owl");
-    assert_eq!(fake.list, [ListQuery::default()]);
+    let ran = read_go(&reads, Format::Json, &[]);
+    assert_eq!(
+        json_of(&ran)["sessions"][0]["name"],
+        "projects/calm-otter/sessions/amber-swift-owl"
+    );
+    assert_eq!(
+        *reads.asked.borrow(),
+        ["list false SESSION_STATE_UNSPECIFIED"]
+    );
 }
 
 #[test]
-fn all_and_state_reach_the_use_case() {
-    let mut fake = Fake::default();
-    go(
-        &mut fake,
-        Format::Json,
-        &["list", "--all", "--state", "ended"],
-    );
+fn all_and_state_reach_the_daemon() {
+    let reads = Reads::default();
+    read_go(&reads, Format::Json, &["list", "--all", "--state", "ended"]);
+    read_go(&reads, Format::Json, &["list", "--state", "live"]);
+    read_go(&reads, Format::Json, &["list", "--state", "unknown"]);
     assert_eq!(
-        fake.list,
-        [ListQuery {
-            all: true,
-            state: Some(State::Ended),
-            project: None,
-        }]
+        *reads.asked.borrow(),
+        [
+            "list true SESSION_STATE_ENDED",
+            "list false SESSION_STATE_LIVE",
+            "list false SESSION_STATE_UNKNOWN"
+        ]
     );
 }
 
 // session.feature: "--state refuses a word that is not a state".
 #[test]
 fn a_state_that_is_not_one_is_refused_naming_the_states() {
-    let mut fake = Fake::default();
+    let reads = Reads::default();
     for words in [
         &["list", "--state", "running"][..],
         &["search", "x", "--state", "running"],
     ] {
-        let ran = go(&mut fake, Format::Json, words);
+        let ran = read_go(&reads, Format::Json, words);
         let failure = ran.result.unwrap_err();
         assert_eq!(failure.failure.exit, Exit::REFUSED);
         assert_eq!(failure.failure.cause.code(), "session-cli-bad-state");
@@ -402,22 +451,20 @@ fn a_state_that_is_not_one_is_refused_naming_the_states() {
         assert!(states.contains("live, ended, unknown"), "{states}");
     }
     assert!(
-        fake.list.is_empty() && fake.search.is_empty(),
+        reads.asked.borrow().is_empty(),
         "refused before it asked anything"
     );
 }
 
-// ---------------------------------------------------------------------- search
-
 // Go: runSessionQuery.
 #[test]
 fn a_search_carries_its_words_and_scope() {
-    let mut fake = Fake {
-        views: vec![view("amber-swift-owl", State::Ended)],
-        ..Fake::default()
+    let reads = Reads {
+        sessions: vec![session("amber-swift-owl", v1::SessionState::Ended)],
+        ..Reads::default()
     };
-    let ran = go(
-        &mut fake,
+    let ran = read_go(
+        &reads,
         Format::Json,
         &[
             "search",
@@ -428,17 +475,13 @@ fn a_search_carries_its_words_and_scope() {
             "live",
         ],
     );
-    assert_eq!(json_of(&ran)[0]["harp"], "amber-swift-owl");
     assert_eq!(
-        fake.search,
-        [SearchQuery {
-            list: ListQuery {
-                all: true,
-                state: Some(State::Live),
-                project: None
-            },
-            words: vec!["lockfile".to_string(), "migration".to_string()],
-        }]
+        json_of(&ran)["sessions"][0]["name"],
+        "projects/calm-otter/sessions/amber-swift-owl"
+    );
+    assert_eq!(
+        *reads.asked.borrow(),
+        ["search lockfile migration true SESSION_STATE_LIVE"]
     );
 }
 
@@ -446,32 +489,30 @@ fn a_search_carries_its_words_and_scope() {
 // nothing": the bytes, not the exit code (Go: TestRunSessionQuery_NoMatches).
 #[test]
 fn a_search_that_matches_nothing_says_so() {
-    let mut fake = Fake::default();
-    let ran = go(
-        &mut fake,
+    let reads = Reads::default();
+    let ran = read_go(
+        &reads,
         Format::Text,
         &["search", "J001200-MATCHES-ABSOLUTELY-NOTHING"],
     );
     assert!(ran.result.is_ok());
     assert_eq!(ran.out.trim(), "(no sessions)");
-    let ran = go(&mut fake, Format::Json, &["search", "nothing"]);
-    assert_eq!(ran.out.trim(), "[]");
+    let ran = read_go(&reads, Format::Json, &["search", "nothing"]);
+    assert_eq!(ran.out.trim(), "{}");
 }
-
-// ------------------------------------------------------------------------ show
 
 // Go: renderSessionShow.
 #[test]
 fn show_prints_the_record_one_fact_per_line() {
-    let mut v = view("amber-swift-owl", State::Ended);
-    v.record.native_id = "native-1".to_string();
-    v.record.ended_at = Some(ts(STARTED + 3600));
-    v.record.kept = true;
-    let mut fake = Fake {
-        views: vec![v],
-        ..Fake::default()
+    let mut s = session("amber-swift-owl", v1::SessionState::Ended);
+    s.native_session = "native-1".to_string();
+    s.end_time = Some(ts(STARTED + 3600));
+    s.kept = true;
+    let reads = Reads {
+        sessions: vec![s],
+        ..Reads::default()
     };
-    let ran = go(&mut fake, Format::Text, &["show", "amber-swift-owl"]);
+    let ran = read_go(&reads, Format::Text, &["show", "amber-swift-owl"]);
     assert!(ran.result.is_ok());
     assert_eq!(
         ran.out,
@@ -486,189 +527,120 @@ fn show_prints_the_record_one_fact_per_line() {
          ended:    2026-07-17 13:00:00\n\
          kept:     its transcript is kept at any age (`ctxloom session keep --undo` releases it)\n"
     );
-    assert_eq!(fake.show[0].harp, "amber-swift-owl");
+    assert_eq!(*reads.asked.borrow(), ["get amber-swift-owl"]);
 }
 
 // Go: "absent facts left out rather than printed blank", and a title-less
 // session says so: j001200's "Show prints what the session was about".
 #[test]
 fn show_leaves_out_what_is_absent_and_names_a_session_with_no_title() {
-    let mut v = view("amber-swift-owl", State::Live);
-    v.title = None;
-    v.record.ended_at = Some(ts(STARTED + 3600));
-    let mut fake = Fake {
-        views: vec![v],
-        ..Fake::default()
+    let mut s = session("amber-swift-owl", v1::SessionState::Live);
+    s.summary = String::new();
+    let reads = Reads {
+        sessions: vec![s],
+        ..Reads::default()
     };
-    let ran = go(&mut fake, Format::Text, &["show", "amber-swift-owl"]);
+    let ran = read_go(&reads, Format::Text, &["show", "amber-swift-owl"]);
     assert!(ran.out.contains("(no summary)"), "{}", ran.out);
-    for absent in ["native:", "ended:", "kept:"] {
+    for absent in [
+        "native:",
+        "ended:",
+        "kept:",
+        "owner:",
+        "closed:",
+        "children:",
+        "pending:",
+    ] {
         assert!(!ran.out.contains(absent), "{absent} in {}", ran.out);
     }
 }
 
+// Ruling 146: show in json is the session as its proto3 JSON.
 #[test]
-fn show_in_json_is_the_record() {
-    let mut v = view("amber-swift-owl", State::Ended);
-    v.record.native_id = "native-1".to_string();
-    let mut fake = Fake {
-        views: vec![v],
-        ..Fake::default()
+fn show_in_json_is_the_session() {
+    let mut s = session("amber-swift-owl", v1::SessionState::Ended);
+    s.title = "the auth refactor".to_string();
+    let reads = Reads {
+        sessions: vec![s],
+        ..Reads::default()
     };
-    let doc = json_of(&go(&mut fake, Format::Json, &["show", "amber-swift-owl"]));
-    assert_eq!(doc["harp"], "amber-swift-owl");
-    assert_eq!(doc["state"], "ended");
-    assert_eq!(doc["engine"], "claude-code");
-    assert_eq!(doc["native_session"], "native-1");
-    assert_eq!(doc["project"], "/work/proj");
-    assert_eq!(doc["title"], "Seeded prompt for amber-swift-owl.");
-    assert_eq!(doc["started_at"], "2026-07-17T12:00:00Z");
-    assert_eq!(doc["id"], "01010101-0101-0101-0101-010101010101");
+    let doc = json_of(&read_go(&reads, Format::Json, &["show", "amber-swift-owl"]));
+    assert_eq!(doc["name"], "projects/calm-otter/sessions/amber-swift-owl");
+    assert_eq!(doc["state"], "SESSION_STATE_ENDED");
+    assert_eq!(doc["title"], "the auth refactor");
+    assert!(doc.get("end_time").is_none(), "{doc}");
 }
 
-fn pending(id: &str, urgency: sessions_application::Urgency, text: &str) -> PendingMessage {
-    PendingMessage {
-        message_id: id.to_string(),
-        urgency,
-        text: text.to_string(),
-        sender: None,
-    }
-}
-
-// D30: show lists the messages pending, one per line after the record, the
-// first line of each; none, no line.
+// D30, D-N35: show lists the pending messages, the owner, the close and the
+// children, each by what the daemon answered.
 #[test]
-fn show_lists_the_pending_messages_after_the_record() {
-    let mut v = view("amber-swift-owl", State::Ended);
-    v.pending = vec![
-        pending(
-            "m1",
-            sessions_application::Urgency::Inform,
-            "read this\nand that",
-        ),
-        pending("m2", sessions_application::Urgency::Wake, "go on"),
+fn show_in_text_names_the_owner_the_close_the_children_and_the_pending() {
+    let mut s = session("brisk-copper-moth", v1::SessionState::Live);
+    s.owner = "projects/calm-otter/sessions/amber-quiet-heron".to_string();
+    s.closed = true;
+    s.children = vec!["projects/calm-otter/sessions/calm-dusty-wren".to_string()];
+    s.pending = vec![
+        v1::PendingMessage {
+            message_id: "m1".to_string(),
+            urgency: "inform".to_string(),
+            text: "when you are next on\nmore".to_string(),
+            sender: String::new(),
+        },
+        v1::PendingMessage {
+            message_id: "m2".to_string(),
+            urgency: "wake".to_string(),
+            text: "now".to_string(),
+            sender: String::new(),
+        },
     ];
-    let mut fake = Fake {
-        views: vec![v],
-        ..Fake::default()
+    let reads = Reads {
+        sessions: vec![s],
+        ..Reads::default()
     };
-    let ran = go(&mut fake, Format::Text, &["show", "amber-swift-owl"]);
-    assert!(
-        ran.out.ends_with(
-            "pending:  2 messages no turn has carried yet\n  m1 (inform): read this\n  m2 (wake): go on\n"
-        ),
-        "{}",
-        ran.out
-    );
-    let none = go(
-        &mut Fake {
-            views: vec![view("amber-swift-owl", State::Ended)],
-            ..Fake::default()
-        },
-        Format::Text,
-        &["show", "amber-swift-owl"],
-    );
-    assert!(!none.out.contains("pending:"), "{}", none.out);
+    let ran = read_go(&reads, Format::Text, &["show", "brisk-copper-moth"]);
+    for line in [
+        "owner:    projects/calm-otter/sessions/amber-quiet-heron",
+        "closed:   yes",
+        "children: 1 held",
+        "  projects/calm-otter/sessions/calm-dusty-wren",
+        "pending:  2 messages no turn has carried yet",
+        "  m1 (inform): when you are next on",
+        "  m2 (wake): now",
+    ] {
+        assert!(ran.out.contains(line), "{line:?} in {}", ran.out);
+    }
+    assert!(!ran.out.contains("more"), "{}", ran.out);
 }
 
-fn child_ref(id: &str) -> sessions_application::Child {
-    sessions_application::Child {
-        session: Some(sessions_application::SessionRef {
-            project_id: "p1".to_string(),
-            session: id.to_string(),
-        }),
-        root: id.to_string(),
+// A call that came to nothing is the command's failure, with its exit.
+#[test]
+fn a_failed_call_is_the_commands_failure_with_its_exit_code() {
+    let reads = Reads {
+        refuse: Some(daemon_api::CallError::Unreached(
+            daemon_api::Unreached::NotStarted {
+                log: "~/.ctxloom/daemon/daemon.log".to_string(),
+            },
+        )),
+        ..Reads::default()
+    };
+    for words in [&["show", "no-such-harp"][..], &["list"]] {
+        let failure = read_go(&reads, Format::Json, words).result.unwrap_err();
+        assert_eq!(failure.failure.cause.code(), "daemon-ports-not-started");
+        assert_eq!(failure.failure.exit, Exit::FAILED);
     }
 }
 
-// D-N35, in text as in json: the owner link, the close and the children held,
-// each left out when unset.
+// Every verb but the reads runs on the sessions use cases.
 #[test]
-fn show_in_text_names_the_owner_the_close_and_the_children() {
-    let mut v = view("amber-swift-owl", State::Ended);
-    v.record.owner = Some(sessions_application::SessionRef {
-        project_id: "p1".to_string(),
-        session: "owner-id".to_string(),
-    });
-    v.record.closed = true;
-    v.record.children = vec![child_ref("child-1"), child_ref("child-2")];
-    v.pending = vec![pending("m1", sessions_application::Urgency::Wake, "go on")];
-    let mut fake = Fake {
-        views: vec![v],
-        ..Fake::default()
-    };
-    let ran = go(&mut fake, Format::Text, &["show", "amber-swift-owl"]);
-    assert!(
-        ran.out.ends_with(
-            "owner:    owner-id\nclosed:   yes\nchildren: 2 held\n  child-1\n  child-2\npending:  1 message no turn has carried yet\n  m1 (wake): go on\n"
-        ),
-        "{}",
-        ran.out
-    );
-    let none = go(
-        &mut Fake {
-            views: vec![view("amber-swift-owl", State::Ended)],
-            ..Fake::default()
-        },
-        Format::Text,
-        &["show", "amber-swift-owl"],
-    );
-    for absent in ["owner:", "closed:", "children:"] {
-        assert!(!none.out.contains(absent), "{absent}: {}", none.out);
+fn only_list_search_and_show_are_the_daemons_reads() {
+    for words in [
+        &["keep", "a"][..],
+        &["rename", "a", "b"],
+        &["transcript"],
+        &["import"],
+    ] {
+        assert!(!crate::is_read(&parsed(words)), "{words:?}");
     }
-}
-
-#[test]
-fn show_in_json_names_the_owner_the_close_and_the_children() {
-    let mut v = view("amber-swift-owl", State::Ended);
-    v.record.owner = Some(sessions_application::SessionRef {
-        project_id: "p1".to_string(),
-        session: "owner-id".to_string(),
-    });
-    v.record.closed = true;
-    v.record.children = vec![child_ref("child-1")];
-    let mut fake = Fake {
-        views: vec![v],
-        ..Fake::default()
-    };
-    let doc = json_of(&go(&mut fake, Format::Json, &["show", "amber-swift-owl"]));
-    assert_eq!(doc["owner"], "owner-id");
-    assert_eq!(doc["closed"], true);
-    assert_eq!(doc["children"], json!(["child-1"]));
-}
-
-#[test]
-fn show_in_json_lists_the_pending_messages_and_leaves_out_none() {
-    let mut v = view("amber-swift-owl", State::Ended);
-    v.pending = vec![pending("m1", sessions_application::Urgency::Steer, "stop")];
-    let mut fake = Fake {
-        views: vec![v],
-        ..Fake::default()
-    };
-    let doc = json_of(&go(&mut fake, Format::Json, &["show", "amber-swift-owl"]));
-    assert_eq!(
-        doc["pending"],
-        json!([{"message_id": "m1", "urgency": "steer", "text": "stop"}])
-    );
-    let mut empty = Fake {
-        views: vec![view("amber-swift-owl", State::Ended)],
-        ..Fake::default()
-    };
-    let doc = json_of(&go(&mut empty, Format::Json, &["show", "amber-swift-owl"]));
-    assert!(doc.get("pending").is_none());
-}
-
-#[test]
-fn a_failure_of_the_use_case_is_the_commands_failure_with_its_exit_code() {
-    let mut fake = Fake::default();
-    let failure = go(&mut fake, Format::Json, &["show", "no-such-harp"])
-        .result
-        .unwrap_err();
-    assert_eq!(
-        failure.failure.cause.code(),
-        "sessions-application-no-session"
-    );
-    assert_eq!(failure.failure.exit, Exit::REFUSED);
 }
 
 // ------------------------------------------------------------------------ keep
@@ -1233,9 +1205,9 @@ impl std::io::Write for Broken {
 // An answer that cannot be written is the command's failure, not a success.
 #[test]
 fn an_answer_that_cannot_be_written_fails_the_command() {
-    let mut fake = Fake::default();
+    let reads = Reads::default();
     let session = parsed(&["list"]);
-    let failure = run(&session, &mut fake, Format::Json, &mut Broken).unwrap_err();
+    let failure = crate::read(&session, &reads, Format::Json, &mut Broken).unwrap_err();
     assert_eq!(failure.failure.cause.code(), "session-cli-output");
     assert_eq!(failure.failure.exit, Exit::FAILED);
 }

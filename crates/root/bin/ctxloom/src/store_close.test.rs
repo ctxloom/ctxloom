@@ -57,10 +57,11 @@ fn test_every_session_command_closes_its_store_before_it_exits() {
         Vec::<&str>::new(),
         "the seed: nothing beside"
     );
+    // `session list|show|search` open no store: they are the daemon's
+    // reads (slice 2 step 6), and the daemon, the store's one owner (T14),
+    // holds it open while it serves.
     for (args, writes) in [
-        (&["session", "list", "--format", "json"][..], false),
-        (&["session", "keep", HARP, "--format", "json"], true),
-        (&["session", "show", HARP, "--format", "json"], false),
+        (&["session", "keep", HARP, "--format", "json"][..], true),
         (
             &["session", "transcript", "show", HARP, "--format", "json"],
             false,
@@ -111,6 +112,8 @@ fn test_a_hook_that_binds_its_session_closes_the_store_before_it_answers() {
         &[("CTXLOOM_SESSION_HARP", HARP)],
     );
     ok(&ran, "SessionStart");
+    assert!(!logged(&store), "the log holds nothing");
+    // Read by the daemon, which holds the store from here on.
     let shown = env.run(&["session", "show", HARP, "--format", "json"]);
     ok(&shown, "show");
     assert!(
@@ -118,7 +121,6 @@ fn test_a_hook_that_binds_its_session_closes_the_store_before_it_answers() {
         "the hook bound the session: {}",
         shown.stdout
     );
-    assert!(!logged(&store), "the log holds nothing");
 }
 
 /// A child that answers its turn and fires no hook.

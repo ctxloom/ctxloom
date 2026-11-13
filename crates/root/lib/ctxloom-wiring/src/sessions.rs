@@ -14,7 +14,7 @@ use ctxloom_cli::{shaped, Call, CliError, Failure, PROG};
 use hook_cli::Binding;
 use sessions_application::{BindRequest, SessionService};
 
-use crate::{Commands, HookRecording, HookSink, RunIds, Sessions};
+use crate::{Commands, HookRecording, HookSink, RunIds, Sessions, Wiring};
 
 /// The nouns these commands own.
 pub(crate) const NOUNS: [&str; 2] = ["session", "hook"];
@@ -126,8 +126,17 @@ impl Commands {
         let command = session_cli::Session::from_arg_matches(matches_of(call, "session"))
             .unwrap_or_else(|e| unreachable!("clap parsed it: {e}"));
         let format = call.format();
-        let service = self.sessions().map_err(failed)?;
-        match session_cli::run(&command, service, format, out) {
+        // The reads are the daemon's (slice 2 step 6): this process opens no
+        // store for them.
+        let ran = if session_cli::is_read(&command) {
+            let wiring = Wiring::new(Arc::clone(&self.env)).map_err(|e| failed(Box::new(e)))?;
+            let client = crate::daemon::client(&wiring, &self.version);
+            session_cli::read(&command, &client, format, out)
+        } else {
+            let service = self.sessions().map_err(failed)?;
+            session_cli::run(&command, service, format, out)
+        };
+        match ran {
             Ok(done) => {
                 for line in &done.lines {
                     let _ = writeln!(err, "{PROG}: {line}");

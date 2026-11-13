@@ -24,6 +24,7 @@ use angzarr_presentation::{render, Catalog, Render};
 use clap::{Command, FromArgMatches, Subcommand};
 use cli_support::{Exit, ExitClass};
 use ctxloom_cli::{shaped, Call, CliError, Failure};
+use daemon_ports::{Daemons, Unreached};
 use file_system::{Fs, Open};
 use os::Mode;
 use process_env::EnvSnapshot;
@@ -245,31 +246,35 @@ impl Render for Done {
     }
 }
 
-/// What `status` answers.
-#[derive(Serialize)]
-struct Status {
-    serving: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    endpoint: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pid: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    version: Option<String>,
-}
+/// What `status` answers: the daemon as it says itself (`GetDaemon`), or
+/// none serving. Its json is the `Daemon`'s proto3 JSON (ruling 146), the
+/// empty message when none serves.
+struct Status(Option<daemon_proto::v1::Daemon>);
 
 impl Render for Status {
     fn json(&self) -> impl Serialize + '_ {
-        self
+        // None serving: the empty message, `{}`.
+        session_cli::proto_json::daemon(&self.0.clone().unwrap_or_default())
     }
 
     fn text(&self, out: &mut dyn Write) -> std::io::Result<()> {
-        match (&self.endpoint, self.pid) {
-            (Some(endpoint), Some(pid)) if self.serving => {
-                writeln!(out, "serving at {endpoint} (pid {pid})")
-            }
-            _ if self.serving => writeln!(out, "serving"),
-            _ => writeln!(out, "not serving"),
+        let Some(daemon) = &self.0 else {
+            return writeln!(out, "no ctxloom daemon is serving");
+        };
+        writeln!(
+            out,
+            "serving at {} (pid {}), ctxloom {}",
+            daemon.endpoint, daemon.pid, daemon.version
+        )?;
+        writeln!(
+            out,
+            "idle {}s of {}s",
+            daemon.idle_seconds, daemon.idle_limit_seconds
+        )?;
+        for run in &daemon.runs {
+            writeln!(out, "hosting {} ({})", run.harp, run.session)?;
         }
+        Ok(())
     }
 }
 
@@ -334,7 +339,7 @@ pub(crate) fn run(
     // serving daemon's is refused before it does anything (`serve` itself
     // finds the lock held, and exits).
     let serving = match verb {
-        DaemonVerb::Serve { .. } => None,
+        DaemonVerb::Serve { .. } | DaemonVerb::Status | DaemonVerb::Stop { .. } => None,
         _ => serving(&wiring, &files)?,
     };
     // M3: a daemon of another version is stopped, idle, or refuses this
@@ -359,14 +364,15 @@ pub(crate) fn run(
             };
             return be_the_daemon(&wiring, env, stamp, &files, pace);
         }
+        // Clients of the daemon (slice 2 step 6), answered here when none
+        // serves (S14): neither starts one.
         DaemonVerb::Status => {
-            output(render(out, format, &status(serving)))?;
+            let found = block_on(client(&wiring, stamp).status())?.map_err(called)?;
+            output(render(out, format, &Status(found)))?;
             return Ok(Exit::OK);
         }
         DaemonVerb::Stop { even_if_live } => {
-            if let Some(found) = serving {
-                block_on(daemon_api::stop(&client_of(&found), even_if_live))?.map_err(called)?;
-            }
+            block_on(client(&wiring, stamp).stop(even_if_live))?.map_err(called)?;
             return Ok(Exit::OK);
         }
         DaemonVerb::Resolve => {
@@ -695,6 +701,14 @@ fn files_of(wiring: &Wiring) -> DaemonFiles {
 /// another ctxloom home than `wiring`'s (one daemon per OS user, so this
 /// command is never given a second).
 fn serving(wiring: &Wiring, files: &DaemonFiles) -> Result<Option<run_ports::Discovery>, Failure> {
+    serving_here(wiring, files).map_err(|refused| Failure::new(refused, Exit::REFUSED))
+}
+
+/// [`serving`]'s answer, its refusal the wiring's own.
+fn serving_here(
+    wiring: &Wiring,
+    files: &DaemonFiles,
+) -> Result<Option<run_ports::Discovery>, LibError> {
     let Some(found) = files.discovery().filter(live) else {
         return Ok(None);
     };
@@ -702,24 +716,111 @@ fn serving(wiring: &Wiring, files: &DaemonFiles) -> Result<Option<run_ports::Dis
     if found.home == home {
         Ok(Some(found))
     } else {
-        Err(Failure::new(
-            LibError::DaemonOtherHome {
-                home,
-                daemon_home: found.home,
-            },
-            Exit::REFUSED,
-        ))
+        Err(LibError::DaemonOtherHome {
+            home,
+            daemon_home: found.home,
+        })
     }
 }
 
-/// Whether a daemon serves, and where: the one `found` serving.
-fn status(found: Option<run_ports::Discovery>) -> Status {
-    Status {
-        serving: found.is_some(),
-        endpoint: found.as_ref().map(|d| d.endpoint.clone()),
-        pid: found.as_ref().map(|d| d.pid),
-        version: found.map(|d| d.stamp),
+/// The user's daemon as a command reaches it (daemon-ports' `Daemons`,
+/// slice 2 step 6): the discovery file's, if it is live (health) and this
+/// home's; else, for a call, one spawned and waited for (S16's bound), a
+/// daemon of another version stopped first when it is idle (M3).
+pub(crate) struct Reach<'a> {
+    wiring: &'a Wiring,
+    stamp: String,
+}
+
+impl<'a> Reach<'a> {
+    /// The daemon of `wiring`'s home, as this client of stamp `stamp` (the
+    /// binary's; a test's own under test-support) reaches it.
+    pub(crate) fn new(wiring: &'a Wiring, stamp: &str) -> Reach<'a> {
+        Reach {
+            wiring,
+            stamp: own_stamp(wiring.env(), stamp).to_string(),
+        }
     }
+
+    /// The daemon log's path as a person reads it: under `~` when it is
+    /// below the home.
+    fn log(&self, files: &DaemonFiles) -> String {
+        let log = files.log_path();
+        match self.wiring.env().home().map(PathBuf::from) {
+            Some(home) => match log.strip_prefix(&home) {
+                Ok(below) => format!("~/{}", below.display()),
+                Err(_) => log.display().to_string(),
+            },
+            None => log.display().to_string(),
+        }
+    }
+}
+
+/// A refusal of the wiring's, as the reach declines.
+fn declined(refused: impl angzarr_diagnostic::Diagnostic + Send + Sync + 'static) -> Unreached {
+    Unreached::Declined(Arc::new(refused))
+}
+
+impl Daemons for Reach<'_> {
+    type Api = daemon_client::DaemonClient;
+
+    async fn serving(&self) -> Result<Option<daemon_client::DaemonClient>, Unreached> {
+        let files = files_of(self.wiring);
+        Ok(serving_here(self.wiring, &files)
+            .map_err(declined)?
+            .map(|found| client_of(&found)))
+    }
+
+    async fn reach(&self) -> Result<daemon_client::DaemonClient, Unreached> {
+        let files = files_of(self.wiring);
+        if let Some(found) = serving_here(self.wiring, &files).map_err(declined)? {
+            match daemon_api::reconcile(&client_of(&found), &self.stamp, &found.stamp).await {
+                Ok(daemon_api::Reconciled::Same) => return Ok(client_of(&found)),
+                Ok(daemon_api::Reconciled::Stopped) => {
+                    let deadline = Instant::now() + STOPPED_WAIT;
+                    while Instant::now() < deadline && files.discovery().is_some_and(|d| live(&d)) {
+                        std::thread::sleep(Duration::from_millis(20));
+                    }
+                }
+                Err(daemon_api::SkewError::Call(_)) => {}
+                Err(busy) => return Err(declined(busy)),
+            }
+        }
+        ensure(self.wiring, self.wiring.env());
+        match serving_here(self.wiring, &files).map_err(declined)? {
+            Some(found) => Ok(client_of(&found)),
+            None => Err(Unreached::NotStarted {
+                log: self.log(&files),
+            }),
+        }
+    }
+}
+
+/// The caller's whole environment, as a call to the daemon carries it (S7).
+pub(crate) fn env_vars(env: &EnvSnapshot) -> daemon_proto::v1::EnvVars {
+    daemon_proto::v1::EnvVars {
+        vars: env
+            .vars_utf8()
+            .into_iter()
+            .map(|(name, value)| daemon_proto::v1::EnvVar { name, value })
+            .collect(),
+    }
+}
+
+/// This command's client of the daemon (slice 2 step 6): `wiring`'s
+/// project, its working directory and its whole environment.
+pub(crate) fn client<'a>(wiring: &'a Wiring, stamp: &str) -> daemon_api::Client<Reach<'a>> {
+    let cwd = wiring
+        .env()
+        .cwd()
+        .map(|cwd| cwd.display().to_string())
+        .unwrap_or_default();
+    daemon_api::Client::new(
+        Reach::new(wiring, stamp),
+        wiring.registration(),
+        cwd,
+        env_vars(wiring.env()),
+    )
 }
 
 /// Run `use_case` on the sessions use cases, on a runtime of its own.

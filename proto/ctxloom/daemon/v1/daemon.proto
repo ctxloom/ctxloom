@@ -252,6 +252,7 @@ message Globals {
 message GetDaemonRequest {
   // `daemon`.
   string name = 1;
+  EnvVars env = 94;
 }
 
 enum RunKind {
@@ -287,6 +288,7 @@ message StopDaemonRequest {
   string name = 1;
   bool even_if_live = 2;
   string request_id = 90;
+  EnvVars env = 94;
 }
 
 // endregion
@@ -312,6 +314,7 @@ message ResolveProjectRequest {
   string root = 4;
   string git_common_dir = 5;
   string root_commit = 6;
+  EnvVars env = 94;
 }
 
 message Project {
@@ -422,10 +425,26 @@ message Session {
   string etag = 14;
   // The free-text title `session rename` sets (S42); the harp never changes.
   string title = 15;
+  // The engine's own session id, once bound.
+  string native_session = 16;
+  // The session's project directory.
+  string project_root = 17;
+  // Where its outputs go (`<project>/<output.dir>/<harp>`).
+  string output_dir = 18;
+  // Each engine session it was bound to before its native one (a /clear).
+  repeated SessionRotation rotations = 19;
+}
+
+// A native session a session was bound to before (its binding rotated).
+message SessionRotation {
+  string native_id = 1;
+  string transcript_path = 2;
+  google.protobuf.Timestamp rotated_at = 3;
 }
 
 message GetSessionRequest {
   string name = 1;
+  EnvVars env = 94;
 }
 
 message ListSessionsRequest {
@@ -435,6 +454,7 @@ message ListSessionsRequest {
   bool has_transcript = 3;
   int32 page_size = 80;
   string page_token = 81;
+  EnvVars env = 94;
 }
 
 message ListSessionsResponse {
@@ -448,6 +468,7 @@ message SearchSessionsRequest {
   SessionState state = 3;
   int32 page_size = 80;
   string page_token = 81;
+  EnvVars env = 94;
 }
 
 message DeleteSessionRequest {

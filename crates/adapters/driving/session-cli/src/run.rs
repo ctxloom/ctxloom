@@ -8,6 +8,8 @@ use angzarr_diagnostic::Diagnostic;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use angzarr_presentation::{write_json, Format};
+use daemon_api::{CallError, SessionReads};
+use daemon_proto::v1;
 use isolation_application::{IsolationError, WorktreeUse};
 use reclaim_application::SweepConfig;
 #[cfg(feature = "session-destroy")]
@@ -15,16 +17,16 @@ use reclaim_application::{purge_cutoff, ReclaimError, SweepRequest};
 #[cfg(feature = "session-destroy")]
 use sessions_application::Timestamp;
 use sessions_application::{
-    dead_letter_line, AppError, DeadLetter, ImportRequest, ImportService, KeepRequest, ListQuery,
-    RemovedNothing, SearchQuery, SessionService, ShowQuery, State, TitleRequest, TranscriptQuery,
-    View, STATES,
+    dead_letter_line, AppError, DeadLetter, ImportRequest, ImportService, KeepRequest,
+    RemovedNothing, SessionService, State, TitleRequest, TranscriptQuery, STATES,
 };
 #[cfg(feature = "session-destroy")]
 use sessions_application::{DestroysAuthored, RemoveRequest, REMOVE_VERB};
 
+use crate::proto_json;
 use crate::render::{
-    conversation_text, import_text, rows_text, show_text, transcripts_text, worktrees_text,
-    ImportDoc, KeepDoc, Row, ShowDoc, TitleDoc, TranscriptsDoc,
+    conversation_text, import_text, listing_text, session_text, transcripts_text, worktrees_text,
+    ImportDoc, KeepDoc, TitleDoc, TranscriptsDoc,
 };
 #[cfg(feature = "session-destroy")]
 use crate::{
@@ -69,7 +71,60 @@ impl Failure {
     }
 }
 
-/// Run `session`'s command on `service`, writing its answer to `out`.
+/// Whether `session`'s command is one of the reads the daemon answers
+/// (`list`, the bare noun, `search`, `show`: slice 2 step 6), which
+/// [`read`] runs; every other runs on the sessions use cases ([`run`]).
+pub fn is_read(session: &Session) -> bool {
+    matches!(
+        session.verb,
+        None | Some(SessionVerb::List(_) | SessionVerb::Search(_) | SessionVerb::Show(_))
+    )
+}
+
+/// Run `session`'s read ([`is_read`]) on the daemon's client `reads`,
+/// writing its answer to `out`.
+pub fn read<R: SessionReads>(
+    session: &Session,
+    reads: &R,
+    format: Format,
+    out: &mut dyn Write,
+) -> Result<Done, Failure> {
+    // Time and I/O: the daemon is called over the network.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| {
+            fault(CliFault::Runtime {
+                ext_err_txt: e.to_string(),
+            })
+        })?;
+    runtime.block_on(async {
+        match &session.verb {
+            Some(SessionVerb::List(args)) => list(reads, args, format, out).await,
+            Some(SessionVerb::Search(args)) => {
+                let state = api_state(args.state.as_ref())?;
+                let found = reads
+                    .search_sessions(args.words.clone(), args.all, state)
+                    .await
+                    .map_err(call_failure)?;
+                listing(&found, format, out)
+            }
+            Some(SessionVerb::Show(args)) => {
+                let shown = reads.get_session(&args.harp).await.map_err(call_failure)?;
+                wrote(match format {
+                    Format::Json => write_json(out, &proto_json::session(&shown)),
+                    Format::Text => session_text(&shown, out),
+                })?;
+                Ok(Done::default())
+            }
+            // The bare noun lists; any other verb is no read.
+            _ => list(reads, &ListArgs::default(), format, out).await,
+        }
+    })
+}
+
+/// Run `session`'s command (one that is not a read, [`is_read`]) on
+/// `service`, writing its answer to `out`.
 pub fn run<S: SessionService + ImportService + WorktreeUse + SweepConfig>(
     session: &Session,
     service: &mut S,
@@ -85,6 +140,36 @@ pub fn run<S: SessionService + ImportService + WorktreeUse + SweepConfig>(
             })
         })?;
     runtime.block_on(execute(session, service, format, out))
+}
+
+/// A call to the daemon that came to nothing: its diagnostic and its exit.
+fn call_failure(error: CallError) -> Failure {
+    let exit = error.exit();
+    Failure::new(error, exit, Vec::new())
+}
+
+/// A `--state` word as the state the daemon's API names (none: any).
+fn api_state(word: Option<&String>) -> Result<v1::SessionState, Failure> {
+    Ok(match state_of(word)? {
+        None => v1::SessionState::Unspecified,
+        Some(State::Live) => v1::SessionState::Live,
+        Some(State::Ended) => v1::SessionState::Ended,
+        Some(State::Unknown) => v1::SessionState::Unknown,
+    })
+}
+
+/// A listing the daemon answered, in `format`: its proto3 JSON (ruling
+/// 146), or the table.
+fn listing(
+    listed: &v1::ListSessionsResponse,
+    format: Format,
+    out: &mut dyn Write,
+) -> Result<Done, Failure> {
+    wrote(match format {
+        Format::Json => write_json(out, &proto_json::sessions(listed)),
+        Format::Text => listing_text(&listed.sessions, out),
+    })?;
+    Ok(Done::default())
 }
 
 /// A fault of the command line itself.
@@ -137,19 +222,6 @@ fn dead_letters(letters: &[DeadLetter]) -> Done {
     }
 }
 
-/// A list of rows in `format`.
-fn rows(views: &[View], format: Format, out: &mut dyn Write) -> Result<Done, Failure> {
-    let written = match format {
-        Format::Json => {
-            let rows: Vec<Row> = views.iter().map(Row::of).collect();
-            write_json(out, &rows)
-        }
-        Format::Text => rows_text(views, out),
-    };
-    wrote(written)?;
-    Ok(Done::default())
-}
-
 async fn execute<S: SessionService + ImportService + WorktreeUse + SweepConfig>(
     session: &Session,
     service: &mut S,
@@ -157,33 +229,9 @@ async fn execute<S: SessionService + ImportService + WorktreeUse + SweepConfig>(
     out: &mut dyn Write,
 ) -> Result<Done, Failure> {
     match &session.verb {
-        None => list(service, &ListArgs::default(), format, out).await,
-        Some(SessionVerb::List(args)) => list(service, args, format, out).await,
-        Some(SessionVerb::Search(args)) => {
-            let query = SearchQuery {
-                list: ListQuery {
-                    project: None,
-                    all: args.all,
-                    state: state_of(args.state.as_ref())?,
-                },
-                words: args.words.clone(),
-            };
-            let views = service.search(query).await.map_err(failure)?;
-            rows(&views, format, out)
-        }
-        Some(SessionVerb::Show(args)) => {
-            let view = service
-                .show(ShowQuery {
-                    project: None,
-                    harp: args.harp.clone(),
-                })
-                .await
-                .map_err(failure)?;
-            wrote(match format {
-                Format::Json => write_json(out, &ShowDoc::of(&view)),
-                Format::Text => show_text(&view, out),
-            })?;
-            Ok(Done::default())
+        // The daemon's: `read` runs them.
+        None | Some(SessionVerb::List(_) | SessionVerb::Search(_) | SessionVerb::Show(_)) => {
+            unreachable!("a read is the daemon's: session_cli::read")
         }
         Some(SessionVerb::Rename(args)) => rename(service, args, format, out).await,
         Some(SessionVerb::Keep(args)) => {
@@ -282,19 +330,18 @@ fn worktree_verb<S: WorktreeUse>(
     Ok(done)
 }
 
-async fn list<S: SessionService>(
-    service: &mut S,
+async fn list<R: SessionReads>(
+    reads: &R,
     args: &ListArgs,
     format: Format,
     out: &mut dyn Write,
 ) -> Result<Done, Failure> {
-    let query = ListQuery {
-        project: None,
-        all: args.all,
-        state: state_of(args.state.as_ref())?,
-    };
-    let views = service.list(query).await.map_err(failure)?;
-    rows(&views, format, out)
+    let state = api_state(args.state.as_ref())?;
+    let listed = reads
+        .list_sessions(args.all, state)
+        .await
+        .map_err(call_failure)?;
+    listing(&listed, format, out)
 }
 
 /// `session rename <harp> <title>` (S55): the title set; the harp stays.

@@ -7,50 +7,11 @@ use std::io::{self, Write};
 
 use angzarr_diagnostic::{Arg, Diagnostic};
 use angzarr_presentation::text;
+use daemon_proto::v1;
 use serde::Serialize;
-use sessions_application::{
-    stamp, urgency_word, ImportReport, Titled, TranscriptRow, View, NO_SUMMARY,
-};
 #[cfg(feature = "session-destroy")]
 use sessions_application::{Class, FilePlan, PlanItem, Removal};
-
-/// One session as `session list` and `search` row it.
-#[derive(Serialize)]
-pub(crate) struct Row {
-    harp: String,
-    /// Its resource name, `projects/{project}/sessions/{session}` (slice 2
-    /// B3); left out while its project has no harp.
-    #[serde(skip_serializing_if = "String::is_empty")]
-    name: String,
-    summary: String,
-    state: &'static str,
-    start: String,
-    /// When its last run ended; left out while it is live.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    end: Option<String>,
-    #[serde(skip_serializing_if = "is_false")]
-    kept: bool,
-    engine: String,
-}
-
-fn is_false(value: &bool) -> bool {
-    !value
-}
-
-impl Row {
-    pub(crate) fn of(view: &View) -> Row {
-        Row {
-            harp: view.record.harp.clone(),
-            name: view.record.name.clone(),
-            summary: view.summary(),
-            state: view.state.as_str(),
-            start: stamp::rfc3339(view.record.started_at),
-            end: view.end().map(stamp::rfc3339),
-            kept: view.record.kept,
-            engine: view.record.engine.clone(),
-        }
-    }
-}
+use sessions_application::{ImportReport, Titled, TranscriptRow, NO_SUMMARY};
 
 /// Columns by display width, two spaces between, no trailing spaces.
 pub(crate) fn table(headers: &[&str], rows: &[Vec<String>]) -> String {
@@ -78,192 +39,16 @@ pub(crate) fn table(headers: &[&str], rows: &[Vec<String>]) -> String {
     out
 }
 
-/// The listing as text: the placeholder, or a table.
-pub(crate) fn rows_text(views: &[View], out: &mut dyn Write) -> io::Result<()> {
-    if views.is_empty() {
-        return writeln!(out, "(no sessions)");
-    }
-    let rows: Vec<Vec<String>> = views
-        .iter()
-        .map(|v| {
-            vec![
-                v.record.harp.clone(),
-                v.summary(),
-                v.state.as_str().to_string(),
-                stamp::text(v.record.started_at),
-                v.end().map(stamp::text).unwrap_or_default(),
-            ]
-        })
-        .collect();
-    write!(
-        out,
-        "{}",
-        table(&["HARP", "SUMMARY", "STATE", "START", "END"], &rows)
-    )
+/// The listing the daemon answered, as text: the placeholder, or a table.
+pub(crate) fn listing_text(sessions: &[v1::Session], out: &mut dyn Write) -> io::Result<()> {
+    let _ = (sessions, out, NO_SUMMARY);
+    todo!("RED: slice 2 step 6")
 }
 
-/// `session show`'s document in json.
-#[derive(Serialize)]
-pub(crate) struct ShowDoc {
-    id: String,
-    harp: String,
-    /// Its resource name (slice 2 B3); left out while its project has none.
-    #[serde(skip_serializing_if = "String::is_empty")]
-    name: String,
-    project: String,
-    project_id: String,
-    state: &'static str,
-    engine: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    native_session: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    title: Option<String>,
-    started_at: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    ended_at: Option<String>,
-    #[serde(skip_serializing_if = "is_false")]
-    kept: bool,
-    output_dir: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    rotations: Vec<RotationDoc>,
-    /// The messages no turn has carried yet (D30); left out when none.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pending: Vec<PendingDoc>,
-    /// The stable id of the session it is a child of (D26); left out for a
-    /// top-level session.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    owner: Option<String>,
-    /// Closed (K1); left out while open.
-    #[serde(skip_serializing_if = "is_false")]
-    closed: bool,
-    /// The stable ids of the children it holds (K2); left out when none.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    children: Vec<String>,
-}
-
-#[derive(Serialize)]
-struct PendingDoc {
-    message_id: String,
-    urgency: &'static str,
-    text: String,
-    /// The stable id of the session that sent it; left out for the user.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    sender: Option<String>,
-}
-
-#[derive(Serialize)]
-struct RotationDoc {
-    native_id: String,
-    transcript_path: String,
-    rotated_at: String,
-}
-
-impl ShowDoc {
-    pub(crate) fn of(view: &View) -> ShowDoc {
-        let record = &view.record;
-        ShowDoc {
-            id: record.id.clone(),
-            harp: record.harp.clone(),
-            name: record.name.clone(),
-            project: record.project_dir.clone(),
-            project_id: record.project_id.clone(),
-            state: view.state.as_str(),
-            engine: record.engine.clone(),
-            native_session: record.native_id.clone(),
-            title: view.title.clone(),
-            started_at: stamp::rfc3339(record.started_at),
-            ended_at: view.end().map(stamp::rfc3339),
-            kept: record.kept,
-            output_dir: record.output_dir.clone(),
-            rotations: record
-                .rotations
-                .iter()
-                .map(|r| RotationDoc {
-                    native_id: r.native_id.clone(),
-                    transcript_path: r.transcript_path.clone(),
-                    rotated_at: r.rotated_at.map(stamp::rfc3339).unwrap_or_default(),
-                })
-                .collect(),
-            pending: view
-                .pending
-                .iter()
-                .map(|m| PendingDoc {
-                    message_id: m.message_id.clone(),
-                    urgency: urgency_word(m.urgency),
-                    text: m.text.clone(),
-                    sender: m.sender.as_ref().map(|s| s.session.clone()),
-                })
-                .collect(),
-            owner: record.owner.as_ref().map(|o| o.session.clone()),
-            closed: record.closed,
-            children: record
-                .children
-                .iter()
-                .filter_map(|c| c.session.as_ref().map(|s| s.session.clone()))
-                .collect(),
-        }
-    }
-}
-
-/// One fact per line, absent facts left out rather than printed blank (Go:
-/// `renderSessionShow`).
-pub(crate) fn show_text(view: &View, out: &mut dyn Write) -> io::Result<()> {
-    let record = &view.record;
-    let title = view.title.as_deref().unwrap_or(NO_SUMMARY);
-    writeln!(out, "{}\n{title}\n", record.harp)?;
-    writeln!(out, "state:    {}", view.state.as_str())?;
-    writeln!(out, "engine:   {}", record.engine)?;
-    if !record.native_id.is_empty() {
-        writeln!(out, "native:   {}", record.native_id)?;
-    }
-    writeln!(out, "project:  {}", record.project_dir)?;
-    writeln!(out, "started:  {}", stamp::text(record.started_at))?;
-    if let Some(end) = view.end() {
-        writeln!(out, "ended:    {}", stamp::text(end))?;
-    }
-    if record.kept {
-        writeln!(
-            out,
-            "kept:     its transcript is kept at any age (`ctxloom session keep --undo` releases it)"
-        )?;
-    }
-    // The owner link, the close and the children (D-N35), as the json has
-    // them: each left out when unset.
-    if let Some(owner) = &record.owner {
-        writeln!(out, "owner:    {}", owner.session)?;
-    }
-    if record.closed {
-        writeln!(out, "closed:   yes")?;
-    }
-    let children: Vec<&str> = record
-        .children
-        .iter()
-        .filter_map(|c| c.session.as_ref().map(|s| s.session.as_str()))
-        .collect();
-    if !children.is_empty() {
-        writeln!(out, "children: {} held", children.len())?;
-        for child in children {
-            writeln!(out, "  {child}")?;
-        }
-    }
-    if !view.pending.is_empty() {
-        let count = view.pending.len();
-        let plural = if count == 1 { "" } else { "s" };
-        writeln!(
-            out,
-            "pending:  {count} message{plural} no turn has carried yet"
-        )?;
-        for message in &view.pending {
-            let first = message.text.lines().next().unwrap_or_default();
-            writeln!(
-                out,
-                "  {} ({}): {first}",
-                message.message_id,
-                urgency_word(message.urgency)
-            )?;
-        }
-    }
-    Ok(())
+/// One fact per line, absent facts left out rather than printed blank.
+pub(crate) fn session_text(session: &v1::Session, out: &mut dyn Write) -> io::Result<()> {
+    let _ = (session, out);
+    todo!("RED: slice 2 step 6")
 }
 
 /// `session rename`'s answer: the session, its title and whether it changed.

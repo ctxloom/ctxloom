@@ -460,8 +460,8 @@ impl Ran {
 
 /// The value at a path in a JSON document, in the notation of Go's
 /// `the output reports "<path>" as ...` (`steps_cli.go`): `$` is the root, a
-/// segment is a key, an index, or a selector `[key=value]` that picks the
-/// element of an array whose `key` is `value`.
+/// segment is a key, an index (`runs.0` or `runs[0]`), or a selector
+/// `[key=value]` that picks the element of an array whose `key` is `value`.
 pub(crate) fn at<'a>(doc: &'a Value, path: &str) -> Option<&'a Value> {
     let mut here = doc;
     if path == "$" {
@@ -470,12 +470,14 @@ pub(crate) fn at<'a>(doc: &'a Value, path: &str) -> Option<&'a Value> {
     let path = path.strip_prefix("$.").unwrap_or(path);
     for segment in split_path(path) {
         here = match segment.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
-            Some(selector) => {
-                let (key, value) = selector.split_once('=')?;
-                here.as_array()?
+            Some(selector) => match selector.split_once('=') {
+                Some((key, value)) => here
+                    .as_array()?
                     .iter()
-                    .find(|element| element[key].as_str() == Some(value))?
-            }
+                    .find(|element| element[key].as_str() == Some(value))?,
+                // `runs[0]`: the element at an index.
+                None => here.as_array()?.get(selector.parse::<usize>().ok()?)?,
+            },
             None => match segment.parse::<usize>() {
                 Ok(index) if here.is_array() => here.get(index)?,
                 _ => here.get(segment)?,

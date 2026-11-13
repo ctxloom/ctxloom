@@ -666,9 +666,9 @@ fn says_when_it_ended(w: &mut World) {
         .run_with(&env, &["session", "show", &harp, "--format", "json"]);
     assert_eq!(shown.code, 0, "{}", shown.said());
     let doc = super::super::parse_one(&shown.stdout);
-    assert_eq!(doc["state"].as_str(), Some("ended"), "{doc}");
-    let ended = doc["ended_at"].as_str().expect("show says when it ended");
-    let started = doc["started_at"]
+    assert_eq!(doc["state"].as_str(), Some("SESSION_STATE_ENDED"), "{doc}");
+    let ended = doc["end_time"].as_str().expect("show says when it ended");
+    let started = doc["start_time"]
         .as_str()
         .expect("show says when it started");
     assert!(
@@ -681,12 +681,13 @@ fn says_when_it_ended(w: &mut World) {
         .run_with(&env, &["session", "list", "--format", "json"]);
     assert_eq!(listed.code, 0, "{}", listed.said());
     let rows = super::super::parse_one(&listed.stdout);
-    let row = rows
+    let name = format!("/sessions/{harp}");
+    let row = rows["sessions"]
         .as_array()
         .and_then(|rows| {
             rows.iter()
-                .find(|r| r["harp"].as_str() == Some(harp.as_str()))
+                .find(|r| r["name"].as_str().is_some_and(|n| n.ends_with(&name)))
         })
         .unwrap_or_else(|| panic!("{harp} is not listed: {rows}"));
-    assert_eq!(row["end"].as_str(), Some(ended), "{row}");
+    assert_eq!(row["end_time"].as_str(), Some(ended), "{row}");
 }

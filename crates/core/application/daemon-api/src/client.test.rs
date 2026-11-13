@@ -35,7 +35,7 @@ impl Daemon {
 }
 
 impl DaemonApi for Daemon {
-    async fn get_daemon(&self) -> Result<v1::Daemon, Called> {
+    async fn get_daemon(&self, _: v1::GetDaemonRequest) -> Result<v1::Daemon, Called> {
         self.asked.lock().unwrap().push("get");
         Ok(self.about())
     }

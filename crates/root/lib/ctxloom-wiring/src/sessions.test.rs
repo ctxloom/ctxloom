@@ -151,12 +151,14 @@ fn test_a_hook_for_an_engine_nobody_knows_is_refused_with_exit_20() {
     assert_eq!(failure.exit, Exit::REFUSED);
 }
 
-// `session list` runs on the sessions use cases over the world's home: no
-// session is recorded there, so it answers an empty list and exits 0.
+// `session transcript list` runs on the sessions use cases over the world's
+// home (`list`, `search` and `show` are the daemon's, and its client's
+// acceptance tests are the binary's): no session is recorded there, so it
+// answers an empty list and exits 0.
 #[test]
 fn test_a_session_command_is_run_on_the_sessions_use_cases() {
     let world = World::new("session-list");
-    let (code, out, err) = run(&mut world.commands(), &["session", "list"])
+    let (code, out, err) = run(&mut world.commands(), &["session", "transcript", "list"])
         .ok()
         .unwrap();
     assert_eq!(code, 0, "{err}");

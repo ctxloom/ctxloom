@@ -93,6 +93,8 @@ impl Edge for World {
 struct Loop {
     hosted: Mutex<Vec<v1::HostedRun>>,
     stopped: Mutex<Vec<bool>>,
+    /// How many reads asked for a fresh round.
+    freshened: Mutex<u32>,
 }
 
 impl Hosting for Loop {
@@ -110,6 +112,11 @@ impl Hosting for Loop {
 
     fn stop(&self, end_hosted: bool) {
         self.stopped.lock().unwrap().push(end_hosted);
+    }
+
+    fn fresh(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
+        *self.freshened.lock().unwrap() += 1;
+        Box::pin(async {})
     }
 }
 
@@ -148,6 +155,7 @@ fn fixture(harps: Vec<&'static str>) -> Fixture {
     let api = Api::new(Parts {
         edge: Arc::clone(&world),
         index: index.clone(),
+        pending: pending_messages::PendingMessages::default(),
         hosting: Arc::clone(&hosting) as Arc<dyn Hosting>,
         states: Arc::new(Locks),
         harps: Arc::new(Offered(harps)),
@@ -213,6 +221,7 @@ fn resolve(commit: &str, name: &str) -> v1::ResolveProjectRequest {
         root: ROOT.to_string(),
         git_common_dir: COMMON.to_string(),
         root_commit: commit.to_string(),
+        env: None,
     }
 }
 
@@ -456,6 +465,7 @@ async fn get_session_answers_the_session_by_its_name() {
         .api
         .get_session(v1::GetSessionRequest {
             name: name.to_string(),
+            ..v1::GetSessionRequest::default()
         })
         .await
         .unwrap();
@@ -466,6 +476,7 @@ async fn get_session_answers_the_session_by_its_name() {
         f.api
             .get_session(v1::GetSessionRequest {
                 name: "projects/calm-quiet-heron/sessions/far-heron".to_string(),
+                ..v1::GetSessionRequest::default()
             })
             .await,
     );
@@ -474,6 +485,7 @@ async fn get_session_answers_the_session_by_its_name() {
         f.api
             .get_session(v1::GetSessionRequest {
                 name: "amber-swift-owl".to_string(),
+                ..v1::GetSessionRequest::default()
             })
             .await,
     );
@@ -555,4 +567,61 @@ async fn search_sessions_matches_every_word() {
         names,
         ["projects/calm-quiet-heron/sessions/ended-copper-moth"]
     );
+}
+
+// GetSession answers what the session's own record says (its native id,
+// its project's root, its output folder), its pending messages, and asks
+// the loop for a fresh round first, so it reads what was committed before.
+#[tokio::test]
+async fn get_session_answers_its_record_and_reads_fresh() {
+    let f = fixture(vec!["calm-quiet-heron"]);
+    f.api.resolve_project(resolve(COMMIT, "")).await.unwrap();
+    f.mint("amber-swift-owl").await;
+    f.catch_up().await;
+    let session = f
+        .api
+        .get_session(v1::GetSessionRequest {
+            name: "projects/calm-quiet-heron/sessions/amber-swift-owl".to_string(),
+            ..v1::GetSessionRequest::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(session.project_root, ROOT);
+    assert_eq!(
+        session.output_dir,
+        format!("{ROOT}/ctxloom/amber-swift-owl")
+    );
+    assert!(session.pending.is_empty());
+    assert_eq!(*f.hosting.freshened.lock().unwrap(), 1);
+    f.api
+        .list_sessions(v1::ListSessionsRequest {
+            parent: "projects/-".to_string(),
+            ..v1::ListSessionsRequest::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(*f.hosting.freshened.lock().unwrap(), 2);
+}
+
+// A live session's end is blank, whatever its record's last end stamp.
+#[tokio::test]
+async fn a_live_sessions_end_is_blank() {
+    let f = fixture(vec!["calm-quiet-heron"]);
+    f.api.resolve_project(resolve(COMMIT, "")).await.unwrap();
+    f.mint("amber-swift-owl").await;
+    f.mint("ended-copper-moth").await;
+    f.catch_up().await;
+    let listed = f
+        .api
+        .list_sessions(v1::ListSessionsRequest {
+            parent: "projects/-".to_string(),
+            ..v1::ListSessionsRequest::default()
+        })
+        .await
+        .unwrap();
+    for session in listed.sessions {
+        if session.state == v1::SessionState::Live as i32 {
+            assert_eq!(session.end_time, None, "{}", session.name);
+        }
+    }
 }

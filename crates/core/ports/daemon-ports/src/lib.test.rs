@@ -20,6 +20,7 @@ fn the_samples_hold_a_value_of_every_outcome() {
             "daemon-ports-unimplemented",
             "daemon-ports-unreachable",
             "daemon-ports-failed",
+            "daemon-ports-not-started",
         ]
     );
 }
@@ -49,4 +50,19 @@ fn a_refused_call_holds_its_typed_refusal() {
 #[test]
 fn an_unauthenticated_call_has_no_args() {
     assert!(Called::Unauthenticated.args().is_empty());
+}
+
+// A daemon that could not be started names its log; one that declines is
+// told in its own crate's words.
+#[test]
+fn an_unreached_daemon_says_why_in_its_words() {
+    use crate::Unreached;
+    let not_started = Unreached::NotStarted {
+        log: "~/.ctxloom/daemon/daemon.log".to_string(),
+    };
+    assert_eq!(not_started.code(), "daemon-ports-not-started");
+    let declined = Unreached::Declined(std::sync::Arc::new(Called::Unauthenticated));
+    assert_eq!(declined.code(), "daemon-ports-unauthenticated");
+    assert_eq!(declined, declined.clone());
+    assert_ne!(declined, not_started);
 }

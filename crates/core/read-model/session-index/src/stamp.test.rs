@@ -3,7 +3,7 @@
 
 use angzarr_embedded::Timestamp;
 
-use super::{days_before, rfc3339, text};
+use super::{days_before, proto3, rfc3339, text};
 
 fn at(seconds: i64, nanos: i32) -> Timestamp {
     Timestamp { seconds, nanos }
@@ -40,4 +40,17 @@ fn a_cutoff_is_whole_days_before_now() {
         at(JULY_17 - 30 * 86_400, 5)
     );
     assert_eq!(days_before(at(JULY_17, 0), 0), at(JULY_17, 0));
+}
+
+// Proto3 JSON's Timestamp (ruling 146): Z, and a fraction of 0, 3, 6 or 9
+// digits.
+#[test]
+fn proto3_json_has_a_fraction_of_three_six_or_nine_digits() {
+    assert_eq!(proto3(at(JULY_17, 0)), "2026-07-17T17:27:32Z");
+    assert_eq!(proto3(at(JULY_17, 480_000_000)), "2026-07-17T17:27:32.480Z");
+    assert_eq!(
+        proto3(at(JULY_17, 480_500_000)),
+        "2026-07-17T17:27:32.480500Z"
+    );
+    assert_eq!(proto3(at(JULY_17, 1)), "2026-07-17T17:27:32.000000001Z");
 }

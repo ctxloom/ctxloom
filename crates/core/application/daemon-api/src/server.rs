@@ -17,6 +17,7 @@ use std::sync::Arc;
 use angzarr_embedded::v1::{event_page, Cover};
 use angzarr_embedded::{Failure, Payload, Timestamp};
 use daemon_proto::v1;
+use pending_messages::PendingMessages;
 use run_ports::Edge;
 use session_index::{title_of, Captured, SessionIndex, SessionIndexes, SessionRecord, State, View};
 use sessions::{
@@ -42,6 +43,11 @@ pub trait Hosting: Send + Sync {
     fn idle_seconds(&self) -> u64;
     /// Ask it to stop: drain, or end what it hosts first (`end_hosted`).
     fn stop(&self, end_hosted: bool);
+    /// Wait for its next round, which catches its read models up with what
+    /// other processes committed, so a read answers what was committed
+    /// before it was asked (bounded: a round that does not come is waited
+    /// for no longer than the loop's own pace allows).
+    fn fresh(&self) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
 }
 
 /// A session's state now, from its liveness lock in its project.
@@ -69,6 +75,8 @@ pub struct Parts<E> {
     pub edge: Arc<E>,
     /// The session index the daemon's kernel keeps warm.
     pub index: SessionIndexes,
+    /// The pending messages the daemon's kernel keeps warm (`show`'s, D30).
+    pub pending: PendingMessages,
     pub hosting: Arc<dyn Hosting>,
     pub states: Arc<dyn SessionStates>,
     pub harps: Arc<dyn Harps>,
@@ -333,13 +341,31 @@ impl<E: Edge> Api<E> {
     ) -> Result<v1::Session, ApiError> {
         let name = SessionName::parse(&request.name)
             .map_err(|rejection| invalid(&request.name, &rejection))?;
+        self.parts.hosting.fresh().await;
         let index = self.parts.index.index();
         let record = index.find_by_id(&name.uid()).ok_or_else(|| {
             ApiError::from(ApiRefusal::of(&v1::SessionNotFound {
                 name: request.name.clone(),
             }))
         })?;
-        Ok(self.resource(&index, &record).0)
+        let mut session = self.resource(&index, &record).0;
+        session.pending = self
+            .parts
+            .pending
+            .pending()
+            .pending(&record.id)
+            .into_iter()
+            .map(|message| v1::PendingMessage {
+                message_id: message.message_id,
+                urgency: sessions::urgency_word(message.urgency).to_string(),
+                text: message.text,
+                sender: message
+                    .sender
+                    .map(|sender| index.name_of_ref(&sender))
+                    .unwrap_or_default(),
+            })
+            .collect();
+        Ok(session)
     }
 
     /// The session `record` as its resource, with its state, and as the
@@ -348,6 +374,11 @@ impl<E: Edge> Api<E> {
         let state = self.parts.states.state(&record.project_dir, &record.harp);
         let mut session = index.resource(record);
         session.state = state_of(state) as i32;
+        // A live session's end is blank: a resumed one keeps its last
+        // run's stamp, which is no end of the run in progress.
+        if state == State::Live {
+            session.end_time = None;
+        }
         let transcript = index.transcript(&record.id);
         let title = match record.title.is_empty() {
             false => Some(record.title.clone()),
@@ -367,7 +398,7 @@ impl<E: Edge> Api<E> {
 
     /// Every session under `parent` (`projects/-`: every project's), as
     /// resources and views, most recently started first.
-    fn under(&self, parent: &str) -> Result<Vec<(v1::Session, View)>, ApiError> {
+    async fn under(&self, parent: &str) -> Result<Vec<(v1::Session, View)>, ApiError> {
         let project = match parent == EVERY_PROJECT {
             true => None,
             false => Some(
@@ -377,6 +408,7 @@ impl<E: Edge> Api<E> {
                     .to_string(),
             ),
         };
+        self.parts.hosting.fresh().await;
         let index = self.parts.index.index();
         Ok(index
             .records()
@@ -396,7 +428,8 @@ impl<E: Edge> Api<E> {
         request: v1::ListSessionsRequest,
     ) -> Result<v1::ListSessionsResponse, ApiError> {
         let sessions = self
-            .under(&request.parent)?
+            .under(&request.parent)
+            .await?
             .into_iter()
             .filter(|(session, _)| in_state(session, request.state))
             .filter(|(_, view)| !request.has_transcript || view.captured.is_some())
@@ -415,7 +448,8 @@ impl<E: Edge> Api<E> {
         request: v1::SearchSessionsRequest,
     ) -> Result<v1::ListSessionsResponse, ApiError> {
         let sessions = self
-            .under(&request.parent)?
+            .under(&request.parent)
+            .await?
             .into_iter()
             .filter(|(session, _)| in_state(session, request.state))
             .filter(|(_, view)| view.matches(&request.words))

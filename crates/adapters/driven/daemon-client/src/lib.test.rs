@@ -114,7 +114,10 @@ const WITHIN: Duration = Duration::from_secs(5);
 async fn a_call_pins_the_certificate_and_presents_the_bearer() {
     let found = serve(&certificate(), &token(0xab)).await;
     let daemon = DaemonClient::new(&found, WITHIN)
-        .get_daemon()
+        .get_daemon(v1::GetDaemonRequest {
+            name: "daemon".to_string(),
+            ..v1::GetDaemonRequest::default()
+        })
         .await
         .unwrap();
     assert_eq!((daemon.name.as_str(), daemon.pid), ("daemon", 99));
@@ -145,7 +148,9 @@ async fn another_bearer_and_an_unserved_method_are_said() {
         ..found.clone()
     };
     assert_eq!(
-        DaemonClient::new(&other, WITHIN).get_daemon().await,
+        DaemonClient::new(&other, WITHIN)
+            .get_daemon(v1::GetDaemonRequest::default())
+            .await,
         Err(Called::Unauthenticated)
     );
     assert_eq!(
@@ -167,7 +172,7 @@ async fn another_certificate_is_not_trusted() {
         ..found
     };
     let called = DaemonClient::new(&pinned_elsewhere, WITHIN)
-        .get_daemon()
+        .get_daemon(v1::GetDaemonRequest::default())
         .await
         .unwrap_err();
     assert!(matches!(called, Called::Unreachable { .. }), "{called:?}");
@@ -184,7 +189,7 @@ async fn nothing_at_the_endpoint_is_unreachable() {
         ..serve(&certificate(), &token(0xab)).await
     };
     let called = DaemonClient::new(&found, WITHIN)
-        .get_daemon()
+        .get_daemon(v1::GetDaemonRequest::default())
         .await
         .unwrap_err();
     assert!(matches!(called, Called::Unreachable { .. }), "{called:?}");

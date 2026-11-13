@@ -172,6 +172,7 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
     Scenario: The user bearer is never shown, logged or recorded
       # new: the bearer stays in the discovery file.
       Given an initialized ctxloom project
+      And a ctxloom daemon is serving for this home
       When I run "ctxloom daemon status --format json"
       Then the command succeeds
       And the output reports "pid" as the daemon's pid

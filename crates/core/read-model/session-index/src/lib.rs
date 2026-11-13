@@ -349,7 +349,7 @@ impl SessionIndex {
 
     /// The resource name of the session `session` refers to, where the index
     /// holds it.
-    fn name_of_ref(&self, session: &SessionRef) -> String {
+    pub fn name_of_ref(&self, session: &SessionRef) -> String {
         self.find_by_id(&session.session)
             .map(|record| self.name_of(&record))
             .unwrap_or_default()
@@ -387,6 +387,18 @@ impl SessionIndex {
                 .collect(),
             incarnation: record.incarnation,
             title: record.title.clone(),
+            native_session: record.native_id.clone(),
+            project_root: record.project_dir.clone(),
+            output_dir: record.output_dir.clone(),
+            rotations: record
+                .rotations
+                .iter()
+                .map(|rotation| daemon_proto::v1::SessionRotation {
+                    native_id: rotation.native_id.clone(),
+                    transcript_path: rotation.transcript_path.clone(),
+                    rotated_at: rotation.rotated_at,
+                })
+                .collect(),
             ..daemon_proto::v1::Session::default()
         }
     }

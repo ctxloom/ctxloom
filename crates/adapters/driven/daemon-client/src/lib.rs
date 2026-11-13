@@ -146,10 +146,7 @@ macro_rules! call {
 }
 
 impl DaemonApi for DaemonClient {
-    async fn get_daemon(&self) -> Result<v1::Daemon, Called> {
-        let request = v1::GetDaemonRequest {
-            name: "daemon".to_string(),
-        };
+    async fn get_daemon(&self, request: v1::GetDaemonRequest) -> Result<v1::Daemon, Called> {
         call!(self, get_daemon, "GetDaemon", request)
     }
 

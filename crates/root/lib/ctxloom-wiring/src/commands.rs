@@ -282,7 +282,7 @@ pub struct Commands {
     /// The environment the process was launched in, read once.
     pub(crate) env: Arc<EnvSnapshot>,
     /// The binary's version stamp, as `ctxloom version` says it.
-    version: String,
+    pub(crate) version: String,
     wired: Option<Wired>,
     /// The sessions use cases, built when a command first needs them.
     pub(crate) sessions: Option<Sessions>,

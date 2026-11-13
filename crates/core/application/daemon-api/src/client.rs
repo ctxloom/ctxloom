@@ -48,7 +48,11 @@ pub async fn reconcile<A: DaemonApi>(
         daemon: daemon.to_string(),
         harps,
     };
-    let found = api.get_daemon().await.map_err(SkewError::Call)?;
+    let request = daemon_proto::v1::GetDaemonRequest {
+        name: "daemon".to_string(),
+        ..daemon_proto::v1::GetDaemonRequest::default()
+    };
+    let found = api.get_daemon(request).await.map_err(SkewError::Call)?;
     if !found.runs.is_empty() {
         return Err(busy(found.runs.into_iter().map(|run| run.harp).collect()));
     }
@@ -111,6 +115,8 @@ impl ExitClass for SkewError {
 pub enum CallError {
     Refused(crate::refusal::Rejection),
     Call(Called),
+    /// No daemon could be called: none started, or the one serving declined.
+    Unreached(daemon_ports::Unreached),
 }
 
 impl From<Called> for CallError {
@@ -140,6 +146,7 @@ impl Diagnostic for CallError {
             CallError::Refused(crate::refusal::Rejection::Api(api)) => api.code(),
             CallError::Refused(crate::refusal::Rejection::Sessions(ours)) => ours.code(),
             CallError::Call(called) => called.code(),
+            CallError::Unreached(unreached) => unreached.code(),
         }
     }
 
@@ -148,16 +155,21 @@ impl Diagnostic for CallError {
             CallError::Refused(crate::refusal::Rejection::Api(api)) => api.args(),
             CallError::Refused(crate::refusal::Rejection::Sessions(ours)) => ours.args(),
             CallError::Call(called) => called.args(),
+            CallError::Unreached(unreached) => unreached.args(),
         }
     }
 }
 
-/// A refusal is a decline (20); a call that failed, a failure (10).
+/// A refusal is a decline (20), as is a daemon this client may not use; a
+/// call that failed, or a daemon that could not be started, a failure (10).
 impl ExitClass for CallError {
     fn exit(&self) -> Exit {
         match self {
-            CallError::Refused(_) => Exit::REFUSED,
-            CallError::Call(_) => Exit::FAILED,
+            CallError::Refused(_) | CallError::Unreached(daemon_ports::Unreached::Declined(_)) => {
+                Exit::REFUSED
+            }
+            CallError::Call(_)
+            | CallError::Unreached(daemon_ports::Unreached::NotStarted { .. }) => Exit::FAILED,
         }
     }
 }

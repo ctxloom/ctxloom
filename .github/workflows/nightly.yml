@@ -105,11 +105,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: ctxloom/ci/.github/actions/setup-rust@0da40ae32467e8dcd878c7fc8822bf1d863e5734 # main 2026-11-12
+      - uses: ctxloom/ci/.github/actions/setup-rust@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
         with:
           tools: just@1.40.0,cargo-nextest@0.9.146
-      - uses: ctxloom/ci/.github/actions/setup-protoc@0da40ae32467e8dcd878c7fc8822bf1d863e5734 # main 2026-11-12
-      - uses: ctxloom/ci/.github/actions/setup-versionator@0da40ae32467e8dcd878c7fc8822bf1d863e5734 # main 2026-11-12
+      - uses: ctxloom/ci/.github/actions/setup-protoc@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
+      - uses: ctxloom/ci/.github/actions/setup-versionator@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
       - if: runner.os != 'Windows'
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -117,7 +117,7 @@ jobs:
       - run: just build
       - run: just test
       - if: failure()
-        uses: ctxloom/ci/.github/actions/gate-logs@0da40ae32467e8dcd878c7fc8822bf1d863e5734 # main 2026-11-12
+        uses: ctxloom/ci/.github/actions/gate-logs@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
         with:
           name: nightly-${{ runner.os }}-${{ runner.arch }}
 
@@ -138,12 +138,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: ctxloom/ci/.github/actions/setup-rust@0da40ae32467e8dcd878c7fc8822bf1d863e5734 # main 2026-11-12
+      - uses: ctxloom/ci/.github/actions/setup-rust@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
         with:
           tools: just@1.40.0,cargo-nextest@0.9.146,cargo-mutants@26.2.0
           cache-key: mutants
-      - uses: ctxloom/ci/.github/actions/setup-protoc@0da40ae32467e8dcd878c7fc8822bf1d863e5734 # main 2026-11-12
-      - uses: ctxloom/ci/.github/actions/setup-versionator@0da40ae32467e8dcd878c7fc8822bf1d863e5734 # main 2026-11-12
+      - uses: ctxloom/ci/.github/actions/setup-protoc@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
+      - uses: ctxloom/ci/.github/actions/setup-versionator@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"

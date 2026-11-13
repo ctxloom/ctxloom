@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   binaries:
-    uses: ctxloom/ci/.github/workflows/binaries.yml@0da40ae32467e8dcd878c7fc8822bf1d863e5734 # main 2026-11-12
+    uses: ctxloom/ci/.github/workflows/binaries.yml@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
     with:
       bin: ctxloom
       profile: ci-artifact

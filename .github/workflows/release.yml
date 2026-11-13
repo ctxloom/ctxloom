@@ -29,7 +29,7 @@ permissions:
 
 jobs:
   binaries:
-    uses: ctxloom/ci/.github/workflows/binaries.yml@0da40ae32467e8dcd878c7fc8822bf1d863e5734 # main 2026-11-12
+    uses: ctxloom/ci/.github/workflows/binaries.yml@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
     with:
       bin: ctxloom
       profile: release
@@ -38,9 +38,9 @@ jobs:
     needs: binaries
     permissions:
       contents: write # the release job alone creates the release
-    uses: ctxloom/ci/.github/workflows/release.yml@0da40ae32467e8dcd878c7fc8822bf1d863e5734 # main 2026-11-12
+    uses: ctxloom/ci/.github/workflows/release.yml@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
     with:
       bin: ctxloom
-      ci-ref: 0da40ae32467e8dcd878c7fc8822bf1d863e5734
+      ci-ref: fa01764571615bd3174313e84631bdd5c13a02e6
       # Four archives and four debug files.
       expected-files: 8

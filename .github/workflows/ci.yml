@@ -57,13 +57,13 @@ jobs:
       # The Windows target for check-windows. The toolchain is made the
       # default too: `just selftest` runs the gates on fixture workspaces
       # outside the checkout, which rust-toolchain.toml does not reach.
-      - uses: ctxloom/ci/.github/actions/setup-rust@0da40ae32467e8dcd878c7fc8822bf1d863e5734 # main 2026-11-12
+      - uses: ctxloom/ci/.github/actions/setup-rust@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
         with:
           tools: just@1.40.0,cargo-nextest@0.9.146,cargo-deny@0.20.2
           targets: x86_64-pc-windows-gnu
-      - uses: ctxloom/ci/.github/actions/setup-protoc@0da40ae32467e8dcd878c7fc8822bf1d863e5734 # main 2026-11-12
-      - uses: ctxloom/ci/.github/actions/setup-versionator@0da40ae32467e8dcd878c7fc8822bf1d863e5734 # main 2026-11-12
-      - uses: ctxloom/ci/.github/actions/setup-ltk@0da40ae32467e8dcd878c7fc8822bf1d863e5734 # main 2026-11-12
+      - uses: ctxloom/ci/.github/actions/setup-protoc@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
+      - uses: ctxloom/ci/.github/actions/setup-versionator@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
+      - uses: ctxloom/ci/.github/actions/setup-ltk@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
       # The opencode plugin's tests run it under node.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -90,7 +90,7 @@ jobs:
       - run: just check-windows
       - run: just selftest
       - if: failure()
-        uses: ctxloom/ci/.github/actions/gate-logs@0da40ae32467e8dcd878c7fc8822bf1d863e5734 # main 2026-11-12
+        uses: ctxloom/ci/.github/actions/gate-logs@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
         with:
           name: linux
 
@@ -106,11 +106,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: ctxloom/ci/.github/actions/setup-rust@0da40ae32467e8dcd878c7fc8822bf1d863e5734 # main 2026-11-12
+      - uses: ctxloom/ci/.github/actions/setup-rust@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
         with:
           tools: just@1.40.0,cargo-nextest@0.9.146
-      - uses: ctxloom/ci/.github/actions/setup-protoc@0da40ae32467e8dcd878c7fc8822bf1d863e5734 # main 2026-11-12
-      - uses: ctxloom/ci/.github/actions/setup-versionator@0da40ae32467e8dcd878c7fc8822bf1d863e5734 # main 2026-11-12
+      - uses: ctxloom/ci/.github/actions/setup-protoc@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
+      - uses: ctxloom/ci/.github/actions/setup-versionator@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
       # The opencode plugin's tests run it under node.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -120,7 +120,7 @@ jobs:
       - run: just build
       - run: just test
       - if: failure()
-        uses: ctxloom/ci/.github/actions/gate-logs@0da40ae32467e8dcd878c7fc8822bf1d863e5734 # main 2026-11-12
+        uses: ctxloom/ci/.github/actions/gate-logs@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
         with:
           name: macos
 
@@ -139,11 +139,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: ctxloom/ci/.github/actions/setup-rust@0da40ae32467e8dcd878c7fc8822bf1d863e5734 # main 2026-11-12
+      - uses: ctxloom/ci/.github/actions/setup-rust@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
         with:
           tools: just@1.40.0,cargo-nextest@0.9.146
-      - uses: ctxloom/ci/.github/actions/setup-protoc@0da40ae32467e8dcd878c7fc8822bf1d863e5734 # main 2026-11-12
-      - uses: ctxloom/ci/.github/actions/setup-versionator@0da40ae32467e8dcd878c7fc8822bf1d863e5734 # main 2026-11-12
+      - uses: ctxloom/ci/.github/actions/setup-protoc@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
+      - uses: ctxloom/ci/.github/actions/setup-versionator@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
       # jq: the build's plain-binary checks and nextest's setup script read
       # cargo's JSON with it (the runner image has it).
       - name: Tool versions
@@ -151,6 +151,6 @@ jobs:
       - run: just build
       - run: just test
       - if: failure()
-        uses: ctxloom/ci/.github/actions/gate-logs@0da40ae32467e8dcd878c7fc8822bf1d863e5734 # main 2026-11-12
+        uses: ctxloom/ci/.github/actions/gate-logs@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
         with:
           name: windows

@@ -370,6 +370,7 @@ impl Project {
                 .as_ref()
                 .map(|a| a.name.clone())
                 .unwrap_or_default(),
+            surfaces: surface_ports::Inputs::default(),
         };
         Ok(Previewed { plan, fatal })
     }

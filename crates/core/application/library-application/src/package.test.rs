@@ -697,3 +697,100 @@ fn test_a_whole_bundle_reference_beside_its_fragment_reference_still_brings_its_
     assert!(p.fatal.is_empty(), "{:?}", p.fatal);
     assert!(p.mcp.iter().any(|m| m.name == "tool"));
 }
+
+// ---------------------------------------------------- what a launch carries
+
+const TWO_AGENTS: &str = "schema_version: 9\nagents:\n  default:\n    engine: mock\n    profiles: [dev]\n  other:\n    engine: mock\n    profiles: [lean]\ndefault_agent: default\n";
+
+const SIDE: &[(&str, &str)] = &[
+    ENVELOPE,
+    ("fragments/side.md", "FRAGMENT-BODY-side"),
+    (
+        "prompts/tidy.md",
+        "---\ndescription: Tidy prompt\n---\nTIDY-BODY",
+    ),
+    ("mcp/side-tool.yaml", "command: side-cmd\n"),
+    (
+        "skills/tidier/SKILL.md",
+        "---\nname: tidier\ndescription: TIDY-SKILL\n---\nTidy.\n",
+    ),
+    (
+        "hooks/post_tool/side.yaml",
+        "type: command\ncommand: echo SIDE\n",
+    ),
+];
+
+const PROJECT_TWO: &[(&str, &str)] = &[
+    ENVELOPE,
+    ("profiles/dev.yaml", "bundles: [demo]\ndeny_tools: [Bash]\n"),
+    (
+        "profiles/lean.yaml",
+        "bundles: [side]\ndeny_tools: [Edit]\n",
+    ),
+];
+
+fn surfaces_of(agent: &str) -> surface_ports::Inputs {
+    let setup = Setup {
+        bundles: &[("demo", DEMO), ("side", SIDE), ("project", PROJECT_TWO)],
+        layers: &[TWO_AGENTS],
+        ..Setup::default()
+    };
+    let request = crate::RunRequest {
+        agent: agent.to_string(),
+        ..crate::RunRequest::default()
+    };
+    setup
+        .library()
+        .dry_run(&plain(), &request)
+        .result
+        .expect("a plan")
+        .plan
+        .surfaces
+}
+
+// Owner ruling 2026-11-12: everything rides the launch, from the RUN agent's
+// selection: its bundles' hooks, deny list, servers, commands and skills, and
+// none of the default agent's.
+#[test]
+fn test_a_launch_carries_the_run_agents_surfaces_not_the_default_agents() {
+    let s = surfaces_of("other");
+    let commands: Vec<&str> = s.commands.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(commands, ["side/tidy"]);
+    let skills: Vec<&str> = s.skills.iter().map(|k| k.name.as_str()).collect();
+    assert_eq!(skills, ["tidier"]);
+    let servers: Vec<&str> = s.mcp.iter().map(|m| m.name.as_str()).collect();
+    assert_eq!(servers, ["side-tool"]);
+    assert_eq!(s.deny_tools, ["Edit"]);
+    assert!(s.statusline);
+    let post: Vec<&str> = s.hooks["post_tool"]
+        .iter()
+        .map(|h| h.command.as_str())
+        .collect();
+    assert!(post.contains(&"echo SIDE"), "{post:?}");
+    assert!(s.context.is_empty(), "the context rides on its own");
+}
+
+// ctxloom's own callbacks ride with them (the session-start and skill-mates
+// hooks a session needs in any directory).
+#[test]
+fn test_a_launch_carries_ctxlooms_own_callbacks() {
+    let s = surfaces_of("other");
+    let start = &s.hooks["session_start"];
+    assert!(start
+        .iter()
+        .any(|h| h.command == "ctxloom" && h.args == ["hook", "session-start"]));
+    assert!(s.hooks["post_tool"]
+        .iter()
+        .any(|h| h.args == ["hook", "skill-mates"] && h.tool == "skill"));
+}
+
+// A launch with no agent named carries the default agent's.
+#[test]
+fn test_a_launch_with_no_agent_carries_the_default_agents() {
+    let s = surfaces_of("");
+    assert_eq!(s.deny_tools, ["Bash"]);
+    let commands: Vec<&str> = s.commands.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(commands, ["demo/example"]);
+    // A server the session serves is not registered for it.
+    assert!(s.mcp.iter().all(|m| m.name != "ctxloom"));
+}

@@ -2370,6 +2370,7 @@ dependencies = [
  "run-ports",
  "serde",
  "serde_json",
+ "surface-ports",
 ]
 
 [[package]]

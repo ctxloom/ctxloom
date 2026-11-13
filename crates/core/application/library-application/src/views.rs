@@ -563,6 +563,14 @@ pub struct DryRun {
     /// whose `settings` say their places by word.
     #[serde(skip)]
     pub settings_agent: String,
+    /// What the launch carries for the engine besides the context, from the
+    /// RUN's selection (the agent's profiles, not the default agent's, owner
+    /// ruling 2026-11-12): ctxloom's own callbacks and the bundles' authored
+    /// hooks, the statusline, `deny_tools`, the MCP servers not served by the
+    /// session, the commands and the skills. The context is `context`; this
+    /// one's is empty. Not shown by a dry run.
+    #[serde(skip)]
+    pub surfaces: surface_ports::Inputs,
 }
 
 /// What `context assemble` answers (Go's `assemble_context` result).

@@ -234,6 +234,7 @@ impl Planner for ScriptedPlan {
             drive: self.drive.clone(),
             settings: None,
             settings_agent: String::new(),
+            surfaces: Default::default(),
         };
         Outcome {
             result: Ok(Previewed {

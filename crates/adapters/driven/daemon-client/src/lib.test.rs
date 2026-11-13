@@ -74,6 +74,51 @@ impl Ctxloom for Fake {
         ))
     }
 
+    /// A project resolved: named by the cwd it was asked from.
+    async fn resolve_project(
+        &self,
+        request: Request<v1::ResolveProjectRequest>,
+    ) -> Result<Response<v1::Project>, Status> {
+        self.admit(&request)?;
+        Ok(Response::new(v1::Project {
+            name: "projects/calm-quiet-heron".to_string(),
+            root: request.into_inner().cwd,
+            ..v1::Project::default()
+        }))
+    }
+
+    /// One session under the parent asked, with the page token asked.
+    async fn list_sessions(
+        &self,
+        request: Request<v1::ListSessionsRequest>,
+    ) -> Result<Response<v1::ListSessionsResponse>, Status> {
+        self.admit(&request)?;
+        let request = request.into_inner();
+        Ok(Response::new(v1::ListSessionsResponse {
+            sessions: vec![v1::Session {
+                name: format!("{}/sessions/listed", request.parent),
+                ..v1::Session::default()
+            }],
+            next_page_token: request.page_token,
+        }))
+    }
+
+    /// One session named by the words asked.
+    async fn search_sessions(
+        &self,
+        request: Request<v1::SearchSessionsRequest>,
+    ) -> Result<Response<v1::ListSessionsResponse>, Status> {
+        self.admit(&request)?;
+        let request = request.into_inner();
+        Ok(Response::new(v1::ListSessionsResponse {
+            sessions: vec![v1::Session {
+                name: format!("{}/sessions/{}", request.parent, request.words.join("-")),
+                ..v1::Session::default()
+            }],
+            ..v1::ListSessionsResponse::default()
+        }))
+    }
+
     /// A daemon that goes mid-call: its connection is dropped unanswered.
     async fn get_project(
         &self,
@@ -312,4 +357,78 @@ async fn a_daemon_gone_mid_call_is_unreachable() {
         .await
         .unwrap_err();
     assert!(matches!(gone, Called::Unreachable { .. }), "{gone:?}");
+}
+
+// A project, a listing and a search come back as the daemon answered them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn a_project_a_listing_and_a_search_are_answered() {
+    let found = serve(&certificate(), &token(0xab)).await;
+    let client = DaemonClient::new(&found, WITHIN);
+    let project = client
+        .resolve_project(v1::ResolveProjectRequest {
+            cwd: "/work/calm".to_string(),
+            ..v1::ResolveProjectRequest::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(project.name, "projects/calm-quiet-heron");
+    assert_eq!(project.root, "/work/calm");
+    let listed = client
+        .list_sessions(v1::ListSessionsRequest {
+            parent: "projects/calm-quiet-heron".to_string(),
+            page_token: "next".to_string(),
+            ..v1::ListSessionsRequest::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        listed.sessions[0].name,
+        "projects/calm-quiet-heron/sessions/listed"
+    );
+    assert_eq!(listed.next_page_token, "next");
+    let searched = client
+        .search_sessions(v1::SearchSessionsRequest {
+            parent: "projects/calm-quiet-heron".to_string(),
+            words: vec!["auth".to_string(), "refactor".to_string()],
+            ..v1::SearchSessionsRequest::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        searched.sessions[0].name,
+        "projects/calm-quiet-heron/sessions/auth-refactor"
+    );
+}
+
+/// An error with the cause it was raised from.
+#[derive(Debug)]
+struct Wrapped(&'static str, Option<Box<Wrapped>>);
+
+impl std::fmt::Display for Wrapped {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+impl std::error::Error for Wrapped {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.1.as_deref().map(|cause| cause as _)
+    }
+}
+
+// A transport error is told with every cause it came from, on one line.
+#[test]
+fn an_error_is_told_with_its_causes() {
+    let error = Wrapped(
+        "transport error",
+        Some(Box::new(Wrapped(
+            "connection reset",
+            Some(Box::new(Wrapped("broken pipe", None))),
+        ))),
+    );
+    assert_eq!(
+        super::chain(&error),
+        "transport error: connection reset: broken pipe"
+    );
+    assert_eq!(super::chain(&Wrapped("alone", None)), "alone");
 }

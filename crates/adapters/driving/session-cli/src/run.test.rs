@@ -1760,6 +1760,111 @@ fn a_purge_age_that_is_none_is_refused_before_the_daemon_is_asked() {
     assert!(daemon.sweeps.borrow().is_empty());
 }
 
+// The age form of the one destroyer (docs/plans/ctxloom-features.md,
+// "Sessions": `session remove --older-than <age>`, owner ruling 98): this
+// project's sweep, its purge age the flag's, reported with the command that
+// applies it in the same verb; no single session is asked for.
+#[test]
+fn remove_older_than_sweeps_this_project_by_that_age_and_names_the_apply() {
+    let daemon = swept(
+        vec![row(
+            "plan-one",
+            "purge",
+            "planned",
+            "",
+            "ctxloom session remove plan-one --yes",
+        )],
+        v1::SweepCounts {
+            planned: 1,
+            ..v1::SweepCounts::default()
+        },
+    );
+    let ran = destroy_go(&daemon, Format::Text, &["remove", "--older-than", "90d"]);
+    assert!(
+        ran.out
+            .starts_with("Session sweep: purge before 2026-07-16."),
+        "{}",
+        ran.out
+    );
+    let done = ran.result.unwrap();
+    assert!(done.would_change);
+    let command = notice_command(&done);
+    assert!(
+        command.contains("ctxloom session remove --older-than 90d --yes"),
+        "{command}"
+    );
+    assert_eq!(
+        *daemon.sweeps.borrow(),
+        [(false, Some("90d".to_string()), false)]
+    );
+    assert!(daemon.deletes.borrow().is_empty());
+}
+
+#[test]
+fn remove_older_than_with_yes_applies_the_sweep() {
+    let daemon = swept(
+        vec![row("plan-one", "purge", "done", "", "")],
+        v1::SweepCounts {
+            done: 1,
+            ..v1::SweepCounts::default()
+        },
+    );
+    let ran = destroy_go(
+        &daemon,
+        Format::Text,
+        &["remove", "--older-than", "90d", "--yes"],
+    );
+    let done = ran.result.unwrap();
+    assert!(!done.would_change);
+    assert!(without_authored(done).is_empty());
+    assert_eq!(
+        *daemon.sweeps.borrow(),
+        [(false, Some("90d".to_string()), true)]
+    );
+}
+
+// An age that is none is refused naming the flag the user typed, before the
+// daemon is asked.
+#[test]
+fn remove_older_than_an_age_that_is_none_is_refused_naming_the_flag() {
+    let daemon = swept(Vec::new(), v1::SweepCounts::default());
+    let failure = destroy_go(&daemon, Format::Text, &["remove", "--older-than", "soon"])
+        .result
+        .unwrap_err();
+    assert_eq!(failure.failure.exit, Exit::REFUSED);
+    assert_eq!(failure.failure.cause.code(), "reclaim-application-bad-age");
+    let args = format!("{:?}", failure.failure.cause.args());
+    assert!(args.contains("\"--older-than\""), "{args}");
+    assert!(daemon.sweeps.borrow().is_empty());
+}
+
+// One session or an age: exactly one of them, and `--even-if-live` is the
+// single session's override alone.
+#[test]
+fn remove_takes_a_session_or_an_age_never_both_nor_neither() {
+    let refused = |words: &[&str]| {
+        Session::augment_args(Command::new("session"))
+            .no_binary_name(true)
+            .try_get_matches_from(words.iter().map(|w| w.to_string()))
+            .is_err()
+    };
+    assert!(refused(&["remove"]));
+    assert!(refused(&[
+        "remove",
+        "amber-swift-owl",
+        "--older-than",
+        "90d"
+    ]));
+    assert!(refused(&[
+        "remove",
+        "--older-than",
+        "90d",
+        "--even-if-live"
+    ]));
+    assert!(!refused(&["remove", "amber-swift-owl"]));
+    assert!(!refused(&["remove", "--older-than", "90d"]));
+}
+
 // Two messages whose pieces interleave in the stream are two `assistant:`
 // lines, each of its own pieces only (a piece of another message, or a line of
 // another kind, is not joined in).

@@ -648,7 +648,8 @@ _commit-tree commit +recipe:
 # The throwaway worktree of `_staged-tree` (`source` is `staged`) and
 # `_commit-tree` (`source` is the commit). It is at `staged_tree`. Its name is
 # fixed per checkout and the run holds a lock, so builds reuse one target dir
-# (target/staged) across commits. Its recipes are its own tree's, so a staged
+# (target/staged, or staged/ under an outer CARGO_TARGET_DIR, as the dev
+# container's volume) across commits. Its recipes are its own tree's, so a staged
 # change to these gates is run by the gates it stages. Gate logs go to this
 # checkout's target/logs (GATE_LOG_DIR), not the throwaway tree's.
 [positional-arguments]
@@ -700,7 +701,7 @@ _scratch-tree source +recipe:
         "${scrub[@]}" git -C "$tree" apply --index --binary --whitespace=nowarn "$scratch/staged.patch"
     fi
     cd "$tree"
-    "${scrub[@]}" "CARGO_TARGET_DIR=$top/target/staged" "GATE_LOG_DIR=$top/target/logs" just --justfile "$tree/justfile" "$@"
+    "${scrub[@]}" "CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-$top/target}/staged" "GATE_LOG_DIR=$top/target/logs" just --justfile "$tree/justfile" "$@"
 
 # The red-on-branches rule: red tests may be committed on any branch but the
 # default one, and never reach it. `test-commit` allows them off it;

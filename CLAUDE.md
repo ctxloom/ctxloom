@@ -1530,7 +1530,8 @@ the feature runner's: `GHERKIN_RATCHET=<absolute file>` makes
 judge (`scripts/ratchet-judge.sh`) decides. The base's list is `just
 ratchet-base <base>` (`scripts/ratchet-base.sh`): only that test, on the
 base's tip, in a throwaway worktree `.<checkout>.ratchet-base` beside the
-checkout (target dir `target/ratchet-base`), cached by sha at
+checkout (target dir `target/ratchet-base`, or `ratchet-base/` under an outer
+`CARGO_TARGET_DIR`), cached by sha at
 `target/ratchet/<sha>.list`; a base from before the list gets the runner
 commit that taught it applied, and says so. On main the base has no red
 scenario, so the ratchet is the plain closeout. Exit 0, 1 (a gate, a new red,

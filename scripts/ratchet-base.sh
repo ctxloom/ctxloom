@@ -3,7 +3,8 @@
 # ratchet-base <base>`. The feature runner (`every_feature_runs`, under
 # GHERKIN_RATCHET) is run on the base commit, checked out alone in a
 # throwaway worktree beside the checkout (.<checkout>.ratchet-base, its own
-# target dir target/ratchet-base), and its list is cached by the base's sha
+# target dir target/ratchet-base, or ratchet-base/ under an outer
+# CARGO_TARGET_DIR), and its list is cached by the base's sha
 # at target/ratchet/<sha>.list; a cached list is used as it is.
 #
 #   ok   ratchet-base (1a2b3c4: 136 red of 512) 301.0s
@@ -82,7 +83,7 @@ fi
 
 start=$(date +%s)
 rc=0
-(cd "$wt" && "${scrub[@]}" "CARGO_TARGET_DIR=$top/target/ratchet-base" "GHERKIN_RATCHET=$work/list" \
+(cd "$wt" && "${scrub[@]}" "CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-$top/target}/ratchet-base" "GHERKIN_RATCHET=$work/list" \
     cargo nextest run --manifest-path "$wt/Cargo.toml" --package ctxloom --no-fail-fast --no-tests=fail \
     --status-level fail --final-status-level fail --success-output never --failure-output final \
     --hide-progress-bar --cargo-quiet -E 'test(=tests::gherkin_features::every_feature_runs)') \

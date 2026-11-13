@@ -227,7 +227,14 @@ fn init(
         .init(&request)
         .map_err(|e| failure(e, Exit::FAILED))?;
     if done.existed {
-        writeln!(out, "ctxloom directory already exists: {}", done.app_dir).map_err(output)?;
+        // A re-run is no refusal: the directory is kept and init goes on, to
+        // the remotes it was given, the token guide and the interview.
+        writeln!(
+            out,
+            "ctxloom directory already exists: {} (kept as it is; init goes on)",
+            done.app_dir
+        )
+        .map_err(output)?;
     } else {
         writeln!(out, "Created ctxloom directory: {}", done.app_dir).map_err(output)?;
         // A first init at a terminal asks where a session's outputs go

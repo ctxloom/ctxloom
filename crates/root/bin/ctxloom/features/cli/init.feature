@@ -71,6 +71,7 @@ Feature: init — the setup interview, and what it does to a project that alread
         """
       Then the command succeeds
       And the output contains "ctxloom directory already exists"
+      And the output contains "kept as it is; init goes on"
       And the output does not contain "Seeded remote"
       And the file ".ctxloom/config.yaml" contains "schema_version: 9"
       And the file ".ctxloom/config.yaml" does not contain "engine:"

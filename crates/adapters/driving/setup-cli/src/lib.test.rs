@@ -481,11 +481,16 @@ fn the_exit_of_a_report_is_three_only_when_a_row_failed() {
     );
 }
 
+// A re-run of init is no refusal: the line says the directory is kept and
+// that init goes on (to the token guide and, at a terminal, the interview).
 #[test]
-fn init_says_the_directory_exists_and_exits_zero() {
+fn init_says_the_directory_exists_is_kept_and_init_goes_on() {
     let r = go(&["init"], Format::Text, token);
     assert_eq!(r.exit.unwrap(), Exit::OK);
-    assert_eq!(r.out, "ctxloom directory already exists: /work/.ctxloom\n");
+    assert_eq!(
+        r.out,
+        "ctxloom directory already exists: /work/.ctxloom (kept as it is; init goes on)\n"
+    );
     assert_eq!(r.err, "");
 }
 
@@ -496,7 +501,10 @@ fn init_with_no_token_guides_to_claude_setup_token_and_still_exits_zero() {
     for format in [Format::Text, Format::Json] {
         let r = go(&["init"], format, none);
         assert_eq!(r.exit.unwrap(), Exit::OK);
-        assert_eq!(r.out, "ctxloom directory already exists: /work/.ctxloom\n");
+        assert_eq!(
+            r.out,
+            "ctxloom directory already exists: /work/.ctxloom (kept as it is; init goes on)\n"
+        );
         assert!(r.err.contains("delegated agents need a token"), "{}", r.err);
         assert!(r.err.contains("claude setup-token"), "{}", r.err);
         assert!(
@@ -536,7 +544,10 @@ fn init_warns_of_an_engine_whose_source_is_a_file_alone() {
             );
         });
         assert_eq!(r.exit.unwrap(), Exit::OK);
-        assert_eq!(r.out, "ctxloom directory already exists: /work/.ctxloom\n");
+        assert_eq!(
+            r.out,
+            "ctxloom directory already exists: /work/.ctxloom (kept as it is; init goes on)\n"
+        );
         assert!(
             r.err.contains("engines.claude-code.auth names only a file"),
             "{}",

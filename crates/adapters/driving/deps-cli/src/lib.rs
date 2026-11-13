@@ -9,9 +9,11 @@
 //! it: the arguments become a request of the application, and its answer is
 //! written as json or as text, with what it noticed said on the error stream.
 
+mod api;
 mod commands;
 mod pins;
 mod refresh;
+mod remote;
 mod text;
 
 use cli_support::{Exit, ExitClass};
@@ -57,6 +59,7 @@ impl IntoFailure for AppError {
 struct Context<'a> {
     deps: &'a Deps,
     refresh: &'a dyn ProjectRefresh,
+    names: &'a dyn Names,
     format: Format,
     catalog: &'a Catalog,
 }
@@ -67,7 +70,7 @@ struct Context<'a> {
 pub fn run<G>(
     deps: &Deps,
     refresh: &dyn ProjectRefresh,
-    _names: &dyn Names,
+    names: &dyn Names,
     noun: &str,
     call: &Call<'_, G>,
     catalog: &Catalog,
@@ -82,6 +85,7 @@ pub fn run<G>(
     let cx = Context {
         deps,
         refresh,
+        names,
         format,
         catalog,
     };
@@ -123,6 +127,23 @@ fn emit<T: Serialize>(
     })
 }
 
+/// A converted verb's answer (OD-40): as json, `message`, the view as its
+/// API message named under the parent the names give (asked only here, so
+/// a text answer reaches no daemon); else `text`.
+fn respond<M: Serialize>(
+    cx: &Context<'_>,
+    out: &mut dyn Write,
+    message: impl FnOnce(&str) -> M,
+    text: impl FnOnce(&mut dyn Write) -> io::Result<()>,
+) -> Result<(), Failure> {
+    if cx.format == Format::Json {
+        let parent = cx.names.parent()?;
+        emit(cx.format, out, &message(&parent), text)
+    } else {
+        emit(cx.format, out, &(), text)
+    }
+}
+
 fn text_arg(matches: &ArgMatches, name: &str) -> String {
     one(matches, name).unwrap_or_default()
 }
@@ -138,33 +159,45 @@ fn remote(
     match verb {
         "" | "list" => {
             let listing = answer(cx, deps.remote_list(), err)?;
-            emit(cx.format, out, &listing, |out| {
-                text::remote_list(out, &listing)
-            })?;
+            respond(
+                cx,
+                out,
+                |parent| remote::listed(parent, &listing),
+                |out| text::remote_list(out, &listing),
+            )?;
         }
         "show" => {
             let browsed = answer(cx, deps.remote_show(&text_arg(args, "remote")), err)?;
-            emit(cx.format, out, &browsed, |out| {
-                text::remote_show(out, &browsed)
-            })?;
+            respond(
+                cx,
+                out,
+                |parent| remote::browsed(parent, &browsed),
+                |out| text::remote_show(out, &browsed),
+            )?;
         }
         "create" => {
+            let forge = text_arg(args, "forge");
             let created = answer(
                 cx,
                 deps.remote_create(&CreateRequest {
                     name: text_arg(args, "name"),
                     url: text_arg(args, "url"),
-                    forge: text_arg(args, "forge"),
+                    forge: forge.clone(),
                 }),
                 err,
             )?;
-            emit(cx.format, out, &created, |out| {
-                writeln!(
-                    out,
-                    "Added remote '{}' \u{2192} {}",
-                    created.name, created.url
-                )
-            })?;
+            respond(
+                cx,
+                out,
+                |parent| remote::created(parent, &created, &forge),
+                |out| {
+                    writeln!(
+                        out,
+                        "Added remote '{}' \u{2192} {}",
+                        created.name, created.url
+                    )
+                },
+            )?;
         }
         "edit" => {
             let edit = Edit {
@@ -173,19 +206,22 @@ fn remote(
                 forge: one(args, "forge"),
             };
             let edited = answer(cx, deps.remote_edit(&text_arg(args, "remote"), &edit), err)?;
-            emit(cx.format, out, &edited, |out| {
-                text::remote_edit(out, &edited)
-            })?;
+            respond(
+                cx,
+                out,
+                |parent| remote::edited(parent, &edited),
+                |out| text::remote_edit(out, &edited),
+            )?;
         }
         "remove" => {
-            let removed = answer(
+            let asked = text_arg(args, "remote");
+            let removed = answer(cx, deps.remote_remove(&asked, flag(args, "yes")), err)?;
+            respond(
                 cx,
-                deps.remote_remove(&text_arg(args, "remote"), flag(args, "yes")),
-                err,
+                out,
+                |parent| remote::removed(parent, &asked, &removed),
+                |out| text::remote_remove(out, &removed),
             )?;
-            emit(cx.format, out, &removed, |out| {
-                text::remote_remove(out, &removed)
-            })?;
             // Ruling 153: the preview names a remote `--yes` would remove.
             if matches!(removed, deps_application::RemoveResult::Preview { .. }) {
                 return Ok(Exit::WOULD_CHANGE);
@@ -201,10 +237,15 @@ fn remote(
                 Some(name.as_str())
             };
             let set = answer(cx, deps.remote_default(chosen), err)?;
-            emit(cx.format, out, &set, |out| match chosen {
-                Some(name) => writeln!(out, "Set default remote to: {name}"),
-                None => writeln!(out, "Cleared default remote."),
-            })?;
+            respond(
+                cx,
+                out,
+                |parent| remote::defaulted(parent, &set),
+                |out| match chosen {
+                    Some(name) => writeln!(out, "Set default remote to: {name}"),
+                    None => writeln!(out, "Cleared default remote."),
+                },
+            )?;
         }
         _ => discover(cx, args, out, err)?,
     }
@@ -236,9 +277,12 @@ fn discover(
         Err(_) => writeln!(err),
     };
     let found = answer(cx, outcome, err)?;
-    emit(cx.format, out, &found, |out| {
-        text::discovered(out, &found, &query)
-    })
+    respond(
+        cx,
+        out,
+        |_| remote::discovered(&found),
+        |out| text::discovered(out, &found, &query),
+    )
 }
 
 fn dependencies(

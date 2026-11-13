@@ -334,7 +334,8 @@ impl Ears for Listening {
     }
 }
 
-struct Locks;
+/// Every lock probes as told: unproven, unless a test says otherwise.
+struct Locks(LockProbe);
 
 impl RunLocks for Locks {
     fn hold_run(&self, run: &str) -> Result<run_ports::HeldLock, run_ports::LockError> {
@@ -342,11 +343,11 @@ impl RunLocks for Locks {
     }
 
     fn probe(&self, _: &str) -> LockProbe {
-        LockProbe::Unproven
+        self.0
     }
 
     fn session(&self, _: &str, _: &str) -> LockProbe {
-        LockProbe::Unproven
+        self.0
     }
 }
 
@@ -369,6 +370,11 @@ struct World {
 
 impl World {
     fn new(plans: Box<dyn ChildPlans>) -> World {
+        World::probing(plans, LockProbe::Unproven)
+    }
+
+    /// A world whose every lock probes as `locks`.
+    fn probing(plans: Box<dyn ChildPlans>, locks: LockProbe) -> World {
         let edge = Arc::new(TestEdge::new());
         let engine = Arc::new(Scripted::default());
         let homes = Homes::default();
@@ -388,7 +394,7 @@ impl World {
             ]))),
             homes: Box::new(homes.clone()),
             ears: Box::new(Listening::default()),
-            run_locks: Arc::new(Locks),
+            run_locks: Arc::new(Locks(locks)),
             place: Place {
                 home: "/home/u".to_string(),
                 program_dir: Some("/opt/ctx".to_string()),
@@ -564,7 +570,7 @@ async fn started_on(os: &str, path: &str, user_home: Option<&str>) -> run_ports:
         )]))),
         homes: Box::new(Homes::default()),
         ears: Box::new(Listening::default()),
-        run_locks: Arc::new(Locks),
+        run_locks: Arc::new(Locks(LockProbe::Unproven)),
         place: Place {
             home: "/home/u".to_string(),
             program_dir: Some("/opt/ctx".to_string()),
@@ -693,7 +699,7 @@ async fn each_launch_is_composed_from_its_launchers_places() {
         )),
         homes: Box::new(world.homes.clone()),
         ears: Box::new(Listening::default()),
-        run_locks: Arc::new(Locks),
+        run_locks: Arc::new(Locks(LockProbe::Unproven)),
         place: Place {
             home: "/home/u".to_string(),
             program_dir: None,
@@ -927,4 +933,21 @@ async fn the_hosted_runs_are_named_by_session_and_run() {
         world.daemon.hosted_runs(),
         [(CHILD.to_string(), daemon_board::run_text(CHILD, 1))]
     );
+}
+
+// M9: a child the daemon hosts is its own live run, whatever its locks
+// probe: it is never swept as another process's whose owner is gone.
+#[tokio::test]
+async fn a_hosted_child_is_live_and_never_swept_as_another_processs() {
+    let mut world = World::probing(Box::new(Plans), LockProbe::Free);
+    world.mint(OWNER, "boss", None).await;
+    world.mint(CHILD, "kid", Some(OWNER)).await;
+    world.tick().await;
+    assert_eq!(world.daemon.hosting(), 1, "hosted");
+    let live = world
+        .daemon
+        .live_runs(&world.edge.store, world.edge.catalog())
+        .await;
+    assert_eq!(live, Ok(1));
+    assert_eq!(world.daemon.hosting(), 1, "still hosted");
 }

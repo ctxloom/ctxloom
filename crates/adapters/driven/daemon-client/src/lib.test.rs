@@ -74,6 +74,15 @@ impl Ctxloom for Fake {
         ))
     }
 
+    /// A daemon that goes mid-call: its connection is dropped unanswered.
+    async fn get_project(
+        &self,
+        request: Request<v1::GetProjectRequest>,
+    ) -> Result<Response<v1::Project>, Status> {
+        self.admit(&request)?;
+        panic!("the daemon is gone mid-call");
+    }
+
     /// A destroy takes longer than a read's deadline (its worktrees' git).
     async fn delete_session(
         &self,
@@ -286,4 +295,17 @@ async fn a_destroy_is_bounded_by_its_own_deadline_not_a_reads() {
         .await
         .unwrap_err();
     assert!(matches!(late, Called::Unreachable { .. }), "{late:?}");
+}
+
+// A daemon gone mid-call (its connection dropped unanswered, a transport
+// error) is unreachable, as one not there: a client asks again or says
+// none serves, never a failed call.
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn a_daemon_gone_mid_call_is_unreachable() {
+    let found = serve(&certificate(), &token(0xab)).await;
+    let gone = DaemonClient::new(&found, WITHIN)
+        .get_project(v1::GetProjectRequest::default())
+        .await
+        .unwrap_err();
+    assert!(matches!(gone, Called::Unreachable { .. }), "{gone:?}");
 }

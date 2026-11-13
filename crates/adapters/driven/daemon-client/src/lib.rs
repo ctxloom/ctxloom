@@ -182,6 +182,20 @@ impl DaemonApi for DaemonClient {
     ) -> Result<v1::ListSessionsResponse, Called> {
         call!(self, search_sessions, "SearchSessions", request)
     }
+
+    async fn delete_session(
+        &self,
+        request: v1::DeleteSessionRequest,
+    ) -> Result<v1::DeleteSessionResponse, Called> {
+        call!(self, delete_session, "DeleteSession", request)
+    }
+
+    async fn sweep_sessions(
+        &self,
+        request: v1::SweepSessionsRequest,
+    ) -> Result<v1::SweepSessionsResponse, Called> {
+        call!(self, sweep_sessions, "SweepSessions", request)
+    }
 }
 
 #[cfg(test)]

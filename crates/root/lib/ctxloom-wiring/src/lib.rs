@@ -36,7 +36,7 @@ use std::sync::Arc;
 
 use ::process_env::EnvSnapshot;
 use angzarr_embedded::StoreError;
-use config_files::{find_app_dir, AppDir, ConfigFilesFs, Surroundings};
+use config_files::{find_app_dir, AppDir, Surroundings};
 use ctxloom_store_sqlite::{OpenError, SqliteStores, StoreOpenError, Stores};
 use file_system::{Fs, Os};
 use harp_names::HarpNames;
@@ -44,12 +44,11 @@ use isolation_application::{IsolationError, Report, WorktreeUse, Worktrees};
 use liveness::LockFiles;
 use ports::Names;
 use project_registry::{Environment, ProjectRegistry};
-use reclaim_application::SweepConfig;
-use session_files::{GoDirs, SessionDirs};
+use session_files::GoDirs;
 use sessions_application::{
     AppError, BindRequest, Bound, ImportReport, ImportRequest, ImportService, Importer,
-    KeepRequest, Kept, ListQuery, Removal, RemoveRequest, SearchQuery, Service, SessionService,
-    ShowQuery, TranscriptQuery, TranscriptRow, View,
+    KeepRequest, Kept, ListQuery, SearchQuery, Service, SessionService, ShowQuery, TranscriptQuery,
+    TranscriptRow, View,
 };
 use system::System;
 
@@ -120,7 +119,7 @@ pub fn run_id(session: &str, incarnation: u64) -> Result<Uuid, LibError> {
 /// SQLite store, the session directories, the lock files, and the system's
 /// clock, ids and timer.
 pub type SessionUseCases =
-    Service<ProjectRegistry<HarpNames>, SqliteStores, SessionDirs, LockFiles, System, System>;
+    Service<ProjectRegistry<HarpNames>, SqliteStores, LockFiles, System, System>;
 
 /// The import over the same adapters, and Go's session directories.
 pub type ImportUseCase = Importer<ProjectRegistry<HarpNames>, SqliteStores, GoDirs, System, System>;
@@ -132,8 +131,6 @@ pub struct Sessions {
     pub importer: ImportUseCase,
     /// The scratch worktrees sessions left behind (S11).
     pub worktrees: Worktrees<GitWorkspaces, LockFiles>,
-    /// `session_purge_age`, for a sweep given no `--purge-older-than`.
-    pub settings: SweepSettings,
 }
 
 impl Sessions {
@@ -146,12 +143,6 @@ impl Sessions {
         let used = self.use_cases.stores.close().await;
         let imported = self.importer.stores.close().await;
         used.and(imported)
-    }
-}
-
-impl SweepConfig for Sessions {
-    fn purge_age(&mut self) -> Result<Option<String>, ctxloom_ports::Failure> {
-        self.settings.purge_age()
     }
 }
 
@@ -176,10 +167,6 @@ impl SessionService for Sessions {
 
     async fn keep(&mut self, request: KeepRequest) -> Result<Kept, AppError> {
         self.use_cases.keep(request).await
-    }
-
-    async fn remove(&mut self, request: RemoveRequest) -> Result<Removal, AppError> {
-        self.use_cases.remove(request).await
     }
 
     async fn set_title(
@@ -402,7 +389,6 @@ impl Wiring {
             use_cases: Service::new(
                 registry(),
                 stores(),
-                SessionDirs::new(Arc::clone(&self.fs), project.clone()),
                 LockFiles::new(Arc::clone(&self.fs), project.clone()),
                 System,
                 System,
@@ -417,15 +403,6 @@ impl Wiring {
             worktrees: Worktrees::new(
                 GitWorkspaces::new(Arc::clone(&self.fs), project.clone(), Arc::clone(&self.env)),
                 LockFiles::new(Arc::clone(&self.fs), project.clone()),
-            ),
-            settings: SweepSettings::new(
-                Arc::new(ConfigFilesFs::new(
-                    Arc::clone(&self.fs),
-                    self.locate().1,
-                    &self.home,
-                )),
-                // Overrides are text: a variable that is not UTF-8 is none.
-                self.env.vars_utf8().into_iter().collect(),
             ),
         }
     }

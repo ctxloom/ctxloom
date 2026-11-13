@@ -4,22 +4,35 @@ use cli_support::{Exit, ExitClass};
 use std::io::{self, Write};
 
 use angzarr_diagnostic::Diagnostic;
+#[cfg(feature = "session-destroy")]
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use angzarr_presentation::{write_json, Format};
-#[cfg(feature = "session-destroy")]
-use daemon_api::SessionRemovals;
 use daemon_api::{CallError, SessionReads};
+#[cfg(feature = "session-destroy")]
+use daemon_api::{Removed, SessionRemovals};
 use daemon_proto::v1;
 use isolation_application::{IsolationError, WorktreeUse};
+#[cfg(feature = "session-destroy")]
+use reclaim_application::ReclaimError;
+#[cfg(feature = "session-destroy")]
+use sessions_application::Timestamp;
 use sessions_application::{
     dead_letter_line, AppError, DeadLetter, ImportRequest, ImportService, KeepRequest,
     RemovedNothing, SessionService, State, TitleRequest, TranscriptQuery, STATES,
 };
+#[cfg(feature = "session-destroy")]
+use sessions_application::{DestroysAuthored, REMOVE_VERB};
 
 use crate::proto_json;
 use crate::render::{
     conversation_text, import_text, listing_text, session_text, transcripts_text, worktrees_text,
     ImportDoc, KeepDoc, TitleDoc, TranscriptsDoc,
+};
+#[cfg(feature = "session-destroy")]
+use crate::{
+    render::{removal_of, removal_text, report_of, sweep_text},
+    RemoveArgs, SweepArgs,
 };
 use crate::{
     CliFault, ListArgs, RenameArgs, Session, SessionVerb, Transcript, TranscriptListArgs,
@@ -106,8 +119,13 @@ pub fn destroy<R: SessionRemovals>(
                 ext_err_txt: e.to_string(),
             })
         })?;
-    let _ = (session, removals, format, out, runtime);
-    unimplemented!("RED: session remove|sweep on the daemon")
+    runtime.block_on(async {
+        match &session.verb {
+            Some(SessionVerb::Remove(args)) => remove(removals, args, format, out).await,
+            Some(SessionVerb::Sweep(args)) => sweep(removals, args, format, out).await,
+            _ => unreachable!("only a destroy: session_cli::is_destroy"),
+        }
+    })
 }
 
 /// Run `session`'s read ([`is_read`]) on the daemon's client `reads`,
@@ -394,6 +412,136 @@ async fn rename<S: SessionService>(
         Format::Text => writeln!(out, "{}: titled {:?}", titled.harp, titled.title),
     })?;
     Ok(dead_letters(&titled.dead_letters))
+}
+
+/// `session remove`: the destroy (owner ruling 98, the session-destroy
+/// feature's), which the DAEMON runs (owner, 2026-11-12): reported, and
+/// applied on `--yes`. A refused removal prints its plan, then fails.
+#[cfg(feature = "session-destroy")]
+async fn remove<R: SessionRemovals>(
+    removals: &R,
+    args: &RemoveArgs,
+    format: Format,
+    out: &mut dyn Write,
+) -> Result<Done, Failure> {
+    let removed = removals
+        .delete_session(&args.harp, args.yes, args.even_if_live)
+        .await
+        .map_err(call_failure)?;
+    let (plan, why) = match removed {
+        Removed::Done(plan) => (plan, None),
+        Removed::Refused { plan, why } => (plan, Some(why)),
+    };
+    // The session's own refusal reached no worktree; a worktree's names them.
+    let worktrees = plan
+        .worktrees
+        .as_ref()
+        .filter(|w| !w.worktrees.is_empty())
+        .filter(|_| !matches!(why, Some(daemon_api::RemovalRejection::Session(_))))
+        .map(report_of);
+    wrote(match format {
+        Format::Json => write_json(out, &proto_json::deletion(&plan)),
+        Format::Text => removal_text(&removal_of(&plan), out).and_then(|()| match &worktrees {
+            Some(report) => worktrees_text(report, out),
+            None => Ok(()),
+        }),
+    })?;
+    if let Some(why) = why {
+        return Err(Failure::new(why, Exit::REFUSED, Vec::new()));
+    }
+    let mut done = Done::default();
+    // Owner ruling 104: what a person wrote goes with the session, so it is
+    // named first, a warning and never a refusal; a refused removal destroys
+    // nothing, so it warns of nothing.
+    if !plan.authored.is_empty() {
+        done.notices.push(Box::new(DestroysAuthored {
+            harp: args.harp.clone(),
+            files: plan.authored.join(", "),
+        }));
+    }
+    if !args.yes {
+        // Not refused, so `--yes` would destroy the session.
+        done.would_change = true;
+        let flag = if args.even_if_live {
+            " --even-if-live"
+        } else {
+            ""
+        };
+        done.notices.push(Box::new(RemovedNothing {
+            command: format!("ctxloom {REMOVE_VERB} {} --yes{flag}", args.harp),
+        }));
+    }
+    Ok(done)
+}
+
+/// `session sweep`: every session's fate reported by the daemon, and with
+/// `--yes` acted on there (a destroy: the session-destroy feature's). A
+/// `--purge-older-than` that is no age is refused here, before the daemon is
+/// asked.
+#[cfg(feature = "session-destroy")]
+async fn sweep<R: SessionRemovals>(
+    removals: &R,
+    args: &SweepArgs,
+    format: Format,
+    out: &mut dyn Write,
+) -> Result<Done, Failure> {
+    if let Some(age) = &args.purge_older_than {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX));
+        let now = Timestamp {
+            seconds: now,
+            nanos: 0,
+        };
+        reclaim_application::parse_age("--purge-older-than", age, now).map_err(reclaim_failure)?;
+    }
+    let report = removals
+        .sweep_sessions(args.all_projects, args.purge_older_than.clone(), args.yes)
+        .await
+        .map_err(call_failure)?;
+    wrote(match format {
+        Format::Json => write_json(out, &proto_json::sweep(&report)),
+        Format::Text => sweep_text(&report, out),
+    })?;
+    let mut done = Done::default();
+    // Owner ruling 104: each destroy that takes a person's files warns of
+    // them, as `session remove` does.
+    for row in report.rows.iter().filter(|row| !row.authored.is_empty()) {
+        done.notices.push(Box::new(DestroysAuthored {
+            harp: row.harp.clone(),
+            files: row.authored.join(", "),
+        }));
+    }
+    let counts = report.counts.unwrap_or_default();
+    if args.yes && counts.failed > 0 {
+        return Err(fault(CliFault::SweepFailed {
+            count: counts.failed,
+        }));
+    }
+    if !args.yes {
+        done.would_change = counts.planned > 0;
+        let age = args
+            .purge_older_than
+            .as_ref()
+            .map(|age| format!(" --purge-older-than {age}"))
+            .unwrap_or_default();
+        let all = if args.all_projects {
+            " --all-projects"
+        } else {
+            ""
+        };
+        done.notices.push(Box::new(RemovedNothing {
+            command: format!("ctxloom session sweep{all}{age} --yes"),
+        }));
+    }
+    Ok(done)
+}
+
+/// A reclaim use case's failure: its diagnostic and exit code.
+#[cfg(feature = "session-destroy")]
+fn reclaim_failure(error: ReclaimError) -> Failure {
+    let exit = error.exit();
+    Failure::new(error, exit, Vec::new())
 }
 
 async fn transcripts<S: SessionService + WorktreeUse>(

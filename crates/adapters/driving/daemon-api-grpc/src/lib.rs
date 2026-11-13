@@ -242,6 +242,28 @@ impl Ctxloom for Served {
         })
         .await
     }
+
+    #[cfg(feature = "session-destroy")]
+    async fn delete_session(
+        &self,
+        request: Request<v1::DeleteSessionRequest>,
+    ) -> Result<Response<v1::DeleteSessionResponse>, Status> {
+        self.answer(request, |calls, message| async move {
+            calls.delete_session(message).await
+        })
+        .await
+    }
+
+    #[cfg(feature = "session-destroy")]
+    async fn sweep_sessions(
+        &self,
+        request: Request<v1::SweepSessionsRequest>,
+    ) -> Result<Response<v1::SweepSessionsResponse>, Status> {
+        self.answer(request, |calls, message| async move {
+            calls.sweep_sessions(message).await
+        })
+        .await
+    }
 }
 
 #[cfg(test)]

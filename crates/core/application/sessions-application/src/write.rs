@@ -1,10 +1,9 @@
-//! Writing sessions: keep, bind, title and remove. A write finds its session
-//! as a read does, then runs one command through angzarr-embedded's kernel
+//! Writing sessions: keep, bind and title. A write finds its session as a
+//! read does, then runs one command through angzarr-embedded's kernel
 //! (angzarr-embedded-runner's `Runner`), which retries it. A remove is a
-//! destroy (owner rulings 94, 94b, 98) and runs no command: it purges the
-//! session's streams from the store, head-guarded, and removes its directory.
+//! destroy the DAEMON runs (slice 2 step 6, daemon-api's `DeleteSession`):
+//! [`purge`] is its head-guarded purge of one stream, the store's own.
 
-use angzarr_diagnostic::Report;
 use angzarr_embedded::v1::{CommandBook, Cover, Uuid};
 use angzarr_embedded::{
     CommandBookExt, EventStore, Handled, OnRetryable, Purge, StoreError, StreamRef,
@@ -14,27 +13,24 @@ use angzarr_embedded_runner::Runner;
 use crate::bridge::Port;
 use crate::typed;
 use ports::{Clock, CommandIds, Delay, Jitter, Project, ProjectIdentity};
-use session_index::{Retained, Retention, SessionRecord};
-use session_ports::{Liveness, LockState, ProjectStores, SessionFiles};
+use session_index::SessionRecord;
+use session_ports::{Liveness, ProjectStores};
 use sessions::{
-    BindEngineSession, SessionAggregate, SessionCommand, SessionRef, SetKept, SetSessionTitle,
-    SESSION_DOMAIN,
+    BindEngineSession, SessionAggregate, SessionCommand, SetKept, SetSessionTitle, SESSION_DOMAIN,
 };
 
 use crate::read::Reading;
 use crate::{
-    failed, AppError, BindRequest, Bound, Class, DeadLetter, FilePlan, KeepRequest, Kept, PlanItem,
-    Refusal, Removal, RemoveRequest, TitleRequest, Titled, REMOVE_VERB,
+    failed, AppError, BindRequest, Bound, DeadLetter, KeepRequest, Kept, TitleRequest, Titled,
 };
 
 /// A write's way to its sessions and the kernel, borrowed from the service
 /// for one call.
-pub(crate) struct Writing<'s, I, S, F, L, C, D> {
-    pub read: Reading<'s, I, S, F, L>,
+pub(crate) struct Writing<'s, I, S, L, C, D> {
+    pub read: Reading<'s, I, S, L>,
     pub clock: &'s mut C,
     pub delay: &'s mut D,
     pub retry: OnRetryable,
-    pub retention_days: u64,
     pub dead_letters: &'s mut Vec<DeadLetter>,
 }
 
@@ -55,11 +51,10 @@ pub(crate) fn session_cover(id: &str) -> Result<Cover, AppError> {
     })
 }
 
-impl<I, S, F, L, C, D> Writing<'_, I, S, F, L, C, D>
+impl<I, S, L, C, D> Writing<'_, I, S, L, C, D>
 where
     I: ProjectIdentity,
     S: ProjectStores,
-    F: SessionFiles,
     L: Liveness,
     C: Clock + CommandIds,
     D: Delay + Jitter + Send,
@@ -165,218 +160,6 @@ where
             title: request.title,
             changed,
             dead_letters: std::mem::take(self.dead_letters),
-        })
-    }
-
-    /// Remove a session: report its destroy, and on `yes` apply it, unless
-    /// it is refused (its lock does not prove it ended, without
-    /// `even_if_live`; it is kept; it is within its retention).
-    pub(crate) async fn remove(&mut self, request: RemoveRequest) -> Result<Removal, AppError> {
-        let (project, record) = self
-            .read
-            .find(request.project.as_deref(), &request.harp)
-            .await?;
-        let harp = record.harp.clone();
-        let plan = self.plan(&harp)?;
-        let refusal = self.refusal(&record, request.even_if_live)?;
-        let removal = Removal {
-            harp,
-            applied: false,
-            files: FilePlan {
-                bytes_freed: 0,
-                ..plan
-            },
-            events_destroyed: 0,
-            refusal,
-            dead_letters: Vec::new(),
-        };
-        if removal.refusal.is_some() || !request.yes {
-            return Ok(removal);
-        }
-        self.destroy(&project, &record, removal).await
-    }
-
-    /// Destroy `record` (owner rulings 94, 94b, 98): purge its stream and the
-    /// stream of each of its runs (UUIDv5(session, 1..=n)), each guarded by
-    /// the head just read, then remove its directory and lock. The name's
-    /// claim is kept (94c). The streams go first: a directory left by a
-    /// failure after them names a session nothing lists (and the mint never
-    /// reuses its harp).
-    async fn destroy(
-        &mut self,
-        project: &Project,
-        record: &SessionRecord,
-        mut removal: Removal,
-    ) -> Result<Removal, AppError> {
-        let session = uuid::Uuid::parse_str(&record.id).map_err(|e| {
-            AppError::Failed(
-                Report::new("sessions-application-bad-id").arg("ext_err_txt", e.to_string()),
-            )
-        })?;
-        let mut roots = vec![(SESSION_DOMAIN, session)];
-        for incarnation in 1..=record.incarnation.max(1) {
-            let run = runs::run_root(&record.id, incarnation);
-            if let Ok(run) = uuid::Uuid::from_slice(&run.value) {
-                roots.push((runs::RUN_DOMAIN, run));
-            }
-        }
-        self.unlink(project, record).await?;
-        let store = self.read.stores.open(project).await.map_err(failed)?;
-        for (domain, root) in roots {
-            removal.events_destroyed += purge(store, StreamRef::main(domain, root)).await?;
-        }
-        removal.files.bytes_freed = self
-            .read
-            .files
-            .destroy_session(&record.harp)
-            .map_err(AppError::Files)?;
-        removal.applied = true;
-        removal.dead_letters = std::mem::take(self.dead_letters);
-        Ok(removal)
-    }
-
-    /// Before a destroy's purge (rulings 94, 98; D28 K3, M3): a purge emits
-    /// no event, so each child `record` holds is closed and its owner forgets
-    /// it first, each a keyed command (`owner-destroyed:<session>:<child>`,
-    /// `destroy:<session>`) in the store of the project it names (D19). A
-    /// project with no store here is passed over, as is a refusal (a child
-    /// already destroyed holds no session): either way nothing is left to
-    /// tell.
-    async fn unlink(&mut self, project: &Project, record: &SessionRecord) -> Result<(), AppError> {
-        let target = SessionRef {
-            project_id: project.id.clone(),
-            session: record.id.clone(),
-        };
-        let plan = session_policies::destroy(&target, record.owner.as_ref(), &record.children);
-        let close = plan
-            .close
-            .iter()
-            .map(|keyed| (keyed.project_id.clone(), keyed.book(), keyed.command_id()));
-        let forget = plan
-            .forget
-            .iter()
-            .map(|keyed| (keyed.project_id.clone(), keyed.book(), keyed.command_id()));
-        for (project_id, book, command_id) in close.chain(forget).collect::<Vec<_>>() {
-            let Some(there) = self.project_named(project, &project_id)? else {
-                continue;
-            };
-            let Some(store) = self
-                .read
-                .stores
-                .open_existing(&there)
-                .await
-                .map_err(failed)?
-            else {
-                continue;
-            };
-            let mut runner = Runner {
-                registry: self.read.registry,
-                clock: &mut Port(&mut *self.clock),
-                delay: &mut Port(&mut *self.delay),
-                retry: self.retry,
-                dead_letters: &mut *self.dead_letters,
-            };
-            // A refusal (no such session any more) is passed over.
-            let _refused =
-                typed::run::<SessionAggregate, _, _, _>(&mut runner, store, book, &command_id)
-                    .await?;
-        }
-        Ok(())
-    }
-
-    /// The project `id` names: `here`, or another of this user's.
-    fn project_named(&mut self, here: &Project, id: &str) -> Result<Option<Project>, AppError> {
-        if here.id == id {
-            return Ok(Some(here.clone()));
-        }
-        Ok(self
-            .read
-            .identity
-            .every_project()
-            .map_err(AppError::Identity)?
-            .into_iter()
-            .find(|project| project.id == id))
-    }
-
-    /// What removing `harp` destroys of its files: the whole directory, the
-    /// machine-written conversation (the engine's native history, and a
-    /// transcript an older ctxloom left) and everything else, each named by
-    /// its class.
-    fn plan(&mut self, harp: &str) -> Result<FilePlan, AppError> {
-        let survey = self.read.files.survey(harp).map_err(AppError::Files)?;
-        let destroy = survey
-            .into_iter()
-            .map(|file| {
-                let machine =
-                    file.rel.starts_with("transcripts/") || file.rel.starts_with("native/");
-                PlanItem {
-                    path: file.path,
-                    rel: file.rel,
-                    class: if machine {
-                        Class::Machine
-                    } else {
-                        Class::Authored
-                    },
-                    bytes: file.bytes,
-                }
-            })
-            .collect();
-        Ok(FilePlan {
-            destroy,
-            bytes_freed: 0,
-        })
-    }
-
-    /// Why `record` may not be removed, if it may not: its lock does not prove
-    /// its owner dead (unless `even_if_live`), then its transcript's
-    /// retention.
-    fn refusal(
-        &mut self,
-        record: &SessionRecord,
-        even_if_live: bool,
-    ) -> Result<Option<Refusal>, AppError> {
-        let harp = record.harp.clone();
-        let lock = self.read.liveness.lock_state(&harp);
-        if lock != LockState::Free && !even_if_live {
-            let reason = match lock {
-                LockState::Held => "its lock is held: the owner is alive and running",
-                _ => "it has no lock to prove the owner ended",
-            };
-            return Ok(Some(Refusal::NotProvenDead {
-                harp,
-                reason: reason.to_string(),
-                verb: REMOVE_VERB.to_string(),
-            }));
-        }
-        // The newest of its engine's native history and its own capture
-        // (ruling 87a: the transcript is the session's events).
-        let native = self
-            .read
-            .files
-            .last_active(&harp)
-            .map_err(AppError::Files)?;
-        let last_active = [native, record.last_captured]
-            .into_iter()
-            .flatten()
-            .max_by_key(|at| (at.seconds, at.nanos));
-        let now = self.clock.now();
-        let retention = Retention {
-            cutoff: Some(session_index::stamp::days_before(now, self.retention_days)),
-        };
-        Ok(match retention.retains(Some(record), last_active) {
-            None => None,
-            Some(Retained::Kept) => Some(Refusal::Kept { harp }),
-            Some(Retained::Recent { ended }) => Some(Refusal::Retained {
-                harp,
-                detail: match ended {
-                    Some(at) => format!("it ended {}", session_index::stamp::rfc3339(at)),
-                    None => "nothing records when it ended".to_string(),
-                },
-            }),
-            Some(Retained::NoBound) => Some(Refusal::Retained {
-                harp,
-                detail: "no retention is configured".to_string(),
-            }),
         })
     }
 }

@@ -9,9 +9,7 @@ use angzarr_embedded::angzarr_ports::memory::MemoryStore;
 use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
 use angzarr_embedded::{Kernel, OnRetryable, Payload, Sampled, StoreError, Timestamp};
 use ports::{Project, ProjectIdentity};
-use session_ports::{
-    FileItem, GoSession, GoSessions, Liveness, LockState, ProjectStores, SessionFiles,
-};
+use session_ports::{GoSession, GoSessions, Liveness, LockState, ProjectStores};
 use sessions::{
     BindEngineSession, MintSession, Origin, RecordEnd, SessionAggregate, SessionCommand,
     SESSION_DOMAIN,
@@ -128,58 +126,6 @@ impl Liveness for FakeLiveness {
     }
 }
 
-/// A session's files, in memory. `fail_destroy` makes a removal fail.
-#[derive(Default)]
-pub struct FakeFiles {
-    /// A transcript FILE an older ctxloom left, per harp (ruling 87a: never
-    /// read; a remove still names and destroys it).
-    pub transcripts: BTreeMap<String, String>,
-    pub last_active: BTreeMap<String, Timestamp>,
-    /// Other files per harp: (rel, bytes).
-    pub others: BTreeMap<String, Vec<(String, u64)>>,
-    pub fail_destroy: bool,
-    /// The session directories that exist, by harp.
-    pub sessions: std::collections::BTreeSet<String>,
-    /// Every session directory destroyed whole, by harp.
-    pub destroyed_sessions: Vec<String>,
-}
-
-const DIR: &str = "/home/.ctxloom/sessions";
-
-impl SessionFiles for FakeFiles {
-    fn destroy_session(&mut self, harp: &str) -> Result<u64, Report> {
-        if self.fail_destroy {
-            return Err(Report::new("fake-files-busy"));
-        }
-        self.destroyed_sessions.push(harp.to_string());
-        self.sessions.remove(harp);
-        Ok(self.transcripts.remove(harp).map_or(0, |t| t.len() as u64))
-    }
-
-    fn last_active(&mut self, harp: &str) -> Result<Option<Timestamp>, Report> {
-        Ok(self.last_active.get(harp).copied())
-    }
-
-    fn survey(&mut self, harp: &str) -> Result<Vec<FileItem>, Report> {
-        let mut found: Vec<(String, u64)> = self.others.get(harp).cloned().unwrap_or_default();
-        if let Some(text) = self.transcripts.get(harp) {
-            found.push((
-                "transcripts/transcript.jsonl".to_string(),
-                text.len() as u64,
-            ));
-        }
-        found.sort();
-        Ok(found
-            .into_iter()
-            .map(|(rel, bytes)| FileItem {
-                path: format!("{DIR}/{harp}/{rel}"),
-                rel,
-                bytes,
-            })
-            .collect())
-    }
-}
-
 /// The stream of the session with stable id `id`.
 pub fn cover(id: u8) -> Cover {
     Cover {
@@ -202,12 +148,6 @@ pub fn run(store: &MemoryStore, id: u8, seconds: i64, command: impl Into<Session
             ..CommandPage::default()
         }),
     };
-    run_book(store, seconds, book);
-}
-
-/// Send `book`, keyed already (its command id set), to its session stream
-/// directly, sampled at `seconds`: a redelivery is answered DUPLICATE.
-pub fn run_keyed(store: &MemoryStore, seconds: i64, book: CommandBook) {
     run_book(store, seconds, book);
 }
 

@@ -109,14 +109,6 @@ impl SessionService for Fake {
         })
     }
 
-    // The in-process destroy, which goes once the daemon's is green.
-    async fn remove(
-        &mut self,
-        request: sessions_application::RemoveRequest,
-    ) -> Result<sessions_application::Removal, AppError> {
-        Err(AppError::NoSession { harp: request.harp })
-    }
-
     async fn set_title(&mut self, request: TitleRequest) -> Result<Titled, AppError> {
         self.titled.push(request.clone());
         if request.harp == "no-such-harp" {

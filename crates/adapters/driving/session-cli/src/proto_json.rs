@@ -62,6 +62,14 @@ impl Fields {
         self
     }
 
+    /// A message field: left out unset, written whole (even empty) when set.
+    fn message(mut self, name: &str, value: Option<Value>) -> Fields {
+        if let Some(value) = value {
+            self.0.insert(name.to_string(), value);
+        }
+        self
+    }
+
     fn list(mut self, name: &str, values: Vec<Value>) -> Fields {
         if !values.is_empty() {
             self.0.insert(name.to_string(), Value::Array(values));
@@ -157,6 +165,99 @@ fn hosted(run: &v1::HostedRun) -> Value {
         .text("harp", &run.harp)
         .text("run", &run.run)
         .enumeration("kind", run.kind, kind.map(|k| k.as_str_name()))
+        .done()
+}
+
+/// A removal (`DeleteSession`'s answer, and the plan a refusal carries).
+pub fn deletion(removal: &v1::DeleteSessionResponse) -> Value {
+    Fields::default()
+        .text("name", &removal.name)
+        .list(
+            "authored",
+            removal
+                .authored
+                .iter()
+                .map(|rel| Value::from(rel.as_str()))
+                .collect(),
+        )
+        .text("harp", &removal.harp)
+        .flag("applied", removal.applied)
+        .list("files", removal.files.iter().map(removal_file).collect())
+        .u64("bytes_freed", removal.bytes_freed)
+        .u64("events_destroyed", removal.events_destroyed)
+        .message("worktrees", removal.worktrees.as_ref().map(worktrees))
+        .text("etag", &removal.etag)
+        .done()
+}
+
+fn removal_file(file: &v1::RemovalFile) -> Value {
+    let class = v1::FileClass::try_from(file.class).ok();
+    Fields::default()
+        .text("path", &file.path)
+        .text("rel", &file.rel)
+        .enumeration("class", file.class, class.map(|c| c.as_str_name()))
+        .u64("bytes", file.bytes)
+        .done()
+}
+
+fn worktrees(report: &v1::WorktreeReport) -> Value {
+    Fields::default()
+        .list("worktrees", report.worktrees.iter().map(worktree).collect())
+        .u64("reaped", report.reaped)
+        .u64("spared", report.spared)
+        .u64("skipped", report.skipped)
+        .flag("applied", report.applied)
+        .done()
+}
+
+fn worktree(row: &v1::ScratchWorktree) -> Value {
+    Fields::default()
+        .text("harp", &row.harp)
+        .text("worktree", &row.worktree)
+        .text("path", &row.path)
+        .text("owner_state", &row.owner_state)
+        .text("verdict", &row.verdict)
+        .text("reason", &row.reason)
+        .done()
+}
+
+/// A sweep (`SweepSessions`' answer).
+pub fn sweep(report: &v1::SweepSessionsResponse) -> Value {
+    Fields::default()
+        .list("sessions", report.sessions.iter().map(deletion).collect())
+        .list("rows", report.rows.iter().map(sweep_row).collect())
+        .text("purge_cutoff", &report.purge_cutoff)
+        .message("counts", report.counts.as_ref().map(counts))
+        .text("etag", &report.etag)
+        .done()
+}
+
+fn sweep_row(row: &v1::SweepRow) -> Value {
+    Fields::default()
+        .text("harp", &row.harp)
+        .text("action", &row.action)
+        .text("verdict", &row.verdict)
+        .text("reason", &row.reason)
+        .text("command", &row.command)
+        .u64("bytes", row.bytes)
+        .list(
+            "authored",
+            row.authored
+                .iter()
+                .map(|rel| Value::from(rel.as_str()))
+                .collect(),
+        )
+        .done()
+}
+
+fn counts(counts: &v1::SweepCounts) -> Value {
+    Fields::default()
+        .u64("done", counts.done)
+        .u64("planned", counts.planned)
+        .u64("held", counts.held)
+        .u64("left", counts.left)
+        .u64("skipped", counts.skipped)
+        .u64("failed", counts.failed)
         .done()
 }
 

@@ -11,7 +11,7 @@ use ports::{Project, ProjectIdentity};
 use session_index::{
     only_state, title_of, Captured, PendingMessage, SessionIndex, SessionRecord, State, View,
 };
-use session_ports::{Liveness, LockState, ProjectStores, SessionFiles};
+use session_ports::{Liveness, LockState, ProjectStores};
 
 /// A session as its store records it, and its transcript.
 pub(crate) struct Held {
@@ -21,21 +21,19 @@ pub(crate) struct Held {
 
 use crate::{failed, AppError, ListQuery, SearchQuery, ShowQuery, TranscriptQuery, TranscriptRow};
 
-/// A read's way to its projects, stores, files and locks, borrowed from the
+/// A read's way to its projects, stores and locks, borrowed from the
 /// service for one call.
-pub(crate) struct Reading<'s, I, S, F, L> {
+pub(crate) struct Reading<'s, I, S, L> {
     pub identity: &'s mut I,
     pub stores: &'s mut S,
-    pub files: &'s mut F,
     pub liveness: &'s mut L,
     pub registry: &'s Registry,
 }
 
-impl<I, S, F, L> Reading<'_, I, S, F, L>
+impl<I, S, L> Reading<'_, I, S, L>
 where
     I: ProjectIdentity,
     S: ProjectStores,
-    F: SessionFiles,
     L: Liveness,
 {
     /// The projects a call spans: every project's under `all`, else the one

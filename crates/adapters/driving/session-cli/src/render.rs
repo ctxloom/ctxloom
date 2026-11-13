@@ -10,6 +10,8 @@ use angzarr_presentation::text;
 use daemon_proto::v1;
 use serde::Serialize;
 use sessions_application::{stamp, ImportReport, Titled, TranscriptRow, NO_SUMMARY};
+#[cfg(feature = "session-destroy")]
+use sessions_application::{Class, FilePlan, PlanItem, Removal};
 
 /// Columns by display width, two spaces between, no trailing spaces.
 pub(crate) fn table(headers: &[&str], rows: &[Vec<String>]) -> String {
@@ -174,6 +176,123 @@ impl TitleDoc {
 pub(crate) struct KeepDoc {
     pub(crate) harp: String,
     pub(crate) kept: bool,
+}
+
+#[cfg(feature = "session-destroy")]
+fn class(class: Class) -> &'static str {
+    match class {
+        Class::Machine => "machine",
+        Class::Authored => "authored",
+    }
+}
+
+/// The removal the daemon answered (its plan, or its destroy), as the
+/// report renders it.
+#[cfg(feature = "session-destroy")]
+pub(crate) fn removal_of(plan: &v1::DeleteSessionResponse) -> Removal {
+    Removal {
+        harp: plan.harp.clone(),
+        applied: plan.applied,
+        files: FilePlan {
+            destroy: plan
+                .files
+                .iter()
+                .map(|file| PlanItem {
+                    path: file.path.clone(),
+                    rel: file.rel.clone(),
+                    class: match v1::FileClass::try_from(file.class) {
+                        Ok(v1::FileClass::Machine) => Class::Machine,
+                        _ => Class::Authored,
+                    },
+                    bytes: file.bytes,
+                })
+                .collect(),
+            bytes_freed: plan.bytes_freed,
+        },
+        events_destroyed: plan.events_destroyed,
+        refusal: None,
+        dead_letters: Vec::new(),
+    }
+}
+
+/// The worktrees the daemon answered, as `session worktrees` renders them.
+#[cfg(feature = "session-destroy")]
+pub(crate) fn report_of(report: &v1::WorktreeReport) -> isolation_application::Report {
+    use isolation_application::{Row, Verdict};
+    isolation_application::Report {
+        worktrees: report
+            .worktrees
+            .iter()
+            .map(|row| Row {
+                harp: row.harp.clone(),
+                worktree: row.worktree.clone(),
+                path: row.path.clone(),
+                owner_state: match row.owner_state.as_str() {
+                    "alive" => "alive",
+                    "dead" => "dead",
+                    _ => "indeterminate",
+                },
+                verdict: match row.verdict.as_str() {
+                    "reaped" => Verdict::Reaped,
+                    "reapable" => Verdict::Reapable,
+                    "spared" => Verdict::Spared,
+                    _ => Verdict::Skipped,
+                },
+                reason: row.reason.clone(),
+            })
+            .collect(),
+        reaped: report.reaped,
+        spared: report.spared,
+        skipped: report.skipped,
+        applied: report.applied,
+    }
+}
+
+#[cfg(feature = "session-destroy")]
+/// A summary line, then a table of every file the destroy takes, then one
+/// line for the session itself.
+pub(crate) fn removal_text(removal: &Removal, out: &mut dyn Write) -> io::Result<()> {
+    let files = &removal.files;
+    let verb = if removal.applied {
+        "destroyed"
+    } else {
+        "would destroy"
+    };
+    writeln!(
+        out,
+        "session {} \u{2014} {verb} {} file(s) ({} byte(s) freed)",
+        removal.harp,
+        files.destroy.len(),
+        files.bytes_freed
+    )?;
+    let rows: Vec<Vec<String>> = files
+        .destroy
+        .iter()
+        .map(|i| {
+            vec![
+                i.rel.clone(),
+                class(i.class).to_string(),
+                i.bytes.to_string(),
+            ]
+        })
+        .collect();
+    if rows.is_empty() {
+        writeln!(out, "(nothing found in this session's directory)")?;
+    } else {
+        write!(out, "{}", table(&["PATH", "CLASS", "BYTES"], &rows))?;
+    }
+    match removal.applied {
+        true => writeln!(
+            out,
+            "session {}: destroyed, {} event(s) of it and its runs; its name stays taken",
+            removal.harp, removal.events_destroyed
+        ),
+        false => writeln!(
+            out,
+            "session {}: would be destroyed, its events and its runs' with it; its name stays taken",
+            removal.harp
+        ),
+    }
 }
 
 /// `session transcript list`'s answer.
@@ -450,4 +569,41 @@ pub(crate) fn import_text(report: &ImportReport, out: &mut dyn Write) -> io::Res
         writeln!(out, "left {}: {}", left.harp, left.why.code())?;
     }
     Ok(())
+}
+
+/// Go's sweep report: a line per session, the reason under it, and a count.
+#[cfg(feature = "session-destroy")]
+pub(crate) fn sweep_text(
+    report: &v1::SweepSessionsResponse,
+    out: &mut dyn Write,
+) -> io::Result<()> {
+    let purge = match report.purge_cutoff.is_empty() {
+        true => "not set (purges are held)".to_string(),
+        false => report.purge_cutoff.clone(),
+    };
+    writeln!(out, "Session sweep: purge before {purge}.\n")?;
+    for r in &report.rows {
+        let size = if r.bytes > 0 {
+            format!("{} B", r.bytes)
+        } else {
+            String::new()
+        };
+        writeln!(
+            out,
+            "  {:<28} {:<8} {:<8} {:>10}",
+            r.harp, r.action, r.verdict, size
+        )?;
+        if !r.reason.is_empty() {
+            writeln!(out, "  {:<28} {}", "", r.reason)?;
+        }
+        if !r.command.is_empty() {
+            writeln!(out, "  {:<28} run: {}", "", r.command)?;
+        }
+    }
+    let count = report.counts.unwrap_or_default();
+    writeln!(
+        out,
+        "\n{} done, {} planned, {} held, {} left, {} skipped, {} failed.",
+        count.done, count.planned, count.held, count.left, count.skipped, count.failed
+    )
 }

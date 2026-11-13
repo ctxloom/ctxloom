@@ -9,14 +9,14 @@ use session_ports::LockState;
 
 use crate::fakes::{
     bound, captured, claim, ended, holder, id_text, minted, minted_in, project, ready, FakeClock,
-    FakeDelay, FakeFiles, FakeIdentity, FakeLiveness, FakeStores,
+    FakeDelay, FakeIdentity, FakeLiveness, FakeStores,
 };
 use crate::{
-    AppError, BindRequest, Bound, Class, KeepRequest, ListQuery, Refusal, RemoveRequest,
-    SearchQuery, Service, SessionService, ShowQuery, State, TranscriptQuery,
+    AppError, BindRequest, Bound, KeepRequest, ListQuery, SearchQuery, Service, SessionService,
+    ShowQuery, State, TranscriptQuery,
 };
 
-type Svc = Service<FakeIdentity, FakeStores, FakeFiles, FakeLiveness, FakeClock, FakeDelay>;
+type Svc = Service<FakeIdentity, FakeStores, FakeLiveness, FakeClock, FakeDelay>;
 
 /// The fake clock reads from second 1_700_000_001: this is "now" (roughly) to
 /// a test of retention.
@@ -34,18 +34,9 @@ fn service() -> Svc {
             fails: None,
         },
         FakeStores::default(),
-        FakeFiles::default(),
         FakeLiveness::default(),
         FakeClock::default(),
         FakeDelay::default(),
-    )
-}
-
-/// The canonical transcript Go's fixture records: one user prompt.
-fn transcript_of(harp: &str) -> String {
-    format!(
-        r#"{{"v":1,"harp":"{harp}","engine":"claude-code","seq":0,"ts":"2026-01-01T00:00:00Z","kind":"entry","entry":{{"type":"user","content":"Seeded prompt for {harp}."}}}}
-"#
     )
 }
 
@@ -67,9 +58,6 @@ impl Svc {
             "p0",
             &format!("Seeded prompt for {harp}."),
         );
-        self.files
-            .transcripts
-            .insert(harp.to_string(), transcript_of(harp));
         if let Some(lock) = lock {
             self.liveness.0.insert(harp.to_string(), lock);
         }
@@ -510,426 +498,6 @@ fn keeping_an_unknown_session_fails_naming_it() {
     );
 }
 
-// ---------------------------------------------------------------------- remove
-
-fn remove(harp: &str, yes: bool) -> RemoveRequest {
-    RemoveRequest {
-        harp: harp.to_string(),
-        yes,
-        ..RemoveRequest::default()
-    }
-}
-
-/// A finished session whose transcript retention has passed (j001300): its
-/// lock free, its end 60 days ago, nothing worked on since.
-fn finished(svc: &mut Svc, id: u8, harp: &str) {
-    svc.seed(HERE, id, harp, NOW - 70 * DAY, Some(LockState::Free));
-    ended(svc.store(HERE), id, NOW - 70 * DAY + 10, NOW - 60 * DAY);
-    svc.files.last_active.insert(
-        harp.to_string(),
-        crate::Timestamp {
-            seconds: NOW - 60 * DAY,
-            nanos: 0,
-        },
-    );
-}
-
-// session.feature: "Delete reports before it removes": the plan, applied
-// false, and everything still there.
-#[test]
-fn a_removal_reports_before_it_removes() {
-    let mut svc = service();
-    finished(&mut svc, 1, "amber-swift-owl");
-    let removal = ready(svc.remove(remove("amber-swift-owl", false))).unwrap();
-    assert!(!removal.applied);
-    assert_eq!(removal.refusal, None);
-    let destroy: Vec<&str> = removal
-        .files
-        .destroy
-        .iter()
-        .map(|i| i.rel.as_str())
-        .collect();
-    assert_eq!(destroy, ["transcripts/transcript.jsonl"]);
-    assert_eq!(removal.files.bytes_freed, 0, "nothing freed on a report");
-    assert!(svc.files.destroyed_sessions.is_empty());
-    assert!(svc.files.transcripts.contains_key("amber-swift-owl"));
-    assert_eq!(svc.harps(all()), ["amber-swift-owl"], "still listed");
-}
-
-// Owner ruling 98: `session remove --yes` DESTROYS the session: its
-// authored files go with its native history (the whole directory), and it is
-// listed no more.
-#[test]
-fn a_removal_destroys_the_whole_directory_authored_files_too() {
-    let mut svc = service();
-    finished(&mut svc, 1, "amber-swift-owl");
-    svc.files.others.insert(
-        "amber-swift-owl".to_string(),
-        vec![("design-notes.md".to_string(), 12)],
-    );
-    let removal = ready(svc.remove(remove("amber-swift-owl", true))).unwrap();
-    assert!(removal.applied);
-    assert_eq!(removal.refusal, None);
-    let destroyed: Vec<&str> = removal
-        .files
-        .destroy
-        .iter()
-        .map(|i| i.rel.as_str())
-        .collect();
-    assert!(destroyed.contains(&"design-notes.md"), "{destroyed:?}");
-    assert_eq!(svc.files.destroyed_sessions, ["amber-swift-owl"]);
-    let session_root = uuid::Uuid::from_bytes([1; 16]);
-    assert_eq!(head(&mut svc, sessions::SESSION_DOMAIN, session_root), 0);
-    assert_eq!(svc.harps(all()), Vec::<String>::new(), "no longer listed");
-}
-
-// A removal's plan names each file's class: the engine's native history and
-// a transcript an older ctxloom left are machine-written, everything else is
-// a person's.
-#[test]
-fn a_removal_plan_names_the_machine_written_and_the_authored_files() {
-    let mut svc = service();
-    finished(&mut svc, 1, "amber-swift-owl");
-    svc.files.others.insert(
-        "amber-swift-owl".to_string(),
-        vec![
-            ("native/history.jsonl".to_string(), 3),
-            ("notes.md".to_string(), 4),
-        ],
-    );
-    let removal = ready(svc.remove(remove("amber-swift-owl", false))).unwrap();
-    let classes: Vec<(&str, Class)> = removal
-        .files
-        .destroy
-        .iter()
-        .map(|i| (i.rel.as_str(), i.class))
-        .collect();
-    assert_eq!(
-        classes,
-        [
-            ("native/history.jsonl", Class::Machine),
-            ("notes.md", Class::Authored),
-            ("transcripts/transcript.jsonl", Class::Machine),
-        ]
-    );
-}
-
-// Owner ruling 104: `Removal::authored` is what the warning names: exactly
-// the files a person wrote, in the plan's order, never the engine's native
-// history or a transcript an older ctxloom left; none when there are none.
-#[test]
-fn a_removal_names_exactly_its_authored_files() {
-    let mut svc = service();
-    finished(&mut svc, 1, "amber-swift-owl");
-    svc.files.others.insert(
-        "amber-swift-owl".to_string(),
-        vec![
-            ("design-notes.md".to_string(), 4),
-            ("native/history.jsonl".to_string(), 3),
-            ("plans/next.md".to_string(), 5),
-        ],
-    );
-    let removal = ready(svc.remove(remove("amber-swift-owl", false))).unwrap();
-    assert_eq!(removal.authored(), ["design-notes.md", "plans/next.md"]);
-
-    let mut machine_only = service();
-    finished(&mut machine_only, 1, "brisk-copper-moth");
-    machine_only.files.others.insert(
-        "brisk-copper-moth".to_string(),
-        vec![("native/history.jsonl".to_string(), 3)],
-    );
-    let removal = ready(machine_only.remove(remove("brisk-copper-moth", false))).unwrap();
-    assert_eq!(
-        removal.files.destroy.len(),
-        2,
-        "native history and transcript"
-    );
-    assert!(removal.authored().is_empty(), "{:?}", removal.authored());
-}
-
-/// The head of the stream `domain`/`root` in `project`'s store.
-fn head(svc: &mut Svc, domain: &str, root: uuid::Uuid) -> u64 {
-    use angzarr_embedded::EventStore;
-    let stream = angzarr_embedded::StreamRef::main(domain, root);
-    ready(EventStore::head(svc.store(HERE), stream))
-        .unwrap()
-        .next_sequence
-}
-
-/// A run stream of session `id`'s `incarnation`, with one event, as the run
-/// core would leave it.
-fn a_run_of(svc: &mut Svc, id: u8, incarnation: u32) -> uuid::Uuid {
-    use angzarr_embedded::{EventStore, Write};
-    let root = runs::run_root(&id_text(id), incarnation);
-    let root = uuid::Uuid::from_slice(&root.value).unwrap();
-    let page = angzarr_embedded::v1::EventPage {
-        sequence: 0,
-        body: Some(angzarr_embedded::v1::event_page::Body::Event(
-            angzarr_embedded::Any {
-                type_url: "type.googleapis.com/ctxloom.runs.v1.RunExited".to_string(),
-                value: Vec::new(),
-            },
-        )),
-        meta: None,
-    };
-    let stream = angzarr_embedded::StreamRef::main(runs::RUN_DOMAIN, root);
-    ready(EventStore::write(
-        svc.store(HERE),
-        Write::append(stream, 0, std::slice::from_ref(&page)),
-    ))
-    .unwrap();
-    root
-}
-
-/// `session remove <harp> --yes`: the destroy (owner ruling 98).
-fn destroy(harp: &str) -> RemoveRequest {
-    remove(harp, true)
-}
-
-// Owner rulings 94, 94a-c, 98: `session remove` DESTROYS the session: every event
-// of its stream and of every run of it (UUIDv5(session, 1..n)) is purged from
-// the store, and its directory and lock are removed. It is listed no more.
-// The name stays claimed, never reused.
-#[test]
-fn a_destroy_purges_the_session_and_every_run_of_it_and_its_directory() {
-    let mut svc = service();
-    finished(&mut svc, 1, "amber-swift-owl");
-    claim(svc.store(HERE), HERE, "amber-swift-owl", &id_text(1)).unwrap();
-    let store = svc.stores.stores.get(HERE).unwrap();
-    captured(store, 1, NOW - 70 * DAY + 20, "p1", "a prompt to destroy");
-    let run = a_run_of(&mut svc, 1, 1);
-    let session_root = uuid::Uuid::from_bytes([1; 16]);
-    assert!(head(&mut svc, sessions::SESSION_DOMAIN, session_root) > 0);
-    let events = head(&mut svc, sessions::SESSION_DOMAIN, session_root)
-        + head(&mut svc, runs::RUN_DOMAIN, run);
-    let destroyed = ready(svc.remove(destroy("amber-swift-owl"))).unwrap();
-    assert!(destroyed.applied);
-    assert_eq!(
-        destroyed.events_destroyed, events,
-        "every event of the session and its run, counted"
-    );
-    assert_eq!(head(&mut svc, sessions::SESSION_DOMAIN, session_root), 0);
-    assert_eq!(head(&mut svc, runs::RUN_DOMAIN, run), 0, "its run is gone");
-    assert_eq!(svc.files.destroyed_sessions, ["amber-swift-owl"]);
-    assert_eq!(svc.harps(all()), Vec::<String>::new(), "listed no more");
-    assert_eq!(
-        holder(svc.store(HERE), HERE, "amber-swift-owl"),
-        id_text(1),
-        "the name stays claimed (94c)"
-    );
-}
-
-// Ruling 94d: a hook fact delivered again after its session was destroyed
-// (its command id forgotten with the stream) finds no session, and records
-// nothing.
-#[test]
-fn a_hook_fact_redelivered_after_a_destroy_records_nothing() {
-    let mut svc = service();
-    finished(&mut svc, 1, "amber-swift-owl");
-    let store = svc.stores.stores.get(HERE).unwrap();
-    captured(store, 1, NOW - 70 * DAY + 20, "p1", "a prompt to destroy");
-    ready(svc.remove(destroy("amber-swift-owl"))).unwrap();
-    let store = svc.stores.stores.get(HERE).unwrap();
-    captured(store, 1, NOW, "p1", "a prompt to destroy");
-    let session_root = uuid::Uuid::from_bytes([1; 16]);
-    assert_eq!(head(&mut svc, sessions::SESSION_DOMAIN, session_root), 0);
-    assert_eq!(svc.harps(all()), Vec::<String>::new());
-}
-
-// Ruling 94b: a destroy reported (no --yes) changes nothing: the streams and
-// the directory stay.
-#[test]
-fn a_destroy_reported_and_not_applied_changes_nothing() {
-    let mut svc = service();
-    finished(&mut svc, 1, "amber-swift-owl");
-    let report = ready(svc.remove(RemoveRequest {
-        yes: false,
-        ..destroy("amber-swift-owl")
-    }))
-    .unwrap();
-    assert!(!report.applied);
-    let session_root = uuid::Uuid::from_bytes([1; 16]);
-    assert!(head(&mut svc, sessions::SESSION_DOMAIN, session_root) > 0);
-    assert!(svc.files.destroyed_sessions.is_empty());
-}
-
-// session.feature: "A session running again is refused by the transcript's own
-// destroyer": the refusal names the command that was run, `session remove`.
-#[test]
-fn the_refusal_names_the_destroyer_that_was_run() {
-    let mut svc = service();
-    svc.seed(
-        HERE,
-        1,
-        "amber-swift-owl",
-        NOW - 70 * DAY,
-        Some(LockState::Held),
-    );
-    match ready(svc.remove(remove("amber-swift-owl", true)))
-        .unwrap()
-        .refusal
-    {
-        Some(Refusal::NotProvenDead { verb, reason, .. }) => {
-            assert_eq!(verb, "session remove");
-            assert!(reason.contains("owner is alive"), "{reason}");
-        }
-        other => panic!("{other:?}"),
-    }
-}
-
-// session.feature: "A transcript within its retention is refused by every
-// destroyer" (session remove): refused, nothing destroyed, the plan shown.
-#[test]
-fn a_removal_within_the_retention_is_refused() {
-    let mut svc = service();
-    svc.seed(
-        HERE,
-        1,
-        "brisk-copper-moth",
-        NOW - 2 * HOUR,
-        Some(LockState::Free),
-    );
-    ended(svc.store(HERE), 1, NOW - HOUR, NOW - HOUR);
-    svc.files.last_active.insert(
-        "brisk-copper-moth".to_string(),
-        crate::Timestamp {
-            seconds: NOW - HOUR,
-            nanos: 0,
-        },
-    );
-    let removal = ready(svc.remove(remove("brisk-copper-moth", true))).unwrap();
-    assert!(matches!(removal.refusal, Some(Refusal::Retained { .. })));
-    assert!(!removal.applied);
-    assert!(svc.files.destroyed_sessions.is_empty());
-    assert_eq!(svc.harps(all()), ["brisk-copper-moth"]);
-    assert_eq!(removal.files.destroy.len(), 1, "the plan is still shown");
-}
-
-// session.feature: "A kept transcript is refused at any age".
-#[test]
-fn a_removal_of_a_kept_session_is_refused_at_any_age() {
-    let mut svc = service();
-    finished(&mut svc, 1, "amber-swift-owl");
-    ready(svc.keep(keep("amber-swift-owl", true))).unwrap();
-    let removal = ready(svc.remove(remove("amber-swift-owl", true))).unwrap();
-    assert_eq!(
-        removal.refusal,
-        Some(Refusal::Kept {
-            harp: "amber-swift-owl".to_string()
-        })
-    );
-    assert!(svc.files.destroyed_sessions.is_empty());
-    ready(svc.keep(keep("amber-swift-owl", false))).unwrap();
-    let removal = ready(svc.remove(remove("amber-swift-owl", true))).unwrap();
-    assert!(removal.applied, "released, it goes");
-}
-
-// session.feature: "A session the lock cannot prove finished is refused": a
-// free lock proves the owner dead; a held lock, or no lock at all, refuses.
-#[test]
-fn a_removal_of_a_session_the_lock_cannot_prove_dead_is_refused() {
-    for (lock, name) in [(Some(LockState::Held), "held"), (None, "no lock")] {
-        let mut svc = service();
-        svc.seed(HERE, 1, "amber-swift-owl", NOW - 70 * DAY, lock);
-        ended(svc.store(HERE), 1, NOW - 70 * DAY + 10, NOW - 60 * DAY);
-        let removal = ready(svc.remove(remove("amber-swift-owl", true))).unwrap();
-        assert!(
-            matches!(removal.refusal, Some(Refusal::NotProvenDead { .. })),
-            "{name}: {:?}",
-            removal.refusal
-        );
-        assert!(svc.files.destroyed_sessions.is_empty(), "{name}");
-    }
-}
-
-// session.feature: "--even-if-live sweeps it anyway".
-#[test]
-fn even_if_live_permits_a_session_whose_lock_proves_nothing() {
-    let mut svc = service();
-    svc.seed(HERE, 1, "amber-swift-owl", NOW - 70 * DAY, None);
-    ended(svc.store(HERE), 1, NOW - 70 * DAY + 10, NOW - 60 * DAY);
-    let removal = ready(svc.remove(RemoveRequest {
-        yes: true,
-        even_if_live: true,
-        ..remove("amber-swift-owl", true)
-    }))
-    .unwrap();
-    assert!(removal.applied);
-    assert_eq!(svc.harps(all()), Vec::<String>::new());
-}
-
-// Go: PurgeSession checks the lock first, then the retention.
-#[test]
-fn the_lock_is_asked_before_the_retention() {
-    let mut svc = service();
-    svc.seed(HERE, 1, "amber-swift-owl", NOW - 2 * HOUR, None);
-    ended(svc.store(HERE), 1, NOW - HOUR, NOW - HOUR);
-    let removal = ready(svc.remove(remove("amber-swift-owl", true))).unwrap();
-    assert!(matches!(
-        removal.refusal,
-        Some(Refusal::NotProvenDead { .. })
-    ));
-}
-
-// Go: TestRetention_OneShotIsReclaimableAtAnyAgeUnlessKept.
-#[test]
-fn an_internal_one_shot_is_reclaimable_at_any_age() {
-    let mut svc = service();
-    let store = svc.stores.stores.entry(HERE.to_string()).or_default();
-    crate::fakes::run(
-        store,
-        1,
-        NOW - 2 * HOUR,
-        sessions::MintSession {
-            harp: "gray-oneshot-wisp".to_string(),
-            project_id: HERE.to_string(),
-            project_dir: "/work/proj".to_string(),
-            output_dir: String::new(),
-            engine: "claude-code".to_string(),
-            origin: sessions::Origin::Oneshot,
-            started_at: None,
-            depth: 0,
-            owner: None,
-        },
-    );
-    ended(store, 1, NOW - HOUR, NOW - HOUR);
-    svc.files.transcripts.insert(
-        "gray-oneshot-wisp".to_string(),
-        transcript_of("gray-oneshot-wisp"),
-    );
-    svc.liveness
-        .0
-        .insert("gray-oneshot-wisp".to_string(), LockState::Free);
-    let removal = ready(svc.remove(remove("gray-oneshot-wisp", true))).unwrap();
-    assert!(removal.applied, "{:?}", removal.refusal);
-}
-
-// Ruling 94b: a destroy purges the streams BEFORE it removes the directory,
-// so a failure removing the directory leaves a session nothing lists (its
-// harp never reused), not a listed session that lost its files.
-#[test]
-fn the_streams_go_before_the_directory() {
-    let mut svc = service();
-    finished(&mut svc, 1, "amber-swift-owl");
-    svc.files.fail_destroy = true;
-    let error = ready(svc.remove(remove("amber-swift-owl", true))).unwrap_err();
-    assert!(matches!(error, AppError::Files(_)), "{error:?}");
-    let session_root = uuid::Uuid::from_bytes([1; 16]);
-    assert_eq!(head(&mut svc, sessions::SESSION_DOMAIN, session_root), 0);
-    assert_eq!(svc.harps(all()), Vec::<String>::new(), "listed no more");
-}
-
-#[test]
-fn a_removal_of_an_unknown_session_fails_naming_it() {
-    let mut svc = service();
-    assert_eq!(
-        ready(svc.remove(remove("no-such-harp", true))).unwrap_err(),
-        AppError::NoSession {
-            harp: "no-such-harp".to_string()
-        }
-    );
-}
-
 // ------------------------------------------------------------------------ bind
 
 fn bind(harp: &str, native: &str, transcript: &str) -> BindRequest {
@@ -1027,10 +595,6 @@ fn a_title_is_set_and_shown_and_nothing_moves_or_is_claimed() {
     assert_eq!(views[0].record.id, id_text(1));
     assert_eq!(views[0].record.title, "the auth refactor");
     assert_eq!(views[0].title.as_deref(), Some("the auth refactor"));
-    assert!(
-        svc.files.sessions.contains("amber-swift-owl"),
-        "its directory is where it was"
-    );
     assert_eq!(holder(svc.store(HERE), HERE, "amber-swift-owl"), id_text(1));
     let again = ready(svc.set_title(title("amber-swift-owl", "the auth refactor"))).unwrap();
     assert!(!again.changed, "the title held records nothing");
@@ -1067,26 +631,6 @@ fn a_project_that_cannot_be_resolved_is_an_identity_failure() {
     assert_eq!(error.code(), "x-no-home");
 }
 
-// The refusal for a lock says which: held means the owner is running.
-#[test]
-fn a_held_lock_and_a_missing_one_are_refused_for_different_reasons() {
-    let reason = |lock: Option<LockState>| {
-        let mut svc = service();
-        svc.seed(HERE, 1, "amber-swift-owl", NOW - 70 * DAY, lock);
-        match ready(svc.remove(remove("amber-swift-owl", true)))
-            .unwrap()
-            .refusal
-        {
-            Some(Refusal::NotProvenDead { reason, .. }) => reason,
-            other => panic!("{other:?}"),
-        }
-    };
-    let held = reason(Some(LockState::Held));
-    let none = reason(None);
-    assert!(held.contains("running"), "{held}");
-    assert!(none.contains("no lock"), "{none}");
-}
-
 // The sample dead letter names its component and reason (a driving adapter's
 // tests say it).
 #[test]
@@ -1115,7 +659,6 @@ impl Svc {
                 prompt,
             );
         }
-        self.files.transcripts.remove(harp);
     }
 }
 
@@ -1153,10 +696,6 @@ fn a_transcript_is_shown_from_the_sessions_events_with_no_file() {
 fn a_transcript_file_left_on_disk_is_not_what_is_shown() {
     let mut svc = service();
     svc.seed_captured(1, "amber-swift-owl", NOW - DAY, &["from the events"]);
-    svc.files.transcripts.insert(
-        "amber-swift-owl".to_string(),
-        transcript_of("amber-swift-owl"),
-    );
     let text = ready(svc.transcript("amber-swift-owl")).unwrap();
     assert!(text.contains("from the events"), "{text}");
     assert!(!text.contains("Seeded prompt"), "{text}");
@@ -1236,7 +775,6 @@ fn the_transcript_listing_reads_the_events_and_names_no_file() {
 impl Svc {
     /// `harp`'s session directory exists, and its name is claimed by it.
     fn with_directory(&mut self, id: u8, harp: &str) {
-        self.files.sessions.insert(harp.to_string());
         claim(self.store(HERE), HERE, harp, &id_text(id)).unwrap();
     }
 }
@@ -1303,145 +841,6 @@ fn a_purge_that_conflicts_is_tried_again_three_times_then_fails() {
 }
 
 // ------------------------------------------------- the daemon's model (D28)
-
-fn at_session(project: &str, id: u8) -> sessions::SessionRef {
-    sessions::SessionRef {
-        project_id: project.to_string(),
-        session: id_text(id),
-    }
-}
-
-/// Session `owner` (of HERE) launches session `child` of `child_project`,
-/// which is minted for it, finished as `finished` leaves one (each command at
-/// its own second: the fake keys a command by its second).
-fn launched_child(svc: &mut Svc, owner: u8, child: u8, child_project: &str, harp: &str) {
-    let store = svc.stores.stores.get(HERE).unwrap();
-    crate::fakes::run(
-        store,
-        owner,
-        NOW - 70 * DAY + 30 + i64::from(child) * 3,
-        sessions::LaunchChild {
-            child_project_id: child_project.to_string(),
-            child_session: id_text(child),
-            child_root: format!("/work/{child_project}"),
-            harp: harp.to_string(),
-            engine: "claude-code".to_string(),
-            trust: sessions::TargetTrust {
-                same_project: child_project == HERE,
-                trusted: true,
-            },
-            delegation_limit: 4,
-            requester: None,
-            prompt: String::new(),
-        },
-    );
-    let store = svc
-        .stores
-        .stores
-        .entry(child_project.to_string())
-        .or_default();
-    crate::fakes::run(
-        store,
-        child,
-        NOW - 70 * DAY + 31 + i64::from(child) * 3,
-        sessions::MintSession {
-            harp: harp.to_string(),
-            project_id: child_project.to_string(),
-            project_dir: format!("/work/{child_project}"),
-            output_dir: String::new(),
-            engine: "claude-code".to_string(),
-            origin: sessions::Origin::Agent,
-            started_at: None,
-            depth: 1,
-            owner: Some(at_session(HERE, owner)),
-        },
-    );
-    ended(
-        store,
-        child,
-        NOW - 70 * DAY + 32 + i64::from(child) * 3,
-        NOW - 60 * DAY,
-    );
-    svc.liveness.0.insert(harp.to_string(), LockState::Free);
-    svc.files.last_active.insert(
-        harp.to_string(),
-        crate::Timestamp {
-            seconds: NOW - 60 * DAY,
-            nanos: 0,
-        },
-    );
-}
-
-fn record_of(svc: &mut Svc, harp: &str) -> session_index::SessionRecord {
-    ready(svc.list(all()))
-        .unwrap()
-        .into_iter()
-        .find(|view| view.record.harp == harp)
-        .unwrap_or_else(|| panic!("{harp} is listed"))
-        .record
-}
-
-// Rulings 94, 98, D28 K3/M3: a purge emits no event, so a destroy closes each
-// child its session holds BEFORE it purges, in the child's own store (D19).
-#[test]
-fn a_destroy_closes_the_children_of_the_session_first() {
-    let mut svc = service();
-    finished(&mut svc, 1, "amber-swift-owl");
-    launched_child(&mut svc, 1, 2, HERE, "kid-near");
-    launched_child(&mut svc, 1, 3, ELSEWHERE, "kid-far");
-    assert_eq!(record_of(&mut svc, "amber-swift-owl").children.len(), 2);
-    let destroyed = ready(svc.remove(destroy("amber-swift-owl"))).unwrap();
-    assert!(destroyed.applied);
-    for kid in ["kid-near", "kid-far"] {
-        let record = record_of(&mut svc, kid);
-        assert!(record.closed, "{kid} is closed");
-    }
-    // A redelivered destroy step (its keyed command again) records nothing.
-    let again = session_policies::destroy(
-        &at_session(HERE, 1),
-        None,
-        &[sessions::Child {
-            session: Some(at_session(HERE, 2)),
-            root: String::new(),
-        }],
-    );
-    let before = head(
-        &mut svc,
-        sessions::SESSION_DOMAIN,
-        uuid::Uuid::from_bytes([2; 16]),
-    );
-    crate::fakes::run_keyed(svc.store(HERE), NOW, again.close[0].book());
-    assert_eq!(
-        head(
-            &mut svc,
-            sessions::SESSION_DOMAIN,
-            uuid::Uuid::from_bytes([2; 16])
-        ),
-        before,
-        "a duplicate"
-    );
-}
-
-// M3: a destroyed child is forgotten by its owner before its purge.
-#[test]
-fn a_destroyed_child_is_forgotten_by_its_owner() {
-    let mut svc = service();
-    finished(&mut svc, 1, "amber-swift-owl");
-    launched_child(&mut svc, 1, 2, HERE, "kid-near");
-    ready(svc.remove(destroy("kid-near"))).unwrap();
-    assert!(record_of(&mut svc, "amber-swift-owl").children.is_empty());
-    assert!(!record_of(&mut svc, "amber-swift-owl").closed);
-}
-
-// A destroy that is only reported sends nothing to the children.
-#[test]
-fn a_destroy_reported_and_not_applied_closes_no_child() {
-    let mut svc = service();
-    finished(&mut svc, 1, "amber-swift-owl");
-    launched_child(&mut svc, 1, 2, HERE, "kid-near");
-    ready(svc.remove(remove("amber-swift-owl", false))).unwrap();
-    assert!(!record_of(&mut svc, "kid-near").closed);
-}
 
 // D30: `session show` lists the messages the session was sent that no turn
 // has carried; an inform to an idle session stays there, visibly.

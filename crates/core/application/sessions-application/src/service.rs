@@ -7,14 +7,14 @@ use std::future::Future;
 use angzarr_embedded::{OnRetryable, Registry};
 use angzarr_embedded_runner::KERNEL_RETRY;
 use ports::{Clock, CommandIds, Delay, Jitter, ProjectIdentity};
-use session_ports::{Liveness, ProjectStores, SessionFiles};
+use session_ports::{Liveness, ProjectStores};
 use sessions::{NameClaimAggregate, ProjectAggregate, ProjectNameAggregate, SessionAggregate};
 
 use crate::read::Reading;
 use crate::write::Writing;
 use crate::{
-    AppError, BindRequest, Bound, DeadLetter, KeepRequest, Kept, ListQuery, Removal, RemoveRequest,
-    SearchQuery, ShowQuery, TitleRequest, Titled, TranscriptQuery, TranscriptRow, View,
+    AppError, BindRequest, Bound, DeadLetter, KeepRequest, Kept, ListQuery, SearchQuery, ShowQuery,
+    TitleRequest, Titled, TranscriptQuery, TranscriptRow, View,
 };
 
 /// The use cases a driving adapter calls for a session. Their futures are
@@ -36,12 +36,6 @@ pub trait SessionService {
     /// Mark a session's transcript kept, or release it.
     fn keep(&mut self, request: KeepRequest)
         -> impl Future<Output = Result<Kept, AppError>> + Send;
-    /// Remove a session: destroy it whole (rulings 94, 94b, 98), its name
-    /// kept claimed; report first, apply on `yes`.
-    fn remove(
-        &mut self,
-        request: RemoveRequest,
-    ) -> impl Future<Output = Result<Removal, AppError>> + Send;
     /// Set a session's title (S55): its harp, name and places untouched.
     fn set_title(
         &mut self,
@@ -77,73 +71,64 @@ pub fn registry() -> Registry {
 }
 
 /// How long a session's transcript is kept after it ended, unless configured
-/// (Go: `session_transcript_retention`, 30 days).
+/// (Go: `session_transcript_retention`, 30 days): the daemon's destroy's.
 pub const DEFAULT_RETENTION_DAYS: u64 = 30;
 
 /// The ports the use cases run over, owned once: `identity` resolves a
-/// project, `stores` opens its store, `files` reads a session's files,
-/// `liveness` asks its lock, `clock` stamps commands and mints their ids,
-/// `delay` waits, with jitter, between retries.
-pub struct Service<I, S, F, L, C, D> {
+/// project, `stores` opens its store, `liveness` asks its lock, `clock`
+/// stamps commands and mints their ids, `delay` waits, with jitter, between retries.
+pub struct Service<I, S, L, C, D> {
     pub identity: I,
     pub stores: S,
-    pub files: F,
     pub liveness: L,
     pub clock: C,
     pub delay: D,
     /// How the kernel retries a command ([`KERNEL_RETRY`]).
     pub retry: OnRetryable,
-    /// How many days a session's transcript is kept after it ended.
-    pub retention_days: u64,
     pub(crate) registry: Registry,
     /// The dead letters the use case's kernel calls answered, taken into its
     /// result, or its error.
     pub(crate) dead_letters: Vec<DeadLetter>,
 }
 
-impl<I, S, F, L, C, D> Service<I, S, F, L, C, D> {
-    pub fn new(identity: I, stores: S, files: F, liveness: L, clock: C, delay: D) -> Self {
+impl<I, S, L, C, D> Service<I, S, L, C, D> {
+    pub fn new(identity: I, stores: S, liveness: L, clock: C, delay: D) -> Self {
         Service {
             identity,
             stores,
-            files,
             liveness,
             clock,
             delay,
             retry: KERNEL_RETRY,
-            retention_days: DEFAULT_RETENTION_DAYS,
             registry: registry(),
             dead_letters: Vec::new(),
         }
     }
 }
 
-impl<I, S, F, L, C, D> Service<I, S, F, L, C, D> {
+impl<I, S, L, C, D> Service<I, S, L, C, D> {
     /// The ports a read uses, lent for one call.
-    fn reading(&mut self) -> Reading<'_, I, S, F, L> {
+    fn reading(&mut self) -> Reading<'_, I, S, L> {
         Reading {
             identity: &mut self.identity,
             stores: &mut self.stores,
-            files: &mut self.files,
             liveness: &mut self.liveness,
             registry: &self.registry,
         }
     }
 
     /// The ports a write uses, lent for one call.
-    fn writing(&mut self) -> Writing<'_, I, S, F, L, C, D> {
+    fn writing(&mut self) -> Writing<'_, I, S, L, C, D> {
         Writing {
             read: Reading {
                 identity: &mut self.identity,
                 stores: &mut self.stores,
-                files: &mut self.files,
                 liveness: &mut self.liveness,
                 registry: &self.registry,
             },
             clock: &mut self.clock,
             delay: &mut self.delay,
             retry: self.retry,
-            retention_days: self.retention_days,
             dead_letters: &mut self.dead_letters,
         }
     }
@@ -164,11 +149,10 @@ impl<I, S, F, L, C, D> Service<I, S, F, L, C, D> {
     }
 }
 
-impl<I, S, F, L, C, D> SessionService for Service<I, S, F, L, C, D>
+impl<I, S, L, C, D> SessionService for Service<I, S, L, C, D>
 where
     I: ProjectIdentity + Send,
     S: ProjectStores + Send,
-    F: SessionFiles + Send,
     L: Liveness + Send,
     C: Clock + CommandIds + Send,
     D: Delay + Jitter + Send,
@@ -187,11 +171,6 @@ where
 
     async fn keep(&mut self, request: KeepRequest) -> Result<Kept, AppError> {
         let result = self.writing().keep(request).await;
-        self.with_dead_letters(result)
-    }
-
-    async fn remove(&mut self, request: RemoveRequest) -> Result<Removal, AppError> {
-        let result = self.writing().remove(request).await;
         self.with_dead_letters(result)
     }
 
@@ -218,11 +197,10 @@ where
 }
 
 /// The orchestrator's commands, as the user sends them (D25).
-impl<I, S, F, L, C, D> Service<I, S, F, L, C, D>
+impl<I, S, L, C, D> Service<I, S, L, C, D>
 where
     I: ProjectIdentity + Send,
     S: ProjectStores + Send,
-    F: SessionFiles + Send,
     L: Liveness + Send,
     C: Clock + CommandIds + Send,
     D: Delay + Jitter + Send,

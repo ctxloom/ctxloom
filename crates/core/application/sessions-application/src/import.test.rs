@@ -14,8 +14,8 @@ use session_ports::GoSession;
 use sessions::{ClaimName, NameClaimAggregate, NameClaimState, Origin};
 
 use crate::fakes::{
-    cover, minted, project_at, ready, FakeClock, FakeDelay, FakeFiles, FakeGo, FakeIdentity,
-    FakeLiveness, FakeStores,
+    cover, minted, project_at, ready, FakeClock, FakeDelay, FakeGo, FakeIdentity, FakeLiveness,
+    FakeStores,
 };
 use crate::{ImportRequest, ImportService, Importer, ListQuery, Service, SessionService, Why};
 
@@ -86,7 +86,6 @@ fn listing(imp: Imp) -> Vec<crate::View> {
     let mut service = Service::new(
         imp.identity,
         imp.stores,
-        FakeFiles::default(),
         FakeLiveness::default(),
         FakeClock::default(),
         FakeDelay::default(),

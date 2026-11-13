@@ -8,7 +8,7 @@
 
 use angzarr_embedded::v1::Uuid;
 use ports::{Clock, CommandIds, Delay, Jitter, ProjectIdentity};
-use session_ports::{Liveness, ProjectStores, SessionFiles};
+use session_ports::{Liveness, ProjectStores};
 use sessions::{
     ClearChild, CloseSession, LaunchChild, SendMessage, SessionAggregate, SessionCommand,
     SessionName, TargetTrust, Urgency,
@@ -96,11 +96,10 @@ fn fresh(id: &Uuid) -> String {
         .unwrap_or_default()
 }
 
-impl<I, S, F, L, C, D> Writing<'_, I, S, F, L, C, D>
+impl<I, S, L, C, D> Writing<'_, I, S, L, C, D>
 where
     I: ProjectIdentity,
     S: ProjectStores,
-    F: SessionFiles,
     L: Liveness,
     C: Clock + CommandIds,
     D: Delay + Jitter + Send,

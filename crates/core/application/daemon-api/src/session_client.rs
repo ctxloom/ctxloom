@@ -248,8 +248,32 @@ impl<D: Daemons> SessionRemovals for Client<D> {
         yes: bool,
         even_if_live: bool,
     ) -> Result<Removed, CallError> {
-        let _ = (harp, yes, even_if_live);
-        unimplemented!("RED: the client's DeleteSession")
+        self.on_daemon(async |api: &D::Api| {
+            let request = v1::DeleteSessionRequest {
+                name: format!("{}/sessions/{harp}", self.project(api).await?),
+                even_if_live,
+                validate_only: !yes,
+                env: Some(self.env.clone()),
+                ..v1::DeleteSessionRequest::default()
+            };
+            match api.delete_session(request).await {
+                Ok(done) => Ok(Removed::Done(done)),
+                Err(called) => {
+                    let refused = called.refusal::<v1::RemovalRefused>();
+                    let why = refused.as_ref().and_then(|refused| {
+                        crate::RemovalRejection::of(refused, harp).map(|why| (refused, why))
+                    });
+                    match why {
+                        Some((refused, why)) => Ok(Removed::Refused {
+                            plan: refused.plan.clone().unwrap_or_default(),
+                            why,
+                        }),
+                        None => Err(called),
+                    }
+                }
+            }
+        })
+        .await
     }
 
     async fn sweep_sessions(
@@ -258,8 +282,23 @@ impl<D: Daemons> SessionRemovals for Client<D> {
         older_than: Option<String>,
         yes: bool,
     ) -> Result<v1::SweepSessionsResponse, CallError> {
-        let _ = (all, older_than, yes);
-        unimplemented!("RED: the client's SweepSessions")
+        self.on_daemon(async |api: &D::Api| {
+            let parent = self.parent(api, all).await?;
+            let project = match self.project.is_some() {
+                true => self.project(api).await?,
+                false => String::new(),
+            };
+            let request = v1::SweepSessionsRequest {
+                parent,
+                older_than: older_than.clone().unwrap_or_default(),
+                project,
+                validate_only: !yes,
+                env: Some(self.env.clone()),
+                ..v1::SweepSessionsRequest::default()
+            };
+            api.sweep_sessions(request).await
+        })
+        .await
     }
 }
 

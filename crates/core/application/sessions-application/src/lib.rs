@@ -3,7 +3,8 @@
 //!
 //! - read them: list, search, show, and the transcripts' list and show;
 //! - keep one, or release it;
-//! - remove one: its transcript and its index entry, reporting first;
+//! - (a remove is the daemon's: daemon-api's `DeleteSession`, over the
+//!   types here and [`purge`]);
 //! - bind the engine's session to a harp (the SessionStart hook).
 //!
 //! Each reaches its project through the project identity port (taskloom's
@@ -50,7 +51,7 @@ pub use orchestrate::{
 };
 pub use ports::{Project, Timestamp};
 pub use projects::{NameProjectRequest, ProjectHarp};
-pub use service::{registry, Service, SessionService};
+pub use service::{registry, Service, SessionService, DEFAULT_RETENTION_DAYS};
 pub use session_index::{
     stamp, Captured, PendingMessage, SessionRecord, State, View, NO_SUMMARY, STATES,
 };

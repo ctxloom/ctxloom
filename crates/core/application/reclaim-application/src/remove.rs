@@ -56,8 +56,58 @@ pub async fn remove<S: Removals + Send>(
     service: &mut S,
     request: RemoveRequest,
 ) -> Result<SessionRemoval, ReclaimError> {
-    let _ = (service, request);
-    unimplemented!("RED: session remove's safe order")
+    let harp = request.harp.clone();
+    let project = request.project.clone();
+    let ask = |yes| RemoveRequest {
+        yes,
+        ..request.clone()
+    };
+    let mut worktrees = session_worktrees(service, project.as_deref(), &harp, false)?;
+    let mut removal = service.remove(ask(false)).await?;
+    // Only counts are held across a wait: an isolation error is not `Send`.
+    if removal.refusal.is_none() && !keeps_any(worktrees.as_ref()) && request.yes {
+        if worktrees.is_some() {
+            worktrees = session_worktrees(service, project.as_deref(), &harp, true)?;
+        }
+        if !keeps_any(worktrees.as_ref()) {
+            removal = service.remove(ask(true)).await?;
+        }
+    }
+    let kept = worktrees.as_ref().and_then(|r| keeps(&harp, r));
+    Ok(SessionRemoval {
+        removal,
+        worktrees,
+        kept,
+    })
+}
+
+/// Whether a worktree of `report` keeps its session.
+fn keeps_any(report: Option<&Report>) -> bool {
+    report.is_some_and(|r| r.spared + r.skipped > 0)
+}
+
+/// A session's scratch worktrees, classified (and with `apply`, the reapable
+/// ones removed); none for a session with no directory or no worktree.
+fn session_worktrees<S: Removals>(
+    service: &mut S,
+    project: Option<&str>,
+    harp: &str,
+    apply: bool,
+) -> Result<Option<Report>, ReclaimError> {
+    match service.worktrees(project, harp, apply) {
+        Ok(report) => Ok(Some(report).filter(|r| !r.worktrees.is_empty())),
+        Err(IsolationError::NoSession { .. }) => Ok(None),
+        Err(error) => Err(ReclaimError::Isolation(error)),
+    }
+}
+
+/// The refusal of a session a worktree keeps.
+fn keeps(harp: &str, report: &Report) -> Option<IsolationError> {
+    keeps_any(Some(report)).then(|| IsolationError::KeepsSession {
+        harp: harp.to_string(),
+        spared: report.spared,
+        skipped: report.skipped,
+    })
 }
 
 #[cfg(test)]

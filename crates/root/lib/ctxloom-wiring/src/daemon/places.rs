@@ -6,17 +6,25 @@
 //! ONE store, purged stream by stream (`sessions_application::purge`, head
 //! guarded). No second connection to the store is opened.
 
+use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use angzarr_embedded::angzarr_store_sqlite::SqliteStore;
 use angzarr_embedded::v1::Uuid;
-use angzarr_embedded::Timestamp;
-use daemon_api::Answer;
+use angzarr_embedded::{StreamRef, Timestamp};
+use config_files::ConfigFilesFs;
+use daemon_api::{Answer, ApiError};
 use file_system::Fs;
-use isolation_application::WorktreeUse;
+use isolation_application::{WorktreeUse, Worktrees};
+use liveness::LockFiles;
+use process_env::EnvSnapshot;
 use reclaim_application::SweepConfig;
+use session_files::SessionDirs;
 use session_ports::SessionFiles;
+use worktree_git::GitWorkspaces;
+
+use crate::{SweepSettings, Wiring};
 
 /// A project's places, over this process's filesystem, ctxloom's `home`
 /// and the temporary root.
@@ -26,10 +34,28 @@ pub(crate) struct ProjectPlaces {
     pub(crate) temp: PathBuf,
 }
 
+impl ProjectPlaces {
+    /// The caller's environment `env` (S7), as a process at `dir` sees it.
+    fn snapshot(&self, dir: &str, env: &[(String, String)]) -> Arc<EnvSnapshot> {
+        let vars: Vec<(OsString, OsString)> = env
+            .iter()
+            .map(|(name, value)| (name.into(), value.into()))
+            .collect();
+        Arc::new(EnvSnapshot::from_parts(
+            os::host().flavor(),
+            Ok(PathBuf::from(dir)),
+            self.temp.clone(),
+            vars,
+        ))
+    }
+}
+
 impl daemon_api::Places for ProjectPlaces {
     fn files(&self, project_dir: &str) -> Box<dyn SessionFiles + Send> {
-        let _ = (&self.fs, &self.home, &self.temp, project_dir);
-        unimplemented!("RED: a project's session directories")
+        Box::new(SessionDirs::new(
+            Arc::clone(&self.fs),
+            PathBuf::from(project_dir),
+        ))
     }
 
     fn worktrees(
@@ -37,17 +63,45 @@ impl daemon_api::Places for ProjectPlaces {
         project_dir: &str,
         env: &[(String, String)],
     ) -> Box<dyn WorktreeUse + Send> {
-        let _ = (project_dir, env);
-        unimplemented!("RED: a project's scratch worktrees")
+        let dir = PathBuf::from(project_dir);
+        Box::new(Worktrees::new(
+            GitWorkspaces::new(
+                Arc::clone(&self.fs),
+                dir.clone(),
+                self.snapshot(project_dir, env),
+            ),
+            LockFiles::new(Arc::clone(&self.fs), dir),
+        ))
     }
 
     fn settings(&self, root: &str, env: &[(String, String)]) -> Box<dyn SweepConfig + Send> {
-        let _ = (root, env);
-        unimplemented!("RED: a project's configuration from its registered root")
+        // The project's layered configuration as a command run at its
+        // registered root finds it, under this daemon's home.
+        let mut env: Vec<(String, String)> = env
+            .iter()
+            .filter(|(name, _)| name != "CTXLOOM_ROOT")
+            .cloned()
+            .collect();
+        env.push(("CTXLOOM_ROOT".to_string(), root.to_string()));
+        let wiring = Wiring::at(self.snapshot(root, &env), self.home.clone());
+        Box::new(SweepSettings::new(
+            Arc::new(ConfigFilesFs::new(
+                Arc::clone(&self.fs),
+                wiring.locate().1,
+                &self.home,
+            )),
+            env,
+        ))
     }
 
     fn now(&self) -> Timestamp {
-        unimplemented!("RED: the clock")
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default();
+        Timestamp {
+            seconds: i64::try_from(now.as_secs()).unwrap_or(i64::MAX),
+            nanos: i32::try_from(now.subsec_nanos()).unwrap_or(0),
+        }
     }
 }
 
@@ -56,8 +110,16 @@ pub(crate) struct StorePurges(pub(crate) Arc<SqliteStore>);
 
 impl daemon_api::Purges for StorePurges {
     fn purge<'a>(&'a self, domain: &'a str, root: Uuid) -> Answer<'a, u64> {
-        let _ = (&self.0, domain, root);
-        unimplemented!("RED: the one store's purge")
+        Box::pin(async move {
+            let root = uuid::Uuid::from_slice(&root.value).map_err(|e| ApiError::Failed {
+                detail: e.to_string(),
+            })?;
+            sessions_application::purge(self.0.as_ref(), StreamRef::main(domain, root))
+                .await
+                .map_err(|e| ApiError::Failed {
+                    detail: angzarr_diagnostic::Diagnostic::code(&e).to_string(),
+                })
+        })
     }
 }
 

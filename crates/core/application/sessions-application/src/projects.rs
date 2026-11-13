@@ -17,7 +17,7 @@ use crate::typed;
 use crate::write::Writing;
 use crate::{failed, AppError};
 use ports::{Clock, CommandIds, Delay, Jitter, Project, ProjectIdentity};
-use session_ports::{Liveness, ProjectStores, SessionFiles};
+use session_ports::{Liveness, ProjectStores};
 use sessions::{
     project_id_root, ClaimProjectName, NameProject, ProjectAggregate, ProjectEvent, ProjectName,
     ProjectNameAggregate, PROJECTS_DOMAIN, PROJECT_NAMES_DOMAIN,
@@ -161,11 +161,10 @@ where
     })
 }
 
-impl<I, S, F, L, C, D> Writing<'_, I, S, F, L, C, D>
+impl<I, S, L, C, D> Writing<'_, I, S, L, C, D>
 where
     I: ProjectIdentity,
     S: ProjectStores,
-    F: SessionFiles,
     L: Liveness,
     C: Clock + CommandIds,
     D: Delay + Jitter + Send,

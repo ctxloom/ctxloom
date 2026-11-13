@@ -1605,6 +1605,29 @@ listing, so `just build` reaches no daemon. Every other noun still prints
 its view, until its branch (B1 catalog, B2 configuration, B3 queries, B4
 remotes) converts it.
 
+B3 (`aip/queries`) converted `search` and `context assemble`. `search` is
+`SearchLibraryResponse`: a local hit's `resource` is its item's name under
+its bundle (`projects/{harp}/bundles/demo/fragments/golang`; a project
+profile under the bundle `project`, an MCP server under `mcpServers`), its
+`kind` the `ItemKind` value; a remote hit, not installed, has no name, its
+`item` the name in the remote and its `pull_reference`; a zero count and
+empty lists are left out (`{"query": "x"}` when nothing matched).
+`context assemble` is an `AssembledContext` (daemon.proto, its defects
+fixed: `tokens` uint32, OQ-12, and `profiles`, `missing_fragments` and
+`missing_tags` added, design §5.9): its profiles named, each fragment it
+used `{fragment, form}` (`distilled|original`), a fragment asked for and
+not found kept as the text it was asked by (OQ-16); its `notices` field is
+left unfilled, the notices said on stderr. Where an item is comes from
+library-application, which knows the catalog: `Located {bundle, item}`,
+the bundle as the catalog names it (`<remote>/<bundle>` for an installed
+one, a companion's loadout by its `ctxloom+companion:` reference),
+`Project::locate` (a remote's URL reference resolved to that name), on the
+`#[serde(skip)]` fields `SearchHit::located`, `Assembled::profiles_located`
+and `used` (with `tokens`); library-cli names it (`noun::search::
+bundle_name` and `item_name`, as B1's `catalog` names bundles). Go parity
+ends for search's JSON: its rows left `fixtures/parity/search.tsv` with
+their goldens, and the text rows stay.
+
 The feature steps read proto3 JSON (design §8.1, the binary's
 `library.test.rs` and `gherkin_common.test.rs`): a selector `[key$=suffix]`
 picks the element whose `key` ends so (`engines[name$=/engines/opencode]`);

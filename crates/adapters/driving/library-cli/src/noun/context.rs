@@ -1,6 +1,9 @@
-//! `context assemble` (B3).
+//! `context assemble` (B3): its json the `AssembledContext` of
+//! `AssembleContext` (OD-40, design §5.9).
 
+use super::search::{count, item_name};
 use crate::prelude::*;
+use library_application::{Assembled, Located};
 
 pub(crate) fn read(
     cx: &Context<'_>,
@@ -14,11 +17,51 @@ pub(crate) fn read(
         tags: many(sub, "tag"),
     };
     let outcome = cx.library.assemble(&cx.flags, &request);
-    answer(cx, outcome, out, err, |assembled, out, _| {
-        emit(cx.format, out, &assembled, |out| {
-            writeln!(out, "{}", assembled.context)
-        })
+    resource(cx, outcome, out, err, assembled, |out, assembled| {
+        writeln!(out, "{}", assembled.context)
     })
+}
+
+/// `context assemble`: `AssembledContext`, its profiles and fragments named
+/// under `parent`; one the catalog does not hold keeps the text it was asked
+/// by, as a fragment asked for and not found does (OQ-16). Its notices are
+/// said on stderr, as every notice is before T13.
+pub(crate) fn assembled(parent: &str, assembled: &Assembled) -> v1::AssembledContext {
+    let named = |text: &String, located: Option<&Option<Located>>, collection: &str| {
+        located
+            .and_then(Option::as_ref)
+            .map_or_else(|| text.clone(), |at| item_name(parent, at, collection))
+    };
+    v1::AssembledContext {
+        context: assembled.context.clone(),
+        tokens: count(assembled.tokens),
+        fragments: assembled
+            .fragments_loaded
+            .iter()
+            .enumerate()
+            .map(|(at, reference)| {
+                let used = assembled.used.get(at);
+                v1::AssembledFragment {
+                    fragment: named(reference, used.map(|u| &u.located), "fragments"),
+                    form: if used.is_some_and(|u| u.distilled) {
+                        "distilled"
+                    } else {
+                        "original"
+                    }
+                    .to_string(),
+                }
+            })
+            .collect(),
+        profiles: assembled
+            .profiles
+            .iter()
+            .enumerate()
+            .map(|(at, ask)| named(ask, assembled.profiles_located.get(at), "profiles"))
+            .collect(),
+        missing_fragments: assembled.missing_fragments.clone(),
+        missing_tags: assembled.missing_tags.clone(),
+        notices: Vec::new(),
+    }
 }
 
 #[cfg(test)]

@@ -825,6 +825,7 @@ fn hit(kind: &str, tags: &[&str], source: &str) -> library_application::SearchHi
         tags: sv(tags),
         source: st(source),
         r#match: st("name"),
+        located: None,
     }
 }
 

@@ -103,3 +103,47 @@ mod read {
         );
     }
 }
+
+// OD-40 (design §1.2, OQ-4): a bundle's origin is part of its name; its
+// items are named below it, each in its collection.
+mod names {
+    use super::super::{bundle_name, count, item_name};
+    use library_application::Located;
+
+    #[test]
+    fn test_a_bundle_is_named_by_its_origin_and_an_item_below_it() {
+        let parent = "projects/calm-otter";
+        assert_eq!(
+            bundle_name(parent, "demo"),
+            "projects/calm-otter/bundles/demo"
+        );
+        assert_eq!(
+            bundle_name(parent, "acme/rules"),
+            "projects/calm-otter/remotes/acme/bundles/rules"
+        );
+        assert_eq!(
+            bundle_name(parent, "ctxloom+companion:taskloom"),
+            "projects/calm-otter/companions/taskloom/bundles/loadout"
+        );
+        assert_eq!(
+            bundle_name("users/me", "ctxloom"),
+            "users/me/bundles/ctxloom"
+        );
+        let located = Located {
+            bundle: "acme/rules".to_string(),
+            item: "go".to_string(),
+        };
+        assert_eq!(
+            item_name(parent, &located, "fragments"),
+            "projects/calm-otter/remotes/acme/bundles/rules/fragments/go"
+        );
+    }
+
+    // OQ-12: a count is a uint32, saturating.
+    #[test]
+    fn test_a_count_is_a_uint32_saturating() {
+        assert_eq!(count(7), 7);
+        assert_eq!(count(u64::from(u32::MAX)), u32::MAX);
+        assert_eq!(count(u64::from(u32::MAX) + 1), u32::MAX);
+    }
+}

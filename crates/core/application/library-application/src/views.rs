@@ -464,6 +464,16 @@ pub struct McpShow {
     pub entries: Vec<McpRow>,
 }
 
+/// Where an item is in the catalog (OD-40): its bundle's catalog name
+/// (`demo`; `<remote>/<bundle>` for one installed from a remote;
+/// `ctxloom+companion:<bin>` for a companion's loadout) and the item's own
+/// name, from which a driving adapter names its resource (design §1.2).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Located {
+    pub bundle: String,
+    pub item: String,
+}
+
 /// One result of `search`.
 #[derive(Clone, Debug, Serialize)]
 pub struct SearchHit {
@@ -476,6 +486,9 @@ pub struct SearchHit {
     pub source: String,
     #[serde(skip_serializing_if = "no_text")]
     pub r#match: String,
+    /// Where the hit is; none when its bundle is none the catalog holds.
+    #[serde(skip)]
+    pub located: Option<Located>,
 }
 
 /// One bundle a remote publishes, as a search found it.
@@ -587,6 +600,25 @@ pub struct Assembled {
     pub missing_fragments: Vec<String>,
     #[serde(skip_serializing_if = "no_items")]
     pub missing_tags: Vec<String>,
+    /// Where each of `profiles` is, in its order; none for one the catalog
+    /// does not hold (OD-40).
+    #[serde(skip)]
+    pub profiles_located: Vec<Option<Located>>,
+    /// Each of `fragments_loaded`, in its order, located, with the form it
+    /// was used in (OD-40).
+    #[serde(skip)]
+    pub used: Vec<UsedFragment>,
+    /// The context's token estimate.
+    #[serde(skip)]
+    pub tokens: u64,
+}
+
+/// A fragment an assembly used: where it is (none when its bundle is none
+/// the catalog holds) and whether its distilled form was used.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct UsedFragment {
+    pub located: Option<Located>,
+    pub distilled: bool,
 }
 
 #[cfg(test)]

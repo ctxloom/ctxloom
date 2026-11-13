@@ -269,3 +269,44 @@ fn test_a_remote_profile_may_name_only_its_own_repository() {
     let fine = assemble("dev");
     assert!(fine.result.is_ok(), "{:?}", fine.result.err());
 }
+
+// OD-40: what an installed remote bundle holds is located under the name the
+// catalog gives the bundle, `<remote>/<bundle>`, whether a search found it or
+// an assembly used it, its profile's key being the remote's URL.
+#[test]
+fn test_an_installed_remote_bundles_items_are_located_under_its_catalog_name() {
+    let lib = library(installed());
+    let at = |item: &str| {
+        Some(crate::Located {
+            bundle: "origin/kit".to_string(),
+            item: item.to_string(),
+        })
+    };
+    for (kind, query, item) in [
+        ("fragment", "kit-rules", "kit-rules"),
+        ("profile", "dev", "dev"),
+    ] {
+        let request = SearchRequest {
+            query: query.to_string(),
+            kind: kind.to_string(),
+            local: true,
+            ..SearchRequest::default()
+        };
+        let found = lib.search(&plain(), &request).result.expect("results");
+        assert_eq!(found.local.len(), 1, "{kind}");
+        assert_eq!(found.local[0].located, at(item), "{kind}");
+    }
+    let assembled = lib
+        .assemble(
+            &plain(),
+            &AssembleRequest {
+                profiles: vec![format!("{REFERENCE}#profiles/dev")],
+                ..AssembleRequest::default()
+            },
+        )
+        .result
+        .expect("assembled");
+    assert_eq!(assembled.profiles_located, [at("dev")]);
+    assert_eq!(assembled.used.len(), 1, "{:?}", assembled.fragments_loaded);
+    assert_eq!(assembled.used[0].located, at("kit-rules"));
+}

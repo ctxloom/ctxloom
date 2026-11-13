@@ -5,6 +5,9 @@
 #   made" (@future). What a pull must keep of the published tree is in
 #   cli/deps.feature; delivery into each workspace and from inside a
 #   container is in cli/materialize.feature.
+# NOT ported: the scenario tagged @pending: `fragment distill` (S7) waits on
+#   the owner's choice of its design (a work aggregate, or a distill port
+#   over a one-shot run).
 @doc
 Feature: A team's standards, authored once in a repository of their own, reach every project that depends on them
 
@@ -125,6 +128,7 @@ Feature: A team's standards, authored once in a repository of their own, reach e
 
   # Carol's house style is long; she has ctxloom shorten it, and Bob's
   # assistant gets the short form.
+  @pending
   Scenario: Carol distills verbose guidance and the depending project receives the compact form
     # new: told as the user's flow.
     Given the team's project depends on Carol's standards

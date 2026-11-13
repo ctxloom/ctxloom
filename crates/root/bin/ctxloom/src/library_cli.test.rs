@@ -1242,16 +1242,9 @@ fn test_each_name_in_the_index_is_one_fragment_show_shows() {
         .collect();
     assert_eq!(names, ["ctxloom+local:demo#fragments/golang"], "{context}");
     for name in names {
-        let shown = project.run(&["fragment", "show", name, "--format", "json"]);
+        let shown = project.run(&["fragment", "show", name]);
         shown.succeeds();
-        assert!(
-            shown.json()["content"]
-                .as_str()
-                .unwrap()
-                .contains("GO-RULES-BODY"),
-            "{}",
-            shown.said()
-        );
+        assert!(shown.stdout.contains("GO-RULES-BODY"), "{}", shown.said());
     }
 }
 

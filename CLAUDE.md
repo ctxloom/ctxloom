@@ -1279,8 +1279,15 @@ assembled context with the premise index of what was held back
 (`library::premise::render`, each name once, sorted), so `context
 assemble`, the dry run, `run` and materialize carry the index; `always`
 loads every fragment with the rest and renders no index (the static
-assembly). Divergence from Go: Go never put the index in the context (it
-served it over MCP); the parity tests compare a dry run without it.
+assembly). The index's instruction (`library::premise::INSTRUCTION`) is the
+owner's Go text but for its last clause, which tells the agent to run
+`ctxloom fragment show <name>` for each name it chose, not Go's
+`assemble_context` MCP tool (not built: T20; the wording is pending the
+owner's approval); `fragment show` reads a companion's fragment
+(`ctxloom+companion:<bin>#fragments/<name>`) by asking the companions for
+their loadouts. Divergence from Go: Go never put the index in the context
+(it served it over MCP); the parity tests compare a dry run without it, and
+Go's goldens with the clause reworded.
 The scaffold writes no `config:` section; `manage statusline install|
 uninstall` writes `ctxloom`/`none`. Output JSON may keep booleans for yes/no
 facts. `sync.on_run: missing` makes the run (one-shot, session, init's

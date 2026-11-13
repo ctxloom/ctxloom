@@ -1,5 +1,7 @@
+# world: base
 # Ported from cli/session.feature (rev f36e8dfb2)
-# NOT ported: any of it yet (the Feature is @pending).
+# NOT ported: the Rules tagged @pending (renaming, the transcript sub-noun,
+#   approvals and control): not turned on yet; M8 turns on the reading Rule.
 #   The rest of Go's file is in the files that say `Ported from cli/session.feature`.
 #   Left out: the `session remove` Rule (retired: `session remove`
 #   is the one destroyer, cli/session_purge.feature) and the `session adopt`
@@ -7,7 +9,6 @@
 # Ported from journeys/j001200_recall.feature (its empty search, the last scenario of the reading Rule)
 
 @doc
-@pending
 Feature: session — the record of what your assistant did, and the tools to prune it
 
   Every `ctxloom run` mints a harp-named session and writes down what
@@ -143,6 +144,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
       Then the command succeeds
       And ctxloom says plainly that nothing matched
 
+  @pending
   Rule: A rename sets the title; the harp is permanent
 
     A session's harp is minted once and never changes (owner S55,
@@ -178,6 +180,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
       Then the command fails
       And the output contains "no-such-harp"
 
+  @pending
   Rule: The transcript is a population of its own
 
     A session's recorded conversation has its own listing, its own stream and
@@ -225,6 +228,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
       Then the command fails
       And the output contains "unknown command"
 
+  @pending
   Rule: Pending approvals are readable from any terminal, and only readable
 
     # `session approvals` asks every live coordinator on this host, found by
@@ -274,6 +278,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
       Then the command fails
       And the output contains "unknown command"
 
+  @pending
   Rule: A running session is controlled by its harp: pause, resume, stop and ask
 
     An agent is a definition; a running session is the thing Alice steers.

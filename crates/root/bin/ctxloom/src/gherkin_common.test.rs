@@ -28,6 +28,11 @@ pub(crate) struct Common {
     pub(crate) ran: Option<Ran>,
     /// The last command line, as written.
     pub(crate) line: String,
+    /// Names a scenario writes that the test minted under another, each
+    /// `(written, minted)`, put in a command line's words before it runs: a
+    /// session's harp is minted, never chosen (owner S55), so a journey's
+    /// "amber-quiet-heron" is whichever harp its session was given.
+    pub(crate) aliases: Vec<(String, String)>,
 }
 
 impl Common {
@@ -37,6 +42,7 @@ impl Common {
             env: Vec::new(),
             ran: None,
             line: String::new(),
+            aliases: Vec::new(),
         }
     }
 
@@ -50,7 +56,15 @@ impl Common {
         let in_json = &quoted[1..quoted.len() - 1];
         for line in lines.lines().map(str::trim).filter(|l| !l.is_empty()) {
             let line = line.replace("$PROJECT_DIR", &dir);
-            let words = split(&line);
+            let words: Vec<String> = split(&line)
+                .into_iter()
+                .map(|word| {
+                    self.aliases
+                        .iter()
+                        .find(|(written, _)| *written == word)
+                        .map_or(word.clone(), |(_, minted)| minted.clone())
+                })
+                .collect();
             assert_eq!(words.first().map(String::as_str), Some("ctxloom"), "{line}");
             let args: Vec<&str> = words[1..].iter().map(String::as_str).collect();
             let env: Vec<(&str, &str)> = self

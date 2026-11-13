@@ -141,8 +141,9 @@ the store grows without bound (ruling 90; compaction is taskloom
   D27's lines, `seq` counting them);
 - `core/ports/session-ports` (a project's store, with `Purge`; `Liveness` and
   `SessionLock`; a session's files, Go's session directories);
-- `core/application/sessions-application` (list, search, show, keep, title, remove,
-  bind, the transcripts; Go's `session.yaml` schema 1 to 3 read through
+- `core/application/sessions-application` (list, search, show, keep, title,
+  bind, the transcripts; a removal's types and the head-guarded `purge` the
+  daemon's destroy uses; Go's `session.yaml` schema 1 to 3 read through
   angzarr-yaml; the importer's types);
 - `adapters/driven/{liveness, session-files}` and, behind `ProjectStores`,
   `ctxloom-store-sqlite`;
@@ -202,23 +203,41 @@ crate-prefix rule).
 
 `session remove` DESTROYS a session (owner rulings 94, 94a-d, 98), and exists
 only under the cargo feature `session-destroy` (binary -> `ctxloom-wiring` ->
-`session-cli`; `session sweep`, whose apply is that destroy, too). There is
+`session-cli` and `daemon-api-grpc`; `session sweep`, whose apply is that
+destroy, too). The DAEMON destroys (owner, 2026-11-12, slice 2 step 6), the
+store's one owner: both verbs are its clients (`DeleteSession`,
+`SweepSessions`, below, "The daemon's API"), and nothing but the daemon
+opens the store for a destroy (the in-process path, `SessionService::remove`,
+is gone). There is
 one deleting verb: `session purge` is gone in every build, and a plain build
 has no deleting verb at all (accepted cost: it cannot hide a session from the
 listings); `scripts/plain-destroy-check.sh`, run by `just build`, holds the
 plain binary to knowing none of `remove`, `purge` or `sweep`. The acceptance
-tests build with the feature, and `session-cli` dev-depends on itself with
-it, so its tests and `--all-targets` lint compile the destroy (no
+tests build with the feature, and `session-cli` (and `daemon-api-grpc`)
+dev-depends on itself with it, so its tests and `--all-targets` lint compile the destroy (no
 `feature_rules` entry: the mutation recipe refuses one). A destroy purges,
 from the store, the session's stream and each run stream UUIDv5(session,
 1..=n), each guarded by the head just read (retried on a conflict), then
 removes the session's whole directory (authored files too, a login link never
-followed) and its lock; the name's claim is kept. The streams go first, so a
+followed) and its lock; the name's claim is kept, and the daemon's warm
+session index and pending messages are told the stream is gone. Its scratch
+worktrees go first, in ONE safe order both verbs share
+(`reclaim_application::remove` over `Removals`): classified first, the whole
+removal refused if one is spared or skipped
+(`isolation-application-keeps-session`; `--even-if-live` reaches no
+worktree), else the clean ones removed,
+then the session destroyed (the worktrees' location is this branch's
+worktree-git's). The streams go first, so a
 failure removing the directory leaves a session nothing lists. A hook fact
 redelivered after it finds no session and records nothing. It is refused, as
-before, for a session whose lock does not prove it ended (held, or none)
-unless `--even-if-live` (the one override), for a kept one, and within the
-transcript retention. A removal whose session holds files a person wrote
+before, for a session whose lock does not prove it ended (held, or none;
+the daemon reads the lock) unless `--even-if-live` (the one override), for
+a kept one, and within the transcript retention (30 days, the default; the
+key is not read yet). A refused removal is the typed `RemovalRefused`
+carrying its PLAN (the files, their classes and bytes, the authored ones,
+the worktrees), so it prints exactly the plan it printed in process, then
+the refusal in the refusing use case's words (`daemon_api::
+RemovalRejection`), exit 20. A removal whose session holds files a person wrote
 (anything but `transcripts/` and `native/`) warns first, naming each, as the
 notice `sessions-application-destroys-authored`, never a refusal: on
 `--yes`, in the report and with `--even-if-live` alike, and `session sweep`
@@ -1055,11 +1074,24 @@ health service is angzarr's own, and stays ungated: liveness, T16). Each
 served RPC's use case runs on the
 runtime's BLOCKING pool (`spawn_blocking`, M10); a refusal is answered under
 the gRPC code its `(refusal_status)` declares (S11), the typed refusal packed
-in `google.rpc.Status.details`; a failure is INTERNAL. Every other RPC is
-the generated default, UNIMPLEMENTED, to the user bearer alone, `DeleteSession` and
-`SweepSessions` among them in EVERY build so far (M5: only a
-`session-destroy` build is to serve them; serving them is step 6's, with
-`session remove` as a client); `scripts/plain-destroy-check.sh` probes the
+in `google.rpc.Status.details`; a failure is INTERNAL. `DeleteSession` and
+`SweepSessions` are served only in a `session-destroy` build (M5, owner
+2026-11-12: `daemon-api-grpc`'s feature of that name, which the wiring's
+turns on; the crate dev-depends on itself with it, as `session-cli` does):
+`Api::delete_session` and `Api::sweep_sessions` (`daemon-api`'s `destroy`),
+over their own ports, `Purges` (the one store, the wiring's `StorePurges`
+over `InProcessCore::store_handle`, a holder let go with the listener before
+the close) and `Places` (a session's project by its directory: its session
+directories and locks, its worktrees with git in the caller's environment
+(`env`, S7), its configuration read from its REGISTERED root, the wiring's
+`ProjectPlaces`); a sweep's purge age is the request's, else
+`session_purge_age` of its `project` (refused `AgeInvalid` when it is no
+age, `ConfigUnreadable` when the configuration does not read). Their
+answers carry the plan (additive: `DeleteSessionResponse`'s harp, applied,
+files, bytes freed, events destroyed and worktrees; `SweepSessionsResponse`'s
+rows, counts, cutoff and each removal). Every other RPC is the generated
+default, UNIMPLEMENTED, to the user bearer alone (a plain build's
+`DeleteSession` and `SweepSessions` among them); `scripts/plain-destroy-check.sh` probes the
 plain binary's daemon over curl (HTTP/2): `GetDaemon` and `DeleteSession`
 without a bearer are 16, and `DeleteSession` and `SweepSessions` presenting
 the user bearer (read from the discovery file's field 5, handed to curl in a
@@ -1105,8 +1137,14 @@ their text is the table and the facts it was (a session's owner and
 children by resource name). The `Session` the daemon answers carries what
 `show` says: its native id, its project's root, its output folder, its
 rotations and (GetSession) its pending messages; a live one's end is
-blank. Not yet clients: `session remove` and `session sweep`
-(`DeleteSession`/`SweepSessions` stay unserved in every build), the
+blank. `session remove` and `session sweep` are clients too (owner,
+2026-11-12; `SessionRemovals`, `session_cli::destroy`): a removal answers
+`Removed::Done` or `Removed::Refused` with the plan its refusal carried,
+their previews and `--detailed-exitcode` 1 as before, their json the
+answers' proto3 JSON (`session_cli::proto_json::deletion`, `sweep`), a
+`--purge-older-than` that is no age refused before the daemon is asked;
+the write's request id (S8) is not sent yet, so a retry on a new daemon of
+a removal that applied answers `SessionNotFound`. Not yet clients: the
 library, config, deps, init, doctor and run.
 
 VERSION SKEW (M3): a client whose stamp is not the serving daemon's asks it

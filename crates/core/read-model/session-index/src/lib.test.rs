@@ -1018,3 +1018,51 @@ fn a_project_that_adopted_its_identity_is_found_with_it() {
         ("/work/calm", "/work/calm/.git", "c0ffee")
     );
 }
+
+// S54: a project's harp is its own: one project named says nothing of
+// another's.
+#[test]
+fn a_project_harp_is_only_its_own_projects() {
+    let index = SessionIndexes::default();
+    hand(&index, project_book(Some("calm-quiet-heron"), 1));
+    assert_eq!(
+        index.index().project_harp("calm-otter"),
+        Some("calm-quiet-heron")
+    );
+    assert_eq!(index.index().project_harp("far-otter"), None);
+}
+
+// The resource carries the record's native binding, its places and its
+// rotation lineage as the record holds them.
+#[test]
+fn the_resource_carries_the_binding_places_and_rotations() {
+    let record = SessionRecord {
+        native_id: "id-2".to_string(),
+        project_dir: "/work/proj".to_string(),
+        output_dir: "/work/proj/ctxloom/amber-swift-owl".to_string(),
+        rotations: vec![Rotation {
+            native_id: "id-1".to_string(),
+            transcript_path: "/t/id-1.jsonl".to_string(),
+            rotated_at: Some(Timestamp {
+                seconds: 5,
+                nanos: 0,
+            }),
+        }],
+        ..SessionRecord::default()
+    };
+    let resource = SessionIndex::new().resource(&record);
+    assert_eq!(resource.native_session, "id-2");
+    assert_eq!(resource.project_root, "/work/proj");
+    assert_eq!(resource.output_dir, "/work/proj/ctxloom/amber-swift-owl");
+    assert_eq!(
+        resource.rotations,
+        [daemon_proto::v1::SessionRotation {
+            native_id: "id-1".to_string(),
+            transcript_path: "/t/id-1.jsonl".to_string(),
+            rotated_at: Some(Timestamp {
+                seconds: 5,
+                nanos: 0,
+            }),
+        }]
+    );
+}

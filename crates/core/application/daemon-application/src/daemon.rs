@@ -679,7 +679,7 @@ impl<E: Edge, T: TokenSource> Daemon<E, T> {
         let sent = &handed.env;
         // Composed for this launch (T21): her settings read now, where her
         // launcher finds them.
-        let (prepares, starts) = (Arc::clone(&engine.engine), Arc::clone(&engine.child));
+        let (prepares, starts) = engine.launched(&handed.launcher);
         // The one session-setup path (owner, 2026-11-12): the launcher's,
         // over the child's project's session directories, so a hosted
         // child's home gets what every session's does (the engine's merge,
@@ -696,7 +696,7 @@ impl<E: Edge, T: TokenSource> Daemon<E, T> {
                 cwd: Some(project_dir.to_string()),
                 // The agent's own document for the engine, verbatim
                 // (rulings 133-137), as every launch's.
-                permissions: None,
+                permissions: child.permissions.clone(),
                 session_home: child.settings.session_home,
                 git_user: self.plans.git_user(project_dir, sent),
             },

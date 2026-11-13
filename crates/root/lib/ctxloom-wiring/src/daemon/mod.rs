@@ -962,6 +962,37 @@ fn settings_places(caller: &BTreeMap<String, String>) -> BTreeMap<String, String
         .collect()
 }
 
+/// The engines a hosted child's launch is set up and started with (T21):
+/// composed as every launch's are (`oneshot::launch_engines`, calling
+/// `program`), over the user's own settings read NOW, where her launcher
+/// finds them (`launcher`, its [`SETTINGS_PLACES`]) under her home
+/// (`user_home`, the account's), with ctxloom's `home`.
+pub(crate) fn launch_engines_for(
+    home: &Path,
+    user_home: Option<&Path>,
+    temp: &Path,
+    launcher: &BTreeMap<String, String>,
+    program: &str,
+) -> crate::oneshot::LaunchEngines {
+    let flavor = os::host().flavor();
+    let mut vars: Vec<(OsString, OsString)> = launcher
+        .iter()
+        .filter(|(name, _)| SETTINGS_PLACES.contains(&name.as_str()))
+        .map(|(name, value)| (name.into(), value.into()))
+        .collect();
+    if let Some(user_home) = user_home {
+        vars.push((
+            flavor.home_var().into(),
+            user_home.as_os_str().to_os_string(),
+        ));
+    }
+    let snapshot =
+        EnvSnapshot::from_parts(flavor, Ok(home.to_path_buf()), temp.to_path_buf(), vars);
+    let wiring = Wiring::at(Arc::new(snapshot), home.to_path_buf())
+        .with_user_home(user_home.map(Path::to_path_buf));
+    crate::oneshot::launch_engines(&wiring, program)
+}
+
 /// The user's git identity in the child's project at `project_dir` (owner
 /// ruling 112), asked of git as a CLI run asks it: in her own environment,
 /// the one her launcher sent (`env`) with her home (`user_home`, the

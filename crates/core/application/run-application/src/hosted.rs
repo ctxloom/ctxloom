@@ -63,7 +63,7 @@ pub fn hosted_child(
         context: plan.context.clone(),
         model: plan.model.clone(),
         effort: plan.effort.clone(),
-        permissions: None,
+        permissions: plan.permissions.clone(),
         settings,
         evidence,
     }

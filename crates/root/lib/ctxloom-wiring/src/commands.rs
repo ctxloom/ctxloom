@@ -5,6 +5,7 @@
 //! use cases, so both are built together.
 
 use cli_support::Exit;
+use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -198,18 +199,51 @@ pub fn engines() -> Engines {
 pub fn hosted_engines(wiring: &Wiring, program: &str) -> Vec<daemon_application::HostedEngine> {
     let crate::oneshot::LaunchEngines { claude, opencode } =
         crate::oneshot::launch_engines(wiring, program);
+    // Each launch composed anew (T21): her settings read at that launch,
+    // where her launcher finds them, never once at the daemon's start.
+    let home = wiring.home().to_path_buf();
+    let user_home = wiring.user_home();
+    let temp = wiring.env().temp_dir().to_path_buf();
+    let program = program.to_string();
+    let for_launch = move |claude_side: bool| -> daemon_application::ForLaunch {
+        let (home, user_home, temp, program) = (
+            home.clone(),
+            user_home.clone(),
+            temp.clone(),
+            program.clone(),
+        );
+        Arc::new(move |launcher: &BTreeMap<String, String>| {
+            let engines = crate::daemon::launch_engines_for(
+                &home,
+                user_home.as_deref(),
+                &temp,
+                launcher,
+                &program,
+            );
+            match claude_side {
+                true => (
+                    engines.claude.clone() as Arc<dyn run_ports::Engine>,
+                    engines.claude as Arc<dyn run_ports::ChildEngine>,
+                ),
+                false => (
+                    engines.opencode.clone() as Arc<dyn run_ports::Engine>,
+                    engines.opencode as Arc<dyn run_ports::ChildEngine>,
+                ),
+            }
+        })
+    };
     vec![
         daemon_application::HostedEngine {
             engine: claude.clone(),
             child: claude,
             transcripts: Arc::new(engine_claude::transcripts_of),
-            for_launch: None,
+            for_launch: Some(for_launch(true)),
         },
         daemon_application::HostedEngine {
             engine: opencode.clone(),
             child: opencode,
             transcripts: Arc::new(|_| None),
-            for_launch: None,
+            for_launch: Some(for_launch(false)),
         },
     ]
 }

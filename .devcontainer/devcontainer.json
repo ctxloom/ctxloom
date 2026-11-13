@@ -37,8 +37,15 @@
   "mounts": [
     "source=ctxloom-cargo-registry,target=/usr/local/cargo/registry,type=volume",
     "source=ctxloom-cargo-git,target=/usr/local/cargo/git,type=volume",
-    "source=ctxloom-target-${devcontainerId},target=/cargo-target,type=volume"
-    // A linked worktree: the primary checkout's .git, at its own path.
+    "source=ctxloom-target-${devcontainerId},target=/cargo-target,type=volume",
+    // Every worktree of the repository, at its own path (the layout's
+    // ~/workspace/worktrees, which must exist on the host). A git command run
+    // here sees each worktree's directory, so nothing judges one gone because
+    // only the checkout was mounted (2026-11-12: a prune in the container
+    // deleted the records of every worktree outside it).
+    "source=${localEnv:HOME}/workspace/worktrees,target=${localEnv:HOME}/workspace/worktrees,type=bind"
+    // A linked worktree opened as the workspace: the primary checkout's .git,
+    // at its own path.
     // ,"source=/path/to/primary/.git,target=/path/to/primary/.git,type=bind"
     //
     // ctxloom's home (`just install`'s CTXLOOM_HOME, ~/.ctxloom-rs: the

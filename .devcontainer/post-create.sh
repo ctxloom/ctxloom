@@ -9,4 +9,7 @@ if [ -f "$dir/.identity" ]; then
     [ -n "$name" ] && git config --global user.name "$name"
     [ -n "$email" ] && git config --global user.email "$email"
 fi
+# gc never expires a worktree's record, whatever directory it cannot see
+# from in here: the repository's .git is shared with the host's worktrees.
+git config --global gc.worktreePruneExpire never
 just hooks-install

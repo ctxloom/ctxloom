@@ -191,6 +191,11 @@ fn deps() -> Command {
     .subcommand(
         Command::new("upgrade")
             .about("Show, then apply, the newest pins your constraints allow")
+            .arg(
+                Arg::new("reference")
+                    .value_name("REFERENCE")
+                    .help("Move only this dependency (<remote>/<bundle>); every other pin stays"),
+            )
             .arg(yes("Apply the upgrade this invocation would report (default: report only)")),
     )
     .subcommand(

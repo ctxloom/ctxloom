@@ -158,6 +158,60 @@ fn test_a_dependency_no_profile_names_any_more_is_named_and_dropped() {
     );
 }
 
+// `deps upgrade <ref>` (docs/plans/ctxloom-features.md, "Added"; j000700):
+// the named dependency moves, and the other stays at its commit.
+#[test]
+fn test_an_upgrade_of_one_reference_moves_that_dependency_alone() {
+    let (fx, _) = pulled();
+    let other_url = "file:///srv/other.git";
+    let other_sha = fx.origin("other", other_url);
+    let other = Fixture::reference(other_url, "demo");
+    fx.profile("dev", &[&demo_ref(), &other]);
+    ok(fx.deps.pull(false, true));
+    let later = commit(&fx, &mcp("1.1.0", "fixture-mcp-one", "ONE"));
+    let other_later = fx
+        .remotes
+        .commit(other_url, &crate::fakes::demo("1.1.0", "Other content."));
+    let preview = ok(fx.deps.upgrade_reference("origin/demo", false));
+    assert!(!preview.applied);
+    assert_eq!(preview.changes.len(), 1, "{:?}", preview.changes);
+    let applied = ok(fx.deps.upgrade_reference("origin/demo", true));
+    assert!(applied.applied && applied.removed.is_empty());
+    let lock = fx.files.lock_text().expect("a lock");
+    assert_eq!(locked_sha(&lock, &demo_ref()), later, "{lock}");
+    assert_eq!(locked_sha(&lock, &other), other_sha, "{lock}");
+    assert!(fx.files.installed_at(&demo_ref(), &later).is_some());
+    // By its canonical reference too; the other then moves.
+    ok(fx.deps.upgrade_reference(&other, true));
+    let lock = fx.files.lock_text().expect("a lock");
+    assert_eq!(locked_sha(&lock, &other), other_later, "{lock}");
+}
+
+/// The commit the lock's text pins `identity` at.
+fn locked_sha(lock: &str, identity: &str) -> String {
+    let at = lock.find(&format!("{identity}:")).expect("the entry");
+    let line = lock[at..]
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("sha: "))
+        .expect("its sha");
+    line.to_string()
+}
+
+#[test]
+fn test_an_upgrade_of_a_reference_the_lock_does_not_hold_is_refused() {
+    let (fx, _) = pulled();
+    let writes = fx.files.lock_writes();
+    for name in ["origin/nothing", "typo"] {
+        let refused = fx.deps.upgrade_reference(name, true).result.unwrap_err();
+        assert!(
+            matches!(&refused, AppError::NothingToHold { name: n, verb } if n == name && verb == "upgrade"),
+            "{refused:?}"
+        );
+        assert_eq!(refused.code(), "deps-application-nothing-to-hold");
+    }
+    assert_eq!(fx.files.lock_writes(), writes);
+}
+
 // deps.feature: An upgrade that could not reach the remote does not call
 // everything up to date
 #[test]

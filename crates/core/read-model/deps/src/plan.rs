@@ -218,6 +218,30 @@ pub fn upgrade(active: &Lock, proposed: &[Pin], unexpanded: usize, fetch_failed:
     }
 }
 
+/// `deps upgrade <reference>`: [`upgrade`], with every other entry the lock
+/// holds kept as it is (its commit, its hold), so only the dependency
+/// `identity` moves. A pin the closure first makes is still made (the moved
+/// dependency may need it); no entry but `identity`'s can be dropped.
+pub fn upgrade_only(
+    active: &Lock,
+    proposed: &[Pin],
+    identity: &str,
+    unexpanded: usize,
+    fetch_failed: bool,
+) -> Upgrade {
+    let mut decided = upgrade(active, proposed, unexpanded, fetch_failed);
+    decided
+        .moved
+        .retain(|pin| pin.identity == identity || !active.entries.contains_key(&pin.identity));
+    for (other, entry) in &active.entries {
+        if other != identity {
+            decided.next.entries.insert(other.clone(), entry.clone());
+        }
+    }
+    decided.removed = dropped(active, &decided.next);
+    decided
+}
+
 /// A pin kept at its commit although the manifest now asks for something else.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ConstraintChange {

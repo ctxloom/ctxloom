@@ -64,6 +64,8 @@ struct World {
     setup: setup::State,
     /// What j001000's stub-engine scenario keeps.
     capture: capture::State,
+    /// What the j001900 scenarios keep.
+    diagnosis: diagnosis::State,
 }
 
 impl fmt::Debug for World {
@@ -86,6 +88,7 @@ impl CommonWorld for World {
             || capture::fires(self, step)
             || capture_opencode::forwards(self, step)
             || capture_opencode::reports_login(self, step)
+            || diagnosis::runs(self, step)
         {
             return;
         }
@@ -116,6 +119,7 @@ impl World {
             adopt: adopt::State::default(),
             setup: setup::State::default(),
             capture: capture::State::default(),
+            diagnosis: diagnosis::State::default(),
         }
     }
 
@@ -318,6 +322,9 @@ mod capture;
 
 #[path = "gherkin_capture_opencode.test.rs"]
 mod capture_opencode;
+
+#[path = "gherkin_diagnosis.test.rs"]
+mod diagnosis;
 
 // ------------------------------------------------------------------ given
 

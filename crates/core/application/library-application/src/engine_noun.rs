@@ -66,6 +66,9 @@ pub struct AgentSettings {
     pub permissions: PermissionsSetting,
     pub runtime: RuntimeSetting,
     pub env: EnvSetting,
+    /// Whose home the engine runs on (`session` | `host`): the agent's own,
+    /// else its engine block's, else `session` (owner ruling of 2026-11-13).
+    pub session_home: SourcedValue<String>,
 }
 
 /// The engine's own permissions document an agent runs with (owner rulings
@@ -304,6 +307,10 @@ pub(crate) fn settings_of(effective: &Effective) -> AgentSettings {
                     source: key.source.word(),
                 })
                 .collect(),
+        },
+        session_home: SourcedValue {
+            value: String::new(),
+            source: Source::Default.word(),
         },
     }
 }

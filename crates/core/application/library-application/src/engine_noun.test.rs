@@ -286,3 +286,19 @@ fn test_an_agent_s_env_is_merged_and_each_name_says_its_layer() {
         .collect();
     assert_eq!(keys, [("HTTPS_PROXY", "engine"), ("ALPHA", "agent")]);
 }
+
+// Owner ruling of 2026-11-13: each agent of an engine carries its
+// session_home with the layer that said it
+#[test]
+fn test_an_engine_s_agents_carry_their_session_home_and_its_source() {
+    let row = show(
+        "schema_version: 9\nengines:\n  claude-code:\n    session_home: host\nagents:\n  own:\n    engine: claude-code\n    session_home: session\n  kept:\n    engine: claude-code\n",
+        "claude-code",
+    );
+    let agent = |name: &str| &row.agents.iter().find(|a| a.name == name).unwrap().settings;
+    assert_eq!(agent("own").session_home.value, "session");
+    assert_eq!(agent("own").session_home.source, "agent");
+    assert_eq!(agent("kept").session_home.value, "host");
+    assert_eq!(agent("kept").session_home.source, "engine");
+    assert_eq!(row.session_home.value, "host");
+}

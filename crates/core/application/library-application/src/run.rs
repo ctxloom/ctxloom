@@ -332,6 +332,7 @@ impl Project {
         if drive.session_home == "host" {
             self.notices.push(Notice::SessionHomeHost {
                 engine: engine.clone(),
+                place: String::new(),
             });
         }
         let degraded = self.flags.degraded;

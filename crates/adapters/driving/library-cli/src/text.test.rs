@@ -936,6 +936,10 @@ fn test_a_dry_run_shows_each_setting_with_the_place_that_said_it() {
             overrides_source: Some("engine"),
             change: Some("weakens"),
         },
+        session_home: library_application::SourcedValue {
+            value: "session".to_string(),
+            source: "default",
+        },
         env: EnvSetting {
             value: sv(&["HTTPS_PROXY", "ALPHA"]),
             source: "agent",
@@ -1034,6 +1038,10 @@ fn test_a_dry_run_of_the_default_agent_names_its_place_in_full() {
             overrides_source: None,
             change: None,
         },
+        session_home: library_application::SourcedValue {
+            value: "session".to_string(),
+            source: "default",
+        },
         env: EnvSetting {
             value: Vec::new(),
             source: "default",
@@ -1090,6 +1098,10 @@ fn test_a_permissions_document_is_shown_as_written_and_said_unchecked() {
             overrides: None,
             overrides_source: None,
             change: None,
+        },
+        session_home: library_application::SourcedValue {
+            value: "session".to_string(),
+            source: "default",
         },
         env: EnvSetting {
             value: Vec::new(),
@@ -1249,6 +1261,10 @@ fn settings(model: Option<&str>) -> library_application::AgentSettings {
             overrides: None,
             overrides_source: None,
             change: None,
+        },
+        session_home: library_application::SourcedValue {
+            value: "session".to_string(),
+            source: "default",
         },
         env: library_application::EnvSetting {
             value: Vec::new(),

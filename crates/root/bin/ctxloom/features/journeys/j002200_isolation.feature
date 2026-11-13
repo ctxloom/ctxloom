@@ -1,10 +1,13 @@
+# world: base
 # Ported from journeys/j002200_isolation.feature (rev f36e8dfb2)
-# NOT ported: the scenarios tagged @pending: they wait for `ctxloom run` to
-#   launch an engine. The container gates, the dry-run preview, the worktree's
-#   git exclude and the credential refusals are cli/run.feature's.
+# NOT ported: the scenarios tagged @pending: the container lane, which waits
+#   for a container launch, and the session-home outlines, which wait for
+#   their own steps. The container gates, the dry-run preview, the
+#   worktree's git exclude and the credential refusals are cli/run.feature's.
+#   The "mock agent" is claude-code, a stub on PATH that records where it
+#   ran and writes a note there.
 
 @doc
-@pending
 Feature: Bounding what the agent can reach, even with permissions bypassed
 
   Alice runs an agent with its permission prompts turned off. She is not
@@ -85,6 +88,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
 
   # Alice asks for a container on a machine that cannot run one. The run
   # stops and tells her why, and saying --degraded does not change that.
+  @pending
   Scenario Outline: Requesting a container with no runtime REFUSES, and --degraded does not rescue it
     # substitution: told as the user's flow, with the commands she runs.
     When Alice runs her container-bound agent "sandboxed":
@@ -102,6 +106,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # It is gone, and so are its logs; what the container program said as it
   # dropped the container is the only account there is, and Alice is given it
   # with the refusal.
+  @pending
   Scenario: A container the daemon kills before it runs is refused with the daemon's own reason
     # substitution: told as the user's flow, with the commands she runs.
     When Alice runs her container-bound agent "sandboxed", whose container the daemon kills, saying why:
@@ -113,6 +118,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
 
   # Alice's agent runs from its own session home, whether or not its agent
   # says so: her own engine setup is never opened, and is left as it was.
+  @pending
   Scenario Outline: An in-tree AGENT run gets a per-session config-home instance instead of Alice's own home
     # substitution: one scenario for a session's own home, with the agent declaring it or not
     Given Alice has a git-backed project
@@ -133,6 +139,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
 
   # An agent can opt into Alice's own engine setup. It gets exactly that, and
   # ctxloom tells her the choice is unsafe.
+  @pending
   Scenario Outline: An in-tree AGENT run that declares session_home: host keeps Alice's own real home
     # new: Go's scenario of this name says engine_home; the vocabulary ruling (2026-11-06) renamed the setting to session_home, so the scenario carries the new name. The run says the choice is unsafe; no session home is what Alice sees
     Given Alice has a git-backed project

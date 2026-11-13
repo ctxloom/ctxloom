@@ -729,12 +729,6 @@ fn test_a_pull_says_what_upstream_withdrew_and_what_it_could_not_check() {
             &format!("{BUNDLES}/demo/fragments/demo-frag.md"),
         ],
     );
-    let gone_json = go(&fx, &["deps", "pull"], JSON).json();
-    assert_eq!(
-        gone_json["reconciliation"]["gone_references"],
-        serde_json::json!([demo_ref()]),
-        "{gone_json}"
-    );
     let gone = go(&fx, &["deps", "pull"], TEXT);
     assert!(
         gone.ok().out.ends_with(&format!(
@@ -743,6 +737,26 @@ fn test_a_pull_says_what_upstream_withdrew_and_what_it_could_not_check() {
         )),
         "{}",
         gone.out
+    );
+}
+
+// OD-40, B4: what upstream withdrew is the reconciliation's
+// `gone_references`.
+#[test]
+fn test_a_pull_json_names_what_upstream_withdrew() {
+    let (fx, _) = pulled();
+    fx.remotes.delete(
+        URL,
+        &[
+            &format!("{BUNDLES}/demo/bundle.yaml"),
+            &format!("{BUNDLES}/demo/fragments/demo-frag.md"),
+        ],
+    );
+    let json = go(&fx, &["deps", "pull"], JSON).json();
+    assert_eq!(
+        json["reconciliation"]["gone_references"],
+        serde_json::json!([demo_ref()]),
+        "{json}"
     );
 }
 
@@ -807,7 +821,7 @@ fn test_a_pull_that_failed_prints_its_answer_first_then_exits_failed() {
     assert!(failed["error"].as_str().is_some_and(|e| !e.is_empty()));
     assert_eq!(
         failed["fix"],
-        "check network/auth and retry (ctxloom deps pull)"
+        "check network/auth and retry (ctxloom deps pull), or drop the reference from its profile"
     );
     let ran = go(&fx, &["deps", "pull"], TEXT);
     assert_eq!(ran.refused(), ("deps-application-pull-failed", 10));

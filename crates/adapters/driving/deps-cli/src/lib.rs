@@ -318,16 +318,17 @@ fn dependencies(
                 .skipped
                 .as_ref()
                 .map(|refresh| refresh::view(refresh, cx.catalog));
-            let shown = refresh::Pulled {
-                report: &pulled.report,
-                refresh_skipped: skipped,
-            };
-            emit(cx.format, out, &shown, |out| {
-                text::pull(out, &pulled.report)?;
-                shown.refresh_skipped.as_ref().map_or(Ok(()), |skipped| {
-                    refresh::text(out, skipped, "ctxloom deps pull --yes")
-                })
-            })?;
+            respond(
+                cx,
+                out,
+                |parent| dependency::pulled(parent, &pulled.report, skipped.as_ref()),
+                |out| {
+                    text::pull(out, &pulled.report)?;
+                    skipped.as_ref().map_or(Ok(()), |skipped| {
+                        refresh::text(out, skipped, "ctxloom deps pull --yes")
+                    })
+                },
+            )?;
             if let Some(failure) = pulled.report.failure() {
                 return Err(failure.into_failure());
             }

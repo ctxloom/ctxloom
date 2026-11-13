@@ -554,10 +554,12 @@ fn still_old(w: &mut World) {
     w.common
         .run_lines("ctxloom agent show dev --format json", "");
     w.ran().succeeds();
-    assert_eq!(
-        // OD-40: `agent show` is the `Agent` resource itself.
-        w.json()["engine"],
-        "claude-code",
+    // OD-40: `agent show` is the `Agent` resource itself; design §2: its
+    // engine is the engine's resource name.
+    assert!(
+        w.json()["engine"]
+            .as_str()
+            .is_some_and(|e| e.ends_with("/engines/claude-code")),
         "{}",
         w.ran().said()
     );

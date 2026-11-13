@@ -67,7 +67,7 @@ pub fn hosted_child(
         model: plan.model.clone(),
         effort: plan.effort.clone(),
         permissions: plan.permissions.clone(),
-        surfaces: run_ports::LaunchSurfaces::default(),
+        surfaces: run_ports::LaunchSurfaces(plan.surfaces.clone()),
         settings,
         evidence,
     }

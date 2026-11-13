@@ -151,8 +151,9 @@ sessions of one agent no longer collide), its path canonical (macOS's
 core.longpaths=true ...`; `GitWorkspaces` lists, knows and reclaims them
 there (a session is known by its directory, its lock or its checkouts). A
 run's engine is PLACED where every launch is set up, run-launcher's
-`Launcher::prepare` (`place_workspace`, through `Launcher::with_workspaces`,
-the wiring's `GitWorkspaces`), for every launch path alike: the plan's axis
+`set_up_launch` (`place_workspace`; the launcher's `prepare` hands it
+`Launcher::with_workspaces`'s, the wiring's `GitWorkspaces`), for every
+launch path alike: the plan's axis
 (`DryRun.axes.0`, the flag else the config's `workspace`) rides the `Order`
 (`Order.workspace`: the axis, the session's checkouts directory from
 `Place.worktrees`, the agent), and the placed directory is the
@@ -385,8 +386,8 @@ ctxloom's home reaches its hook processes as
 `CTXLOOM_HOME` (`run_ports::HOME_VARIABLE`; the wiring takes it as the home
 FIRST, before `HOME`, and names the resolved home in a run's env; both
 allowlists pass it on). The live project reaches them as `CTXLOOM_ROOT`
-(`run_ports::ROOT_VARIABLE`, set by `Launcher::prepare` to the order's
-project, over any the caller had, owned so no permit replaces it, on both
+(`run_ports::ROOT_VARIABLE`, set by `run_launcher::set_up_launch` to the
+launch's project, over any the caller had, owned so no permit replaces it, on both
 engines' allowlists), so a hook or the agent's own `ctxloom` call from a
 checkout resolves the project (`find_app_dir` honours it before the walk;
 the checkout's `.ctxloom` is the tracked config alone). The session home is seeded, once (one there is left
@@ -1103,12 +1104,19 @@ home, `daemon::account_home`), and its `PATH` is led by the program's directory 
 the platform joins it (`run_ports::search_path_led_by`, on the daemon's
 `Place::os`); the environment its launcher hands off is keyed as the
 platform compares names (`os::Flavor::env_key`). ONE SESSION-SETUP PATH
-(owner, 2026-11-12): every launch's session home is set up by
-`run_launcher::set_up_home` (`HomeSetup`: harp, context, interactive, cwd,
-permissions, `session_home`, git user, the launch's surfaces), the launcher's `prepare` and the
-daemon's `Daemon::spawn_child` alike: the engine's merge files read back
-(ruling 113), its files written, its seeds once, and in a session home the
-user's git identity as `.gitconfig` (ruling 112). The daemon reaches the
+(owner, 2026-11-12): every launch is set up by `run_launcher::set_up_launch`
+(`LaunchSetup`: the `HomeSetup`, the workspace axis, the env and its owned
+names), the launcher's `prepare` and the daemon's `Daemon::spawn_child`
+alike: the engine placed in its workspace (`place_workspace`), its session
+home set up there by `set_up_home` (`HomeSetup`: harp, context,
+interactive, cwd, permissions, `session_home`, git user, the run agent's
+surfaces; the engine's merge files read back, ruling 113, its files
+written, its seeds once, and in a session home the user's git identity as
+`.gitconfig`, ruling 112), `Prepared.workspace_files` written into its
+checkout, and `CTXLOOM_ROOT` named. A hosted child's plan carries the run
+agent's surfaces (`HostedChild.surfaces`, from `DryRun.surfaces`); its axis
+is `none` (no workspaces, its mint records none) until its request carries
+one. The daemon reaches the
 child's project through `ChildHomes::records` (the same
 `run_ports::SessionRecords`, `session-files`' `SessionDirs`) and her git
 identity through `ChildPlans::git_user` (the wiring's `child_git_user`: git

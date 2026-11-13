@@ -53,7 +53,7 @@ use runs_application::{Facts, Identity, Observation, RunnerFact};
 
 use crate::error::LaunchError;
 use crate::orders::{Order, Orders};
-use crate::workspace::{place_workspace, Axis, Placement};
+use crate::workspace::Placement;
 
 /// The cause the session's incarnation ends with when its run's owner was
 /// lost.
@@ -548,48 +548,37 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         let engine = self
             .engine(&order.engine)
             .ok_or_else(|| format!("no engine named {}", order.engine))?;
-        *placed = self.place(
-            order,
-            &engine.workspace_patterns(order.settings.session_home),
-        )?;
-        let cwd = placed
-            .as_ref()
-            .map(|p| p.cwd.clone())
-            .or_else(|| order.cwd.clone());
         // The one session-setup path (owner, 2026-11-12): the daemon's
         // hosted children are set up by the same function.
-        let set_up = crate::home::set_up_home(
+        let set_up = crate::home::set_up_launch(
             &*engine,
             &mut self.records,
-            &crate::home::HomeSetup {
-                harp: order.harp.clone(),
-                context: order.context.clone(),
-                interactive: order.interactive,
-                cwd: cwd.clone(),
-                permissions: order.permissions.clone(),
-                session_home: order.settings.session_home,
-                git_user: order.git_user.clone(),
-                surfaces: order.surfaces.clone(),
+            self.workspaces
+                .as_deref()
+                .map(|w| w as &dyn isolation_ports::Workspaces),
+            &crate::home::LaunchSetup {
+                home: crate::home::HomeSetup {
+                    harp: order.harp.clone(),
+                    context: order.context.clone(),
+                    interactive: order.interactive,
+                    cwd: order.cwd.clone(),
+                    permissions: order.permissions.clone(),
+                    session_home: order.settings.session_home,
+                    git_user: order.git_user.clone(),
+                    surfaces: order.surfaces.clone(),
+                },
+                workspace: order.workspace.clone(),
+                env: order.env.clone(),
+                owned: order.owned.clone(),
             },
         )?;
-        left_out.clone_from(&set_up.left_out);
-        self.place_files(placed.as_mut(), &set_up.workspace_files)?;
-        let home = set_up.home;
-        // The live project, named to the engine whatever its workspace, so its
-        // hook processes and the agent's own `ctxloom` calls resolve it from
-        // a checkout (whose `.ctxloom` is the project's tracked config
-        // alone); one the caller had is replaced, and no permit replaces it.
-        let mut env = order.env.clone();
-        let mut owned = order.owned.clone();
-        env.remove(run_ports::ROOT_VARIABLE);
-        if let Some(project) = &order.cwd {
-            env.insert(run_ports::ROOT_VARIABLE.to_string(), project.clone());
-            owned.push(run_ports::ROOT_VARIABLE.to_string());
-        }
+        left_out.clone_from(&set_up.home.left_out);
+        *placed = set_up.placed;
+        let (env, owned, cwd) = (set_up.env, set_up.owned, set_up.cwd);
         let request = TurnRequest {
             prompt: order.prompt.clone(),
-            home,
-            context_path: set_up.context_path,
+            home: set_up.home.home,
+            context_path: set_up.home.context_path,
             resume: order.resume.clone(),
             env,
             user_home: order.user_home.clone(),
@@ -646,65 +635,6 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             }
             None => isolation_ports::Removal::Left(crate::workspace::NO_WORKSPACES.to_string()),
         }
-    }
-
-    /// Write what the launch carries that its engine reads only from where
-    /// it works into the checkout it was placed in (owner ruling 2026-11-12,
-    /// Q3), and keep their paths for the release; in the live project none
-    /// is written.
-    fn place_files(
-        &self,
-        placed: Option<&mut Placement>,
-        files: &[run_ports::HomeFile],
-    ) -> Result<(), Unprepared> {
-        let (Some(placed), Some(workspaces)) = (placed, &self.workspaces) else {
-            return Ok(());
-        };
-        let Some(checkout) = &placed.checkout else {
-            return Ok(());
-        };
-        if files.is_empty() {
-            return Ok(());
-        }
-        let pairs: Vec<(String, Vec<u8>)> = files
-            .iter()
-            .map(|f| (f.rel.clone(), f.bytes.clone()))
-            .collect();
-        workspaces
-            .place_files(&checkout.path, &pairs)
-            .map_err(|e| Unprepared::Failed(e.to_string()))?;
-        placed.files = files.iter().map(|f| f.rel.clone()).collect();
-        Ok(())
-    }
-
-    /// Where the order's engine works (the workspace axis): none for an
-    /// order with no project; the project where it asks for no worktree, or
-    /// this launcher makes none (with a warning); else what
-    /// [`place_workspace`] says. A worktree refused is why nothing started.
-    fn place(&self, order: &Order, patterns: &[String]) -> Result<Option<Placement>, Unprepared> {
-        let Some(project) = &order.cwd else {
-            return Ok(None);
-        };
-        let asked = &order.workspace;
-        let Some(workspaces) = &self.workspaces else {
-            return Ok(Some(Placement {
-                cwd: project.clone(),
-                checkout: None,
-                warning: (asked.axis == Axis::Worktree)
-                    .then(|| crate::workspace::NO_WORKSPACES.to_string()),
-                files: Vec::new(),
-            }));
-        };
-        place_workspace(
-            asked.axis,
-            project,
-            &asked.work_dir,
-            &asked.agent,
-            patterns,
-            workspaces.as_ref(),
-        )
-        .map(Some)
-        .map_err(|e| Unprepared::Failed(e.to_string()))
     }
 
     /// Record `observation` on the session's stream.

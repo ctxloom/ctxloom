@@ -686,29 +686,38 @@ impl<E: Edge, T: TokenSource> Daemon<E, T> {
         // its seeds, her git identity, and what the engine was composed
         // with: her own settings, the program its callbacks run).
         let mut records = self.homes.records(project_dir);
-        let set_up = run_launcher::set_up_home(
+        let set_up = run_launcher::set_up_launch(
             &*prepares,
             &mut *records,
-            &run_launcher::HomeSetup {
-                harp: harp.to_string(),
-                context: child.context.clone(),
-                interactive: false,
-                cwd: Some(project_dir.to_string()),
-                // The agent's own document for the engine, verbatim
-                // (rulings 133-137), as every launch's.
-                permissions: child.permissions.clone(),
-                session_home: child.settings.session_home,
-                git_user: self.plans.git_user(project_dir, sent),
-                surfaces: run_ports::LaunchSurfaces::default(),
+            // No workspaces: until a hosted child's request carries a
+            // workspace axis, it works in the live project.
+            None,
+            &run_launcher::LaunchSetup {
+                home: run_launcher::HomeSetup {
+                    harp: harp.to_string(),
+                    context: child.context.clone(),
+                    interactive: false,
+                    cwd: Some(project_dir.to_string()),
+                    // The agent's own document for the engine, verbatim
+                    // (rulings 133-137), as every launch's.
+                    permissions: child.permissions.clone(),
+                    session_home: child.settings.session_home,
+                    git_user: self.plans.git_user(project_dir, sent),
+                    // What the run agent's selection carries, as every
+                    // launch's plan does.
+                    surfaces: child.surfaces.clone(),
+                },
+                workspace: run_launcher::Workspace::default(),
+                env: self.child_environment(at, harp, sent, hook_token),
+                owned: Vec::new(),
             },
         )?;
-        let home = set_up.home;
         let spec = ChildSpec {
-            home,
-            context_path: set_up.context_path,
-            env: self.child_environment(at, harp, sent, hook_token),
+            home: set_up.home.home,
+            context_path: set_up.home.context_path,
+            env: set_up.env,
             user_home: self.place.user_home.clone(),
-            cwd: Some(project_dir.to_string()),
+            cwd: set_up.cwd,
             model: child.model.clone(),
             effort: child.effort.clone(),
             settings: child.settings.clone(),

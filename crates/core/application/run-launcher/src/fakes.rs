@@ -279,6 +279,8 @@ pub struct ScriptedRunner {
     pub at_spawn: Arc<Mutex<Option<Window>>>,
     /// The pid of the spawned command.
     pub pid: u32,
+    /// What finding the program answers; none, the program as named.
+    pub finds: Option<Result<String, run_ports::ProgramNotFound>>,
 }
 
 /// The pid a scripted command has.
@@ -330,6 +332,15 @@ impl ScriptedRunner {
             during: Arc::default(),
             at_spawn: Arc::default(),
             pid: SCRIPTED_PID,
+            finds: None,
+        }
+    }
+
+    /// The same, finding every program as `finds` says.
+    pub fn finding(self, finds: Result<String, run_ports::ProgramNotFound>) -> ScriptedRunner {
+        ScriptedRunner {
+            finds: Some(finds),
+            ..self
         }
     }
 
@@ -359,6 +370,12 @@ impl RunnerLauncher for ScriptedRunner {
     fn launch_terminal(&self, command: &TurnCommand) -> Result<Box<dyn Running>, LaunchFailure> {
         self.seen_terminal.lock().unwrap().push(command.clone());
         self.spawn()
+    }
+
+    fn find_program(&self, command: &TurnCommand) -> Result<String, run_ports::ProgramNotFound> {
+        self.finds
+            .clone()
+            .unwrap_or_else(|| Ok(command.program.clone()))
     }
 }
 

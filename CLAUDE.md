@@ -244,6 +244,22 @@ default it says nothing (claude-code). The library asks the plan's engine in
 (`Library::with_engines`, the wiring's real engines;
 `Notice::Engine`), so a dry run and a launch, which plans through the same
 dry run, say them alike, text and json.
+A command's program is FOUND before it is spawned, a child's turn and the
+terminal's alike, in the one launch path (`Launcher::prepare` asks
+`RunnerLauncher::find_program`; `host-launcher`'s `find`, given the wiring's
+filesystem by `HostLauncher::searching`): on the command's own `PATH` (the
+engine's, led by the program's directory), by `os::Flavor::candidates` (on
+Windows PATHEXT's, the command's own or cmd.exe's default), an executable
+preferred to a batch file wherever each is on the PATH; the file found is
+spawned. std's spawn would try `<name>.exe` alone, so an npm `claude.cmd` was
+"program not found" (owner, 2026-11-12). Found nowhere, the run is not
+started: `run-ports-program-not-found` (or `-no-path`), naming the names and
+directories searched, exit 10. A batch file is run by std through cmd.exe
+with its own quoting (Go's `batchcmdline.go` rules, usable-epileptic), and
+std refuses it an argument with a line break or NUL; `run_ports::
+check_batch_arguments` refuses that before the spawn (on Windows: a
+multi-line opening prompt to `claude.cmd`), `run-ports-batch-arguments`, exit
+20, its fix claude's native build or no opening prompt.
 An engine's hooks are its adapter's: `ctxloom hook <engine> execute
 <NativeHookName>` (hidden) resolves the engine through `surface_ports::Registry`
 and its `HookCodec` decodes the payload. The settings an older ctxloom wrote

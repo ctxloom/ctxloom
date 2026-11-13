@@ -685,7 +685,10 @@ where
         let launched = launched?;
         let ours = ours(launched, &started.session).ok_or_else(|| not_ended(&started.session))?;
         let cause = match ours.outcome {
-            Turn::NotStarted { .. } | Turn::TooLong(_) => LAUNCH_FAILED,
+            Turn::NotStarted { .. }
+            | Turn::TooLong(_)
+            | Turn::BatchArguments(_)
+            | Turn::ProgramNotFound(_) => LAUNCH_FAILED,
             _ => RUNNER_EXIT,
         };
         self.incarnation_ended(&started.session, started.incarnation, cause)
@@ -730,6 +733,8 @@ where
             }),
             Turn::NotStarted { detail } => Err(RunError::NotStarted { detail }),
             Turn::TooLong(refusal) => Err(RunError::TooLong(Box::new(refusal))),
+            Turn::BatchArguments(refusal) => Err(RunError::BatchArguments(Box::new(refusal))),
+            Turn::ProgramNotFound(missing) => Err(RunError::ProgramNotFound(Box::new(missing))),
             other => Err(RunError::Turn {
                 class: run_ports::FailureClass::EngineError,
                 detail: format!("{other:?}"),
@@ -987,6 +992,8 @@ where
             Turn::Failed { class, detail } => Err(RunError::Turn { class, detail }),
             Turn::NotStarted { detail } => Err(RunError::NotStarted { detail }),
             Turn::TooLong(refusal) => Err(RunError::TooLong(Box::new(refusal))),
+            Turn::BatchArguments(refusal) => Err(RunError::BatchArguments(Box::new(refusal))),
+            Turn::ProgramNotFound(missing) => Err(RunError::ProgramNotFound(Box::new(missing))),
             Turn::Ended { .. } => Err(RunError::Turn {
                 class: run_ports::FailureClass::EngineError,
                 detail: "a turn ended as a session".to_string(),

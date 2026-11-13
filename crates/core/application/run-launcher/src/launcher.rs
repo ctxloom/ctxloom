@@ -91,6 +91,14 @@ pub enum Outcome {
     /// platform to start (its terminal session's opening prompt), refused
     /// before the spawn.
     TooLong(run_ports::CommandTooLong),
+    /// Nothing was started: the engine's program is a batch file (a
+    /// `claude.cmd` shim on Windows) and an argument (the terminal session's
+    /// opening prompt) has more than one line, which std will not hand
+    /// cmd.exe. Refused before the spawn.
+    BatchArguments(run_ports::BatchArguments),
+    /// Nothing was started: the engine's program is on no directory of its
+    /// PATH, by any name the host looks it up by; what was searched is said.
+    ProgramNotFound(run_ports::ProgramNotFound),
 }
 
 /// Why a launch's preparation started nothing.
@@ -100,6 +108,10 @@ enum Unprepared {
     Failed(String),
     /// The command is too long for the platform (`run_ports::check_command_line`).
     TooLong(run_ports::CommandTooLong),
+    /// A batch file's argument std will not pass (`run_ports::check_batch_arguments`).
+    BatchArguments(run_ports::BatchArguments),
+    /// The program is on no directory of the command's PATH.
+    ProgramNotFound(run_ports::ProgramNotFound),
 }
 
 impl From<String> for Unprepared {
@@ -507,6 +519,12 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         let (detail, outcome) = match unprepared {
             Unprepared::Failed(detail) => (detail.clone(), Outcome::NotStarted { detail }),
             Unprepared::TooLong(refusal) => (refusal.to_string(), Outcome::TooLong(refusal)),
+            Unprepared::BatchArguments(refusal) => {
+                (refusal.to_string(), Outcome::BatchArguments(refusal))
+            }
+            Unprepared::ProgramNotFound(missing) => {
+                (missing.to_string(), Outcome::ProgramNotFound(missing))
+            }
         };
         self.not_started(who, true, &detail).await?;
         self.orders.release(&launch.session, launch.incarnation);
@@ -604,6 +622,19 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         // Never over a name ctxloom set for the engine (ruling 78b): the
         // adapter's computed names, derived from the command, and the run's.
         *ignored = run_ports::apply_permits(&order.env, &mut command.env, &order.owned);
+        // The program is found on the command's own PATH, by the names the
+        // host looks it up by (PATHEXT's on Windows, which std's spawn does
+        // not try), and the file found is what is spawned: the one place a
+        // child's turn and the terminal's are both found. Found nowhere, it
+        // is not started, naming what was searched.
+        command.program = self
+            .runner
+            .find_program(&command)
+            .map_err(Unprepared::ProgramNotFound)?;
+        // A batch file (an npm `claude.cmd`) is run through cmd.exe, which
+        // std will not hand an argument of more than one line: refused in
+        // words before the spawn.
+        run_ports::check_batch_arguments(&self.os, &command).map_err(Unprepared::BatchArguments)?;
         // The command is complete: measured against the platform's command
         // line before it is spawned (the terminal's opening prompt is on it).
         run_ports::check_command_line(&self.os, &command).map_err(Unprepared::TooLong)?;

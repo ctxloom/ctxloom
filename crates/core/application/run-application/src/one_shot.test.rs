@@ -2300,6 +2300,70 @@ async fn the_settings_of_the_planned_engine_are_not_applied_to_another() {
     assert_eq!(rig.runner.seen.lock().unwrap()[0].program, "fake");
 }
 
+// Owner, 2026-11-12 (Windows): claude found as an npm `claude.cmd` cannot be
+// handed a multi-line opening prompt (std: "batch file arguments are
+// invalid"), so the session is refused before the spawn, typed and
+// crate-prefixed, exit 20, its fix naming claude's native build.
+#[tokio::test]
+async fn a_batch_file_session_with_a_multi_line_opening_prompt_is_refused() {
+    let mut script = Script::answering();
+    script.os = "windows";
+    script.prompt = "one\ntwo";
+    script.runner = ScriptedRunner::exits(0).finding(Ok(r"C:\npm\claude.cmd".to_string()));
+    let mut rig = rig(script);
+    let error = rig
+        .runs
+        .interactive(&Flags::default(), &ask())
+        .await
+        .result
+        .expect_err("refused");
+    assert!(
+        matches!(&error, RunError::BatchArguments(refusal) if refusal.program == r"C:\npm\claude.cmd"),
+        "{error:?}"
+    );
+    assert_eq!(error.code(), "run-ports-batch-arguments");
+    assert_eq!(error.exit(), Exit::REFUSED);
+    assert!(rig.runner.seen_terminal.lock().unwrap().is_empty());
+}
+
+// Owner, 2026-11-12 (Windows: "the engine was not started: program not
+// found"): a program on no directory of the engine's PATH is not started,
+// typed, naming what was looked for and where; a failure (10), as before.
+#[tokio::test]
+async fn a_program_found_nowhere_is_not_started_naming_what_was_searched() {
+    for interactive in [false, true] {
+        let mut script = Script::answering();
+        script.runner = ScriptedRunner::exits(0).finding(Err(run_ports::ProgramNotFound {
+            program: "claude".to_string(),
+            names: vec!["claude.exe".to_string(), "claude.cmd".to_string()],
+            dirs: vec![r"C:\bin".to_string()],
+        }));
+        let mut rig = rig(script);
+        let error = if interactive {
+            rig.runs
+                .interactive(&Flags::default(), &ask())
+                .await
+                .result
+                .map(drop)
+        } else {
+            rig.runs
+                .one_shot(&Flags::default(), &ask())
+                .await
+                .result
+                .map(drop)
+        }
+        .expect_err("not started");
+        assert!(
+            matches!(&error, RunError::ProgramNotFound(missing) if missing.dirs == [r"C:\bin"]),
+            "{error:?}"
+        );
+        assert_eq!(error.code(), "run-ports-program-not-found");
+        assert_eq!(error.exit(), Exit::FAILED);
+        assert!(rig.runner.seen.lock().unwrap().is_empty());
+        assert!(rig.runner.seen_terminal.lock().unwrap().is_empty());
+    }
+}
+
 // Owner ruling 2026-11-12: a terminal session whose opening prompt is too long
 // for the platform's command line is refused before the spawn, typed and
 // crate-prefixed, exit 20, its fix naming the ways around it.

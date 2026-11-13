@@ -1798,3 +1798,103 @@ async fn the_users_home_reaches_the_engine_as_the_order_placed_it() {
         Some(r"C:\Users\her")
     );
 }
+
+// Owner, 2026-11-12 (Windows): std's spawn searches PATH for `<name>.exe`
+// alone, so the launch finds the program itself, on the command's own PATH,
+// and spawns the file found: a child's turn and the terminal's alike.
+#[tokio::test]
+async fn the_program_found_is_the_file_spawned_for_a_turn_and_for_the_terminal() {
+    for interactive in [false, true] {
+        let mut ordered = order("fake");
+        ordered.interactive = interactive;
+        let mut rig = rig(
+            ScriptedEngine::answering("A", None),
+            ScriptedRunner::exits(0).finding(Ok(r"C:\npm\claude.cmd".to_string())),
+            orders_with(ordered),
+        );
+        enqueued(&rig.edge, SESSION, HARP).await;
+        rig.step().await;
+        let seen = if interactive {
+            rig.runner.seen_terminal.lock().unwrap().clone()
+        } else {
+            rig.runner.seen.lock().unwrap().clone()
+        };
+        assert_eq!(seen.len(), 1, "interactive {interactive}");
+        assert_eq!(seen[0].program, r"C:\npm\claude.cmd");
+    }
+}
+
+// A program found on no directory of the PATH is not started, in the words
+// that say what was looked for and where; nothing is spawned.
+#[tokio::test]
+async fn a_program_found_nowhere_is_not_started_naming_what_was_searched() {
+    let missing = run_ports::ProgramNotFound {
+        program: "claude".to_string(),
+        names: vec!["claude.exe".to_string(), "claude.cmd".to_string()],
+        dirs: vec![r"C:\bin".to_string()],
+    };
+    let mut rig = rig(
+        ScriptedEngine::answering("A", None),
+        ScriptedRunner::exits(0).finding(Err(missing)),
+        orders_with(order("fake")),
+    );
+    enqueued(&rig.edge, SESSION, HARP).await;
+    let launched = rig.step().await;
+    assert!(
+        matches!(&launched[0].outcome, Outcome::ProgramNotFound(missing)
+            if missing.names == ["claude.exe", "claude.cmd"] && missing.dirs == [r"C:\bin"]),
+        "{launched:?}"
+    );
+    assert_eq!(
+        names(&run_events(&rig.edge, SESSION).await),
+        ["RunEnqueued", "RunEnded"]
+    );
+    assert!(rig.runner.seen.lock().unwrap().is_empty());
+}
+
+// std refuses a batch file an argument of more than one line ("batch file
+// arguments are invalid"): on Windows the terminal's multi-line opening
+// prompt to a `claude.cmd` is refused, typed, before the spawn. One line, an
+// executable, or another OS is spawned.
+#[tokio::test]
+async fn a_batch_files_multi_line_prompt_is_refused_before_the_spawn_on_windows() {
+    let launch = |os: &str, prompt: &str, found: &str| {
+        let mut interactive = order("fake");
+        interactive.interactive = true;
+        interactive.prompt = prompt.to_string();
+        let mut rig = rig(
+            ScriptedEngine::answering("A", None),
+            ScriptedRunner::exits(0).finding(Ok(found.to_string())),
+            orders_with(interactive),
+        );
+        rig.launcher = rig.launcher.on_os(os);
+        rig
+    };
+    let mut refused = launch("windows", "one\ntwo", r"C:\npm\claude.cmd");
+    enqueued(&refused.edge, SESSION, HARP).await;
+    let launched = refused.step().await;
+    assert!(
+        matches!(&launched[0].outcome, Outcome::BatchArguments(refusal)
+            if refusal.program == r"C:\npm\claude.cmd"),
+        "{launched:?}"
+    );
+    assert!(refused.runner.seen_terminal.lock().unwrap().is_empty());
+    assert_eq!(
+        names(&run_events(&refused.edge, SESSION).await),
+        ["RunEnqueued", "RunEnded"]
+    );
+
+    for (os, prompt, found) in [
+        ("windows", "one line", r"C:\npm\claude.cmd"),
+        ("windows", "one\ntwo", r"C:\bin\claude.exe"),
+        ("linux", "one\ntwo", "/bin/claude.cmd"),
+    ] {
+        let mut spawned = launch(os, prompt, found);
+        enqueued(&spawned.edge, SESSION, HARP).await;
+        let launched = spawned.step().await;
+        assert!(
+            matches!(launched[0].outcome, Outcome::Ended { .. }),
+            "{os} {found}: {launched:?}"
+        );
+    }
+}

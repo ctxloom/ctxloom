@@ -17,7 +17,11 @@ const DEMO: &[(&str, &str)] = &[
         "fragments/dist.md",
         "---\ntags: [distilled]\n---\nlong form\n",
     ),
-    ("fragments/dist.distilled.md", "short form\n"),
+    (
+        "fragments/dist.distilled.md",
+        // The source's digest (T30): the form is fresh.
+        "---\nsource_sha256: 1e6de09466e07ecb91f3f923292ba979acc739dc0d20700659e433e1859f8be5\n---\nshort form\n",
+    ),
     (
         "prompts/review.md",
         "---\ndescription: Review code\n---\nREVIEW-BODY\n",

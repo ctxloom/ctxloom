@@ -401,6 +401,7 @@ impl MdItem {
                 installation: string(&meta, "installation", at)?,
                 content: body,
                 content_hash: string(&meta, "content_hash", at)?,
+                source_digest: crate::distill::source_digest(item.raw.unwrap_or_default()),
                 no_distill: match meta.get("no_distill") {
                     Some(v) => yamlx::boolean(v).map_err(|d| reader.item_error(at, d))?,
                     None => false,
@@ -415,6 +416,7 @@ impl MdItem {
             let dmeta = parse_meta(&dmeta)?;
             out.body.distilled = dbody;
             out.body.distilled_by = string(&dmeta, "distilled_by", at)?;
+            out.body.distilled_digest = string(&dmeta, crate::distill::SOURCE_DIGEST_KEY, at)?;
         }
         Ok(out)
     }

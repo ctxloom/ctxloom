@@ -8,7 +8,11 @@ const DEMO: &[(&str, &str)] = &[
     ENVELOPE,
     ("fragments/golang.md", "---\ntags: [go]\n---\nGO-RULES\n"),
     ("fragments/dist.md", "long form\n"),
-    ("fragments/dist.distilled.md", "short form\n"),
+    (
+        "fragments/dist.distilled.md",
+        // The source's digest (T30): the form is fresh.
+        "---\nsource_sha256: 83c7e86d47059f22626abe2311dc3ee5759867bc3dbe0bde68824e09cae5a5eb\n---\nshort form\n",
+    ),
     ("prompts/review.md", "REVIEW-BODY\n"),
     (
         "skills/reviewer/SKILL.md",

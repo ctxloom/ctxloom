@@ -818,3 +818,51 @@ fn test_a_pin_on_a_project_bundle_is_withheld() {
     assert_eq!(package.context, "");
     assert_eq!(package.findings.len(), 1);
 }
+
+// T30, S51: a fragment whose distilled form is preferred and stale is
+// delivered as its original, and said stale; one that is fresh is
+// delivered distilled; with the original preferred neither is stale.
+#[test]
+fn test_a_stale_distilled_form_is_delivered_as_its_original_and_said_stale() {
+    use crate::distill::{distilled_file, source_digest};
+    let fresh = distilled_file(&source_digest(b"long a\n"), "short a");
+    let tree = crate::testdata::files(&[
+        ("bundle.yaml", "version: 1.0.0\n"),
+        ("fragments/a.md", "long a\n"),
+        ("fragments/a.distilled.md", &fresh),
+        ("fragments/b.md", "long b\n"),
+        ("fragments/b.distilled.md", "short b\n"),
+    ]);
+    let cat = crate::catalog::Catalog::new(vec![crate::catalog::Entry {
+        name: "kit".to_string(),
+        manifest_path: "/app/.ctxloom/content/bundles/v2/kit/bundle.yaml".to_string(),
+        bundle: crate::tree::read_tree("kit", &tree).expect("the tree reads"),
+    }]);
+    let kit = profile(|p| p.bundles = strings(&["kit"]));
+    let selection = select(&[kit], &cat, &SelectRequest::default(), &mut Vec::new());
+    let delivered = |prefer_distilled: bool| {
+        let options = Options {
+            prefer_distilled,
+            premised: Premised::Always,
+        };
+        assemble(&cat, &selection, &options)
+            .fragments
+            .into_iter()
+            .map(|d| (d.body, d.distilled, d.stale))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        delivered(true),
+        [
+            ("short a".to_string(), true, false),
+            ("long b".to_string(), false, true)
+        ]
+    );
+    assert_eq!(
+        delivered(false),
+        [
+            ("long a".to_string(), false, false),
+            ("long b".to_string(), false, false)
+        ]
+    );
+}

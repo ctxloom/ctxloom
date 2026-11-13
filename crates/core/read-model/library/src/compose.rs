@@ -451,6 +451,9 @@ pub struct Delivered {
     /// The body with the profile variables substituted, trimmed.
     pub body: String,
     pub distilled: bool,
+    /// Its distilled form was preferred and is stale, so its original was
+    /// served (T30, S51).
+    pub stale: bool,
 }
 
 /// The assembled context and what became of each ask.
@@ -501,6 +504,7 @@ pub fn assemble(catalog: &Catalog, selection: &Selection, options: &Options) -> 
             premise: loaded.premise.clone(),
             body,
             distilled,
+            stale: loaded.stale_for(options.prefer_distilled),
         };
         let held_back = !loaded.premise.is_empty()
             && options.premised == Premised::OnDemand

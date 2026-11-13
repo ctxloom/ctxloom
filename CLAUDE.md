@@ -1214,7 +1214,9 @@ over their own ports, `Purges` (the one store, the wiring's `StorePurges`
 over `InProcessCore::store_handle`, a holder let go with the listener before
 the close) and `Places` (a session's project by its directory: its session
 directories and locks, its worktrees with git in the caller's environment
-(`env`, S7), its configuration read from its REGISTERED root, the wiring's
+(`env`, S7), its checkouts under the account's ctxloom home by the
+session's project id (`Places::worktrees`, `isolation_ports::worktrees_root`),
+its configuration read from its REGISTERED root, the wiring's
 `ProjectPlaces`); a sweep's purge age is the request's, else
 `session_purge_age` of its `project` (refused `AgeInvalid` when it is no
 age, `ConfigUnreadable` when the configuration does not read). Their

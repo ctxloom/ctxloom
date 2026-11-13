@@ -61,7 +61,7 @@ impl daemon_api::Places for ProjectPlaces {
     fn worktrees(
         &self,
         project_dir: &str,
-        _project_id: &str,
+        project_id: &str,
         env: &[(String, String)],
     ) -> Box<dyn WorktreeUse + Send> {
         let dir = PathBuf::from(project_dir);
@@ -69,7 +69,10 @@ impl daemon_api::Places for ProjectPlaces {
             GitWorkspaces::new(
                 Arc::clone(&self.fs),
                 dir.clone(),
-                None,
+                // Its checkouts are under the account's ctxloom home, by its
+                // project's id (owner ruling 2026-11-12, Q1); none, and the
+                // destroy would find none and never reclaim them.
+                Some(isolation_ports::worktrees_root(&self.home, project_id)),
                 self.snapshot(project_dir, env),
             ),
             LockFiles::new(Arc::clone(&self.fs), dir),

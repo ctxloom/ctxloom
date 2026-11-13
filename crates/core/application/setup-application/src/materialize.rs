@@ -299,13 +299,17 @@ impl Setup {
             let Some(engine) = self.engines.get(name) else {
                 continue;
             };
-            let outcome = if request.leave_launch_context && engine.context_rides_launch() {
+            let outcome = if request.leave_launch_context {
+                // A refresh: the context a launch carries is left alone, and
+                // every other kind it carries is given back at rest (owner
+                // ruling 2026-11-12: planned from nothing, so released).
                 let kept: Vec<Kind> = kinds
                     .iter()
                     .copied()
-                    .filter(|k| *k != Kind::Context)
+                    .filter(|k| *k != Kind::Context || !engine.rides_launch(*k))
                     .collect();
-                self.deliver(engine, &kept, &inputs, package, request, result)
+                let launched = launch_carried(engine, &inputs);
+                self.deliver(engine, &kept, &launched, package, request, result)
             } else {
                 self.deliver(engine, kinds, &inputs, package, request, result)
             };
@@ -457,6 +461,30 @@ fn status(request: &MaterializeRequest, result: &MaterializeResult, ok: &str) ->
         "failed"
     }
     .to_string()
+}
+
+/// `inputs` with what `engine`'s launch carries itself emptied: what a
+/// refresh delivers of those kinds is nothing, which gives back what an
+/// earlier delivery wrote.
+fn launch_carried(engine: &dyn EngineSurfaces, inputs: &Inputs) -> Inputs {
+    let mut left = inputs.clone();
+    if engine.rides_launch(Kind::Mcp) {
+        left.mcp.clear();
+    }
+    if engine.rides_launch(Kind::Settings) {
+        left.deny_tools.clear();
+        left.statusline = false;
+    }
+    if engine.rides_launch(Kind::Hooks) {
+        left.hooks.clear();
+    }
+    if engine.rides_launch(Kind::Commands) {
+        left.commands.clear();
+    }
+    if engine.rides_launch(Kind::Skills) {
+        left.skills.clear();
+    }
+    left
 }
 
 /// The kinds a request selects (every kind when none is named), in delivery

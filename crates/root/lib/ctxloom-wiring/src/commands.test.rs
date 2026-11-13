@@ -331,10 +331,6 @@ fn planned(refresh: &Refresh) -> Vec<(String, Vec<String>, Vec<String>)> {
         .collect()
 }
 
-fn strings(of: &[&str]) -> Vec<String> {
-    of.iter().map(ToString::to_string).collect()
-}
-
 #[test]
 fn test_a_refresh_without_consent_previews_the_project_and_writes_nothing() {
     let world = World::new("preview");
@@ -347,14 +343,12 @@ fn test_a_refresh_without_consent_previews_the_project_and_writes_nothing() {
     };
     let preview = refresh.refresh(false).ok().unwrap();
     assert_eq!(preview.target, here);
-    // the context of an engine that carries it on the launch is left alone
+    // Everything rides claude's launch (owner ruling 2026-11-12): with
+    // nothing at rest there is nothing to write or give back, and the
+    // context it carries on the launch is left alone.
     assert_eq!(
         planned(&preview),
-        [(
-            "claude-code".to_string(),
-            strings(&["settings", "hooks"]),
-            vec![]
-        )]
+        [("claude-code".to_string(), vec![], vec![])]
     );
     assert!(files_under(std::path::Path::new(&here)).is_empty());
 }
@@ -386,10 +380,34 @@ fn test_a_consented_refresh_writes_the_project_and_answers_its_target() {
         setup: &wired.surface,
         flags: library_application::Flags::default(),
     };
+    // What an earlier materialize wrote at rest, which the launch carries
+    // now: the refresh gives it back.
+    wired
+        .surface
+        .materialize(&setup_application::MaterializeRequest {
+            yes: true,
+            ..setup_application::MaterializeRequest::default()
+        })
+        .ok()
+        .unwrap();
+    let settings = here.join(".claude/settings.json");
+    assert!(
+        crate::fixtures::fs().exists(&settings).unwrap(),
+        "materialized at rest"
+    );
+    let preview = refresh.refresh(false).ok().unwrap();
+    assert!(
+        planned(&preview)[0].2.contains(&"hooks".to_string()),
+        "{:?}",
+        planned(&preview)
+    );
     let done = refresh.refresh(true).ok().unwrap();
     assert_eq!(done.target, here.display().to_string());
     assert!(done.engines.is_empty());
-    assert!(!files_under(&here).is_empty());
+    let left = crate::fixtures::fs()
+        .read_to_string(&settings)
+        .unwrap_or_default();
+    assert!(!left.contains("SessionStart"), "{left}");
 }
 
 const ORIGIN: &str = "file:///srv/origin.git";

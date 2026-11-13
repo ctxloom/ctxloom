@@ -233,9 +233,10 @@ impl EngineSurfaces for Engine {
         } else {
             format!("{}/{}", self.name, kind.name())
         };
-        // Settings and mcp with nothing to say claim nothing, as claude's do.
+        // A kind with nothing to say claims nothing, as claude's do.
         let empty = match kind {
             Kind::Mcp => inputs.mcp.is_empty(),
+            Kind::Hooks => inputs.hooks.is_empty(),
             Kind::Settings => !inputs.statusline && inputs.deny_tools.is_empty(),
             Kind::Commands => inputs.commands.is_empty(),
             Kind::Skills => inputs.skills.is_empty(),

@@ -108,6 +108,13 @@ impl EngineSurfaces for Claude {
         true
     }
 
+    /// Everything rides claude's launch (owner ruling 2026-11-12): the
+    /// hooks, statusline, deny list, servers, commands and skills of the run
+    /// agent's selection, in its session home, in every directory.
+    fn rides_launch(&self, _kind: Kind) -> bool {
+        true
+    }
+
     fn plan(&self, kind: Kind, inputs: &Inputs) -> Result<Planned, SurfaceError> {
         let mut planned = Planned::default();
         match kind {

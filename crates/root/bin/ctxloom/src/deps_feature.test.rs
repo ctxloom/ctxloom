@@ -559,13 +559,18 @@ fn test_a_corrupt_lockfile_is_refused_and_never_overwritten() {
 #[test]
 fn test_a_pull_without_yes_installs_the_closure_and_leaves_the_projects_engine_files_alone() {
     let world = World::unpulled_dev();
+    // What an earlier materialize wrote at rest, which a refresh gives back
+    // now that the launch carries it (owner ruling 2026-11-12).
+    world.run(&["materialize", "--yes"]).succeeds();
     let ran = world.run(&["deps", "pull", "--format", "text"]);
     ran.succeeds()
         .contains("Project refresh skipped")
         .contains("ctxloom deps pull --yes")
         .contains("ctxloom materialize --yes");
     assert!(world.lock().contains("//bundles/demo"));
-    assert!(!world.project.exists(".claude/settings.json"));
+    world
+        .project
+        .file_contains(".claude/settings.json", "SessionStart");
 }
 
 // Scenario: A pull right after a --yes pull has no refresh to skip
@@ -586,9 +591,7 @@ fn test_a_pull_right_after_a_yes_pull_has_no_refresh_to_skip() {
 #[test]
 fn test_a_refresh_the_project_would_refuse_is_named_with_its_fix_and_the_pull_still_succeeds() {
     let world = World::unpulled_dev();
-    world
-        .run(&["deps", "pull", "--yes", "--format", "text"])
-        .succeeds();
+    world.run(&["materialize", "--yes"]).succeeds();
     world
         .project
         .write(".claude/settings.json", "{ this is not json\n");
@@ -604,11 +607,14 @@ fn test_a_refresh_the_project_would_refuse_is_named_with_its_fix_and_the_pull_st
 #[test]
 fn test_a_pull_with_yes_also_refreshes_the_projects_engine_files() {
     let world = World::unpulled_dev();
+    world.run(&["materialize", "--yes"]).succeeds();
     world
         .run(&["deps", "pull", "--yes", "--format", "text"])
         .succeeds()
         .lacks("Project refresh skipped");
-    world
+    // The hooks ride the launch now: the refresh gave back the copy at rest.
+    assert!(!world
         .project
-        .file_contains(".claude/settings.json", "SessionStart");
+        .read(".claude/settings.json")
+        .is_some_and(|text| text.contains("SessionStart")));
 }

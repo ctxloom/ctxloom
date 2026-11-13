@@ -230,9 +230,10 @@ Feature: deps — the installed dependency closure, and everything that moves it
 
   Rule: Pull writes the project's engine files only with --yes
 
-    After a pull installs remote content, a project refresh re-delivers the
-    project's hooks, MCP servers, settings, commands and skills into the
-    project directory's engine files. That directory is shared by every
+    After a pull installs remote content, a project refresh brings the
+    project directory's engine files up to date: what an engine's launch
+    carries itself (claude's hooks, MCP servers, settings, commands and skills,
+    owner ruling 2026-11-12) is given back, and the rest re-delivered. That directory is shared by every
     session and person using the checkout, so the refresh asks the same
     consent `ctxloom materialize` asks before writing there: `--yes`. Without
     it the PULL STILL SUCCEEDS. It installs and locks the closure, writes no
@@ -246,13 +247,14 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And a git remote "origin" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
       And I run "ctxloom profile create dev --include origin/demo"
+      And I run "ctxloom materialize --yes"
       When Alice pulls without consenting to the project refresh:
         """
         ctxloom deps pull --format text
         """
       Then the command succeeds
       And the file ".ctxloom/lock.yaml" contains "//bundles/demo"
-      And the file ".claude/settings.json" does not exist
+      And the file ".claude/settings.json" contains "SessionStart"
       And the output contains "Project refresh skipped"
       And the output contains "ctxloom deps pull --yes"
       And the output contains "ctxloom materialize --yes"
@@ -278,10 +280,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And a git remote "origin" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
       And I run "ctxloom profile create dev --include origin/demo"
-      And Alice has already let a pull refresh the project:
-        """
-        ctxloom deps pull --yes --format text
-        """
+      And I run "ctxloom materialize --yes"
       And the project already has the file ".claude/settings.json":
         """
         { this is not json
@@ -296,16 +295,18 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And the output contains "fix: "
 
     Scenario: A pull with --yes also refreshes the project's engine files
+      # new: owner ruling 2026-11-12, the hooks ride the launch, so the refresh gives back the copy an earlier materialize wrote.
       Given an initialized ctxloom project
       And a git remote "origin" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
       And I run "ctxloom profile create dev --include origin/demo"
+      And I run "ctxloom materialize --yes"
       When Alice pulls and lets the refresh write the project:
         """
         ctxloom deps pull --yes --format text
         """
       Then the command succeeds
-      And the file ".claude/settings.json" contains "SessionStart"
+      And the file ".claude/settings.json" does not contain "SessionStart"
       And the output does not contain "Project refresh skipped"
 
   Rule: Pull reconciles to upstream — it removes what upstream no longer has

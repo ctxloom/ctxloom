@@ -299,7 +299,7 @@ impl Setup {
                 backend: name.clone(),
                 settings_exists: wiring.settings_exists,
                 hooks_present: wiring.hooks_present,
-                hooks_at_launch: false,
+                hooks_at_launch: engine.rides_launch(surface_ports::Kind::Hooks),
                 status_line: wiring.statusline,
                 mcp_present: wiring.mcp_present,
             });

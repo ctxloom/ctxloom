@@ -617,7 +617,7 @@ fn test_the_retired_boolean_keys_and_output_dir_are_unknown_keys() {
     }
     assert_eq!(
         texts("schema_version: 9\nconfig:\n  zzz: 1\n")[0],
-        "unknown key `config.zzz` in config.yaml: ctxloom does not know it (known keys at `config`: content_form, statusline)"
+        "unknown key `config.zzz` in config.yaml: ctxloom does not know it (known keys at `config`: content_form, premised, statusline)"
     );
     assert_eq!(
         texts("schema_version: 9\nsync:\n  zzz: 1\n")[0],
@@ -640,6 +640,8 @@ fn test_each_former_boolean_takes_only_its_words() {
             "false",
         ),
         ("config.statusline", "\"ctxloom\", \"none\"", "true"),
+        // Owner ruling of 2026-11-12: a new word key, never a boolean.
+        ("config.premised", "\"on-demand\", \"always\"", "true"),
         ("sync.on_run", "\"none\", \"missing\"", "true"),
     ] {
         let doc = |value: &str| {
@@ -696,6 +698,7 @@ fn test_no_key_of_the_schema_is_a_boolean() {
     for path in [
         "config.content_form",
         "config.statusline",
+        "config.premised",
         "sync.on_run",
         "output.dir",
     ] {

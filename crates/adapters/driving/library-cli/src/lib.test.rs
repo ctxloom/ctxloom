@@ -393,7 +393,14 @@ fn test_context_assemble_takes_profiles_fragments_and_tags() {
     );
     assert_eq!(by_tag.refused(), "library-application-no-fragments:20");
     assert_eq!(json_of(&["context"]), by_profile);
-    assert!(text_of(&["context", "assemble", "-p", "dev"]).ends_with("short form\n"));
+    // On demand (config.premised) the held-back `golang` is offered in the
+    // premise index, which ends the context.
+    let text = text_of(&["context", "assemble", "-p", "dev"]);
+    assert!(text.contains("short form\n"), "{text}");
+    assert!(
+        text.ends_with("demo#fragments/golang: when editing Go code\n"),
+        "{text}"
+    );
 }
 
 // Ruling 153: a dry run whose plan found nothing fatal would launch, the

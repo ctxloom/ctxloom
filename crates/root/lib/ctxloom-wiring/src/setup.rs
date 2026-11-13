@@ -50,6 +50,16 @@ impl Create for ConfigCreate {
             .map(|_| ())
             .map_err(|e| Box::new(e) as Failure)
     }
+
+    fn set_premised(&self, word: &str) -> Result<(), Failure> {
+        let wiring = Wiring::new(Arc::clone(&self.1)).map_err(|e| Box::new(e) as Failure)?;
+        let library = crate::library::build(&wiring, None).map_err(|e| Box::new(e) as Failure)?;
+        library
+            .set_premised(&library_application::Flags::default(), word)
+            .result
+            .map(|_| ())
+            .map_err(|e| Box::new(e) as Failure)
+    }
 }
 
 /// The identity git commits with in the directory ctxloom was run in, asked

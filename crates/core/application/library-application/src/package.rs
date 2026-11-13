@@ -138,6 +138,14 @@ impl Library {
         self.run(flags, |p| p.set_output_dir(dir))
     }
 
+    /// `init`'s answer: when conditional guidance loads, written to the
+    /// project's config as `config.premised` (owner ruling of 2026-11-12;
+    /// `on-demand` or `always`, which the schema holds it to). The path
+    /// written.
+    pub fn set_premised(&self, flags: &Flags, word: &str) -> Outcome<String> {
+        self.run(flags, |p| p.set_premised(word))
+    }
+
     /// `manage statusline install|uninstall`: whether ctxloom manages the
     /// HUD statusline, written to the project's config. The path written.
     pub fn set_statusline(&self, flags: &Flags, enabled: bool) -> Outcome<String> {
@@ -391,6 +399,19 @@ impl Project {
                 "dir".to_string(),
                 Value::Scalar(dir.to_string()),
             )])))
+        })
+    }
+
+    fn set_premised(&mut self, word: &str) -> Result<String, AppError> {
+        self.require_project()?;
+        self.update_config(Scope::Project, "config", |held| {
+            let mut entries = match held {
+                Some(Value::Map(entries)) => entries,
+                _ => Vec::new(),
+            };
+            entries.retain(|(key, _)| key != "premised");
+            entries.push(("premised".to_string(), Value::Scalar(word.to_string())));
+            Ok(Some(Value::Map(entries)))
         })
     }
 

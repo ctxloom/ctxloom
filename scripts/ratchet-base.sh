@@ -18,6 +18,7 @@
 # it, at the same sha, so the next run resumes the build where it stopped
 # (cargo fingerprints by mtime). Exit 0 with the list cached, 1 otherwise.
 set -euo pipefail
+here=$(cd "$(dirname "$0")" && pwd)
 scrub=(env)
 while IFS= read -r var; do scrub+=(-u "$var"); done < <(git rev-parse --local-env-vars)
 g() { "${scrub[@]}" git "$@"; }
@@ -55,10 +56,10 @@ if ! g -C "$top" grep -q GHERKIN_RATCHET "$base_sha" -- "$runner"; then
 fi
 want="$base_sha ${emitter:-none}"
 remove_tree() {
-    if [ -e "$wt" ]; then
-        g -C "$top" worktree remove --force "$wt" >/dev/null 2>&1 || rm -rf "$wt"
-    fi
-    g -C "$top" worktree prune
+    # The base's tree and its own record only, never a repository-wide prune
+    # (in a container that mounts only this checkout it deletes every other
+    # worktree's record): gates/drop-worktree.sh.
+    "${scrub[@]}" "$here/../gates/drop-worktree.sh" "$top" "$wt"
     rm -f "$stamp"
 }
 if [ ! -d "$wt" ] || [ "$(cat "$stamp" 2>/dev/null)" != "$want" ] \

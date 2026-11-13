@@ -1295,7 +1295,24 @@ prerelease, no `schema_version` bump: each old key is an ordinary unknown key
 | `permissions.network: true\|false` (and an agent's) | deleted (ruling 134), with `approver`, `approval_timeout`, `sandbox` | |
 | `output_dir` (top level, unread) | `output.dir` | `ctxloom/` |
 | (new, ruling 162) | `legacy.go: present\|retired` (home config only) | `present` |
+| (new, owner ruling of 2026-11-12) | `config.premised: on-demand\|always` | `on-demand` |
 
+`config.premised` says when a fragment with a premise loads (owner ruling of
+2026-11-12; `library::compose::Premised`, read by `Config::premised`):
+`on-demand` holds it back (unless the caller named it) and ends the
+assembled context with the premise index of what was held back
+(`library::premise::render`, each name once, sorted), so `context
+assemble`, the dry run, `run` and materialize carry the index; `always`
+loads every fragment with the rest and renders no index (the static
+assembly). The index's instruction (`library::premise::INSTRUCTION`) is the
+owner's Go text but for its last clause, which tells the agent to run
+`ctxloom fragment show <name>` for each name it chose, not Go's
+`assemble_context` MCP tool (not built: T20; the wording is pending the
+owner's approval); `fragment show` reads a companion's fragment
+(`ctxloom+companion:<bin>#fragments/<name>`) by asking the companions for
+their loadouts. Divergence from Go: Go never put the index in the context
+(it served it over MCP); the parity tests compare a dry run without it, and
+Go's goldens with the clause reworded.
 The scaffold writes no `config:` section; `manage statusline install|
 uninstall` writes `ctxloom`/`none`. Output JSON may keep booleans for yes/no
 facts. `sync.on_run: missing` makes the run (one-shot, session, init's
@@ -1306,7 +1323,11 @@ pull). A session's outputs are `<project root>/<output.dir>/<harp>`
 `~/Documents/ctxloom/<basename>/<harp>`; nothing gitignores them, and a
 rename moves the folder. A first init at a terminal asks for `output.dir`
 before the interview (suggesting `ctxloom/`, saying outputs are committable)
-and writes the answer.
+and writes the answer; then, in the same style, whether conditional guidance
+loads only when it applies or always (`init_application::PREMISED_QUESTION`,
+suggesting `on-demand`; an answer that is neither word is asked again, at
+most three times, then the suggestion stands), and writes it as
+`config.premised`. Off a terminal neither is asked and nothing is written.
 
 `legacy.go` (owner ruling 162) says whether Go ctxloom still runs on this
 machine beside this one; both write hook entries into the user's shared
@@ -1483,6 +1504,16 @@ hooks-install` installs the hooks, once per clone (every worktree shares
 them), and again after a change to the gates names a new hook
 (`gates/MIGRATING.md`). They came from the shared gates repository that
 taskloom and annals also copied; a change here does not reach them.
+
+A throwaway worktree (the staged tree, the mutants batch's, the ratchet
+base's) is let go by `gates/drop-worktree.sh <top> <path>`: its directory and
+its OWN record under `.git/worktrees/`, nothing else. Nothing runs `git
+worktree prune` (`scripts/drop-worktree.selftest.sh` holds the gates, the
+justfile and the scripts to it; worktree-git's removal ran one too): prune
+judges every worktree of the repository and deletes the record of each whose
+directory it cannot see, so a gate run in the dev container, which mounts only
+the checkout, cut every other worktree on the host off from the repository
+(2026-11-12).
 
 lefthook runs the gates one at a time, stopping at the first failure, and
 shows each gate's pass line and any failure's extract. Gates 1 to 5 run in

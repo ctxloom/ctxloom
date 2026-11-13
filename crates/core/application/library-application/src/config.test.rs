@@ -46,6 +46,25 @@ fn test_a_run_installs_missing_dependencies_unless_on_run_is_none() {
     assert_eq!(config("sync:\n  on_run: none\n").sync_on_run(), OnRun::None);
 }
 
+// config.premised (owner ruling of 2026-11-12): a premised fragment waits
+// for its premise unless the config says it loads always.
+#[test]
+fn test_a_premised_fragment_loads_on_demand_unless_premised_says_always() {
+    use library::compose::Premised;
+    assert_eq!(
+        config("editor:\n  command: vim\n").premised(),
+        Premised::OnDemand
+    );
+    assert_eq!(
+        config("config:\n  premised: on-demand\n").premised(),
+        Premised::OnDemand
+    );
+    assert_eq!(
+        config("config:\n  premised: always\n").premised(),
+        Premised::Always
+    );
+}
+
 // legacy.go (owner ruling 162): Go ctxloom is present unless the config says
 // it is retired.
 #[test]

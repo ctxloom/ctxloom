@@ -463,7 +463,11 @@ impl Workspaces for GitWorkspaces {
         if let Err(why) = remove_one(git, repo, target) {
             return Removal::Left(format!("cannot remove it: {why}"));
         }
-        let _ = git.run(repo, &["worktree", "prune"]);
+        // `git worktree remove` dropped this checkout's own record. Never a
+        // `git worktree prune`: it judges every worktree of the repository and
+        // deletes the record of each whose directory this process cannot see
+        // (a container that mounts only the project), the user's other work
+        // cut off from the repository.
         delete_merged_branch(git, repo, &branch_of(path));
         if self.fs.exists(target).unwrap_or(false) {
             Removal::Left("it is still on disk after git removed it".to_string())

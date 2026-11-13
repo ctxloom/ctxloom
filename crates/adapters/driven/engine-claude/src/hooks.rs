@@ -158,6 +158,79 @@ pub(crate) fn home_settings(interactive: bool, program: &str) -> String {
     format!("{}\n", doc.pretty())
 }
 
+/// The native events a child's turn never registers (owner ruling 51):
+/// `claude -p` fires them once per process, that is every turn.
+const PER_PROCESS: &[&str] = &["SessionStart", "SessionEnd"];
+
+/// What a launch's selection carries of hooks (owner ruling 2026-11-12: the
+/// authored hooks and ctxloom's own callbacks ride the launch), as claims on
+/// the hooks file: each hook its own claim, one claude cannot route (a tool
+/// class it has no matcher for) left out; for a child's turn none of the
+/// per-process events.
+pub(crate) fn launch_ops(
+    hooks: &BTreeMap<String, Vec<Hook>>,
+    program: &str,
+    interactive: bool,
+) -> Vec<JsonOp> {
+    let mut all: Vec<JsonOp> = Vec::new();
+    for (event, list) in hooks {
+        for hook in list {
+            let one = BTreeMap::from([(event.clone(), vec![hook.clone()])]);
+            for op in ops(&one, program).unwrap_or_default() {
+                let per_process = matches!(&op,
+                    JsonOp::HookEntry { event, .. } if PER_PROCESS.contains(&event.as_str()));
+                if (interactive || !per_process) && !all.contains(&op) {
+                    all.push(op);
+                }
+            }
+        }
+    }
+    all
+}
+
+/// `op` (a hook entry) laid into the settings document `doc`: the entry in
+/// the group of its event whose matcher is its own (made where there is
+/// none), once.
+pub(crate) fn lay(doc: &mut Json, op: JsonOp) {
+    let JsonOp::HookEntry {
+        event,
+        matcher,
+        value,
+    } = op
+    else {
+        return;
+    };
+    if !matches!(doc.get("hooks"), Some(Json::Object(_))) {
+        doc.set("hooks", Json::Object(Vec::new()));
+    }
+    let Some(hooks) = doc.get_mut("hooks") else {
+        return;
+    };
+    if !matches!(hooks.get(&event), Some(Json::Array(_))) {
+        hooks.set(&event, Json::Array(Vec::new()));
+    }
+    let Some(Json::Array(groups)) = hooks.get_mut(&event) else {
+        return;
+    };
+    let ours = |group: &Json| group.get("matcher").and_then(Json::as_str) == matcher.as_deref();
+    if !groups.iter().any(ours) {
+        let mut members = Vec::new();
+        if let Some(matcher) = &matcher {
+            members.push(("matcher", Json::text(matcher.as_str())));
+        }
+        members.push(("hooks", Json::Array(Vec::new())));
+        groups.push(Json::object(members));
+    }
+    let Some(group) = groups.iter_mut().find(|g| ours(g)) else {
+        return;
+    };
+    if let Some(Json::Array(entries)) = group.get_mut("hooks") {
+        if !entries.contains(&value) {
+            entries.push(value);
+        }
+    }
+}
+
 /// Whether the args are `hook <this engine> execute <event>`.
 fn is_execute_form(args: Option<&Json>) -> bool {
     let args: Vec<&str> = args

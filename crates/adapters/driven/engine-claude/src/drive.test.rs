@@ -42,6 +42,8 @@ fn a_turn_is_one_print_command_that_streams_json() {
             "--verbose",
             "--append-system-prompt-file",
             "/p/.ctxloom/sessions/h/home/ctxloom-context.md",
+            "--mcp-config",
+            "/p/.ctxloom/sessions/h/home/ctxloom-mcp.json",
             "--settings",
             "/p/.ctxloom/sessions/h/home/ctxloom-hooks.json",
         ]
@@ -126,10 +128,10 @@ fn preparing_a_home_writes_the_context_file_it_names() {
         })
         .unwrap();
     assert_eq!(prepared.context_path, format!("/h/{CONTEXT_PROMPT_FILE}"));
-    // The context, ctxloom's hooks (the `--settings` file), the user-scope
-    // settings that hold the agent's permissions (ruling 145), and claude's
-    // own state (ruling 113).
-    assert_eq!(prepared.files.len(), 4);
+    // The context, ctxloom's hooks (the `--settings` file), its MCP config
+    // (the `--mcp-config` file), the user-scope settings that hold the
+    // agent's permissions (ruling 145), and claude's own state (ruling 113).
+    assert_eq!(prepared.files.len(), 5);
     assert_eq!(prepared.files[0].rel, CONTEXT_PROMPT_FILE);
     assert_eq!(prepared.files[0].bytes, b"the context");
     // Nothing of the user's own configuration is on the allowlist yet.
@@ -148,6 +150,8 @@ fn the_interactive_run_is_the_terminal_command_with_the_context_and_no_print_mod
         vec![
             "--append-system-prompt-file",
             "/p/.ctxloom/sessions/h/home/ctxloom-context.md",
+            "--mcp-config",
+            "/p/.ctxloom/sessions/h/home/ctxloom-mcp.json",
             "--settings",
             "/p/.ctxloom/sessions/h/home/ctxloom-hooks.json"
         ]
@@ -314,8 +318,8 @@ fn a_childs_home_registers_the_per_turn_events_and_not_the_per_process_ones() {
     let prepared = prepared(false);
     assert_eq!(
         prepared.files.len(),
-        4,
-        "the context, the hooks, the permissions settings and claude's state (ruling 113)"
+        5,
+        "the context, the hooks, the MCP config, the permissions settings and claude's state (ruling 113)"
     );
     assert_eq!(
         registered_events(&prepared),

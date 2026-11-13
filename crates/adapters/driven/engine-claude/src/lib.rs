@@ -213,7 +213,7 @@ impl EngineSurfaces for Claude {
 
 /// One server as `.mcp.json` spells it: a command to spawn, or a URL to
 /// reach.
-fn mcp_entry(server: &McpServer) -> Json {
+pub(crate) fn mcp_entry(server: &McpServer) -> Json {
     let map = |m: &std::collections::BTreeMap<String, String>| {
         Json::Object(
             m.iter()

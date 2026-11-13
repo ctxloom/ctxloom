@@ -87,8 +87,8 @@ library-application-notice-default-engine-block-fix = to write another engine's 
 library-application-notice-user-settings-left-out = { $path } is not a JSON object, so the { $engine } session started without these settings of yours
 library-application-notice-user-settings-left-out-fix = make { $path } a JSON object, or move it aside
 library-application-notice-workspace-unavailable = no worktree could be had, so the engine works in the project itself: { $reason }
-library-application-notice-session-home-host = { $engine } runs in your own home (engines.{ $engine }.session_home: host): it reads and changes your own memory, MCP servers and history, and a session home is a relocation, not confinement
-library-application-notice-session-home-host-fix = to give each run a session home of its own, remove session_home: host from engines.{ $engine } in your home config
+library-application-notice-session-home-host = { $engine } runs in your own home ({ $place }.session_home: host): it reads and changes your own memory, MCP servers and history, and a session home is a relocation, not confinement
+library-application-notice-session-home-host-fix = to give each run a session home of its own, remove session_home: host from { $place } in your home config
 library-application-notice-checkout-left = the session's checkout { $path } (branch { $branch }) was left in place: { $reason }
 library-application-notice-checkout-left-fix = commit or discard its work; the session's next run re-enters it, and `ctxloom session remove` takes it once it is clean
 library-application-notice-root-ignored = CTXLOOM_ROOT={ $root } is not a directory; ignoring it

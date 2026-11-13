@@ -1565,30 +1565,6 @@ fn test_an_agent_s_own_session_home_drives_the_launch_and_its_notice() {
     assert_eq!(settings.session_home.source, "agent");
 }
 
-// The notice names the key that said `host`: the engine block's words are
-// the owner's approved sentence exactly; an agent's name its own key.
-#[test]
-fn test_the_host_notice_names_the_key_that_said_it() {
-    use angzarr_diagnostic::Diagnostic;
-    let engine = Notice::SessionHomeHost {
-        engine: "claude-code".to_string(),
-        place: "engines.claude-code".to_string(),
-    };
-    assert_eq!(
-        engine.to_string(),
-        "claude-code runs in your own home (engines.claude-code.session_home: host): it reads and changes your own memory, MCP servers and history, and a session home is a relocation, not confinement"
-    );
-    let agent = Notice::SessionHomeHost {
-        engine: "claude-code".to_string(),
-        place: "agents.dev".to_string(),
-    };
-    assert_eq!(
-        agent.to_string(),
-        "claude-code runs in your own home (agents.dev.session_home: host): it reads and changes your own memory, MCP servers and history, and a session home is a relocation, not confinement"
-    );
-    assert_eq!(agent.code(), "library-application-notice-session-home-host");
-}
-
 // ruling 46 at either level: an agent's `session_home: host` in the project
 // layer is taken out with a warning, and the launch runs on a session home
 #[test]

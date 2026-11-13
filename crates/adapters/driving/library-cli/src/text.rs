@@ -506,8 +506,9 @@ pub fn agent_show(out: &mut dyn Write, show: &AgentShow) -> io::Result<()> {
                 write!(out, " (model: {model})")?;
             }
             writeln!(out)?;
-            if !resolved.session_home.is_empty() {
-                writeln!(out, "Session home: {}", resolved.session_home)?;
+            let home = &resolved.settings.session_home;
+            if !home.value.is_empty() {
+                writeln!(out, "Session home: {} ({})", home.value, home.source)?;
             }
             writeln!(out, "Composed fragments: {}", resolved.fragments.len())?;
         }

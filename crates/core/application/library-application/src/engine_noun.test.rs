@@ -291,10 +291,14 @@ fn test_an_agent_s_env_is_merged_and_each_name_says_its_layer() {
 // session_home with the layer that said it
 #[test]
 fn test_an_engine_s_agents_carry_their_session_home_and_its_source() {
-    let row = show(
+    // `host` is the home layer's to say (ruling 46)
+    let row = layered(
         "schema_version: 9\nengines:\n  claude-code:\n    session_home: host\nagents:\n  own:\n    engine: claude-code\n    session_home: session\n  kept:\n    engine: claude-code\n",
-        "claude-code",
-    );
+        "schema_version: 9\n",
+    )
+    .engine_show(&plain(), "claude-code")
+    .result
+    .unwrap();
     let agent = |name: &str| &row.agents.iter().find(|a| a.name == name).unwrap().settings;
     assert_eq!(agent("own").session_home.value, "session");
     assert_eq!(agent("own").session_home.source, "agent");

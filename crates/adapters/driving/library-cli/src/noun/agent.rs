@@ -225,7 +225,7 @@ fn resolved(agent: &ResolvedAgent) -> v1::ResolvedAgent {
         context: agent.context.clone(),
         fragments: agent.fragments.clone(),
         driving: agent.driving.clone(),
-        session_home: agent.session_home.clone(),
+        session_home: agent.settings.session_home.value.clone(),
         command: agent.command.clone(),
     }
 }

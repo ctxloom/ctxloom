@@ -428,7 +428,8 @@ pub enum Notice {
     /// A worktree was asked for and none could be had, so the engine worked
     /// in the project instead: `reason` is the workspaces port's.
     WorkspaceUnavailable { reason: String },
-    /// A launch on `engines.<engine>.session_home: host`: the engine runs on
+    /// A launch on `session_home: host` (the agent's, else the engine
+    /// block's): the engine runs on
     /// the user's own home, with no session home of its own: it reads and
     /// changes her own memory, MCP servers and history (j002200, step 6a: a
     /// session home is a relocation, not confinement).
@@ -548,7 +549,10 @@ impl Diagnostic for Notice {
                 ("path", path.as_str().into()),
             ],
             Notice::WorkspaceUnavailable { reason } => vec![("reason", reason.as_str().into())],
-            Notice::SessionHomeHost { engine, .. } => vec![("engine", engine.as_str().into())],
+            Notice::SessionHomeHost { engine, place } => vec![
+                ("engine", engine.as_str().into()),
+                ("place", place.as_str().into()),
+            ],
             Notice::CheckoutLeft {
                 path,
                 branch,

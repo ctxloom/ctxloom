@@ -339,7 +339,6 @@ fn test_agent_show_says_a_resolution_failed_and_carries_on() {
             context: String::new(),
             fragments: vec!["a".to_string()],
             driving: String::new(),
-            session_home: "session".to_string(),
             command: String::new(),
         }),
         resolution_error: String::new(),
@@ -348,7 +347,7 @@ fn test_agent_show_says_a_resolution_failed_and_carries_on() {
     let text = shown(|out| agent_show(out, &resolved));
     assert!(text.contains("Resolved engine: mock (model: o1)\n"));
     assert!(!text.contains("Resolved permissions"));
-    assert!(text.contains("Session home: session\nComposed fragments: 1\n"));
+    assert!(text.contains("Session home: session (default)\nComposed fragments: 1\n"));
 }
 
 // companion.go renderCompanionList: a command whose program is not there says
@@ -725,7 +724,6 @@ fn test_an_agent_show_prints_no_posture() {
             context: String::new(),
             fragments: sv(&["a", "b"]),
             driving: String::new(),
-            session_home: String::new(),
             command: String::new(),
         }),
         resolution_error: String::new(),
@@ -741,7 +739,7 @@ fn test_an_agent_show_prints_no_posture() {
     };
     let text = shown(|out| agent_show(out, &show));
     assert!(text.contains(
-        "Resolved engine: claude-code\nComposed fragments: 2\nRequires:\n  - tree-sitter (mcp ts)\n"
+        "Resolved engine: claude-code\nSession home: session (default)\nComposed fragments: 2\nRequires:\n  - tree-sitter (mcp ts)\n"
     ));
     assert!(!text.contains("Headless posture"));
     assert!(!text.contains("Resolved permissions"));

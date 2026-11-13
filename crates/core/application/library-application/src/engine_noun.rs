@@ -308,10 +308,7 @@ pub(crate) fn settings_of(effective: &Effective) -> AgentSettings {
                 })
                 .collect(),
         },
-        session_home: SourcedValue {
-            value: String::new(),
-            source: Source::Default.word(),
-        },
+        session_home: sourced(&effective.session_home),
     }
 }
 

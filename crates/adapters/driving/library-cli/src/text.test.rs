@@ -876,6 +876,7 @@ fn plan() -> DryRun {
         drive: Default::default(),
         settings: None,
         settings_agent: st("dev"),
+        items: Default::default(),
     }
 }
 

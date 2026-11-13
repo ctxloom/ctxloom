@@ -228,6 +228,68 @@ impl Project {
         self.hooks_of(&catalog, &set, &assembled.selection)
     }
 
+    /// What a session on the `profiles` is offered beyond its context: the
+    /// commands, the MCP servers (none a running session serves itself) and
+    /// the hooks (none of ctxloom's own callbacks, which the engine installs)
+    /// they carry, as a package carries them. None where they do not resolve:
+    /// the launch's own composition says why.
+    pub(crate) fn session_items(&mut self, profiles: &[String]) -> run_ports::SessionItems {
+        if profiles.is_empty() {
+            return run_ports::SessionItems::default();
+        }
+        let mut findings = Vec::new();
+        let Ok(set) = self.resolve_profiles(profiles, &mut findings) else {
+            return run_ports::SessionItems::default();
+        };
+        let assembled = self.assemble_set(&set, &[], &[], &mut findings);
+        let catalog = self.catalog_with_companions();
+        let served = self.served_from(&catalog, &set, &mut findings);
+        let mut package = EnginePackage::default();
+        self.items_of(&catalog, &assembled.selection, &mut package);
+        let hooks = self.hooks_of(&catalog, &set, &assembled.selection);
+        run_ports::SessionItems {
+            commands: package
+                .commands
+                .into_iter()
+                .map(|c| run_ports::SessionCommand {
+                    name: c.name,
+                    description: c.description,
+                    body: c.body,
+                })
+                .collect(),
+            mcp: served
+                .into_iter()
+                .filter(|(_, served)| served.server.served_by.is_empty())
+                .map(|(name, served)| {
+                    let s = served.server;
+                    run_ports::SessionMcp {
+                        name,
+                        command: s.command,
+                        args: s.args,
+                        env: s.env,
+                        url: s.url,
+                        headers: s.headers,
+                    }
+                })
+                .collect(),
+            hooks: hooks
+                .into_iter()
+                .filter(|h| h.source_kind != "context")
+                .map(|h| run_ports::SessionHook {
+                    event: h.event,
+                    kind: h.hook.kind,
+                    command: h.hook.command,
+                    args: h.hook.args,
+                    prompt: h.hook.prompt,
+                    timeout: h.hook.timeout,
+                    is_async: h.hook.is_async,
+                    tool: h.hook.tool,
+                    matcher: String::new(),
+                })
+                .collect(),
+        }
+    }
+
     /// The commands and skills the profiles curate by reference when they
     /// curate any of that kind; otherwise those of the bundles they include.
     /// Each once (Go's composite assembly: a curation replaces the bundles'

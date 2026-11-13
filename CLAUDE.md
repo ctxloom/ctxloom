@@ -963,6 +963,33 @@ session's, init's interview) is said in these classes by
 `Exit::from_child_status`, never passed through: 0 ok, 128+n the signal,
 any other failed (10).
 
+## What a session is offered beyond its context (M6, j000400)
+
+A run's plan carries its profiles' commands, MCP servers (none `served_by`
+the session) and hooks (none of ctxloom's own callbacks) as
+`run_ports::SessionItems` (`DryRun::items`, `Library`'s `session_items`,
+not shown by a dry run; `Order::items`; `PrepareRequest::items`), and the
+engine writes each where it reads it IN THE SESSION HOME, never the
+project. claude (config dir = session home): each command
+`commands/<name, / as ->.md`, each server `mcpServers.<name>` of
+`.claude.json` (set at every launch, a server of the session's own of
+another name left), each hook after ctxloom's own in the `--settings` file
+`ctxloom-hooks.json` (a child's turn's too); a hook claude cannot narrow is
+`run-ports-engine-cannot-carry`, nothing launched. opencode
+(`OPENCODE_CONFIG_DIR`): each command `commands/<name>.md`, each server
+`mcp.<name>` of `opencode.json` (`{type: local, command: [program,
+...args], environment}` or `{type: remote, url, headers}`), and the
+session's start hooks run by `plugins/ctxloom-session-hooks.js`
+(`engine_opencode::session_hooks`, written at every launch, empty
+included) on `session.created` of a top-level session, once, in order,
+their output appended to `ctxloom-hooks.log` (a hook with arguments runs
+its program with them; one without, a shell's command line); a prompt
+hook has nothing to run it. Read from opencode's docs, not run live. Under
+`session_home: host` claude's commands and servers in the session home are
+not read (its config dir is hers, never written); its hooks still ride the
+`--settings` file. Cost: a command a later launch no longer carries is
+left in the session home (files are written, never removed).
+
 ## What an engine cannot carry (M6, j002000)
 
 An engine's word on what it cannot carry is its surface half's
@@ -983,9 +1010,9 @@ judged as the write would judge it first; nothing written; exit 1 under
 `--detailed-exitcode`). An edit that changes no engine, or loses nothing,
 writes as ever, and `agent create` never previews. Only hooks are judged:
 a kind an engine does not carry in a session at all is not reported yet.
-opencode loses every unified event but `session_start`
-(`engine_opencode::SESSION_HOOK_EVENTS`; `session_end`: opencode has no
-native one).
+opencode's session runs a profile's `session_start` hooks alone
+(`engine_opencode::SESSION_HOOK_EVENTS`, above); every other unified event
+is its loss (`session_end`: opencode has no native one).
 
 ## Remotes and dependencies (slice S3)
 

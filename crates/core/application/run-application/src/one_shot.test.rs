@@ -190,6 +190,7 @@ struct ScriptedPlan {
     effort: String,
     permissions: Option<String>,
     drive: library_application::Drive,
+    items: run_ports::SessionItems,
     error: Option<fn() -> PlanError>,
     asked: Arc<Mutex<Vec<RunRequest>>>,
 }
@@ -224,6 +225,7 @@ impl Planner for ScriptedPlan {
             drive: self.drive.clone(),
             settings: None,
             settings_agent: String::new(),
+            items: self.items.clone(),
         };
         Outcome {
             result: Ok(Previewed {
@@ -565,6 +567,8 @@ struct Script {
     permissions: Option<&'static str>,
     /// How the plan says the engine is run.
     drive: library_application::Drive,
+    /// What the plan's profiles offer the session beyond its context.
+    items: run_ports::SessionItems,
     plan_error: Option<fn() -> PlanError>,
     project_error: Option<Report>,
     names: Vec<&'static str>,
@@ -596,6 +600,7 @@ impl Script {
             effort: "",
             permissions: None,
             drive: Default::default(),
+            items: Default::default(),
             plan_error: None,
             project_error: None,
             names: vec!["amber-swift-owl", "calm-quiet-fox", "wild-brave-elk"],
@@ -683,6 +688,7 @@ fn rig(script: Script) -> Rig {
             effort: script.effort.to_string(),
             permissions: script.permissions.map(ToString::to_string),
             drive: script.drive.clone(),
+            items: script.items.clone(),
             error: script.plan_error,
             asked: Arc::clone(&asked),
         }),
@@ -1696,6 +1702,7 @@ async fn the_bearer_is_in_no_debug_or_error_rendering() {
                 owned: Vec::new(),
                 git_user: None,
                 resume: None,
+                items: Default::default(),
             }
         ),
     ] {
@@ -2002,6 +2009,50 @@ async fn the_plans_model_and_effort_are_handed_to_the_engine_for_a_turn_and_for_
     let args = rig.runner.seen_terminal.lock().unwrap()[0].args.clone();
     assert!(args.contains(&"--model=haiku".to_string()), "{args:?}");
     assert!(args.contains(&"--effort=low".to_string()), "{args:?}");
+}
+
+// j000400: what the plan's profiles offer the session beyond its context is
+// the order's, handed to the engine's home for a turn and for the terminal.
+#[tokio::test]
+async fn the_plans_items_are_handed_to_the_engine_for_a_turn_and_for_the_terminal() {
+    let items = run_ports::SessionItems {
+        commands: vec![run_ports::SessionCommand {
+            name: "onboarding".to_string(),
+            description: String::new(),
+            body: "COMMAND-BODY".to_string(),
+        }],
+        ..run_ports::SessionItems::default()
+    };
+    let mut script = Script::answering();
+    script.items = items.clone();
+    let mut rig = rig(script);
+    let answer = rig
+        .runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    assert_eq!(
+        rig.records
+            .text(&answer.harp, "home/commands/onboarding.md")
+            .as_deref(),
+        Some("COMMAND-BODY")
+    );
+    let mut script = Script::answering();
+    script.items = items;
+    let mut rig = rig_again_with(script);
+    let ended = rig
+        .runs
+        .interactive(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    assert_eq!(
+        rig.records
+            .text(&ended.harp, "home/commands/onboarding.md")
+            .as_deref(),
+        Some("COMMAND-BODY")
+    );
 }
 
 // Owner rulings 135, 137: the agent's permissions document the plan

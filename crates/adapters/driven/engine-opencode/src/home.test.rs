@@ -51,6 +51,7 @@ fn prepared_with(
         existing: Default::default(),
         permissions: permissions.map(String::from),
         session_home: run_ports::SessionHome::Session,
+        items: Default::default(),
     })
 }
 
@@ -106,6 +107,7 @@ fn test_the_config_is_regenerated_whatever_the_home_holds() {
             )]),
             permissions: Some(r#"{"edit":"ask"}"#.to_string()),
             session_home: run_ports::SessionHome::Session,
+            items: Default::default(),
         })
         .unwrap();
     assert_eq!(
@@ -147,6 +149,10 @@ fn test_a_session_home_holds_the_context_the_plugin_and_the_preseed_and_nothing_
                 ("node_modules/.ctxloom", b"".as_slice()),
                 ("opencode.json", b"{}\n".as_slice()),
                 ("package-lock.json", PRESEED_LOCK.as_bytes()),
+                (
+                    "plugins/ctxloom-session-hooks.js",
+                    crate::SESSION_HOOKS.as_bytes()
+                ),
                 ("plugins/ctxloom.js", PLUGIN.as_bytes()),
                 ("xdg/config/opencode/node_modules/.ctxloom", b"".as_slice()),
                 (
@@ -176,6 +182,7 @@ fn seeded(model: Option<&[u8]>, session_home: run_ports::SessionHome) -> run_por
             existing: Default::default(),
             permissions: None,
             session_home,
+            items: Default::default(),
         })
         .unwrap()
 }
@@ -265,6 +272,7 @@ fn over_hers(
             existing: Default::default(),
             permissions: permissions.map(String::from),
             session_home,
+            items: Default::default(),
         })
         .unwrap()
 }
@@ -626,6 +634,7 @@ fn test_a_home_prepared_by_an_opencode_calling_another_program_runs_that_program
             existing: Default::default(),
             permissions: None,
             session_home: run_ports::SessionHome::Session,
+            items: Default::default(),
         })
         .unwrap();
     let written = home

@@ -15,6 +15,7 @@ mod engine;
 mod git;
 mod hook;
 mod host;
+mod items;
 mod launcher;
 mod locks;
 mod login;
@@ -43,6 +44,7 @@ pub use host::{
     is_absolute, search_path_led_by, search_path_separator, session_profile, WINDOWS,
     WINDOWS_PROFILE_VARIABLES, WINDOWS_STARTUP_VARIABLES,
 };
+pub use items::{SessionCommand, SessionHook, SessionItems, SessionMcp};
 pub use launcher::{
     Exit, Launch, LaunchEvent, LaunchFailure, Limits, RunnerLauncher, Running, TurnCommand,
     TurnOutput,
@@ -85,6 +87,10 @@ pub fn diagnostic_samples() -> Vec<Box<dyn angzarr_diagnostic::Diagnostic>> {
     samples.push(Box::new(EngineError::BadPermissions {
         engine: "claude-code".to_string(),
         ext_err_txt: "expected value at line 1".to_string(),
+    }));
+    samples.push(Box::new(EngineError::CannotCarry {
+        engine: "claude-code".to_string(),
+        ext_err_txt: "it has no \"browser\" tool".to_string(),
     }));
     samples.push(Box::new(RecordsError::BadPath {
         rel: "..".to_string(),

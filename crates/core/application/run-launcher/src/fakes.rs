@@ -415,6 +415,13 @@ impl Engine for ScriptedEngine {
                 bytes: document.clone().into_bytes(),
             });
         }
+        // Each command the session is offered, where this engine reads it.
+        for command in &request.items.commands {
+            files.push(HomeFile {
+                rel: format!("commands/{}.md", command.name),
+                bytes: command.body.clone().into_bytes(),
+            });
+        }
         Ok(Prepared {
             files,
             copy_in: Vec::new(),
@@ -750,6 +757,7 @@ pub fn order(engine: &str) -> Order {
         owned: Vec::new(),
         git_user: None,
         resume: None,
+        items: Default::default(),
     }
 }
 

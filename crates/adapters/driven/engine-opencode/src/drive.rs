@@ -172,12 +172,21 @@ impl Engine for Opencode {
             SessionHome::Session => home::user_base(self.user_config.as_ref()),
             SessionHome::Host => (surface_ports::Json::Object(Vec::new()), None),
         };
+        // What the session's profiles offer beyond the context: its servers
+        // in the config, its commands and its start hooks beside the plugin.
+        let base = crate::session::with_servers(base, &request.items);
+        let mut files = home::files(
+            &request.context,
+            &home::config(base, permissions.as_ref()),
+            &self.program,
+        );
+        files.push(HomeFile {
+            rel: crate::session::SESSION_HOOKS_FILE.to_string(),
+            bytes: crate::session::session_hooks(&request.items).into_bytes(),
+        });
+        files.extend(crate::session::command_files(&request.items));
         Ok(Prepared {
-            files: home::files(
-                &request.context,
-                &home::config(base, permissions.as_ref()),
-                &self.program,
-            ),
+            files,
             // No file of the user's own opencode configuration crosses as
             // it is (her config is the base of the home's, above).
             copy_in: Vec::new(),

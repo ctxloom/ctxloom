@@ -933,6 +933,7 @@ where
                 owned,
                 git_user: self.git_user.clone(),
                 resume,
+                items: plan.items,
             },
         );
         Started {

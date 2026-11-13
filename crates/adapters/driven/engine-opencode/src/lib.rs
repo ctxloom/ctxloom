@@ -14,12 +14,14 @@
 //!
 //! At a directory's root (the surface half) ctxloom gives opencode its context
 //! alone, as a section of `AGENTS.md`; MCP servers, settings, hooks, commands
-//! and skills at rest are not built for opencode.
+//! and skills at rest are not built for opencode. A session's home carries
+//! its profiles' commands, MCP servers and session-start hooks ([`session`]).
 
 mod advice;
 mod codec;
 mod drive;
 mod home;
+mod session;
 mod stream;
 
 use surface_ports::{
@@ -35,6 +37,7 @@ pub use home::{
     plugin, user_config_file, user_model_file, CONFIG_FILE, CONTEXT_FILE, MODEL_SEED, PLUGIN,
     PLUGIN_FILE, PRESEED_LOCK,
 };
+pub use session::{session_hooks, SESSION_HOOKS, SESSION_HOOKS_FILE};
 
 /// The engine's name.
 pub const NAME: &str = "opencode";

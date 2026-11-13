@@ -344,6 +344,7 @@ impl Project {
             })
             .collect();
         let fatal = rows.iter().filter(|r| r.fatal).cloned().collect();
+        let items = self.session_items(&selection.profiles);
         let plan = DryRun {
             agent: request.agent.clone(),
             workspace: request.workspace.clone(),
@@ -370,6 +371,7 @@ impl Project {
                 .as_ref()
                 .map(|a| a.name.clone())
                 .unwrap_or_default(),
+            items,
         };
         Ok(Previewed { plan, fatal })
     }

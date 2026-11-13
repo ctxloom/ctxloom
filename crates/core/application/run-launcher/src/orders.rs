@@ -49,6 +49,9 @@ pub struct Order {
     /// The engine's own session the launch resumes (owner ruling 115, `run
     /// --session`); none, the engine starts one.
     pub resume: Option<String>,
+    /// The commands, MCP servers and hooks the session's profiles carry,
+    /// which the engine puts in the session home.
+    pub items: run_ports::SessionItems,
 }
 
 impl fmt::Debug for Order {
@@ -70,6 +73,7 @@ impl fmt::Debug for Order {
             .field("owned", &self.owned)
             .field("git_user", &self.git_user)
             .field("resume", &self.resume)
+            .field("items", &self.items)
             .finish()
     }
 }

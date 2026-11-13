@@ -147,10 +147,10 @@ fn project_clean(w: &mut World) {
 //
 // Step 6a (OD-47): where the agent's engine runs from. Her own claude setup
 // is a fixed set of files in her home, so whether the run touched it is read
-// against what was put there. ctxloom has no agent-level `session_home`: an
-// agent "declares" it through its engine's block (`engines.claude-code.
-// session_home`), and `host` is honoured from the home config alone (ruling
-// 46), so that is where it is written.
+// against what was put there. The agent declares it in its own binding
+// (`agents.isolated.session_home`, owner ruling of 2026-11-13, superseding
+// 44(b) for this key), and `host` is honoured from the home config alone
+// (ruling 46, at either level), so that is where it is written.
 
 /// Alice's own claude setup, in her home: her login, her settings and her
 /// memory (`~/.claude`).
@@ -163,17 +163,12 @@ const HER_CLAUDE: [(&str, &str); 3] = [
     (".claude/CLAUDE.md", "Alice's own memory.\n"),
 ];
 
-/// The agent `isolated`, on claude-code; its engine's block holds
-/// `session_home` when it is said, in the project unless it is `host`.
+/// The agent `isolated`, on claude-code; its binding holds `session_home`
+/// when it is said.
 fn isolated_config(session_home: Option<&str>) -> String {
-    let block = match session_home {
-        Some(home) if home != "host" => {
-            format!("engines:\n  claude-code:\n    session_home: {home}\n")
-        }
-        _ => String::new(),
-    };
+    let home = session_home.map_or_else(String::new, |home| format!("    session_home: {home}\n"));
     format!(
-        "schema_version: 9\n{block}agents:\n  isolated:\n    engine: claude-code\ndefault_agent: isolated\n"
+        "schema_version: 9\nagents:\n  isolated:\n    engine: claude-code\n{home}default_agent: isolated\n"
     )
 }
 
@@ -287,14 +282,20 @@ fn trusted_in_her_claude(w: &mut World) {
 
 #[given(regex = r#"^Alice's agent declares session_home "([^"]+)"$"#)]
 fn declares_session_home(w: &mut World, home: String) {
-    w.common
-        .project
-        .write(".ctxloom/config.yaml", &isolated_config(Some(&home)));
+    // `host` is the home config's to say (ruling 46): the agent is bound
+    // there (a binding replaces a lower layer's whole, so the project's
+    // config binds none).
     if home == "host" {
-        w.common.project.write_home(
-            ".ctxloom/config.yaml",
-            "schema_version: 9\nengines:\n  claude-code:\n    session_home: host\n",
-        );
+        w.common
+            .project
+            .write(".ctxloom/config.yaml", "schema_version: 9\n");
+        w.common
+            .project
+            .write_home(".ctxloom/config.yaml", &isolated_config(Some(&home)));
+    } else {
+        w.common
+            .project
+            .write(".ctxloom/config.yaml", &isolated_config(Some(&home)));
     }
 }
 
@@ -356,6 +357,8 @@ fn says_her_own_setup(w: &mut World) {
     );
     w.ran()
         .contains("runs in your own home")
+        // the agent's own key said it (owner ruling of 2026-11-13)
+        .contains("(agents.isolated.session_home: host)")
         .contains("reads and changes your own memory")
         .contains("a relocation, not confinement");
 }

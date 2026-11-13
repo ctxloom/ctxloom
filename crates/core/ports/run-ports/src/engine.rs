@@ -87,6 +87,47 @@ pub struct LeftOut {
     pub path: String,
 }
 
+/// What a launch carries for its engine besides the context (owner ruling
+/// 2026-11-12: everything rides the launch, from the run agent's selection,
+/// in every directory): ctxloom's own callbacks and the authored hooks, the
+/// statusline, `deny_tools`, the MCP servers, the commands and the skills,
+/// in the engines' surface terms (`surface_ports::Inputs`; its context is
+/// empty). Its `Debug` names what it carries and withholds every value: a
+/// server's environment and headers may hold a credential.
+#[derive(Clone, Default, PartialEq, Eq)]
+pub struct LaunchSurfaces(pub surface_ports::Inputs);
+
+impl fmt::Debug for LaunchSurfaces {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let inputs = &self.0;
+        let names = |items: Vec<&str>| items.join(",");
+        f.debug_struct("LaunchSurfaces")
+            .field(
+                "hooks",
+                &inputs
+                    .hooks
+                    .iter()
+                    .map(|(event, hooks)| format!("{event}:{}", hooks.len()))
+                    .collect::<Vec<_>>(),
+            )
+            .field("statusline", &inputs.statusline)
+            .field("deny_tools", &inputs.deny_tools)
+            .field(
+                "mcp",
+                &names(inputs.mcp.iter().map(|m| m.name.as_str()).collect()),
+            )
+            .field(
+                "commands",
+                &names(inputs.commands.iter().map(|c| c.name.as_str()).collect()),
+            )
+            .field(
+                "skills",
+                &names(inputs.skills.iter().map(|s| s.name.as_str()).collect()),
+            )
+            .finish()
+    }
+}
+
 /// What [`Engine::prepare`] is asked.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PrepareRequest {
@@ -118,6 +159,10 @@ pub struct PrepareRequest {
     /// Whose engine configuration directory the run gets (`session_home`):
     /// under `host` it is the user's own, which an engine never writes.
     pub session_home: crate::settings::SessionHome,
+    /// What the launch carries besides the context: the engine puts each
+    /// where it reads it for this run (claude: its hooks file, its
+    /// settings, its MCP config, its commands and skills).
+    pub surfaces: LaunchSurfaces,
 }
 
 /// What [`Engine::prepare`] answers: the session home's surfaces.

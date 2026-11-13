@@ -122,6 +122,7 @@ fn preparing_a_home_writes_the_context_file_it_names() {
             existing: Default::default(),
             permissions: None,
             session_home: run_ports::SessionHome::Session,
+            surfaces: Default::default(),
         })
         .unwrap();
     assert_eq!(prepared.context_path, format!("/h/{CONTEXT_PROMPT_FILE}"));
@@ -215,6 +216,7 @@ fn prepared(interactive: bool) -> run_ports::Prepared {
             existing: Default::default(),
             permissions: None,
             session_home: run_ports::SessionHome::Session,
+            surfaces: Default::default(),
         })
         .unwrap()
 }
@@ -566,6 +568,7 @@ fn prepare_home(
             existing,
             permissions: permissions.map(String::from),
             session_home: run_ports::SessionHome::Session,
+            surfaces: Default::default(),
         })
         .unwrap()
 }
@@ -698,6 +701,7 @@ fn a_document_that_is_not_json_is_refused() {
         existing: Default::default(),
         permissions: Some("{not json".to_string()),
         session_home: run_ports::SessionHome::Session,
+        surfaces: Default::default(),
     });
     assert!(
         matches!(&refused, Err(EngineError::BadPermissions { engine, .. }) if engine == "claude-code"),
@@ -982,6 +986,7 @@ fn claude_state(existing: Option<&str>, cwd: Option<&str>) -> Option<String> {
                 .unwrap_or_default(),
             permissions: None,
             session_home: run_ports::SessionHome::Session,
+            surfaces: Default::default(),
         })
         .unwrap();
     prepared
@@ -1074,6 +1079,7 @@ fn under_a_host_home_the_block_stays_in_the_hooks_file_and_no_user_settings_are_
                 existing: Default::default(),
                 permissions: Some(DOCUMENT.to_string()),
                 session_home: SessionHome::Host,
+                surfaces: Default::default(),
             })
             .unwrap();
         assert_eq!(file_of(&prepared, "settings.json"), None);
@@ -1095,6 +1101,7 @@ fn under_a_host_home_the_block_stays_in_the_hooks_file_and_no_user_settings_are_
             existing: Default::default(),
             permissions: Some("{nope".to_string()),
             session_home: home,
+            surfaces: Default::default(),
         });
         assert!(
             matches!(&refused, Err(EngineError::BadPermissions { .. })),
@@ -1118,6 +1125,7 @@ fn a_home_prepared_by_a_claude_calling_another_program_calls_that_program() {
                 existing: Default::default(),
                 permissions: None,
                 session_home: run_ports::SessionHome::Session,
+                surfaces: Default::default(),
             })
             .unwrap();
         let settings = prepared
@@ -1181,6 +1189,7 @@ fn prepare_over(
             existing: BTreeMap::new(),
             permissions: permissions.map(str::to_string),
             session_home,
+            surfaces: Default::default(),
         })
         .unwrap()
 }

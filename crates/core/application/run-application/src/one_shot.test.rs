@@ -234,7 +234,10 @@ impl Planner for ScriptedPlan {
             drive: self.drive.clone(),
             settings: None,
             settings_agent: String::new(),
-            surfaces: Default::default(),
+            surfaces: surface_ports::Inputs {
+                deny_tools: vec!["PLANNED-DENY".to_string()],
+                ..Default::default()
+            },
         };
         Outcome {
             result: Ok(Previewed {
@@ -1141,6 +1144,7 @@ async fn a_rate_limited_turn_is_that_error_and_the_run_still_ended() {
         },
         refuses_to_drive: false,
         left_out: Vec::new(),
+        prepared: Default::default(),
     };
     let mut rig = rig(Script {
         engine,
@@ -1168,6 +1172,7 @@ async fn a_credential_the_engine_refused_is_that_error() {
         },
         refuses_to_drive: false,
         left_out: Vec::new(),
+        prepared: Default::default(),
     };
     let mut rig = rig(Script {
         engine,
@@ -1735,6 +1740,7 @@ async fn the_bearer_is_in_no_debug_or_error_rendering() {
                 owned: Vec::new(),
                 git_user: None,
                 resume: None,
+                surfaces: Default::default(),
             }
         ),
     ] {
@@ -3504,4 +3510,20 @@ async fn a_run_in_the_project_releases_nothing() {
         .result
         .unwrap();
     assert!(workspaces.removed.lock().unwrap().is_empty());
+}
+
+// What the plan says the run's selection carries is what its engine is
+// prepared with.
+#[tokio::test]
+async fn the_plans_surfaces_reach_the_engines_prepare() {
+    let script = Script::answering();
+    let prepared = Arc::clone(&script.engine.prepared);
+    let mut rig = rig(script);
+    rig.runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let prepared = prepared.lock().unwrap();
+    assert_eq!(prepared[0].surfaces.0.deny_tools, ["PLANNED-DENY"]);
 }

@@ -981,6 +981,7 @@ where
                 owned,
                 git_user: self.git_user.clone(),
                 resume,
+                surfaces: Default::default(),
             },
         );
         Started {

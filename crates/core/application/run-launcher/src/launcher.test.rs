@@ -513,6 +513,7 @@ async fn a_failed_turn_is_recorded_with_its_class_and_says_nothing_in_the_transc
         },
         refuses_to_drive: false,
         left_out: Vec::new(),
+        prepared: Default::default(),
     };
     let mut rig = rig(engine, ScriptedRunner::exits(1), orders_with(order("fake")));
     enqueued(&rig.edge, SESSION, HARP).await;
@@ -575,6 +576,7 @@ async fn each_failure_class_is_the_runs_own() {
             },
             refuses_to_drive: false,
             left_out: Vec::new(),
+            prepared: Default::default(),
         };
         let mut rig = rig(engine, ScriptedRunner::exits(0), orders_with(order("fake")));
         enqueued(&rig.edge, SESSION, HARP).await;
@@ -2040,4 +2042,24 @@ async fn the_engines_state_is_keyed_by_the_checkout_it_is_placed_in() {
         rig.records.text(HARP, "home/state.json"),
         Some(format!("+{WORK_DIR}/reviewer"))
     );
+}
+
+// Owner ruling 2026-11-12: what the run's selection carries rides its launch,
+// handed to the engine's prepare whatever its workspace.
+#[tokio::test]
+async fn the_engine_is_prepared_with_the_launchs_surfaces() {
+    let engine = ScriptedEngine::answering("A", None);
+    let prepared = Arc::clone(&engine.prepared);
+    let mut order = order("fake");
+    order.surfaces = run_ports::LaunchSurfaces(surface_ports::Inputs {
+        deny_tools: vec!["Bash".to_string()],
+        statusline: true,
+        ..Default::default()
+    });
+    let mut rig = rig(engine, ScriptedRunner::exits(0), orders_with(order.clone()));
+    enqueued(&rig.edge, SESSION, HARP).await;
+    rig.step().await;
+    let prepared = prepared.lock().unwrap();
+    assert_eq!(prepared.len(), 1);
+    assert_eq!(prepared[0].surfaces, order.surfaces);
 }

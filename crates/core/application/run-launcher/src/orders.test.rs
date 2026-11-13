@@ -20,6 +20,7 @@ fn order(harp: &str) -> Order {
         owned: Vec::new(),
         git_user: None,
         resume: None,
+        surfaces: Default::default(),
     }
 }
 
@@ -71,10 +72,11 @@ fn an_order_renders_its_env_keys_and_never_the_bearer() {
         owned: Vec::new(),
         git_user: None,
         resume: None,
+        surfaces: Default::default(),
     };
     assert_eq!(
         format!("{order:?}"),
-        r#"Order { harp: "h", engine: "e", context: "c", prompt: "p", env: {"CTXLOOM_BEARER": "<redacted>", "PATH": "<redacted>"}, user_home: None, cwd: None, workspace: Workspace { axis: None, work_dir: "", agent: "" }, interactive: true, model: "", effort: "", permissions: None, settings: EngineSettings { command: "", session_home: Session, auth: Builtin, env: [] }, owned: [], git_user: None, resume: None }"#
+        r#"Order { harp: "h", engine: "e", context: "c", prompt: "p", env: {"CTXLOOM_BEARER": "<redacted>", "PATH": "<redacted>"}, user_home: None, cwd: None, workspace: Workspace { axis: None, work_dir: "", agent: "" }, interactive: true, model: "", effort: "", permissions: None, settings: EngineSettings { command: "", session_home: Session, auth: Builtin, env: [] }, owned: [], git_user: None, resume: None, surfaces: LaunchSurfaces { hooks: [], statusline: false, deny_tools: [], mcp: "", commands: "", skills: "" } }"#
     );
 }
 

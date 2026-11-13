@@ -20,6 +20,7 @@ sessions.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+surface-ports.workspace = true
 angzarr-embedded = { workspace = true, features = ["test-support"] }
 run-ports = { workspace = true, features = ["test-support"] }
 mutants.workspace = true

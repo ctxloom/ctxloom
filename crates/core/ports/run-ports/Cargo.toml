@@ -14,6 +14,7 @@ base64.workspace = true
 session-ports.workspace = true
 sha2.workspace = true
 subtle.workspace = true
+surface-ports.workspace = true
 
 [dev-dependencies]
 mutants.workspace = true

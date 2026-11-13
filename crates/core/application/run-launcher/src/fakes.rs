@@ -371,6 +371,8 @@ pub struct ScriptedEngine {
     pub refuses_to_drive: bool,
     /// What its prepare says it left out of the home (owner ruling 169).
     pub left_out: Vec<run_ports::LeftOut>,
+    /// Every prepare it was asked, shared by its clones.
+    pub prepared: Arc<Mutex<Vec<PrepareRequest>>>,
 }
 
 impl ScriptedEngine {
@@ -382,6 +384,7 @@ impl ScriptedEngine {
             },
             refuses_to_drive: false,
             left_out: Vec::new(),
+            prepared: Arc::default(),
         }
     }
 
@@ -405,6 +408,7 @@ impl Engine for ScriptedEngine {
     }
 
     fn prepare(&self, request: &PrepareRequest) -> Result<Prepared, EngineError> {
+        self.prepared.lock().unwrap().push(request.clone());
         let mut files = vec![HomeFile {
             rel: "ctx.md".to_string(),
             bytes: request.context.clone().into_bytes(),
@@ -752,6 +756,7 @@ pub fn order(engine: &str) -> Order {
         owned: Vec::new(),
         git_user: None,
         resume: None,
+        surfaces: Default::default(),
     }
 }
 

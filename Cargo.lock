@@ -3299,6 +3299,7 @@ dependencies = [
  "runs-application",
  "session-ports",
  "sessions",
+ "surface-ports",
  "tokio",
  "uuid",
 ]
@@ -3332,6 +3333,7 @@ dependencies = [
  "runs",
  "runs-application",
  "sessions",
+ "surface-ports",
  "tokio",
  "uuid",
 ]
@@ -3347,6 +3349,7 @@ dependencies = [
  "session-ports",
  "sha2",
  "subtle",
+ "surface-ports",
 ]
 
 [[package]]

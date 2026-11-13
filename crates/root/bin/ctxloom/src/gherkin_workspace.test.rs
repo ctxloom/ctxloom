@@ -355,7 +355,8 @@ fn says_her_own_setup(w: &mut World) {
         w.ran().said()
     );
     w.ran()
-        .contains("unsafe")
+        .contains("runs in your own home")
+        .contains("reads and changes your own memory")
         .contains("a relocation, not confinement");
 }
 

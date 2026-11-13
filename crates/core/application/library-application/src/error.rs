@@ -429,9 +429,9 @@ pub enum Notice {
     /// in the project instead: `reason` is the workspaces port's.
     WorkspaceUnavailable { reason: String },
     /// A launch on `engines.<engine>.session_home: host`: the engine runs on
-    /// the user's own setup, with no session home of its own, which is
-    /// unsafe as hygiene, not as security (j002200, step 6a: a session home
-    /// is a relocation, not confinement).
+    /// the user's own home, with no session home of its own: it reads and
+    /// changes her own memory, MCP servers and history (j002200, step 6a: a
+    /// session home is a relocation, not confinement).
     SessionHomeHost { engine: String },
     /// A run's checkout was left in place at its end (work in it, or one
     /// that would not go): by path and branch, and why.

@@ -12,9 +12,12 @@ base64.workspace = true
 deps-ports.workspace = true
 percent-encoding = "2"
 reqwest.workspace = true
+rustls.workspace = true
+rustls-native-certs.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+rcgen.workspace = true
 process-env.workspace = true
 
 [features]

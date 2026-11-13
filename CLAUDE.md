@@ -763,6 +763,15 @@ off: `crypto`, `pem`, `ring`). They bring rustls, ring, rustls-webpki and
 their small dependencies; `ISC` (ring, untrusted, rustls-webpki) is in
 `deny.toml`'s allow list for them, as MIT and BSD are. No aws-lc is to enter
 the lock: rustls with two providers and none installed panics at config build.
+forge-github's HTTPS is the same stack (owner, 2026-11-12): reqwest's
+provider-less rustls backend (`rustls-tls-manual-roots-no-provider`, no
+default features), handed forge-github's own `ClientConfig` (`tls.rs`: ring,
+and the roots of the system's certificate store as rustls-native-certs reads
+them; a store with none is refused), so no OpenSSL is linked (`ldd` of the
+Linux binary names no libssl or libcrypto). It added hyper-rustls and
+rustls-native-certs to the lock and removed native-tls and openssl with their
+helpers; rustls-platform-verifier was measured and not taken (its lock brings
+jni and its family for Android).
 
 The driving edge's shared shims (`cli-support`: `Call<G>`, `Failure` with its
 `refusals`, the notices printers, `report_failure`, `say_failure` and its json

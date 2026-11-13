@@ -73,6 +73,11 @@ harp-core = { git = "https://github.com/benjaminabbitt/harp", rev = "e27196f5a42
 # prost must be the version angzarr-proto generates for.
 prost = "0.14"
 prost-types = "0.14"
+# proto3 JSON for the prost types (owner OQ-21, 2026-11-13): pbjson-build
+# generates the serde impls (proto field names kept), pbjson is their
+# runtime. Exact pins; neither has a feature to turn off.
+pbjson = "=0.9.0"
+pbjson-build = "=0.9.0"
 
 sessions-application = { path = "crates/core/application/sessions-application" }
 runs-proto = { path = "crates/core/wire/runs-proto" }

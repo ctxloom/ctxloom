@@ -1060,7 +1060,7 @@ fn the_resource_carries_the_binding_places_and_rotations() {
         [daemon_proto::v1::SessionRotation {
             native_id: "id-1".to_string(),
             transcript_path: "/t/id-1.jsonl".to_string(),
-            rotated_at: Some(Timestamp {
+            rotated_at: Some(daemon_proto::google::protobuf::Timestamp {
                 seconds: 5,
                 nanos: 0,
             }),

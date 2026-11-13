@@ -200,7 +200,7 @@ impl<E: Edge> Api<E> {
             name: DAEMON.to_string(),
             pid: about.pid,
             endpoint: self.parts.hosting.endpoint(),
-            start_time: Some(about.start_time),
+            start_time: Some(about.start_time.into()),
             version: about.version.clone(),
             runs: self.parts.hosting.hosted(),
             clients: 0,

@@ -14,7 +14,15 @@
 //! - the `Ctxloom` service's tonic stubs (`server` and `client` features,
 //!   tonic's codegen only, its prost codec), the messages extern-pathed onto
 //!   the first pass's, so nothing is generated twice; default stubs, so an
-//!   RPC the server does not implement answers UNIMPLEMENTED.
+//!   RPC the server does not implement answers UNIMPLEMENTED;
+//! - the messages again, from the same descriptor set, for proto3 JSON
+//!   (OQ-21): prost's types with the well-known types the package uses
+//!   compiled HERE (`google::protobuf`), so the crate can give them the
+//!   JSON mapping prost-types does not have, and `pbjson-build`'s serde
+//!   impls of every message of the package, proto field names kept
+//!   (`preserve_proto_field_names`, ruling 146). angzarr's first pass is
+//!   left unused: its well-known types are prost-types', which have no
+//!   serde.
 
 // A build script runs at build time, never in the core: it reads the
 // descriptor set the first pass wrote and writes the passes' output, under
@@ -42,11 +50,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let out = PathBuf::from(std::env::var("OUT_DIR")?);
     let set = std::fs::read(out.join("angzarr.descriptors"))?;
     std::fs::write(out.join("refusals.rs"), refusals(&set)?)?;
+    json(&out, &set)?;
     let server = std::env::var_os("CARGO_FEATURE_SERVER").is_some();
     let client = std::env::var_os("CARGO_FEATURE_CLIENT").is_some();
     if server || client {
         services(&out, &set, server, client)?;
     }
+    Ok(())
+}
+
+/// The well-known types the package's messages use, compiled into this
+/// crate (`google::protobuf`) so that they can carry proto3 JSON.
+const WELL_KNOWN: &[&str] = &[
+    "google/protobuf/field_mask.proto",
+    "google/protobuf/struct.proto",
+    "google/protobuf/timestamp.proto",
+];
+
+/// The messages with their well-known types compiled here, and their
+/// serde impls, into `<out>/json/`: `ctxloom.daemon.v1.rs`,
+/// `google.protobuf.rs` and `ctxloom.daemon.v1.serde.rs`.
+fn json(out: &Path, set: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+    use prost::Message;
+    let dir = out.join("json");
+    std::fs::create_dir_all(&dir)?;
+    let mut fds = prost_types::FileDescriptorSet::decode(set)?;
+    // Only the package's own files and the well-known types they use:
+    // angzarr's options and protobuf's descriptor are options, not fields.
+    fds.file
+        .retain(|file| file.package() == PACKAGE || WELL_KNOWN.contains(&file.name()));
+    let filtered = fds.encode_to_vec();
+    prost_build::Config::new()
+        .enable_type_names()
+        .btree_map(["."])
+        .compile_well_known_types()
+        .out_dir(&dir)
+        .compile_fds(fds)?;
+    pbjson_build::Builder::new()
+        .register_descriptors(&filtered)?
+        .preserve_proto_field_names()
+        .btree_map(["."])
+        .out_dir(&dir)
+        .build(&[format!(".{PACKAGE}")])?;
     Ok(())
 }
 
@@ -66,8 +111,12 @@ fn services(
         .build_client(client)
         .build_transport(false)
         .generate_default_stubs(true)
+        // The well-known types are this crate's (the JSON pass's), not
+        // prost-types'.
+        .compile_well_known_types(true)
         .extern_path(format!(".{PACKAGE}"), "crate::v1")
         .extern_path(".io.angzarr.v1", "crate::angzarr_v1")
+        .extern_path(".google.protobuf", "crate::google::protobuf")
         .out_dir(&dir)
         .compile_fds(fds)?;
     Ok(())

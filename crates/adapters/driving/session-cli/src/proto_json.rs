@@ -6,6 +6,7 @@
 //! string; a `google.protobuf.Timestamp` is RFC 3339 in UTC (`Z`, a fraction
 //! of 0, 3, 6 or 9 digits).
 
+use daemon_proto::google::protobuf::Timestamp as WireTimestamp;
 use daemon_proto::v1;
 use serde_json::{Map, Value};
 use sessions_application::{stamp, Timestamp};
@@ -45,10 +46,12 @@ impl Fields {
         self
     }
 
-    fn time(mut self, name: &str, value: Option<Timestamp>) -> Fields {
+    fn time(mut self, name: &str, value: Option<WireTimestamp>) -> Fields {
         if let Some(at) = value {
-            self.0
-                .insert(name.to_string(), Value::from(stamp::proto3(at)));
+            self.0.insert(
+                name.to_string(),
+                Value::from(stamp::proto3(Timestamp::from(at))),
+            );
         }
         self
     }

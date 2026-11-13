@@ -370,8 +370,8 @@ impl SessionIndex {
             uid: record.id.clone(),
             engine: record.engine.clone(),
             summary,
-            start_time: Some(record.started_at),
-            end_time: record.ended_at,
+            start_time: Some(record.started_at.into()),
+            end_time: record.ended_at.map(Into::into),
             kept: record.kept,
             owner: record
                 .owner
@@ -396,7 +396,7 @@ impl SessionIndex {
                 .map(|rotation| daemon_proto::v1::SessionRotation {
                     native_id: rotation.native_id.clone(),
                     transcript_path: rotation.transcript_path.clone(),
-                    rotated_at: rotation.rotated_at,
+                    rotated_at: rotation.rotated_at.map(Into::into),
                 })
                 .collect(),
             ..daemon_proto::v1::Session::default()

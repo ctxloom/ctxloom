@@ -274,7 +274,7 @@ fn session(harp: &str, state: v1::SessionState) -> v1::Session {
         state: state as i32,
         engine: "claude-code".to_string(),
         summary: format!("Seeded prompt for {harp}."),
-        start_time: Some(ts(STARTED)),
+        start_time: Some(ts(STARTED).into()),
         project_root: "/work/proj".to_string(),
         ..v1::Session::default()
     }
@@ -308,7 +308,7 @@ fn a_listing_in_json_is_the_daemons_answer() {
 fn the_text_table_has_a_state_column_and_a_blank_end_while_live() {
     let live = session("amber-swift-owl", v1::SessionState::Live);
     let mut ended = session("brisk-copper-moth", v1::SessionState::Ended);
-    ended.end_time = Some(ts(STARTED + 3600));
+    ended.end_time = Some(ts(STARTED + 3600).into());
     ended.kept = true;
     let reads = Reads {
         sessions: vec![live, ended],
@@ -481,7 +481,7 @@ fn a_search_that_matches_nothing_says_so() {
 fn show_prints_the_record_one_fact_per_line() {
     let mut s = session("amber-swift-owl", v1::SessionState::Ended);
     s.native_session = "native-1".to_string();
-    s.end_time = Some(ts(STARTED + 3600));
+    s.end_time = Some(ts(STARTED + 3600).into());
     s.kept = true;
     let reads = Reads {
         sessions: vec![s],

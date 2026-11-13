@@ -71,8 +71,8 @@ fn summary_of(session: &v1::Session) -> String {
 }
 
 /// A time as the text rows show it; blank when unset.
-fn when(at: Option<sessions_application::Timestamp>) -> String {
-    at.map(stamp::text).unwrap_or_default()
+fn when(at: Option<daemon_proto::google::protobuf::Timestamp>) -> String {
+    at.map(|at| stamp::text(at.into())).unwrap_or_default()
 }
 
 /// The listing the daemon answered, as text: the placeholder, or a table.

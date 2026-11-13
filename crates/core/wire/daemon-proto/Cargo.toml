@@ -10,6 +10,11 @@ publish.workspace = true
 [dependencies]
 prost.workspace = true
 prost-types.workspace = true
+# proto3 JSON (OQ-21): the serde impls pbjson-build generates, its runtime
+# helpers, and the hand-written mapping of the well-known types.
+pbjson.workspace = true
+serde.workspace = true
+time.workspace = true
 # The service's stubs, only for a crate that serves or calls it: tonic's
 # codegen alone (no transport chosen here) and its prost codec, at the
 # versions the lock already holds for angzarr's services.
@@ -23,6 +28,13 @@ prost-types.workspace = true
 # No default features: no transport (build_transport(false)), and no
 # markdown clean-up of the doc comments.
 tonic-prost-build = { version = "0.14", default-features = false }
+# The second pass (proto3 JSON, OQ-21): prost's own build, at the version
+# angzarr-build uses, and pbjson-build.
+prost-build = "0.14"
+pbjson-build.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
 
 [features]
 # The `Ctxloom` service's server trait and router (the daemon's API edge).

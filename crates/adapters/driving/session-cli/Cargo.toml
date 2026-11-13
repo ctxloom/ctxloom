@@ -24,6 +24,10 @@ tokio.workspace = true
 
 [dev-dependencies]
 mutants.workspace = true
+# The binary's serde_json (engine-opencode's agent-client-protocol turns
+# `preserve_order` on there), so a hand-written object's key order in these
+# tests is the order the binary prints (OQ-21's byte-equality spike).
+serde_json = { workspace = true, features = ["preserve_order"] }
 # The crate's own tests (and its lint, `--all-targets`) hold `session remove`,
 # the destroy (owner rulings 94b, 98), which only `session-destroy` compiles: the
 # crate depends on itself with it, for its tests alone. A plain build builds no

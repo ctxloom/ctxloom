@@ -1,10 +1,10 @@
+# world: base
 # Ported from journeys/j000400_multi_engine.feature (rev f36e8dfb2)
-# NOT ported: the scenarios tagged @pending: they wait for `ctxloom run` to
-#   launch an engine. What one materialize delivers to each engine is
+# NOT ported: the @live-only outline, tagged @pending: it needs a real engine
+#   (the live lane). What one materialize delivers to each engine is
 #   cli/materialize.feature's.
 
 @doc
-@pending
 Feature: One shared profile, reaching every engine in its own native format
 
   A team does not standardize on one assistant. Carol's team writes one shared
@@ -43,7 +43,7 @@ Feature: One shared profile, reaching every engine in its own native format
 
   # On a real engine, the assistant itself can see the team's guidance: asked
   # for a phrase that is only in the team's fragment, it answers with it.
-  @live-only
+  @live-only @pending
   Scenario Outline: A real engine actually receives the shared context and can use it
     # substitution: the team's profile is the Background's, and the fragment's marker is the sentinel
     Given a real <engine> agent is available

@@ -64,6 +64,8 @@ struct World {
     setup: setup::State,
     /// What j001000's stub-engine scenario keeps.
     capture: capture::State,
+    /// What j000400's and j002000's sessions keep.
+    engines: engines::State,
 }
 
 impl fmt::Debug for World {
@@ -86,6 +88,7 @@ impl CommonWorld for World {
             || capture::fires(self, step)
             || capture_opencode::forwards(self, step)
             || capture_opencode::reports_login(self, step)
+            || engines::starts(self, step)
         {
             return;
         }
@@ -116,6 +119,7 @@ impl World {
             adopt: adopt::State::default(),
             setup: setup::State::default(),
             capture: capture::State::default(),
+            engines: engines::State::default(),
         }
     }
 
@@ -318,6 +322,9 @@ mod capture;
 
 #[path = "gherkin_capture_opencode.test.rs"]
 mod capture_opencode;
+
+#[path = "gherkin_engines.test.rs"]
+mod engines;
 
 // ------------------------------------------------------------------ given
 

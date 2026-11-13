@@ -36,6 +36,9 @@ impl Diagnostic for ClaudeNotice {
         }
     }
 
+    // The notice has no args: `vec![]` is the same value, an equivalent
+    // mutant.
+    #[cfg_attr(test, mutants::skip)]
     fn args(&self) -> Vec<(&str, Arg)> {
         match self {
             ClaudeNotice::WindowsTokenOnly => Vec::new(),

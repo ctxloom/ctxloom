@@ -42,6 +42,7 @@ fn test_a_token_another_os_a_child_or_the_plan_is_told_nothing() {
 fn test_the_notice_says_why_and_what_to_do_in_the_catalog() {
     let (name, catalog) = EN_US;
     assert_eq!(name, "engine-claude");
+    assert_eq!(diagnostic_samples().len(), 1, "one value of every notice");
     for sample in diagnostic_samples() {
         let code = sample.code();
         assert!(code.starts_with("engine-claude-"), "{code}");

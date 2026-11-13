@@ -1896,3 +1896,34 @@ async fn a_batch_files_multi_line_prompt_is_refused_before_the_spawn_on_windows(
         );
     }
 }
+
+// Ruling 168's seam at the launch: the launcher asks the engine of the name,
+// and an engine it cannot drive says nothing.
+#[test]
+fn the_launcher_asks_the_named_engine_for_its_advice() {
+    let engine = ScriptedEngine {
+        advises: true,
+        ..ScriptedEngine::answering("A", None)
+    };
+    let advised = Arc::clone(&engine.advised);
+    let rig = rig(engine, ScriptedRunner::exits(0), orders_with(order("fake")));
+    let planned = run_ports::Planned {
+        os: "windows".to_string(),
+        interactive: true,
+        ..run_ports::Planned::default()
+    };
+    assert_eq!(rig.launcher.advise("fake", &planned).len(), 1);
+    assert_eq!(*advised.lock().unwrap(), vec![planned.clone()]);
+    assert!(rig.launcher.advise("other", &planned).is_empty());
+
+    let quiet = rig_quiet();
+    assert!(quiet.launcher.advise("fake", &planned).is_empty());
+}
+
+fn rig_quiet() -> Rig {
+    rig(
+        ScriptedEngine::answering("A", None),
+        ScriptedRunner::exits(0),
+        orders_with(order("fake")),
+    )
+}

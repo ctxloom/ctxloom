@@ -92,3 +92,24 @@ fn a_batch_arguments_refusal_names_the_batch_file() {
         format!("{:?}", vec![("program", Arg::from("claude.cmd"))])
     );
 }
+
+// A diagnostic displays as its code and args (the catalog renders the words).
+#[test]
+fn each_displays_as_its_code_and_args() {
+    let missing = ProgramNotFound {
+        program: "claude".to_string(),
+        names: vec!["claude".to_string()],
+        dirs: Vec::new(),
+    };
+    assert_eq!(
+        missing.to_string(),
+        "run-ports-program-not-found-no-path program=claude names=claude"
+    );
+    let refused = BatchArguments {
+        program: "claude.cmd".to_string(),
+    };
+    assert_eq!(
+        refused.to_string(),
+        "run-ports-batch-arguments program=claude.cmd"
+    );
+}

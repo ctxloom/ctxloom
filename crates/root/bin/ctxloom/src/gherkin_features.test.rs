@@ -252,6 +252,37 @@ fn the_list_steps_read_the_json_or_the_words_of_a_text_row() {
     assert_eq!(got, expected);
 }
 
+/// `the output reports "<path>" not containing "<value>"` is `containing`'s
+/// negation: on json the list at `path` does not hold `value`, and a text row
+/// does not say it; either form fails when the value is there.
+#[test]
+fn the_not_containing_step_fails_where_containing_passes() {
+    let project = super::library::Project::bare();
+    let path = project.dir().join("lacks.feature");
+    files::put(
+        &path,
+        "Feature: f\n  Background:\n    Given an initialized ctxloom project\n    And a bundle \"demo\" exists\n\n  Scenario Outline: not containing <case>\n    When I run \"ctxloom search --local --tag example <flags>\"\n    Then the command succeeds\n    And the output reports \"local[name=example].tags\" not containing \"<tag>\"\n\n    Examples:\n      | case     | flags         | tag                 |\n      | json     | --format json | nope                |\n      | text     | --format text | - nope              |\n      | bad json | --format json | example             |\n      | bad text | --format text | - example [example] |\n",
+    );
+    let got = outcomes(&path, super::gherkin::run(&path));
+    let want = |name: &str, row: &str, ok: bool| (format!("{name} :: | {row} |"), ok);
+    let mut expected = vec![
+        want("not containing json", "json | --format json | nope", true),
+        want("not containing text", "text | --format text | - nope", true),
+        want(
+            "not containing bad json",
+            "bad json | --format json | example",
+            false,
+        ),
+        want(
+            "not containing bad text",
+            "bad text | --format text | - example [example]",
+            false,
+        ),
+    ];
+    expected.sort();
+    assert_eq!(got, expected);
+}
+
 /// `the skill list output includes "<skill>" from bundle "<bundle>"`: the
 /// listing has that skill of that bundle, json (`name` `<bundle>/<skill>`,
 /// `source` the bundle) or text (`- <bundle>/<skill>`), and no other.

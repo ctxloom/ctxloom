@@ -219,26 +219,32 @@ impl RemovalRejection {
     pub fn of(refused: &v1::RemovalRefused, harp: &str) -> Option<RemovalRejection> {
         use sessions_application::Refusal;
         let harp = harp.to_string();
-        Some(match v1::RemovalRefusal::try_from(refused.reason).ok()? {
-            v1::RemovalRefusal::NotProvenDead => {
-                RemovalRejection::Session(Refusal::NotProvenDead {
+        Some(
+            match v1::removal_refused::Reason::try_from(refused.reason).ok()? {
+                v1::removal_refused::Reason::NotProvenDead => {
+                    RemovalRejection::Session(Refusal::NotProvenDead {
+                        harp,
+                        reason: refused.detail.clone(),
+                        verb: sessions_application::REMOVE_VERB.to_string(),
+                    })
+                }
+                v1::removal_refused::Reason::Kept => {
+                    RemovalRejection::Session(Refusal::Kept { harp })
+                }
+                v1::removal_refused::Reason::Retained => {
+                    RemovalRejection::Session(Refusal::Retained {
+                        harp,
+                        detail: refused.detail.clone(),
+                    })
+                }
+                v1::removal_refused::Reason::WorktreesKeep => RemovalRejection::KeepsSession {
                     harp,
-                    reason: refused.detail.clone(),
-                    verb: sessions_application::REMOVE_VERB.to_string(),
-                })
-            }
-            v1::RemovalRefusal::Kept => RemovalRejection::Session(Refusal::Kept { harp }),
-            v1::RemovalRefusal::Retained => RemovalRejection::Session(Refusal::Retained {
-                harp,
-                detail: refused.detail.clone(),
-            }),
-            v1::RemovalRefusal::WorktreesKeep => RemovalRejection::KeepsSession {
-                harp,
-                spared: refused.spared,
-                skipped: refused.skipped,
+                    spared: refused.spared,
+                    skipped: refused.skipped,
+                },
+                v1::removal_refused::Reason::Unspecified => return None,
             },
-            v1::RemovalRefusal::Unspecified => return None,
-        })
+        )
     }
 }
 

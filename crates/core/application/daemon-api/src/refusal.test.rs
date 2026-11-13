@@ -127,7 +127,7 @@ fn an_unnamed_project_is_the_sessions_domains() {
 fn kept(plan_harp: &str) -> Any {
     Any::from_msg(&v1::RemovalRefused {
         name: "projects/calm-otter/sessions/amber-swift-owl".to_string(),
-        reason: v1::RemovalRefusal::Kept as i32,
+        reason: v1::removal_refused::Reason::Kept as i32,
         plan: Some(v1::DeleteSessionResponse {
             harp: plan_harp.to_string(),
             ..v1::DeleteSessionResponse::default()

@@ -323,7 +323,7 @@ async fn get_daemon_says_what_it_hosts_and_how_long_it_has_been_idle() {
         session: "projects/calm-quiet-heron/sessions/brisk-copper-moth".to_string(),
         harp: "brisk-copper-moth".to_string(),
         run: String::new(),
-        kind: v1::RunKind::Child as i32,
+        kind: v1::hosted_run::Kind::Child as i32,
     });
     let daemon = f.api.get_daemon().await.unwrap();
     assert_eq!(daemon.name, "daemon");
@@ -549,7 +549,7 @@ async fn get_session_answers_the_session_by_its_name() {
         .await
         .unwrap();
     assert_eq!(session.name, name);
-    assert_eq!(session.state, v1::SessionState::Live as i32);
+    assert_eq!(session.state, v1::session::State::Live as i32);
     assert_eq!(session.engine, "claude-code");
     let (_, missing): (_, v1::SessionNotFound) = refused(
         f.api
@@ -603,7 +603,7 @@ async fn list_sessions_lists_a_projects_sessions_by_state() {
         .api
         .list_sessions(v1::ListSessionsRequest {
             parent: "projects/-".to_string(),
-            state: v1::SessionState::Live as i32,
+            state: v1::session::State::Live as i32,
             ..v1::ListSessionsRequest::default()
         })
         .await
@@ -701,7 +701,7 @@ async fn a_live_sessions_end_is_blank() {
         .await
         .unwrap();
     for session in listed.sessions {
-        match session.state == v1::SessionState::Live as i32 {
+        match session.state == v1::session::State::Live as i32 {
             true => assert_eq!(session.end_time, None, "{}", session.name),
             // An ended session's end is its record's.
             false => assert!(session.end_time.is_some(), "{}", session.name),

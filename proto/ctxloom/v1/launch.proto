@@ -24,36 +24,6 @@ message EnvVar {
   string value = 2;
 }
 
-// Which consumer starts it, and how.
-enum LaunchKind {
-  LAUNCH_KIND_UNSPECIFIED = 0;
-  // The interactive TUI: started by the frontend on the user's terminal,
-  // inherited stdio, in the frontend's process group (a Ctrl-C reaches it),
-  // no deadline. The frontend waits for it (owner, S3: spawn and wait).
-  LAUNCH_KIND_TERMINAL = 1;
-  // A long-lived child (D15, D23), hosted by the daemon: piped stdio in the
-  // engine's own protocol (claude's stream-json, opencode's ACP), its own
-  // process group, no deadline. Ended by its close (T6).
-  LAUNCH_KIND_CHILD = 2;
-  // A one-shot (T7): a hosted child that ends after its one turn, its reply
-  // streamed back to the CLI that asked.
-  LAUNCH_KIND_ONE_SHOT = 3;
-  // `$EDITOR` on a file, for a command's editor round trip, started by the
-  // frontend on the user's terminal as a TERMINAL launch is (owner, S9).
-  LAUNCH_KIND_EDITOR = 4;
-}
-
-// The protocol on a hosted launch's stdin and stdout.
-enum LaunchStdio {
-  LAUNCH_STDIO_UNSPECIFIED = 0;
-  // The user's terminal (TERMINAL, EDITOR).
-  LAUNCH_STDIO_INHERIT = 1;
-  // claude's stream-json lines (D15).
-  LAUNCH_STDIO_STREAM_JSON = 2;
-  // opencode's ACP over JSON-RPC lines (D21, D23).
-  LAUNCH_STDIO_ACP = 3;
-}
-
 // How the launch's holder stops it (ruling 114), when asked to.
 message StopPolicy {
   // The signal the engine is asked to stop with (SIGTERM, 15), sent to the
@@ -81,8 +51,38 @@ message LaunchAt {
 }
 
 message Launch {
+  // The protocol on a hosted launch's stdin and stdout.
+  enum Stdio {
+    STDIO_UNSPECIFIED = 0;
+    // The user's terminal (TERMINAL, EDITOR).
+    INHERIT = 1;
+    // claude's stream-json lines (D15).
+    STREAM_JSON = 2;
+    // opencode's ACP over JSON-RPC lines (D21, D23).
+    ACP = 3;
+  }
+
+  // Which consumer starts it, and how.
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    // The interactive TUI: started by the frontend on the user's terminal,
+    // inherited stdio, in the frontend's process group (a Ctrl-C reaches it),
+    // no deadline. The frontend waits for it (owner, S3: spawn and wait).
+    TERMINAL = 1;
+    // A long-lived child (D15, D23), hosted by the daemon: piped stdio in the
+    // engine's own protocol (claude's stream-json, opencode's ACP), its own
+    // process group, no deadline. Ended by its close (T6).
+    CHILD = 2;
+    // A one-shot (T7): a hosted child that ends after its one turn, its reply
+    // streamed back to the CLI that asked.
+    ONE_SHOT = 3;
+    // `$EDITOR` on a file, for a command's editor round trip, started by the
+    // frontend on the user's terminal as a TERMINAL launch is (owner, S9).
+    EDITOR = 4;
+  }
+
   LaunchAt at = 1;
-  LaunchKind kind = 2;
+  Kind kind = 2;
   // The engine's name (claude-code, opencode; under test-support, mock).
   string engine = 3;
 
@@ -112,6 +112,6 @@ message Launch {
   // EDITOR launch names none.
   string session_lock = 9;
 
-  LaunchStdio stdio = 10;
+  Stdio stdio = 10;
   StopPolicy stop = 11;
 }

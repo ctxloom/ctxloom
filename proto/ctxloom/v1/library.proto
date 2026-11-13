@@ -84,6 +84,15 @@ syntax = "proto3";
 //   - DEFAULTS ARE LEFT OUT (OQ-7, proto3 JSON): false, 0, "" and [] are not
 //     printed. The yes/no facts a reader must see as `false` have presence
 //     (`optional`): `applied`, `held`, `default`, `resolves`, `no_distill`.
+//   - ENUMS follow AIP-216 and AIP-126 (owner ruling 2026-11-13, OQ-B1),
+//     across the package: a state is `State`, nested in the message it
+//     describes, `STATE_UNSPECIFIED` its zero; any other enum's zero is
+//     `<NAME>_UNSPECIFIED` and its other values are unprefixed, nested in
+//     the one message that owns it. An enum several messages share stays
+//     top-level (`DistilledState`, `ItemView`, `ItemKind`), its values
+//     unprefixed but its zero: proto3 scopes a top-level enum's values to
+//     the package, so no two top-level enums may share a value name.
+//     JSON prints the bare value (`"origin": "PROJECT"`).
 //   - Counts and token estimates are `uint32` (JSON numbers), byte sizes
 //     `uint64` (JSON strings) (OQ-12).
 //   - A free-form document (an engine's permissions, the config) is a
@@ -113,21 +122,6 @@ import "google/protobuf/struct.proto";
 import "ctxloom/v1/needs.proto";
 
 // region shared
-
-// Where a bundle comes from.
-enum Origin {
-  ORIGIN_UNSPECIFIED = 0;
-  // The project's own (`.ctxloom/content/bundles/...`).
-  ORIGIN_PROJECT = 1;
-  // ctxloom's built-in bundle (`ctxloom/builtin`, ruling 127).
-  ORIGIN_BUILTIN = 2;
-  // An installed remote bundle.
-  ORIGIN_REMOTE = 3;
-  // A companion's loadout.
-  ORIGIN_COMPANION = 4;
-  // users/me's own bundles, if any exist (OQ-3).
-  ORIGIN_HOME = 5;
-}
 
 // A value and the config place that said it (ruling 72): `agent`, `engine`,
 // `project` or `default`. was: SourcedValue.
@@ -204,17 +198,32 @@ message NotCarried {
 
 // region bundles: ctxloom.dev/Bundle
 
-enum BundleView {
-  BUNDLE_VIEW_UNSPECIFIED = 0;
-  // `bundle list`.
-  BUNDLE_VIEW_BASIC = 1;
-  // `bundle show`.
-  BUNDLE_VIEW_FULL = 2;
-  // `bundle view <bundle>`.
-  BUNDLE_VIEW_CONTENT = 3;
-}
-
 message Bundle {
+  enum View {
+    VIEW_UNSPECIFIED = 0;
+    // `bundle list`.
+    BASIC = 1;
+    // `bundle show`.
+    FULL = 2;
+    // `bundle view <bundle>`.
+    CONTENT = 3;
+  }
+
+  // Where a bundle comes from.
+  enum Origin {
+    ORIGIN_UNSPECIFIED = 0;
+    // The project's own (`.ctxloom/content/bundles/...`).
+    PROJECT = 1;
+    // ctxloom's built-in bundle (`ctxloom/builtin`, ruling 127).
+    BUILTIN = 2;
+    // An installed remote bundle.
+    REMOTE = 3;
+    // A companion's loadout.
+    COMPANION = 4;
+    // users/me's own bundles, if any exist (OQ-3).
+    HOME = 5;
+  }
+
   // IDENTIFIER: one of the four Bundle patterns.
   string name = 1;
   // OUTPUT_ONLY. was: origin.
@@ -294,7 +303,7 @@ message BundleFile {
 
 message GetBundleRequest {
   string name = 1;
-  BundleView view = 2;
+  Bundle.View view = 2;
   // `--distilled`: a distilled form where one is fresh.
   bool prefer_distilled = 3;
 }
@@ -304,7 +313,7 @@ message ListBundlesRequest {
   // exception to AIP-132's "parent identifies the type", design §1.2);
   // `projects/{project}/remotes/-` every remote bundle alone (AIP-159).
   string parent = 1;
-  BundleView view = 2;
+  Bundle.View view = 2;
   int32 page_size = 80;
   string page_token = 81;
 }
@@ -471,17 +480,17 @@ message PushBundleRequest {
 enum DistilledState {
   DISTILLED_STATE_UNSPECIFIED = 0;
   // No distilled form.
-  DISTILLED_STATE_NONE = 1;
+  NONE = 1;
   // Its recorded source digest matches the `.md` now.
-  DISTILLED_STATE_FRESH = 2;
+  FRESH = 2;
   // It does not, or records none (T30).
-  DISTILLED_STATE_STALE = 3;
+  STALE = 3;
 }
 
 enum ItemView {
   ITEM_VIEW_UNSPECIFIED = 0;
-  ITEM_VIEW_BASIC = 1;
-  ITEM_VIEW_FULL = 2;
+  BASIC = 1;
+  FULL = 2;
 }
 
 message Fragment {
@@ -1175,13 +1184,13 @@ message ResolvedAgent {
   string command = 12;
 }
 
-enum AgentView {
-  AGENT_VIEW_UNSPECIFIED = 0;
-  AGENT_VIEW_BASIC = 1;
-  AGENT_VIEW_FULL = 2;
-}
-
 message Agent {
+  enum View {
+    VIEW_UNSPECIFIED = 0;
+    BASIC = 1;
+    FULL = 2;
+  }
+
   // IDENTIFIER: `projects/{project}/agents/{agent}`, `users/me/agents/{agent}`.
   string name = 1;
   // The Engine's name.
@@ -1206,12 +1215,12 @@ message Agent {
 
 message GetAgentRequest {
   string name = 1;
-  AgentView view = 2;
+  Agent.View view = 2;
 }
 
 message ListAgentsRequest {
   string parent = 1;
-  AgentView view = 2;
+  Agent.View view = 2;
   int32 page_size = 80;
   string page_token = 81;
 }
@@ -1331,18 +1340,18 @@ message AuthValue {
   string file = 3;
 }
 
-enum AuthState {
-  AUTH_STATE_UNSPECIFIED = 0;
-  AUTH_STATE_PRESENT = 1;
-  AUTH_STATE_MISSING = 2;
-  AUTH_STATE_NOT_NEEDED = 3;
-}
-
 // was: AuthSetting.
 message EngineAuth {
+  enum State {
+    STATE_UNSPECIFIED = 0;
+    PRESENT = 1;
+    MISSING = 2;
+    NOT_NEEDED = 3;
+  }
+
   AuthValue value = 1;
   string source = 2;
-  AuthState state = 3;
+  State state = 3;
   // The variable's name or the file's path that authenticates.
   string via = 4;
 }
@@ -1621,15 +1630,15 @@ message ReleaseDependencyRequest {
 
 // region config: ctxloom.dev/Config
 
-enum ConfigView {
-  CONFIG_VIEW_UNSPECIFIED = 0;
-  // `config show`: the layered config in effect.
-  CONFIG_VIEW_EFFECTIVE = 1;
-  // `config show --raw`: what the layers set.
-  CONFIG_VIEW_SET = 2;
-}
-
 message Config {
+  enum View {
+    VIEW_UNSPECIFIED = 0;
+    // `config show`: the layered config in effect.
+    EFFECTIVE = 1;
+    // `config show --raw`: what the layers set.
+    SET = 2;
+  }
+
   // IDENTIFIER: `projects/{project}/config`, `users/me/config`.
   string name = 1;
   // What `config show [section]` printed: `document.agents.default.engine`.
@@ -1639,7 +1648,7 @@ message Config {
 
 message GetConfigRequest {
   string name = 1;
-  ConfigView view = 2;
+  Config.View view = 2;
   // One top-level section (AIP-157 deprecates a read mask, AIP-161).
   string section = 3;
   Globals globals = 96;
@@ -1697,12 +1706,12 @@ message ScaffoldConfigResponse {
 
 enum ItemKind {
   ITEM_KIND_UNSPECIFIED = 0;
-  ITEM_KIND_BUNDLE = 1;
-  ITEM_KIND_FRAGMENT = 2;
-  ITEM_KIND_COMMAND = 3;
-  ITEM_KIND_SKILL = 4;
-  ITEM_KIND_MCP_SERVER = 5;
-  ITEM_KIND_PROFILE = 6;
+  BUNDLE = 1;
+  FRAGMENT = 2;
+  COMMAND = 3;
+  SKILL = 4;
+  MCP_SERVER = 5;
+  PROFILE = 6;
 }
 
 // A local hit. was: a hit's `name` (-> `resource`), `type` (-> `kind`).

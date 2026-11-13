@@ -11,7 +11,7 @@ use super::{removal_of, report_of};
 // class is a person's.
 #[test]
 fn a_removal_keeps_each_files_class() {
-    let file = |rel: &str, class: v1::FileClass| v1::RemovalFile {
+    let file = |rel: &str, class: v1::removal_file::Class| v1::RemovalFile {
         path: format!("/h/{rel}"),
         rel: rel.to_string(),
         class: class as i32,
@@ -20,8 +20,8 @@ fn a_removal_keeps_each_files_class() {
     let removal = removal_of(&v1::DeleteSessionResponse {
         harp: "amber-swift-owl".to_string(),
         files: vec![
-            file("native/history.jsonl", v1::FileClass::Machine),
-            file("notes.md", v1::FileClass::Authored),
+            file("native/history.jsonl", v1::removal_file::Class::Machine),
+            file("notes.md", v1::removal_file::Class::Authored),
         ],
         ..v1::DeleteSessionResponse::default()
     });

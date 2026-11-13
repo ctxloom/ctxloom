@@ -1200,7 +1200,7 @@ ONE listener (`hook-listener`'s `HookListener::serve_tcp_beside`), each RPC
 admitted by the same `UserGate` first. Its use cases are
 `core/application/daemon-api`'s `Api` (behind `Calls`, boxed, so the edge is
 not generic): `GetDaemon` (pid, endpoint, full stamp, start, the runs it
-hosts as `RunKind::Child`, idle and idle-limit seconds; never its bearer),
+hosts as `HostedRun.Kind` `CHILD`, idle and idle-limit seconds; never its bearer),
 `StopDaemon` (refused `DaemonHosting` naming the harps while it hosts live
 runs, unless `even_if_live`, which ends them first, S12), `ResolveProject`,
 `GetProject`, `GetSession`, `ListSessions` and `SearchSessions`, read from
@@ -1548,7 +1548,18 @@ configuration; numbers doubles for display, read exactly under
 library.proto in its build script);
 every write its OWN response (`CreateBundleResponse`, ...; OQ-9), each with
 `path`, `applied`, `detail`, `apply_command` (OQ-8), `needs` 90, `etag` 91
-and `notices` 92. `EnvVars` and `Globals` moved to needs.proto (library.proto
+and `notices` 92. Every enum of `ctxloom.v1` follows AIP-216 and AIP-126
+(owner ruling 2026-11-13, OQ-B1): a state is `State`, nested in the message
+it describes, `STATE_UNSPECIFIED` its zero; another enum's zero is
+`<NAME>_UNSPECIFIED`, its other values unprefixed, nested in its one owner
+(`Launch.Kind`, `Launch.Stdio`, `HostedRun.Kind`, `Session.State`,
+`RemovalFile.Class`, `Run.Mode`, `RemovalRefused.Reason`, `Bundle.Origin`,
+`Bundle.View`, `Agent.View`, `EngineAuth.State`, `Config.View`); the three
+shared by several messages stay top-level, unprefixed but their zero
+(`DistilledState`, `ItemView`, `ItemKind`), so proto3's package-wide value
+names do not collide. JSON prints the bare value (`"state": "ENDED"`,
+`"class": "MACHINE"`); the domain packages keep their prefixed style.
+`EnvVars` and `Globals` moved to needs.proto (library.proto
 cannot import daemon.proto, which imports it). Not yet written: the B4
 custom methods' responses (push, browse, discover, pull, check, upgrade),
 their shapes on a ruling. `PlanStale` stays FAILED_PRECONDITION: OQ-10 rules
@@ -1566,7 +1577,7 @@ the `engine` noun (the worked example): `engine list` is
 `ListEnginesResponse` (`{engines: [...]}`), `engine show` an `Engine`
 named `projects/{harp}/engines/<engine>`, its agent rows' name `agent`,
 their settings flat (`agents[agent=x].model.value`), the auth state
-`AUTH_STATE_PRESENT|MISSING|NOT_NEEDED`, an unset model no `value`; its
+`PRESENT|MISSING|NOT_NEEDED` (`EngineAuth.State`), an unset model no `value`; its
 text is unchanged. `scripts/plain-engines-check.sh` reads the TEXT
 listing, so `just build` reaches no daemon. Every other noun still prints
 its view, until its branch (B1 catalog, B2 configuration, B3 queries, B4

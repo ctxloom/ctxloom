@@ -89,7 +89,7 @@ impl Fields {
 
 /// A session (`GetSession`'s answer, a listing's entry).
 pub fn session(session: &v1::Session) -> Value {
-    let state = v1::SessionState::try_from(session.state).ok();
+    let state = v1::session::State::try_from(session.state).ok();
     Fields::default()
         .text("name", &session.name)
         .text("uid", &session.uid)
@@ -164,7 +164,7 @@ pub fn daemon(daemon: &v1::Daemon) -> Value {
 }
 
 fn hosted(run: &v1::HostedRun) -> Value {
-    let kind = v1::RunKind::try_from(run.kind).ok();
+    let kind = v1::hosted_run::Kind::try_from(run.kind).ok();
     Fields::default()
         .text("session", &run.session)
         .text("harp", &run.harp)
@@ -196,7 +196,7 @@ pub fn deletion(removal: &v1::DeleteSessionResponse) -> Value {
 }
 
 fn removal_file(file: &v1::RemovalFile) -> Value {
-    let class = v1::FileClass::try_from(file.class).ok();
+    let class = v1::removal_file::Class::try_from(file.class).ok();
     Fields::default()
         .text("path", &file.path)
         .text("rel", &file.rel)

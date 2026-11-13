@@ -666,7 +666,7 @@ fn says_when_it_ended(w: &mut World) {
         .run_with(&env, &["session", "show", &harp, "--format", "json"]);
     assert_eq!(shown.code, 0, "{}", shown.said());
     let doc = super::super::parse_one(&shown.stdout);
-    assert_eq!(doc["state"].as_str(), Some("SESSION_STATE_ENDED"), "{doc}");
+    assert_eq!(doc["state"].as_str(), Some("ENDED"), "{doc}");
     let ended = doc["end_time"].as_str().expect("show says when it ended");
     let started = doc["start_time"]
         .as_str()

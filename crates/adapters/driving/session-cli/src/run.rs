@@ -195,12 +195,12 @@ fn call_failure(error: CallError) -> Failure {
 }
 
 /// A `--state` word as the state the daemon's API names (none: any).
-fn api_state(word: Option<&String>) -> Result<v1::SessionState, Failure> {
+fn api_state(word: Option<&String>) -> Result<v1::session::State, Failure> {
     Ok(match state_of(word)? {
-        None => v1::SessionState::Unspecified,
-        Some(State::Live) => v1::SessionState::Live,
-        Some(State::Ended) => v1::SessionState::Ended,
-        Some(State::Unknown) => v1::SessionState::Unknown,
+        None => v1::session::State::Unspecified,
+        Some(State::Live) => v1::session::State::Live,
+        Some(State::Ended) => v1::session::State::Ended,
+        Some(State::Unknown) => v1::session::State::Unknown,
     })
 }
 

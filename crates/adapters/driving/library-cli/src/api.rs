@@ -86,10 +86,10 @@ fn auth(setting: &AuthSetting) -> v1::EngineAuth {
         _ => v1::AuthValue::default(),
     };
     let state = match setting.state {
-        "present" => v1::AuthState::Present,
-        "missing" => v1::AuthState::Missing,
-        "not-needed" => v1::AuthState::NotNeeded,
-        _ => v1::AuthState::Unspecified,
+        "present" => v1::engine_auth::State::Present,
+        "missing" => v1::engine_auth::State::Missing,
+        "not-needed" => v1::engine_auth::State::NotNeeded,
+        _ => v1::engine_auth::State::Unspecified,
     };
     v1::EngineAuth {
         value: Some(value),

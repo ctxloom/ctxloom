@@ -17,7 +17,7 @@ fn a_session_is_its_proto3_json() {
     let s = v1::Session {
         name: "projects/calm-otter/sessions/amber-swift-owl".to_string(),
         uid: "u-1".to_string(),
-        state: v1::SessionState::Ended as i32,
+        state: v1::session::State::Ended as i32,
         engine: "claude-code".to_string(),
         start_time: Some(at.into()),
         kept: true,
@@ -77,7 +77,7 @@ fn the_daemon_is_its_proto3_json() {
         endpoint: "https://127.0.0.1:5000".to_string(),
         runs: vec![v1::HostedRun {
             harp: "brisk-copper-moth".to_string(),
-            kind: v1::RunKind::Child as i32,
+            kind: v1::hosted_run::Kind::Child as i32,
             ..v1::HostedRun::default()
         }],
         idle_seconds: 0,
@@ -163,7 +163,7 @@ fn every_field_of_a_session() -> v1::Session {
     v1::Session {
         name: "projects/calm-otter/sessions/amber-swift-owl".to_string(),
         uid: "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b".to_string(),
-        state: v1::SessionState::Live as i32,
+        state: v1::session::State::Live as i32,
         engine: "claude-code".to_string(),
         summary: "fix the \"auth\" refactor\nand \u{fc}n\u{ef}code".to_string(),
         start_time: at(1_784_309_252, 481_000_000),
@@ -206,7 +206,7 @@ fn every_field_of_a_removal() -> v1::DeleteSessionResponse {
         files: vec![v1::RemovalFile {
             path: "/p/.ctxloom/sessions/amber-swift-owl/notes.md".to_string(),
             rel: "notes.md".to_string(),
-            class: v1::FileClass::Authored as i32,
+            class: v1::removal_file::Class::Authored as i32,
             bytes: 18_446_744_073_709_551_615,
         }],
         bytes_freed: 4096,
@@ -267,7 +267,7 @@ fn test_the_generated_proto3_json_is_byte_identical_to_the_hand_written() {
             session: "projects/calm-otter/sessions/amber-swift-owl".to_string(),
             harp: "brisk-copper-moth".to_string(),
             run: "r-1".to_string(),
-            kind: v1::RunKind::Child as i32,
+            kind: v1::hosted_run::Kind::Child as i32,
         }],
         clients: 3,
         idle_seconds: 1,

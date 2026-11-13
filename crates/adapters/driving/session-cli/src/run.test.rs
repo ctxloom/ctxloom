@@ -205,7 +205,7 @@ impl daemon_api::SessionReads for Reads {
     async fn list_sessions(
         &self,
         all: bool,
-        state: v1::SessionState,
+        state: v1::session::State,
     ) -> Result<v1::ListSessionsResponse, daemon_api::CallError> {
         self.asked
             .borrow_mut()
@@ -223,7 +223,7 @@ impl daemon_api::SessionReads for Reads {
         &self,
         words: Vec<String>,
         all: bool,
-        state: v1::SessionState,
+        state: v1::session::State,
     ) -> Result<v1::ListSessionsResponse, daemon_api::CallError> {
         self.asked.borrow_mut().push(format!(
             "search {} {all} {}",
@@ -267,7 +267,7 @@ fn read_go(reads: &Reads, format: Format, words: &[&str]) -> Ran {
 }
 
 /// The session `harp` of the project `calm-otter`, as the daemon answers it.
-fn session(harp: &str, state: v1::SessionState) -> v1::Session {
+fn session(harp: &str, state: v1::session::State) -> v1::Session {
     v1::Session {
         name: format!("projects/calm-otter/sessions/{harp}"),
         uid: "01010101-0101-0101-0101-010101010101".to_string(),
@@ -284,7 +284,7 @@ fn session(harp: &str, state: v1::SessionState) -> v1::Session {
 #[test]
 fn a_listing_in_json_is_the_daemons_answer() {
     let reads = Reads {
-        sessions: vec![session("amber-swift-owl", v1::SessionState::Ended)],
+        sessions: vec![session("amber-swift-owl", v1::session::State::Ended)],
         ..Reads::default()
     };
     let doc = json_of(&read_go(&reads, Format::Json, &["list"]));
@@ -306,8 +306,8 @@ fn a_listing_in_json_is_the_daemons_answer() {
 // the live row prints no END while the others print theirs.
 #[test]
 fn the_text_table_has_a_state_column_and_a_blank_end_while_live() {
-    let live = session("amber-swift-owl", v1::SessionState::Live);
-    let mut ended = session("brisk-copper-moth", v1::SessionState::Ended);
+    let live = session("amber-swift-owl", v1::session::State::Live);
+    let mut ended = session("brisk-copper-moth", v1::session::State::Ended);
     ended.end_time = Some(ts(STARTED + 3600).into());
     ended.kept = true;
     let reads = Reads {
@@ -344,9 +344,9 @@ fn the_text_table_has_a_state_column_and_a_blank_end_while_live() {
 // A title the user set is the row's summary, ahead of the first prompt.
 #[test]
 fn a_set_title_is_the_rows_summary() {
-    let mut titled = session("amber-swift-owl", v1::SessionState::Ended);
+    let mut titled = session("amber-swift-owl", v1::session::State::Ended);
     titled.title = "the auth refactor".to_string();
-    let mut bare = session("brisk-copper-moth", v1::SessionState::Ended);
+    let mut bare = session("brisk-copper-moth", v1::session::State::Ended);
     bare.summary = String::new();
     let reads = Reads {
         sessions: vec![titled, bare],
@@ -373,7 +373,7 @@ fn an_empty_listing_is_an_empty_message_or_the_placeholder() {
 #[test]
 fn a_bare_session_lists() {
     let reads = Reads {
-        sessions: vec![session("amber-swift-owl", v1::SessionState::Ended)],
+        sessions: vec![session("amber-swift-owl", v1::session::State::Ended)],
         ..Reads::default()
     };
     let ran = read_go(&reads, Format::Json, &[]);
@@ -428,7 +428,7 @@ fn a_state_that_is_not_one_is_refused_naming_the_states() {
 #[test]
 fn a_search_carries_its_words_and_scope() {
     let reads = Reads {
-        sessions: vec![session("amber-swift-owl", v1::SessionState::Ended)],
+        sessions: vec![session("amber-swift-owl", v1::session::State::Ended)],
         ..Reads::default()
     };
     let ran = read_go(
@@ -472,7 +472,7 @@ fn a_search_that_matches_nothing_says_so() {
 // Go: renderSessionShow.
 #[test]
 fn show_prints_the_record_one_fact_per_line() {
-    let mut s = session("amber-swift-owl", v1::SessionState::Ended);
+    let mut s = session("amber-swift-owl", v1::session::State::Ended);
     s.native_session = "native-1".to_string();
     s.end_time = Some(ts(STARTED + 3600).into());
     s.kept = true;
@@ -502,7 +502,7 @@ fn show_prints_the_record_one_fact_per_line() {
 // session says so: j001200's "Show prints what the session was about".
 #[test]
 fn show_leaves_out_what_is_absent_and_names_a_session_with_no_title() {
-    let mut s = session("amber-swift-owl", v1::SessionState::Live);
+    let mut s = session("amber-swift-owl", v1::session::State::Live);
     s.summary = String::new();
     let reads = Reads {
         sessions: vec![s],
@@ -526,7 +526,7 @@ fn show_leaves_out_what_is_absent_and_names_a_session_with_no_title() {
 // Ruling 146: show in json is the session as its proto3 JSON.
 #[test]
 fn show_in_json_is_the_session() {
-    let mut s = session("amber-swift-owl", v1::SessionState::Ended);
+    let mut s = session("amber-swift-owl", v1::session::State::Ended);
     s.title = "the auth refactor".to_string();
     let reads = Reads {
         sessions: vec![s],
@@ -543,7 +543,7 @@ fn show_in_json_is_the_session() {
 // children, each by what the daemon answered.
 #[test]
 fn show_in_text_names_the_owner_the_close_the_children_and_the_pending() {
-    let mut s = session("brisk-copper-moth", v1::SessionState::Live);
+    let mut s = session("brisk-copper-moth", v1::session::State::Live);
     s.owner = "projects/calm-otter/sessions/amber-quiet-heron".to_string();
     s.closed = true;
     s.children = vec!["projects/calm-otter/sessions/calm-dusty-wren".to_string()];
@@ -768,13 +768,13 @@ fn plan(applied: bool) -> v1::DeleteSessionResponse {
             v1::RemovalFile {
                 path: "/h/.ctxloom/sessions/amber-swift-owl/native/history.jsonl".to_string(),
                 rel: "native/history.jsonl".to_string(),
-                class: v1::FileClass::Machine as i32,
+                class: v1::removal_file::Class::Machine as i32,
                 bytes: 9,
             },
             v1::RemovalFile {
                 path: "/h/.ctxloom/sessions/amber-swift-owl/notes.md".to_string(),
                 rel: "notes.md".to_string(),
-                class: v1::FileClass::Authored as i32,
+                class: v1::removal_file::Class::Authored as i32,
                 bytes: 4,
             },
         ],

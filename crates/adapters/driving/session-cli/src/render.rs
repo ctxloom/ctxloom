@@ -46,9 +46,9 @@ fn harp_of(name: &str) -> &str {
 
 /// A session's state, as the rows say it.
 fn state_word(state: i32) -> &'static str {
-    match v1::SessionState::try_from(state) {
-        Ok(v1::SessionState::Live) => "live",
-        Ok(v1::SessionState::Ended) => "ended",
+    match v1::session::State::try_from(state) {
+        Ok(v1::session::State::Live) => "live",
+        Ok(v1::session::State::Ended) => "ended",
         _ => "unknown",
     }
 }
@@ -200,8 +200,8 @@ pub(crate) fn removal_of(plan: &v1::DeleteSessionResponse) -> Removal {
                 .map(|file| PlanItem {
                     path: file.path.clone(),
                     rel: file.rel.clone(),
-                    class: match v1::FileClass::try_from(file.class) {
-                        Ok(v1::FileClass::Machine) => Class::Machine,
+                    class: match v1::removal_file::Class::try_from(file.class) {
+                        Ok(v1::removal_file::Class::Machine) => Class::Machine,
                         _ => Class::Authored,
                     },
                     bytes: file.bytes,

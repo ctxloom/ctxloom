@@ -331,20 +331,20 @@ message GetDaemonRequest {
   EnvVars env = 94;
 }
 
-enum RunKind {
-  RUN_KIND_UNSPECIFIED = 0;
-  RUN_KIND_TERMINAL = 1;
-  RUN_KIND_ONE_SHOT = 2;
-  RUN_KIND_CHILD = 3;
-}
-
 message HostedRun {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    TERMINAL = 1;
+    ONE_SHOT = 2;
+    CHILD = 3;
+  }
+
   // `projects/{project}/sessions/{session}`.
   string session = 1;
   string harp = 2;
   // `projects/{project}/runs/{run}`.
   string run = 3;
-  RunKind kind = 4;
+  Kind kind = 4;
 }
 
 // The daemon (a singleton). Never its bearer.
@@ -465,13 +465,6 @@ message AssembledContext {
 
 // region sessions
 
-enum SessionState {
-  SESSION_STATE_UNSPECIFIED = 0;
-  SESSION_STATE_LIVE = 1;
-  SESSION_STATE_ENDED = 2;
-  SESSION_STATE_UNKNOWN = 3;
-}
-
 message PendingMessage {
   string message_id = 1;
   string urgency = 2;
@@ -482,11 +475,18 @@ message PendingMessage {
 
 // A session (the session index's record).
 message Session {
+  enum State {
+    STATE_UNSPECIFIED = 0;
+    LIVE = 1;
+    ENDED = 2;
+    UNKNOWN = 3;
+  }
+
   // `projects/{project}/sessions/{session}`.
   string name = 1;
   // The stream root (UUID text), what a command's cover names.
   string uid = 2;
-  SessionState state = 3;
+  State state = 3;
   string engine = 4;
   string summary = 5;
   google.protobuf.Timestamp start_time = 6;
@@ -526,7 +526,7 @@ message GetSessionRequest {
 message ListSessionsRequest {
   // `projects/{project}`, or `projects/-` for every project.
   string parent = 1;
-  SessionState state = 2;
+  Session.State state = 2;
   bool has_transcript = 3;
   int32 page_size = 80;
   string page_token = 81;
@@ -541,7 +541,7 @@ message ListSessionsResponse {
 message SearchSessionsRequest {
   string parent = 1;
   repeated string words = 2;
-  SessionState state = 3;
+  Session.State state = 3;
   int32 page_size = 80;
   string page_token = 81;
   EnvVars env = 94;
@@ -564,22 +564,22 @@ message DeleteSessionRequest {
   Presentable presentable = 95;
 }
 
-// What a file of a session's directory is to a removal: both classes are
-// destroyed, and the plan names which is which.
-enum FileClass {
-  FILE_CLASS_UNSPECIFIED = 0;
-  // The machine-written conversation (`transcripts/`, `native/`).
-  FILE_CLASS_MACHINE = 1;
-  // Anything else: a person wrote it, and it goes with the session.
-  FILE_CLASS_AUTHORED = 2;
-}
-
 // One file a removal destroys.
 message RemovalFile {
+  // What a file of a session's directory is to a removal: both classes are
+  // destroyed, and the plan names which is which.
+  enum Class {
+    CLASS_UNSPECIFIED = 0;
+    // The machine-written conversation (`transcripts/`, `native/`).
+    MACHINE = 1;
+    // Anything else: a person wrote it, and it goes with the session.
+    AUTHORED = 2;
+  }
+
   string path = 1;
   // Relative to the session's directory.
   string rel = 2;
-  FileClass class = 3;
+  Class class = 3;
   uint64 bytes = 4;
 }
 
@@ -738,12 +738,6 @@ message HandOff {
 
 // region runs
 
-enum RunMode {
-  RUN_MODE_UNSPECIFIED = 0;
-  RUN_MODE_ONE_SHOT = 1;
-  RUN_MODE_TERMINAL = 2;
-}
-
 message Finding {
   string kind = 1;
   string text = 2;
@@ -759,9 +753,15 @@ message Setting {
 
 // A run: its plan, and once created its session and (TERMINAL) its launch.
 message Run {
+  enum Mode {
+    MODE_UNSPECIFIED = 0;
+    ONE_SHOT = 1;
+    TERMINAL = 2;
+  }
+
   // `projects/{project}/runs/{run}`.
   string name = 1;
-  RunMode mode = 2;
+  Mode mode = 2;
   // `projects/{project}/sessions/{session}`.
   string session = 3;
   string agent = 4;
@@ -783,7 +783,7 @@ message Run {
 
 message CreateRunRequest {
   string parent = 1;
-  RunMode mode = 2;
+  Run.Mode mode = 2;
   string prompt = 3;
   string agent = 4;
   string engine = 5;
@@ -987,30 +987,30 @@ message DaemonHosting {
   repeated string harps = 2;
 }
 
-// Why a removal was refused.
-enum RemovalRefusal {
-  REMOVAL_REFUSAL_UNSPECIFIED = 0;
-  // Its lock does not prove it ended (held, or none), without
-  // `even_if_live`; `detail` says which.
-  REMOVAL_REFUSAL_NOT_PROVEN_DEAD = 1;
-  // It is marked keep.
-  REMOVAL_REFUSAL_KEPT = 2;
-  // It ended within the transcript retention; `detail` says when.
-  REMOVAL_REFUSAL_RETAINED = 3;
-  // A scratch worktree of it is spared or skipped: a session is removed
-  // whole or not at all.
-  REMOVAL_REFUSAL_WORKTREES_KEEP = 4;
-}
-
 // `DeleteSession` refused: nothing was removed. It carries the PLAN (owner,
 // 2026-11-12): every file the removal would have destroyed, its class and
 // bytes, the authored ones, and the worktrees, so a refused removal says
 // what it did not do.
 message RemovalRefused {
+  // Why a removal was refused.
+  enum Reason {
+    REASON_UNSPECIFIED = 0;
+    // Its lock does not prove it ended (held, or none), without
+    // `even_if_live`; `detail` says which.
+    NOT_PROVEN_DEAD = 1;
+    // It is marked keep.
+    KEPT = 2;
+    // It ended within the transcript retention; `detail` says when.
+    RETAINED = 3;
+    // A scratch worktree of it is spared or skipped: a session is removed
+    // whole or not at all.
+    WORKTREES_KEEP = 4;
+  }
+
   option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
 
   string name = 1;
-  RemovalRefusal reason = 2;
+  Reason reason = 2;
   string detail = 3;
   DeleteSessionResponse plan = 4;
   // A worktree refusal's counts.

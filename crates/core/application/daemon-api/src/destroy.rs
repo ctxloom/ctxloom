@@ -418,7 +418,7 @@ impl<E: Edge> Api<E> {
         .await
         .map_err(|error| reclaim_failed(&error))?;
         let plan = deletion(&request.name, &done.removal, done.worktrees.as_ref());
-        let refused = |reason: v1::RemovalRefusal, detail: String, counts: (u64, u64)| {
+        let refused = |reason: v1::removal_refused::Reason, detail: String, counts: (u64, u64)| {
             ApiError::from(ApiRefusal::of(&v1::RemovalRefused {
                 name: request.name.clone(),
                 reason: reason as i32,
@@ -430,15 +430,17 @@ impl<E: Edge> Api<E> {
         };
         match (&done.removal.refusal, &done.kept) {
             (Some(Refusal::NotProvenDead { reason, .. }), _) => Err(refused(
-                v1::RemovalRefusal::NotProvenDead,
+                v1::removal_refused::Reason::NotProvenDead,
                 reason.clone(),
                 (0, 0),
             )),
-            (Some(Refusal::Kept { .. }), _) => {
-                Err(refused(v1::RemovalRefusal::Kept, String::new(), (0, 0)))
-            }
+            (Some(Refusal::Kept { .. }), _) => Err(refused(
+                v1::removal_refused::Reason::Kept,
+                String::new(),
+                (0, 0),
+            )),
             (Some(Refusal::Retained { detail, .. }), _) => Err(refused(
-                v1::RemovalRefusal::Retained,
+                v1::removal_refused::Reason::Retained,
                 detail.clone(),
                 (0, 0),
             )),
@@ -448,7 +450,7 @@ impl<E: Edge> Api<E> {
                     spared, skipped, ..
                 }),
             ) => Err(refused(
-                v1::RemovalRefusal::WorktreesKeep,
+                v1::removal_refused::Reason::WorktreesKeep,
                 String::new(),
                 (*spared, *skipped),
             )),
@@ -771,8 +773,8 @@ pub(crate) fn deletion(
                 path: item.path.clone(),
                 rel: item.rel.clone(),
                 class: match item.class {
-                    Class::Machine => v1::FileClass::Machine,
-                    Class::Authored => v1::FileClass::Authored,
+                    Class::Machine => v1::removal_file::Class::Machine,
+                    Class::Authored => v1::removal_file::Class::Authored,
                 } as i32,
                 bytes: item.bytes,
             })

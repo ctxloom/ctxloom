@@ -528,7 +528,7 @@ impl daemon_api::Hosting for Shared {
                     session: index.name_of(&record),
                     harp: record.harp,
                     run: format!("projects/{project}/runs/{run}"),
-                    kind: daemon_proto::v1::RunKind::Child as i32,
+                    kind: daemon_proto::v1::hosted_run::Kind::Child as i32,
                 }
             })
             .collect()

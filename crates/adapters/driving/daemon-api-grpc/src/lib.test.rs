@@ -118,7 +118,7 @@ impl Calls for Scripted {
                 }),
                 false => Err(daemon_api::ApiRefusal::of(&v1::RemovalRefused {
                     name: request.name,
-                    reason: v1::RemovalRefusal::Kept as i32,
+                    reason: v1::removal_refused::Reason::Kept as i32,
                     plan: Some(v1::DeleteSessionResponse {
                         authored: vec!["notes.md".to_string()],
                         ..v1::DeleteSessionResponse::default()

@@ -31,7 +31,7 @@ fn test_a_fact_with_presence_prints_false_and_a_default_is_left_out() {
     let preview = v1::DeleteBundleResponse {
         bundle: Some(v1::Bundle {
             name: "projects/calm-otter/bundles/demo".to_string(),
-            origin: v1::Origin::Project as i32,
+            origin: v1::bundle::Origin::Project as i32,
             fragment_count: 2,
             held: None,
             ..v1::Bundle::default()

@@ -120,7 +120,7 @@ impl DaemonApi for Fake {
         if r.name.ends_with("/kept-heron") {
             let refusal = crate::ApiRefusal::of(&v1::RemovalRefused {
                 name: r.name,
-                reason: v1::RemovalRefusal::Kept as i32,
+                reason: v1::removal_refused::Reason::Kept as i32,
                 plan: Some(plan),
                 ..v1::RemovalRefused::default()
             });
@@ -240,7 +240,7 @@ fn outside(daemons: &Fakes) -> Client<Fakes> {
 async fn a_listing_resolves_its_project_first_and_sends_its_environment() {
     let daemons = Fakes::new();
     let listed = in_project(&daemons)
-        .list_sessions(false, v1::SessionState::Live)
+        .list_sessions(false, v1::session::State::Live)
         .await
         .unwrap();
     assert_eq!(listed.sessions.len(), 1);
@@ -256,14 +256,14 @@ async fn a_listing_resolves_its_project_first_and_sends_its_environment() {
 async fn every_projects_listing_is_the_wildcard_parent() {
     let daemons = Fakes::new();
     in_project(&daemons)
-        .list_sessions(true, v1::SessionState::Unspecified)
+        .list_sessions(true, v1::session::State::Unspecified)
         .await
         .unwrap();
     assert_eq!(daemons.asked(), ["1:resolve", "1:list 0"]);
     assert_eq!(daemons.names(), ["p-1", "projects/-"]);
     let outside_daemons = Fakes::new();
     outside(&outside_daemons)
-        .list_sessions(true, v1::SessionState::Unspecified)
+        .list_sessions(true, v1::session::State::Unspecified)
         .await
         .unwrap();
     assert_eq!(outside_daemons.asked(), ["1:list 0"]);
@@ -276,7 +276,7 @@ async fn every_projects_listing_is_the_wildcard_parent() {
 async fn outside_a_project_its_own_listing_is_refused() {
     let daemons = Fakes::new();
     let refused = outside(&daemons)
-        .list_sessions(false, v1::SessionState::Unspecified)
+        .list_sessions(false, v1::session::State::Unspecified)
         .await
         .unwrap_err();
     assert_eq!(
@@ -298,7 +298,7 @@ async fn show_and_search_address_the_resolved_project() {
         .search_sessions(
             vec!["lock".to_string(), "file".to_string()],
             false,
-            v1::SessionState::Live,
+            v1::session::State::Live,
         )
         .await
         .unwrap();
@@ -322,7 +322,7 @@ async fn a_call_whose_daemon_dies_is_made_once_more_on_a_new_one() {
     let daemons = Fakes::new();
     daemons.template.dying.lock().unwrap().push(1);
     in_project(&daemons)
-        .list_sessions(false, v1::SessionState::Unspecified)
+        .list_sessions(false, v1::session::State::Unspecified)
         .await
         .unwrap();
     assert_eq!(
@@ -333,7 +333,7 @@ async fn a_call_whose_daemon_dies_is_made_once_more_on_a_new_one() {
     let twice = Fakes::new();
     twice.template.dying.lock().unwrap().extend([1, 2]);
     let failed = in_project(&twice)
-        .list_sessions(false, v1::SessionState::Unspecified)
+        .list_sessions(false, v1::session::State::Unspecified)
         .await
         .unwrap_err();
     assert!(

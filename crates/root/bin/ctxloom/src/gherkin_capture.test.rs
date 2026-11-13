@@ -688,7 +688,6 @@ fn listed_state(listing: &str, harp: &str) -> Option<String> {
             Value::Object(map) if named(map) => map
                 .get("state")
                 .and_then(Value::as_str)
-                .and_then(|state| state.strip_prefix("SESSION_STATE_"))
                 .map(str::to_lowercase),
             Value::Object(map) => map.values().find_map(|v| find(v, harp)),
             Value::Array(items) => items.iter().find_map(|v| find(v, harp)),
@@ -764,7 +763,7 @@ fn still_under_its_harp(w: &mut World) {
     let doc: Value = serde_json::from_str(&shown.stdout).expect("json");
     assert_eq!(doc["title"], "titled while live", "{}", shown.stdout);
     assert_eq!(
-        doc["state"], "SESSION_STATE_ENDED",
+        doc["state"], "ENDED",
         "its lock is where it was: {}",
         shown.stdout
     );

@@ -523,17 +523,17 @@ pub(crate) fn invalid(name: &str, rejection: &SessionRejection) -> ApiError {
 }
 
 /// A lock's state, as the API says it.
-fn state_of(state: State) -> v1::SessionState {
+fn state_of(state: State) -> v1::session::State {
     match state {
-        State::Live => v1::SessionState::Live,
-        State::Ended => v1::SessionState::Ended,
-        State::Unknown => v1::SessionState::Unknown,
+        State::Live => v1::session::State::Live,
+        State::Ended => v1::session::State::Ended,
+        State::Unknown => v1::session::State::Unknown,
     }
 }
 
 /// Whether `session` is in `state` (unspecified: any).
 fn in_state(session: &v1::Session, state: i32) -> bool {
-    state == v1::SessionState::Unspecified as i32 || session.state == state
+    state == v1::session::State::Unspecified as i32 || session.state == state
 }
 
 #[cfg(test)]

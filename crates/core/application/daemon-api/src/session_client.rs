@@ -45,7 +45,7 @@ pub trait SessionReads {
     async fn list_sessions(
         &self,
         all: bool,
-        state: v1::SessionState,
+        state: v1::session::State,
     ) -> Result<v1::ListSessionsResponse, CallError>;
 
     /// `session search`: the sessions whose words match.
@@ -53,7 +53,7 @@ pub trait SessionReads {
         &self,
         words: Vec<String>,
         all: bool,
-        state: v1::SessionState,
+        state: v1::session::State,
     ) -> Result<v1::ListSessionsResponse, CallError>;
 
     /// `session show`: this project's session `harp`.
@@ -226,7 +226,7 @@ impl<D: Daemons> SessionReads for Client<D> {
     async fn list_sessions(
         &self,
         all: bool,
-        state: v1::SessionState,
+        state: v1::session::State,
     ) -> Result<v1::ListSessionsResponse, CallError> {
         self.on_daemon(async |api: &D::Api| {
             let request = v1::ListSessionsRequest {
@@ -244,7 +244,7 @@ impl<D: Daemons> SessionReads for Client<D> {
         &self,
         words: Vec<String>,
         all: bool,
-        state: v1::SessionState,
+        state: v1::session::State,
     ) -> Result<v1::ListSessionsResponse, CallError> {
         self.on_daemon(async |api: &D::Api| {
             let request = v1::SearchSessionsRequest {

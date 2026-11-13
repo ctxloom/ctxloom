@@ -66,3 +66,66 @@ fn an_unreached_daemon_says_why_in_its_words() {
     assert_eq!(declined, declined.clone());
     assert_ne!(declined, not_started);
 }
+
+// An outcome is shown as its code and its args, so a log names what the
+// call came to and with what.
+#[test]
+fn an_unreached_daemon_is_shown_by_its_code_and_args() {
+    use crate::Unreached;
+    let not_started = Unreached::NotStarted {
+        log: "/home/u/.ctxloom/daemon/daemon.log".to_string(),
+    };
+    assert_eq!(
+        not_started.to_string(),
+        "daemon-ports-not-started log=/home/u/.ctxloom/daemon/daemon.log"
+    );
+    assert_eq!(
+        format!("{not_started:?}"),
+        "NotStarted { log: \"/home/u/.ctxloom/daemon/daemon.log\" }"
+    );
+    let declined = Unreached::Declined(std::sync::Arc::new(Called::Unimplemented {
+        method: "/ctxloom.daemon.v1.Ctxloom/ListSessions".to_string(),
+    }));
+    assert_eq!(
+        declined.to_string(),
+        "daemon-ports-unimplemented method=/ctxloom.daemon.v1.Ctxloom/ListSessions"
+    );
+    assert_eq!(
+        format!("{declined:?}"),
+        "Declined(\"daemon-ports-unimplemented\")"
+    );
+}
+
+#[test]
+fn a_call_that_came_to_nothing_is_shown_by_its_code_and_args() {
+    let refused = Called::Refused {
+        code: 9,
+        refusal: Any::from_msg(&v1::DaemonHosting::default()).unwrap(),
+    };
+    assert_eq!(
+        refused.to_string(),
+        format!(
+            "daemon-ports-refused code={}",
+            v1::DaemonHosting::type_url()
+        )
+    );
+    assert_eq!(
+        Called::Unreachable {
+            detail: "refused".to_string()
+        }
+        .to_string(),
+        "daemon-ports-unreachable ext_err_txt=refused"
+    );
+    assert_eq!(
+        Called::Failed {
+            code: 13,
+            detail: "boom".to_string()
+        }
+        .to_string(),
+        "daemon-ports-failed code=13 ext_err_txt=boom"
+    );
+    assert_eq!(
+        Called::Unauthenticated.to_string(),
+        "daemon-ports-unauthenticated"
+    );
+}

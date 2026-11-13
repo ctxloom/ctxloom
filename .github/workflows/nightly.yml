@@ -1,0 +1,223 @@
+# The nightly on main (owner ruling 2026-11-12): the WHOLE suite on every OS
+# (linux, windows, macOS arm64 on macos-15 and macOS x86_64 on
+# macos-15-intel, the last Intel runner), and a FULL mutation run over the
+# whole workspace with mutation SCORING by tier.
+#
+# The mutation run is sharded (`just mutants-shard k/n`, cargo-mutants'
+# round-robin `--shard`): a GitHub-hosted job may run for at most 6 hours
+# (https://docs.github.com/en/actions/reference/limits), and one job over
+# the whole workspace would not fit. Each shard has `timeout-minutes` under
+# that cap; `score` merges the shards' outcomes.json and judges them with
+# the gates' own verdict (`just mutants-score`, which runs
+# gates/gates.just's `_mutants-verdict` against `mutation_thresholds`),
+# uploads `mutation-scores` (scores.json, one object per tier, and the
+# verdict's words) and appends the tiers to the run's summary, so the trend
+# is read run by run. A tier below its threshold fails `score` (the verdict's
+# own exit), after the scores are kept.
+#
+# A dispatch may choose: `suites` (run the test suites too), `shards` (n),
+# and `only-shard` (run that one shard k of n alone, to measure a shard's
+# time; the score is then of that shard only).
+
+name: nightly
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      suites:
+        description: Run the full test suites too
+        type: boolean
+        default: true
+      shards:
+        description: How many mutation shards (n)
+        type: number
+        default: 20
+      only-shard:
+        description: Run only this shard k (0 to n-1); empty runs them all
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: never
+
+jobs:
+  plan:
+    name: plan
+    runs-on: ubuntu-24.04
+    outputs:
+      shards: ${{ steps.plan.outputs.shards }}
+      n: ${{ steps.plan.outputs.n }}
+      suites: ${{ steps.plan.outputs.suites }}
+    steps:
+      - id: plan
+        env:
+          N: ${{ inputs.shards || 20 }}
+          ONLY: ${{ inputs.only-shard }}
+          SUITES: ${{ github.event_name != 'workflow_dispatch' || inputs.suites }}
+        run: |
+          set -euo pipefail
+          [[ "$N" =~ ^[1-9][0-9]*$ ]] || { echo "::error::shards must be a positive number, not $N"; exit 1; }
+          if [ -n "$ONLY" ]; then
+            [[ "$ONLY" =~ ^[0-9]+$ ]] && [ "$ONLY" -lt "$N" ] || { echo "::error::only-shard $ONLY is not in 0..$((N - 1))"; exit 1; }
+            shards="[$ONLY]"
+          else
+            shards=$(seq 0 $((N - 1)) | jq -cs .)
+          fi
+          { echo "shards=$shards"; echo "n=$N"; echo "suites=$SUITES"; } >> "$GITHUB_OUTPUT"
+          echo "mutation shards $shards of $N; suites $SUITES"
+
+  suite:
+    name: full suite (${{ matrix.name }})
+    needs: plan
+    if: needs.plan.outputs.suites == 'true'
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            runner: ubuntu-24.04
+          - name: windows
+            runner: windows-latest
+          - name: macos
+            runner: macos-15
+          - name: macos x86_64
+            runner: macos-15-intel
+    defaults:
+      run:
+        shell: bash
+    env:
+      NEXTEST_PROFILE: default
+    steps:
+      - name: Long paths
+        if: runner.os == 'Windows'
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ctxloom/ci/.github/actions/setup-rust@0da40ae32467e8dcd878c7fc8822bf1d863e5734 # main 2026-11-12
+        with:
+          tools: just@1.40.0,cargo-nextest@0.9.146
+      - uses: ctxloom/ci/.github/actions/setup-protoc@0da40ae32467e8dcd878c7fc8822bf1d863e5734 # main 2026-11-12
+      - uses: ctxloom/ci/.github/actions/setup-versionator@0da40ae32467e8dcd878c7fc8822bf1d863e5734 # main 2026-11-12
+      - if: runner.os != 'Windows'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - run: just build
+      - run: just test
+      - if: failure()
+        uses: ctxloom/ci/.github/actions/gate-logs@0da40ae32467e8dcd878c7fc8822bf1d863e5734 # main 2026-11-12
+        with:
+          name: nightly-${{ runner.os }}-${{ runner.arch }}
+
+  mutants:
+    name: mutants (shard ${{ matrix.shard }} of ${{ needs.plan.outputs.n }})
+    needs: plan
+    runs-on: ubuntu-24.04
+    # Under the 6-hour cap of a hosted job, with room for setup and upload.
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ctxloom/ci/.github/actions/setup-rust@0da40ae32467e8dcd878c7fc8822bf1d863e5734 # main 2026-11-12
+        with:
+          tools: just@1.40.0,cargo-nextest@0.9.146,cargo-mutants@26.2.0
+          cache-key: mutants
+      - uses: ctxloom/ci/.github/actions/setup-protoc@0da40ae32467e8dcd878c7fc8822bf1d863e5734 # main 2026-11-12
+      - uses: ctxloom/ci/.github/actions/setup-versionator@0da40ae32467e8dcd878c7fc8822bf1d863e5734 # main 2026-11-12
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - name: Mutation shard ${{ matrix.shard }}/${{ needs.plan.outputs.n }}
+        env:
+          SHARD: ${{ matrix.shard }}/${{ needs.plan.outputs.n }}
+        run: |
+          start=$(date +%s)
+          rc=0
+          just mutants-shard "$SHARD" target/logs/mutants-shard || rc=$?
+          secs=$(($(date +%s) - start))
+          echo "$secs" > target/logs/mutants-shard/seconds
+          echo "shard $SHARD: ${secs}s, cargo mutants exit $(cat target/logs/mutants-shard/exit 2>/dev/null || echo none)" | tee -a "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mutants-shard-${{ matrix.shard }}
+          path: |
+            target/logs/mutants-shard/exit
+            target/logs/mutants-shard/seconds
+            target/logs/mutants-shard/mutants.out/outcomes.json
+            target/logs/mutants-shard/mutants.out/missed.txt
+            target/logs/mutants-shard/mutants.out/timeout.txt
+            target/logs/mutants-shard/mutants.out/log/baseline.log
+          if-no-files-found: error
+          retention-days: 30
+
+  score:
+    name: mutation scores
+    needs: [plan, mutants]
+    if: always() && needs.plan.result == 'success'
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          tool: just@1.40.0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: mutants-shard-*
+          path: shards
+      - name: Score (the gates' verdict over the merged shards)
+        id: score
+        env:
+          N: ${{ needs.plan.outputs.n }}
+        run: |
+          set -euo pipefail
+          mapfile -t dirs < <(find shards -mindepth 1 -maxdepth 1 -type d | sort -V)
+          echo "${#dirs[@]} shard(s) of $N"
+          rc=0
+          just mutants-score scores "${dirs[@]}" || rc=$?
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Mutation scores ($(date -u +%Y-%m-%d), ${GITHUB_SHA:0:9}, ${#dirs[@]} of $N shards)"
+            echo
+            jq -r '"\(.mutants) mutants; the verdict exited \(.verdict_exit)"' scores/scores.json
+            echo
+            echo "| tier | killed | viable | score | threshold | |"
+            echo "|---|---:|---:|---:|---:|---|"
+            jq -r '.tiers[] | "| \(.prefix) | \(.killed) | \(.viable) | \(if .percent == null then "none judged" else "\(.percent)%" end) | \(if .threshold == null then "" else "\(.threshold)%" end) | \(if .pass then "pass" else "FAIL" end) |"' scores/scores.json
+            echo
+            echo "Shard wall times (s): $(for d in "${dirs[@]}"; do printf '%s ' "$(cat "$d/seconds" 2>/dev/null || echo ?)"; done)"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for d in "${dirs[@]}"; do echo "$(basename "$d") $(cat "$d/seconds" 2>/dev/null || echo ?)s"; done > scores/shard-seconds.txt
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mutation-scores
+          path: scores/
+          if-no-files-found: error
+          retention-days: 90
+      - name: The verdict
+        if: always()
+        env:
+          RC: ${{ steps.score.outputs.rc }}
+        run: exit "${RC:-1}"

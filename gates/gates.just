@@ -393,6 +393,9 @@ _test-affected:
 #        named in the log on a line `nextest exited <code>`.
 # 100 and 120 are red tests, which `test-commit` allows off the default
 # branch; 101 and 121 are not. Its self-test is scripts/tests-exit.selftest.sh.
+# NEXTEST_PROFILE, when set, is the nextest profile (nextest reads it itself;
+# said here so the run's log names it): CI's `ci-platform` narrows the run by
+# its `default-filter` (.config/nextest.toml).
 [positional-arguments]
 [no-exit-message]
 _tests +packages:
@@ -428,6 +431,7 @@ _tests +packages:
     if [ "${#features[@]}" -gt 0 ] && [ -n "{{features_prepare}}" ]; then
         just --justfile "$root/justfile" {{features_prepare}}
     fi
+    [ -n "${NEXTEST_PROFILE:-}" ] && echo "nextest profile: $NEXTEST_PROFILE"
     cargo test --manifest-path "$root/Cargo.toml" --no-run ${cargo_terse[@]+"${cargo_terse[@]}"} ${selection[@]+"${selection[@]}"} ${features[@]+"${features[@]}"}
     rc=0
     cargo nextest run --manifest-path "$root/Cargo.toml" --no-fail-fast --no-tests=pass ${terse[@]+"${terse[@]}"} \

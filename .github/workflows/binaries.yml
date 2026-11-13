@@ -1,0 +1,27 @@
+# The plain binaries on every push to main (owner ruling 2026-11-12), in their
+# own workflow, parallel to ci.yml: ctxloom/ci's reusable binaries workflow,
+# with the `ci-artifact` profile (`just release-binary ci-artifact`: no LTO,
+# no debug info, so `release-package ... ci-artifact` packages the binary
+# alone). Four targets: linux-x86_64, windows-x86_64, macos-arm64 and
+# macos-x86_64 (cross-built on the macos-15 runner). Each is an artifact
+# `ctxloom-<stamp>-<os>-<arch>.tar.gz` (`.zip` on Windows) holding
+# `ctxloom` (`ctxloom.exe`), its exec bit kept by tar. A dispatch builds the
+# same from any branch.
+
+name: binaries
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  binaries:
+    uses: ctxloom/ci/.github/workflows/binaries.yml@0da40ae32467e8dcd878c7fc8822bf1d863e5734 # main 2026-11-12
+    with:
+      bin: ctxloom
+      profile: ci-artifact

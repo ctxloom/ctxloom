@@ -1387,27 +1387,62 @@ branch (`scripts/tests-exit.selftest.sh`).
 
 ## CI (`.github/workflows/ci.yml`)
 
-GitHub Actions, modelled on angzarr-platform's: every action pinned to a
-commit, every tool to a version (just, cargo-nextest, cargo-deny by
-taiki-e/install-action; protoc 3.21.12 by checksum; node 22; ltk from the Go
-ctxloom's go-final, for `ltk-rules-check.sh`), the gates' logs dumped and
-uploaded on a failure. Linux (`ubuntu-24.04`) runs every gate but mutation
-(closeout's): `just build`, `fmt-check`, `lint`, `lint-os`, `lint-deps`,
-`test`, `check-windows`, `selftest`. Windows (`windows-latest`, MSVC, Git
-Bash) runs `just build` and `just test` natively, the whole workspace, and so
-does macOS (`macos-15`, arm64; protoc's osx-aarch_64 by checksum). Every
-dependency is a public https git pin, so no credential is needed. For
-Windows, nextest's setup script runs under `sh` (`cfg(windows)` entry in
-`.config/nextest.toml`; the unix one is unchanged), and the plain-binary
-checks find `ctxloom.exe` and give it a USERPROFILE, TEMP and SYSTEMROOT.
+GitHub Actions, as thin callers of the shared CI repository
+github.com/ctxloom/ci (owner rulings 2026-11-12): its composite actions
+`setup-rust` (rust-toolchain.toml, made the default; pinned tools by
+taiki-e/install-action; rust-cache, saved on main only), `setup-protoc`
+(3.21.12 by checksum), `setup-versionator` (v0.3.0's release binary by
+checksum, so no job sets up Go for it), `setup-ltk` (ltk from the Go
+ctxloom's go-final, go-installed on a cache miss only, for
+`ltk-rules-check.sh`), `gate-logs` (the logs dumped and uploaded on a
+failure) and `package-binary`, and its reusable workflows `binaries.yml` and
+`release.yml`, all pinned at ONE commit of its main (bump them together).
+Every action is pinned to a commit, every tool to a version. Linux
+(`ubuntu-24.04`; it moves into the dev container once that image is
+published, a commented `container:` line marks the place) runs every gate
+but mutation: `just build`, `fmt-check`, `lint`, `lint-os`, `lint-deps`,
+`test`, `check-windows`, `selftest`, the whole suite. Windows
+(`windows-latest`, MSVC, Git Bash) and macOS (`macos-15`, arm64) run `just
+build` and `just test` natively: the WHOLE suite on main, pull requests and
+tags, and on any other branch push the nextest profile `ci-platform`
+(`NEXTEST_PROFILE`, which nextest reads itself and `_tests` names in its
+log): its `default-filter` (`.config/nextest.toml`) is every crate depending
+on `os`, `file-system` or `run-within` (`rdeps()` of each of their direct
+users, listed because nextest's `rdeps()` names workspace crates only;
+`scripts/ci-platform-check.sh`, in the Linux job, fails on one missing),
+`test(/::os::/)` (no test is in an
+`os` module yet, so that term selects nothing until the OS-specific tests
+are moved), and the path-handling core crates run-ports, setup-application,
+reclaim-application, library-application, run-application and run-launcher.
+`just test` everywhere else stays the full suite. Every dependency is a
+public https git pin, so no credential is needed. For Windows, nextest's
+setup script runs under `sh` (`cfg(windows)` entry in `.config/nextest.toml`;
+the unix one is unchanged), and the plain-binary checks find `ctxloom.exe`
+and give it a USERPROFILE, TEMP and SYSTEMROOT.
 
-On a push to `main`, each job, once its gates pass, builds the plain binary
-in the `ci-artifact` profile (`just release-binary ci-artifact`: no
-test-support, no session-destroy, cargo's release defaults, no LTO,
-unstripped, the two plain-build checks; it prints the binary's path) and
-uploads it as the artifact `ctxloom-<stamp>-<os>-<arch>` (`linux-x86_64`,
-`macos-arm64`, `windows-x86_64`, holding `ctxloom` or `ctxloom.exe`); no other
-push or pull request builds it.
+The binaries are a workflow of their own, parallel to CI
+(`.github/workflows/binaries.yml`, on a push to main or a dispatch): the
+shared binaries workflow builds the plain binary in the `ci-artifact`
+profile (`just release-binary ci-artifact`: no test-support, no
+session-destroy, cargo's release defaults, no LTO, no debug info, the two
+plain-build checks) for linux-x86_64, windows-x86_64, macos-arm64 and
+macos-x86_64 (cross-built on the macos-15 runner with `CARGO_BUILD_TARGET`,
+which `release-binary` honours, and run under Rosetta), each the artifact
+`ctxloom-<stamp>-<os>-<arch>.tar.gz` (`.zip` on Windows) holding `ctxloom`
+(`ctxloom.exe`): tar keeps the exec bit that upload-artifact's zip drops.
+`release-package <os> <out> <name> ci-artifact` packages the binary alone.
+
+The nightly (`.github/workflows/nightly.yml`, on main at 03:17 UTC, and on a
+dispatch) runs the whole suite on linux, windows, macos-15 and
+macos-15-intel (x86_64 tested natively there only), and a FULL mutation run
+scored by tier: `just mutants-shard <k/n>` (cargo-mutants' `--shard`, the
+whole workspace, in place, no feature) in n parallel jobs, each under the
+hosted job's 6-hour cap, then `just mutants-score` merges their
+outcomes.json and judges them with the gates' own `_mutants-verdict`
+against `mutation_thresholds`, writing `scores.json` (per tier: killed,
+viable, percent, threshold, pass), uploaded as `mutation-scores` and
+appended to the run's summary. A tier below its threshold fails the score
+job, after the scores are kept.
 
 The release profile (owner ruling 2026-11-12, Cargo.toml's
 `[profile.release]`) is fat LTO, one codegen unit, opt-level 3,
@@ -1424,16 +1459,23 @@ on a C program); macOS `<name>` (stripped after the dSYM, signed again ad
 hoc, its UUID the dSYM's) and `<name>.dSYM.zip`; Windows `<name>.exe` as
 built and `<name>.pdb`. `split-debuginfo` is cargo's default.
 
-Releases (`.github/workflows/release.yml`, owner ruling 2026-11-12): a person
+Releases (`.github/workflows/release.yml`, owner rulings 2026-11-12): a person
 runs `just set-version <v>`, commits, and pushes the tag `v<v>` on that
-commit (agents never tag). The workflow refuses a tag that is not VERSION's,
-packages the same three plain binaries (`just release-package <os>`), named
-`ctxloom-<stamp>-<os>-<arch>[.exe]`, each with its debug file (two artifacts,
-`<name>` and `<name>-debug`), and `SHA256SUMS` over all six, and attaches
-them to a GitHub release for the tag (`gh` with the default token;
-`contents: write` for that job alone; a pre-release when the version has
-one). Its `workflow_dispatch` builds and uploads them as the run's artifacts
-and creates no release.
+commit (agents never tag). The shared binaries workflow refuses a tag that is
+not VERSION's, then packages the four plain binaries (`just release-package
+<os>`) named `ctxloom-<stamp>-<os>-<arch>`, each archived (`.tar.gz`, `.zip`
+on Windows) beside its debug file (`.debug`, `.dSYM.zip`, `.pdb`); the
+shared release workflow adds `install.sh` and `install.ps1` (ctxloom/ci's
+installers, their defaults set to this repository and `ctxloom`: checksum
+verified against SHA256SUMS, refused with no checker; `~/.local/lib/ctxloom/
+ctxloom` plus a `~/.local/bin/ctxloom` wrapper and the quarantine cleared on
+macOS; `%LOCALAPPDATA%\Programs\ctxloom`, HKCU Path and Unblock-File on
+Windows), `SHA256SUMS` over all of them, and attaches them to a GitHub
+release for the tag (`gh` with the default token; `contents: write` for that
+job alone; a pre-release when the version has one). Its `workflow_dispatch`
+builds them as the run's artifacts and creates no release. The released
+wrapper sets no `CTXLOOM_HOME` (the release workflow's `wrapper-env`, an
+owner decision).
 
 A test that needs a fake program (an `sh` script through
 `fixture_program::install_program`, which refuses `Unsupported` off unix),
@@ -1471,7 +1513,8 @@ verdict. It is REQUIRED before a batch of work reaches the default branch; no
 hook enforces it (a fast-forward of `main` runs none), so merging without it
 is how 280 survivors reached `main` once (2026-11-04). Nothing runs
 cargo-mutants but the `mutants-staged` gate recipe, which `mutants-batch`
-drives. A failing gate is a finding: fix the cause and commit again; never
+drives, and the nightly's whole-workspace `mutants-shard` (scored by
+`mutants-score`, through `_mutants-verdict`), which no gate runs. A failing gate is a finding: fix the cause and commit again; never
 `--no-verify`, and never weaken a gate to get through.
 
 No commit carries an attribution trailer (owner ruling 170), and the

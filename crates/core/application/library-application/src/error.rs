@@ -428,6 +428,11 @@ pub enum Notice {
     /// A worktree was asked for and none could be had, so the engine worked
     /// in the project instead: `reason` is the workspaces port's.
     WorkspaceUnavailable { reason: String },
+    /// A launch on `engines.<engine>.session_home: host`: the engine runs on
+    /// the user's own setup, with no session home of its own, which is
+    /// unsafe as hygiene, not as security (j002200, step 6a: a session home
+    /// is a relocation, not confinement).
+    SessionHomeHost { engine: String },
     /// A run's checkout was left in place at its end (work in it, or one
     /// that would not go): by path and branch, and why.
     CheckoutLeft {
@@ -476,6 +481,7 @@ impl Diagnostic for Notice {
             Notice::DefaultEngineBlock { .. } => code!("notice-default-engine-block"),
             Notice::UserSettingsLeftOut { .. } => code!("notice-user-settings-left-out"),
             Notice::WorkspaceUnavailable { .. } => code!("notice-workspace-unavailable"),
+            Notice::SessionHomeHost { .. } => code!("notice-session-home-host"),
             Notice::CheckoutLeft { .. } => code!("notice-checkout-left"),
             Notice::RuntimeOverride { change, .. } => match change {
                 library::config::engines::Change::Weakens => code!("notice-runtime-weakens"),
@@ -540,6 +546,7 @@ impl Diagnostic for Notice {
                 ("path", path.as_str().into()),
             ],
             Notice::WorkspaceUnavailable { reason } => vec![("reason", reason.as_str().into())],
+            Notice::SessionHomeHost { engine } => vec![("engine", engine.as_str().into())],
             Notice::CheckoutLeft {
                 path,
                 branch,
@@ -741,6 +748,9 @@ fn notice_samples() -> Vec<Box<dyn Diagnostic>> {
         }),
         Box::new(Notice::WorkspaceUnavailable {
             reason: s("worktree isolation: /work/proj is not a git repository"),
+        }),
+        Box::new(Notice::SessionHomeHost {
+            engine: s("claude-code"),
         }),
         Box::new(Notice::CheckoutLeft {
             path: s("/h/.ctxloom/worktrees/calm-otter/amber-swift-owl/reviewer"),

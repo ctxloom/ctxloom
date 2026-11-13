@@ -465,7 +465,8 @@ hooks and ctxloom's own callbacks (session-start, skill-mates) into
 lives (the session home's `settings.json`, or the hooks file under `host`);
 the servers not served by the session are `ctxloom-mcp.json`, written at
 every launch and named by `--mcp-config` (variadic: an option always follows
-it); the commands and skills are the session home's `commands/` and
+it; a turn's, the terminal's and a hosted child's, `drive::push_mcp_config`);
+the commands and skills are the session home's `commands/` and
 `skills/` (claude's user scope under CLAUDE_CONFIG_DIR), and under
 `session_home: host` files written into the session's checkout alone
 (`Prepared::workspace_files`, hidden by `Engine::workspace_patterns`,

@@ -78,6 +78,8 @@ pub(crate) fn child_command(spec: &ChildSpec) -> Result<TurnCommand, EngineError
     .map(String::from)
     .to_vec();
     command.args.push(request.context_path.clone());
+    // The servers its launch carries, as a turn's and the terminal's.
+    drive::push_mcp_config(&mut command.args, &request);
     drive::push_settings(&mut command.args, &request);
     drive::push_model_and_effort(&mut command.args, &request)?;
     if let Some(native_id) = &spec.resume {

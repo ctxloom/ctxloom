@@ -549,7 +549,7 @@ pub(crate) fn push_settings(args: &mut Vec<String>, request: &TurnRequest) {
 /// carries (`source: dynamic`, connected, probed on 2.1.322; one named as a
 /// project `.mcp.json` server replaces it). It takes many files, so it is
 /// always followed by another option, never by the prompt.
-fn push_mcp_config(args: &mut Vec<String>, request: &TurnRequest) {
+pub(crate) fn push_mcp_config(args: &mut Vec<String>, request: &TurnRequest) {
     args.push("--mcp-config".to_string());
     args.push(format!("{}/{MCP_CONFIG_FILE}", request.home));
 }

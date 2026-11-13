@@ -1605,6 +1605,21 @@ listing, so `just build` reaches no daemon. Every other noun still prints
 its view, until its branch (B1 catalog, B2 configuration, B3 queries, B4
 remotes) converts it.
 
+B2 (`aip/configuration`) converted `agent`: `agent list` is
+`ListAgentsResponse` (`{agents: [...]}`, an empty one `{}`), `agent show`
+the `Agent` itself (no `definition` level: `engine`, `profiles`,
+`engines.<e>.model` at the top, `resolved` beside them, an env key's name
+`variable`), each agent's `default` printed true or false (library-cli asks
+`Library::agent_default` once more, for a json answer only); `create`,
+`edit` and `remove` answer `CreateAgentResponse`, `UpdateAgentResponse` and
+`DeleteAgentResponse`, the agent under `agent` (a preview's and a
+removal's by name alone), `applied`, a preview's `apply_command` and
+`detail`, through `api::written`, the write half of the one path. A
+reference (an agent's `engine` and `profiles`) still prints its configured
+text, as the engine noun's agent rows do. `agent default` is still text
+only. Go parity ends for these nouns' JSON (design §8.1): their JSON rows
+are retired from `fixtures/parity/`, the text rows stay.
+
 The feature steps read proto3 JSON (design §8.1, the binary's
 `library.test.rs` and `gherkin_common.test.rs`): a selector `[key$=suffix]`
 picks the element whose `key` ends so (`engines[name$=/engines/opencode]`);
@@ -1628,8 +1643,9 @@ on that engine (ctxloom's own callbacks are not the profile's):
 of each agent that has one (`Doctor::reporting_losses`, the library's
 `agents_losses`); and `agent edit <name> --engine <new>` whose new engine
 loses something the old did not is the SWAP PREVIEW without `--yes`
-(`Library::agent_edit`, `AgentWritten::Preview`, `SwapPreview`: `status:
-preview`, `applied: false`, `from`, `to`, `not_carried`, `apply`, the edit
+(`Library::agent_edit`, `AgentWritten::Preview`, `SwapPreview`; its json
+`UpdateAgentResponse`: `applied: false`, `from`, `to`, `not_carried`,
+`apply_command`, OD-40; the edit
 judged as the write would judge it first; nothing written; exit 1 under
 `--detailed-exitcode`). An edit that changes no engine, or loses nothing,
 writes as ever, and `agent create` never previews. Only hooks are judged:
@@ -1921,7 +1937,8 @@ dry run's JSON carries `settings` (each value with its source), and its text
 a Settings section naming the place that said each (ruling 72:
 `agents.<a>.engines.<e>`, `agents.<a>`, `engines.<e>`, the top-level
 `runtime`, or `default`). `agent list`,
-`agent show`'s definition and the create/edit summary show the agent in the
+`agent show` (its json the `Agent` resource, OD-40) and the create/edit
+summary show the agent in the
 config's shape (ruling 67): `engines` (JSON) / `engines.<e>: {...}` lines
 (text, YAML flow form, keys sorted as written), each block that holds
 `permissions` followed by "passed to <engine> verbatim; ctxloom does not

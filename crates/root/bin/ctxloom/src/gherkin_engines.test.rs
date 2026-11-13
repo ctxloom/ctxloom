@@ -540,7 +540,7 @@ fn shows_losses(w: &mut World) {
         ran.said()
     );
     assert!(
-        doc["apply"]
+        doc["apply_command"]
             .as_str()
             .is_some_and(|a| a.contains("--engine opencode") && a.contains("--yes")),
         "the preview names no command that applies it: {}",
@@ -555,7 +555,8 @@ fn still_old(w: &mut World) {
         .run_lines("ctxloom agent show dev --format json", "");
     w.ran().succeeds();
     assert_eq!(
-        w.json()["definition"]["engine"],
+        // OD-40: `agent show` is the `Agent` resource itself.
+        w.json()["engine"],
         "claude-code",
         "{}",
         w.ran().said()

@@ -5,24 +5,21 @@
 # by the Rust acceptance test (library_parity.test.rs) against this binary.
 # Source of every line: the Go feature named in the id's group comment.
 #
+# OD-40 (design §8.1): Go parity ends for JSON. An agent's JSON is its AIP
+# resource (ListAgentsResponse, Agent), held by library-cli's and
+# library_cli_agent's tests and agent.feature; its JSON rows are retired, the
+# text rows (and the rows that hold a refusal) stay as Go parity.
+#
 # cli/agent.feature
-agent-list-json	lib	agent list --format json
 agent-list-text	lib	agent list --format text
-agent-bare-json	lib	agent --format json
-agent-show-developer-json	lib	agent show developer --format json
 agent-show-developer-text	lib	agent show developer --format text
-agent-show-reviewer-json	lib	agent show reviewer --format json
 agent-show-unknown	lib	agent show nosuchagent
 # ctxloom-project bundle, adapters/content's tree fixtures, a premised bundle
-gold-agent-list-json	gold	agent list --format json
-gold-agent-show-json	gold	agent show default --format json
 # Configuration: schema 8 and older, layering, strict decode (cli/config.feature, fault_tolerance.feature)
 cfg-v8-agent-show-json	cfg/v8	agent show dev --format json
 cfg-layers-agent-list-json	cfg/layers	agent list --format json
 # Nothing there: no content directory at all, and an empty one (empty_listing_hint, cli/agent.feature)
 empty-agent-list-text	empty	agent list --format text
-empty-agent-list-json	empty	agent list --format json
 emptybundles-agent-list-text	emptybundles	agent list --format text
-emptybundles-agent-list-json	emptybundles	agent list --format json
 # No project here (configload/appdir.go: no .ctxloom up the path, so the home's config alone)
 noproject-agent-list-text	noproject	CTXLOOM_ROOT= agent list --format text

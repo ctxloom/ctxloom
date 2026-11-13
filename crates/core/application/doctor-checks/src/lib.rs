@@ -1,6 +1,6 @@
 //! `ctxloom doctor` (S12): the deterministic setup checks, one row each,
 //! every row prefixed with a `DOCTOR-CHECK-*` marker shared with the
-//! "ctxloom-doctor" skill. Of the Go doctor's 26 checks these ten are ported
+//! "ctxloom-doctor" skill. Of the Go doctor's 26 checks these are ported
 //! (some reshaped); the rest are left to their slices:
 //!
 //! | marker | the check |
@@ -15,6 +15,7 @@
 //! | `MCP-INVOCATION-g7` | no settings file launches a ctxloom MCP server that does not exist |
 //! | `STALE-HOOKS-n5` | no hook entry runs a `ctxloom hook` subcommand this ctxloom lacks (a Go-era one only once `legacy.go: retired`) |
 //! | `GO-ERA-HOOK-n6` | one `info` row per Go-era hook entry, left alone while `legacy.go: present` (owner ruling 162) |
+//! | `NOT-CARRIED-r8` | every agent's engine carries the hooks its profiles configure; one it cannot is a `warn` naming the agent, the engine and each (the capability-loss report `agent show` gives too) |
 //! | `INGESTION-q7` | the stated limit: whether the engine reads what ctxloom wrote |
 //!
 //! Left out here: the run-end and

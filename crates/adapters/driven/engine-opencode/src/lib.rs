@@ -39,6 +39,28 @@ pub use home::{
 /// The engine's name.
 pub const NAME: &str = "opencode";
 
+/// The unified hook events a session's plugin runs a profile's hooks for:
+/// the session's start (opencode's `session.created`).
+pub const SESSION_HOOK_EVENTS: &[&str] = &["session_start"];
+
+/// The unified hook events no opencode session runs a profile's hook for, in
+/// event order: opencode has no session-end event (its session ends when its
+/// TUI exits), and ctxloom's plugin runs none of the others.
+const LOST_HOOK_EVENTS: &[&str] = &[
+    "pre_tool",
+    "post_tool",
+    "session_end",
+    "turn_end",
+    "turn_start",
+    "pre_shell",
+    "post_file_edit",
+    "permission_ask",
+    "post_tool_batch",
+    "message_display",
+    "compaction_before",
+    "compaction_after",
+];
+
 /// opencode.
 pub struct Opencode {
     codec: Codec,
@@ -104,6 +126,20 @@ impl EngineSurfaces for Opencode {
 
     fn carries(&self, kind: Kind) -> bool {
         kind == Kind::Context
+    }
+
+    fn hook_losses(&self) -> Vec<(String, String)> {
+        LOST_HOOK_EVENTS
+            .iter()
+            .map(|event| {
+                let reason = if *event == "session_end" {
+                    format!("{NAME} has no native {event} event")
+                } else {
+                    format!("ctxloom's {NAME} plugin runs no {event} hook")
+                };
+                ((*event).to_string(), reason)
+            })
+            .collect()
     }
 
     /// A session's home holds the context (`AGENTS.md` in

@@ -705,10 +705,12 @@ fn j002000_before(w: &mut World) {
     w.before = Some(body);
 }
 
+/// The swap, confirmed: the new engine cannot carry the session-end hook the
+/// old one did, so the edit is a preview without `--yes`.
 #[when("Alice swaps the engine under the binding")]
 fn j002000_swap(w: &mut World) {
     w.common.run_lines(
-        &format!("ctxloom agent edit {J002000_AGENT} --engine {J002000_NEW}"),
+        &format!("ctxloom agent edit {J002000_AGENT} --engine {J002000_NEW} --yes"),
         "",
     );
 }

@@ -24,6 +24,7 @@ mod error;
 pub mod fakes;
 mod items;
 mod json;
+mod losses;
 mod package;
 mod profiles;
 mod project;
@@ -50,6 +51,7 @@ pub use library::config::engines::{AuthSource, Drive, Source, Sourced};
 pub use library::write::loadout::DOCUMENT as LOADOUT;
 pub use library::write::mcp::McpPatch;
 pub use library::write::profile::ProfileEdit;
+pub use losses::{AgentLosses, HookLosses, NotCarried};
 pub use package::{
     EnginePackage, PackageRequest, PackagedCommand, PackagedFile, PackagedHook, PackagedMcp,
     PackagedSkill,

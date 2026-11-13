@@ -48,6 +48,53 @@ pub enum Removal<T> {
     Done(T),
 }
 
+/// `agent edit --engine` that would give up something the old engine
+/// carried, without `--yes`: what would be given up, and the command that
+/// applies it. Nothing was written.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct SwapPreview {
+    /// Always `preview`.
+    pub status: String,
+    /// Always false: nothing was applied.
+    pub applied: bool,
+    pub agent: String,
+    /// The engine the agent is on.
+    pub from: String,
+    /// The engine the edit moves it to.
+    pub to: String,
+    /// What `to` cannot carry that `from` did.
+    pub not_carried: Vec<crate::NotCarried>,
+    pub apply: String,
+}
+
+impl SwapPreview {
+    pub fn of(
+        agent: &str,
+        from: &str,
+        to: &str,
+        not_carried: Vec<crate::NotCarried>,
+        apply: String,
+    ) -> SwapPreview {
+        SwapPreview {
+            status: "preview".to_string(),
+            applied: false,
+            agent: agent.to_string(),
+            from: from.to_string(),
+            to: to.to_string(),
+            not_carried,
+            apply,
+        }
+    }
+}
+
+/// `agent edit`: the swap's preview, or the binding written.
+#[derive(Clone, Debug, Serialize)]
+#[serde(untagged)]
+pub enum AgentWritten {
+    Preview(SwapPreview),
+    Done(crate::AgentRow),
+}
+
 /// `bundle create`.
 #[derive(Clone, Debug, Serialize)]
 pub struct BundleCreated {

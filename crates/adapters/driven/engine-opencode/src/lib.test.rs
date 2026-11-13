@@ -51,3 +51,19 @@ fn test_it_carries_the_context_alone_and_a_launch_carries_it_itself() {
     assert!(engine.context_rides_launch());
     assert_eq!(engine.codec().unified_event("chat.message"), "turn_start");
 }
+
+#[test]
+fn test_a_session_carries_its_start_hooks_alone_and_says_why_of_the_rest() {
+    let losses = Opencode::new().hook_losses();
+    let events: Vec<&str> = losses.iter().map(|(e, _)| e.as_str()).collect();
+    assert!(!events.contains(&"session_start"), "{events:?}");
+    assert_eq!(events.first(), Some(&"pre_tool"));
+    let end = losses
+        .iter()
+        .find(|(e, _)| e == "session_end")
+        .expect("session_end is lost");
+    assert_eq!(end.1, "opencode has no native session_end event");
+    let tool = losses.iter().find(|(e, _)| e == "pre_tool").unwrap();
+    assert_eq!(tool.1, "ctxloom's opencode plugin runs no pre_tool hook");
+    assert_eq!(events.len(), 12, "{events:?}");
+}

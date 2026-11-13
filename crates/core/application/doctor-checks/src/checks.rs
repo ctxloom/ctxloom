@@ -422,6 +422,43 @@ pub fn go_era_hooks(entries: &[(String, Stale)]) -> Vec<Check> {
         .collect()
 }
 
+/// `NOT-CARRIED-r8`: every agent's engine carries what its profiles
+/// configure; one that cannot (a hook on an event it has no form for) is a
+/// warning naming the agent, its engine and each loss. The hook is not run;
+/// nothing else of the agent is.
+pub fn not_carried(losses: &[library_application::AgentLosses]) -> Check {
+    const M: &str = "DOCTOR-CHECK-NOT-CARRIED-r8";
+    const N: &str = "what each agent's engine cannot carry";
+    if losses.is_empty() {
+        return row(
+            M,
+            N,
+            Status::Ok,
+            "every agent's engine carries what its profiles configure",
+            "",
+        );
+    }
+    let detail: Vec<String> = losses
+        .iter()
+        .map(|agent| {
+            let lost: Vec<String> = agent.not_carried.iter().map(|l| l.line()).collect();
+            format!(
+                "agent {} on {} cannot carry {}",
+                agent.agent,
+                agent.engine,
+                lost.join(", ")
+            )
+        })
+        .collect();
+    row(
+        M,
+        N,
+        Status::Warn,
+        &detail.join("; "),
+        "run the agent on an engine that carries it (`ctxloom agent edit <name> --engine <engine>`), or move what the hook does elsewhere",
+    )
+}
+
 /// `INGESTION-q7`: the one thing no check can confirm.
 pub fn ingestion() -> Check {
     row(

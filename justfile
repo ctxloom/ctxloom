@@ -213,6 +213,9 @@ install-windows:
 # artifact on main: cargo's release defaults, no LTO, unstripped). The gate's
 # `ok`/`FAIL` line goes to stderr; stdout is the binary's path alone
 # (`ctxloom.exe` on Windows), for a caller to take with `$(just release-binary)`.
+# CARGO_BUILD_TARGET, when set, is cargo's target (a cross build: ctxloom/ci's
+# binaries workflow builds x86_64-apple-darwin on an arm64 macOS runner), and
+# the binary is under target/<triple>/<profile>/.
 [group('install')]
 [doc("Build the plain binary (profile release|ci-artifact) and print its path")]
 [no-exit-message]
@@ -226,7 +229,7 @@ release-binary profile="release":
     terse=(-q --message-format=short)
     [ "${VERBOSE:-}" = 1 ] && terse=()
     target=${CARGO_TARGET_DIR:-{{TOP}}/target}
-    built="$target/{{profile}}/ctxloom"
+    built="$target/${CARGO_BUILD_TARGET:+$CARGO_BUILD_TARGET/}{{profile}}/ctxloom"
     just --justfile {{TOP}}/justfile _run release-binary ctxloom cargo \
         bash -c 'cargo build "${@:5}" --profile "$3" --manifest-path "$1/Cargo.toml" --package ctxloom --bin ctxloom &&
             "$1/scripts/plain-engines-check.sh" "$2" &&
@@ -242,17 +245,26 @@ release-binary profile="release":
 # scripts/release-package.sh does the work; on linux it also proves the debug
 # file resolves an address of the stripped binary to file:line when an
 # llvm-symbolizer is found. stdout: the files' paths, one per line.
+# `profile` is release-binary's: `ci-artifact` (debug = 0, nothing to split)
+# packages the binary alone, copied as `<name>[.exe]`, one line.
 [group('install')]
-[doc("Package the release binary with its debug file: release-package <linux|macos|windows> [out] [name]")]
+[doc("Package the release binary with its debug file: release-package <linux|macos|windows> [out] [name] [profile]")]
 [no-exit-message]
-release-package os out="dist" name="":
+release-package os out="dist" name="" profile="release":
     #!/usr/bin/env bash
     set -euo pipefail
-    bin=$(just --justfile {{TOP}}/justfile release-binary release)
+    bin=$(just --justfile {{TOP}}/justfile release-binary '{{profile}}')
     name='{{name}}'
     if [ -z "$name" ]; then
         stamp=$("$bin" version --format json | jq -r .version | tr -d '\r')
         name="ctxloom-$stamp-{{os}}-$(uname -m)"
+    fi
+    if [ '{{profile}}' = ci-artifact ]; then
+        mkdir -p '{{out}}'
+        ext=; [ "${bin%.exe}" != "$bin" ] && ext=.exe
+        cp "$bin" "{{out}}/$name$ext"
+        echo "$(cd '{{out}}' && pwd)/$name$ext"
+        exit 0
     fi
     {{TOP}}/scripts/release-package.sh '{{os}}' "${bin%.exe}" '{{out}}' "$name"
 
@@ -331,12 +343,86 @@ test-pkg +packages: (_require-nextest "test-pkg")
 
 # Mutation-test a batch (base..head; base defaults to the merge-base with main,
 # head to HEAD) in a throwaway worktree: scripts/mutants-batch.sh. Nothing else
-# runs cargo-mutants but the `mutants-staged` gate recipe it drives.
+# runs cargo-mutants but the `mutants-staged` gate recipe it drives, and the
+# nightly's whole-workspace scoring (`mutants-shard`, `mutants-score`).
 [group('closeout')]
 [doc("Mutation-test a batch: mutants-batch [base] [head]")]
 [no-exit-message]
 mutants-batch base="" head="HEAD":
     @{{TOP}}/scripts/mutants-batch.sh '{{base}}' '{{head}}'
+
+# One shard of a mutation run over the WHOLE workspace (owner ruling
+# 2026-11-12: the nightly's full mutation run, scored by tier): cargo-mutants'
+# `--shard k/n` (k from 0; its default slice sharding, consecutive mutants), in place (CI's checkout is
+# throwaway), no feature (`_mutants-no-features`), .cargo/mutants.toml as
+# ever (each mutant judged by its own crate's tests, under nextest). Its
+# mutants.out and its cargo-mutants exit (`exit`) go to `out`. Exit 0 when
+# cargo mutants judged (its 0, 2 missed or 3 timed out); its own code
+# otherwise (4: the tests fail unmutated). `mutants-score` judges the shards
+# together.
+[group('closeout')]
+[doc("One shard of a whole-workspace mutation run: mutants-shard <k/n> [out]")]
+[no-exit-message]
+mutants-shard shard out="target/logs/mutants-shard": _mutants-no-features
+    #!/usr/bin/env bash
+    set -euo pipefail
+    out='{{out}}'
+    case "$out" in /*) ;; *) out={{TOP}}/$out ;; esac
+    rm -rf "$out"
+    mkdir -p "$out"
+    rc=0
+    cargo mutants --dir {{TOP}} --in-place --workspace --shard '{{shard}}' --output "$out" --colors never || rc=$?
+    echo "$rc" > "$out/exit"
+    found=$(jq '.total_mutants // 0' "$out/mutants.out/outcomes.json" 2>/dev/null || echo 0)
+    echo "mutants-shard {{shard}}: cargo mutants exit $rc, $found mutants"
+    case "$rc" in 0 | 2 | 3) exit 0 ;; *) exit "$rc" ;; esac
+
+# Score a whole-workspace mutation run from its shards' `mutants-shard`
+# outputs: their outcomes.json merged (mutants found and outcomes summed),
+# then judged by the gates' own verdict (`_mutants-verdict`, against
+# `mutation_thresholds`), the worst shard's cargo-mutants exit as its rc.
+# Writes `out`/verdict.log (the verdict's words) and `out`/scores.json (one
+# object per tier: prefix, killed, viable, percent, threshold, pass; and the
+# run's totals), and exits with the verdict's code.
+[group('closeout')]
+[doc("Score the shards of a whole-workspace mutation run: mutants-score <out> <shard dir>...")]
+[no-exit-message]
+mutants-score out +shards:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    out='{{out}}'
+    rm -rf "$out"
+    mkdir -p "$out/mutants.out"
+    rc=0
+    files=()
+    for dir in {{shards}}; do
+        [ -f "$dir/mutants.out/outcomes.json" ] || { echo "FAIL mutants-score: $dir holds no mutants.out/outcomes.json" >&2; exit 1; }
+        files+=("$dir/mutants.out/outcomes.json")
+        r=$(cat "$dir/exit")
+        case "$r" in
+            0 | 2 | 3) [ "$rc" -gt 3 ] || [ "$r" -le "$rc" ] || rc=$r ;;
+            *) rc=$r ;;
+        esac
+    done
+    jq -s '{total_mutants: (map(.total_mutants // 0) | add), outcomes: (map(.outcomes) | add)}' "${files[@]}" \
+        > "$out/mutants.out/outcomes.json"
+    vrc=0
+    just --justfile {{TOP}}/justfile _mutants-verdict "$out" "$rc" > "$out/verdict.log" 2>&1 || vrc=$?
+    cat "$out/verdict.log"
+    # The verdict's tier lines, its first block only (a failing verdict says
+    # them again): `  pass  crates/x: 12/13 killed (92%), threshold 90%...` or
+    # `  pass  crates/x: none judged...`.
+    found=$(jq '.total_mutants' "$out/mutants.out/outcomes.json")
+    awk '/kill rate by tier:$/ { if (seen++) exit; next } seen && /^ +(pass|FAIL) / { print }' "$out/verdict.log" |
+        sed -nE -e 's/^ +(pass|FAIL) +([^:]+): ([0-9]+)\/([0-9]+) killed \(([0-9]+)%\), threshold ([0-9]+)%.*$/\1 \2 \3 \4 \5 \6/p' \
+            -e 's/^ +(pass|FAIL) +([^:]+): none judged.*$/\1 \2 0 0 -1 -1/p' |
+        jq -R -s --argjson found "$found" --argjson shards "${#files[@]}" --argjson rc "$vrc" '
+            split("\n") | map(select(. != "") | split(" ")
+                | {prefix: .[1], killed: (.[2] | tonumber), viable: (.[3] | tonumber),
+                   percent: (.[4] | tonumber | if . < 0 then null else . end),
+                   threshold: (.[5] | tonumber | if . < 0 then null else . end), pass: (.[0] == "pass")})
+            | {mutants: $found, shards: $shards, verdict_exit: $rc, tiers: .}' > "$out/scores.json"
+    exit "$vrc"
 
 # The whole mechanical close-out: build, lint, lint-deps, test, lint-os and
 # mutants-batch, one summary line each (scripts/closeout.sh).

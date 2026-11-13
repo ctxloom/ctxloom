@@ -569,3 +569,21 @@ fn no_foreign_worktree_is_ok_and_no_repository_or_project_is_info() {
     assert_eq!(failed.status, Status::Warn);
     assert!(failed.detail.contains("could not list") && failed.detail.contains("boom"));
 }
+
+// S51: a stale distilled form is a warning naming each; none is ok.
+#[test]
+fn test_a_stale_distilled_form_is_a_warning_naming_each() {
+    let ok = checks::stale_distilled(&[]);
+    assert_eq!(ok.marker, "DOCTOR-CHECK-STALE-DISTILLED-t1");
+    assert_eq!(ok.status, Status::Ok);
+    let warned = checks::stale_distilled(&[
+        "demo#fragments/rules".to_string(),
+        "demo#commands/review".to_string(),
+    ]);
+    assert_eq!(warned.status, Status::Warn);
+    assert_eq!(
+        warned.detail,
+        "stale distilled forms (their originals are used instead): demo#fragments/rules, demo#commands/review"
+    );
+    assert!(warned.remedy.contains("ctxloom fragment distill <ref>"));
+}

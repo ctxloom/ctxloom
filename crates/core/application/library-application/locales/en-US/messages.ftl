@@ -91,6 +91,8 @@ library-application-notice-session-home-host = { $engine } runs in your own home
 library-application-notice-session-home-host-fix = to give each run a session home of its own, remove session_home: host from engines.{ $engine } in your home config
 library-application-notice-checkout-left = the session's checkout { $path } (branch { $branch }) was left in place: { $reason }
 library-application-notice-checkout-left-fix = commit or discard its work; the session's next run re-enters it, and `ctxloom session remove` takes it once it is clean
+library-application-stale-distilled = the distilled form of { $reference } is stale: it does not match its source as it is now, or records no digest of it, so the original was used
+library-application-stale-distilled-fix = run `ctxloom { $kind } distill { $reference }` to distill it again
 library-application-notice-root-ignored = CTXLOOM_ROOT={ $root } is not a directory; ignoring it
 
 ## Writes (S2). A refused write has written nothing.
@@ -108,8 +110,6 @@ library-application-write-bad-id = { $kind } name "{ $name }" is not an ID: one 
 library-application-write-bad-id-fix = choose a name such as "house-rules": lowercase it, and write each underscore, dot, space or "/" as a hyphen
 library-application-write-item-not-found = { $kind } not found: { $name }
 library-application-write-empty-edit = refusing to overwrite { $kind } "{ $name }" with an empty buffer — the editor returned no content (crash, truncated write, or a wrapper that never saved); the item is unchanged
-library-application-write-distill-unavailable = { $kind } "{ $name }" ({ $reference }): distillation failed: content saved RAW (undistilled)
-library-application-write-distill-unavailable-fix = run `ctxloom { $kind } distill { $reference }` once an engine is reachable
 library-application-write-export-needs-dest = either an output file or a destination directory must be specified
 library-application-write-export-exists = { $path } already exists (pass --force to overwrite)
 library-application-write-import-exists = { $what } already exists: { $path } (use --force to overwrite)

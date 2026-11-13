@@ -64,8 +64,6 @@ write_errors! {
     ItemNotFound { kind, name } = "write-item-not-found";
     /// An editor that returned nothing.
     EmptyEdit { kind, name } = "write-empty-edit";
-    /// An edit that saved its content raw because nothing can distill yet.
-    DistillUnavailable { kind, name, reference } = "write-distill-unavailable";
     /// An export with nowhere to go.
     ExportNeedsDest { } = "write-export-needs-dest";
     /// An export onto a file that is there.

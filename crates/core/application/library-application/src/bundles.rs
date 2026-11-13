@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 
 use library::catalog::{Entry, RemoteOrigin};
+use library::distill::DistilledState;
 use library::model::Bundle;
 use library::refs::{self, ItemKind};
 use library::tree;
@@ -180,6 +181,7 @@ fn show_of(entry: &Entry) -> BundleShow {
                         distilled: !f.body.distilled.is_empty(),
                         no_distill: f.body.no_distill,
                         premise: f.premise.clone(),
+                        stale: f.body.distilled_state() == DistilledState::Stale,
                     },
                 )
             })
@@ -196,6 +198,7 @@ fn show_of(entry: &Entry) -> BundleShow {
                         preview: library_preview(&c.body.content),
                         distilled: !c.body.distilled.is_empty(),
                         no_distill: c.body.no_distill,
+                        stale: c.body.distilled_state() == DistilledState::Stale,
                     },
                 )
             })
@@ -294,9 +297,11 @@ fn view_item(bundle: &Bundle, path: &str, distilled: bool) -> Result<(String, Vi
                     .ok_or_else(|| missing("command", &name))?;
                 (&command.body, "commands")
             };
-            let served_distilled = distilled && !body.distilled.is_empty();
+            // A distilled form is served only while it matches its source
+            // (T30).
+            let served_distilled = distilled && body.distilled_state() == DistilledState::Fresh;
             Ok((
-                view_content(&body.content, &body.distilled, distilled),
+                view_content(&body.content, &body.distilled, served_distilled),
                 Viewed::Body {
                     kind: dir.to_string(),
                     name: name.clone(),

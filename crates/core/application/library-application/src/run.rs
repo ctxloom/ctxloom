@@ -410,7 +410,20 @@ impl Project {
         self.served(&set, findings);
         let package = self.assemble_set(&set, &selection.fragments, &selection.tags, findings);
         refuse_empty(selection, &package)?;
+        self.say_stale(&package);
         Ok(package)
+    }
+
+    /// Each fragment `package` delivered as its original because its
+    /// distilled form is stale, said (T30, S51): judged at this use, so a
+    /// dry run, a launch and `context assemble` say it alike.
+    pub(crate) fn say_stale(&mut self, package: &Package) {
+        for delivered in package.fragments.iter().filter(|d| d.stale) {
+            self.notices.push(Notice::StaleDistilled {
+                kind: "fragment".to_string(),
+                reference: delivered.reference.clone(),
+            });
+        }
     }
 
     fn assemble(&mut self, request: &AssembleRequest) -> Result<Assembled, AppError> {

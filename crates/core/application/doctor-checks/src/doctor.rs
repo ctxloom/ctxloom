@@ -55,6 +55,9 @@ pub struct Doctor {
     losses: Option<Box<dyn Fn() -> Vec<AgentLosses>>>,
     /// The project's worktrees ctxloom did not create; none wired, no row.
     worktrees: Option<Arc<dyn ForeignWorktrees>>,
+    /// The items whose distilled form is stale (T30, S51), asked when the
+    /// report is made; none wired, no row.
+    stale: Option<Box<dyn Fn() -> Vec<String>>>,
 }
 
 impl Doctor {
@@ -78,6 +81,7 @@ impl Doctor {
             program: "ctxloom".to_string(),
             losses: None,
             worktrees: None,
+            stale: None,
         }
     }
 
@@ -95,6 +99,15 @@ impl Doctor {
     pub fn reporting_losses(self, losses: Box<dyn Fn() -> Vec<AgentLosses>>) -> Doctor {
         Doctor {
             losses: Some(losses),
+            ..self
+        }
+    }
+
+    /// This doctor, asking `stale` which items' distilled forms no longer
+    /// match their sources (the library's listing, S51).
+    pub fn reporting_stale_distilled(self, stale: Box<dyn Fn() -> Vec<String>>) -> Doctor {
+        Doctor {
+            stale: Some(stale),
             ..self
         }
     }
@@ -237,6 +250,12 @@ impl Doctor {
         report
             .checks
             .splice(at..at, checks::go_era_hooks(&left_alone));
+        // The stale distilled forms' row, where it is asked, before the
+        // stated limit (and the foreign worktrees' row).
+        if let Some(stale) = &self.stale {
+            let at = report.checks.len() - 1;
+            report.checks.insert(at, checks::stale_distilled(&stale()));
+        }
         if let Some(worktrees) = &self.worktrees {
             let listing = match &root {
                 Some(root) => worktrees.foreign(root),

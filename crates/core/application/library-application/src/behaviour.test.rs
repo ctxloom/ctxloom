@@ -210,7 +210,11 @@ fn test_viewing_one_item_of_each_kind() {
         ("mcp/a.yaml", "command: c\n"),
         ("mcp/b.yaml", "command: d\n"),
         ("prompts/p.md", "PROMPT-NO-NEWLINE"),
-        ("prompts/p.distilled.md", "short\n"),
+        // Fresh: it records its source's digest (T30).
+        (
+            "prompts/p.distilled.md",
+            "---\nsource_sha256: dfe10d5714810a6292151055130f594559f8173c4ffa3ee8beee05361a4a2e37\n---\nshort\n",
+        ),
         ("fragments/f.md", "plain\n"),
         ("profiles/pr.yaml", "description: d\nbundles: [two]\n"),
         ("skills/s/SKILL.md", "---\nname: s\n---\nbody\n"),

@@ -60,8 +60,8 @@ impl Library {
     /// `fragment edit <ref> [--no-distill]`: the body through the editor. The
     /// front matter stays (its stale hash dropped) and so does the rest of
     /// the tree; a body that did not change, or came back empty, is not saved.
-    /// Distilling is S7's: an item that would be distilled is saved raw and
-    /// the command says so.
+    /// It writes the `.md` alone (owner T29, T30): its distilled form, if it
+    /// has one, is left and reads stale by its digest until `distill` runs.
     pub fn item_edit(
         &self,
         flags: &Flags,
@@ -271,17 +271,10 @@ impl Project {
             return Err(WriteError::EmptyEdit { kind: word, name }.into());
         }
         let marked = item::marked_no_distill(&held);
+        // The `.md` alone (owner T29, T30): a distilled form beside it is left
+        // as it is, and reads stale by its digest until `distill` runs again.
         plan.write(&path, item::replace_body(&held, &edited));
-        plan.remove(&item::distilled_path(kind.tree_dir(), &name));
         self.commit(&entry.name, plan)?;
-        if !no_distill && !marked {
-            return Err(WriteError::DistillUnavailable {
-                kind: word,
-                name,
-                reference: reference.to_string(),
-            }
-            .into());
-        }
         Ok(done(
             "updated",
             entry.manifest_path.clone(),

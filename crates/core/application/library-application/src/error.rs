@@ -440,6 +440,10 @@ pub enum Notice {
         branch: String,
         reason: String,
     },
+    /// A distilled form that no longer matches its source, or records no
+    /// digest of it (T30, S51): its original was used in its place.
+    /// `kind` is `fragment` or `command`.
+    StaleDistilled { kind: String, reference: String },
 }
 
 impl Notice {
@@ -483,6 +487,7 @@ impl Diagnostic for Notice {
             Notice::WorkspaceUnavailable { .. } => code!("notice-workspace-unavailable"),
             Notice::SessionHomeHost { .. } => code!("notice-session-home-host"),
             Notice::CheckoutLeft { .. } => code!("notice-checkout-left"),
+            Notice::StaleDistilled { .. } => code!("stale-distilled"),
             Notice::RuntimeOverride { change, .. } => match change {
                 library::config::engines::Change::Weakens => code!("notice-runtime-weakens"),
                 library::config::engines::Change::Strengthens => {
@@ -555,6 +560,10 @@ impl Diagnostic for Notice {
                 ("path", path.as_str().into()),
                 ("branch", branch.as_str().into()),
                 ("reason", reason.as_str().into()),
+            ],
+            Notice::StaleDistilled { kind, reference } => vec![
+                ("kind", kind.as_str().into()),
+                ("reference", reference.as_str().into()),
             ],
         }
     }
@@ -756,6 +765,10 @@ fn notice_samples() -> Vec<Box<dyn Diagnostic>> {
             path: s("/h/.ctxloom/worktrees/calm-otter/amber-swift-owl/reviewer"),
             branch: s("ctxloom/amber-swift-owl/reviewer"),
             reason: s("it has uncommitted changes; left in place to preserve WIP"),
+        }),
+        Box::new(Notice::StaleDistilled {
+            kind: s("fragment"),
+            reference: s("demo#fragments/rules"),
         }),
         Box::new(runtime_override(library::config::engines::Change::Weakens)),
         Box::new(runtime_override(

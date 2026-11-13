@@ -238,6 +238,7 @@ impl Project {
         let mut findings: Vec<Finding> = Vec::new();
         let set = self.resolve_profiles(&names, &mut findings)?;
         let assembled = self.assemble_set(&set, &[], &[], &mut findings);
+        self.say_stale(&assembled);
         let mut package = self.carried(&set, &assembled.selection, &mut findings);
         package.profiles = assembled.selection.profiles.clone();
         package.context = assembled.context.clone();

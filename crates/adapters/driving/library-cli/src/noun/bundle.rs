@@ -123,7 +123,7 @@ pub(crate) fn shown(parent: &str, show: &BundleShow) -> v1::Bundle {
                 item: item("fragments", id),
                 tags: f.tags.clone(),
                 preview: f.preview.clone(),
-                distilled: catalog::distilled(f.distilled),
+                distilled: catalog::shown_distilled(f.distilled, f.stale),
                 no_distill: Some(f.no_distill),
                 premise: f.premise.clone(),
                 ..v1::BundleItem::default()
@@ -137,7 +137,7 @@ pub(crate) fn shown(parent: &str, show: &BundleShow) -> v1::Bundle {
                 tags: c.tags.clone(),
                 description: c.description.clone(),
                 preview: c.preview.clone(),
-                distilled: catalog::distilled(c.distilled),
+                distilled: catalog::shown_distilled(c.distilled, c.stale),
                 no_distill: Some(c.no_distill),
                 ..v1::BundleItem::default()
             })

@@ -75,6 +75,9 @@ pub struct ShownFragment {
     pub no_distill: bool,
     #[serde(skip_serializing_if = "no_text")]
     pub premise: String,
+    /// Its distilled form no longer matches its source (T30).
+    #[serde(skip)]
+    pub stale: bool,
 }
 
 /// A command as `bundle show` shows it.
@@ -87,6 +90,9 @@ pub struct ShownCommand {
     pub preview: String,
     pub distilled: bool,
     pub no_distill: bool,
+    /// Its distilled form no longer matches its source (T30).
+    #[serde(skip)]
+    pub stale: bool,
 }
 
 /// An MCP server as `bundle show` shows it.
@@ -224,7 +230,10 @@ pub struct ItemShow {
     pub bundle: String,
     pub reference: String,
     pub content: String,
+    /// The content is the distilled form (asked for, and fresh).
     pub distilled: bool,
+    /// Its distilled form against its source, judged now (T30, S51).
+    pub state: library::distill::DistilledState,
 }
 
 /// One entry of `fragment premises`.

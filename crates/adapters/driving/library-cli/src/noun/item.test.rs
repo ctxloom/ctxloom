@@ -99,6 +99,9 @@ mod read {
         .json();
         assert_eq!(short["body_is_distilled"], true);
         assert_eq!(short["body"], "short form\n");
+        // S51: the distilled form's state against its source, judged now.
+        assert_eq!(short["distilled"], "FRESH");
+        assert_eq!(fragment["distilled"], "NONE");
     }
 }
 

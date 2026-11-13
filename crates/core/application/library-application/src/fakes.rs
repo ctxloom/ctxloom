@@ -137,6 +137,21 @@ impl Mem {
         self.lock().user.keys().cloned().collect()
     }
 
+    /// Put a bundle's file (as typed) in place, as another writer would.
+    pub fn put(&self, bundle: &str, path: &str, text: &str) {
+        self.lock()
+            .trees
+            .entry(bundle.to_string())
+            .or_default()
+            .insert(
+                path.to_string(),
+                File {
+                    bytes: text.as_bytes().to_vec(),
+                    exec: false,
+                },
+            );
+    }
+
     /// A bundle's file's text.
     pub fn text(&self, bundle: &str, path: &str) -> Option<String> {
         self.lock()

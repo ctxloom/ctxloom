@@ -16,6 +16,7 @@
 //! | `STALE-HOOKS-n5` | no hook entry runs a `ctxloom hook` subcommand this ctxloom lacks (a Go-era one only once `legacy.go: retired`) |
 //! | `GO-ERA-HOOK-n6` | one `info` row per Go-era hook entry, left alone while `legacy.go: present` (owner ruling 162) |
 //! | `NOT-CARRIED-r8` | every agent's engine carries the hooks its profiles configure; one it cannot is a `warn` naming the agent, the engine and each (the capability-loss report `agent show` gives too) |
+//! | `STALE-DISTILLED-t1` | every distilled form matches its source (T30, S51); a stale one is a `warn` naming each (asked only where the library's listing is wired) |
 //! | `FOREIGN-WORKTREES-s9` | the project's worktrees ctxloom did not create (j001300), each with its merge and dirty state and the commands that remove it; ctxloom removes none (asked only where a worktrees port is wired) |
 //! | `INGESTION-q7` | the stated limit: whether the engine reads what ctxloom wrote |
 //!

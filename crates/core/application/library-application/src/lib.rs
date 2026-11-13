@@ -48,6 +48,7 @@ pub use error::{AppError, Notice, EN_US};
 pub use items::Kind as ItemKind;
 #[allow(unused_imports)]
 pub use library::config::engines::{AuthSource, Drive, Source, Sourced};
+pub use library::distill::DistilledState;
 pub use library::write::loadout::DOCUMENT as LOADOUT;
 pub use library::write::mcp::McpPatch;
 pub use library::write::profile::ProfileEdit;

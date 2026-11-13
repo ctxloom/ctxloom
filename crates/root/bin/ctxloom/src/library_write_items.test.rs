@@ -5,10 +5,10 @@
 //! run in a scratch project).
 //!
 //! Not here, each by what it needs: the `ctxloom://` resource assertions (the
-//! MCP cut list is open, D8), `materialize` (S9), `distill` (S7). The edit
-//! that re-distills has no distiller until S7: the default edit saves the
-//! content RAW and says so, which is the scenario "the distillation backend
-//! cannot start" of editing.feature.
+//! MCP cut list is open, D8), `materialize` (S9), `distill` (plan step 5,
+//! content_distill.feature). An edit writes the `.md` alone (owner T29,
+//! T30): it distills nothing, and a distilled form beside it reads stale by
+//! its digest.
 
 use super::library::{reports_as, Editor, Project};
 
@@ -332,8 +332,12 @@ fn test_editing_with_no_distill_warns_instead_of_leaving_a_stale_distillation_un
             assert_eq!(reports_as(&doc, "applied"), "true");
         }
         project.file_contains(&format!("{DEMO}/prompts/review.md"), "EDITED-BY-TEST");
-        // Never stale: the old distillation does not outlive the content.
-        project.file_is_absent(&format!("{DEMO}/prompts/review.distilled.md"));
+        // The edit writes the `.md` alone (T29, T30): the old distillation is
+        // left, and reads stale by its digest.
+        project.file_contains(
+            &format!("{DEMO}/prompts/review.distilled.md"),
+            "STALE DISTILLED",
+        );
     }
 }
 
@@ -354,8 +358,7 @@ fn test_an_editor_that_returns_nothing_is_refused_rather_than_emptying_the_comma
 // ---------------------------------------------------------------- editing.feature
 
 // editing.feature: Scenario: Editing a fragment lands the change across axes
-// (the file: the distillation backend cannot start, so the content is saved
-// RAW and the command says so)
+// (the file: the edit writes the `.md` alone and succeeds, owner T29, T30)
 #[test]
 fn test_editing_a_fragment_lands_the_change_across_axes() {
     let project = Project::with_editor(Editor::Marker).on_gos_catalog();
@@ -363,9 +366,9 @@ fn test_editing_a_fragment_lands_the_change_across_axes() {
     project.fragment("demo", "testing");
     project
         .run(&["fragment", "edit", "demo#fragments/testing"])
-        .fails()
-        .contains("content saved RAW");
+        .succeeds();
     project.file_contains(&format!("{DEMO}/fragments/testing.md"), "EDITED-BY-TEST");
+    project.file_is_absent(&format!("{DEMO}/fragments/testing.distilled.md"));
 }
 
 // editing.feature: Scenario: Editing a prompt lands the change in the bundle
@@ -376,8 +379,7 @@ fn test_editing_a_prompt_lands_the_change_in_the_bundle() {
     project.command("demo", "review");
     project
         .run(&["command", "edit", "demo#commands/review"])
-        .fails()
-        .contains("content saved RAW");
+        .succeeds();
     project.file_contains(&format!("{DEMO}/prompts/review.md"), "EDITED-BY-TEST");
 }
 

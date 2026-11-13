@@ -249,6 +249,7 @@ pub(crate) fn shown(
             reference: show.reference.clone(),
             body: show.content.clone(),
             body_is_distilled: show.distilled,
+            distilled: catalog::distilled_state(show.state),
             ..v1::Command::default()
         });
     }
@@ -257,6 +258,7 @@ pub(crate) fn shown(
         reference: show.reference.clone(),
         body: show.content.clone(),
         body_is_distilled: show.distilled,
+        distilled: catalog::distilled_state(show.state),
         ..v1::Fragment::default()
     })
 }

@@ -23,6 +23,13 @@
 # On a base with no red scenario (main) the ratchet is the plain closeout: the
 # slice may have none either.
 #
+# `--no-mutation` before the base is the landing gate, `just land-ratchet
+# <base>` (owner ruling of 2026-11-13): every gate above but mutants-batch
+# (dropped even from a RATCHET_GATES that names it), the ratchet judged the
+# same, every line said as `land-ratchet`. It runs at each branch's landing on
+# the integration branch; the full closeout-ratchet runs once per batch and
+# before main.
+#
 # Exit: 0 when every gate passed and no scenario turned red; 1 when any gate
 # failed, a scenario turned red or the base's list could not be made; 2 on a
 # usage error.
@@ -33,20 +40,30 @@
 set -uo pipefail
 top=$(git rev-parse --show-toplevel)
 here=$(cd "$(dirname "$0")" && pwd)
+name=closeout-ratchet mutation=1
+if [ "${1:-}" = --no-mutation ]; then
+    name=land-ratchet mutation=
+    shift
+fi
 if [ -z "${1:-}" ]; then
-    echo "FAIL closeout-ratchet: usage: closeout-ratchet <base> (the integration branch the slice lands on)" >&2
+    echo "FAIL $name: usage: $name <base> (the integration branch the slice lands on)" >&2
     exit 2
 fi
 base=$1
-base_sha=$(git -C "$top" rev-parse --verify --quiet "$base^{commit}") || { echo "FAIL closeout-ratchet: $base is not a commit" >&2; exit 2; }
-fork=$(git -C "$top" merge-base "$base_sha" HEAD) || { echo "FAIL closeout-ratchet: $base and HEAD have no merge-base" >&2; exit 2; }
-read -ra gates <<< "${RATCHET_GATES:-build lint lint-deps test lint-os mutants-batch}"
+base_sha=$(git -C "$top" rev-parse --verify --quiet "$base^{commit}") || { echo "FAIL $name: $base is not a commit" >&2; exit 2; }
+fork=$(git -C "$top" merge-base "$base_sha" HEAD) || { echo "FAIL $name: $base and HEAD have no merge-base" >&2; exit 2; }
+read -ra listed <<< "${RATCHET_GATES:-build lint lint-deps test lint-os mutants-batch}"
+gates=()
+for gate in "${listed[@]}"; do
+    [ -z "$mutation" ] && [ "$gate" = mutants-batch ] && continue
+    gates+=("$gate")
+done
 start=$(date +%s)
 
 base_list=${RATCHET_BASE_LIST:-$top/target/ratchet/$base_sha.list}
 if [ -z "${RATCHET_BASE_LIST:-}" ]; then
     if ! just --justfile "$top/justfile" ratchet-base "$base_sha" 2>&1; then
-        echo "FAIL closeout-ratchet: the base's scenario list could not be made, so nothing can be judged" >&2
+        echo "FAIL $name: the base's scenario list could not be made, so nothing can be judged" >&2
         exit 1
     fi
 fi
@@ -85,10 +102,10 @@ if [ -s "$slice_list" ]; then
         <(sed -n 's/^red\t//p' "$slice_list" | LC_ALL=C sort -u) | grep -c '' || true)
 fi
 if [ "${#failed[@]}" -eq 0 ]; then
-    printf 'ok   closeout-ratchet (%d gates; base %s: %s red, %s turned green) %ds\n' \
-        "${#gates[@]}" "${base_sha:0:7}" "$(red_count "$base_list")" "$fixed" "$secs"
+    printf 'ok   %s (%d gates; base %s: %s red, %s turned green) %ds\n' \
+        "$name" "${#gates[@]}" "${base_sha:0:7}" "$(red_count "$base_list")" "$fixed" "$secs"
     exit 0
 fi
-printf 'FAIL closeout-ratchet: %d failed: %s (base %s; logs: target/logs/)\n' \
-    "${#failed[@]}" "${failed[*]}" "${base_sha:0:7}" >&2
+printf 'FAIL %s: %d failed: %s (base %s; logs: target/logs/)\n' \
+    "$name" "${#failed[@]}" "${failed[*]}" "${base_sha:0:7}" >&2
 exit 1

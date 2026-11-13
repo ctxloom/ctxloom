@@ -92,7 +92,19 @@ with the feature on (`<crate> = { path = ".", features = ["<feature>"] }`).
 code, before it lets red tests be committed off the default branch, and its
 failure refuses the commit. Every justfile importing these gates defines it
 (`red_judge := ""` for none, which lets every red commit through as before).
-ctxloom's is `_red-judge` (`scripts/red-commit-judge.sh`): no scenario of a
-feature file the commit does not touch may turn red. A repository copying
-the change takes the `test-commit` hunk, the parameter's line in the header,
-and `scripts/tests-exit.selftest.sh`'s judge cases.
+ctxloom's is `""` (owner ruling of 2026-11-13): its `_red-judge`
+(`scripts/red-commit-judge.sh`, no scenario of a feature file the commit
+does not touch may turn red) is gone, and the landing gate's ratchet
+(`just land-ratchet <base>`) judges red scenarios instead.
+
+## `test-staged` tests the changed crates alone (owner ruling of 2026-11-13)
+
+`test-staged` runs the changed crates' OWN tests, no dependent's, so a
+library's change no longer runs the binary's acceptance suite at commit.
+`test-staged dependents` adds the workspace dependents, and `test-commit`
+asks it on the default branch (and wherever the branch cannot be told), so
+red still cannot be committed there. `_test-affected` takes the scope. A
+staged `workspace_wide` file tests the whole workspace as before. No hook
+is added or removed, so no `hooks-install` is needed. A repository copying
+the change takes the `test-staged`, `test-commit` and `_test-affected`
+hunks, `scripts/test-staged.selftest.sh` and `scripts/tests-exit.selftest.sh`.

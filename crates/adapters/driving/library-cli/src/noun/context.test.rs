@@ -61,7 +61,7 @@ mod read {
                 "tokens": 2,
                 "fragments": [{
                     "fragment": "projects/calm-otter/bundles/demo/fragments/golang",
-                    "form": "original",
+                    "form": "ORIGINAL",
                 }],
             })
         );
@@ -70,7 +70,7 @@ mod read {
             distilled["fragments"],
             serde_json::json!([{
                 "fragment": "projects/calm-otter/bundles/demo/fragments/dist",
-                "form": "distilled",
+                "form": "DISTILLED",
             }])
         );
         assert_eq!(distilled["context"], "short form");

@@ -172,6 +172,29 @@ fn each_scenario_has_a_stable_id_and_its_own_outcome() {
     assert_eq!(got, want);
 }
 
+/// An outline's placeholder whose name holds a space (Go's `<result count>`)
+/// is filled from its column like any other: in the outline's name, a step's
+/// text and its docstring. cucumber 0.21 alone leaves it as written, so the
+/// command would run `ctxloom <the verb>` and fail.
+#[test]
+fn a_placeholder_whose_name_holds_a_space_is_filled_from_its_column() {
+    let project = super::library::Project::bare();
+    let path = project.dir().join("spaced.feature");
+    files::put(
+        &path,
+        "Feature: f\n  Scenario Outline: runs <the verb>\n    When I run \"ctxloom <the verb>\"\n    Then the command succeeds\n    When Alice runs:\n      \"\"\"\n      ctxloom <the verb>\n      \"\"\"\n    Then the command succeeds\n\n    Examples:\n      | the verb |\n      | version  |\n",
+    );
+    let run = super::gherkin::run(&path);
+    assert_eq!(
+        run.scenarios,
+        vec![(
+            format!("{} :: runs version :: | version |", path.display()),
+            true
+        )]
+    );
+    assert!(run.passed);
+}
+
 /// A feature that cannot run is red outside its scenarios.
 #[test]
 fn a_feature_that_does_not_parse_is_red_outside_a_scenario() {

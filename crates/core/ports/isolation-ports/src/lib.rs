@@ -25,7 +25,13 @@ pub type Failure = Box<dyn Diagnostic>;
 /// own `CLAUDE.md` above it, and nothing in the project moves under it.
 /// `home` is the ctxloom home, the directory holding `.ctxloom`.
 pub fn worktrees_root(home: &Path, project_id: &str) -> PathBuf {
-    home.join(".ctxloom").join("worktrees").join(project_id)
+    scratch_root(home).join(project_id)
+}
+
+/// Where ctxloom keeps every project's checkouts, `<home>/.ctxloom/worktrees`:
+/// the whole tree is ctxloom's, so a worktree under it is never a person's.
+pub fn scratch_root(home: &Path) -> PathBuf {
+    home.join(".ctxloom").join("worktrees")
 }
 
 /// One session's checkouts: `<worktrees_root>/<harp>`, a [`Request`]'s

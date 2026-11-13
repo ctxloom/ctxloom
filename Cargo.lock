@@ -5925,6 +5925,7 @@ name = "worktree-git"
 version = "0.1.0"
 dependencies = [
  "angzarr-diagnostic",
+ "ctxloom-ports",
  "file-system",
  "fixture-program",
  "isolation-ports",

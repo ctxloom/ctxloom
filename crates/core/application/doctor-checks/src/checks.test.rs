@@ -458,3 +458,114 @@ fn test_an_engine_that_cannot_carry_an_agent_s_hook_is_a_warning_naming_each() {
         .remedy
         .contains("ctxloom agent edit <name> --engine <engine>"));
 }
+
+// j001300 "Worktrees ctxloom did not create are reported, never touched":
+// each foreign worktree is named with its measured states and the exact
+// commands that remove it (Go: doctorCheckForeignWorktrees), the forced
+// forms where the safe ones would refuse.
+#[test]
+fn a_foreign_worktree_is_named_with_its_states_and_the_commands_that_remove_it() {
+    use ctxloom_ports::{ForeignListing, ForeignWorktree};
+    let listing = ForeignListing::Listed(vec![
+        ForeignWorktree {
+            path: "/w/proj--stale-feature".to_string(),
+            branch: "stale-feature".to_string(),
+            merged: Some(false),
+            dirty: Some(true),
+        },
+        ForeignWorktree {
+            path: "/w/proj--done".to_string(),
+            branch: "done".to_string(),
+            merged: Some(true),
+            dirty: Some(false),
+        },
+    ]);
+    let check = checks::foreign_worktrees(Some("/p"), &listing);
+    assert_eq!(check.marker, "DOCTOR-CHECK-FOREIGN-WORKTREES-s9");
+    assert_eq!(check.status, Status::Warn);
+    let said = format!("{}\n{}", check.detail, check.remedy);
+    assert!(
+        said.contains("2 worktree(s) ctxloom did not create"),
+        "{said}"
+    );
+    assert!(
+        said.contains("/w/proj--stale-feature (branch stale-feature, unmerged, dirty)"),
+        "{said}"
+    );
+    assert!(
+        said.contains("/w/proj--done (branch done, merged, clean)"),
+        "{said}"
+    );
+    assert!(
+        said.contains("git -C /p worktree remove --force /w/proj--stale-feature"),
+        "{said}"
+    );
+    assert!(said.contains("git -C /p branch -D stale-feature"), "{said}");
+    assert!(
+        said.contains("git -C /p worktree remove /w/proj--done"),
+        "{said}"
+    );
+    assert!(said.contains("git -C /p branch -d done"), "{said}");
+    assert!(!said.contains("--force /w/proj--done"), "{said}");
+}
+
+// A state git did not answer is said as unknown, never assumed, and the
+// commands are the safe ones, which git itself refuses if they would lose
+// work.
+#[test]
+fn a_foreign_worktree_state_not_measured_is_unknown_and_its_commands_safe() {
+    use ctxloom_ports::{ForeignListing, ForeignWorktree};
+    let listing = ForeignListing::Listed(vec![ForeignWorktree {
+        path: "/w/x".to_string(),
+        branch: "x".to_string(),
+        merged: None,
+        dirty: None,
+    }]);
+    let check = checks::foreign_worktrees(Some("/p"), &listing);
+    let said = format!("{}\n{}", check.detail, check.remedy);
+    assert!(
+        said.contains("/w/x (branch x, merge state unknown, dirty state unknown)"),
+        "{said}"
+    );
+    assert!(said.contains("git -C /p worktree remove /w/x"), "{said}");
+    assert!(said.contains("git -C /p branch -d x"), "{said}");
+    assert!(!said.contains("--force") && !said.contains("-D"), "{said}");
+}
+
+// A detached worktree has no branch to delete.
+#[test]
+fn a_detached_foreign_worktree_names_no_branch_command() {
+    use ctxloom_ports::{ForeignListing, ForeignWorktree};
+    let listing = ForeignListing::Listed(vec![ForeignWorktree {
+        path: "/w/x".to_string(),
+        branch: String::new(),
+        merged: None,
+        dirty: Some(false),
+    }]);
+    let check = checks::foreign_worktrees(Some("/p"), &listing);
+    let said = format!("{}\n{}", check.detail, check.remedy);
+    assert!(said.contains("/w/x (detached, clean)"), "{said}");
+    assert!(!said.contains("branch -"), "{said}");
+}
+
+#[test]
+fn no_foreign_worktree_is_ok_and_no_repository_or_project_is_info() {
+    use ctxloom_ports::ForeignListing;
+    let ok = checks::foreign_worktrees(Some("/p"), &ForeignListing::Listed(Vec::new()));
+    assert_eq!(ok.status, Status::Ok);
+    assert!(ok.remedy.is_empty());
+    let not_git = checks::foreign_worktrees(Some("/p"), &ForeignListing::NotARepository);
+    assert_eq!(not_git.status, Status::Info);
+    assert!(
+        not_git.detail.contains("not a git repository"),
+        "{}",
+        not_git.detail
+    );
+    let none = checks::foreign_worktrees(None, &ForeignListing::NotARepository);
+    assert_eq!(none.status, Status::Info);
+    assert!(none.detail.contains("no project"), "{}", none.detail);
+    let failed =
+        checks::foreign_worktrees(Some("/p"), &ForeignListing::Unlisted("boom".to_string()));
+    assert_eq!(failed.status, Status::Warn);
+    assert!(failed.detail.contains("could not list") && failed.detail.contains("boom"));
+}

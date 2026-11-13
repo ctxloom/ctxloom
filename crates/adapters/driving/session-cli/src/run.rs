@@ -31,7 +31,7 @@ use crate::render::{
 #[cfg(feature = "session-destroy")]
 use crate::{
     render::{removal_of, removal_text, report_of, sweep_text},
-    RemoveArgs, SweepArgs,
+    RemoveArgs,
 };
 use crate::{
     CliFault, ListArgs, RenameArgs, Session, SessionVerb, Transcript, TranscriptListArgs,
@@ -120,8 +120,31 @@ pub fn destroy<R: SessionRemovals>(
         })?;
     runtime.block_on(async {
         match &session.verb {
-            Some(SessionVerb::Remove(args)) => remove(removals, args, format, out).await,
-            Some(SessionVerb::Sweep(args)) => sweep(removals, args, format, out).await,
+            Some(SessionVerb::Remove(args)) => match (&args.older_than, &args.harp) {
+                (Some(age), _) => {
+                    let ask = Sweep {
+                        all_projects: false,
+                        age: Some((AGE_FLAG, age)),
+                        yes: args.yes,
+                        verb: REMOVE_VERB,
+                    };
+                    sweep(removals, &ask, format, out).await
+                }
+                (None, Some(harp)) => remove(removals, harp, args, format, out).await,
+                (None, None) => unreachable!("clap requires a session or an age"),
+            },
+            Some(SessionVerb::Sweep(args)) => {
+                let ask = Sweep {
+                    all_projects: args.all_projects,
+                    age: args
+                        .purge_older_than
+                        .as_deref()
+                        .map(|age| (PURGE_FLAG, age)),
+                    yes: args.yes,
+                    verb: "session sweep",
+                };
+                sweep(removals, &ask, format, out).await
+            }
             _ => unreachable!("only a destroy: session_cli::is_destroy"),
         }
     })
@@ -419,12 +442,13 @@ async fn rename<S: SessionService>(
 #[cfg(feature = "session-destroy")]
 async fn remove<R: SessionRemovals>(
     removals: &R,
+    harp: &str,
     args: &RemoveArgs,
     format: Format,
     out: &mut dyn Write,
 ) -> Result<Done, Failure> {
     let removed = removals
-        .delete_session(&args.harp, args.yes, args.even_if_live)
+        .delete_session(harp, args.yes, args.even_if_live)
         .await
         .map_err(call_failure)?;
     let (plan, why) = match removed {
@@ -454,7 +478,7 @@ async fn remove<R: SessionRemovals>(
     // nothing, so it warns of nothing.
     if !plan.authored.is_empty() {
         done.notices.push(Box::new(DestroysAuthored {
-            harp: args.harp.clone(),
+            harp: harp.to_string(),
             files: plan.authored.join(", "),
         }));
     }
@@ -467,24 +491,43 @@ async fn remove<R: SessionRemovals>(
             ""
         };
         done.notices.push(Box::new(RemovedNothing {
-            command: format!("ctxloom {REMOVE_VERB} {} --yes{flag}", args.harp),
+            command: format!("ctxloom {REMOVE_VERB} {harp} --yes{flag}"),
         }));
     }
     Ok(done)
 }
 
-/// `session sweep`: every session's fate reported by the daemon, and with
-/// `--yes` acted on there (a destroy: the session-destroy feature's). A
-/// `--purge-older-than` that is no age is refused here, before the daemon is
-/// asked.
+/// `session sweep`'s purge age flag.
+#[cfg(feature = "session-destroy")]
+const PURGE_FLAG: &str = "--purge-older-than";
+
+/// `session remove`'s age form's flag: the same sweep, by that age.
+#[cfg(feature = "session-destroy")]
+const AGE_FLAG: &str = "--older-than";
+
+/// A sweep as asked, by `session sweep` or `session remove --older-than`.
+#[cfg(feature = "session-destroy")]
+struct Sweep<'a> {
+    all_projects: bool,
+    /// The purge age, with the flag it was given by.
+    age: Option<(&'static str, &'a str)>,
+    yes: bool,
+    /// The verb the apply is named with.
+    verb: &'static str,
+}
+
+/// `session sweep` (and `session remove --older-than`, the same sweep):
+/// every session's fate reported by the daemon, and with `--yes` acted on
+/// there (a destroy: the session-destroy feature's). An age that is none is
+/// refused here, naming its flag, before the daemon is asked.
 #[cfg(feature = "session-destroy")]
 async fn sweep<R: SessionRemovals>(
     removals: &R,
-    args: &SweepArgs,
+    args: &Sweep<'_>,
     format: Format,
     out: &mut dyn Write,
 ) -> Result<Done, Failure> {
-    if let Some(age) = &args.purge_older_than {
+    if let Some((flag, age)) = args.age {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX));
@@ -492,10 +535,14 @@ async fn sweep<R: SessionRemovals>(
             seconds: now,
             nanos: 0,
         };
-        reclaim_application::parse_age("--purge-older-than", age, now).map_err(reclaim_failure)?;
+        reclaim_application::parse_age(flag, age, now).map_err(reclaim_failure)?;
     }
     let report = removals
-        .sweep_sessions(args.all_projects, args.purge_older_than.clone(), args.yes)
+        .sweep_sessions(
+            args.all_projects,
+            args.age.map(|(_, age)| age.to_string()),
+            args.yes,
+        )
         .await
         .map_err(call_failure)?;
     wrote(match format {
@@ -520,9 +567,8 @@ async fn sweep<R: SessionRemovals>(
     if !args.yes {
         done.would_change = counts.planned > 0;
         let age = args
-            .purge_older_than
-            .as_ref()
-            .map(|age| format!(" --purge-older-than {age}"))
+            .age
+            .map(|(flag, age)| format!(" {flag} {age}"))
             .unwrap_or_default();
         let all = if args.all_projects {
             " --all-projects"
@@ -530,7 +576,7 @@ async fn sweep<R: SessionRemovals>(
             ""
         };
         done.notices.push(Box::new(RemovedNothing {
-            command: format!("ctxloom session sweep{all}{age} --yes"),
+            command: format!("ctxloom {}{all}{age} --yes", args.verb),
         }));
     }
     Ok(done)

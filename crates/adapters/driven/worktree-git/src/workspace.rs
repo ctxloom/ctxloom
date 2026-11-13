@@ -102,13 +102,13 @@ impl GitWorkspaces {
 }
 
 /// One entry of `git worktree list --porcelain`.
-struct Listed {
-    path: PathBuf,
+pub(crate) struct Listed {
+    pub(crate) path: PathBuf,
     /// The short branch name; none when detached.
-    branch: Option<String>,
+    pub(crate) branch: Option<String>,
 }
 
-fn worktree_list(git: &Git, repo: &Path) -> Result<Vec<Listed>, GitError> {
+pub(crate) fn worktree_list(git: &Git, repo: &Path) -> Result<Vec<Listed>, GitError> {
     Ok(parse_worktree_list(
         &git.run(repo, &["worktree", "list", "--porcelain"])?,
     ))
@@ -139,13 +139,13 @@ fn parse_worktree_list(out: &str) -> Vec<Listed> {
 
 /// Whether two paths name the same directory: equal, or both resolvable and
 /// equal once resolved (a symlinked temp dir or home).
-fn same_path(fs: &dyn Fs, a: &Path, b: &Path) -> bool {
+pub(crate) fn same_path(fs: &dyn Fs, a: &Path, b: &Path) -> bool {
     a == b || matches!((fs.canonicalize(a), fs.canonicalize(b)), (Ok(x), Ok(y)) if x == y)
 }
 
 /// Whether `dir` is inside a work tree. A git that hangs says nothing either
 /// way, so a timeout is an error and not "no".
-fn is_repo(git: &Git, dir: &Path) -> Result<bool, WorktreeError> {
+pub(crate) fn is_repo(git: &Git, dir: &Path) -> Result<bool, WorktreeError> {
     match git.run(dir, &["rev-parse", "--is-inside-work-tree"]) {
         Ok(out) => Ok(out.trim() == "true"),
         Err(e) => e.diagnostic().map_or(Ok(false), Err),

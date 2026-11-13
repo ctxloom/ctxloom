@@ -700,3 +700,63 @@ fn a_doctor_reporting_losses_warns_of_each() {
     assert_eq!(lost.status, Status::Warn);
     assert!(lost.detail.contains("agent dev on opencode cannot carry"));
 }
+
+/// The project's foreign worktrees, as a fake lists them, recording where it
+/// was asked.
+struct Foreign(Mutex<Vec<String>>);
+
+impl ctxloom_ports::ForeignWorktrees for Foreign {
+    fn foreign(&self, project_dir: &str) -> ctxloom_ports::ForeignListing {
+        self.0.lock().unwrap().push(project_dir.to_string());
+        ctxloom_ports::ForeignListing::Listed(vec![ctxloom_ports::ForeignWorktree {
+            path: "/w/proj--stale".to_string(),
+            branch: "stale".to_string(),
+            merged: Some(false),
+            dirty: Some(true),
+        }])
+    }
+}
+
+// j001300: the foreign worktrees' row, asked of the project's root, sits just
+// before the stated limit, which stays last; a doctor with no worktrees port
+// has no such row.
+#[test]
+fn the_foreign_worktrees_row_is_asked_of_the_project_and_precedes_the_stated_limit() {
+    let mem = project();
+    let foreign = Arc::new(Foreign(Mutex::new(Vec::new())));
+    let report = doctor(&mem, true)
+        .reporting_worktrees(foreign.clone())
+        .report(false);
+    let markers: Vec<&str> = report.checks.iter().map(|c| c.marker).collect();
+    let n = markers.len();
+    assert_eq!(
+        markers[n - 2],
+        "DOCTOR-CHECK-FOREIGN-WORKTREES-s9",
+        "{markers:?}"
+    );
+    assert_eq!(markers[n - 1], "DOCTOR-CHECK-INGESTION-q7");
+    assert_eq!(report.checks[n - 2].status, Status::Warn);
+    assert_eq!(*foreign.0.lock().unwrap(), ["/work"]);
+    let plain = doctor(&mem, true).report(false);
+    assert!(!plain
+        .checks
+        .iter()
+        .any(|c| c.marker == "DOCTOR-CHECK-FOREIGN-WORKTREES-s9"));
+}
+
+// Outside a project nothing is asked, and the row says there is no project.
+#[test]
+fn outside_a_project_the_foreign_worktrees_row_asks_nothing() {
+    let mem = Arc::new(Mem::default());
+    let foreign = Arc::new(Foreign(Mutex::new(Vec::new())));
+    let report = doctor(&mem, true)
+        .reporting_worktrees(foreign.clone())
+        .report(false);
+    let row = report
+        .checks
+        .iter()
+        .find(|c| c.marker == "DOCTOR-CHECK-FOREIGN-WORKTREES-s9")
+        .expect("the row");
+    assert_eq!(row.status, Status::Info);
+    assert!(foreign.0.lock().unwrap().is_empty());
+}

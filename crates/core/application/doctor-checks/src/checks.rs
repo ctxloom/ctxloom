@@ -1,6 +1,7 @@
 //! The checks that read only the text they are given.
 
 use auth_application::Auth;
+use ctxloom_ports::ForeignListing;
 use serde::Serialize;
 
 use crate::hooks::Stale;
@@ -456,6 +457,101 @@ pub fn not_carried(losses: &[library_application::AgentLosses]) -> Check {
         Status::Warn,
         &detail.join("; "),
         "run the agent on an engine that carries it (`ctxloom agent edit <name> --engine <engine>`), or move what the hook does elsewhere",
+    )
+}
+
+/// `FOREIGN-WORKTREES-s9` (j001300): the project's worktrees ctxloom did not
+/// create, each named with the states git measured and the exact commands
+/// that remove it, which only she runs: ctxloom removes no worktree it did
+/// not create. A dirty one's removal is the forced form and an unmerged
+/// branch's delete is `-D`, each saying what it discards; a state not
+/// measured is said unknown, and its command is the safe form, which git
+/// itself refuses where it would lose work. Go: doctorCheckForeignWorktrees.
+pub fn foreign_worktrees(root: Option<&str>, listing: &ForeignListing) -> Check {
+    const M: &str = "DOCTOR-CHECK-FOREIGN-WORKTREES-s9";
+    const N: &str = "worktrees ctxloom did not create";
+    let Some(root) = root else {
+        return row(M, N, Status::Info, "no project directory to check", "");
+    };
+    let worktrees = match listing {
+        ForeignListing::NotARepository => {
+            return row(
+                M,
+                N,
+                Status::Info,
+                "the project is not a git repository: nothing to check",
+                "",
+            )
+        }
+        ForeignListing::Unlisted(why) => {
+            return row(
+                M,
+                N,
+                Status::Warn,
+                &format!("could not list the project's worktrees: {why}"),
+                "",
+            )
+        }
+        ForeignListing::Listed(worktrees) => worktrees,
+    };
+    if worktrees.is_empty() {
+        return row(
+            M,
+            N,
+            Status::Ok,
+            "no worktree of the project but its own checkout and ctxloom's scratch checkouts",
+            "",
+        );
+    }
+    let mut named = Vec::new();
+    let mut commands = Vec::new();
+    for tree in worktrees {
+        let merge = match tree.merged {
+            Some(true) => "merged",
+            Some(false) => "unmerged",
+            None => "merge state unknown",
+        };
+        let dirt = match tree.dirty {
+            Some(true) => "dirty",
+            Some(false) => "clean",
+            None => "dirty state unknown",
+        };
+        let states = if tree.branch.is_empty() {
+            format!("detached, {dirt}")
+        } else {
+            format!("branch {}, {merge}, {dirt}", tree.branch)
+        };
+        named.push(format!("{} ({states})", tree.path));
+        commands.push(match tree.dirty {
+            Some(true) => format!(
+                "git -C {root} worktree remove --force {} (discards its uncommitted changes)",
+                tree.path
+            ),
+            _ => format!("git -C {root} worktree remove {}", tree.path),
+        });
+        if !tree.branch.is_empty() {
+            commands.push(match tree.merged {
+                Some(false) => format!(
+                    "git -C {root} branch -D {} (discards its unmerged commits)",
+                    tree.branch
+                ),
+                _ => format!("git -C {root} branch -d {}", tree.branch),
+            });
+        }
+    }
+    row(
+        M,
+        N,
+        Status::Warn,
+        &format!(
+            "{} worktree(s) ctxloom did not create, which it never removes: {}",
+            worktrees.len(),
+            named.join("; ")
+        ),
+        &format!(
+            "to remove them yourself, once nothing in them is wanted: {}",
+            commands.join("; ")
+        ),
     )
 }
 

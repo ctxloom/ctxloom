@@ -34,7 +34,9 @@ prost-build = "0.14"
 pbjson-build.workspace = true
 
 [dev-dependencies]
-serde_json.workspace = true
+# `arbitrary_precision`, as the binary has it (through surface-ports): a
+# number then reaches a `Value` as serde_json's private one-entry map.
+serde_json = { workspace = true, features = ["arbitrary_precision"] }
 
 [features]
 # The `Ctxloom` service's server trait and router (the daemon's API edge).

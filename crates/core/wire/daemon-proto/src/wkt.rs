@@ -177,6 +177,10 @@ impl Serialize for Value {
     }
 }
 
+/// The key serde_json's `arbitrary_precision` carries a number's digits
+/// under.
+const ARBITRARY_NUMBER: &str = "$serde_json::private::Number";
+
 /// Any JSON value, as a `Value`.
 struct ValueVisitor;
 
@@ -227,8 +231,16 @@ impl<'de> Visitor<'de> for ValueVisitor {
 
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Value, A::Error> {
         let mut fields = BTreeMap::new();
-        while let Some((key, value)) = map.next_entry::<String, Value>()? {
-            fields.insert(key, value);
+        while let Some(key) = map.next_key::<String>()? {
+            // serde_json under `arbitrary_precision` (the binary has it,
+            // through surface-ports) hands a number over as a one-entry map
+            // holding its digits.
+            if key == ARBITRARY_NUMBER && fields.is_empty() {
+                let digits = map.next_value::<String>()?;
+                let number = digits.parse::<f64>().map_err(de::Error::custom)?;
+                return Ok(kind(Kind::NumberValue(number)));
+            }
+            fields.insert(key, map.next_value::<Value>()?);
         }
         Ok(kind(Kind::StructValue(Struct { fields })))
     }

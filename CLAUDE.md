@@ -382,11 +382,14 @@ the user's own), so what its tools keep under `~` lands in
 `.ctxloom/sessions/<harp>/home/`, never in the project (a relocation, not
 confinement: the engine runs as the user and reaches her files by absolute
 path); the cost: they see none of the user's dotfiles. A plan on
-`session_home: host` says that it runs in her own home, reading and
+`session_home: host` (the agent's own, else its engine block's: owner
+ruling of 2026-11-13, below) says that it runs in her own home, reading and
 changing her own memory, MCP servers and history, as the notice
 `library-application-notice-session-home-host` (`Notice::SessionHomeHost`,
 from the plan's drive in the dry run, so a dry run and a launch say it alike,
-with an agent or none; never a refusal; j002200). On Windows the session home is also its
+with an agent or none; never a refusal; j002200), naming the place that said
+it, `{ $place }.session_home: host` (`agents.<a>` when the agent said it,
+else `engines.<e>`: the owner's approved sentence for the engine block). On Windows the session home is also its
 `USERPROFILE` (node's `os.homedir()` reads it there), and `APPDATA` and
 `LOCALAPPDATA` are `<home>/AppData/Roaming` and `<home>/AppData/Local`
 (`run_ports::WINDOWS_PROFILE_VARIABLES`, `session_profile`; under `host`
@@ -822,8 +825,9 @@ replace it, so none has one. It repeats the root `clippy.toml`'s settings,
 and `just lint` refuses to run if they disagree.
 
 The engine block reaches the drive (engines track 4). The plan's `DryRun.drive`
-(`library::config::engines::Drive`: `command`, `session_home`, the `auth`
-source, the agent's `env`) becomes `run_ports::EngineSettings`
+(`library::config::engines::Drive`: `command`, the effective `session_home`
+(the agent's, else the engine block's), the `auth` source, the agent's
+`env`) becomes `run_ports::EngineSettings`
 (owned, names and paths only, never a credential value) in the `Order` and the
 `TurnRequest`. engine-claude runs the configured `command` (default `claude`);
 passes the curated allowlist plus `engines.<e>.env`, the configured auth
@@ -2002,7 +2006,19 @@ through) the linked `auth.json`.
 `engines:` holds, per fixed engine name, what its agents share: `command`
 (home-layer config only), `session_home` (`session` | `host`; `host` is not
 honoured from a project config until a trust check can gate it), `auth`,
-`runtime`, `env`. `auth` is THE auth setting: `none`, `login` (the
+`runtime`, `env`. `session_home` is the AGENT's again (owner ruling of
+2026-11-13, superseding ruling 44(b) for this key; hard migrate, no alias,
+the key is `session_home` at both levels): `agents.<n>.session_home`
+resolves agent > engine > default (`session`), like `runtime`, kept under
+`run --engine`, each value with its layer (`agent`, `engine`, `default`) in
+the dry run's `settings.session_home` and Settings row, `agent show`'s
+`resolved.session_home`, `engine show`'s agents, and an `Agent`'s own
+`session_home` (the binding's word); `agent create|edit --session-home
+<session|host>` writes it (empty clears it; another word is
+`library-application-write-unknown-session-home`). Agent writes go to the
+project config, where ruling 46 strips `host`, and a binding replaces a
+lower layer's whole, so an agent says `host` only when it is bound in the
+home config. `auth` is THE auth setting: `none`, `login` (the
 human's own login shared in place), `token` (the engine's built-in variables),
 or a source `{env: NAME|[NAMES], file: PATH}`; a name that is not a variable
 name is refused without being repeated; a file is only a primary session's.
@@ -2045,8 +2061,15 @@ config's shape (ruling 67): `engines` (JSON) / `engines.<e>: {...}` lines
 check it" (ruling 139; `agent show`, `engine show` and the dry run's Settings
 say it under the document too, and their JSON carries it as written); no
 flat model/effort, no `approver`, no "Headless posture".
-`engines.<e>.command`, `auth.file` and `session_home: host` in a project
-layer are taken out with a warning (`strip_project_only`, ruling 46).
+`engines.<e>.command`, `auth.file` and `session_home: host` (an engine
+block's or an agent's, `agents.<a>.session_home`) in a project layer are
+taken out with a warning (`strip_project_only`, ruling 46).
+An agent's references are resource names (design §2, B2's references): its
+`engine` `<parent>/engines/<e>`, each of its `profiles` B1's profile name
+(`library-cli`'s `catalog::profile_ref`; one that names no place keeps its
+text, OQ-16), and `resolved.engine` the engine's. The dry run's `Run` keeps
+its agent, engine and profiles as configured text: naming them would ask
+the daemon for the project in `--dry-run`.
 `auth status` and doctor read the effective source (`auth-application`; any
 one variable authenticates, `via` names it). A source that is a FILE alone
 (owner ruling 53) authenticates no child: a child launch (`claude -p`,

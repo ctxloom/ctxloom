@@ -63,6 +63,8 @@ struct World {
     command: String,
     /// What the onboarding scenarios keep (j000800).
     onboarding: onboarding::State,
+    /// The git remotes the scenario seeds (search, deps), made on first use.
+    remotes: Option<super::deps::Remotes>,
 }
 
 impl fmt::Debug for World {
@@ -92,6 +94,7 @@ impl World {
             bob: None,
             command: String::new(),
             onboarding: onboarding::State::default(),
+            remotes: None,
         }
     }
 
@@ -109,32 +112,29 @@ mod onboarding;
 
 // ------------------------------------------------------------------ given
 
-#[given(expr = "a bundle {string} exists")]
-fn bundle(w: &mut World, name: String) {
-    w.common.project.bundle(&name);
+/// Go's `a git remote "<name>" serving a ctxloom bundle`: a bare repository
+/// whose `main` publishes the bundle `demo`, registered in the project.
+#[given(expr = "a git remote {string} serving a ctxloom bundle")]
+fn git_remote(w: &mut World, name: String) {
+    let env: Vec<(&str, &str)> = w
+        .common
+        .env
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+    w.remotes
+        .get_or_insert_with(super::deps::Remotes::new)
+        .git_remote(&w.common.project, &env, &name);
 }
 
-#[given(expr = "a fragment {string} in bundle {string} exists")]
-fn fragment(w: &mut World, name: String, bundle: String) {
-    w.common.project.fragment(&bundle, &name);
-}
-
-#[given(expr = "a command {string} in bundle {string} exists")]
-fn command(w: &mut World, name: String, bundle: String) {
-    w.common.project.command(&bundle, &name);
-}
-
-/// Go's fixture: a dedicated `<name>-base` bundle, so the profile stands alone.
-#[given(expr = "a profile {string} exists")]
-fn profile_exists(w: &mut World, name: String) {
-    let base = format!("{name}-base");
-    w.common.project.bundle(&base);
-    w.common.project.profile(&name, &base);
-}
-
-#[given(expr = "a profile {string} with bundle {string}")]
-fn profile(w: &mut World, name: String, bundle: String) {
-    w.common.project.profile(&name, &bundle);
+/// Go's `the remote "<name>" advances its bundle`: version two, its fragment
+/// rewritten.
+#[given(expr = "the remote {string} advances its bundle")]
+fn remote_advances(w: &mut World, name: String) {
+    w.remotes
+        .as_mut()
+        .expect("a git remote was seeded")
+        .advances(&name);
 }
 
 #[given(expr = "the session harp is {string}")]
@@ -375,6 +375,38 @@ fn matches(pattern: &str, text: &str) -> bool {
         (0..=text.len())
             .filter(|i| text.is_char_boundary(*i))
             .any(|i| go(pattern, &text[i..], false))
+    }
+}
+
+/// "No such content" is said, never answered with no output: in text the
+/// words, in json an answer whose count is 0 and whose lists are empty.
+/// An empty collection said: in text the words, in json nothing (or an
+/// empty list) at `path`.
+#[then(expr = "the output reports {string} as empty, saying {string}")]
+fn reports_empty(w: &mut World, path: String, saying: String) {
+    if w.common.text_asked() {
+        w.ran().contains(&saying);
+        return;
+    }
+    let doc = w.ran().json();
+    match at(&doc, &path) {
+        None | Some(Value::Null) => {}
+        Some(Value::Array(a)) => assert!(a.is_empty(), "{path}: {a:?}"),
+        Some(other) => panic!("{path} is {other}, so the command did find something"),
+    }
+}
+
+#[then("the search said, in so many words, that nothing matched")]
+fn search_said_nothing(w: &mut World) {
+    let ran = w.ran().succeeds();
+    if w.common.text_asked() {
+        ran.contains("No results found");
+        return;
+    }
+    let doc = ran.json();
+    assert_eq!(doc["count"], 0, "{doc}");
+    for side in ["local", "remote"] {
+        assert_eq!(doc[side], serde_json::json!([]), "{side}: {doc}");
     }
 }
 

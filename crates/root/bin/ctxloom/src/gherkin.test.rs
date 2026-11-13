@@ -334,6 +334,16 @@ fn env_set(w: &mut World, name: String, value: String) {
     w.common.env.push((name, value));
 }
 
+/// The mock engine is the default agent's: no reply is ever asked of it on
+/// this World (a dry run launches nothing), so the reply is not kept.
+#[given(expr = "the mock LLM responds {string}")]
+fn mock_responds(w: &mut World, _reply: String) {
+    w.common.project.write(
+        ".ctxloom/config.yaml",
+        "schema_version: 9\nagents:\n  default:\n    engine: mock\ndefault_agent: default\n",
+    );
+}
+
 #[given(expr = "the home already has the file {string}:")]
 fn home_file(w: &mut World, step: &Step, rel: String) {
     w.common

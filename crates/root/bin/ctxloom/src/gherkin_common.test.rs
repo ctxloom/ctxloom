@@ -240,6 +240,37 @@ macro_rules! common_steps {
                 w.common_mut().project = Project::bare();
             }
 
+            /// Go's fixture bundle: a manifest, an example fragment and an
+            /// example command (`Project::bundle`).
+            #[given(expr = "a bundle {string} exists")]
+            fn bundle(w: &mut World, name: String) {
+                w.common().project.bundle(&name);
+            }
+
+            #[given(expr = "a fragment {string} in bundle {string} exists")]
+            fn fragment(w: &mut World, name: String, bundle: String) {
+                w.common().project.fragment(&bundle, &name);
+            }
+
+            #[given(expr = "a command {string} in bundle {string} exists")]
+            fn command(w: &mut World, name: String, bundle: String) {
+                w.common().project.command(&bundle, &name);
+            }
+
+            /// Go's fixture: a dedicated `<name>-base` bundle, so the profile
+            /// stands alone.
+            #[given(expr = "a profile {string} exists")]
+            fn profile_exists(w: &mut World, name: String) {
+                let base = format!("{name}-base");
+                w.common().project.bundle(&base);
+                w.common().project.profile(&name, &base);
+            }
+
+            #[given(expr = "a profile {string} with bundle {string}")]
+            fn profile(w: &mut World, name: String, bundle: String) {
+                w.common().project.profile(&name, &bundle);
+            }
+
             #[given(expr = "the project already has the file {string}:")]
             fn project_file(w: &mut World, step: &Step, rel: String) {
                 w.common().project.write(&rel, &format!("{}\n", doc(step)));

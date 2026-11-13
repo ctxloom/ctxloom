@@ -3,7 +3,7 @@
 # Ported from journeys/j001200_recall.feature (rev f36e8dfb2): the Rule on resuming a session
 # Ported from journeys/j002200_isolation.feature (rev f36e8dfb2): the last three Rules
 # NOT ported: the scenarios tagged @pending (the mock engine's recorded input,
-#   one-shot, dry-run, tag and agent selection, deny_tools, the opencode TUI):
+#   one-shot, tag and agent selection, deny_tools, the opencode TUI):
 #   they need `run` to launch an engine. Plan override: clap's usage error says
 #   "unexpected argument" where cobra said "unknown flag"; the step maps one to
 #   the other (plan 8.2).
@@ -200,7 +200,6 @@ Feature: run — assembling a project's context and handing it to an engine
       And the output contains "MOCK-REPLY"
       And the mock recorded input contains "COMMAND-BODY-review"
 
-  @pending
   Rule: A dry run renders what would be sent, and sends nothing
 
     `--dry-run` is the inspection surface: it stops before anything stateful or

@@ -23,6 +23,9 @@ use crate::{ChildHomes, ChildPlans, Daemon, Ears, Folds, HandOffs, HostedEngine,
 
 const OWNER: &str = "5f0c7a52-1111-5111-8111-000000000001";
 const CHILD: &str = "5f0c7a52-2222-5222-8222-000000000002";
+/// The child's resource name: its project's harp (named in `hosting`) and
+/// its own.
+const CHILD_NAME: &str = "projects/calm-quiet-heron/sessions/kid";
 const ENGINE: &str = "scripted";
 
 /// What the child's control was asked.
@@ -429,6 +432,23 @@ impl World {
             .await
     }
 
+    /// The project named `calm-quiet-heron`, as a registration names it.
+    async fn name_project(&self) {
+        let named = sessions::ProjectCommand::from(sessions::NameProject {
+            project_id: "calm-otter".to_string(),
+            harp: "calm-quiet-heron".to_string(),
+        });
+        let cover = Cover {
+            domain: sessions::PROJECTS_DOMAIN.to_string(),
+            root: Some(sessions::project_id_root("calm-otter")),
+            edition: None,
+        };
+        self.edge
+            .handle(CommandBook::command_of(cover, &named))
+            .await
+            .unwrap();
+    }
+
     async fn handle(&self, session: &str, command: impl Into<sessions::SessionCommand>) {
         let book = CommandBook::command_of(session_cover(session), &command.into());
         self.edge.handle(book).await.unwrap();
@@ -456,6 +476,7 @@ impl World {
     /// A child of the owner, hosted.
     async fn hosting() -> World {
         let mut world = World::new(Box::new(Plans));
+        world.name_project().await;
         world.mint(OWNER, "boss", None).await;
         world.mint(CHILD, "kid", Some(OWNER)).await;
         world.tick().await;
@@ -530,15 +551,14 @@ async fn a_child_is_started_with_its_launchers_environment_and_the_runs_hooks() 
         spec.env.get(run_ports::HOME_VARIABLE).map(String::as_str),
         Some("/home/u")
     );
-    assert_eq!(
-        spec.env.get(run_ports::HARP_VARIABLE).map(String::as_str),
-        Some("kid")
-    );
+    // s3-Q3: the one variable is the child's resource name; no harp
+    // variable beside it.
+    assert!(!spec.env.contains_key("CTXLOOM_SESSION_HARP"));
     assert_eq!(
         spec.env
             .get(run_ports::SESSION_VARIABLE)
             .map(String::as_str),
-        Some(CHILD)
+        Some(CHILD_NAME)
     );
     assert!(spec.env.contains_key(run_ports::BEARER_VARIABLE));
     assert_eq!(

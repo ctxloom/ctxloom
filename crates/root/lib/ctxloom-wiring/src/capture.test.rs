@@ -376,9 +376,27 @@ fn a_hooks_session_is_the_one_its_environment_names_whatever_the_harp() {
     assert_eq!(ids.session_of("renamed-since"), Some(session_id()));
 }
 
+// Slice 3 step 1 (s3-Q3, ruled): `CTXLOOM_SESSION` carries the session's
+// resource name, and a hook derives the stable id from it, the UUIDv5 the
+// session's stream is rooted on: no second variable, no lookup.
+#[test]
+fn a_hooks_session_is_the_uuidv5_of_the_resource_name_its_environment_names() {
+    let name = "projects/amber-quiet-heron/sessions/amber-swift-owl";
+    let id = sessions::SessionName::parse(name).unwrap().id();
+    assert_eq!(
+        RunIds::from_environment(Some(name)).session_of(HARP),
+        Some(Uuid::from_bytes(*id.as_bytes()))
+    );
+}
+
 #[test]
 fn an_environment_that_names_no_usable_session_is_none() {
-    for held in [None, Some(""), Some("not-a-uuid")] {
+    for held in [
+        None,
+        Some(""),
+        Some("not-a-name"),
+        Some("projects/x/sessions/"),
+    ] {
         assert_eq!(
             RunIds::from_environment(held).session_of(HARP),
             None,

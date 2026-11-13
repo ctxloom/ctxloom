@@ -1704,8 +1704,10 @@ async fn an_interactive_run_is_handed_the_listener_endpoint_and_the_hook_bearer(
         .hyphenated()
         .to_string();
     assert_eq!(env["CTXLOOM_RUN"], run_text);
-    // The hook finds its session by the harp: the engine's environment names it.
-    assert_eq!(env["CTXLOOM_SESSION_HARP"], ended.harp);
+    // The hook finds its session by its resource name, the one variable the
+    // engine's environment names it in (s3-Q3); no harp variable beside it.
+    assert_eq!(env["CTXLOOM_SESSION"], session_name(&ended.harp));
+    assert!(!env.contains_key("CTXLOOM_SESSION_HARP"), "{env:?}");
     assert_eq!(env["CTXLOOM_ENDPOINT"], "https://127.0.0.1:40123");
     let (bearer_run, token) = run_ports::Bearer::parse(&env["CTXLOOM_BEARER"]).unwrap();
     assert_eq!(bearer_run, run_text);
@@ -1730,7 +1732,10 @@ async fn a_childs_turn_is_handed_its_own_listener_endpoint_and_hook_bearer() {
         ("CTXLOOM_BEARER", "inherited.secret"),
         ("CTXLOOM_RUN", "inherited"),
         ("CTXLOOM_TLS_CERT", "inherited-cert"),
-        ("CTXLOOM_SESSION_HARP", "inherited-harp"),
+        (
+            "CTXLOOM_SESSION",
+            "projects/far-otter/sessions/inherited-harp",
+        ),
     ];
     let mut rig = rig(script);
     let answer = rig
@@ -1746,7 +1751,8 @@ async fn a_childs_turn_is_handed_its_own_listener_endpoint_and_hook_bearer() {
         .hyphenated()
         .to_string();
     assert_eq!(env["CTXLOOM_RUN"], run_text);
-    assert_eq!(env["CTXLOOM_SESSION_HARP"], answer.harp);
+    assert_eq!(env["CTXLOOM_SESSION"], session_name(&answer.harp));
+    assert!(!env.contains_key("CTXLOOM_SESSION_HARP"), "{env:?}");
     assert_eq!(env["CTXLOOM_ENDPOINT"], "https://127.0.0.1:40123");
     assert_eq!(env["CTXLOOM_TLS_CERT"], minted_public().to_env_value());
     let (bearer_run, token) = run_ports::Bearer::parse(&env["CTXLOOM_BEARER"]).unwrap();
@@ -2891,8 +2897,13 @@ async fn the_enqueue_is_judged_on_the_engines_driven_and_the_credentials_names()
     assert!(!format!("{credential:?}").contains("VALUE-NEVER-SENT"));
 }
 
+/// The resource name of the rig's session `harp` (s3-Q3).
+fn session_name(harp: &str) -> String {
+    format!("projects/{PROJECT_HARP}/sessions/{harp}")
+}
+
 // Review finding 6 (ruling 87): the engine is told its run's SESSION, by its
-// stable id, so a hook addresses its facts to it without reading anything in
+// resource name (s3-Q3, once its stable id), so a hook addresses its facts to it without reading anything in
 // the session's directory; an inherited one (a run started inside another
 // session) is replaced by this run's. The terminal and a child's turn alike.
 #[tokio::test]
@@ -2902,15 +2913,16 @@ async fn the_engine_is_told_the_runs_session_by_its_id_never_an_inherited_one() 
         script.env = vec![
             ("PATH", "/bin"),
             ("HOME", "/home/u"),
-            ("CTXLOOM_SESSION", "00000000-0000-4000-8000-00000000dead"),
+            ("CTXLOOM_SESSION", "projects/far-otter/sessions/dead-harp"),
         ];
         let mut rig = rig(script);
+        // s3-Q3: told by its resource name, from which a hook derives the id.
         let session = if interactive {
             let ended = rig.runs.interactive(&Flags::default(), &ask()).await;
-            ended.result.unwrap().session
+            session_name(&ended.result.unwrap().harp)
         } else {
             let answered = rig.runs.one_shot(&Flags::default(), &ask()).await;
-            answered.result.unwrap().session
+            session_name(&answered.result.unwrap().harp)
         };
         let env = if interactive {
             rig.runner.seen_terminal.lock().unwrap()[0].env.clone()

@@ -435,7 +435,8 @@ fn the_terminal_and_a_childs_turn_are_both_passed_the_listener_variables() {
         for name in run_ports::HOOK_VARIABLES {
             assert_eq!(command.env.get(name), asked.env.get(name), "{name}");
         }
-        assert_eq!(command.env["CTXLOOM_SESSION_HARP"], "brisk-copper-moth");
+        // s3-Q3: retired; the session's name is `CTXLOOM_SESSION`'s alone.
+        assert!(!command.env.contains_key("CTXLOOM_SESSION_HARP"));
     }
     for name in run_ports::HOOK_VARIABLES.into_iter().chain([
         run_ports::HOME_VARIABLE,

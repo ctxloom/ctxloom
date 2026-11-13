@@ -53,6 +53,10 @@ impl TestEdge {
         registry
             .aggregate::<runs::RunAggregate>(runs::RunAggregate::default)
             .unwrap();
+        // A project's harp, which a session's resource name is built on.
+        registry
+            .aggregate::<sessions::ProjectAggregate>(sessions::ProjectAggregate::default)
+            .unwrap();
         TestEdge {
             registry,
             store: MemoryStore::default(),

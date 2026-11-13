@@ -18,7 +18,7 @@ use session_index::SessionIndexes;
 use session_policies::{plan, Fed, RunAt, Scene, Sent, Step};
 use sessions::Urgency;
 
-use crate::ports::{ChildHomes, ChildPlans, Ears, HandOffs, HostedEngine};
+use crate::ports::{ChildHomes, ChildPlans, Ears, HandOff, HandOffs, HostedEngine};
 use run_launcher::{Sweeper, Swept};
 
 /// How long an ended child has to exit before its tree is stopped.
@@ -93,7 +93,7 @@ pub struct Daemon<E: Edge, T: TokenSource> {
     /// Each hosted child's environment, by its session's stable id: its
     /// launcher's, taken from the hand-off at its first start (S6, D-N45),
     /// held for its life, dropped at its end. Never the daemon's own.
-    envs: BTreeMap<String, BTreeMap<String, String>>,
+    envs: BTreeMap<String, HandOff>,
     hosted: BTreeMap<String, Hosted>,
     done: BTreeSet<String>,
     /// Steps refused this time round: tried again once the store changes.
@@ -486,7 +486,8 @@ impl<E: Edge, T: TokenSource> Daemon<E, T> {
                 .await;
             return Taken::Done;
         };
-        let env = self.child_env(&at.session);
+        let handed = self.child_env(&at.session);
+        let env = handed.env.clone();
         let child = match self.plan_child(&hosted_engine, project_dir, &env) {
             Ok(child) => child,
             Err(code) => {
@@ -539,7 +540,7 @@ impl<E: Edge, T: TokenSource> Daemon<E, T> {
             harp,
             project_dir,
             &child,
-            &env,
+            &handed,
             &enqueued.hook_token,
         );
         let (child, transcripts) = match started {
@@ -622,13 +623,13 @@ impl<E: Edge, T: TokenSource> Daemon<E, T> {
     /// The environment the child `session` is started with: the one held,
     /// else its launcher's hand-off (taken, D-N45), else none at all (a
     /// child no launcher handed anything is judged with no credential).
-    fn child_env(&mut self, session: &str) -> BTreeMap<String, String> {
-        if let Some(env) = self.envs.get(session) {
-            return env.clone();
+    fn child_env(&mut self, session: &str) -> HandOff {
+        if let Some(handed) = self.envs.get(session) {
+            return handed.clone();
         }
-        let env = self.hand_offs.take(session).unwrap_or_default();
-        self.envs.insert(session.to_string(), env.clone());
-        env
+        let handed = self.hand_offs.take(session).unwrap_or_default();
+        self.envs.insert(session.to_string(), handed.clone());
+        handed
     }
 
     /// A child that could not be started (`code`, a refusal's or a plan's):
@@ -672,9 +673,13 @@ impl<E: Edge, T: TokenSource> Daemon<E, T> {
         harp: &str,
         project_dir: &str,
         child: &run_application::HostedChild,
-        sent: &BTreeMap<String, String>,
+        handed: &HandOff,
         hook_token: &run_ports::Token,
     ) -> Result<(run_ports::StartedChild, Option<String>), String> {
+        let sent = &handed.env;
+        // Composed for this launch (T21): her settings read now, where her
+        // launcher finds them.
+        let (prepares, starts) = (Arc::clone(&engine.engine), Arc::clone(&engine.child));
         // The one session-setup path (owner, 2026-11-12): the launcher's,
         // over the child's project's session directories, so a hosted
         // child's home gets what every session's does (the engine's merge,
@@ -682,15 +687,15 @@ impl<E: Edge, T: TokenSource> Daemon<E, T> {
         // with: her own settings, the program its callbacks run).
         let mut records = self.homes.records(project_dir);
         let set_up = run_launcher::set_up_home(
-            &*engine.engine,
+            &*prepares,
             &mut *records,
             &run_launcher::HomeSetup {
                 harp: harp.to_string(),
                 context: child.context.clone(),
                 interactive: false,
                 cwd: Some(project_dir.to_string()),
-                // A hosted child's permissions passthrough (ruling 137) is a
-                // follow-up.
+                // The agent's own document for the engine, verbatim
+                // (rulings 133-137), as every launch's.
                 permissions: None,
                 session_home: child.settings.session_home,
                 git_user: self.plans.git_user(project_dir, sent),
@@ -711,7 +716,7 @@ impl<E: Edge, T: TokenSource> Daemon<E, T> {
             // claude asks no permission over its stream: unused here.
             permissions: run_ports::ChildPermissions::default(),
         };
-        let started = engine.child.start(&spec).map_err(|e| e.to_string())?;
+        let started = starts.start(&spec).map_err(|e| e.to_string())?;
         Ok((started, (engine.transcripts)(&spec)))
     }
 

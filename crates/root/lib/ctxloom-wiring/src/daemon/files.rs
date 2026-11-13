@@ -5,12 +5,12 @@
 //! by the daemon at the child's start). Every one through the file-system
 //! seam, so a test's temporary home is the only place touched.
 
-use std::collections::BTreeMap;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use daemon_application::HandOff;
 use file_lock::{take_current, take_once, until, LockError, Locked};
 use file_system::{Fs, Perms};
 use os::Mode;
@@ -23,7 +23,11 @@ pub(crate) const LOG_FILE: &str = "daemon.log";
 const LAUNCH_DIR: &str = "launch";
 
 /// The first line of a hand-off.
-const HAND_OFF_HEADER: &str = "ctxloom-launch-env 1";
+const HAND_OFF_HEADER: &str = "ctxloom-launch-env 2";
+
+/// What marks a line of a hand-off as its launcher's place (no variable
+/// name starts with it).
+const LAUNCHER_MARK: char = '@';
 
 /// The daemon's directory: the user's alone.
 const DIR_MODE: u32 = 0o700;
@@ -191,13 +195,10 @@ impl DaemonFiles {
         Some(self.dir.join(LAUNCH_DIR).join(id.hyphenated().to_string()))
     }
 
-    /// Hand the daemon `env`, the environment the child `session` is to be
-    /// started with (S6): 0600, in the 0700 daemon directory, written whole.
-    pub(crate) fn hand_off(
-        &self,
-        session: &str,
-        env: &BTreeMap<String, String>,
-    ) -> std::io::Result<()> {
+    /// Hand the daemon `handed`, the environment the child `session` is to
+    /// be started with and where its launcher finds its user's settings
+    /// (S6, S7): 0600, in the 0700 daemon directory, written whole.
+    pub(crate) fn hand_off(&self, session: &str, handed: &HandOff) -> std::io::Result<()> {
         let path = self
             .hand_off_path(session)
             .ok_or_else(|| std::io::Error::other("a child's id is a UUID"))?;
@@ -205,7 +206,7 @@ impl DaemonFiles {
         self.fs.create_dir_all(&dir, Mode::from_bits(DIR_MODE))?;
         self.fs.write_atomic(
             &path,
-            encode_env(env).as_bytes(),
+            encode_hand_off(handed).as_bytes(),
             Perms::Exact(Mode::from_bits(FILE_MODE)),
         )
     }
@@ -213,11 +214,11 @@ impl DaemonFiles {
     /// Take the hand-off of `session`: read, then removed at once (nothing
     /// is left at rest once the daemon holds it). None when there is none,
     /// or it does not read.
-    pub(crate) fn take_hand_off(&self, session: &str) -> Option<BTreeMap<String, String>> {
+    pub(crate) fn take_hand_off(&self, session: &str) -> Option<HandOff> {
         let path = self.hand_off_path(session)?;
         let text = self.fs.read_to_string(&path).ok();
         let _ = self.fs.remove_file(&path);
-        decode_env(&text?)
+        decode_hand_off(&text?)
     }
 
     /// Withdraw the hand-off of `session` (a launch that was refused).
@@ -233,27 +234,39 @@ impl DaemonFiles {
     }
 }
 
-/// A hand-off's text: its header, then a `NAME=value` line per variable, the
-/// value's backslashes, newlines and carriage returns escaped.
-pub(crate) fn encode_env(env: &BTreeMap<String, String>) -> String {
+/// A hand-off's text: its header, then a `NAME=value` line per variable of
+/// the child's environment and a `@NAME=value` line per place of its
+/// launcher's, each value's backslashes, newlines and carriage returns
+/// escaped.
+pub(crate) fn encode_hand_off(handed: &HandOff) -> String {
     let mut text = format!("{HAND_OFF_HEADER}\n");
-    for (name, value) in env {
+    let lines = handed
+        .env
+        .iter()
+        .map(|(name, value)| (String::new(), name, value))
+        .chain(
+            handed
+                .launcher
+                .iter()
+                .map(|(name, value)| (LAUNCHER_MARK.to_string(), name, value)),
+        );
+    for (mark, name, value) in lines {
         let escaped = value
             .replace('\\', "\\\\")
             .replace('\n', "\\n")
             .replace('\r', "\\r");
-        text.push_str(&format!("{name}={escaped}\n"));
+        text.push_str(&format!("{mark}{name}={escaped}\n"));
     }
     text
 }
 
-/// What [`encode_env`] wrote; none for anything else.
-pub(crate) fn decode_env(text: &str) -> Option<BTreeMap<String, String>> {
+/// What [`encode_hand_off`] wrote; none for anything else.
+pub(crate) fn decode_hand_off(text: &str) -> Option<HandOff> {
     let mut lines = text.lines();
     if lines.next()? != HAND_OFF_HEADER {
         return None;
     }
-    let mut env = BTreeMap::new();
+    let mut handed = HandOff::default();
     for line in lines {
         let (name, escaped) = line.split_once('=')?;
         let mut value = String::new();
@@ -269,9 +282,12 @@ pub(crate) fn decode_env(text: &str) -> Option<BTreeMap<String, String>> {
                 (c, false) => value.push(c),
             }
         }
-        env.insert(name.to_string(), value);
+        match name.strip_prefix(LAUNCHER_MARK) {
+            Some(place) => handed.launcher.insert(place.to_string(), value),
+            None => handed.env.insert(name.to_string(), value),
+        };
     }
-    Some(env)
+    Some(handed)
 }
 
 #[cfg(test)]

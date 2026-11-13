@@ -104,17 +104,24 @@ impl Engine for Scripted {
             rel: rel.to_string(),
             bytes: b"seeded".to_vec(),
         };
+        let mut files = vec![
+            HomeFile {
+                rel: "settings.json".to_string(),
+                bytes: request.context.as_bytes().to_vec(),
+            },
+            HomeFile {
+                rel: "state.json".to_string(),
+                bytes: state,
+            },
+        ];
+        if let Some(permissions) = &request.permissions {
+            files.push(HomeFile {
+                rel: "permissions.json".to_string(),
+                bytes: permissions.as_bytes().to_vec(),
+            });
+        }
         Ok(Prepared {
-            files: vec![
-                HomeFile {
-                    rel: "settings.json".to_string(),
-                    bytes: request.context.as_bytes().to_vec(),
-                },
-                HomeFile {
-                    rel: "state.json".to_string(),
-                    bytes: state,
-                },
-            ],
+            files,
             copy_in: Vec::new(),
             seeds: vec![seed("model.json"), seed("kept.json")],
             left_out: Vec::new(),
@@ -197,11 +204,23 @@ impl ChildPlans for Plans {
     }
 }
 
-/// The launcher's hand-off: one environment, taken once.
-struct HandOff(Mutex<Option<BTreeMap<String, String>>>);
+/// The launcher's hand-off: one, taken once.
+struct Handed(Mutex<Option<crate::HandOff>>);
 
-impl HandOffs for HandOff {
-    fn take(&self, _: &str) -> Option<BTreeMap<String, String>> {
+impl Handed {
+    /// A hand-off of the child's environment `env`, its launcher saying
+    /// nothing of its user's settings.
+    fn of(env: BTreeMap<String, String>) -> Handed {
+        Handed::with(env, BTreeMap::new())
+    }
+
+    fn with(env: BTreeMap<String, String>, launcher: BTreeMap<String, String>) -> Handed {
+        Handed(Mutex::new(Some(crate::HandOff { env, launcher })))
+    }
+}
+
+impl HandOffs for Handed {
+    fn take(&self, _: &str) -> Option<crate::HandOff> {
         self.0.lock().unwrap().take()
     }
 }
@@ -360,12 +379,13 @@ impl World {
                 engine: engine.clone(),
                 child: engine.clone(),
                 transcripts: Arc::new(|_| Some("/t".to_string())),
+                for_launch: None,
             }],
             plans,
-            hand_offs: Box::new(HandOff(Mutex::new(Some(BTreeMap::from([
+            hand_offs: Box::new(Handed::of(BTreeMap::from([
                 ("PATH".to_string(), "/usr/bin".to_string()),
                 ("SECRET".to_string(), "v".to_string()),
-            ]))))),
+            ]))),
             homes: Box::new(homes.clone()),
             ears: Box::new(Listening::default()),
             run_locks: Arc::new(Locks),
@@ -535,12 +555,13 @@ async fn started_on(os: &str, path: &str, user_home: Option<&str>) -> run_ports:
             engine: world.engine.clone(),
             child: world.engine.clone(),
             transcripts: Arc::new(|_| None),
+            for_launch: None,
         }],
         plans: Box::new(Plans),
-        hand_offs: Box::new(HandOff(Mutex::new(Some(BTreeMap::from([(
+        hand_offs: Box::new(Handed::of(BTreeMap::from([(
             "PATH".to_string(),
             path.to_string(),
-        )]))))),
+        )]))),
         homes: Box::new(Homes::default()),
         ears: Box::new(Listening::default()),
         run_locks: Arc::new(Locks),
@@ -581,6 +602,127 @@ async fn a_childs_path_is_joined_as_its_platform_joins_it_and_it_is_told_her_hom
         Some(r"/opt/ctx;C:\Windows")
     );
     assert_eq!(spec.user_home.as_deref(), Some(r"C:\Users\her"));
+}
+
+/// A plan of the child whose agent wrote a permissions document.
+struct Permitted;
+
+/// The document `Permitted`'s agent wrote, as it wrote it.
+const DOCUMENT: &str = r#"{"defaultMode":"plan","allow":["Bash(ls)"]}"#;
+
+impl ChildPlans for Permitted {
+    fn preview(
+        &self,
+        engine: &str,
+        project_dir: &str,
+        env: &BTreeMap<String, String>,
+    ) -> Result<Previewed, String> {
+        let mut previewed = Plans.preview(engine, project_dir, env)?;
+        previewed.plan.permissions = Some(DOCUMENT.to_string());
+        Ok(previewed)
+    }
+
+    fn git_user(
+        &self,
+        project_dir: &str,
+        env: &BTreeMap<String, String>,
+    ) -> Option<run_ports::GitUser> {
+        Plans.git_user(project_dir, env)
+    }
+}
+
+// Rulings 133-137: a hosted child's session home is prepared with its
+// agent's own permissions document for the engine, verbatim, as every
+// launch's is.
+#[tokio::test]
+async fn a_hosted_childs_home_is_prepared_with_its_agents_permissions() {
+    let mut world = World::new(Box::new(Permitted));
+    world.mint(OWNER, "boss", None).await;
+    world.mint(CHILD, "kid", Some(OWNER)).await;
+    world.tick().await;
+    assert_eq!(world.daemon.hosting(), 1, "hosted");
+    assert_eq!(
+        world
+            .homes
+            .text("/work", "kid", "home/permissions.json")
+            .as_deref(),
+        Some(DOCUMENT)
+    );
+    let plain = World::hosting().await;
+    assert_eq!(
+        plain.homes.text("/work", "kid", "home/permissions.json"),
+        None,
+        "none written: the engine's default"
+    );
+}
+
+// T21: each launch's engine is composed for it, from where ITS launcher
+// finds its user's settings (S7), never once for the daemon: the child is
+// prepared and started with the engine so composed.
+#[tokio::test]
+async fn each_launch_is_composed_from_its_launchers_places() {
+    let mut world = World::new(Box::new(Plans));
+    let composed = Arc::new(Scripted::default());
+    let asked: Arc<Mutex<Vec<BTreeMap<String, String>>>> = Arc::default();
+    let for_launch: crate::ForLaunch = {
+        let (composed, asked) = (Arc::clone(&composed), Arc::clone(&asked));
+        Arc::new(move |launcher: &BTreeMap<String, String>| {
+            asked.lock().unwrap().push(launcher.clone());
+            let engine: Arc<dyn Engine> = composed.clone();
+            let child: Arc<dyn ChildEngine> = composed.clone();
+            (engine, child)
+        })
+    };
+    let launcher = BTreeMap::from([(
+        "CLAUDE_CONFIG_DIR".to_string(),
+        "/home/alice/.claude-work".to_string(),
+    )]);
+    world.daemon = Daemon::new(Ports {
+        edge: Arc::clone(&world.edge),
+        tokens: Arc::new(Counting::default()),
+        engines: vec![HostedEngine {
+            engine: world.engine.clone(),
+            child: world.engine.clone(),
+            transcripts: Arc::new(|_| None),
+            for_launch: Some(for_launch),
+        }],
+        plans: Box::new(Plans),
+        hand_offs: Box::new(Handed::with(
+            BTreeMap::from([("PATH".to_string(), "/usr/bin".to_string())]),
+            launcher.clone(),
+        )),
+        homes: Box::new(world.homes.clone()),
+        ears: Box::new(Listening::default()),
+        run_locks: Arc::new(Locks),
+        place: Place {
+            home: "/home/u".to_string(),
+            program_dir: None,
+            os: "linux".to_string(),
+            user_home: None,
+            endpoint: "https://127.0.0.1:1".to_string(),
+            cert: PublicCert::from_der(vec![0x30, 0x00]).unwrap(),
+        },
+        folds: Folds::default(),
+        say: Box::new(|_| {}),
+    });
+    world.mint(OWNER, "boss", None).await;
+    world.mint(CHILD, "kid", Some(OWNER)).await;
+    world.tick().await;
+    assert_eq!(*asked.lock().unwrap(), [launcher]);
+    assert_eq!(
+        composed.started.lock().unwrap().len(),
+        1,
+        "started composed"
+    );
+    assert!(
+        world.engine.started.lock().unwrap().is_empty(),
+        "never the engine composed once"
+    );
+    let started = composed.started.lock().unwrap().clone();
+    assert!(
+        !started[0].env.contains_key("CLAUDE_CONFIG_DIR"),
+        "where her settings are is never the child's"
+    );
 }
 
 // What the child says is recorded as its run's facts: its engine's session

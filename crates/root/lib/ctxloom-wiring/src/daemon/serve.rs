@@ -629,7 +629,7 @@ impl ChildPlans for Plans {
 struct HandOffFiles(DaemonFiles);
 
 impl HandOffs for HandOffFiles {
-    fn take(&self, session: &str) -> Option<BTreeMap<String, String>> {
+    fn take(&self, session: &str) -> Option<daemon_application::HandOff> {
         self.0.take_hand_off(session)
     }
 }

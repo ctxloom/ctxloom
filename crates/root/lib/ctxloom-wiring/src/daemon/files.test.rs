@@ -5,6 +5,8 @@ use std::time::Duration;
 use file_system::Rooted;
 use run_ports::{Discovery, PublicCert, Token};
 
+use daemon_application::HandOff;
+
 use super::{instance_lock_path, DaemonFiles};
 use crate::fixtures;
 
@@ -131,14 +133,32 @@ fn a_hand_off_reads_back_what_was_written() {
         ("ODD", "a=b\\nc\nd\re\\"),
         ("EMPTY", ""),
     ]);
-    let text = super::encode_env(&sent);
-    assert!(text.starts_with("ctxloom-launch-env 1\n"), "{text}");
-    assert_eq!(text.lines().count(), 4, "one line a variable: {text}");
-    assert_eq!(super::decode_env(&text), Some(sent));
-    assert_eq!(super::decode_env("other 1\nA=b\n"), None);
-    assert_eq!(super::decode_env("ctxloom-launch-env 1\nnoequals\n"), None);
-    assert_eq!(super::decode_env("ctxloom-launch-env 1\nA=bad\\q\n"), None);
-    assert_eq!(super::decode_env("ctxloom-launch-env 1\nA=end\\\n"), None);
+    let handed = HandOff {
+        env: sent,
+        launcher: env(&[("CLAUDE_CONFIG_DIR", "/home/alice/.claude-work")]),
+    };
+    let text = super::encode_hand_off(&handed);
+    assert!(text.starts_with("ctxloom-launch-env 2\n"), "{text}");
+    assert_eq!(text.lines().count(), 5, "one line a variable: {text}");
+    assert!(
+        text.contains("\n@CLAUDE_CONFIG_DIR=/home/alice/.claude-work\n"),
+        "{text}"
+    );
+    assert_eq!(super::decode_hand_off(&text), Some(handed));
+    assert_eq!(super::decode_hand_off("other 1\nA=b\n"), None);
+    assert_eq!(super::decode_hand_off("ctxloom-launch-env 1\nA=b\n"), None);
+    assert_eq!(
+        super::decode_hand_off("ctxloom-launch-env 2\nnoequals\n"),
+        None
+    );
+    assert_eq!(
+        super::decode_hand_off("ctxloom-launch-env 2\nA=bad\\q\n"),
+        None
+    );
+    assert_eq!(
+        super::decode_hand_off("ctxloom-launch-env 2\nA=end\\\n"),
+        None
+    );
 }
 
 // D-N45: the hand-off is the user's alone, taken once (nothing left at
@@ -147,7 +167,10 @@ fn a_hand_off_reads_back_what_was_written() {
 fn a_hand_off_is_the_users_alone_and_taken_once() {
     let (root, home) = home();
     let files = files(&root, &home);
-    let sent = env(&[("ANTHROPIC_API_KEY", "k")]); // gitleaks:allow
+    let sent = HandOff {
+        env: env(&[("ANTHROPIC_API_KEY", "k")]), // gitleaks:allow
+        launcher: std::collections::BTreeMap::new(),
+    };
     files.hand_off(CHILD, &sent).unwrap();
     let path = files.dir().join("launch").join(CHILD);
     assert_eq!(

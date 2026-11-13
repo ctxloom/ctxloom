@@ -26,6 +26,9 @@ pub struct HostedChild {
     /// The agent's model and effort; empty names none.
     pub model: String,
     pub effort: String,
+    /// The agent's permissions document for the engine, JSON text as it
+    /// was written (rulings 133-137); none: the engine's default document.
+    pub permissions: Option<String>,
     pub evidence: Evidence,
 }
 
@@ -60,6 +63,7 @@ pub fn hosted_child(
         context: plan.context.clone(),
         model: plan.model.clone(),
         effort: plan.effort.clone(),
+        permissions: None,
         settings,
         evidence,
     }

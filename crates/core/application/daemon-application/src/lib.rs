@@ -25,7 +25,9 @@ mod daemon;
 mod ports;
 
 pub use daemon::{Daemon, Folds, Place, Ports, Taken};
-pub use ports::{ChildHomes, ChildPlans, Ears, HandOffs, HostedEngine, Transcripts};
+pub use ports::{
+    ChildHomes, ChildPlans, Ears, ForLaunch, HandOff, HandOffs, HostedEngine, Transcripts,
+};
 pub use run_launcher::{Sweeper, Swept};
 
 #[cfg(test)]

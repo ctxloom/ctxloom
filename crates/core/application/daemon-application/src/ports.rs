@@ -10,6 +10,13 @@ use run_ports::{ChildEngine, ChildObservation, ChildSpec, Engine, GitUser, Sessi
 /// Where an engine keeps a child's transcripts, from the child's spec.
 pub type Transcripts = Arc<dyn Fn(&ChildSpec) -> Option<String> + Send + Sync>;
 
+/// The engine a launch sets its session home up and starts its child with,
+/// composed for that launch from what the launcher said of its user's
+/// settings (T21: her settings are read at every launch, where HER launcher
+/// finds them: its `CLAUDE_CONFIG_DIR`, its XDG bases, S7).
+pub type ForLaunch =
+    Arc<dyn Fn(&BTreeMap<String, String>) -> (Arc<dyn Engine>, Arc<dyn ChildEngine>) + Send + Sync>;
+
 /// One engine the daemon can host a child on, by its name: its `Engine` (the
 /// session home it prepares, its credentials) beside its `ChildEngine` (the
 /// process it starts), as the root's engine registry composes them.
@@ -20,6 +27,9 @@ pub struct HostedEngine {
     /// Where the engine keeps a child's transcripts, if it says (a bind
     /// names the transcript of the native id there).
     pub transcripts: Transcripts,
+    /// The engine each launch is composed with, from its launcher's places
+    /// ([`HandOff::launcher`]); none: `engine` and `child` as they are.
+    pub for_launch: Option<ForLaunch>,
 }
 
 impl HostedEngine {
@@ -27,6 +37,29 @@ impl HostedEngine {
     pub fn name(&self) -> &str {
         self.engine.name()
     }
+
+    /// The engine and the child engine a launch whose launcher said
+    /// `launcher` of its user's settings is set up and started with.
+    pub fn launched(
+        &self,
+        launcher: &BTreeMap<String, String>,
+    ) -> (Arc<dyn Engine>, Arc<dyn ChildEngine>) {
+        match &self.for_launch {
+            Some(compose) => compose(launcher),
+            None => (Arc::clone(&self.engine), Arc::clone(&self.child)),
+        }
+    }
+}
+
+/// What a child's launcher handed the daemon (D-N45, S7): the environment
+/// the child may be given, and where the launcher finds its user's own
+/// settings (the variables that place them: `CLAUDE_CONFIG_DIR`, the XDG
+/// bases), which the launch reads her settings from and never hands the
+/// child.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct HandOff {
+    pub env: BTreeMap<String, String>,
+    pub launcher: BTreeMap<String, String>,
 }
 
 /// A child's plan: its project's dry run, as a ctxloom process in that
@@ -50,7 +83,7 @@ pub trait ChildPlans: Send + Sync {
 /// The hand-off files a launcher leaves a child's environment in (the 0600
 /// files of `~/.ctxloom/daemon/launch/`): taken at the child's first start.
 pub trait HandOffs: Send + Sync {
-    fn take(&self, session: &str) -> Option<BTreeMap<String, String>>;
+    fn take(&self, session: &str) -> Option<HandOff>;
 }
 
 /// The session directories of a child's project: the same port the one

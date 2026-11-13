@@ -1,5 +1,6 @@
 //! What a client gives the daemon it spawns, and how long it waits for it.
 
+use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::path::Path;
 
@@ -188,5 +189,26 @@ fn the_instance_lock_is_under_the_accounts_home_whatever_the_ctxloom_home() {
     assert_eq!(
         instance_lock(&wiring),
         std::path::PathBuf::from("/account/.ctxloom/daemon/daemon.lock")
+    );
+}
+
+// T21, S7: a launch hands the daemon where its launcher finds its user's
+// settings (her claude config dir, her XDG bases), and nothing else of the
+// launcher's in that place.
+#[test]
+fn a_launch_names_where_its_launcher_finds_its_users_settings() {
+    let caller: BTreeMap<String, String> = [
+        ("CLAUDE_CONFIG_DIR", "/home/alice/.claude-work"),
+        ("XDG_CONFIG_HOME", "/home/alice/.cfg"),
+        ("XDG_STATE_HOME", ""),
+        ("ANTHROPIC_API_KEY", "k"), // gitleaks:allow
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_string(), v.to_string()))
+    .collect();
+    let places = super::settings_places(&caller);
+    assert_eq!(
+        places.keys().map(String::as_str).collect::<Vec<_>>(),
+        ["CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME"]
     );
 }

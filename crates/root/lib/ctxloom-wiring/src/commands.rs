@@ -203,11 +203,13 @@ pub fn hosted_engines(wiring: &Wiring, program: &str) -> Vec<daemon_application:
             engine: claude.clone(),
             child: claude,
             transcripts: Arc::new(engine_claude::transcripts_of),
+            for_launch: None,
         },
         daemon_application::HostedEngine {
             engine: opencode.clone(),
             child: opencode,
             transcripts: Arc::new(|_| None),
+            for_launch: None,
         },
     ]
 }

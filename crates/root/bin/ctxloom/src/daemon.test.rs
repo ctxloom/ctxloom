@@ -1015,3 +1015,60 @@ fn a_hosted_childs_home_is_set_up_as_a_cli_runs_is() {
     );
     let _ = world.run(&["daemon", "stop", "--even-if-live"]);
 }
+
+// T21, S7: a hosted child's settings start from HER claude settings as they
+// are at its launch, where her launcher finds them (its CLAUDE_CONFIG_DIR),
+// never where the daemon was started, nor as they were then.
+#[test]
+fn a_hosted_childs_settings_are_read_at_its_launch_from_its_launchers_place() {
+    if !files::runs_scripts() {
+        return;
+    }
+    let world = World::new();
+    files::put(
+        world.project.home().join(".claude/settings.json"),
+        br#"{"theme": "the-default-place"}"#,
+    );
+    let seeded = world.run(&["test", "seed-session", OWNER]);
+    assert_eq!(seeded.code, 0, "{}", seeded.said());
+    let spawned = world.run(&["daemon", "send", OWNER, "hello", "--urgency", "inform"]);
+    assert_eq!(spawned.code, 0, "{}", spawned.said());
+    assert!(world.serving(), "the send spawned the daemon");
+    // Written after the daemon started, in a place only the launcher names.
+    let place = world.project.home().join(".claude-work");
+    files::put(
+        place.join("settings.json"),
+        br#"{"theme": "hers-at-launch"}"#,
+    );
+    let place = place.display().to_string();
+    let launched = world.run_also(
+        &[
+            ("ANTHROPIC_API_KEY", "launchers-key"), // gitleaks:allow
+            ("CLAUDE_CONFIG_DIR", place.as_str()),
+        ],
+        &[
+            "daemon",
+            "launch",
+            "--owner",
+            OWNER,
+            "--name",
+            CHILD,
+            "--prompt",
+            "first task",
+        ],
+    );
+    assert_eq!(launched.code, 0, "{}\n{}", launched.said(), world.log());
+    world.until("the first notice", |w| {
+        (!w.notices().is_empty()).then_some(())
+    });
+    let settings = files::read(
+        world
+            .project
+            .dir()
+            .join(format!(".ctxloom/sessions/{CHILD}/home/settings.json")),
+    )
+    .unwrap_or_default();
+    assert!(settings.contains("hers-at-launch"), "{settings}");
+    assert!(!settings.contains("the-default-place"), "{settings}");
+    let _ = world.run(&["daemon", "stop", "--even-if-live"]);
+}

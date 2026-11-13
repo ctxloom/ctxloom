@@ -213,15 +213,23 @@ fn test_reading_creates_nothing() {
     }
     // The reads are the daemon's (slice 2 step 6): what is there is the
     // daemon's own (its directory, the one store it keeps) and the project's
-    // id, which resolving the project with the daemon gives it (S6); no
-    // session, transcript or store of a read's.
+    // identity, which resolving the project with the daemon registers (S6:
+    // its id, the registry's entry); no session, transcript or store of a
+    // read's.
     let top = files::children(home.env.home());
     assert_eq!(top, [home.env.home().join(".ctxloom")], "{top:?}");
     for entry in files::children(home.env.home().join(".ctxloom")) {
         let name = entry.file_name().unwrap().to_string_lossy().to_string();
         assert!(
-            ["daemon", "project-id"].contains(&name.as_str()) || name.starts_with("ctxloom.db"),
+            ["daemon", "project-id", "projects"].contains(&name.as_str())
+                || name.starts_with("ctxloom.db"),
             "{name} is no daemon's"
+        );
+    }
+    for project in files::children(home.env.home().join(".ctxloom/projects")) {
+        assert!(
+            !files::exists(project.join("ctxloom.db")),
+            "no store of a project's own"
         );
     }
 }

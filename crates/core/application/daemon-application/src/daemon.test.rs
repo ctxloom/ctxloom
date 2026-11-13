@@ -61,6 +61,7 @@ fn hosted(name: &'static str) -> HostedEngine {
         engine: named.clone(),
         child: named,
         transcripts: Arc::new(|_| None),
+        for_launch: None,
     }
 }
 
@@ -87,7 +88,7 @@ impl ChildPlans for Plans {
 struct NoHandOffs;
 
 impl HandOffs for NoHandOffs {
-    fn take(&self, _: &str) -> Option<BTreeMap<String, String>> {
+    fn take(&self, _: &str) -> Option<crate::HandOff> {
         None
     }
 }

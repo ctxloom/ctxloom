@@ -19,10 +19,13 @@ fn a_hand_off_is_taken_once_as_it_was_left() {
     let root = fixtures::root();
     let home = root.root().join("home");
     let files = DaemonFiles::new(fixtures::fs(), &home);
-    let env = BTreeMap::from([("KEY".to_string(), "v".to_string())]);
-    files.hand_off(SESSION, &env).unwrap();
+    let handed = daemon_application::HandOff {
+        env: BTreeMap::from([("KEY".to_string(), "v".to_string())]),
+        launcher: BTreeMap::from([("XDG_CONFIG_HOME".to_string(), "/c".to_string())]),
+    };
+    files.hand_off(SESSION, &handed).unwrap();
     let hand_offs = HandOffFiles(DaemonFiles::new(fixtures::fs(), &home));
-    assert_eq!(hand_offs.take(SESSION), Some(env));
+    assert_eq!(hand_offs.take(SESSION), Some(handed));
     assert_eq!(hand_offs.take(SESSION), None, "taken");
 }
 

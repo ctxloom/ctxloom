@@ -152,3 +152,22 @@ fn a_plan_for_another_engine_runs_on_the_engines_built_ins() {
     );
     assert_eq!(child.settings, run_ports::EngineSettings::default());
 }
+
+// Rulings 133-137: the agent's own permissions document for the engine is
+// the child's, as the plan carries it, verbatim; none, the engine's default.
+#[test]
+fn the_child_carries_its_agents_permissions_document() {
+    let mut plan = previewed("claude-code", builtin(), 0);
+    let document = r#"{"defaultMode":"plan"}"#;
+    plan.plan.permissions = Some(document.to_string());
+    let child = hosted_child(&plan, "claude-code", &drivable(), CLAUDE, &env(&[]));
+    assert_eq!(child.permissions.as_deref(), Some(document));
+    let plain = hosted_child(
+        &previewed("claude-code", builtin(), 0),
+        "claude-code",
+        &drivable(),
+        CLAUDE,
+        &env(&[]),
+    );
+    assert_eq!(plain.permissions, None);
+}

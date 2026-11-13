@@ -607,7 +607,10 @@ fn launch(
         .settings
     })
     .unwrap_or_default();
-    let sent = engine_claude::launcher_environment(&settings, &caller);
+    let sent = daemon_application::HandOff {
+        env: engine_claude::launcher_environment(&settings, &caller),
+        launcher: settings_places(&caller),
+    };
     files.hand_off(&session, &sent).map_err(|e| {
         failed(CliError::Output {
             detail: e.to_string(),
@@ -932,6 +935,31 @@ fn ensure(wiring: &Wiring, env: &EnvSnapshot) {
         }
         std::thread::sleep(Duration::from_millis(20));
     }
+}
+
+/// The variables that say where the user's own engine settings are (her
+/// claude config dir, her XDG bases): a launcher sends its own with the
+/// launch (S7), and the launch reads her settings there (T21), never from
+/// the daemon's environment; none of them is the child's.
+pub(crate) const SETTINGS_PLACES: [&str; 4] = [
+    "CLAUDE_CONFIG_DIR",
+    "XDG_CONFIG_HOME",
+    "XDG_DATA_HOME",
+    "XDG_STATE_HOME",
+];
+
+/// The places of [`SETTINGS_PLACES`] `caller` sets (keyed as the platform
+/// compares names).
+fn settings_places(caller: &BTreeMap<String, String>) -> BTreeMap<String, String> {
+    SETTINGS_PLACES
+        .iter()
+        .filter_map(|name| {
+            caller
+                .get(*name)
+                .filter(|value| !value.is_empty())
+                .map(|value| ((*name).to_string(), value.clone()))
+        })
+        .collect()
 }
 
 /// The user's git identity in the child's project at `project_dir` (owner

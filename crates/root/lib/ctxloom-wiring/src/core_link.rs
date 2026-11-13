@@ -286,6 +286,12 @@ where
         &self.store
     }
 
+    /// The store, shared: a holder (the daemon's destroy, which purges
+    /// it) that lets it go before the core is closed (ruling 131).
+    pub fn store_handle(&self) -> Arc<S> {
+        Arc::clone(&self.store)
+    }
+
     /// How many hold the core's edge: the core itself, and every use case,
     /// listener or task still reaching the store through it (ruling 131's
     /// tests force a holder past the run's end and look).

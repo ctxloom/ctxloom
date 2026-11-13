@@ -1,4 +1,4 @@
-//! The sweep's table of rows, over a fake of the sessions use cases. Go:
+//! The sweep's table of rows, over a fake of what a removal takes. Go:
 //! j001300_closeout.feature's sweep scenarios and `operations.DecideSweep`
 //! (release/0.7), minus the worktree rows (S11).
 
@@ -6,15 +6,20 @@ use std::future::Future;
 use std::pin::pin;
 use std::task::{Context, Poll, Waker};
 
-use isolation_application::{IsolationError, Report, Row, Verdict as Worktree, WorktreeUse};
+use isolation_application::{IsolationError, Report, Row, Verdict as Worktree};
 use session_index::{Captured, SessionRecord, View};
-use sessions_application::{
-    AppError, BindRequest, Bound, FilePlan, KeepRequest, Kept, ListQuery, Refusal, Removal,
-    RemoveRequest, SearchQuery, SessionService, ShowQuery, State, Timestamp, TranscriptQuery,
-    TranscriptRow,
-};
+use sessions_application::{AppError, FilePlan, Refusal, Removal, RemoveRequest, State, Timestamp};
 
-use crate::{sweep, SweepRequest, Verdict};
+use crate::{Removals, SweepReport, SweepRequest, Verdict};
+
+/// The sweep of the fake's own sessions.
+async fn sweep(
+    fake: &mut Fake,
+    request: &SweepRequest,
+) -> Result<SweepReport, crate::ReclaimError> {
+    let views = fake.views.clone();
+    crate::sweep(fake, &views, request).await
+}
 
 const NOW: i64 = 1_800_000_000;
 const DAY: i64 = 86_400;
@@ -39,7 +44,7 @@ fn view(harp: &str, state: State, ended_days_ago: i64, kept: bool) -> View {
         record: SessionRecord {
             id: String::new(),
             harp: harp.to_string(),
-            project_id: String::new(),
+            project_id: "calm-otter-id".to_string(),
             project_dir: String::new(),
             output_dir: String::new(),
             engine: String::new(),
@@ -81,26 +86,6 @@ struct Fake {
     worktrees_asked: Vec<(Option<String>, bool)>,
 }
 
-impl WorktreeUse for Fake {
-    fn worktrees(&mut self, harp: Option<&str>, apply: bool) -> Result<Report, IsolationError> {
-        self.worktrees_asked.push((harp.map(str::to_string), apply));
-        let rows: Vec<Row> = self
-            .scratch
-            .iter()
-            .filter(|r| harp.is_none_or(|h| h == r.harp))
-            .cloned()
-            .collect();
-        let count = |v: Worktree| rows.iter().filter(|r| r.verdict == v).count() as u64;
-        Ok(Report {
-            reaped: count(Worktree::Reaped),
-            spared: count(Worktree::Spared),
-            skipped: count(Worktree::Skipped),
-            worktrees: rows,
-            applied: apply,
-        })
-    }
-}
-
 fn scratch(harp: &str, name: &str, verdict: Worktree, reason: &str) -> Row {
     Row {
         harp: harp.to_string(),
@@ -112,25 +97,31 @@ fn scratch(harp: &str, name: &str, verdict: Worktree, reason: &str) -> Row {
     }
 }
 
-fn nothing<T>() -> Result<T, AppError> {
-    Err(AppError::NoSession {
-        harp: String::new(),
-    })
-}
+impl Removals for Fake {
+    fn worktrees(
+        &mut self,
+        project: Option<&str>,
+        harp: &str,
+        apply: bool,
+    ) -> Result<Report, IsolationError> {
+        assert_eq!(project, Some("calm-otter-id"));
+        self.worktrees_asked.push((Some(harp.to_string()), apply));
+        let rows: Vec<Row> = self
+            .scratch
+            .iter()
+            .filter(|r| r.harp == harp)
+            .cloned()
+            .collect();
+        let count = |v: Worktree| rows.iter().filter(|r| r.verdict == v).count() as u64;
+        Ok(Report {
+            reaped: count(Worktree::Reaped),
+            spared: count(Worktree::Spared),
+            skipped: count(Worktree::Skipped),
+            worktrees: rows,
+            applied: apply,
+        })
+    }
 
-impl SessionService for Fake {
-    async fn list(&mut self, _: ListQuery) -> Result<Vec<View>, AppError> {
-        Ok(self.views.clone())
-    }
-    async fn search(&mut self, _: SearchQuery) -> Result<Vec<View>, AppError> {
-        nothing()
-    }
-    async fn show(&mut self, _: ShowQuery) -> Result<View, AppError> {
-        nothing()
-    }
-    async fn keep(&mut self, _: KeepRequest) -> Result<Kept, AppError> {
-        nothing()
-    }
     async fn remove(&mut self, request: RemoveRequest) -> Result<Removal, AppError> {
         self.asked.push((request.harp.clone(), request.yes));
         let mut files = FilePlan::default();
@@ -158,26 +149,10 @@ impl SessionService for Fake {
             dead_letters: Vec::new(),
         })
     }
-    async fn set_title(
-        &mut self,
-        _: sessions_application::TitleRequest,
-    ) -> Result<sessions_application::Titled, AppError> {
-        nothing()
-    }
-    async fn transcripts(&mut self, _: TranscriptQuery) -> Result<Vec<TranscriptRow>, AppError> {
-        nothing()
-    }
-    async fn transcript(&mut self, _: &str) -> Result<String, AppError> {
-        nothing()
-    }
-    async fn bind(&mut self, _: BindRequest) -> Result<Bound, AppError> {
-        nothing()
-    }
 }
 
 fn request(yes: bool) -> SweepRequest {
     SweepRequest {
-        all_projects: false,
         purge_cutoff: Some(at(NOW - 90 * DAY)),
         yes,
     }
@@ -267,7 +242,6 @@ fn without_a_purge_age_every_purge_is_held() {
     let none = SweepRequest {
         purge_cutoff: None,
         yes: true,
-        ..SweepRequest::default()
     };
     let report = ready(sweep(&mut fake, &none)).unwrap();
     assert_eq!(report.rows[0].verdict, Verdict::Held);
@@ -357,9 +331,20 @@ fn the_sweep_asks_the_worktree_leaf_for_each_session_with_its_own_decision() {
         ],
         ..Fake::default()
     };
+    // Each session's first ask is the sweep's own, with its decision; a
+    // purge then classifies again, through `session remove`'s order.
+    let first = |asked: &[(Option<String>, bool)]| {
+        let mut seen: Vec<(Option<String>, bool)> = Vec::new();
+        for ask in asked {
+            if !seen.iter().any(|(harp, _)| *harp == ask.0) {
+                seen.push(ask.clone());
+            }
+        }
+        seen
+    };
     ready(sweep(&mut fake, &request(false))).unwrap();
     assert_eq!(
-        fake.worktrees_asked,
+        first(&fake.worktrees_asked),
         vec![
             (Some("olive-dirty-finch".to_string()), false),
             (Some("teal-running-wren".to_string()), false)
@@ -367,7 +352,20 @@ fn the_sweep_asks_the_worktree_leaf_for_each_session_with_its_own_decision() {
     );
     fake.worktrees_asked.clear();
     ready(sweep(&mut fake, &request(true))).unwrap();
-    assert!(fake.worktrees_asked.iter().all(|(_, apply)| *apply));
+    assert!(first(&fake.worktrees_asked).iter().all(|(_, apply)| *apply));
+}
+
+// A planned purge carries its removal, its file plan whole.
+#[test]
+fn a_planned_purge_carries_its_removal() {
+    let mut fake = Fake {
+        views: vec![view("amber-quiet-heron", State::Ended, 120, false)],
+        ..Fake::default()
+    };
+    let report = ready(sweep(&mut fake, &request(false))).unwrap();
+    let removal = report.rows[0].removal.as_ref().expect("the removal");
+    assert_eq!(removal.files.destroy.len(), 1);
+    assert!(!removal.applied);
 }
 
 #[test]
@@ -434,6 +432,7 @@ fn a_session_with_a_preserved_worktree_is_spared_from_purge() {
             fake.asked,
             vec![
                 ("amber-quiet-heron".to_string(), false),
+                ("amber-quiet-heron".to_string(), false),
                 ("amber-quiet-heron".to_string(), true)
             ],
             "{verdict:?}: only the session without a preserved worktree is purged"
@@ -491,7 +490,8 @@ fn a_reapable_checkout_is_planned_naming_the_leaf_that_removes_it() {
     );
 }
 
-// The purge is asked of the session the row is for (`session remove`).
+// The purge is asked of the session the row is for, through `session
+// remove`'s own order: planned, then planned again and applied.
 #[test]
 fn the_purge_names_the_session_and_its_scope() {
     let mut fake = Fake {
@@ -502,6 +502,7 @@ fn the_purge_names_the_session_and_its_scope() {
     assert_eq!(
         fake.asked,
         vec![
+            ("amber-quiet-heron".to_string(), false),
             ("amber-quiet-heron".to_string(), false),
             ("amber-quiet-heron".to_string(), true),
         ]

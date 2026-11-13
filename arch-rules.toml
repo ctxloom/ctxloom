@@ -156,3 +156,12 @@ from = "session-cli"
 to = "session-cli"
 kind = "dev"
 reason = "test-only: the crate's own tests compile the session-destroy feature (ruling 99) through a self dev-dependency, so no feature rule is needed and the plain binary stays without the destroy"
+
+# daemon-api-grpc depends on itself, as a dev-dependency, with
+# `session-destroy` (M5, owner 2026-11-12), for the same reason: the served
+# DeleteSession and SweepSessions compile only under it.
+[[exception]]
+from = "daemon-api-grpc"
+to = "daemon-api-grpc"
+kind = "dev"
+reason = "test-only: the crate's own tests compile the served destroy (M5) through a self dev-dependency, so no feature rule is needed and the plain daemon answers UNIMPLEMENTED"

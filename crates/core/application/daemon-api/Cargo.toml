@@ -13,12 +13,23 @@ angzarr-embedded.workspace = true
 daemon-ports.workspace = true
 daemon-proto.workspace = true
 exit-code.workspace = true
+# The scratch worktrees a removal classifies and removes (slice 2 step 6).
+isolation-application.workspace = true
 pending-messages.workspace = true
 prost.workspace = true
+# `session remove`'s one safe order, and the sweep's table, run here.
+reclaim-application.workspace = true
 run-ports.workspace = true
+# A destroy's run streams, UUIDv5(session, n).
+runs.workspace = true
 session-index.workspace = true
+# The destroy's commands to the children and the owner (M3).
+session-policies.workspace = true
+session-ports.workspace = true
 sessions.workspace = true
+sessions-application.workspace = true
 sessions-proto.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
 angzarr-embedded = { workspace = true, features = ["test-support"] }

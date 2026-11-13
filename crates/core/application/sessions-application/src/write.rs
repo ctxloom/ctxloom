@@ -393,7 +393,7 @@ pub(crate) fn recorded(handled: &Handled) -> bool {
 /// Purge `stream` at the head just read, re-read and tried again when another
 /// writer moved it in between (head-guarded, angzarr's 14.43); how many
 /// events it removed.
-pub(crate) async fn purge<S: EventStore + Purge>(
+pub async fn purge<S: EventStore + Purge>(
     store: &S,
     stream: StreamRef<'_>,
 ) -> Result<u64, AppError> {

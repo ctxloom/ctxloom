@@ -7,7 +7,7 @@ use daemon_ports::{Called, DaemonApi, Daemons, Unreached};
 use daemon_proto::v1;
 use exit_code::{Exit, ExitClass};
 
-use super::{Client, SessionReads};
+use super::{Client, Removed, SessionReads, SessionRemovals};
 use crate::CallError;
 
 /// What every daemon of a test was asked, in order, `<daemon>:<rpc>`.
@@ -95,6 +95,45 @@ impl DaemonApi for Fake {
         self.ask(&format!("search {}", r.words.join(" ")), r.env)?;
         self.names.lock().unwrap().push(r.parent);
         Ok(v1::ListSessionsResponse::default())
+    }
+
+    async fn delete_session(
+        &self,
+        r: v1::DeleteSessionRequest,
+    ) -> Result<v1::DeleteSessionResponse, Called> {
+        let rpc = format!("delete {} {}", r.validate_only, r.even_if_live);
+        self.ask(&rpc, r.env)?;
+        self.names.lock().unwrap().push(r.name.clone());
+        let plan = v1::DeleteSessionResponse {
+            name: r.name.clone(),
+            harp: "brisk-copper-moth".to_string(),
+            authored: vec!["notes.md".to_string()],
+            ..v1::DeleteSessionResponse::default()
+        };
+        if r.name.ends_with("/kept-heron") {
+            let refusal = crate::ApiRefusal::of(&v1::RemovalRefused {
+                name: r.name,
+                reason: v1::RemovalRefusal::Kept as i32,
+                plan: Some(plan),
+                ..v1::RemovalRefused::default()
+            });
+            return Err(Called::Refused {
+                code: refusal.code,
+                refusal: refusal.refusal,
+            });
+        }
+        Ok(plan)
+    }
+
+    async fn sweep_sessions(
+        &self,
+        r: v1::SweepSessionsRequest,
+    ) -> Result<v1::SweepSessionsResponse, Called> {
+        let rpc = format!("sweep {} {}", r.validate_only, r.older_than);
+        self.ask(&rpc, r.env)?;
+        self.names.lock().unwrap().push(r.parent);
+        self.names.lock().unwrap().push(r.project);
+        Ok(v1::SweepSessionsResponse::default())
     }
 }
 
@@ -347,4 +386,75 @@ async fn a_daemon_gone_since_it_was_found_serves_no_more() {
     daemons.template.dying.lock().unwrap().push(0);
     assert_eq!(outside(&daemons).status().await.unwrap(), None);
     assert_eq!(outside(&daemons).stop(false).await.unwrap(), None);
+}
+
+// `session remove`: the daemon's DeleteSession, of this project's session,
+// its preview `validate_only`, its override and the environment sent.
+#[tokio::test]
+async fn a_removal_asks_the_daemon_of_this_projects_session() {
+    let daemons = Fakes::new();
+    let removed = in_project(&daemons)
+        .delete_session("brisk-copper-moth", false, true)
+        .await
+        .unwrap();
+    let Removed::Done(plan) = removed else {
+        panic!("{removed:?}")
+    };
+    assert_eq!(plan.authored, ["notes.md"]);
+    assert_eq!(daemons.asked(), ["1:resolve", "1:delete true true"]);
+    assert_eq!(
+        daemons.names(),
+        ["p-1", "projects/calm-otter/sessions/brisk-copper-moth"]
+    );
+    let envs = daemons.template.envs.lock().unwrap().clone();
+    assert_eq!(envs.last(), Some(&Some(env())));
+    in_project(&daemons)
+        .delete_session("brisk-copper-moth", true, false)
+        .await
+        .unwrap();
+    assert_eq!(daemons.asked().last().unwrap(), "2:delete false false");
+}
+
+// A refused removal is its plan and why, in the refusing use case's words.
+#[tokio::test]
+async fn a_refused_removal_carries_its_plan() {
+    let daemons = Fakes::new();
+    let removed = in_project(&daemons)
+        .delete_session("kept-heron", true, false)
+        .await
+        .unwrap();
+    let Removed::Refused { plan, why } = removed else {
+        panic!("{removed:?}")
+    };
+    assert_eq!(plan.authored, ["notes.md"]);
+    assert_eq!(
+        why,
+        crate::RemovalRejection::Session(sessions_application::Refusal::Kept {
+            harp: "kept-heron".to_string()
+        })
+    );
+    assert_eq!(why.exit(), Exit::REFUSED);
+}
+
+// `session sweep`: this project's (or every project's) sessions, its
+// project named for its configuration, its age and preview sent.
+#[tokio::test]
+async fn a_sweep_names_its_parent_and_its_project() {
+    let daemons = Fakes::new();
+    in_project(&daemons)
+        .sweep_sessions(true, Some("90d".to_string()), false)
+        .await
+        .unwrap();
+    assert_eq!(
+        daemons.names(),
+        ["p-1", "p-1", "projects/-", "projects/calm-otter"]
+    );
+    assert_eq!(daemons.asked().last().unwrap(), "1:sweep true 90d");
+    let outside_daemons = Fakes::new();
+    outside(&outside_daemons)
+        .sweep_sessions(true, None, true)
+        .await
+        .unwrap();
+    assert_eq!(outside_daemons.names(), ["projects/-", ""]);
+    assert_eq!(outside_daemons.asked(), ["1:sweep false "]);
 }

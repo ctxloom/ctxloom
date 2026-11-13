@@ -15,9 +15,10 @@
 //! - A refusal is answered under the gRPC code its `(refusal_status)`
 //!   declares, the typed refusal message packed in `google.rpc.Status.
 //!   details` (S11); a failure is INTERNAL.
-//! - Every other RPC is the generated default, UNIMPLEMENTED, to the user
-//!   bearer alone (a plain build's `DeleteSession` and `SweepSessions`
-//!   among them, M5).
+//! - `DeleteSession` and `SweepSessions` are served only in a
+//!   `session-destroy` build (M5, the feature of the same name); every other
+//!   RPC is the generated default, UNIMPLEMENTED, to the user bearer alone
+//!   (a plain build's `DeleteSession` and `SweepSessions` among them).
 
 use std::convert::Infallible;
 use std::future::Future;

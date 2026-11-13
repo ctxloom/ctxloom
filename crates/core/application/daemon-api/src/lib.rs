@@ -6,6 +6,11 @@
 //!   daemon's WARM read models (the session index its kernel runs, S32),
 //!   never by replaying the store per call; a project's own stream alone is
 //!   read when it is registered;
+//! - `DeleteSession` and `SweepSessions` (slice 2 step 6, owner
+//!   2026-11-12): the destroy, run inside the daemon over its one store
+//!   ([`Purges`]) and each session's project ([`Places`]), through
+//!   reclaim-application's one safe order; a refused removal carries its
+//!   plan;
 //! - [`ApiError`] and [`ApiRefusal`]: a refusal is a typed refusal message
 //!   and the gRPC code its `(refusal_status)` declares (S11), the daemon's
 //!   own (`ctxloom.daemon.v1`, [`daemon_proto::Refusal`]) or a domain's (the
@@ -20,14 +25,16 @@
 //!   retried once on a new daemon (S8).
 
 mod client;
+mod destroy;
 mod refusal;
 mod server;
 mod session_client;
 
 pub use client::{reconcile, resolve, stop, CallError, Reconciled, SkewError};
-pub use refusal::{rejection_of, ApiError, ApiRefusal, ApiRejection, Rejection};
+pub use destroy::{Places, Purges};
+pub use refusal::{rejection_of, ApiError, ApiRefusal, ApiRejection, Rejection, RemovalRejection};
 pub use server::{About, Answer, Api, Calls, Harps, Hosting, Parts, SessionStates};
-pub use session_client::{Client, SessionReads};
+pub use session_client::{Client, Removed, SessionReads, SessionRemovals};
 
 /// What a call can come to, and why no daemon could be called: the port's,
 /// as a driving adapter names them (it sees the application alone).

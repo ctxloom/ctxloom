@@ -18,25 +18,22 @@
 //! skipped, each saying why.
 //!
 //! Nothing is decided by a model: the same sessions give the same report.
-//! The purge acts through `session remove` (a destroy, owner ruling 98), so
-//! every refusal it makes is the sweep's.
+//! The purge acts through `session remove`'s own order ([`crate::remove`],
+//! a destroy, owner ruling 98), so every refusal it makes is the sweep's.
+//! The sessions are the caller's (the daemon's warm index, slice 2).
 
 use std::collections::BTreeMap;
 
-use isolation_application::{IsolationError, Row, Verdict as Worktree, WorktreeUse};
+use isolation_application::{IsolationError, Row, Verdict as Worktree};
 use serde::Serialize;
-use session_index::stamp;
-use sessions_application::{
-    AppError, ListQuery, Refusal, RemoveRequest, SessionService, State, Timestamp,
-};
+use session_index::{stamp, View};
+use sessions_application::{Refusal, Removal, RemoveRequest, State, Timestamp};
 
-use crate::ReclaimError;
+use crate::{ReclaimError, Removals};
 
 /// What a sweep is asked.
 #[derive(Clone, Debug, Default)]
 pub struct SweepRequest {
-    /// Every project's sessions, not only the current one's.
-    pub all_projects: bool,
     /// Sessions last active before this are purged; none holds every purge.
     pub purge_cutoff: Option<Timestamp>,
     /// Act on the plan (`--yes`); without it only report.
@@ -69,7 +66,7 @@ impl Verdict {
 }
 
 /// One session's row.
-#[derive(Clone, PartialEq, Eq, Debug, Serialize)]
+#[derive(Clone, PartialEq, Debug, Serialize)]
 pub struct SweepRow {
     pub harp: String,
     pub action: &'static str,
@@ -85,6 +82,9 @@ pub struct SweepRow {
     /// done), each relative to the session's directory (owner ruling 104).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub authored: Vec<String>,
+    /// The removal a purge row planned or applied, its file plan whole.
+    #[serde(skip)]
+    pub removal: Option<Removal>,
 }
 
 pub(crate) fn is_zero(n: &u64) -> bool {
@@ -92,7 +92,7 @@ pub(crate) fn is_zero(n: &u64) -> bool {
 }
 
 /// The sweep's answer.
-#[derive(Clone, PartialEq, Eq, Debug, Serialize)]
+#[derive(Clone, PartialEq, Debug, Serialize)]
 pub struct SweepReport {
     /// When purging begins, as a date; none when purges are held.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -116,25 +116,22 @@ fn row(
         command,
         bytes: 0,
         authored: Vec::new(),
+        removal: None,
     }
 }
 
-/// Sweep the project's sessions (or every project's).
-pub async fn sweep<S: SessionService + WorktreeUse>(
+/// Sweep `views`, a project's sessions (or every project's), each in its
+/// state.
+pub async fn sweep<S: Removals + Send>(
     service: &mut S,
+    views: &[View],
     request: &SweepRequest,
 ) -> Result<SweepReport, ReclaimError> {
-    let views = service
-        .list(ListQuery {
-            project: None,
-            all: request.all_projects,
-            state: None,
-        })
-        .await?;
     let mut rows = Vec::new();
-    for view in &views {
+    for view in views {
         let harp = view.record.harp.as_str();
-        let checkouts = worktree_rows(service, harp, request.yes)?;
+        let project = Some(view.record.project_id.as_str()).filter(|id| !id.is_empty());
+        let checkouts = worktree_rows(service, project, harp, request.yes)?;
         let preserved = preserved_worktree(&checkouts).map(str::to_string);
         rows.extend(checkouts.into_iter().map(|c| c.row));
         let purge = format!("ctxloom session remove {harp} --yes");
@@ -201,7 +198,7 @@ pub async fn sweep<S: SessionService + WorktreeUse>(
             ));
             continue;
         }
-        rows.push(purge_row(service, harp, &purge, request.yes).await?);
+        rows.push(purge_row(service, project, harp, &purge, request.yes).await);
     }
     let counts = tally(&rows);
     Ok(SweepReport {
@@ -247,12 +244,13 @@ fn preserved_worktree(checkouts: &[Checkout]) -> Option<&str> {
 /// A session's scratch checkouts, through the worktree leaf and with the
 /// sweep's own apply decision: reaped, planned, spared in place, or skipped,
 /// each with its reason. A session with no directory has none.
-fn worktree_rows<S: WorktreeUse>(
+fn worktree_rows<S: Removals>(
     service: &mut S,
+    project: Option<&str>,
     harp: &str,
     apply: bool,
 ) -> Result<Vec<Checkout>, ReclaimError> {
-    let report = match service.worktrees(Some(harp), apply) {
+    let report = match service.worktrees(project, harp, apply) {
         Ok(report) => report,
         Err(IsolationError::NoSession { .. }) => return Ok(Vec::new()),
         Err(error) => return Err(ReclaimError::Isolation(error)),
@@ -290,23 +288,28 @@ fn worktree_row(harp: &str, checkout: &Row) -> SweepRow {
     row(harp, "worktree", verdict, &reason, command)
 }
 
-/// The purge of one session, planned and, on `yes`, applied.
-async fn purge_row<S: SessionService>(
+/// The purge of one session, planned and, on `yes`, applied, through
+/// `session remove`'s own order ([`crate::remove`]).
+async fn purge_row<S: Removals + Send>(
     service: &mut S,
+    project: Option<&str>,
     harp: &str,
     command: &str,
     yes: bool,
-) -> Result<SweepRow, ReclaimError> {
+) -> SweepRow {
     let ask = |yes| RemoveRequest {
+        project: project.map(str::to_string),
         harp: harp.to_string(),
         yes,
-        ..RemoveRequest::default()
+        even_if_live: false,
     };
-    let planned = match service.remove(ask(false)).await {
-        Ok(planned) => planned,
-        Err(error) => return Ok(failed(harp, &error)),
+    // Its words alone are held across the next wait: an isolation error is
+    // not `Send`.
+    let (removal, kept) = match crate::remove(service, ask(false)).await {
+        Ok(planned) => (planned.removal, planned.kept.map(|kept| kept.to_string())),
+        Err(error) => return failed(harp, &error),
     };
-    if let Some(refusal) = &planned.refusal {
+    if let Some(refusal) = &removal.refusal {
         let (verdict, reason, command) = match refusal {
             Refusal::Retained { detail, .. } => (
                 Verdict::Held,
@@ -324,36 +327,65 @@ async fn purge_row<S: SessionService>(
                 format!("ctxloom session remove {harp} --even-if-live"),
             ),
         };
-        return Ok(row(harp, "purge", verdict, &reason, command));
+        return row(harp, "purge", verdict, &reason, command);
     }
-    let bytes: u64 = planned.files.destroy.iter().map(|i| i.bytes).sum();
-    if planned.files.destroy.is_empty() {
-        return Ok(row(
+    if let Some(kept) = kept {
+        return row(harp, "purge", Verdict::Held, &kept, String::new());
+    }
+    let bytes: u64 = removal.files.destroy.iter().map(|i| i.bytes).sum();
+    if removal.files.destroy.is_empty() {
+        return row(
             harp,
             "purge",
             Verdict::Left,
             "nothing to purge",
             String::new(),
-        ));
+        );
     }
     if !yes {
         let mut r = row(harp, "purge", Verdict::Planned, "", command.to_string());
         r.bytes = bytes;
-        r.authored = planned.authored();
-        return Ok(r);
+        r.authored = removal.authored();
+        r.removal = Some(removal);
+        return r;
     }
-    match service.remove(ask(true)).await {
-        Ok(done) => {
+    match crate::remove(service, ask(true)).await {
+        Ok(done) if done.removal.applied => {
             let mut r = row(harp, "purge", Verdict::Done, "", String::new());
-            r.bytes = done.files.bytes_freed;
-            r.authored = done.authored();
-            Ok(r)
+            r.bytes = done.removal.files.bytes_freed;
+            r.authored = done.removal.authored();
+            r.removal = Some(done.removal);
+            r
         }
-        Err(error) => Ok(failed(harp, &error)),
+        // Something changed between the plan and the apply: what it says.
+        Ok(done) => match (&done.kept, &done.removal.refusal) {
+            (Some(kept), _) => row(
+                harp,
+                "purge",
+                Verdict::Held,
+                &kept.to_string(),
+                String::new(),
+            ),
+            (None, Some(refusal)) => row(
+                harp,
+                "purge",
+                Verdict::Held,
+                &refusal.to_string(),
+                String::new(),
+            ),
+            (None, None) => row(
+                harp,
+                "purge",
+                Verdict::Left,
+                "nothing to purge",
+                String::new(),
+            ),
+        },
+        Err(error) => failed(harp, &error),
     }
 }
 
-fn failed(harp: &str, error: &AppError) -> SweepRow {
+fn failed(harp: &str, error: &ReclaimError) -> SweepRow {
     row(
         harp,
         "purge",

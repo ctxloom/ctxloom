@@ -130,7 +130,7 @@ os = { workspace = true, features = ["test-support"] }
 # changes what another crate must implement.
 # `session remove` (and `sweep`), the destroy of a whole session (owner
 # rulings 94, 94b, 98).
-session-destroy = ["session-cli/session-destroy"]
+session-destroy = ["session-cli/session-destroy", "daemon-api-grpc/session-destroy"]
 test-support = [
     "ctxloom-store-sqlite/test-support",
     "ctxloom-cli/test-support",

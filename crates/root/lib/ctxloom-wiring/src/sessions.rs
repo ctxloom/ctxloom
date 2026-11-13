@@ -126,12 +126,18 @@ impl Commands {
         let command = session_cli::Session::from_arg_matches(matches_of(call, "session"))
             .unwrap_or_else(|e| unreachable!("clap parsed it: {e}"));
         let format = call.format();
-        // The reads are the daemon's (slice 2 step 6): this process opens no
-        // store for them.
+        // The reads and the destroy are the daemon's (slice 2 step 6): this
+        // process opens no store for them.
         let ran = if session_cli::is_read(&command) {
             let wiring = Wiring::new(Arc::clone(&self.env)).map_err(|e| failed(Box::new(e)))?;
             let client = crate::daemon::client(&wiring, &self.version);
             session_cli::read(&command, &client, format, out)
+        } else if session_cli::is_destroy(&command) {
+            // The destroy is the daemon's (owner, 2026-11-12): this process
+            // opens no store for it.
+            let wiring = Wiring::new(Arc::clone(&self.env)).map_err(|e| failed(Box::new(e)))?;
+            let client = crate::daemon::client(&wiring, &self.version);
+            destroy(&command, &client, format, out)
         } else {
             let service = self.sessions().map_err(failed)?;
             session_cli::run(&command, service, format, out)
@@ -238,6 +244,29 @@ impl Commands {
         })?;
         Ok(Exit::OK)
     }
+}
+
+/// `session remove|sweep` on the daemon's client: a `session-destroy`
+/// build's alone.
+#[cfg(feature = "session-destroy")]
+fn destroy<R: daemon_api::SessionRemovals>(
+    command: &session_cli::Session,
+    client: &R,
+    format: Format,
+    out: &mut dyn Write,
+) -> Result<session_cli::Done, session_cli::Failure> {
+    session_cli::destroy(command, client, format, out)
+}
+
+/// A plain build has no destroying verb, so nothing is a destroy.
+#[cfg(not(feature = "session-destroy"))]
+fn destroy<R>(
+    _: &session_cli::Session,
+    _: &R,
+    _: Format,
+    _: &mut dyn Write,
+) -> Result<session_cli::Done, session_cli::Failure> {
+    unreachable!("a plain build has no destroying verb")
 }
 
 /// The hook service of a callback that never asks the application.

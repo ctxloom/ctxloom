@@ -8,3 +8,6 @@ daemon-api-daemon-hosting = the daemon hosts { $runs } live run(s): { $harps }
 daemon-api-daemon-hosting-fix = wait for them to end, or end them with it: ctxloom daemon stop --even-if-live
 daemon-api-version-skew-busy = the serving daemon is ctxloom { $daemon }, not this ctxloom { $own }, and it hosts live runs: { $harps }
 daemon-api-version-skew-busy-fix = ctxloom daemon stop --even-if-live
+daemon-api-age-invalid = { $key } { $value } is neither an age nor a date
+daemon-api-age-invalid-fix = give an age such as 90d, 1h30m or 1.5d, or a date such as 2026-01-01
+daemon-api-config-unreadable = the configuration of the project at { $root } does not read: { $ext_err_txt }

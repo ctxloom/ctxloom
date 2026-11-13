@@ -1,6 +1,7 @@
 //! A command as a client of the user's daemon (slice 2 step 6): the
-//! `daemon status|stop` and `session list|show|search` use cases over the
-//! `daemon-ports` API, never a transport.
+//! `daemon status|stop`, `session list|show|search` and (owner,
+//! 2026-11-12) `session remove|sweep` use cases over the `daemon-ports`
+//! API, never a transport.
 //!
 //! Each call reaches a daemon first (the one serving, or one started and
 //! waited for, S16; `daemon status|stop` never start one, S14), resolves its
@@ -47,6 +48,42 @@ pub trait SessionReads {
 
     /// `session show`: this project's session `harp`.
     async fn get_session(&self, harp: &str) -> Result<v1::Session, CallError>;
+}
+
+/// What a removal the daemon was asked came to: done (or planned, without
+/// `yes`), or refused with its plan, which a refused removal still prints
+/// (owner, 2026-11-12: rows and refusals say what was not done).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Removed {
+    Done(v1::DeleteSessionResponse),
+    Refused {
+        plan: v1::DeleteSessionResponse,
+        why: crate::RemovalRejection,
+    },
+}
+
+/// The destroys a command asks of its daemon (`session remove`, `session
+/// sweep`: the `session-destroy` build's verbs).
+#[allow(async_fn_in_trait)]
+pub trait SessionRemovals {
+    /// `session remove <harp>`: this project's session removed whole or not
+    /// at all; without `yes` its plan.
+    async fn delete_session(
+        &self,
+        harp: &str,
+        yes: bool,
+        even_if_live: bool,
+    ) -> Result<Removed, CallError>;
+
+    /// `session sweep`: this project's sessions (`all`: every project's)
+    /// by the sweep's table, purged before `older_than` (none: the
+    /// configured age); without `yes` the report.
+    async fn sweep_sessions(
+        &self,
+        all: bool,
+        older_than: Option<String>,
+        yes: bool,
+    ) -> Result<v1::SweepSessionsResponse, CallError>;
 }
 
 impl<D: Daemons> Client<D> {
@@ -201,6 +238,28 @@ impl<D: Daemons> SessionReads for Client<D> {
             api.get_session(request).await
         })
         .await
+    }
+}
+
+impl<D: Daemons> SessionRemovals for Client<D> {
+    async fn delete_session(
+        &self,
+        harp: &str,
+        yes: bool,
+        even_if_live: bool,
+    ) -> Result<Removed, CallError> {
+        let _ = (harp, yes, even_if_live);
+        unimplemented!("RED: the client's DeleteSession")
+    }
+
+    async fn sweep_sessions(
+        &self,
+        all: bool,
+        older_than: Option<String>,
+        yes: bool,
+    ) -> Result<v1::SweepSessionsResponse, CallError> {
+        let _ = (all, older_than, yes);
+        unimplemented!("RED: the client's SweepSessions")
     }
 }
 

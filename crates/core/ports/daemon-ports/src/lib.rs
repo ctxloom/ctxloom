@@ -65,6 +65,34 @@ pub trait DaemonApi: Send + Sync {
         &self,
         request: v1::SearchSessionsRequest,
     ) -> impl Future<Output = Result<v1::ListSessionsResponse, Called>> + Send;
+
+    /// `DeleteSession`: a session removed whole or not at all (refused
+    /// `RemovalRefused`, its plan inside); a `session-destroy` build's daemon
+    /// serves it (M5). The default is a daemon that does not.
+    fn delete_session(
+        &self,
+        request: v1::DeleteSessionRequest,
+    ) -> impl Future<Output = Result<v1::DeleteSessionResponse, Called>> + Send {
+        let _ = request;
+        async { Err(unserved("DeleteSession")) }
+    }
+
+    /// `SweepSessions`: every session by the sweep's table; as
+    /// `DeleteSession`, a `session-destroy` build's.
+    fn sweep_sessions(
+        &self,
+        request: v1::SweepSessionsRequest,
+    ) -> impl Future<Output = Result<v1::SweepSessionsResponse, Called>> + Send {
+        let _ = request;
+        async { Err(unserved("SweepSessions")) }
+    }
+}
+
+/// A method the daemon does not serve, as a call is answered.
+fn unserved(method: &str) -> Called {
+    Called::Unimplemented {
+        method: format!("/ctxloom.daemon.v1.Ctxloom/{method}"),
+    }
 }
 
 /// The user's daemon as a client reaches it (S14, S16): the one serving,

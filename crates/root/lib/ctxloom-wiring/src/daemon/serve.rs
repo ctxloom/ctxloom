@@ -231,6 +231,12 @@ async fn start(
         hosting: Arc::clone(shared) as Arc<dyn daemon_api::Hosting>,
         states: Arc::new(Locks(Arc::clone(fs))),
         harps: Arc::new(FreshHarps),
+        places: Arc::new(super::places::ProjectPlaces {
+            fs: Arc::clone(fs),
+            home: home.to_path_buf(),
+            temp: temp.to_path_buf(),
+        }),
+        purges: Arc::new(super::places::StorePurges(core.store_handle())),
         about: daemon_api::About {
             pid: std::process::id(),
             version: stamp.clone(),

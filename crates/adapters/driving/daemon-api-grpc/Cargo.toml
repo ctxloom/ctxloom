@@ -19,12 +19,23 @@ tokio = { workspace = true, features = ["rt"] }
 tonic = { version = "0.14", default-features = false, features = ["codegen"] }
 
 [dev-dependencies]
+# The crate's own tests hold the served destroy (M5), which only
+# `session-destroy` compiles: it depends on itself with it, for its tests
+# alone; a plain build builds no dev-dependency (plain-destroy-check.sh
+# probes the plain daemon's API).
+daemon-api-grpc = { path = ".", features = ["session-destroy"] }
 daemon-proto = { workspace = true, features = ["server", "client"] }
 mutants.workspace = true
 run-ports.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "time", "sync"] }
 tokio-stream = { version = "0.1", features = ["net"] }
 tonic = { version = "0.14", default-features = false, features = ["channel", "codegen", "router", "server"] }
+
+[features]
+# `DeleteSession` and `SweepSessions` served (M5): the destroy, as the
+# `session remove` and `session sweep` verbs are. Off in a plain build, where
+# both answer UNIMPLEMENTED (behind the bearer gate).
+session-destroy = []
 
 [lints]
 workspace = true

@@ -36,3 +36,20 @@ fn every_sample_displays_its_code_and_its_message_uses_exactly_its_args() {
         assert_eq!(names, used, "{}", sample.code());
     }
 }
+
+// A session a worktree keeps is a decline (20): nothing was removed, and the
+// state, not ctxloom, forbade it.
+#[test]
+fn a_session_its_worktrees_keep_is_refused() {
+    use exit_code::{Exit, ExitClass};
+    let error = super::IsolationError::KeepsSession {
+        harp: "amber-swift-owl".to_string(),
+        spared: 1,
+        skipped: 0,
+    };
+    assert_eq!(error.exit(), Exit::REFUSED);
+    assert_eq!(
+        angzarr_diagnostic::Diagnostic::code(&error),
+        "isolation-application-keeps-session"
+    );
+}

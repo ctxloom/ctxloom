@@ -29,7 +29,11 @@
 //! step 6, through `daemon-api`'s [`daemon_api::SessionReads`]): their
 //! `--format json` is the daemon's answer as its proto3 JSON (ruling 146,
 //! [`proto_json`]: a `ListSessionsResponse`, a `Session`); their text is
-//! the table and the facts it always was.
+//! the table and the facts it always was. `remove` and `sweep` are the
+//! daemon's too (owner, 2026-11-12, through [`daemon_api::SessionRemovals`]):
+//! the daemon destroys, and their json is its `DeleteSessionResponse` and
+//! `SweepSessionsResponse`; a refused removal prints the plan its refusal
+//! carries.
 
 mod error;
 pub mod proto_json;
@@ -41,7 +45,9 @@ use clap::{Args, Command, Subcommand};
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{CliFault, EN_US};
-pub use run::{is_read, read, run, Done, Failure};
+#[cfg(feature = "session-destroy")]
+pub use run::destroy;
+pub use run::{is_destroy, is_read, read, run, Done, Failure};
 
 /// The `session` noun, shaped for mounting on the command line.
 pub fn noun() -> Command {

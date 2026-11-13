@@ -31,7 +31,7 @@ use crate::refusal::{ApiError, ApiRefusal};
 const DAEMON: &str = "daemon";
 
 /// A `ListSessions` parent naming every project.
-const EVERY_PROJECT: &str = "projects/-";
+pub(crate) const EVERY_PROJECT: &str = "projects/-";
 
 /// What the daemon's loop knows of itself.
 pub trait Hosting: Send + Sync {
@@ -81,6 +81,11 @@ pub struct Parts<E> {
     pub states: Arc<dyn SessionStates>,
     pub harps: Arc<dyn Harps>,
     pub about: About,
+    /// The projects' places a destroy reaches (`DeleteSession`,
+    /// `SweepSessions`).
+    pub places: Arc<dyn crate::Places>,
+    /// The daemon's one store, as a destroy purges it.
+    pub purges: Arc<dyn crate::Purges>,
 }
 
 /// An answer of a use case, boxed: what the API's edge awaits.
@@ -102,6 +107,17 @@ pub trait Calls: Send + Sync {
         &self,
         request: v1::SearchSessionsRequest,
     ) -> Answer<'_, v1::ListSessionsResponse>;
+    /// `DeleteSession`: an edge serves it only in a `session-destroy`
+    /// build (M5).
+    fn delete_session(
+        &self,
+        request: v1::DeleteSessionRequest,
+    ) -> Answer<'_, v1::DeleteSessionResponse>;
+    /// `SweepSessions`: as `DeleteSession`, a `session-destroy` build's.
+    fn sweep_sessions(
+        &self,
+        request: v1::SweepSessionsRequest,
+    ) -> Answer<'_, v1::SweepSessionsResponse>;
 }
 
 impl<E: Edge + 'static> Calls for Api<E> {
@@ -138,11 +154,25 @@ impl<E: Edge + 'static> Calls for Api<E> {
     ) -> Answer<'_, v1::ListSessionsResponse> {
         Box::pin(Api::search_sessions(self, request))
     }
+
+    fn delete_session(
+        &self,
+        request: v1::DeleteSessionRequest,
+    ) -> Answer<'_, v1::DeleteSessionResponse> {
+        Box::pin(Api::delete_session(self, request))
+    }
+
+    fn sweep_sessions(
+        &self,
+        request: v1::SweepSessionsRequest,
+    ) -> Answer<'_, v1::SweepSessionsResponse> {
+        Box::pin(Api::sweep_sessions(self, request))
+    }
 }
 
 /// The use cases of the daemon's API.
 pub struct Api<E> {
-    parts: Parts<E>,
+    pub(crate) parts: Parts<E>,
 }
 
 impl<E: Edge> Api<E> {
@@ -398,7 +428,7 @@ impl<E: Edge> Api<E> {
 
     /// Every session under `parent` (`projects/-`: every project's), as
     /// resources and views, most recently started first.
-    async fn under(&self, parent: &str) -> Result<Vec<(v1::Session, View)>, ApiError> {
+    pub(crate) async fn under(&self, parent: &str) -> Result<Vec<(v1::Session, View)>, ApiError> {
         let project = match parent == EVERY_PROJECT {
             true => None,
             false => Some(
@@ -472,7 +502,7 @@ fn project_cover(project_id: &str) -> Cover {
 }
 
 /// `name`, refused as no resource name: the reason the grammar gave.
-fn invalid(name: &str, rejection: &SessionRejection) -> ApiError {
+pub(crate) fn invalid(name: &str, rejection: &SessionRejection) -> ApiError {
     let reason = match rejection {
         SessionRejection::NameMalformed { reason, .. } => reason.clone(),
         _ => "shape".to_string(),
@@ -500,4 +530,4 @@ fn in_state(session: &v1::Session, state: i32) -> bool {
 
 #[cfg(test)]
 #[path = "server.test.rs"]
-mod tests;
+pub(crate) mod tests;

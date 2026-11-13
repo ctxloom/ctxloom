@@ -81,6 +81,39 @@ impl Calls for Scripted {
     ) -> Answer<'_, v1::ListSessionsResponse> {
         Box::pin(async { Ok(v1::ListSessionsResponse::default()) })
     }
+
+    fn delete_session(
+        &self,
+        request: v1::DeleteSessionRequest,
+    ) -> Answer<'_, v1::DeleteSessionResponse> {
+        Box::pin(async move {
+            match request.validate_only {
+                true => Ok(v1::DeleteSessionResponse {
+                    name: request.name,
+                    ..v1::DeleteSessionResponse::default()
+                }),
+                false => Err(daemon_api::ApiRefusal::of(&v1::RemovalRefused {
+                    name: request.name,
+                    reason: v1::RemovalRefusal::Kept as i32,
+                    plan: Some(v1::DeleteSessionResponse {
+                        authored: vec!["notes.md".to_string()],
+                        ..v1::DeleteSessionResponse::default()
+                    }),
+                    ..v1::RemovalRefused::default()
+                })
+                .into()),
+            }
+        })
+    }
+
+    fn sweep_sessions(&self, _: v1::SweepSessionsRequest) -> Answer<'_, v1::SweepSessionsResponse> {
+        Box::pin(async {
+            Ok(v1::SweepSessionsResponse {
+                purge_cutoff: "2026-08-14".to_string(),
+                ..v1::SweepSessionsResponse::default()
+            })
+        })
+    }
 }
 
 /// Serve `calls` on a loopback port of a runtime with ONE worker; a
@@ -181,16 +214,12 @@ async fn a_failure_is_internal() {
     assert_eq!(status.code(), Code::Internal);
 }
 
-// Every RPC not served (and DeleteSession, M5) is UNIMPLEMENTED, to the
-// user bearer alone.
+// Every RPC not served is UNIMPLEMENTED, to the user bearer alone (a plain
+// build's DeleteSession and SweepSessions too, M5: plain-destroy-check.sh
+// probes that build's daemon).
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn an_rpc_not_served_is_unimplemented_to_the_user_bearer() {
     let mut client = CtxloomClient::new(serve(Arc::default()).await);
-    let status = client
-        .delete_session(with_bearer(v1::DeleteSessionRequest::default(), BEARER))
-        .await
-        .unwrap_err();
-    assert_eq!(status.code(), Code::Unimplemented);
     let status = client
         .get_transcript(with_bearer(v1::GetTranscriptRequest::default(), BEARER))
         .await
@@ -257,4 +286,38 @@ async fn a_blocked_use_case_holds_no_async_worker() {
     assert!(answered.is_ok());
     release.send(()).unwrap();
     assert_eq!(waiting.await.unwrap().unwrap().into_inner().pid, 7);
+}
+
+// M5: a `session-destroy` build serves DeleteSession and SweepSessions; a
+// refused removal is its typed refusal, its plan inside, in the details.
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn a_destroy_build_serves_delete_and_sweep() {
+    let mut client = CtxloomClient::new(serve(Arc::default()).await);
+    let plan = client
+        .delete_session(with_bearer(
+            v1::DeleteSessionRequest {
+                name: "projects/p/sessions/s".to_string(),
+                validate_only: true,
+                ..v1::DeleteSessionRequest::default()
+            },
+            BEARER,
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(plan.name, "projects/p/sessions/s");
+    let status = client
+        .delete_session(with_bearer(v1::DeleteSessionRequest::default(), BEARER))
+        .await
+        .unwrap_err();
+    assert_eq!(status.code(), Code::FailedPrecondition);
+    let details = super::RpcStatus::decode(status.details()).unwrap();
+    let refused: v1::RemovalRefused = details.details[0].to_msg().unwrap();
+    assert_eq!(refused.plan.unwrap().authored, ["notes.md"]);
+    let swept = client
+        .sweep_sessions(with_bearer(v1::SweepSessionsRequest::default(), BEARER))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(swept.purge_cutoff, "2026-08-14");
 }

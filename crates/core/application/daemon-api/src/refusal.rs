@@ -92,11 +92,34 @@ impl Diagnostic for ApiError {
 /// The daemon's own refusals, as a person is told them.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ApiRejection {
-    NameInvalid { name: String, reason: String },
-    SessionNotFound { name: String },
-    ProjectNotFound { name: String },
-    ProjectUnknown { cwd: String },
-    DaemonHosting { runs: u64, harps: Vec<String> },
+    NameInvalid {
+        name: String,
+        reason: String,
+    },
+    SessionNotFound {
+        name: String,
+    },
+    ProjectNotFound {
+        name: String,
+    },
+    ProjectUnknown {
+        cwd: String,
+    },
+    DaemonHosting {
+        runs: u64,
+        harps: Vec<String>,
+    },
+    /// A configured age (`session_purge_age`) that is neither an age nor a
+    /// date.
+    AgeInvalid {
+        key: String,
+        value: String,
+    },
+    /// A project's configuration that does not read.
+    ConfigUnreadable {
+        root: String,
+        detail: String,
+    },
 }
 
 impl Diagnostic for ApiRejection {
@@ -107,6 +130,8 @@ impl Diagnostic for ApiRejection {
             ApiRejection::ProjectNotFound { .. } => code!("project-not-found"),
             ApiRejection::ProjectUnknown { .. } => code!("project-unknown"),
             ApiRejection::DaemonHosting { .. } => code!("daemon-hosting"),
+            ApiRejection::AgeInvalid { .. } => code!("age-invalid"),
+            ApiRejection::ConfigUnreadable { .. } => code!("config-unreadable"),
         }
     }
 
@@ -123,6 +148,16 @@ impl Diagnostic for ApiRejection {
             ApiRejection::DaemonHosting { runs, harps } => {
                 vec![("runs", (*runs).into()), ("harps", harps.join(", ").into())]
             }
+            ApiRejection::AgeInvalid { key, value } => {
+                vec![
+                    ("key", key.as_str().into()),
+                    ("value", value.as_str().into()),
+                ]
+            }
+            ApiRejection::ConfigUnreadable { root, detail } => vec![
+                ("root", root.as_str().into()),
+                ("ext_err_txt", detail.as_str().into()),
+            ],
         }
     }
 }
@@ -149,6 +184,9 @@ pub enum Rejection {
     Api(ApiRejection),
     /// The sessions domain's (a project's registration, a name's claim).
     Sessions(sessions::SessionRejection),
+    /// A removal's (`DeleteSession`'s `RemovalRefused`), in the words of
+    /// the use case that refused it.
+    Removal(RemovalRejection),
 }
 
 impl Rejection {
@@ -157,7 +195,90 @@ impl Rejection {
         match self {
             Rejection::Api(api) => Report::of(api),
             Rejection::Sessions(sessions) => Report::of(sessions),
+            Rejection::Removal(removal) => Report::of(removal),
         }
+    }
+}
+
+/// Why a removal was refused, as a person is told it: the session's own
+/// refusal (its lock, its keep, its retention: sessions-application's
+/// words), or a worktree that keeps it (isolation-application's).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RemovalRejection {
+    Session(sessions_application::Refusal),
+    KeepsSession {
+        harp: String,
+        spared: u64,
+        skipped: u64,
+    },
+}
+
+impl RemovalRejection {
+    /// `refused`'s reason, for the session `harp`; none for a reason this
+    /// crate does not know.
+    pub fn of(refused: &v1::RemovalRefused, harp: &str) -> Option<RemovalRejection> {
+        use sessions_application::Refusal;
+        let harp = harp.to_string();
+        Some(match v1::RemovalRefusal::try_from(refused.reason).ok()? {
+            v1::RemovalRefusal::NotProvenDead => {
+                RemovalRejection::Session(Refusal::NotProvenDead {
+                    harp,
+                    reason: refused.detail.clone(),
+                    verb: sessions_application::REMOVE_VERB.to_string(),
+                })
+            }
+            v1::RemovalRefusal::Kept => RemovalRejection::Session(Refusal::Kept { harp }),
+            v1::RemovalRefusal::Retained => RemovalRejection::Session(Refusal::Retained {
+                harp,
+                detail: refused.detail.clone(),
+            }),
+            v1::RemovalRefusal::WorktreesKeep => RemovalRejection::KeepsSession {
+                harp,
+                spared: refused.spared,
+                skipped: refused.skipped,
+            },
+            v1::RemovalRefusal::Unspecified => return None,
+        })
+    }
+}
+
+impl Diagnostic for RemovalRejection {
+    fn code(&self) -> &str {
+        match self {
+            RemovalRejection::Session(refusal) => refusal.code(),
+            // isolation-application's, its words in its catalog.
+            RemovalRejection::KeepsSession { .. } => "isolation-application-keeps-session",
+        }
+    }
+
+    fn args(&self) -> Vec<(&str, Arg)> {
+        match self {
+            RemovalRejection::Session(refusal) => refusal.args(),
+            RemovalRejection::KeepsSession {
+                harp,
+                spared,
+                skipped,
+            } => vec![
+                ("harp", harp.as_str().into()),
+                ("spared", (*spared).into()),
+                ("skipped", (*skipped).into()),
+            ],
+        }
+    }
+}
+
+impl fmt::Display for RemovalRejection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        angzarr_diagnostic::display(self, f)
+    }
+}
+
+impl std::error::Error for RemovalRejection {}
+
+/// A refused removal is a decline (ruling 152).
+impl ExitClass for RemovalRejection {
+    fn exit(&self) -> Exit {
+        Exit::REFUSED
     }
 }
 
@@ -186,6 +307,29 @@ pub fn rejection_of(refusal: &Any) -> Option<Rejection> {
                 runs: r.runs,
                 harps: r.harps,
             })
+        }),
+        "ctxloom.daemon.v1.AgeInvalid" => decode::<v1::AgeInvalid>(refusal).and_then(|r| {
+            api(ApiRejection::AgeInvalid {
+                key: r.key,
+                value: r.value,
+            })
+        }),
+        "ctxloom.daemon.v1.ConfigUnreadable" => {
+            decode::<v1::ConfigUnreadable>(refusal).and_then(|r| {
+                api(ApiRejection::ConfigUnreadable {
+                    root: r.root,
+                    detail: r.detail,
+                })
+            })
+        }
+        "ctxloom.daemon.v1.RemovalRefused" => decode::<v1::RemovalRefused>(refusal).and_then(|r| {
+            let harp = r
+                .plan
+                .as_ref()
+                .map(|plan| plan.harp.clone())
+                .filter(|harp| !harp.is_empty())
+                .unwrap_or_else(|| r.name.rsplit('/').next().unwrap_or_default().to_string());
+            RemovalRejection::of(&r, &harp).map(Rejection::Removal)
         }),
         "ctxloom.sessions.v1.ProjectIdentityChanged" => {
             decode::<wire::ProjectIdentityChanged>(refusal).and_then(|r| {
@@ -245,6 +389,14 @@ pub(crate) fn samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(ApiRejection::DaemonHosting {
             runs: 1,
             harps: vec!["brisk-copper-moth".to_string()],
+        }),
+        Box::new(ApiRejection::AgeInvalid {
+            key: "session_purge_age".to_string(),
+            value: "soon".to_string(),
+        }),
+        Box::new(ApiRejection::ConfigUnreadable {
+            root: "/work/calm".to_string(),
+            detail: "it does not parse".to_string(),
         }),
     ]
 }

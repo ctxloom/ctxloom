@@ -2,9 +2,10 @@ syntax = "proto3";
 
 // DRAFT for the owner's review (ruling 132, design-by-test), compiled by
 // daemon-proto (its messages, each refusal's status, and the `Ctxloom`
-// service's stubs). Served so far (slice 2 step 5): GetDaemon, StopDaemon,
-// ResolveProject, GetProject, GetSession, ListSessions, SearchSessions;
-// every other method answers UNIMPLEMENTED.
+// service's stubs). Served so far (slice 2 steps 5, 6): GetDaemon, StopDaemon,
+// ResolveProject, GetProject, GetSession, ListSessions, SearchSessions, and
+// in a `session-destroy` build DeleteSession and SweepSessions; every other
+// method answers UNIMPLEMENTED.
 //
 // THE USER'S DAEMON'S API (T1-T30; the owner's API rulings Q1-Q13; rulings
 // 146, 147). It MIRRORS THE COMMAND LINE (T22): the CLI's nouns are AIP
@@ -42,9 +43,10 @@ syntax = "proto3";
 //                                         RunExited, LaunchFailed
 //   a hook                                the capture facts         (Handle, facts)
 //   the daemon, hosting a child's ask     approvals.RecordApprovalAsked (Handle, fact)
-// A remove is a T28 sequence (`DeleteSession` below runs it: the directory,
-// lock inside, to trash, then the purge), as is `bundle import --force`
-// (the old bundle to trash, then the new one in; S52). A
+// A remove is a sequence the daemon runs (`DeleteSession` below: its
+// worktrees, then its streams purged, then its directory and lock; T28's
+// trash step is not built), as `bundle import --force` is to be (the old
+// bundle to trash, then the new one in; S52). A
 // `HandleSync` projection IS the resource message the matching `Get` returns
 // (one renderer per resource).
 //
@@ -147,10 +149,12 @@ service Ctxloom {
   rpc GetSession(GetSessionRequest) returns (Session);
   rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
   rpc SearchSessions(SearchSessionsRequest) returns (ListSessionsResponse);
-  // `session remove`: the T28 sequence (the session's directory, lock
-  // inside, renamed to trash; then the purge; then the trash removed).
+  // `session remove`: its worktrees classified, the whole refused (with its
+  // plan) if one is unsafe, else the worktrees removed, then the destroy.
+  // Served only in a `session-destroy` build (M5).
   rpc DeleteSession(DeleteSessionRequest) returns (DeleteSessionResponse);
-  // `session sweep`.
+  // `session sweep`: each session by the fixed table, its purges through
+  // the same removal as `DeleteSession`. A `session-destroy` build's (M5).
   rpc SweepSessions(SweepSessionsRequest) returns (SweepSessionsResponse);
   // `session transcript show`; `transcript list` is `ListSessions` with
   // `has_transcript`.
@@ -472,37 +476,134 @@ message SearchSessionsRequest {
 }
 
 message DeleteSessionRequest {
-  // One session; or `older_than` over the parent (`--older-than`).
+  // One session (`session remove <harp>`); the age form is `SweepSessions`.
   string name = 1;
+  // Destroy a session whose lock does not prove it ended (`--even-if-live`):
+  // the daemon judges by the session's lock. It reaches no worktree.
   bool even_if_live = 2;
   string request_id = 90;
   string etag = 91;
+  // The preview (`session remove` without `--yes`): the plan, applied
+  // nowhere.
   bool validate_only = 92;
   repeated Answer answers = 93;
+  // The caller's environment (S7): git runs in it for the worktrees.
+  EnvVars env = 94;
   Presentable presentable = 95;
+}
+
+// What a file of a session's directory is to a removal: both classes are
+// destroyed, and the plan names which is which.
+enum FileClass {
+  FILE_CLASS_UNSPECIFIED = 0;
+  // The machine-written conversation (`transcripts/`, `native/`).
+  FILE_CLASS_MACHINE = 1;
+  // Anything else: a person wrote it, and it goes with the session.
+  FILE_CLASS_AUTHORED = 2;
+}
+
+// One file a removal destroys.
+message RemovalFile {
+  string path = 1;
+  // Relative to the session's directory.
+  string rel = 2;
+  FileClass class = 3;
+  uint64 bytes = 4;
+}
+
+// One scratch worktree a removal or a sweep reached (`session worktrees`'s
+// row): its owner by the session's lock, and its verdict.
+message ScratchWorktree {
+  string harp = 1;
+  string worktree = 2;
+  string path = 3;
+  // `alive`, `dead` or `indeterminate`.
+  string owner_state = 4;
+  // `reapable`, `reaped`, `spared` or `skipped`.
+  string verdict = 5;
+  string reason = 6;
+}
+
+// A session's scratch worktrees, classified, and with an apply removed.
+message WorktreeReport {
+  repeated ScratchWorktree worktrees = 1;
+  uint64 reaped = 2;
+  uint64 spared = 3;
+  uint64 skipped = 4;
+  bool applied = 5;
 }
 
 message DeleteSessionResponse {
   string name = 1;
   // The files a person wrote that the removal destroys (the notice).
   repeated string authored = 2;
+  // The session's harp.
+  string harp = 3;
+  // Whether the session was destroyed (false: the plan, or refused).
+  bool applied = 4;
+  // Every file of the session's directory, destroyed with it.
+  repeated RemovalFile files = 5;
+  // The bytes freed: zero on a plan.
+  uint64 bytes_freed = 6;
+  // How many events of it and of its runs went from the store.
+  uint64 events_destroyed = 7;
+  // Its scratch worktrees, when it has any.
+  WorktreeReport worktrees = 8;
   repeated Need needs = 90;
   string etag = 91;
   repeated Notice notices = 92;
 }
 
 message SweepSessionsRequest {
+  // `projects/{project}`, or `projects/-` for every project's sessions.
   string parent = 1;
+  // `--purge-older-than`: an age (`90d`) or a date; none, the configured
+  // `session_purge_age` of `project`.
   string older_than = 2;
+  // The caller's project (`projects/{project}`): whose configuration (read
+  // from its registered root) gives the purge age.
+  string project = 3;
   string request_id = 90;
   string etag = 91;
+  // The report alone (`session sweep` without `--yes`).
   bool validate_only = 92;
   repeated Answer answers = 93;
+  EnvVars env = 94;
   Presentable presentable = 95;
 }
 
+// One row of a sweep: a session's fate, or one of its scratch worktrees'.
+message SweepRow {
+  string harp = 1;
+  // `skip`, `keep`, `spare`, `purge` or `worktree`.
+  string action = 2;
+  // `done`, `planned`, `held`, `left`, `skipped` or `failed`.
+  string verdict = 3;
+  string reason = 4;
+  // The command that does what the row could not, or will.
+  string command = 5;
+  uint64 bytes = 6;
+  // The files a person wrote that the row's destroy takes.
+  repeated string authored = 7;
+}
+
+// How many rows of each verdict.
+message SweepCounts {
+  uint64 done = 1;
+  uint64 planned = 2;
+  uint64 held = 3;
+  uint64 left = 4;
+  uint64 skipped = 5;
+  uint64 failed = 6;
+}
+
 message SweepSessionsResponse {
+  // Each removal the sweep planned or applied, its file plan whole.
   repeated DeleteSessionResponse sessions = 1;
+  repeated SweepRow rows = 2;
+  // When purging begins, as a date; empty when purges are held.
+  string purge_cutoff = 3;
+  SweepCounts counts = 4;
   repeated Need needs = 90;
   string etag = 91;
   repeated Notice notices = 92;
@@ -1042,6 +1143,54 @@ message DaemonHosting {
 
   uint64 runs = 1;
   repeated string harps = 2;
+}
+
+// Why a removal was refused.
+enum RemovalRefusal {
+  REMOVAL_REFUSAL_UNSPECIFIED = 0;
+  // Its lock does not prove it ended (held, or none), without
+  // `even_if_live`; `detail` says which.
+  REMOVAL_REFUSAL_NOT_PROVEN_DEAD = 1;
+  // It is marked keep.
+  REMOVAL_REFUSAL_KEPT = 2;
+  // It ended within the transcript retention; `detail` says when.
+  REMOVAL_REFUSAL_RETAINED = 3;
+  // A scratch worktree of it is spared or skipped: a session is removed
+  // whole or not at all.
+  REMOVAL_REFUSAL_WORKTREES_KEEP = 4;
+}
+
+// `DeleteSession` refused: nothing was removed. It carries the PLAN (owner,
+// 2026-11-12): every file the removal would have destroyed, its class and
+// bytes, the authored ones, and the worktrees, so a refused removal says
+// what it did not do.
+message RemovalRefused {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  string name = 1;
+  RemovalRefusal reason = 2;
+  string detail = 3;
+  DeleteSessionResponse plan = 4;
+  // A worktree refusal's counts.
+  uint64 spared = 5;
+  uint64 skipped = 6;
+}
+
+// A configured age (`session_purge_age`) that is neither an age nor a date.
+message AgeInvalid {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+
+  string key = 1;
+  string value = 2;
+}
+
+// A project's configuration, read from its registered root, that does not
+// read.
+message ConfigUnreadable {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  string root = 1;
+  string detail = 2;
 }
 
 // A registration's recheck is refused with the projects aggregate's own

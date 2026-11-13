@@ -17,18 +17,19 @@ use session_index::{SessionIndex, SessionIndexes, State};
 use sessions::{MintSession, Origin};
 
 use super::{About, Api, Harps, Hosting, Parts, SessionStates};
+pub(crate) use crate::destroy::tests::FakePlaces;
 use crate::{ApiError, ApiRefusal};
 
-const PROJECT: &str = "calm-otter";
-const ROOT: &str = "/work/calm";
+pub(crate) const PROJECT: &str = "calm-otter";
+pub(crate) const ROOT: &str = "/work/calm";
 const COMMON: &str = "/work/calm/.git";
 const COMMIT: &str = "1111111111111111111111111111111111111111";
 
 /// The kernel over an in-memory store, with the projects and sessions
 /// aggregates.
-struct World {
-    registry: Registry,
-    store: MemoryStore,
+pub(crate) struct World {
+    pub(crate) registry: Registry,
+    pub(crate) store: MemoryStore,
     samples: Mutex<Samples>,
 }
 
@@ -90,7 +91,7 @@ impl Edge for World {
 
 /// The loop's side, as a test sets it.
 #[derive(Default)]
-struct Loop {
+pub(crate) struct Loop {
     hosted: Mutex<Vec<v1::HostedRun>>,
     stopped: Mutex<Vec<bool>>,
     /// How many reads asked for a fresh round.
@@ -120,11 +121,16 @@ impl Hosting for Loop {
     }
 }
 
-/// Every session reads live but `ended-*` ones.
-struct Locks;
+/// Every session reads live but `ended-*` ones, unless a test set its
+/// lock's state.
+#[derive(Default)]
+pub(crate) struct Locks(pub(crate) Mutex<std::collections::BTreeMap<String, State>>);
 
 impl SessionStates for Locks {
     fn state(&self, _project_dir: &str, harp: &str) -> State {
+        if let Some(state) = self.0.lock().unwrap().get(harp) {
+            return *state;
+        }
         match harp.starts_with("ended") {
             true => State::Ended,
             false => State::Live,
@@ -141,23 +147,27 @@ impl Harps for Offered {
     }
 }
 
-struct Fixture {
-    world: Arc<World>,
-    index: SessionIndexes,
-    hosting: Arc<Loop>,
-    api: Api<World>,
+pub(crate) struct Fixture {
+    pub(crate) world: Arc<World>,
+    pub(crate) index: SessionIndexes,
+    pub(crate) hosting: Arc<Loop>,
+    pub(crate) places: Arc<FakePlaces>,
+    pub(crate) locks: Arc<Locks>,
+    pub(crate) api: Api<World>,
 }
 
-fn fixture(harps: Vec<&'static str>) -> Fixture {
+pub(crate) fn fixture(harps: Vec<&'static str>) -> Fixture {
     let world = World::new();
     let index = SessionIndexes::default();
     let hosting = Arc::new(Loop::default());
+    let places = Arc::new(FakePlaces::default());
+    let locks = Arc::new(Locks::default());
     let api = Api::new(Parts {
         edge: Arc::clone(&world),
         index: index.clone(),
         pending: pending_messages::PendingMessages::default(),
         hosting: Arc::clone(&hosting) as Arc<dyn Hosting>,
-        states: Arc::new(Locks),
+        states: Arc::clone(&locks) as Arc<dyn SessionStates>,
         harps: Arc::new(Offered(harps)),
         about: About {
             pid: 4242,
@@ -168,11 +178,15 @@ fn fixture(harps: Vec<&'static str>) -> Fixture {
             },
             idle_limit_seconds: 600,
         },
+        places: Arc::new(Arc::clone(&places)) as Arc<dyn crate::Places>,
+        purges: Arc::clone(&world) as Arc<dyn crate::Purges>,
     });
     Fixture {
         world,
         index,
         hosting,
+        places,
+        locks,
         api,
     }
 }
@@ -180,7 +194,7 @@ fn fixture(harps: Vec<&'static str>) -> Fixture {
 impl Fixture {
     /// The index caught up with what the store holds (the kernel does this
     /// inline in the daemon).
-    async fn catch_up(&self) {
+    pub(crate) async fn catch_up(&self) {
         let mut caught = SessionIndex::caught_up(self.index.clone());
         caught
             .step(&self.world.store, self.world.registry.catalog())
@@ -189,7 +203,7 @@ impl Fixture {
     }
 
     /// Mint the session `harp` of the project.
-    async fn mint(&self, harp: &str) {
+    pub(crate) async fn mint(&self, harp: &str) {
         let name = format!("projects/calm-quiet-heron/sessions/{harp}");
         let root = sessions::SessionName::parse(&name).unwrap().root();
         let cover = Cover {
@@ -226,7 +240,9 @@ fn resolve(commit: &str, name: &str) -> v1::ResolveProjectRequest {
 }
 
 /// The typed refusal of an error, decoded as `T`, and its code.
-fn refused<T: Message + Default>(result: Result<impl std::fmt::Debug, ApiError>) -> (i32, T) {
+pub(crate) fn refused<T: Message + Default>(
+    result: Result<impl std::fmt::Debug, ApiError>,
+) -> (i32, T) {
     match result {
         Err(ApiError::Refused(ApiRefusal { code, refusal })) => (
             code,

@@ -63,6 +63,7 @@ pub use types::{
     RemoveRequest, SearchQuery, ShowQuery, TitleRequest, Titled, TranscriptQuery, TranscriptRow,
     REMOVE_VERB,
 };
+pub use write::purge;
 
 /// A store's failure, as the use cases fail with it.
 pub(crate) fn failed(error: angzarr_embedded::StoreError) -> AppError {

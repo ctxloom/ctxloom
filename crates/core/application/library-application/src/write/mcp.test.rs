@@ -266,3 +266,27 @@ fn test_edit_of_a_server_nobody_ships_fails_before_the_editor_runs() {
     assert!(mem.edits().is_empty());
     assert_eq!(mem.writes(), 0);
 }
+
+// OQ-6 (design §1.3): a server `mcp server set` creates is named by an ID;
+// one the bundle already ships is set by its name as it is.
+#[test]
+fn test_set_refuses_to_create_a_server_whose_name_is_no_id() {
+    let (library, mem) = world();
+    let p = McpPatch {
+        url: Some("https://mcp.example.com".to_string()),
+        ..patch()
+    };
+    for bad in [
+        "Upper",
+        "under_score",
+        "dot.ted",
+        "two words",
+        "9lead",
+        "trail-",
+        "a-very-long-name-that-runs-past-sixty-three-characters-xxxxxxxxxx",
+    ] {
+        let got = err(library.mcp_set(&plain(), &format!("demo#mcp/{bad}"), &p));
+        assert!(got.contains("BadId"), "{bad:?}: {got}");
+    }
+    assert_eq!(mem.writes(), 0);
+}

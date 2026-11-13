@@ -114,14 +114,18 @@ fn test_creating_a_bundle_that_exists_is_refused_and_leaves_it_alone() {
     );
 }
 
-// operations.CreateBundle (documented condition): a slash separated name
-// lands in a nested directory; a name that climbs out is refused and writes
-// nothing.
+// operations.CreateBundle (documented condition): Go put a slash separated
+// name in a nested directory; OQ-5 refuses a nested local name (a hard
+// migrate), and OQ-6 holds a created name to the ID grammar. A name that
+// climbs out is refused and writes nothing, as before.
 #[test]
-fn test_a_bundle_name_may_be_nested_but_never_climbs_out() {
+fn test_a_bundle_name_is_never_nested_and_never_climbs_out() {
     let project = Project::initialized().on_gos_catalog();
-    project.run(&["bundle", "create", "team/rules"]).succeeds();
-    assert!(project.exists(".ctxloom/content/bundles/v2/team/rules/bundle.yaml"));
+    project
+        .run(&["bundle", "create", "team/rules"])
+        .fails()
+        .contains("is not an ID");
+    assert!(!project.exists(".ctxloom/content/bundles/v2/team/rules/bundle.yaml"));
     for bad in ["../evil", "/abs", "a/../b"] {
         let ran = project.run(&["bundle", "create", bad]);
         ran.fails().contains("invalid bundle name");

@@ -376,14 +376,14 @@ fn test_import_refuses_what_is_no_profile_and_what_is_not_there() {
     );
     assert!(err(library.profile_import(&plain(), "bad.yaml", false, "")).contains("UnknownKey"));
     assert!(err(library.profile_import(&plain(), "nosuch.yaml", false, "")).contains("no file"));
-    mem.put_user("odd name.yaml", DEV.as_bytes(), false);
+    mem.put_user("odd-name.yaml", DEV.as_bytes(), false);
     mem.put_user(".hidden.yaml", DEV.as_bytes(), false);
     assert!(
         err(library.profile_import(&plain(), ".hidden.yaml", false, ""))
             .contains("ProfileNameSegment")
     );
     assert!(
-        err(library.profile_import(&plain(), "odd name.yaml", false, "nosuch"))
+        err(library.profile_import(&plain(), "odd-name.yaml", false, "nosuch"))
             .contains("BundleNotFound")
     );
     assert_eq!(mem.writes(), 0);
@@ -424,4 +424,26 @@ fn test_remove_with_yes_takes_that_profile_file_only() {
     assert_eq!(mem.text("project", "profiles/dev.yaml"), None);
     assert!(mem.text("project", "profiles/base.yaml").is_some());
     assert!(err(library.profile_remove(&plain(), "dev", true)).contains("NotFound"));
+}
+
+// OQ-6 (design §1.3): a created or imported profile's name is an ID.
+#[test]
+fn test_create_and_import_refuse_a_name_that_is_no_id() {
+    let (library, mem) = world();
+    for bad in [
+        "Upper",
+        "under_score",
+        "dot.ted",
+        "two words",
+        "9lead",
+        "trail-",
+        "a-very-long-name-that-runs-past-sixty-three-characters-xxxxxxxxxx",
+    ] {
+        let got = err(library.profile_create(&plain(), &create(bad)));
+        assert!(got.contains("BadId"), "{bad:?}: {got}");
+    }
+    mem.put_user("Odd_Name.yaml", DEV.as_bytes(), false);
+    let got = err(library.profile_import(&plain(), "Odd_Name.yaml", false, ""));
+    assert!(got.contains("BadId"), "{got}");
+    assert_eq!(mem.writes(), 0);
 }

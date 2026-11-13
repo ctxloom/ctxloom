@@ -398,3 +398,29 @@ fn test_import_refuses_an_archive_that_is_not_one_a_package_without_skill_md_or_
     );
     assert_eq!(mem.writes(), 0);
 }
+
+// OQ-6 (design §1.3): a created or imported skill's name is an ID.
+#[test]
+fn test_create_and_import_refuse_a_name_that_is_no_id() {
+    let (library, mem) = world();
+    for bad in [
+        "Upper",
+        "under_score",
+        "dot.ted",
+        "two words",
+        "9lead",
+        "trail-",
+        "a-very-long-name-that-runs-past-sixty-three-characters-xxxxxxxxxx",
+    ] {
+        let got = err(library.skill_create(&plain(), "vault", bad, "d"));
+        assert!(got.contains("BadId"), "{bad:?}: {got}");
+    }
+    mem.put_user(
+        "upper.zip",
+        &pack("Reviewer_Two", &[entry("SKILL.md", SKILL_MD, false)]).unwrap(),
+        false,
+    );
+    let got = err(library.skill_import(&plain(), "upper.zip", "vault", false));
+    assert!(got.contains("BadId"), "{got}");
+    assert_eq!(mem.writes(), 0);
+}

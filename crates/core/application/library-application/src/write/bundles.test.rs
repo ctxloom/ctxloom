@@ -112,11 +112,9 @@ fn test_create_refuses_a_name_that_climbs_and_writes_nothing() {
         );
     }
     assert_eq!(mem.writes(), 0);
-    library
-        .bundle_create(&plain(), "team/rules", "")
-        .result
-        .unwrap();
-    assert!(mem.has_bundle("team/rules"));
+    // OQ-5: a nested name is refused (it was created, as Go did).
+    assert!(err(library.bundle_create(&plain(), "team/rules", "")).contains("BadId"));
+    assert!(!mem.has_bundle("team/rules"));
 }
 
 #[test]
@@ -624,5 +622,72 @@ fn test_import_will_not_take_a_name_that_is_no_bundles() {
     );
     // The name is the directory's: ".hidden" is not a bundle's.
     assert!(err(library.bundle_import(&plain(), "dir/.hidden", false)).contains("BadBundleName"));
+    assert_eq!(mem.writes(), 0);
+}
+
+// OQ-5, OQ-6 (design §1.3): a created bundle's name is an ID, and a nested
+// one (`team/rules`) is refused; nothing is written.
+#[test]
+fn test_create_refuses_a_name_that_is_no_id_or_nested_and_writes_nothing() {
+    let (library, mem) = world();
+    for bad in [
+        "Upper",
+        "under_score",
+        "dot.ted",
+        "two words",
+        "9lead",
+        "trail-",
+        "a-very-long-name-that-runs-past-sixty-three-characters-xxxxxxxxxx",
+    ]
+    .into_iter()
+    .chain(["team/rules"])
+    {
+        let got = err(library.bundle_create(&plain(), bad, ""));
+        assert!(got.contains("BadId"), "{bad:?}: {got}");
+    }
+    assert_eq!(mem.writes(), 0);
+}
+
+// OQ-6: what an edit adds to a bundle is minted there, so its name is an ID.
+#[test]
+fn test_edit_refuses_to_add_a_name_that_is_no_id() {
+    let (library, mem) = world();
+    for bad in [
+        "Upper",
+        "under_score",
+        "dot.ted",
+        "two words",
+        "9lead",
+        "trail-",
+        "a-very-long-name-that-runs-past-sixty-three-characters-xxxxxxxxxx",
+    ] {
+        let out = library.bundle_edit(
+            &plain(),
+            &BundleEditRequest {
+                add_fragments: vec![bad.to_string()],
+                ..edit("demo")
+            },
+        );
+        let got = err(out);
+        assert!(got.contains("BadId"), "{bad:?}: {got}");
+    }
+    assert_eq!(mem.writes(), 0);
+}
+
+// OQ-6: an import mints the bundle's name from its directory, an ID.
+#[test]
+fn test_import_refuses_a_directory_whose_name_is_no_id() {
+    let (library, mem) = Setup {
+        layers: &[CONFIG],
+        ..Setup::default()
+    }
+    .fixture();
+    mem.put_user(
+        "dir/Team_Rules/bundle.yaml",
+        b"schema_version: 4\nversion: 1.0.0\n",
+        false,
+    );
+    let got = err(library.bundle_import(&plain(), "dir/Team_Rules", false));
+    assert!(got.contains("BadId"), "{got}");
     assert_eq!(mem.writes(), 0);
 }

@@ -469,3 +469,51 @@ fn test_create_by_reference_into_an_unreadable_bundle_is_refused_and_writes_noth
     assert_eq!(mem.writes(), 0);
     assert_eq!(mem.text("broken", "bundle.yaml").as_deref(), Some(""));
 }
+
+// OQ-6 (design §1.3): a created item's name is an ID,
+// `^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$`; one that breaks it is refused, in
+// either form, and nothing is written.
+#[test]
+fn test_create_refuses_a_name_that_is_no_id_and_writes_nothing() {
+    let (library, mem) = world();
+    for bad in [
+        "Upper",
+        "under_score",
+        "dot.ted",
+        "two words",
+        "9lead",
+        "trail-",
+        "a-very-long-name-that-runs-past-sixty-three-characters-xxxxxxxxxx",
+    ] {
+        let got = err(library.item_create(&plain(), Kind::Fragment, "demo", bad));
+        assert!(got.contains("BadId"), "{bad:?}: {got}");
+        let got =
+            err(library.item_create_at(&plain(), Kind::Command, &format!("demo#commands/{bad}")));
+        assert!(got.contains("BadId"), "{bad:?}: {got}");
+    }
+    assert!(mem.edits().is_empty(), "{:?}", mem.edits());
+    assert_eq!(mem.writes(), 0);
+    for good in [
+        "a",
+        "x9",
+        "house-rules",
+        "a-very-long-name-that-runs-to-sixty-three-characters-exactly-xx",
+    ] {
+        library
+            .item_create(&plain(), Kind::Fragment, "demo", good)
+            .result
+            .unwrap();
+    }
+}
+
+// OQ-5, OQ-6: a bundle the reference form makes is an ID too, never nested.
+#[test]
+fn test_create_by_reference_refuses_a_bundle_that_is_no_id_or_nested() {
+    let (library, mem) = world();
+    for bundle in ["Team", "team_rules", "team/rules"] {
+        let got =
+            err(library.item_create_at(&plain(), Kind::Fragment, &format!("{bundle}#fragments/x")));
+        assert!(got.contains("BadId"), "{bundle:?}: {got}");
+    }
+    assert_eq!(mem.writes(), 0);
+}

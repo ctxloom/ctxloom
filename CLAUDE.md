@@ -1599,7 +1599,13 @@ name's parent comes from `library_cli::Names`, asked only when a json
 answer prints one (text reaches no daemon): the wiring's is the daemon's
 `ResolveProject` (`daemon_api::Client::library_parent`, the wiring's
 `daemon::library_parent`; OQ-2, so a json answer may start the daemon), or
-`users/me` outside a project, where no daemon is asked (OQ-3). Converted:
+`users/me` outside a project, where no daemon is asked (OQ-3). The project
+is the ctxloom project, the nearest `.ctxloom` up (or `CTXLOOM_ROOT`), as
+every library read finds it (`Wiring::library_registration`, the names'
+alone; the sessions' client keeps `registration()`, the registry's work
+root): its identity is read at that root when bound and minted there once
+when no run has named it, so a read never writes outside the project's own
+`.ctxloom/project-id`, and a subdirectory names its root's project. Converted:
 the `engine` noun (the worked example): `engine list` is
 `ListEnginesResponse` (`{engines: [...]}`), `engine show` an `Engine`
 named `projects/{harp}/engines/<engine>`, its agent rows' name `agent`,

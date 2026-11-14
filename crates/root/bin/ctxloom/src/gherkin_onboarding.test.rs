@@ -8,7 +8,10 @@
 //! he types them (`ctxloom run`): his assistant is a stub `claude` that
 //! records the session home it was given (its `CLAUDE_CONFIG_DIR`) and
 //! exits, and what his assistant "receives" is the context file ctxloom
-//! wrote there (`ctxloom-context.md`). His `PATH` holds no shipped
+//! wrote there (`ctxloom-context.md`). On opencode (`run --engine
+//! opencode`) it is a stub `opencode` that records its session home (its
+//! `OPENCODE_CONFIG_DIR`), and what it receives is that home's `AGENTS.md`
+//! context section, opencode's own native surface. His `PATH` holds no shipped
 //! companion of this machine's (`files::path_without_shipped_companions`):
 //! a companion "on his machine" is the stub companion, put first on it.
 //! The Go-ported "Bob starts a session" (no docstring, j001800's) is still
@@ -66,6 +69,16 @@ exit 0
 /// The context file ctxloom writes in a claude session home.
 const CONTEXT_FILE: &str = "ctxloom-context.md";
 
+/// Bob's assistant on opencode: records the session home it was given, and
+/// exits.
+const OPENCODE_STUB: &str = r#"printf '%s\n' "${OPENCODE_CONFIG_DIR:-}" > "$(dirname "$0")/opencode-home"
+[ -t 0 ] || cat > /dev/null
+exit 0
+"#;
+
+/// The context file opencode reads in its session home (its config dir).
+const OPENCODE_CONTEXT_FILE: &str = "AGENTS.md";
+
 impl World {
     /// `ctxloom args` in Bob's checkout (on the `PATH` he has).
     fn bob_runs(&mut self, args: &[&str]) {
@@ -86,6 +99,9 @@ impl World {
         if !files::exists(bin.join("claude")) {
             files::put_program(bin.join("claude"), CLAUDE_STUB);
         }
+        if !files::exists(bin.join("opencode")) {
+            files::put_program(bin.join("opencode"), OPENCODE_STUB);
+        }
         let mut first = vec![bin];
         first.extend(self.onboarding.companion_bin.clone());
         let path = files::path_without_shipped_companions(&first);
@@ -103,9 +119,11 @@ impl World {
             assert_eq!(words.first().map(String::as_str), Some("ctxloom"), "{line}");
             let args: Vec<&str> = words[1..].iter().map(String::as_str).collect();
             if args.first() == Some(&"run") {
-                let home = self.bob_bin().join("claude-home");
-                if files::exists(&home) {
-                    files::remove(&home);
+                for recorded in ["claude-home", "opencode-home"] {
+                    let home = self.bob_bin().join(recorded);
+                    if files::exists(&home) {
+                        files::remove(&home);
+                    }
                 }
                 self.onboarding.ran_session = true;
             }
@@ -119,20 +137,26 @@ impl World {
     }
 
     /// The context Bob's last session was handed: the context file in the
-    /// session home his assistant was given.
+    /// session home his assistant (on claude) was given.
     fn bob_session_context(&self) -> String {
+        self.bob_session_context_in("claude-home", CONTEXT_FILE)
+    }
+
+    /// The context file `file` in the session home Bob's assistant recorded
+    /// in `recorded` (beside it on his `PATH`).
+    fn bob_session_context_in(&self, recorded: &str, file: &str) -> String {
         let said = self
             .onboarding
             .last
             .as_ref()
             .map(Ran::said)
             .unwrap_or_default();
-        let recorded = files::read(self.bob_bin().join("claude-home"))
+        let home = files::read(self.bob_bin().join(recorded))
             .unwrap_or_else(|_| panic!("Bob's assistant was never launched: {said}"));
-        let home = PathBuf::from(recorded.trim());
-        files::read(home.join(CONTEXT_FILE)).unwrap_or_else(|_| {
+        let home = PathBuf::from(home.trim());
+        files::read(home.join(file)).unwrap_or_else(|_| {
             panic!(
-                "Bob's session home {} holds no {CONTEXT_FILE}: {said}",
+                "Bob's session home {} holds no {file}: {said}",
                 home.display()
             )
         })
@@ -414,11 +438,14 @@ fn receives_native(w: &mut World, engine: String) {
         .clone()
         .expect("Bob started a session on an engine");
     if w.onboarding.ran_session {
-        assert_eq!(
-            engine, "claude-code",
-            "a session on {engine} is not built here"
-        );
-        let body = w.bob_session_context();
+        // Where each engine reads its context in a session home: claude
+        // the context file its command line names, opencode its config
+        // dir's `AGENTS.md`.
+        let body = match engine.as_str() {
+            "claude-code" => w.bob_session_context(),
+            "opencode" => w.bob_session_context_in("opencode-home", OPENCODE_CONTEXT_FILE),
+            other => panic!("no session home context known for {other}"),
+        };
         assert!(
             body.contains(TEAM_MARKER),
             "{engine}'s session home context lacks the team's marker: {body}"

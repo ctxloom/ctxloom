@@ -1,10 +1,7 @@
 # world: surfaces
 # Ported from journeys/j000800_onboarding.feature (rev f36e8dfb2)
 # NOT ported: "Materializing for an engine that cannot carry hooks says so" is
-#   materialize's contract, in cli/materialize.feature. The engine outline's
-#   mock row, tagged @pending: `ctxloom run --engine mock` is refused
-#   (runs-unknown-engine: the mock is a surface engine, not one a run drives),
-#   so it waits on a ruling (M4 escalation).
+#   materialize's contract, in cli/materialize.feature.
 @doc
 Feature: A new engineer clones the repo and is already set up
 
@@ -42,11 +39,7 @@ Feature: A new engineer clones the repo and is already set up
     Examples:
       | engine      |
       | claude-code |
-
-    @pending
-    Examples:
-      | engine |
-      | mock   |
+      | opencode    |
 
   Scenario: Content the project references from another repository reaches Bob on a fresh clone
     # substitution: Bob fetches with ctxloom deps pull and starts his session with ctxloom run.

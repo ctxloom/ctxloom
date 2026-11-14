@@ -82,6 +82,8 @@ struct World {
     diagnosis: diagnosis::State,
     /// What the distill steps keep.
     distill: distill::State,
+    /// What j000300's and init.feature's companion scenarios keep.
+    init_companions: init_companions::State,
 }
 
 impl fmt::Debug for World {
@@ -107,6 +109,7 @@ impl CommonWorld for World {
             || daemon_spec::claims(self, step)
             || engines::starts(self, step)
             || diagnosis::runs(self, step)
+            || init_companions::runs(self, step)
         {
             return;
         }
@@ -146,6 +149,7 @@ impl World {
             engines: engines::State::default(),
             diagnosis: diagnosis::State::default(),
             distill: distill::State::default(),
+            init_companions: init_companions::State::default(),
         }
     }
 
@@ -398,8 +402,14 @@ mod recall;
 
 #[path = "gherkin_diagnosis.test.rs"]
 mod diagnosis;
+
+#[path = "gherkin_companions.test.rs"]
+mod companions;
+
 #[path = "gherkin_engines.test.rs"]
 mod engines;
+#[path = "gherkin_init_companions.test.rs"]
+mod init_companions;
 
 #[path = "gherkin_distill.test.rs"]
 mod distill;

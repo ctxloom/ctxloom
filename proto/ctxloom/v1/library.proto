@@ -1460,16 +1460,32 @@ message ListEnginesResponse {
 
 // region companions: ctxloom.dev/Companion
 
+// A companion is registered by NAME alone (OD-10, owner 2026-11-13): its
+// program is found where the agent runs, so no path or command is held.
 message Companion {
+  // Whether a registered companion contributes (OD-9:
+  // `companions.<n>.state`, a word in the config).
+  enum State {
+    STATE_UNSPECIFIED = 0;
+    // It is asked for its loadout, and what it gives is used: the default.
+    ENABLED = 1;
+    // It stays registered and listed, and contributes nothing.
+    DISABLED = 2;
+  }
+
   // IDENTIFIER.
   string name = 1;
-  // OUTPUT_ONLY: `ctxloom-companion-<name>`.
+  // OUTPUT_ONLY: the program its name stands for: a shipped companion's own
+  // name (ltk, taskloom, reprise), any other `ctxloom-companion-<name>`.
   string bin = 2;
-  // was: CompanionRow.command.
-  repeated string command = 3;
-  // OUTPUT_ONLY: its program resolves, printed true or false. was: exists.
+  // The command a registration held (schema 9 before OD-10): gone with it,
+  // a hard migrate.
+  reserved 3;
+  reserved "command";
+  // OUTPUT_ONLY: its program resolves on the PATH where it is asked,
+  // printed true or false. was: exists.
   optional bool resolves = 4;
-  // M4 adds (additive): enabled, the layer that registered it.
+  State state = 5;
 }
 
 message ListCompanionsRequest {
@@ -1522,6 +1538,21 @@ message DeleteCompanionResponse {
   repeated Need needs = 90;
   string etag = 91;
   repeated Notice notices = 92;
+}
+
+// `companion enable <name>` (OD-9; AIP-136: a resource-based custom method
+// answers the resource).
+message EnableCompanionRequest {
+  string name = 1;
+  string request_id = 90;
+  Globals globals = 96;
+}
+
+// `companion disable <name>` (OD-9).
+message DisableCompanionRequest {
+  string name = 1;
+  string request_id = 90;
+  Globals globals = 96;
 }
 
 // endregion

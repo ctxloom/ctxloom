@@ -54,13 +54,13 @@ fn test_the_edit_sees_none_where_the_section_is_not_there() {
         assert_eq!(current, None);
         Ok(Some(Value::Map(vec![(
             "acme".to_string(),
-            map(&[("command", Value::Seq(vec![scalar("acme-bin")]))]),
+            map(&[("state", scalar("disabled"))]),
         )])))
     });
     out.unwrap();
     assert_eq!(
         mem.config(Scope::Project).unwrap(),
-        "schema_version: 9\ncompanions:\n  acme:\n    command:\n      - acme-bin\n"
+        "schema_version: 9\ncompanions:\n  acme:\n    state: disabled\n"
     );
 }
 
@@ -69,13 +69,13 @@ fn test_a_file_that_is_not_there_is_made_with_the_generation_stamp() {
     let (out, mem) = update(&[], Scope::Home, "companions", |_| {
         Ok(Some(Value::Map(vec![(
             "acme".to_string(),
-            map(&[("command", Value::Seq(vec![scalar("acme-bin")]))]),
+            map(&[("state", scalar("disabled"))]),
         )])))
     });
     assert_eq!(out.unwrap(), "/h/.ctxloom/config.yaml");
     assert_eq!(
         mem.config(Scope::Home).unwrap(),
-        "schema_version: 9\ncompanions:\n  acme:\n    command:\n      - acme-bin\n"
+        "schema_version: 9\ncompanions:\n  acme:\n    state: disabled\n"
     );
     assert_eq!(mem.config(Scope::Project), None);
 }
@@ -83,7 +83,7 @@ fn test_a_file_that_is_not_there_is_made_with_the_generation_stamp() {
 #[test]
 fn test_a_section_taken_out_is_taken_out_of_the_file() {
     let (out, mem) = update(
-        &["schema_version: 9\ncompanions:\n  acme:\n    command:\n      - acme-bin\n"],
+        &["schema_version: 9\ncompanions:\n  acme:\n    state: disabled\n"],
         Scope::Project,
         "companions",
         |_| Ok(None),
@@ -95,7 +95,7 @@ fn test_a_section_taken_out_is_taken_out_of_the_file() {
 #[test]
 fn test_a_change_that_changes_nothing_writes_nothing() {
     let (out, mem) = update(
-        &["schema_version: 9\ncompanions:\n  acme:\n    command:\n      - acme-bin\n"],
+        &["schema_version: 9\ncompanions:\n  acme:\n    state: disabled\n"],
         Scope::Project,
         "companions",
         Ok,

@@ -38,7 +38,7 @@ pub use ctxloom_ports::{
     ConfigFiles, Executables, Failure, ForeignListing, ForeignWorktree, ForeignWorktrees,
     GitIdentity, LayerText, Put, Scope, Source, UserFiles,
 };
-pub use doctor::{Doctor, Removed, Report};
+pub use doctor::{CompanionsAsked, Doctor, Removed, Report};
 
 #[cfg(test)]
 #[path = "checks.test.rs"]

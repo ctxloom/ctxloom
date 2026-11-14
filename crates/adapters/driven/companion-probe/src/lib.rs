@@ -1,15 +1,27 @@
-//! The `LoadoutProbe` port as a process (Go's `companions.Verify`): the
-//! companion run as `<path> loadout --format yaml` with a time limit (Go's is
-//! three seconds), its output read, a program that outlives the limit killed
-//! with everything it started (`run-within`).
+//! The `CompanionProbe` port as a process (Go's `companions.Verify` and
+//! `Prober.ProbeCompanionLoadouts`): a companion's program found on the
+//! `PATH` of the site it is asked at, and run there as `<program> loadout
+//! --format yaml` with a time limit (Go's is three seconds), its output read,
+//! a program that outlives the limit killed with everything it started
+//! (`run-within`).
+//!
+//! The one probe every caller uses (OD-8): it holds no environment and no
+//! directory of its own. Each call names its site (D1): the environment the
+//! program runs in, exactly, whose `PATH` is searched, and the directory it
+//! runs in, the caller's project root.
+//!
+//! The outcomes are Go's: a program not on the `PATH` is absent; one that ran
+//! and exited with a status offers no loadout; one that succeeded and printed
+//! nothing is silent; one that was killed, timed out or could not be started
+//! failed.
 
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use ctxloom_ports::{LoadoutProbe, Unanswered};
-
-mod loadouts;
-pub use loadouts::ProcessCompanions;
+use ctxloom_ports::{CompanionLoadout, CompanionProbe, ProbeSite};
+use file_system::{Fs, Kind};
+use os::Flavor;
 use process_env::EnvSnapshot;
 use run_within::{run_within, Spec, Within};
 
@@ -17,21 +29,28 @@ use run_within::{run_within, Spec, Within};
 /// it started that outlives it can hold the pipe open.
 const DRAIN_GRACE: Duration = Duration::from_secs(2);
 
-/// Probes a program by running it.
+/// Go's bound on a companion's answer.
+pub const STANDARD_LIMIT: Duration = Duration::from_secs(3);
+
+/// Probes a companion's program by running it.
 pub struct ProcessProbe {
     limit: Duration,
     drain_grace: Duration,
-    /// The environment the companion runs in: exactly this one.
-    env: Arc<EnvSnapshot>,
+    /// Where a program is looked for: the filesystem seam.
+    fs: Arc<dyn Fs>,
+    /// How the host spells a `PATH` and a program's file names.
+    flavor: Flavor,
 }
 
 impl ProcessProbe {
-    /// A probe that gives a program `limit` to answer, running it in `env`.
-    pub fn new(limit: Duration, env: Arc<EnvSnapshot>) -> ProcessProbe {
+    /// A probe that gives a program `limit` to answer, finding it through
+    /// `fs` as a `flavor` host spells it.
+    pub fn new(limit: Duration, fs: Arc<dyn Fs>, flavor: Flavor) -> ProcessProbe {
         ProcessProbe {
             limit,
             drain_grace: DRAIN_GRACE,
-            env,
+            fs,
+            flavor,
         }
     }
 
@@ -43,57 +62,75 @@ impl ProcessProbe {
     }
 
     /// Go's three seconds.
-    pub fn standard(env: Arc<EnvSnapshot>) -> ProcessProbe {
-        ProcessProbe::new(Duration::from_secs(3), env)
+    pub fn standard(fs: Arc<dyn Fs>, flavor: Flavor) -> ProcessProbe {
+        ProcessProbe::new(STANDARD_LIMIT, fs, flavor)
+    }
+
+    fn runnable(&self, candidate: &Path) -> Option<String> {
+        let meta = self.fs.metadata(candidate).ok()?;
+        (meta.kind == Kind::File && meta.executable).then(|| candidate.display().to_string())
+    }
+
+    /// The site's environment as a snapshot, for its `PATH` and `PATHEXT`.
+    fn snapshot(&self, site: &ProbeSite) -> EnvSnapshot {
+        EnvSnapshot::from_parts(
+            self.flavor,
+            Ok(PathBuf::from(&site.cwd)),
+            PathBuf::from(&site.cwd),
+            site.env.iter().map(|(k, v)| (k.into(), v.into())),
+        )
     }
 }
 
-impl LoadoutProbe for ProcessProbe {
-    fn answers(&self, command: &[String]) -> Result<(), Unanswered> {
-        self.loadout(command).map(drop)
+impl CompanionProbe for ProcessProbe {
+    fn find(&self, program: &str, site: &ProbeSite) -> Option<String> {
+        // A name, never a path (OD-10): one with a separator is no program
+        // of a companion's.
+        if program.is_empty() || program.contains(['/', '\\']) {
+            return None;
+        }
+        let env = self.snapshot(site);
+        let names = self.flavor.candidates(program, env.utf8("PATHEXT"));
+        env.search_path()
+            .iter()
+            .find_map(|dir| names.iter().find_map(|file| self.runnable(&dir.join(file))))
     }
-}
 
-impl ProcessProbe {
-    /// The text `<command...> loadout --format yaml` prints, under the same
-    /// bound and with the same failures as [`answers`](LoadoutProbe::answers).
-    /// The system finds a bare program name as it does for any command; this
-    /// searches for nothing.
-    pub fn loadout(&self, command: &[String]) -> Result<String, Unanswered> {
-        let Some((program, arguments)) = command.split_first() else {
-            return Err(Unanswered::Failed("the command is empty".to_string()));
+    fn loadout(&self, program: &str, site: &ProbeSite) -> CompanionLoadout {
+        let Some(path) = self.find(program, site) else {
+            return CompanionLoadout::Absent;
         };
-        let spec = Spec::new(program)
-            .args(arguments)
+        let mut spec = Spec::new(&path)
             .args(["loadout", "--format", "yaml"])
-            .envs(self.env.vars());
-        let outcome = run_within(
+            .envs(site.env.iter().map(|(k, v)| (k.as_str(), v.as_str())));
+        if !site.cwd.is_empty() {
+            spec = spec.current_dir(&site.cwd);
+        }
+        let outcome = match run_within(
             &spec,
             &Within::new(self.limit).drain_grace(self.drain_grace),
-        )
-        .map_err(|e| match e.io().kind() {
-            std::io::ErrorKind::NotFound => Unanswered::Missing(e.io().to_string()),
-            _ => Unanswered::Failed(e.io().to_string()),
-        })?;
+        ) {
+            Ok(outcome) => outcome,
+            Err(e) => return CompanionLoadout::ProbeFailed(e.io().to_string()),
+        };
         let Some(status) = outcome.status else {
-            return Err(Unanswered::Failed(format!(
+            return CompanionLoadout::ProbeFailed(format!(
                 "did not answer within {}ms",
                 self.limit.as_millis()
-            )));
+            ));
         };
-        let printed = outcome.stdout;
         if !status.success() {
             // An exit with a status answered; a signal did not.
-            return Err(if status.code().is_some() {
-                Unanswered::Exited(status.to_string())
+            return if status.code().is_some() {
+                CompanionLoadout::NoLoadout(status.to_string())
             } else {
-                Unanswered::Failed(status.to_string())
-            });
+                CompanionLoadout::ProbeFailed(status.to_string())
+            };
         }
-        if printed.is_empty() {
-            return Err(Unanswered::Silent);
+        if outcome.stdout.is_empty() {
+            return CompanionLoadout::Silent;
         }
-        Ok(String::from_utf8_lossy(&printed).into_owned())
+        CompanionLoadout::Loaded(String::from_utf8_lossy(&outcome.stdout).into_owned())
     }
 }
 

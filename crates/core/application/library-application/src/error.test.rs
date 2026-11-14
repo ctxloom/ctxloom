@@ -150,9 +150,7 @@ fn the_companion_diagnostics_have_samples() {
         "companion-not-on-path",
         "loadout-probe-failed",
         "loadout-unparseable",
-        "config-companions-bare",
         "write-companion-program-missing",
-        "write-companion-no-command",
     ] {
         assert!(
             codes.iter().any(|c| c.ends_with(want)),

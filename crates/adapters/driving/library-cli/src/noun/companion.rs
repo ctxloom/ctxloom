@@ -2,7 +2,9 @@
 //! method's response (OD-40, design §3.9, §5.7); `loadout` (B2), the one
 //! fixed YAML document, unchanged.
 
-use library_application::{CompanionAdded, CompanionRemoved, CompanionRow, Removal};
+use library_application::{
+    CompanionAdded, CompanionRemoved, CompanionRow, CompanionState, CompanionStateSet, Removal,
+};
 
 use crate::prelude::*;
 
@@ -31,16 +33,7 @@ pub(crate) fn write(
     let name = text_arg(sub, "name");
     let code = match verb {
         "add" => {
-            let command: Vec<String> = sub
-                .try_get_many::<String>("command")
-                .ok()
-                .flatten()
-                .into_iter()
-                .chain(sub.try_get_many::<String>("args").ok().flatten())
-                .flatten()
-                .cloned()
-                .collect();
-            let outcome = cx.library.companion_add(&cx.flags, &name, &command);
+            let outcome = cx.library.companion_add(&cx.flags, &name);
             api::written(
                 cx,
                 outcome,
@@ -51,17 +44,39 @@ pub(crate) fn write(
                     if done.added {
                         writeln!(
                             out,
-                            "Registered companion '{}' (answers: {})",
-                            done.name,
-                            done.command.join(" ")
+                            "Registered companion '{}' (its program {} answers)",
+                            done.name, done.program
                         )
                     } else {
                         writeln!(
                             out,
                             "Companion '{}' is already registered ({})",
-                            done.name,
-                            done.command.join(" ")
+                            done.name, done.program
                         )
+                    }
+                },
+                |_| Exit::OK,
+            )?
+        }
+        "enable" | "disable" => {
+            let state = if verb == "enable" {
+                CompanionState::Enabled
+            } else {
+                CompanionState::Disabled
+            };
+            let outcome = cx.library.companion_set_state(&cx.flags, &name, state);
+            api::written(
+                cx,
+                outcome,
+                out,
+                err,
+                set,
+                |done, out, _| {
+                    let word = done.state.word();
+                    if done.changed {
+                        writeln!(out, "Companion '{}' is {word}", done.name)
+                    } else {
+                        writeln!(out, "Companion '{}' is already {word}", done.name)
                     }
                 },
                 |_| Exit::OK,
@@ -103,9 +118,9 @@ pub(crate) fn companions(parent: &str, rows: &[CompanionRow]) -> v1::ListCompani
             .iter()
             .map(|row| v1::Companion {
                 name: companion_name(parent, &row.name),
-                command: row.command.clone(),
+                bin: row.program.clone(),
                 resolves: Some(row.exists),
-                ..v1::Companion::default()
+                state: state_of(row.state).into(),
             })
             .collect(),
         next_page_token: String::new(),
@@ -119,12 +134,30 @@ fn added(parent: &str, done: &CompanionAdded) -> v1::CreateCompanionResponse {
     v1::CreateCompanionResponse {
         companion: Some(v1::Companion {
             name: companion_name(parent, &done.name),
-            command: done.command.clone(),
+            bin: done.program.clone(),
             resolves: Some(true),
-            ..v1::Companion::default()
+            state: v1::companion::State::Enabled.into(),
         }),
         applied: Some(done.added),
         ..v1::CreateCompanionResponse::default()
+    }
+}
+
+/// The resource's state for a registration's.
+fn state_of(state: CompanionState) -> v1::companion::State {
+    match state {
+        CompanionState::Enabled => v1::companion::State::Enabled,
+        CompanionState::Disabled => v1::companion::State::Disabled,
+    }
+}
+
+/// `companion enable|disable`: the companion, as it is now (AIP-136).
+fn set(parent: &str, done: &CompanionStateSet) -> v1::Companion {
+    v1::Companion {
+        name: companion_name(parent, &done.name),
+        bin: done.program.clone(),
+        resolves: None,
+        state: state_of(done.state).into(),
     }
 }
 

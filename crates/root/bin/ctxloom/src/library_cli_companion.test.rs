@@ -13,11 +13,11 @@ fn test_a_projects_companions_are_added_to_the_home_registrations() {
     let project = Project::initialized().on_gos_catalog();
     project.write_home(
         ".ctxloom/config.yaml",
-        "schema_version: 9\ncompanions:\n  acme: {command: [acme-bin]}\n",
+        "schema_version: 9\ncompanions:\n  acme: {}\n",
     );
     project.write(
         ".ctxloom/config.yaml",
-        "schema_version: 9\ncompanions:\n  beta: {command: [beta-bin]}\n",
+        "schema_version: 9\ncompanions:\n  beta: {}\n",
     );
     let ran = project.run(&["companion", "list", "--format", "json"]);
     ran.succeeds();
@@ -33,7 +33,7 @@ fn test_an_empty_project_list_does_not_unregister_a_home_companion() {
     let project = Project::initialized().on_gos_catalog();
     project.write_home(
         ".ctxloom/config.yaml",
-        "schema_version: 9\ncompanions:\n  acme: {command: [acme-bin]}\n",
+        "schema_version: 9\ncompanions:\n  acme: {}\n",
     );
     project.write(
         ".ctxloom/config.yaml",
@@ -45,33 +45,30 @@ fn test_an_empty_project_list_does_not_unregister_a_home_companion() {
 }
 
 // companion.feature: Scenario: List answers which program each registered
-// name runs, and whether it is there (and Scenario: Bare companion lists the
-// registered companions): the command is what the registration holds, and the
-// program is only looked for, never run.
+// name resolves to, and whether it is on the PATH (and Scenario: Bare
+// companion lists the registered companions): the program is the name's
+// (OD-10), and it is only looked for, never run.
 #[test]
-fn test_list_answers_the_command_each_registered_name_runs_and_whether_it_is_there() {
+fn test_list_answers_the_program_each_registered_name_resolves_to_and_whether_it_is_there() {
     if !files::runs_scripts() {
         return;
     }
     let project = Project::initialized().on_gos_catalog();
-    let exe = project.dir().join("bin").join("acme-bin");
-    files::put_program(&exe, "#!/bin/sh\nexit 9\n");
+    let bin = project.dir().join("bin");
+    files::put_program(bin.join("ctxloom-companion-acme"), "#!/bin/sh\nexit 9\n");
+    project.put_on_path(&bin);
     project.write_home(
         ".ctxloom/config.yaml",
-        &format!(
-            "schema_version: 9\ncompanions:\n  acme:\n    command: [{}, --as, acme]\n  gone:\n    command: [/no/such/program]\n",
-            exe.display()
-        ),
+        "schema_version: 9\ncompanions:\n  acme: {}\n  gone: {}\n",
     );
     let ran = project.run(&["companion", "list", "--format", "json"]);
     ran.succeeds();
     let doc = ran.json();
     assert!(reports_as(&doc, "companions.0.name").ends_with("/companions/acme"));
     assert_eq!(
-        reports_as(&doc, "companions.0.command.0"),
-        exe.display().to_string()
+        reports_as(&doc, "companions.0.bin"),
+        "ctxloom-companion-acme"
     );
-    assert_eq!(reports_as(&doc, "companions.0.command.2"), "acme");
     assert_eq!(reports_as(&doc, "companions.0.resolves"), "true");
     assert!(reports_as(&doc, "companions.1.name").ends_with("/companions/gone"));
     assert_eq!(reports_as(&doc, "companions.1.resolves"), "false");
@@ -79,7 +76,7 @@ fn test_list_answers_the_command_each_registered_name_runs_and_whether_it_is_the
         .run(&["companion", "--format", "text"])
         .succeeds()
         .contains("acme")
-        .contains("--as acme")
+        .contains("ctxloom-companion-acme")
         .contains("NOT FOUND")
         .lacks("Available Commands:");
 }

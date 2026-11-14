@@ -353,33 +353,33 @@ fn test_agent_show_says_a_resolution_failed_and_carries_on() {
     assert!(text.contains("Session home: session (default)\nComposed fragments: 1\n"));
 }
 
-// companion.go renderCompanionList: a command whose program is not there says
-// how to drop it; one that is says so; nothing is run to know.
+// companion.go renderCompanionList: a name whose program is not on PATH says
+// how to bring or drop it; one that is says so; a disabled one is marked;
+// nothing is run to know.
 #[test]
 fn test_a_companion_whose_program_is_not_there_says_so() {
+    use library_application::CompanionState;
     let rows = [
         library_application::CompanionRow {
             name: "acme".to_string(),
-            command: vec![
-                "acme-bin".to_string(),
-                "--as".to_string(),
-                "acme".to_string(),
-            ],
+            program: "ctxloom-companion-acme".to_string(),
             exists: false,
+            state: CompanionState::Enabled,
         },
         library_application::CompanionRow {
             name: "ltk".to_string(),
-            command: vec!["ltk".to_string()],
+            program: "ltk".to_string(),
             exists: true,
+            state: CompanionState::Disabled,
         },
     ];
     assert_eq!(
         shown(|out| companion_list(out, &rows)),
-        "acme         acme-bin --as acme           NOT FOUND \u{2014} fix the command, or: ctxloom companion remove acme --yes\nltk          ltk                          found\n"
+        "acme         ctxloom-companion-acme       NOT FOUND \u{2014} install ctxloom-companion-acme on PATH, or: ctxloom companion remove acme --yes\nltk          ltk                          found (disabled)\n"
     );
     assert_eq!(
         shown(|out| companion_list(out, &[])),
-        "No companions registered.\nUse 'ctxloom companion add <name> --command <program> [args...]' to register one.\n"
+        "No companions registered.\nUse 'ctxloom companion add <name>' to register one.\n"
     );
 }
 

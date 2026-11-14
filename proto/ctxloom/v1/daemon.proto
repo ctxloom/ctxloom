@@ -275,6 +275,9 @@ service Ctxloom {
   rpc ListCompanions(ListCompanionsRequest) returns (ListCompanionsResponse);
   rpc CreateCompanion(CreateCompanionRequest) returns (CreateCompanionResponse);
   rpc DeleteCompanion(DeleteCompanionRequest) returns (DeleteCompanionResponse);
+  // AIP-136: a resource-based custom method answers the resource (OD-9).
+  rpc EnableCompanion(EnableCompanionRequest) returns (Companion);
+  rpc DisableCompanion(DisableCompanionRequest) returns (Companion);
   // endregion
 
   // region remotes: `projects/{project}/remotes/{remote}`
@@ -308,7 +311,7 @@ service Ctxloom {
   // these rules (S33): hooks; remotes' BrowseRemote, DiscoverRemotes;
   // dependencies' PullDependencies, UpgradeDependencies, CheckDependencies,
   // ExplainDependency (B4's, their shapes on a ruling: library.proto's
-  // closing note); companions' Enable, Disable (M4); PushBundle (T26
+  // closing note); PushBundle (T26
   // sequences; its response B4's); InstallManage, UninstallManage, CheckManage;
   // Materialize (T26, its record written first); Clean; RunDoctor;
   // GetAuthStatus; containers (Build and Prune as streaming custom

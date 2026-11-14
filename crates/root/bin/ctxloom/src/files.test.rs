@@ -192,6 +192,24 @@ pub(crate) fn copy(from: impl AsRef<Path>, to: impl AsRef<Path>) {
         .expect("a file copy");
 }
 
+/// The host's `PATH` with every directory holding one of the companions
+/// ctxloom ships (`ltk`, `taskloom`, `reprise`) left out, after `first`: a
+/// first init offers each shipped companion it finds, so a test that answers
+/// init's questions must not depend on what this machine has installed.
+pub(crate) fn path_without_shipped_companions(first: &[PathBuf]) -> String {
+    let host = crate::tests::host_var("PATH").unwrap_or_default();
+    let mut paths: Vec<PathBuf> = first.to_vec();
+    paths.extend(search_path(&host).into_iter().filter(|dir| {
+        !["ltk", "taskloom", "reprise"]
+            .iter()
+            .any(|program| exists(dir.join(program)))
+    }));
+    std::env::join_paths(paths)
+        .expect("a PATH")
+        .to_string_lossy()
+        .into_owned()
+}
+
 /// The directories of a `PATH`, as the host reads one.
 pub(crate) fn search_path(path: &std::ffi::OsStr) -> Vec<PathBuf> {
     os::host().flavor().split_search_path_os(path)

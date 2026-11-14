@@ -59,6 +59,22 @@ impl Terminal for Person {
     }
 }
 
+/// The companions on her machine: none shipped, and none of any name.
+#[derive(Default)]
+struct NoCompanions;
+
+impl init_application::Companions for NoCompanions {
+    fn shipped_available(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn add(&self, name: &str) -> Result<init_application::Added, init_application::NotAdded> {
+        Err(init_application::NotAdded::Missing {
+            program: format!("ctxloom-companion-{name}"),
+        })
+    }
+}
+
 /// The sessions init launches: what they were launched with, and how they end.
 #[derive(Default)]
 struct Launches {
@@ -279,6 +295,26 @@ fn go_with(
     person: &Person,
     sessions: &Launches,
 ) -> Run {
+    go_with_companions(
+        line,
+        format,
+        configure,
+        out,
+        person,
+        sessions,
+        &NoCompanions,
+    )
+}
+
+fn go_with_companions(
+    line: &[&str],
+    format: Format,
+    configure: impl FnOnce(&World, &Fixture),
+    out: &mut dyn Write,
+    person: &Person,
+    sessions: &Launches,
+    companions: &dyn init_application::Companions,
+) -> Run {
     let world = Arc::new(World::default());
     let fixture = Fixture::new();
     configure(&world, &fixture);
@@ -308,6 +344,7 @@ fn go_with(
         terminal: person,
         sessions,
         prompts: sessions,
+        companions,
     };
     let mut full = vec!["ctxloom"];
     full.extend(line);
@@ -650,8 +687,84 @@ fn a_first_init_at_a_terminal_asks_for_the_output_directory_and_says_where_outpu
         asked,
         [
             init_application::OUTPUT_DIR_QUESTION.to_string(),
-            init_application::PREMISED_QUESTION.to_string()
+            init_application::PREMISED_QUESTION.to_string(),
+            init_application::COMPANIONS_BY_NAME.to_string(),
         ]
+    );
+}
+
+/// The shipped companions `ltk` and `reprise` on her machine, `acme` there
+/// too; what was added.
+#[derive(Default)]
+struct SomeCompanions {
+    added: Mutex<Vec<String>>,
+}
+
+impl init_application::Companions for SomeCompanions {
+    fn shipped_available(&self) -> Vec<String> {
+        vec!["ltk".to_string(), "reprise".to_string()]
+    }
+
+    fn add(&self, name: &str) -> Result<init_application::Added, init_application::NotAdded> {
+        if !["ltk", "reprise", "acme"].contains(&name) {
+            return Err(init_application::NotAdded::Missing {
+                program: format!("ctxloom-companion-{name}"),
+            });
+        }
+        self.added.lock().unwrap().push(name.to_string());
+        Ok(init_application::Added::New)
+    }
+}
+
+// init.feature (M4): after its own questions a first init offers each
+// shipped companion on her machine, then asks for others by name; it says
+// each one added, and each it could not add, naming the program.
+#[test]
+fn a_first_init_at_a_terminal_offers_the_companions_and_says_what_it_added() {
+    let person = Person {
+        terminal: true,
+        yes: true,
+        lines: &["\n", "\n", "", "", "acme nowhere\n"],
+        ..Person::default()
+    };
+    let companions = SomeCompanions::default();
+    let mut out = Vec::new();
+    let r = go_with_companions(
+        &["init"],
+        Format::Text,
+        |world, _| world.fresh.store(true, std::sync::atomic::Ordering::SeqCst),
+        &mut out,
+        &person,
+        &Launches {
+            interview_code: Some(1),
+            ..Launches::default()
+        },
+        &companions,
+    );
+    let out = String::from_utf8(out).unwrap();
+    let err = r.err.clone();
+    let asked = person.asked.lock().unwrap().clone();
+    assert_eq!(
+        asked[2..5],
+        [
+            "Add the ltk companion?".to_string(),
+            "Add the reprise companion?".to_string(),
+            "Add companions by name?".to_string(),
+        ]
+    );
+    assert_eq!(
+        *companions.added.lock().unwrap(),
+        ["ltk", "reprise", "acme"]
+    );
+    assert!(
+        out.contains(
+            "Added companion \"ltk\"\nAdded companion \"reprise\"\nAdded companion \"acme\"\n"
+        ),
+        "{out}"
+    );
+    assert!(
+        err.contains("ctxloom: could not add companion \"nowhere\": its program ctxloom-companion-nowhere is not on this machine"),
+        "{err}"
     );
 }
 
@@ -813,6 +926,7 @@ fn a_noun_the_line_does_not_carry_is_a_usage_failure() {
         terminal: &Person::default(),
         sessions: &Launches::default(),
         prompts: &Launches::default(),
+        companions: &NoCompanions,
     };
     let matches = nouns()
         .into_iter()

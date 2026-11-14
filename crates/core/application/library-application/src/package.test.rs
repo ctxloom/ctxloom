@@ -462,7 +462,7 @@ mod companions {
 
     use super::{CONFIG, DEMO, PROJECT};
 
-    const WITH: &str = "schema_version: 9\nagents:\n  default:\n    engine: mock\n    profiles: [dev]\ndefault_agent: default\ncompanions:\n  zeta:\n    command: [zeta]\n  alpha:\n    command: [alpha]\n";
+    const WITH: &str = "schema_version: 9\nagents:\n  default:\n    engine: mock\n    profiles: [dev]\ndefault_agent: default\ncompanions:\n  zeta: {}\n  alpha: {}\n";
 
     const ALPHA: &str = "run:\n  version: 1.0.0\n  hooks:\n    pre_tool:\n      - command: alpha guard\n        tool: shell\n        type: command\n      - command: alpha guard\n        tool: file_edit\n        type: command\n  commands:\n    check:\n      description: Alpha check\n      content: ALPHA-CHECK-BODY\n  mcp:\n    alpha-tool:\n      command: alpha-mcp\n      args: [--serve]\n";
 

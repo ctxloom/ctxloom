@@ -20,13 +20,13 @@ mod read {
             json_of(&["config", "show", "companions"]),
             serde_json::json!({
                 "name": "projects/calm-otter/config",
-                "document": {"acme": {"command": ["acme-bin", "--as", "acme"]}},
+                "document": {"acme": {}},
             })
         );
         let raw = json_of(&["config", "show", "--raw"]);
         assert_eq!(
             raw["document"]["companions"],
-            serde_json::json!({"acme": {"command": ["acme-bin", "--as", "acme"]}})
+            serde_json::json!({"acme": {}})
         );
         // A section is the document whole, as the layers give it; outside a
         // project the singleton is the home's (OQ-3).
@@ -38,7 +38,7 @@ mod read {
         assert_eq!(set.json()["document"]["on_run"], "none");
         let home = go_named(&["config", "show", "agents"], JSON, &Home);
         assert_eq!(home.json()["name"], "users/me/config");
-        assert!(text_of(&["config", "show", "companions"]).starts_with("acme:\n  command:\n"));
+        assert!(text_of(&["config", "show", "companions"]).starts_with("acme: {}"));
         assert!(text_of(&["config"]).contains("default_agent: dev\n"));
         assert_eq!(
             go(&["config", "show", "nosuch"], JSON, BARE).refused(),

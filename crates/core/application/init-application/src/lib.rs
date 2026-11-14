@@ -18,11 +18,16 @@
 //! configured session ([`interview`]; the mechanism, with the interview's
 //! text as it is).
 //!
+//! A first init at a terminal also offers the companions (M4,
+//! [`companion_questions`] and [`register_companions`]): the questions are
+//! data out and the answers data in (D2).
+//!
 //! NOT BUILT: the interview's own questions (the engine asks them), minting the project
 //! identity (taskloom's registry owns it; a re-run only reads it). The
 //! agent-token guide (a notice that init prints when no token is exported)
 //! is the driving adapter's, from `auth-application`.
 
+mod companions;
 mod error;
 mod interview;
 
@@ -34,6 +39,11 @@ use deps_application::{CreateRequest, Deps, Notice};
 use exit_code::Exit;
 use serde::Serialize;
 
+pub use companions::{
+    accepted as accepted_companions, offer_question, questions as companion_questions,
+    register as register_companions, Added, Answer, Asked, Companions, CompanionsAnswered,
+    NotAdded, Question, BY_NAME_ID, COMPANIONS_BY_NAME,
+};
 pub use error::InitError;
 pub use interview::{
     interview, Ended, Interviewed, LaunchFailure, Outcome, Sessions, Terminal, RESTART_COMMAND,
@@ -49,6 +59,13 @@ pub trait Prompts {
     /// The setup interview's body, or why there is none to read (a project
     /// `ctxloom` bundle without one, or that cannot be read).
     fn setup_interview(&self) -> Result<String, PromptFailure>;
+
+    /// Each enabled registered companion's `init.setup_guidance`, in order
+    /// (j000300): what the interview carries after ctxloom's own. A
+    /// disabled companion's is none (OD-9). None by default.
+    fn companion_guidance(&self) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 /// A prompt that could not be read: why, and the exit code that reason

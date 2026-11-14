@@ -4,15 +4,23 @@
 //! the scenario's temporary directory), and every remote a scenario draws on
 //! is a local bare repository too.
 //!
-//! "Bob starts a session" is, as in Go, `materialize default` into `out` for
-//! claude-code, run in Bob's checkout.
+//! "Bob starts a session:" runs the commands it gives in Bob's checkout, as
+//! he types them (`ctxloom run`): his assistant is a stub `claude` that
+//! records the session home it was given (its `CLAUDE_CONFIG_DIR`) and
+//! exits, and what his assistant "receives" is the context file ctxloom
+//! wrote there (`ctxloom-context.md`). His `PATH` holds no shipped
+//! companion of this machine's (`files::path_without_shipped_companions`):
+//! a companion "on his machine" is the stub companion, put first on it.
+//! The Go-ported "Bob starts a session" (no docstring, j001800's) is still
+//! `materialize default` into `out` for claude-code.
 
 use std::path::{Path, PathBuf};
 
+use cucumber::gherkin::Step;
 use cucumber::{given, then, when};
 
 use super::super::deps::git_in;
-use super::super::gherkin_common::CommonWorld;
+use super::super::gherkin_common::{doc, CommonWorld};
 use super::super::Ran;
 use super::{
     j000700_commit, j000700_project, j000700_pull, World, J000700_BUNDLE, J000700_PROFILE,
@@ -42,13 +50,92 @@ pub(super) struct State {
     last: Option<Ran>,
     /// The engine and target of the last `starts a session on`.
     session_on: Option<(String, String)>,
+    /// The directory of the stub companion's program, when one is on his
+    /// machine.
+    companion_bin: Option<PathBuf>,
+    /// Whether a session was started through `ctxloom run`.
+    ran_session: bool,
 }
+
+/// Bob's assistant: records the session home it was given, and exits.
+const CLAUDE_STUB: &str = r#"printf '%s\n' "${CLAUDE_CONFIG_DIR:-}" > "$(dirname "$0")/claude-home"
+[ -t 0 ] || cat > /dev/null
+exit 0
+"#;
+
+/// The context file ctxloom writes in a claude session home.
+const CONTEXT_FILE: &str = "ctxloom-context.md";
 
 impl World {
     /// `ctxloom args` in Bob's checkout (on the `PATH` he has).
     fn bob_runs(&mut self, args: &[&str]) {
         let dir = self.bob_dir().to_path_buf();
         self.onboarding.last = Some(self.common.project.run_in(&dir, args));
+    }
+
+    /// Where Bob's assistant stub is.
+    fn bob_bin(&self) -> PathBuf {
+        self.scratch().join("bob-bin")
+    }
+
+    /// Each `ctxloom ...` line of `lines` in Bob's checkout, at his
+    /// terminal (stood in), with his assistant and his token, on a `PATH`
+    /// of his own; the last is the one the next step sees.
+    fn bob_types(&mut self, lines: &str) {
+        let bin = self.bob_bin();
+        if !files::exists(bin.join("claude")) {
+            files::put_program(bin.join("claude"), CLAUDE_STUB);
+        }
+        let mut first = vec![bin];
+        first.extend(self.onboarding.companion_bin.clone());
+        let path = files::path_without_shipped_companions(&first);
+        let env = [
+            ("PATH", path.as_str()),
+            ("CTXLOOM_TEST_TERMINAL", "1"),
+            (
+                "CLAUDE_CODE_OAUTH_TOKEN",
+                "sk-ant-oat01-acceptance-fixture-not-real",
+            ), // gitleaks:allow
+        ];
+        let dir = self.bob_dir().to_path_buf();
+        for line in lines.lines().map(str::trim).filter(|l| !l.is_empty()) {
+            let words = super::super::gherkin_common::split(line);
+            assert_eq!(words.first().map(String::as_str), Some("ctxloom"), "{line}");
+            let args: Vec<&str> = words[1..].iter().map(String::as_str).collect();
+            if args.first() == Some(&"run") {
+                let home = self.bob_bin().join("claude-home");
+                if files::exists(&home) {
+                    files::remove(&home);
+                }
+                self.onboarding.ran_session = true;
+            }
+            let ran = self.common.project.run_in_with(&dir, &env, &args);
+            let failed = ran.code != 0;
+            self.onboarding.last = Some(ran);
+            if failed {
+                break;
+            }
+        }
+    }
+
+    /// The context Bob's last session was handed: the context file in the
+    /// session home his assistant was given.
+    fn bob_session_context(&self) -> String {
+        let said = self
+            .onboarding
+            .last
+            .as_ref()
+            .map(Ran::said)
+            .unwrap_or_default();
+        let recorded = files::read(self.bob_bin().join("claude-home"))
+            .unwrap_or_else(|_| panic!("Bob's assistant was never launched: {said}"));
+        let home = PathBuf::from(recorded.trim());
+        files::read(home.join(CONTEXT_FILE)).unwrap_or_else(|_| {
+            panic!(
+                "Bob's session home {} holds no {CONTEXT_FILE}: {said}",
+                home.display()
+            )
+        })
     }
 
     /// Go's `bobMaterialized`: his default profile into `out`, again, and the
@@ -68,7 +155,11 @@ impl World {
     }
 
     fn bob_has(&mut self, marker: &str) {
-        let body = self.bob_materialized();
+        let body = if self.onboarding.ran_session {
+            self.bob_session_context()
+        } else {
+            self.bob_materialized()
+        };
         assert!(
             body.contains(marker),
             "the materialized context for Bob lacks {marker:?}: {body}"
@@ -76,7 +167,11 @@ impl World {
     }
 
     fn bob_lacks(&mut self, marker: &str) {
-        let body = self.bob_materialized();
+        let body = if self.onboarding.ran_session {
+            self.bob_session_context()
+        } else {
+            self.bob_materialized()
+        };
         assert!(
             !body.contains(marker),
             "the materialized context for Bob has {marker:?} and should not: {body}"
@@ -180,6 +275,15 @@ fn team_context(w: &mut World) {
         &format!(".ctxloom/content/bundles/v2/{J000700_BUNDLE}/fragments/guidance.md"),
         &format!("{TEAM_MARKER}\n"),
     );
+    // The team's default agent, on claude-code with the team's profile: what
+    // `ctxloom run` starts for Bob.
+    w.common.run_lines(
+        &format!(
+            "ctxloom agent create default --engine claude-code --profiles {J000700_PROFILE}\nctxloom agent default default"
+        ),
+        "",
+    );
+    w.ran().succeeds();
     // A later `deps pull` populates a git cache under .ctxloom/cache/: kept
     // out of the team's history.
     let ignore = w.common.project.read(".gitignore").unwrap_or_default();
@@ -226,6 +330,43 @@ fn starts(w: &mut World) {
     ]);
 }
 
+#[when("Bob fetches the context the project draws on:")]
+fn fetches_typed(w: &mut World, step: &Step) {
+    w.bob_types(&doc(step));
+    w.onboarding.last.as_ref().expect("ran").succeeds();
+}
+
+#[when("Bob starts a session:")]
+fn starts_typed(w: &mut World, step: &Step) {
+    w.bob_types(&doc(step));
+}
+
+#[when(regex = r"^Bob starts a session on (\S+):$")]
+fn starts_on_typed(w: &mut World, engine: String, step: &Step) {
+    w.bob_types(&doc(step));
+    w.onboarding.session_on = Some((engine, String::new()));
+}
+
+#[then(
+    regex = r"^Bob (is warned|is not warned) that the reprise-dependent guidance was left out because reprise is not on his machine$"
+)]
+fn bob_warned(w: &mut World, told: String) {
+    let ran = w.onboarding.last.as_ref().expect("Bob ran a command");
+    let said = ran.said();
+    // The notice, as a run off a terminal says it (a json line) or on one.
+    let code = "library-application-companion-not-on-path";
+    let words = "its program reprise is not on PATH here, so the guidance it brings";
+    if told == "is warned" {
+        assert!(
+            said.contains(code) && said.contains(words) && said.contains("is left out"),
+            "Bob was not warned: {said}"
+        );
+        assert!(said.contains("reprise"), "{said}");
+    } else {
+        assert!(!said.contains(code), "Bob was warned: {said}");
+    }
+}
+
 #[then("his assistant receives the team's standardized context")]
 fn receives_team(w: &mut World) {
     w.bob_has(TEAM_MARKER);
@@ -249,7 +390,7 @@ fn nothing_fails(w: &mut World) {
 
 // ------------------------------------------------ the engine outline
 
-#[when(regex = r"^Bob starts a session on (\S+)$")]
+#[when(regex = r"^Bob starts a session on ([^\s:]+)$")]
 fn starts_on(w: &mut World, engine: String) {
     let target = format!("out-{engine}");
     w.bob_runs(&[
@@ -272,6 +413,18 @@ fn receives_native(w: &mut World, engine: String) {
         .session_on
         .clone()
         .expect("Bob started a session on an engine");
+    if w.onboarding.ran_session {
+        assert_eq!(
+            engine, "claude-code",
+            "a session on {engine} is not built here"
+        );
+        let body = w.bob_session_context();
+        assert!(
+            body.contains(TEAM_MARKER),
+            "{engine}'s session home context lacks the team's marker: {body}"
+        );
+        return;
+    }
     let file = match engine.as_str() {
         "claude-code" => "CLAUDE.md",
         "mock" => "MOCK_CONTEXT.md",
@@ -378,19 +531,20 @@ fn companion_presence(w: &mut World, name: String, presence: String) {
             .clone()
             .unwrap_or_else(|| panic!("no loadout was given for the {name:?} companion"));
         let stub = Stub::install(&scratch.join("companions"), &name, &loadout);
+        w.common.project.put_on_path(stub.bin());
+        w.onboarding.companion_bin = Some(stub.bin().to_path_buf());
         let args = stub.add_args(&name);
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
         let ran = w.common.project.run_with(&[], &args);
         ran.succeeds();
         return;
     }
-    let gone = scratch.join("not-installed").join(&name);
     let held = w
         .common
         .project
         .read_home(".ctxloom/config.yaml")
         .unwrap_or_else(|| "schema_version: 9\n".to_string());
-    let entry = format!("  {name}:\n    command: [{}]\n", gone.display());
+    let entry = format!("  {name}: {{}}\n");
     let config = if held.contains("\ncompanions:\n") {
         held.replacen("\ncompanions:\n", &format!("\ncompanions:\n{entry}"), 1)
     } else {
@@ -469,6 +623,7 @@ fn alice_companions(w: &mut World) {
     ];
     for (name, loadout) in loadouts {
         let stub = Stub::install(&scratch.join("companions"), name, &loadout);
+        w.common.project.put_on_path(stub.bin());
         let args = stub.add_args(name);
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
         w.common.project.run_with(&[], &args).succeeds();

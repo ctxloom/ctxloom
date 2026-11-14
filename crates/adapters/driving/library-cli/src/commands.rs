@@ -603,27 +603,17 @@ fn mcp() -> Command {
 fn companion() -> Command {
     noun("companion", "List the companion programs ctxloom runs")
         .subcommand(list(
-            "List registered companions, their commands and whether each program exists",
+            "List registered companions, the program each name stands for, whether it is on PATH and whether it is enabled",
         ))
         .subcommand(
             Command::new("add")
-                .about("Register a companion with the command that runs it, after checking it answers")
-                .arg(one("name", "The companion's name").allow_hyphen_values(true))
-                .trailing_var_arg(true)
+                .about("Register a companion by name, after checking its program on PATH answers")
                 .arg(
-                    Arg::new("command")
-                        .long("command")
-                        .value_name("PROGRAM")
-                        .required(true)
-                        .allow_hyphen_values(true)
-                        .help("The program that runs the companion; asked `loadout --format yaml` once before it is recorded"),
-                )
-                .arg(
-                    Arg::new("args")
-                        .value_name("ARGS")
-                        .num_args(0..)
-                        .allow_hyphen_values(true)
-                        .help("The program's arguments, after it; everything from the first is taken as one (put --format before them)"),
+                    one(
+                        "name",
+                        "The companion's name (ltk, taskloom, reprise; any other name n runs ctxloom-companion-n)",
+                    )
+                    .allow_hyphen_values(true),
                 ),
         )
         .subcommand(
@@ -632,6 +622,16 @@ fn companion() -> Command {
                 .about("Unregister a companion")
                 .arg(one("name", "The companion's name"))
                 .arg(yes()),
+        )
+        .subcommand(
+            Command::new("enable")
+                .about("Let a registered companion contribute again")
+                .arg(one("name", "The companion's name")),
+        )
+        .subcommand(
+            Command::new("disable")
+                .about("Keep a companion registered, contributing nothing until it is enabled")
+                .arg(one("name", "The companion's name")),
         )
 }
 

@@ -4,8 +4,6 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use process_env::EnvSnapshot;
-
 use file_system::{Fs, Rooted};
 
 use super::*;
@@ -27,30 +25,52 @@ pub(crate) fn runs_scripts() -> bool {
     false
 }
 
-fn env() -> Arc<EnvSnapshot> {
-    Arc::new(EnvSnapshot::of([
-        ("PATH", "/usr/bin:/bin"),
-        ("MARK", "seen"),
-    ]))
+/// The host's own filesystem, where a test's programs are.
+fn host_fs() -> Arc<dyn Fs> {
+    let host = os::host();
+    let top = std::path::Path::new(host.flavor().top()).to_path_buf();
+    Arc::new(file_system::Os::new(host, &top).unwrap())
 }
 
-/// A `ctxloom-companion-x` that runs `body`, in a directory of its own.
-fn script(body: &str) -> (Rooted, String) {
-    let dir = Rooted::temp().unwrap();
-    let program =
-        fixture_program::install_program(&dir, &os::fixture("/ctxloom-companion-x"), body).unwrap();
-    (dir, program.to_str().unwrap().to_string())
+fn probe_for(limit: Duration) -> ProcessProbe {
+    ProcessProbe::new(limit, host_fs(), os::host().flavor())
 }
+
+fn probe() -> ProcessProbe {
+    probe_for(STANDARD_LIMIT)
+}
+
+/// A program `ctxloom-companion-x` that runs `body`, in a `bin` directory of
+/// its own, and the site whose `PATH` is that directory (and the system's).
+fn script(body: &str) -> (Rooted, ProbeSite) {
+    let dir = Rooted::temp().unwrap();
+    dir.create_dir_all(&os::fixture("/bin"), os::Mode::DIR)
+        .unwrap();
+    let program =
+        fixture_program::install_program(&dir, &os::fixture("/bin/ctxloom-companion-x"), body)
+            .unwrap();
+    let bin = program.parent().unwrap().to_str().unwrap().to_string();
+    let site = ProbeSite {
+        env: vec![
+            ("PATH".to_string(), format!("{bin}:/usr/bin:/bin")),
+            ("MARK".to_string(), "seen".to_string()),
+        ],
+        cwd: dir.root().to_str().unwrap().to_string(),
+    };
+    (dir, site)
+}
+
+const X: &str = "ctxloom-companion-x";
 
 #[test]
-fn test_a_program_that_prints_a_loadout_answers() {
+fn test_a_program_that_prints_a_loadout_is_loaded() {
     if !runs_scripts() {
         return;
     }
-    let (_dir, path) = script("#!/bin/sh\nprintf 'run:\\n  version: 1.0.0\\n'\n");
+    let (_dir, site) = script("#!/bin/sh\nprintf 'run:\\n  version: 1.0.0\\n'\n");
     assert_eq!(
-        ProcessProbe::standard(env()).answers(std::slice::from_ref(&path)),
-        Ok(())
+        probe().loadout(X, &site),
+        CompanionLoadout::Loaded("run:\n  version: 1.0.0\n".to_string())
     );
 }
 
@@ -59,14 +79,69 @@ fn test_the_probe_is_loadout_format_yaml() {
     if !runs_scripts() {
         return;
     }
-    let (dir, path) = script("#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/args\"\necho x\n");
-    ProcessProbe::standard(env())
-        .answers(std::slice::from_ref(&path))
-        .unwrap();
+    let (dir, site) = script("#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/args\"\necho x\n");
+    probe().loadout(X, &site);
     assert_eq!(
-        dir.read_to_string(&os::fixture("/args")).unwrap(),
+        dir.read_to_string(&os::fixture("/bin/args")).unwrap(),
         "loadout --format yaml\n"
     );
+}
+
+// OD-10: a companion is found by name on the site's PATH, every time; a
+// program of the same name earlier on that PATH is the one that runs.
+#[test]
+fn test_the_program_is_found_on_the_sites_path_and_the_earlier_one_runs() {
+    if !runs_scripts() {
+        return;
+    }
+    let (dir, site) = script("#!/bin/sh\necho later\n");
+    dir.create_dir_all(&os::fixture("/early"), os::Mode::DIR)
+        .unwrap();
+    let early = fixture_program::install_program(
+        &dir,
+        &os::fixture("/early/ctxloom-companion-x"),
+        "#!/bin/sh\necho early\n",
+    )
+    .unwrap();
+    let early_dir = early.parent().unwrap().to_str().unwrap().to_string();
+    let mut first = site.clone();
+    first.env[0].1 = format!("{early_dir}:{}", site.env[0].1);
+    assert_eq!(
+        probe().find(X, &first),
+        Some(early.to_str().unwrap().to_string())
+    );
+    assert_eq!(
+        probe().loadout(X, &first),
+        CompanionLoadout::Loaded("early\n".to_string())
+    );
+    assert_eq!(
+        probe().loadout(X, &site),
+        CompanionLoadout::Loaded("later\n".to_string())
+    );
+}
+
+// OD-10: a registration names a program, never a path.
+#[test]
+fn test_a_path_is_no_program_name_and_is_not_found() {
+    if !runs_scripts() {
+        return;
+    }
+    let (_dir, site) = script("#!/bin/sh\necho x\n");
+    let bin = site.env[0].1.split(':').next().unwrap().to_string();
+    let path = format!("{bin}/{X}");
+    assert_eq!(probe().find(&path, &site), None);
+    assert_eq!(probe().loadout(&path, &site), CompanionLoadout::Absent);
+    assert_eq!(probe().find("", &site), None);
+}
+
+#[test]
+fn test_a_program_not_on_the_sites_path_is_absent_and_never_run() {
+    let site = ProbeSite {
+        env: vec![("PATH".to_string(), "/no/such/dir".to_string())],
+        cwd: String::new(),
+    };
+    assert_eq!(probe().find(X, &site), None);
+    assert_eq!(probe().loadout(X, &site), CompanionLoadout::Absent);
 }
 
 #[test]
@@ -74,48 +149,26 @@ fn test_a_program_that_prints_nothing_is_silent() {
     if !runs_scripts() {
         return;
     }
-    let (_dir, path) = script("#!/bin/sh\nexit 0\n");
+    let (_dir, site) = script("#!/bin/sh\nexit 0\n");
+    assert_eq!(probe().loadout(X, &site), CompanionLoadout::Silent);
+    let (_dir, site) = script("#!/bin/sh\necho\n");
     assert_eq!(
-        ProcessProbe::standard(env()).answers(std::slice::from_ref(&path)),
-        Err(Unanswered::Silent)
-    );
-    let (_dir, path) = script("#!/bin/sh\necho\n");
-    assert!(
-        ProcessProbe::standard(env())
-            .answers(std::slice::from_ref(&path))
-            .is_ok(),
+        probe().loadout(X, &site),
+        CompanionLoadout::Loaded("\n".to_string()),
         "a blank line is output"
     );
 }
 
 #[test]
-fn test_a_program_that_fails_is_said_to_have_failed() {
+fn test_a_program_that_exits_with_a_status_offers_no_loadout() {
     if !runs_scripts() {
         return;
     }
-    let (_dir, path) = script("#!/bin/sh\necho something\nexit 3\n");
-    let Err(Unanswered::Exited(detail)) =
-        ProcessProbe::standard(env()).answers(std::slice::from_ref(&path))
-    else {
-        panic!("should fail");
+    let (_dir, site) = script("#!/bin/sh\necho something\nexit 3\n");
+    let CompanionLoadout::NoLoadout(detail) = probe().loadout(X, &site) else {
+        panic!("should offer none");
     };
     assert!(detail.contains("exit status: 3"), "{detail}");
-}
-
-#[test]
-fn test_a_program_that_cannot_be_run_has_failed() {
-    let missing = os::fixture("/no/such/program");
-    let Err(Unanswered::Missing(detail)) =
-        ProcessProbe::standard(env()).answers(&[missing.to_str().unwrap().to_string()])
-    else {
-        panic!("should fail");
-    };
-    // The system's own words for a program that is not there.
-    let words = std::process::Command::new(&missing)
-        .spawn()
-        .expect_err("no such program")
-        .to_string();
-    assert!(detail.contains(&words), "{detail}");
 }
 
 #[test]
@@ -123,10 +176,11 @@ fn test_a_program_that_takes_too_long_is_killed_at_the_limit() {
     if !runs_scripts() {
         return;
     }
-    let (dir, path) = script("#!/bin/sh\nsleep 20\n");
+    let (dir, site) = script("#!/bin/sh\nsleep 20\n");
     let started = Instant::now();
-    let probe = ProcessProbe::new(Duration::from_millis(200), env());
-    let Err(Unanswered::Failed(detail)) = probe.answers(std::slice::from_ref(&path)) else {
+    let CompanionLoadout::ProbeFailed(detail) =
+        probe_for(Duration::from_millis(200)).loadout(X, &site)
+    else {
         panic!("should fail");
     };
     assert!(detail.contains("did not answer within"), "{detail}");
@@ -142,24 +196,11 @@ fn test_a_program_with_a_great_deal_to_say_does_not_hang_the_probe() {
     if !runs_scripts() {
         return;
     }
-    let (_dir, path) = script("#!/bin/sh\nyes | head -c 5000000\n");
-    assert_eq!(
-        ProcessProbe::standard(env()).answers(std::slice::from_ref(&path)),
-        Ok(())
-    );
-}
-
-// `container tooling` reads the loadout a companion prints, not only whether
-// it answers (Go: `companions.Verify` and the loadout read, release/0.7).
-#[test]
-fn the_loadout_text_is_what_the_companion_prints() {
-    if !runs_scripts() {
-        return;
-    }
-    let (_dir, path) = script("#!/bin/sh\nprintf 'init:\\n  tooling: x\\n'\n");
-    let probe = ProcessProbe::standard(env());
-    let text = probe.loadout(std::slice::from_ref(&path));
-    assert_eq!(text, Ok("init:\n  tooling: x\n".to_string()));
+    let (_dir, site) = script("#!/bin/sh\nyes | head -c 5000000\n");
+    assert!(matches!(
+        probe().loadout(X, &site),
+        CompanionLoadout::Loaded(_)
+    ));
 }
 
 #[test]
@@ -169,20 +210,23 @@ fn test_a_helper_the_program_started_is_killed_with_it() {
     }
     // The helper holds the program's pipe, as a real one would; the limit is
     // long enough for the script to have started it.
-    let (dir, path) =
+    let (dir, site) =
         script("#!/bin/sh\nsleep 30 &\necho $! > \"$(dirname \"$0\")/helper\"\nwait\n");
     // A loaded machine may not have started the helper by the first limit:
     // ask again with a longer one until it has.
     let started = Instant::now();
     for secs in [1, 5, 25] {
-        let probe = ProcessProbe::new(Duration::from_secs(secs), env());
-        assert!(probe.answers(std::slice::from_ref(&path)).is_err());
-        if dir.exists(&os::fixture("/helper")).unwrap() {
+        let asked = probe_for(Duration::from_secs(secs)).loadout(X, &site);
+        assert!(
+            matches!(asked, CompanionLoadout::ProbeFailed(_)),
+            "{asked:?}"
+        );
+        if dir.exists(&os::fixture("/bin/helper")).unwrap() {
             break;
         }
     }
     assert!(started.elapsed() < Duration::from_secs(40));
-    let pid = dir.read_to_string(&os::fixture("/helper")).unwrap();
+    let pid = dir.read_to_string(&os::fixture("/bin/helper")).unwrap();
     assert!(
         gone_soon(pid.trim()),
         "the helper {pid} outlived the program"
@@ -222,7 +266,7 @@ struct Release<'a>(&'a Rooted);
 impl Drop for Release<'_> {
     fn drop(&mut self) {
         let _ = self.0.write_atomic(
-            &os::fixture("/release"),
+            &os::fixture("/bin/release"),
             b"",
             file_system::Perms::Exact(os::Mode::FILE),
         );
@@ -234,17 +278,16 @@ fn test_a_helper_that_outlives_the_program_does_not_hold_the_probe() {
     if !runs_scripts() {
         return;
     }
-    let (dir, path) = script(&format!("#!/bin/sh\n{HELD}printf 'a:\\n  b: 1\\n'\n"));
+    let (dir, site) = script(&format!("#!/bin/sh\n{HELD}printf 'a:\\n  b: 1\\n'\n"));
     let release = Release(&dir);
-    let probe =
-        ProcessProbe::new(Duration::from_secs(30), env()).drain_grace(Duration::from_millis(50));
+    let probe = probe_for(Duration::from_secs(30)).drain_grace(Duration::from_millis(50));
     let started = Instant::now();
     assert_eq!(
-        probe.loadout(std::slice::from_ref(&path)),
-        Ok("a:\n  b: 1\n".to_string())
+        probe.loadout(X, &site),
+        CompanionLoadout::Loaded("a:\n  b: 1\n".to_string())
     );
     assert!(started.elapsed() < Duration::from_secs(4));
-    let pid = dir.read_to_string(&os::fixture("/helper")).unwrap();
+    let pid = dir.read_to_string(&os::fixture("/bin/helper")).unwrap();
     assert!(
         !run_within::process_gone(pid.trim()),
         "the helper held the pipes"
@@ -253,15 +296,41 @@ fn test_a_helper_that_outlives_the_program_does_not_hold_the_probe() {
     assert!(gone_soon(pid.trim()), "the helper {pid} outlived the test");
 }
 
+// D1: the program runs in exactly the site's environment, given with the
+// call: nothing of the probe's own or the test process's.
 #[test]
-fn test_the_program_runs_in_exactly_the_probes_environment() {
+fn test_the_program_runs_in_exactly_the_sites_environment() {
     if !runs_scripts() {
         return;
     }
-    let (_dir, path) = script("#!/bin/sh\necho \"${MARK-unset} ${OTHER-unset}\"\n");
-    let probe = ProcessProbe::standard(env());
+    let (_dir, site) = script("#!/bin/sh\necho \"${MARK-unset} ${OTHER-unset}\"\n");
     assert_eq!(
-        probe.loadout(std::slice::from_ref(&path)),
-        Ok("seen unset\n".to_string())
+        probe().loadout(X, &site),
+        CompanionLoadout::Loaded("seen unset\n".to_string())
+    );
+    let mut other = site.clone();
+    other.env[1].1 = "changed".to_string();
+    assert_eq!(
+        probe().loadout(X, &other),
+        CompanionLoadout::Loaded("changed unset\n".to_string()),
+        "each call's own environment"
+    );
+}
+
+// D1 and the verified gap: the program runs in the site's directory, the
+// caller's project root, not the probing process's.
+#[test]
+fn test_the_program_runs_in_the_sites_directory() {
+    if !runs_scripts() {
+        return;
+    }
+    let (dir, mut site) = script("#!/bin/sh\npwd -P\n");
+    dir.create_dir_all(&os::fixture("/project"), os::Mode::DIR)
+        .unwrap();
+    let project = dir.real_path(&os::fixture("/project")).unwrap();
+    site.cwd = project.to_str().unwrap().to_string();
+    assert_eq!(
+        probe().loadout(X, &site),
+        CompanionLoadout::Loaded(format!("{}\n", project.display()))
     );
 }

@@ -330,7 +330,8 @@ fn test_a_config_of_another_generation_is_refused() {
 
 // cli/config.feature, configload/merge.go: layering is home < project, an
 // agent binding replaces the home's of the same name wholesale, companions
-// merge by name, a scalar of the project wins.
+// merge by name (a name's state the project's where both say one), a scalar
+// of the project wins.
 #[test]
 fn test_layers_merge_home_under_project() {
     let project = Project::from_fixture("cfg/layers9");
@@ -356,13 +357,13 @@ fn test_layers_merge_home_under_project() {
         contains_value(&doc, "document.agents.home.profiles", "h"),
         "{doc}"
     );
-    // Names union; a name's command is the project's where both register it.
+    // Names union; a name's state is the project's where both say one.
     assert_eq!(
         doc["document"]["companions"],
         serde_json::json!({
-            "acme": {"command": ["acme-bin"]},
-            "beta": {"command": ["other-beta"]},
-            "gamma": {"command": ["gamma-bin"]},
+            "acme": {},
+            "beta": {"state": "enabled"},
+            "gamma": {},
         })
     );
 }
@@ -432,22 +433,21 @@ fn test_without_a_project_the_home_config_is_the_whole_configuration() {
     );
 }
 
-// virtuous-word (owner ruling 2026-11-06): schema 9 registers a companion with
-// the command that runs it. A bare-name list, as Go and schema 8 wrote it, is
-// refused with what to do; nothing is migrated.
+// OD-10 (owner, 2026-11-13): a companion is registered by name. Go's
+// bare-name list (schema 7 or 8) is read as the names it registers, each
+// enabled; the file is not rewritten.
 #[test]
-fn test_a_bare_name_companions_list_is_refused_telling_how_to_register_again() {
+fn test_a_bare_name_companions_list_is_read_as_the_names_it_registers() {
     for generation in [7, 8] {
         let project = Project::initialized();
         project.write(
             ".ctxloom/config.yaml",
             &format!("schema_version: {generation}\ncompanions: [acme, ltk]\n"),
         );
-        let ran = project.run(&["config", "show", "editor", "--format", "text"]);
-        assert_eq!(ran.code, 20, "{}", ran.said());
-        ran.contains("companions acme, ltk are registered by name alone")
-            .contains("ctxloom companion add <name> --command <program>");
-        assert!(ran.stdout.is_empty(), "no answer is given: {}", ran.stdout);
+        let ran = project.run(&["companion", "list", "--format", "json"]);
+        let doc = ran.succeeds().json();
+        assert!(reports_as(&doc, "companions.0.name").ends_with("/companions/acme"));
+        assert_eq!(reports_as(&doc, "companions.1.bin"), "ltk");
         let kept = files::read(project.dir().join(".ctxloom/config.yaml")).unwrap();
         assert!(kept.contains("companions: [acme, ltk]"), "not rewritten");
     }
@@ -462,16 +462,29 @@ fn test_a_bare_name_companions_list_is_refused_telling_how_to_register_again() {
         .succeeds();
 }
 
-// config show on the registration: the text form is the YAML Go prints, now a
-// map of name to command.
+// A command in a registration is an unknown key (OD-10, a hard migrate).
 #[test]
-fn test_config_show_prints_the_registration_as_a_map_of_commands() {
+fn test_a_registration_holding_a_command_is_refused_as_an_unknown_key() {
+    let project = Project::initialized();
+    project.write_home(
+        ".ctxloom/config.yaml",
+        "schema_version: 9\ncompanions:\n  acme:\n    command: [acme-bin]\n",
+    );
+    let ran = project.run(&["companion", "list", "--format", "text"]);
+    assert_eq!(ran.code, 20, "{}", ran.said());
+    ran.contains("unknown key `companions.acme.command`");
+}
+
+// config show on the registration: the text form is the YAML Go prints, a
+// map of name to its state.
+#[test]
+fn test_config_show_prints_the_registration_as_a_map_of_names() {
     let project = Project::from_fixture("cfg/layers9");
     let ran = project.run(&["config", "show", "companions", "--format", "text"]);
     ran.succeeds();
-    ran.contains("acme:\n  command:\n    - acme-bin\n")
-        .contains("beta:\n  command:\n    - other-beta\n")
-        .contains("gamma:\n  command:\n    - gamma-bin\n");
+    ran.contains("acme: {}\n")
+        .contains("beta:\n  state: enabled\n")
+        .contains("gamma: {}\n");
 }
 
 // OD-40 (OQ-3): outside a project a json answer is named under the home,

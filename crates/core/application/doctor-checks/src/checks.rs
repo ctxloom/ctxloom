@@ -488,6 +488,53 @@ pub fn stale_distilled(stale: &[String]) -> Check {
     )
 }
 
+/// `COMPANIONS-m4`: each enabled registered companion asked for its loadout,
+/// through the one probe a session's assembly uses (OD-8): the ones that
+/// answered, and why each other one gives nothing. Only a registered name is
+/// ever run (companion.feature).
+pub fn companions(
+    asked: &library_application::Outcome<Vec<library_application::CompanionInit>>,
+) -> Check {
+    const M: &str = "DOCTOR-CHECK-COMPANIONS-m4";
+    const N: &str = "registered companions";
+    let answered: Vec<&str> = asked
+        .result
+        .as_ref()
+        .map(|inits| inits.iter().map(|c| c.name.as_str()).collect())
+        .unwrap_or_default();
+    let failing: Vec<String> = asked
+        .notices
+        .iter()
+        .filter_map(|notice| match notice {
+            library_application::Notice::CompanionNotOnPath { name, program } => {
+                Some(format!("{name}: its program {program} is not on PATH"))
+            }
+            library_application::Notice::LoadoutProbeFailed { name, detail } => {
+                Some(format!("{name}: its loadout probe failed ({detail})"))
+            }
+            library_application::Notice::LoadoutUnparseable { name, .. } => {
+                Some(format!("{name}: its loadout does not parse"))
+            }
+            _ => None,
+        })
+        .collect();
+    if failing.is_empty() {
+        let detail = if answered.is_empty() {
+            "no enabled companion gives a loadout".to_string()
+        } else {
+            format!("answering: {}", answered.join(", "))
+        };
+        return row(M, N, Status::Ok, &detail, "");
+    }
+    row(
+        M,
+        N,
+        Status::Warn,
+        &failing.join("; "),
+        "install the companion's program, or turn it off: `ctxloom companion disable <name>`",
+    )
+}
+
 /// `FOREIGN-WORKTREES-s9` (j001300): the project's worktrees ctxloom did not
 /// create, each named with the states git measured and the exact commands
 /// that remove it, which only she runs: ctxloom removes no worktree it did

@@ -114,10 +114,8 @@ write_errors! {
     RootNeedsEngine { name } = "write-root-needs-engine";
     /// A name that is no companion's.
     CompanionName { name } = "write-companion-name";
-    /// A companion whose program does not exist.
+    /// A companion whose program is not on the `PATH`.
     CompanionProgramMissing { program, name } = "write-companion-program-missing";
-    /// A companion registered with no command.
-    CompanionNoCommand { name } = "write-companion-no-command";
     /// A command that does not answer the probe.
     NotACompanion { command, detail } = "write-not-a-companion";
     /// A command that prints no loadout.

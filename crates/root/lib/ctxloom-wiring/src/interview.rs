@@ -15,7 +15,9 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use deps_application::Deps;
-use init_application::{Ended, LaunchFailure, PromptFailure, Prompts, Sessions, Terminal};
+use init_application::{
+    Added, Companions, Ended, LaunchFailure, NotAdded, PromptFailure, Prompts, Sessions, Terminal,
+};
 use library_application::{Flags, RunRequest};
 use process_env::EnvSnapshot;
 use run_application::{OneShot, RunService};
@@ -175,6 +177,62 @@ impl Prompts for SetupSessions<'_> {
                 exit: e.exit(),
                 cause: Box::new(e),
             })
+    }
+
+    /// Each enabled registered companion's setup guidance, asked through
+    /// the library's one probe at the caller's site (OD-8, D1), from a
+    /// library built when it is asked (so a first init's sees the new
+    /// project and the companions it just registered).
+    fn companion_guidance(&self) -> Vec<String> {
+        let Ok(library) = self.library() else {
+            return Vec::new();
+        };
+        library
+            .companion_inits(self.flags)
+            .result
+            .unwrap_or_default()
+            .into_iter()
+            .map(|c| c.init.setup_guidance)
+            .filter(|g| !g.is_empty())
+            .collect()
+    }
+}
+
+impl SetupSessions<'_> {
+    /// The library over the project as it is now; none where it cannot be
+    /// wired (the command that needs it says why itself).
+    fn library(&self) -> Result<library_application::Library, crate::LibError> {
+        let wiring = Wiring::new(Arc::clone(self.env))?;
+        crate::library::build(&wiring, None)
+    }
+}
+
+/// A first init's companions (M4), registered as `companion add` registers
+/// them, through a library built when it is asked: the new project's.
+impl Companions for SetupSessions<'_> {
+    fn shipped_available(&self) -> Vec<String> {
+        let Ok(library) = self.library() else {
+            return Vec::new();
+        };
+        library::companion::SHIPPED
+            .iter()
+            .filter(|name| library.companion_available(self.flags, name))
+            .map(ToString::to_string)
+            .collect()
+    }
+
+    fn add(&self, name: &str) -> Result<Added, NotAdded> {
+        let library = self.library().map_err(|e| NotAdded::Failed(Box::new(e)))?;
+        if !library.companion_available(self.flags, name) {
+            return Err(NotAdded::Missing {
+                program: library::companion::program(name),
+            });
+        }
+        match library.companion_add(self.flags, name).result {
+            Ok(done) if done.added => Ok(Added::New),
+            Ok(_) => Ok(Added::Already),
+            Err(e) => Err(NotAdded::Failed(Box::new(e))),
+        }
     }
 }
 

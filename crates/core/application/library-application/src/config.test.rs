@@ -403,34 +403,38 @@ mod loading {
     }
 }
 
-// generation 9: a companion is registered with the command that runs it.
+// generation 9: a companion is registered by name, with its state (OD-9,
+// OD-10); a generation 8 list is migrated, each name enabled.
 #[test]
-fn test_companions_are_read_by_name_with_their_commands() {
-    let c = config(
-        "companions:\n  zed:\n    command: [zed-bin]\n  acme:\n    command: [acme-bin, --as, acme]\n  bare: {}\n",
-    );
-    let all: Vec<(String, Vec<String>)> = c
+fn test_companions_are_read_by_name_with_their_states() {
+    use library::companion::State;
+    let c = config("companions:\n  zed: {state: disabled}\n  acme: {state: enabled}\n  bare: {}\n");
+    let all: Vec<(String, State, String)> = c
         .companions()
         .into_iter()
-        .map(|r| (r.name, r.command))
+        .map(|r| (r.program(), r.state, r.name))
         .collect();
     assert_eq!(
         all,
         [
             (
-                "acme".to_string(),
-                vec![
-                    "acme-bin".to_string(),
-                    "--as".to_string(),
-                    "acme".to_string()
-                ]
+                "ctxloom-companion-acme".to_string(),
+                State::Enabled,
+                "acme".to_string()
             ),
-            ("bare".to_string(), Vec::new()),
-            ("zed".to_string(), vec!["zed-bin".to_string()]),
+            (
+                "ctxloom-companion-bare".to_string(),
+                State::Enabled,
+                "bare".to_string()
+            ),
+            (
+                "ctxloom-companion-zed".to_string(),
+                State::Disabled,
+                "zed".to_string()
+            ),
         ]
     );
     assert!(config("editor:\n  command: vim\n").companions().is_empty());
-    assert!(config("companions: [acme]\n").companions().is_empty());
 }
 
 // Ruling 67, 139: each engine block is one line in flow form, and says

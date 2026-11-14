@@ -305,11 +305,23 @@ pub struct AgentRemoved {
 #[derive(Clone, Debug, Serialize)]
 pub struct CompanionAdded {
     pub name: String,
-    /// The program, then its arguments, as registered.
-    pub command: Vec<String>,
-    /// Whether the registration is new or changed a command; false when it
-    /// was already registered exactly so.
+    /// The program its name stands for, which answered the probe.
+    pub program: String,
+    /// Whether the registration is new; false when it was registered
+    /// already (and is left as it was, its state too).
     pub added: bool,
+}
+
+/// `companion enable|disable` (OD-9).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CompanionStateSet {
+    pub name: String,
+    /// The program its name stands for.
+    pub program: String,
+    /// The state it is in now.
+    pub state: library::companion::State,
+    /// Whether the state changed; false when it was so already.
+    pub changed: bool,
 }
 
 /// `companion remove --yes`.

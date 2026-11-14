@@ -120,7 +120,6 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Then the command succeeds
       And the output contains "held"
 
-  @pending
   Rule: Pull installs exactly what is pinned, and never overstates what happened
 
     `deps pull` records the pin straight into the active lock. It is also

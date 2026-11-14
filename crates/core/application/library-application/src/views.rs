@@ -462,10 +462,14 @@ pub struct AgentShow {
 #[derive(Clone, Debug, Serialize)]
 pub struct CompanionRow {
     pub name: String,
-    /// The program, then its arguments.
-    pub command: Vec<String>,
-    /// Whether the program is there; it is not run to find out.
+    /// The program its name stands for (OD-10).
+    pub program: String,
+    /// Whether the program is on the `PATH` where it is asked; it is not run
+    /// to find out.
     pub exists: bool,
+    /// Whether it contributes (OD-9).
+    #[serde(skip)]
+    pub state: crate::CompanionState,
 }
 
 /// A registered MCP server.

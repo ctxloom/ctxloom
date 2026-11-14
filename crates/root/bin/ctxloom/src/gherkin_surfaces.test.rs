@@ -137,6 +137,74 @@ fn remote_advances(w: &mut World, name: String) {
         .advances(&name);
 }
 
+/// Go's `the profile "<profile>" draws on a bundle straight from an
+/// unregistered git repository`.
+#[given(
+    expr = "the profile {string} draws on a bundle straight from an unregistered git repository"
+)]
+fn profile_unregistered(w: &mut World, profile: String) {
+    w.remotes
+        .get_or_insert_with(super::deps::Remotes::new)
+        .profile_from_unregistered(&w.common.project, &profile);
+}
+
+/// Go's `a git remote "<name>" serving a bundle "<bundle>" whose profile
+/// "<profile>" draws on bundle "<target>" of the remote "<other>"`.
+#[given(
+    expr = "a git remote {string} serving a bundle {string} whose profile {string} draws on bundle {string} of the remote {string}"
+)]
+fn git_remote_reaching(
+    w: &mut World,
+    name: String,
+    bundle: String,
+    profile: String,
+    target: String,
+    other: String,
+) {
+    let env: Vec<(&str, &str)> = w
+        .common
+        .env
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+    w.remotes
+        .as_mut()
+        .expect("a git remote was seeded")
+        .git_remote_reaching(
+            &w.common.project,
+            &env,
+            &name,
+            (&bundle, &profile),
+            (&target, &other),
+        );
+}
+
+/// Go's `the remote "<name>" changes fragment "<fragment>" to "<content>"`.
+#[given(expr = "the remote {string} changes fragment {string} to {string}")]
+fn remote_changes_fragment(w: &mut World, name: String, fragment: String, content: String) {
+    w.remotes
+        .as_mut()
+        .expect("a git remote was seeded")
+        .changes_fragment(&name, &fragment, &content);
+}
+
+/// No object of the array at `path` has `key` as `value`'s text; an array
+/// proto3 JSON leaves out (it is empty) holds none.
+#[then(expr = "the JSON output array {string} contains no object whose {string} is {string}")]
+fn array_lacks(w: &mut World, path: String, key: String, value: String) {
+    let doc = w.common.json();
+    let found = super::library::at(&doc, &path)
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .any(|o| match &o[&key] {
+            serde_json::Value::String(s) => *s == value,
+            serde_json::Value::Null => false,
+            other => serde_json::to_string(other).is_ok_and(|text| text == value),
+        });
+    assert!(!found, "an object with {key}={value}: {doc}");
+}
+
 #[given(expr = "the session harp is {string}")]
 fn session_harp(w: &mut World, name: String) {
     w.common

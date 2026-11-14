@@ -1,12 +1,15 @@
+# world: base
 # Ported from cli/companion.feature (rev f36e8dfb2)
-# NOT ported: any of it yet (the Feature is @pending).
+# NOT ported: nothing.
 # OD-40 (aip/configuration, 2026-11-13; OQ-19): the JSON steps read the AIP resources
 #   (library.proto's `ListCompanionsResponse` and `Companion`, design §3.9, §5.7): a list is
 #   `{companions: [...]}`, a companion is named `projects/{project}/companions/<name>`, and
-#   whether its program is there is `resolves`. Still pending (M4).
+#   whether its program is there is `resolves`.
+# M4 (OD-9, OD-10, owner 2026-11-13): a companion is registered by name only, its state the
+#   word `companions.<n>.state: enabled|disabled`; `ctxloom doctor` asks each enabled
+#   registered companion for its loadout.
 
 @doc
-@pending
 Feature: companion — which programs ctxloom runs alongside your session
 
   Covers: `ctxloom companion add`, `companion remove`, `companion list`, and

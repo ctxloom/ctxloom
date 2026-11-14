@@ -45,19 +45,17 @@ fn registered(names: &[&str], register: &[&str]) -> (file_system::Rooted, Regist
             ("PATH".into(), path.into()),
         ],
     ));
-    let wiring = crate::Wiring::new(Arc::clone(&env)).unwrap();
+    let wiring = crate::Wiring::new(env).unwrap();
     let library = Rc::new(crate::library::build(&wiring, None).unwrap());
     for name in register {
-        let program = bin.join(format!("ctxloom-companion-{name}"));
         library
-            .companion_add(&Flags::default(), name, &[program.display().to_string()])
+            .companion_add(&Flags::default(), name)
             .result
             .unwrap();
     }
     let companions = Registered {
         library,
         flags: Flags::default(),
-        env,
     };
     (temp, companions)
 }
@@ -72,6 +70,25 @@ fn a_registered_companion_declares_its_tooling() {
     assert_eq!(tooling.len(), 1);
     assert_eq!(tooling[0].source, "acme");
     assert_eq!(tooling[0].content, "acme-tools");
+}
+
+// OD-9: a disabled companion is not asked, so it declares nothing.
+#[test]
+fn a_disabled_companion_declares_nothing() {
+    if !runs_scripts() {
+        return;
+    }
+    let (_temp, companions) = registered(&["acme"], &["acme"]);
+    companions
+        .library
+        .companion_set_state(
+            &Flags::default(),
+            "acme",
+            library_application::CompanionState::Disabled,
+        )
+        .result
+        .unwrap();
+    assert!(companions.tooling().unwrap().is_empty());
 }
 
 #[test]

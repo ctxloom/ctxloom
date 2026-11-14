@@ -10,9 +10,8 @@ use std::sync::{Arc, Mutex};
 
 use angzarr_diagnostic::{code, Arg, Diagnostic};
 use ctxloom_ports::{
-    Change, CompanionLoadout, CompanionLoadouts, ConfigFiles, ContentRepo, Editor, EditorCommand,
-    Executables, Failure, LayerText, LoadoutProbe, Put, Scaffold, Scope, Source, TreeFiles,
-    Unanswered, UserFiles,
+    Change, CompanionLoadout, CompanionProbe, ConfigFiles, ContentRepo, Editor, EditorCommand,
+    Failure, LayerText, ProbeSite, Put, Scaffold, Scope, Source, TreeFiles, UserFiles,
 };
 
 /// The scope `Mem::config` is asked for.
@@ -51,7 +50,6 @@ struct File {
 }
 
 type Editing = Box<dyn FnMut(&str, &str) -> Result<String, String> + Send>;
-type Probing = Box<dyn FnMut(&[String]) -> Result<(), Unanswered> + Send>;
 
 struct State {
     root: bool,
@@ -68,13 +66,12 @@ struct State {
     /// Every mutating call, in order.
     log: Vec<String>,
     editor: Option<Editing>,
-    probe: Option<Probing>,
-    /// What each companion answers, by registered name; absent unless set.
+    /// What each companion's program answers, by program; one not listed
+    /// is there and offers no loadout.
     companions: BTreeMap<String, CompanionLoadout>,
-    /// The companions asked for their loadout, in order.
-    asked: Vec<String>,
-    /// The commands the add-time probe was run on, in order.
-    probed: Vec<Vec<String>>,
+    /// The programs asked for their loadout, in order, each with the site
+    /// it was asked at.
+    asked: Vec<(String, ProbeSite)>,
     edits: Vec<(String, String)>,
     opened: Vec<String>,
     refuse_apply: Option<String>,
@@ -233,12 +230,16 @@ impl Mem {
         self.lock().editor = Some(Box::new(edit));
     }
 
-    /// The probe's answer for a program path.
-    pub fn set_probe(
-        &self,
-        probe: impl FnMut(&[String]) -> Result<(), Unanswered> + Send + 'static,
-    ) {
-        self.lock().probe = Some(Box::new(probe));
+    /// The companion `name`'s program answers `loadout` from now on.
+    pub fn set_companion_loadout(&self, name: &str, loadout: &str) {
+        self.set_companion(name, CompanionLoadout::Loaded(loadout.to_string()));
+    }
+
+    /// What the companion `name`'s program answers from now on.
+    pub fn set_companion(&self, name: &str, answer: CompanionLoadout) {
+        self.lock()
+            .companions
+            .insert(library::companion::program(name), answer);
     }
 
     /// The (file name, content) pairs the editor was given.
@@ -573,46 +574,34 @@ impl Editor for Mem {
     }
 }
 
-impl LoadoutProbe for Mem {
-    fn answers(&self, command: &[String]) -> Result<(), Unanswered> {
-        let mut state = self.lock();
-        state.probed.push(command.to_vec());
-        match state.probe.as_mut() {
-            Some(probe) => probe(command),
-            None => Ok(()),
+impl Mem {
+    /// The programs asked for their loadout, in the order they were asked.
+    pub fn asked_companions(&self) -> Vec<String> {
+        self.lock().asked.iter().map(|(p, _)| p.clone()).collect()
+    }
+
+    /// The sites the programs were asked at, in order (D1).
+    pub fn probe_sites(&self) -> Vec<ProbeSite> {
+        self.lock().asked.iter().map(|(_, s)| s.clone()).collect()
+    }
+}
+
+impl CompanionProbe for Mem {
+    fn find(&self, program: &str, _site: &ProbeSite) -> Option<String> {
+        match self.lock().companions.get(program) {
+            Some(CompanionLoadout::Absent) => None,
+            _ => Some(format!("/bin/{program}")),
         }
     }
-}
 
-impl Mem {
-    /// The commands `companion add` probed, in order.
-    pub fn probed_commands(&self) -> Vec<Vec<String>> {
-        self.lock().probed.clone()
-    }
-
-    /// The companions asked for their loadout, in the order they were asked.
-    pub fn asked_companions(&self) -> Vec<String> {
-        self.lock().asked.clone()
-    }
-}
-
-impl CompanionLoadouts for Mem {
-    fn loadout(&self, companion: &ctxloom_ports::RegisteredCompanion) -> CompanionLoadout {
+    fn loadout(&self, program: &str, site: &ProbeSite) -> CompanionLoadout {
         let mut state = self.lock();
-        state.asked.push(companion.name.clone());
+        state.asked.push((program.to_string(), site.clone()));
         state
             .companions
-            .get(&companion.name)
+            .get(program)
             .cloned()
-            .unwrap_or(CompanionLoadout::NoLoadout)
-    }
-}
-
-struct Path(BTreeMap<String, String>);
-
-impl Executables for Path {
-    fn find(&self, name: &str) -> Option<String> {
-        self.0.get(name).cloned()
+            .unwrap_or_else(|| CompanionLoadout::NoLoadout("exit status: 1".to_string()))
     }
 }
 
@@ -628,10 +617,10 @@ pub struct Setup<'a> {
     /// (a skill's sidecar says, owner ruling 2026-11-12), so a test can show
     /// it is not read.
     pub executable: &'a [&'a str],
-    pub path: &'a [(&'a str, &'a str)],
     pub environ: &'a [(&'a str, &'a str)],
-    /// The loadout each registered companion answers with; one not listed has no
-    /// loadout (and is not said).
+    /// The loadout each registered companion's program answers with, by the
+    /// companion's name; one not listed is there and has no loadout (and is
+    /// not said).
     pub companions: &'a [(&'a str, CompanionLoadout)],
     /// ctxloom's built-in bundles join the project's catalog, as the
     /// composition root has them (rulings 110, 111).
@@ -653,14 +642,12 @@ impl Setup<'_> {
             scaffold: BTreeMap::new(),
             log: Vec::new(),
             editor: None,
-            probe: None,
             companions: self
                 .companions
                 .iter()
-                .map(|(n, l)| ((*n).to_string(), l.clone()))
+                .map(|(n, l)| (library::companion::program(n), l.clone()))
                 .collect(),
             asked: Vec::new(),
-            probed: Vec::new(),
             edits: Vec::new(),
             opened: Vec::new(),
             refuse_apply: None,
@@ -691,12 +678,6 @@ impl Setup<'_> {
         let library = Library::new(
             mem.clone(),
             mem.clone(),
-            Arc::new(Path(
-                self.path
-                    .iter()
-                    .map(|(n, p)| ((*n).to_string(), (*p).to_string()))
-                    .collect(),
-            )),
             self.environ
                 .iter()
                 .map(|(n, v)| ((*n).to_string(), (*v).to_string()))
@@ -706,7 +687,6 @@ impl Setup<'_> {
             user: mem.clone(),
             scaffold: mem.clone(),
             editor: mem.clone(),
-            probe: mem.clone(),
         })
         .with_companions(mem.clone());
         let library = if self.builtins {

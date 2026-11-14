@@ -1081,7 +1081,7 @@ fn degraded() -> crate::Flags {
 fn test_a_layer_of_the_wrong_shape_reduces_the_config_even_if_a_later_layer_mends_it() {
     let layers = [
         "schema_version: 9\ncompanions: acme\n",
-        "schema_version: 9\ncompanions:\n  beta: {command: [b]}\neditor:\n  command: vim\n",
+        "schema_version: 9\ncompanions:\n  beta: {}\neditor:\n  command: vim\n",
     ];
     let library = with(&[], &layers).library();
     let editor = ok(library.config_show(&degraded(), Some("editor"), false));

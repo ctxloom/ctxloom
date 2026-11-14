@@ -1465,44 +1465,9 @@ fn skill_one_dir(_: &mut World, _s: String, _d: String, _b: String) {
     red("the skill is one directory with its metadata inside")
 }
 
-#[given(expr = "a fragment {string} in bundle {string} with a fresh distilled form")]
-fn fresh_distilled(_: &mut World, _f: String, _b: String) {
-    red("a fragment with a fresh distilled form")
-}
-
 #[then(regex = r#"^only "([^"]+)" of the bundle "([^"]+)" changed$"#)]
 fn only_changed(_: &mut World, _p: String, _b: String) {
     red("only the source file changed")
-}
-
-#[then(regex = r#"^"([^"]+)" says its distilled form is stale$"#)]
-fn says_stale(_: &mut World, _c: String) {
-    red("fragment show says the distilled form is stale")
-}
-
-#[given(expr = "the source of {string} is edited by hand")]
-#[when(expr = "the source of {string} is edited by hand")]
-fn source_edited(_: &mut World, _f: String) {
-    red("the source is edited by hand")
-}
-
-#[then(
-    regex = r#"^the assembled context holds the original text of "([^"]+)", not its distilled form$"#
-)]
-fn serves_original(_: &mut World, _f: String) {
-    red("assembly served the original")
-}
-
-#[given(
-    expr = "a fragment {string} in bundle {string} whose distilled form records no source digest"
-)]
-fn no_digest(_: &mut World, _f: String, _b: String) {
-    red("a distilled form with no digest")
-}
-
-#[then(expr = "the assembled context holds the distilled form of {string}")]
-fn serves_distilled(_: &mut World, _f: String) {
-    red("assembly served the distilled form")
 }
 
 #[then(

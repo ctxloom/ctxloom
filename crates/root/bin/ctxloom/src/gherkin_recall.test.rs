@@ -84,6 +84,14 @@ jq -nc --arg s "$id" '{type:"system",subtype:"init",session_id:$s}'
 jq -nc --arg s "$id" --arg r "$reply" '{type:"result",subtype:"success",is_error:false,result:$r,session_id:$s}'
 "#;
 
+/// The stub model (see the head of this file) as `claude` in `bin`, beside
+/// a `ctxloom` that runs the binary under test, which its hooks call.
+pub(super) fn stub_model(bin: &std::path::Path) {
+    let ctxloom = crate::tests::binary().display().to_string();
+    files::put_program(bin.join("ctxloom"), &format!("exec '{ctxloom}' \"$@\"\n"));
+    files::put_program(bin.join("claude"), MODEL_STUB);
+}
+
 impl World {
     /// The directory of the stub model and what it writes down.
     fn model_dir(&self) -> std::path::PathBuf {
@@ -133,9 +141,7 @@ fn march(w: &mut World) {
     w.common.run_lines("ctxloom init", "");
     w.ran().succeeds();
     let bin = w.model_dir();
-    let ctxloom = crate::tests::binary().display().to_string();
-    files::put_program(bin.join("ctxloom"), &format!("exec '{ctxloom}' \"$@\"\n"));
-    files::put_program(bin.join("claude"), MODEL_STUB);
+    stub_model(&bin);
     w.record_session(HARP, QUESTION, ANSWER);
     w.record_session(NEIGHBOUR, "unrelated chatter", "unrelated reply");
 }

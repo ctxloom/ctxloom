@@ -92,8 +92,19 @@ profile's curation of commands does not remove a companion's.
   carries no skill files (only a tree-form bundle does), so there is nothing
   of a skill to deliver. Go delivers none either.
 
-`--no-companions` delivers none of it. The `init:` section is parsed and not
-yet used.
+`--no-companions` delivers none of it. Of the `init:` section,
+`setup_guidance` is composed into the setup interview `ctxloom init` opens
+with, after ctxloom's own, each enabled companion's as it wrote it, and
+`tooling` is what `container tooling` reads; the rest is parsed and not yet
+used.
+
+### At a first init
+
+On a terminal, a first `ctxloom init` offers each companion ctxloom ships
+(`ltk`, `taskloom`, `reprise`) whose program is on your `PATH`, then asks for
+others by name; each one you accept or name is registered as `companion add`
+registers it, and one whose program is not on your machine is said and
+skipped.
 
 ### When a companion fails
 

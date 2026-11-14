@@ -287,8 +287,8 @@ async fn outside_a_project_its_own_listing_is_refused() {
     assert!(daemons.asked().is_empty());
 }
 
-// Owner ruling 2026-11-13: a read never mints a project id, so a project
-// with none has recorded nothing. Its own listing and search are empty,
+// Owner ruling 2026-11-14: a session read names no project, so it mints no
+// project id, and a project with none has recorded nothing. Its own listing and search are empty,
 // asked of no daemon; every project's listing is still every project's, and
 // what addresses one of its sessions is refused as outside a project.
 #[tokio::test]

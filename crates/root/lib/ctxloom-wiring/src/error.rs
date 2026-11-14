@@ -28,9 +28,10 @@ pub enum LibError {
     /// The user's one daemon serves another ctxloom home than this
     /// command's: one daemon per OS user, never a second.
     DaemonOtherHome { home: String, daemon_home: String },
-    /// A read in a ctxloom project nothing has named yet: only `run` and
-    /// `init` mint a project id (owner ruling 2026-11-13), so a read is
-    /// refused and writes nothing.
+    /// A dry run's names in a ctxloom project nothing has named yet: a dry
+    /// run never mints a project id (owner ruling 2026-11-14), so it is
+    /// refused and writes nothing. (A command that must name its project
+    /// mints the id at its root instead.)
     ProjectUnnamed { root: String },
 }
 

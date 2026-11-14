@@ -514,8 +514,8 @@ fn named_from(project: &Project, dir: &std::path::Path) -> String {
 // OD-40 (OQ-2): inside a project, a json read from a subdirectory names the
 // project of the nearest `.ctxloom` up from it, the one its root names, and
 // writes nothing: no identity of the subdirectory's own. The initialized
-// project carries the id `init` mints (owner ruling 2026-11-13: a read never
-// mints one).
+// project carries the id `init` mints (one with none would get it at its
+// root, owner ruling 2026-11-14).
 #[test]
 fn test_a_json_read_from_a_subdirectory_names_the_nearest_project_and_writes_nothing() {
     let project = Project::initialized();
@@ -532,25 +532,29 @@ fn test_a_json_read_from_a_subdirectory_names_the_nearest_project_and_writes_not
     );
 }
 
-// Owner ruling 2026-11-13 (overruling B2's root write): a first json read
-// from a subdirectory of a project nothing has named mints no id, neither at
-// the root nor in the subdirectory: it is refused, and writes nothing.
+// Owner ruling 2026-11-14 (revising 2026-11-13's): a first json read from a
+// subdirectory of a project nothing has named names the ROOT's project, and
+// writes its id at the root only, never in the subdirectory.
 #[test]
-fn test_a_first_json_read_from_a_subdirectory_is_refused_and_names_nothing() {
+fn test_a_first_json_read_from_a_subdirectory_names_the_roots_project() {
     let project = Project::configured();
     let sub = project.dir().join("src");
     files::mkdirs(&sub);
     let before = project.tree("");
     let ran = project.run_in(&sub, &["config", "show", "--format", "json"]);
-    assert_eq!(ran.code, 20, "{}", ran.said());
-    assert!(
-        ran.stderr.contains("ctxloom-wiring-project-unnamed"),
-        "{}",
-        ran.said()
-    );
+    assert_eq!(ran.code, 0, "{}", ran.said());
+    let name = reports_as(&ran.json(), "name");
+    assert!(name.starts_with("projects/"), "{name}");
     assert!(
         !files::exists(sub.join(".ctxloom")),
         "the subdirectory got an identity"
     );
-    assert_eq!(project.tree(""), before, "a read wrote in the project");
+    let mut after = project.tree("");
+    assert!(
+        after.remove(".ctxloom/project-id").is_some(),
+        "minted at the root"
+    );
+    assert_eq!(after, before, "the read wrote more than the root's id");
+    let from_root = project.run_in(project.dir(), &["config", "show", "--format", "json"]);
+    assert_eq!(reports_as(&from_root.json(), "name"), name);
 }

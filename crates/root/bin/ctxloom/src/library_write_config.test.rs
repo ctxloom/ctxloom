@@ -62,8 +62,8 @@ fn test_create_scaffolds_the_config_the_remotes_registry_and_the_seeded_profile(
         Some(SEED_PROFILE)
     );
     // What it wrote reads: the seeded profile and the default agent resolve.
-    // Read as text: `config create` mints no project id (owner ruling
-    // 2026-11-13: only `run` and `init` do), and a json read names one.
+    // Read as text: `config create` mints no project id, and a text read
+    // names none, so none is minted (owner ruling 2026-11-14).
     project
         .run(&["config", "show", "--format", "text"])
         .succeeds()

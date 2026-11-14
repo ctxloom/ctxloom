@@ -32,8 +32,9 @@ pub struct Client<D> {
     env: v1::EnvVars,
     /// Mints a write's request id (S8), once per call, retry included.
     ids: RequestIds,
-    /// Its directory's project has no identity yet (owner ruling
-    /// 2026-11-13: a read never mints one), so nothing is recorded in it.
+    /// Its directory's project has no identity yet (a session read names no
+    /// project, so it mints none: owner ruling 2026-11-14), so nothing is
+    /// recorded in it.
     unnamed: bool,
 }
 
@@ -119,8 +120,9 @@ impl<D: Daemons> Client<D> {
         }
     }
 
-    /// This client, its directory's project one with no identity yet (owner
-    /// ruling 2026-11-13: only `run` and `init` mint one): nothing can be
+    /// This client, its directory's project one with no identity yet (a
+    /// session read names no project, so it mints none: owner ruling
+    /// 2026-11-14): nothing can be
     /// recorded in it, so its own listing and search are empty, asked of no
     /// daemon; what addresses one of its sessions is refused as outside a
     /// project, and every project's listing is every project's.

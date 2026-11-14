@@ -261,6 +261,16 @@ pub struct Wiring {
     user_home: Option<PathBuf>,
 }
 
+/// Whether a command that names its project may mint the project's id
+/// (owner ruling 2026-11-14): at its resolved root, or never (a dry run's:
+/// "dry run should *not* mint"), so a dry run cannot reach the minting
+/// branch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Minting {
+    AtRoot,
+    Never,
+}
+
 impl Wiring {
     /// The wiring over the environment the process was launched in, read
     /// once by the composition root: its home (CTXLOOM_HOME, the variable a
@@ -451,11 +461,14 @@ impl Wiring {
         }
     }
 
-    /// The project this process is in, its identity READ, never minted
-    /// (owner ruling 2026-11-13: only `run` and `init` mint). None where no
-    /// project is bound and none is there to name (no `.ctxloom` but the
-    /// home's, no `CTXLOOM_ROOT`); refused, `ctxloom-wiring-project-unnamed`,
-    /// where a ctxloom project is there and nothing has named it yet.
+    /// The project this process is in, its identity READ, never minted. None
+    /// where no project is bound and none is there to name (no `.ctxloom` but
+    /// the home's, no `CTXLOOM_ROOT`); `ctxloom-wiring-project-unnamed` where
+    /// a ctxloom project is there and nothing has named it yet, which the
+    /// session clients read as a project where nothing is recorded and a dry
+    /// run's names refuse (a dry run never mints, owner 2026-11-14). A
+    /// command that must name its project mints instead
+    /// ([`Wiring::naming_registration`]).
     pub(crate) fn project(&self) -> Result<Option<ports::Project>, LibError> {
         use ports::ProjectIdentity as _;
         let mut identity = registry(Arc::clone(&self.fs), self.environment(), HarpNames);
@@ -471,8 +484,9 @@ impl Wiring {
     }
 
     /// The project this process is in, its identity minted at its resolved
-    /// root when none is bound yet: `run`'s and `init`'s alone (owner ruling
-    /// 2026-11-13).
+    /// root (the nearest `.ctxloom`'s, never a subfolder) when none is bound
+    /// yet: a run's, a bare `init`'s, and a command's that must name its
+    /// project (owner ruling 2026-11-14).
     pub(crate) fn mint_project(&self) -> Result<ports::Project, LibError> {
         use ports::ProjectIdentity as _;
         registry(Arc::clone(&self.fs), self.environment(), HarpNames)
@@ -498,8 +512,8 @@ impl Wiring {
     /// worktree is its primary checkout's), its root, the repository's
     /// common dir and root commit (worktree-git's, empty outside git), and
     /// its working directory. The project is [`Wiring::project`]'s: read,
-    /// never minted (owner ruling 2026-11-13), so `None` where none is bound
-    /// and there is no ctxloom project, and refused where a ctxloom project
+    /// never minted, so `None` where none is bound and there is no ctxloom
+    /// project, and `ctxloom-wiring-project-unnamed` where a ctxloom project
     /// is there that nothing has named.
     pub(crate) fn registration(
         &self,
@@ -507,18 +521,40 @@ impl Wiring {
         Ok(self.project()?.map(|project| self.registering(project)))
     }
 
-    /// What a library read registers, to name its resources (OD-40): the
-    /// project [`Wiring::registration`] resolves, but only inside a ctxloom
-    /// project, so where there is none but the home's the parent is
-    /// `users/me`, no daemon is asked and nothing is written (OQ-3). A
-    /// subdirectory names the project its root names (OQ-2).
+    /// The registration of a command that must NAME its project (owner
+    /// ruling 2026-11-14, since `.ctxloom/project-id` is gitignored and every
+    /// fresh clone has none): [`Wiring::registration`]'s, but a ctxloom
+    /// project nothing has named has its id minted at its resolved root
+    /// first ([`Wiring::mint_project`]).
+    pub(crate) fn naming_registration(
+        &self,
+    ) -> Result<Option<daemon_proto::v1::ResolveProjectRequest>, LibError> {
+        match self.registration() {
+            Err(LibError::ProjectUnnamed { .. }) => {
+                Ok(Some(self.registering(self.mint_project()?)))
+            }
+            read => read,
+        }
+    }
+
+    /// What a library or deps json answer registers, to name its resources
+    /// (OD-40), only inside a ctxloom project: where there is none but the
+    /// home's the parent is `users/me`, no daemon is asked and nothing is
+    /// written (OQ-3). A subdirectory names the project its root names
+    /// (OQ-2). `minting` says whether a project nothing has named gets its
+    /// id (at its root, [`Wiring::naming_registration`]) or is refused
+    /// (`Minting::Never`, a dry run's: owner, "dry run should *not* mint").
     pub(crate) fn library_registration(
         &self,
+        minting: Minting,
     ) -> Result<Option<daemon_proto::v1::ResolveProjectRequest>, LibError> {
         if self.ctxloom_project().is_none() {
             return Ok(None);
         }
-        self.registration()
+        match minting {
+            Minting::AtRoot => self.naming_registration(),
+            Minting::Never => self.registration(),
+        }
     }
 
     /// The registration of `project`, found from this process.

@@ -212,8 +212,8 @@ fn test_reading_creates_nothing() {
     ] {
         assert_eq!(home.run(args).code, 0, "{args:?}");
     }
-    // The reads are the daemon's (slice 2 step 6), and a read never mints
-    // a project id (owner ruling 2026-11-13: only `run` and `init` do), so
+    // The reads are the daemon's (slice 2 step 6), and a session read names
+    // no project, so it mints no project id (owner ruling 2026-11-14), so
     // a project with none lists nothing, asking no daemon: what is there is
     // at most the daemon's own (its directory, the one store it keeps); no
     // identity, session, transcript or store of a read's.

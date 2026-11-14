@@ -1655,18 +1655,26 @@ daemon client's `registration()` and the names' `library_registration()`
 (the same, but `users/me` outside a ctxloom project) all use, so a
 subdirectory names its root's project and a monorepo subfolder with a
 `.ctxloom` of its own is a project of its own (accepted cost: its runs move
-to that project's store). A READ NEVER MINTS a project id (owner ruling
-2026-11-13, overruling B2's root write): only a run (`tell_project`) and a
-bare `init` (`Wiring::mint_project`, after its scaffold; not `init
-prompt`) do, at the resolved root. A json library read in a ctxloom
-project with no id is refused, `ctxloom-wiring-project-unnamed` (exit 20,
-its fix `ctxloom init`), and writes nothing; a session listing or search
-there (or wherever no id is bound) lists nothing, asking no daemon
+to that project's store). A COMMAND THAT MUST NAME THE PROJECT MINTS its
+id at the RESOLVED ROOT (owner ruling 2026-11-14, revising 2026-11-13's
+"only run and init mint", since `.ctxloom/project-id` is gitignored and every
+fresh clone has none; never in a subfolder): a json library or deps answer
+that prints a resource name (`library_parent`, `Wiring::
+library_registration(Minting::AtRoot)`, through `Wiring::
+naming_registration`), `daemon resolve`, a run (`tell_project`) and a bare
+`init` (`Wiring::mint_project`, after its scaffold; not `init prompt`). A
+read that prints no project name writes nothing (a text answer asks no
+names); outside a ctxloom project the parent is `users/me` and nothing is
+written. A DRY RUN NEVER MINTS (owner: "dry run should *not* mint"): its
+names source is `Minting::Never` (`library::minting`: the library's `run`
+noun is the dry run alone), which in a project nothing has named is
+refused, `ctxloom-wiring-project-unnamed` (exit 20, its fix `ctxloom
+init`), though the dry run's json names nothing and so never asks. A
+session listing or search in a project with no id (or wherever no id is
+bound) names no project and lists nothing, asking no daemon
 (`daemon_api::Client::unnamed`), and a `session show|remove` of one is
-`daemon-api-project-unknown`. `config create` and the other writes mint
-none (their json reads are refused until a run or init); `daemon resolve`
-is refused too. The test harness's "an initialized ctxloom project"
-(`Project::initialized`, `with_editor`, a fixture's `.ctxloom`) carries
+`daemon-api-project-unknown`. The test harness's "an initialized ctxloom
+project" (`Project::initialized`, `with_editor`, a fixture's `.ctxloom`) carries
 the id init mints (`Project::named`); `Project::configured` has none. Converted:
 the `engine` noun (the worked example): `engine list` is
 `ListEnginesResponse` (`{engines: [...]}`), `engine show` an `Engine`

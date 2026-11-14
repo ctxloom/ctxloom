@@ -785,3 +785,32 @@ fn test_the_project_is_named_once_in_the_one_store_and_keeps_its_harp() {
     assert!(!again.named);
     assert_eq!(again.project_id, named.project_id);
 }
+
+// Owner ruling 2026-11-14 (revising 2026-11-13's "only run and init mint"):
+// a command that must NAME its project mints its id at the resolved root;
+// a dry run never mints (`Minting::Never`), so it can never reach the
+// minting branch: in a project nothing has named it is refused and writes
+// nothing.
+#[test]
+fn test_a_name_needing_read_mints_at_the_root_and_a_dry_run_never_does() {
+    use super::Minting;
+    let world = crate::commands::tests::world_without_programs("names-mint");
+    let wiring = world.wiring();
+    let marker = world.work().join(".ctxloom/project-id");
+    let refused = wiring.library_registration(Minting::Never).unwrap_err();
+    assert!(
+        matches!(refused, LibError::ProjectUnnamed { .. }),
+        "{refused:?}"
+    );
+    assert!(!exists(&marker), "a dry run's names minted");
+    let named = wiring
+        .library_registration(Minting::AtRoot)
+        .unwrap()
+        .expect("a ctxloom project");
+    assert!(exists(&marker), "minted at the root");
+    let read = wiring
+        .library_registration(Minting::Never)
+        .unwrap()
+        .expect("named now");
+    assert_eq!(read.project_id, named.project_id);
+}

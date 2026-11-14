@@ -114,6 +114,7 @@ session-policies = { path = "crates/core/application/session-policies" }
 liveness = { path = "crates/adapters/driven/liveness" }
 session-files = { path = "crates/adapters/driven/session-files" }
 session-cli = { path = "crates/adapters/driving/session-cli" }
+mcp-server = { path = "crates/adapters/driving/mcp-server" }
 hook-cli = { path = "crates/adapters/driving/hook-cli" }
 hook-listener = { path = "crates/adapters/driving/hook-listener" }
 hook-tls = { path = "crates/adapters/driven/hook-tls" }

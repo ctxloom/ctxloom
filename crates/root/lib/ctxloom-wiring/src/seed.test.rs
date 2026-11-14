@@ -164,7 +164,10 @@ fn the_bind_hook_binds_the_session_it_names() {
         ..seed()
     };
     wiring.seed_session(&unbound).unwrap();
-    world.set("CTXLOOM_SESSION_HARP", HARP);
+    world.set(
+        "CTXLOOM_SESSION",
+        format!("projects/calm-quiet-heron/sessions/{HARP}"),
+    );
     let payload = r#"{"session_id":"native-9","transcript_path":"/t/native-9.jsonl"}"#;
     let mut commands = world.commands();
     let program = clap::Command::new("ctxloom").subcommands(commands.nouns());

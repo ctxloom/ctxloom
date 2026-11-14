@@ -213,8 +213,9 @@ pub trait SessionIds {
 
 /// The run's session, as the hook environment names it (`CTXLOOM_SESSION`,
 /// review finding 6): the one session a hook's facts are addressed to,
-/// whatever its harp says (a rename does not lose it); none where the
-/// variable is unset or not an id.
+/// whatever its harp says; its stable id is the UUIDv5 of the resource name
+/// the variable carries (s3-Q3); none where the variable is unset or names
+/// no session.
 pub struct RunIds(Option<String>);
 
 impl RunIds {
@@ -226,9 +227,19 @@ impl RunIds {
 
 impl SessionIds for RunIds {
     fn session_of(&self, _: &str) -> Option<Uuid> {
-        let id = uuid::Uuid::parse_str(self.0.as_deref()?).ok()?;
-        Some(Uuid::from_bytes(*id.as_bytes()))
+        let name = sessions::SessionName::parse(self.0.as_deref()?).ok()?;
+        Some(Uuid::from_bytes(*name.id().as_bytes()))
     }
+}
+
+/// The harp of the session `CTXLOOM_SESSION` names (`session`, its resource
+/// name: s3-Q3), as a hook and the statusline say it; empty where it names
+/// none.
+pub(crate) fn harp_of(session: Option<&str>) -> String {
+    session
+        .and_then(|name| sessions::SessionName::parse(name).ok())
+        .map(|name| name.harp().to_string())
+        .unwrap_or_default()
 }
 
 /// A hook's recording: its observations, delivered through a sink to the

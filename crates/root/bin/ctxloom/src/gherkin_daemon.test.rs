@@ -17,7 +17,7 @@ use std::process::Child;
 use std::time::{Duration, Instant};
 
 use cucumber::{given, then, when};
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use super::World;
 use crate::tests::files;
@@ -51,6 +51,13 @@ pub(super) struct State {
     first: Option<run_ports::Discovery>,
     /// What two commands run at once came to.
     both: Vec<crate::tests::Ran>,
+    /// The engine a registration scenario's session ran on, and where its
+    /// stub recorded what it was handed.
+    registered: Option<(String, PathBuf)>,
+    /// What an engine's call of a ctxloom tool was answered.
+    tool: Option<Value>,
+    /// The daemon a tool's call found before it was killed.
+    before_kill: Option<run_ports::Discovery>,
 }
 
 impl Drop for State {
@@ -382,9 +389,21 @@ fn serving_busy(w: &mut World, busy: String) {
 }
 
 #[given(regex = r"^the daemon will be killed outright (.+)$")]
-fn killed_at(_: &mut World, _when: String) {
-    red("the daemon will be killed outright at a step")
+fn killed_at(w: &mut World, when: String) {
+    if when != "after the write is applied, before it is answered" {
+        red("the daemon will be killed outright at a step")
+    }
+    // The test-support switch (slice 3 step 4): the daemon that finds it
+    // takes it, applies the next write it is sent through its coordinator,
+    // and is killed before it answers; the daemon started after it finds
+    // none.
+    w.daemon_spec.before_kill = Some(discovery_now(w));
+    files::put(daemon_dir(w).join(DIE_AFTER_APPLY), "once");
 }
+
+/// The daemon directory's switch that kills a test-support daemon once a
+/// write it was sent is applied, before it is answered.
+const DIE_AFTER_APPLY: &str = "test-die-after-apply";
 
 #[given(expr = "a child {string} that is open and idle")]
 fn child_idle(_: &mut World, _child: String) {
@@ -402,8 +421,15 @@ fn child_closed(_: &mut World, _child: String) {
 }
 
 #[given(expr = "a child {string} of {string} that is open and idle")]
-fn child_of_idle(_: &mut World, _child: String, _owner: String) {
-    red("a child of an owner, open and idle")
+fn child_of_idle(w: &mut World, child: String, owner: String) {
+    assert_eq!(
+        (child.as_str(), owner.as_str()),
+        ("brisk-copper-moth", "amber-quiet-heron"),
+        "the child and owner the harness hosts"
+    );
+    // Its default idle time: a daemon that hosts a child never idles out.
+    start_daemon_idling(w, DEFAULT_IDLE_SECONDS);
+    hosted_child(w);
 }
 
 #[given("a hand-off file is left for a child that is no longer open")]
@@ -1357,14 +1383,125 @@ fn settings_regenerated(_: &mut World) {
     red("the re-hosted child's settings were regenerated")
 }
 
+/// A stub engine of a registration scenario: it records the directory its
+/// config is read from and its arguments, then answers as a one-shot turn
+/// answers (claude's stream-json result, opencode's text), or, at the
+/// terminal, just exits.
+const REGISTERED_STUB: &str = r#"here=$(dirname "$0")
+printf '%s\n' "${CLAUDE_CONFIG_DIR:-$OPENCODE_CONFIG_DIR}" > "$here/config-dir"
+: > "$here/args"
+for a in "$@"; do printf '%s\n' "$a" >> "$here/args"; done
+case " $* " in
+  *" -p "*)
+    cat > /dev/null
+    printf '{"type":"system","subtype":"init","cwd":"/work","session_id":"S1","tools":[]}\n'
+    printf '{"type":"result","subtype":"success","is_error":false,"result":"ok","session_id":"S1"}\n'
+    ;;
+  *" run "*)
+    cat > /dev/null
+    printf '{"type":"text","sessionID":"ses_1","part":{"type":"text","text":"ok","time":{"end":1}}}\n'
+    ;;
+esac
+"#;
+
 #[given(regex = r"^a (child|interactive) session on (claude-code|opencode)$")]
-fn session_on_engine(_: &mut World, _k: String, _e: String) {
-    red("a session on an engine")
+fn session_on_engine(w: &mut World, kind: String, engine: String) {
+    let program = match engine.as_str() {
+        "claude-code" => "claude",
+        _ => "opencode",
+    };
+    let dir = w.common.project.home().join("registered");
+    files::put_program(dir.join(program), REGISTERED_STUB);
+    w.common.project.write(
+        ".ctxloom/config.yaml",
+        &format!("schema_version: 9\nagents:\n  dev:\n    engine: {engine}\ndefault_agent: dev\n"),
+    );
+    w.common.project.write_home(
+        ".ctxloom/config.yaml",
+        &format!(
+            "schema_version: 9\neditor:\n  command: \"true\"\nengines:\n  {engine}:\n    command: {}\n",
+            dir.join(program).display()
+        ),
+    );
+    let mut env = env_of(w);
+    let args: Vec<&str> = match kind.as_str() {
+        "child" => vec!["run", "--one-shot", "a task"],
+        _ => {
+            env.push(("CTXLOOM_TEST_TERMINAL".to_string(), "1".to_string()));
+            vec!["run"]
+        }
+    };
+    let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    let ran = w.common.project.run_with(&env, &args);
+    assert!(
+        files::exists(dir.join("config-dir")),
+        "the {engine} session never started: {}",
+        ran.said()
+    );
+    w.daemon_spec.registered = Some((engine, dir));
 }
 
 #[then(expr = "its session home registers {string} as the MCP server {string}")]
-fn registers_mcp(_: &mut World, _cmd: String, _n: String) {
-    red("its session home registers ctxloom's MCP server")
+fn registers_mcp(w: &mut World, command: String, name: String) {
+    let (engine, dir) = w
+        .daemon_spec
+        .registered
+        .clone()
+        .expect("a session ran on an engine");
+    let config_dir = PathBuf::from(
+        files::read(dir.join("config-dir"))
+            .expect("the engine recorded its config dir")
+            .trim(),
+    );
+    let registered: Vec<String> = match engine.as_str() {
+        "claude-code" => {
+            // The servers the launch carries: the file `--mcp-config` names.
+            let args = files::read(dir.join("args")).expect("the engine recorded its arguments");
+            let args: Vec<&str> = args.lines().collect();
+            let file = args
+                .windows(2)
+                .find(|pair| pair[0] == "--mcp-config")
+                .map(|pair| pair[1].to_string())
+                .unwrap_or_else(|| panic!("claude was given no --mcp-config: {args:?}"));
+            let config: Value =
+                serde_json::from_str(&files::read(&file).expect("the MCP config")).expect("JSON");
+            let entry = &config["mcpServers"][&name];
+            assert!(entry.is_object(), "no server {name}: {config}");
+            assert!(
+                entry.get("env").is_none(),
+                "no identity in the entry: {entry}"
+            );
+            let mut words = vec![entry["command"].as_str().unwrap_or_default().to_string()];
+            words.extend(
+                entry["args"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|a| a.as_str().unwrap_or_default().to_string()),
+            );
+            words
+        }
+        _ => {
+            // opencode's session config: its `mcp` entry, a local one.
+            let config: Value = serde_json::from_str(
+                &files::read(config_dir.join("opencode.json")).expect("opencode's config"),
+            )
+            .expect("JSON");
+            let entry = &config["mcp"][&name];
+            assert_eq!(entry["type"], "local", "{config}");
+            assert!(
+                entry.get("environment").is_none(),
+                "no identity in the entry: {entry}"
+            );
+            entry["command"]
+                .as_array()
+                .unwrap_or_else(|| panic!("no server {name}: {config}"))
+                .iter()
+                .map(|a| a.as_str().unwrap_or_default().to_string())
+                .collect()
+        }
+    };
+    assert_eq!(registered.join(" "), command, "{engine}");
 }
 
 #[when("its engine lists the tools of ctxloom's MCP server")]
@@ -1377,31 +1514,135 @@ fn tools_are(_: &mut World, _t: String) {
     red("the MCP tools are the spec's")
 }
 
+/// The resource name of the session `harp` of the scenario's project.
+fn session_name(w: &World, harp: &str) -> String {
+    w.common
+        .named(&format!("projects/{{project}}/sessions/{harp}"))
+}
+
+/// The engine of `owner` calls ctxloom's tool `tool` with `arguments`,
+/// through `ctxloom mcp serve` started as its engine starts it (the
+/// session's name in its environment): what it was answered.
+fn engine_calls(w: &mut World, owner: &str, tool: &str, arguments: Value) {
+    let me = session_name(w, owner);
+    let env = env_of(w);
+    let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    let mut mcp = crate::tests::mcp_serve::Mcp::for_session(&w.common.project, &me, &env);
+    let answered = mcp.call(tool, arguments);
+    let (code, err) = mcp.finish();
+    assert_eq!(code, 0, "the server failed: {err}");
+    w.daemon_spec.tool = Some(answered);
+}
+
+/// The events of the session `harp`'s stream, as `ctxloom test
+/// session-events` lists them: each one's type, and its message id when it
+/// has one.
+fn session_events(w: &World, harp: &str) -> Vec<Value> {
+    let ran = run_now(w, &["test", "session-events", harp]);
+    assert_eq!(ran.code, 0, "{}", ran.said());
+    ran.json().as_array().cloned().unwrap_or_default()
+}
+
+/// How many of `events` are of the type `name` (its message's name).
+fn count_of(events: &[Value], name: &str) -> usize {
+    events.iter().filter(|e| e["type"] == name).count()
+}
+
+/// The tool's answer: not an error, its first text the session it answered.
+fn tool_session(w: &World) -> Value {
+    let answered = w.daemon_spec.tool.clone().expect("a tool was called");
+    assert_ne!(
+        answered["isError"],
+        true,
+        "the tool failed: {answered}; the daemon's log:\n{}",
+        daemon_log_text(w)
+    );
+    crate::tests::mcp_serve::answered_json(&answered)
+}
+
 #[when(
     regex = r#"^the engine of "([^"]+)" calls "([^"]+)" for "([^"]+)" with (inform|wake|steer) "([^"]*)"$"#
 )]
-fn tool_send(_: &mut World, _o: String, _t: String, _c: String, _u: String, _x: String) {
-    red("an engine calls a ctxloom tool with a message")
+fn tool_send(
+    w: &mut World,
+    owner: String,
+    tool: String,
+    child: String,
+    urgency: String,
+    text: String,
+) {
+    engine_calls(
+        w,
+        &owner,
+        &tool,
+        json!({"child": child, "urgency": urgency, "text": text}),
+    );
 }
 
 #[then("the tool answered with the child's session as the daemon's read model has it after the message")]
-fn tool_answered_view(_: &mut World) {
-    red("the tool answered with the read model's session")
+fn tool_answered_view(w: &mut World) {
+    let session = tool_session(w);
+    let child = session_name(w, "brisk-copper-moth");
+    assert_eq!(session["name"], child, "{session}");
+    let shown = run_now(
+        w,
+        &["session", "show", "brisk-copper-moth", "--format", "json"],
+    );
+    assert_eq!(shown.code, 0, "{}", shown.said());
+    let shown = shown.json();
+    for field in ["uid", "owner", "engine"] {
+        assert_eq!(
+            session[field], shown[field],
+            "{field}: {session} vs {shown}"
+        );
+    }
 }
 
 #[then("the message was sent once, under the id the server chose")]
-fn sent_once(_: &mut World) {
-    red("the message was sent once, under the server's id")
+fn sent_once(w: &mut World) {
+    let answered = w.daemon_spec.tool.clone().expect("a tool was called");
+    let id: Value = serde_json::from_str(
+        answered["content"][1]["text"]
+            .as_str()
+            .unwrap_or_else(|| panic!("the message's id is not answered: {answered}")),
+    )
+    .expect("JSON");
+    let id = id["message_id"].as_str().expect("a message id").to_string();
+    let events = session_events(w, "brisk-copper-moth");
+    let sent: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["type"] == "MessageSent")
+        .filter(|e| e["text"] == "check the tests")
+        .collect();
+    assert_eq!(sent.len(), 1, "{events:?}");
+    assert_eq!(sent[0]["message_id"], id.as_str(), "{events:?}");
 }
 
 #[when(regex = r#"^the engine of "([^"]+)" calls "([^"]+)" for "([^"]+)"$"#)]
-fn tool_call(_: &mut World, _o: String, _t: String, _c: String) {
-    red("an engine calls a ctxloom tool")
+fn tool_call(w: &mut World, owner: String, tool: String, child: String) {
+    engine_calls(w, &owner, &tool, json!({"child": child}));
 }
 
 #[then("the tool answered once the new daemon had the close, and the close was applied once")]
-fn tool_retried(_: &mut World) {
-    red("the tool retried once on a new daemon")
+fn tool_retried(w: &mut World) {
+    let session = tool_session(w);
+    assert_eq!(session["closed"], true, "{session}");
+    let old = w
+        .daemon_spec
+        .before_kill
+        .clone()
+        .expect("a daemon was killed");
+    let now = discovery_now(w);
+    assert_ne!(
+        now.pid, old.pid,
+        "the tool's retry was answered by a new daemon"
+    );
+    assert!(
+        !files::exists(daemon_dir(w).join(DIE_AFTER_APPLY)),
+        "the switch was taken"
+    );
+    let events = session_events(w, "brisk-copper-moth");
+    assert_eq!(count_of(&events, "SessionClosed"), 1, "{events:?}");
 }
 
 #[when("its engine calls a tool whose change asks for an edited document, and answers the elicitation with new text")]

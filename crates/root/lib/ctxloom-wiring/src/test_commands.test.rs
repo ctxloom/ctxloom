@@ -43,7 +43,8 @@ fn the_noun_is_hidden_and_has_a_verb_for_each_test_command() {
             "run-id",
             "open-store",
             "seed-session",
-            "project-name"
+            "project-name",
+            "session-events"
         ]
     );
 }

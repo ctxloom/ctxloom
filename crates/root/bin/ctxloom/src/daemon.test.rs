@@ -26,7 +26,7 @@ use super::library::Project;
 /// ends (the daemon's end closes it).
 const STUB: &str = r#"#!/bin/sh
 here=$(dirname "$0")
-harp=$CTXLOOM_SESSION_HARP
+harp=${CTXLOOM_SESSION##*/}
 sid=S1
 env | sort > "$here/env-$harp.log"
 ctx=""

@@ -91,6 +91,27 @@ impl Calls for Scripted {
         })
     }
 
+    fn get_transcript(&self, request: v1::GetTranscriptRequest) -> Answer<'_, v1::Transcript> {
+        Box::pin(async move {
+            Ok(v1::Transcript {
+                name: request.name,
+                ..v1::Transcript::default()
+            })
+        })
+    }
+
+    fn assemble_context(
+        &self,
+        request: v1::AssembleContextRequest,
+    ) -> Answer<'_, v1::AssembledContext> {
+        Box::pin(async move {
+            Ok(v1::AssembledContext {
+                context: request.fragments.join(","),
+                ..v1::AssembledContext::default()
+            })
+        })
+    }
+
     fn search_sessions(
         &self,
         request: v1::SearchSessionsRequest,
@@ -245,10 +266,43 @@ async fn a_failure_is_internal() {
 async fn an_rpc_not_served_is_unimplemented_to_the_user_bearer() {
     let mut client = CtxloomClient::new(serve(Arc::default()).await);
     let status = client
-        .get_transcript(with_bearer(v1::GetTranscriptRequest::default(), BEARER))
+        .list_worktrees(with_bearer(v1::ListWorktreesRequest::default(), BEARER))
         .await
         .unwrap_err();
     assert_eq!(status.code(), Code::Unimplemented);
+}
+
+// Slice 3: GetTranscript and AssembleContext are served, each its use
+// case's answer.
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn the_transcript_and_the_assembly_are_served() {
+    let mut client = CtxloomClient::new(serve(Arc::default()).await);
+    let transcript = client
+        .get_transcript(with_bearer(
+            v1::GetTranscriptRequest {
+                name: "projects/calm-otter/sessions/amber-swift-owl/transcript".to_string(),
+            },
+            BEARER,
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(
+        transcript.name,
+        "projects/calm-otter/sessions/amber-swift-owl/transcript"
+    );
+    let assembled = client
+        .assemble_context(with_bearer(
+            v1::AssembleContextRequest {
+                fragments: vec!["a".to_string(), "b".to_string()],
+                ..v1::AssembleContextRequest::default()
+            },
+            BEARER,
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(assembled.context, "a,b");
 }
 
 // Gate first, everything (owner, after step 5): a call without the user

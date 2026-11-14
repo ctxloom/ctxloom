@@ -38,6 +38,7 @@ angzarr-embedded = { workspace = true, features = ["test-support"] }
 mutants.workspace = true
 run-ports = { workspace = true, features = ["test-support"] }
 tokio = { workspace = true, features = ["macros", "rt"] }
+prost-types.workspace = true
 
 [features]
 # `diagnostic_samples`, for other crates' catalog tests.

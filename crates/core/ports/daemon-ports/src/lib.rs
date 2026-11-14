@@ -11,11 +11,18 @@
 //! `google.rpc.Status.details`), the credential not taken, the method not
 //! served (a plain build's `DeleteSession`, M5; another version's daemon),
 //! the daemon not reached, or another failure.
+//!
+//! A domain WRITE is not a method of the service (T16, S1 amended): it is
+//! the domain's command, sent through angzarr's command coordinator beside
+//! it, `HandleSync` ([`DaemonApi::handle_sync`], slice 3 step 4), under the
+//! command id the client chose, so the one retry on a new daemon is a
+//! DUPLICATE.
 
 use std::fmt;
 use std::future::Future;
 
 use angzarr_diagnostic::{code, Arg, Diagnostic};
+pub use angzarr_embedded::v1::{CommandBook, Projection};
 use daemon_proto::v1;
 
 pub use prost_types::Any;
@@ -66,6 +73,45 @@ pub trait DaemonApi: Send + Sync {
         request: v1::SearchSessionsRequest,
     ) -> impl Future<Output = Result<v1::ListSessionsResponse, Called>> + Send;
 
+    /// `GetTranscript`: a session's transcript, its D27 lines as delivered
+    /// so far (slice 3 step 5). The default is a daemon that does not
+    /// serve it.
+    fn get_transcript(
+        &self,
+        request: v1::GetTranscriptRequest,
+    ) -> impl Future<Output = Result<v1::Transcript, Called>> + Send {
+        let _ = request;
+        async { Err(unserved("GetTranscript")) }
+    }
+
+    /// `AssembleContext`: a project's context, assembled in the daemon from
+    /// its registered root (slice 3 step 6). The default is a daemon that
+    /// does not serve it.
+    fn assemble_context(
+        &self,
+        request: v1::AssembleContextRequest,
+    ) -> impl Future<Output = Result<v1::AssembledContext, Called>> + Send {
+        let _ = request;
+        async { Err(unserved("AssembleContext")) }
+    }
+
+    /// The coordinator's `HandleSync` (T16): `book`, a domain command under
+    /// the id its page names, applied (or found applied: a DUPLICATE), and
+    /// answered once each of `projectors` has projected its events, with
+    /// what each projected. The default is a daemon that serves no writes.
+    fn handle_sync(
+        &self,
+        book: CommandBook,
+        projectors: Vec<String>,
+    ) -> impl Future<Output = Result<Synced, Called>> + Send {
+        let _ = (book, projectors);
+        async {
+            Err(Called::Unimplemented {
+                method: HANDLE_SYNC.to_string(),
+            })
+        }
+    }
+
     /// `DeleteSession`: a session removed whole or not at all (refused
     /// `RemovalRefused`, its plan inside); a `session-destroy` build's daemon
     /// serves it (M5). The default is a daemon that does not.
@@ -85,6 +131,31 @@ pub trait DaemonApi: Send + Sync {
     ) -> impl Future<Output = Result<v1::SweepSessionsResponse, Called>> + Send {
         let _ = request;
         async { Err(unserved("SweepSessions")) }
+    }
+}
+
+/// The coordinator's `HandleSync`, as a status names it.
+pub const HANDLE_SYNC: &str =
+    "/io.angzarr.transport.distributed.v1.CommandHandlerCoordinatorService/HandleSync";
+
+/// What a `HandleSync` came to: the command applied now, or found applied
+/// before (a DUPLICATE), and each projector's projection, in the order
+/// they were named.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Synced {
+    /// Whether this delivery applied it (false: a DUPLICATE of one that did).
+    pub applied: bool,
+    pub projections: Vec<Projection>,
+}
+
+impl Synced {
+    /// The projection of `projector`, as `T`, if it answered one.
+    pub fn projection<T: prost::Name + Default>(&self, projector: &str) -> Option<T> {
+        self.projections
+            .iter()
+            .find(|projection| projection.projector == projector)
+            .and_then(|projection| projection.projection.as_ref())
+            .and_then(|any| any.to_msg().ok())
     }
 }
 

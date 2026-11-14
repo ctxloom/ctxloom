@@ -366,6 +366,19 @@ impl Project {
             .expect("ctxloom starts")
     }
 
+    /// As [`start_with`](Project::start_with), its stdin piped too: a
+    /// process the test talks to (ctxloom's MCP server, line by line).
+    pub(crate) fn start_talking(&self, env: &[(&str, &str)], args: &[&str]) -> std::process::Child {
+        let mut all = vec![("CTXLOOM_ROOT", self.project.to_str().expect("utf-8"))];
+        all.extend_from_slice(env);
+        self.process(&self.project, &all, args)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("ctxloom starts")
+    }
+
     fn spawn(&self, cwd: &Path, env: &[(&str, &str)], args: &[&str]) -> Ran {
         Ran::of(self.process(cwd, env, args).output().expect("ctxloom runs"))
     }

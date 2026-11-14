@@ -9,6 +9,9 @@ publish.workspace = true
 
 [dependencies]
 angzarr-diagnostic.workspace = true
+# A domain command's book and the projections a `HandleSync` answers (the
+# coordinator's messages, S1 amended): wire types only.
+angzarr-embedded.workspace = true
 daemon-proto.workspace = true
 prost.workspace = true
 prost-types.workspace = true

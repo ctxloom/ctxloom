@@ -724,7 +724,10 @@ const SESSION_START: &str = r#"{"session_id":"vendor-session-42","transcript_pat
 fn test_executing_session_start_binds_the_session_and_emits_the_marker() {
     let home = Home::new();
     home.seed("brisk-copper-moth", &[]);
-    let vars = [("CTXLOOM_SESSION_HARP", "brisk-copper-moth")];
+    let vars = [(
+        "CTXLOOM_SESSION",
+        "projects/amber-quiet-heron/sessions/brisk-copper-moth",
+    )];
     let ran = home.env.run_hook(
         &["hook", "claude-code", "execute", "SessionStart"],
         SESSION_START,
@@ -758,7 +761,10 @@ fn test_executing_session_start_binds_the_session_and_emits_the_marker() {
 fn test_a_second_bind_with_a_new_session_rotates_the_binding() {
     let home = Home::new();
     home.seed("brisk-copper-moth", &[]);
-    let vars = [("CTXLOOM_SESSION_HARP", "brisk-copper-moth")];
+    let vars = [(
+        "CTXLOOM_SESSION",
+        "projects/amber-quiet-heron/sessions/brisk-copper-moth",
+    )];
     let bind = |payload: &str| {
         home.env.run_hook(
             &["hook", "claude-code", "execute", "SessionStart"],
@@ -786,7 +792,10 @@ fn test_binding_a_harp_nobody_recorded_still_emits_the_marker_and_exits_0() {
     let ran = home.env.run_hook(
         &["hook", "claude-code", "execute", "SessionStart"],
         SESSION_START,
-        &[("CTXLOOM_SESSION_HARP", "no-such-harp")],
+        &[(
+            "CTXLOOM_SESSION",
+            "projects/amber-quiet-heron/sessions/no-such-harp",
+        )],
     );
     assert_eq!(ran.code, 0, "{}", ran.said());
     assert!(ran.json()["hookSpecificOutput"]["additionalContext"]

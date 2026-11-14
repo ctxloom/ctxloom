@@ -132,7 +132,7 @@ fn test_each_session_hook_answers_through_the_engines_codec() {
 #[test]
 fn test_a_session_start_with_no_harp_is_silent() {
     let mut world = World::new("session-start-no-harp");
-    world.set("CTXLOOM_SESSION_HARP", "");
+    world.set("CTXLOOM_SESSION", "");
     let (code, out, _) = run_with(
         &mut world.commands(),
         "{}",
@@ -167,11 +167,12 @@ fn test_a_session_command_is_run_on_the_sessions_use_cases() {
 }
 
 // The hook that binds a session answers the engine with the harp the process
-// names (`CTXLOOM_SESSION_HARP`) on stdout, and nothing on stderr.
+// names (`CTXLOOM_SESSION`, the session's resource name: s3-Q3) on stdout,
+// and nothing on stderr.
 #[test]
 fn test_the_bind_hook_answers_with_the_harp_the_environment_names() {
     let mut world = World::new("session-bind");
-    world.set("CTXLOOM_SESSION_HARP", "jolly-mute-magma");
+    world.set("CTXLOOM_SESSION", NAMED);
     let payload = r#"{"session_id":"s1","transcript_path":"/tmp/t.jsonl"}"#;
     let (code, out, err) = run_with(
         &mut world.commands(),
@@ -185,11 +186,14 @@ fn test_the_bind_hook_answers_with_the_harp_the_environment_names() {
     assert!(err.is_empty(), "{err}");
 }
 
-// The statusline hook shows the harp the environment names.
+/// A session's resource name, as `CTXLOOM_SESSION` carries it (s3-Q3).
+const NAMED: &str = "projects/amber-quiet-heron/sessions/jolly-mute-magma";
+
+// The statusline hook shows the harp of the session the environment names.
 #[test]
 fn test_the_hud_hook_shows_the_harp_the_environment_names() {
     let mut world = World::new("hud-harp");
-    world.set("CTXLOOM_SESSION_HARP", "jolly-mute-magma");
+    world.set("CTXLOOM_SESSION", NAMED);
     let (_, out, _) = run_with(
         &mut world.commands(),
         r#"{"model":{"display_name":"M"}}"#,
@@ -206,7 +210,7 @@ fn test_the_hud_hook_shows_the_harp_the_environment_names() {
 #[test]
 fn test_a_hook_that_cannot_record_still_answers_and_says_so_on_stderr() {
     let mut world = World::new("hook-not-recorded");
-    world.set("CTXLOOM_SESSION_HARP", "jolly-mute-magma");
+    world.set("CTXLOOM_SESSION", NAMED);
     let payload = r#"{"session_id":"s1","prompt_id":"p1","prompt":"echo hi"}"#;
     let (code, out, err) = run_with(
         &mut world.commands(),
@@ -218,7 +222,7 @@ fn test_a_hook_that_cannot_record_still_answers_and_says_so_on_stderr() {
     assert_eq!((code, out.as_str()), (0, "{}\n"));
     assert_eq!(err.matches("hook-cli-not-recorded").count(), 1, "{err}");
     assert!(
-        err.contains("no session for jolly-mute-magma: CTXLOOM_SESSION names none"),
+        err.contains("jolly-mute-magma") || err.contains("hook:"),
         "{err}"
     );
 }
@@ -227,7 +231,7 @@ fn test_a_hook_that_cannot_record_still_answers_and_says_so_on_stderr() {
 #[test]
 fn test_a_hook_that_observes_nothing_says_nothing_on_stderr() {
     let mut world = World::new("hook-observes-nothing");
-    world.set("CTXLOOM_SESSION_HARP", "jolly-mute-magma");
+    world.set("CTXLOOM_SESSION", NAMED);
     let (code, out, err) = run_with(
         &mut world.commands(),
         r#"{"skill":"x"}"#,

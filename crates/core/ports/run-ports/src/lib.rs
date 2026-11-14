@@ -49,7 +49,7 @@ pub use engine::{
 pub use git::{git_config, GitUser, GIT_CONFIG_FILE};
 pub use hook::{
     endpoint_url, hook_environment, parse_endpoint, Bearer, BearerError, Dial, EndpointError,
-    RedactedEnv, BEARER_VARIABLE, ENDPOINT_VARIABLE, HARP_VARIABLE, HOOK_VARIABLES, RUN_VARIABLE,
+    RedactedEnv, BEARER_VARIABLE, ENDPOINT_VARIABLE, HOOK_VARIABLES, RUN_VARIABLE,
     SESSION_VARIABLE, TLS_CERT_VARIABLE,
 };
 pub use host::{

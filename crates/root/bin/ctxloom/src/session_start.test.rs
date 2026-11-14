@@ -8,8 +8,9 @@ use super::library::Project;
 use super::surfaces::additional_context;
 
 /// The session the hook runs in: the notice rides the SessionStart answer that
-/// also names the harp, so a session without one is silent.
-const HARP: &str = "brisk-copper-moth";
+/// also names the harp, so a session without one is silent: its resource name,
+/// as `CTXLOOM_SESSION` carries it (s3-Q3).
+const NAMED: &str = "projects/amber-quiet-heron/sessions/brisk-copper-moth";
 
 // Go's `operations.AgentSetupNudge` (agents.go, release/0.7): a project with
 // profiles but no agents is nudged, on the user-notice channel of the
@@ -21,7 +22,7 @@ fn test_the_session_start_hook_nudges_a_project_with_profiles_and_no_agents() {
     let ran = project.run_input(
         &["hook", "claude-code", "execute", "SessionStart"],
         r#"{"session_id":"s","hook_event_name":"SessionStart","source":"startup"}"#,
-        &[("CTXLOOM_SESSION_HARP", HARP)],
+        &[("CTXLOOM_SESSION", NAMED)],
     );
     ran.succeeds();
     let doc: serde_json::Value = serde_json::from_str(ran.stdout.trim()).expect("one JSON object");
@@ -58,7 +59,7 @@ fn test_the_session_start_hook_is_silent_once_an_agent_exists() {
     let ran = project.run_input(
         &["hook", "claude-code", "execute", "SessionStart"],
         r#"{"session_id":"s","hook_event_name":"SessionStart","source":"startup"}"#,
-        &[("CTXLOOM_SESSION_HARP", HARP)],
+        &[("CTXLOOM_SESSION", NAMED)],
     );
     ran.succeeds();
     assert!(!ran.stdout.contains("systemMessage"), "{}", ran.said());

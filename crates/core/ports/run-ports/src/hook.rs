@@ -32,15 +32,14 @@ pub const RUN_VARIABLE: &str = "CTXLOOM_RUN";
 /// trust root: base64 of the DER on one line. Public, not a secret.
 pub const TLS_CERT_VARIABLE: &str = "CTXLOOM_TLS_CERT";
 
-/// The variable that names the session's harp: the address a hook finds its
-/// session by. The engine's environment carries it (the terminal session's
-/// and a one-shot child's).
-pub const HARP_VARIABLE: &str = "CTXLOOM_SESSION_HARP";
-
-/// The variable that names the run's session by its stable id (UUID text):
-/// what a hook addresses its facts to (review finding 6, ruling 87: never
-/// read from the session's directory). Not a secret; the gate still holds a
-/// hook to the session of the run its bearer names.
+/// The variable that names the run's session by its resource name,
+/// `projects/{project}/sessions/{session}` (slice 3, s3-Q3: the ONE variable;
+/// `CTXLOOM_SESSION_HARP` is retired): its harp is the name's last segment
+/// (a statusline's), the stable id a hook addresses its facts to is the
+/// name's UUIDv5 (review finding 6, ruling 87: never read from the session's
+/// directory), and ctxloom's MCP server is the session it names. Not a
+/// secret; the gate still holds a hook to the session of the run its bearer
+/// names.
 pub const SESSION_VARIABLE: &str = "CTXLOOM_SESSION";
 
 /// The five variables, which reach a run's engine's environment (the
@@ -248,8 +247,7 @@ impl Diagnostic for BearerError {
 }
 
 /// The variables a run's engine is given for its hooks: the endpoint, the
-/// bearer, the run, its certificate and its session (the stable id a hook
-/// addresses its facts to).
+/// bearer, the run, its certificate and its session (its resource name).
 pub fn hook_environment(
     endpoint: &str,
     run: &str,

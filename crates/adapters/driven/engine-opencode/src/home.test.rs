@@ -56,13 +56,25 @@ fn prepared_with(
 }
 
 /// The session home's `opencode.json`, as written.
+/// A session config holding ctxloom's own server alone (slice 3).
+const OURS_ONLY: &str = "{\n  \"mcp\": {\n    \"ctxloom\": {\n      \"type\": \"local\",\n      \"command\": [\n        \"ctxloom\",\n        \"mcp\",\n        \"serve\"\n      ],\n      \"enabled\": true\n    }\n  }\n}\n";
+
+/// The session config, ctxloom's own server's entry (every session's,
+/// slice 3: carried.test.rs holds it) taken out, as its text.
 fn config_of(prepared: &run_ports::Prepared) -> String {
     let file = prepared
         .files
         .iter()
         .find(|f| f.rel == CONFIG_FILE)
         .expect("opencode.json in the home");
-    String::from_utf8(file.bytes.clone()).unwrap()
+    let mut doc = Json::parse(std::str::from_utf8(&file.bytes).unwrap()).unwrap();
+    let ours = Json::object([(
+        "ctxloom",
+        Json::parse(r#"{"type":"local","command":["ctxloom","mcp","serve"],"enabled":true}"#)
+            .unwrap(),
+    )]);
+    assert_eq!(doc.remove("mcp"), Some(ours), "ctxloom's own server alone");
+    format!("{}\n", doc.pretty())
 }
 
 // Owner rulings 135, 137: the agent's permissions document is opencode's
@@ -148,7 +160,7 @@ fn test_a_session_home_holds_the_context_the_plugin_and_the_preseed_and_nothing_
                 ("AGENTS.md", b"the project's context".as_slice()),
                 ("ctxloom-authored-hooks.json", b"{}\n".as_slice()),
                 ("node_modules/.ctxloom", b"".as_slice()),
-                ("opencode.json", b"{}\n".as_slice()),
+                ("opencode.json", OURS_ONLY.as_bytes()),
                 ("package-lock.json", PRESEED_LOCK.as_bytes()),
                 ("plugins/ctxloom.js", PLUGIN.as_bytes()),
                 ("xdg/config/opencode/node_modules/.ctxloom", b"".as_slice()),

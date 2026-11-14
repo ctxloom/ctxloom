@@ -224,32 +224,40 @@ async fn start(
     let started_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX));
-    let calls: Arc<dyn daemon_api::Calls> = Arc::new(daemon_api::Api::new(daemon_api::Parts {
-        edge: Arc::clone(&edge),
-        index: kept.index.clone().unwrap_or_default(),
-        pending: kept.pending.clone().unwrap_or_default(),
-        board: kept.board.clone().unwrap_or_default(),
-        hosting: Arc::clone(shared) as Arc<dyn daemon_api::Hosting>,
-        states: Arc::new(Locks(Arc::clone(fs))),
-        harps: Arc::new(FreshHarps),
-        places: Arc::new(super::places::ProjectPlaces {
-            fs: Arc::clone(fs),
+    let calls: Arc<dyn daemon_api::Calls> = Arc::new(
+        daemon_api::Api::new(daemon_api::Parts {
+            edge: Arc::clone(&edge),
+            index: kept.index.clone().unwrap_or_default(),
+            pending: kept.pending.clone().unwrap_or_default(),
+            board: kept.board.clone().unwrap_or_default(),
+            hosting: Arc::clone(shared) as Arc<dyn daemon_api::Hosting>,
+            states: Arc::new(Locks(Arc::clone(fs))),
+            harps: Arc::new(FreshHarps),
+            places: Arc::new(super::places::ProjectPlaces {
+                fs: Arc::clone(fs),
+                home: home.to_path_buf(),
+                temp: temp.to_path_buf(),
+            }),
+            purges: Arc::new(super::places::StorePurges(core.store_handle())),
+            about: daemon_api::About {
+                pid: std::process::id(),
+                version: stamp.clone(),
+                start_time: angzarr_embedded::Timestamp {
+                    seconds: started_at,
+                    nanos: 0,
+                },
+                idle_limit_seconds: pace.idle.as_secs(),
+            },
+        })
+        // A project's context, assembled here from its registered root
+        // (slice 3 step 6).
+        .assembling(Arc::new(super::places::ProjectAssemblies {
             home: home.to_path_buf(),
             temp: temp.to_path_buf(),
-        }),
-        purges: Arc::new(super::places::StorePurges(core.store_handle())),
-        about: daemon_api::About {
-            pid: std::process::id(),
-            version: stamp.clone(),
-            start_time: angzarr_embedded::Timestamp {
-                seconds: started_at,
-                nanos: 0,
-            },
-            idle_limit_seconds: pace.idle.as_secs(),
-        },
-    }));
+        })),
+    );
     let listener = HookListener::serve_tcp_beside(
-        Arc::clone(&edge),
+        coordinated(&edge, files),
         UserGate::new(&bearer),
         SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
         TlsIdentity::from_pem(certificate.public().to_pem(), certificate.key_pem()),
@@ -301,6 +309,74 @@ async fn start(
 
 /// The edge of the daemon's core, which the launcher writes through.
 type CoreEdge = embedded_edge::EmbeddedEdge<crate::CoreStores<SqliteStore>>;
+
+/// The edge the coordinator serves the clients' writes through: the core's.
+#[cfg(not(feature = "test-support"))]
+fn coordinated(edge: &Arc<CoreEdge>, _: &DaemonFiles) -> Arc<CoreEdge> {
+    Arc::clone(edge)
+}
+
+/// Under test-support, the core's behind the kill switch
+/// ([`DaemonFiles::take_die_after_apply`]).
+#[cfg(feature = "test-support")]
+fn coordinated(edge: &Arc<CoreEdge>, files: &DaemonFiles) -> Arc<Dying<CoreEdge>> {
+    Arc::new(Dying {
+        inner: Arc::clone(edge),
+        files: files.clone(),
+    })
+}
+
+/// A test-support edge (slice 3 step 4): once a client's `HandleSync` is
+/// applied, a daemon that finds the switch file takes it and is killed
+/// outright before it answers, as a crash between the apply and the answer
+/// would leave it; the daemon started after finds none. Forced, never
+/// waited for (the race rule).
+#[cfg(feature = "test-support")]
+pub(crate) struct Dying<E> {
+    inner: Arc<E>,
+    files: DaemonFiles,
+}
+
+#[cfg(feature = "test-support")]
+impl<E: run_ports::Edge> run_ports::Edge for Dying<E> {
+    async fn serve(
+        &self,
+        book: angzarr_embedded::v1::CommandBook,
+        arrival: run_ports::Arrival,
+    ) -> Result<angzarr_embedded::Answered, run_ports::Unserved> {
+        self.inner.serve(book, arrival).await
+    }
+
+    async fn handle(
+        &self,
+        book: angzarr_embedded::v1::CommandBook,
+    ) -> Result<angzarr_embedded::Answered, angzarr_embedded::Failure<angzarr_embedded::Rejected>>
+    {
+        self.inner.handle(book).await
+    }
+
+    async fn serve_sync(
+        &self,
+        book: angzarr_embedded::v1::CommandBook,
+        projectors: Vec<String>,
+        arrival: run_ports::Arrival,
+    ) -> Result<run_ports::SyncAnswered, run_ports::Unserved> {
+        let answered = self.inner.serve_sync(book, projectors, arrival).await;
+        if answered.is_ok() && self.files.take_die_after_apply() {
+            // Killed outright: no answer, no drain, no discovery removed.
+            std::process::abort();
+        }
+        answered
+    }
+
+    async fn events(
+        &self,
+        cover: &angzarr_embedded::v1::Cover,
+        from: u64,
+    ) -> Result<Vec<angzarr_embedded::v1::EventPage>, angzarr_embedded::StoreError> {
+        self.inner.events(cover, from).await
+    }
+}
 
 /// The launcher (T18), composed: its ports over this process's home, the
 /// core's `edge` (`home` and `temp` the process's), the folds `kept`

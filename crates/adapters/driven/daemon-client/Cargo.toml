@@ -8,6 +8,10 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+# The coordinator's client (`HandleSync`, slice 3 step 4), at the rev the lock
+# already holds for hook-sink-grpc: nothing new is linked.
+angzarr-embedded.workspace = true
+angzarr-proto-transport-distributed.workspace = true
 daemon-ports.workspace = true
 daemon-proto = { workspace = true, features = ["client"] }
 prost.workspace = true

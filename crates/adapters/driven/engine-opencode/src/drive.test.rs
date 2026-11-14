@@ -202,16 +202,12 @@ fn test_only_the_curated_variables_pass_and_opencode_pure_never_does() {
         }),
     ] {
         let names: Vec<&str> = command.env.keys().map(String::as_str).collect();
-        for passed in [
-            "PATH",
-            "OPENAI_API_KEY",
-            "NAMED",
-            "CTXLOOM_ENDPOINT",
-            "CTXLOOM_SESSION_HARP",
-        ] {
+        for passed in ["PATH", "OPENAI_API_KEY", "NAMED", "CTXLOOM_ENDPOINT"] {
             assert!(names.contains(&passed), "{passed}: {names:?}");
         }
         for kept in [
+            // s3-Q3: retired; the session's name is `CTXLOOM_SESSION`'s.
+            "CTXLOOM_SESSION_HARP",
             "CTXLOOM_OPENCODE_API_KEY",
             "OPENCODE_PURE",
             "OPENCODE_CONFIG",
@@ -229,7 +225,6 @@ fn test_only_the_curated_variables_pass_and_opencode_pure_never_does() {
             assert!(list.contains(&hook), "{hook}");
         }
         assert!(list.contains(&run_ports::HOME_VARIABLE));
-        assert!(list.contains(&run_ports::HARP_VARIABLE));
         assert!(list.contains(&run_ports::ROOT_VARIABLE));
     }
 }

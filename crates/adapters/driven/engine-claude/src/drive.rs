@@ -100,7 +100,6 @@ pub const ENV_ALLOWLIST: &[&str] = &[
     run_ports::RUN_VARIABLE,
     run_ports::TLS_CERT_VARIABLE,
     run_ports::SESSION_VARIABLE,
-    run_ports::HARP_VARIABLE,
 ];
 
 /// The variables of the caller's environment the human's terminal session is
@@ -144,7 +143,6 @@ pub const INTERACTIVE_ENV_ALLOWLIST: &[&str] = &[
     run_ports::RUN_VARIABLE,
     run_ports::TLS_CERT_VARIABLE,
     run_ports::SESSION_VARIABLE,
-    run_ports::HARP_VARIABLE,
 ];
 
 /// The variables any one of which authenticates a child agent's run: the
@@ -196,7 +194,7 @@ impl Engine for Claude {
             },
             HomeFile {
                 rel: MCP_CONFIG_FILE.to_string(),
-                bytes: mcp_config(&request.surfaces.0).into_bytes(),
+                bytes: mcp_config(&request.surfaces.0, &self.program).into_bytes(),
             },
         ];
         // The commands and skills: the session home's own (its
@@ -381,6 +379,35 @@ fn user_settings(request: &PrepareRequest, base: Json) -> Result<String, EngineE
     Ok(format!("{}\n", doc.pretty()))
 }
 
+/// The tools of ctxloom's own MCP server, as claude names them: allowed by
+/// ctxloom itself (OD-4, owner 2026-11-13, a stated exception to "ctxloom
+/// never edits the document", rulings 133-139), so a session can call its
+/// daemon whatever its agent's document says. The allowance is in
+/// ctxloom's own `--settings` file (the hooks file), whose lists claude
+/// merges with user scope's: the agent's document stays the user-scope
+/// `permissions` exactly as written.
+pub const OUR_TOOLS: &str = "mcp__ctxloom__*";
+
+/// `permissions` (in the session home, none; under `host`, the agent's
+/// document, its deny list laid over it) with [`OUR_TOOLS`] in its `allow`
+/// once, after the document's own.
+fn with_ours(permissions: Option<Json>) -> Json {
+    let mut permissions = match permissions {
+        Some(doc @ Json::Object(_)) => doc,
+        _ => Json::Object(Vec::new()),
+    };
+    let mut allow = match permissions.get("allow") {
+        Some(Json::Array(items)) => items.clone(),
+        _ => Vec::new(),
+    };
+    let ours = Json::text(OUR_TOOLS);
+    if !allow.contains(&ours) {
+        allow.push(ours);
+    }
+    permissions.set("allow", Json::Array(allow));
+    permissions
+}
+
 /// The agent's permissions document with the selection's `deny_tools` laid
 /// over it (owner ruling 2026-11-12: they ride the launch): each tool in its
 /// `deny` once, after the document's own; with no document, the deny list
@@ -409,13 +436,24 @@ fn with_deny(document: Option<Json>, deny: &[String]) -> Option<Json> {
 }
 
 /// The servers the launch carries, as claude's MCP config (`--mcp-config`):
-/// `{"mcpServers": {...}}`, empty with none.
-fn mcp_config(surfaces: &surface_ports::Inputs) -> String {
-    let servers = surfaces
+/// `{"mcpServers": {...}}`, and always ctxloom's own (slice 3 step 3, T20):
+/// `program`'s `mcp serve`, with no identity in the entry (the engine's
+/// environment carries the session's name, `CTXLOOM_SESSION`). A carried
+/// server named `ctxloom` is shadowed by it (OD-6; the plan names it).
+fn mcp_config(surfaces: &surface_ports::Inputs, program: &str) -> String {
+    let mut servers = surfaces
         .mcp
         .iter()
+        .filter(|server| server.name != surface_ports::CTXLOOM_SERVER)
         .map(|server| (server.name.clone(), crate::mcp_entry(server)))
         .collect::<Vec<_>>();
+    servers.push((
+        surface_ports::CTXLOOM_SERVER.to_string(),
+        Json::object([
+            ("command", Json::text(program)),
+            ("args", Json::strings(surface_ports::ctxloom_server_args())),
+        ]),
+    ));
     let doc = Json::object([("mcpServers", Json::Object(servers))]);
     format!("{}\n", doc.pretty())
 }
@@ -463,7 +501,8 @@ fn user_base(user: Option<&run_ports::UserSettings>) -> (Json, Option<LeftOut>) 
 
 /// ctxloom's hooks file, which the command names with `--settings`: the
 /// hooks (the terminal's events or a child's turn's) and, in the session
-/// home, nothing else. Under `session_home: host` the config dir is the
+/// home, nothing else but ctxloom's allowance of its own tools
+/// ([`OUR_TOOLS`], OD-4). Under `session_home: host` the config dir is the
 /// user's own `~/.claude`, whose `settings.json` ctxloom never writes, so the
 /// agent's permissions are this file's `permissions` there (the one key, so
 /// it never overwrites the hooks), with the cost ruling 145 avoids in the
@@ -496,11 +535,11 @@ fn hooks_settings(request: &PrepareRequest, program: &str) -> Result<String, Eng
             ]),
         );
     }
-    if request.session_home == SessionHome::Host {
-        if let Some(permissions) = with_deny(document(request)?, &surfaces.deny_tools) {
-            settings.set("permissions", permissions);
-        }
-    }
+    let permissions = match request.session_home {
+        SessionHome::Host => with_deny(document(request)?, &surfaces.deny_tools),
+        SessionHome::Session => None,
+    };
+    settings.set("permissions", with_ours(permissions));
     Ok(format!("{}\n", settings.pretty()))
 }
 

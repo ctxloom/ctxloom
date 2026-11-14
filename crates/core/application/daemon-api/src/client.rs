@@ -31,6 +31,9 @@ pub enum SkewError {
     },
     /// The daemon could not be asked.
     Call(Called),
+    /// Another stamp, seen by a caller that never stops a daemon (OD-3, a
+    /// session's MCP server): its call is refused, naming both.
+    Mismatch { own: String, daemon: String },
 }
 
 /// Reconcile the client's stamp `own` with the serving daemon's, `daemon`,
@@ -82,6 +85,7 @@ impl Diagnostic for SkewError {
     fn code(&self) -> &str {
         match self {
             SkewError::Busy { .. } => code!("version-skew-busy"),
+            SkewError::Mismatch { .. } => code!("version-skew"),
             SkewError::Call(called) => called.code(),
         }
     }
@@ -93,6 +97,10 @@ impl Diagnostic for SkewError {
                 ("daemon", daemon.as_str().into()),
                 ("harps", harps.join(", ").into()),
             ],
+            SkewError::Mismatch { own, daemon } => vec![
+                ("own", own.as_str().into()),
+                ("daemon", daemon.as_str().into()),
+            ],
             SkewError::Call(called) => called.args(),
         }
     }
@@ -103,7 +111,7 @@ impl Diagnostic for SkewError {
 impl ExitClass for SkewError {
     fn exit(&self) -> Exit {
         match self {
-            SkewError::Busy { .. } => Exit::REFUSED,
+            SkewError::Busy { .. } | SkewError::Mismatch { .. } => Exit::REFUSED,
             SkewError::Call(_) => Exit::FAILED,
         }
     }
@@ -202,11 +210,17 @@ pub async fn resolve<A: DaemonApi>(
 /// One value of every diagnostic here.
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) fn samples() -> Vec<Box<dyn Diagnostic>> {
-    vec![Box::new(SkewError::Busy {
-        own: "0.2.0+b".to_string(),
-        daemon: "0.1.0+a".to_string(),
-        harps: vec!["brisk-copper-moth".to_string()],
-    })]
+    vec![
+        Box::new(SkewError::Busy {
+            own: "0.2.0+b".to_string(),
+            daemon: "0.1.0+a".to_string(),
+            harps: vec!["brisk-copper-moth".to_string()],
+        }),
+        Box::new(SkewError::Mismatch {
+            own: "0.2.0+b".to_string(),
+            daemon: "0.1.0+a".to_string(),
+        }),
+    ]
 }
 
 #[cfg(test)]

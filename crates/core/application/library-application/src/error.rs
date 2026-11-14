@@ -457,6 +457,10 @@ pub enum Notice {
     /// `place` is the config place that said `host`: `engines.<engine>`,
     /// or the agent's own `agents.<agent>` (owner ruling of 2026-11-13).
     SessionHomeHost { engine: String, place: String },
+    /// A server the launch carries is named `ctxloom`, the name every
+    /// session's engine registers ctxloom's own MCP server under: shadowed
+    /// by it (OD-6, owner 2026-11-13).
+    McpServerShadowed { name: String },
     /// A run's checkout was left in place at its end (work in it, or one
     /// that would not go): by path and branch, and why.
     CheckoutLeft {
@@ -510,6 +514,7 @@ impl Diagnostic for Notice {
             Notice::UserSettingsLeftOut { .. } => code!("notice-user-settings-left-out"),
             Notice::WorkspaceUnavailable { .. } => code!("notice-workspace-unavailable"),
             Notice::SessionHomeHost { .. } => code!("notice-session-home-host"),
+            Notice::McpServerShadowed { .. } => code!("notice-mcp-server-shadowed"),
             Notice::CheckoutLeft { .. } => code!("notice-checkout-left"),
             Notice::StaleDistilled { .. } => code!("stale-distilled"),
             Notice::RuntimeOverride { change, .. } => match change {
@@ -582,6 +587,7 @@ impl Diagnostic for Notice {
                 ("engine", engine.as_str().into()),
                 ("place", place.as_str().into()),
             ],
+            Notice::McpServerShadowed { name } => vec![("name", name.as_str().into())],
             Notice::CheckoutLeft {
                 path,
                 branch,
@@ -803,6 +809,7 @@ fn notice_samples() -> Vec<Box<dyn Diagnostic>> {
             engine: s("claude-code"),
             place: s("engines.claude-code"),
         }),
+        Box::new(Notice::McpServerShadowed { name: s("ctxloom") }),
         Box::new(Notice::CheckoutLeft {
             path: s("/h/.ctxloom/worktrees/calm-otter/amber-swift-owl/reviewer"),
             branch: s("ctxloom/amber-swift-owl/reviewer"),

@@ -261,6 +261,9 @@ mod companion_assembly;
 #[path = "daemon.test.rs"]
 mod daemon;
 
+#[path = "mcp_serve.test.rs"]
+pub(crate) mod mcp_serve;
+
 #[path = "deps.test.rs"]
 mod deps;
 

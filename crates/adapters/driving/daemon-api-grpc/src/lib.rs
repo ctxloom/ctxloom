@@ -15,6 +15,7 @@
 //! - A refusal is answered under the gRPC code its `(refusal_status)`
 //!   declares, the typed refusal message packed in `google.rpc.Status.
 //!   details` (S11); a failure is INTERNAL.
+//! - `GetTranscript` and `AssembleContext` are served (slice 3).
 //! - `DeleteSession` and `SweepSessions` are served only in a
 //!   `session-destroy` build (M5, the feature of the same name); every other
 //!   RPC is the generated default, UNIMPLEMENTED, to the user bearer alone
@@ -239,6 +240,26 @@ impl Ctxloom for Served {
     ) -> Result<Response<v1::ListSessionsResponse>, Status> {
         self.answer(request, |calls, message| async move {
             calls.search_sessions(message).await
+        })
+        .await
+    }
+
+    async fn get_transcript(
+        &self,
+        request: Request<v1::GetTranscriptRequest>,
+    ) -> Result<Response<v1::Transcript>, Status> {
+        self.answer(request, |calls, message| async move {
+            calls.get_transcript(message).await
+        })
+        .await
+    }
+
+    async fn assemble_context(
+        &self,
+        request: Request<v1::AssembleContextRequest>,
+    ) -> Result<Response<v1::AssembledContext>, Status> {
+        self.answer(request, |calls, message| async move {
+            calls.assemble_context(message).await
         })
         .await
     }

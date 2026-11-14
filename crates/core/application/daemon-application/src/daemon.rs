@@ -534,10 +534,12 @@ impl<E: Edge, T: TokenSource> Daemon<E, T> {
             harp: harp.to_string(),
             depth: 1,
         };
+        let name = self.name_of(project_id, harp);
         let started = self.spawn_child(
             &hosted_engine,
             &at,
             harp,
+            &name,
             project_dir,
             &child,
             &handed,
@@ -671,6 +673,7 @@ impl<E: Edge, T: TokenSource> Daemon<E, T> {
         engine: &HostedEngine,
         at: &RunAt,
         harp: &str,
+        name: &str,
         project_dir: &str,
         child: &run_application::HostedChild,
         handed: &HandOff,
@@ -708,7 +711,7 @@ impl<E: Edge, T: TokenSource> Daemon<E, T> {
                     surfaces: child.surfaces.clone(),
                 },
                 workspace: run_launcher::Workspace::default(),
-                env: self.child_environment(at, harp, sent, hook_token),
+                env: self.child_environment(at, name, sent, hook_token),
                 owned: Vec::new(),
             },
         )?;
@@ -736,7 +739,7 @@ impl<E: Edge, T: TokenSource> Daemon<E, T> {
     fn child_environment(
         &self,
         at: &RunAt,
-        harp: &str,
+        name: &str,
         sent: &BTreeMap<String, String>,
         hook_token: &run_ports::Token,
     ) -> BTreeMap<String, String> {
@@ -756,12 +759,24 @@ impl<E: Edge, T: TokenSource> Daemon<E, T> {
         env.extend(run_ports::hook_environment(
             &self.place.endpoint,
             &at.run(),
-            &at.session,
+            name,
             hook_token,
             &self.place.cert,
         ));
-        env.insert(run_ports::HARP_VARIABLE.to_string(), harp.to_string());
         env
+    }
+
+    /// The resource name of the session `harp` of the project `project_id`
+    /// (s3-Q3: what its engine is told in `CTXLOOM_SESSION`), as the index
+    /// names it; empty while the project has no harp.
+    fn name_of(&self, project_id: &str, harp: &str) -> String {
+        let indexes = self.index.projector();
+        let index = indexes.index();
+        index
+            .project_harp(project_id)
+            .and_then(|project| sessions::SessionName::new(project, harp).ok())
+            .map(|name| name.to_string())
+            .unwrap_or_default()
     }
 
     /// Record what the children said; whether any said anything.

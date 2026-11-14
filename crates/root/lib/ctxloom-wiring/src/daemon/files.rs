@@ -69,6 +69,7 @@ pub(crate) struct Instance {
 }
 
 /// The daemon's files of one home.
+#[derive(Clone)]
 pub(crate) struct DaemonFiles {
     fs: Arc<dyn Fs>,
     dir: PathBuf,
@@ -232,7 +233,19 @@ impl DaemonFiles {
     pub(crate) fn log_path(&self) -> PathBuf {
         self.path(LOG_FILE)
     }
+
+    /// The test-support switch that kills the daemon once a client's write
+    /// is applied, before it is answered (slice 3 step 4), taken by the
+    /// daemon that finds it: whether it was there.
+    #[cfg(feature = "test-support")]
+    pub(crate) fn take_die_after_apply(&self) -> bool {
+        self.fs.remove_file(&self.path(DIE_AFTER_APPLY)).is_ok()
+    }
 }
+
+/// The kill switch's file, in the daemon's directory.
+#[cfg(feature = "test-support")]
+const DIE_AFTER_APPLY: &str = "test-die-after-apply";
 
 /// A hand-off's text: its header, then a `NAME=value` line per variable of
 /// the child's environment and a `@NAME=value` line per place of its

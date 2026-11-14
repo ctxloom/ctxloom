@@ -92,6 +92,7 @@ fn diagnostic_samples() -> Vec<Box<dyn angzarr_diagnostic::Diagnostic>> {
     all.extend(surface_ports::diagnostic_samples());
     all.extend(setup_application::diagnostic_samples());
     all.extend(session_cli::diagnostic_samples());
+    all.extend(mcp_server::diagnostic_samples());
     all.extend(hook_cli::diagnostic_samples());
     all.extend(session_files::diagnostic_samples());
     all.extend(sessions_application::diagnostic_samples());

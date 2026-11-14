@@ -7,7 +7,7 @@
 //! whose directory exists, defect 3) and the session minted; the session's
 //! lock is taken for the run's life (defect 1); the run's hook listener is
 //! served (a one-shot is its own owner: its child's hooks call back to it, to
-//! the session the engine is told by id, `CTXLOOM_SESSION`); the launcher,
+//! the session the engine is told by name, `CTXLOOM_SESSION`); the launcher,
 //! caught up on the store, finds it owed a runner, drives the engine for one
 //! turn and lets the run's lock go once the runner is started; the listener
 //! is stopped; the session is told its incarnation ended (ruling 85); the run
@@ -1050,10 +1050,6 @@ where
         for name in run_ports::HOOK_VARIABLES {
             env.remove(name);
         }
-        // The engine's environment is the only thing a hook process is
-        // given: the session's harp (for its statusline) and, below, the
-        // session's id it addresses its facts to.
-        env.insert(run_ports::HARP_VARIABLE.to_string(), harp.clone());
         // The running binary's directory leads the engine's PATH, so a hook's
         // bare program (this binary's file name, ruling 163) is this binary
         // and not another one the user has; the inherited PATH follows it,
@@ -1070,10 +1066,17 @@ where
             owned.push("PATH".to_string());
         }
         let run_text = text(&enqueued.run);
+        // The engine's environment is the only thing a hook process is
+        // given: the session by its resource name (s3-Q3), whose harp a
+        // statusline shows and whose UUIDv5 a hook addresses its facts to.
+        let name = self
+            .name_of(&harp)
+            .map(|name| name.to_string())
+            .unwrap_or_default();
         env.extend(run_ports::hook_environment(
             &told.endpoint,
             &run_text,
-            &session,
+            &name,
             &enqueued.hook_token,
             &told.cert,
         ));

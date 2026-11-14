@@ -17,6 +17,7 @@ mod error;
 mod interview;
 mod isolation;
 mod library;
+mod mcp;
 mod oneshot;
 mod process_env;
 mod program;
@@ -228,6 +229,7 @@ pub fn catalog_sources() -> Vec<angzarr_presentation::Source> {
         daemon_ports::EN_US,
         ctxloom_store_sqlite::OPENER_EN_US,
         session_files::EN_US,
+        mcp_server::EN_US,
     ];
     sources.extend(sessions_application::CATALOGS);
     sources.extend(isolation_application::CATALOGS);

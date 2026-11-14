@@ -283,10 +283,14 @@ removal refused if one is spared or skipped
 worktree), else the clean ones removed,
 then the session destroyed (F2; a worktree that went dirty in between is
 left and the session kept). The sweep (both verbs' age form) is as whole
-(owner ruling 2026-11-13): each session's checkouts are classified first,
-changing nothing, and a session one of them spares or skips keeps EVERY
-checkout, its clean ones held in the report saying which checkout spared
-it; only a session none spares has its clean ones removed on `--yes`
+(owner rulings 2026-11-13 and 2026-11-14): checkouts go ONLY as part of
+destroying their session. Each session's checkouts are classified first,
+changing nothing, and a session the sweep keeps, for ANY reason (running
+or unproven, marked keep, a checkout spared or skipped, no purge age,
+active since it, within its retention, its purge refused or failed), keeps
+EVERY checkout, its clean ones held in the report saying why the session
+was kept; only a session it purges has its clean ones removed on
+`--yes`, by that purge, through `reclaim_application::remove`'s order
 (`reclaim_application::sweep`). The streams go first, so a
 failure removing the directory leaves a session nothing lists. A hook fact
 redelivered after it finds no session and records nothing. It is refused, as

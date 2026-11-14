@@ -6,8 +6,8 @@
 //! `session remove` is [`remove`]: a session's worktrees classified first,
 //! the whole refused if one is unsafe, else the worktrees removed and then
 //! the session destroyed (the daemon runs it, slice 2). The sweep acts
-//! through it and the worktree leaf (`session worktrees purge`), so it
-//! inherits every refusal they make: a session whose lock does not prove it dead, one marked keep,
+//! through it alone (its worktree leaf only classifies), so a checkout goes
+//! only with its session, and the sweep inherits every refusal it makes: a session whose lock does not prove it dead, one marked keep,
 //! one whose transcript is within its retention, and a scratch worktree with
 //! uncommitted work, spared in place. The reclaim of the disposable members
 //! of old sessions is S6's: it is not decided here.

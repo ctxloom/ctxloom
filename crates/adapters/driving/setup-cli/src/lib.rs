@@ -54,6 +54,8 @@ pub struct UseCases<'a> {
     /// The setup interview, read through the project's catalog (owner
     /// ruling 128).
     pub prompts: &'a dyn Prompts,
+    /// The companion registration a first init offers (M4).
+    pub companions: &'a dyn init_application::Companions,
 }
 
 fn failure(cause: impl Diagnostic + 'static, exit: Exit) -> Failure {
@@ -201,6 +203,52 @@ fn token_guide() -> Notice {
     )
 }
 
+/// A first init's companion questions, put at the terminal, and what came
+/// of the answers said.
+fn ask_companions(
+    uses: &UseCases<'_>,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> Result<(), Failure> {
+    use init_application::{Added, Answer, Asked};
+    let answers: Vec<Answer> = init_application::companion_questions(uses.companions)
+        .into_iter()
+        .map(|question| Answer {
+            given: match question.asked {
+                Asked::YesNo => Some(
+                    if uses.terminal.confirm(&question.prompt) {
+                        "yes"
+                    } else {
+                        "no"
+                    }
+                    .to_string(),
+                ),
+                Asked::Words => uses.terminal.ask(&question.prompt, ""),
+            },
+            id: question.id,
+        })
+        .collect();
+    let done = init_application::register_companions(uses.companions, &answers);
+    for (name, added) in &done.added {
+        match added {
+            Added::New => writeln!(out, "Added companion \"{name}\""),
+            Added::Already => writeln!(out, "Companion \"{name}\" is already registered"),
+        }
+        .map_err(output)?;
+    }
+    for (name, program) in &done.missing {
+        writeln!(
+            err,
+            "{PROG}: could not add companion \"{name}\": its program {program} is not on this machine"
+        )
+        .map_err(output)?;
+    }
+    for (name, why) in &done.failed {
+        writeln!(err, "{PROG}: could not add companion \"{name}\": {why}").map_err(output)?;
+    }
+    Ok(())
+}
+
 fn init(
     uses: &UseCases<'_>,
     sub: &ArgMatches,
@@ -263,6 +311,11 @@ fn init(
                 "Conditional guidance loads only when it applies"
             };
             writeln!(out, "{said} (config.premised: {word})").map_err(output)?;
+        }
+        // Then the companions (M4): asked here, the questions and answers
+        // data at the use case's port (D2); off a terminal, none.
+        if uses.terminal.is_terminal() {
+            ask_companions(uses, out, err)?;
         }
     }
     for remote in &done.remotes {

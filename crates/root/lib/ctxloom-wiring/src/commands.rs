@@ -410,6 +410,7 @@ impl Commands {
             terminal: &terminal,
             sessions: &sessions,
             prompts: &sessions,
+            companions: &sessions,
         };
         setup_cli::run(&uses, noun, call, catalog, out, err)
     }

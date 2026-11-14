@@ -105,6 +105,20 @@ pub struct Interviewed {
     pub notices: Vec<Failure>,
 }
 
+/// Between one section of the opening and the next: the assembly's own
+/// separator (`library::compose`).
+const SECTION_SEPARATOR: &str = "\n\n---\n\n";
+
+/// ctxloom's setup interview, then each companion's setup guidance as it
+/// wrote it (j000300: contributions add up, nothing replaces anything); an
+/// empty one adds nothing.
+fn composed(own: String, guidance: &[String]) -> String {
+    guidance
+        .iter()
+        .filter(|g| !g.trim().is_empty())
+        .fold(own, |opening, g| format!("{opening}{SECTION_SEPARATOR}{g}"))
+}
+
 /// Interview her if there is a terminal, then offer the restart.
 pub fn interview(
     terminal: &dyn Terminal,
@@ -123,6 +137,7 @@ pub fn interview(
         cause: refused.cause,
         exit: refused.exit,
     })?;
+    let opening = composed(opening, &prompts.companion_guidance());
     let mut ended = sessions.interview(&opening)?;
     let mut notices = std::mem::take(&mut ended.notices);
     let outcome = if !ended.clean() {

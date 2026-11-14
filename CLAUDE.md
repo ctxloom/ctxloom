@@ -2135,7 +2135,17 @@ and writes the answer; then, in the same style, whether conditional guidance
 loads only when it applies or always (`init_application::PREMISED_QUESTION`,
 suggesting `on-demand`; an answer that is neither word is asked again, at
 most three times, then the suggestion stands), and writes it as
-`config.premised`. Off a terminal neither is asked and nothing is written.
+`config.premised`. Then it offers the companions (M4): an `Add the <n>
+companion?` `[Y/n]` for each shipped companion whose program is on her
+`PATH`, then `Add companions by name?`; each accepted or named one is
+registered as `companion add` registers it, one whose program is not there
+said and skipped (`init_application::companion_questions` and
+`register_companions`: the questions out and the answers in as data at the
+use case's port, D2; the terminal is setup-cli's alone). Off a terminal none
+is asked and nothing is written. The interview's opening is the setup
+interview, then each enabled companion's `init.setup_guidance` as it wrote
+it, each after the assembly's `---` separator (`Prompts::companion_guidance`,
+j000300; no words of ctxloom's are added).
 
 `legacy.go` (owner ruling 162) says whether Go ctxloom still runs on this
 machine beside this one; both write hook entries into the user's shared

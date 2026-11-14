@@ -36,6 +36,19 @@ impl Library {
         self.run(flags, |p| p.companion_remove(name, yes))
     }
 
+    /// Whether the companion `name`'s program is on the `PATH` of the
+    /// caller's site: looked for, never run (init's offer of the shipped
+    /// companions).
+    pub fn companion_available(&self, flags: &Flags, name: &str) -> bool {
+        self.run(flags, |p| {
+            Ok(p.companions
+                .as_ref()
+                .is_some_and(|probe| probe.find(&program(name), &p.probe_site).is_some()))
+        })
+        .result
+        .unwrap_or(false)
+    }
+
     /// `companion enable <name>` and `companion disable <name>`: the
     /// registration's state set in the home config (OD-9).
     pub fn companion_set_state(

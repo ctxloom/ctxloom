@@ -319,3 +319,14 @@ fn test_remove_of_another_name_than_the_registered_one_is_refused() {
     }
     assert_eq!(mem.writes(), writes);
 }
+
+// init's offer: a companion's program is looked for at the caller's site,
+// never run.
+#[test]
+fn test_a_companion_is_available_when_its_program_is_on_the_path() {
+    let (library, mem) = world();
+    mem.set_companion("reprise", CompanionLoadout::Absent);
+    assert!(library.companion_available(&plain(), "ltk"));
+    assert!(!library.companion_available(&plain(), "reprise"));
+    assert!(mem.asked_companions().is_empty(), "nothing was run");
+}

@@ -462,6 +462,7 @@ impl Project {
         if request.no_context {
             return surface_ports::Inputs {
                 statusline: self.config.statusline(),
+                no_context: true,
                 ..surface_ports::Inputs::default()
             };
         }

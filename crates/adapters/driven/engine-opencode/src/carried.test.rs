@@ -119,6 +119,14 @@ fn test_each_server_is_set_under_mcp_of_the_session_config() {
         )
         .unwrap()
     );
+    // OD-38 (owner, 2026-11-13): a launch with no context is handed no
+    // server at all, ctxloom's own included.
+    let none = Inputs {
+        no_context: true,
+        ..Inputs::default()
+    };
+    let none = Json::parse(&file(&prepare(none), CONFIG_FILE).unwrap()).unwrap();
+    assert_eq!(none.get("mcp"), None, "{none:?}");
     // Hers of the same name is replaced (OD-6: ctxloom's own keeps it).
     let replaced = super::with_ctxloom(
         Json::parse(r#"{"mcp":{"ctxloom":{"type":"remote","url":"https://x/"}}}"#).unwrap(),

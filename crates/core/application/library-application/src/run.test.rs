@@ -44,6 +44,10 @@ fn test_a_run_with_no_context_carries_no_context_and_no_server_on_the_agent_s_en
         .plan;
     assert!(with.context.contains("RULES-BODY"), "{}", with.context);
     assert!(!with.surfaces.mcp.is_empty());
+    assert!(
+        !with.surfaces.no_context,
+        "an ordinary run is offered servers"
+    );
     let planned = library.dry_run(&plain(), &no_context(RunRequest::default()));
     let plan = planned.result.unwrap().plan;
     assert_eq!(plan.context, "");
@@ -54,6 +58,8 @@ fn test_a_run_with_no_context_carries_no_context_and_no_server_on_the_agent_s_en
     assert!(plan.surfaces.skills.is_empty());
     assert!(plan.surfaces.hooks.is_empty());
     assert!(plan.surfaces.deny_tools.is_empty());
+    // The engine is told so, and registers no server of ctxloom's either.
+    assert!(plan.surfaces.no_context);
     assert_eq!(plan.tokens, 0);
     assert_eq!(plan.prompt, "hello");
     assert_eq!(plan.engine, "opencode");

@@ -775,7 +775,8 @@ ctxloom's hooks, which are `ctxloom-hooks.json`, the file `--settings` names
 "ctxloom never edits the document", made beside it so the document stays
 as written, claude merging the lists of its scopes;
 `engine_claude::drive::OUR_TOOLS`; under `host`, appended once to the
-document's own `allow` there)
+document's own `allow` there; a launch with no context, which offers no
+server, allows none)
 (owner ruling 145: claude 2.1.322 refuses a settings file whole for one
 invalid value, hooks included, so a bad value disables the block alone; the
 probe is in the ruling-145 commits). User scope is claude's lowest: a single
@@ -1967,8 +1968,11 @@ domain and no provenance (owner, 2026-11-13: no `distilled_in`, no
 one-shot, the session and the dry run alike (`RunRequest::no_context`): the
 plan composes nothing (no profile, fragment, premise index or companion
 guidance) and carries no surface of the profiles' and NO MCP server,
-ctxloom's own included (a server's instructions are context): the launch's
-`ctxloom-mcp.json` lists none. The capture hooks are the engine's and stay;
+ctxloom's own included (a server's instructions are context): the plan's
+surfaces say `no_context` (`surface_ports::Inputs::no_context`), so claude's
+`ctxloom-mcp.json` lists none (`--mcp-config` still names it) and its hooks
+file allows none of ctxloom's tools (OD-4's allowance is for a server
+offered), and opencode's `opencode.json` has no `mcp.ctxloom`. The capture hooks are the engine's and stay;
 the agent is `--agent`, else the default agent where there is one, else
 none (the default engine), and keeps its engine, model and permissions; the
 statusline stays as configured. Beside `--profile`, `--fragment` or `--tag`
@@ -2051,7 +2055,8 @@ selftest`.
 `=3.9.0`, default features off, `server` and `transport-io` only: ruling 150;
 3.9.0 because cargo-deny refuses 3.8.0's advisory, and it brings sha2 0.11
 and its family into the lock) is the runner's callback into the daemon.
-Every session home registers it: claude's `ctxloom-mcp.json` as
+Every session home registers it, but for a launch with no context (`run
+--no-context`, OD-38; the Distill section): claude's `ctxloom-mcp.json` as
 `"ctxloom": {"command": <program>, "args": ["mcp", "serve"]}`, opencode's
 `opencode.json` as `mcp.ctxloom = {type: local, command: [<program>, "mcp",
 "serve"], enabled: true}` (`surface_ports::CTXLOOM_SERVER`; a carried server

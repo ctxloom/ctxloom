@@ -1823,6 +1823,41 @@ fn the_servers_ride_an_mcp_config_the_command_names() {
     }
 }
 
+// OD-38 (owner, 2026-11-13): "no context, no mcp server (mcp instructions
+// are context)". A launch with no context lists no server in
+// `ctxloom-mcp.json`, ctxloom's own included, and so allows none of its
+// tools: the hooks file holds no `permissions` in the session home, and
+// under `host` the agent's document alone; the hooks stay.
+#[test]
+fn a_launch_with_no_context_registers_no_server_and_allows_none_of_ours() {
+    let bare = || surface_ports::Inputs {
+        no_context: true,
+        ..Default::default()
+    };
+    for interactive in [false, true] {
+        let prepared = prepare_carrying(interactive, SessionHome::Session, None, bare());
+        assert_eq!(
+            surface_ports::Json::parse(&file_of(&prepared, MCP_CONFIG_FILE).unwrap()).unwrap(),
+            doc(r#"{"mcpServers":{}}"#)
+        );
+        let hooks = hooks_doc(&prepared);
+        assert_eq!(hooks.get("permissions"), None, "{hooks:?}");
+        assert!(hooks.get("hooks").is_some(), "{hooks:?}");
+    }
+    let host = prepare_carrying(
+        false,
+        SessionHome::Host,
+        Some(r#"{"allow":["Read"]}"#),
+        bare(),
+    );
+    assert_eq!(
+        hooks_doc(&host).get("permissions"),
+        Some(&doc(r#"{"allow":["Read"]}"#))
+    );
+    let none = prepare_carrying(false, SessionHome::Host, None, bare());
+    assert_eq!(hooks_doc(&none).get("permissions"), None);
+}
+
 // The commands and skills are the session home's (the session's
 // CLAUDE_CONFIG_DIR): claude's user-scope `commands/` and `skills/`.
 #[test]

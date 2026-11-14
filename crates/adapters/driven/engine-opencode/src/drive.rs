@@ -176,8 +176,13 @@ impl Engine for Opencode {
         let carried = &request.surfaces.0;
         // The launch's MCP servers in the session's config (M6, j000400).
         let base = crate::carried::with_servers(base, &carried.mcp);
-        // And ctxloom's own, every session's (slice 3 step 3).
-        let base = crate::carried::with_ctxloom(base, &self.program);
+        // And ctxloom's own, every session's (slice 3 step 3), but for a
+        // launch with no context, which is handed no server at all (OD-38).
+        let base = if carried.no_context {
+            base
+        } else {
+            crate::carried::with_ctxloom(base, &self.program)
+        };
         Ok(Prepared {
             files: {
                 let mut files = home::files(

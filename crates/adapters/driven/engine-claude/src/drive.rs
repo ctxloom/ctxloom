@@ -436,11 +436,17 @@ fn with_deny(document: Option<Json>, deny: &[String]) -> Option<Json> {
 }
 
 /// The servers the launch carries, as claude's MCP config (`--mcp-config`):
-/// `{"mcpServers": {...}}`, and always ctxloom's own (slice 3 step 3, T20):
+/// `{"mcpServers": {...}}`, and ctxloom's own (slice 3 step 3, T20):
 /// `program`'s `mcp serve`, with no identity in the entry (the engine's
 /// environment carries the session's name, `CTXLOOM_SESSION`). A carried
-/// server named `ctxloom` is shadowed by it (OD-6; the plan names it).
+/// server named `ctxloom` is shadowed by it (OD-6; the plan names it). A
+/// launch with no context (OD-38) lists no server at all, ctxloom's own
+/// included.
 fn mcp_config(surfaces: &surface_ports::Inputs, program: &str) -> String {
+    if surfaces.no_context {
+        let doc = Json::object([("mcpServers", Json::Object(Vec::new()))]);
+        return format!("{}\n", doc.pretty());
+    }
     let mut servers = surfaces
         .mcp
         .iter()
@@ -502,7 +508,8 @@ fn user_base(user: Option<&run_ports::UserSettings>) -> (Json, Option<LeftOut>) 
 /// ctxloom's hooks file, which the command names with `--settings`: the
 /// hooks (the terminal's events or a child's turn's) and, in the session
 /// home, nothing else but ctxloom's allowance of its own tools
-/// ([`OUR_TOOLS`], OD-4). Under `session_home: host` the config dir is the
+/// ([`OUR_TOOLS`], OD-4; none for a launch with no context, which offers
+/// no server, OD-38). Under `session_home: host` the config dir is the
 /// user's own `~/.claude`, whose `settings.json` ctxloom never writes, so the
 /// agent's permissions are this file's `permissions` there (the one key, so
 /// it never overwrites the hooks), with the cost ruling 145 avoids in the
@@ -539,7 +546,14 @@ fn hooks_settings(request: &PrepareRequest, program: &str) -> Result<String, Eng
         SessionHome::Host => with_deny(document(request)?, &surfaces.deny_tools),
         SessionHome::Session => None,
     };
-    settings.set("permissions", with_ours(permissions));
+    // No context, no server (OD-38): none of ctxloom's tools to allow.
+    if surfaces.no_context {
+        if let Some(permissions) = permissions {
+            settings.set("permissions", permissions);
+        }
+    } else {
+        settings.set("permissions", with_ours(permissions));
+    }
     Ok(format!("{}\n", settings.pretty()))
 }
 

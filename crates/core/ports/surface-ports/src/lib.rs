@@ -207,6 +207,11 @@ pub struct Inputs {
     pub statusline: bool,
     pub commands: Vec<Command>,
     pub skills: Vec<Skill>,
+    /// A launch with no context (`run --no-context`, owner OD-38): the
+    /// engine is handed no MCP server at all, ctxloom's own included (a
+    /// server's instructions are context too), and so no allowance of its
+    /// tools. Never set at rest.
+    pub no_context: bool,
 }
 
 /// What a claim on a JSON document does.

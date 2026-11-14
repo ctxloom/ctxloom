@@ -462,15 +462,62 @@ message MoveBundleResponse {
   repeated Notice notices = 92;
 }
 
-// `bundle push <bundle> <remote>` (AIP-136). Its response's fields are
-// B4's to write (the design gives `Pushed`, "field for field"; see the
-// open note at the end of this file).
+// `bundle push <bundle> [remote] [--message] [--pr]` (AIP-136; B4, the
+// owner's rulings on the B4 draft, 2026-11-13).
 message PushBundleRequest {
   string name = 1;
   string remote = 2;
+  // INPUT_ONLY: the commit's (and the pull request's) title; empty, the
+  // default `Update bundle: <name>`. was: --message.
+  string commit_message = 3;
+  // INPUT_ONLY: open a pull request on the forge instead of committing to
+  // the default branch. was: --pr.
+  bool pull_request = 4;
   string request_id = 90;
   bool validate_only = 92;
   Globals globals = 96;
+}
+
+// What a push did. was: Pushed (`status`, `create_pr`, `commit_sha`,
+// `pr_url`).
+message PushBundleResponse {
+  // What a push did. was: status (`pushed`, `pr-created`) and create_pr,
+  // which only echoed --pr (AIP-216: an outcome is a state).
+  enum State {
+    STATE_UNSPECIFIED = 0;
+    // One commit on the remote's default branch.
+    COMMITTED = 1;
+    // A branch `ctxloom/bundle/<bundle>` and a pull request on the forge.
+    PULL_REQUEST_OPENED = 2;
+  }
+
+  // OUTPUT_ONLY: the Bundle pushed, `projects/{p}/bundles/{b}` (as
+  // ExportBundleResponse.bundle).
+  string bundle = 1;
+  // OUTPUT_ONLY: the local bundle's manifest.
+  string path = 2;
+  // Printed true: a push has no preview yet.
+  optional bool applied = 3;
+  repeated string detail = 4;
+  string apply_command = 5;
+  // OUTPUT_ONLY: the Remote, `projects/{p}/remotes/{r}`. was: its config name.
+  string remote = 6;
+  // OUTPUT_ONLY: where the bundle is in the remote's repository.
+  string target_path = 7;
+  // OUTPUT_ONLY: the commit's (and the pull request's) title.
+  string title = 8;
+  // OUTPUT_ONLY. was: status and create_pr.
+  State state = 9;
+  // OUTPUT_ONLY: the files' total size (a JSON string, OQ-12).
+  uint64 size_bytes = 10;
+  // OUTPUT_ONLY. was: commit_sha.
+  string commit = 11;
+  // OUTPUT_ONLY: the pull request's page; set only for PULL_REQUEST_OPENED.
+  // was: pr_url.
+  string pull_request_url = 12;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
 }
 
 // endregion
@@ -1578,6 +1625,76 @@ message SetDefaultRemoteResponse {
   repeated Notice notices = 92;
 }
 
+// One bundle a remote publishes, not installed: so, as RemoteFound, no
+// resource name (OQ-B2). was: BrowseItem (`is_dir`, always true, dropped).
+message BrowsedItem {
+  // Its ID in the remote. was: name (AIP-122).
+  string item = 1;
+  // BUNDLE today. was: type.
+  ItemKind kind = 2;
+  // Its path in the remote's bundles directory.
+  string path = 3;
+  // What `deps pull` (through a profile) would pin. was: pull_ref.
+  string pull_reference = 4;
+}
+
+// `remote show <remote> [--recursive]` (AIP-136, `:browse`; `--recursive`
+// changes nothing today and is not in the request).
+message BrowseRemoteRequest {
+  // The Remote, `projects/{p}/remotes/{r}`.
+  string name = 1;
+  int32 page_size = 80;
+  string page_token = 81;
+}
+
+// was: Browsed (`count`, the list's length, and `warnings`, never filled,
+// dropped).
+message BrowseRemoteResponse {
+  // The Remote, `projects/{p}/remotes/{r}`. was: its config name.
+  string remote = 1;
+  string url = 2;
+  repeated BrowsedItem items = 3;
+  string next_page_token = 80;
+}
+
+// A repository a forge search found, not registered (so no resource name).
+// was: DiscoveredRepo.
+message DiscoveredRepository {
+  string owner = 1;
+  // The repository's name on the forge. was: name (AIP-122).
+  string repository = 2;
+  string description = 3;
+  // was: stars (AIP-141; uint32, OQ-12).
+  uint32 star_count = 4;
+  string url = 5;
+  // `github` today; the same words as Remote.forge.
+  string forge = 6;
+  // The command that registers it as a Remote.
+  string add_command = 7;
+}
+
+// `remote discover [query] [--source] [--limit] [--stars]` (AIP-136,
+// stateless).
+message DiscoverRemotesRequest {
+  string parent = 1;
+  string query = 2;
+  // The forge searched. was: --source.
+  string source = 3;
+  // was: --stars.
+  uint32 min_star_count = 4;
+  // was: --limit (its 30 the default page).
+  int32 page_size = 80;
+  string page_token = 81;
+  Globals globals = 96;
+}
+
+// was: Discovered (`count`, the list's length, and `errors`, never filled,
+// dropped).
+message DiscoverRemotesResponse {
+  repeated DiscoveredRepository repositories = 1;
+  string next_page_token = 80;
+}
+
 // endregion
 
 // region dependencies: ctxloom.dev/Dependency
@@ -1624,6 +1741,343 @@ message ReleaseDependencyRequest {
   string name = 1;
   string request_id = 90;
   Globals globals = 96;
+}
+
+// How an item or a file differs between two pins. was: pin_changes::Change
+// (a word). Shared by ItemChange and FileChange.
+enum ChangeKind {
+  CHANGE_KIND_UNSPECIFIED = 0;
+  ADDED = 1;
+  REMOVED = 2;
+  MODIFIED = 3;
+}
+
+// What a hook or MCP server executes or dials; env and header values are
+// fingerprints, never the value. was: ExecSpec.
+message ExecSpec {
+  string command = 1;
+  repeated string args = 2;
+  map<string, string> env = 3;
+  string url = 4;
+  map<string, string> headers = 5;
+}
+
+// was: ExecDelta {before, after}.
+message ExecDelta {
+  // None when added. was: before.
+  ExecSpec old_spec = 1;
+  // None when removed. was: after.
+  ExecSpec new_spec = 2;
+}
+
+// One item that differs. was: ItemChange.
+message ItemChange {
+  // was: kind (a word; `mcp` is MCP_SERVER).
+  ItemKind kind = 1;
+  // The item's ID in its bundle. was: name (AIP-122).
+  string item = 2;
+  ChangeKind change = 3;
+  // Hooks and MCP servers only.
+  ExecDelta exec = 4;
+}
+
+// One file of the tree that differs. was: FileChange.
+message FileChange {
+  string path = 1;
+  ChangeKind change = 2;
+  // A unified diff, for a script only.
+  string diff = 3;
+}
+
+// What moving (or first making) one pin brings in, shared by a pull's
+// first pins and an upgrade's moves. was: PinChange.
+message PinChange {
+  // What a pin's move is worth to its dependants (semver). was: compat.
+  enum Compatibility {
+    // A first pin: there is nothing to compare. was: compat absent.
+    COMPATIBILITY_UNSPECIFIED = 0;
+    BREAKING = 1;
+    COMPATIBLE = 2;
+    // Nothing says (not semver, a pre-release, a move down, no change).
+    UNKNOWN = 3;
+  }
+
+  // The lock identity. was: identity.
+  string reference = 1;
+  string url = 2;
+  // Empty for a first pin. was: from_sha.
+  string old_commit = 3;
+  // was: to_sha.
+  string new_commit = 4;
+  // was: from_version.
+  string old_version = 5;
+  // was: to_version.
+  string new_version = 6;
+  Compatibility compatibility = 7;
+  repeated ItemChange items = 8;
+  repeated FileChange files = 9;
+}
+
+// One reference a pull went over. was: SyncItem (synced, skipped) and
+// FailedItem (failed).
+message PullResult {
+  // What a pull did with it. was: status (AIP-216).
+  enum State {
+    STATE_UNSPECIFIED = 0;
+    // A first pin, installed.
+    INSTALLED = 1;
+    // An existing pin installed again (absent from the cache, or --force).
+    REINSTALLED = 2;
+    // At its pin and installed: kept at its locked commit. was: skipped.
+    KEPT = 3;
+    FAILED = 4;
+  }
+
+  // The Dependency, `projects/{p}/dependencies/{id}` (OQ-15), whether or
+  // not the lock now holds it (a failed first pin).
+  string dependency = 1;
+  // The lock identity.
+  string reference = 2;
+  // BUNDLE today. was: type.
+  ItemKind kind = 3;
+  State state = 4;
+  // FAILED only: why, and what to do.
+  string error = 5;
+  string fix = 6;
+}
+
+// A pin kept although the manifest now asks for another constraint (only
+// `deps upgrade` moves it). was: ConstraintChangeView.
+message ConstraintChange {
+  // was: identity.
+  string reference = 1;
+  // The constraint the lock pinned under.
+  string pinned = 2;
+  // The constraint the profiles declare now.
+  string declared = 3;
+  // The commit it stays at. was: sha.
+  string commit = 4;
+}
+
+// A repository whose state a reconciliation could not establish: its
+// references are kept (the evidence rule). was: UncheckedRemote.
+message UnreachableRemote {
+  string url = 1;
+  string reason = 2;
+  // was: refs.
+  repeated string references = 3;
+}
+
+// What a pull with the lock found upstream. was: ReconcileView.
+message Reconciliation {
+  // References a readable repository no longer serves, dropped. was: gone.
+  repeated string gone_references = 1;
+  // was: unreachable.
+  repeated UnreachableRemote unreachable_remotes = 2;
+}
+
+// A kind of surface a refresh would be refused, and why. was: Refused.
+message RefusedKind {
+  string kind = 1;
+  string reason = 2;
+  string fix = 3;
+}
+
+// One engine's part of a refresh. was: refresh::Engine.
+message RefreshEngine {
+  // The Engine, `projects/{p}/engines/{e}`.
+  string engine = 1;
+  // was: wrote.
+  repeated string written_kinds = 2;
+  // was: released.
+  repeated string released_kinds = 3;
+  // was: refused.
+  repeated RefusedKind refused_kinds = 4;
+}
+
+// The project refresh a pull previewed and did not write for want of --yes.
+// was: refresh::Skipped.
+message ProjectRefresh {
+  // The directory nothing was written into.
+  string target = 1;
+  repeated RefreshEngine engines = 2;
+}
+
+// `deps pull [--force] [--lock=false] [--yes]` (AIP-136, collection `:pull`).
+message PullDependenciesRequest {
+  string parent = 1;
+  // Install every reference again. was: --force.
+  bool force = 2;
+  // Reconcile the lock with upstream; unset is true. was: --lock.
+  optional bool lock = 3;
+  string request_id = 90;
+  // The project refresh's preview (`!--yes`); the pull itself applies.
+  bool validate_only = 92;
+  Globals globals = 96;
+}
+
+// was: PullReport, flattened with refresh_skipped (`status`, `message` and
+// the counts `total`, `installed`, `reinstalled`, `errors` dropped: each is
+// read from `results`, so an empty pull is `{}`).
+message PullDependenciesResponse {
+  // 1 unused: a pull has no single resource.
+  // The lockfile (OQ-B8): declared, unset until the view says it.
+  string path = 2;
+  // Printed true: a pull always applies; only its refresh can be a preview.
+  optional bool applied = 3;
+  repeated string detail = 4;
+  // `ctxloom deps pull --yes` when skipped_refresh would write or release
+  // something.
+  string apply_command = 5;
+  // Every reference of the closure. was: synced, skipped and failed.
+  repeated PullResult results = 6;
+  // Lock entries nothing reaches any more, dropped. was: removed.
+  repeated string removed_references = 7;
+  // Installed trees taken out of the cache.
+  repeated string pruned_checkouts = 8;
+  // Parent profiles the walk could not expand; the lock entries they own
+  // are kept. was: unreachable.
+  repeated string unreachable_profiles = 9;
+  // True when unreachable_profiles is not empty.
+  bool incomplete = 10;
+  repeated ConstraintChange constraint_changes = 11;
+  // What each first pin brings in.
+  repeated PinChange changes = 12;
+  // Set when the lock was written (--lock, the default). was: reconcile.
+  Reconciliation reconciliation = 13;
+  // Set when the refresh was previewed and not written. was: refresh_skipped.
+  ProjectRefresh skipped_refresh = 14;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
+}
+
+// One lock entry (or the one reference asked) and where it stands. was:
+// UpdateRow, UncheckedRow and CheckedRef.
+message DependencyCheck {
+  // Where it stands. was: CheckReport's split into `updates` and
+  // `unchecked`, and CheckedRef's `in_lockfile` and `up_to_date`.
+  enum State {
+    STATE_UNSPECIFIED = 0;
+    // At the latest commit its constraint allows (`deps check <ref>` only:
+    // a whole check lists no current entry).
+    CURRENT = 1;
+    // A newer commit satisfies its constraint. was: an `updates` row.
+    OUTDATED = 2;
+    // Neither verified current nor found outdated. was: an `unchecked` row.
+    UNCHECKED = 3;
+    // `deps check <ref>` of a reference the lock does not hold. was:
+    // in_lockfile false.
+    NOT_PINNED = 4;
+  }
+
+  // How a constraint selects its commit. was: selector (a word).
+  enum Selector {
+    SELECTOR_UNSPECIFIED = 0;
+    SHA = 1;
+    TAG = 2;
+    VERSION = 3;
+    BRANCH = 4;
+  }
+
+  // Why an entry was not checked. was: reason (a word).
+  enum UncheckedReason {
+    UNCHECKED_REASON_UNSPECIFIED = 0;
+    UNPARSEABLE = 1;
+    UNRESOLVABLE = 2;
+    // Its repository's clone could not be refreshed (see refresh_failures).
+    NOT_REFRESHED = 3;
+  }
+
+  // The Dependency, `projects/{p}/dependencies/{id}`; empty for NOT_PINNED.
+  string dependency = 1;
+  // The lock identity (or the reference as typed). was: ref.
+  string reference = 2;
+  // BUNDLE today. was: type.
+  ItemKind kind = 3;
+  State state = 4;
+  // The pinned commit. was: current_sha.
+  string commit = 5;
+  // CURRENT, OUTDATED. was: latest_sha.
+  string latest_commit = 6;
+  // OUTDATED.
+  Selector selector = 7;
+  // The constraint as written. was: requested (an update) and constraint
+  // (an unchecked row).
+  string constraint = 8;
+  // OUTDATED: the version the constraint resolved to. was: resolved.
+  string resolved_version = 9;
+  // UNCHECKED.
+  string url = 10;
+  UncheckedReason reason = 11;
+  string error = 12;
+}
+
+// A clone that could not be refreshed before a check.
+message RefreshFailure {
+  string url = 1;
+  string error = 2;
+}
+
+// `deps check` and `deps check <ref>` (AIP-136, collection `:check`; one
+// method for both, OQ-B6).
+message CheckDependenciesRequest {
+  string parent = 1;
+  // One reference (short or canonical) to check; empty, the whole closure.
+  string reference = 2;
+  int32 page_size = 80;
+  string page_token = 81;
+  Globals globals = 96;
+}
+
+// was: CheckReport (`missing_default_profiles` and `missing_defaults_error`,
+// never written, dropped) and CheckedRef.
+message CheckDependenciesResponse {
+  // The outdated and unchecked entries for a whole check; the one
+  // reference for `deps check <ref>`.
+  repeated DependencyCheck checks = 1;
+  // The closure lock's entries. was: entries.
+  uint32 dependency_count = 2;
+  // Entries with no commit recorded, not checked. was: skipped_empty.
+  uint32 skipped_count = 3;
+  repeated RefreshFailure refresh_failures = 4;
+  string next_page_token = 80;
+}
+
+// `deps upgrade [reference] [--yes]` (AIP-136, collection `:upgrade`).
+message UpgradeDependenciesRequest {
+  string parent = 1;
+  // One reference whose pin alone moves; empty, every pin.
+  string reference = 2;
+  string request_id = 90;
+  // `!--yes`.
+  bool validate_only = 92;
+  Globals globals = 96;
+}
+
+// was: UpgradeReport.
+message UpgradeDependenciesResponse {
+  // 1 unused: an upgrade has no single resource.
+  // The lockfile (OQ-B8): declared, unset until the view says it.
+  string path = 2;
+  // Printed true or false (OQ-7).
+  optional bool applied = 3;
+  repeated string detail = 4;
+  // On a preview that would move or drop a pin: `ctxloom deps upgrade
+  // [reference] --yes` (OQ-8).
+  string apply_command = 5;
+  // Each pin that moves (or is first made), and what it brings in.
+  repeated PinChange changes = 6;
+  // Lock entries nothing reaches any more, dropped. was: removed.
+  repeated string removed_references = 7;
+  // Part of the closure was unreachable, or a repository failed to fetch:
+  // what moved is a partial answer.
+  bool incomplete = 8;
+  // No dependency is declared here: nothing checked, no lockfile written.
+  bool nothing_declared = 9;
+  repeated Need needs = 90;
+  string etag = 91;
+  repeated Notice notices = 92;
 }
 
 // endregion
@@ -1712,6 +2166,8 @@ enum ItemKind {
   SKILL = 4;
   MCP_SERVER = 5;
   PROFILE = 6;
+  // A pin change's hook (B4, OQ-B5); a search never returns it.
+  HOOK = 7;
 }
 
 // A local hit. was: a hit's `name` (-> `resource`), `type` (-> `kind`).
@@ -1758,13 +2214,3 @@ message SearchLibraryResponse {
 }
 
 // endregion
-
-// NOT YET WRITTEN, B4's (remotes) on a ruling: the responses of
-// `PushBundle`, `BrowseRemote`, `DiscoverRemotes`, `PullDependencies`,
-// `CheckDependencies` and `UpgradeDependencies`. The design gives them as
-// today's views "field for field" (`Pushed`, `Browsed`, `Discovered`,
-// `PullReport`, `CheckReport`/`CheckedRef`, `UpgradeReport`), whose
-// yes/no facts (`create_pr`, `is_dir`, `incomplete`, `in_lockfile`,
-// `up_to_date`, `nothing_declared`) lie outside OQ-7's five with presence,
-// and whose `ref`/`type`/`name` keys AIP-122 renames: their shapes wait on
-// the owner.

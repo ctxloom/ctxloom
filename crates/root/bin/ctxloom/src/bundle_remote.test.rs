@@ -140,13 +140,14 @@ fn test_moving_a_bundle_into_another_project_lands_it_in_that_project_s_content_
     world.project.write("other-project/.ctxloom/.keep", "");
     let ran = world.run(&["bundle", "move", "demo", "--to", "other-project"]);
     ran.succeeds();
+    // OD-40: `MoveBundleResponse`: applied, and where the bundle went.
     let doc = ran.json();
-    assert_eq!(reports_as(&doc, "status"), "moved");
+    assert_eq!(reports_as(&doc, "applied"), "true");
     // Shown in the host's spelling, a step at a time.
     let dest: std::path::PathBuf = "other-project/.ctxloom/content/bundles/v2/demo"
         .split('/')
         .collect();
-    assert_eq!(reports_as(&doc, "dest"), dest.display().to_string());
+    assert_eq!(reports_as(&doc, "path"), dest.display().to_string());
     let landed = |rel: &str| {
         world.file(&format!(
             "other-project/.ctxloom/content/bundles/v2/demo/{rel}"
@@ -199,7 +200,8 @@ fn test_moving_a_bundle_to_a_remote_publishes_it_then_removes_the_source() {
     ];
     let ran = world.run_with(&identity, &["bundle", "move", "authored", "--to", "team"]);
     ran.succeeds();
-    assert_eq!(reports_as(&ran.json(), "dest_kind"), "remote");
+    // OD-40: `MoveBundleResponse`, the bundle now the remote's.
+    assert_eq!(reports_as(&ran.json(), "bundle.origin"), "REMOTE");
     assert!(world
         .remote_file("team", &format!("{}/bundle.yaml", tree_bundle("authored")))
         .contains("acceptance fixture bundle"));
@@ -316,14 +318,15 @@ fn test_discover_lists_repositories_from_a_forge() {
         .write(".ctxloom/remotes.yaml", &forge_registry(&stub.url(), ""));
     let ran = world.run(&["remote", "discover", "ctxloom", "--source", "github"]);
     ran.succeeds();
+    // OD-40: `DiscoverRemotesResponse`, each repository by its forge name.
     let doc = ran.json();
-    assert_eq!(reports_as(&doc, "count"), "2");
+    assert_eq!(entries(&doc, "repositories"), 2);
     assert_eq!(
-        reports_as(&doc, "repositories[name=ctxloom-golang].add_command"),
+        reports_as(&doc, "repositories[repository=ctxloom-golang].add_command"),
         "ctxloom remote create ctxloom-golang bob/ctxloom-golang"
     );
     assert_eq!(
-        reports_as(&doc, "repositories[name=ctxloom].url"),
+        reports_as(&doc, "repositories[repository=ctxloom].url"),
         "https://github.com/alice/ctxloom"
     );
     let ask = stub.requests().remove(0);
@@ -430,9 +433,10 @@ fn test_push_with_pr_opens_a_pull_request() {
             &["bundle", "push", "notes", "hub", "--pr"],
         )
         .json();
-    assert_eq!(reports_as(&json, "status"), "pr-created");
+    // OD-40: `PushBundleResponse`, its outcome a state.
+    assert_eq!(reports_as(&json, "state"), "PULL_REQUEST_OPENED");
     assert_eq!(
-        reports_as(&json, "pr_url"),
+        reports_as(&json, "pull_request_url"),
         "https://github.com/acme/hub/pull/7"
     );
 }

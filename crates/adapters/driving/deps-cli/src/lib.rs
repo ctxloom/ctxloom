@@ -7,11 +7,17 @@
 //! behaviour for help, usage errors and the exit ladder); this crate gives it
 //! its [`nouns`] and [`bundle_verbs`] and, given the matches of one, [`run`]s
 //! it: the arguments become a request of the application, and its answer is
-//! written as json or as text, with what it noticed said on the error stream.
+//! written as text, or as json, the proto3 JSON of its `ctxloom.v1` API
+//! message (OD-40, B4: `api.rs`, `remote.rs`, `bundle.rs`, `dependency.rs`),
+//! with what it noticed said on the error stream.
 
+mod api;
+mod bundle;
 mod commands;
+mod dependency;
 mod pins;
 mod refresh;
+mod remote;
 mod text;
 
 use cli_support::{Exit, ExitClass};
@@ -33,6 +39,15 @@ const PROG: &str = "ctxloom";
 
 pub use cli_support::{Call, Failure};
 
+/// Where a remote's, a dependency's and a bundle's resource names are rooted
+/// (OD-40; OQ-2, OQ-3): the project as the daemon's `ResolveProject` names
+/// it, `projects/{harp}`, or `users/me` outside a project. Asked only when a
+/// json answer prints a name, so a text answer reaches no daemon.
+pub trait Names {
+    /// The parent of this command's resources.
+    fn parent(&self) -> Result<String, Failure>;
+}
+
 /// An application error as the failure it ends the command in.
 trait IntoFailure {
     fn into_failure(self) -> Failure;
@@ -48,15 +63,18 @@ impl IntoFailure for AppError {
 struct Context<'a> {
     deps: &'a Deps,
     refresh: &'a dyn ProjectRefresh,
+    names: &'a dyn Names,
     format: Format,
     catalog: &'a Catalog,
 }
 
 /// Run `noun` (given the matches of the whole line); `refresh` is the project
-/// refresh a pull ends with.
+/// refresh a pull ends with, `names` where its json answer's names are rooted.
+#[allow(clippy::too_many_arguments)]
 pub fn run<G>(
     deps: &Deps,
     refresh: &dyn ProjectRefresh,
+    names: &dyn Names,
     noun: &str,
     call: &Call<'_, G>,
     catalog: &Catalog,
@@ -71,6 +89,7 @@ pub fn run<G>(
     let cx = Context {
         deps,
         refresh,
+        names,
         format,
         catalog,
     };
@@ -112,6 +131,23 @@ fn emit<T: Serialize>(
     })
 }
 
+/// A converted verb's answer (OD-40): as json, `message`, the view as its
+/// API message named under the parent the names give (asked only here, so
+/// a text answer reaches no daemon); else `text`.
+fn respond<M: Serialize>(
+    cx: &Context<'_>,
+    out: &mut dyn Write,
+    message: impl FnOnce(&str) -> M,
+    text: impl FnOnce(&mut dyn Write) -> io::Result<()>,
+) -> Result<(), Failure> {
+    if cx.format == Format::Json {
+        let parent = cx.names.parent()?;
+        emit(cx.format, out, &message(&parent), text)
+    } else {
+        emit(cx.format, out, &(), text)
+    }
+}
+
 fn text_arg(matches: &ArgMatches, name: &str) -> String {
     one(matches, name).unwrap_or_default()
 }
@@ -127,33 +163,45 @@ fn remote(
     match verb {
         "" | "list" => {
             let listing = answer(cx, deps.remote_list(), err)?;
-            emit(cx.format, out, &listing, |out| {
-                text::remote_list(out, &listing)
-            })?;
+            respond(
+                cx,
+                out,
+                |parent| remote::listed(parent, &listing),
+                |out| text::remote_list(out, &listing),
+            )?;
         }
         "show" => {
             let browsed = answer(cx, deps.remote_show(&text_arg(args, "remote")), err)?;
-            emit(cx.format, out, &browsed, |out| {
-                text::remote_show(out, &browsed)
-            })?;
+            respond(
+                cx,
+                out,
+                |parent| remote::browsed(parent, &browsed),
+                |out| text::remote_show(out, &browsed),
+            )?;
         }
         "create" => {
+            let forge = text_arg(args, "forge");
             let created = answer(
                 cx,
                 deps.remote_create(&CreateRequest {
                     name: text_arg(args, "name"),
                     url: text_arg(args, "url"),
-                    forge: text_arg(args, "forge"),
+                    forge: forge.clone(),
                 }),
                 err,
             )?;
-            emit(cx.format, out, &created, |out| {
-                writeln!(
-                    out,
-                    "Added remote '{}' \u{2192} {}",
-                    created.name, created.url
-                )
-            })?;
+            respond(
+                cx,
+                out,
+                |parent| remote::created(parent, &created, &forge),
+                |out| {
+                    writeln!(
+                        out,
+                        "Added remote '{}' \u{2192} {}",
+                        created.name, created.url
+                    )
+                },
+            )?;
         }
         "edit" => {
             let edit = Edit {
@@ -162,19 +210,22 @@ fn remote(
                 forge: one(args, "forge"),
             };
             let edited = answer(cx, deps.remote_edit(&text_arg(args, "remote"), &edit), err)?;
-            emit(cx.format, out, &edited, |out| {
-                text::remote_edit(out, &edited)
-            })?;
+            respond(
+                cx,
+                out,
+                |parent| remote::edited(parent, &edited),
+                |out| text::remote_edit(out, &edited),
+            )?;
         }
         "remove" => {
-            let removed = answer(
+            let asked = text_arg(args, "remote");
+            let removed = answer(cx, deps.remote_remove(&asked, flag(args, "yes")), err)?;
+            respond(
                 cx,
-                deps.remote_remove(&text_arg(args, "remote"), flag(args, "yes")),
-                err,
+                out,
+                |parent| remote::removed(parent, &asked, &removed),
+                |out| text::remote_remove(out, &removed),
             )?;
-            emit(cx.format, out, &removed, |out| {
-                text::remote_remove(out, &removed)
-            })?;
             // Ruling 153: the preview names a remote `--yes` would remove.
             if matches!(removed, deps_application::RemoveResult::Preview { .. }) {
                 return Ok(Exit::WOULD_CHANGE);
@@ -190,10 +241,15 @@ fn remote(
                 Some(name.as_str())
             };
             let set = answer(cx, deps.remote_default(chosen), err)?;
-            emit(cx.format, out, &set, |out| match chosen {
-                Some(name) => writeln!(out, "Set default remote to: {name}"),
-                None => writeln!(out, "Cleared default remote."),
-            })?;
+            respond(
+                cx,
+                out,
+                |parent| remote::defaulted(parent, &set),
+                |out| match chosen {
+                    Some(name) => writeln!(out, "Set default remote to: {name}"),
+                    None => writeln!(out, "Cleared default remote."),
+                },
+            )?;
         }
         _ => discover(cx, args, out, err)?,
     }
@@ -225,9 +281,12 @@ fn discover(
         Err(_) => writeln!(err),
     };
     let found = answer(cx, outcome, err)?;
-    emit(cx.format, out, &found, |out| {
-        text::discovered(out, &found, &query)
-    })
+    respond(
+        cx,
+        out,
+        |_| remote::discovered(&found),
+        |out| text::discovered(out, &found, &query),
+    )
 }
 
 fn dependencies(
@@ -241,9 +300,12 @@ fn dependencies(
     match verb {
         "" | "list" => {
             let listing = answer(cx, deps.list(), err)?;
-            emit(cx.format, out, &listing, |out| {
-                text::deps_list(out, &listing)
-            })?;
+            respond(
+                cx,
+                out,
+                |parent| dependency::listed(parent, &listing),
+                |out| text::deps_list(out, &listing),
+            )?;
         }
         "pull" => {
             let _ = writeln!(err, "Pulling dependencies...");
@@ -258,16 +320,17 @@ fn dependencies(
                 .skipped
                 .as_ref()
                 .map(|refresh| refresh::view(refresh, cx.catalog));
-            let shown = refresh::Pulled {
-                report: &pulled.report,
-                refresh_skipped: skipped,
-            };
-            emit(cx.format, out, &shown, |out| {
-                text::pull(out, &pulled.report)?;
-                shown.refresh_skipped.as_ref().map_or(Ok(()), |skipped| {
-                    refresh::text(out, skipped, "ctxloom deps pull --yes")
-                })
-            })?;
+            respond(
+                cx,
+                out,
+                |parent| dependency::pulled(parent, &pulled.report, skipped.as_ref()),
+                |out| {
+                    text::pull(out, &pulled.report)?;
+                    skipped.as_ref().map_or(Ok(()), |skipped| {
+                        refresh::text(out, skipped, "ctxloom deps pull --yes")
+                    })
+                },
+            )?;
             if let Some(failure) = pulled.report.failure() {
                 return Err(failure.into_failure());
             }
@@ -279,12 +342,18 @@ fn dependencies(
         "upgrade" => {
             let _ = writeln!(err, "Resolving latest commits for pinned dependencies...");
             let yes = flag(args, "yes");
-            let outcome = match args.get_one::<String>("reference") {
+            let reference = args.get_one::<String>("reference");
+            let outcome = match reference {
                 Some(reference) => deps.upgrade_only(reference, yes),
                 None => deps.upgrade(yes),
             };
             let report = answer(cx, outcome, err)?;
-            emit(cx.format, out, &report, |out| text::upgrade(out, &report))?;
+            respond(
+                cx,
+                out,
+                |_| dependency::upgraded(&report, reference.map(String::as_str)),
+                |out| text::upgrade(out, &report),
+            )?;
             // Ruling 153: a preview with a pin `--yes` would move or drop.
             let moves = !report.changes.is_empty() || !report.removed.is_empty();
             if moves && !report.applied {
@@ -294,7 +363,19 @@ fn dependencies(
         verb => {
             let held = verb == "hold" && !flag(args, "undo");
             let result = answer(cx, deps.hold(&text_arg(args, "name"), held), err)?;
-            emit(cx.format, out, &result, |out| text::hold(out, &result))?;
+            respond(
+                cx,
+                out,
+                |parent| {
+                    // The Dependency after the write, read from the lock.
+                    let listing = deps.list().result.unwrap_or(deps_application::DepsListing {
+                        deps: Vec::new(),
+                        count: 0,
+                    });
+                    dependency::held(parent, &result, &listing)
+                },
+                |out| text::hold(out, &result),
+            )?;
         }
     }
     Ok(Exit::OK)
@@ -309,9 +390,12 @@ fn check(
     let reference = text_arg(args, "reference");
     if !reference.is_empty() {
         let checked = answer(cx, cx.deps.check_reference(&reference), err)?;
-        emit(cx.format, out, &checked, |out| {
-            text::check_reference(out, &checked)
-        })?;
+        respond(
+            cx,
+            out,
+            |parent| dependency::checked_one(parent, &checked),
+            |out| text::check_reference(out, &checked),
+        )?;
         return Ok(Exit::OK);
     }
     let report = answer(cx, cx.deps.check(), err)?;
@@ -325,7 +409,12 @@ fn check(
             .collect();
         say_notices(&warnings, PROG, cx.format, cx.catalog, err);
     }
-    emit(cx.format, out, &report, |out| text::check(out, &report))?;
+    respond(
+        cx,
+        out,
+        |parent| dependency::checked(parent, &report),
+        |out| text::check(out, &report),
+    )?;
     Ok(Exit::OK)
 }
 
@@ -354,17 +443,23 @@ fn bundle(
     err: &mut dyn Write,
 ) -> Result<Exit, Failure> {
     if verb == "push" {
+        let name = text_arg(args, "bundle");
         let pushed = answer(
             cx,
             cx.deps.push(&PushRequest {
-                bundle: text_arg(args, "bundle"),
+                bundle: name.clone(),
                 remote: text_arg(args, "remote"),
                 message: text_arg(args, "message"),
                 pr: flag(args, "pr"),
             }),
             err,
         )?;
-        emit(cx.format, out, &pushed, |out| text::pushed(out, &pushed))?;
+        respond(
+            cx,
+            out,
+            |parent| bundle::pushed(parent, &name, &pushed),
+            |out| text::pushed(out, &pushed),
+        )?;
     } else {
         let moved = answer(
             cx,
@@ -376,7 +471,12 @@ fn bundle(
             }),
             err,
         )?;
-        emit(cx.format, out, &moved, |out| text::moved(out, &moved))?;
+        respond(
+            cx,
+            out,
+            |parent| bundle::moved(parent, &moved),
+            |out| text::moved(out, &moved),
+        )?;
     }
     Ok(Exit::OK)
 }

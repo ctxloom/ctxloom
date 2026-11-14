@@ -226,6 +226,8 @@ fn test_one_reference_is_checked_against_its_lock_entry() {
     let (fx, sha) = pulled();
     let current = ok(fx.deps.check_reference("origin/demo"));
     assert_eq!(current.reference, "origin/demo");
+    // The identity it expands to (OD-40: its Dependency's name).
+    assert_eq!(current.identity, demo_ref());
     assert!(current.in_lockfile && current.up_to_date);
     assert_eq!(
         (current.current_sha.as_str(), current.latest_sha.as_str()),

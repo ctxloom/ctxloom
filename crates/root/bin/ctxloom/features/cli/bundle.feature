@@ -1,11 +1,11 @@
 # Ported from cli/bundle.feature (rev f36e8dfb2)
 # NOT ported: any of it yet (the Feature is @pending).
-# OD-40 (aip/catalog, 2026-11-13; OQ-19): the JSON steps of the verbs B1 converts (all
-#   but push and move, B4's) read the AIP resources of library.proto (design §5.1): a
-#   listing is `ListBundlesResponse` (`{bundles: [...]}`), a bundle is named
+# OD-40 (aip/catalog and aip/remotes, 2026-11-13; OQ-19): the JSON steps read
+#   the AIP resources of library.proto (design §5.1): a listing is `ListBundlesResponse` (`{bundles: [...]}`), a bundle is named
 #   `projects/{project}/bundles/<b>` (selected by suffix, `[name$=...]`), `show`'s
 #   children are summaries naming each (`fragments[item$=/fragments/x]`), the origin is
-#   the enum's name, and a removal's preview says `apply_command`.
+#   the enum's name, a removal's preview says `apply_command`, and a move is
+#   `MoveBundleResponse` (`applied`, `path`; B4's).
 
 @doc
 @pending
@@ -502,8 +502,8 @@ Feature: bundle — the container authored content lives in, and everything that
         ctxloom bundle move demo --to other-project
         """
       Then the command succeeds
-      And the output reports "status" as "moved"
-      And the output reports "dest" as "other-project/.ctxloom/content/bundles/v2/demo"
+      And the output reports "applied" as "true"
+      And the output reports "path" as "other-project/.ctxloom/content/bundles/v2/demo"
       And the file "other-project/.ctxloom/content/bundles/v2/demo/bundle.yaml" contains "acceptance fixture bundle"
       And the file "other-project/.ctxloom/content/bundles/v2/demo/fragments/example.md" contains "# Example Fragment"
       And the file "other-project/.ctxloom/content/bundles/v2/demo/prompts/example.md" contains "Example prompt content. Describe what this prompt does."

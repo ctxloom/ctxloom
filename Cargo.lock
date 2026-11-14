@@ -1360,6 +1360,7 @@ dependencies = [
  "angzarr-yaml",
  "clap",
  "cli-support",
+ "daemon-proto",
  "deps-application",
  "deps-ports",
  "mutants",
@@ -3221,7 +3222,6 @@ dependencies = [
  "deps",
  "library",
  "serde",
- "serde_json",
 ]
 
 [[package]]

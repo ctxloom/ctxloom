@@ -1,5 +1,9 @@
 # Ported from cli/remote.feature (rev f36e8dfb2)
 # NOT ported: any of it yet (the Feature is @pending).
+# OD-40 (aip/remotes, B4, 2026-11-13; OQ-19): the JSON steps read the AIP
+#   messages of library.proto (design §5.10): a remote is named
+#   `projects/{project}/remotes/<r>`, and a removal's preview says
+#   `apply_command`.
 
 @doc
 @pending
@@ -109,7 +113,7 @@ Feature: remote — registering the sources content comes from, and browsing the
       When I run "ctxloom remote remove origin <flags>"
       Then the command succeeds
       And the output reports "applied" as "<reports nothing removed>"
-      And the output reports "apply" as "<names the apply command>"
+      And the output reports "apply_command" as "<names the apply command>"
       When I run "ctxloom remote list"
       Then the output contains "origin"
 

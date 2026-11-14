@@ -1,5 +1,7 @@
-//! What the commands answer, in the shapes they print as json (Go's
-//! `operations` results and the `cli` views): every list is always present.
+//! What the commands answer (Go's `operations` results and the `cli`
+//! views). Their json is no longer these shapes: deps-cli maps each to its
+//! `ctxloom.v1` API message at the edge (OD-40, B4), and these stay as they
+//! are until that mapping moves into the daemon (T13).
 
 use serde::Serialize;
 
@@ -245,6 +247,10 @@ pub struct CheckReport {
 pub struct CheckedRef {
     #[serde(rename = "ref")]
     pub reference: String,
+    /// The lock identity the reference expands to (its Dependency's name
+    /// is read from it, OQ-15).
+    #[serde(skip)]
+    pub identity: String,
     pub in_lockfile: bool,
     pub current_sha: String,
     pub latest_sha: String,
@@ -268,6 +274,9 @@ pub struct HoldResult {
     /// `held`, `released`, or `not_tracked` for a bundle of this project.
     pub status: &'static str,
     pub name: String,
+    /// The lock identity held or released; empty for `not_tracked`.
+    #[serde(skip)]
+    pub identity: String,
 }
 
 /// `bundle push`.

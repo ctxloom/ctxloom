@@ -320,6 +320,11 @@ impl Project {
         self.spawn(dir, &[], args)
     }
 
+    /// Run from `dir` with no `CTXLOOM_ROOT`, with `env` too.
+    pub(crate) fn run_in_with(&self, dir: &Path, env: &[(&str, &str)], args: &[&str]) -> Ran {
+        self.spawn(dir, env, args)
+    }
+
     /// As [`run_with`](Project::run_with), started and not waited for: its
     /// output piped, for the caller to wait for.
     pub(crate) fn start_with(&self, env: &[(&str, &str)], args: &[&str]) -> std::process::Child {

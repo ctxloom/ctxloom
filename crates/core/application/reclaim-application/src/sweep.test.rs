@@ -644,3 +644,165 @@ fn an_unspared_session_has_its_clean_checkouts_reaped_on_yes() {
     assert_eq!(verdict_of(&report, "amber-quiet-heron"), Verdict::Done);
     assert_eq!(report.rows.last().map(|r| r.verdict), Some(Verdict::Done));
 }
+
+// Owner ruling 2026-11-14, extending 2026-11-13's: checkouts go ONLY as part
+// of destroying their session, as with `session remove <harp>`. A session the
+// sweep keeps, for any reason, keeps every checkout, its clean ones too; their
+// rows are held, saying why the session was kept, and the leaf is never asked
+// to apply. One case per reason the sweep keeps a session.
+fn kept_session_keeps_every_checkout(
+    case: &str,
+    mut fake: Fake,
+    request: &SweepRequest,
+    why: &str,
+) {
+    let harp = fake.views[0].record.harp.clone();
+    fake.scratch = vec![
+        scratch(&harp, "clean", Worktree::Reapable, ""),
+        scratch(&harp, "tidy", Worktree::Reapable, ""),
+    ];
+    let report = ready(sweep(&mut fake, request)).unwrap();
+    assert!(
+        fake.worktrees_asked.iter().all(|(_, apply)| !apply),
+        "{case}: a kept session's checkouts are never applied: {:?}",
+        fake.worktrees_asked
+    );
+    assert!(
+        fake.asked.iter().all(|(_, yes)| !yes),
+        "{case}: nothing is destroyed: {:?}",
+        fake.asked
+    );
+    let checkouts: Vec<_> = report
+        .rows
+        .iter()
+        .filter(|r| r.action == "worktree")
+        .collect();
+    assert_eq!(checkouts.len(), 2, "{case}: {report:?}");
+    for name in ["ctxloom-wt-clean", "ctxloom-wt-tidy"] {
+        let row = checkouts
+            .iter()
+            .find(|r| r.reason.contains(name))
+            .unwrap_or_else(|| panic!("{case}: no row for {name}: {report:?}"));
+        assert_eq!(row.verdict, Verdict::Held, "{case}: {row:?}");
+        assert!(row.command.is_empty(), "{case}: {row:?}");
+        assert!(
+            row.reason.contains("kept") && row.reason.contains(why),
+            "{case}: the row says why the checkout stayed ({why}): {row:?}"
+        );
+    }
+    assert_eq!(report.counts["done"], 0, "{case}: {report:?}");
+}
+
+#[test]
+fn a_session_marked_keep_keeps_every_checkout() {
+    let fake = Fake {
+        views: vec![view("brisk-copper-moth", State::Ended, 120, true)],
+        ..Fake::default()
+    };
+    kept_session_keeps_every_checkout("marked keep", fake, &request(true), "marked keep");
+}
+
+#[test]
+fn a_session_its_keep_refusal_holds_keeps_every_checkout() {
+    let fake = Fake {
+        views: vec![view("brisk-copper-moth", State::Ended, 120, false)],
+        refusal: Some(Refusal::Kept {
+            harp: "brisk-copper-moth".to_string(),
+        }),
+        ..Fake::default()
+    };
+    kept_session_keeps_every_checkout("keep refusal", fake, &request(true), "marked keep");
+}
+
+#[test]
+fn a_session_within_its_retention_keeps_every_checkout() {
+    let fake = Fake {
+        views: vec![view("amber-quiet-heron", State::Ended, 120, false)],
+        refusal: Some(Refusal::Retained {
+            harp: "amber-quiet-heron".to_string(),
+            detail: "it ended an hour ago".to_string(),
+        }),
+        ..Fake::default()
+    };
+    kept_session_keeps_every_checkout("retention", fake, &request(true), "retention");
+}
+
+#[test]
+fn a_session_active_after_the_purge_age_keeps_every_checkout() {
+    let fake = Fake {
+        views: vec![view("amber-quiet-heron", State::Ended, 10, false)],
+        ..Fake::default()
+    };
+    kept_session_keeps_every_checkout(
+        "active since the purge age",
+        fake,
+        &request(true),
+        "active after the purge age",
+    );
+}
+
+#[test]
+fn a_session_with_no_purge_age_keeps_every_checkout() {
+    let fake = Fake {
+        views: vec![view("amber-quiet-heron", State::Ended, 400, false)],
+        ..Fake::default()
+    };
+    let none = SweepRequest {
+        purge_cutoff: None,
+        yes: true,
+    };
+    kept_session_keeps_every_checkout("no purge age", fake, &none, "nothing is purged");
+}
+
+// A report (no `yes`) holds a kept session's clean checkouts too: only a
+// session the sweep would destroy has them planned.
+#[test]
+fn a_report_holds_the_checkouts_of_a_session_it_would_keep() {
+    let fake = Fake {
+        views: vec![view("brisk-copper-moth", State::Ended, 120, true)],
+        ..Fake::default()
+    };
+    kept_session_keeps_every_checkout("report", fake, &request(false), "marked keep");
+}
+
+// A purge that fails keeps the checkouts the leaf still lists, saying so.
+#[test]
+fn a_checkout_of_a_session_whose_purge_failed_is_held() {
+    struct Failing(Fake);
+    impl Removals for Failing {
+        fn worktrees(
+            &mut self,
+            project: Option<&str>,
+            harp: &str,
+            apply: bool,
+        ) -> Result<Report, IsolationError> {
+            self.0.worktrees(project, harp, apply)
+        }
+        async fn remove(&mut self, request: RemoveRequest) -> Result<Removal, AppError> {
+            if request.yes {
+                return Err(AppError::NoSession { harp: request.harp });
+            }
+            self.0.remove(request).await
+        }
+    }
+    let mut failing = Failing(Fake {
+        views: vec![view("amber-quiet-heron", State::Ended, 120, false)],
+        // A checkout that will not go: it stays listed after the apply.
+        scratch: vec![scratch(
+            "amber-quiet-heron",
+            "clean",
+            Worktree::Reapable,
+            "",
+        )],
+        ..Fake::default()
+    });
+    let views = failing.0.views.clone();
+    let report = ready(crate::sweep(&mut failing, &views, &request(true))).unwrap();
+    let checkout = report.rows.iter().find(|r| r.action == "worktree").unwrap();
+    assert_eq!(checkout.verdict, Verdict::Held, "{checkout:?}");
+    assert!(checkout.command.is_empty(), "{checkout:?}");
+    assert!(
+        checkout.reason.contains("kept") && checkout.reason.contains("purge failed"),
+        "{checkout:?}"
+    );
+}

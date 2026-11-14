@@ -17,6 +17,7 @@ mod bundles;
 mod companions;
 mod config;
 mod config_show;
+mod distill;
 mod engine_noun;
 mod error;
 /// In-memory ports, for this crate's tests and a driving adapter's.
@@ -38,6 +39,7 @@ mod yamlout;
 pub use agents::ENGINES;
 pub use config::{load as load_config, Flags, LegacyGo, OnRun, OUTPUT_DIR_DEFAULT};
 pub use config_show::ConfigShown;
+pub use distill::{BundleDistilled, Distilled, Distiller, ItemDistilled};
 pub use engine_noun::{
     AgentSettings, AuthSetting, EngineAgent, EngineRow, EnvKey, EnvSetting, PermissionsSetting,
     RuntimeSetting, SourcedValue,

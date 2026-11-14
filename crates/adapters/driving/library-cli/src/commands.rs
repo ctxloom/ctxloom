@@ -209,6 +209,12 @@ fn bundle() -> Command {
                 ))
                 .arg(force("Overwrite existing bundle")),
         )
+        .subcommand(
+            Command::new("distill")
+                .about("Distill every fragment and command of a bundle (each stored beside its source)")
+                .arg(one("name", "The bundle"))
+                .arg(force("Distill each again even where its distilled form matches its source")),
+        )
 }
 
 /// `create`, `remove` and `edit` of an item noun.
@@ -246,6 +252,21 @@ fn item_writes(noun: Command, word: &'static str, dir: &'static str) -> Command 
                 _ => "bundle#commands/name",
             },
         )),
+    )
+    .subcommand(
+        Command::new("distill")
+            .about(match word {
+                "fragment" => "Distill a fragment: a compact form stored beside it, for assembly",
+                _ => "Distill a command: a compact form stored beside it",
+            })
+            .arg(one(
+                "ref",
+                match dir {
+                    "fragments" => "bundle#fragments/name",
+                    _ => "bundle#commands/name",
+                },
+            ))
+            .arg(force("Distill it again even where its distilled form matches its source")),
     )
     .subcommand(
         Command::new("edit")

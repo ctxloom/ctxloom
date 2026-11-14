@@ -105,6 +105,45 @@ mod read {
     }
 }
 
+mod distill {
+    use crate::tests::*;
+
+    // Plan step 5: a form that matches its source is kept without asking
+    // (applied false, saying why); one forced reads the distill prompt
+    // through the catalog (ruling 128), and this one holds no built-in
+    // `ctxloom` bundle, so it is refused, as `bundle distill` is.
+    #[test]
+    fn test_distill_keeps_a_fresh_form_and_fails_without_a_distiller() {
+        let kept = json_of(&["fragment", "distill", "demo#fragments/dist"]);
+        assert_eq!(
+            kept["fragment"]["name"],
+            "projects/calm-otter/bundles/demo/fragments/dist"
+        );
+        assert_eq!(kept["applied"], false);
+        assert_eq!(kept["detail"], serde_json::json!(["fresh"]));
+        assert_eq!(kept["fragment"]["distilled"], "FRESH");
+        assert!(text_of(&["fragment", "distill", "demo#fragments/dist"])
+            .contains("its distilled form matches its source"));
+        assert_eq!(
+            go(
+                &["fragment", "distill", "demo#fragments/dist", "-f"],
+                JSON,
+                BARE
+            )
+            .refused(),
+            "library-catalog-bundle-not-found:20"
+        );
+        assert_eq!(
+            go(&["command", "distill", "demo#commands/review"], JSON, BARE).refused(),
+            "library-catalog-bundle-not-found:20"
+        );
+        assert_eq!(
+            go(&["bundle", "distill", "demo", "-f"], JSON, BARE).refused(),
+            "library-catalog-bundle-not-found:20"
+        );
+    }
+}
+
 mod write {
     use crate::tests::write_verbs::*;
     use crate::tests::TEXT;

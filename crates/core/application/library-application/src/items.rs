@@ -109,7 +109,11 @@ impl Library {
 }
 
 impl Project {
-    fn operational_prompt(&self, name: &str, builtins: bool) -> Result<String, AppError> {
+    pub(crate) fn operational_prompt(
+        &self,
+        name: &str,
+        builtins: bool,
+    ) -> Result<String, AppError> {
         let bundle = library::builtin::BUNDLE;
         let shipped;
         let entry = if self.no_project() && builtins {

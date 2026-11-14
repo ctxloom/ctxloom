@@ -1,10 +1,11 @@
 //! One project resolver (owner rulings 2026-11-13, afternoon): runs, sessions
 //! and library reads all belong to the project of the nearest `.ctxloom` above
 //! the working directory (the git top only when there is none; `CTXLOOM_ROOT`
-//! overrides), and a read never mints a project id: only `run` and `init` do,
-//! at the resolved root. A read in a project that has `.ctxloom/` and no id is
-//! refused (`ctxloom-wiring-project-unnamed`, exit 20), its fix naming `ctxloom
-//! init`, and writes nothing.
+//! overrides). A command that must NAME the project mints its id at that
+//! resolved root (owner ruling 2026-11-14, revising "only run and init
+//! mint", since `.ctxloom/project-id` is gitignored and every fresh clone has
+//! none), never in a subfolder; a read that prints no project name writes
+//! nothing, and a dry run never mints (owner: "dry run should *not* mint").
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -12,11 +13,7 @@ use std::process::Command;
 use serde_json::Value;
 
 use super::library::{reports_as, Project, MINIMAL_CONFIG};
-use super::Ran;
 use crate::tests::files;
-
-/// The refusal of a read in a project no run or init has named.
-const UNNAMED: &str = "ctxloom-wiring-project-unnamed";
 
 /// A child that answers its turn and fires no hook.
 const CHILD: &str = r#"cat > /dev/null
@@ -138,15 +135,6 @@ fn sessions_name(project: &Project, dir: &Path, env: &[(&str, &str)]) -> Vec<Str
         .collect()
 }
 
-/// The error envelope a json command said on stderr.
-fn envelope(ran: &Ran) -> Value {
-    serde_json::Deserializer::from_str(&ran.stderr)
-        .into_iter::<Value>()
-        .map_while(Result::ok)
-        .find(|v| v.get("code").is_some() && v.get("message").is_some())
-        .unwrap_or_else(|| panic!("an envelope on stderr: {}", ran.said()))
-}
-
 /// A monorepo: a git top with its own `.ctxloom`, a subfolder `app` with
 /// one of its own, and a subfolder `lib` with none.
 fn monorepo() -> (Project, Engine, PathBuf, PathBuf) {
@@ -231,14 +219,13 @@ fn test_ctxloom_root_overrides_the_nearest_ctxloom_for_all_three() {
     assert_eq!(sessions_name(&project, &app, &env), [named]);
 }
 
-// Ruling 2: a json read in a project with `.ctxloom/` and no project id is
-// refused, its fix naming `ctxloom init`, and writes nothing. A session
-// listing there mints nothing either: nothing can be recorded in a project
-// with no id, so it lists none (session.feature's "A fresh project has
-// recorded nothing"). A run mints the id at the root, after which the read
-// names the project.
+// Ruling 2 (owner, 2026-11-14): a fresh project's json read that names it
+// mints its id at the ROOT, from a subfolder too, and nowhere else; a
+// session listing there names no project and writes nothing (nothing is
+// recorded in a project with no id, so it lists none: session.feature's "A
+// fresh project has recorded nothing"). A later run is of the same project.
 #[test]
-fn test_a_read_in_a_project_no_run_has_named_is_refused_and_writes_nothing() {
+fn test_a_fresh_projects_json_read_mints_at_the_root_and_names_it() {
     if !files::runs_scripts() {
         return;
     }
@@ -249,26 +236,6 @@ fn test_a_read_in_a_project_no_run_has_named_is_refused_and_writes_nothing() {
     let sub = project.dir().join("src");
     files::mkdirs(&sub);
     let before = project.tree("");
-
-    for (dir, args) in [
-        (project.dir(), &["config", "show", "--format", "json"][..]),
-        (sub.as_path(), &["config", "show", "--format", "json"]),
-    ] {
-        let ran = project.run_in_with(dir, &env, args);
-        assert_eq!(
-            ran.code,
-            20,
-            "{args:?} from {}: {}",
-            dir.display(),
-            ran.said()
-        );
-        let said = envelope(&ran);
-        assert_eq!(said["code"], UNNAMED, "{said}");
-        let fix = said["fix"].as_str().unwrap_or_default();
-        assert!(fix.contains("ctxloom init"), "{said}");
-        assert_eq!(project.tree(""), before, "{args:?} wrote in the project");
-        assert!(!files::exists(sub.join(".ctxloom")));
-    }
 
     let listed = project.run_in_with(
         project.dir(),
@@ -283,27 +250,69 @@ fn test_a_read_in_a_project_no_run_has_named_is_refused_and_writes_nothing() {
         "a session listing wrote in the project"
     );
 
-    run_from(&project, &engine, &sub, &[]);
-    assert!(project.exists(".ctxloom/project-id"), "minted at the root");
+    let named = library_names(&project, &sub, &env);
+    assert!(named.starts_with("projects/"), "{named}");
+    let mut minted = project.tree("");
+    assert!(
+        minted.remove(".ctxloom/project-id").is_some(),
+        "minted at the root: {:?}",
+        minted.keys()
+    );
+    assert_eq!(minted, before, "the read wrote more than the root's id");
     assert!(
         !files::exists(sub.join(".ctxloom")),
         "never in the subfolder"
     );
-    let named = library_names(&project, &sub, &env);
-    assert!(named.starts_with("projects/"), "{named}");
     assert_eq!(library_names(&project, project.dir(), &env), named);
+
+    run_from(&project, &engine, &sub, &[]);
+    assert_eq!(
+        library_names(&project, &sub, &env),
+        named,
+        "the run's project"
+    );
 }
 
-// Ruling 2: `init` mints the id the refusal's fix names it for, at the
-// project's root, after which a json read names the project.
+// Owner: "dry run should *not* mint". In a fresh project a dry run, json or
+// text, writes nothing: not the project's id, not anything else.
+#[test]
+fn test_a_dry_run_in_a_fresh_project_writes_nothing() {
+    let project = Project::bare();
+    ctxloom_at(&project, "");
+    let before = project.tree("");
+    for format in ["json", "text"] {
+        let ran = project.run_in(
+            project.dir(),
+            &[
+                "run",
+                "--dry-run",
+                "--profile",
+                "dev",
+                "--format",
+                format,
+                "hello",
+            ],
+        );
+        assert!(ran.code <= 1, "{format}: {}", ran.said());
+        assert_eq!(project.tree(""), before, "a {format} dry run wrote");
+        assert!(!project.exists(".ctxloom/project-id"), "{format}");
+    }
+}
+
+// Ruling 2: `init` mints the project's id at its root, after which a json
+// read names the project.
 #[test]
 fn test_init_names_the_project_a_read_then_names() {
     let project = Project::configured();
-    let ran = project.run_in(project.dir(), &["config", "show", "--format", "json"]);
-    assert_eq!(ran.code, 20, "{}", ran.said());
     let init = project.run_in(project.dir(), &["init", "--format", "json"]);
     assert_eq!(init.code, 0, "init: {}", init.said());
     assert!(project.exists(".ctxloom/project-id"), "init minted it");
+    let id = project.read(".ctxloom/project-id");
     let named = library_names(&project, project.dir(), &[]);
     assert!(named.starts_with("projects/"), "{named}");
+    assert_eq!(
+        project.read(".ctxloom/project-id"),
+        id,
+        "the read kept init's id"
+    );
 }

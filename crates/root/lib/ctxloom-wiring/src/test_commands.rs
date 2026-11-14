@@ -216,7 +216,7 @@ pub(crate) fn run(
         }
         TestVerb::ProjectName => {
             let wiring = wiring().map_err(failed)?;
-            let parent = crate::daemon::library_parent(&wiring, version)?;
+            let parent = crate::daemon::library_parent(&wiring, version, crate::Minting::AtRoot)?;
             output(writeln!(out, "{parent}"))
         }
         TestVerb::SessionEvents { harp } => {

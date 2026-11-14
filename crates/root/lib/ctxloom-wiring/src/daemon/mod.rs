@@ -542,8 +542,10 @@ fn resolve(
             detail: "no ctxloom daemon could be started".to_string(),
         }));
     };
+    // It answers the project's name, so it names it (owner ruling
+    // 2026-11-14): one nothing has named gets its id at its root.
     let request = wiring
-        .registration()
+        .naming_registration()
         .map_err(|e| {
             let exit = e.exit();
             Failure::new(e, exit)
@@ -857,8 +859,9 @@ pub(crate) fn env_vars(env: &EnvSnapshot) -> daemon_proto::v1::EnvVars {
 
 /// This command's client of the daemon (slice 2 step 6): `wiring`'s
 /// project, its working directory and its whole environment. A project
-/// with no identity yet is read as one where nothing is recorded (owner
-/// ruling 2026-11-13: a read never mints one); one that cannot be told is
+/// with no identity yet is read as one where nothing is recorded (a session
+/// read names no project, so it mints none: owner ruling 2026-11-14); one
+/// that cannot be told is
 /// outside a project, as before.
 pub(crate) fn client<'a>(wiring: &'a Wiring, stamp: &str) -> daemon_api::Client<Reach<'a>> {
     match wiring.registration() {
@@ -893,10 +896,15 @@ fn client_for<'a>(
 /// Where this process's library resource names are rooted (OD-40, OQ-2,
 /// OQ-3): its project as the daemon's `ResolveProject` names it
 /// (`projects/{harp}`; the daemon reached, started if none serves), or
-/// `users/me` outside a project. A project nothing has named is refused
-/// (owner ruling 2026-11-13: a read never mints its id). A call that fails
-/// fails the command in its own class.
-pub(crate) fn library_parent(wiring: &Wiring, stamp: &str) -> Result<String, Failure> {
+/// `users/me` outside a project. A project nothing has named has its id
+/// minted at its root, unless `minting` is a dry run's `Never`, which
+/// refuses it (owner ruling 2026-11-14). A call that fails fails the command
+/// in its own class.
+pub(crate) fn library_parent(
+    wiring: &Wiring,
+    stamp: &str,
+    minting: crate::Minting,
+) -> Result<String, Failure> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -905,7 +913,7 @@ pub(crate) fn library_parent(wiring: &Wiring, stamp: &str) -> Result<String, Fai
                 detail: e.to_string(),
             })
         })?;
-    let registration = wiring.library_registration().map_err(|e| {
+    let registration = wiring.library_registration(minting).map_err(|e| {
         let exit = e.exit();
         Failure::new(e, exit)
     })?;

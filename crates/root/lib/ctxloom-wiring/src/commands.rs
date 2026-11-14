@@ -414,8 +414,8 @@ impl Commands {
         };
         let done = setup_cli::run(&uses, noun, call, catalog, out, err)?;
         if mints(noun, call) {
-            // `init` names the project it set up (owner ruling 2026-11-13:
-            // only `run` and `init` mint a project id), at the root the one
+            // `init` names the project it set up (owner rulings 2026-11-13
+            // and 14: it mints the project's id), at the root the one
             // resolver finds now that its `.ctxloom` is there.
             Wiring::new(Arc::clone(&env))
                 .and_then(|wiring| wiring.mint_project())
@@ -536,6 +536,7 @@ impl Extension for Commands {
         let names = crate::library::DaemonNames {
             env: Arc::clone(&self.env),
             version: self.version.clone(),
+            minting: crate::library::minting(noun),
         };
         let wired = self.wired().map_err(|e| Failure::new(e, Exit::FAILED))?;
         if noun == "run" {

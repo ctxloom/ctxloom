@@ -80,10 +80,10 @@ fn the_samples_are_the_same_whether_or_not_test_support_is_built() {
     );
 }
 
-// Owner ruling 2026-11-13: a read in a project nothing has named is a
-// decline (20), naming the root; every other wiring error failed (10).
+// Owner ruling 2026-11-14: a dry run's names in a project nothing has named
+// are a decline (20), naming the root; every other wiring error failed (10).
 #[test]
-fn a_read_in_an_unnamed_project_is_a_decline_naming_its_root() {
+fn a_dry_runs_names_in_an_unnamed_project_are_a_decline_naming_its_root() {
     use cli_support::{Exit, ExitClass};
     let unnamed = LibError::ProjectUnnamed {
         root: "/work/app".to_string(),

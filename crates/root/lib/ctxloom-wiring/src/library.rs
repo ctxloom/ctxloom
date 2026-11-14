@@ -195,13 +195,27 @@ fn builtins_withheld(_: &EnvSnapshot) -> bool {
 pub(crate) struct DaemonNames {
     pub(crate) env: Arc<EnvSnapshot>,
     pub(crate) version: String,
+    /// Whether naming the project may mint its id ([`minting`]).
+    pub(crate) minting: crate::Minting,
+}
+
+/// Whether `noun`'s names may mint the project's id (owner ruling
+/// 2026-11-14): every command that names its project may, at its root, but
+/// the library's `run`, which is the dry run alone (a launch is the run use
+/// case's), never does: "dry run should *not* mint".
+pub(crate) fn minting(noun: &str) -> crate::Minting {
+    if noun == "run" {
+        crate::Minting::Never
+    } else {
+        crate::Minting::AtRoot
+    }
 }
 
 impl DaemonNames {
     fn parent(&self) -> Result<String, Failure> {
         let wiring =
             Wiring::new(Arc::clone(&self.env)).map_err(|e| Failure::new(e, Exit::FAILED))?;
-        crate::daemon::library_parent(&wiring, &self.version)
+        crate::daemon::library_parent(&wiring, &self.version, self.minting)
     }
 }
 
@@ -233,6 +247,7 @@ impl Extension for LibraryCommands {
         let names = DaemonNames {
             env: Arc::clone(&self.env),
             version: self.version.clone(),
+            minting: minting(noun),
         };
         let library = self.wired().map_err(|e| Failure::new(e, Exit::FAILED))?;
         library_cli::run(library, &names, noun, call, catalog, out, err)

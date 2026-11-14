@@ -109,7 +109,10 @@ nothing stores the template; an empty buffer is
 bundle nobody had (`ItemCreated::bundle_created`); the two-word Go form
 (`<bundle> <name>`) keeps Go's placeholder, no editor, and its refusal of a
 missing bundle. `skill create <bundle>#skills/<name>` (or the two words)
-scaffolds its `SKILL.md` and opens none.
+scaffolds its `SKILL.md` and opens none. `fragment|command edit` writes the
+`.md` ALONE (owner T29, T30): it distills nothing and never touches the
+`.distilled.md` beside it, which then reads stale by its digest (below,
+"Distill"); `--no-distill` is accepted and only says so.
 Skill zips are written and read by `library::write::archive` over the `zip`
 crate (deflate only, default features off) and crc32fast.
 A file's executability is ONLY its skill sidecar's `executable:` list
@@ -1855,7 +1858,8 @@ ctxloom ships ONE bundle in the binary, `ctxloom`, its operational prompts:
 `prompts/setup-interview.md` (the interview `ctxloom init` opens with and
 `init prompt` prints) and `prompts/distill.md` (the owner's own text, ruling
 123, once ctxloom-default's `skills/distill.yaml`; no third-party notice or
-licence ships with it; for the distill activity, which is not built yet), in
+licence ships with it; what `fragment|command|bundle distill` asks the
+model with, read through the catalog as init's interview is), in
 `crates/core/read-model/library/resources/builtin/ctxloom/`
 (`library::builtin`). It is listed and NEVER injected (ruling 126): it
 carries no fragment, profile or tag, no profile includes it, and no session
@@ -1885,6 +1889,56 @@ the name, are not writes to it. Under `test-support` only,
 create` seed no remote (the registry is empty) and `init` pulls nothing.
 Divergence from Go: Go seeded and cloned the `ctxloom-default` remote and
 pulled the profile's dependencies; that repository stays an ordinary remote.
+
+## Distill (plan step 5, finishes M3; owner T30, S51, OD-38, OD-39)
+
+A distilled form names its source: each `.distilled.md` records, in its
+front matter as `source_sha256`, the SHA-256 of the `.md` it was distilled
+from (`library::distill`, pure: `state`, `source_digest`, `distilled_file`,
+`request`, `implausibly_short`). Every read hashes the `.md` again
+(`ItemBody::source_digest`, `distilled_digest`, `distilled_state`): only a
+match is FRESH and served where `config.content_form` prefers distilled
+forms (`ItemRead::resolve`); a mismatch, or no digest (a form from before
+T30, an inline document's, hard migrate), is STALE and its original is
+served. No verdict is kept. A stale form preferred is said at every use, the
+notice `library-application-stale-distilled` (a dry run, a launch, `context
+assemble`, materialize, `fragment show --distilled`); `fragment|command
+show` gives the state (json `distilled`: `NONE|FRESH|STALE`, text
+`distilled: stale`), `bundle show` STALE, and doctor warns of each
+(`DOCTOR-CHECK-STALE-DISTILLED-t1`, the library's `stale_distilled`). The
+context assemble json's `notices` stay empty until T13 (they are said on
+stderr), so atomic_writes.feature's two `notices[0].code` scenarios are red.
+
+`fragment|command distill <ref> [-f]` and `bundle distill <bundle> [-f]`
+(OD-39: by name; each of its fragments and commands, the first failure
+failing the command) are library-application's (`distill.rs`): an item
+marked `no_distill` is said and nothing asked; a FRESH form is kept unless
+`-f`; otherwise the `Distiller` port is handed `ctxloom#prompts/distill`
+(read through the catalog, ruling 128; the prompt's text is the owner's)
+with the body inside `<content_to_compress>` tags. An answer under 2% of
+the source is `library-application-distill-truncated` and a distiller that
+fails `library-application-distill-failed` (both exit 10): nothing is
+written, so the form there before is kept. A good answer is the
+`.distilled.md` alone (T30: its own write). json is the AIP
+`DistillFragmentResponse`/`DistillCommandResponse` (`applied` false and
+`detail` `fresh`/`no_distill` when nothing was asked), and `bundle distill`
+the `Bundle` with each item's state. The wiring's `OneShotDistiller` is a
+one-shot run on NO CONTEXT, the way init's interview runs its session
+(`OneShots`); its session is an ordinary one-shot's. There is no `work`
+domain and no provenance (owner, 2026-11-13: no `distilled_in`, no
+`activity` label). Once the daemon hosts one-shots (step 6) the port is its
+`DistillFragment`, the use case unchanged.
+
+`run --no-context` (owner OD-38) is the user-visible context-free run, the
+one-shot, the session and the dry run alike (`RunRequest::no_context`): the
+plan composes nothing (no profile, fragment, premise index or companion
+guidance) and carries no surface of the profiles' and NO MCP server,
+ctxloom's own included (a server's instructions are context): the launch's
+`ctxloom-mcp.json` lists none. The capture hooks are the engine's and stay;
+the agent is `--agent`, else the default agent where there is one, else
+none (the default engine), and keeps its engine, model and permissions; the
+statusline stays as configured. Beside `--profile`, `--fragment` or `--tag`
+it is `library-application-no-context-exclusive` (exit 20).
 
 ## Hook capture: the transcript is the session's events
 

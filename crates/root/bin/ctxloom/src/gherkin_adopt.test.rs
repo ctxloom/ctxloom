@@ -691,3 +691,112 @@ fn says_when_it_ended(w: &mut World) {
         .unwrap_or_else(|| panic!("{harp} is not listed: {rows}"));
     assert_eq!(row["end_time"].as_str(), Some(ended), "{row}");
 }
+
+// ------------------------------------------- the context-free run (OD-38)
+
+/// The guidance the default profile's bundle carries, which nothing else in
+/// the scenario does.
+const PROFILE_GUIDANCE: &str = "J-NO-CONTEXT-PROFILE-GUIDANCE: keep the ledger balanced.";
+
+/// The bundle that ships it, and the MCP server, beside the project's own.
+const TOOLS_BUNDLE: &str = ".ctxloom/content/bundles/v2/tools";
+
+/// Init's seed profile ([`library::write::scaffold::SEED_NAME`]) gets the
+/// bundle `tools`, which ships an MCP server named `server` and a fragment
+/// of guidance: so a run on the default agent carries both.
+#[given(expr = "Alice's default profile ships the MCP server {string} and a fragment of guidance")]
+fn profile_ships_server(w: &mut World, server: String) {
+    let project = &w.common.project;
+    project.write(&format!("{TOOLS_BUNDLE}/bundle.yaml"), "version: 1.0.0\n");
+    project.write(
+        &format!("{TOOLS_BUNDLE}/mcp/{server}.yaml"),
+        "command: j-no-context-ledger\nargs: [--serve]\n",
+    );
+    project.write(
+        &format!("{TOOLS_BUNDLE}/fragments/guidance.md"),
+        &format!("{PROFILE_GUIDANCE}\n"),
+    );
+    let profile = project
+        .tree(".ctxloom")
+        .into_keys()
+        .find(|path| path.ends_with("/profiles/default.yaml"))
+        .unwrap_or_else(|| panic!("init seeded no default profile"));
+    let path = format!(".ctxloom/{profile}");
+    let seeded = project.read(&path).expect("the seed profile reads");
+    project.write(&path, &format!("{seeded}\nbundles:\n  - tools\n"));
+}
+
+/// The last launch's record: from its print-mode arguments on (the stub
+/// appends each launch to one record).
+fn last_launch(w: &World) -> String {
+    let record = w.launch_record();
+    match record.rfind("-p\n--output-format\n") {
+        Some(at) => record[at..].to_string(),
+        None => record,
+    }
+}
+
+/// The argument after `flag` in the last launch, if it was handed one. The
+/// stub writes a file argument's bytes after it, and a file that does not
+/// end in a newline runs into the next argument's line, so `flag` is found
+/// where its line ends, not where one starts.
+fn last_argument_after(w: &World, flag: &str) -> Option<String> {
+    let launch = last_launch(w);
+    let at = launch.find(&format!("{flag}\n"))? + flag.len() + 1;
+    launch[at..].lines().next().map(str::to_string)
+}
+
+/// The servers of the MCP config the last launch named (`--mcp-config`):
+/// none named, none.
+fn handed_servers(w: &World) -> serde_json::Map<String, serde_json::Value> {
+    let Some(path) = last_argument_after(w, "--mcp-config") else {
+        return serde_json::Map::new();
+    };
+    let text = files::read(&path).unwrap_or_else(|e| panic!("reading {path}: {e}"));
+    let doc: serde_json::Value =
+        serde_json::from_str(&text).unwrap_or_else(|e| panic!("{path} is not JSON ({e}): {text}"));
+    doc.get("mcpServers")
+        .and_then(serde_json::Value::as_object)
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// The context the last launch was handed (`--append-system-prompt-file`):
+/// none named, none.
+fn handed_context(w: &World) -> String {
+    last_argument_after(w, "--append-system-prompt-file")
+        .and_then(|path| files::read(path).ok())
+        .unwrap_or_default()
+}
+
+#[then(expr = "the assistant was handed the MCP server {string}")]
+fn handed_server(w: &mut World, server: String) {
+    let servers = handed_servers(w);
+    assert!(servers.contains_key(&server), "{servers:?}");
+}
+
+/// OD-38: no MCP config entry at all, ctxloom's own server included (an MCP
+/// server's instructions are context).
+#[then("the assistant was handed no MCP server at all")]
+fn handed_no_server(w: &mut World) {
+    assert!(!last_launch(w).is_empty(), "no assistant was launched");
+    let servers = handed_servers(w);
+    assert!(servers.is_empty(), "the launch carried {servers:?}");
+}
+
+#[then("the assistant was handed the profile's guidance")]
+fn handed_guidance(w: &mut World) {
+    let context = handed_context(w);
+    assert!(context.contains(PROFILE_GUIDANCE), "{context}");
+}
+
+#[then("the assistant was not handed the profile's guidance")]
+fn not_handed_guidance(w: &mut World) {
+    assert!(!last_launch(w).is_empty(), "no assistant was launched");
+    let context = handed_context(w);
+    assert!(!context.contains(PROFILE_GUIDANCE), "{context}");
+    assert!(
+        !last_launch(w).contains(PROFILE_GUIDANCE),
+        "the launch carried the guidance"
+    );
+}

@@ -28,6 +28,7 @@ pub(crate) fn read(
         prompt,
         saved_command: text_arg(sub, "command"),
         workspace: text_arg(sub, "workspace"),
+        no_context: flag(sub, "no-context"),
     };
     let outcome = cx.library.dry_run(&cx.flags, &request);
     say_notices(&outcome.notices, PROG, cx.format, cx.catalog, err);

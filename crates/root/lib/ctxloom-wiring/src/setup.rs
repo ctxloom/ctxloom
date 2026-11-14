@@ -131,6 +131,16 @@ impl SetupUseCases {
                     .result
                     .unwrap_or_default()
             })
+        })
+        // The distilled forms that no longer match their sources (S51).
+        .reporting_stale_distilled({
+            let library = crate::library::build(wiring, None)?;
+            Box::new(move || {
+                library
+                    .stale_distilled(&library_application::Flags::default())
+                    .result
+                    .unwrap_or_default()
+            })
         });
         let init = Init::new(
             Arc::new(ScaffoldFs::new(Arc::clone(&fs), &around.cwd)),

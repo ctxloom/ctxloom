@@ -2,6 +2,7 @@
 //! (list, show).
 
 use library::catalog::ContentInfo;
+use library::distill::DistilledState;
 use library::frontmatter::split_front_matter;
 use library::model::Skill;
 use library::refs::{self, ItemKind};
@@ -83,6 +84,14 @@ impl Library {
         self.run(flags, |p| p.operational_prompt(name, builtins))
     }
 
+    /// Every fragment and command whose distilled form is stale (T30, S51):
+    /// doctor's row. Each by its reference, `<bundle>#fragments/<name>` or
+    /// `<bundle>#commands/<name>`, in catalog order; one marked `no_distill`
+    /// is never served distilled and is not said.
+    pub fn stale_distilled(&self, flags: &Flags) -> Outcome<Vec<String>> {
+        self.run(flags, |p| Ok(p.stale_distilled()))
+    }
+
     /// `fragment premises`.
     pub fn premises(&self, flags: &Flags) -> Outcome<Premises> {
         self.run(flags, |p| Ok(p.premises()))
@@ -100,7 +109,11 @@ impl Library {
 }
 
 impl Project {
-    fn operational_prompt(&self, name: &str, builtins: bool) -> Result<String, AppError> {
+    pub(crate) fn operational_prompt(
+        &self,
+        name: &str,
+        builtins: bool,
+    ) -> Result<String, AppError> {
         let bundle = library::builtin::BUNDLE;
         let shipped;
         let entry = if self.no_project() && builtins {
@@ -236,8 +249,11 @@ impl Project {
                 available: available.join(", "),
             });
         };
-        let use_distilled = distilled && !body.distilled.is_empty();
-        Ok(ItemShow {
+        // The distilled form is served only while it matches its source; a
+        // stale one asked for is said, and the original served (T30, S51).
+        let state = body.distilled_state();
+        let use_distilled = distilled && state == DistilledState::Fresh;
+        let shown = ItemShow {
             name,
             bundle: entry.name.clone(),
             reference: reference.to_string(),
@@ -247,7 +263,36 @@ impl Project {
                 body.content.clone()
             },
             distilled: use_distilled,
-        })
+            state,
+        };
+        if distilled && state == DistilledState::Stale {
+            self.notices.push(Notice::StaleDistilled {
+                kind: kind.word().to_string(),
+                reference: reference.to_string(),
+            });
+        }
+        Ok(shown)
+    }
+
+    fn stale_distilled(&self) -> Vec<String> {
+        let stale = |body: &library::model::ItemBody| {
+            !body.no_distill && body.distilled_state() == DistilledState::Stale
+        };
+        let mut out = Vec::new();
+        for entry in self.catalog.entries() {
+            let bundle = &entry.bundle;
+            for (name, fragment) in &bundle.fragments {
+                if stale(&fragment.body) {
+                    out.push(format!("{}#fragments/{name}", entry.name));
+                }
+            }
+            for (name, command) in &bundle.commands {
+                if stale(&command.body) {
+                    out.push(format!("{}#commands/{name}", entry.name));
+                }
+            }
+        }
+        out
     }
 
     fn premises(&mut self) -> Premises {

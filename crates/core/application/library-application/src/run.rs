@@ -30,6 +30,12 @@ pub struct RunRequest {
     /// `--command <name>`: the saved command whose body is the prompt.
     pub saved_command: String,
     pub workspace: String,
+    /// `--no-context` (owner OD-38): nothing ctxloom assembles reaches the
+    /// engine (no profile, fragment, premise index or companion guidance)
+    /// and no MCP server, ctxloom's own included; the run's hooks, and the
+    /// engine's own setup (its session home, credential and the agent's
+    /// permissions), stay.
+    pub no_context: bool,
 }
 
 /// What `context assemble` is asked.
@@ -139,6 +145,38 @@ impl Project {
             });
         }
         self.binding(&self.config.default_agent())
+    }
+
+    /// What a run with no context is bound to (OD-38): the agent asked
+    /// for, else the default agent where there is one, else none (the
+    /// default engine); never a profile, fragment or tag, and one asked for
+    /// beside it is refused.
+    fn contextless(&self, request: &RunRequest) -> Result<Selection, AppError> {
+        let other = if !request.profile.is_empty() {
+            Some("--profile")
+        } else if !request.fragments.is_empty() {
+            Some("--fragment")
+        } else if !request.tags.is_empty() {
+            Some("--tag")
+        } else {
+            None
+        };
+        if let Some(other) = other {
+            return Err(AppError::NoContextExclusive {
+                other: other.to_string(),
+            });
+        }
+        let agent = if request.agent.is_empty() {
+            self.config.agent(&self.config.default_agent())
+        } else {
+            self.binding(&request.agent)?.agent
+        };
+        Ok(Selection {
+            agent,
+            profiles: Vec::new(),
+            fragments: Vec::new(),
+            tags: Vec::new(),
+        })
     }
 
     fn binding(&self, name: &str) -> Result<Selection, AppError> {
@@ -314,9 +352,8 @@ impl Project {
             });
         }
         let prompt = self.prompt_of(request)?;
-        let selection = self.selection(request)?;
         let mut findings = Vec::new();
-        let package = self.compose(&selection, &mut findings)?;
+        let (selection, package) = self.selected(request, &mut findings)?;
         let Launch {
             engine,
             model,
@@ -351,7 +388,7 @@ impl Project {
             })
             .collect();
         let fatal = rows.iter().filter(|r| r.fatal).cloned().collect();
-        let surfaces = self.launch_surfaces(&selection.profiles, &package.selection);
+        let surfaces = self.surfaces_of(request, &selection, &package);
         let plan = DryRun {
             agent: request.agent.clone(),
             workspace: request.workspace.clone(),
@@ -383,6 +420,41 @@ impl Project {
         Ok(Previewed { plan, fatal })
     }
 
+    /// What a run is bound to, and the package it composes. No context
+    /// (OD-38) composes nothing, not even the companions' guidance or the
+    /// premise index.
+    fn selected(
+        &mut self,
+        request: &RunRequest,
+        findings: &mut Vec<Finding>,
+    ) -> Result<(Selection, Package), AppError> {
+        if request.no_context {
+            return Ok((self.contextless(request)?, Package::default()));
+        }
+        let selection = self.selection(request)?;
+        let package = self.compose(&selection, findings)?;
+        Ok((selection, package))
+    }
+
+    /// What the launch carries besides its context. No context carries no
+    /// surface of the profiles' either, and no MCP server at all (OD-38: a
+    /// server's instructions are context); the statusline is the engine's
+    /// own setup and stays as configured.
+    fn surfaces_of(
+        &mut self,
+        request: &RunRequest,
+        selection: &Selection,
+        package: &Package,
+    ) -> surface_ports::Inputs {
+        if request.no_context {
+            return surface_ports::Inputs {
+                statusline: self.config.statusline(),
+                ..surface_ports::Inputs::default()
+            };
+        }
+        self.launch_surfaces(&selection.profiles, &package.selection)
+    }
+
     /// The package of a selection: profiles resolved, the bundles they name
     /// checked, fragments selected and assembled; a selection that asked for
     /// fragments or tags and got none is refused.
@@ -408,7 +480,20 @@ impl Project {
         self.served(&set, findings);
         let package = self.assemble_set(&set, &selection.fragments, &selection.tags, findings);
         refuse_empty(selection, &package)?;
+        self.say_stale(&package);
         Ok(package)
+    }
+
+    /// Each fragment `package` delivered as its original because its
+    /// distilled form is stale, said (T30, S51): judged at this use, so a
+    /// dry run, a launch and `context assemble` say it alike.
+    pub(crate) fn say_stale(&mut self, package: &Package) {
+        for delivered in package.fragments.iter().filter(|d| d.stale) {
+            self.notices.push(Notice::StaleDistilled {
+                kind: "fragment".to_string(),
+                reference: delivered.reference.clone(),
+            });
+        }
     }
 
     fn assemble(&mut self, request: &AssembleRequest) -> Result<Assembled, AppError> {
@@ -584,3 +669,7 @@ fn runtime_notice(effective: &Effective) -> Option<Notice> {
         remedy,
     })
 }
+
+#[cfg(test)]
+#[path = "run.test.rs"]
+mod tests;

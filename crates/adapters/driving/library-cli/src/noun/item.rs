@@ -3,7 +3,7 @@
 //! (OD-40, design §5.2).
 
 use library_application::{
-    ItemCreated, ItemEdited, ItemList, ItemRemoved, ItemShow, Premises, Removal,
+    ItemCreated, ItemDistilled, ItemEdited, ItemList, ItemRemoved, ItemShow, Premises, Removal,
 };
 
 use crate::catalog::{self, ok};
@@ -179,9 +179,101 @@ pub(crate) fn write(
                 ok,
             )?
         }
+        "distill" => distill(cx, kind, &reference, flag(sub, "force"), out, err)?,
         _ => return Ok(None),
     };
     Ok(Some(code))
+}
+
+/// `fragment|command distill <ref> [-f]` (plan step 5).
+fn distill(
+    cx: &Context<'_>,
+    kind: ItemKind,
+    reference: &str,
+    force: bool,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> Result<Exit, Failure> {
+    let outcome = cx.library.item_distill(&cx.flags, kind, reference, force);
+    catalog::answer(
+        cx,
+        outcome,
+        out,
+        err,
+        false,
+        distilled,
+        |done, out, _| distilled_text(done, out),
+        ok,
+    )
+}
+
+/// What one item's distillation said, in text.
+pub(crate) fn distilled_text(done: &ItemDistilled, out: &mut dyn Write) -> std::io::Result<()> {
+    match done.status.as_str() {
+        "no_distill" => writeln!(
+            out,
+            "{} \"{}\" in bundle \"{}\" is marked as no_distill: nothing distilled",
+            done.kind, done.name, done.bundle
+        ),
+        "fresh" => writeln!(
+            out,
+            "{} \"{}\" in bundle \"{}\": its distilled form matches its source (-f distills it again)",
+            done.kind, done.name, done.bundle
+        ),
+        _ => writeln!(
+            out,
+            "Distilled {} \"{}\" in bundle \"{}\" ({})",
+            done.kind, done.name, done.bundle, done.path
+        ),
+    }
+}
+
+/// `fragment|command distill`: `DistillFragmentResponse` or
+/// `DistillCommandResponse`; what was not asked (fresh, or no_distill)
+/// applied nothing, and says why in `detail`.
+pub(crate) fn distilled(
+    parent: &str,
+    done: &ItemDistilled,
+) -> Either<v1::DistillFragmentResponse, v1::DistillCommandResponse> {
+    let name = catalog::item_name(parent, &done.bundle, dir_of(&done.kind), &done.name);
+    let applied = Some(done.status == "distilled");
+    let state = if done.status == "no_distill" {
+        library_application::DistilledState::None
+    } else {
+        library_application::DistilledState::Fresh
+    };
+    let distilled = catalog::distilled_state(state);
+    let detail = if done.status == "distilled" {
+        Vec::new()
+    } else {
+        vec![done.status.clone()]
+    };
+    if is_command(&done.kind) {
+        return Either::Command(v1::DistillCommandResponse {
+            command: Some(v1::Command {
+                name,
+                distilled,
+                no_distill: (done.status == "no_distill").then_some(true),
+                ..v1::Command::default()
+            }),
+            path: done.path.clone(),
+            applied,
+            detail,
+            ..v1::DistillCommandResponse::default()
+        });
+    }
+    Either::Fragment(v1::DistillFragmentResponse {
+        fragment: Some(v1::Fragment {
+            name,
+            distilled,
+            no_distill: (done.status == "no_distill").then_some(true),
+            ..v1::Fragment::default()
+        }),
+        path: done.path.clone(),
+        applied,
+        detail,
+        ..v1::DistillFragmentResponse::default()
+    })
 }
 
 /// A fragment's message or a command's, as the kind is.
@@ -249,6 +341,7 @@ pub(crate) fn shown(
             reference: show.reference.clone(),
             body: show.content.clone(),
             body_is_distilled: show.distilled,
+            distilled: catalog::distilled_state(show.state),
             ..v1::Command::default()
         });
     }
@@ -257,6 +350,7 @@ pub(crate) fn shown(
         reference: show.reference.clone(),
         body: show.content.clone(),
         body_is_distilled: show.distilled,
+        distilled: catalog::distilled_state(show.state),
         ..v1::Fragment::default()
     })
 }

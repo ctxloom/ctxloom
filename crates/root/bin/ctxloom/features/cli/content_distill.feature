@@ -1,7 +1,11 @@
+# world: base
 # Ported from cli/content_distill.feature (rev f36e8dfb2)
-# NOT ported: any of it yet (the Feature is @pending).
-
-@pending
+# NOT ported: nothing.
+# Plan override (OD-39, owner 2026-11-13): `bundle distill` names its bundle,
+#   `bundle distill <bundle>`, where Go took the manifest's path.
+# The distiller is a one-shot on no context (`run --no-context`, OD-38) of
+#   a stub model ("the mock LLM"), never a real one.
+@doc
 Feature: Distilling authored content — does the compression happen, is it kept, and is a bad one refused?
 
   Distillation is how an author keeps a bundle's guidance token-efficient: the
@@ -60,7 +64,7 @@ Feature: Distilling authored content — does the compression happen, is it kept
   # fragment AND the command is the point — a loop that stopped after its first
   # item would still satisfy either assertion alone.
   Scenario: Distilling a bundle stores an answer for every item in it
-    When I run "ctxloom bundle distill .ctxloom/content/bundles/v2/lore/bundle.yaml -f"
+    When I run "ctxloom bundle distill lore -f"
     Then the command succeeds
     And the distilled fragment "rules" in bundle "lore" is the distiller's answer
     And the distilled command "guidance" in bundle "lore" is the distiller's answer

@@ -123,7 +123,7 @@ pub(crate) fn shown(parent: &str, show: &BundleShow) -> v1::Bundle {
                 item: item("fragments", id),
                 tags: f.tags.clone(),
                 preview: f.preview.clone(),
-                distilled: catalog::distilled(f.distilled),
+                distilled: catalog::shown_distilled(f.distilled, f.stale),
                 no_distill: Some(f.no_distill),
                 premise: f.premise.clone(),
                 ..v1::BundleItem::default()
@@ -137,7 +137,7 @@ pub(crate) fn shown(parent: &str, show: &BundleShow) -> v1::Bundle {
                 tags: c.tags.clone(),
                 description: c.description.clone(),
                 preview: c.preview.clone(),
-                distilled: catalog::distilled(c.distilled),
+                distilled: catalog::shown_distilled(c.distilled, c.stale),
                 no_distill: Some(c.no_distill),
                 ..v1::BundleItem::default()
             })
@@ -271,9 +271,62 @@ pub(crate) fn write(
         "remove" => remove(cx, sub, out, err)?,
         "export" => export(cx, sub, out, err)?,
         "import" => import(cx, sub, out, err)?,
+        "distill" => distill(cx, sub, out, err)?,
         _ => return Ok(None),
     };
     Ok(Some(code))
+}
+
+/// `bundle distill <bundle> [-f]` (OD-39: by name): each item's line in
+/// text; in json the `Bundle`, each of its items with the distilled state
+/// it was left in.
+fn distill(
+    cx: &Context<'_>,
+    sub: &ArgMatches,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> Result<Exit, Failure> {
+    let outcome = cx
+        .library
+        .bundle_distill(&cx.flags, &text_arg(sub, "name"), flag(sub, "force"));
+    catalog::answer(
+        cx,
+        outcome,
+        out,
+        err,
+        false,
+        |parent, done| {
+            let entry = |i: &library_application::ItemDistilled, dir: &str| v1::BundleItem {
+                item: catalog::item_name(parent, &done.bundle, dir, &i.name),
+                distilled: catalog::distilled(i.status != "no_distill"),
+                no_distill: Some(i.status == "no_distill"),
+                ..v1::BundleItem::default()
+            };
+            v1::Bundle {
+                name: catalog::bundle_name(parent, &done.bundle),
+                fragments: done
+                    .items
+                    .iter()
+                    .filter(|i| i.kind == "fragment")
+                    .map(|i| entry(i, "fragments"))
+                    .collect(),
+                commands: done
+                    .items
+                    .iter()
+                    .filter(|i| i.kind == "command")
+                    .map(|i| entry(i, "commands"))
+                    .collect(),
+                ..v1::Bundle::default()
+            }
+        },
+        |done, out, _| {
+            for item in &done.items {
+                super::item::distilled_text(item, out)?;
+            }
+            Ok(())
+        },
+        ok,
+    )
 }
 
 fn create(

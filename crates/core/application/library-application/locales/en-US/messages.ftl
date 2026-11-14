@@ -49,6 +49,13 @@ library-application-engine-auth = engines.{ $engine }.auth: { $why }
 library-application-compose = assemble context: profile { $profile }: { $cause }
 library-application-no-fragments = no fragments loaded: { $detail }
 library-application-agent-exclusive = if any flags in the group [agent { $other }] are set none of the others can be; [agent { $other }] were all set
+library-application-no-context-exclusive = --no-context gives the engine no context, so it cannot be asked with { $other }, which selects context
+library-application-no-context-exclusive-fix = drop { $other }, or run without --no-context
+library-application-distill-failed = distilling { $reference } failed: agent run: { $cause }; nothing was written, so it keeps the distilled form it had (or none)
+library-application-distill-failed-fix = check the engine can run a one-shot (`ctxloom run --one-shot --no-context hello`), then distill it again
+library-application-no-distiller = no distiller is wired into this build
+library-application-distill-truncated = the distiller's answer for { $reference } is { $answer } characters, under 2% of its source's { $source }: rejecting as truncated; it keeps the distilled form it had (or none)
+library-application-distill-truncated-fix = distill it again, or on another model
 library-application-saved-command = failed to load command: command not found: { $name }
 library-application-workspace = invalid workspace "{ $value }": workspace is one of none or worktree
 library-application-run-needs-dry-run = run launches the engine for a session, which this build does not do yet: run it with --one-shot for one turn, or with --dry-run to see what a launch would carry
@@ -91,6 +98,8 @@ library-application-notice-session-home-host = { $engine } runs in your own home
 library-application-notice-session-home-host-fix = to give each run a session home of its own, remove session_home: host from { $place } in your home config
 library-application-notice-checkout-left = the session's checkout { $path } (branch { $branch }) was left in place: { $reason }
 library-application-notice-checkout-left-fix = commit or discard its work; the session's next run re-enters it, and `ctxloom session remove` takes it once it is clean
+library-application-stale-distilled = the distilled form of the { $kind } { $reference } is stale: it does not match its source as it is now, or records no digest of it, so the original was used
+library-application-stale-distilled-fix = run `ctxloom { $kind } distill { $reference }` to distill it again
 library-application-notice-root-ignored = CTXLOOM_ROOT={ $root } is not a directory; ignoring it
 
 ## Writes (S2). A refused write has written nothing.
@@ -108,8 +117,6 @@ library-application-write-bad-id = { $kind } name "{ $name }" is not an ID: one 
 library-application-write-bad-id-fix = choose a name such as "house-rules": lowercase it, and write each underscore, dot, space or "/" as a hyphen
 library-application-write-item-not-found = { $kind } not found: { $name }
 library-application-write-empty-edit = refusing to overwrite { $kind } "{ $name }" with an empty buffer — the editor returned no content (crash, truncated write, or a wrapper that never saved); the item is unchanged
-library-application-write-distill-unavailable = { $kind } "{ $name }" ({ $reference }): distillation failed: content saved RAW (undistilled)
-library-application-write-distill-unavailable-fix = run `ctxloom { $kind } distill { $reference }` once an engine is reachable
 library-application-write-export-needs-dest = either an output file or a destination directory must be specified
 library-application-write-export-exists = { $path } already exists (pass --force to overwrite)
 library-application-write-import-exists = { $what } already exists: { $path } (use --force to overwrite)

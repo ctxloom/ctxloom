@@ -264,6 +264,18 @@ pub fn item_list(out: &mut dyn Write, list: &ItemList) -> io::Result<()> {
 
 /// `fragment show` and `command show`.
 pub fn item_show(out: &mut dyn Write, notes: &mut Notes, show: &ItemShow) -> io::Result<()> {
+    // S51: a distilled form that no longer matches its source is said.
+    if show.state == library_application::DistilledState::Stale {
+        notes.0.push(format!(
+            "distilled: stale (run `ctxloom {} distill {}`)",
+            if show.reference.contains("#commands/") {
+                "command"
+            } else {
+                "fragment"
+            },
+            show.reference
+        ));
+    }
     if show.distilled {
         writeln!(out, "# (distilled version)")?;
     }

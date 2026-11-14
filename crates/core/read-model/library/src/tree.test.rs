@@ -516,3 +516,31 @@ fn test_a_blank_sidecar_is_the_empty_document() {
     let bundle = read(&tree);
     assert_eq!(bundle.mcp.keys().collect::<Vec<_>>(), ["postgres"]);
 }
+
+// T30: an item's source is read with its digest, and its distilled form with
+// the digest it records; the state is judged from the two.
+#[test]
+fn test_a_tree_item_carries_its_source_s_digest_and_the_one_its_distilled_form_records() {
+    let raw = "---\ntags: [a]\n---\nlong form\n";
+    let bundle = read(&files(&[
+        ("bundle.yaml", "version: 1.0.0\n"),
+        ("fragments/kept.md", raw),
+        (
+            "fragments/kept.distilled.md",
+            &crate::distill::distilled_file("abc123", "short"),
+        ),
+        ("prompts/go.md", "a command\n"),
+    ]));
+    let kept = &bundle.fragments["kept"].body;
+    assert_eq!(kept.source_digest, crate::sha256::hex(raw.as_bytes()));
+    assert_eq!(kept.distilled_digest, "abc123");
+    assert_eq!(kept.distilled.trim(), "short");
+    assert_eq!(
+        kept.distilled_state(),
+        crate::distill::DistilledState::Stale
+    );
+    let go = &bundle.commands["go"].body;
+    assert_eq!(go.source_digest, crate::sha256::hex(b"a command\n"));
+    assert_eq!(go.distilled_digest, "");
+    assert_eq!(go.distilled_state(), crate::distill::DistilledState::None);
+}

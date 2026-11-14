@@ -420,6 +420,7 @@ fn bundle_shown() -> BundleShow {
                 distilled: true,
                 no_distill: false,
                 premise: String::new(),
+                stale: false,
             },
         )]
         .into_iter()
@@ -432,6 +433,7 @@ fn bundle_shown() -> BundleShow {
                 preview: String::new(),
                 distilled: false,
                 no_distill: true,
+                stale: false,
             },
         )]
         .into_iter()
@@ -553,6 +555,7 @@ fn test_an_item_show_prints_its_marker_name_and_body() {
         reference: st("demo#fragments/golang"),
         content: st("BODY\n\n\n\n\n\n\nEND"),
         distilled,
+        state: library_application::DistilledState::None,
     };
     let mut notes = Notes(Vec::new());
     assert_eq!(
@@ -564,6 +567,48 @@ fn test_an_item_show_prints_its_marker_name_and_body() {
         shown(|out| item_show(out, &mut notes, &show(true))),
         "# (distilled version)\ngolang\n\nBODY\n\n\n\nEND\n"
     );
+}
+
+// S51: a distilled form that no longer matches its source is said, with the
+// command that distills it again.
+#[test]
+fn test_an_item_show_says_a_stale_distilled_form() {
+    let show = |reference: &str, state| ItemShow {
+        bundle: String::new(),
+        name: st("x"),
+        reference: st(reference),
+        content: st("BODY"),
+        distilled: false,
+        state,
+    };
+    use library_application::DistilledState::{Fresh, Stale};
+    for (reference, state, said) in [
+        (
+            "demo#fragments/x",
+            Stale,
+            Some("distilled: stale (run `ctxloom fragment distill demo#fragments/x`)"),
+        ),
+        (
+            "demo#commands/x",
+            Stale,
+            Some("distilled: stale (run `ctxloom command distill demo#commands/x`)"),
+        ),
+        ("demo#fragments/x", Fresh, None),
+    ] {
+        let mut notes = Notes(Vec::new());
+        assert_eq!(
+            shown(|out| item_show(out, &mut notes, &show(reference, state))),
+            "x\n\nBODY\n"
+        );
+        assert_eq!(
+            notes
+                .0
+                .iter()
+                .find(|n| n.starts_with("distilled:"))
+                .map(String::as_str),
+            said
+        );
+    }
 }
 
 // premises.go: the instruction alone when nothing is premised; otherwise a

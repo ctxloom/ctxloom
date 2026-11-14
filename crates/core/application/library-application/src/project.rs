@@ -46,6 +46,9 @@ pub struct Library {
     pub(crate) engines: Vec<Arc<dyn run_ports::Engine>>,
     /// What each engine cannot carry ([`Library::with_hook_losses`]).
     pub(crate) hook_losses: crate::losses::HookLosses,
+    /// The model distill asks ([`Library::with_distiller`]); none wired,
+    /// distill fails.
+    pub(crate) distiller: Option<Rc<dyn crate::distill::Distiller>>,
 }
 
 /// A project opened.
@@ -97,6 +100,7 @@ impl Library {
             builtins: false,
             engines: Vec::new(),
             hook_losses: crate::losses::HookLosses::new(),
+            distiller: None,
         }
     }
 

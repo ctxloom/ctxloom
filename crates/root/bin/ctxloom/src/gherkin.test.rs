@@ -80,6 +80,8 @@ struct World {
     engines: engines::State,
     /// What the j001900 scenarios keep.
     diagnosis: diagnosis::State,
+    /// What the distill steps keep.
+    distill: distill::State,
 }
 
 impl fmt::Debug for World {
@@ -143,6 +145,7 @@ impl World {
             authoring: authoring::State::default(),
             engines: engines::State::default(),
             diagnosis: diagnosis::State::default(),
+            distill: distill::State::default(),
         }
     }
 
@@ -398,6 +401,9 @@ mod diagnosis;
 #[path = "gherkin_engines.test.rs"]
 mod engines;
 
+#[path = "gherkin_distill.test.rs"]
+mod distill;
+
 // ------------------------------------------------------------------ given
 
 #[given(expr = "the environment variable {string} is set to {string}")]
@@ -412,6 +418,7 @@ fn env_set(w: &mut World, name: String, value: String) {
 /// launches nothing), so the reply is not kept.
 #[given(expr = "the mock LLM responds {string}")]
 fn mock_responds(w: &mut World, reply: String) {
+    distill::remember(w, &reply);
     if recall::mock_responds(w, &reply) {
         return;
     }

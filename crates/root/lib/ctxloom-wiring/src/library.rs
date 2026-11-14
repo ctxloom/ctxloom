@@ -136,7 +136,11 @@ pub(crate) fn build(
     .with_engines(advising_engines())
     // What each engine cannot carry, in its own word (its surface half): the
     // capability-loss report and the swap preview read it.
-    .with_hook_losses(hook_losses());
+    .with_hook_losses(hook_losses())
+    // Distill's model: a one-shot on no context (plan step 5, OD-38).
+    .with_distiller(Rc::new(crate::distiller::OneShotDistiller {
+        env: Arc::clone(wiring.env()),
+    }));
     // ctxloom's default content, built in (owner rulings 110, 111).
     let library = if builtins_withheld(wiring.env()) {
         library

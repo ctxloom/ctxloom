@@ -125,6 +125,27 @@ pub(crate) fn distilled(there: bool) -> i32 {
     }
 }
 
+/// A distilled form as judged against its source now (T30, S51).
+pub(crate) fn distilled_state(state: library_application::DistilledState) -> i32 {
+    use library_application::DistilledState as State;
+    let api = match state {
+        State::None => v1::DistilledState::None,
+        State::Fresh => v1::DistilledState::Fresh,
+        State::Stale => v1::DistilledState::Stale,
+    };
+    api as i32
+}
+
+/// A `bundle show` entry's distilled form: stale where it no longer matches
+/// its source, else there or not.
+pub(crate) fn shown_distilled(there: bool, stale: bool) -> i32 {
+    if stale {
+        v1::DistilledState::Stale as i32
+    } else {
+        distilled(there)
+    }
+}
+
 /// A catalog answer: the notices, said; then its error, or its json (the
 /// view as its API message, named under the parent the names give, asked
 /// only here), or its text with the notes it adds. `explicit_json` keeps a

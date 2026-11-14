@@ -131,6 +131,7 @@ fn request_of(run: &ArgMatches, prompt: String) -> OneShot {
             prompt,
             saved_command: one(run, "command").unwrap_or_default(),
             workspace: one(run, "workspace").unwrap_or_default(),
+            no_context: flag(run, "no-context"),
         },
         engine: one(run, "engine").unwrap_or_default(),
         session: one(run, "session").unwrap_or_default(),

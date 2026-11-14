@@ -760,3 +760,29 @@ fn outside_a_project_the_foreign_worktrees_row_asks_nothing() {
     assert_eq!(row.status, Status::Info);
     assert!(foreign.0.lock().unwrap().is_empty());
 }
+
+// S51: a doctor asked for the stale distilled forms has their row, warning
+// of each, before the stated limit; one not asked has none.
+#[test]
+fn a_doctor_reporting_stale_distilled_forms_warns_of_each_before_the_stated_limit() {
+    let mem = project();
+    let report = doctor(&mem, true)
+        .reporting_stale_distilled(Box::new(|| vec!["demo#fragments/rules".to_string()]))
+        .report(false);
+    let markers: Vec<&str> = report.checks.iter().map(|c| c.marker).collect();
+    let n = markers.len();
+    assert_eq!(
+        markers[n - 2],
+        "DOCTOR-CHECK-STALE-DISTILLED-t1",
+        "{markers:?}"
+    );
+    assert_eq!(markers[n - 1], "DOCTOR-CHECK-INGESTION-q7");
+    let stale = row(&report, "DOCTOR-CHECK-STALE-DISTILLED-t1");
+    assert_eq!(stale.status, Status::Warn);
+    assert!(stale.detail.contains("demo#fragments/rules"));
+    let plain = doctor(&mem, true).report(false);
+    assert!(!plain
+        .checks
+        .iter()
+        .any(|c| c.marker == "DOCTOR-CHECK-STALE-DISTILLED-t1"));
+}

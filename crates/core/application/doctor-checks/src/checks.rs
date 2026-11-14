@@ -460,6 +460,34 @@ pub fn not_carried(losses: &[library_application::AgentLosses]) -> Check {
     )
 }
 
+/// `STALE-DISTILLED-t1` (T30, S51): every distilled form matches the source
+/// it was distilled from; one that does not (its source edited since, or no
+/// digest recorded) is never used, its original is, and it is a warning
+/// naming each, with the command that distills it again.
+pub fn stale_distilled(stale: &[String]) -> Check {
+    const M: &str = "DOCTOR-CHECK-STALE-DISTILLED-t1";
+    const N: &str = "every distilled form matches its source";
+    if stale.is_empty() {
+        return row(
+            M,
+            N,
+            Status::Ok,
+            "every distilled form matches the source it was distilled from",
+            "",
+        );
+    }
+    row(
+        M,
+        N,
+        Status::Warn,
+        &format!(
+            "stale distilled forms (their originals are used instead): {}",
+            stale.join(", ")
+        ),
+        "run `ctxloom fragment distill <ref>` (or `ctxloom command distill <ref>`) for each, or `ctxloom bundle distill <bundle>`",
+    )
+}
+
 /// `FOREIGN-WORKTREES-s9` (j001300): the project's worktrees ctxloom did not
 /// create, each named with the states git measured and the exact commands
 /// that remove it, which only she runs: ctxloom removes no worktree it did

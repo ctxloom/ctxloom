@@ -130,6 +130,8 @@ pub enum AppError {
     NoFragments { detail: String },
     /// `--agent` with a flag it excludes.
     AgentExclusive { other: String },
+    /// `--no-context` beside a flag that selects context (OD-38).
+    NoContextExclusive { other: String },
     /// A saved command that cannot be loaded.
     SavedCommand { name: String },
     /// A `--workspace` that is neither none nor worktree.
@@ -138,6 +140,18 @@ pub enum AppError {
     RunNeedsDryRun,
     /// Fatal findings, after the plan was shown.
     StartupAborted { count: u64, findings: String },
+    /// A distiller that gave no answer (step 5): nothing was written.
+    DistillFailed {
+        reference: String,
+        cause: angzarr_diagnostic::Report,
+    },
+    /// A distiller's answer under 2% of its source (step 5): refused as
+    /// truncated, and nothing was written.
+    DistillTruncated {
+        reference: String,
+        answer: u64,
+        source: u64,
+    },
 }
 
 impl AppError {
@@ -175,7 +189,9 @@ impl ExitClass for AppError {
     /// config or bundle, a reference that is no reference).
     fn exit(&self) -> Exit {
         match self {
-            AppError::Cause(_) => Exit::FAILED,
+            AppError::Cause(_)
+            | AppError::DistillFailed { .. }
+            | AppError::DistillTruncated { .. } => Exit::FAILED,
             AppError::StartupAborted { .. } => Exit::FATAL_FINDINGS,
             _ => Exit::REFUSED,
         }
@@ -229,6 +245,9 @@ impl Diagnostic for AppError {
             AppError::Compose { .. } => code!("compose"),
             AppError::NoFragments { .. } => code!("no-fragments"),
             AppError::AgentExclusive { .. } => code!("agent-exclusive"),
+            AppError::NoContextExclusive { .. } => code!("no-context-exclusive"),
+            AppError::DistillFailed { .. } => code!("distill-failed"),
+            AppError::DistillTruncated { .. } => code!("distill-truncated"),
             AppError::SavedCommand { .. } => code!("saved-command"),
             AppError::Workspace { .. } => code!("workspace"),
             AppError::RunNeedsDryRun => code!("run-needs-dry-run"),
@@ -335,6 +354,20 @@ impl Diagnostic for AppError {
             ],
             AppError::NoFragments { detail } => vec![("detail", detail.as_str().into())],
             AppError::AgentExclusive { other } => vec![("other", other.as_str().into())],
+            AppError::NoContextExclusive { other } => vec![("other", other.as_str().into())],
+            AppError::DistillFailed { reference, cause } => vec![
+                ("reference", reference.as_str().into()),
+                ("cause", Arg::Nested(Box::new(cause.clone()))),
+            ],
+            AppError::DistillTruncated {
+                reference,
+                answer,
+                source,
+            } => vec![
+                ("reference", reference.as_str().into()),
+                ("answer", (*answer).into()),
+                ("source", (*source).into()),
+            ],
             AppError::SavedCommand { name } => vec![("name", name.as_str().into())],
             AppError::Workspace { value } => vec![("value", value.as_str().into())],
             AppError::StartupAborted { count, findings } => vec![
@@ -443,6 +476,10 @@ pub enum Notice {
         branch: String,
         reason: String,
     },
+    /// A distilled form that no longer matches its source, or records no
+    /// digest of it (T30, S51): its original was used in its place.
+    /// `kind` is `fragment` or `command`.
+    StaleDistilled { kind: String, reference: String },
 }
 
 impl Notice {
@@ -486,6 +523,7 @@ impl Diagnostic for Notice {
             Notice::WorkspaceUnavailable { .. } => code!("notice-workspace-unavailable"),
             Notice::SessionHomeHost { .. } => code!("notice-session-home-host"),
             Notice::CheckoutLeft { .. } => code!("notice-checkout-left"),
+            Notice::StaleDistilled { .. } => code!("stale-distilled"),
             Notice::RuntimeOverride { change, .. } => match change {
                 library::config::engines::Change::Weakens => code!("notice-runtime-weakens"),
                 library::config::engines::Change::Strengthens => {
@@ -561,6 +599,10 @@ impl Diagnostic for Notice {
                 ("path", path.as_str().into()),
                 ("branch", branch.as_str().into()),
                 ("reason", reason.as_str().into()),
+            ],
+            Notice::StaleDistilled { kind, reference } => vec![
+                ("kind", kind.as_str().into()),
+                ("reference", reference.as_str().into()),
             ],
         }
     }
@@ -694,6 +736,19 @@ fn error_samples() -> Vec<Box<dyn Diagnostic>> {
             cause: Box::new(ProfileError::Circular { name: s("dev") }),
         }),
         Box::new(AppError::NoFragments { detail: s("none") }),
+        Box::new(AppError::DistillFailed {
+            reference: s("demo#fragments/rules"),
+            cause: angzarr_diagnostic::Report::of(&BundleError::NoManifest { bundle: s("demo") }),
+        }),
+        Box::new(crate::distill::NoDistiller),
+        Box::new(AppError::DistillTruncated {
+            reference: s("demo#fragments/rules"),
+            answer: 4,
+            source: 900,
+        }),
+        Box::new(AppError::NoContextExclusive {
+            other: s("--profile"),
+        }),
         Box::new(AppError::AgentExclusive {
             other: s("profile"),
         }),
@@ -763,6 +818,10 @@ fn notice_samples() -> Vec<Box<dyn Diagnostic>> {
             path: s("/h/.ctxloom/worktrees/calm-otter/amber-swift-owl/reviewer"),
             branch: s("ctxloom/amber-swift-owl/reviewer"),
             reason: s("it has uncommitted changes; left in place to preserve WIP"),
+        }),
+        Box::new(Notice::StaleDistilled {
+            kind: s("fragment"),
+            reference: s("demo#fragments/rules"),
         }),
         Box::new(runtime_override(library::config::engines::Change::Weakens)),
         Box::new(runtime_override(

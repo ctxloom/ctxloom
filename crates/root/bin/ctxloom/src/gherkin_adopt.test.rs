@@ -314,12 +314,13 @@ fn settings_hold_permissions(w: &mut World, want: String) {
         .unwrap_or_else(|| serde_json::json!({}));
     expected["permissions"] = want;
     assert_eq!(user, expected, "{path}");
+    // ctxloom's own tools are allowed (OD-4) where its server is offered:
+    // a launch with no context offers none, so allows none (OD-38).
     let handed = handed_settings(w);
-    assert_eq!(
-        handed.get("permissions"),
-        Some(&serde_json::json!({"allow": ["mcp__ctxloom__*"]})),
-        "{handed}"
-    );
+    let ours = handed_servers(w)
+        .contains_key("ctxloom")
+        .then(|| serde_json::json!({"allow": ["mcp__ctxloom__*"]}));
+    assert_eq!(handed.get("permissions"), ours.as_ref(), "{handed}");
 }
 
 /// Owner T21: the agent edits the settings files it was given (they are in

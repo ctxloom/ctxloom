@@ -1,7 +1,8 @@
 # world: base
 # Ported from cli/init.feature (rev f36e8dfb2)
-# NOT ported: the Rules tagged @pending: the first-init rule (it asks its
-#   questions over a pty).
+# NOT ported: the scenario tagged @pending: the first-init rule's first (it
+#   asks its questions over a pty, and says what it chose for the rest, which
+#   is not built). The rule's companion scenarios run with a terminal stood in.
 # Divergence from Go (owner rulings 110, 111, 117): a first init seeds no
 #   remote, pulls nothing, and seeds a bare default profile.
 @doc
@@ -342,7 +343,6 @@ Feature: init — the setup interview, and what it does to a project that alread
       Then the command succeeds
       And the output contains "You are a text compression assistant."
 
-  @pending
   Rule: A first init asks its questions at the terminal, and says what it chose for the rest
 
     Init's questions are asked in-process, on the user's own terminal, before
@@ -367,8 +367,8 @@ Feature: init — the setup interview, and what it does to a project that alread
     is written as `config.premised`. Off a terminal neither is asked and
     nothing is written: the defaults stand. These two questions are BUILT
     (owner rulings 89, 106, and of 2026-11-12; j000200's terminal scenarios
-    and setup-cli's and init-application's tests hold them); the rest of
-    this Rule is not.
+    and setup-cli's and init-application's tests hold them), and so is the
+    companion offer below (M4); the delegation and permissions lines are not.
 
     Init also offers to add companions, by name. It seeds the offer with the
     companions ctxloom ships whose programs are on her machine, each one she
@@ -383,6 +383,7 @@ Feature: init — the setup interview, and what it does to a project that alread
     # remote is refused, and --skip-launch stops before the auth probe and
     # the setup session. The stub records any execution, which is how "no
     # engine ran" is proven rather than assumed.
+    @pending
     Scenario: A first init writes the answers given at the terminal
       Given an empty project directory
       And claude-code is the only engine installed, and nothing reaches the network

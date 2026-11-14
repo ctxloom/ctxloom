@@ -77,6 +77,8 @@ struct World {
     engines: engines::State,
     /// What the j001900 scenarios keep.
     diagnosis: diagnosis::State,
+    /// What j000300's and init.feature's companion scenarios keep.
+    init_companions: init_companions::State,
 }
 
 impl fmt::Debug for World {
@@ -102,6 +104,7 @@ impl CommonWorld for World {
             || daemon_spec::claims(self, step)
             || engines::starts(self, step)
             || diagnosis::runs(self, step)
+            || init_companions::runs(self, step)
         {
             return;
         }
@@ -139,6 +142,7 @@ impl World {
             authoring: authoring::State::default(),
             engines: engines::State::default(),
             diagnosis: diagnosis::State::default(),
+            init_companions: init_companions::State::default(),
         }
     }
 
@@ -394,8 +398,11 @@ mod diagnosis;
 
 #[path = "gherkin_companions.test.rs"]
 mod companions;
+
 #[path = "gherkin_engines.test.rs"]
 mod engines;
+#[path = "gherkin_init_companions.test.rs"]
+mod init_companions;
 
 // ------------------------------------------------------------------ given
 

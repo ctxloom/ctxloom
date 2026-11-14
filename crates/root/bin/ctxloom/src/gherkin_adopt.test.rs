@@ -148,8 +148,9 @@ pub(super) fn claude_code(w: &mut World) {
     let project = &w.common.project;
     project.write_home(".claude/settings.json", "{\n  \"theme\": \"dark\"\n}\n");
     project.write_home(".claude/CLAUDE.md", "Alice's own instructions: be brief.\n");
-    let host = crate::tests::host_var("PATH").unwrap_or_default();
-    let path = format!("{}:{}", bin.display(), host.to_string_lossy());
+    // No shipped companion of this machine's: a first init offers each it
+    // finds (M4), and the scenarios answer init's questions.
+    let path = files::path_without_shipped_companions(&[bin]);
     w.common.set_env("PATH", path);
 }
 

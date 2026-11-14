@@ -542,7 +542,13 @@ fn resolve(
             detail: "no ctxloom daemon could be started".to_string(),
         }));
     };
-    let request = wiring.registration().unwrap_or_default();
+    let request = wiring
+        .registration()
+        .map_err(|e| {
+            let exit = e.exit();
+            Failure::new(e, exit)
+        })?
+        .unwrap_or_default();
     block_on(daemon_api::resolve(&client_of(&found), request))?.map_err(called)
 }
 
@@ -828,9 +834,18 @@ pub(crate) fn env_vars(env: &EnvSnapshot) -> daemon_proto::v1::EnvVars {
 }
 
 /// This command's client of the daemon (slice 2 step 6): `wiring`'s
-/// project, its working directory and its whole environment.
+/// project, its working directory and its whole environment. A project
+/// with no identity yet is read as one where nothing is recorded (owner
+/// ruling 2026-11-13: a read never mints one); one that cannot be told is
+/// outside a project, as before.
 pub(crate) fn client<'a>(wiring: &'a Wiring, stamp: &str) -> daemon_api::Client<Reach<'a>> {
-    client_for(wiring, stamp, wiring.registration())
+    match wiring.registration() {
+        Ok(Some(project)) => client_for(wiring, stamp, Some(project)),
+        Ok(None) | Err(LibError::ProjectUnnamed { .. }) => {
+            client_for(wiring, stamp, None).unnamed()
+        }
+        Err(_) => client_for(wiring, stamp, None),
+    }
 }
 
 /// A client of the daemon for `registration`'s project (none: outside one).
@@ -856,8 +871,9 @@ fn client_for<'a>(
 /// Where this process's library resource names are rooted (OD-40, OQ-2,
 /// OQ-3): its project as the daemon's `ResolveProject` names it
 /// (`projects/{harp}`; the daemon reached, started if none serves), or
-/// `users/me` outside a project. A call that fails fails the command in
-/// its own class.
+/// `users/me` outside a project. A project nothing has named is refused
+/// (owner ruling 2026-11-13: a read never mints its id). A call that fails
+/// fails the command in its own class.
 pub(crate) fn library_parent(wiring: &Wiring, stamp: &str) -> Result<String, Failure> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -867,8 +883,12 @@ pub(crate) fn library_parent(wiring: &Wiring, stamp: &str) -> Result<String, Fai
                 detail: e.to_string(),
             })
         })?;
+    let registration = wiring.library_registration().map_err(|e| {
+        let exit = e.exit();
+        Failure::new(e, exit)
+    })?;
     runtime
-        .block_on(client_for(wiring, stamp, wiring.library_registration()).library_parent())
+        .block_on(client_for(wiring, stamp, registration).library_parent())
         .map_err(|e| {
             let exit = e.exit();
             Failure::new(e, exit)

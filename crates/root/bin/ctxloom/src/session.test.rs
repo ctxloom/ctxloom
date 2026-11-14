@@ -212,18 +212,17 @@ fn test_reading_creates_nothing() {
     ] {
         assert_eq!(home.run(args).code, 0, "{args:?}");
     }
-    // The reads are the daemon's (slice 2 step 6): what is there is the
-    // daemon's own (its directory, the one store it keeps) and the project's
-    // identity, which resolving the project with the daemon registers (S6:
-    // its id, the registry's entry); no session, transcript or store of a
-    // read's.
+    // The reads are the daemon's (slice 2 step 6), and a read never mints
+    // a project id (owner ruling 2026-11-13: only `run` and `init` do), so
+    // a project with none lists nothing, asking no daemon: what is there is
+    // at most the daemon's own (its directory, the one store it keeps); no
+    // identity, session, transcript or store of a read's.
     let top = files::children(home.env.home());
     assert_eq!(top, [home.env.home().join(".ctxloom")], "{top:?}");
     for entry in files::children(home.env.home().join(".ctxloom")) {
         let name = entry.file_name().unwrap().to_string_lossy().to_string();
         assert!(
-            ["daemon", "project-id", "projects"].contains(&name.as_str())
-                || name.starts_with("ctxloom.db"),
+            ["daemon", "projects"].contains(&name.as_str()) || name.starts_with("ctxloom.db"),
             "{name} is no daemon's"
         );
     }

@@ -32,6 +32,9 @@ pub struct Client<D> {
     env: v1::EnvVars,
     /// Mints a write's request id (S8), once per call, retry included.
     ids: RequestIds,
+    /// Its directory's project has no identity yet (owner ruling
+    /// 2026-11-13: a read never mints one), so nothing is recorded in it.
+    unnamed: bool,
 }
 
 /// What mints a write's request id (S8): unique per call.
@@ -112,7 +115,26 @@ impl<D: Daemons> Client<D> {
             cwd,
             env,
             ids: Box::new(String::new),
+            unnamed: false,
         }
+    }
+
+    /// This client, its directory's project one with no identity yet (owner
+    /// ruling 2026-11-13: only `run` and `init` mint one): nothing can be
+    /// recorded in it, so its own listing and search are empty, asked of no
+    /// daemon; what addresses one of its sessions is refused as outside a
+    /// project, and every project's listing is every project's.
+    pub fn unnamed(self) -> Client<D> {
+        Client {
+            unnamed: true,
+            ..self
+        }
+    }
+
+    /// Whether a read of this client's own project answers nothing,
+    /// unasked: its project has no identity, so nothing is recorded in it.
+    fn nothing_recorded(&self, all: bool) -> bool {
+        self.unnamed && !all && self.project.is_none()
     }
 
     /// This client, each write's request id minted by `ids` (none, by
@@ -228,6 +250,9 @@ impl<D: Daemons> SessionReads for Client<D> {
         all: bool,
         state: v1::session::State,
     ) -> Result<v1::ListSessionsResponse, CallError> {
+        if self.nothing_recorded(all) {
+            return Ok(v1::ListSessionsResponse::default());
+        }
         self.on_daemon(async |api: &D::Api| {
             let request = v1::ListSessionsRequest {
                 parent: self.parent(api, all).await?,
@@ -246,6 +271,9 @@ impl<D: Daemons> SessionReads for Client<D> {
         all: bool,
         state: v1::session::State,
     ) -> Result<v1::ListSessionsResponse, CallError> {
+        if self.nothing_recorded(all) {
+            return Ok(v1::ListSessionsResponse::default());
+        }
         self.on_daemon(async |api: &D::Api| {
             let request = v1::SearchSessionsRequest {
                 parent: self.parent(api, all).await?,

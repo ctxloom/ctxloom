@@ -500,7 +500,9 @@ fn named_from(project: &Project, dir: &std::path::Path) -> String {
 
 // OD-40 (OQ-2): inside a project, a json read from a subdirectory names the
 // project of the nearest `.ctxloom` up from it, the one its root names, and
-// writes nothing: no identity of the subdirectory's own.
+// writes nothing: no identity of the subdirectory's own. The initialized
+// project carries the id `init` mints (owner ruling 2026-11-13: a read never
+// mints one).
 #[test]
 fn test_a_json_read_from_a_subdirectory_names_the_nearest_project_and_writes_nothing() {
     let project = Project::initialized();
@@ -517,24 +519,25 @@ fn test_a_json_read_from_a_subdirectory_names_the_nearest_project_and_writes_not
     );
 }
 
-// OD-40: a project no run has named yet is named at its root, from wherever
-// in it the first json read is made: the identity is the project's
-// (`.ctxloom/project-id` beside its config), never a subdirectory's, so the
-// root then names the same project.
+// Owner ruling 2026-11-13 (overruling B2's root write): a first json read
+// from a subdirectory of a project nothing has named mints no id, neither at
+// the root nor in the subdirectory: it is refused, and writes nothing.
 #[test]
-fn test_a_first_json_read_from_a_subdirectory_names_the_project_at_its_root() {
-    let project = Project::initialized();
+fn test_a_first_json_read_from_a_subdirectory_is_refused_and_names_nothing() {
+    let project = Project::configured();
     let sub = project.dir().join("src");
     files::mkdirs(&sub);
-    let from_sub = named_from(&project, &sub);
+    let before = project.tree("");
+    let ran = project.run_in(&sub, &["config", "show", "--format", "json"]);
+    assert_eq!(ran.code, 20, "{}", ran.said());
+    assert!(
+        ran.stderr.contains("ctxloom-wiring-project-unnamed"),
+        "{}",
+        ran.said()
+    );
     assert!(
         !files::exists(sub.join(".ctxloom")),
         "the subdirectory got an identity"
     );
-    assert!(
-        project.exists(".ctxloom/project-id"),
-        "{:?}",
-        project.tree("").keys()
-    );
-    assert_eq!(named_from(&project, project.dir()), from_sub);
+    assert_eq!(project.tree(""), before, "a read wrote in the project");
 }

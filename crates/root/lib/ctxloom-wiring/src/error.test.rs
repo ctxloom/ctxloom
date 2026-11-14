@@ -73,8 +73,25 @@ fn the_samples_are_the_same_whether_or_not_test_support_is_built() {
             "ctxloom-wiring-bad-session",
             "ctxloom-wiring-no-runtime",
             "ctxloom-wiring-daemon-other-home",
+            "ctxloom-wiring-project-unnamed",
             "ctxloom-wiring-store",
             "ctxloom-wiring-store",
         ]
     );
+}
+
+// Owner ruling 2026-11-13: a read in a project nothing has named is a
+// decline (20), naming the root; every other wiring error failed (10).
+#[test]
+fn a_read_in_an_unnamed_project_is_a_decline_naming_its_root() {
+    use cli_support::{Exit, ExitClass};
+    let unnamed = LibError::ProjectUnnamed {
+        root: "/work/app".to_string(),
+    };
+    assert_eq!(unnamed.exit(), Exit::REFUSED);
+    assert!(text(unnamed.args()).contains("/work/app"));
+    let other = LibError::NoRuntime {
+        detail: "why".to_string(),
+    };
+    assert_eq!(other.exit(), Exit::FAILED);
 }

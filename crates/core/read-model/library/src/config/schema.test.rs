@@ -46,7 +46,7 @@ fn test_an_unknown_top_level_key_is_named_with_the_keys_there_are() {
 fn test_an_unknown_nested_key_is_named_by_its_path_and_where_it_would_be_legal() {
     assert_eq!(
         texts("schema_version: 8\nagents:\n  developer:\n    profiles: [dev]\n    auth: login\n"),
-        ["unknown key `agents.developer.auth` in config.yaml: ctxloom does not know it (known keys at `agents.developer`: driving, engine, engines, env, may_delegate, profiles, roots, runtime, surfaces)"]
+        ["unknown key `agents.developer.auth` in config.yaml: ctxloom does not know it (known keys at `agents.developer`: driving, engine, engines, env, may_delegate, profiles, roots, runtime, session_home, surfaces)"]
     );
 }
 
@@ -254,6 +254,7 @@ fn test_the_schema_describes_exactly_the_paths_it_lists() {
         &["companions", "acme", "command", "0"][..],
         &["editor", "command"],
         &["engines", "claude-code", "session_home"],
+        &["agents", "dev", "session_home"],
         &["engines", "opencode", "env", "0"],
         &["agents", "dev", "env", "0"],
         &["agents", "dev", "engines", "claude-code", "model"],
@@ -382,6 +383,18 @@ fn test_the_engine_block_refuses_values_the_schema_does_not_give() {
         assert_eq!(texts(&doc).len(), 1, "{key}: {value}: {:?}", texts(&doc));
     }
     let said = texts("schema_version: 9\nengines:\n  claude-code:\n    env: [\"A=b\"]\n");
+    assert_eq!(said.len(), 1, "{said:?}");
+}
+
+// owner ruling of 2026-11-13 (superseding 44(b) for this key): an agent says
+// its own session_home, in the engine block's words
+#[test]
+fn test_an_agent_s_session_home_takes_the_engine_block_s_words() {
+    for word in ["session", "host"] {
+        let doc = format!("schema_version: 9\nagents:\n  dev:\n    session_home: {word}\n");
+        assert_eq!(texts(&doc), Vec::<String>::new(), "{word}");
+    }
+    let said = texts("schema_version: 9\nagents:\n  dev:\n    session_home: elsewhere\n");
     assert_eq!(said.len(), 1, "{said:?}");
 }
 

@@ -9,7 +9,9 @@
 
 pub(super) use serde_json::Value;
 
-pub(super) use super::library::{contains_value, entries, reports_as, Project, MINIMAL_CONFIG};
+pub(super) use super::library::{
+    contains_value, entries, names_ending, reports_as, Project, MINIMAL_CONFIG,
+};
 pub(super) use crate::tests::files;
 
 /// An outline's `<flags>` column: the three rows every `@json-default` table has.

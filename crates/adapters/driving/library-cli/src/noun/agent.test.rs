@@ -14,8 +14,8 @@ mod read {
             agents["agents"][0],
             serde_json::json!({
                 "name": "projects/calm-otter/agents/dev",
-                "engine": "claude-code",
-                "profiles": ["dev"],
+                "engine": "projects/calm-otter/engines/claude-code",
+                "profiles": ["projects/calm-otter/bundles/project/profiles/dev"],
                 "runtime": "host",
                 "default": true,
             })
@@ -23,10 +23,13 @@ mod read {
         assert_eq!(json_of(&["agent"]), agents);
         let show = json_of(&["agent", "show", "dev"]);
         assert_eq!(show["name"], "projects/calm-otter/agents/dev");
-        assert_eq!(show["engine"], "claude-code");
+        assert_eq!(show["engine"], "projects/calm-otter/engines/claude-code");
         assert_eq!(show["default"], true);
         assert!(show.get("definition").is_none(), "{show}");
-        assert_eq!(show["resolved"]["engine"], "claude-code");
+        assert_eq!(
+            show["resolved"]["engine"],
+            "projects/calm-otter/engines/claude-code"
+        );
         assert!(text_of(&["agent", "show", "dev"])
             .starts_with("Agent: dev\nEngine (declared): claude-code\n"));
         assert!(text_of(&["agent"]).starts_with("Agents (1):\n"));
@@ -90,11 +93,79 @@ mod read {
         assert_eq!(none.out, "{}\n");
     }
 
-    // Outside a project an agent is named under the home (OQ-3).
+    // Owner ruling of 2026-11-13 (superseding 44(b) for this key): an agent's
+    // binding says its own session_home, and it resolves with the layer
+    // that said it.
+    #[test]
+    fn test_an_agent_s_session_home_is_shown_as_said_and_resolved_with_its_source() {
+        let home = "schema_version: 9\nengines:\n  claude-code:\n    session_home: host\nagents:\n  own:\n    engine: claude-code\n    session_home: session\n  kept:\n    engine: claude-code\n";
+        let layers = [home, "schema_version: 9\n"];
+        let listed = go(&["agent", "list"], JSON, &layers).json();
+        let row = |name: &str| {
+            listed["agents"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|a| a["name"].as_str().unwrap().ends_with(name))
+                .cloned()
+                .unwrap()
+        };
+        assert_eq!(row("/own")["session_home"], "session");
+        assert!(row("/kept").get("session_home").is_none());
+        let own = go(&["agent", "show", "own"], JSON, &layers).json();
+        assert_eq!(
+            own["resolved"]["session_home"],
+            serde_json::json!({"value": "session", "source": "agent"})
+        );
+        let kept = go(&["agent", "show", "kept"], JSON, &layers).json();
+        assert_eq!(
+            kept["resolved"]["session_home"],
+            serde_json::json!({"value": "host", "source": "engine"})
+        );
+        let text = go(&["agent", "show", "kept"], TEXT, &layers).out;
+        assert!(text.contains("Session home: host (engine)\n"), "{text}");
+        let listing = go(&["agent", "list"], TEXT, &layers).out;
+        assert!(listing.contains("    session_home: session\n"), "{listing}");
+    }
+
+    // Outside a project an agent is named under the home (OQ-3), and so are
+    // the resources it references.
     #[test]
     fn test_agent_names_are_rooted_where_the_names_say() {
         let home = go_named(&["agent", "show", "dev"], JSON, &Home);
         assert_eq!(home.json()["name"], "users/me/agents/dev");
+        assert_eq!(home.json()["engine"], "users/me/engines/claude-code");
+    }
+
+    // Design §2 (AIP-122): an agent's references are resource names, the
+    // engine's and each profile's; a reference that names no place keeps its
+    // configured text (OQ-16), and an agent that names no engine names none.
+    #[test]
+    fn test_an_agent_s_references_are_resource_names() {
+        let layers = ["schema_version: 9\nagents:\n  dev:\n    engine: opencode\n    profiles: [dev, acme/base, \"demo#profiles/team\"]\n  bare:\n    profiles: [dev]\n"];
+        let listed = go(&["agent", "list"], JSON, &layers).json();
+        let row = |name: &str| {
+            listed["agents"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|a| a["name"].as_str().unwrap().ends_with(name))
+                .cloned()
+                .unwrap()
+        };
+        assert_eq!(
+            row("/dev")["engine"],
+            "projects/calm-otter/engines/opencode"
+        );
+        assert_eq!(
+            row("/dev")["profiles"],
+            serde_json::json!([
+                "projects/calm-otter/bundles/project/profiles/dev",
+                "acme/base",
+                "projects/calm-otter/bundles/demo/profiles/team",
+            ])
+        );
+        assert!(row("/bare").get("engine").is_none(), "{listed}");
     }
 }
 
@@ -139,8 +210,9 @@ mod write {
         // OD-40 (design §4): a write answers its method's response, the
         // resource after the write and `applied` printed.
         let doc = json(&library, &["agent", "edit", "dev", "--env", ""]);
-        assert_eq!(doc["agent"]["name"], "projects/calm-otter/agents/dev");
-        assert_eq!(doc["agent"]["engine"], "claude-code");
+        let (named, engine) = (&doc["agent"]["name"], &doc["agent"]["engine"]);
+        assert_eq!(named, "projects/calm-otter/agents/dev");
+        assert_eq!(engine, "projects/calm-otter/engines/claude-code");
         assert_eq!(doc["applied"], true);
         let bad = refused_code(
             &library,
@@ -200,7 +272,7 @@ mod write {
             serde_json::json!({
                 "agent": {
                     "name": "projects/calm-otter/agents/dev",
-                    "engine": "claude-code",
+                    "engine": "projects/calm-otter/engines/claude-code",
                     "default": true,
                 },
                 "applied": true,
@@ -210,6 +282,46 @@ mod write {
             text(&library, &["agent", "remove", "dev", "--yes"]),
             "Removed agent \"dev\"\n"
         );
+    }
+
+    // Owner ruling of 2026-11-13: `--session-home` writes the agent's own
+    // word (a config word, never a boolean) into its binding.
+    #[test]
+    fn test_session_home_is_written_to_the_agent() {
+        let (library, mem) = world();
+        assert_eq!(
+            text(
+                &library,
+                &[
+                    "agent",
+                    "create",
+                    "dev",
+                    "--engine",
+                    "claude-code",
+                    "--session-home",
+                    "session"
+                ]
+            ),
+            "Created agent \"dev\" (engine: claude-code, session_home: session)\n"
+        );
+        assert!(mem
+            .config(Scope::Project)
+            .unwrap()
+            .contains("session_home: session"));
+        let doc = json(
+            &library,
+            &["agent", "edit", "dev", "--session-home", "session"],
+        );
+        assert_eq!(doc["agent"]["session_home"], "session");
+        // an empty word clears it
+        json(&library, &["agent", "edit", "dev", "--session-home", ""]);
+        assert!(!mem.config(Scope::Project).unwrap().contains("session_home"));
+        let bad = refused_code(
+            &library,
+            &["agent", "edit", "dev", "--session-home", "elsewhere"],
+            TEXT,
+        );
+        assert!(bad.contains("session-home"), "{bad}");
     }
 
     // j002000: a swap to an engine that cannot carry a profile's hook is shown

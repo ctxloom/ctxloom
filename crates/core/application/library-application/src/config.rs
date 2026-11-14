@@ -348,6 +348,9 @@ pub struct Agent {
     pub runtime: String,
     pub driving: String,
     pub env: Vec<String>,
+    /// `session` | `host` as the binding says it (owner ruling of
+    /// 2026-11-13); empty, unsaid.
+    pub session_home: String,
     /// The per-engine blocks (`agents.<n>.engines`, ruling 57).
     pub engines: Value,
 }
@@ -510,6 +513,7 @@ impl Agent {
             },
             driving: text_at(body, "driving"),
             env: list_at(body, "env"),
+            session_home: text_at(body, "session_home"),
         }
     }
 
@@ -538,6 +542,7 @@ impl Agent {
             runtime: self.runtime.clone(),
             driving: self.driving.clone(),
             env: self.env.clone(),
+            session_home: self.session_home.clone(),
             engines: crate::json::permissions(&self.engines),
             engine_lines,
         }

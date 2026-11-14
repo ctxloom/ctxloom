@@ -360,6 +360,10 @@ pub struct AgentRow {
     pub driving: String,
     #[serde(skip_serializing_if = "no_items")]
     pub env: Vec<String>,
+    /// `session` | `host` as the binding says it; empty, unsaid (its engine
+    /// block's then stands; owner ruling of 2026-11-13).
+    #[serde(skip_serializing_if = "no_text")]
+    pub session_home: String,
     /// The agent's per-engine blocks as the config holds them
     /// (`agents.<n>.engines`, owner rulings 57 and 67); absent when none.
     #[serde(skip_serializing_if = "no_blocks")]
@@ -397,8 +401,8 @@ pub struct ResolvedAgent {
     pub name: String,
     pub profiles: Vec<String>,
     pub engine: String,
-    /// Model, effort, permissions, runtime and env, each with the
-    /// layer that said it.
+    /// Model, effort, permissions, runtime, env and session_home, each with
+    /// the layer that said it.
     #[serde(flatten)]
     pub settings: crate::AgentSettings,
     #[serde(skip_serializing_if = "no_text")]
@@ -407,9 +411,6 @@ pub struct ResolvedAgent {
     pub fragments: Vec<String>,
     #[serde(skip_serializing_if = "no_text")]
     pub driving: String,
-    /// The engine block's `session_home`.
-    #[serde(skip_serializing_if = "no_text")]
-    pub session_home: String,
     /// The program the engine block (else the engine's own name) runs.
     #[serde(skip_serializing_if = "no_text")]
     pub command: String,

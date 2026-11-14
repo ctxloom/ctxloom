@@ -157,16 +157,32 @@ pub(crate) fn agents(parent: &str, rows: &[AgentRow], default: &str) -> v1::List
     }
 }
 
+/// The engine an agent references, by its resource name (design §2); an
+/// agent that names none names none.
+fn engine_ref(parent: &str, engine: &str) -> String {
+    if engine.is_empty() {
+        return String::new();
+    }
+    crate::noun::engine::engine_name(parent, engine)
+}
+
 /// An agent as its binding declares it (the BASIC view): its engine blocks
-/// keyed by engine, so `engines.<e>.model` keeps its path.
+/// keyed by engine, so `engines.<e>.model` keeps its path; its engine and
+/// profiles by their resource names (design §2: one that names no place
+/// keeps its configured text, OQ-16).
 pub(crate) fn agent(parent: &str, row: &AgentRow, default: &str) -> v1::Agent {
     v1::Agent {
         name: agent_name(parent, &row.name),
-        engine: row.engine.clone(),
-        profiles: row.profiles.clone(),
+        engine: engine_ref(parent, &row.engine),
+        profiles: row
+            .profiles
+            .iter()
+            .map(|profile| crate::catalog::profile_ref(parent, profile))
+            .collect(),
         runtime: row.runtime.clone(),
         driving: row.driving.clone(),
         env: row.env.clone(),
+        session_home: row.session_home.clone(),
         engines: blocks(&row.engines),
         default: Some(row.name == default),
         ..Default::default()
@@ -202,7 +218,7 @@ fn blocks(engines: &serde_json::Value) -> BTreeMap<String, v1::AgentEngine> {
 /// definition the resource and what it resolves to beside it.
 pub(crate) fn agent_show(parent: &str, show: &AgentShow, default: &str) -> v1::Agent {
     v1::Agent {
-        resolved: show.resolved.as_ref().map(resolved),
+        resolved: show.resolved.as_ref().map(|r| resolved(parent, r)),
         resolution_error: show.resolution_error.clone(),
         requirements: show.requirements.iter().map(requirement).collect(),
         requirements_error: show.requirements_error.clone(),
@@ -211,12 +227,13 @@ pub(crate) fn agent_show(parent: &str, show: &AgentShow, default: &str) -> v1::A
     }
 }
 
-/// What an agent resolves to, its settings flat (as today).
-fn resolved(agent: &ResolvedAgent) -> v1::ResolvedAgent {
+/// What an agent resolves to, its settings flat (as today), its engine by
+/// its resource name.
+fn resolved(parent: &str, agent: &ResolvedAgent) -> v1::ResolvedAgent {
     let settings = api::settings(&agent.settings);
     v1::ResolvedAgent {
         profiles: agent.profiles.clone(),
-        engine: agent.engine.clone(),
+        engine: engine_ref(parent, &agent.engine),
         model: settings.model,
         effort: settings.effort,
         permissions: settings.permissions,
@@ -225,7 +242,7 @@ fn resolved(agent: &ResolvedAgent) -> v1::ResolvedAgent {
         context: agent.context.clone(),
         fragments: agent.fragments.clone(),
         driving: agent.driving.clone(),
-        session_home: agent.session_home.clone(),
+        session_home: settings.session_home,
         command: agent.command.clone(),
     }
 }
@@ -291,6 +308,7 @@ fn agent_request(sub: &ArgMatches) -> Result<AgentRequest, Failure> {
         surfaces: given_pairs(sub, "surface")?,
         roots: given_pairs(sub, "root")?,
         env: given_list(sub, "env"),
+        session_home: given(sub, "session-home"),
     })
 }
 
@@ -319,6 +337,9 @@ fn agent_written(row: &AgentRow, verb: &str, out: &mut dyn Write) -> io::Result<
     }
     if !row.env.is_empty() {
         parts.push(format!("env: {}", row.env.join(", ")));
+    }
+    if !row.session_home.is_empty() {
+        parts.push(format!("session_home: {}", row.session_home));
     }
     writeln!(out, "{verb} agent \"{}\" ({})", row.name, parts.join(", "))
 }

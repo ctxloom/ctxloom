@@ -277,7 +277,6 @@ impl Project {
             context: assembled.context.clone(),
             fragments: assembled.loaded.clone(),
             driving: agent.driving.clone(),
-            session_home: effective.session_home.value.clone(),
             command: effective.command.value.clone(),
         };
         let (requirements, requirements_error) = self.requirements(&set);

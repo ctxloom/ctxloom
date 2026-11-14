@@ -100,6 +100,8 @@ write_errors! {
     UnknownEngine { name, engine, valid } = "write-unknown-engine";
     /// A runtime that is no axis.
     UnknownRuntime { name, value } = "write-unknown-runtime";
+    /// A session_home that is neither word (owner ruling of 2026-11-13).
+    UnknownSessionHome { name, value } = "write-unknown-session-home";
     /// An agent that binds nothing.
     AgentWithoutEngine { name } = "write-agent-without-engine";
     /// An env declaration that would not do what it says.

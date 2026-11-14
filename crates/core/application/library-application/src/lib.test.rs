@@ -660,7 +660,8 @@ fn test_agent_show_reports_the_declaration_the_resolution_and_a_failure_to_resol
         resolved.settings.permissions.value,
         Some(serde_json::json!({"defaultMode": "acceptEdits"}))
     );
-    assert_eq!(resolved.session_home, "session");
+    assert_eq!(resolved.settings.session_home.value, "session");
+    assert_eq!(resolved.settings.session_home.source, "default");
     assert_eq!(good.requirements.len(), 1);
     assert_eq!(good.requirements[0].command, "tree-sitter");
     assert_eq!(good.requirements[0].sources[0].kind, "mcp");

@@ -51,6 +51,10 @@ fn test_a_permissions_document_that_is_no_object_is_printed_as_written() {
             overrides_source: None,
             change: None,
         },
+        session_home: library_application::SourcedValue {
+            value: "session".to_string(),
+            source: "default",
+        },
         env: library_application::EnvSetting {
             value: Vec::new(),
             source: "default",

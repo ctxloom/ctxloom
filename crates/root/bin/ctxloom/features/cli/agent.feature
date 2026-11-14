@@ -8,6 +8,9 @@
 #   `projects/{project}/agents/<agent>` (selected by suffix, `[name$=...]`), `show` is the resource
 #   itself (no `definition` level), a write answers the agent under `agent` with `applied` and
 #   `apply_command`, and an env key says `variable` (AIP-122 reserves `name`).
+# Design §2 (B2's references): an agent's `engine` and `profiles`, and `resolved.engine`, are
+#   resource names (`projects/{project}/engines/<e>`, a profile's name under its bundle); the
+#   dry run's `Run` still names its agent, engine and profiles by their configured text.
 @doc
 Feature: agent — the bindings that decide what runs, on what context, and where
 
@@ -91,10 +94,10 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
 
       @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
-        | flags         | the binding written | the engine       | the profile   | the runtime                   |
-        |               | developer           | claude-code      | dev           | container-rootless            |
-        | --format json | developer           | claude-code      | dev           | container-rootless            |
-        | --format text | Created agent       | engine: claude-code | profiles: dev | runtime: container-rootless   |
+        | flags         | the binding written | the engine                            | the profile                                     | the runtime                 |
+        |               | developer           | projects/{project}/engines/claude-code | projects/{project}/bundles/project/profiles/dev | container-rootless          |
+        | --format json | developer           | projects/{project}/engines/claude-code | projects/{project}/bundles/project/profiles/dev | container-rootless          |
+        | --format text | Created agent       | engine: claude-code                   | profiles: dev                                   | runtime: container-rootless |
 
     # The bare noun answers the question somebody typing it has, rather than
     # teaching them what they could have typed instead. The help-banner check
@@ -144,8 +147,8 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | the binding named | the engine declared         | the runtime declared        | the profile declared | what the engine resolves to | what the profiles compose               |
-        |               | projects/{project}/agents/developer | claude-code | container-rootless | dev | claude-code | ctxloom+local:dev-base#fragments/example |
-        | --format json | projects/{project}/agents/developer | claude-code | container-rootless | dev | claude-code | ctxloom+local:dev-base#fragments/example |
+        |               | projects/{project}/agents/developer | projects/{project}/engines/claude-code | container-rootless | projects/{project}/bundles/project/profiles/dev | projects/{project}/engines/claude-code | ctxloom+local:dev-base#fragments/example |
+        | --format json | projects/{project}/agents/developer | projects/{project}/engines/claude-code | container-rootless | projects/{project}/bundles/project/profiles/dev | projects/{project}/engines/claude-code | ctxloom+local:dev-base#fragments/example |
         | --format text | Agent: developer  | Engine (declared): claude-code | Runtime: container-rootless | dev                  | Resolved engine:               | Composed fragments:                     |
 
     # Reporting nothing for a name nobody defined would be a listing of one,
@@ -206,9 +209,9 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
 
       @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
-        | flags         | the profile that survived | the profile that did not survive |
-        |               | dev                        | ops                               |
-        | --format json | dev                        | ops                               |
+        | flags         | the profile that survived                       | the profile that did not survive |
+        |               | projects/{project}/bundles/project/profiles/dev | ops                              |
+        | --format json | projects/{project}/bundles/project/profiles/dev | ops                              |
         | --format text | dev                        | ops                               |
 
     # The other half: a typo'd `edit` must not quietly mint a brand-new agent.
@@ -264,8 +267,8 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | the binding written | the axis that changed       | the engine that survived | the first profile | the second profile | the model that survived |
-        |               | developer           | container-rootless          | claude-code              | dev               | ops                | haiku                   |
-        | --format json | developer           | container-rootless          | claude-code              | dev               | ops                | haiku                   |
+        |               | developer           | container-rootless          | projects/{project}/engines/claude-code | projects/{project}/bundles/project/profiles/dev | projects/{project}/bundles/project/profiles/ops | haiku |
+        | --format json | developer           | container-rootless          | projects/{project}/engines/claude-code | projects/{project}/bundles/project/profiles/dev | projects/{project}/bundles/project/profiles/ops | haiku |
         | --format text | Updated agent       | runtime: container-rootless | engine: claude-code         | profiles: dev, ops | ops               | engines.claude-code: {model: haiku} |
 
     # --surface is the delivery-preference axis (kind=approach, repeatable):
@@ -429,7 +432,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the file ".ctxloom/config.yaml" does not contain "llm:"
       When I run "ctxloom agent show reviewer --format json"
       Then the command succeeds
-      And the output reports "engine" as "claude-code"
+      And the output reports "engine" as "projects/{project}/engines/claude-code"
       And the output reports "engines.claude-code.model" as "haiku"
       And the output reports "resolved.model.value" as "haiku"
       And the output reports "resolved.model.source" as "agent"
@@ -799,11 +802,12 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the output does not contain "NPM_TOKEN"
 
     Scenario: An agent can no longer be given an engine home
-      # new: ruling 44(b), it is the engine's session_home
+      # new: the retired name; the agent's own key is session_home again
+      # (owner ruling of 2026-11-13, superseding ruling 44(b) for it)
       Given an initialized ctxloom project
-      When I run "ctxloom agent edit developer --session-home session"
+      When I run "ctxloom agent edit developer --engine-home session"
       Then the command fails
-      And the output contains "unknown flag: --session-home"
+      And the output contains "unknown flag: --engine-home"
 
   # Owner rulings 133-139: ctxloom has no posture of its own to explain (the
   # approver and its "Headless posture" are gone, ruling 134); what an agent

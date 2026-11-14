@@ -10,7 +10,7 @@
 //! with its keys sorted, every other section stays as the file has it, and a
 //! file that does not parse is never rewritten (the config tests carry that).
 
-use super::library::{contains_value, entries, reports_as, Project};
+use super::library::{contains_value, entries, names_ending, reports_as, Project};
 
 const FORMATS: [&[&str]; 3] = [&[], &["--format", "json"], &["--format", "text"]];
 
@@ -78,14 +78,13 @@ fn test_creating_a_binding_records_every_axis_and_the_listing_reads_each_one_bac
                 .contains("runtime: container-rootless");
         } else {
             let doc = listed.json();
-            assert_eq!(
-                reports_as(&doc, &format!("{DEVELOPER}.engine")),
-                "claude-code"
+            assert!(
+                reports_as(&doc, &format!("{DEVELOPER}.engine")).ends_with("/engines/claude-code")
             );
-            assert!(contains_value(
+            assert!(names_ending(
                 &doc,
                 &format!("{DEVELOPER}.profiles"),
-                "dev"
+                "/bundles/project/profiles/dev"
             ));
             assert_eq!(
                 reports_as(&doc, &format!("{DEVELOPER}.runtime")),
@@ -155,7 +154,11 @@ fn test_a_binding_is_written_with_sorted_keys_and_the_rest_of_the_file_is_kept()
         .json();
     // OD-40: `CreateAgentResponse`, the agent as written.
     assert!(reports_as(&doc, "agent.name").ends_with("/agents/dev3"));
-    assert!(contains_value(&doc, "agent.profiles", "dev"));
+    assert!(names_ending(
+        &doc,
+        "agent.profiles",
+        "/bundles/project/profiles/dev"
+    ));
     assert_eq!(reports_as(&doc, "applied"), "true");
     // Owner ruling 134: an agent has no engine-neutral posture any more.
     assert_eq!(doc["agent"].get("permissions"), None, "{doc}");
@@ -204,7 +207,11 @@ fn test_create_refuses_an_existing_name_and_leaves_the_live_binding_untouched() 
         shown.succeeds();
         if !is_text(flags) {
             let doc = shown.json();
-            assert!(contains_value(&doc, "profiles", "dev"));
+            assert!(names_ending(
+                &doc,
+                "profiles",
+                "/bundles/project/profiles/dev"
+            ));
             assert!(!contains_value(&doc, "resolved.profiles", "ops"));
         }
     }
@@ -282,19 +289,18 @@ fn test_an_edit_naming_only_runtime_leaves_every_other_axis_intact() {
             reports_as(&listed, &format!("{DEVELOPER}.runtime")),
             "container-rootless"
         );
-        assert_eq!(
-            reports_as(&listed, &format!("{DEVELOPER}.engine")),
-            "claude-code"
+        assert!(
+            reports_as(&listed, &format!("{DEVELOPER}.engine")).ends_with("/engines/claude-code")
         );
-        assert!(contains_value(
+        assert!(names_ending(
             &listed,
             &format!("{DEVELOPER}.profiles"),
-            "dev"
+            "/bundles/project/profiles/dev"
         ));
-        assert!(contains_value(
+        assert!(names_ending(
             &listed,
             &format!("{DEVELOPER}.profiles"),
-            "ops"
+            "/bundles/project/profiles/ops"
         ));
         assert_eq!(
             reports_as(&listed, &format!("{DEVELOPER}.engines.claude-code.model")),
@@ -520,25 +526,40 @@ fn test_an_edit_passing_an_empty_env_clears_the_names_and_clears_nothing_else_it
         .lacks("ALPHA_TOKEN");
 }
 
-// agent.feature: Scenario: An agent can no longer be given an engine home (it
-// is the engine's session_home, ruling 44(b))
+// agent.feature: Scenario: An agent can no longer be given an engine home
+// (the retired name); its session_home is its own again (owner ruling of
+// 2026-11-13, superseding 44(b) for this key), written by `--session-home`.
 #[test]
-fn test_an_agent_takes_no_engine_home() {
+fn test_an_agent_takes_its_session_home_and_no_engine_home() {
     let project = with_dev();
-    for flag in ["--engine-home", "--session-home"] {
-        project
-            .run(&[
-                "agent",
-                "create",
-                "isolated",
-                flag,
-                "session",
-                "--profiles",
-                "dev",
-            ])
-            .fails()
-            .contains(&format!("unexpected argument '{flag}'"));
-    }
+    project
+        .run(&[
+            "agent",
+            "create",
+            "isolated",
+            "--engine-home",
+            "session",
+            "--profiles",
+            "dev",
+        ])
+        .fails()
+        .contains("unexpected argument '--engine-home'");
+    project
+        .run(&[
+            "agent",
+            "create",
+            "isolated",
+            "--session-home",
+            "session",
+            "--profiles",
+            "dev",
+        ])
+        .succeeds();
+    let shown = project
+        .run(&["agent", "show", "isolated", "--format", "json"])
+        .succeeds()
+        .json();
+    assert_eq!(shown["session_home"], "session", "{shown}");
 }
 
 // agent.feature: Scenario: With nothing bound, the report says so; naming an

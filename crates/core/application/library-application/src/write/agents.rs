@@ -147,6 +147,7 @@ fn apply_command(name: &str, request: &AgentRequest) -> String {
         ("--model", &request.model),
         ("--effort", &request.effort),
         ("--runtime", &request.runtime),
+        ("--session-home", &request.session_home),
     ];
     for (name, value) in single {
         if let Some(value) = value {
@@ -233,6 +234,15 @@ impl Project {
                 return Err(WriteError::UnknownRuntime {
                     name: name.to_string(),
                     value: runtime.to_string(),
+                }
+                .into());
+            }
+        }
+        if let Some(home) = request.session_home.as_deref().filter(|h| !h.is_empty()) {
+            if !["session", "host"].contains(&home) {
+                return Err(WriteError::UnknownSessionHome {
+                    name: name.to_string(),
+                    value: home.to_string(),
                 }
                 .into());
             }
@@ -541,6 +551,9 @@ impl Project {
         }
         if let Some(runtime) = &request.runtime {
             put(&mut entry, "runtime", some_text(runtime));
+        }
+        if let Some(home) = &request.session_home {
+            put(&mut entry, "session_home", some_text(home));
         }
         if let Some(surfaces) = &request.surfaces {
             put(&mut entry, "surfaces", pairs_map(surfaces));

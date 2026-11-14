@@ -326,14 +326,12 @@ impl Project {
             drive,
             settings,
         } = self.launch_of(request, selection.agent.as_ref())?;
-        // A launch on the user's own engine setup is never silent (j002200):
-        // a session home is a relocation, not confinement, and `host` gives
-        // up even that. Said from the plan, so a dry run and a launch alike.
-        if drive.session_home == "host" {
-            self.notices.push(Notice::SessionHomeHost {
-                engine: engine.clone(),
-            });
-        }
+        self.notices.extend(host_notice(
+            &drive,
+            &engine,
+            selection.agent.as_ref(),
+            settings.as_ref(),
+        ));
         let degraded = self.flags.degraded;
         // Each finding is said once: a fatal one by the refusal that lists
         // it, any other as a warning.
@@ -521,6 +519,32 @@ fn advice_of(
         .flat_map(|candidate| candidate.advise(planned))
         .map(Notice::Engine)
         .collect()
+}
+
+/// A launch on the user's own engine setup is never silent (j002200): a
+/// session home is a relocation, not confinement, and `host` gives up even
+/// that. Said from the plan, so a dry run and a launch alike, naming the
+/// place that said it: the agent's own key, else its engine block's (owner
+/// ruling of 2026-11-13).
+fn host_notice(
+    drive: &Drive,
+    engine: &str,
+    agent: Option<&Agent>,
+    settings: Option<&crate::AgentSettings>,
+) -> Option<Notice> {
+    if drive.session_home != "host" {
+        return None;
+    }
+    let place = match (agent, settings) {
+        (Some(agent), Some(settings)) if settings.session_home.source == "agent" => {
+            format!("agents.{}", agent.name)
+        }
+        _ => format!("engines.{engine}"),
+    };
+    Some(Notice::SessionHomeHost {
+        engine: engine.to_string(),
+        place,
+    })
 }
 
 /// The notice for a runtime the agent chose that is not the one the lower

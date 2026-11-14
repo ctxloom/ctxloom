@@ -92,11 +92,13 @@ fn test_no_command_takes_llm_any_more() {
     }
 }
 
-// the engine's home moved to the engine block: an agent no longer carries it
+// owner ruling of 2026-11-13 (superseding 44(b) for this key): an agent
+// says its session_home again; the retired engine_home is no flag
 #[test]
-fn test_an_agent_no_longer_takes_an_engine_home() {
+fn test_an_agent_takes_a_session_home_and_no_engine_home() {
     assert!(parse(&["agent", "edit", "dev", "--engine-home", "host"]).is_err());
-    assert!(parse(&["agent", "edit", "dev", "--session-home", "host"]).is_err());
+    assert!(parse(&["agent", "edit", "dev", "--session-home", "host"]).is_ok());
+    assert!(parse(&["agent", "create", "dev", "--session-home", "session"]).is_ok());
 }
 
 // the run names its engine the way an agent does

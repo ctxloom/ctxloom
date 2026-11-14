@@ -428,11 +428,14 @@ pub enum Notice {
     /// A worktree was asked for and none could be had, so the engine worked
     /// in the project instead: `reason` is the workspaces port's.
     WorkspaceUnavailable { reason: String },
-    /// A launch on `engines.<engine>.session_home: host`: the engine runs on
+    /// A launch on `session_home: host` (the agent's, else the engine
+    /// block's): the engine runs on
     /// the user's own home, with no session home of its own: it reads and
     /// changes her own memory, MCP servers and history (j002200, step 6a: a
     /// session home is a relocation, not confinement).
-    SessionHomeHost { engine: String },
+    /// `place` is the config place that said `host`: `engines.<engine>`,
+    /// or the agent's own `agents.<agent>` (owner ruling of 2026-11-13).
+    SessionHomeHost { engine: String, place: String },
     /// A run's checkout was left in place at its end (work in it, or one
     /// that would not go): by path and branch, and why.
     CheckoutLeft {
@@ -546,7 +549,10 @@ impl Diagnostic for Notice {
                 ("path", path.as_str().into()),
             ],
             Notice::WorkspaceUnavailable { reason } => vec![("reason", reason.as_str().into())],
-            Notice::SessionHomeHost { engine } => vec![("engine", engine.as_str().into())],
+            Notice::SessionHomeHost { engine, place } => vec![
+                ("engine", engine.as_str().into()),
+                ("place", place.as_str().into()),
+            ],
             Notice::CheckoutLeft {
                 path,
                 branch,
@@ -751,6 +757,7 @@ fn notice_samples() -> Vec<Box<dyn Diagnostic>> {
         }),
         Box::new(Notice::SessionHomeHost {
             engine: s("claude-code"),
+            place: s("engines.claude-code"),
         }),
         Box::new(Notice::CheckoutLeft {
             path: s("/h/.ctxloom/worktrees/calm-otter/amber-swift-owl/reviewer"),

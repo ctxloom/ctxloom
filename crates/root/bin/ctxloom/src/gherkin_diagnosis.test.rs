@@ -359,12 +359,13 @@ fn pulled_not_composed(w: &mut World) {
 #[then("she sees that her profile does not compose the runbook")]
 fn profile_lacks_runbook(w: &mut World) {
     let agent = w.diagnosis_ran("ctxloom agent show").succeeds().json();
-    // OD-40: `agent show` is the `Agent` resource itself.
+    // OD-40: `agent show` is the `Agent` resource itself; design §2: each
+    // profile it runs by its resource name.
     let profiles = &agent["profiles"];
     assert!(
-        profiles
-            .as_array()
-            .is_some_and(|p| p.iter().any(|v| v == "default")),
+        profiles.as_array().is_some_and(|p| p.iter().any(|v| v
+            .as_str()
+            .is_some_and(|n| n.ends_with("/bundles/project/profiles/default")))),
         "agent show does not name the profile her agent runs: {agent}"
     );
     let profile = w.diagnosis_ran("ctxloom profile show").succeeds().json();

@@ -186,6 +186,7 @@ fn test_a_profile_listing_summarizes_each_profile() {
 
 fn agent_row(engine: &str) -> AgentRow {
     AgentRow {
+        session_home: String::new(),
         name: "dev".to_string(),
         engine: engine.to_string(),
         profiles: vec!["p1".to_string(), "p2".to_string()],
@@ -211,6 +212,7 @@ fn line(engine: &str, line: &str, permissions: bool) -> library_application::Eng
 #[test]
 fn test_an_agent_listing_shows_the_engine_blocks_in_the_config_s_shape() {
     let row = AgentRow {
+        session_home: String::new(),
         engine_lines: vec![
             line(
                 "claude-code",
@@ -233,6 +235,7 @@ fn test_an_agent_listing_shows_the_engine_blocks_in_the_config_s_shape() {
 fn test_an_unresolved_agent_show_says_its_permissions_are_passed_verbatim() {
     let show = AgentShow {
         definition: AgentRow {
+            session_home: String::new(),
             engine_lines: vec![line(
                 "opencode",
                 "engines.opencode: {permissions: {edit: deny}}",
@@ -339,7 +342,6 @@ fn test_agent_show_says_a_resolution_failed_and_carries_on() {
             context: String::new(),
             fragments: vec!["a".to_string()],
             driving: String::new(),
-            session_home: "session".to_string(),
             command: String::new(),
         }),
         resolution_error: String::new(),
@@ -348,7 +350,7 @@ fn test_agent_show_says_a_resolution_failed_and_carries_on() {
     let text = shown(|out| agent_show(out, &resolved));
     assert!(text.contains("Resolved engine: mock (model: o1)\n"));
     assert!(!text.contains("Resolved permissions"));
-    assert!(text.contains("Session home: session\nComposed fragments: 1\n"));
+    assert!(text.contains("Session home: session (default)\nComposed fragments: 1\n"));
 }
 
 // companion.go renderCompanionList: a command whose program is not there says
@@ -725,7 +727,6 @@ fn test_an_agent_show_prints_no_posture() {
             context: String::new(),
             fragments: sv(&["a", "b"]),
             driving: String::new(),
-            session_home: String::new(),
             command: String::new(),
         }),
         resolution_error: String::new(),
@@ -741,7 +742,7 @@ fn test_an_agent_show_prints_no_posture() {
     };
     let text = shown(|out| agent_show(out, &show));
     assert!(text.contains(
-        "Resolved engine: claude-code\nComposed fragments: 2\nRequires:\n  - tree-sitter (mcp ts)\n"
+        "Resolved engine: claude-code\nSession home: session (default)\nComposed fragments: 2\nRequires:\n  - tree-sitter (mcp ts)\n"
     ));
     assert!(!text.contains("Headless posture"));
     assert!(!text.contains("Resolved permissions"));
@@ -936,6 +937,10 @@ fn test_a_dry_run_shows_each_setting_with_the_place_that_said_it() {
             overrides_source: Some("engine"),
             change: Some("weakens"),
         },
+        session_home: library_application::SourcedValue {
+            value: "session".to_string(),
+            source: "default",
+        },
         env: EnvSetting {
             value: sv(&["HTTPS_PROXY", "ALPHA"]),
             source: "agent",
@@ -969,6 +974,7 @@ fn test_a_dry_run_shows_each_setting_with_the_place_that_said_it() {
             "  permissions  {defaultMode: acceptEdits}  (default)\n",
             "               passed to claude-code verbatim; ctxloom does not check it\n",
             "  runtime      host  (agents.dev; replaces engines.claude-code container-rootless: weakens isolation)\n",
+            "  session_home  session  (default)\n",
             "  env          HTTPS_PROXY  (engines.claude-code), ALPHA  (agents.dev)\n",
             "\n=== Profiles ===\n",
         )),
@@ -1001,7 +1007,7 @@ fn test_a_dry_run_shows_each_setting_with_the_place_that_said_it() {
     });
     assert!(
         shown_plan.contains(
-            "  runtime      container-rootless  (runtime)\n  env          none  (default)\n"
+            "  runtime      container-rootless  (runtime)\n  session_home  session  (default)\n  env          none  (default)\n"
         ),
         "{shown_plan}"
     );
@@ -1033,6 +1039,10 @@ fn test_a_dry_run_of_the_default_agent_names_its_place_in_full() {
             overrides: None,
             overrides_source: None,
             change: None,
+        },
+        session_home: library_application::SourcedValue {
+            value: "session".to_string(),
+            source: "default",
         },
         env: EnvSetting {
             value: Vec::new(),
@@ -1090,6 +1100,10 @@ fn test_a_permissions_document_is_shown_as_written_and_said_unchecked() {
             overrides: None,
             overrides_source: None,
             change: None,
+        },
+        session_home: library_application::SourcedValue {
+            value: "session".to_string(),
+            source: "default",
         },
         env: EnvSetting {
             value: Vec::new(),
@@ -1249,6 +1263,10 @@ fn settings(model: Option<&str>) -> library_application::AgentSettings {
             overrides: None,
             overrides_source: None,
             change: None,
+        },
+        session_home: library_application::SourcedValue {
+            value: "session".to_string(),
+            source: "default",
         },
         env: library_application::EnvSetting {
             value: Vec::new(),

@@ -1512,7 +1512,7 @@ fn test_a_launch_on_her_own_engine_setup_says_so() {
     let layers = [home, "schema_version: 9\n"];
     let said = host_notices(&layers, "dev", "");
     assert!(
-        matches!(said.as_slice(), [Notice::SessionHomeHost { engine }] if engine == "claude-code"),
+        matches!(said.as_slice(), [Notice::SessionHomeHost { engine, place }] if engine == "claude-code" && place == "engines.claude-code"),
         "{said:?}"
     );
     // `--engine` asks the plan for that engine's block
@@ -1525,6 +1525,69 @@ fn test_a_launch_on_her_own_engine_setup_says_so() {
     // a launch with no agent (a selection by hand), on the default engine's
     // own block
     assert_eq!(host_notices(&layers, "", "").len(), 1);
+}
+
+// Owner ruling of 2026-11-13 (superseding 44(b) for this key): the agent's
+// own session_home stands over its engine block's, the launch reads that
+// effective value, and the notice names the key that said it.
+#[test]
+fn test_an_agent_s_own_session_home_drives_the_launch_and_its_notice() {
+    let home = "schema_version: 9\nengines:\n  claude-code:\n    session_home: host\nagents:\n  own:\n    engine: claude-code\n    session_home: host\n  calm:\n    engine: claude-code\n    session_home: session\n  plain:\n    engine: opencode\n    session_home: host\n";
+    let layers = [home, "schema_version: 9\n"];
+    let said = host_notices(&layers, "own", "");
+    assert!(
+        matches!(said.as_slice(), [Notice::SessionHomeHost { engine, place }] if engine == "claude-code" && place == "agents.own"),
+        "{said:?}"
+    );
+    // the agent's own word is engine-neutral: kept under `--engine`
+    let other = host_notices(&layers, "plain", "");
+    assert!(
+        matches!(other.as_slice(), [Notice::SessionHomeHost { engine, place }] if engine == "opencode" && place == "agents.plain"),
+        "{other:?}"
+    );
+    // an agent's `session` stands over the engine block's `host`
+    assert!(host_notices(&layers, "calm", "").is_empty());
+    let files: &[(&str, &str)] = &[ENVELOPE, ("profiles/p.yaml", "description: p\n")];
+    let drive = |agent: &str| {
+        ok(with(&[("project", files)], &layers).library().dry_run(
+            &plain(),
+            &crate::RunRequest {
+                agent: agent.to_string(),
+                ..crate::RunRequest::default()
+            },
+        ))
+        .plan
+    };
+    assert_eq!(drive("own").drive.session_home, "host");
+    assert_eq!(drive("calm").drive.session_home, "session");
+    let settings = drive("calm").settings.unwrap();
+    assert_eq!(settings.session_home.value, "session");
+    assert_eq!(settings.session_home.source, "agent");
+}
+
+// ruling 46 at either level: an agent's `session_home: host` in the project
+// layer is taken out with a warning, and the launch runs on a session home
+#[test]
+fn test_a_project_agent_s_host_session_home_is_ignored_and_warned() {
+    let project = "schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n    session_home: host\n    profiles: [p]\n";
+    let files: &[(&str, &str)] = &[ENVELOPE, ("profiles/p.yaml", "description: p\n")];
+    let layers = ["schema_version: 9\n", project];
+    let library = with(&[("project", files)], &layers).library();
+    let shown = library.agent_show(&plain(), "dev", &say);
+    let ignored: Vec<String> = shown
+        .notices
+        .iter()
+        .map(ToString::to_string)
+        .filter(|n| n.contains("is ignored"))
+        .collect();
+    assert!(
+        matches!(ignored.as_slice(), [one] if one.contains("agents.dev.session_home")),
+        "{ignored:?}"
+    );
+    let resolved = ok(shown).resolved.unwrap();
+    assert_eq!(resolved.settings.session_home.value, "session");
+    assert_eq!(resolved.settings.session_home.source, "default");
+    assert!(host_notices(&layers, "dev", "").is_empty());
 }
 
 // Rulings 59, 60, 89, 106: a run reads where its outputs go and what it does

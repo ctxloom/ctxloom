@@ -615,6 +615,17 @@ pub(crate) fn contains_value(doc: &Value, path: &str, value: &str) -> bool {
     }
 }
 
+/// A list at `path` holding a resource name ending `suffix` (design §2: a
+/// reference is a resource name, read without the project's harp).
+pub(crate) fn names_ending(doc: &Value, path: &str, suffix: &str) -> bool {
+    match at(doc, path) {
+        Some(Value::Array(a)) => a
+            .iter()
+            .any(|e| e.as_str().is_some_and(|name| name.ends_with(suffix))),
+        _ => false,
+    }
+}
+
 // OD-40 (design §8.1): a resource name is selected by its suffix, so a step
 // needs no harp; an empty list proto3 JSON left out has no entries; an
 // absent field reads as its default, and only a default.

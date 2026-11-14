@@ -297,12 +297,15 @@ pub const ENGINES: &[&str] = &[
     "opencode",
 ];
 
+/// Whose home an engine runs on: a session home of its own, or the user's.
+const SESSION_HOMES: &[&str] = &["host", "session"];
+
 /// One `engines.<engine>` block: what its agents share. `model`, `effort` and
 /// `permissions` are the agent's, never here.
 fn engine_block() -> Node {
     object(vec![
         ("command", non_empty()),
-        ("session_home", choice(&["host", "session"])),
+        ("session_home", choice(SESSION_HOMES)),
         ("auth", Node::Auth),
         ("runtime", choice(RUNTIMES)),
         ("env", list(pattern(Pat::NoEquals))),
@@ -432,6 +435,9 @@ fn binding() -> Node {
             ),
             ("profiles", list(non_empty())),
             ("runtime", choice(RUNTIMES)),
+            // Owner ruling of 2026-11-13 (superseding 44(b) for this key):
+            // the agent's own, the engine block's its default.
+            ("session_home", choice(SESSION_HOMES)),
             (
                 "may_delegate",
                 Node::Array {

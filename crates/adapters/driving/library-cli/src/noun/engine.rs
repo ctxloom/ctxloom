@@ -24,7 +24,7 @@ pub(crate) fn read(
 }
 
 /// An engine's resource name under `parent`.
-fn engine_name(parent: &str, engine: &str) -> String {
+pub(crate) fn engine_name(parent: &str, engine: &str) -> String {
     format!("{parent}/engines/{engine}")
 }
 
@@ -104,6 +104,7 @@ fn engine_agent(agent: &EngineAgent) -> v1::EngineAgent {
         permissions: settings.permissions,
         runtime: settings.runtime,
         env: settings.env,
+        session_home: settings.session_home,
     }
 }
 

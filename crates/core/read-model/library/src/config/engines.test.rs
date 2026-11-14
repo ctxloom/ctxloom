@@ -669,6 +669,45 @@ fn what_a_project_may_say_is_left_alone() {
     assert!(stripped("agents: {}\n").0.is_empty());
 }
 
+// owner ruling of 2026-11-13 (superseding 44(b) for this key): an agent's
+// session_home is its own, the engine block's its default, like the runtime
+#[test]
+fn test_an_agent_s_session_home_stands_over_its_engine_block_s() {
+    let doc = "engines:\n  claude-code:\n    session_home: host\nagents:\n  own:\n    session_home: session\n  said:\n    session_home: host\n  silent:\n    engine: claude-code\n";
+    assert_eq!(of(doc, "own").session_home, text("session", Source::Agent));
+    assert_eq!(of(doc, "said").session_home, text("host", Source::Agent));
+    assert_eq!(of(doc, "silent").session_home, text("host", Source::Engine));
+    let bare = "agents:\n  dev:\n    session_home: host\n";
+    assert_eq!(of(bare, "dev").session_home, text("host", Source::Agent));
+    let none = "agents:\n  dev:\n    engine: claude-code\n";
+    assert_eq!(
+        of(none, "dev").session_home,
+        text("session", Source::Default)
+    );
+}
+
+// the agent's own session_home is engine-neutral: `run --engine` keeps it
+#[test]
+fn test_an_agent_s_session_home_is_kept_on_another_engine() {
+    let config = cfg("engines:\n  opencode:\n    session_home: session\nagents:\n  dev:\n    engine: claude-code\n    session_home: host\n");
+    let got = effective_on(&config, "dev", "opencode").unwrap();
+    assert_eq!(got.session_home, text("host", Source::Agent));
+}
+
+// ruling 46 at either level: an agent's `session_home: host` in a project
+// layer is taken out, as the engine block's is; `session` stays
+#[test]
+fn test_a_project_layer_loses_an_agent_s_host_session_home() {
+    let (removed, layer) = stripped(
+        "agents:\n  dev:\n    session_home: host\n    runtime: host\n  calm:\n    session_home: session\n",
+    );
+    assert_eq!(removed, ["agents.dev.session_home"]);
+    assert_eq!(
+        layer,
+        cfg("agents:\n  dev:\n    runtime: host\n  calm:\n    session_home: session\n")
+    );
+}
+
 // ---- the drive: what a launch is told of how to run the engine ----
 
 #[test]
@@ -679,6 +718,14 @@ fn test_a_drive_of_an_agent_carries_its_engine_block_and_its_own_passthrough() {
     assert_eq!(drive.session_home, "host");
     // ruling 66: the engine's names, then the agent's
     assert_eq!(drive.env, names(&["A", "B"]));
+}
+
+// the launch reads the agent's effective session_home, not the engine block's
+#[test]
+fn test_a_drive_of_an_agent_carries_its_own_session_home() {
+    let config = cfg("engines:\n  claude-code:\n    session_home: session\nagents:\n  dev:\n    session_home: host\n");
+    let drive = Drive::from(&effective(&config, "dev").unwrap());
+    assert_eq!(drive.session_home, "host");
 }
 
 #[test]

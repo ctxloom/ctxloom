@@ -1,0 +1,425 @@
+//! A session's files, through the file-system seam: its directory,
+//! `<project>/.ctxloom/sessions/<harp>/` (the session home and the engine's
+//! native history; no transcript file, owner ruling 87a), and its lock
+//! beside it.
+//!
+//! - the native history's last activity is its newest file mtime: not a
+//!   directory's own, not a symlink's (Go: `TranscriptActivity`);
+//! - the survey names every file under the persisted members, never the
+//!   ephemeral ones (the engine homes, the locks, the worktrees, the
+//!   scratch): a purge runs no git, so a worktree is untouched by
+//!   construction, not by a filter applied after;
+//! - a removal takes the session's directory whole, and its lock (owner
+//!   ruling 94b), never following a link out of it.
+
+mod error;
+
+use std::io::ErrorKind;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::SystemTime;
+
+use angzarr_diagnostic::Report;
+use std::io::Write;
+
+use file_system::{Fs, Kind, Open, Perms};
+use os::Mode;
+use run_ports::{check_rel, LinkState, LoginLinks, RecordsError, SessionRecords};
+use session_ports::{FileItem, GoSession, GoSessions, SessionFiles, Timestamp};
+
+#[cfg(any(test, feature = "test-support"))]
+pub use error::diagnostic_samples;
+pub use error::{FilesError, EN_US};
+
+/// Members of a session directory a purge never walks (Go: the Ephemeral
+/// rows of `paths.HarpMembers`).
+const EPHEMERAL: [&str; 4] = ["home", "locks", "work", "scratch"];
+
+/// Go's sidecar, the identity member: not a file a purge could name.
+const SIDECAR: &str = "session.yaml";
+
+/// The members that hold the engine's own record of the conversation.
+const CONVERSATION: [&str; 1] = ["native"];
+
+/// The sessions' files under one project.
+pub struct SessionDirs {
+    fs: Arc<dyn Fs>,
+    project: PathBuf,
+}
+
+impl SessionDirs {
+    /// The session directories of the project directory `project`, read
+    /// through `fs`.
+    pub fn new(fs: Arc<dyn Fs>, project: impl Into<PathBuf>) -> SessionDirs {
+        SessionDirs {
+            fs,
+            project: project.into(),
+        }
+    }
+
+    /// `<project>/.ctxloom/sessions/<harp>`.
+    pub fn dir(&self, harp: &str) -> PathBuf {
+        self.project.join(".ctxloom").join("sessions").join(harp)
+    }
+
+    /// `<project>/.ctxloom/sessions/<harp>.lock`, beside the directory.
+    pub fn lock_path(&self, harp: &str) -> PathBuf {
+        self.project
+            .join(".ctxloom")
+            .join("sessions")
+            .join(format!("{harp}.lock"))
+    }
+}
+
+impl SessionDirs {
+    /// The newest file mtime under `dir`: directories recursed into, symlinks
+    /// and anything unreadable not counted.
+    fn newest_under(&self, dir: &Path, newest: &mut Option<Timestamp>) {
+        let Ok(entries) = self.fs.read_dir(dir) else {
+            return;
+        };
+        for entry in entries {
+            let path = dir.join(&entry.name);
+            match entry.kind {
+                Kind::Dir => self.newest_under(&path, newest),
+                Kind::File => {
+                    let modified = self.fs.symlink_metadata(&path).ok().map(|m| m.modified);
+                    if let Some(at) = modified.and_then(timestamp) {
+                        if newest.is_none_or(|n| (at.seconds, at.nanos) > (n.seconds, n.nanos)) {
+                            *newest = Some(at);
+                        }
+                    }
+                }
+                Kind::Symlink | Kind::Other => {}
+            }
+        }
+    }
+
+    /// The files under `dir`, relative to `root`, appended to `found`.
+    fn files_under(
+        &self,
+        dir: &Path,
+        root: &Path,
+        found: &mut Vec<FileItem>,
+    ) -> Result<(), Report> {
+        let entries = match self.fs.read_dir(dir) {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(Report::of(&FilesError::io("read", dir, &e))),
+        };
+        for entry in entries {
+            let path = dir.join(&entry.name);
+            let rel = path.strip_prefix(root).unwrap_or(&path);
+            let rel = rel
+                .components()
+                .map(|c| c.as_os_str().to_string_lossy())
+                .collect::<Vec<_>>()
+                .join("/");
+            let top_level = dir == root;
+            match entry.kind {
+                Kind::Dir if top_level && EPHEMERAL.contains(&rel.as_str()) => {}
+                Kind::Dir => self.files_under(&path, root, found)?,
+                Kind::File if top_level && rel == SIDECAR => {}
+                Kind::File => {
+                    let bytes = self
+                        .fs
+                        .symlink_metadata(&path)
+                        .map_err(|e| Report::of(&FilesError::io("stat", &path, &e)))?
+                        .len;
+                    found.push(FileItem {
+                        path: path.display().to_string(),
+                        rel,
+                        bytes,
+                    });
+                }
+                Kind::Symlink | Kind::Other => {}
+            }
+        }
+        Ok(())
+    }
+}
+
+impl SessionFiles for SessionDirs {
+    fn last_active(&mut self, harp: &str) -> Result<Option<Timestamp>, Report> {
+        let mut newest = None;
+        for member in CONVERSATION {
+            self.newest_under(&self.dir(harp).join(member), &mut newest);
+        }
+        Ok(newest)
+    }
+
+    fn survey(&mut self, harp: &str) -> Result<Vec<FileItem>, Report> {
+        let root = self.dir(harp);
+        let mut found = Vec::new();
+        self.files_under(&root, &root, &mut found)?;
+        found.sort_by(|a, b| a.rel.cmp(&b.rel));
+        Ok(found)
+    }
+
+    fn destroy_session(&mut self, harp: &str) -> Result<u64, Report> {
+        let root = self.dir(harp);
+        let mut found = Vec::new();
+        let mut freed = 0;
+        if self.fs.symlink_metadata(&root).is_ok() {
+            self.every_file(&root, &mut found);
+            freed = found.iter().sum();
+            self.fs
+                .remove_dir_all(&root)
+                .map_err(|e| Report::of(&FilesError::io("remove", &root, &e)))?;
+        }
+        let lock = self.lock_path(harp);
+        match self.fs.remove_file(&lock) {
+            Ok(()) => {}
+            Err(e) if e.kind() == ErrorKind::NotFound => {}
+            Err(e) => return Err(Report::of(&FilesError::io("remove", &lock, &e))),
+        }
+        Ok(freed)
+    }
+}
+
+impl SessionDirs {
+    /// The size of every regular file under `dir`, ephemeral members too.
+    fn every_file(&self, dir: &Path, sizes: &mut Vec<u64>) {
+        let Ok(entries) = self.fs.read_dir(dir) else {
+            return;
+        };
+        for entry in entries {
+            let path = dir.join(&entry.name);
+            match entry.kind {
+                Kind::Dir => self.every_file(&path, sizes),
+                Kind::File => {
+                    if let Ok(meta) = self.fs.symlink_metadata(&path) {
+                        sizes.push(meta.len);
+                    }
+                }
+                Kind::Symlink | Kind::Other => {}
+            }
+        }
+    }
+}
+
+/// The session directory as the launcher writes it: the session home, as
+/// bytes at a relative path.
+impl SessionRecords for SessionDirs {
+    fn dir(&self, harp: &str) -> String {
+        SessionDirs::dir(self, harp).display().to_string()
+    }
+
+    fn exists(&mut self, harp: &str) -> bool {
+        // One that cannot be looked at counts as there.
+        !matches!(
+            self.fs.symlink_metadata(&SessionDirs::dir(self, harp)),
+            Err(e) if e.kind() == ErrorKind::NotFound
+        )
+    }
+
+    fn write(&mut self, harp: &str, rel: &str, bytes: &[u8]) -> Result<(), RecordsError> {
+        let path = self.record_path(harp, rel)?;
+        let io = |e: std::io::Error| RecordsError::Io {
+            harp: harp.to_string(),
+            rel: rel.to_string(),
+            ext_err_txt: e.to_string(),
+        };
+        if let Some(parent) = path.parent() {
+            self.fs
+                .create_dir_all(parent, Mode::from_bits(0o755))
+                .map_err(io)?;
+        }
+        self.fs
+            .write_atomic(&path, bytes, Perms::Exact(Mode::from_bits(0o600)))
+            .map_err(io)
+    }
+
+    fn append(&mut self, harp: &str, rel: &str, bytes: &[u8]) -> Result<(), RecordsError> {
+        let path = self.record_path(harp, rel)?;
+        let io = |e: std::io::Error| RecordsError::Io {
+            harp: harp.to_string(),
+            rel: rel.to_string(),
+            ext_err_txt: e.to_string(),
+        };
+        if let Some(parent) = path.parent() {
+            self.fs
+                .create_dir_all(parent, Mode::from_bits(0o755))
+                .map_err(io)?;
+        }
+        let mut file = self
+            .fs
+            .open(&path, Open::Append(Mode::from_bits(0o600)))
+            .map_err(io)?;
+        file.write_all(bytes).map_err(io)
+    }
+
+    fn read(&mut self, harp: &str, rel: &str) -> Result<Option<Vec<u8>>, RecordsError> {
+        let path = self.record_path(harp, rel)?;
+        match self.fs.read(&path) {
+            Ok(bytes) => Ok(Some(bytes)),
+            Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(RecordsError::Io {
+                harp: harp.to_string(),
+                rel: rel.to_string(),
+                ext_err_txt: e.to_string(),
+            }),
+        }
+    }
+}
+
+impl SessionDirs {
+    /// `rel` under `harp`'s directory, both checked: neither may leave it.
+    fn record_path(&self, harp: &str, rel: &str) -> Result<PathBuf, RecordsError> {
+        check_rel(harp)?;
+        if harp.contains('/') {
+            return Err(RecordsError::BadPath {
+                rel: harp.to_string(),
+            });
+        }
+        check_rel(rel)?;
+        Ok(self.dir(harp).join(rel))
+    }
+}
+
+/// The login link of a session home, through the file-system seam. The file
+/// linked to is never opened: it is asked about by its metadata alone.
+impl LoginLinks for SessionDirs {
+    fn present(&self, path: &str) -> bool {
+        self.fs
+            .metadata(Path::new(path))
+            .is_ok_and(|meta| meta.kind == Kind::File)
+    }
+
+    fn state(&self, harp: &str, rel: &str) -> LinkState {
+        let Ok(path) = self.record_path(harp, rel) else {
+            return LinkState::Other;
+        };
+        match self.fs.symlink_metadata(&path) {
+            Err(e) if e.kind() == ErrorKind::NotFound => LinkState::Absent,
+            // Whatever is there is a link when it can be read as one; a
+            // plain file, a directory or an unreadable entry is not.
+            Ok(_) => match self.fs.read_link(&path) {
+                Ok(target) => LinkState::LinkTo(target.display().to_string()),
+                Err(_) => LinkState::Other,
+            },
+            Err(_) => LinkState::Other,
+        }
+    }
+
+    fn link(&mut self, harp: &str, rel: &str, target: &str) -> Result<(), RecordsError> {
+        let path = self.record_path(harp, rel)?;
+        let io = |e: std::io::Error| RecordsError::Io {
+            harp: harp.to_string(),
+            rel: rel.to_string(),
+            ext_err_txt: e.to_string(),
+        };
+        if let Some(parent) = path.parent() {
+            self.fs
+                .create_dir_all(parent, Mode::from_bits(0o755))
+                .map_err(io)?;
+        }
+        // The seam's link is a symlink on unix, and fails where one exists.
+        self.fs.symlink_dir(Path::new(target), &path).map_err(io)
+    }
+
+    /// The login, copied whole into a file created new (`O_EXCL`), readable
+    /// by its owner alone: what a session home holds where no link can be
+    /// made (owner ruling 80). Nothing reads the bytes but this copy.
+    fn copy(&mut self, harp: &str, rel: &str, source: &str) -> Result<(), RecordsError> {
+        let path = self.record_path(harp, rel)?;
+        let io = |e: std::io::Error| RecordsError::Io {
+            harp: harp.to_string(),
+            rel: rel.to_string(),
+            ext_err_txt: e.to_string(),
+        };
+        let bytes = self.fs.read(Path::new(source)).map_err(io)?;
+        if let Some(parent) = path.parent() {
+            self.fs
+                .create_dir_all(parent, Mode::from_bits(0o755))
+                .map_err(io)?;
+        }
+        let mut file = self
+            .fs
+            .open(&path, Open::CreateNew(Mode::from_bits(0o600)))
+            .map_err(io)?;
+        file.write_all(&bytes).map_err(io)
+    }
+}
+
+/// `at` as an instant; `None` for one before the epoch.
+fn timestamp(at: SystemTime) -> Option<Timestamp> {
+    let since = at.duration_since(SystemTime::UNIX_EPOCH).ok()?;
+    Some(Timestamp {
+        seconds: i64::try_from(since.as_secs()).ok()?,
+        nanos: i32::try_from(since.subsec_nanos()).ok()?,
+    })
+}
+
+/// Go's session directories under one home, read-only: every directory of
+/// `~/.ctxloom/sessions` that Go calls a session (`IsSessionDir`): a real
+/// directory (a symlink is none, "a sweep that followed one would act on
+/// whatever it points at"), carrying a regular
+/// `session.yaml`. A directory without one is not a session: what `session
+/// remove` leaves behind on purpose, or an engine-created directory nobody
+/// recorded.
+pub struct GoDirs {
+    fs: Arc<dyn Fs>,
+    home: PathBuf,
+}
+
+impl GoDirs {
+    /// Go's session directories under `home`, read through `fs`.
+    pub fn new(fs: Arc<dyn Fs>, home: impl Into<PathBuf>) -> GoDirs {
+        GoDirs {
+            fs,
+            home: home.into(),
+        }
+    }
+
+    fn root(&self) -> PathBuf {
+        self.home.join(".ctxloom").join("sessions")
+    }
+}
+
+impl GoSessions for GoDirs {
+    fn go_sessions(&mut self) -> Result<Vec<GoSession>, Report> {
+        let root = self.root();
+        let entries = match self.fs.read_dir(&root) {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(Report::of(&FilesError::io("read", &root, &e))),
+        };
+        let mut found = Vec::new();
+        for entry in entries {
+            let Some(harp) = entry.name.to_str().map(str::to_string) else {
+                continue;
+            };
+            if entry.kind != Kind::Dir {
+                continue;
+            }
+            let dir = root.join(&harp);
+            let sidecar = dir.join(SIDECAR);
+            let regular = self
+                .fs
+                .symlink_metadata(&sidecar)
+                .is_ok_and(|meta| meta.kind == Kind::File);
+            if !regular {
+                continue;
+            }
+            let keep_marker = self
+                .fs
+                .symlink_metadata(&dir.join("keep"))
+                .is_ok_and(|meta| meta.kind == Kind::File);
+            found.push(GoSession {
+                harp,
+                sidecar: self
+                    .fs
+                    .read_to_string(&sidecar)
+                    .map_err(|e| Report::of(&FilesError::io("read", &sidecar, &e))),
+                keep_marker,
+            });
+        }
+        found.sort_by(|a, b| a.harp.cmp(&b.harp));
+        Ok(found)
+    }
+}
+
+#[cfg(test)]
+#[path = "lib.test.rs"]
+mod tests;

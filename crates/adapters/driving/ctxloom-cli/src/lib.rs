@@ -1,0 +1,33 @@
+//! The ctxloom command line (D28): arguments parsed into commands, answers
+//! written as json or text, errors as words or as the envelope.
+//!
+//! - Noun-verb, with `-h` at every depth and no `help` command; an unknown
+//!   verb is an error that says "Did you mean" and lists the verbs there are.
+//! - `--format` is `json` or `text` (angzarr-presentation's [`Format`]),
+//!   json off a terminal; any other value is refused, whatever it once was.
+//! - Under json an error is the envelope `{code, args, message}` on stderr;
+//!   under text it is `ctxloom: <message>`, then `  fix: <remedy>` where its
+//!   catalog has one. Stdout holds answers only.
+//! - Exit codes (rulings 149, 152, 153): 0 ok, 1 would change (only under
+//!   `--detailed-exitcode`), 10 failed, 20 refused, 21 fatal findings, 128+n
+//!   a signal.
+//! - `-v` is accepted everywhere and changes no output.
+//! - With the `test-support` feature, `diagnostic_samples` (the hidden `test`
+//!   commands are the wiring's, mounted as an extension).
+
+mod commands;
+mod error;
+mod extension;
+mod run;
+
+pub use angzarr_presentation::Catalog;
+pub use commands::{shaped, BARE_RUNS_DEFAULT, PROG};
+#[cfg(any(test, feature = "test-support"))]
+pub use error::diagnostic_samples;
+pub use error::{CliError, EN_US};
+pub use extension::{Call, Exit, Extension, Failure, NoExtension};
+pub use run::{run, Context, Services};
+
+#[cfg(test)]
+#[path = "run.test.rs"]
+mod tests;

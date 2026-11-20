@@ -1,0 +1,33 @@
+[package]
+name = "library-application"
+version = "0.1.0"
+description = "The Library inbound port's read side: every library query, over the content and config ports"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+exit-code.workspace = true
+angzarr-diagnostic.workspace = true
+angzarr-yaml.workspace = true
+ctxloom-ports.workspace = true
+deps-ports.workspace = true
+library.workspace = true
+run-ports.workspace = true
+surface-ports.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+angzarr-presentation = { workspace = true, features = ["test-support"] }
+mutants.workspace = true
+# The tests drive the mock engines, which only `test-support` compiles into the
+# library's engine list (ruling 52); this crate's own `test-support` stays off.
+library = { workspace = true, features = ["test-support"] }
+
+[features]
+test-support = ["library/test-support", "ctxloom-ports/test-support"]
+
+[lints]
+workspace = true

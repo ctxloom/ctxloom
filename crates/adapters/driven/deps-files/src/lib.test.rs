@@ -1,0 +1,518 @@
+//! The project's files over a rooted filesystem.
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
+use std::sync::Arc;
+
+use deps_ports::{BundleSlot, CachePath, CopyOutcome, DepsFiles, RepoTree};
+use file_system::{Fs, Rooted};
+use os::Mode;
+
+use super::*;
+
+const IDENTITY: &str = "ctxloom+git://example.test/o/r//bundles/demo";
+const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+const NEXT: &str = "fedcba9876543210fedcba9876543210fedcba98";
+
+/// `path`, absolute and spelled the unix way (`/proj`), as this host spells
+/// it (`C:\proj` on Windows): what the adapter is handed and shows back. A
+/// fixture's own write may stay unix-spelled, since the rooted filesystem
+/// re-roots both spellings at one place.
+fn host_path(path: &str) -> String {
+    os::host().flavor().from_top(path)
+}
+
+/// `bits` where the host keeps modes (unix); none on Windows, which keeps
+/// none.
+fn kept(bits: u32) -> Option<u32> {
+    (os::host().flavor() == os::Flavor::Unix).then_some(bits)
+}
+
+fn cache_path(path: &str) -> CachePath {
+    CachePath::new(path.split('/').map(str::to_string).collect()).expect("plain names")
+}
+
+/// The slot of `ctxloom+git://<host>/<path>//bundles/<bundle>`, as the
+/// application lays it out: the host and path, then the bundle's path.
+fn slot(identity: &str) -> BundleSlot {
+    let rest = identity
+        .strip_prefix("ctxloom+git://")
+        .expect("a test identity");
+    let (repository, bundle) = rest.split_once("//bundles/").expect("a bundle");
+    BundleSlot {
+        identity: identity.to_string(),
+        repository: cache_path(repository),
+        bundle: cache_path(bundle),
+    }
+}
+
+fn files() -> (ProjectFiles, Arc<Rooted>) {
+    let fs = Arc::new(Rooted::temp().expect("a temporary root"));
+    let files = ProjectFiles::new(fs.clone(), PathBuf::from(host_path("/proj/.ctxloom")));
+    (files, fs)
+}
+
+fn put(fs: &Rooted, path: &str, text: &str) {
+    let at = Path::new(path);
+    fs.create_dir_all(at.parent().expect("a parent"), Mode::from_bits(0o755))
+        .expect("a directory");
+    fs.write_atomic(at, text.as_bytes(), Perms::Exact(Mode::from_bits(0o644)))
+        .expect("a file");
+}
+
+fn tree(files: &[(&str, &str)]) -> RepoTree {
+    files
+        .iter()
+        .map(|(path, text)| (path.to_string(), text.as_bytes().to_vec()))
+        .collect()
+}
+
+/// Nothing written executable.
+fn none() -> BTreeSet<String> {
+    BTreeSet::new()
+}
+
+fn demo_tree(text: &str) -> RepoTree {
+    tree(&[
+        ("bundle.yaml", "version: 1\n"),
+        ("fragments/a.md", text),
+        ("scripts/run.sh", "#!/bin/sh\n"),
+    ])
+}
+
+// remote.feature: Registering a first remote outside any project creates a
+// usable home registry
+#[test]
+fn test_the_registry_is_read_when_there_and_written_atomically_into_a_made_directory() {
+    let (files, fs) = files();
+    assert_eq!(files.read_registry(), Ok(None));
+    files.write_registry("schema_version: 1\n").expect("writes");
+    assert_eq!(
+        files.read_registry(),
+        Ok(Some("schema_version: 1\n".to_string()))
+    );
+    assert_eq!(
+        files.registry_path(),
+        host_path("/proj/.ctxloom/remotes.yaml")
+    );
+    let dir = fs
+        .metadata(Path::new("/proj/.ctxloom"))
+        .expect("the app dir");
+    assert_eq!(
+        dir.mode.map(|m| m.bits() & 0o700),
+        kept(0o700),
+        "usable by its owner"
+    );
+    files
+        .write_registry("schema_version: 1\nnote: x\n")
+        .expect("rewrites");
+    assert_eq!(
+        files.read_registry(),
+        Ok(Some("schema_version: 1\nnote: x\n".to_string()))
+    );
+}
+
+#[test]
+fn test_the_lock_is_a_file_of_its_own() {
+    let (files, _) = files();
+    assert_eq!(files.read_lock(), Ok(None));
+    assert_eq!(files.lock_path(), host_path("/proj/.ctxloom/lock.yaml"));
+    files.write_lock("schema_version: 3\n").expect("writes");
+    assert_eq!(
+        files.read_lock(),
+        Ok(Some("schema_version: 3\n".to_string()))
+    );
+    assert_eq!(files.read_registry(), Ok(None));
+}
+
+#[test]
+fn test_a_file_that_cannot_be_read_is_an_error_not_an_absence() {
+    let (files, fs) = files();
+    fs.create_dir_all(
+        Path::new("/proj/.ctxloom/lock.yaml"),
+        Mode::from_bits(0o755),
+    )
+    .expect("a directory in its place");
+    assert!(files.read_lock().is_err());
+}
+
+#[test]
+fn test_an_installed_tree_is_read_back_without_its_marker() {
+    let (files, _) = files();
+    assert!(!files.is_installed(&slot(IDENTITY), SHA));
+    assert_eq!(files.read_installed(&slot(IDENTITY), SHA), Ok(None));
+    files
+        .install(&slot(IDENTITY), SHA, &demo_tree("A\n"), &none())
+        .expect("installs");
+    assert!(files.is_installed(&slot(IDENTITY), SHA));
+    assert!(!files.is_installed(&slot(IDENTITY), NEXT));
+    let read = files
+        .read_installed(&slot(IDENTITY), SHA)
+        .expect("reads")
+        .expect("a tree");
+    assert_eq!(&read, &demo_tree("A\n"));
+    assert!(!read.contains_key(IDENTITY_MARKER));
+    assert_eq!(
+        files.installed_path(&slot(IDENTITY), SHA),
+        host_path(&format!(
+            "/proj/.ctxloom/cache/bundles/example.test/o/r/demo/{SHA}"
+        ))
+    );
+}
+
+// Owner ruling 2026-11-12: the files the application names (its sidecars'
+// declaration) are written executable, a convenience for running them; the
+// rest are not, and no mode is read back.
+#[test]
+fn test_an_install_writes_executable_the_files_it_is_told_and_no_others() {
+    let (files, fs) = files();
+    let told: BTreeSet<String> = ["scripts/run.sh".to_string()].into();
+    files
+        .install(&slot(IDENTITY), SHA, &demo_tree("A\n"), &told)
+        .expect("installs");
+    let mode = |rel: &str| {
+        fs.metadata(Path::new(&format!(
+            "/proj/.ctxloom/cache/bundles/example.test/o/r/demo/{SHA}/{rel}"
+        )))
+        .expect("written")
+        .mode
+        .map(|m| m.bits() & 0o777)
+    };
+    assert_eq!(mode("scripts/run.sh"), kept(0o755));
+    assert_eq!(mode("fragments/a.md"), kept(0o644));
+    assert_eq!(
+        files.read_installed(&slot(IDENTITY), SHA),
+        Ok(Some(demo_tree("A\n")))
+    );
+}
+
+#[test]
+fn test_installing_a_new_commit_replaces_what_was_installed_for_the_identity() {
+    let (files, _) = files();
+    files
+        .install(&slot(IDENTITY), SHA, &demo_tree("A\n"), &none())
+        .expect("installs");
+    let other = "ctxloom+git://example.test/o/r//bundles/other";
+    files
+        .install(&slot(other), SHA, &demo_tree("O\n"), &none())
+        .expect("installs");
+    files
+        .install(&slot(IDENTITY), NEXT, &demo_tree("B\n"), &none())
+        .expect("installs");
+    assert!(
+        !files.is_installed(&slot(IDENTITY), SHA),
+        "the old commit's tree went"
+    );
+    assert!(files.is_installed(&slot(IDENTITY), NEXT));
+    assert!(
+        files.is_installed(&slot(other), SHA),
+        "another identity's is untouched"
+    );
+    // Installing again at the same commit replaces its contents.
+    files
+        .install(&slot(IDENTITY), NEXT, &demo_tree("C\n"), &none())
+        .expect("installs");
+    let read = files
+        .read_installed(&slot(IDENTITY), NEXT)
+        .expect("reads")
+        .expect("a tree");
+    assert_eq!(read["fragments/a.md"], b"C\n");
+}
+
+// The application works the place out of the address; the adapter keeps a
+// tree exactly under the segments it is handed, whatever the identity says.
+#[test]
+fn test_a_tree_is_kept_exactly_under_the_segments_it_is_handed() {
+    let (files, _) = files();
+    let handed = BundleSlot {
+        identity: "any identity at all".to_string(),
+        repository: cache_path("srv/r"),
+        bundle: cache_path("team/rules"),
+    };
+    files
+        .install(&handed, SHA, &demo_tree("A\n"), &none())
+        .expect("installs");
+    let at = format!("/proj/.ctxloom/cache/bundles/srv/r/team/rules/{SHA}");
+    assert!(files.exists(&format!("{at}/bundle.yaml")));
+    assert!(files.exists(&format!("{at}/{IDENTITY_MARKER}")));
+    assert!(files.is_installed(&handed, SHA));
+    assert_eq!(files.installed_path(&handed, SHA), host_path(&at));
+    assert_eq!(
+        &files
+            .read_installed(&handed, SHA)
+            .expect("reads")
+            .expect("a tree"),
+        &demo_tree("A\n"),
+    );
+    // The same bundle path in another repository is another place.
+    let elsewhere = BundleSlot {
+        repository: cache_path("srv/other"),
+        ..handed
+    };
+    assert!(!files.is_installed(&elsewhere, SHA));
+    assert_eq!(files.read_installed(&elsewhere, SHA), Ok(None));
+}
+
+// pull.go pruneUnlockedCheckouts
+#[test]
+fn test_pruning_removes_what_the_lock_does_not_name_and_says_which_identities_went() {
+    let (files, _) = files();
+    let other = "ctxloom+git://example.test/o/r//bundles/other";
+    let third = "ctxloom+git://example.test/p/q//bundles/third";
+    files
+        .install(&slot(IDENTITY), SHA, &demo_tree("A\n"), &none())
+        .expect("installs");
+    files
+        .install(&slot(other), SHA, &demo_tree("O\n"), &none())
+        .expect("installs");
+    files
+        .install(&slot(third), SHA, &demo_tree("T\n"), &none())
+        .expect("installs");
+    let gone = files
+        .prune(&[(IDENTITY.to_string(), SHA.to_string())])
+        .expect("prunes");
+    assert_eq!(gone.len(), 2);
+    assert!(gone.contains(&other.to_string()) && gone.contains(&third.to_string()));
+    assert!(files.is_installed(&slot(IDENTITY), SHA));
+    assert!(!files.is_installed(&slot(other), SHA) && !files.is_installed(&slot(third), SHA));
+    // The emptied directories went too: nothing of the other repository stays.
+    assert!(!files.exists("/proj/.ctxloom/cache/bundles/example.test/p"));
+    assert!(files.exists("/proj/.ctxloom/cache/bundles/example.test/o/r/demo"));
+}
+
+#[test]
+fn test_pruning_a_commit_of_a_kept_identity_removes_it_without_naming_the_identity() {
+    let (files, fs) = files();
+    files
+        .install(&slot(IDENTITY), SHA, &demo_tree("A\n"), &none())
+        .expect("installs");
+    // A second tree of the same identity, as a half-finished move would leave.
+    let beside = format!("/proj/.ctxloom/cache/bundles/example.test/o/r/demo/{NEXT}");
+    put(&fs, &format!("{beside}/bundle.yaml"), "v: 2\n");
+    put(&fs, &format!("{beside}/{IDENTITY_MARKER}"), IDENTITY);
+    let gone = files
+        .prune(&[(IDENTITY.to_string(), SHA.to_string())])
+        .expect("prunes");
+    assert!(gone.is_empty(), "{gone:?}");
+    assert!(files.is_installed(&slot(IDENTITY), SHA));
+    assert!(!files.exists(&beside));
+}
+
+#[test]
+fn test_pruning_with_nothing_installed_is_nothing() {
+    let (files, _) = files();
+    assert_eq!(files.prune(&[]), Ok(Vec::new()));
+}
+
+// bundle.feature: the authored bundles
+#[test]
+fn test_an_authored_bundle_is_found_read_and_removed_whole() {
+    let (files, fs) = files();
+    assert_eq!(files.local_bundle("demo"), Ok(None));
+    let root = "/proj/.ctxloom/content/bundles/v2/demo";
+    put(&fs, &format!("{root}/bundle.yaml"), "description: d\n");
+    put(&fs, &format!("{root}/fragments/example.md"), "# Example\n");
+    put(
+        &fs,
+        &format!("{root}/skills/.s.meta.yaml"),
+        "executable: []\n",
+    );
+    assert_eq!(
+        files.local_bundle("demo"),
+        Ok(Some(host_path(&format!("{root}/bundle.yaml"))))
+    );
+    let read = files.read_local_bundle("demo").expect("reads");
+    let paths: Vec<&str> = read.keys().map(String::as_str).collect();
+    assert_eq!(
+        paths,
+        vec!["bundle.yaml", "fragments/example.md", "skills/.s.meta.yaml"]
+    );
+    assert_eq!(read["fragments/example.md"], b"# Example\n");
+    files.remove_local_bundle("demo").expect("removes");
+    assert_eq!(files.local_bundle("demo"), Ok(None));
+    assert!(!files.exists(root));
+}
+
+#[test]
+fn test_a_bundle_name_cannot_climb_out_of_the_bundles_directory() {
+    let (files, _) = files();
+    for name in ["", "..", "../x", "a/../b", "/etc", "./x"] {
+        assert!(files.local_bundle(name).is_err(), "{name:?}");
+        assert!(files.read_local_bundle(name).is_err(), "{name:?}");
+        assert!(files.remove_local_bundle(name).is_err(), "{name:?}");
+    }
+}
+
+#[test]
+fn test_a_directory_is_told_from_a_file_and_from_nothing() {
+    let (files, fs) = files();
+    put(&fs, "/somewhere/file.txt", "x");
+    assert!(files.is_directory("/somewhere"));
+    assert!(!files.is_directory("/somewhere/file.txt"));
+    assert!(!files.is_directory("/nowhere"));
+    assert!(files.exists("/somewhere/file.txt") && files.exists("/somewhere"));
+    assert!(!files.exists("/nowhere"));
+}
+
+fn contents() -> BTreeMap<String, Vec<u8>> {
+    BTreeMap::from([
+        ("bundle.yaml".to_string(), b"description: d\n".to_vec()),
+        ("fragments/example.md".to_string(), b"# Example\n".to_vec()),
+    ])
+}
+
+// bundle.feature: Moving a bundle into another project lands it in that
+// project's content tree
+#[test]
+fn test_a_copy_into_a_project_lands_in_its_content_tree() {
+    let (files, fs) = files();
+    put(&fs, "/other/.ctxloom/.keep", "");
+    let landed = files
+        .copy_bundle(&host_path("/other"), "demo", &contents(), false)
+        .expect("copies");
+    let dest = "/other/.ctxloom/content/bundles/v2/demo";
+    assert_eq!(landed, CopyOutcome::Copied(host_path(dest)));
+    assert_eq!(
+        fs.read(Path::new(&format!("{dest}/fragments/example.md")))
+            .expect("a file"),
+        b"# Example\n"
+    );
+}
+
+#[test]
+fn test_a_copy_into_an_app_dir_or_a_plain_directory() {
+    let (files, fs) = files();
+    fs.create_dir_all(Path::new("/x/.ctxloom"), Mode::from_bits(0o755))
+        .expect("a directory");
+    fs.create_dir_all(Path::new("/plain"), Mode::from_bits(0o755))
+        .expect("a directory");
+    assert_eq!(
+        files.copy_bundle(&host_path("/x/.ctxloom"), "demo", &contents(), false),
+        Ok(CopyOutcome::Copied(host_path(
+            "/x/.ctxloom/content/bundles/v2/demo"
+        )))
+    );
+    assert_eq!(
+        files.copy_bundle(&host_path("/plain"), "demo", &contents(), false),
+        Ok(CopyOutcome::Copied(host_path("/plain/demo")))
+    );
+}
+
+#[test]
+fn test_a_copy_onto_a_bundle_is_refused_unless_forced_and_force_replaces_it_whole() {
+    let (files, fs) = files();
+    fs.create_dir_all(Path::new("/plain"), Mode::from_bits(0o755))
+        .expect("a directory");
+    let plain = host_path("/plain");
+    files
+        .copy_bundle(&plain, "demo", &contents(), false)
+        .expect("copies");
+    put(&fs, "/plain/demo/stale.md", "stale");
+    assert_eq!(
+        files.copy_bundle(&plain, "demo", &contents(), false),
+        Ok(CopyOutcome::Exists(host_path("/plain/demo")))
+    );
+    assert!(files.exists("/plain/demo/stale.md"), "refused: untouched");
+    assert_eq!(
+        files.copy_bundle(&plain, "demo", &contents(), true),
+        Ok(CopyOutcome::Copied(host_path("/plain/demo")))
+    );
+    assert!(
+        !files.exists("/plain/demo/stale.md"),
+        "the old tree went whole"
+    );
+}
+
+#[test]
+fn test_a_copy_onto_the_bundles_own_directory_is_refused() {
+    let (files, fs) = files();
+    put(
+        &fs,
+        "/proj/.ctxloom/content/bundles/v2/demo/bundle.yaml",
+        "d: 1\n",
+    );
+    assert_eq!(
+        files.copy_bundle(&host_path("/proj"), "demo", &contents(), true),
+        Ok(CopyOutcome::Itself(host_path(
+            "/proj/.ctxloom/content/bundles/v2/demo"
+        )))
+    );
+    assert_eq!(
+        files.read_local_bundle("demo").expect("reads")["bundle.yaml"],
+        b"d: 1\n",
+        "even forced, it is not overwritten"
+    );
+}
+
+#[test]
+fn test_a_commit_is_named_by_its_abbreviation_too() {
+    let (files, fs) = files();
+    files
+        .install(&slot(IDENTITY), SHA, &demo_tree("A\n"), &none())
+        .expect("installs");
+    let short = "/proj/.ctxloom/cache/bundles/example.test/o/r/demo/abc1234";
+    put(&fs, &format!("{short}/bundle.yaml"), "v: 2\n");
+    put(&fs, &format!("{short}/{IDENTITY_MARKER}"), IDENTITY);
+    files
+        .prune(&[(IDENTITY.to_string(), SHA.to_string())])
+        .expect("prunes");
+    assert!(!files.exists(short));
+    assert!(files.is_installed(&slot(IDENTITY), SHA));
+}
+
+#[test]
+fn test_pruning_everything_leaves_the_cache_root() {
+    let (files, _) = files();
+    files
+        .install(&slot(IDENTITY), SHA, &demo_tree("A\n"), &none())
+        .expect("installs");
+    let gone = files.prune(&[]).expect("prunes");
+    assert_eq!(gone, vec![IDENTITY.to_string()]);
+    assert!(!files.exists("/proj/.ctxloom/cache/bundles/example.test"));
+    assert!(files.exists("/proj/.ctxloom/cache/bundles"));
+}
+
+#[test]
+fn test_a_copy_onto_the_bundle_itself_is_known_by_another_spelling_of_its_place() {
+    let (files, fs) = files();
+    put(
+        &fs,
+        "/proj/.ctxloom/content/bundles/v2/demo/bundle.yaml",
+        "d: 1\n",
+    );
+    fs.create_dir_all(Path::new("/proj/sub"), Mode::from_bits(0o755))
+        .expect("a directory");
+    assert_eq!(
+        files.copy_bundle(&host_path("/proj/sub/.."), "demo", &contents(), false),
+        Ok(CopyOutcome::Itself(host_path(
+            "/proj/sub/../.ctxloom/content/bundles/v2/demo"
+        )))
+    );
+}
+
+#[test]
+fn test_installing_a_commit_replaces_the_trees_of_other_commits_by_any_abbreviation() {
+    let (files, fs) = files();
+    let base = "/proj/.ctxloom/cache/bundles/example.test/o/r/demo";
+    put(&fs, &format!("{base}/abc1234/bundle.yaml"), "v: 0\n");
+    put(&fs, &format!("{base}/abc1234/{IDENTITY_MARKER}"), IDENTITY);
+    put(&fs, &format!("{base}/notes/keep.txt"), "mine\n");
+    put(
+        &fs,
+        &format!("{base}/.install-left/{IDENTITY_MARKER}"),
+        IDENTITY,
+    );
+    files
+        .install(&slot(IDENTITY), SHA, &demo_tree("A\n"), &none())
+        .expect("installs");
+    assert!(!files.exists(&format!("{base}/abc1234")));
+    assert!(
+        files.exists(&format!("{base}/notes/keep.txt")),
+        "holds no marker: not an installed tree"
+    );
+    assert!(
+        !files.exists(&format!("{base}/.install-left")),
+        "a crashed install's staging goes too"
+    );
+    assert!(files.is_installed(&slot(IDENTITY), SHA));
+}

@@ -1,0 +1,109 @@
+[package]
+name = "ctxloom"
+version = "0.1.0"
+description = "The ctxloom binary: the composition root (S0 holds the acceptance tests and an empty main)"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+angzarr-diagnostic.workspace = true
+angzarr-presentation.workspace = true
+angzarr-yaml.workspace = true
+cache-files.workspace = true
+container-cli.workspace = true
+isolation-application.workspace = true
+worktree-git.workspace = true
+tasks-ports.workspace = true
+config-files.workspace = true
+content-fs.workspace = true
+editor-process.workspace = true
+ctxloom-cli.workspace = true
+ctxloom-wiring.workspace = true
+ctxloom-store-sqlite.workspace = true
+file-lock.workspace = true
+library.workspace = true
+library-application.workspace = true
+deps.workspace = true
+deps-application.workspace = true
+init-application.workspace = true
+reclaim-application.workspace = true
+setup-cli.workspace = true
+hook-cli.workspace = true
+run-application.workspace = true
+run-launcher.workspace = true
+run-cli.workspace = true
+hook-listener.workspace = true
+hook-tls.workspace = true
+setup-application.workspace = true
+surface-ports.workspace = true
+session-cli.workspace = true
+session-files.workspace = true
+sessions-application.workspace = true
+sessions.workspace = true
+scheduler.workspace = true
+scheduler-loop.workspace = true
+process-env.workspace = true
+duration-text.workspace = true
+project-dir.workspace = true
+
+[features]
+# `session remove` (and `sweep`), the destroy of a whole session (owner
+# rulings 94, 94b, 98): off in a plain build, where the verbs are unknown (scripts/plain-destroy-check.sh,
+# run by `just build`). The acceptance tests build the binary with it.
+session-destroy = ["ctxloom-wiring/session-destroy"]
+# The test-only commands (`ctxloom test ...`): the exit ladder, the --format
+# matrix, the error envelope, every diagnostic, the id mints and the store
+# open, reached through the binary because S0 has no real command that does
+# them. Off in a release build; the acceptance tests build the binary with it.
+test-support = [
+    "ctxloom-cli/test-support",
+    "ctxloom-wiring/test-support",
+    "ctxloom-store-sqlite/test-support",
+    "project-dir/test-support",
+    "duration-text/test-support",
+    "library/test-support",
+    "library-application/test-support",
+    "cache-files/test-support",
+    "reclaim-application/test-support",
+    "setup-cli/test-support",
+    "deps/test-support",
+    "deps-application/test-support",
+    "content-fs/test-support",
+    "config-files/test-support",
+    "editor-process/test-support",
+    "hook-cli/test-support",
+    "setup-application/test-support",
+    "surface-ports/test-support",
+    "session-cli/test-support",
+    "session-files/test-support",
+    "sessions/test-support",
+    "sessions-application/test-support",
+    "container-cli/test-support",
+    "isolation-application/test-support",
+    "worktree-git/test-support",
+    "tasks-ports/test-support",
+    "scheduler/test-support",
+    "scheduler-loop/test-support",
+    "run-application/test-support",
+    "run-launcher/test-support",
+    "run-cli/test-support",
+    "hook-listener/test-support",
+    "hook-tls/test-support",
+]
+
+[dev-dependencies]
+fixture-program.workspace = true
+# A GitHub API on a local port, for the acceptance tests: no network.
+forge-github = { workspace = true, features = ["test-support"] }
+# Already pinned in the workspace: the word lists the ids are checked against.
+harp-core.workspace = true
+cucumber.workspace = true
+futures = "0.3"
+serde_json.workspace = true
+file-system = { workspace = true, features = ["test-support"] }
+os = { workspace = true, features = ["test-support"] }
+
+[lints]
+workspace = true

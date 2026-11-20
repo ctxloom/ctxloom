@@ -1,0 +1,28 @@
+[package]
+name = "session-files"
+version = "0.1.0"
+description = "A session's files through the file-system seam: its canonical transcript (D27) and the directory around it, under the project's .ctxloom/sessions/<harp>, and the run core's writer of it"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+angzarr-diagnostic.workspace = true
+file-system.workspace = true
+os.workspace = true
+run-ports.workspace = true
+session-ports.workspace = true
+# Go's harp rule decides which directory is a session.
+
+[dev-dependencies]
+file-system = { workspace = true, features = ["test-support"] }
+mutants.workspace = true
+
+
+[features]
+# `diagnostic_samples`, for other crates' catalog tests.
+test-support = []
+
+[lints]
+workspace = true

@@ -1,0 +1,90 @@
+//! Why a `session` command did not complete at the command line, before or
+//! after the application ran.
+
+use std::fmt;
+
+use angzarr_diagnostic::{code, Arg, Diagnostic};
+use cli_support::{Exit, ExitClass};
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum CliFault {
+    /// A `--state` that is not a state (Go: `checkSessionState`).
+    BadState { value: String, states: String },
+    /// The runtime commands block on could not start.
+    Runtime { ext_err_txt: String },
+    /// The answer could not be written.
+    Output { ext_err_txt: String },
+    /// A sweep that acted had actions that failed; its report says which.
+    SweepFailed { count: u64 },
+}
+
+impl ExitClass for CliFault {
+    /// How the command exits: refused (20), a request invalid on its own
+    /// content, or failed (10).
+    fn exit(&self) -> Exit {
+        match self {
+            CliFault::BadState { .. } => Exit::REFUSED,
+            CliFault::Runtime { .. } | CliFault::Output { .. } | CliFault::SweepFailed { .. } => {
+                Exit::FAILED
+            }
+        }
+    }
+}
+
+impl fmt::Display for CliFault {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        angzarr_diagnostic::display(self, f)
+    }
+}
+
+impl Diagnostic for CliFault {
+    fn code(&self) -> &str {
+        match self {
+            CliFault::BadState { .. } => code!("bad-state"),
+            CliFault::Runtime { .. } => code!("runtime"),
+            CliFault::Output { .. } => code!("output"),
+            CliFault::SweepFailed { .. } => code!("sweep-failed"),
+        }
+    }
+
+    fn args(&self) -> Vec<(&str, Arg)> {
+        match self {
+            CliFault::BadState { value, states } => vec![
+                ("value", value.as_str().into()),
+                ("states", states.as_str().into()),
+            ],
+            CliFault::Runtime { ext_err_txt } | CliFault::Output { ext_err_txt } => {
+                vec![("ext_err_txt", ext_err_txt.as_str().into())]
+            }
+            CliFault::SweepFailed { count } => vec![("count", (*count).into())],
+        }
+    }
+}
+
+/// This crate's en-US messages, its name first.
+pub const EN_US: (&str, &str) = (
+    env!("CARGO_PKG_NAME"),
+    include_str!("../locales/en-US/messages.ftl"),
+);
+
+/// One value of every fault, for the catalog test.
+#[cfg(any(test, feature = "test-support"))]
+pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
+    vec![
+        Box::new(CliFault::BadState {
+            value: "running".to_string(),
+            states: "live, ended, unknown".to_string(),
+        }),
+        Box::new(CliFault::Runtime {
+            ext_err_txt: "no timer".to_string(),
+        }),
+        Box::new(CliFault::Output {
+            ext_err_txt: "broken pipe".to_string(),
+        }),
+        Box::new(CliFault::SweepFailed { count: 2 }),
+    ]
+}
+
+#[cfg(test)]
+#[path = "error.test.rs"]
+mod tests;

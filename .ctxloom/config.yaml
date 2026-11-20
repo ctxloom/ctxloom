@@ -1,0 +1,64 @@
+agents:
+  default:
+    engine: claude-code
+    engines:
+      claude-code:
+        model: opus
+        permissions:
+          defaultMode: acceptEdits
+    profiles:
+      - default
+    runtime: host
+  developer:
+    engine: claude-code
+    engines:
+      claude-code:
+        model: opus
+    profiles:
+      - default
+    runtime: container-rootless
+  distiller:
+    engine: claude-code
+    engines:
+      claude-code:
+        model: haiku
+    profiles:
+      - domain
+    runtime: host
+  finder:
+    engine: claude-code
+    engines:
+      claude-code:
+        model: haiku
+    profiles:
+      - finder
+    runtime: container-rootless
+  orchestrator:
+    engine: claude-code
+    engines:
+      claude-code:
+        model: opus
+        permissions:
+          defaultMode: bypassPermissions
+    profiles:
+      - orchestrator
+      - captain
+    runtime: host
+  reviewer-rust:
+    engine: claude-code
+    engines:
+      claude-code:
+        model: opus
+    profiles:
+      - reviewer-rust
+    runtime: host
+  triage:
+    engine: claude-code
+    engines:
+      claude-code:
+        model: haiku
+    profiles:
+      - domain
+    runtime: host
+default_agent: orchestrator
+schema_version: 9

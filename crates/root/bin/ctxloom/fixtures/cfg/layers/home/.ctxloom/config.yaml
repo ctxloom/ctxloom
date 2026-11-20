@@ -1,0 +1,13 @@
+schema_version: 8
+editor:
+  command: home-editor
+  args: [-h]
+workspace: worktree
+agents:
+  home:
+    engine: claude-code
+    profiles: [h]
+  proj:
+    engine: mock
+    profiles: [overridden]
+companions: [acme, beta]

@@ -1,0 +1,92 @@
+syntax = "proto3";
+
+// The session-name claim (D5 Q1): one stream per (project, harp text), its
+// root derived from them (`ids::compute_root("session-names", ...)`), so a
+// harp is unique in a project because a stream is. A session takes its
+// name first (`ClaimName`), on its mint; a harp never changes (S55), and a
+// removed (destroyed) session's name is never released.
+package ctxloom.sessions.v1;
+
+import "io/angzarr/v1/options.proto";
+
+message NameClaimState {
+  option (io.angzarr.v1.component) = {
+    component_name: "name-claim"
+    aggregate: {domain: "session-names"}
+  };
+
+  string project_id = 1;
+  string harp = 2;
+  // The stable id of the session that holds the name; empty while free.
+  string session = 3;
+  // Whether the stream has history: a name once claimed is a stream with
+  // a past, free or held.
+  bool claimed = 4;
+}
+
+// Take the name for `session`. Refused `session-names-taken` while another
+// session holds it; the holder asking again records nothing.
+message ClaimName {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.sessions.v1.NameClaimState"
+    emits: ["ctxloom.sessions.v1.Claimed"]
+    refuses: "ctxloom.sessions.v1.NamesTaken"
+  };
+
+  string project_id = 1;
+  string harp = 2;
+  string session = 3;
+}
+
+// Give the name back. Refused unless `session` holds it.
+message ReleaseName {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.sessions.v1.NameClaimState"
+    emits: ["ctxloom.sessions.v1.Released"]
+    refuses: "ctxloom.sessions.v1.NoClaim"
+    refuses: "ctxloom.sessions.v1.NotHolder"
+  };
+
+  string session = 1;
+}
+
+message Claimed {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.NameClaimState"};
+
+  string project_id = 1;
+  string harp = 2;
+  string session = 3;
+}
+
+message Released {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.NameClaimState"};
+}
+
+// region refusals
+//
+// A command's refusals, one typed message each, listed in the `refuses` of
+// the commands that raise them. The status is the gRPC meaning of what is
+// refused, declared here and nowhere else; the code, args and text a person
+// reads are the domain's `SessionRejection` (`rejection.rs`), mapped from
+// the refusal's TYPE, never its status.
+
+// A claim on a name another session holds.
+message NamesTaken {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_ALREADY_EXISTS;
+
+  string harp = 1;
+}
+
+// A release of a name nobody holds.
+message NoClaim {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_NOT_FOUND;
+}
+
+// A release by a session that does not hold the name.
+message NotHolder {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  string harp = 1;
+}
+
+// endregion refusals

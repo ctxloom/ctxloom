@@ -1,0 +1,851 @@
+//! The session home (ruling 58 and the live probe): the context, the plugin,
+//! and the npm pre-seed in every config directory opencode reads; and the
+//! plugin itself, run under node with a fake `ctxloom` on its PATH.
+
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+use file_system::{Fs, Perms, Rooted};
+use os::Mode;
+use run_ports::{Engine, PrepareRequest};
+use surface_ports::{HookCodec, Json};
+
+use crate::{
+    plugin, user_config_file, user_model_file, Codec, Opencode, CONFIG_FILE, CONTEXT_FILE,
+    MODEL_SEED, PLUGIN, PLUGIN_FILE, PRESEED_LOCK,
+};
+
+/// Whether this host runs the tests' fake programs: unix, the one flavor
+/// `fixture_program::install_program` does not refuse as `Unsupported`, with
+/// the `sh` (and links) they need. Elsewhere the asking test is skipped and
+/// says so on stderr, `SKIP <test>: <why>`, never silently; the same test
+/// runs unchanged on unix.
+pub(crate) fn runs_scripts() -> bool {
+    if os::host().flavor() == os::Flavor::Unix {
+        return true;
+    }
+    let test = std::thread::current();
+    eprintln!(
+        "SKIP {}: its fake programs are sh scripts (unix only)",
+        test.name().unwrap_or("a test")
+    );
+    false
+}
+
+const HOME: &str = "/p/.ctxloom/sessions/h/home";
+
+fn prepared(interactive: bool) -> run_ports::Prepared {
+    prepared_with(interactive, None).unwrap()
+}
+
+fn prepared_with(
+    interactive: bool,
+    permissions: Option<&str>,
+) -> Result<run_ports::Prepared, run_ports::EngineError> {
+    Opencode::new().prepare(&PrepareRequest {
+        home: HOME.to_string(),
+        context: "the project's context".to_string(),
+        offered: vec!["auth.json".to_string(), "opencode.json".to_string()],
+        interactive,
+        cwd: None,
+        existing: Default::default(),
+        permissions: permissions.map(String::from),
+        session_home: run_ports::SessionHome::Session,
+        surfaces: Default::default(),
+    })
+}
+
+/// The session home's `opencode.json`, as written.
+fn config_of(prepared: &run_ports::Prepared) -> String {
+    let file = prepared
+        .files
+        .iter()
+        .find(|f| f.rel == CONFIG_FILE)
+        .expect("opencode.json in the home");
+    String::from_utf8(file.bytes.clone()).unwrap()
+}
+
+// Owner rulings 135, 137: the agent's permissions document is opencode's
+// config `permission` object, exactly as handed: its words (unchecked) and its
+// order (opencode's last matching rule wins), for a child's turn and the
+// session alike; the document is that one key.
+#[test]
+fn test_the_permissions_document_is_the_configs_permission_object_as_handed() {
+    const DOCUMENT: &str = r#"{"edit":"ask","bash":{"*":"ask","git status *":"allow","git push *":"deny"},"webfetch":"deny","mode":"plan"}"#;
+    for interactive in [false, true] {
+        let text = config_of(&prepared_with(interactive, Some(DOCUMENT)).unwrap());
+        let doc = Json::parse(&text).unwrap();
+        assert_eq!(
+            doc,
+            Json::object([("permission", Json::parse(DOCUMENT).unwrap())]),
+            "{text}"
+        );
+        let Some(Json::Object(rules)) = doc.get("permission").and_then(|p| p.get("bash")) else {
+            panic!("{text}");
+        };
+        let order: Vec<&str> = rules.iter().map(|(k, _)| k.as_str()).collect();
+        assert_eq!(order, ["*", "git status *", "git push *"]);
+    }
+}
+
+// Owner T21: opencode.json is written whole at every launch from what the
+// launch is handed, never merged into what the home holds, so an agent's edit
+// of its own config does not survive into its next launch.
+#[test]
+fn test_the_config_is_regenerated_whatever_the_home_holds() {
+    assert!(Opencode::new().merges().is_empty());
+    let prepared = Opencode::new()
+        .prepare(&PrepareRequest {
+            home: HOME.to_string(),
+            context: "c".to_string(),
+            offered: Vec::new(),
+            interactive: true,
+            cwd: None,
+            existing: std::collections::BTreeMap::from([(
+                CONFIG_FILE.to_string(),
+                br#"{"permission":"allow"}"#.to_vec(),
+            )]),
+            permissions: Some(r#"{"edit":"ask"}"#.to_string()),
+            session_home: run_ports::SessionHome::Session,
+            surfaces: Default::default(),
+        })
+        .unwrap();
+    assert_eq!(
+        Json::parse(&config_of(&prepared)).unwrap(),
+        Json::object([("permission", Json::object([("edit", Json::text("ask"))]))])
+    );
+}
+
+// No document: the config is empty, so nothing of an earlier run's lingers.
+#[test]
+fn test_with_no_document_the_config_is_empty() {
+    assert_eq!(config_of(&prepared(false)), "{}\n");
+}
+
+// A document that is not JSON is refused before anything is written.
+#[test]
+fn test_a_document_that_is_not_json_is_refused() {
+    let refused = prepared_with(false, Some("[nope"));
+    assert!(
+        matches!(&refused, Err(run_ports::EngineError::BadPermissions { engine, .. }) if engine == "opencode"),
+        "{refused:?}"
+    );
+}
+
+#[test]
+fn test_a_session_home_holds_the_context_the_plugin_and_the_preseed_and_nothing_of_the_users() {
+    for interactive in [false, true] {
+        let home = prepared(interactive);
+        let mut files: Vec<(&str, &[u8])> = home
+            .files
+            .iter()
+            .map(|f| (f.rel.as_str(), f.bytes.as_slice()))
+            .collect();
+        files.sort();
+        assert_eq!(
+            files,
+            [
+                ("AGENTS.md", b"the project's context".as_slice()),
+                ("ctxloom-authored-hooks.json", b"{}\n".as_slice()),
+                ("node_modules/.ctxloom", b"".as_slice()),
+                ("opencode.json", b"{}\n".as_slice()),
+                ("package-lock.json", PRESEED_LOCK.as_bytes()),
+                ("plugins/ctxloom.js", PLUGIN.as_bytes()),
+                ("xdg/config/opencode/node_modules/.ctxloom", b"".as_slice()),
+                (
+                    "xdg/config/opencode/package-lock.json",
+                    PRESEED_LOCK.as_bytes()
+                ),
+            ],
+            "interactive: {interactive}"
+        );
+        assert_eq!(home.context_path, format!("{HOME}/{CONTEXT_FILE}"));
+        assert!(home.copy_in.is_empty(), "nothing of the user's crosses");
+        assert!(home.seeds.is_empty(), "no model.json of hers was told");
+    }
+}
+
+/// The home an opencode told the user's `model.json` (`model`) prepares,
+/// under `session_home`.
+fn seeded(model: Option<&[u8]>, session_home: run_ports::SessionHome) -> run_ports::Prepared {
+    Opencode::new()
+        .seeding_model(model.map(<[u8]>::to_vec))
+        .prepare(&PrepareRequest {
+            home: HOME.to_string(),
+            context: String::new(),
+            offered: Vec::new(),
+            interactive: true,
+            cwd: None,
+            existing: Default::default(),
+            permissions: None,
+            session_home,
+            surfaces: Default::default(),
+        })
+        .unwrap()
+}
+
+// Owner ruling 167: the session's relocated state directory would leave
+// opencode no recent model of hers, and it would pick one itself; the user's
+// own `model.json` is the home's SEED (written once, by the launcher), exactly
+// as read, where the relocated `XDG_STATE_HOME` finds it, and never a file the
+// home is rewritten with; nothing else of her state crosses.
+#[test]
+fn test_her_model_json_seeds_the_relocated_state_directory_as_read() {
+    const HERS: &[u8] =
+        br#"{"recent":[{"providerID":"openrouter","modelID":"meta-llama/llama-3.3-70b-instruct:free"}],"favorite":[],"variant":{}}"#;
+    let home = seeded(Some(HERS), run_ports::SessionHome::Session);
+    assert_eq!(MODEL_SEED, "xdg/state/opencode/model.json");
+    assert_eq!(
+        home.seeds,
+        [run_ports::HomeFile {
+            rel: MODEL_SEED.to_string(),
+            bytes: HERS.to_vec(),
+        }]
+    );
+    assert!(home.files.iter().all(|f| f.rel != MODEL_SEED));
+    assert!(home.copy_in.is_empty());
+}
+
+#[test]
+fn test_with_no_model_json_of_hers_nothing_is_seeded() {
+    assert!(seeded(None, run_ports::SessionHome::Session)
+        .seeds
+        .is_empty());
+}
+
+// Under `session_home: host` opencode's state directory is her own, so there
+// is nothing to seed.
+#[test]
+fn test_under_a_host_home_nothing_is_seeded() {
+    assert!(seeded(Some(b"{}"), run_ports::SessionHome::Host)
+        .seeds
+        .is_empty());
+}
+
+// opencode 1.18.4 keeps it in `<XDG_STATE_HOME, else ~/.local/state>/opencode`
+// on every platform (xdg-basedir, no platform branch); a variable that is not
+// an absolute path is not taken, as the login's directory is not.
+#[test]
+fn test_her_model_json_is_where_opencode_keeps_it() {
+    assert_eq!(
+        user_model_file(Some("/home/u"), None, "linux").as_deref(),
+        Some("/home/u/.local/state/opencode/model.json")
+    );
+    assert_eq!(
+        user_model_file(Some("/home/u"), Some("/xdg/state"), "linux").as_deref(),
+        Some("/xdg/state/opencode/model.json")
+    );
+    assert_eq!(
+        user_model_file(None, Some("/xdg/state"), "linux").as_deref(),
+        Some("/xdg/state/opencode/model.json")
+    );
+    assert_eq!(
+        user_model_file(Some("/home/u"), Some("relative"), "linux").as_deref(),
+        Some("/home/u/.local/state/opencode/model.json")
+    );
+    assert_eq!(
+        user_model_file(Some("/home/u"), Some(""), "linux").as_deref(),
+        Some("/home/u/.local/state/opencode/model.json")
+    );
+    assert_eq!(user_model_file(None, None, "linux"), None);
+    assert_eq!(user_model_file(Some(""), None, "linux"), None);
+}
+
+/// The home an opencode told the user's own global config (`user`) prepares,
+/// with the agent's `permissions`, under `session_home`.
+fn over_hers(
+    user: Option<run_ports::UserSettings>,
+    permissions: Option<&str>,
+    session_home: run_ports::SessionHome,
+) -> run_ports::Prepared {
+    Opencode::new()
+        .over_user_config(user)
+        .prepare(&PrepareRequest {
+            home: HOME.to_string(),
+            context: String::new(),
+            offered: Vec::new(),
+            interactive: true,
+            cwd: None,
+            existing: Default::default(),
+            permissions: permissions.map(String::from),
+            session_home,
+            surfaces: Default::default(),
+        })
+        .unwrap()
+}
+
+const HER_CONFIG: &str = "/home/u/.config/opencode/opencode.json";
+
+fn hers(text: &str) -> run_ports::UserSettings {
+    run_ports::UserSettings {
+        path: HER_CONFIG.to_string(),
+        bytes: Some(text.as_bytes().to_vec()),
+    }
+}
+
+// Owner ruling 169, by analogy with claude's: the session home's
+// `opencode.json` starts from her own global config, its `permission`
+// replaced whole by the agent's document (none: none of hers either).
+#[test]
+fn test_her_global_config_is_the_session_configs_base() {
+    let user = hers(r#"{"model":"anthropic/claude","permission":{"bash":"allow"},"theme":"x"}"#);
+    let prepared = over_hers(
+        Some(user.clone()),
+        Some(r#"{"edit":"ask"}"#),
+        run_ports::SessionHome::Session,
+    );
+    assert_eq!(
+        Json::parse(&config_of(&prepared)).unwrap(),
+        Json::parse(r#"{"model":"anthropic/claude","permission":{"edit":"ask"},"theme":"x"}"#)
+            .unwrap()
+    );
+    assert!(prepared.left_out.is_empty());
+    let none = over_hers(Some(user), None, run_ports::SessionHome::Session);
+    assert_eq!(
+        Json::parse(&config_of(&none)).unwrap(),
+        Json::parse(r#"{"model":"anthropic/claude","theme":"x"}"#).unwrap()
+    );
+}
+
+// A config of hers that is not a JSON object (or did not read) is left out and
+// named; none of hers is a start from `{}`.
+#[test]
+fn test_a_config_of_hers_that_is_no_object_is_left_out_and_named() {
+    let unread = run_ports::UserSettings {
+        path: HER_CONFIG.to_string(),
+        bytes: None,
+    };
+    for user in [hers("[1]"), hers("// jsonc\n{}"), unread] {
+        let prepared = over_hers(Some(user.clone()), None, run_ports::SessionHome::Session);
+        assert_eq!(config_of(&prepared), "{}\n", "{user:?}");
+        assert_eq!(
+            prepared.left_out,
+            [run_ports::LeftOut {
+                engine: "opencode".to_string(),
+                path: HER_CONFIG.to_string(),
+            }]
+        );
+    }
+    let missing = over_hers(None, None, run_ports::SessionHome::Session);
+    assert_eq!(config_of(&missing), "{}\n");
+    assert!(missing.left_out.is_empty());
+}
+
+// Under `session_home: host` opencode reads her own config dirs itself: the
+// session home's config stays the agent's document alone, and nothing is said.
+#[test]
+fn test_under_a_host_home_her_config_is_not_copied() {
+    for user in [hers(r#"{"theme":"MARK"}"#), hers("[1]")] {
+        let prepared = over_hers(
+            Some(user),
+            Some(r#"{"edit":"ask"}"#),
+            run_ports::SessionHome::Host,
+        );
+        assert_eq!(
+            Json::parse(&config_of(&prepared)).unwrap(),
+            Json::parse(r#"{"permission":{"edit":"ask"}}"#).unwrap()
+        );
+        assert!(prepared.left_out.is_empty());
+    }
+}
+
+// opencode 1.18.4's global config is `opencode.json` of
+// `<XDG_CONFIG_HOME, else ~/.config>/opencode` on every platform (xdg-basedir,
+// no platform branch, as its state directory); a variable that is not an
+// absolute path is not taken.
+#[test]
+fn test_her_global_config_is_where_opencode_reads_it() {
+    assert_eq!(
+        user_config_file(Some("/home/u"), None, "linux").as_deref(),
+        Some(HER_CONFIG)
+    );
+    assert_eq!(
+        user_config_file(Some("/home/u"), Some("/xdg/config"), "linux").as_deref(),
+        Some("/xdg/config/opencode/opencode.json")
+    );
+    assert_eq!(
+        user_config_file(None, Some("/xdg/config"), "linux").as_deref(),
+        Some("/xdg/config/opencode/opencode.json")
+    );
+    assert_eq!(
+        user_config_file(Some("/home/u"), Some("relative"), "linux").as_deref(),
+        Some(HER_CONFIG)
+    );
+    assert_eq!(
+        user_config_file(Some("C:/Users/u"), Some("D:/xdg"), "windows").as_deref(),
+        Some("D:/xdg/opencode/opencode.json")
+    );
+    assert_eq!(user_config_file(None, None, "linux"), None);
+    assert_eq!(user_config_file(Some(""), None, "linux"), None);
+}
+
+// The probe: opencode installs `@opencode-ai/plugin` into a config directory
+// unless it has a node_modules/ and a lock naming the package (the version is
+// not compared).
+#[test]
+fn test_the_preseed_lock_names_the_plugin_package_as_installed() {
+    let lock = Json::parse(PRESEED_LOCK).unwrap();
+    let deps = lock
+        .get("packages")
+        .and_then(|p| p.get(""))
+        .and_then(|p| p.get("dependencies"))
+        .expect("packages[\"\"].dependencies");
+    assert!(deps.get("@opencode-ai/plugin").is_some(), "{lock:?}");
+    assert_eq!(
+        lock.get("lockfileVersion").map(Json::pretty).as_deref(),
+        Some("3")
+    );
+}
+
+#[test]
+fn test_the_plugin_imports_node_builtins_alone_and_runs_the_hook_verb() {
+    let imports: Vec<&str> = PLUGIN
+        .lines()
+        .filter(|l| l.starts_with("import "))
+        .collect();
+    assert!(!imports.is_empty());
+    for line in imports {
+        assert!(line.contains("from \"node:"), "{line}");
+    }
+    assert!(PLUGIN.contains(r#"const COMMAND = "ctxloom""#));
+    assert!(PLUGIN.contains(r#"const ARGS = ["hook", "opencode", "execute"]"#));
+    assert!(PLUGIN_FILE.starts_with("plugins/") && PLUGIN_FILE.ends_with(".js"));
+}
+
+// --------------------------------------------------------------- the plugin
+
+/// The fake `ctxloom`: each delivery a numbered file holding its arguments,
+/// whether it had a HOME, and its stdin; slow, so a delivery the plugin did
+/// not wait for would still be a `.tmp`.
+const FAKE_CTXLOOM: &str = r#"#!/bin/sh
+d="$(dirname "$0")/../got"
+mkdir -p "$d"
+n=$(ls "$d" | wc -l | tr -d ' ')
+f="$d/$(printf %03d "$n")"
+{ echo "$*"; echo "HOME=${HOME:-}"; cat; } > "$f.tmp"
+sleep 0.2
+mv "$f.tmp" "$f"
+"#;
+
+/// The driver: loads the plugin TWICE (two evaluations of the module, as
+/// opencode may), feeds each step to the instance it names, disposes the
+/// first, and prints what had been delivered by then.
+const DRIVER: &str = r#"import { readFileSync, readdirSync } from "node:fs"
+import { pathToFileURL } from "node:url"
+const [plugin, steps, got] = process.argv.slice(2)
+process.env.HOME = "/the/session/home"
+const first = await import(pathToFileURL(plugin).href)
+const second = await import(pathToFileURL(plugin).href + "?again")
+const instances = [await first.CtxloomPlugin({}), await second.CtxloomPlugin({})]
+for (const step of JSON.parse(readFileSync(steps, "utf8"))) {
+  const at = instances[step.instance || 0]
+  if (step.prompt) await at["chat.message"](step.prompt.input, step.prompt.output)
+  else await at.event({ event: step.event })
+}
+await instances[0].dispose()
+console.log(readdirSync(got).sort().join(" "))
+"#;
+
+const S: &str = "ses_e3c648397ffesrvA00TD1hAwdC";
+const U: &str = "msg_1c39b7ca0001Vu5HlXKcT90BCg";
+
+fn fixture(name: &str) -> String {
+    let text = match name {
+        "chat_message" => include_str!("fixtures/chat_message.json"),
+        "assistant_open" => include_str!("fixtures/assistant_open.json"),
+        "assistant_completed" => include_str!("fixtures/assistant_completed.json"),
+        "text_part_open" => include_str!("fixtures/text_part_open.json"),
+        "text_part_end" => include_str!("fixtures/text_part_end.json"),
+        "reasoning_part_end" => include_str!("fixtures/reasoning_part_end.json"),
+        "tool_running" => include_str!("fixtures/tool_running.json"),
+        "tool_completed" => include_str!("fixtures/tool_completed.json"),
+        "session_idle" => include_str!("fixtures/session_idle.json"),
+        "compaction_part" => include_str!("fixtures/compaction_part.json"),
+        "summary_completed" => include_str!("fixtures/summary_completed.json"),
+        other => panic!("no fixture {other}"),
+    };
+    text.trim().to_string()
+}
+
+/// The event a fixture holds, as opencode hands it to the plugin: without
+/// what the plugin adds.
+fn event(json: &str) -> String {
+    let mut doc = Json::parse(json).unwrap();
+    doc.remove("ctxloom");
+    format!(r#"{{"event":{}}}"#, doc.pretty())
+}
+
+fn steps() -> String {
+    let summary_open = fixture("summary_completed").replace(r#","completed":1794283498100"#, "");
+    let summary_text = fixture("text_part_end")
+        .replace(S, "ses_e3c5eb4e1ffeQ9uRk2Wm7Tx4Lb")
+        .replace(
+            "msg_1c39b7cc8001hR2pQx7Lm4Nb9V",
+            "msg_1c3a14b25001Cz5iP2lMg0OjHu",
+        )
+        .replace(
+            "prt_1c39b7d0e001Ls1aH8dEy6GbZm",
+            "prt_1c3a14c00001SummaryText00",
+        )
+        .replace(r#""text":"ok""#, r#""text":"The summary.""#);
+    let prompt = Json::parse(&fixture("chat_message")).unwrap();
+    let props = prompt.get("properties").unwrap();
+    let steps = [
+        format!(r#"{{"event":{{"id":"evt_1","type":"session.created","properties":{{"info":{{"id":"{S}"}}}}}}}}"#),
+        r#"{"event":{"id":"evt_2","type":"session.created","properties":{"info":{"id":"ses_child","parentID":"ses_e3c648397ffesrvA00TD1hAwdC"}}}}"#.to_string(),
+        format!(
+            r#"{{"prompt":{{"input":{{"sessionID":"{S}"}},"output":{{"message":{},"parts":{}}}}}}}"#,
+            props.get("message").unwrap().pretty(),
+            props.get("parts").unwrap().pretty()
+        ),
+        // the second instance learns the step message's prompt; the first uses it
+        event(&fixture("assistant_open")).replacen('{', r#"{"instance":1,"#, 1),
+        event(&fixture("text_part_open")),
+        event(&fixture("reasoning_part_end")),
+        event(&fixture("text_part_end")),
+        event(&fixture("text_part_end")).replacen('{', r#"{"instance":1,"#, 1),
+        event(&fixture("text_part_end").replace(S, "ses_child")),
+        event(&fixture("assistant_completed")),
+        event(&fixture("assistant_completed")),
+        event(&fixture("session_idle")),
+        event(&fixture("tool_running")),
+        event(&fixture("tool_completed")),
+        event(&fixture("compaction_part")),
+        event(&summary_open),
+        event(&summary_text),
+        event(&fixture("summary_completed")),
+    ];
+    format!("[{}]", steps.join(","))
+}
+
+fn put(dir: &Rooted, path: &str, text: &str) -> PathBuf {
+    let path = os::fixture(path);
+    dir.create_dir_all(path.parent().unwrap(), Mode::DIR)
+        .unwrap();
+    dir.write_atomic(&path, text.as_bytes(), Perms::Exact(Mode::FILE))
+        .unwrap();
+    dir.real_path(&path).unwrap()
+}
+
+fn delivered(dir: &Rooted, n: usize) -> (String, String, String) {
+    let text = dir
+        .read_to_string(&os::fixture(&format!("/got/{n:03}")))
+        .unwrap_or_else(|e| panic!("delivery {n}: {e}"));
+    let mut lines = text.splitn(3, '\n');
+    (
+        lines.next().unwrap_or_default().to_string(),
+        lines.next().unwrap_or_default().to_string(),
+        lines.next().unwrap_or_default().to_string(),
+    )
+}
+
+// Needs node on PATH (opencode runs its plugins under Bun; the plugin uses
+// node's builtins alone, which both have).
+#[test]
+fn test_the_plugin_forwards_each_event_that_records_once_in_order_and_drains_on_dispose() {
+    if !runs_scripts() {
+        return;
+    }
+    let dir = Rooted::temp().unwrap();
+    let plugin = put(&dir, "/home/plugins/ctxloom.js", PLUGIN);
+    let steps = put(&dir, "/steps.json", &steps());
+    let driver = put(&dir, "/driver.mjs", DRIVER);
+    dir.create_dir_all(&os::fixture("/bin"), Mode::DIR).unwrap();
+    let fake =
+        fixture_program::install_program(&dir, &os::fixture("/bin/ctxloom"), FAKE_CTXLOOM).unwrap();
+    dir.create_dir_all(&os::fixture("/got"), Mode::DIR).unwrap();
+    let got = dir.real_path(&os::fixture("/got")).unwrap();
+    let bin = fake.parent().unwrap();
+    let out = Command::new("sh")
+        .arg("-c")
+        .arg(r#"PATH="$FAKE_BIN:$PATH" exec node "$@""#)
+        .arg("sh")
+        .args([&driver, &plugin, &steps, &got])
+        .env("FAKE_BIN", bin)
+        .env_remove("OPENCODE_CONFIG_DIR")
+        .output()
+        .expect("sh runs");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        out.status.success(),
+        "node ran the plugin (is node on PATH?): {stderr}"
+    );
+    let natives = [
+        "chat.message",
+        "message.part.updated",
+        "message.updated",
+        "session.idle",
+        "message.part.updated",
+        "message.part.updated",
+        "message.updated",
+    ];
+    let names: Vec<String> = (0..natives.len()).map(|n| format!("{n:03}")).collect();
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim(),
+        names.join(" "),
+        "every delivery done, each once, before dispose returned"
+    );
+    let codec = Codec;
+    let mut events = Vec::new();
+    for (n, native) in natives.iter().enumerate() {
+        let (args, home, payload) = delivered(&dir, n);
+        assert_eq!(args, format!("hook opencode execute {native}"), "{n}");
+        assert_eq!(home, "HOME=", "{n}: a hook runs without opencode's HOME");
+        let event = codec
+            .decode(&codec.unified_event(native), &payload)
+            .unwrap_or_else(|e| panic!("{n}: {e:?}: {payload}"));
+        events.push((event.event.clone(), event.prompt_id.clone()));
+        if n == 6 {
+            assert_eq!(event.trigger, "manual");
+            assert_eq!(event.compact_summary, "The summary.");
+        }
+    }
+    let compaction = "msg_1c3a14b1f001Bx3gN0jKe8MhFs";
+    assert_eq!(
+        events,
+        [
+            ("turn_start".to_string(), U.to_string()),
+            ("message_display".to_string(), U.to_string()),
+            ("turn_end".to_string(), U.to_string()),
+            ("turn_end".to_string(), U.to_string()),
+            ("post_tool_batch".to_string(), U.to_string()),
+            ("compaction_before".to_string(), compaction.to_string()),
+            ("compaction_after".to_string(), compaction.to_string()),
+        ],
+        "the prompt of a part is the plugin's: its step message's parent, else the session's last prompt"
+    );
+    let _ = Path::new(HOME);
+}
+
+// Owner ruling 163: the plugin runs the running binary by its file name; the
+// rest of it is the plugin as written.
+#[test]
+fn test_a_home_prepared_by_an_opencode_calling_another_program_runs_that_program() {
+    let home = Opencode::calling("ctxloom-other")
+        .prepare(&PrepareRequest {
+            home: HOME.to_string(),
+            context: "the project's context".to_string(),
+            offered: Vec::new(),
+            interactive: true,
+            cwd: None,
+            existing: Default::default(),
+            permissions: None,
+            session_home: run_ports::SessionHome::Session,
+            surfaces: Default::default(),
+        })
+        .unwrap();
+    let written = home
+        .files
+        .iter()
+        .find(|f| f.rel == PLUGIN_FILE)
+        .expect("the plugin in the home");
+    let text = std::str::from_utf8(&written.bytes).unwrap();
+    assert_eq!(text, plugin("ctxloom-other"));
+    assert_eq!(
+        text,
+        PLUGIN.replace(
+            r#"const COMMAND = "ctxloom""#,
+            r#"const COMMAND = "ctxloom-other""#
+        )
+    );
+    assert_eq!(
+        plugin("ctxloom"),
+        PLUGIN,
+        "the authored name is the plugin as written"
+    );
+    // A name is a JavaScript string, whatever it holds.
+    assert!(
+        plugin(r#"odd"name\"#).contains(r#"const COMMAND = "odd\"name\\""#),
+        "{}",
+        plugin(r#"odd"name\"#)
+    );
+}
+
+// Needs node on PATH. The plugin for another program spawns THAT program, as
+// it finds it on its PATH.
+#[test]
+fn test_the_plugin_for_another_program_spawns_that_program() {
+    if !runs_scripts() {
+        return;
+    }
+    let dir = Rooted::temp().unwrap();
+    let plugin = put(&dir, "/home/plugins/ctxloom.js", &plugin("ctxloom-other"));
+    let prompt = Json::parse(&fixture("chat_message")).unwrap();
+    let props = prompt.get("properties").unwrap();
+    let steps = put(
+        &dir,
+        "/steps.json",
+        &format!(
+            r#"[{{"prompt":{{"input":{{"sessionID":"{S}"}},"output":{{"message":{},"parts":{}}}}}}}]"#,
+            props.get("message").unwrap().pretty(),
+            props.get("parts").unwrap().pretty()
+        ),
+    );
+    let driver = put(&dir, "/driver.mjs", DRIVER);
+    dir.create_dir_all(&os::fixture("/bin"), Mode::DIR).unwrap();
+    let fake =
+        fixture_program::install_program(&dir, &os::fixture("/bin/ctxloom-other"), FAKE_CTXLOOM)
+            .unwrap();
+    dir.create_dir_all(&os::fixture("/got"), Mode::DIR).unwrap();
+    let got = dir.real_path(&os::fixture("/got")).unwrap();
+    let out = Command::new("sh")
+        .arg("-c")
+        .arg(r#"PATH="$FAKE_BIN:$PATH" exec node "$@""#)
+        .arg("sh")
+        .args([&driver, &plugin, &steps, &got])
+        .env("FAKE_BIN", fake.parent().unwrap())
+        .env_remove("OPENCODE_CONFIG_DIR")
+        .output()
+        .expect("sh runs");
+    assert!(
+        out.status.success(),
+        "node ran the plugin (is node on PATH?): {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let (args, _, _) = delivered(&dir, 0);
+    assert_eq!(args, "hook opencode execute chat.message");
+}
+
+// On Windows an XDG_STATE_HOME with a drive is absolute, and moves it.
+#[test]
+fn test_on_windows_a_state_home_with_a_drive_is_where_it_is() {
+    assert_eq!(
+        user_model_file(Some(r"C:\Users\u"), Some(r"D:\state"), "windows").as_deref(),
+        Some(r"D:\state/opencode/model.json")
+    );
+    assert_eq!(
+        user_model_file(Some(r"C:\Users\u"), Some("/state"), "windows").as_deref(),
+        Some(r"C:\Users\u/.local/state/opencode/model.json")
+    );
+}
+
+// ------------------------------------------------- the authored hooks
+
+// Owner ruling 2026-11-12: the authored hooks ride the launch, as the
+// plugin reads them in the session home.
+#[test]
+fn test_a_session_home_holds_the_authored_hooks_the_plugin_runs() {
+    let mut hooks = std::collections::BTreeMap::new();
+    hooks.insert(
+        "turn_end".to_string(),
+        vec![surface_ports::Hook {
+            command: "echo DONE".to_string(),
+            ..Default::default()
+        }],
+    );
+    let prepared = Opencode::new()
+        .prepare(&PrepareRequest {
+            home: HOME.to_string(),
+            context: "c".to_string(),
+            offered: Vec::new(),
+            interactive: false,
+            cwd: None,
+            existing: Default::default(),
+            permissions: None,
+            session_home: run_ports::SessionHome::Session,
+            surfaces: run_ports::LaunchSurfaces(surface_ports::Inputs {
+                hooks,
+                ..Default::default()
+            }),
+        })
+        .unwrap();
+    let file = prepared
+        .files
+        .iter()
+        .find(|f| f.rel == crate::AUTHORED_FILE)
+        .expect("the authored hooks");
+    let doc = Json::parse(std::str::from_utf8(&file.bytes).unwrap()).unwrap();
+    assert!(doc.get("turn.end").is_some(), "{}", doc.pretty());
+}
+
+/// The driver of the authored hooks: the plugin loaded with the session home
+/// (`OPENCODE_CONFIG_DIR`) holding them, a bash call before and after, a read
+/// call before, a blocked call, a prompt and its idle, then dispose; each
+/// outcome printed on a line.
+const AUTHORED_DRIVER: &str = r#"import { pathToFileURL } from "node:url"
+const [plugin] = process.argv.slice(2)
+const at = await (await import(pathToFileURL(plugin).href)).CtxloomPlugin({})
+const S = "ses_authored"
+const said = []
+const tried = async (name, call) => {
+  try { await call(); said.push(name + " ok") } catch (e) { said.push(name + " blocked: " + e.message) }
+}
+await tried("bash", () => at["tool.execute.before"]({ tool: "bash", sessionID: S, callID: "c1" }, { args: { command: "ls" } }))
+await tried("read", () => at["tool.execute.before"]({ tool: "read", sessionID: S, callID: "c2" }, { args: {} }))
+await tried("after", () => at["tool.execute.after"]({ tool: "bash", sessionID: S, callID: "c1" }, { title: "", output: "x", metadata: {} }))
+await tried("rm", () => at["tool.execute.before"]({ tool: "bash", sessionID: S, callID: "c3" }, { args: { command: "rm -rf /" } }))
+await at["chat.message"]({ sessionID: S }, { message: { id: "msg_1", sessionID: S }, parts: [{ type: "text", text: "hi" }] })
+await at.event({ event: { id: "evt_9", type: "session.idle", properties: { sessionID: S } } })
+await at.dispose()
+console.log(said.join("\n"))
+"#;
+
+// Needs node on PATH. Each authored hook runs on its trigger with the call
+// on stdin, a narrowed one only for its tools; a pre-tool hook that exits 2
+// blocks the call, saying why; the turn's end runs its hooks after the
+// prompt, and dispose waits for them.
+#[test]
+fn test_the_plugin_runs_the_authored_hooks_on_their_triggers() {
+    if !runs_scripts() {
+        return;
+    }
+    let dir = Rooted::temp().unwrap();
+    let plugin = put(&dir, "/home/plugins/ctxloom.js", PLUGIN);
+    dir.create_dir_all(&os::fixture("/marks"), Mode::DIR)
+        .unwrap();
+    let marks = dir.real_path(&os::fixture("/marks")).unwrap();
+    put(
+        &dir,
+        &format!("/home/{}", crate::AUTHORED_FILE),
+        r#"{
+  "tool.before": [
+    {"command": "cat > \"$MARKS/pre-$(date +%N)\"", "tools": ["bash"]},
+    {"command": "grep -q 'rm -rf' && { echo 'no rm' >&2; exit 2; } || exit 0"}
+  ],
+  "tool.after": [{"command": "cat > \"$MARKS/after\""}],
+  "turn.end": [{"command": "cat > \"$MARKS/end\"", "timeout": 5}]
+}"#,
+    );
+    let home = dir.real_path(&os::fixture("/home")).unwrap();
+    let driver = put(&dir, "/authored.mjs", AUTHORED_DRIVER);
+    dir.create_dir_all(&os::fixture("/bin"), Mode::DIR).unwrap();
+    let fake =
+        fixture_program::install_program(&dir, &os::fixture("/bin/ctxloom"), FAKE_CTXLOOM).unwrap();
+    dir.create_dir_all(&os::fixture("/got"), Mode::DIR).unwrap();
+    let out = Command::new("sh")
+        .arg("-c")
+        .arg(r#"PATH="$FAKE_BIN:$PATH" exec node "$@""#)
+        .arg("sh")
+        .args([&driver, &plugin])
+        .env("FAKE_BIN", fake.parent().unwrap())
+        .env("OPENCODE_CONFIG_DIR", &home)
+        .env("MARKS", &marks)
+        .output()
+        .expect("sh runs");
+    assert!(
+        out.status.success(),
+        "node ran the plugin (is node on PATH?): {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim(),
+        "bash ok\nread ok\nafter ok\nrm blocked: no rm"
+    );
+    let mut pre: Vec<String> = dir
+        .read_dir(&os::fixture("/marks"))
+        .unwrap()
+        .into_iter()
+        .map(|e| e.name.to_string_lossy().into_owned())
+        .filter(|n| n.starts_with("pre-"))
+        .collect();
+    pre.sort();
+    // The bash call and the blocked one; never the read.
+    assert_eq!(pre.len(), 2, "{pre:?}");
+    let mark = |name: &str| dir.read_to_string(&os::fixture(&format!("/marks/{name}")));
+    let first = mark(&pre[0]).unwrap();
+    let call = Json::parse(&first).unwrap();
+    assert_eq!(call.get("tool").and_then(Json::as_str), Some("bash"));
+    assert!(mark("after").is_ok());
+    let end = Json::parse(&mark("end").unwrap()).unwrap();
+    assert_eq!(end.get("event").and_then(Json::as_str), Some("turn.end"));
+}

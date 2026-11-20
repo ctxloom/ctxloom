@@ -1,0 +1,10 @@
+schema_version: 9
+editor:
+  command: project-editor
+agents:
+  proj:
+    engine: claude-code
+    profiles: [x]
+companions:
+  beta: {command: [other-beta]}
+  gamma: {command: [gamma-bin]}

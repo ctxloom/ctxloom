@@ -1,0 +1,30 @@
+# Git hooks, managed by lefthook (`just hooks-install`). The gates are
+# gates/lefthook.yml; ctxloom's parameters for them are in its justfile.
+extends:
+  - gates/lefthook.yml
+
+# The shared dev module (.dev, see the justfile): refuse a path-based commit,
+# keep the generated cargo [patch] (just dev::local) in step, and refuse a push
+# whose pins are not on their remotes. Each skips when the module is not linked.
+pre-commit:
+  commands:
+    pins-check:
+      priority: 1
+      glob: "{Cargo.toml,**/Cargo.toml,Cargo.lock,pins.toml,justfile,.cargo/config.toml}"
+      run: if [ -e .dev ]; then just dev::pins-check; fi
+
+post-checkout:
+  commands:
+    dev-refresh:
+      run: if [ -e .dev ]; then just dev::refresh --quiet; fi
+
+post-merge:
+  commands:
+    dev-refresh:
+      run: if [ -e .dev ]; then just dev::refresh --quiet; fi
+
+pre-push:
+  commands:
+    pins-reachable:
+      run: if [ -e .dev ]; then just dev::pins-reachable; fi
+

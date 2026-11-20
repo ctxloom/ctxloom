@@ -1,0 +1,498 @@
+//! Run a `session` command against the application.
+
+use cli_support::{Exit, ExitClass};
+use std::io::{self, Write};
+
+use angzarr_diagnostic::Diagnostic;
+#[cfg(feature = "session-destroy")]
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use angzarr_presentation::{write_json, Format};
+use isolation_application::{IsolationError, WorktreeUse};
+use reclaim_application::SweepConfig;
+#[cfg(feature = "session-destroy")]
+use reclaim_application::{purge_cutoff, ReclaimError, SessionRemoval, SweepRequest};
+#[cfg(feature = "session-destroy")]
+use sessions_application::Timestamp;
+use sessions_application::{
+    dead_letter_line, AppError, DeadLetter, ImportRequest, ImportService, KeepRequest, ListQuery,
+    RemovedNothing, SearchQuery, SessionService, ShowQuery, State, TitleRequest, TranscriptQuery,
+    View, STATES,
+};
+#[cfg(feature = "session-destroy")]
+use sessions_application::{DestroysAuthored, RemoveRequest, REMOVE_VERB};
+
+use crate::render::{
+    conversation_text, import_text, rows_text, show_text, transcripts_text, worktrees_text,
+    ImportDoc, KeepDoc, Row, ShowDoc, TitleDoc, TranscriptsDoc,
+};
+#[cfg(feature = "session-destroy")]
+use crate::{
+    render::{removal_text, sweep_text, RemovalDoc},
+    RemoveArgs, SweepArgs,
+};
+use crate::{
+    CliFault, ListArgs, RenameArgs, Session, SessionVerb, Transcript, TranscriptListArgs,
+    TranscriptVerb, Worktrees, WorktreesVerb,
+};
+
+/// A command that completed: what it says on the diagnostic channel besides
+/// its answer.
+#[derive(Debug, Default)]
+pub struct Done {
+    /// Notices (a report-only run ends with one), each a warning.
+    pub notices: Vec<Box<dyn Diagnostic>>,
+    /// Dead letters the kernel answered, loud lines for stderr: each almost
+    /// certainly marks a bug.
+    pub lines: Vec<String>,
+    /// A preview that would change something on `--yes` (ruling 153: the
+    /// command's exit is the distinguishing success 1, said only under
+    /// `--detailed-exitcode`).
+    pub would_change: bool,
+}
+
+/// A command that did not complete: why and its exit code (the shared
+/// [`cli_support::Failure`]), and the dead-letter lines to say beside it.
+#[derive(Debug)]
+pub struct Failure {
+    pub failure: cli_support::Failure,
+    pub lines: Vec<String>,
+}
+
+impl Failure {
+    /// `cause`, ending the command with `exit`, with `lines` to say beside it.
+    fn new(cause: impl Diagnostic + 'static, exit: Exit, lines: Vec<String>) -> Failure {
+        Failure {
+            failure: cli_support::Failure::new(cause, exit),
+            lines,
+        }
+    }
+}
+
+/// Run `session`'s command on `service`, writing its answer to `out`.
+pub fn run<S: SessionService + ImportService + WorktreeUse + SweepConfig>(
+    session: &Session,
+    service: &mut S,
+    format: Format,
+    out: &mut dyn Write,
+) -> Result<Done, Failure> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .map_err(|e| {
+            fault(CliFault::Runtime {
+                ext_err_txt: e.to_string(),
+            })
+        })?;
+    runtime.block_on(execute(session, service, format, out))
+}
+
+/// A fault of the command line itself.
+fn fault(fault: CliFault) -> Failure {
+    let exit = fault.exit();
+    Failure::new(fault, exit, Vec::new())
+}
+
+/// A use case's failure: its diagnostic, its exit code, and the dead letters
+/// its kernel calls answered.
+fn failure(error: AppError) -> Failure {
+    let exit = error.exit();
+    let lines = error
+        .dead_letters()
+        .iter()
+        .map(|l| dead_letter_line(&l.letter))
+        .collect();
+    Failure::new(error, exit, lines)
+}
+
+/// The answer written, or why it could not be.
+fn wrote(written: io::Result<()>) -> Result<(), Failure> {
+    written.map_err(|e| {
+        fault(CliFault::Output {
+            ext_err_txt: e.to_string(),
+        })
+    })
+}
+
+/// A `--state` word as a state; the word that is none is refused before
+/// anything is asked.
+fn state_of(word: Option<&String>) -> Result<Option<State>, Failure> {
+    let Some(word) = word else { return Ok(None) };
+    State::parse(word).map(Some).ok_or_else(|| {
+        fault(CliFault::BadState {
+            value: word.clone(),
+            states: STATES.join(", "),
+        })
+    })
+}
+
+fn dead_letters(letters: &[DeadLetter]) -> Done {
+    Done {
+        notices: Vec::new(),
+        lines: letters
+            .iter()
+            .map(|l| dead_letter_line(&l.letter))
+            .collect(),
+        would_change: false,
+    }
+}
+
+/// A list of rows in `format`.
+fn rows(views: &[View], format: Format, out: &mut dyn Write) -> Result<Done, Failure> {
+    let written = match format {
+        Format::Json => {
+            let rows: Vec<Row> = views.iter().map(Row::of).collect();
+            write_json(out, &rows)
+        }
+        Format::Text => rows_text(views, out),
+    };
+    wrote(written)?;
+    Ok(Done::default())
+}
+
+async fn execute<S: SessionService + ImportService + WorktreeUse + SweepConfig>(
+    session: &Session,
+    service: &mut S,
+    format: Format,
+    out: &mut dyn Write,
+) -> Result<Done, Failure> {
+    match &session.verb {
+        None => list(service, &ListArgs::default(), format, out).await,
+        Some(SessionVerb::List(args)) => list(service, args, format, out).await,
+        Some(SessionVerb::Search(args)) => {
+            let query = SearchQuery {
+                list: ListQuery {
+                    project: None,
+                    all: args.all,
+                    state: state_of(args.state.as_ref())?,
+                },
+                words: args.words.clone(),
+            };
+            let views = service.search(query).await.map_err(failure)?;
+            rows(&views, format, out)
+        }
+        Some(SessionVerb::Show(args)) => {
+            let view = service
+                .show(ShowQuery {
+                    project: None,
+                    harp: args.harp.clone(),
+                })
+                .await
+                .map_err(failure)?;
+            wrote(match format {
+                Format::Json => write_json(out, &ShowDoc::of(&view)),
+                Format::Text => show_text(&view, out),
+            })?;
+            Ok(Done::default())
+        }
+        Some(SessionVerb::Rename(args)) => rename(service, args, format, out).await,
+        Some(SessionVerb::Keep(args)) => {
+            let kept = service
+                .keep(KeepRequest {
+                    project: None,
+                    harp: args.harp.clone(),
+                    keep: !args.undo,
+                })
+                .await
+                .map_err(failure)?;
+            wrote(match format {
+                Format::Json => write_json(
+                    out,
+                    &KeepDoc {
+                        harp: kept.harp.clone(),
+                        kept: kept.kept,
+                    },
+                ),
+                Format::Text if kept.kept => writeln!(
+                    out,
+                    "{} is marked keep: its transcript is kept at any age",
+                    kept.harp
+                ),
+                Format::Text => writeln!(
+                    out,
+                    "{} is no longer marked keep: its transcript is reclaimable once session_transcript_retention has passed since it ended",
+                    kept.harp
+                ),
+            })?;
+            Ok(dead_letters(&kept.dead_letters))
+        }
+        #[cfg(feature = "session-destroy")]
+        Some(SessionVerb::Remove(args)) => remove(service, args, format, out).await,
+        #[cfg(feature = "session-destroy")]
+        Some(SessionVerb::Sweep(args)) => sweep(service, args, format, out).await,
+        Some(SessionVerb::Import) => {
+            let report = service.import(ImportRequest {}).await.map_err(failure)?;
+            wrote(match format {
+                Format::Json => write_json(out, &ImportDoc::of(&report)),
+                Format::Text => import_text(&report, out),
+            })?;
+            Ok(dead_letters(&report.dead_letters))
+        }
+        Some(SessionVerb::Transcript(transcript)) => {
+            transcripts(service, transcript, format, out).await
+        }
+        Some(SessionVerb::Worktrees(worktrees)) => worktree_verb(service, worktrees, format, out),
+    }
+}
+
+/// An isolation use case's failure: its diagnostic and exit code.
+fn isolation_failure(error: IsolationError) -> Failure {
+    let exit = error.exit();
+    Failure::new(error, exit, Vec::new())
+}
+
+/// `session worktrees ...`: the scratch checkouts, listed or purged. A purge
+/// reports first, and an action that changed nothing refuses (exit 20) after
+/// the report is out, so an unattended run that found nothing safe cannot be
+/// mistaken for one that cleaned up.
+fn worktree_verb<S: WorktreeUse>(
+    service: &mut S,
+    worktrees: &Worktrees,
+    format: Format,
+    out: &mut dyn Write,
+) -> Result<Done, Failure> {
+    let (harp, apply) = match &worktrees.verb {
+        None => (None, false),
+        Some(WorktreesVerb::List(args)) => (args.harp.as_deref(), false),
+        Some(WorktreesVerb::Purge(args)) => (Some(args.harp.as_str()), args.yes),
+    };
+    let report = service.worktrees(harp, apply).map_err(isolation_failure)?;
+    wrote(match format {
+        Format::Json => write_json(out, &report),
+        Format::Text => worktrees_text(&report, out),
+    })?;
+    let mut done = Done::default();
+    let Some(WorktreesVerb::Purge(args)) = &worktrees.verb else {
+        return Ok(done);
+    };
+    if !args.yes {
+        done.notices.push(Box::new(RemovedNothing {
+            command: format!("ctxloom session worktrees purge {} --yes", args.harp),
+        }));
+    } else if report.reaped == 0 {
+        return Err(isolation_failure(IsolationError::NothingRemoved {
+            harp: args.harp.clone(),
+            spared: report.spared,
+            skipped: report.skipped,
+        }));
+    }
+    Ok(done)
+}
+
+async fn list<S: SessionService>(
+    service: &mut S,
+    args: &ListArgs,
+    format: Format,
+    out: &mut dyn Write,
+) -> Result<Done, Failure> {
+    let query = ListQuery {
+        project: None,
+        all: args.all,
+        state: state_of(args.state.as_ref())?,
+    };
+    let views = service.list(query).await.map_err(failure)?;
+    rows(&views, format, out)
+}
+
+/// `session rename <harp> <title>` (S55): the title set; the harp stays.
+async fn rename<S: SessionService>(
+    service: &mut S,
+    args: &RenameArgs,
+    format: Format,
+    out: &mut dyn Write,
+) -> Result<Done, Failure> {
+    let titled = service
+        .set_title(TitleRequest {
+            project: None,
+            harp: args.harp.clone(),
+            title: args.title.clone(),
+        })
+        .await
+        .map_err(failure)?;
+    wrote(match format {
+        Format::Json => write_json(out, &TitleDoc::of(&titled)),
+        Format::Text => writeln!(out, "{}: titled {:?}", titled.harp, titled.title),
+    })?;
+    Ok(dead_letters(&titled.dead_letters))
+}
+
+/// `session remove`: the destroy (owner ruling 98, the session-destroy
+/// feature's), reported, and applied on `--yes`.
+#[cfg(feature = "session-destroy")]
+async fn remove<S: SessionService + WorktreeUse>(
+    service: &mut S,
+    args: &RemoveArgs,
+    format: Format,
+    out: &mut dyn Write,
+) -> Result<Done, Failure> {
+    let SessionRemoval {
+        removal,
+        worktrees,
+        kept,
+    } = reclaim_application::remove(
+        service,
+        RemoveRequest {
+            project: None,
+            harp: args.harp.clone(),
+            yes: args.yes,
+            even_if_live: args.even_if_live,
+        },
+    )
+    .await
+    .map_err(reclaim_failure)?;
+    wrote(match format {
+        Format::Json => write_json(out, &RemovalDoc::of(&removal, worktrees.as_ref())),
+        Format::Text => removal_text(&removal, out).and_then(|()| match &worktrees {
+            Some(report) => worktrees_text(report, out),
+            None => Ok(()),
+        }),
+    })?;
+    let mut done = dead_letters(&removal.dead_letters);
+    if let Some(refusal) = removal.refusal {
+        return Err(Failure::new(refusal, Exit::REFUSED, done.lines));
+    }
+    if let Some(kept) = kept {
+        let exit = kept.exit();
+        return Err(Failure::new(kept, exit, done.lines));
+    }
+    // Owner ruling 104: what a person wrote goes with the session, so it is
+    // named first, a warning and never a refusal; a refused removal destroys
+    // nothing, so it warns of nothing.
+    let authored = removal.authored();
+    if !authored.is_empty() {
+        done.notices.push(Box::new(DestroysAuthored {
+            harp: removal.harp.clone(),
+            files: authored.join(", "),
+        }));
+    }
+    if !args.yes {
+        // Not refused, so `--yes` would destroy the session.
+        done.would_change = true;
+        let flag = if args.even_if_live {
+            " --even-if-live"
+        } else {
+            ""
+        };
+        done.notices.push(Box::new(RemovedNothing {
+            command: format!("ctxloom {REMOVE_VERB} {} --yes{flag}", args.harp),
+        }));
+    }
+    Ok(done)
+}
+
+/// `session sweep`: report every session's fate, and with `--yes` act on
+/// exactly that (a destroy: the session-destroy feature's).
+#[cfg(feature = "session-destroy")]
+async fn sweep<S: SessionService + WorktreeUse + SweepConfig>(
+    service: &mut S,
+    args: &SweepArgs,
+    format: Format,
+    out: &mut dyn Write,
+) -> Result<Done, Failure> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX));
+    let now = Timestamp {
+        seconds: now,
+        nanos: 0,
+    };
+    let purge_cutoff =
+        purge_cutoff(args.purge_older_than.as_deref(), service, now).map_err(reclaim_failure)?;
+    let report = reclaim_application::sweep(
+        service,
+        &SweepRequest {
+            all_projects: args.all_projects,
+            purge_cutoff,
+            yes: args.yes,
+        },
+    )
+    .await
+    .map_err(reclaim_failure)?;
+    wrote(match format {
+        Format::Json => write_json(out, &report),
+        Format::Text => sweep_text(&report, out),
+    })?;
+    let mut done = Done::default();
+    // Owner ruling 104: each destroy that takes a person's files warns of
+    // them, as `session remove` does.
+    for row in report.rows.iter().filter(|row| !row.authored.is_empty()) {
+        done.notices.push(Box::new(DestroysAuthored {
+            harp: row.harp.clone(),
+            files: row.authored.join(", "),
+        }));
+    }
+    let failed = report.counts.get("failed").copied().unwrap_or(0);
+    if args.yes && failed > 0 {
+        return Err(fault(CliFault::SweepFailed { count: failed }));
+    }
+    if !args.yes {
+        done.would_change = report.counts.get("planned").copied().unwrap_or(0) > 0;
+        let age = args
+            .purge_older_than
+            .as_ref()
+            .map(|age| format!(" --purge-older-than {age}"))
+            .unwrap_or_default();
+        let all = if args.all_projects {
+            " --all-projects"
+        } else {
+            ""
+        };
+        done.notices.push(Box::new(RemovedNothing {
+            command: format!("ctxloom session sweep{all}{age} --yes"),
+        }));
+    }
+    Ok(done)
+}
+
+/// A reclaim use case's failure: its diagnostic and exit code.
+#[cfg(feature = "session-destroy")]
+fn reclaim_failure(error: ReclaimError) -> Failure {
+    let exit = error.exit();
+    Failure::new(error, exit, Vec::new())
+}
+
+async fn transcripts<S: SessionService + WorktreeUse>(
+    service: &mut S,
+    transcript: &Transcript,
+    format: Format,
+    out: &mut dyn Write,
+) -> Result<Done, Failure> {
+    match &transcript.verb {
+        None => transcript_list(service, &TranscriptListArgs::default(), format, out).await,
+        Some(TranscriptVerb::List(args)) => transcript_list(service, args, format, out).await,
+        Some(TranscriptVerb::Show(args)) => {
+            let text = service.transcript(&args.harp).await.map_err(failure)?;
+            wrote(match format {
+                Format::Json if text.ends_with('\n') => write!(out, "{text}"),
+                Format::Json => writeln!(out, "{text}"),
+                Format::Text => conversation_text(&text, out),
+            })?;
+            Ok(Done::default())
+        }
+    }
+}
+
+async fn transcript_list<S: SessionService>(
+    service: &mut S,
+    args: &TranscriptListArgs,
+    format: Format,
+    out: &mut dyn Write,
+) -> Result<Done, Failure> {
+    let rows = service
+        .transcripts(TranscriptQuery {
+            project: None,
+            all: args.all,
+            harp: args.harp.clone(),
+        })
+        .await
+        .map_err(failure)?;
+    wrote(match format {
+        Format::Json => write_json(out, &TranscriptsDoc::of(&rows)),
+        Format::Text => transcripts_text(&rows, out),
+    })?;
+    Ok(Done::default())
+}
+
+#[cfg(test)]
+#[path = "run.test.rs"]
+mod tests;

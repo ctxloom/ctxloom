@@ -1,0 +1,264 @@
+# Plan: ctxloom's features, from Go's specs to the Rust port
+
+Written 2026-11-06. Go ctxloom's 72 `.feature` files (rev f36e8dfb2) were read in full against
+the Rust ports on `main`. They were reviewed for UX, best practice, missing extensions and
+idiosyncrasies, and the owner ruled on the findings. This plan records those rulings and the
+work they set.
+
+Supporting documents, in `docs/reviews/`:
+- `2026-11-06-feature-analysis.md`: the findings, with citations.
+- `2026-11-06-vocabulary.md`: the glossary, one name per concept. It is authoritative for names.
+- `2026-11-06-output-and-mechanism-testing.md`: the harness design and its sources.
+- `2026-11-06-considered-complete-audit.md`: Go behaviour skipped as "covered elsewhere".
+
+## Stance
+
+ctxloom is a prototype. Breaking changes are fine. There are no aliases for old spellings, no
+migration aids, and no scenarios asserting that a retired verb or flag is gone ("gone, not
+hidden" is dropped as a concept). A spec states what ctxloom does, never what it used to do.
+Implementation history (rulings, dates, codenames, Go symbols, bug narratives) never goes in a
+feature file; it belongs in git history.
+
+## Where it stands
+
+- **Pending scenarios.** Every Go scenario not yet ported sits, verbatim, in the Rust file that
+  ports its Go file (`crates/root/bin/ctxloom/features/**/<name>.feature`), tagged `@pending` on
+  the scenario or on its Rule. A file none of whose scenarios is ported yet is `@pending` on its
+  Feature and has no `# world:`. The runner leaves pending scenarios out, and the parity lint
+  still compares each with Go's (convention: `gherkin_lint.test.rs`). The journeys still keep
+  theirs in `journeys/<name>.pending.feature` until each is folded into its port.
+- **Not copied:** j002500 and j002600 (taskloom's), and the probes that test Claude Code itself.
+  The two probe files gherkin 0.16 could not parse (`capability_context_approaches`,
+  `engine_isolation_matrix`) are pending. One description word in each Go file was lowercased
+  so they parse.
+- **Sessions rewritten** to the rulings below: `cli/session_remove.feature` (was
+  `session_purge.feature`; owner ruling 98; rewritten to the built verb and running since
+  ruling 104), `cli/session_worktrees.feature` and `journeys/j001300_closeout.feature`
+  (both @pending).
+  Eleven scenarios fail against today's binary until the product follows (step 4).
+
+## Decided
+
+### Names (vocabulary doc §1-5)
+- **engine** is only the program: claude-code, opencode, mock. It is a fixed set; an engine has
+  many agents.
+  - Model, effort and permissions are an agent's, per engine, in its block
+    `agents.<n>.engines.<e>` (rulings 57, 136); `--model` and `--effort` write them.
+  - **Permissions are the engine's own document** (owner rulings 133-139): the block's
+    `permissions` is copied verbatim, unchecked, into claude's `--settings` `permissions`
+    and opencode's `opencode.json` `permission`; no `--permission-mode` flag, no ctxloom
+    mode list, no `--permissions` flag. See `docs/config/permissions.md`.
+  - A read-only `ctxloom engine` noun (`list`, `show <engine>`) shows each engine's effective
+    defaults and the surfaces and hook events it carries.
+  - The `llm` noun, its labels (`claude-fast`, `big`), `--llm`, `--backend` and `--type` (for
+    an engine) are retired.
+- **agent** is what runs: an engine with its settings, plus profiles, runtime, workspace and env.
+  `agent default [--unset]` says which agent runs when none is named.
+- **Item kinds** have one spelling throughout (noun, bundle dir, ref, flag): `fragment`,
+  `command`, `skill`, `mcp-server`, `hook`. A ref is `<bundle>#<kind>s/<name>`, and every item
+  verb takes one ref.
+- **Verbs:**
+  - `create` opens `$EDITOR` on a template when given no content, and stores the result.
+  - `edit` patches by flag, or opens `$EDITOR` with no flags. `profile modify` and
+    `mcp server set` are retired.
+  - `show` takes any ref (`bundle view` is retired).
+  - `--mask`/`--unmask` replace the include/exclude/veto flags.
+  - Toggles undo with `--undo`.
+  - `rm` is the one alias, on every noun.
+- **Flags:**
+  - `--yes` only applies what the preview showed.
+  - `--force`/`-f` only overrides a named safety refusal, and replaces `--even-if-live`.
+    Retention has no override.
+  - `--dry-run` writes nothing.
+  - `--to` is the destination; `--home` writes home (every write defaults to the project).
+  - `--container-tool` names the container program. `--runtime` is the agent's.
+- **Doctor checks** have stable, descriptive kebab-case names: `credentials`, `stale-hooks`,
+  `git-identity` and so on. Doctor stores nothing; only `--fix` writes.
+- **"Did you mean"**: unknown verbs, flags and names suggest the nearest match.
+
+### Confirmation and exit codes (vocabulary §6-7)
+- **Every destructive command confirms.**
+  - On a TTY it previews and prompts.
+  - Off a TTY without `--yes` it previews (`applied:false`, `apply:<exact command>`), changes
+    nothing and exits **0**, or **1** (would change) under `--detailed-exitcode` (rulings 149,
+    152, 153; this replaced the planned 4).
+  - The engine-swap preview is `agent edit --engine`'s confirmation.
+- **Exit codes** (owner rulings 149, 152, 153, superseding D28's ladder; the convention is
+  rust-support's `docs/exit-codes.md`): 0-9 successes, where 1-9 are returned only under
+  `--detailed-exitcode` (1 a plan or preview would change something); 10 failed; 20 refused
+  (usage errors included); 21 fatal findings; 128+n stopped by signal n. The planned 5
+  (succeeded but a side effect degraded) and 6 (a check found something: `doctor --strict`,
+  `deps check --strict`) are not assigned: each needs a block and a subcode (a success 2-9
+  under the flag, or a decline 22-29) from the owner.
+- **A name that does not resolve is refused.** Recall no longer warns and runs anyway.
+- **Nothing to do is refused**, naming the fields.
+
+### Output and testing (testing doc)
+- **Format:** JSON when stdout is not a terminal, text on a terminal.
+- **Every scenario runs twice, in JSON and in English.**
+  - The harness adds `--format` and checks after every command that the output is the format
+    asked for.
+  - Errors are asserted by diagnostic code and args; the English run checks the exact message
+    from the binary's own catalog. One `cli/format.feature` pins the default.
+  - Text data renderers move their fixed phrases into the catalogs. Until they do, a
+    transitional `in text it says` step is allowed and counted down to zero.
+- **Mechanisms are lanes.**
+  - `@every-runtime` scenarios run on host, container and live lanes; `@container-only` and
+    `@live-only` are specific to one. Untagged scenarios are host-only.
+  - Pre-commit runs the host lane. Container and live have their own gates, where a missing
+    runtime fails rather than skips.
+- **Outcomes are steps:** `it succeeds`, `it fails`, `it is refused`,
+  `it reports fatal findings`. One `cli/exit_codes.feature` pins the numbers, and every
+  command's outcome must be asserted.
+
+### Commands
+- **Added:**
+  - `profile show <p> --resolved`;
+  - the engine-swap preview;
+  - `config get`/`set`;
+  - `deps upgrade <ref>`, `deps why <ref>`, `deps check --strict`;
+  - `doctor --strict`, `doctor --check <name>`;
+  - `mcp-server remove <ref>`;
+  - `agent default --unset`;
+  - `remote check`;
+  - an origin column in `companion list`;
+  - a scenario showing that removing a remote stops its hooks and MCP servers.
+- **Switching an engine back** is `agent edit --engine <old>`; there is no new verb.
+- **Sessions:** `session remove <harp>` or `session remove --older-than <age>` is the one
+  destroyer (owner ruling 98, 2026-11-10: the verb is `remove`, built only under the
+  `session-destroy` feature; `session purge` is dropped).
+  - The session is gone, from disk and the listing. A session holding anything the human wrote
+    is destroyed with it after a warning naming each thing (owner ruling 104: a notice, not a
+    refusal).
+  - The output dir is never touched.
+  - Retention and keep refuse with no override; unprovable liveness refuses unless
+    `--even-if-live` (ruling 104: the one override; `--force` is dropped).
+  - `session purge`, `transcript purge` and `worktrees purge` are retired (`sweep` is
+    still built, behind the same feature).
+    `session worktrees` stays as a listing.
+- **Dropped:**
+  - `session adopt`;
+  - the `bundle distill <path>` form;
+  - the bare `mcp` refusal;
+  - tamper detection: signing is gone, local changes are the user's, and remote changes go
+    through their own review.
+- **Fixed:**
+  - `run --dry-run` writes no files;
+  - `manage check` reports `mcp=session-only`, not `false`;
+  - `statusline install` takes effect immediately;
+  - only the four sendable coordination kinds are advertised.
+- **Deferred:** `session approvals answer` (with the coordinator), search across every kind,
+  and recall searching conversation bodies.
+
+### Config
+
+- **Words, never booleans** (owner rulings 59, 60, 106, 108; hard migrate, no alias):
+  `config.content_form: distilled|original` (was `use_distilled`), `config.statusline:
+  ctxloom|none`, `sync.on_run: none|missing` (was `auto_sync`; default `missing`: a run
+  installs what its profiles reference and is not installed); `config.silence_unsupported`
+  is deleted.
+- **Outputs** (rulings 89, 106): `output.dir` (default `ctxloom/`, relative to the project
+  root, absolute allowed, not gitignored) holds each session's `<harp>/` folder; a first
+  init at a terminal asks for it.
+- **No posture of ctxloom's own** (ruling 134, superseding 59, 70, 106-109 and 125 as far
+  as permissions go): `permissions.approver`, `approval_timeout`, `sandbox` and `network`
+  are deleted at project and agent level (unknown keys, refused), and with them the
+  launch's `runs-unenforced-posture` check. `runtime` stays, as process isolation.
+
+### Content
+
+- **ctxloom's operational prompts are built in** (owner rulings 110, 111, narrowed by
+  117, 123). One bundle, `ctxloom`, ships in the binary (`library::builtin`): the setup
+  interview `init` opens with (`prompts/setup-interview`) and the distill prompt
+  (`prompts/distill`, the owner's own text). It is not generally injected: no profile
+  includes it and no session is handed it; only init and distill use it. The catalog
+  lists it under the read-only built-in origin `ctxloom/builtin` (`[built-in]` in text),
+  beside the project's own bundles and those installed from remotes; a project bundle
+  of the same name overrides it whole, and init reads its interview through the
+  catalog, so the project's copy is what it opens with (one without it is refused). A write to it is refused
+  (`library-application-write-builtin-read-only`), naming the override (`bundle export`
+  into the project's bundles directory). Init and the scaffold seed no remote and a
+  BARE `default` profile, which inherits nothing: a fresh project has no coding
+  guidance until a remote is added. `ctxloom-default` stays an ordinary remote for
+  whoever wants its content. The prompts change only with a ctxloom release.
+
+### Specs
+- **Journeys are use cases; cli features are contracts.** A journey (`features/journeys/`)
+  follows what a real user actually does, in the order they do it: Alice starts with
+  `ctxloom init`, not `manage install`. A command's contract (its flags, its files, its edge
+  cases) belongs in its `features/cli/` file, never in a journey. A journey step that exists
+  only to exercise a command is moved to that command's cli feature. A journey's comments
+  and description tell the user's story and nothing else: no history (rulings, dates, what
+  ctxloom used to do) and no technical detail (files, keys, harness mechanics, why an
+  assertion is shaped as it is). Rationale a test still needs lives in the cli feature or
+  the step definitions.
+- **A session's record is its events; its directory is what its engine needs.** A
+  session's state goes through angzarr-embedded over the project's durable store,
+  `~/.ctxloom/projects/<id>/ctxloom.db` (machine-local): every hook's fact is an event when
+  it is delivered, and that store is the record. `session list`, `search`, `show` and
+  `transcript show` catch up from it on each read, so a session still running shows what its
+  hooks have delivered so far; nothing projects the events into a file (no transcript file,
+  no `records/`, no `metadata.json`). Each session also has one git-ignored directory,
+  `.ctxloom/sessions/<harp>/`, holding what its engine needs (its session home, the
+  engine's own history, its worktree checkout), and a lock beside it, `<harp>.lock`, which
+  its run holds for its life: held is live, free is ended. A name is unique because its
+  claim is; a mint never takes a harp whose directory exists. Deleting `.ctxloom` removes
+  the directories; leaving ctxloom entirely is deleting `~/.ctxloom` too, which holds the
+  stores and what it keeps across projects (registered companions, cloned remotes).
+  taskloom's `state.db` is taskloom's.
+- **Materialize is an export, not a delivery path.** Sessions get their context in their
+  session home; nothing a session reads is materialized. `ctxloom materialize` writes the
+  team's context out as an engine's own files for someone who does not use ctxloom, and the
+  copy is a snapshot that goes stale as the context moves on (`manage check` names it). No
+  journey materializes as part of everyday use.
+- **Companions are added, never discovered.** No scan finds companions, so a journey that
+  relies on one shows the user adding it (`companion add`, which writes her home, never the project) before it matters
+  (j000300's setup augmentation first).
+- **Dropped:**
+  - the probes that test Claude Code itself (P12, P13, P15-P18, and P14's direct cell);
+  - the `container-rootful` rows that can only skip;
+  - the test-only `--no-pull --degraded` in j000100 (a fixture keeps the network out).
+- **Moved:** `evaluate_triggers` and Deferred tasks go to taskloom. j002200's claude
+  config-home checks go to the claude adapter's tests.
+- **Collapsed:**
+  - j002200's three session-home scenarios become one, plus the `host` opt-out;
+  - the overlapping journeys merge (companionless Bob, the not-carried report, the live
+    codeword echoes);
+  - container launch is one scenario run through the lanes, with j002400's differential kept as
+    the one container-only proof;
+  - one placeholder string.
+- **Companion rows:** j000800's and j001800's are ported together, once companion loadouts
+  exist.
+- **Not ctxloom's:** stamp-plan is taskloom's, and already is (`taskloom manage hook stamp-plan`).
+
+## What remains, in order
+
+1. **The harness.**
+   - Run every feature twice, in JSON and English, with the format checks after each command.
+   - Steps for diagnostic codes and catalog messages; outcome steps with the
+     asserted-outcome check; lanes and their tags and gates.
+   - `cli/format.feature` and `cli/exit_codes.feature`.
+   - Migrate the existing scenarios' format rows to the two runs.
+2. **The lint and helpers.**
+   - Compare substitution scenarios after normalizing the folded Background.
+   - Assert clap's exact wording until codes replace English.
+   - Make the bundle-fixture step refuse keys it does not translate.
+3. **The vocabulary pass over the features.** Rename to the decided names in ported and pending
+   scenarios, and strip implementation history from every comment. Pending scenarios then carry
+   `# substitution:` lines where they differ from Go.
+4. **The product follows the features.** A feature change, then the code that turns it green,
+   in the order of the port plan's journey milestones (`ctxloom-rs-port.plan.md` §10, M1 to
+   M10). The changes decided above (the sessions rewrite, the llm rework, confirmation and exit
+   4 on every destroyer, `run --dry-run` writing nothing) land in the milestone whose journey
+   first needs them.
+5. **The audit follow-ups.**
+   - Port j000100's doctor-on-a-wired-project scenario as Go wrote it.
+   - List Go's 15 doctor checks that Rust lacks in doctor.feature's header, and decide each when
+     doctor is next touched.
+6. **Porting** follows the same milestones: each turns its journey green, with the cli
+   contracts it touches. A contract no journey reaches is ported when its command is next
+   touched.
+
+## Decisions still open
+
+None from the review. New ones go here as the work raises them.

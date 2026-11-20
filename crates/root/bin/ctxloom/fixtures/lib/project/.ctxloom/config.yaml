@@ -1,0 +1,20 @@
+schema_version: 8
+agents:
+  developer:
+    engine: claude-code
+    profiles:
+      - dev
+    runtime: host
+  reviewer:
+    engine: claude-code
+    profiles:
+      - base
+      - dev
+    runtime: container-rootless
+    engines:
+      claude-code:
+        permissions:
+          mode: plan
+default_agent: developer
+config:
+  content_form: distilled

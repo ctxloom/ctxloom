@@ -1,0 +1,257 @@
+//! Claude Code's two halves. The drive half (`drive`, step 1b-i) is a child
+//! agent's turn-as-command: what one `claude -p` turn is handed and how its
+//! stream is read. The surface half (S9; Go's `internal/engines/claude`
+//! `definition.go`, `surfaces.go`, `commandfiles.go`, `hookcodec.go`) is
+//! below.
+//!
+//! At a directory's root claude reads `CLAUDE.md` (context), `.mcp.json`
+//! (MCP servers), `.claude/settings.json` (settings and hooks),
+//! `.claude/commands/` and `.claude/skills/`. This crate says what ctxloom
+//! puts in each as claims; it touches no file.
+//!
+//! plan supersedes Go (8.4): ctxloom registers no MCP server of its own at
+//! rest (its entry is the companion's dynamic declaration, injected into a
+//! session), so `.mcp.json` carries only the servers the profiles' bundles
+//! ship, and no file is conjured for none.
+
+mod advice;
+mod codec;
+mod commands;
+mod drive;
+mod hooks;
+mod skills;
+mod stream;
+
+use surface_ports::{
+    Claim, EngineSurfaces, HookCodec, Inputs, Json, JsonOp, Kind, McpServer, Planned, SurfaceError,
+    SurfaceStore, Wiring,
+};
+
+#[cfg(any(test, feature = "test-support"))]
+pub use advice::diagnostic_samples;
+pub use advice::{ClaudeNotice, EN_US};
+pub use codec::Codec;
+pub use drive::{
+    CONTEXT_PROMPT_FILE, COPY_IN_ALLOWLIST, ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST,
+    MCP_CONFIG_FILE,
+};
+
+/// The engine's name.
+pub const NAME: &str = "claude-code";
+/// The context file claude reads.
+pub const CONTEXT_FILE: &str = "CLAUDE.md";
+/// The MCP registry claude reads.
+pub const MCP_FILE: &str = ".mcp.json";
+/// The settings file claude reads, hooks included.
+pub const SETTINGS_FILE: &str = ".claude/settings.json";
+/// The statusline command ctxloom installs for the binary `program` (its
+/// file name, owner ruling 163): bare, so it resolves on `PATH` wherever the
+/// file is read.
+pub fn statusline(program: &str) -> String {
+    format!("{program} hook {NAME} execute statusline")
+}
+
+/// Claude Code.
+pub struct Claude {
+    codec: Codec,
+    /// The program every callback ctxloom installs runs: the running binary's
+    /// file name (owner ruling 163), told by the composition root.
+    program: String,
+    /// The user's own claude `settings.json`, as the composition root found
+    /// it: the session home's settings start from it (owner ruling 169).
+    user_settings: Option<run_ports::UserSettings>,
+}
+
+impl Default for Claude {
+    fn default() -> Claude {
+        Claude {
+            codec: Codec,
+            program: surface_ports::CALLBACK_PROGRAM.to_string(),
+            user_settings: None,
+        }
+    }
+}
+
+impl Claude {
+    /// Claude, its callbacks calling [`surface_ports::CALLBACK_PROGRAM`].
+    pub fn new() -> Claude {
+        Claude::default()
+    }
+
+    /// Claude, its callbacks calling `program`: the running binary's file
+    /// name, as the composition root resolved it.
+    pub fn calling(program: &str) -> Claude {
+        Claude {
+            program: program.to_string(),
+            ..Claude::default()
+        }
+    }
+
+    /// Claude, told the user's own claude `settings.json` (from claude's
+    /// config dir as claude finds it; none, there is none): a session home's
+    /// user-scope settings are hers with ctxloom's values laid over them
+    /// (owner ruling 169).
+    pub fn over_user_settings(self, user: Option<run_ports::UserSettings>) -> Claude {
+        Claude {
+            user_settings: user,
+            ..self
+        }
+    }
+}
+
+impl EngineSurfaces for Claude {
+    fn name(&self) -> &str {
+        NAME
+    }
+
+    fn carries(&self, _kind: Kind) -> bool {
+        true
+    }
+
+    fn context_rides_launch(&self) -> bool {
+        true
+    }
+
+    /// Everything rides claude's launch (owner ruling 2026-11-12): the
+    /// hooks, statusline, deny list, servers, commands and skills of the run
+    /// agent's selection, in its session home, in every directory.
+    fn rides_launch(&self, _kind: Kind) -> bool {
+        true
+    }
+
+    fn plan(&self, kind: Kind, inputs: &Inputs) -> Result<Planned, SurfaceError> {
+        let mut planned = Planned::default();
+        match kind {
+            Kind::Context => planned.claims.push(Claim::Section {
+                path: inputs
+                    .context_file
+                    .clone()
+                    .unwrap_or_else(|| CONTEXT_FILE.to_string()),
+                text: inputs.context.clone(),
+            }),
+            Kind::Mcp => {
+                let ops: Vec<JsonOp> = inputs
+                    .mcp
+                    .iter()
+                    .map(|server| JsonOp::Set {
+                        path: vec!["mcpServers".to_string(), server.name.clone()],
+                        value: mcp_entry(server),
+                    })
+                    .collect();
+                if !ops.is_empty() {
+                    planned.claims.push(Claim::Json {
+                        path: MCP_FILE.to_string(),
+                        ops,
+                    });
+                }
+            }
+            Kind::Settings => {
+                let mut ops = Vec::new();
+                if inputs.statusline {
+                    ops.push(JsonOp::SetCommand {
+                        path: vec!["statusLine".to_string()],
+                        value: Json::object([
+                            ("type", Json::text("command")),
+                            ("command", Json::text(statusline(&self.program))),
+                        ]),
+                    });
+                }
+                let mut seen: Vec<&str> = Vec::new();
+                for tool in inputs.deny_tools.iter().filter(|t| !t.is_empty()) {
+                    if !seen.contains(&tool.as_str()) {
+                        seen.push(tool);
+                        ops.push(JsonOp::Push {
+                            path: vec!["permissions".to_string(), "deny".to_string()],
+                            value: Json::text(tool.as_str()),
+                        });
+                    }
+                }
+                if !ops.is_empty() {
+                    planned.claims.push(Claim::Json {
+                        path: SETTINGS_FILE.to_string(),
+                        ops,
+                    });
+                }
+            }
+            Kind::Hooks => {
+                let ops = hooks::ops(&inputs.hooks, &self.program)?;
+                if !ops.is_empty() {
+                    planned.claims.push(Claim::Json {
+                        path: SETTINGS_FILE.to_string(),
+                        ops,
+                    });
+                }
+            }
+            Kind::Commands => commands::plan(&inputs.commands, &mut planned),
+            Kind::Skills => skills::plan(&inputs.skills, &mut planned),
+        }
+        Ok(planned)
+    }
+
+    fn wiring(&self, store: &dyn SurfaceStore, target: &str) -> Result<Wiring, SurfaceError> {
+        let settings = store.read(target, SETTINGS_FILE)?;
+        let doc = settings
+            .as_deref()
+            .and_then(|b| std::str::from_utf8(b).ok())
+            .and_then(|t| Json::parse(t).ok());
+        let mcp = store
+            .read(target, MCP_FILE)?
+            .as_deref()
+            .and_then(|b| std::str::from_utf8(b).ok())
+            .and_then(|t| Json::parse(t).ok());
+        Ok(Wiring {
+            settings_exists: settings.is_some(),
+            hooks_present: doc
+                .as_ref()
+                .is_some_and(|doc| hooks::has_callback(doc, &self.program)),
+            statusline: doc
+                .as_ref()
+                .and_then(|d| d.get("statusLine"))
+                .and_then(|s| s.get("command"))
+                .and_then(Json::as_str)
+                == Some(statusline(&self.program).as_str()),
+            mcp_present: mcp
+                .as_ref()
+                .and_then(|d| d.get("mcpServers"))
+                .is_some_and(|servers| servers.get("ctxloom").is_some()),
+        })
+    }
+
+    fn codec(&self) -> &dyn HookCodec {
+        &self.codec
+    }
+}
+
+/// One server as `.mcp.json` spells it: a command to spawn, or a URL to
+/// reach.
+pub(crate) fn mcp_entry(server: &McpServer) -> Json {
+    let map = |m: &std::collections::BTreeMap<String, String>| {
+        Json::Object(
+            m.iter()
+                .map(|(k, v)| (k.clone(), Json::text(v.as_str())))
+                .collect(),
+        )
+    };
+    if !server.url.is_empty() {
+        let mut members = vec![
+            ("type", Json::text("http")),
+            ("url", Json::text(server.url.as_str())),
+        ];
+        if !server.headers.is_empty() {
+            members.push(("headers", map(&server.headers)));
+        }
+        return Json::object(members);
+    }
+    let mut members = vec![("command", Json::text(server.command.as_str()))];
+    if !server.args.is_empty() {
+        members.push(("args", Json::strings(&server.args)));
+    }
+    if !server.env.is_empty() {
+        members.push(("env", map(&server.env)));
+    }
+    Json::object(members)
+}
+
+#[cfg(test)]
+#[path = "lib.test.rs"]
+mod tests;

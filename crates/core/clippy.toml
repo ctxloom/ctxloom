@@ -1,0 +1,91 @@
+# Rules for every crate under crates/core: wire types, domains, read models,
+# ports and the application layer. Clippy reads the nearest clippy.toml up
+# from a crate's directory, so this file reaches every core crate, and a
+# crate's own clippy.toml would replace it, not add to it.
+#
+# The core does no I/O and is deterministic: decide, apply and every
+# projection give the same result from the same inputs. Time, configuration,
+# randomness and the outside world enter as command fields or through ports.
+
+# Clippy does not merge configs, so the workspace's own settings are repeated
+# here; `just lint` checks this line matches the root clippy.toml's.
+excessive-nesting-threshold = 6
+
+disallowed-methods = [
+  { path = "std::time::SystemTime::now", reason = "the core reads no clock: use the recorded instant (Tx::recorded_at) or a command field" },
+  { path = "std::time::Instant::now", reason = "the core reads no clock" },
+  { path = "std::env::var", reason = "configuration enters through a command or a port" },
+  { path = "std::env::var_os", reason = "configuration enters through a command or a port" },
+  { path = "std::env::vars", reason = "configuration enters through a command or a port" },
+  { path = "std::env::args", reason = "arguments belong to a driving adapter" },
+  { path = "std::env::current_dir", reason = "the core knows no filesystem" },
+  { path = "std::process::Command::new", reason = "processes are driven adapters, reached through a port" },
+  { path = "std::thread::spawn", reason = "the core is synchronous; concurrency belongs to adapters" },
+  { path = "std::fs::read", reason = "the core does no I/O: use a port" },
+  { path = "std::fs::read_to_string", reason = "the core does no I/O: use a port" },
+  { path = "std::fs::read_dir", reason = "the core does no I/O: use a port" },
+  { path = "std::fs::write", reason = "the core does no I/O: use a port" },
+  { path = "std::fs::create_dir_all", reason = "the core does no I/O: use a port" },
+  { path = "std::fs::remove_file", reason = "the core does no I/O: use a port" },
+  { path = "std::fs::remove_dir_all", reason = "the core does no I/O: use a port" },
+  { path = "std::fs::rename", reason = "the core does no I/O: use a port" },
+  { path = "std::fs::metadata", reason = "the core does no I/O: use a port" },
+  # And the rest of the file I/O the root clippy.toml sends through the
+  # file-system seam (`just lint-clippy-sync` checks every path there is here too).
+  { path = "std::fs::create_dir", reason = "the core does no I/O: use a port" },
+  { path = "std::fs::remove_dir", reason = "the core does no I/O: use a port" },
+  { path = "std::fs::copy", reason = "the core does no I/O: use a port" },
+  { path = "std::fs::hard_link", reason = "the core does no I/O: use a port" },
+  { path = "std::fs::symlink_metadata", reason = "the core does no I/O: use a port" },
+  { path = "std::fs::canonicalize", reason = "the core does no I/O: use a port" },
+  { path = "std::fs::read_link", reason = "the core does no I/O: use a port" },
+  { path = "std::fs::set_permissions", reason = "the core does no I/O: use a port" },
+  { path = "std::fs::exists", reason = "the core does no I/O: use a port" },
+  { path = "std::fs::File::open", reason = "the core does no I/O: use a port" },
+  { path = "std::fs::File::create", reason = "the core does no I/O: use a port" },
+  { path = "std::fs::File::create_new", reason = "the core does no I/O: use a port" },
+  { path = "std::fs::OpenOptions::open", reason = "the core does no I/O: use a port" },
+  { path = "std::os::unix::fs::symlink", reason = "the core does no I/O: use a port" },
+  { path = "std::os::windows::fs::symlink_dir", reason = "the core does no I/O: use a port", allow-invalid = true },
+  { path = "std::os::windows::fs::symlink_file", reason = "the core does no I/O: use a port", allow-invalid = true },
+  { path = "std::path::Path::exists", reason = "the core does no I/O: use a port" },
+  { path = "std::path::Path::try_exists", reason = "the core does no I/O: use a port" },
+  { path = "std::path::Path::is_file", reason = "the core does no I/O: use a port" },
+  { path = "std::path::Path::is_dir", reason = "the core does no I/O: use a port" },
+  { path = "std::path::Path::is_symlink", reason = "the core does no I/O: use a port" },
+  { path = "std::path::Path::metadata", reason = "the core does no I/O: use a port" },
+  { path = "std::path::Path::symlink_metadata", reason = "the core does no I/O: use a port" },
+  { path = "std::path::Path::canonicalize", reason = "the core does no I/O: use a port" },
+  { path = "std::path::Path::read_dir", reason = "the core does no I/O: use a port" },
+  { path = "std::path::Path::read_link", reason = "the core does no I/O: use a port" },
+  { path = "tempfile::tempdir", reason = "the core does no I/O: use a port" },
+  { path = "tempfile::tempdir_in", reason = "the core does no I/O: use a port" },
+  { path = "tempfile::TempDir::new", reason = "the core does no I/O: use a port" },
+  { path = "tempfile::tempfile", reason = "the core does no I/O: use a port" },
+  { path = "tempfile::NamedTempFile::new", reason = "the core does no I/O: use a port" },
+  { path = "tempfile::NamedTempFile::new_in", reason = "the core does no I/O: use a port" },
+  { path = "tempfile::Builder::tempdir", reason = "the core does no I/O: use a port" },
+  { path = "tempfile::Builder::tempfile", reason = "the core does no I/O: use a port" },
+  # The process environment is read once, at a program's composition root, into
+  # process-env's EnvSnapshot (EnvSnapshot::from_process, the one allowed site);
+  # everything else is handed the snapshot, so a test builds one of its own
+  # instead of setting the process's variables and working directory.
+  { path = "std::env::vars_os", reason = "the environment is read once into process-env's EnvSnapshot: EnvSnapshot::vars" },
+  { path = "std::env::temp_dir", reason = "the temporary directory is read once into process-env's EnvSnapshot: EnvSnapshot::temp_dir" },
+  { path = "std::env::home_dir", reason = "the home is read once into process-env's EnvSnapshot: EnvSnapshot::home" },
+  { path = "std::env::set_var", reason = "the process's environment is read, never written: a test builds an EnvSnapshot of its own" },
+  { path = "std::env::remove_var", reason = "the process's environment is read, never written: a test builds an EnvSnapshot of its own" },
+  { path = "std::env::set_current_dir", reason = "the process's working directory is read, never changed: a test builds an EnvSnapshot of its own" },
+]
+
+disallowed-types = [
+  { path = "std::collections::HashMap", reason = "iteration order is not deterministic: use BTreeMap" },
+  { path = "std::collections::HashSet", reason = "iteration order is not deterministic: use BTreeSet" },
+  { path = "std::time::SystemTime", reason = "the core reads no clock: use prost_types::Timestamp from the recorded instant" },
+  { path = "std::time::Instant", reason = "the core reads no clock" },
+  { path = "std::fs::File", reason = "the core does no I/O: use a port" },
+  { path = "std::fs::OpenOptions", reason = "the core does no I/O: use a port" },
+  { path = "std::net::TcpStream", reason = "the core does no I/O: use a port" },
+  { path = "std::net::TcpListener", reason = "the core does no I/O: use a port" },
+  { path = "std::net::UdpSocket", reason = "the core does no I/O: use a port" },
+]

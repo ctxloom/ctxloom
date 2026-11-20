@@ -1,0 +1,130 @@
+[package]
+name = "ctxloom-wiring"
+version = "0.1.0"
+description = "ctxloom's wiring: the core's ports over their default adapters, shared by the binary and the tests"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+angzarr-diagnostic.workspace = true
+angzarr-embedded.workspace = true
+angzarr-presentation.workspace = true
+angzarr-yaml.workspace = true
+isolation-ports.workspace = true
+clap.workspace = true
+config-files.workspace = true
+content-fs.workspace = true
+editor-process.workspace = true
+companion-probe.workspace = true
+ctxloom-cli.workspace = true
+cache-files.workspace = true
+doctor-checks.workspace = true
+init-application.workspace = true
+reclaim-application.workspace = true
+auth-application.workspace = true
+setup-cli.workspace = true
+ctxloom-ports.workspace = true
+library.workspace = true
+library-application.workspace = true
+deps.workspace = true
+deps-application.workspace = true
+deps-cli.workspace = true
+deps-files.workspace = true
+forge-github.workspace = true
+deps-ports.workspace = true
+remote-git.workspace = true
+library-cli.workspace = true
+setup-application.workspace = true
+surface-cli.workspace = true
+surface-files.workspace = true
+surface-ports.workspace = true
+engine-claude.workspace = true
+engine-opencode.workspace = true
+hook-cli.workspace = true
+hook-listener.workspace = true
+hook-tls.workspace = true
+session-cli.workspace = true
+cli-support.workspace = true
+# The mock engines, registered only under `test-support` (ruling 52).
+engine-mock = { workspace = true, optional = true }
+ctxloom-store-sqlite.workspace = true
+file-lock.workspace = true
+file-system.workspace = true
+liveness.workspace = true
+isolation-application.workspace = true
+container-cli.workspace = true
+container-runtime.workspace = true
+worktree-git.workspace = true
+tasks-ports.workspace = true
+project-registry.workspace = true
+session-files.workspace = true
+sessions-application.workspace = true
+system.workspace = true
+# taskloom's harp ids and the Names port they implement, by commit.
+harp-names.workspace = true
+os.workspace = true
+process-env.workspace = true
+duration-text.workspace = true
+project-dir.workspace = true
+ports.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "net"] }
+uuid.workspace = true
+sessions.workspace = true
+runs.workspace = true
+scheduler.workspace = true
+scheduler-loop.workspace = true
+trees.workspace = true
+runs-application.workspace = true
+run-ports.workspace = true
+run-application.workspace = true
+run-launcher.workspace = true
+run-cli.workspace = true
+host-launcher.workspace = true
+credentials.workspace = true
+pending-launches.workspace = true
+embedded-edge.workspace = true
+hook-sink-grpc.workspace = true
+angzarr-embedded-host.workspace = true
+# Only the seed uses the session-ports directly.
+session-ports = { workspace = true, optional = true }
+# Only the test-only commands render a sample list.
+serde = { workspace = true, optional = true }
+
+[dev-dependencies]
+fixture-program.workspace = true
+# Builds this crate's own `test-support` feature for its tests (the seed, bind
+# and session tests need it) without turning it on for the `ctxloom` binary:
+# the feature adds code here and changes no trait another crate implements.
+ctxloom-wiring = { path = ".", features = ["test-support"] }
+harp-core.workspace = true
+angzarr-embedded = { workspace = true, features = ["test-support"] }
+tokio = { workspace = true, features = ["macros", "rt"] }
+deps-application = { workspace = true, features = ["test-support"] }
+mutants.workspace = true
+file-system = { workspace = true, features = ["test-support"] }
+# `Signals::fake`: a run's signals forced without a signal sent.
+os = { workspace = true, features = ["test-support"] }
+
+[features]
+# `diagnostic_samples`, for other crates' catalog tests, the seed the
+# acceptance tests plant sessions with, and the hidden `ctxloom test ...`
+# commands, mounted as an extension. All of it is added code: nothing here
+# changes what another crate must implement.
+# `session remove` (and `sweep`), the destroy of a whole session (owner
+# rulings 94, 94b, 98).
+session-destroy = ["session-cli/session-destroy"]
+test-support = [
+    "ctxloom-store-sqlite/test-support",
+    "ctxloom-cli/test-support",
+    "dep:session-ports",
+    "dep:serde",
+    "dep:engine-mock",
+    "library-application/test-support",
+    "engine-claude/test-support",
+    "engine-opencode/test-support",
+]
+
+[lints]
+workspace = true

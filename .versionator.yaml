@@ -1,0 +1,33 @@
+# versionator (github.com/benjaminabbitt/versionator, v0.3.0): VERSION holds
+# the version, without its prefix; the binary's build script
+# (crates/root/bin/ctxloom/build.rs) stamps it as the ctxloom family does:
+#   clean tree: v<MAJOR.MINOR.PATCH[-pre]>-<ShortHash>
+#   dirty tree: that, then -<YYYYMMDDTHHMMSS, the build's UTC time>-dirty
+# The recipes are the justfile's (show-version, set-version, bump-*).
+
+# The stamp's prefix: `v`, as Go's tags and stamps.
+prefix: "v"
+
+# The pre-release is VERSION's own (`0.2.0-rc.1`), never a rendered template.
+prerelease:
+  enabled: false
+
+# No build metadata: the stamp's fields are its hash and, dirty, its time.
+metadata:
+  enabled: false
+
+# A tree is dirty when a TRACKED file changed (git describe --dirty's
+# meaning): ctxloom writes untracked files into its own checkout, which must
+# not make every build a dirty one.
+dirty:
+  ignoreUntracked: true
+
+# The binary's version follows VERSION (`set`, `bump`). Cargo.lock is
+# versionator's to leave alone: the next build records the new version there.
+updates:
+  - file: crates/root/bin/ctxloom/Cargo.toml
+    path: package.version
+    template: "{{MajorMinorPatch}}{{PreReleaseWithDash}}"
+
+logging:
+  output: "console"

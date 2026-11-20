@@ -1,0 +1,6 @@
+/target
+# The local-deps override (.cargo/local-deps.toml, copied here): one
+# developer's sibling checkouts, never CI's or a fresh clone's.
+/.cargo/config.toml
+# The link to the shared dev module (rust-support's tools/dev).
+/.dev

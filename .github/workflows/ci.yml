@@ -1,0 +1,156 @@
+# The gates, on every push and pull request, as thin callers of the shared
+# setup actions of github.com/ctxloom/ci (owner rulings 2026-11-12), every
+# one pinned at one commit of its main. On Linux every gate but mutation
+# (closeout's and the nightly's): the justfile's build, lint (lint-arch and
+# lint-path-deps with it), lint-os, check-windows and selftest, and
+# gates/gates.just's fmt-check, lint-deps and test, the whole suite. On
+# Windows and macOS (arm64), natively, build and test: the WHOLE suite on
+# main, pull requests and tags, and on any other branch push the nextest
+# profile `ci-platform` (.config/nextest.toml), the tests that touch the
+# platform. A test whose fake programs are sh scripts says `SKIP <test>:
+# <why>` on Windows (CLAUDE.md, "CI").
+#
+# A plain checkout: every dependency outside this repository is a public git
+# dependency over https, pinned by commit (Cargo.toml), so no credential is
+# needed. The gates are in the repository (gates/).
+#
+# Every action is pinned to a commit, its release in the comment; every tool
+# to a version: the repository's own pins where it has one (rust-toolchain.toml,
+# .config/nextest.toml's recommended nextest, the justfile's arch-lint rev),
+# else the version the gates are run with locally (just 1.40.0, cargo-deny
+# 0.20.2, protoc 3.21.12, node 22, ltk at f36e8df of go-final, versionator
+# v0.3.0). versionator (build.rs's version stamp: no versionator, no build)
+# is its release binary by checksum, so no job sets up Go; ltk (Linux only,
+# for selftest's ltk-rules-check.sh) is go-installed on a cache miss only.
+#
+# The binaries are binaries.yml's (a push to main) and release.yml's (a tag).
+# The nightly (full suites everywhere, macOS x86_64, mutation scoring) is
+# nightly.yml.
+
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: never
+
+jobs:
+  linux:
+    name: build and test (linux)
+    runs-on: ubuntu-24.04
+    # Owner ruling 2026-11-12: the Linux job runs IN the dev container, once
+    # its image is published (by digest, as every pin):
+    # container: ghcr.io/ctxloom/ctxloom-dev@sha256:<digest>
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The Windows target for check-windows. The toolchain is made the
+      # default too: `just selftest` runs the gates on fixture workspaces
+      # outside the checkout, which rust-toolchain.toml does not reach.
+      - uses: ctxloom/ci/.github/actions/setup-rust@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
+        with:
+          tools: just@1.40.0,cargo-nextest@0.9.146,cargo-deny@0.20.2
+          targets: x86_64-pc-windows-gnu
+      - uses: ctxloom/ci/.github/actions/setup-protoc@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
+      - uses: ctxloom/ci/.github/actions/setup-versionator@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
+      - uses: ctxloom/ci/.github/actions/setup-ltk@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
+      # The opencode plugin's tests run it under node.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - name: Tool versions
+        run: |
+          just --version; cargo nextest --version; cargo deny --version
+          protoc --version; node --version; jq --version; ltk --version
+          command -v versionator
+      # The arch-lint binary `just lint-arch` installs at the justfile's
+      # arch_lint_rev (`_arch-lint-ready`), outside cargo's target.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ctxloom-arch-lint
+          key: arch-lint-${{ runner.os }}-${{ hashFiles('justfile') }}
+      - run: just build
+      # The ci-platform profile lists every crate on the platform seams.
+      - run: scripts/ci-platform-check.sh
+      - run: just fmt-check
+      - run: just lint
+      - run: just lint-os
+      - run: just lint-deps
+      - run: just test
+      - run: just check-windows
+      - run: just selftest
+      - if: failure()
+        uses: ctxloom/ci/.github/actions/gate-logs@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
+        with:
+          name: linux
+
+  macos:
+    name: build and test (macos)
+    runs-on: macos-15
+    defaults:
+      run:
+        shell: bash
+    env:
+      NEXTEST_PROFILE: ${{ (github.ref == 'refs/heads/main' || github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/')) && 'default' || 'ci-platform' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ctxloom/ci/.github/actions/setup-rust@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
+        with:
+          tools: just@1.40.0,cargo-nextest@0.9.146
+      - uses: ctxloom/ci/.github/actions/setup-protoc@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
+      - uses: ctxloom/ci/.github/actions/setup-versionator@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
+      # The opencode plugin's tests run it under node.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - name: Tool versions
+        run: just --version; cargo nextest --version; protoc --version; node --version; jq --version; command -v versionator; echo "nextest profile $NEXTEST_PROFILE"
+      - run: just build
+      - run: just test
+      - if: failure()
+        uses: ctxloom/ci/.github/actions/gate-logs@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
+        with:
+          name: macos
+
+  windows:
+    name: build and test (windows)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      NEXTEST_PROFILE: ${{ (github.ref == 'refs/heads/main' || github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/')) && 'default' || 'ci-platform' }}
+    steps:
+      # Some test paths are longer than Windows' 260 characters.
+      - name: Long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ctxloom/ci/.github/actions/setup-rust@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
+        with:
+          tools: just@1.40.0,cargo-nextest@0.9.146
+      - uses: ctxloom/ci/.github/actions/setup-protoc@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
+      - uses: ctxloom/ci/.github/actions/setup-versionator@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
+      # jq: the build's plain-binary checks and nextest's setup script read
+      # cargo's JSON with it (the runner image has it).
+      - name: Tool versions
+        run: just --version; cargo nextest --version; protoc --version; jq --version; sh --version | head -n 1; command -v versionator; echo "nextest profile $NEXTEST_PROFILE"
+      - run: just build
+      - run: just test
+      - if: failure()
+        uses: ctxloom/ci/.github/actions/gate-logs@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
+        with:
+          name: windows

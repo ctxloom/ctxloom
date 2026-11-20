@@ -1,0 +1,10 @@
+# What is specific to ctxloom for the dev module (rust-support's tools/dev).
+schema = 1
+min_version = "1.0.0"
+
+# The justfile's arch_lint_rev is the rust-support rev Cargo.toml pins (the
+# `_arch-lint-ready` check refuses a difference): repin moves both.
+[[site]]
+dep = "rust-support"
+file = "justfile"
+pattern = 'arch_lint_rev := "{rev}"'

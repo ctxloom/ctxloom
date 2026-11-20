@@ -1,0 +1,526 @@
+syntax = "proto3";
+
+// A run is one runner incarnation of a session (plan 3.3, D5 Q4): the
+// owner's, a child's, or an internal one-shot's. Its root is
+// UUIDv5(session, incarnation). ONE run per incarnation, NOT per turn
+// (owner, settled): two turns of one runner are one RunEnqueued and one
+// RunEnded. It owns the credential hash, the turn gate, stop, and the
+// exactly-once end. S5 carries the in-process subset: enqueue, the runner's
+// start and attach, the turn gate, stop, and the two terminal facts. Pause,
+// resume, summaries and artifacts arrive with S6 and S10.
+package ctxloom.runs.v1;
+
+import "io/angzarr/v1/options.proto";
+
+// The run, folded from its events. The Rust state is the domain crate's; this
+// message anchors the component.
+message RunState {
+  option (io.angzarr.v1.component) = {
+    component_name: "run"
+    aggregate: {domain: "runs"}
+  };
+
+  string session = 1;
+  uint32 incarnation = 2;
+}
+
+enum RunMode {
+  RUN_MODE_UNSPECIFIED = 0;
+  RUN_MODE_INTERACTIVE = 1;
+  RUN_MODE_STRUCTURED = 2;
+  RUN_MODE_ONE_SHOT = 3;
+}
+
+// Why a run ended: Go's `Cause*` (internal/core/coord/facts.go).
+enum EndCause {
+  END_CAUSE_UNSPECIFIED = 0;
+  END_CAUSE_STOPPED = 1;
+  END_CAUSE_RUNNER_EXIT = 2;
+  END_CAUSE_RUNNER_LOSS = 3;
+  END_CAUSE_LAUNCH_FAILED = 4;
+  END_CAUSE_IDLE_REAPED = 5;
+  END_CAUSE_DRAINED = 6;
+  END_CAUSE_DRAIN_INTERRUPTED = 7;
+  // Value 8 was FINAL_REPORTED. Owner ruling 2026-11-04 (S5 review item 16): a
+  // final report is a model's CLAIM, advisory, and never ends a run; the end is
+  // the runner's observation (RunExited and the like).
+  reserved 8;
+  // A run owed a runner whose launcher died before it started one (its run
+  // lock free, ruling 100): no launch failed, nothing was launched.
+  END_CAUSE_LAUNCH_ORPHANED = 9;
+  reserved "END_CAUSE_FINAL_REPORTED";
+}
+
+enum TurnFailureClass {
+  TURN_FAILURE_CLASS_UNSPECIFIED = 0;
+  TURN_FAILURE_CLASS_RATE_LIMITED = 1;
+  TURN_FAILURE_CLASS_CREDENTIAL_REFUSED = 2;
+  TURN_FAILURE_CLASS_ENGINE_ERROR = 3;
+  TURN_FAILURE_CLASS_INTERRUPTED = 4;
+}
+
+// region commands
+
+// Enqueue the run for `session`'s `incarnation`, with the SHA-256 of each of
+// the THREE tokens the application minted (D29; owner rulings 2026-11-04 item
+// 16 and 2026-11-09 item 16): one for the runner principal, one for the model
+// principal, one for the hook principal, so the model's credential cannot
+// forge a runner fact and a hook's can sign capture facts alone. Only the
+// hashes are ever journaled, and they must differ. The policy session to run sends it on
+// `IncarnationOwed`.
+message EnqueueRun {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.runs.v1.RunState"
+    emits: ["ctxloom.runs.v1.RunEnqueued"]
+    refuses: "ctxloom.runs.v1.AlreadyEnqueued"
+    refuses: "ctxloom.runs.v1.CredentialHashInvalid"
+    refuses: "ctxloom.runs.v1.CredentialsNotDistinct"
+    refuses: "ctxloom.runs.v1.NotItsStream"
+    refuses: "ctxloom.runs.v1.NoCredential"
+    refuses: "ctxloom.runs.v1.FileOnlyCredential"
+    refuses: "ctxloom.runs.v1.NoPrompt"
+    refuses: "ctxloom.runs.v1.UnknownEngine"
+    refuses: "ctxloom.runs.v1.LaunchRefused"
+  };
+
+  string session = 1;
+  uint32 incarnation = 2;
+  RunMode mode = 3;
+  bytes runner_credential_hash = 4;
+  bytes model_credential_hash = 5;
+  // SHA-256 of the HOOK principal's token: the third credential, which the
+  // interactive engine's hook processes present for the capture facts alone.
+  // Required: a SHA-256 digest distinct from the other two.
+  bytes hook_credential_hash = 6;
+
+  // The EVIDENCE of the pre-launch checks (owner rulings 73e, 73f): what the
+  // run application asked its ports (the plan, the engine registry, the
+  // credential policy, the environment), for `decide` to judge. It is the
+  // command's alone: `RunEnqueued` carries none of it, and nothing of it is a
+  // credential's value (names and yes-or-no only).
+
+  // Whether the plan gave a prompt that is not blank. Judged for a one-shot
+  // alone: a session's prompt is optional.
+  bool prompt_given = 7;
+  // The engine the run is on, and every engine this build drives.
+  string engine = 8;
+  repeated string drivable_engines = 9;
+  // What a child's run authenticates with; left at its default (nothing to
+  // judge) for an interactive run, and for an engine that cannot be driven
+  // (its policy is its launcher's, 73d).
+  CredentialEvidence credential = 10;
+  // How many fatal startup findings the plan refused the run for (ruling 73h:
+  // a count; the findings' text never enters the proto: it is the library's,
+  // said beside the refusal, 73c).
+  uint32 fatal_findings = 11;
+  // The run's own lock file, which the process that enqueues it holds from
+  // before the enqueue until its runner is started (owner rulings 86, 92): a
+  // later process finding the run still owed a runner and this lock free
+  // knows its launcher is gone. Its absolute path; unlike the evidence above
+  // it is journaled, in `RunEnqueued`. Empty: none was taken.
+  string launcher_lock = 12;
+  // Was the posture the run's agent claimed (`PostureEvidence`, owner rulings
+  // 59, 109), deleted with the engine-neutral posture by owner ruling 134.
+  reserved 13;
+  reserved "posture";
+}
+
+// A child's credential, as the run application found it (ruling 53 and owner
+// ruling 2026-11-08, item 8): never a value.
+message CredentialEvidence {
+  // The engine's source names a credentials file and no variable.
+  bool file_only = 1;
+  // The variables the engine's built-in source accepts: what a file-only
+  // source is told to name and export.
+  repeated string builtin_variables = 2;
+  // The variables the child would be given a credential by, any one of which
+  // serves; none when the engine asks a child for none.
+  repeated string accepted_variables = 3;
+  // Whether one of `accepted_variables` is set, and not empty, in the
+  // caller's environment.
+  bool accepted_set = 4;
+}
+
+// Queue the next turn. Refused while one is in flight and after the run's
+// end (the end fence: there is no courier, D5 Q4).
+message QueueTurn {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.runs.v1.RunState"
+    emits: ["ctxloom.runs.v1.TurnQueued"]
+    refuses: "ctxloom.runs.v1.NoRun"
+    refuses: "ctxloom.runs.v1.Ended"
+    refuses: "ctxloom.runs.v1.TurnInFlight"
+  };
+
+  string prompt_ref = 1;
+  bool resume = 2;
+}
+
+// Ask the run to stop (the policy session to run, on `StopOrdered`).
+message RequestStop {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.runs.v1.RunState"
+    emits: ["ctxloom.runs.v1.StopRequested"]
+    refuses: "ctxloom.runs.v1.NoRun"
+  };
+
+  string reason = 1;
+}
+
+// endregion commands
+
+// region facts (what already happened: recorded, never refused)
+
+message RunnerAttached {
+  option (io.angzarr.v1.fact) = {
+    component: "ctxloom.runs.v1.RunState"
+    emits: ["ctxloom.runs.v1.RunnerAttachedRecorded"]
+  };
+
+  string runner_id = 1;
+  string protocol = 2;
+}
+
+// The launcher made the runner's process: where (`runtime`: the engine or
+// container runtime it ran under; `workspace`: its working directory) and
+// which (`pid`, 0 when the launcher could not learn it). The sign that a
+// launch was made, so a run owed a runner stops being owed on it and not on
+// the runner's first word. Keyed `started:<run>`.
+message RunnerStarted {
+  option (io.angzarr.v1.fact) = {
+    component: "ctxloom.runs.v1.RunState"
+    emits: ["ctxloom.runs.v1.RunnerStartedRecorded"]
+  };
+
+  string runtime = 1;
+  string workspace = 2;
+  uint32 pid = 3;
+}
+
+// `turn` is the sequence of the TurnQueued event it answers (plan 4.3).
+message TurnStarted {
+  option (io.angzarr.v1.fact) = {
+    component: "ctxloom.runs.v1.RunState"
+    emits: ["ctxloom.runs.v1.TurnStartedRecorded"]
+  };
+
+  uint64 turn = 1;
+}
+
+message TurnCompleted {
+  option (io.angzarr.v1.fact) = {
+    component: "ctxloom.runs.v1.RunState"
+    emits: ["ctxloom.runs.v1.TurnCompletedRecorded"]
+  };
+
+  uint64 turn = 1;
+  string native_key = 2;
+  string answer_ref = 3;
+  int32 exit_code = 4;
+}
+
+message TurnFailed {
+  option (io.angzarr.v1.fact) = {
+    component: "ctxloom.runs.v1.RunState"
+    emits: ["ctxloom.runs.v1.TurnFailedRecorded"]
+  };
+
+  uint64 turn = 1;
+  TurnFailureClass class = 2;
+  string detail = 3;
+}
+
+// The runner (or the launcher, on process exit) ended. The FIRST terminal
+// input ends the run; a second records nothing.
+message RunExited {
+  option (io.angzarr.v1.fact) = {
+    component: "ctxloom.runs.v1.RunState"
+    emits: ["ctxloom.runs.v1.RunEnded"]
+  };
+
+  int32 code = 1;
+  int32 signal = 2;
+}
+
+message LaunchFailed {
+  option (io.angzarr.v1.fact) = {
+    component: "ctxloom.runs.v1.RunState"
+    emits: ["ctxloom.runs.v1.RunEnded"]
+  };
+
+  bool deterministic = 1;
+  string detail = 2;
+}
+
+// A STARTED run whose owner is gone (its session's lock free, rulings 93,
+// 95): a sweeping process records it, never the runner, and it ends the run
+// for runner loss. Keyed `runner-lost:<run>`, so a second sweeper's is a
+// DUPLICATE; on a run already ended it records nothing.
+message RunnerLost {
+  option (io.angzarr.v1.fact) = {
+    component: "ctxloom.runs.v1.RunState"
+    emits: ["ctxloom.runs.v1.RunEnded"]
+  };
+}
+
+// A run still owed a runner whose launcher died before starting one (its run
+// lock free, rulings 92, 100): no launch failed, so it is not a
+// `LaunchFailed`. A sweeping process records it; keyed
+// `launch-orphaned:<run>`, so a second sweeper's is a DUPLICATE.
+message LaunchOrphaned {
+  option (io.angzarr.v1.fact) = {
+    component: "ctxloom.runs.v1.RunState"
+    emits: ["ctxloom.runs.v1.RunEnded"]
+  };
+}
+
+// The model's CLAIMS (owner ruling 2026-11-04, item 16): what the model said or
+// produced, recorded as facts by the MODEL principal, never the runner's.
+// Advisory: a claim changes no transition. `turn` and `ordinal` are stamped by
+// the runner side, never chosen by the model, and the external id derives from
+// them (`report:<run>:<turn>:<ordinal>`, `final:<run>:<turn>`). References
+// (run, turn, text_ref), not embedded authority.
+message SummaryReported {
+  option (io.angzarr.v1.fact) = {
+    component: "ctxloom.runs.v1.RunState"
+    emits: ["ctxloom.runs.v1.SummaryReportedRecorded"]
+  };
+
+  uint64 turn = 1;
+  uint32 ordinal = 2;
+  string scope = 3;
+  string text_ref = 4;
+}
+
+// The model says its work is done. A CLAIM: it notifies the parent and
+// transitions nothing; acceptance is a separate refusable command by a decider
+// role. It does not end the run or revoke a credential.
+message FinalReported {
+  option (io.angzarr.v1.fact) = {
+    component: "ctxloom.runs.v1.RunState"
+    emits: ["ctxloom.runs.v1.FinalReportedRecorded"]
+  };
+
+  uint64 turn = 1;
+  string text_ref = 2;
+}
+
+// endregion facts
+
+// region events
+
+message RunEnqueued {
+  option (io.angzarr.v1.event) = {component: "ctxloom.runs.v1.RunState"};
+
+  string session = 1;
+  uint32 incarnation = 2;
+  RunMode mode = 3;
+  bytes runner_credential_hash = 4;
+  bytes model_credential_hash = 5;
+  // SHA-256 of the HOOK principal's token: the third credential, which the
+  // interactive engine's hook processes present for the capture facts alone.
+  // Empty on a run enqueued before it existed.
+  bytes hook_credential_hash = 6;
+  // The run's lock file, which its launcher holds until the runner is started
+  // (rulings 86, 92); empty on a run enqueued before it existed: never judged
+  // an orphan. Numbered as in `EnqueueRun`, whose first six fields this
+  // event's are.
+  string launcher_lock = 12;
+}
+
+message RunnerAttachedRecorded {
+  option (io.angzarr.v1.event) = {component: "ctxloom.runs.v1.RunState"};
+
+  string runner_id = 1;
+  string protocol = 2;
+}
+
+message RunnerStartedRecorded {
+  option (io.angzarr.v1.event) = {component: "ctxloom.runs.v1.RunState"};
+
+  string runtime = 1;
+  string workspace = 2;
+  uint32 pid = 3;
+}
+
+message TurnQueued {
+  option (io.angzarr.v1.event) = {component: "ctxloom.runs.v1.RunState"};
+
+  string prompt_ref = 1;
+  bool resume = 2;
+}
+
+message TurnStartedRecorded {
+  option (io.angzarr.v1.event) = {component: "ctxloom.runs.v1.RunState"};
+
+  uint64 turn = 1;
+}
+
+// A turn completed; the run is idle again.
+message TurnCompletedRecorded {
+  option (io.angzarr.v1.event) = {component: "ctxloom.runs.v1.RunState"};
+
+  uint64 turn = 1;
+  string native_key = 2;
+  string answer_ref = 3;
+  int32 exit_code = 4;
+}
+
+message TurnFailedRecorded {
+  option (io.angzarr.v1.event) = {component: "ctxloom.runs.v1.RunState"};
+
+  uint64 turn = 1;
+  TurnFailureClass class = 2;
+  string detail = 3;
+}
+
+message StopRequested {
+  option (io.angzarr.v1.event) = {component: "ctxloom.runs.v1.RunState"};
+
+  string reason = 1;
+}
+
+message SummaryReportedRecorded {
+  option (io.angzarr.v1.event) = {component: "ctxloom.runs.v1.RunState"};
+
+  uint64 turn = 1;
+  uint32 ordinal = 2;
+  string scope = 3;
+  string text_ref = 4;
+}
+
+message FinalReportedRecorded {
+  option (io.angzarr.v1.event) = {component: "ctxloom.runs.v1.RunState"};
+
+  uint64 turn = 1;
+  string text_ref = 2;
+}
+
+// The exactly-once end. Folding it revokes the credential, whatever the
+// cause, the owner's token included (D29).
+message RunEnded {
+  option (io.angzarr.v1.event) = {component: "ctxloom.runs.v1.RunState"};
+
+  EndCause cause = 1;
+  optional int32 exit_code = 2;
+  string detail = 3;
+}
+
+// endregion events
+
+// region refusals
+//
+// A command's refusals, one typed message each, listed in the `refuses` of
+// the commands that raise them. The status is the gRPC meaning of what is
+// refused, declared here and nowhere else; the code, args and text a person
+// reads are the domain's `RunRejection` (`rejection.rs`), mapped from the
+// refusal's TYPE, never its status.
+
+// An enqueue on a stream that already holds a run.
+message AlreadyEnqueued {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_ALREADY_EXISTS;
+}
+
+// A command to a stream holding no run.
+message NoRun {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_NOT_FOUND;
+}
+
+// A turn queued while one is in flight.
+message TurnInFlight {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  uint64 turn = 1;
+}
+
+// A command to a run that has ended (the end fence).
+message Ended {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+}
+
+// A credential hash that is not a SHA-256 digest (32 bytes).
+message CredentialHashInvalid {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+
+  uint64 length = 1;
+}
+
+// An enqueue on a stream whose root is not the run's derived root.
+message NotItsStream {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+}
+
+// The runner's and the model's credential hashes are the same, so a token
+// would not name one principal (fail closed).
+message CredentialsNotDistinct {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+}
+
+// A child agent's run asked for with none of the environment credentials its
+// engine authenticates with (owner ruling 2026-11-08, item 8: a child gets
+// only an env credential, never a shared credentials file). EnqueueRun's
+// `decide` refuses it from the command's credential evidence (ruling 73e),
+// before any session is made or any engine started.
+message NoCredential {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  // The engine that would have been run.
+  string engine = 1;
+  // The variables any one of which would have served, comma separated.
+  string variables = 2;
+}
+
+// A child agent's run whose engine's credential source names a credentials
+// FILE and no environment variable (owner ruling 53, 2026-11-09): a file is
+// the human's primary interactive session's alone (ruling 8), so no child of
+// that engine can authenticate. Refused, like NoCredential, by EnqueueRun's
+// `decide` from the credential evidence, before the listener is served, a
+// session made or an engine started.
+message FileOnlyCredential {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  // The engine that would have been run.
+  string engine = 1;
+  // The variables the engine's built-in source accepts, comma separated: the
+  // ones to name in the source's `env` and export.
+  string variables = 2;
+}
+
+// A one-shot with no prompt from any door: it would ask nothing (ruling 73c).
+message NoPrompt {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+}
+
+// A run on an engine this build cannot drive (ruling 73c).
+message UnknownEngine {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+
+  // The engine asked for.
+  string name = 1;
+  // The engines this build drives, comma separated.
+  string known = 2;
+}
+
+// A launch refused for more than one reason, or for a reason beside the plan's
+// fatal findings (owner rulings 73, 73b, 73c): every check that failed, in the
+// order they are checked (the order of these fields). Each field holds at
+// most one, and at most one of the two credential fields is set: they are
+// `repeated` because the generated domain layer keeps no presence for a
+// singular message field, and an empty refusal (NoPrompt) must still be seen.
+// The fatal findings are not here: `fatal_findings` says only how many there
+// were, and the library says them.
+message LaunchRefused {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  repeated NoPrompt no_prompt = 1;
+  repeated UnknownEngine unknown_engine = 2;
+  repeated NoCredential no_credential = 3;
+  repeated FileOnlyCredential file_only_credential = 4;
+  uint32 fatal_findings = 5;
+  // Was the posture's refusals (`UnenforcedPosture`, owner rulings 59, 109),
+  // deleted with the engine-neutral posture by owner ruling 134.
+  reserved 6;
+  reserved "unenforced_posture";
+}
+
+// endregion refusals

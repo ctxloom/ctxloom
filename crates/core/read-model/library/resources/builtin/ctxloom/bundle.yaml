@@ -1,0 +1,5 @@
+schema_version: 3
+version: 1.0.0
+author: ctxloom
+description: "ctxloom's operational prompts: the setup interview `ctxloom init` opens with, and the distill prompt. No profile includes it; only init and distill use it."
+name: ctxloom

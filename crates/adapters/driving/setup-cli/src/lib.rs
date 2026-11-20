@@ -1,0 +1,314 @@
+//! The setup commands as a driving adapter (S12): arguments in, answers out,
+//! no logic. `auth status`, `clean`, `doctor` and `init` (with `init prompt`).
+//!
+//! The whole command line is parsed by the program's own (one behaviour for
+//! help, usage errors and the exit ladder); this crate gives it these nouns
+//! and, given the matches of one, runs it on the use cases.
+//!
+//! - `auth [status]`: per engine, whether its credential is exported, by
+//!   variable name and never its value; the only verb, so no command here
+//!   takes a credential.
+//! - `clean [--yes]`: reports the cache it would remove and says outright
+//!   that it removed nothing, until `--yes`.
+//! - `doctor [--all] [--deps] [--fix]`: one row per check, each with its
+//!   `DOCTOR-CHECK-*` marker; json is `{checks: [...]}`. Exit 20 when a row
+//!   failed, after the whole report. The text report lists the warnings;
+//!   `--all` lists every check.
+//! - `init` and `init prompt` print text whatever the format: the prompt is
+//!   the body an engine is handed.
+
+mod commands;
+mod text;
+
+use cli_support::Exit;
+use std::io::Write;
+
+use angzarr_diagnostic::Diagnostic;
+use angzarr_presentation::{write_json, Catalog, Format};
+use auth_application::Auth;
+use clap::ArgMatches;
+use cli_support::{say_notices, say_warning};
+use deps_application::Notice;
+use doctor_checks::Doctor;
+use init_application::{interview, Init, InitRequest, Outcome, Prompts, Sessions, Terminal};
+use reclaim_application::Cleaner;
+use sessions_application::RemovedNothing;
+
+pub use commands::nouns;
+
+/// The program's name, for the warnings.
+const PROG: &str = "ctxloom";
+
+pub use cli_support::{Call, Failure};
+
+/// The use cases the commands run on.
+pub struct UseCases<'a> {
+    pub auth: &'a Auth,
+    pub cleaner: &'a Cleaner,
+    pub doctor: &'a Doctor,
+    pub init: &'a Init,
+    /// Whether a person is there, and her answer.
+    pub terminal: &'a dyn Terminal,
+    /// The interactive sessions the interview launches.
+    pub sessions: &'a dyn Sessions,
+    /// The setup interview, read through the project's catalog (owner
+    /// ruling 128).
+    pub prompts: &'a dyn Prompts,
+}
+
+fn failure(cause: impl Diagnostic + 'static, exit: Exit) -> Failure {
+    Failure::new(cause, exit)
+}
+
+fn output(error: std::io::Error) -> Failure {
+    failure(
+        CliFault::Output {
+            ext_err_txt: error.to_string(),
+        },
+        Exit::FAILED,
+    )
+}
+
+mod fault;
+#[cfg(any(test, feature = "test-support"))]
+pub use fault::diagnostic_samples;
+pub use fault::{CliFault, EN_US};
+
+/// Run `noun` (given the matches of the whole line).
+pub fn run<G>(
+    uses: &UseCases<'_>,
+    noun: &str,
+    call: &Call<'_, G>,
+    catalog: &Catalog,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> Result<Exit, Failure> {
+    let format = call.explicit_format.unwrap_or(call.default_format);
+    let sub = call.matches.subcommand_matches(noun).ok_or_else(|| {
+        failure(
+            CliFault::NoSuchCommand {
+                noun: noun.to_string(),
+            },
+            Exit::REFUSED,
+        )
+    })?;
+    match noun {
+        "auth" => auth(uses, format, out),
+        "clean" => clean(uses, sub, format, catalog, out, err),
+        "doctor" => doctor(uses, sub, format, out, err),
+        _ => init(uses, sub, format, catalog, out, err),
+    }
+}
+
+/// `auth` and `auth status`: the credential report.
+fn auth(uses: &UseCases<'_>, format: Format, out: &mut dyn Write) -> Result<Exit, Failure> {
+    let rows = uses.auth.status(&uses.doctor.layer_texts());
+    match format {
+        Format::Json => write_json(out, &rows),
+        Format::Text => text::auth(&rows, out),
+    }
+    .map_err(output)?;
+    Ok(Exit::OK)
+}
+
+fn clean(
+    uses: &UseCases<'_>,
+    sub: &ArgMatches,
+    format: Format,
+    catalog: &Catalog,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> Result<Exit, Failure> {
+    let yes = sub.get_flag("yes");
+    let report = uses
+        .cleaner
+        .clean(yes)
+        .map_err(|e| failure(e, Exit::FAILED))?;
+    match format {
+        Format::Json => write_json(out, &report),
+        Format::Text => text::clean(&report, out),
+    }
+    .map_err(output)?;
+    if !yes {
+        say_warning(
+            &RemovedNothing {
+                command: "ctxloom clean --yes".to_string(),
+            },
+            PROG,
+            format,
+            catalog,
+            err,
+        );
+        // Ruling 153: a preview with a target present that `--yes` would
+        // remove.
+        if report.targets.iter().any(|target| target.present) {
+            return Ok(Exit::WOULD_CHANGE);
+        }
+    }
+    Ok(Exit::OK)
+}
+
+fn doctor(
+    uses: &UseCases<'_>,
+    sub: &ArgMatches,
+    format: Format,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> Result<Exit, Failure> {
+    if sub.get_flag("fix") {
+        let removed = uses
+            .doctor
+            .fix()
+            .map_err(|e| Failure::boxed(e, Exit::FAILED))?;
+        for r in &removed {
+            let _ = writeln!(
+                err,
+                "removed stale hook entry: {} runs `ctxloom hook {}` in {}",
+                r.event, r.sub, r.file
+            );
+        }
+    }
+    let report = uses.doctor.report(sub.get_flag("deps"));
+    match format {
+        Format::Json => write_json(out, &report),
+        Format::Text => text::doctor(&report, sub.get_flag("all"), out),
+    }
+    .map_err(output)?;
+    // A failing row ends the run with run's own status for a fatal finding,
+    // after the whole report is written.
+    Ok(exit_of(&report))
+}
+
+/// The exit a report ends the run with: refused (20) when a row failed, the
+/// status of the run's refusal that row guarantees (ruling 152: 21 is the run
+/// plan's fatal findings alone).
+fn exit_of(report: &doctor_checks::Report) -> Exit {
+    if report.failed() {
+        Exit::REFUSED
+    } else {
+        Exit::OK
+    }
+}
+
+/// What init says when no token is exported, from claude's own docs:
+/// `claude setup-token` makes a one-year token for a Pro, Max, Team or
+/// Enterprise plan.
+fn token_guide() -> Notice {
+    Notice::with_fix(
+        "delegated agents need a token, and none is exported (CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY)",
+        "run `claude setup-token` (it needs a Pro, Max, Team or Enterprise plan, and the token lasts a year), \
+         then export CLAUDE_CODE_OAUTH_TOKEN with it, or store it in your secret manager",
+    )
+}
+
+fn init(
+    uses: &UseCases<'_>,
+    sub: &ArgMatches,
+    format: Format,
+    catalog: &Catalog,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> Result<Exit, Failure> {
+    if sub.subcommand_matches("prompt").is_some() {
+        let body = init_application::prompt(uses.prompts)
+            .map_err(|refused| Failure::boxed(refused.cause, refused.exit))?;
+        write!(out, "{body}").map_err(output)?;
+        return Ok(Exit::OK);
+    }
+    let request = InitRequest {
+        remotes: sub
+            .get_many::<String>("remote")
+            .map(|v| v.cloned().collect())
+            .unwrap_or_default(),
+        forge: sub.get_one::<String>("forge").cloned().unwrap_or_default(),
+    };
+    let done = uses
+        .init
+        .init(&request)
+        .map_err(|e| failure(e, Exit::FAILED))?;
+    if done.existed {
+        // A re-run is no refusal: the directory is kept and init goes on, to
+        // the remotes it was given, the token guide and the interview.
+        writeln!(
+            out,
+            "ctxloom directory already exists: {} (kept as it is; init goes on)",
+            done.app_dir
+        )
+        .map_err(output)?;
+    } else {
+        writeln!(out, "Created ctxloom directory: {}", done.app_dir).map_err(output)?;
+        // A first init at a terminal asks where a session's outputs go
+        // (rulings 89, 106); off one, the default stands unasked.
+        if let Some(dir) = uses
+            .init
+            .choose_output_dir(uses.terminal)
+            .map_err(|e| failure(e, Exit::FAILED))?
+        {
+            writeln!(
+                out,
+                "Session outputs go to {dir} (not gitignored: they can be committed)"
+            )
+            .map_err(output)?;
+        }
+        // Then when conditional guidance loads (owner ruling of 2026-11-12);
+        // off a terminal, on-demand stands unasked.
+        if let Some(word) = uses
+            .init
+            .choose_premised(uses.terminal)
+            .map_err(|e| failure(e, Exit::FAILED))?
+        {
+            let said = if word == init_application::PREMISED_ALWAYS {
+                "Conditional guidance always loads"
+            } else {
+                "Conditional guidance loads only when it applies"
+            };
+            writeln!(out, "{said} (config.premised: {word})").map_err(output)?;
+        }
+    }
+    for remote in &done.remotes {
+        writeln!(out, "Added remote \"{}\": {}", remote.name, remote.url).map_err(output)?;
+    }
+    let notices: &[Notice] = &done.notices;
+    for notice in notices {
+        say_warning(notice, PROG, Format::Text, catalog, err);
+    }
+    // Delegated agents authenticate with a token the human mints and
+    // exports; init guides her to it, and never blocks on it or asks for it.
+    let layers = uses.doctor.layer_texts();
+    if !uses.auth.agent_token_exported(&layers) {
+        say_notices(&[token_guide()], PROG, format, catalog, err);
+    }
+    // An engine whose source is a file alone authenticates no child (owner
+    // ruling 64): said as its children's runs are refused.
+    say_notices(&uses.auth.file_only(&layers), PROG, format, catalog, err);
+    // On a terminal, the setup interview, and the offer to restart into the
+    // session it configured. Off one, nothing is launched and nothing asked.
+    let interviewed = interview(uses.terminal, uses.sessions, uses.prompts)
+        .map_err(|launch| Failure::boxed(launch.cause, launch.exit))?;
+    for notice in &interviewed.notices {
+        say_warning(notice.as_ref(), PROG, Format::Text, catalog, err);
+    }
+    Ok(match interviewed.outcome {
+        Outcome::NotATerminal => Exit::OK,
+        Outcome::Declined => {
+            writeln!(
+                out,
+                "Start your configured session when you are ready: {}",
+                init_application::RESTART_COMMAND
+            )
+            .map_err(output)?;
+            Exit::OK
+        }
+        Outcome::Interrupted { code } | Outcome::Restarted { code } => {
+            Exit::from_child_status(code, None)
+        }
+    })
+}
+
+#[cfg(test)]
+#[path = "text.test.rs"]
+mod text_tests;
+
+#[cfg(test)]
+#[path = "lib.test.rs"]
+mod tests;

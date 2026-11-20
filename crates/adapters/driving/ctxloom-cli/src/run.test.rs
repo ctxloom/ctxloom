@@ -1,0 +1,572 @@
+//! The command line as `run` answers it, over an extension of its own: help,
+//! version, usage errors, the exit ladder and what an extension is handed.
+//! Ported from Go's `exit_codes_test.go`, `version.feature` and
+//! `cli_flag_gate_test.go` behaviours as D28 reshapes them.
+
+use cli_support::{Exit, ExitClass};
+use std::ffi::OsString;
+use std::io::Write;
+
+use super::*;
+use angzarr_presentation::Format;
+use clap::{Arg, Command};
+
+/// What the fake extension is told to answer.
+pub(crate) struct Fake {
+    pub(crate) answer: Result<Exit, Exit>,
+}
+
+impl Extension for Fake {
+    fn nouns(&self) -> Vec<Command> {
+        vec![Command::new("demo")
+            .subcommand(Command::new("list"))
+            .arg(Arg::new("word").long("word"))]
+    }
+
+    fn run(
+        &mut self,
+        noun: &str,
+        call: &Call<'_>,
+        _catalog: &Catalog,
+        out: &mut dyn Write,
+        _err: &mut dyn Write,
+    ) -> Result<Exit, Failure> {
+        let _ = writeln!(
+            out,
+            "{noun} explicit={:?} default={:?} terminal={} degraded={} companions={} sets={:?}",
+            call.explicit_format,
+            call.default_format,
+            call.stdout_is_terminal,
+            call.globals.degraded,
+            call.globals.no_companions,
+            call.globals.config_set
+        );
+        self.answer.map_err(|exit| Failure {
+            cause: Box::new(CliError::Format {
+                value: "odd".to_string(),
+            }),
+            exit,
+            refusals: Vec::new(),
+        })
+    }
+}
+
+pub(crate) struct Wire(pub(crate) Fake);
+
+impl Services for Wire {
+    fn extension(&mut self) -> &mut dyn Extension {
+        &mut self.0
+    }
+}
+
+struct Ran {
+    code: u8,
+    out: String,
+    err: String,
+}
+
+fn go_in(terminal: bool, answer: Result<Exit, Exit>, line: &[&str]) -> Ran {
+    go_as("ctxloom", terminal, answer, line)
+}
+
+/// `line` run as the program `program` (its argv[0]).
+fn go_as(program: &str, terminal: bool, answer: Result<Exit, Exit>, line: &[&str]) -> Ran {
+    let context = Context {
+        version: "1.2.3".to_string(),
+        lock_protocol: 4,
+        stdout_is_terminal: terminal,
+    };
+    let catalog = Catalog::en_us(&[crate::EN_US]).unwrap();
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let args = std::iter::once(program)
+        .chain(line.iter().copied())
+        .map(OsString::from);
+    let code = run(
+        args,
+        &context,
+        &catalog,
+        &mut Wire(Fake { answer }),
+        &mut out,
+        &mut err,
+    );
+    Ran {
+        code,
+        out: String::from_utf8(out).unwrap(),
+        err: String::from_utf8(err).unwrap(),
+    }
+}
+
+fn go(line: &[&str]) -> Ran {
+    go_in(false, Ok(Exit::OK), line)
+}
+
+// version.feature: every spelling of version agrees.
+#[test]
+fn test_every_spelling_of_version_agrees() {
+    let json = go(&["version", "--format", "json"]);
+    assert_eq!(json.code, 0);
+    assert_eq!(
+        json.out,
+        "{\n  \"name\": \"ctxloom\",\n  \"version\": \"1.2.3\",\n  \"lock_protocol\": 4\n}\n"
+    );
+    assert_eq!(go(&["version", "--format", "text"]).out, "1.2.3\n");
+    assert_eq!(go_in(true, Ok(Exit::OK), &["version"]).out, "1.2.3\n");
+    let flag = go(&["--version"]);
+    assert_eq!(
+        (flag.code, flag.out.as_str()),
+        (0, "ctxloom version 1.2.3\n")
+    );
+}
+
+// help is an answer, not an error; a bare command prints its help.
+#[test]
+fn test_help_is_an_answer() {
+    for line in [&["-h"][..], &["--help"], &["version", "-h"], &[]] {
+        let ran = go(line);
+        assert_eq!(ran.code, 0, "{line:?}");
+        assert!(ran.out.contains("Usage:"), "{line:?}: {}", ran.out);
+        assert!(ran.err.is_empty());
+    }
+}
+
+// The help says `ctxloom` however the program file is named (Windows'
+// `ctxloom.exe`, a renamed binary): at the top, a verb and a mounted noun.
+#[test]
+fn test_the_help_names_ctxloom_whatever_the_program_file_is_called() {
+    for (line, usage) in [
+        (&["-h"][..], "Usage: ctxloom [OPTIONS]"),
+        (&["version", "-h"], "Usage: ctxloom version"),
+        (&["demo", "-h"], "Usage: ctxloom demo"),
+        (&["demo", "list", "-h"], "Usage: ctxloom demo list"),
+    ] {
+        let ran = go_as("/opt/bin/ctxloom.exe", false, Ok(Exit::OK), line);
+        assert_eq!(ran.code, 0, "{line:?}");
+        assert!(ran.out.contains(usage), "{line:?}: {}", ran.out);
+        assert!(!ran.out.contains("ctxloom.exe"), "{line:?}: {}", ran.out);
+    }
+}
+
+// exit_codes_test.go: a refusal is 2, with the envelope under json and
+// words (and a fix) under text.
+#[test]
+fn test_a_usage_error_is_refused_with_its_envelope_or_words() {
+    let json = go(&["--bogus", "--format", "json"]);
+    assert_eq!(json.code, 20);
+    assert!(json.out.is_empty());
+    let envelope: serde_json::Value = serde_json::from_str(&json.err).unwrap();
+    assert_eq!(envelope["code"], "ctxloom-cli-usage");
+    assert!(envelope["message"].as_str().unwrap().contains("--bogus"));
+    let text = go(&["--bogus", "--format", "text"]);
+    assert_eq!(text.code, 20);
+    assert!(text
+        .err
+        .starts_with("ctxloom: error: unexpected argument '--bogus'"));
+    assert!(text
+        .err
+        .ends_with("\n  fix: run ctxloom -h, or the command with -h, for its usage\n"));
+}
+
+#[test]
+fn test_an_unknown_verb_says_did_you_mean_and_lists_the_verbs() {
+    let ran = go(&["versoin", "--format=text"]);
+    assert_eq!(ran.code, 20);
+    assert!(ran
+        .err
+        .starts_with("ctxloom: unknown command versoin for ctxloom: Did you mean one of "));
+    // the verbs: an extension's noun and `version`
+    for verb in ["demo", "version"] {
+        assert!(ran.err.contains(verb), "{verb} is listed: {}", ran.err);
+    }
+    assert!(ran
+        .err
+        .ends_with("  fix: run ctxloom -h for its commands\n"));
+    let nested = go(&["demo", "lisst", "--format", "json"]);
+    assert_eq!(nested.code, 20);
+    let envelope: serde_json::Value = serde_json::from_str(&nested.err).unwrap();
+    assert_eq!(envelope["code"], "ctxloom-cli-unknown-verb");
+    assert_eq!(envelope["args"]["command"], "ctxloom demo");
+    assert_eq!(envelope["args"]["verb"], "lisst");
+    assert!(envelope["args"]["choices"]
+        .as_str()
+        .unwrap()
+        .contains("list"));
+}
+
+// A format that is neither is refused, whatever it once was (D28).
+#[test]
+fn test_a_format_that_is_neither_json_nor_text_is_refused() {
+    let ran = go(&["version", "--format", "yaml"]);
+    assert_eq!(ran.code, 20);
+    assert!(ran.out.is_empty());
+    let envelope = go_in(true, Ok(Exit::OK), &["version", "--format=yaml"]);
+    assert!(envelope
+        .err
+        .starts_with("ctxloom: the format yaml is not one of text or json\n"));
+    let json = go(&["version", "--format", "yaml", "--format", "json"]);
+    assert_eq!(json.code, 0);
+    let shown = go(&["demo", "--format", "yaml"]);
+    assert_eq!(shown.code, 20);
+    assert!(shown.out.is_empty());
+}
+
+// What an extension is handed: its noun, the format asked for and the
+// terminal's, and the global flags.
+#[test]
+fn test_an_extension_is_handed_its_noun_and_the_global_flags() {
+    let ran = go(&[
+        "demo",
+        "list",
+        "--format",
+        "text",
+        "--degraded",
+        "--no-companions",
+        "--config-set",
+        "a.b=c",
+        "--config-set",
+        "d=e",
+    ]);
+    assert_eq!(ran.code, 0);
+    assert_eq!(
+        ran.out,
+        "demo explicit=Some(Text) default=Json terminal=false degraded=true companions=true sets=[\"a.b=c\", \"d=e\"]\n"
+    );
+    let plain = go_in(true, Ok(Exit::OK), &["demo"]);
+    assert_eq!(
+        plain.out,
+        "demo explicit=None default=Text terminal=true degraded=false companions=false sets=[]\n"
+    );
+    assert_eq!(Format::Text, Format::choose(false, None, true));
+}
+
+// exit_codes_test.go: an extension's exit code is the process's, its failure
+// is reported in the format asked for (the codes: rulings 149, 152, 153).
+#[test]
+fn test_an_extensions_exit_code_and_failure_pass_through() {
+    assert_eq!(go_in(false, Ok(Exit::FATAL_FINDINGS), &["demo"]).code, 21);
+    assert_eq!(go_in(false, Ok(Exit::signal(15)), &["demo"]).code, 143);
+    let failed = go_in(false, Err(Exit::FAILED), &["demo"]);
+    assert_eq!(failed.code, 10);
+    let envelope: serde_json::Value = serde_json::from_str(&failed.err).unwrap();
+    assert_eq!(envelope["code"], "ctxloom-cli-unknown-format");
+    assert_eq!(envelope["args"]["value"], "odd");
+    let refused = go_in(false, Err(Exit::REFUSED), &["demo", "--format", "text"]);
+    assert_eq!(refused.code, 20);
+    assert!(refused.err.starts_with(
+        "ctxloom: the format odd is not one of text or json\n  fix: use --format json"
+    ));
+    assert_eq!(go_in(true, Err(Exit::FATAL_FINDINGS), &["demo"]).code, 21);
+}
+
+// Ruling 153: a distinguishing success (1-9) is the process's code only under
+// `--detailed-exitcode`, given anywhere on the line; without it every success
+// is 0. A failure is its code either way.
+#[test]
+fn test_a_distinguishing_success_is_its_code_only_under_detailed_exitcode() {
+    assert_eq!(go_in(false, Ok(Exit::WOULD_CHANGE), &["demo"]).code, 0);
+    let detailed = go_in(
+        false,
+        Ok(Exit::WOULD_CHANGE),
+        &["demo", "--detailed-exitcode"],
+    );
+    assert_eq!(detailed.code, 1);
+    assert_eq!(
+        go_in(
+            false,
+            Ok(Exit::success(9)),
+            &["--detailed-exitcode", "demo"]
+        )
+        .code,
+        9
+    );
+    assert_eq!(
+        go_in(false, Ok(Exit::OK), &["demo", "--detailed-exitcode"]).code,
+        0
+    );
+    assert_eq!(
+        go_in(false, Err(Exit::FAILED), &["demo", "--detailed-exitcode"]).code,
+        10
+    );
+    assert_eq!(go(&["version", "--detailed-exitcode"]).code, 0);
+}
+
+// A usage error is refused, 20, never clap's own 2 (ruling 152).
+#[test]
+fn test_a_usage_error_exits_twenty() {
+    assert_eq!(go(&["version", "--no-such-flag"]).code, 20);
+    assert_eq!(go(&["--detailed-exitcode", "nonesuch"]).code, 20);
+}
+
+// The builtin commands are not the extension's.
+#[test]
+fn test_a_builtin_command_never_reaches_the_extension() {
+    let ran = go_in(false, Err(Exit::declined(29)), &["version"]);
+    assert_eq!(ran.code, 0);
+    assert!(!ran.out.contains("explicit="));
+}
+
+// -v is accepted and changes nothing.
+#[test]
+fn test_verbose_changes_no_output() {
+    assert_eq!(go(&["-v", "version", "--format", "text"]).out, "1.2.3\n");
+}
+
+// An answer that cannot be written failed: exit 10.
+#[test]
+fn test_an_unwritable_answer_is_a_failure() {
+    struct Broken;
+    impl Write for Broken {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("closed"))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let context = Context {
+        version: "1".to_string(),
+        lock_protocol: 1,
+        stdout_is_terminal: false,
+    };
+    let catalog = Catalog::en_us(&[crate::EN_US]).unwrap();
+    let mut err = Vec::new();
+    let code = run(
+        ["ctxloom", "version"].map(OsString::from),
+        &context,
+        &catalog,
+        &mut Wire(Fake {
+            answer: Ok(Exit::OK),
+        }),
+        &mut Broken,
+        &mut err,
+    );
+    assert_eq!(code, 10);
+    let envelope: serde_json::Value = serde_json::from_slice(&err).unwrap();
+    assert_eq!(envelope["code"], "ctxloom-cli-output");
+    assert_eq!(envelope["args"]["ext_err_txt"], "closed");
+}
+
+// The seam with nothing behind it adds nothing and answers success.
+#[test]
+fn test_no_extension_adds_no_nouns_and_answers_success() {
+    let mut none = NoExtension;
+    assert!(none.nouns().is_empty());
+    let matches = Command::new("x").get_matches_from(["x"]);
+    let call = Call::with_globals(
+        &matches,
+        None,
+        Format::Json,
+        library_application::Flags::default(),
+    );
+    let catalog = Catalog::en_us(&[crate::EN_US]).unwrap();
+    let ran = none.run("x", &call, &catalog, &mut Vec::new(), &mut Vec::new());
+    assert!(matches!(ran, Ok(Exit::OK)));
+    assert_eq!(call.format(), Format::Json);
+    let asked = Call {
+        explicit_format: Some(Format::Text),
+        ..call
+    };
+    assert_eq!(asked.format(), Format::Text);
+}
+
+// D28: the exit ladder by error.
+#[test]
+fn test_each_error_has_its_exit_code() {
+    assert_eq!(
+        CliError::Usage {
+            detail: String::new()
+        }
+        .exit(),
+        Exit::REFUSED
+    );
+    assert_eq!(
+        CliError::UnknownVerb {
+            verb: String::new(),
+            command: String::new(),
+            choices: String::new()
+        }
+        .exit(),
+        Exit::REFUSED
+    );
+    assert_eq!(
+        CliError::Format {
+            value: String::new()
+        }
+        .exit(),
+        Exit::REFUSED
+    );
+    assert_eq!(
+        CliError::Output {
+            detail: String::new()
+        }
+        .exit(),
+        Exit::FAILED
+    );
+}
+
+// A mounted noun is shaped as the command line's own: no `help` command, and
+// a group that is not on the bare-runs list prints its usage when bare.
+#[test]
+fn test_a_mounted_noun_is_shaped_like_the_command_lines_own() {
+    let group = |name: &'static str| shaped(Command::new(name).subcommand(Command::new("list")));
+    let listed = group("session");
+    assert!(!listed.is_arg_required_else_help_set());
+    assert!(listed.is_disable_help_subcommand_set());
+    let other = group("elsewhere");
+    assert!(other.is_arg_required_else_help_set());
+    assert!(other.is_disable_help_subcommand_set());
+}
+
+/// `error` reported under `format`: its exit code and what was said.
+fn reported(error: &CliError, format: Format) -> (Exit, String) {
+    let catalog = Catalog::en_us(&[crate::EN_US]).unwrap();
+    let mut err = Vec::new();
+    let code = crate::run::report(error, format, &catalog, &mut err);
+    (code, String::from_utf8(err).unwrap())
+}
+
+// Owner ruling: the json envelope carries the remedy. An error whose catalog
+// has the `<code>-fix` id gains a `fix`, the text of the `  fix:` line.
+#[test]
+fn test_a_json_error_with_a_fix_id_carries_the_fix() {
+    let error = CliError::Usage {
+        detail: "bad".to_string(),
+    };
+    let (_, json) = reported(&error, Format::Json);
+    let envelope: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(
+        envelope["fix"],
+        "run ctxloom -h, or the command with -h, for its usage"
+    );
+    let keys: Vec<&str> = envelope
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(keys.len(), 4, "{json}");
+    let (_, text) = reported(&error, Format::Text);
+    assert!(
+        text.ends_with(&format!("  fix: {}\n", envelope["fix"].as_str().unwrap())),
+        "{text}"
+    );
+}
+
+// The fix's args are the error's: the unknown verb's remedy names its command.
+#[test]
+fn test_the_fix_in_json_is_rendered_with_the_errors_args() {
+    let error = CliError::UnknownVerb {
+        verb: "frob".to_string(),
+        command: "ctxloom".to_string(),
+        choices: "a, b".to_string(),
+    };
+    let (_, json) = reported(&error, Format::Json);
+    let envelope: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(envelope["fix"], "run ctxloom -h for its commands");
+}
+
+// No `<code>-fix` id: the key is omitted, not null.
+#[test]
+fn test_a_json_error_without_a_fix_id_omits_the_key() {
+    let error = CliError::Output {
+        detail: "disk".to_string(),
+    };
+    let (code, json) = reported(&error, Format::Json);
+    assert_eq!(code, Exit::FAILED);
+    let envelope: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert!(envelope.get("fix").is_none(), "{json}");
+    assert!(envelope["code"] == "ctxloom-cli-output", "{json}");
+}
+
+// The envelope's key order stays code, args, message, then the fix.
+#[test]
+fn test_the_envelope_keeps_its_order_and_the_fix_comes_last() {
+    let (_, json) = reported(
+        &CliError::Format {
+            value: "x".to_string(),
+        },
+        Format::Json,
+    );
+    let at = |key: &str| json.find(&format!("\"{key}\"")).unwrap();
+    assert!(at("code") < at("args") && at("args") < at("message") && at("message") < at("fix"));
+}
+
+/// An aggregate refusal as an extension reports one: a summary and the
+/// refusals it holds, in order (this crate's own errors stand in for them).
+fn aggregate() -> CliError {
+    CliError::Extension(Failure {
+        cause: Box::new(CliError::Output {
+            detail: "two checks failed".to_string(),
+        }),
+        exit: Exit::REFUSED,
+        refusals: vec![
+            Box::new(CliError::Usage {
+                detail: "first".to_string(),
+            }),
+            Box::new(CliError::UnknownVerb {
+                verb: "frob".to_string(),
+                command: "ctxloom".to_string(),
+                choices: "a, b".to_string(),
+            }),
+        ],
+    })
+}
+
+// Owner ruling 73b: ONE json envelope, the summary's, whose `refusals` holds
+// each refusal as its own single envelope would be ({code, args, message,
+// fix?}), in order; the list is this crate's, after the envelope's own keys.
+#[test]
+fn test_an_aggregate_refusal_is_one_json_envelope_listing_each_refusal_in_order() {
+    let (code, json) = reported(&aggregate(), Format::Json);
+    assert_eq!(code, Exit::REFUSED);
+    let envelope: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(envelope["code"], "ctxloom-cli-output");
+    assert!(envelope.get("fix").is_none(), "{json}");
+    let refusals = envelope["refusals"].as_array().expect("a refusals list");
+    let codes: Vec<&str> = refusals
+        .iter()
+        .map(|r| r["code"].as_str().unwrap())
+        .collect();
+    assert_eq!(codes, ["ctxloom-cli-usage", "ctxloom-cli-unknown-verb"]);
+    assert_eq!(refusals[0]["message"], "first");
+    assert_eq!(
+        refusals[0]["fix"],
+        "run ctxloom -h, or the command with -h, for its usage"
+    );
+    assert_eq!(refusals[1]["args"]["verb"], "frob");
+    assert_eq!(refusals[1]["fix"], "run ctxloom -h for its commands");
+    let at = |key: &str| json.find(&format!("\"{key}\"")).unwrap();
+    assert!(at("message") < at("refusals"), "{json}");
+}
+
+// Owner ruling 73b: in text, the summary line, then each refusal's own
+// `ctxloom:` line and `  fix:` line, in order.
+#[test]
+fn test_an_aggregate_refusal_in_text_says_the_summary_then_each_refusal() {
+    let (code, text) = reported(&aggregate(), Format::Text);
+    assert_eq!(code, Exit::REFUSED);
+    assert_eq!(
+        text,
+        "ctxloom: cannot write the output: two checks failed\n\
+         ctxloom: first\n\
+         \x20 fix: run ctxloom -h, or the command with -h, for its usage\n\
+         ctxloom: unknown command frob for ctxloom: Did you mean one of a, b?\n\
+         \x20 fix: run ctxloom -h for its commands\n"
+    );
+}
+
+// An error that holds no refusals is reported exactly as before: no
+// `refusals` key at all.
+#[test]
+fn test_an_error_with_no_refusals_has_no_refusals_key() {
+    let (_, json) = reported(
+        &CliError::Extension(Failure::new(
+            CliError::Output {
+                detail: "d".to_string(),
+            },
+            Exit::FAILED,
+        )),
+        Format::Json,
+    );
+    let envelope: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert!(envelope.get("refusals").is_none(), "{json}");
+}

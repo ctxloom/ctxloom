@@ -1,0 +1,30 @@
+[package]
+name = "ctxloom-cli"
+version = "0.1.0"
+description = "The ctxloom command line: arguments parsed, answers rendered as json or text, errors as envelopes or words"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+angzarr-diagnostic.workspace = true
+angzarr-presentation.workspace = true
+cli-support.workspace = true
+clap.workspace = true
+clap_complete.workspace = true
+library-application.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+angzarr-presentation = { workspace = true, features = ["test-support"] }
+
+[features]
+# `diagnostic_samples`, for other crates' catalog tests: it adds a function and
+# nothing a caller must implement. (The hidden `ctxloom test ...` commands are
+# the wiring's, mounted through `Extension`.)
+test-support = []
+
+[lints]
+workspace = true

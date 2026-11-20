@@ -1,0 +1,35 @@
+[package]
+name = "run-launcher"
+version = "0.1.0"
+description = "The runner's launch: a CatchUp over the runs still owed a runner drives one turn through the engine and the launcher and records it as facts; a second writes the session's directory from the events"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+angzarr-diagnostic.workspace = true
+angzarr-embedded.workspace = true
+isolation-ports.workspace = true
+pending-launches.workspace = true
+ports.workspace = true
+run-ports.workspace = true
+runs.workspace = true
+runs-application.workspace = true
+sessions.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+surface-ports.workspace = true
+angzarr-embedded = { workspace = true, features = ["test-support"] }
+run-ports = { workspace = true, features = ["test-support"] }
+mutants.workspace = true
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[features]
+# `diagnostic_samples`, for other crates' catalog tests, and `fakes`: the
+# doubles over the kernel's in-memory store.
+test-support = ["angzarr-embedded/test-support"]
+
+[lints]
+workspace = true

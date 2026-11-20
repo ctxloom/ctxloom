@@ -1,0 +1,539 @@
+use surface_ports::{Command, Skill, SkillFile};
+
+use super::*;
+
+fn paths(planned: &Planned) -> Vec<&str> {
+    planned.claims.iter().map(Claim::path).collect()
+}
+
+#[test]
+fn test_mock_carries_every_kind_in_its_own_files() {
+    let mock = Mock::standard();
+    assert_eq!(mock.name(), "mock");
+    let inputs = Inputs {
+        context: "ctx".into(),
+        deny_tools: vec!["Bash".into()],
+        statusline: true,
+        commands: vec![Command {
+            name: "demo/example".into(),
+            description: "d".into(),
+            body: "body".into(),
+        }],
+        skills: vec![Skill {
+            name: "reviewer".into(),
+            description: "d".into(),
+            files: vec![SkillFile {
+                path: "SKILL.md".into(),
+                bytes: b"s".to_vec(),
+                executable: false,
+            }],
+        }],
+        ..Inputs::default()
+    };
+    let at = |kind| mock.plan(kind, &inputs).unwrap();
+    assert_eq!(paths(&at(Kind::Context)), vec!["MOCK_CONTEXT.md"]);
+    assert_eq!(paths(&at(Kind::Mcp)), vec![".mock/mcp.json"]);
+    assert_eq!(paths(&at(Kind::Settings)), vec![".mock/settings.json"]);
+    assert_eq!(paths(&at(Kind::Hooks)), vec![".mock/hooks.json"]);
+    assert_eq!(
+        paths(&at(Kind::Commands)),
+        vec![".mock/commands/demo/example.md"]
+    );
+    assert_eq!(
+        paths(&at(Kind::Skills)),
+        vec![".mock/skills/reviewer/SKILL.md"]
+    );
+    let Claim::Whole { bytes, .. } = &at(Kind::Commands).claims[0] else {
+        panic!()
+    };
+    assert_eq!(bytes, b"body");
+    let Claim::Whole { bytes, .. } = &at(Kind::Settings).claims[0] else {
+        panic!()
+    };
+    let doc = Json::parse(&String::from_utf8(bytes.clone()).unwrap()).unwrap();
+    assert_eq!(doc.get("statusline"), Some(&Json::Bool(true)));
+}
+
+#[test]
+fn test_mock_writes_its_mcp_registry_even_with_no_server() {
+    let planned = Mock::standard()
+        .plan(Kind::Mcp, &Inputs::default())
+        .unwrap();
+    let Claim::Whole { bytes, .. } = &planned.claims[0] else {
+        panic!()
+    };
+    assert_eq!(
+        String::from_utf8(bytes.clone()).unwrap(),
+        "{\n  \"mcpServers\": {}\n}\n"
+    );
+}
+
+#[test]
+fn test_the_home_keyed_variant_carries_the_context_and_nothing_else() {
+    let mock = Mock::home_keyed();
+    assert_eq!(mock.name(), "mock-launch");
+    assert!(mock.carries(Kind::Context));
+    for kind in [
+        Kind::Mcp,
+        Kind::Settings,
+        Kind::Hooks,
+        Kind::Commands,
+        Kind::Skills,
+    ] {
+        assert!(!mock.carries(kind));
+        assert!(mock
+            .plan(kind, &Inputs::default())
+            .unwrap()
+            .claims
+            .is_empty());
+    }
+}
+
+#[test]
+fn test_a_name_that_climbs_is_skipped_and_said() {
+    let inputs = Inputs {
+        commands: vec![Command {
+            name: "../x".into(),
+            ..Command::default()
+        }],
+        skills: vec![Skill {
+            name: "/abs".into(),
+            ..Skill::default()
+        }],
+        ..Inputs::default()
+    };
+    for kind in [Kind::Commands, Kind::Skills] {
+        let planned = Mock::standard().plan(kind, &inputs).unwrap();
+        assert!(planned.claims.is_empty());
+        assert_eq!(planned.skipped.len(), 1);
+    }
+}
+
+#[test]
+fn test_hooks_are_written_by_event_and_a_callback_executes_it() {
+    let mut hooks = Hooks::new();
+    hooks.insert(
+        "session_start".into(),
+        vec![Hook {
+            command: "ctxloom".into(),
+            args: vec!["hook".into(), "session-start".into()],
+            ..Hook::default()
+        }],
+    );
+    let planned = Mock::standard()
+        .plan(
+            Kind::Hooks,
+            &Inputs {
+                hooks,
+                ..Inputs::default()
+            },
+        )
+        .unwrap();
+    let Claim::Whole { bytes, .. } = &planned.claims[0] else {
+        panic!()
+    };
+    let text = String::from_utf8(bytes.clone()).unwrap();
+    assert!(
+        text.contains("\"execute\"")
+            && text.contains("\"session_start\"")
+            && !text.contains("--engine"),
+        "{text}"
+    );
+}
+
+struct Files(BTreeMap<String, Vec<u8>>);
+
+impl SurfaceStore for Files {
+    fn deliver(
+        &self,
+        _: &str,
+        _: &str,
+        _: Kind,
+        _: &[Claim],
+        _: bool,
+    ) -> Result<surface_ports::Delivered, SurfaceError> {
+        unreachable!()
+    }
+    fn release(
+        &self,
+        _: &str,
+        _: &str,
+        _: Kind,
+        _: bool,
+    ) -> Result<surface_ports::Released, SurfaceError> {
+        unreachable!()
+    }
+    fn claimed(&self, _: &str, _: &str) -> Result<Vec<Kind>, SurfaceError> {
+        unreachable!()
+    }
+    fn read(&self, _: &str, rel: &str) -> Result<Option<Vec<u8>>, SurfaceError> {
+        Ok(self.0.get(rel).cloned())
+    }
+    fn read_absolute(&self, _: &str) -> Result<Option<Vec<u8>>, SurfaceError> {
+        unreachable!()
+    }
+    fn inspect(&self, _: &str) -> Result<surface_ports::Inspected, SurfaceError> {
+        unreachable!()
+    }
+}
+
+#[test]
+fn test_the_wiring_is_read_off_the_mock_files() {
+    let mock = Mock::standard();
+    assert_eq!(
+        mock.wiring(&Files(BTreeMap::new()), "t").unwrap(),
+        Wiring::default()
+    );
+    let files = Files(BTreeMap::from([
+        (
+            ".mock/settings.json".to_string(),
+            br#"{"statusline": true}"#.to_vec(),
+        ),
+        (
+            ".mock/hooks.json".to_string(),
+            br#"{"session_start": [{"command": "ctxloom", "args": ["hook", "mock", "execute", "session_start"]}]}"#.to_vec(),
+        ),
+        (
+            ".mock/mcp.json".to_string(),
+            br#"{"mcpServers": {"ctxloom": {}}}"#.to_vec(),
+        ),
+    ]));
+    assert_eq!(
+        mock.wiring(&files, "t").unwrap(),
+        Wiring {
+            settings_exists: true,
+            hooks_present: true,
+            statusline: true,
+            mcp_present: true
+        }
+    );
+}
+
+#[test]
+fn test_only_a_name_that_stays_inside_is_safe_to_make_a_path_of() {
+    for ok in ["a", "a/b", "a.b", "a/b/c.md", "..a", ".hidden"] {
+        assert!(safe(ok), "{ok}");
+    }
+    for bad in [
+        "", "/a", "a\\b", "a//b", "a/", "/", "./a", "a/./b", "a/..", "../a", "a/../b",
+    ] {
+        assert!(!safe(bad), "{bad}");
+    }
+}
+
+#[test]
+fn test_a_bare_hook_is_written_as_a_command_hook_with_nothing_else() {
+    assert_eq!(
+        hook_json("mock", "session_start", &Hook::default(), "ctxloom"),
+        Json::object([("type", Json::text("command"))])
+    );
+    // A zero or negative timeout is no timeout.
+    for timeout in [0, -1] {
+        let hook = Hook {
+            timeout,
+            ..Hook::default()
+        };
+        assert_eq!(
+            hook_json("mock", "session_start", &hook, "ctxloom"),
+            Json::object([("type", Json::text("command"))])
+        );
+    }
+}
+
+#[test]
+fn test_every_field_of_a_hook_is_written_where_it_is_set() {
+    let hook = Hook {
+        kind: "prompt".into(),
+        command: "run".into(),
+        args: vec!["a".into(), "b".into()],
+        prompt: "p".into(),
+        timeout: 1,
+        tool: "shell".into(),
+        matcher: "Bash".into(),
+        ..Hook::default()
+    };
+    assert_eq!(
+        hook_json("mock", "session_start", &hook, "ctxloom"),
+        Json::object([
+            ("type", Json::text("prompt")),
+            ("command", Json::text("run")),
+            ("args", Json::strings(["a", "b"])),
+            ("prompt", Json::text("p")),
+            ("timeout", Json::Number("1".into())),
+            ("tool", Json::text("shell")),
+            ("matcher", Json::text("Bash")),
+        ])
+    );
+    for (field, hook) in [
+        (
+            "command",
+            Hook {
+                command: "c".into(),
+                ..Hook::default()
+            },
+        ),
+        (
+            "prompt",
+            Hook {
+                prompt: "c".into(),
+                ..Hook::default()
+            },
+        ),
+        (
+            "tool",
+            Hook {
+                tool: "c".into(),
+                ..Hook::default()
+            },
+        ),
+        (
+            "matcher",
+            Hook {
+                matcher: "c".into(),
+                ..Hook::default()
+            },
+        ),
+    ] {
+        let doc = hook_json("mock", "session_start", &hook, "ctxloom");
+        let Json::Object(members) = doc else { panic!() };
+        assert_eq!(members.len(), 2, "{field}");
+    }
+}
+
+#[test]
+fn test_only_a_callback_is_rewritten_to_execute_its_event() {
+    let args = |doc: Json| doc.get("args").cloned();
+    let callback = Hook {
+        command: "ctxloom".into(),
+        args: vec!["hook".into(), "x".into(), "--engine".into(), "other".into()],
+        ..Hook::default()
+    };
+    assert_eq!(
+        args(hook_json("mock", "turn_end", &callback, "ctxloom")),
+        Some(Json::strings(["hook", "mock", "execute", "turn_end"]))
+    );
+    let foreign = Hook {
+        command: "other".into(),
+        args: vec!["hook".into()],
+        ..Hook::default()
+    };
+    assert_eq!(
+        args(hook_json("mock", "turn_end", &foreign, "ctxloom")),
+        Some(Json::strings(["hook"]))
+    );
+    let bare = Hook {
+        command: "ctxloom".into(),
+        ..Hook::default()
+    };
+    assert_eq!(args(hook_json("mock", "turn_end", &bare, "ctxloom")), None);
+}
+
+#[test]
+fn test_an_mcp_server_is_written_with_only_the_fields_it_has() {
+    let server = |name: &str, command: &str, args: &[&str], url: &str| surface_ports::McpServer {
+        name: name.into(),
+        command: command.into(),
+        args: args.iter().map(|s| s.to_string()).collect(),
+        url: url.into(),
+        ..Default::default()
+    };
+    let inputs = Inputs {
+        mcp: vec![
+            server("full", "run", &["a"], "http://x"),
+            server("cmd", "run", &[], ""),
+            server("args", "", &["a"], ""),
+            server("url", "", &[], "http://x"),
+            server("none", "", &[], ""),
+        ],
+        ..Inputs::default()
+    };
+    let planned = Mock::standard().plan(Kind::Mcp, &inputs).unwrap();
+    let Claim::Whole { bytes, .. } = &planned.claims[0] else {
+        panic!()
+    };
+    let doc = Json::parse(&String::from_utf8(bytes.clone()).unwrap()).unwrap();
+    let servers = doc.get("mcpServers").unwrap();
+    assert_eq!(
+        servers.get("full").unwrap(),
+        &Json::object([
+            ("command", Json::text("run")),
+            ("args", Json::strings(["a"])),
+            ("url", Json::text("http://x")),
+        ])
+    );
+    assert_eq!(
+        servers.get("cmd").unwrap(),
+        &Json::object([("command", Json::text("run"))])
+    );
+    assert_eq!(
+        servers.get("args").unwrap(),
+        &Json::object([("args", Json::strings(["a"]))])
+    );
+    assert_eq!(
+        servers.get("url").unwrap(),
+        &Json::object([("url", Json::text("http://x"))])
+    );
+    assert_eq!(servers.get("none").unwrap(), &Json::object::<&str>([]));
+}
+
+#[test]
+fn test_a_hook_file_is_ctxloom_wiring_only_for_the_bare_ctxloom_hook_command() {
+    let wired = |hooks: &str| {
+        Mock::standard()
+            .wiring(
+                &Files(BTreeMap::from([(
+                    ".mock/hooks.json".to_string(),
+                    hooks.as_bytes().to_vec(),
+                )])),
+                "t",
+            )
+            .unwrap()
+            .hooks_present
+    };
+    assert!(wired(
+        r#"{"e": [{"command": "ctxloom", "args": ["hook", "mock", "execute", "e"]}]}"#
+    ));
+    // The earlier form is stale: the next surface apply rewrites it.
+    assert!(!wired(
+        r#"{"e": [{"command": "ctxloom", "args": ["hook", "x", "--engine", "mock"]}]}"#
+    ));
+    assert!(!wired(
+        r#"{"e": [{"command": "ctxloom", "args": ["other"]}]}"#
+    ));
+    assert!(!wired(r#"{"e": [{"command": "other", "args": ["hook"]}]}"#));
+    assert!(!wired(r#"{"e": [{"command": "ctxloom"}]}"#));
+}
+
+fn hook(command: &str) -> Hook {
+    Hook {
+        command: command.into(),
+        ..Hook::default()
+    }
+}
+
+fn hook_inputs(events: &[&str]) -> Inputs {
+    let mut hooks = Hooks::new();
+    for event in events {
+        hooks.insert((*event).into(), vec![hook("echo")]);
+    }
+    Inputs {
+        hooks,
+        ..Inputs::default()
+    }
+}
+
+#[test]
+fn test_the_lossy_variant_carries_every_kind_and_drops_two_hook_events() {
+    let mock = Mock::lossy();
+    assert_eq!(mock.name(), "mock-lossy");
+    for kind in Kind::ALL {
+        assert!(mock.carries(kind), "{kind:?}");
+    }
+    assert_eq!(
+        mock.hook_losses(),
+        [
+            (
+                "session_start".to_string(),
+                "mock-lossy has no native session_start event".to_string()
+            ),
+            (
+                "session_end".to_string(),
+                "mock-lossy has no native session_end event".to_string()
+            ),
+        ]
+    );
+    assert!(Mock::standard().hook_losses().is_empty());
+    assert!(Mock::home_keyed().hook_losses().is_empty());
+}
+
+#[test]
+fn test_the_lossy_hook_file_leaves_out_the_events_it_cannot_fire() {
+    let inputs = hook_inputs(&["session_start", "session_end", "pre_tool"]);
+    let planned = Mock::lossy().plan(Kind::Hooks, &inputs).unwrap();
+    let Claim::Whole { path, bytes, .. } = &planned.claims[0] else {
+        panic!()
+    };
+    assert_eq!(path, ".mock/hooks.json");
+    let doc = Json::parse(&String::from_utf8(bytes.clone()).unwrap()).unwrap();
+    assert!(doc.get("session_start").is_none() && doc.get("session_end").is_none());
+    assert!(doc.get("pre_tool").is_some());
+    let whole = Mock::standard().plan(Kind::Hooks, &inputs).unwrap();
+    let Claim::Whole { bytes, .. } = &whole.claims[0] else {
+        panic!()
+    };
+    let doc = Json::parse(&String::from_utf8(bytes.clone()).unwrap()).unwrap();
+    assert!(doc.get("session_start").is_some() && doc.get("session_end").is_some());
+}
+
+#[test]
+fn test_the_lossy_variant_writes_the_other_kinds_as_the_standard_does() {
+    let inputs = Inputs {
+        context: "ctx".into(),
+        commands: vec![Command {
+            name: "c".into(),
+            description: String::new(),
+            body: "body".into(),
+        }],
+        ..Inputs::default()
+    };
+    for kind in [Kind::Context, Kind::Commands, Kind::Mcp, Kind::Settings] {
+        let lossy = Mock::lossy().plan(kind, &inputs).unwrap();
+        let standard = Mock::standard().plan(kind, &inputs).unwrap();
+        assert_eq!(paths(&lossy), paths(&standard), "{kind:?}");
+        assert!(!lossy.claims.is_empty());
+    }
+}
+
+#[test]
+fn test_the_no_skills_variant_declares_the_surface_and_exports_nothing_to_it() {
+    let mock = Mock::no_skills();
+    assert_eq!(mock.name(), "mock-noskills");
+    for kind in Kind::ALL {
+        assert!(mock.carries(kind), "{kind:?}");
+    }
+    let inputs = Inputs {
+        skills: vec![Skill {
+            name: "reviewer".into(),
+            description: "d".into(),
+            files: vec![SkillFile {
+                path: "SKILL.md".into(),
+                bytes: b"s".to_vec(),
+                executable: false,
+            }],
+        }],
+        commands: vec![Command {
+            name: "c".into(),
+            description: String::new(),
+            body: "body".into(),
+        }],
+        ..Inputs::default()
+    };
+    let skills = mock.plan(Kind::Skills, &inputs).unwrap();
+    assert!(skills.claims.is_empty() && skills.skipped.is_empty());
+    assert!(!mock
+        .plan(Kind::Commands, &inputs)
+        .unwrap()
+        .claims
+        .is_empty());
+    assert!(!Mock::standard()
+        .plan(Kind::Skills, &inputs)
+        .unwrap()
+        .claims
+        .is_empty());
+    assert!(mock.hook_losses().is_empty());
+}
+
+// Owner ruling 163: a callback runs the program the mock was told.
+#[test]
+fn test_a_callback_runs_the_program_the_mock_calls() {
+    let callback = Hook {
+        command: "ctxloom".into(),
+        args: vec!["hook".into(), "x".into()],
+        ..Hook::default()
+    };
+    let doc = hook_json("mock", "turn_end", &callback, "ctxloom-other");
+    assert_eq!(
+        doc.get("command").and_then(Json::as_str),
+        Some("ctxloom-other")
+    );
+}

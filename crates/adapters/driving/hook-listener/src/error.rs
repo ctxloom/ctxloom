@@ -1,0 +1,111 @@
+//! Why the run's hook listener could not be started or stopped.
+
+use std::fmt;
+
+use angzarr_coordinator_grpc::ListenError;
+use angzarr_diagnostic::{code, Arg, Diagnostic};
+
+/// A listener that could not be bound, or did not stop cleanly.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ListenerError {
+    /// The address could not be bound: it is in use, not ours, or a system
+    /// call failed. `cause` is the listener's own account.
+    Bind {
+        endpoint: String,
+        cause: ListenError,
+    },
+    /// The address to bind is unspecified (0.0.0.0, ::): on every interface.
+    /// A hook listener never binds one.
+    Unspecified { addr: String },
+    /// The server bound, and reported no TCP address.
+    NotBound { addr: String },
+    /// The listener did not stop cleanly.
+    Stop {
+        endpoint: String,
+        cause: ListenError,
+    },
+}
+
+impl ListenerError {
+    pub(crate) fn bind_addr(addr: std::net::SocketAddr, cause: &ListenError) -> ListenerError {
+        ListenerError::Bind {
+            endpoint: addr.to_string(),
+            cause: cause.clone(),
+        }
+    }
+
+    pub(crate) fn stop(endpoint: &str, cause: &ListenError) -> ListenerError {
+        ListenerError::Stop {
+            endpoint: endpoint.to_string(),
+            cause: cause.clone(),
+        }
+    }
+}
+
+impl fmt::Display for ListenerError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        angzarr_diagnostic::display(self, f)
+    }
+}
+
+impl Diagnostic for ListenerError {
+    fn code(&self) -> &str {
+        match self {
+            ListenerError::Bind { .. } => code!("bind"),
+            ListenerError::Stop { .. } => code!("stop"),
+            ListenerError::Unspecified { .. } => code!("bind-unspecified"),
+            ListenerError::NotBound { .. } => code!("bind-not-reported"),
+        }
+    }
+
+    fn args(&self) -> Vec<(&str, Arg)> {
+        match self {
+            ListenerError::Unspecified { addr } | ListenerError::NotBound { addr } => {
+                vec![("addr", addr.as_str().into())]
+            }
+            ListenerError::Bind { endpoint, cause } | ListenerError::Stop { endpoint, cause } => {
+                vec![
+                    ("endpoint", endpoint.as_str().into()),
+                    ("cause", Arg::nested(cause)),
+                ]
+            }
+        }
+    }
+}
+
+impl std::error::Error for ListenerError {}
+
+/// This crate's en-US messages, its name first.
+pub const EN_US: (&str, &str) = (
+    env!("CARGO_PKG_NAME"),
+    include_str!("../locales/en-US/messages.ftl"),
+);
+
+/// The messages of this crate and of the listener it serves with, whose
+/// refusal a bind failure carries as its cause.
+pub const CATALOGS: [(&str, &str); 2] = [EN_US, angzarr_coordinator_grpc::EN_US];
+
+/// One value of every error, for the catalog test.
+#[cfg(any(test, feature = "test-support"))]
+pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
+    let cause = ListenError::Io {
+        op: "bind",
+        target: "127.0.0.1:0".to_string(),
+        error: "Address already in use".to_string(),
+    };
+    let addr: std::net::SocketAddr = "127.0.0.1:40123".parse().unwrap();
+    vec![
+        Box::new(ListenerError::bind_addr(addr, &cause)),
+        Box::new(ListenerError::Unspecified {
+            addr: "0.0.0.0:0".to_string(),
+        }),
+        Box::new(ListenerError::NotBound {
+            addr: "127.0.0.1:0".to_string(),
+        }),
+        Box::new(ListenerError::stop("127.0.0.1:40123", &cause)),
+    ]
+}
+
+#[cfg(test)]
+#[path = "error.test.rs"]
+mod tests;

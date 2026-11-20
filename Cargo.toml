@@ -1,0 +1,238 @@
+[workspace]
+resolver = "2"
+members = ["crates/*/*/*"]
+
+[workspace.package]
+edition = "2021"
+# The newest any dependency needs: angzarr-build (and its angzarr-codegen), a
+# build dependency, needs 1.96.
+rust-version = "1.96"
+license = "Apache-2.0 OR BSD-3-Clause"
+publish = false
+
+[workspace.dependencies]
+# The runtime pair: the lock holds ONE angzarr-embedded, angzarr-proto,
+# angzarr-ports and angzarr-diagnostic (and one of every angzarr crate). The
+# pins agree: angzarr-embedded 94f630a (angzarr-router bec0c2b), angzarr core
+# f6fed5e, angzarr-build 7547415 and angzarr-platform a35789e are one line of
+# revs, taskloom's crates (d43fb68) and rust-support's (d543b4e) are built on the
+# same ones, and moving any of them moves the others with it.
+#
+# angzarr-proto, angzarr-ports and angzarr-store-sqlite are reached through
+# angzarr-embedded's re-exports and its `sqlite` feature, and are not pinned
+# here; angzarr-diagnostic, the coded-error trait every crate implements, is
+# pinned at the same core rev.
+angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr", rev = "71b453a4c0ee43bf9de3659f1a9339c110f6ae59" }
+# The markup macros the hand-written domains use (`#[aggregate]`), at the same
+# embedded rev, so the lock holds one angzarr-embedded.
+# The host: `App` and its exposure seam (`serve_in`), which the in-process
+# edge adapter wraps. At the pin the rest of the lock shares.
+angzarr-embedded-host = { git = "https://github.com/angzarr-io/angzarr", rev = "71b453a4c0ee43bf9de3659f1a9339c110f6ae59" }
+angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr", rev = "71b453a4c0ee43bf9de3659f1a9339c110f6ae59" }
+# The kernel runner (retry, dead letters, typed refusals) every context sends
+# its commands through, at the one angzarr-embedded rev.
+angzarr-embedded-runner = { git = "https://github.com/angzarr-io/angzarr", rev = "71b453a4c0ee43bf9de3659f1a9339c110f6ae59" }
+# angzarr-build (with angzarr-codegen; the markup domain layer generator, in
+# its own repository): a build dependency of the wire and domain crates, pinned
+# by full commit, on angzarr core f6fed5e (the rev the pins above share), as
+# taskloom pins it.
+angzarr-build = { git = "https://github.com/angzarr-io/angzarr", rev = "71b453a4c0ee43bf9de3659f1a9339c110f6ae59" }
+angzarr-diagnostic = { git = "https://github.com/angzarr-io/angzarr", rev = "71b453a4c0ee43bf9de3659f1a9339c110f6ae59" }
+# angzarr-yaml, the one reader for every config and Go-written file (owner
+# ruling, 2026-10-31): versioned documents migrated on read, strict decode.
+angzarr-yaml = { git = "https://github.com/angzarr-io/angzarr", rev = "71b453a4c0ee43bf9de3659f1a9339c110f6ae59" }
+# The distributed transport's generated gRPC client (and, for a test's fake
+# server, its service trait): the hook process's way to the run's listener.
+angzarr-proto-transport-distributed = { git = "https://github.com/angzarr-io/angzarr", rev = "71b453a4c0ee43bf9de3659f1a9339c110f6ae59" }
+# Presentation at the driving edge (json or text, catalogs, envelopes).
+angzarr-presentation = { git = "https://github.com/angzarr-io/angzarr", rev = "71b453a4c0ee43bf9de3659f1a9339c110f6ae59" }
+# The coordinator edge (core f6fed5e): the gate (Gate, Principal, Allowlist,
+# Credential), the Commands half and the gRPC server that serves them on a
+# unix socket. Transport-free except angzarr-coordinator-grpc.
+angzarr-coordinator = { default-features = false, git = "https://github.com/angzarr-io/angzarr", rev = "71b453a4c0ee43bf9de3659f1a9339c110f6ae59" }
+angzarr-coordinator-grpc = { default-features = false, git = "https://github.com/angzarr-io/angzarr", rev = "71b453a4c0ee43bf9de3659f1a9339c110f6ae59" }
+# Each test's scratch directory (a short path, for a socket): a dev-dependency.
+angzarr-test-dir = { git = "https://github.com/angzarr-io/angzarr", rev = "71b453a4c0ee43bf9de3659f1a9339c110f6ae59" }
+# The platform crates: os, the file-system seam, advisory locks.
+os = { git = "https://github.com/angzarr-io/angzarr", rev = "71b453a4c0ee43bf9de3659f1a9339c110f6ae59" }
+file-system = { git = "https://github.com/angzarr-io/angzarr", rev = "71b453a4c0ee43bf9de3659f1a9339c110f6ae59" }
+file-lock = { git = "https://github.com/angzarr-io/angzarr", rev = "71b453a4c0ee43bf9de3659f1a9339c110f6ae59" }
+
+# taskloom, by commit (D3 (b), D2 (a)): harp-names and the ports it implements.
+# 7af0580 is taskloom's pin on the same angzarr family; only these crates are consumed.
+harp-names = { git = "https://github.com/ctxloom/taskloom", rev = "d43fb6831b17f3eec2d1e13b16d7bd9b90540612" }
+ports = { git = "https://github.com/ctxloom/taskloom", rev = "d43fb6831b17f3eec2d1e13b16d7bd9b90540612" }
+# taskloom's system adapter: the clock, command ids, delay and jitter ports.
+system = { git = "https://github.com/ctxloom/taskloom", rev = "d43fb6831b17f3eec2d1e13b16d7bd9b90540612" }
+# taskloom's project identity (the work root, the `.project-id` marker and the
+# home registry of projects), read through, not copied (D2 (a)).
+project-registry = { git = "https://github.com/ctxloom/taskloom", rev = "d43fb6831b17f3eec2d1e13b16d7bd9b90540612" }
+# Harp's word lists, at taskloom's rev, so the lock holds one.
+harp-core = { git = "https://github.com/benjaminabbitt/harp", rev = "e27196f5a425ffcf8e443aab95d2bf085cd2b134" }
+
+# prost must be the version angzarr-proto generates for.
+prost = "0.14"
+prost-types = "0.14"
+
+sessions-application = { path = "crates/core/application/sessions-application" }
+runs-proto = { path = "crates/core/wire/runs-proto" }
+runs = { path = "crates/core/domain/runs" }
+scheduler-proto = { path = "crates/core/wire/scheduler-proto" }
+scheduler = { path = "crates/core/domain/scheduler" }
+scheduler-ports = { path = "crates/core/ports/scheduler-ports" }
+scheduler-loop = { path = "crates/core/application/scheduler-loop" }
+scheduler-fixture = { path = "crates/core/domain/scheduler-fixture" }
+scheduler-due = { path = "crates/core/read-model/scheduler-due" }
+pending-launches = { path = "crates/core/read-model/pending-launches" }
+trees = { path = "crates/core/domain/trees" }
+run-ports = { path = "crates/core/ports/run-ports" }
+runs-application = { path = "crates/core/application/runs-application" }
+run-launcher = { path = "crates/core/application/run-launcher" }
+run-application = { path = "crates/core/application/run-application" }
+credentials = { path = "crates/adapters/driven/credentials" }
+hook-sink-grpc = { path = "crates/adapters/driven/hook-sink-grpc" }
+embedded-edge = { path = "crates/adapters/driven/embedded-edge" }
+session-ports = { path = "crates/core/ports/session-ports" }
+sessions-proto = { path = "crates/core/wire/sessions-proto" }
+sessions = { path = "crates/core/domain/sessions" }
+session-index = { path = "crates/core/read-model/session-index" }
+liveness = { path = "crates/adapters/driven/liveness" }
+session-files = { path = "crates/adapters/driven/session-files" }
+session-cli = { path = "crates/adapters/driving/session-cli" }
+hook-cli = { path = "crates/adapters/driving/hook-cli" }
+hook-listener = { path = "crates/adapters/driving/hook-listener" }
+hook-tls = { path = "crates/adapters/driven/hook-tls" }
+run-cli = { path = "crates/adapters/driving/run-cli" }
+ctxloom-cli = { path = "crates/adapters/driving/ctxloom-cli" }
+config-files = { path = "crates/adapters/driven/config-files" }
+content-fs = { path = "crates/adapters/driven/content-fs" }
+editor-process = { path = "crates/adapters/driven/editor-process" }
+companion-probe = { path = "crates/adapters/driven/companion-probe" }
+ctxloom-ports = { path = "crates/core/ports/ctxloom-ports" }
+library = { path = "crates/core/read-model/library" }
+library-application = { path = "crates/core/application/library-application" }
+library-cli = { path = "crates/adapters/driving/library-cli" }
+stub-companion = { path = "crates/root/bin/stub-companion" }
+ctxloom-wiring = { path = "crates/root/lib/ctxloom-wiring" }
+deps = { path = "crates/core/read-model/deps" }
+pin-changes = { path = "crates/core/read-model/pin-changes" }
+deps-ports = { path = "crates/core/ports/deps-ports" }
+deps-application = { path = "crates/core/application/deps-application" }
+remote-git = { path = "crates/adapters/driven/remote-git" }
+deps-files = { path = "crates/adapters/driven/deps-files" }
+deps-cli = { path = "crates/adapters/driving/deps-cli" }
+forge-github = { path = "crates/adapters/driven/forge-github" }
+ctxloom-store-sqlite = { path = "crates/adapters/driven/ctxloom-store-sqlite" }
+surface-ports = { path = "crates/core/ports/surface-ports" }
+setup-application = { path = "crates/core/application/setup-application" }
+surface-files = { path = "crates/adapters/driven/surface-files" }
+engine-claude = { path = "crates/adapters/driven/engine-claude" }
+engine-mock = { path = "crates/adapters/driven/engine-mock" }
+engine-opencode = { path = "crates/adapters/driven/engine-opencode" }
+host-launcher = { path = "crates/adapters/driven/host-launcher" }
+surface-cli = { path = "crates/adapters/driving/surface-cli" }
+cache-files = { path = "crates/adapters/driven/cache-files" }
+auth-application = { path = "crates/core/application/auth-application" }
+reclaim-application = { path = "crates/core/application/reclaim-application" }
+doctor-checks = { path = "crates/core/application/doctor-checks" }
+init-application = { path = "crates/core/application/init-application" }
+setup-cli = { path = "crates/adapters/driving/setup-cli" }
+isolation-ports = { path = "crates/core/ports/isolation-ports" }
+isolation = { path = "crates/core/read-model/isolation" }
+isolation-application = { path = "crates/core/application/isolation-application" }
+worktree-git = { path = "crates/adapters/driven/worktree-git" }
+tasks-ports = { path = "crates/core/ports/tasks-ports" }
+taskloom-cli-client = { path = "crates/adapters/driven/taskloom-cli-client" }
+container-runtime = { path = "crates/adapters/driven/container-runtime" }
+container-cli = { path = "crates/adapters/driving/container-cli" }
+# rust-support, the shared substrate (S2): the driving edge's call, failure, notices
+# and argument shims. Pinned by full commit over https, as taskloom pins it;
+# its angzarr pins are the ones above.
+cli-support = { git = "https://github.com/benjaminabbitt/rust-support", rev = "d543b4e903371d89e87e504d9ebb8ea212330673" }
+# process-env (S3): the environment read once into a snapshot the composition root hands down.
+process-env = { git = "https://github.com/benjaminabbitt/rust-support", rev = "d543b4e903371d89e87e504d9ebb8ea212330673" }
+# project-dir (S4): the ancestor walk with injected rules, and the checked project id.
+project-dir = { git = "https://github.com/benjaminabbitt/rust-support", rev = "d543b4e903371d89e87e504d9ebb8ea212330673" }
+# run-within (S6): a program run under a deadline, its tree killed, its output bounded.
+run-within = { git = "https://github.com/benjaminabbitt/rust-support", rev = "d543b4e903371d89e87e504d9ebb8ea212330673" }
+# duration-text (S9): a span or date as an age, and the cutoff it makes.
+duration-text = { git = "https://github.com/benjaminabbitt/rust-support", rev = "d543b4e903371d89e87e504d9ebb8ea212330673" }
+# sqlite-store-opener (S5): places and opens a project's SQLite store under a file name the caller
+# names, refusing a store from before the embedded store; ctxloom-store-sqlite is its adapter.
+sqlite-store-opener = { git = "https://github.com/benjaminabbitt/rust-support", rev = "d543b4e903371d89e87e504d9ebb8ea212330673" }
+
+# exit-code: the exit-code convention as a pure type (rulings 149, 152, 153), so the
+# core's errors say their class; cli-support re-exports it for the edge.
+exit-code = { git = "https://github.com/benjaminabbitt/rust-support", rev = "d543b4e903371d89e87e504d9ebb8ea212330673" }
+
+# fixture-program: a test's fake program, linked to a committed shim that sh runs the
+# script through, so no file a test wrote is exec'd (ETXTBSY). A dev-dependency only.
+fixture-program = { git = "https://github.com/benjaminabbitt/rust-support", rev = "d543b4e903371d89e87e504d9ebb8ea212330673" }
+
+# HTTP for forge-github (owner, 2026-11-04): the blocking client, so the
+# synchronous CLI holds no runtime of its own. Its TLS is rustls on ring
+# (owner, 2026-11-12; ruling 35: one provider, never aws-lc), so no OpenSSL is
+# linked: reqwest's provider-less rustls backend, handed forge-github's own
+# client config (ring, and the OS trust store read by rustls-native-certs).
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls-manual-roots-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-native-certs = "0.8"
+# Version ranges and the breaking-change rule (owner, 2026-11-04).
+semver = "1"
+# The credential digest, its constant-time comparison and the OS entropy that
+# mints a token (D29).
+sha2 = "0.10"
+subtle = "2"
+getrandom = "0.3"
+clap = { version = "4.5", features = ["derive", "string"] }
+clap_complete = "4.5"
+# `#[mutants::skip]`, for a mutant judged equivalent: a dev-dependency, behind
+# `cfg_attr(test, ...)`, so it links nothing in a build.
+mutants = "0.0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+hex = "0.4"
+# Gherkin features run in the binary's tests (owner approved, 2026-11-04): Go's
+# .feature text with new Rust steps.
+cucumber = "0.21"
+time = { version = "0.3", features = ["formatting", "parsing"] }
+# The run's listener certificate (owner, 2026-11-09, ruling 35): rcgen with the
+# ring backend, which tonic's `tls-ring` already makes the one crypto provider.
+rcgen = { version = "0.13", default-features = false, features = ["crypto", "pem", "ring"] }
+tokio = { version = "1", features = ["rt", "time"] }
+uuid = { version = "1", features = ["v5", "v7"] }
+
+[workspace.lints.clippy]
+invisible_characters = "deny"
+unicode_not_nfc = "deny"
+non_ascii_literal = "deny"
+# Complexity, at clippy's defaults except nesting, whose threshold is in
+# clippy.toml (and crates/core/clippy.toml, which shadows it there).
+cognitive_complexity = "warn"
+too_many_lines = "warn"
+excessive_nesting = "warn"
+
+# The release (owner ruling 2026-11-12): fat LTO in one codegen unit, at
+# opt-level 3, keeping line tables and every symbol (`strip = "none"`), and
+# unwinding panics (no `panic = "abort"`). Cargo's own strip would delete what
+# the debug file needs: stripping is release packaging's, per platform
+# (`just release-package`, scripts/release-package.sh), which ships the
+# stripped binary next to its debug file. `split-debuginfo` is cargo's
+# default (linux: off, so objcopy splits it; macOS: packed, a .dSYM; Windows
+# MSVC: a .pdb).
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+debug = "line-tables-only"
+strip = "none"
+
+# CI's per-push artifact on main (`just release-binary ci-artifact`): cargo's
+# release defaults, no LTO, so the release's link time is not every push's;
+# unstripped (`strip = "none"`, inherited).
+[profile.ci-artifact]
+inherits = "release"
+lto = false
+codegen-units = 16
+debug = 0

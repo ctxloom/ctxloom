@@ -1,0 +1,330 @@
+# world: base
+# Ported from cli/session.feature (rev f36e8dfb2)
+# NOT ported: the Rules tagged @pending (renaming, the transcript sub-noun,
+#   approvals and control): not turned on yet; M8 turns on the reading Rule.
+#   The rest of Go's file is in the files that say `Ported from cli/session.feature`.
+#   Left out: the `session remove` Rule (retired: `session remove`
+#   is the one destroyer, cli/session_purge.feature) and the `session adopt`
+#   Rule (dropped: it repaired transcripts a Go defect orphaned).
+# Ported from journeys/j001200_recall.feature (its empty search, the last scenario of the reading Rule)
+
+@doc
+Feature: session — the record of what your assistant did, and the tools to prune it
+
+  Every `ctxloom run` mints a harp-named session and writes down what
+  happened. The `session` noun is how you read that record back and how you
+  throw parts of it away. Reading is free; every destroyer reports first and
+  changes nothing until you say `--yes`.
+
+  This is the comprehensive per-noun spec: what the noun DOES, leaf by leaf,
+  hermetically against seeded sessions in the session index, which is
+  folded from the session events in the project's store: listing, searching
+  and showing a session, and its transcript, read those events, never a file
+  in the session's directory. The narrative versions — Alice
+  recalling a conversation from March, Alice closing a shipped workstream out
+  — are journeys/j001200_recall.feature and j001300_closeout.feature, which
+  assert what a PERSON sees.
+
+  Surfaces covered here:
+
+    ctxloom session                     (bare: lists)
+    ctxloom session list [--state live|ended|unknown]
+    ctxloom session show <harp>
+    ctxloom session rename <harp> <title>
+    ctxloom session keep <harp> [--undo]
+    ctxloom session pause|resume|stop <harp>
+    ctxloom session ask <harp> "<question>"
+    ctxloom session search <word>... [--state live|ended|unknown]
+    ctxloom session transcript              (bare: lists)
+    ctxloom session transcript list [<harp>]
+    ctxloom session transcript show <harp>
+    ctxloom session transcript watch <harp>
+    ctxloom session worktrees               (bare: lists)
+    ctxloom session worktrees list [<harp>]
+    ctxloom session remove <harp> | --older-than <age> [--yes]
+    ctxloom session approvals
+
+  Rule: Reading the record touches nothing
+
+    Scenario: The bare noun lists what has been recorded
+      Given an initialized ctxloom project
+      And a recorded session "amber-swift-owl"
+      When I run "ctxloom session"
+      Then the command succeeds
+      And the output contains "amber-swift-owl"
+
+    Scenario: --all reaches past the current project
+      Given an initialized ctxloom project
+      And a recorded session "amber-swift-owl"
+      When I run "ctxloom session list --all"
+      Then the command succeeds
+      And the output contains "amber-swift-owl"
+
+    # Tabled by format: `session list` is wired to emit(), so off a terminal
+    # (which this harness always is) the no-flag row now gets the JSON rows
+    # array (empty here), not the "(no sessions)" text line. Reuses the
+    # branch's shared empty-collection step rather than a new spelling.
+    Scenario Outline: A fresh project has recorded nothing
+      Given an initialized ctxloom project
+      When I run "ctxloom <flags> session list"
+      Then the command succeeds
+      And the output reports "$" as empty, saying "no sessions"
+
+      @json-default
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+        | flags         |
+        |               |
+        | --format json |
+        | --format text |
+
+    # A session's title is the first thing its user asked, read from its
+    # recorded transcript: the listing, the search and `show` all carry it.
+    Scenario: Showing a session prints its record, titled by its first prompt
+      Given an initialized ctxloom project
+      And a recorded session "amber-swift-owl"
+      When I run "ctxloom session show amber-swift-owl --format text"
+      Then the command succeeds
+      And the output contains "Seeded prompt for amber-swift-owl."
+      And the output contains "engine:"
+      When I run "ctxloom session list --format json"
+      Then the JSON output array "$" contains an object whose "harp" is "amber-swift-owl" and whose "summary" is "Seeded prompt for amber-swift-owl."
+
+    # The index says ended; the lock says running. The lock wins in the
+    # listing too: ended_at is when the LAST run ended and a resume keeps it,
+    # so it is no answer to "is this running now". The state is the lock's
+    # verdict — held is live, free is ended, no lock file is unknown — and a
+    # live session's end is blank rather than a stamp from its previous run.
+    Scenario: The listing takes each session's state from its lock, not its end stamp
+      Given an initialized ctxloom project
+      And a session "amber-swift-owl" with a transcript that is running again
+      And a finished session "brisk-copper-moth" with a transcript
+      And a finished session "calm-dusty-wren" with a transcript but no session lock
+      When I run "ctxloom session list --all --format json"
+      Then the command succeeds
+      And the JSON output array "$" contains an object whose "harp" is "amber-swift-owl" and whose "state" is "live"
+      And the JSON output array "$" contains an object whose "harp" is "amber-swift-owl" and that has no "end"
+      And the JSON output array "$" contains an object whose "harp" is "brisk-copper-moth" and whose "state" is "ended"
+      And the JSON output array "$" contains an object whose "harp" is "calm-dusty-wren" and whose "state" is "unknown"
+      When I run "ctxloom session list --all --format text"
+      Then the command succeeds
+      And the output contains "STATE"
+
+    Scenario Outline: --state keeps only the sessions in that state
+      Given an initialized ctxloom project
+      And a session "amber-swift-owl" with a transcript that is running again
+      And a finished session "brisk-copper-moth" with a transcript
+      And a finished session "calm-dusty-wren" with a transcript but no session lock
+      When I run "ctxloom session <leaf> --all --state <state> --format json"
+      Then the command succeeds
+      And the JSON output array "$" contains an object whose "harp" is "<kept>" and whose "state" is "<state>"
+      And the JSON output array "$" contains no object whose "harp" is "<dropped1>"
+      And the JSON output array "$" contains no object whose "harp" is "<dropped2>"
+
+      Examples: both listings filter the same way
+        | leaf           | state   | kept              | dropped1          | dropped2          |
+        | list           | live    | amber-swift-owl   | brisk-copper-moth | calm-dusty-wren   |
+        | list           | ended   | brisk-copper-moth | amber-swift-owl   | calm-dusty-wren   |
+        | list           | unknown | calm-dusty-wren   | amber-swift-owl   | brisk-copper-moth |
+        | search seeded  | live    | amber-swift-owl   | brisk-copper-moth | calm-dusty-wren   |
+        | search seeded  | ended   | brisk-copper-moth | amber-swift-owl   | calm-dusty-wren   |
+
+    Scenario: --state refuses a word that is not a state
+      Given an initialized ctxloom project
+      When I run "ctxloom session list --state running"
+      Then the command fails
+      And the output contains "live, ended, unknown"
+
+    # "Nothing matched" and "the search did not run" must not look the same:
+    # an empty result is said in so many words, never answered with no output.
+    Scenario: A query that matches nothing says so rather than printing nothing
+      # substitution: a recorded session the query does not match stands in for the journey's March fixture.
+      Given an initialized ctxloom project
+      And a recorded session "amber-swift-owl"
+      When I run "ctxloom session search J001200-MATCHES-ABSOLUTELY-NOTHING"
+      Then the command succeeds
+      And ctxloom says plainly that nothing matched
+
+  @pending
+  Rule: A rename sets the title; the harp is permanent
+
+    A session's harp is minted once and never changes (owner S55,
+    2026-11-12). `session rename <harp> <title>` sets the free-text title
+    shown in its place of the first prompt; the harp, the session's
+    directory, its lock and its output folder (`<project>/<output.dir>/<harp>`)
+    stay where they were. The harp-changing `session edit --name` is gone.
+
+    @json-default
+    Scenario: A rename sets the title, and the harp, its directory and its output folder stay
+      # new: S55, a harp is permanent; replaces "--name renames the harp and moves its output folder".
+      Given an initialized ctxloom project
+      And a finished session "amber-swift-owl" with a transcript and a summary an older ctxloom left
+      When I run 'ctxloom session rename amber-swift-owl "the auth refactor"'
+      Then the command succeeds
+      And the output contains "the auth refactor"
+      And the output file "essence.md" of session "amber-swift-owl" exists
+      When I run "ctxloom session list --all"
+      Then the JSON output array "$" contains an object whose "harp" is "amber-swift-owl"
+
+    Scenario: The harp-changing edit is gone, not hidden
+      # new: S55; replaces "The old rename verb is gone, not hidden".
+      Given an initialized ctxloom project
+      And a recorded session "amber-swift-owl"
+      When I run "ctxloom session edit amber-swift-owl --name bright-keen-hawk"
+      Then the command fails
+      And the output contains "unknown command"
+
+    Scenario: Renaming a session nobody recorded fails
+      # new: S55; replaces "Editing a session nobody recorded fails".
+      Given an initialized ctxloom project
+      When I run 'ctxloom session rename no-such-harp "a title"'
+      Then the command fails
+      And the output contains "no-such-harp"
+
+  @pending
+  Rule: The transcript is a population of its own
+
+    A session's recorded conversation has its own listing, its own stream and
+    its own destroyer, so it gets its own sub-noun. `session transcript`
+    named alone lists — the same bare-noun answer `remote` gives.
+
+    Scenario: The bare sub-noun lists which sessions have a transcript
+      Given an initialized ctxloom project
+      And a recorded session "amber-swift-owl"
+      When I run "ctxloom session transcript"
+      Then the command succeeds
+      And the output contains "amber-swift-owl"
+
+    # A session whose transcript was never captured is listed SAYING SO.
+    # Omitting it would make "nothing was captured" read identically to
+    # "there are no sessions".
+    Scenario: A session with no captured transcript is still named
+      Given an initialized ctxloom project
+      And a recorded session "amber-swift-owl" for backend "claude-code"
+      When I run "ctxloom session transcript list"
+      Then the command succeeds
+      And the output contains "amber-swift-owl"
+      And the output contains "false"
+
+    Scenario: The harp is a positional, and an unknown one fails
+      Given an initialized ctxloom project
+      When I run "ctxloom session transcript list no-such-harp"
+      Then the command fails
+      And the output contains "no-such-harp"
+
+    # Off a terminal (which this harness always is) show's default is NDJSON:
+    # the whole transcript, and nothing else, on stdout, then exit.
+    Scenario: Show prints the whole transcript and exits, ready for a pipe
+      Given an initialized ctxloom project
+      And a recorded session "amber-swift-owl"
+      When I run "ctxloom session transcript show amber-swift-owl"
+      Then the command succeeds
+      And every line of stdout is a JSON object
+      And the output contains "Seeded prompt for amber-swift-owl."
+
+    Scenario: Watching moved under the transcript it watches
+      Given an initialized ctxloom project
+      And a recorded session "amber-swift-owl"
+      When I run "ctxloom session watch amber-swift-owl"
+      Then the command fails
+      And the output contains "unknown command"
+
+  @pending
+  Rule: Pending approvals are readable from any terminal, and only readable
+
+    # `session approvals` asks every live coordinator on this host, found by
+    # the endpoint files coordinators write under the state root. With none
+    # running nothing is parked anywhere, so that is a message naming where
+    # discovery looked, not a failure; the structured form says how many
+    # coordinators answered, which is what separates "none running" from
+    # "running with nothing pending".
+    Scenario: With no coordinator running, the text says so and where it looked
+      Given an initialized ctxloom project
+      When I run "ctxloom --format text session approvals"
+      Then the command succeeds
+      And the output contains "no coordinator is running"
+      And the output contains "no live endpoint under"
+
+    Scenario: With no coordinator running, the JSON reports none answered and nothing pending
+      Given an initialized ctxloom project
+      When I run "ctxloom --format json session approvals"
+      Then the command succeeds
+      And the output reports "coordinators" as "0"
+      And the output reports "approvals" as empty, saying "no coordinator is running"
+
+    # A SECOND PROCESS reaching a LIVE coordinator: the standing owner is a
+    # real `ctxloom run` hosting one, and this command finds it by discovery
+    # and asks it over RPC. "coordinators" is 1 only because that round trip
+    # happened. The owner is interactive and routes no approvals, so nothing
+    # is parked — a request parked by a headless child is not staged here:
+    # nothing in this harness can wait on another process's queue without
+    # polling it. That proof is the integration lane's
+    # TestPermissionContract_AnotherProcessListsTheParkedAsk.
+    Scenario: Another terminal reaches the running session's coordinator and finds nothing parked
+      Given an initialized ctxloom project
+      And a session owner is standing
+      When I run "ctxloom --format json session approvals"
+      Then the command succeeds
+      And the output reports "coordinators" as "1"
+      And the output reports "approvals" as empty, saying "no pending approvals"
+      When I run "ctxloom --format text session approvals"
+      Then the command succeeds
+      And the output contains "no pending approvals"
+
+    # The command only lists: there is no argument that names a request to
+    # answer, so one passed is refused rather than acted on.
+    Scenario: Naming a request to answer is refused
+      Given an initialized ctxloom project
+      When I run "ctxloom session approvals amber-swift-owl"
+      Then the command fails
+      And the output contains "unknown command"
+
+  @pending
+  Rule: A running session is controlled by its harp: pause, resume, stop and ask
+
+    An agent is a definition; a running session is the thing Alice steers.
+    `session pause`, `resume`, `stop` and `ask` each name a running session
+    by its harp, such as a child her orchestrator delegated to.
+
+    Scenario: Pausing a running session holds it until she resumes it
+      # new: session pause.
+      Given an initialized ctxloom project
+      And a session "amber-swift-owl" that is running
+      When Alice pauses it:
+        """
+        ctxloom session pause amber-swift-owl
+        """
+      Then the command succeeds
+      And the session "amber-swift-owl" is shown paused by her
+
+    Scenario: Resuming a paused session lets it go again
+      # new: session resume.
+      Given an initialized ctxloom project
+      And a session "amber-swift-owl" that Alice has paused
+      When Alice resumes it:
+        """
+        ctxloom session resume amber-swift-owl
+        """
+      Then the command succeeds
+      And the session "amber-swift-owl" is shown running
+
+    Scenario: Stopping a running session ends it
+      # new: session stop.
+      Given an initialized ctxloom project
+      And a session "amber-swift-owl" that is running
+      When Alice stops it:
+        """
+        ctxloom session stop amber-swift-owl
+        """
+      Then the command succeeds
+      And the session "amber-swift-owl" is shown ended
+
+    Scenario: Asking a running session a question returns at once, and its answer arrives later
+      # new: session ask.
+      Given an initialized ctxloom project
+      And a session "amber-swift-owl" that is running
+      When Alice asks it a question:
+        """
+        ctxloom session ask amber-swift-owl "which migration path?"
+        """
+      Then the command succeeds without waiting for the answer
+      And the session's answer, when it comes, quotes "which migration path?"

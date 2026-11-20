@@ -1,0 +1,6 @@
+description: spelled the old way
+bundles:
+  - g0
+  - ctxloom+git://github.com/acme/repo//bundles/tools
+parents:
+  - ctxloom+git://github.com/acme/repo//bundles/base

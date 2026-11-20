@@ -1,0 +1,448 @@
+//! The inbound fact port (plan 4.2): narrow by construction.
+//!
+//! S5 carries the facts whose aggregates exist: the run's (attached, started,
+//! turn started / completed / failed, exited) and the session's bind. The
+//! session has no inbox (owner ruling 101): mail's delivery is angzarr's
+//! transport. The plan's other variants (`RunPaused`, `RunResumed`,
+//! `ArtifactPublished`, `ApprovalAsked`) arrive with their aggregates (S6, S9,
+//! S10). `EngineSessionBound` is in: S4's bind became a fact (item 8, RULED).
+
+use std::sync::Arc;
+
+use angzarr_embedded::markup::DomainMessage;
+use angzarr_embedded::v1::{
+    command_page, CommandBook, CommandPage, Cover, DeliveryOutcome, Fact as AFact, FactOrigin, Uuid,
+};
+use angzarr_embedded::{Answered, Any, Failure, KernelError};
+use run_ports::{Arrival, Edge, Unserved};
+
+use crate::error::AppError;
+use crate::identity::{Identity, Principal};
+
+/// A fact of one principal: what [`Facts::record`] takes. Implemented by
+/// [`RunnerFact`] and [`ModelFact`] only; each is authored by exactly one
+/// principal, so a call site holding a model's credential cannot even
+/// construct what only the runner may observe (owner ruling 2026-11-04).
+pub trait Fact: Clone + std::fmt::Debug + Send + Sync {
+    /// The only principal that may record this kind of fact.
+    const AUTHOR: Principal;
+
+    /// The fact as the `CommandBook` the edge takes.
+    fn book(&self, who: &Identity) -> CommandBook;
+}
+
+/// What the RUNNER observes and may record: authoritative facts. Closed: no
+/// command in it. Every variant must apply in every state: a fact handler
+/// never rejects.
+#[derive(Clone, Debug, PartialEq)]
+pub enum RunnerFact {
+    RunnerAttached(runs::RunnerAttached),
+    /// The launcher made the runner's process: `started:<run>`.
+    RunnerStarted(runs::RunnerStarted),
+    TurnStarted(runs::TurnStarted),
+    TurnCompleted(runs::TurnCompleted),
+    TurnFailed(runs::TurnFailed),
+    RunExited(runs::RunExited),
+    /// The SessionStart hook's bind, a fact since the owner ruling of
+    /// 2026-11-04 (S5 review item 8): `bind:<session>:<native_id>`. The hook
+    /// holds the RUNNER's credential (it is launched by the runner; owner
+    /// ruling 2026-11-04), so it can emit this and no model claim.
+    EngineSessionBound(sessions::BindEngineSession),
+}
+
+/// What the MODEL claims and may record: advisory evidence, nothing the
+/// runner observed. The turn and ordinal are the listener's references (the
+/// runner side derives them; the model supplies none, owner ruling
+/// 2026-11-04), so the id is never a counter the model chooses.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ModelFact {
+    /// A model's summary or progress report: `report:<run>:<turn>:<ordinal>`.
+    SummaryReported(runs::SummaryReported),
+    /// A model's "my work is done": a CLAIM that notifies the parent and
+    /// transitions nothing. `final:<run>:<turn>`.
+    FinalReported(runs::FinalReported),
+}
+
+/// The stream a fact addresses.
+enum Stream {
+    Run,
+    Session,
+}
+
+/// A wire message's `Any`, for a book's fact body.
+fn any_of<M: DomainMessage>(message: &M) -> Any {
+    Any::from_msg(&message.to_wire()).expect("a wire message encodes")
+}
+
+/// `uuid`'s hyphenated lowercase text, as the external ids spell a run or
+/// session.
+fn text(uuid: &Uuid) -> String {
+    uuid::Uuid::from_slice(&uuid.value)
+        .map(|u| u.hyphenated().to_string())
+        .unwrap_or_default()
+}
+
+/// The book of a fact on `cover`.
+fn book_of(cover: Cover, payload: Any, external_id: String) -> CommandBook {
+    CommandBook {
+        cover: Some(cover),
+        page: Some(CommandPage {
+            body: Some(command_page::Body::Fact(AFact {
+                payload: Some(payload),
+                origin: Some(FactOrigin {
+                    external_id,
+                    description: String::new(),
+                }),
+            })),
+            ..CommandPage::default()
+        }),
+    }
+}
+
+fn cover_of(stream: Stream, who: &Identity) -> Cover {
+    match stream {
+        Stream::Run => who.run_cover(),
+        Stream::Session => who.session_cover(),
+    }
+}
+
+impl RunnerFact {
+    fn payload(&self) -> Any {
+        match self {
+            RunnerFact::RunnerAttached(m) => any_of(m),
+            RunnerFact::RunnerStarted(m) => any_of(m),
+            RunnerFact::TurnStarted(m) => any_of(m),
+            RunnerFact::TurnCompleted(m) => any_of(m),
+            RunnerFact::TurnFailed(m) => any_of(m),
+            RunnerFact::RunExited(m) => any_of(m),
+            RunnerFact::EngineSessionBound(m) => any_of(m),
+        }
+    }
+
+    /// The type URL of the fact's wire message.
+    pub fn type_url(&self) -> String {
+        self.payload().type_url
+    }
+
+    /// The `external_id`, derived from the fact's cause, never from a counter
+    /// (plan 4.3): the run and session are `who`'s, in hyphenated lowercase.
+    pub fn external_id(&self, who: &Identity) -> String {
+        let (run, session) = (text(&who.run), text(&who.session));
+        match self {
+            RunnerFact::RunnerAttached(m) => format!("attach:{run}:{}", m.runner_id),
+            RunnerFact::RunnerStarted(_) => format!("started:{run}"),
+            RunnerFact::TurnStarted(m) => format!("turn:{run}:{}:started", m.turn),
+            RunnerFact::TurnCompleted(m) => format!("turn:{run}:{}:completed", m.turn),
+            RunnerFact::TurnFailed(m) => format!("turn:{run}:{}:failed", m.turn),
+            RunnerFact::RunExited(_) => format!("exit:{run}"),
+            RunnerFact::EngineSessionBound(m) => format!("bind:{session}:{}", m.native_id),
+        }
+    }
+
+    /// The one stream this fact may address: `who`'s own run or session.
+    pub fn cover(&self, who: &Identity) -> Cover {
+        cover_of(
+            match self {
+                RunnerFact::RunnerAttached(_)
+                | RunnerFact::RunnerStarted(_)
+                | RunnerFact::TurnStarted(_)
+                | RunnerFact::TurnCompleted(_)
+                | RunnerFact::TurnFailed(_)
+                | RunnerFact::RunExited(_) => Stream::Run,
+                RunnerFact::EngineSessionBound(_) => Stream::Session,
+            },
+            who,
+        )
+    }
+
+    /// The fact as the `CommandBook` the edge takes: a Fact body with its
+    /// `fact_origin`.
+    pub fn book(&self, who: &Identity) -> CommandBook {
+        book_of(self.cover(who), self.payload(), self.external_id(who))
+    }
+
+    /// One fact of every variant (a test's way to enumerate the allowlist).
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn samples() -> Vec<RunnerFact> {
+        vec![
+            RunnerFact::RunnerAttached(runs::RunnerAttached {
+                runner_id: "runner-1".to_string(),
+                protocol: "v1".to_string(),
+            }),
+            RunnerFact::RunnerStarted(runs::RunnerStarted {
+                runtime: "claude-code".to_string(),
+                workspace: "/w".to_string(),
+                pid: 7,
+            }),
+            RunnerFact::TurnStarted(runs::TurnStarted { turn: 1 }),
+            RunnerFact::TurnCompleted(runs::TurnCompleted {
+                turn: 1,
+                native_key: String::new(),
+                answer_ref: String::new(),
+                exit_code: 0,
+            }),
+            RunnerFact::TurnFailed(runs::TurnFailed {
+                turn: 1,
+                class: runs::TurnFailureClass::EngineError,
+                detail: String::new(),
+            }),
+            RunnerFact::RunExited(runs::RunExited { code: 0, signal: 0 }),
+            RunnerFact::EngineSessionBound(sessions::BindEngineSession {
+                native_id: "native-1".to_string(),
+                transcript_path: "/t".to_string(),
+                engine_version: None,
+            }),
+        ]
+    }
+}
+
+impl ModelFact {
+    fn payload(&self) -> Any {
+        match self {
+            ModelFact::SummaryReported(m) => any_of(m),
+            ModelFact::FinalReported(m) => any_of(m),
+        }
+    }
+
+    /// The type URL of the fact's wire message.
+    pub fn type_url(&self) -> String {
+        self.payload().type_url
+    }
+
+    /// The `external_id`: the run and the runner-side references (plan 4.3).
+    pub fn external_id(&self, who: &Identity) -> String {
+        let run = text(&who.run);
+        match self {
+            ModelFact::SummaryReported(m) => format!("report:{run}:{}:{}", m.turn, m.ordinal),
+            ModelFact::FinalReported(m) => format!("final:{run}:{}", m.turn),
+        }
+    }
+
+    /// A claim addresses the caller's own run.
+    pub fn cover(&self, who: &Identity) -> Cover {
+        who.run_cover()
+    }
+
+    pub fn book(&self, who: &Identity) -> CommandBook {
+        book_of(self.cover(who), self.payload(), self.external_id(who))
+    }
+
+    /// One claim of every variant.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn samples() -> Vec<ModelFact> {
+        vec![
+            ModelFact::SummaryReported(runs::SummaryReported {
+                turn: 1,
+                ordinal: 0,
+                scope: "progress".to_string(),
+                text_ref: "t:1".to_string(),
+            }),
+            ModelFact::FinalReported(runs::FinalReported {
+                turn: 1,
+                text_ref: "t:final".to_string(),
+            }),
+        ]
+    }
+}
+
+impl Fact for RunnerFact {
+    const AUTHOR: Principal = Principal::Runner;
+
+    fn book(&self, who: &Identity) -> CommandBook {
+        RunnerFact::book(self, who)
+    }
+}
+
+impl Fact for ModelFact {
+    const AUTHOR: Principal = Principal::Model;
+
+    fn book(&self, who: &Identity) -> CommandBook {
+        ModelFact::book(self, who)
+    }
+}
+
+/// What the kernel did with a fact (the spec's `DeliveryOutcome`). Not the
+/// host's `Recorded`/`Handled`: the two never meet in one module.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Recorded {
+    Applied,
+    Duplicate,
+    /// Dead-lettered by the kernel (a handler bug, or the race cap, D13): the
+    /// sender is answered `ANGZARR_REASON_FACT_DEAD_LETTERED`, nothing is
+    /// persisted. The caller treats it as FINAL for that fact and never
+    /// retries it.
+    Parked,
+}
+
+/// Records facts on the caller's own streams.
+pub struct Facts<E: Edge> {
+    edge: Arc<E>,
+}
+
+impl<E: Edge> Facts<E> {
+    pub fn new(edge: Arc<E>) -> Facts<E> {
+        Facts { edge }
+    }
+
+    /// Record `fact` on a stream `who` owns, if `who` is the fact's author
+    /// ([`Fact::AUTHOR`]); another principal's fact is `Denied` (hidden)
+    /// and nothing is sent (defence in depth: the types already keep a model
+    /// call site from building a runner fact). The answer is the kernel's: a
+    /// fact it dead-letters (a handler bug, a race lost to the cap, or a
+    /// rejection, which the kernel since 7873207 treats as its handler's bug)
+    /// is `Parked`, and the letter is the kernel's, kept in the store; this
+    /// crate files none.
+    pub async fn record<F: Fact>(&self, who: &Identity, fact: F) -> Result<Recorded, AppError> {
+        let book = fact.book(who);
+        if who.principal != F::AUTHOR {
+            let domain = book.cover.map(|c| c.domain).unwrap_or_default();
+            return Err(AppError::Denied(Unserved::Hidden { domain }));
+        }
+        match self.edge.serve(book, Arrival::Loopback).await {
+            Ok(answered) => Recorded::of(&answered).ok_or_else(|| AppError::Failed {
+                reason: "the kernel gave no delivery outcome".to_string(),
+            }),
+            // A fact the kernel dead-letters is answered so, and is final.
+            Err(Unserved::Failed(Failure::Kernel(KernelError::FactDeadLettered { .. }))) => {
+                Ok(Recorded::Parked)
+            }
+            Err(unserved) => Err(AppError::from_unserved(unserved)),
+        }
+    }
+}
+
+impl<E: Edge> Facts<E> {
+    /// Record what the engine's hooks observed (or the launcher, standing in
+    /// for them on a run it drives itself) on `who`'s own session stream. The
+    /// observation is the RUNNER's: another principal's is `Denied`.
+    pub async fn observe(
+        &self,
+        who: &Identity,
+        observation: &crate::Observation,
+    ) -> Result<Recorded, AppError> {
+        let book = observation.book(&who.session);
+        if who.principal != Principal::Runner {
+            let domain = book.cover.map(|c| c.domain).unwrap_or_default();
+            return Err(AppError::Denied(Unserved::Hidden { domain }));
+        }
+        match self.edge.serve(book, Arrival::Loopback).await {
+            Ok(answered) => Recorded::of(&answered).ok_or_else(|| AppError::Failed {
+                reason: "the kernel gave no delivery outcome".to_string(),
+            }),
+            Err(Unserved::Failed(Failure::Kernel(KernelError::FactDeadLettered { .. }))) => {
+                Ok(Recorded::Parked)
+            }
+            Err(unserved) => Err(AppError::from_unserved(unserved)),
+        }
+    }
+
+    /// The launch of `run` that never started, as the core's own launcher
+    /// observed it: `deterministic` says a retry would fail the same way. It
+    /// is not an agent's fact (no runner existed to send it), so it is not on
+    /// the runner's allowlist and goes the unexposed path, keyed by the run.
+    pub async fn launch_failed(
+        &self,
+        run: &Uuid,
+        deterministic: bool,
+        detail: &str,
+    ) -> Result<Recorded, AppError> {
+        let fact = runs::LaunchFailed {
+            deterministic,
+            detail: detail.to_string(),
+        };
+        self.of_the_core(run, &fact, "launch-failed").await
+    }
+
+    /// The end of the started `run` whose owner is gone (its session's lock
+    /// free, rulings 93, 95), as a sweeping process found it: runner loss.
+    /// The core's fact, the unexposed path; keyed `runner-lost:<run>`, so a
+    /// second sweeper's is a DUPLICATE.
+    pub async fn runner_lost(&self, run: &Uuid) -> Result<Recorded, AppError> {
+        self.of_the_core(run, &runs::RunnerLost {}, "runner-lost")
+            .await
+    }
+
+    /// The end of `run`, still owed a runner, whose launcher died before
+    /// starting one (its run lock free, rulings 92, 100): orphaned, no launch
+    /// failure. Keyed `launch-orphaned:<run>`.
+    pub async fn launch_orphaned(&self, run: &Uuid) -> Result<Recorded, AppError> {
+        self.of_the_core(run, &runs::LaunchOrphaned {}, "launch-orphaned")
+            .await
+    }
+
+    /// Record `fact`, the core's own (no principal's), on `run`'s stream,
+    /// keyed `<key>:<run>`.
+    async fn of_the_core<M: DomainMessage>(
+        &self,
+        run: &Uuid,
+        fact: &M,
+        key: &str,
+    ) -> Result<Recorded, AppError> {
+        let cover = Cover {
+            domain: runs::RUN_DOMAIN.to_string(),
+            root: Some(run.clone()),
+            edition: None,
+        };
+        let book = book_of(cover, any_of(fact), format!("{key}:{}", text(run)));
+        match self.edge.handle(book).await {
+            Ok(answered) => Recorded::of(&answered).ok_or_else(|| AppError::Failed {
+                reason: "the kernel gave no delivery outcome".to_string(),
+            }),
+            Err(Failure::Kernel(KernelError::FactDeadLettered { .. })) => Ok(Recorded::Parked),
+            Err(failure) => Err(AppError::from_failure(failure)),
+        }
+    }
+
+    /// The end of `session`'s (its id's text) `incarnation`, told to the
+    /// session when its run ends, however it ends (ruling 85), so no
+    /// incarnation stays open. `cause` is Go's text (`runner-exit`,
+    /// `launch-failed`, `orphaned`). Keyed `incarnation-ended:<session>:<n>`,
+    /// so a second telling (the owner's and a sweeper's) is a DUPLICATE; the
+    /// session records the end of its open incarnation only.
+    pub async fn incarnation_ended(
+        &self,
+        session: &str,
+        incarnation: u32,
+        cause: &str,
+    ) -> Result<Recorded, AppError> {
+        let root = uuid::Uuid::parse_str(session).map_err(|e| AppError::Failed {
+            reason: e.to_string(),
+        })?;
+        let cover = Cover {
+            domain: sessions::SESSION_DOMAIN.to_string(),
+            root: Some(Uuid::from_bytes(*root.as_bytes())),
+            edition: None,
+        };
+        let fact = sessions::RecordIncarnationEnded {
+            incarnation,
+            cause: cause.to_string(),
+        };
+        let book = book_of(
+            cover,
+            any_of(&fact),
+            format!("incarnation-ended:{session}:{incarnation}"),
+        );
+        match self.edge.handle(book).await {
+            Ok(answered) => Recorded::of(&answered).ok_or_else(|| AppError::Failed {
+                reason: "the kernel gave no delivery outcome".to_string(),
+            }),
+            Err(Failure::Kernel(KernelError::FactDeadLettered { .. })) => Ok(Recorded::Parked),
+            Err(failure) => Err(AppError::from_failure(failure)),
+        }
+    }
+}
+
+impl Recorded {
+    /// The spec's delivery outcome of `answered`, if it names one.
+    pub(crate) fn of(answered: &Answered) -> Option<Recorded> {
+        match answered.delivery {
+            DeliveryOutcome::Applied => Some(Recorded::Applied),
+            DeliveryOutcome::Duplicate => Some(Recorded::Duplicate),
+            DeliveryOutcome::Unspecified => None,
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "facts.test.rs"]
+mod tests;

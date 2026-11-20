@@ -1,0 +1,9 @@
+description: "Local default profile scaffolded by `ctxloom init`: bare, it inherits nothing. Add the bundles and profiles of the remotes you add; `ctxloom init prompt` re-enters the setup interview any time."
+tags:
+  - default
+# A LOCAL profile (owned and editable in this project's .ctxloom), not a bare
+# remote reference.
+#
+# BARE (owner ruling 117): it inherits nothing and names no bundle. ctxloom's
+# one built-in bundle holds its operational prompts, which no profile
+# includes; a fresh project has no coding guidance until a remote is added.

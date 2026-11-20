@@ -1,0 +1,822 @@
+//! `agent.feature`'s write scenarios at the application port.
+
+use std::sync::Arc;
+
+use ctxloom_ports::Scope;
+
+use crate::fakes::{plain, Mem, Setup, CONFIG, ENVELOPE};
+use crate::write::requests::AgentRequest;
+use crate::write::views::{DefaultAgent, Removal};
+use crate::Library;
+
+fn world_with(config: &'static str) -> (Library, Arc<Mem>) {
+    Setup {
+        bundles: &[(
+            "project",
+            &[
+                ENVELOPE,
+                ("profiles/dev.yaml", "bundles: []\nparents: [x]\n"),
+            ],
+        )],
+        layers: &[config],
+        ..Setup::default()
+    }
+    .fixture()
+}
+
+fn world() -> (Library, Arc<Mem>) {
+    world_with(CONFIG)
+}
+
+fn err<T>(out: crate::Outcome<T>) -> String {
+    format!("{:?}", out.result.err().expect("an error"))
+}
+
+fn write(
+    library: &Library,
+    name: &str,
+    request: &AgentRequest,
+    must_exist: bool,
+) -> crate::Outcome<crate::AgentRow> {
+    library.agent_write(&plain(), name, request, must_exist)
+}
+
+fn dev() -> AgentRequest {
+    AgentRequest {
+        engine: Some("claude-code".to_string()),
+        profiles: Some(vec!["dev".to_string()]),
+        ..AgentRequest::default()
+    }
+}
+
+// agent.feature: Creating a binding records every axis
+#[test]
+fn test_create_records_every_axis_the_config_sorted_and_answers_the_binding() {
+    let (library, mem) = world();
+    let row = write(
+        &library,
+        "dev2",
+        &AgentRequest {
+            runtime: Some("container-rootless".to_string()),
+            model: Some("haiku".to_string()),
+            surfaces: Some(vec![("context".to_string(), "system-prompt".to_string())]),
+            roots: Some(vec![("mcp".to_string(), "project-root".to_string())]),
+            env: Some(vec!["A".to_string(), "B".to_string()]),
+            ..dev()
+        },
+        false,
+    )
+    .result
+    .unwrap();
+    assert_eq!(row.name, "dev2");
+    assert_eq!(row.engine, "claude-code");
+    assert_eq!(row.profiles, ["dev"]);
+    assert_eq!(row.runtime, "container-rootless");
+    assert_eq!(row.env, ["A", "B"]);
+    // ruling 67: the model is in the engine's block, as written
+    assert_eq!(
+        row.engines,
+        serde_json::json!({"claude-code": {"model": "haiku"}})
+    );
+    assert_eq!(
+        mem.config(Scope::Project).unwrap(),
+        "schema_version: 9\nagents:\n  dev2:\n    engine: claude-code\n    engines:\n      claude-code:\n        model: haiku\n    env:\n      - A\n      - B\n    profiles:\n      - dev\n    roots:\n      mcp: project-root\n    runtime: container-rootless\n    surfaces:\n      context: system-prompt\n"
+    );
+}
+
+// Owner rulings 135, 138: no write touches an engine's permissions
+// document; a block written by hand is kept exactly as it was by an edit of
+// another key of the same engine block.
+#[test]
+fn test_a_hand_written_permissions_document_survives_an_edit_untouched() {
+    let (library, mem) = world_with("schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n    engines:\n      claude-code:\n        permissions:\n          mode: anything\n          deny:\n            - WebFetch\n");
+    let row = write(
+        &library,
+        "dev",
+        &AgentRequest {
+            model: Some("haiku".to_string()),
+            ..AgentRequest::default()
+        },
+        true,
+    )
+    .result
+    .unwrap();
+    assert_eq!(
+        row.engines,
+        serde_json::json!({"claude-code": {"model": "haiku", "permissions": {"mode": "anything", "deny": ["WebFetch"]}}})
+    );
+    assert!(mem.config(Scope::Project).unwrap().contains(
+        "        permissions:\n          mode: anything\n          deny:\n            - WebFetch\n"
+    ));
+}
+
+// agent.feature: Create refuses an existing name, and leaves the live binding untouched
+#[test]
+fn test_create_refuses_a_name_that_is_there_and_edit_a_name_that_is_not() {
+    let (library, mem) =
+        world_with("schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n");
+    assert!(err(write(&library, "dev", &dev(), false)).contains("AgentExists"));
+    assert!(err(write(&library, "nosuchagent", &dev(), true)).contains("AgentMissing"));
+    assert_eq!(mem.writes(), 0);
+}
+
+// agent.feature: An edit naming only --runtime leaves every other axis intact
+#[test]
+fn test_an_edit_changes_only_the_axes_it_names() {
+    let (library, mem) = world();
+    write(
+        &library,
+        "developer",
+        &AgentRequest {
+            runtime: Some("host".to_string()),
+            model: Some("haiku".to_string()),
+            profiles: Some(vec!["dev".to_string(), "ops".to_string()]),
+            ..dev()
+        },
+        false,
+    )
+    .result
+    .unwrap();
+    let row = write(
+        &library,
+        "developer",
+        &AgentRequest {
+            runtime: Some("container-rootless".to_string()),
+            ..AgentRequest::default()
+        },
+        true,
+    )
+    .result
+    .unwrap();
+    assert_eq!(row.runtime, "container-rootless");
+    assert_eq!(row.engine, "claude-code");
+    assert_eq!(row.profiles, ["dev", "ops"]);
+    // ruling 67: the model is in the engine's block, as written
+    assert_eq!(
+        row.engines,
+        serde_json::json!({"claude-code": {"model": "haiku"}})
+    );
+    let text = mem.config(Scope::Project).unwrap();
+    assert!(text.contains("runtime: container-rootless"));
+}
+
+// agent.feature: An edit passing an empty --env clears the names
+#[test]
+fn test_a_flag_named_empty_clears_its_axis_and_only_that_one() {
+    let (library, _mem) = world();
+    write(
+        &library,
+        "d",
+        &AgentRequest {
+            env: Some(vec!["ALPHA".to_string()]),
+            runtime: Some("host".to_string()),
+            ..dev()
+        },
+        false,
+    )
+    .result
+    .unwrap();
+    let row = write(
+        &library,
+        "d",
+        &AgentRequest {
+            env: Some(vec![]),
+            ..AgentRequest::default()
+        },
+        true,
+    )
+    .result
+    .unwrap();
+    assert!(row.env.is_empty());
+    assert_eq!(row.runtime, "host");
+    let row = write(
+        &library,
+        "d",
+        &AgentRequest {
+            runtime: Some(String::new()),
+            ..AgentRequest::default()
+        },
+        true,
+    )
+    .result
+    .unwrap();
+    assert_eq!(row.runtime, "");
+    let row = write(
+        &library,
+        "d",
+        &AgentRequest {
+            surfaces: Some(vec![]),
+            roots: Some(vec![]),
+            ..AgentRequest::default()
+        },
+        true,
+    )
+    .result
+    .unwrap();
+    assert_eq!(row.engine, "claude-code");
+}
+
+/// Each request is refused with the named error, and the file is as it was.
+fn refuses_all(cases: Vec<(AgentRequest, bool, &str)>) {
+    let (library, mem) = world_with("schema_version: 9\nagents:\n  d:\n    engine: claude-code\n");
+    let before = mem.config(Scope::Project);
+    for (request, edit, said) in cases {
+        let name = if edit { "d" } else { "n" };
+        let got = err(write(&library, name, &request, edit));
+        assert!(got.contains(said), "{request:?}: {got}");
+    }
+    assert_eq!(mem.config(Scope::Project), before);
+    assert_eq!(mem.writes(), 0);
+}
+
+fn text(s: &str) -> Option<String> {
+    Some(s.to_string())
+}
+
+fn pairs(kind: &str, value: &str) -> Option<Vec<(String, String)>> {
+    Some(vec![(kind.to_string(), value.to_string())])
+}
+
+// operations.validateAgentAxes: each is refused, and the file is as it was
+#[test]
+fn test_every_scalar_axis_is_checked_before_anything_is_written() {
+    let r = AgentRequest::default;
+    refuses_all(vec![
+        (
+            AgentRequest {
+                engine: text("nosuch"),
+                ..r()
+            },
+            true,
+            "UnknownEngine",
+        ),
+        (
+            AgentRequest {
+                runtime: text("weird"),
+                ..r()
+            },
+            true,
+            "UnknownRuntime",
+        ),
+        (
+            AgentRequest {
+                engine: text(""),
+                ..r()
+            },
+            true,
+            "AgentWithoutEngine",
+        ),
+        (r(), false, "AgentWithoutEngine"),
+    ]);
+}
+
+#[test]
+fn test_env_roots_and_surfaces_are_checked_before_anything_is_written() {
+    let r = AgentRequest::default;
+    refuses_all(vec![
+        (
+            AgentRequest {
+                env: Some(vec!["A=1".to_string()]),
+                ..r()
+            },
+            true,
+            "BadEnv",
+        ),
+        (
+            AgentRequest {
+                roots: pairs("context", "nowhere"),
+                ..r()
+            },
+            true,
+            "RootRefused",
+        ),
+        (
+            AgentRequest {
+                roots: pairs("bogus", "work-dir"),
+                ..r()
+            },
+            true,
+            "RootRefused",
+        ),
+        (
+            AgentRequest {
+                surfaces: pairs("context", "nosuch"),
+                ..r()
+            },
+            true,
+            "SurfaceRefused",
+        ),
+        (
+            AgentRequest {
+                surfaces: pairs("bogus", "x"),
+                ..r()
+            },
+            true,
+            "SurfaceRefused",
+        ),
+    ]);
+}
+
+#[test]
+fn test_a_surface_and_a_root_need_the_engine_they_are_checked_against() {
+    let (library, mem) = world();
+    let profiles = Some(vec!["dev".to_string()]);
+    let no_engine = |r: AgentRequest| {
+        err(write(
+            &library,
+            "n",
+            &AgentRequest {
+                profiles: profiles.clone(),
+                ..r
+            },
+            false,
+        ))
+    };
+    assert!(no_engine(AgentRequest {
+        surfaces: Some(vec![("context".to_string(), "system-prompt".to_string())]),
+        ..AgentRequest::default()
+    })
+    .contains("SurfaceNeedsEngine"));
+    assert!(no_engine(AgentRequest {
+        roots: Some(vec![("mcp".to_string(), "project-root".to_string())]),
+        ..AgentRequest::default()
+    })
+    .contains("RootNeedsEngine"));
+    assert_eq!(mem.writes(), 0);
+}
+
+// agent.feature: Binding an unknown engine is refused with the engines named
+#[test]
+fn test_an_unknown_engine_is_refused_naming_the_engines_and_the_file_is_as_it_was() {
+    let (library, mem) = world();
+    let refused = err(write(
+        &library,
+        "a",
+        &AgentRequest {
+            engine: Some("gpt-9".to_string()),
+            ..dev()
+        },
+        false,
+    ));
+    assert!(refused.contains("gpt-9"), "{refused}");
+    assert!(refused.contains("claude-code"), "{refused}");
+    assert!(refused.contains("opencode"), "{refused}");
+    assert_eq!(mem.writes(), 0);
+}
+
+// agent.feature: With nothing bound, the report says so; naming an agent binds it
+#[test]
+fn test_default_reports_the_bound_agent_and_binds_a_named_one() {
+    let (library, mem) = world();
+    assert_eq!(
+        library.agent_default(&plain(), None).result.unwrap(),
+        DefaultAgent::Current(String::new())
+    );
+    let set = library
+        .agent_default(&plain(), Some("ghost"))
+        .result
+        .unwrap();
+    assert_eq!(
+        set,
+        DefaultAgent::Set {
+            name: "ghost".to_string(),
+            defined: false
+        }
+    );
+    assert_eq!(
+        mem.config(Scope::Project).unwrap(),
+        "schema_version: 9\ndefault_agent: ghost\n"
+    );
+    assert_eq!(
+        library.agent_default(&plain(), None).result.unwrap(),
+        DefaultAgent::Current("ghost".to_string())
+    );
+    write(&library, "dev", &dev(), false).result.unwrap();
+    let set = library.agent_default(&plain(), Some("dev")).result.unwrap();
+    assert_eq!(
+        set,
+        DefaultAgent::Set {
+            name: "dev".to_string(),
+            defined: true
+        }
+    );
+}
+
+// agent.feature: Bare remove reports and destroys nothing / --yes takes the binding out
+#[test]
+fn test_remove_previews_then_takes_exactly_that_binding() {
+    let (library, mem) = world_with(
+        "schema_version: 9\nagents:\n  a:\n    engine: claude-code\n  b:\n    engine: claude-code\n",
+    );
+    let Removal::Preview(p) = library.agent_remove(&plain(), "a", false).result.unwrap() else {
+        panic!("a preview")
+    };
+    assert_eq!(
+        (p.target.as_str(), p.apply.as_str()),
+        ("agent \"a\"", "ctxloom agent remove a --yes")
+    );
+    assert!(p.detail.is_empty());
+    assert_eq!(mem.writes(), 0);
+    let Removal::Done(done) = library.agent_remove(&plain(), "a", true).result.unwrap() else {
+        panic!("done")
+    };
+    assert_eq!((done.status.as_str(), done.name.as_str()), ("removed", "a"));
+    assert_eq!(
+        mem.config(Scope::Project).unwrap(),
+        "schema_version: 9\nagents:\n  b:\n    engine: claude-code\n"
+    );
+    library.agent_remove(&plain(), "b", true).result.unwrap();
+    assert_eq!(
+        mem.config(Scope::Project).unwrap(),
+        "schema_version: 9\n",
+        "the empty section goes with its last agent"
+    );
+}
+
+// agent.feature: Removing a binding nobody defined fails rather than reporting success
+#[test]
+fn test_remove_of_a_binding_nobody_defined_fails_both_ways() {
+    let (library, mem) = world();
+    assert!(err(library.agent_remove(&plain(), "nosuchagent", false)).contains("AgentNotDefined"));
+    assert!(err(library.agent_remove(&plain(), "nosuchagent", true)).contains("AgentNotInConfig"));
+    assert_eq!(mem.writes(), 0);
+}
+
+#[test]
+fn test_the_home_config_alone_is_never_written_by_an_agent_command() {
+    let (library, mem) = Setup {
+        layers: &["schema_version: 9\neditor:\n  command: 'true'\n", CONFIG],
+        ..Setup::default()
+    }
+    .fixture();
+    write(&library, "dev", &dev(), false).result.unwrap();
+    assert_eq!(
+        mem.config(Scope::Home).unwrap(),
+        "schema_version: 9\neditor:\n  command: 'true'\n"
+    );
+    assert!(mem.config(Scope::Project).unwrap().contains("agents:"));
+}
+
+// agent.feature: Creating an agent records engine, model, effort and permissions
+#[test]
+fn test_model_and_effort_are_the_agent_s_and_an_empty_one_clears() {
+    let (library, mem) = world();
+    let row = write(
+        &library,
+        "reviewer",
+        &AgentRequest {
+            model: text("haiku"),
+            effort: text("low"),
+            ..dev()
+        },
+        false,
+    )
+    .result
+    .unwrap();
+    // Ruling 67: the row is in the config's shape, the block of the engine
+    assert_eq!(
+        row.engines,
+        serde_json::json!({"claude-code": {"effort": "low", "model": "haiku"}})
+    );
+    let written = mem.config(Scope::Project).unwrap();
+    // Ruling 57: they are written into the block of the agent's engine.
+    assert!(
+        written.contains(
+            "    engines:\n      claude-code:\n        effort: low\n        model: haiku\n"
+        ),
+        "{written}"
+    );
+    // agent.feature: An edit passing an empty --model returns the agent to the engine's default
+    write(
+        &library,
+        "reviewer",
+        &AgentRequest {
+            model: text(""),
+            ..AgentRequest::default()
+        },
+        true,
+    )
+    .result
+    .unwrap();
+    let written = mem.config(Scope::Project).unwrap();
+    assert!(!written.contains("model:"), "{written}");
+    assert!(written.contains("effort: low"), "{written}");
+}
+
+// agent.feature: An agent that weakens the engine's runtime says so when it is written
+#[test]
+fn test_a_runtime_that_replaces_the_engine_s_is_said_when_written() {
+    let (library, _mem) = world_with(
+        "schema_version: 9\nengines:\n  claude-code:\n    runtime: container-rootless\n",
+    );
+    let said = |runtime: &str, name: &str| {
+        let out = write(
+            &library,
+            name,
+            &AgentRequest {
+                runtime: text(runtime),
+                ..dev()
+            },
+            false,
+        );
+        out.result.unwrap();
+        out.notices
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    // (the words are the catalog's; the acceptance scenario reads them)
+    let weaker = said("host", "loose");
+    assert!(
+        weaker.contains("notice-runtime-weakens")
+            && weaker.contains("key=engines.claude-code.runtime")
+            && weaker.contains("replaced=container-rootless"),
+        "{weaker}"
+    );
+    let swapped = said("container-rootful", "swapped");
+    assert!(
+        swapped.contains("notice-runtime-ownership-swap"),
+        "{swapped}"
+    );
+    assert_eq!(said("container-rootless", "same"), "");
+}
+
+// owner ruling (env_host removed): --env names alone are enough
+#[test]
+fn test_env_names_need_no_other_setting() {
+    let (library, mem) = world();
+    write(
+        &library,
+        "narrow",
+        &AgentRequest {
+            env: Some(vec!["ALPHA_TOKEN".to_string()]),
+            ..dev()
+        },
+        false,
+    )
+    .result
+    .unwrap();
+    let written = mem.config(Scope::Project).unwrap();
+    assert!(written.contains("ALPHA_TOKEN"), "{written}");
+    assert!(!written.contains("env_host"), "{written}");
+}
+
+// Ruling 57: `--engine` given with `--model/--effort` names the
+// block they are written into (and the agent's engine); without it, the
+// agent's own engine's block. Other engines' blocks are left as they are.
+#[test]
+fn test_model_and_effort_go_into_the_block_of_the_engine_named() {
+    let (library, mem) = world_with("schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n    engines:\n      claude-code:\n        model: haiku\n");
+    write(
+        &library,
+        "dev",
+        &AgentRequest {
+            engine: text("opencode"),
+            model: text("opencode/big-pickle"),
+            ..AgentRequest::default()
+        },
+        true,
+    )
+    .result
+    .unwrap();
+    let written = mem.config(Scope::Project).unwrap();
+    assert_eq!(
+        written,
+        "schema_version: 9\nagents:\n  dev:\n    engine: opencode\n    engines:\n      claude-code:\n        model: haiku\n      opencode:\n        model: opencode/big-pickle\n"
+    );
+    // an edit naming no engine writes the block of the engine the agent binds
+    let row = write(
+        &library,
+        "dev",
+        &AgentRequest {
+            effort: text("high"),
+            ..AgentRequest::default()
+        },
+        true,
+    )
+    .result
+    .unwrap();
+    assert_eq!(
+        row.engines["opencode"]["model"], "opencode/big-pickle",
+        "the row holds every block"
+    );
+    assert_eq!(row.engines["claude-code"]["model"], "haiku");
+    let written = mem.config(Scope::Project).unwrap();
+    assert!(
+        written.contains(
+            "      opencode:\n        effort: high\n        model: opencode/big-pickle\n"
+        ),
+        "{written}"
+    );
+    // clearing the last setting of a block takes the block out
+    write(
+        &library,
+        "dev",
+        &AgentRequest {
+            engine: text("claude-code"),
+            model: text(""),
+            ..AgentRequest::default()
+        },
+        true,
+    )
+    .result
+    .unwrap();
+    let written = mem.config(Scope::Project).unwrap();
+    assert!(!written.contains("      claude-code:"), "{written}");
+    assert!(written.contains("      opencode:"), "{written}");
+}
+
+// An agent that names no engine runs on the default one: its block is that
+// engine's.
+#[test]
+fn test_an_agent_with_no_engine_writes_its_model_into_the_default_engines_block() {
+    let (library, mem) = world_with("schema_version: 9\n");
+    write(
+        &library,
+        "p",
+        &AgentRequest {
+            profiles: Some(vec!["dev".to_string()]),
+            model: text("haiku"),
+            ..AgentRequest::default()
+        },
+        false,
+    )
+    .result
+    .unwrap();
+    assert!(mem
+        .config(Scope::Project)
+        .unwrap()
+        .contains("    engines:\n      claude-code:\n        model: haiku\n"));
+}
+
+// An engine taken out with the model given writes the default engine's block.
+#[test]
+fn test_an_engine_taken_out_writes_the_model_into_the_default_engines_block() {
+    let (library, mem) = world_with(
+        "schema_version: 9\nagents:\n  dev:\n    engine: opencode\n    profiles: [dev]\n",
+    );
+    write(
+        &library,
+        "dev",
+        &AgentRequest {
+            engine: text(""),
+            model: text("haiku"),
+            ..AgentRequest::default()
+        },
+        true,
+    )
+    .result
+    .unwrap();
+    assert_eq!(
+        mem.config(Scope::Project).unwrap(),
+        "schema_version: 9\nagents:\n  dev:\n    engines:\n      claude-code:\n        model: haiku\n    profiles:\n      - dev\n"
+    );
+}
+
+// Ruling 67: a written agent is answered in the config's shape: each engine's
+// block under `engines` (JSON) and as an `engines.<e>: {...}` line (text),
+// which says whether it holds a permissions document (ruling 139); no
+// engine-neutral `permissions` (ruling 134), no flat model or effort.
+#[test]
+fn test_the_written_row_is_in_the_config_s_shape() {
+    let (library, _mem) = world_with("schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n    engines:\n      claude-code:\n        permissions:\n          mode: plan\n      opencode:\n        model: opencode/big-pickle\n");
+    let row = write(
+        &library,
+        "dev",
+        &AgentRequest {
+            model: text("haiku"),
+            effort: text("low"),
+            ..AgentRequest::default()
+        },
+        true,
+    )
+    .result
+    .unwrap();
+    assert_eq!(
+        row.engines,
+        serde_json::json!({
+            "claude-code": {"effort": "low", "model": "haiku", "permissions": {"mode": "plan"}},
+            "opencode": {"model": "opencode/big-pickle"},
+        })
+    );
+    let lines: Vec<(&str, bool)> = row
+        .engine_lines
+        .iter()
+        .map(|l| (l.line.as_str(), l.permissions))
+        .collect();
+    assert_eq!(
+        lines,
+        [
+            (
+                "engines.claude-code: {effort: low, model: haiku, permissions: {mode: plan}}",
+                true
+            ),
+            ("engines.opencode: {model: opencode/big-pickle}", false),
+        ]
+    );
+    let doc = serde_json::to_value(&row).unwrap();
+    for gone in ["model", "effort", "engine_lines", "permissions"] {
+        assert!(doc.get(gone).is_none(), "{gone}: {doc}");
+    }
+    assert_eq!(doc["engines"]["claude-code"]["permissions"]["mode"], "plan");
+    // an agent with no block has no `engines` key
+    let bare = write(&library, "bare", &dev(), false).result.unwrap();
+    let doc = serde_json::to_value(&bare).unwrap();
+    assert!(doc.get("engines").is_none(), "{doc}");
+    assert!(bare.engine_lines.is_empty());
+}
+
+fn notices<T>(out: &crate::Outcome<T>) -> String {
+    out.notices
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+// Ruling 68: an agent that names no engine has its --model/--effort written
+// into the default engine's block, and the write NAMES the block in a notice;
+// an agent that names its engine (or the request that names one) gets none.
+#[test]
+fn test_a_write_into_the_default_engine_s_block_names_the_block() {
+    let (library, _mem) = world_with("schema_version: 9\n");
+    let out = write(
+        &library,
+        "p",
+        &AgentRequest {
+            profiles: Some(vec!["dev".to_string()]),
+            model: text("haiku"),
+            ..AgentRequest::default()
+        },
+        false,
+    );
+    out.result.as_ref().unwrap();
+    let said = notices(&out);
+    assert!(
+        said.contains("notice-default-engine-block")
+            && said.contains("agent=p")
+            && said.contains("block=engines.claude-code"),
+        "{said}"
+    );
+    // an edit of effort alone says it too
+    let out = write(
+        &library,
+        "p",
+        &AgentRequest {
+            effort: text("low"),
+            ..AgentRequest::default()
+        },
+        true,
+    );
+    out.result.as_ref().unwrap();
+    assert!(notices(&out).contains("block=engines.claude-code"));
+    // a write naming no block setting says nothing
+    let out = write(
+        &library,
+        "p",
+        &AgentRequest {
+            runtime: text("host"),
+            ..AgentRequest::default()
+        },
+        true,
+    );
+    out.result.as_ref().unwrap();
+    assert_eq!(notices(&out), "");
+    // naming the engine in the request, or on the agent, says nothing
+    let out = write(
+        &library,
+        "named",
+        &AgentRequest {
+            model: text("haiku"),
+            ..dev()
+        },
+        false,
+    );
+    out.result.as_ref().unwrap();
+    assert_eq!(notices(&out), "");
+    let out = write(
+        &library,
+        "named",
+        &AgentRequest {
+            effort: text("low"),
+            ..AgentRequest::default()
+        },
+        true,
+    );
+    out.result.as_ref().unwrap();
+    assert_eq!(notices(&out), "");
+    // an engine taken out (`--engine ''`) with a model is the default's block
+    let out = write(
+        &library,
+        "named",
+        &AgentRequest {
+            engine: text(""),
+            model: text("sonnet"),
+            ..AgentRequest::default()
+        },
+        true,
+    );
+    out.result.as_ref().unwrap();
+    assert!(notices(&out).contains("block=engines.claude-code"));
+}

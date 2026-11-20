@@ -1,0 +1,454 @@
+syntax = "proto3";
+
+// A session is the conversation: one aggregate whose stream root is a
+// stable id minted at creation (plan 3.1, D5 Q1/Q4), in its project's
+// store. The harp is only its name. Go's session sidecar
+// (`~/.ctxloom/sessions/<harp>/session.yaml`) is folded here event by
+// event: the mint, the engine binding and its rotations, keep and adopt.
+// A harp never changes; `session rename` sets the title (S55), and the
+// harp-changing RenameSession, RenamedTo, SessionLive, HarpTooLong and
+// LockEvidence are gone (hard migrate, owner 2026-11-12). Lineage, the
+// lifeline and grants
+// arrive with the slices that need them (S5 to S10).
+package ctxloom.sessions.v1;
+
+import "google/protobuf/timestamp.proto";
+import "io/angzarr/v1/options.proto";
+
+// The session, folded from its events. Derived values (its summary, its
+// state now) are computed when read, never stored: the summary is the first
+// prompt of its transcript, and the state is `Liveness`'s. Its title is the
+// one `session rename` set (S55).
+message SessionState {
+  option (io.angzarr.v1.component) = {
+    component_name: "session"
+    aggregate: {domain: "sessions"}
+  };
+
+  // The harp: the session's own name, minted once and never changed.
+  string harp = 1;
+  string project_id = 2;
+  // The project directory that launched it (Go's project_dir).
+  string project_dir = 3;
+  // Where its readable outputs go, recorded absolute at the mint.
+  string output_dir = 4;
+  string engine = 5;
+  Origin origin = 6;
+  // The engine's own session key and transcript for the current binding;
+  // empty until bound.
+  string native_id = 7;
+  string transcript_path = 8;
+  string engine_version = 9;
+  // Every binding this session has displaced, oldest first.
+  repeated Rotation rotations = 10;
+  bool kept = 11;
+  google.protobuf.Timestamp started_at = 12;
+  // When its last run ended (Go's ended_at); absent until recorded.
+  optional google.protobuf.Timestamp ended_at = 13;
+  // 14 was `purged_at` (owner ruling 102: a session is destroyed whole, and
+  // Go's purge mark is not imported).
+  reserved 14;
+  reserved "purged_at";
+  // 15 was `forgotten`: `session remove` destroys a session now (owner
+  // ruling 98), nothing forgets one.
+  reserved 15;
+  reserved "forgotten";
+  // The lineage the mint records (owner ruling 2026-11-04, S5 review Q2 (b)).
+  uint32 depth = 16;
+  // The run lifeline (plan 3.1), as the fold holds it.
+  uint32 incarnation = 17;
+  optional uint32 open_incarnation = 18;
+  // 19 was `relaunches` and 21 the `inbox` (owner ruling 101: the session has
+  // no inbox, and nothing owes a relaunch without mail).
+  reserved 19, 21;
+  reserved "relaunches", "inbox";
+  bool stopped = 20;
+  // The free-text title `session rename` sets (S55); empty when none is.
+  // 22 to 25 are the daemon branch's (owner, closed, closed_cause,
+  // children), so this number is the one it took too.
+  string title = 26;
+  // The workspace axis it was minted on (`SessionMinted.workspace`); absent:
+  // none was recorded, read as `none`.
+  optional string workspace = 27;
+}
+
+// Who a session was minted for (Go's Origin): an empty origin reads as a
+// human's session.
+enum Origin {
+  ORIGIN_UNSPECIFIED = 0;
+  // A human's session: a depth-0 run that is not a one-shot.
+  ORIGIN_SESSION = 1;
+  // A delegated child's session.
+  ORIGIN_AGENT = 2;
+  // An internal one-shot (a distiller, a probe).
+  ORIGIN_ONESHOT = 3;
+}
+
+// One displaced binding of a session: the native id and vendor
+// transcript it was bound to before a later bind replaced it.
+message Rotation {
+  string native_id = 1;
+  string transcript_path = 2;
+  // Absent: the page's `recorded_at` is the instant. Present (an adopted or
+  // imported rotation): the instant the binding really rotated.
+  optional google.protobuf.Timestamp rotated_at = 3;
+}
+
+// region commands
+
+// Create the session in the stream its caller chose (the cover's root is
+// the stable id). Refused on a stream that has history. The harp is minted
+// by the caller (minting is random, and decide is deterministic); the
+// name's claim is taken first, by the application (plan 3.1).
+message MintSession {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.sessions.v1.SessionState"
+    // Owner ruling 2026-11-04 (S5 review Q1 (b)): a mint also records the
+    // session's first owed incarnation.
+    emits: ["ctxloom.sessions.v1.SessionMinted", "ctxloom.sessions.v1.IncarnationOwed"]
+    refuses: "ctxloom.sessions.v1.SessionExists"
+    refuses: "ctxloom.sessions.v1.HarpInvalid"
+  };
+
+  string harp = 1;
+  string project_id = 2;
+  string project_dir = 3;
+  string output_dir = 4;
+  string engine = 5;
+  Origin origin = 6;
+  // Left out: the page's `recorded_at`. The importer gives Go's started_at.
+  optional google.protobuf.Timestamp started_at = 7;
+  // The session's depth in its tree (owner ruling 2026-11-04, S5 review Q2
+  // (b): minimal lineage now; parent and may_delegate are S10's).
+  uint32 depth = 8;
+  // The workspace axis the session was minted on (`none`, `worktree`; a
+  // session trait, owner ruling 2026-11-12): a resume works in the same
+  // place. Absent on a session from before it was recorded, which reads as
+  // `none`. 9 is the daemon branch's (`owner`).
+  optional string workspace = 10;
+}
+
+// Record what the SessionStart hook bound: the engine's session id and
+// transcript. A FACT since the owner ruling of 2026-11-04 (S5 review item 8;
+// plan 3.1/4.2/4.3): it already happened, so it is recorded and never refused
+// (a stream holding no session records nothing).
+// external_id `bind:<session>:<native_id>` (or, for a transcript-only bind,
+// `bind:<session>:path:<transcript_path>`), so a repeat is DUPLICATE.
+// Go's BindSession rules stand: a repeat of the bound id records nothing; a
+// different id that names a transcript is a rotation; a different id naming
+// no transcript never displaces the binding; nothing at all records nothing.
+message BindEngineSession {
+  option (io.angzarr.v1.fact) = {
+    component: "ctxloom.sessions.v1.SessionState"
+    emits: ["ctxloom.sessions.v1.EngineSessionBound"]
+  };
+
+  string native_id = 1;
+  string transcript_path = 2;
+  optional string engine_version = 3;
+}
+
+// Mark (kept) or unmark the session's transcript as never reclaimable.
+// Records nothing when it changes nothing.
+message SetKept {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.sessions.v1.SessionState"
+    emits: ["ctxloom.sessions.v1.KeptChanged"]
+    refuses: "ctxloom.sessions.v1.NoSession"
+  };
+
+  bool kept = 1;
+}
+
+// Set the session's title (owner S55, 2026-11-12): free text shown beside
+// the first prompt; empty clears it. The harp never changes, so nothing
+// moves.
+message SetSessionTitle {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.sessions.v1.SessionState"
+    emits: ["ctxloom.sessions.v1.TitleSet"]
+    refuses: "ctxloom.sessions.v1.NoSession"
+  };
+
+  string title = 1;
+}
+
+// Seed rotations the store never recorded (`session adopt --yes`). Each
+// whose native id is the current binding or already in the lineage is
+// skipped; the lineage stays ordered by rotation instant.
+message AdoptRotations {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.sessions.v1.SessionState"
+    emits: ["ctxloom.sessions.v1.SessionAdopted"]
+    refuses: "ctxloom.sessions.v1.NoSession"
+  };
+
+  repeated Rotation rotations = 1;
+}
+
+// Record when the session's last run ended: the Go importer's record of
+// Go's ended_at, and nothing else's. A run's own end is IncarnationEnded
+// (ruling 85), which sets the session's end at its page's instant; RecordEnd
+// remains for the importer only.
+message RecordEnd {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.sessions.v1.SessionState"
+    emits: ["ctxloom.sessions.v1.EndRecorded"]
+    refuses: "ctxloom.sessions.v1.NoSession"
+  };
+
+  google.protobuf.Timestamp at = 1;
+}
+
+// endregion commands
+
+// region events
+
+// An event carries the values the session holds after it, not the change
+// that led there: apply assigns them and computes nothing. An event's
+// instant is its page's `EventMeta.recorded_at`, which apply is handed.
+
+message SessionMinted {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
+
+  string harp = 1;
+  string project_id = 2;
+  string project_dir = 3;
+  string output_dir = 4;
+  string engine = 5;
+  Origin origin = 6;
+  // Written only when the command gave one (the importer): else the
+  // session's start is the page's `recorded_at`.
+  optional google.protobuf.Timestamp started_at = 7;
+  uint32 depth = 8;
+  // The workspace axis the session was minted on (`none`, `worktree`; a
+  // session trait, owner ruling 2026-11-12): a resume works in the same
+  // place. Absent on a session from before it was recorded, which reads as
+  // `none`. 9 is the daemon branch's (`owner`).
+  optional string workspace = 10;
+}
+
+// The binding the session holds after a bind. A bind that displaced an
+// earlier binding (the plan's EngineSessionRotated: an engine's /clear
+// starts a new transcript under a live process) carries it in `displaced`,
+// which joins the lineage at the page's `recorded_at`. One event, because
+// a command's handler records one event type (the markup has no either-or
+// shape).
+message EngineSessionBound {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
+
+  string native_id = 1;
+  string transcript_path = 2;
+  string engine_version = 3;
+  // The binding this one displaced; absent for the first bind.
+  optional Rotation displaced = 4;
+}
+
+message KeptChanged {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
+
+  bool kept = 1;
+}
+
+message TitleSet {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
+
+  string title = 1;
+}
+
+message SessionAdopted {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
+
+  // The rotations adopted, those new to the lineage only.
+  repeated Rotation rotations = 1;
+}
+
+message EndRecorded {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
+
+  google.protobuf.Timestamp at = 1;
+}
+
+// endregion events
+
+// region lifeline (S5; plan 3.1)
+
+// The run LIFELINE: which incarnation the session owes, whether one is live,
+// and the stop flag. There is no inbox (owner ruling 101: delivery,
+// acknowledgement and failure are angzarr's transport, not session states).
+// Go's `run_ends[]` is NOT kept here: it is the `run-ends` read model over
+// the run streams.
+
+// Order every live run of the session to stop. `requester_depth` is STAMPED
+// from the caller's identity, never read from its payload; refused from a
+// child (Go's I2).
+message StopSession {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.sessions.v1.SessionState"
+    emits: ["ctxloom.sessions.v1.StopOrdered"]
+    refuses: "ctxloom.sessions.v1.NoSession"
+    refuses: "ctxloom.sessions.v1.ChildCannotStop"
+  };
+
+  uint32 requester_depth = 1;
+  string reason = 2;
+}
+
+// A run's end, told to its session by the run application (a fact).
+// `cause` is Go's `Cause*` text (`runner-exit`, `orphaned`, ...). The
+// session records the end of its open incarnation and the parent is to be
+// noticed, except for an idle reap; nothing owes a relaunch (no mail asks for
+// one, owner ruling 101).
+message RecordIncarnationEnded {
+  option (io.angzarr.v1.fact) = {
+    component: "ctxloom.sessions.v1.SessionState"
+    emits: ["ctxloom.sessions.v1.IncarnationEnded"]
+  };
+
+  uint32 incarnation = 1;
+  string cause = 2;
+}
+
+// Resume the session (owner ruling 115, `run --session <harp>`): owe it its
+// next incarnation, a new run on the same session stream that resumes the
+// engine's own session (its bound native id) in the same session home. Sent
+// for a harp whose name is claimed, so a stream holding no session is one
+// `session remove` destroyed. Refused while an incarnation is open (its run
+// has not ended), before the engine bound a native session, for another
+// engine than the session's, and for another workspace axis.
+message ResumeSession {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.sessions.v1.SessionState"
+    emits: ["ctxloom.sessions.v1.IncarnationOwed"]
+    refuses: "ctxloom.sessions.v1.SessionUnknown"
+    refuses: "ctxloom.sessions.v1.SessionDestroyed"
+    refuses: "ctxloom.sessions.v1.SessionRunning"
+    refuses: "ctxloom.sessions.v1.NoNativeSession"
+    refuses: "ctxloom.sessions.v1.EngineMismatch"
+    refuses: "ctxloom.sessions.v1.WorkspaceMismatch"
+  };
+
+  // The name the session was asked for by.
+  string harp = 1;
+  // The engine the resume would drive; empty is the session's own.
+  string engine = 2;
+  // The workspace axis the resume was asked for (`--workspace`); empty is
+  // the session's own. Another is refused: claude keys a conversation by
+  // its working directory, so a resume elsewhere would not find it.
+  string workspace = 3;
+}
+
+message IncarnationOwed {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
+
+  uint32 incarnation = 1;
+  string reason = 2;
+}
+
+message IncarnationEnded {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
+
+  uint32 incarnation = 1;
+  string cause = 2;
+  // Whether the parent is to be noticed of this end (every end but an idle
+  // reap's).
+  bool notice_parent = 3;
+}
+
+message StopOrdered {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
+
+  string reason = 1;
+}
+
+// endregion lifeline
+
+// region refusals
+//
+// A command's refusals, one typed message each, listed in the `refuses` of
+// the commands that raise them. The status is the gRPC meaning of what is
+// refused, declared here and nowhere else; the code, args and text a person
+// reads are the domain's `SessionRejection` (`rejection.rs`), mapped from
+// the refusal's TYPE, never its status.
+
+// A mint on a stream that already holds a session.
+message SessionExists {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_ALREADY_EXISTS;
+
+  string harp = 1;
+}
+
+// A command to a stream holding no session.
+message NoSession {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_NOT_FOUND;
+}
+
+// A harp that cannot be a session's name; `reason` is one of `empty`,
+// `directory`, `separator`, `control`, `whitespace`.
+message HarpInvalid {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+
+  string harp = 1;
+  string reason = 2;
+}
+
+// A stop ordered by a child; `depth` is the requester's.
+message ChildCannotStop {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_PERMISSION_DENIED;
+
+  uint64 depth = 1;
+}
+
+// A resume of a name no session holds. The run application raises it from
+// its read of the name's claim, before the command: listed so the name has
+// one typed message, whoever raises it.
+message SessionUnknown {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_NOT_FOUND;
+
+  string harp = 1;
+}
+
+// A resume of a session `session remove` destroyed: its name is still
+// claimed (94c), its stream holds nothing.
+message SessionDestroyed {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_NOT_FOUND;
+
+  string harp = 1;
+}
+
+// A resume of a session that is running: its lock is held, or its last
+// incarnation has not ended.
+message SessionRunning {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  string harp = 1;
+}
+
+// A resume of a session whose engine never bound a native session: there is
+// nothing for the engine to resume.
+message NoNativeSession {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  string harp = 1;
+}
+
+// A resume on another engine than the session's: the native session is its
+// engine's alone.
+message EngineMismatch {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+
+  string harp = 1;
+  string engine = 2;
+  string asked = 3;
+}
+
+// A resume asked for another workspace axis than the session's.
+message WorkspaceMismatch {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+
+  string harp = 1;
+  string workspace = 2;
+  string asked = 3;
+}
+
+// endregion refusals

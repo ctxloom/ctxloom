@@ -1,0 +1,268 @@
+//! The `Remotes` port over the git command line (the plan's REC: the git CLI
+//! behind the port first, not gix).
+//!
+//! A repository is cloned once into the cache, `<cache root>/<host>/<path>`
+//! (every spelling of one repository caching in one directory), with its full
+//! history. Every read is from commits and remote-tracking refs, never from a
+//! checked-out working tree: a clone is made without a checkout, and a stale
+//! one that someone reset must not leak into what is served.
+//!
+//! git is run with the repository-location variables of its environment
+//! (`GIT_DIR` and its siblings, `git -c`'s exports) removed, so the working
+//! directory and the repository's own configuration alone choose the
+//! repository; and non-interactive: a private, renamed or mistyped address
+//! fails fast rather than waiting on a prompt nobody can answer. Credentials
+//! are git's own: its credential helpers, ssh keys and agent, and the
+//! committer's identity from the user's configuration.
+//!
+//! Every git invocation is bounded ([`DEFAULT_TIMEOUT`], Go's sixty-second
+//! sync): a git that hangs is killed and reaped, and the call fails saying so.
+//! The program and the limit are [`Git`], which tests narrow to a stub script
+//! and a tiny limit.
+
+mod auth;
+mod command;
+mod publish;
+mod read;
+
+use std::collections::BTreeMap;
+use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
+
+use auth::{Auth, Credential};
+pub use auth::{Env, TokenVars};
+pub use command::{Git, DEFAULT_TIMEOUT};
+use deps_ports::{Remotes, RepoTree, Repository, Why};
+use file_system::Fs;
+use process_env::EnvSnapshot;
+
+/// Where bundles are in a repository.
+pub const BUNDLES: &str = deps_ports::BUNDLES_IN_REPOSITORY;
+
+/// The repositories content comes from, over git.
+pub struct GitRemotes {
+    fs: Arc<dyn Fs>,
+    cache: PathBuf,
+    auth: Auth,
+    git: Git,
+}
+
+impl GitRemotes {
+    /// Remotes cloned below `cache` (`<app dir>/cache/repos`), on `fs`, over
+    /// the git on `env`'s `PATH`, run in `env`'s environment.
+    pub fn new(fs: Arc<dyn Fs>, cache: PathBuf, env: Arc<EnvSnapshot>) -> GitRemotes {
+        GitRemotes {
+            fs,
+            cache,
+            auth: Auth::none(),
+            git: Git::new("git", DEFAULT_TIMEOUT, env),
+        }
+    }
+
+    /// The same remotes over another git: a program, and how long each of
+    /// its invocations has before it is killed.
+    pub fn with_git(self, git: Git) -> GitRemotes {
+        GitRemotes { git, ..self }
+    }
+
+    /// Remotes that send a token to the `https` address that has one: found
+    /// in the first of `vars(url)` that `env` sets. Only clone and fetch send
+    /// it; publishing is the user's own git.
+    pub fn with_credentials(self, env: Env, vars: TokenVars) -> GitRemotes {
+        GitRemotes {
+            auth: Auth::new(env, vars),
+            ..self
+        }
+    }
+
+    fn credential(&self, url: &str) -> Credential {
+        self.auth.credential(url)
+    }
+
+    /// Where the clone of `repo` is cached: below the cache, under the
+    /// segments the application handed.
+    fn clone_dir(&self, repo: &Repository) -> PathBuf {
+        repo.cache
+            .segments()
+            .iter()
+            .fold(self.cache.clone(), |dir, s| dir.join(s))
+    }
+
+    fn is_clone(&self, dir: &Path) -> bool {
+        self.fs
+            .metadata(&dir.join(".git"))
+            .is_ok_and(|meta| meta.kind == file_system::Kind::Dir)
+    }
+
+    /// The clone of `repo`, which must be there.
+    fn cloned(&self, repo: &Repository) -> Result<PathBuf, Why> {
+        let dir = self.clone_dir(repo);
+        if self.is_clone(&dir) {
+            Ok(dir)
+        } else {
+            Err(format!("{} is not cloned yet", repo.url))
+        }
+    }
+
+    /// A clone of `url` into `dir`, without a checkout: the objects and the
+    /// remote-tracking refs are all that is read.
+    fn clone_into(&self, url: &str, dir: &Path, checkout: bool) -> Result<(), Why> {
+        // A directory is cleared first: it must be a place of the cache, never
+        // the cache itself nor anything outside it.
+        let climbs = dir
+            .components()
+            .any(|c| matches!(c, Component::ParentDir | Component::CurDir));
+        if climbs || dir == self.cache || !dir.starts_with(&self.cache) {
+            return Err(format!(
+                "refusing to clone into {}: it is not a place of the cache",
+                dir.display()
+            ));
+        }
+        if self.fs.exists(dir).unwrap_or(false) {
+            self.fs
+                .remove_dir_all(dir)
+                .map_err(|e| format!("cannot clear {}: {e}", dir.display()))?;
+        }
+        if let Some(parent) = dir.parent() {
+            self.fs
+                .create_dir_all(parent, os::Mode::from_bits(0o755))
+                .map_err(|e| format!("cannot make {}: {e}", parent.display()))?;
+        }
+        let target = dir.to_string_lossy();
+        let mut args = vec!["clone"];
+        if !checkout {
+            args.push("--no-checkout");
+        }
+        args.extend(["--", url, &target]);
+        let outcome = self.git.run_with(None, &args, None, &self.credential(url));
+        if outcome.is_err() {
+            // A partial clone is not a clone; the next call clones afresh.
+            let _ = self.fs.remove_dir_all(dir);
+        }
+        outcome.map(drop)
+    }
+}
+
+impl Remotes for GitRemotes {
+    fn local_repository(&self, path: &str) -> Result<String, Why> {
+        let dir = Path::new(path);
+        self.git
+            .attempt(
+                Some(dir),
+                &["rev-parse", "--git-dir"],
+                None,
+                &Credential::none(),
+            )
+            .map_err(|failed| match failed {
+                // A git that hung says nothing about the directory.
+                command::Failed::TimedOut(why) => why,
+                command::Failed::Said(_) => {
+                    format!("{path:?} holds no git repository: name one, or write its file:// URL")
+                }
+            })?;
+        let absolute = self
+            .fs
+            .canonicalize(dir)
+            .map_err(|e| format!("cannot resolve {path:?}: {e}"))?;
+        Ok(file_url(self.fs.os().flavor(), &absolute))
+    }
+
+    fn ensure(&self, repo: &Repository) -> Result<(), Why> {
+        let dir = self.clone_dir(repo);
+        if self.is_clone(&dir) {
+            return Ok(());
+        }
+        self.clone_into(&repo.url, &dir, false)
+    }
+
+    fn refresh(&self, repo: &Repository) -> Result<(), Why> {
+        let dir = self.clone_dir(repo);
+        if !self.is_clone(&dir) {
+            return self.clone_into(&repo.url, &dir, false);
+        }
+        self.git.run_with(
+            Some(&dir),
+            &["fetch", "--prune", "--force", "--tags", "origin"],
+            None,
+            &self.credential(&repo.url),
+        )?;
+        // The default branch may have moved; a repository with no branch yet
+        // has none to point at, and that is not a failure.
+        let _ = self.git.run(
+            Some(&dir),
+            &["remote", "set-head", "origin", "--auto"],
+            None,
+        );
+        Ok(())
+    }
+
+    fn tags(&self, repo: &Repository) -> Result<Vec<String>, Why> {
+        read::tags(&self.git, &self.cloned(repo)?)
+    }
+
+    fn resolve_ref(&self, repo: &Repository, name: &str) -> Result<String, Why> {
+        read::resolve_ref(&self.git, &self.cloned(repo)?, name)
+    }
+
+    fn resolve_tag(&self, repo: &Repository, name: &str) -> Result<String, Why> {
+        read::resolve_tag(&self.git, &self.cloned(repo)?, name)
+    }
+
+    fn default_branch(&self, repo: &Repository) -> Result<String, Why> {
+        read::default_branch(&self.git, &self.cloned(repo)?)
+    }
+
+    fn read_bundle(
+        &self,
+        repo: &Repository,
+        sha: &str,
+        bundle: &str,
+    ) -> Result<Option<RepoTree>, Why> {
+        read::bundle(&self.git, &self.cloned(repo)?, sha, bundle)
+    }
+
+    fn list_bundles(&self, repo: &Repository) -> Result<Vec<String>, Why> {
+        read::bundles(&self.git, &self.cloned(repo)?)
+    }
+
+    fn has_bundle(&self, repo: &Repository, bundle: &str) -> Result<bool, Why> {
+        read::has_bundle(&self.git, &self.cloned(repo)?, bundle)
+    }
+
+    fn publish(
+        &self,
+        repo: &Repository,
+        files: &BTreeMap<String, Vec<u8>>,
+        executable: &std::collections::BTreeSet<String>,
+        message: &str,
+    ) -> Result<String, Why> {
+        publish::publish(
+            &self.git,
+            self.fs.as_ref(),
+            &self.cache,
+            &repo.url,
+            files,
+            executable,
+            message,
+        )
+    }
+}
+
+/// The `file://` URL of the absolute `path`, as git reads one:
+/// `file:///a/b` on unix; `file:///C:/a/b` on Windows, whose path is spelled
+/// with `/` in a URL.
+fn file_url(flavor: os::Flavor, path: &Path) -> String {
+    let shown = path.display().to_string();
+    match flavor {
+        os::Flavor::Unix => format!("file://{shown}"),
+        os::Flavor::Windows => format!("file:///{}", shown.replace('\\', "/")),
+    }
+}
+
+#[cfg(test)]
+#[path = "lib.test.rs"]
+mod tests;
+
+#[cfg(test)]
+#[path = "fixtures.test.rs"]
+mod fixtures;

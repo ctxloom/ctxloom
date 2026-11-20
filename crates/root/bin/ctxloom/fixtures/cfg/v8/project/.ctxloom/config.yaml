@@ -1,0 +1,49 @@
+schema_version: 8
+editor:
+  command: vim
+  args: [-u, NONE]
+config:
+  content_form: original
+  statusline: none
+sync:
+  on_run: none
+workspace: worktree
+runtime: host
+delegation:
+  concurrency: 3
+  depth: 2
+  idle_timeout: 5m
+shell_timeout:
+  default: 30s
+  max: 1h
+isolation_images:
+  claude-code: example.com/img:1
+isolation_base: ctxloom
+isolation_memory_limit: 4g
+isolation_pids_limit: 512
+output:
+  dir: /var/out
+isolation_engines: [claude-code]
+companions: [acme, beta]
+ui:
+  prefix_key: ctrl-b
+  list_window: 7d
+session_reap_age: 30d
+session_purge_age: 90d
+session_transcript_retention: 365d
+non_tty_format: json
+auth: login
+agents:
+  dev:
+    engine: claude-code
+    profiles: [p1]
+    runtime: host
+    driving: oneshot
+    env: [ALPHA]
+    permissions:
+      approver: human
+    engines:
+      claude-code:
+        permissions:
+          mode: plan
+default_agent: dev

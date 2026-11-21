@@ -4067,6 +4067,7 @@ dependencies = [
  "runs-application",
  "session-ports",
  "sessions",
+ "setup-application",
  "surface-ports",
  "tokio",
  "uuid",

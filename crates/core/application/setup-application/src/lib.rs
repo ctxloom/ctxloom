@@ -34,8 +34,8 @@ use surface_ports::{ForeignFiles, Registry, SurfaceStore};
 
 pub use config_write::ConfigWritten;
 pub use delivery::{
-    compose_context, messages_context, remaining, Delivery, HookMessage, DAEMON_SENDER,
-    HOOK_CONTEXT_BUDGET,
+    compose_context, contained_reply, messages_context, remaining, Delivery, HookMessage,
+    DAEMON_SENDER, HOOK_CONTEXT_BUDGET,
 };
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;

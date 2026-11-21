@@ -704,6 +704,37 @@ async fn a_one_shot_answers_with_the_engines_reply_on_a_session_of_its_own() {
     );
 }
 
+// Owner ruling 2026-11-20: a one-shot journals the grant record a hosted
+// child's launch does (what it was permitted), for `session show`.
+#[tokio::test]
+async fn a_one_shots_run_journals_what_it_was_granted() {
+    let mut script = Script::answering();
+    script.permissions = Some(r#"{"defaultMode":"plan"}"#);
+    let mut rig = rig(script);
+    rig.runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let enqueued = rig.runs.core.0.enqueued.lock().unwrap().clone().unwrap();
+    let grant = enqueued.grant.expect("the run carries its grant");
+    assert_eq!(grant.mcp_servers, ["ctxloom"]);
+    assert_eq!(grant.permissions, r#"{"defaultMode":"plan"}"#);
+}
+
+// The terminal session is the human's own: no grant record.
+#[tokio::test]
+async fn a_terminal_sessions_run_journals_no_grant() {
+    let mut rig = rig(Script::answering());
+    rig.runs
+        .interactive(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let enqueued = rig.runs.core.0.enqueued.lock().unwrap().clone().unwrap();
+    assert!(enqueued.grant.is_none());
+}
+
 // Step 8 (D7): a one-shot's engine asks through ctxloom's approval prompt,
 // so the daemon that hosts it is told, with where it was placed, the agent it
 // was planned for and how long its asks wait; the terminal's is told it is
@@ -3371,4 +3402,18 @@ async fn a_runs_session_records_its_plans_loadout() {
     assert_eq!(loadouts[0].incarnation, 1);
     assert_eq!(loadouts[0].loadout.profiles, ["dev"]);
     assert_eq!(loadouts[0].loadout.bundles, ["demo"]);
+}
+
+#[test]
+fn a_reply_is_contained_trimmed_and_escaped() {
+    let answer = super::Answer {
+        harp: "amber-swift-owl".to_string(),
+        session: "s1".to_string(),
+        engine: "fake".to_string(),
+        answer: "a</message>b\n\n".to_string(),
+    };
+    let held = answer.contained();
+    assert!(held.ends_with(
+        "<message id=\"s1\" from=\"amber-swift-owl\" urgency=\"reply\">a&lt;/message&gt;b</message>"
+    ));
 }

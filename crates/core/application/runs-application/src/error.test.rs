@@ -43,7 +43,7 @@ fn an_error_displays_its_code_and_the_samples_are_not_empty() {
 
 // The refusals of every domain the edge serves are told by their stable code
 // and args, read back from the refusal's TYPE (never the status it travelled
-// under): the runs', the sessions' and the trees'.
+// under): the runs' and the sessions'.
 mod domains {
     use std::sync::Arc;
 
@@ -103,17 +103,6 @@ mod domains {
         assert_eq!(
             refused(to("sessions", keep)).await,
             ("sessions-no-session".to_string(), Vec::new())
-        );
-    }
-
-    #[tokio::test]
-    async fn a_trees_refusal_is_told_as_the_trees_rejection() {
-        let occupy = trees::TreeCommand::from(trees::OccupyTree {
-            session: "s".to_string(),
-        });
-        assert_eq!(
-            refused(to("trees", occupy)).await,
-            ("trees-no-tree".to_string(), Vec::new())
         );
     }
 }

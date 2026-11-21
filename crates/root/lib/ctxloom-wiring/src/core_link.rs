@@ -30,7 +30,6 @@ use runs::RunAggregate;
 use scheduler::SchedulerAggregate;
 use sessions::{NameClaimAggregate, ProjectAggregate, ProjectNameAggregate, SessionAggregate};
 use std::num::NonZeroU32;
-use trees::TreeAggregate;
 use trust::TrustAggregate;
 
 /// How many times the kernel runs a fact that keeps losing its race before it
@@ -304,10 +303,10 @@ impl<S> InProcessCore<S>
 where
     S: Store + Processed + ListStreams + Send + Sync + 'static,
 {
-    /// A CLI command's core over `store`: the sessions, runs, trees, trust,
+    /// A CLI command's core over `store`: the sessions, runs, trust,
     /// library, approvals and scheduler aggregates registered; sessions and
     /// runs exposed to the network (the container bridge reaches them) and
-    /// trees, trust, library and approvals to loopback; the kernel's retries off, so
+    /// trust, library and approvals to loopback; the kernel's retries off, so
     /// a fact at the race cap is parked at once. No read model, no policy
     /// (no alarm consumer), and no resume at start (owner ruling
     /// 2026-11-16): the daemon's core alone pays for owed policy work.
@@ -356,9 +355,6 @@ where
         registry
             .aggregate::<RunAggregate>(RunAggregate::default)
             .expect("the runs aggregate registers");
-        registry
-            .aggregate::<TreeAggregate>(TreeAggregate::default)
-            .expect("the trees aggregate registers");
         // A project's harp (S54): the project and its harp's claim.
         registry
             .aggregate::<ProjectAggregate>(ProjectAggregate::default)
@@ -398,7 +394,6 @@ where
         let exposed = BTreeMap::from([
             (sessions::SESSION_DOMAIN.to_string(), Expose::Ip),
             (runs::RUN_DOMAIN.to_string(), Expose::Ip),
-            (trees::TREE_DOMAIN.to_string(), Expose::Loopback),
             (trust::TRUST_DOMAIN.to_string(), Expose::Loopback),
             (approvals::APPROVALS_DOMAIN.to_string(), Expose::Loopback),
             (library_tree::LIBRARY_DOMAIN.to_string(), Expose::Loopback),

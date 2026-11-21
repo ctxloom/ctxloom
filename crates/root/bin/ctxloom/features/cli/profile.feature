@@ -1,6 +1,6 @@
 # world: surfaces
 # Ported from cli/profile.feature (rev f36e8dfb2)
-# NOT ported: the scenarios tagged @pending.
+# NOT ported: nothing; no scenario remains @pending.
 # OD-40 (aip/catalog, 2026-11-13): the JSON steps read the AIP resources of library.proto
 #   (design §5.5): a listing is `ListProfilesResponse` (`{profiles: [...]}`), a project's
 #   own profile is named `projects/{project}/bundles/project/profiles/<p>`, its parents and

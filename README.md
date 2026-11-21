@@ -1,6 +1,6 @@
 # ctxloom
 
-The Rust ctxloom, ported from the Go ctxloom (preserved on the `go-final` branch), piece by piece,
+The Rust ctxloom, ported from the Go ctxloom (preserved on the `go-final` branch of ctxloom/ctxloom-legacy), piece by piece,
 with architect review of each piece as it is ported.
 
 ## Notes on using it

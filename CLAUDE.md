@@ -1,7 +1,7 @@
 # Introduction
 
-ctxloom is the Rust ctxloom: a port of the Go ctxloom onto angzarr-embedded,
-one user journey at a time, with architect review of each milestone. The plan
+ctxloom is the Rust ctxloom, built on angzarr-embedded (it began as a port of
+the Go ctxloom), one user journey at a time, with architect review of each milestone. The plan
 (`ctxloom.plan.md`'s roadmap, §3, the one integrated plan, owner 2026-11-13)
 orders the milestones by journey
 (`crates/root/bin/ctxloom/features/journeys/`), with work on
@@ -9,10 +9,13 @@ orders the milestones by journey
 scenarios pass, with the cli contracts it touches. A milestone starts as red
 tests, committed red on `port/<milestone>`, reviewed, then implemented green.
 All work is cut from and landed on `daemon/integration` (owner 2026-11-13:
-"One line: all work on integration"); it carries everything `main` had.
+"One line: all work on integration") until step 11 lands it on `main`; from
+then on work lands on `main`.
 
-The repository is `ctxloom` (github.com/ctxloom/ctxloom); the Go ctxloom is
-preserved on its `go-final` branch. The primary checkout's leaf is `ctxloom`.
+The repository is `ctxloom` (github.com/ctxloom/ctxloom), re-created with
+fresh history on 2026-11-20 (`main` is one commit). The Go-era and
+daemon-era history is in github.com/ctxloom/ctxloom-legacy (archived,
+read-only reference, never merged; the Go ctxloom is its `go-final` branch).
 
 The features are the spec, and are written first: a journey tells a user's
 story with the commands they type; a command's contract lives in its
@@ -4936,8 +4939,8 @@ github.com/ctxloom/ci (owner rulings 2026-11-12): its composite actions
 `setup-rust` (rust-toolchain.toml, made the default; pinned tools by
 taiki-e/install-action; rust-cache, saved on main only), `setup-protoc`
 (3.21.12 by checksum), `setup-versionator` (v0.3.0's release binary by
-checksum, so no job sets up Go for it), `setup-ltk` (ltk from the Go
-ctxloom's go-final, go-installed on a cache miss only, for
+checksum, so no job sets up Go for it), `setup-ltk` (ltk, `go install`ed on a cache miss only from the Go
+ctxloom's `cmd/ltk` at the commit f36e8df, now in ctxloom-legacy's `go-final`, for
 `ltk-rules-check.sh`), `gate-logs` (the logs dumped and uploaded on a
 failure) and `package-binary`, and its reusable workflows `binaries.yml` and
 `release.yml`, all pinned at ONE commit of its main (bump them together).
@@ -4996,7 +4999,8 @@ one crate (`0/1` for all of it), how one crate's mutants are run whole.
 A shard holding mutants of the binary runs its feature runner, so on a tree
 that carries red spec on purpose (an integration branch, ruling 165) its
 unmutated baseline was red (cargo-mutants' exit 4, the score judging
-nothing: run 43870047304 on daemon/integration). Such a shard first makes
+nothing: run 43870047304 on daemon/integration, historical, before the
+fresh-history reset). Such a shard first makes
 the tree's own list (`just ratchet-base HEAD`, below), and when it has red
 runs cargo-mutants with `GHERKIN_RATCHET_BASE` naming it: every run of the
 runner, the baseline's and each mutant's, is judged against that list in
@@ -5259,7 +5263,8 @@ hook with `just hooks-install` once more (`gates/MIGRATING.md`).
    `scripts/mutants-verdict.selftest.sh` (`just selftest`).
 
 A slice landing on an integration branch that carries a red spec on purpose
-(daemon/integration, its daemon scenarios red) lands through `just
+(daemon/integration, its daemon scenarios red; the landing branch until
+step 11, `main` is the base afterwards, with no red scenario) lands through `just
 land-ratchet <base>` (owner ruling of 2026-11-13; `scripts/closeout-ratchet.sh
 --no-mutation`): `closeout-ratchet`'s gates (build, lint, lint-deps, the full
 test, lint-os) and its ratchet, without mutation (no mutants-batch, even

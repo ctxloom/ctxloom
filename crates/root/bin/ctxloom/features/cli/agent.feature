@@ -1,7 +1,7 @@
 # world: surfaces
 # Ported from cli/agent.feature (rev f36e8dfb2)
 # Ported from journeys/j002000_engine_switch.feature (rev f36e8dfb2) (the last Rule)
-# NOT ported: the scenarios tagged @pending.
+# NOT ported: nothing; no scenario remains @pending.
 # OD-40 (aip/configuration, 2026-11-13): the JSON steps read the AIP resources (library.proto's
 #   `ListAgentsResponse`, `Agent` and the write responses, design §5.6): a list is
 #   `{agents: [...]}` (an empty one prints nothing at `agents`), an agent is named

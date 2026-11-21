@@ -107,6 +107,10 @@ impl Remotes for Spy {
         self.note(&format!("read_bundle {sha} {bundle}"), repo);
         Ok(Some(RepoTree::new()))
     }
+    fn bundle_tree(&self, repo: &Repository, sha: &str, bundle: &str) -> Result<String, Why> {
+        self.note(&format!("bundle_tree {sha} {bundle}"), repo);
+        Ok("tree".to_string())
+    }
     fn list_bundles(&self, repo: &Repository) -> Result<Vec<String>, Why> {
         self.note("list_bundles", repo);
         Ok(vec!["b".to_string()])

@@ -25,6 +25,39 @@ pub struct Preview {
     #[serde(skip_serializing_if = "no_items")]
     pub detail: Vec<String>,
     pub apply: String,
+    /// What a run would be refused on once the target is gone (a bundle
+    /// removal's, owner ruling 2026-11-19); empty for every other removal.
+    #[serde(skip_serializing_if = "no_items")]
+    pub dependents: Vec<Dependent>,
+}
+
+/// A profile or an agent that includes a bundle being removed: its run is
+/// refused once the bundle is gone, until it is edited.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Dependent {
+    pub kind: DependentKind,
+    /// The profile as a profile's `parents` names it (a project profile
+    /// bare, another bundle's `<bundle>#profiles/<name>`), or the agent's
+    /// name.
+    pub name: String,
+}
+
+/// What kind of thing a [`Dependent`] is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DependentKind {
+    Profile,
+    Agent,
+}
+
+impl DependentKind {
+    /// The word a person reads it by.
+    pub fn word(self) -> &'static str {
+        match self {
+            DependentKind::Profile => "profile",
+            DependentKind::Agent => "agent",
+        }
+    }
 }
 
 impl Preview {
@@ -36,6 +69,7 @@ impl Preview {
             target,
             detail,
             apply,
+            dependents: Vec::new(),
         }
     }
 }
@@ -126,6 +160,15 @@ pub struct BundleRemoved {
 #[derive(Clone, Debug, Serialize)]
 pub struct BundleExported {
     pub status: String,
+    pub name: String,
+    pub source: String,
+    pub dest: String,
+}
+
+/// A local `bundle move` into another project (step 10b U9): where the
+/// bundle's manifest was, as shown, and the directory it lands at.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct BundleMoved {
     pub name: String,
     pub source: String,
     pub dest: String,
@@ -305,11 +348,23 @@ pub struct AgentRemoved {
 #[derive(Clone, Debug, Serialize)]
 pub struct CompanionAdded {
     pub name: String,
-    /// The program, then its arguments, as registered.
-    pub command: Vec<String>,
-    /// Whether the registration is new or changed a command; false when it
-    /// was already registered exactly so.
+    /// The program its name stands for, which answered the probe.
+    pub program: String,
+    /// Whether the registration is new; false when it was registered
+    /// already (and is left as it was, its state too).
     pub added: bool,
+}
+
+/// `companion enable|disable` (OD-9).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CompanionStateSet {
+    pub name: String,
+    /// The program its name stands for.
+    pub program: String,
+    /// The state it is in now.
+    pub state: library::companion::State,
+    /// Whether the state changed; false when it was so already.
+    pub changed: bool,
 }
 
 /// `companion remove --yes`.
@@ -323,4 +378,30 @@ pub struct CompanionRemoved {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ConfigCreated {
     pub path: String,
+}
+
+/// `config edit`, served (step 10b U3): the layer edited, and whether the
+/// editor changed it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ConfigEdited {
+    pub path: String,
+    pub changed: bool,
+}
+
+/// What `manage gitignore install` did (step 10c U5).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GitignoreInstalled {
+    /// The `.ctxloom` the file is in.
+    pub app_dir: String,
+    /// Whether it was written: it was not what ctxloom writes.
+    pub written: bool,
+}
+
+/// What a first init's scaffold came to (step 10c U6).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProjectInitialized {
+    /// The project's `.ctxloom`.
+    pub app_dir: String,
+    /// It was there already: nothing was written.
+    pub existed: bool,
 }

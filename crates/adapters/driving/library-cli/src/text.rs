@@ -7,9 +7,9 @@ use std::io::{self, Write};
 use angzarr_presentation::text;
 use library_application::{
     AgentRow, AgentSettings, AgentShow, BundleList, BundleRow, BundleShow, BundleView,
-    CompanionRow, DryRun, EngineRow, EnvSetting, ItemList, ItemShow, McpList, McpShow, Premises,
-    ProfileList, ProfileShow, RemoteFound, RuntimeSetting, SearchResults, SkillList, SkillShow,
-    SourcedValue,
+    CompanionRow, DryRun, EngineRow, EnvSetting, Hook, ItemList, ItemShow, McpList, McpShow,
+    Premises, ProfileHooks, ProfileList, ProfileShow, RemoteFound, RuntimeSetting, SearchResults,
+    SkillList, SkillShow, SourcedValue,
 };
 
 use crate::inert::{body, field};
@@ -21,17 +21,10 @@ fn f(s: &str) -> String {
     field(s, 256)
 }
 
-/// `bundle list`.
+/// `bundle list`. A project with no bundles directory is one with no
+/// bundles, said alike (owner ruling 2026-11-17: installing a bundle makes
+/// the directory; a read never does).
 pub fn bundle_list(out: &mut dyn Write, list: &BundleList) -> io::Result<()> {
-    if list.no_root {
-        if list.hint.starts_with("No project here") {
-            return writeln!(out, "{}", list.hint);
-        }
-        return writeln!(
-            out,
-            "No bundles directory found. Create one with: mkdir -p .ctxloom/content/bundles"
-        );
-    }
     if list.rows.is_empty() {
         writeln!(out, "No bundles installed.")?;
         return writeln!(out, "{}", list.hint);
@@ -41,6 +34,62 @@ pub fn bundle_list(out: &mut dyn Write, list: &BundleList) -> io::Result<()> {
         bundle_entry(out, row)?;
     }
     Ok(())
+}
+
+/// `bundle list` from the daemon's `ListBundlesResponse` (step 10a U2, D10:
+/// the message alone), line for line as [`bundle_list`] renders the view:
+/// each bundle by its catalog name (read back from its resource name), an
+/// empty catalog with the hint of a project, or of none.
+pub fn bundles(
+    out: &mut dyn Write,
+    listed: &daemon_proto::v1::ListBundlesResponse,
+    in_project: bool,
+) -> io::Result<()> {
+    let rows: Vec<BundleRow> = listed.bundles.iter().map(row_of).collect();
+    let hint = if in_project {
+        library_application::LISTING_HINT
+    } else {
+        library_application::NO_PROJECT_HINT
+    };
+    let list = BundleList {
+        rows,
+        hint: hint.to_string(),
+    };
+    bundle_list(out, &list)
+}
+
+/// A listed `Bundle` as the row its text is drawn from.
+fn row_of(bundle: &daemon_proto::v1::Bundle) -> BundleRow {
+    let parent = parent_of(&bundle.name);
+    let builtin = bundle.origin == daemon_proto::v1::bundle::Origin::Builtin as i32;
+    BundleRow {
+        name: library_api::names::catalog_name(parent, &bundle.name),
+        reference: bundle.reference.clone(),
+        path: bundle.path.clone(),
+        origin: if builtin {
+            "ctxloom/builtin".to_string()
+        } else {
+            String::new()
+        },
+        version: bundle.version.clone(),
+        description: bundle.description.clone(),
+        tags: bundle.tags.clone(),
+        fragment_count: u64::from(bundle.fragment_count),
+        command_count: u64::from(bundle.command_count),
+        mcp_count: u64::from(bundle.mcp_server_count),
+        profile_count: u64::from(bundle.profile_count),
+        held: bundle.held == Some(true),
+        commit: bundle.commit.clone(),
+    }
+}
+
+/// The parent a resource name is under: its first two segments,
+/// `projects/{p}` or `users/me`.
+fn parent_of(name: &str) -> &str {
+    match name.match_indices('/').nth(1) {
+        Some((offset, _)) => &name[..offset],
+        None => name,
+    }
 }
 
 fn contents(row: &BundleRow) -> Vec<String> {
@@ -264,6 +313,18 @@ pub fn item_list(out: &mut dyn Write, list: &ItemList) -> io::Result<()> {
 
 /// `fragment show` and `command show`.
 pub fn item_show(out: &mut dyn Write, notes: &mut Notes, show: &ItemShow) -> io::Result<()> {
+    // S51: a distilled form that no longer matches its source is said.
+    if show.state == library_application::DistilledState::Stale {
+        notes.0.push(format!(
+            "distilled: stale (run `ctxloom {} distill {}`)",
+            if show.reference.contains("#commands/") {
+                "command"
+            } else {
+                "fragment"
+            },
+            show.reference
+        ));
+    }
     if show.distilled {
         writeln!(out, "# (distilled version)")?;
     }
@@ -366,7 +427,12 @@ pub fn profile_list(out: &mut dyn Write, list: &ProfileList) -> io::Result<()> {
             parts.push(format!("parents: {}", row.parents.join(", ")));
         }
         if !row.bundles.is_empty() {
-            parts.push(format!("{} bundles", row.bundles.len()));
+            // One is "1 bundle" (a divergence from Go's "1 bundles").
+            let count = row.bundles.len();
+            parts.push(format!(
+                "{count} bundle{}",
+                if count == 1 { "" } else { "s" }
+            ));
         }
         if !parts.is_empty() {
             writeln!(out, "    {}", parts.join(", "))?;
@@ -401,7 +467,17 @@ pub fn profile_show(out: &mut dyn Write, show: &ProfileShow) -> io::Result<()> {
     }
     bullets(out, "Parents", &show.parents)?;
     bullets(out, "Bundles", &show.bundles)?;
+    let fragments: Vec<String> = show
+        .fragments
+        .iter()
+        .map(|fragment| match fragment.priority {
+            0 => fragment.name.clone(),
+            priority => format!("{} (priority {priority})", fragment.name),
+        })
+        .collect();
+    bullets(out, "Fragments", &fragments)?;
     bullets(out, "Tags", &show.tags)?;
+    bullets(out, "Select tags", &show.select_tags)?;
     if !show.variables.is_empty() {
         writeln!(out, "Variables:")?;
         for (key, value) in &show.variables {
@@ -409,7 +485,94 @@ pub fn profile_show(out: &mut dyn Write, show: &ProfileShow) -> io::Result<()> {
         }
     }
     bullets(out, "Excluded fragments", &show.exclude_fragments)?;
-    bullets(out, "Excluded MCP servers", &show.exclude_mcp)
+    bullets(out, "Excluded MCP servers", &show.exclude_mcp)?;
+    bullets(out, "Denied tools", &show.deny_tools)?;
+    profile_hooks(out, &show.hooks)
+}
+
+/// A profile's hooks (step 10a U2, owner ruling 2026-11-17): each event
+/// under its document path (`unified.<event>`, `ext.<engine>.<event>`),
+/// each hook on one line in YAML's flow form, its keys sorted.
+fn profile_hooks(out: &mut dyn Write, hooks: &ProfileHooks) -> io::Result<()> {
+    let mut events: Vec<(String, &Vec<Hook>)> = hooks
+        .unified
+        .iter()
+        .map(|(event, list)| (format!("unified.{event}"), list))
+        .collect();
+    for (engine, native) in &hooks.ext {
+        events.extend(
+            native
+                .iter()
+                .map(|(event, list)| (format!("ext.{engine}.{event}"), list)),
+        );
+    }
+    if events.is_empty() {
+        return Ok(());
+    }
+    writeln!(out, "Hooks:")?;
+    for (path, list) in events {
+        writeln!(out, "  {}:", f(&path))?;
+        for hook in list {
+            writeln!(out, "    - {}", f(&json_flow(&hook_document(hook))))?;
+        }
+    }
+    Ok(())
+}
+
+/// A hook in its document's shape (`type:`, `async:`), every field it
+/// leaves empty left out; its event and name are where it is written.
+pub(crate) fn hook_document(hook: &Hook) -> serde_json::Value {
+    let mut set = serde_json::Map::new();
+    let mut text = |key: &str, value: &str| {
+        if !value.is_empty() {
+            set.insert(key.to_string(), serde_json::json!(value));
+        }
+    };
+    text("command", &hook.command);
+    text("prompt", &hook.prompt);
+    text("tool", &hook.tool);
+    text("type", &hook.kind);
+    for (key, list) in [("args", &hook.args), ("tags", &hook.tags)] {
+        if !list.is_empty() {
+            set.insert(key.to_string(), serde_json::json!(list));
+        }
+    }
+    if let Some(order) = hook.order {
+        set.insert("order".to_string(), serde_json::json!(order));
+    }
+    if hook.timeout != 0 {
+        set.insert("timeout".to_string(), serde_json::json!(hook.timeout));
+    }
+    for (key, flag) in [
+        ("async", hook.is_async),
+        ("pre_tool_fallback", hook.pre_tool_fallback),
+    ] {
+        if flag {
+            set.insert(key.to_string(), serde_json::json!(true));
+        }
+    }
+    serde_json::Value::Object(set)
+}
+
+/// A JSON value on one line in YAML's flow form, keys sorted.
+fn json_flow(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(text) => text.clone(),
+        serde_json::Value::Array(items) => format!(
+            "[{}]",
+            items.iter().map(json_flow).collect::<Vec<_>>().join(", ")
+        ),
+        serde_json::Value::Object(entries) => {
+            let mut sorted: Vec<(&String, &serde_json::Value)> = entries.iter().collect();
+            sorted.sort_by(|a, b| a.0.cmp(b.0));
+            let inner: Vec<String> = sorted
+                .iter()
+                .map(|(key, field)| format!("{key}: {}", json_flow(field)))
+                .collect();
+            format!("{{{}}}", inner.join(", "))
+        }
+        other => other.to_string(),
+    }
 }
 
 /// `agent list`.
@@ -430,7 +593,11 @@ pub fn agent_list(out: &mut dyn Write, rows: &[AgentRow]) -> io::Result<()> {
         if !row.profiles.is_empty() {
             writeln!(out, "    profiles: {}", row.profiles.join(", "))?;
         }
-        for (key, value) in [("runtime", &row.runtime), ("driving", &row.driving)] {
+        for (key, value) in [
+            ("runtime", &row.runtime),
+            ("session_home", &row.session_home),
+            ("driving", &row.driving),
+        ] {
             if !value.is_empty() {
                 writeln!(out, "    {key}: {value}")?;
             }
@@ -506,8 +673,9 @@ pub fn agent_show(out: &mut dyn Write, show: &AgentShow) -> io::Result<()> {
                 write!(out, " (model: {model})")?;
             }
             writeln!(out)?;
-            if !resolved.session_home.is_empty() {
-                writeln!(out, "Session home: {}", resolved.session_home)?;
+            let home = &resolved.settings.session_home;
+            if !home.value.is_empty() {
+                writeln!(out, "Session home: {} ({})", home.value, home.source)?;
             }
             writeln!(out, "Composed fragments: {}", resolved.fragments.len())?;
         }
@@ -601,6 +769,11 @@ fn settings_lines(
     )?;
     if !capital {
         writeln!(out, "{indent}{}", env_line(&s.env))?;
+        writeln!(
+            out,
+            "{indent}session_home: {} ({})",
+            s.session_home.value, s.session_home.source
+        )?;
     }
     Ok(())
 }
@@ -669,6 +842,11 @@ fn engine_lines(out: &mut dyn Write, row: &EngineRow) -> io::Result<()> {
     writeln!(out, "  {}", sourced_line("session_home", &row.session_home))?;
     writeln!(out, "  {}", sourced_line("runtime", &row.runtime))?;
     writeln!(out, "  {}", names_line("env", &row.env))?;
+    writeln!(
+        out,
+        "  {}",
+        sourced_line("approval_timeout", &row.approval_timeout)
+    )?;
     let via = row
         .auth
         .via
@@ -703,13 +881,13 @@ pub fn engine_show(out: &mut dyn Write, row: &EngineRow) -> io::Result<()> {
     Ok(())
 }
 
-/// `companion list`: the name, the command, and whether the program is
-/// there (it is not run to say so).
+/// `companion list`: the name, the program it stands for, whether that is
+/// on PATH (it is not run to say so), and a disabled one marked.
 pub fn companion_list(out: &mut dyn Write, rows: &[CompanionRow]) -> io::Result<()> {
     if rows.is_empty() {
         return writeln!(
             out,
-            "No companions registered.\nUse 'ctxloom companion add <name> --command <program> [args...]' to register one."
+            "No companions registered.\nUse 'ctxloom companion add <name>' to register one."
         );
     }
     for row in rows {
@@ -717,17 +895,15 @@ pub fn companion_list(out: &mut dyn Write, rows: &[CompanionRow]) -> io::Result<
             "found".to_string()
         } else {
             format!(
-                "NOT FOUND \u{2014} fix the command, or: ctxloom companion remove {} --yes",
-                row.name
+                "NOT FOUND \u{2014} install {} on PATH, or: ctxloom companion remove {} --yes",
+                row.program, row.name
             )
         };
-        writeln!(
-            out,
-            "{:<12} {:<28} {}",
-            row.name,
-            row.command.join(" "),
-            status
-        )?;
+        let state = match row.state {
+            library_application::CompanionState::Enabled => "",
+            library_application::CompanionState::Disabled => " (disabled)",
+        };
+        writeln!(out, "{:<12} {:<28} {status}{state}", row.name, row.program)?;
     }
     Ok(())
 }
@@ -978,6 +1154,21 @@ fn dry_run_settings(
         at = format!("{at}; replaces {from} {replaced}: {how}");
     }
     row(out, "runtime", &s.runtime.value, at)?;
+    // The agent's own word, else its engine block's (owner ruling of
+    // 2026-11-13).
+    row(
+        out,
+        "session_home",
+        &s.session_home.value,
+        place(s.session_home.source, false),
+    )?;
+    // How long an ask waits, the engine block's alone (OD-41, D16).
+    row(
+        out,
+        "approval_timeout",
+        &s.approval_timeout.value,
+        place(s.approval_timeout.source, false),
+    )?;
     if s.env.keys.is_empty() {
         return row(out, "env", "none", place(s.env.source, false));
     }

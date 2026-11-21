@@ -11,6 +11,10 @@ publish.workspace = true
 exit-code.workspace = true
 angzarr-diagnostic.workspace = true
 angzarr-embedded.workspace = true
+# The one-shot's client (U4): the daemon's API as a port, its messages.
+daemon-ports.workspace = true
+daemon-proto.workspace = true
+library.workspace = true
 library-application.workspace = true
 ports.workspace = true
 run-launcher.workspace = true
@@ -20,10 +24,10 @@ runs.workspace = true
 runs-application.workspace = true
 session-ports.workspace = true
 sessions.workspace = true
+surface-ports.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
-surface-ports.workspace = true
 angzarr-embedded = { workspace = true, features = ["test-support"] }
 run-launcher = { workspace = true, features = ["test-support"] }
 mutants.workspace = true

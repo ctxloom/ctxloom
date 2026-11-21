@@ -1,0 +1,50 @@
+[package]
+name = "daemon-application"
+version = "0.1.0"
+description = "The daemon's one launcher (T18): the orphan sweep at its start, then the policy plan, the hosted children's lifecycle and their facts, over the engine registry and ports"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+angzarr-diagnostic.workspace = true
+angzarr-embedded.workspace = true
+daemon-board.workspace = true
+# A hosted one-shot's events, as `WatchRun` streams them (U4).
+daemon-proto.workspace = true
+# A hosted child's checkout, placed and let go (s4-Q11, OD-19).
+isolation-ports.workspace = true
+library-application.workspace = true
+pending-launches.workspace = true
+pending-messages.workspace = true
+run-application.workspace = true
+run-launcher.workspace = true
+run-ports.workspace = true
+runs.workspace = true
+runs-application.workspace = true
+session-index.workspace = true
+# The trust index the API reads, caught up at the start and each round
+# (step 8 U1).
+trust-index.workspace = true
+# The permission asks the loop keeps caught up (step 8 U4).
+pending-approvals.workspace = true
+# The library trees as last observed, caught up at the start and each round
+# (step 10a U0): what a read reconciles against (U2).
+library-checkout.workspace = true
+# The library events the owed contexts handle (step 10c U13 rework).
+library-tree.workspace = true
+session-policies.workspace = true
+sessions.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+angzarr-embedded = { workspace = true, features = ["test-support"] }
+run-launcher = { workspace = true, features = ["test-support"] }
+run-ports = { workspace = true, features = ["test-support"] }
+mutants.workspace = true
+trust.workspace = true
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lints]
+workspace = true

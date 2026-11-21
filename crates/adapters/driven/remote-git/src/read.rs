@@ -133,6 +133,16 @@ pub(crate) fn bundle(
     Ok(Some(tree))
 }
 
+/// git's id of the tree of `bundle` at `sha`, as `rev-parse` reports it.
+pub(crate) fn bundle_tree(git: &Git, dir: &Path, sha: &str, bundle: &str) -> Result<String, Why> {
+    let wanted = format!("{sha}^{{tree}}:{BUNDLES}/{bundle}");
+    match git.text(dir, &["rev-parse", "--verify", "--quiet", &wanted]) {
+        Ok(tree) if !tree.is_empty() => Ok(tree),
+        Ok(_) => Err(format!("no tree {BUNDLES}/{bundle} at {sha}")),
+        Err(why) => Err(why),
+    }
+}
+
 /// The contents of `objects`, in order, from one `cat-file --batch`.
 fn blobs(git: &Git, dir: &Path, objects: &[&str]) -> Result<Vec<Vec<u8>>, Why> {
     let request = objects.iter().map(|o| format!("{o}\n")).collect::<String>();

@@ -22,13 +22,17 @@ fn convert(value: &Value) -> serde_json::Value {
         Value::Null => serde_json::Value::Null,
         Value::Scalar(text) => scalar(text),
         Value::Seq(items) => serde_json::Value::Array(items.iter().map(convert).collect()),
-        Value::Map(entries) => {
-            let mut map = Map::new();
-            for (key, inner) in entries {
-                map.insert(key.clone(), convert(inner));
-            }
-            serde_json::Value::Object(map)
-        }
+        // Sorted by key, whatever serde_json's map keeps (its
+        // `preserve_order`, which agent-client-protocol turns on, would keep
+        // the document's order).
+        Value::Map(entries) => serde_json::Value::Object(
+            entries
+                .iter()
+                .map(|(key, inner)| (key.clone(), convert(inner)))
+                .collect::<std::collections::BTreeMap<_, _>>()
+                .into_iter()
+                .collect(),
+        ),
     }
 }
 

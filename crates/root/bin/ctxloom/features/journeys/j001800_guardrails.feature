@@ -1,8 +1,7 @@
+# world: surfaces
 # Ported from journeys/j001800_guardrails.feature (rev f36e8dfb2)
-# NOT ported: ltk's honesty about itself, which is ltk's own to test; the
-#   scenarios tagged @pending.
+# NOT ported: ltk's honesty about itself, which is ltk's own to test.
 @doc
-@pending
 Feature: Guardrails — when the assistant does not listen
 
   An assistant told "use the task runner" will still, sometimes, reach for the

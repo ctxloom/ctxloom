@@ -105,7 +105,10 @@ impl Deps {
             .registry()
             .unwrap_or_else(|_| deps::registry::Registry::empty());
         let identity = self.locked_identity(&lock, &registry, name);
-        if let Some(entry) = identity.and_then(|id| lock.entries.get_mut(&id)) {
+        if let Some((identity, entry)) = identity.and_then(|id| {
+            let entry = lock.entries.get_mut(&id)?;
+            Some((id, entry))
+        }) {
             if entry.held != held {
                 entry.held = held;
                 self.save_lock(text.as_deref(), &lock, false)?;
@@ -113,6 +116,7 @@ impl Deps {
             return Ok(HoldResult {
                 status: if held { "held" } else { "released" },
                 name: name.to_string(),
+                identity,
             });
         }
         match self.files.local_bundle(name) {
@@ -123,6 +127,7 @@ impl Deps {
                 Ok(HoldResult {
                     status: "not_tracked",
                     name: name.to_string(),
+                    identity: String::new(),
                 })
             }
             _ => Err(AppError::NothingToHold {

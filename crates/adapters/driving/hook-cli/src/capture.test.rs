@@ -1,11 +1,11 @@
 //! Hook capture (PROPOSAL, design/hook-capture): the hook records what it
 //! observed and fails open. Owner ruling 2026-11-08: a fact that cannot be
-//! delivered is dropped and said so on stderr; the engine's answer, the exit
-//! and the bind are what they were without recording.
+//! delivered is dropped and said so on stderr; the engine's answer and the
+//! exit are what they were without recording.
 
 use std::cell::RefCell;
 
-use setup_application::{HookAnswer, SessionBind};
+use setup_application::HookAnswer;
 
 use super::*;
 use crate::{execute, HookError, HookWarning};
@@ -36,25 +36,15 @@ impl HookService for Service {
     }
 }
 
-#[derive(Default)]
-struct Bound(Vec<String>);
-
-impl Binding for Bound {
-    fn bind(&mut self, harp: &str, _: &str, _: &str) -> Result<(), Box<dyn Diagnostic>> {
-        self.0.push(harp.into());
-        Ok(())
-    }
-}
-
 /// Records nothing and says what it was asked, or says everything failed.
 #[derive(Default)]
 struct Recorder {
-    fails: Vec<NotRecorded>,
+    fails: Vec<Unrecorded>,
     asked: RefCell<Vec<(String, String)>>,
 }
 
 impl Recording for Recorder {
-    fn record(&self, native: &str, harp: &str, _answer: &HookAnswer) -> Vec<NotRecorded> {
+    fn record(&self, native: &str, harp: &str, _answer: &HookAnswer) -> Vec<Unrecorded> {
         self.asked.borrow_mut().push((native.into(), harp.into()));
         self.fails.clone()
     }
@@ -70,11 +60,12 @@ fn answering(stdout: &str) -> Service {
     }
 }
 
-fn not_recorded(what: &str) -> NotRecorded {
+fn not_recorded(what: &str) -> Unrecorded {
     NotRecorded {
         what: what.into(),
         why: "the listener is not running".into(),
     }
+    .into()
 }
 
 #[test]
@@ -87,7 +78,6 @@ fn the_hook_records_after_the_application_answers() {
         "{}",
         "brisk-copper-moth",
         &service,
-        &mut Bound::default(),
         &recorder,
     )
     .unwrap();
@@ -105,15 +95,7 @@ fn the_hook_records_after_the_application_answers() {
 #[test]
 fn a_failed_delivery_never_changes_the_engines_answer() {
     let service = answering("{\"decision\":\"x\"}\n");
-    let plain = execute(
-        "claude-code",
-        "Stop",
-        "{}",
-        "brisk-copper-moth",
-        &service,
-        &mut Bound::default(),
-    )
-    .unwrap();
+    let plain = execute("claude-code", "Stop", "{}", "brisk-copper-moth", &service).unwrap();
     let recorder = Recorder {
         fails: vec![not_recorded("hook:turn-end:s:p1")],
         ..Recorder::default()
@@ -124,7 +106,6 @@ fn a_failed_delivery_never_changes_the_engines_answer() {
         "{}",
         "brisk-copper-moth",
         &service,
-        &mut Bound::default(),
         &recorder,
     )
     .unwrap();
@@ -146,7 +127,6 @@ fn each_unrecorded_observation_is_one_warning_on_the_diagnostic_channel() {
         "{}",
         "brisk-copper-moth",
         &answering("{}\n"),
-        &mut Bound::default(),
         &recorder,
     )
     .unwrap();
@@ -170,38 +150,6 @@ fn each_unrecorded_observation_is_one_warning_on_the_diagnostic_channel() {
 }
 
 #[test]
-fn a_bind_is_still_made_when_recording_fails() {
-    let service = Service {
-        answer: HookAnswer {
-            stdout: "{}\n".into(),
-            bind: Some(SessionBind {
-                harp: "brisk-copper-moth".into(),
-                native_id: "n1".into(),
-                transcript: "/t".into(),
-            }),
-            ..HookAnswer::default()
-        },
-        ..Service::default()
-    };
-    let recorder = Recorder {
-        fails: vec![not_recorded("x")],
-        ..Recorder::default()
-    };
-    let mut bound = Bound::default();
-    execute_recording(
-        "claude-code",
-        "SessionStart",
-        "{}",
-        "brisk-copper-moth",
-        &service,
-        &mut bound,
-        &recorder,
-    )
-    .unwrap();
-    assert_eq!(bound.0, ["brisk-copper-moth"]);
-}
-
-#[test]
 fn the_statusline_records_nothing() {
     let recorder = Recorder::default();
     execute_recording(
@@ -210,7 +158,6 @@ fn the_statusline_records_nothing() {
         "{}",
         "brisk-copper-moth",
         &Service::default(),
-        &mut Bound::default(),
         &recorder,
     )
     .unwrap();
@@ -224,16 +171,7 @@ fn a_refused_hook_records_nothing_and_is_refused_as_before() {
         ..Service::default()
     };
     let recorder = Recorder::default();
-    let err = execute_recording(
-        "nosuch",
-        "Stop",
-        "{}",
-        "h",
-        &service,
-        &mut Bound::default(),
-        &recorder,
-    )
-    .unwrap_err();
+    let err = execute_recording("nosuch", "Stop", "{}", "h", &service, &recorder).unwrap_err();
     assert_eq!(err.code(), "hook-cli-unknown-engine");
     assert!(recorder.asked.borrow().is_empty());
 }
@@ -249,16 +187,8 @@ fn a_hook_with_no_usable_harp_records_nothing() {
         ..Service::default()
     };
     let recorder = Recorder::default();
-    let out = execute_recording(
-        "claude-code",
-        "SessionStart",
-        "{}",
-        "",
-        &service,
-        &mut Bound::default(),
-        &recorder,
-    )
-    .unwrap();
+    let out =
+        execute_recording("claude-code", "SessionStart", "{}", "", &service, &recorder).unwrap();
     assert!(recorder.asked.borrow().is_empty());
     assert_eq!(
         out.warnings,
@@ -282,11 +212,58 @@ fn a_hook_with_an_empty_harp_is_not_recorded_and_warns_of_nothing() {
         "{}",
         "",
         &answering("{}\n"),
-        &mut Bound::default(),
         &recorder,
     )
     .unwrap();
     assert!(recorder.asked.borrow().is_empty());
     assert!(out.warnings.is_empty());
     assert_eq!(out.stdout, "{}\n");
+}
+
+// s4-Q14 (H2): a fact held for later is said as held, and one held behind
+// its session's hold as held behind, each a warning on its own; the
+// engine's answer and the exit are what they were.
+#[test]
+fn a_held_fact_is_said_as_held_and_never_changes_the_answer() {
+    let service = answering("{}\n");
+    let recorder = Recorder {
+        fails: vec![
+            Unrecorded::Held {
+                what: "hook:prompt:s:p1".into(),
+                harp: "brisk-copper-moth".into(),
+                why: "no ctxloom daemon could be reached or started".into(),
+            },
+            Unrecorded::HeldBehind {
+                what: "hook:turn-end:s:p1".into(),
+                harp: "brisk-copper-moth".into(),
+            },
+        ],
+        ..Recorder::default()
+    };
+    let out = execute_recording(
+        "claude-code",
+        "Stop",
+        "{}",
+        "brisk-copper-moth",
+        &service,
+        &recorder,
+    )
+    .unwrap();
+    assert_eq!(out.stdout, "{}\n");
+    assert_eq!(
+        out.warnings,
+        vec![
+            HookWarning::Held {
+                what: "hook:prompt:s:p1".into(),
+                harp: "brisk-copper-moth".into(),
+                why: "no ctxloom daemon could be reached or started".into(),
+            },
+            HookWarning::HeldBehind {
+                what: "hook:turn-end:s:p1".into(),
+                harp: "brisk-copper-moth".into(),
+            },
+        ]
+    );
+    assert_eq!(out.warnings[0].code(), "hook-cli-held");
+    assert_eq!(out.warnings[1].code(), "hook-cli-held-behind");
 }

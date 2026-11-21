@@ -99,20 +99,19 @@ fn test_listings_say_why_they_are_empty() {
         list.rows.is_empty(),
         "the home's content is not a project's"
     );
-    assert!(list.no_root);
     assert!(list.hint.starts_with("No project here: run 'ctxloom init'"));
     let bare = Setup {
         no_root: true,
         ..with(&[], &[CONFIG])
     }
     .library();
+    // No bundles directory is no bundles (owner ruling 2026-11-17).
     let list = ok(bare.bundle_list(&plain()));
-    assert!(list.no_root);
+    assert!(list.rows.is_empty());
     assert!(list.hint.starts_with("Add remote bundles to a profile"));
     let rooted = ok(with(&[("demo", demo)], &[CONFIG])
         .library()
         .bundle_list(&plain()));
-    assert!(!rooted.no_root);
     assert_eq!(rooted.rows.len(), 1);
     let profiles = ok(home.profile_list(&plain()));
     assert!(profiles.hint.starts_with("No project here"));
@@ -210,15 +209,21 @@ fn test_viewing_one_item_of_each_kind() {
         ("mcp/a.yaml", "command: c\n"),
         ("mcp/b.yaml", "command: d\n"),
         ("prompts/p.md", "PROMPT-NO-NEWLINE"),
-        ("prompts/p.distilled.md", "short\n"),
+        // Fresh: it records its source's digest (T30).
+        (
+            "prompts/p.distilled.md",
+            "---\nsource_sha256: dfe10d5714810a6292151055130f594559f8173c4ffa3ee8beee05361a4a2e37\n---\nshort\n",
+        ),
         ("fragments/f.md", "plain\n"),
         ("profiles/pr.yaml", "description: d\nbundles: [two]\n"),
         ("skills/s/SKILL.md", "---\nname: s\n---\nbody\n"),
-        ("skills/.s.meta.yaml", "tags: [t]\nnotes: nn\n"),
+        ("skills/s/.meta.yaml", "tags: [t]\nnotes: nn\n"),
     ];
     let library = with(&[("one", one), ("two", two)], &[CONFIG]).library();
     let only = ok(library.bundle_view(&plain(), "one#mcp/anything", false));
-    assert_eq!(only.content, "# MCP Server: only\ncommand: c\n");
+    assert_eq!(viewed_mcp(&only), ("only", "c"));
+    // An item's view is its data alone (step 10a U2): no content is drawn.
+    assert_eq!(only.content, "");
     assert!(matches!(
         library
             .bundle_view(&plain(), "two#mcp/missing", false)
@@ -226,19 +231,21 @@ fn test_viewing_one_item_of_each_kind() {
         Err(AppError::ViewMissing { .. })
     ));
     let named = ok(library.bundle_view(&plain(), "two#mcp/b", false));
-    assert_eq!(named.content, "# MCP Server: b\ncommand: d\n");
-    // A command without a trailing newline gets one; the distilled form is
-    // only taken when asked for and there is one.
+    assert_eq!(viewed_mcp(&named), ("b", "d"));
+    // The distilled form is only taken when asked for and there is one.
     let raw = ok(library.bundle_view(&plain(), "two#commands/p", false));
-    assert_eq!(raw.content, "PROMPT-NO-NEWLINE\n");
+    assert_eq!(body(&raw), ("PROMPT-NO-NEWLINE".to_string(), false));
     let short = ok(library.bundle_view(&plain(), "two#commands/p", true));
-    assert_eq!(short.content, "# (distilled version)\nshort\n");
+    assert_eq!(body(&short), ("short\n".to_string(), true));
     let nodistilled = ok(library.bundle_view(&plain(), "two#fragments/f", true));
-    assert_eq!(nodistilled.content, "plain\n");
+    assert_eq!(body(&nodistilled), ("plain\n".to_string(), false));
     let profile = ok(library.bundle_view(&plain(), "two#profiles/pr", false));
+    let crate::Viewed::Profile(shown) = &profile.viewed else {
+        panic!("a profile: {:?}", profile.viewed);
+    };
     assert_eq!(
-        profile.content,
-        "# Profile: pr\ndescription: d\nbundles:\n  - two\n"
+        (shown.description.as_str(), &shown.bundles[..]),
+        ("d", &["two".to_string()][..])
     );
     assert!(matches!(
         library
@@ -247,7 +254,11 @@ fn test_viewing_one_item_of_each_kind() {
         Err(AppError::ViewMissing { .. })
     ));
     let skill = ok(library.bundle_view(&plain(), "two#skills/s", false));
-    assert_eq!(skill.content, "# Skill: s\ntags:\n  - t\nnotes: nn\n");
+    let crate::Viewed::Skill { name, skill } = &skill.viewed else {
+        panic!("a skill: {:?}", skill.viewed);
+    };
+    assert_eq!((name.as_str(), skill.notes.as_str()), ("s", "nn"));
+    assert_eq!(skill.tags, ["t"]);
     assert!(matches!(
         library
             .bundle_view(&plain(), "two#skills/none", false)
@@ -340,7 +351,7 @@ fn test_skills_list_by_bundle_and_merge_tags_without_repeats() {
                 format!("---\nname: {name}\ndescription: Does {name}\n---\nbody\n"),
             ),
             (
-                format!("skills/.{name}.meta.yaml"),
+                format!("skills/{name}/.meta.yaml"),
                 "tags: [shared, own]\n".to_string(),
             ),
         ]
@@ -496,7 +507,7 @@ fn search_bundle() -> Vec<(String, String)> {
             "---\nname: by-tag\ndescription: d\n---\nb\n".to_string(),
         ),
         (
-            "skills/.by-tag.meta.yaml".to_string(),
+            "skills/by-tag/.meta.yaml".to_string(),
             "tags: [zebra]\n".to_string(),
         ),
         (
@@ -1077,7 +1088,7 @@ fn degraded() -> crate::Flags {
 fn test_a_layer_of_the_wrong_shape_reduces_the_config_even_if_a_later_layer_mends_it() {
     let layers = [
         "schema_version: 9\ncompanions: acme\n",
-        "schema_version: 9\ncompanions:\n  beta: {command: [b]}\neditor:\n  command: vim\n",
+        "schema_version: 9\ncompanions:\n  beta: {}\neditor:\n  command: vim\n",
     ];
     let library = with(&[], &layers).library();
     let editor = ok(library.config_show(&degraded(), Some("editor"), false));
@@ -1251,6 +1262,12 @@ fn test_a_dry_run_on_another_engine_takes_the_agent_s_block_for_it() {
             &crate::RunRequest {
                 agent: agent.to_string(),
                 engine: engine.to_string(),
+                // no agent: a selection by hand
+                profile: if agent.is_empty() {
+                    "p".to_string()
+                } else {
+                    String::new()
+                },
                 ..crate::RunRequest::default()
             },
         ))
@@ -1290,11 +1307,12 @@ fn test_a_dry_run_on_another_engine_takes_the_agent_s_block_for_it() {
     assert_eq!(lone.settings.unwrap().model.source, "default");
 }
 
-// owner ruling 46: the program an engine runs comes from the home layer only;
-// a project's own config cannot name it (nor a credentials file), and is told
-// so. Model, effort, permissions and a non-host runtime stay the project's.
+// owner ruling 46, step 10a U7: the program an engine runs comes from the
+// home layer until the user trusts the project; an untrusted project's own
+// config cannot name it (nor a credentials file), and is told so. Model,
+// effort, permissions and a non-host runtime stay the project's.
 #[test]
-fn test_a_project_config_cannot_set_the_engine_command_and_is_warned() {
+fn test_an_untrusted_project_config_cannot_set_the_engine_command_and_is_told() {
     let home = "schema_version: 9\nengines:\n  claude-code:\n    command: /home/u/bin/claude\n";
     let project = "schema_version: 9\nengines:\n  claude-code:\n    command: /tmp/evil\n    auth:\n      file: /tmp/creds\n      env: [TEAM_TOKEN]\nagents:\n  dev:\n    engine: claude-code\n    engines:\n      claude-code:\n        model: haiku\n    profiles: [p]\n";
     let files: &[(&str, &str)] = &[ENVELOPE, ("profiles/p.yaml", "description: p\n")];
@@ -1303,8 +1321,10 @@ fn test_a_project_config_cannot_set_the_engine_command_and_is_warned() {
     let ignored: Vec<String> = shown
         .notices
         .iter()
-        .map(ToString::to_string)
-        .filter(|n| n.contains("is ignored"))
+        .filter_map(|n| match n {
+            crate::Notice::UntrustedSetting { path, .. } => Some(path.clone()),
+            _ => None,
+        })
         .collect();
     assert_eq!(ignored.len(), 2, "{ignored:?}");
     assert!(
@@ -1324,7 +1344,7 @@ fn test_a_project_config_cannot_set_the_engine_command_and_is_warned() {
     assert!(none
         .notices
         .iter()
-        .all(|n| !n.to_string().contains("is ignored")));
+        .all(|n| !matches!(n, crate::Notice::UntrustedSetting { .. })));
 }
 
 // the runtime a launch settles on is the agent's own, else its engine's
@@ -1468,6 +1488,125 @@ fn test_a_launch_that_weakens_the_engine_s_runtime_says_so() {
     assert!(notices_of(up, "c").iter().all(|n| !n.contains("replaces")));
 }
 
+// j002200 (step 6a, OD-47): a launch on `session_home: host` runs on the
+// user's own engine setup, and the plan says so (a relocation, not
+// confinement, separation §5.2 item 9), whether the agent's engine or
+// `--engine` resolved it, and with no agent too; a session home of its own,
+// said or not, is said nothing of.
+fn host_notices(layers: &[&str], agent: &str, engine: &str) -> Vec<Notice> {
+    let files: &[(&str, &str)] = &[ENVELOPE, ("profiles/p.yaml", "description: p\n")];
+    with(&[("project", files)], layers)
+        .library()
+        .dry_run(
+            &plain(),
+            &crate::RunRequest {
+                agent: agent.to_string(),
+                engine: engine.to_string(),
+                // no agent: a selection by hand
+                profile: if agent.is_empty() {
+                    "p".to_string()
+                } else {
+                    String::new()
+                },
+                ..crate::RunRequest::default()
+            },
+        )
+        .notices
+        .into_iter()
+        .filter(|n| {
+            angzarr_diagnostic::Diagnostic::code(n)
+                == "library-application-notice-session-home-host"
+        })
+        .collect()
+}
+
+#[test]
+fn test_a_launch_on_her_own_engine_setup_says_so() {
+    let home = "schema_version: 9\nengines:\n  claude-code:\n    session_home: host\n  opencode:\n    session_home: session\nagents:\n  dev:\n    engine: claude-code\n  oc:\n    engine: opencode\n";
+    let layers = [home, "schema_version: 9\n"];
+    let said = host_notices(&layers, "dev", "");
+    assert!(
+        matches!(said.as_slice(), [Notice::SessionHomeHost { engine, place }] if engine == "claude-code" && place == "engines.claude-code"),
+        "{said:?}"
+    );
+    // `--engine` asks the plan for that engine's block
+    assert_eq!(host_notices(&layers, "oc", "claude-code").len(), 1);
+    assert!(host_notices(&layers, "dev", "opencode").is_empty());
+    // a session home, said or not, is no notice
+    assert!(host_notices(&layers, "oc", "").is_empty());
+    let none = ["schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n"];
+    assert!(host_notices(&none, "dev", "").is_empty());
+    // a launch with no agent (a selection by hand), on the default engine's
+    // own block
+    assert_eq!(host_notices(&layers, "", "").len(), 1);
+}
+
+// Owner ruling of 2026-11-13 (superseding 44(b) for this key): the agent's
+// own session_home stands over its engine block's, the launch reads that
+// effective value, and the notice names the key that said it.
+#[test]
+fn test_an_agent_s_own_session_home_drives_the_launch_and_its_notice() {
+    let home = "schema_version: 9\nengines:\n  claude-code:\n    session_home: host\nagents:\n  own:\n    engine: claude-code\n    session_home: host\n  calm:\n    engine: claude-code\n    session_home: session\n  plain:\n    engine: opencode\n    session_home: host\n";
+    let layers = [home, "schema_version: 9\n"];
+    let said = host_notices(&layers, "own", "");
+    assert!(
+        matches!(said.as_slice(), [Notice::SessionHomeHost { engine, place }] if engine == "claude-code" && place == "agents.own"),
+        "{said:?}"
+    );
+    // the agent's own word is engine-neutral: kept under `--engine`
+    let other = host_notices(&layers, "plain", "");
+    assert!(
+        matches!(other.as_slice(), [Notice::SessionHomeHost { engine, place }] if engine == "opencode" && place == "agents.plain"),
+        "{other:?}"
+    );
+    // an agent's `session` stands over the engine block's `host`
+    assert!(host_notices(&layers, "calm", "").is_empty());
+    let files: &[(&str, &str)] = &[ENVELOPE, ("profiles/p.yaml", "description: p\n")];
+    let drive = |agent: &str| {
+        ok(with(&[("project", files)], &layers).library().dry_run(
+            &plain(),
+            &crate::RunRequest {
+                agent: agent.to_string(),
+                ..crate::RunRequest::default()
+            },
+        ))
+        .plan
+    };
+    assert_eq!(drive("own").drive.session_home, "host");
+    assert_eq!(drive("calm").drive.session_home, "session");
+    let settings = drive("calm").settings.unwrap();
+    assert_eq!(settings.session_home.value, "session");
+    assert_eq!(settings.session_home.source, "agent");
+}
+
+// ruling 46 at either level: an agent's `session_home: host` in an untrusted
+// project's layer is held back and said, and the launch runs on a session
+// home
+#[test]
+fn test_an_untrusted_project_agent_s_host_session_home_is_held_back_and_said() {
+    let project = "schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n    session_home: host\n    profiles: [p]\n";
+    let files: &[(&str, &str)] = &[ENVELOPE, ("profiles/p.yaml", "description: p\n")];
+    let layers = ["schema_version: 9\n", project];
+    let library = with(&[("project", files)], &layers).library();
+    let shown = library.agent_show(&plain(), "dev", &say);
+    let ignored: Vec<String> = shown
+        .notices
+        .iter()
+        .filter_map(|n| match n {
+            crate::Notice::UntrustedSetting { path, .. } => Some(path.clone()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        matches!(ignored.as_slice(), [one] if one.contains("agents.dev.session_home")),
+        "{ignored:?}"
+    );
+    let resolved = ok(shown).resolved.unwrap();
+    assert_eq!(resolved.settings.session_home.value, "session");
+    assert_eq!(resolved.settings.session_home.source, "default");
+    assert!(host_notices(&layers, "dev", "").is_empty());
+}
+
 // Rulings 59, 60, 89, 106: a run reads where its outputs go and what it does
 // with the dependencies before it is planned; nothing where the config is
 // refused (the plan says why).
@@ -1491,6 +1630,27 @@ fn test_a_run_reads_its_output_directory_and_start_sync_from_the_config() {
     );
     let bad = ["schema_version: 9\nzzz: 1\n"];
     assert_eq!(with(&[], &bad).library().run_settings(&plain()), None);
+}
+
+// The user daemon starts a child with its engine's block alone (no agent).
+#[test]
+fn test_the_daemon_reads_an_engines_block_from_the_config() {
+    let set = ["schema_version: 9\nengines:\n  claude-code:\n    env: [EXTRA]\n"];
+    let drive = with(&[], &set)
+        .library()
+        .engine_drive(&plain(), "claude-code")
+        .expect("the engine's block");
+    assert_eq!(drive.env, ["EXTRA"]);
+    assert_eq!(drive.session_home, "session");
+    assert!(with(&[], &set)
+        .library()
+        .engine_drive(&plain(), "no-such-engine")
+        .is_none());
+    let bad = ["schema_version: 9\nzzz: 1\n"];
+    assert!(with(&[], &bad)
+        .library()
+        .engine_drive(&plain(), "claude-code")
+        .is_none());
 }
 
 /// An engine that says what it was shown of the plan, as one notice, and
@@ -1591,4 +1751,185 @@ fn test_the_plans_engine_is_shown_what_it_resolved_and_its_word_is_a_notice() {
         on_claude[0].contains("claude-code: dev   "),
         "{on_claude:?}"
     );
+}
+
+// OD-6 (owner, 2026-11-13): a bundle's server named `ctxloom` is shadowed
+// by ctxloom's own in every session, and the plan says so by name; one of
+// another name is said nothing of.
+#[test]
+fn test_a_carried_server_named_ctxloom_is_said_shadowed() {
+    let said = |server: &str| -> Vec<Notice> {
+        let files: &[(&str, &str)] = &[
+            ENVELOPE,
+            (server, "command: theirs\n"),
+            ("profiles/p.yaml", "description: p\nbundles: [project]\n"),
+        ];
+        with(&[("project", files)], &[CONFIG])
+            .library()
+            .dry_run(
+                &plain(),
+                &crate::RunRequest {
+                    profile: "p".to_string(),
+                    ..crate::RunRequest::default()
+                },
+            )
+            .notices
+            .into_iter()
+            .filter(|n| {
+                angzarr_diagnostic::Diagnostic::code(n)
+                    == "library-application-notice-mcp-server-shadowed"
+            })
+            .collect()
+    };
+    let shadowed = said("mcp/ctxloom.yaml");
+    assert!(
+        matches!(shadowed.as_slice(), [Notice::McpServerShadowed { name }] if name == "ctxloom"),
+        "{shadowed:?}"
+    );
+    assert!(said("mcp/ledger.yaml").is_empty());
+}
+
+// bundle show: a command whose distilled form records another source's
+// digest is stale; one that records its own is not.
+#[test]
+fn test_bundle_show_says_which_commands_distilled_form_is_stale() {
+    let files: &[(&str, &str)] = &[
+        ENVELOPE,
+        ("prompts/fresh.md", "PROMPT-NO-NEWLINE"),
+        (
+            "prompts/fresh.distilled.md",
+            "---\nsource_sha256: dfe10d5714810a6292151055130f594559f8173c4ffa3ee8beee05361a4a2e37\n---\nshort\n",
+        ),
+        ("prompts/old.md", "PROMPT-NO-NEWLINE"),
+        (
+            "prompts/old.distilled.md",
+            "---\nsource_sha256: 0000000000000000000000000000000000000000000000000000000000000000\n---\nshort\n",
+        ),
+    ];
+    let shown = ok(with(&[("b", files)], &[CONFIG])
+        .library()
+        .bundle_show(&plain(), "b"));
+    assert!(!shown.commands["fresh"].stale);
+    assert!(shown.commands["old"].stale);
+}
+
+// bundle view of a profile gives it as data, every field it wrote.
+#[test]
+fn test_viewing_a_profile_gives_each_of_its_fields() {
+    let files: &[(&str, &str)] = &[
+        ENVELOPE,
+        (
+            "profiles/pr.yaml",
+            "description: d\nparents: [base]\ntags: [t]\nbundles: [b]\nvariables:\n  k: v\nexclude_fragments: [ef]\nexclude_mcp: [em]\n",
+        ),
+    ];
+    let library = with(&[("b", files)], &[CONFIG]).library();
+    let viewed = ok(library.bundle_view(&plain(), "b#profiles/pr", false));
+    let crate::Viewed::Profile(shown) = viewed.viewed else {
+        panic!("a profile: {:?}", viewed.viewed);
+    };
+    assert_eq!(shown.name, "pr");
+    assert_eq!(shown.description, "d");
+    assert_eq!(shown.parents, ["base"]);
+    assert_eq!(shown.tags, ["t"]);
+    assert_eq!(shown.bundles, ["b"]);
+    assert_eq!(
+        shown.variables,
+        std::collections::BTreeMap::from([("k".to_string(), "v".to_string())])
+    );
+    assert_eq!(shown.exclude_fragments, ["ef"]);
+    assert_eq!(shown.exclude_mcp, ["em"]);
+}
+
+// bundle view of a whole bundle gives its files as data: the manifest first,
+// then the rest by path, each once.
+#[test]
+fn test_viewing_a_whole_bundle_gives_the_manifest_first_then_each_file() {
+    let files: &[(&str, &str)] = &[
+        ENVELOPE,
+        ("README.md", "read me\n"),
+        ("fragments/a.md", "A\n"),
+    ];
+    let library = with(&[("b", files)], &[CONFIG]).library();
+    let viewed = ok(library.bundle_view(&plain(), "b", false));
+    let crate::Viewed::Files(listed) = viewed.viewed else {
+        panic!("files: {:?}", viewed.viewed);
+    };
+    let pair = |path: &str, text: &str| (path.to_string(), text.to_string());
+    assert_eq!(
+        listed,
+        [
+            pair(ENVELOPE.0, ENVELOPE.1),
+            pair("README.md", "read me\n"),
+            pair("fragments/a.md", "A\n"),
+        ]
+    );
+}
+
+// OD-41 (D16): a dry run carries the engine's approval_timeout, as a span
+// for the launch and as written with its layer for its Settings; a project
+// layer may say it (it is not one of ruling 46's keys).
+#[test]
+fn test_a_dry_run_carries_the_engines_approval_timeout_with_its_layer() {
+    let files: &[(&str, &str)] = &[ENVELOPE, ("profiles/p.yaml", "description: p\n")];
+    let plan = |layers: &[&'static str], agent: &str| {
+        ok(with(&[("project", files)], layers).library().dry_run(
+            &plain(),
+            &crate::RunRequest {
+                agent: agent.to_string(),
+                ..crate::RunRequest::default()
+            },
+        ))
+        .plan
+    };
+    let said = plan(
+        &[
+            "schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n",
+            "schema_version: 9\nengines:\n  claude-code:\n    approval_timeout: 1h\n",
+        ],
+        "dev",
+    );
+    assert_eq!(
+        said.drive.approval_timeout,
+        std::time::Duration::from_secs(3600)
+    );
+    let settings = said.settings.unwrap();
+    assert_eq!(settings.approval_timeout.value, "1h");
+    assert_eq!(settings.approval_timeout.source, "engine");
+    // Unsaid: five minutes, said by nobody.
+    let unsaid = plan(
+        &["schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n"],
+        "dev",
+    );
+    assert_eq!(
+        unsaid.drive.approval_timeout,
+        crate::APPROVAL_TIMEOUT_DEFAULT
+    );
+    let settings = unsaid.settings.unwrap();
+    assert_eq!(settings.approval_timeout.value, "5m");
+    assert_eq!(settings.approval_timeout.source, "default");
+    // `now` is zero: every ask denied at once (D16).
+    let now = plan(
+        &["schema_version: 9\nengines:\n  claude-code:\n    approval_timeout: now\nagents:\n  dev:\n    engine: claude-code\n"],
+        "dev",
+    );
+    assert_eq!(now.drive.approval_timeout, std::time::Duration::ZERO);
+}
+
+/// A viewed MCP server's name and command.
+fn viewed_mcp(view: &crate::BundleView) -> (&str, &str) {
+    match &view.viewed {
+        crate::Viewed::Mcp(row) => (row.name.as_str(), row.command.as_str()),
+        other => panic!("an mcp server: {other:?}"),
+    }
+}
+
+/// A viewed fragment's or command's body, and whether it is distilled.
+fn body(view: &crate::BundleView) -> (String, bool) {
+    match &view.viewed {
+        crate::Viewed::Body {
+            body, distilled, ..
+        } => (body.clone(), *distilled),
+        other => panic!("a body: {other:?}"),
+    }
 }

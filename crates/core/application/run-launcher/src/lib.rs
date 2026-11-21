@@ -15,15 +15,26 @@
 //! (`session_index`).
 
 mod error;
+mod home;
+mod launch;
 mod launcher;
 mod orders;
+mod redelivered;
 mod workspace;
 
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{LaunchError, EN_US};
-pub use launcher::{Launched, Launcher, Outcome};
+pub use home::{set_up_home, set_up_launch, HomeSetUp, HomeSetup, LaunchSetUp, LaunchSetup};
+pub use launch::{
+    launch_of, FindProgram, LaunchEngines, LaunchMade, LaunchRequest, NotLaunched, Unprepared,
+};
+pub use launcher::{Launched, Launcher, Outcome, Released, Releases, Sweeper, Swept};
 pub use orders::{Order, Orders};
+pub use redelivered::{
+    redelivered_context, redelivered_within, ChangedFragment, ContextChangedOnly,
+    ContextRedelivered, ContextTooLong, HOOK_CONTEXT_BUDGET,
+};
 pub use workspace::{place_workspace, Axis, Placement, Workspace};
 
 /// In-memory ports and a world of the real aggregates, for this crate's tests

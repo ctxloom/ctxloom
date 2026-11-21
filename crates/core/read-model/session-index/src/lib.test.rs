@@ -14,7 +14,7 @@ use sessions::{
     SessionAggregate, SessionCommand, SetKept, SESSION_DOMAIN,
 };
 
-use super::{SessionIndex, SessionIndexes, SessionRecord};
+use super::{OwedChange, SessionIndex, SessionIndexes, SessionRecord};
 
 type Index = CatchUp<SessionIndexes>;
 
@@ -127,6 +127,7 @@ fn mint(harp: &str) -> MintSession {
         origin: Origin::Session,
         started_at: None,
         depth: 0,
+        owner: None,
         workspace: None,
     }
 }
@@ -381,7 +382,7 @@ fn an_event_the_index_cannot_read_is_a_bug_naming_it() {
         value: Vec::new(),
     };
     let error = sessions::SessionEvent::from_any(&any).unwrap_err();
-    let coded = super::bug(&error);
+    let coded = held_projection::bug(&error);
     assert!(format!("{coded:?}").contains("Nope"), "{coded:?}");
 }
 
@@ -576,4 +577,701 @@ fn a_records_last_capture_is_its_newest_capture_events_instant() {
     project.run_book(&mut index, words(FIRST, "p1", 0, "then"));
     let last = records(&index)[0].last_captured.expect("captured");
     assert_eq!(last.seconds, project.seconds);
+}
+
+// ------------------------------------------------------------ owner link
+
+// D26, K2: the record carries the owner a child was minted for, its close,
+// and the children an owner holds (the owner-to-children view, per owner
+// stream): launched minus ended.
+#[test]
+fn a_record_carries_its_owner_its_close_and_the_children_it_holds() {
+    let owner = sessions::SessionRef {
+        project_id: "calm-otter".to_string(),
+        session: id_text(FIRST),
+    };
+    let child = |n: u8| sessions::SessionRef {
+        project_id: "calm-otter".to_string(),
+        session: id_text(n),
+    };
+    let launch = |n: u8| sessions::LaunchChild {
+        child_project_id: "calm-otter".to_string(),
+        child_session: id_text(n),
+        child_root: format!("/w/{n}"),
+        harp: format!("kid-{n}"),
+        engine: "claude-code".to_string(),
+        trust: sessions::TargetTrust {
+            same_project: true,
+            trusted: false,
+        },
+        delegation_limit: 4,
+        requester: None,
+        prompt: String::new(),
+    };
+    let mut project = Project::new();
+    let mut index = SessionIndex::catch_up();
+    project.run(&mut index, FIRST, mint("owner-owl"));
+    project.run(&mut index, FIRST, launch(SECOND));
+    project.run(&mut index, FIRST, launch(3));
+    project.run(
+        &mut index,
+        FIRST,
+        sessions::EndChild {
+            child: Some(child(3)),
+            cause: "closed".to_string(),
+        },
+    );
+    project.run(
+        &mut index,
+        SECOND,
+        MintSession {
+            owner: Some(owner.clone()),
+            depth: 1,
+            ..mint("kid-2")
+        },
+    );
+    project.run(
+        &mut index,
+        SECOND,
+        sessions::CloseSession {
+            cause: "done".to_string(),
+            requester: None,
+        },
+    );
+    let index = project.rebuilt();
+    let found = |harp: &str| index.projector().index().find(harp).unwrap();
+    let held = found("owner-owl");
+    assert_eq!(held.owner, None);
+    assert!(!held.closed);
+    assert_eq!(
+        held.children,
+        vec![sessions::Child {
+            session: Some(child(SECOND)),
+            root: "/w/2".to_string(),
+        }]
+    );
+    let kid = found("kid-2");
+    assert_eq!(kid.owner, Some(owner));
+    assert!(kid.closed);
+    assert!(kid.children.is_empty());
+}
+
+// S32: registered in the kernel, the index is what a HandleSync waits for,
+// and it answers the command's session as its resource message, named by
+// its project's harp and its own (S42, S54); a catch-up of the same index
+// after it folds nothing twice.
+#[test]
+fn handle_sync_answers_the_session_as_its_resource_named_by_both_harps() {
+    use prost::Message as _;
+    let index = SessionIndexes::default();
+    let mut registry = Registry::new();
+    registry
+        .aggregate::<SessionAggregate>(SessionAggregate::default)
+        .unwrap();
+    registry
+        .aggregate::<sessions::ProjectAggregate>(sessions::ProjectAggregate::default)
+        .unwrap();
+    registry
+        .projector_handler(&super::SOURCES, index.clone())
+        .unwrap();
+    let store = MemoryStore::new();
+    let sampled = |n: u8| Sampled {
+        now: Timestamp {
+            seconds: 100 + i64::from(n),
+            nanos: 0,
+        },
+        command_id: Uuid::from_bytes([n; 16]),
+    };
+    let named = sessions::ProjectCommand::from(sessions::NameProject {
+        project_id: "calm-otter".to_string(),
+        harp: "calm-quiet-heron".to_string(),
+    });
+    let project = Cover {
+        domain: sessions::PROJECTS_DOMAIN.to_string(),
+        root: Some(sessions::project_id_root("calm-otter")),
+        edition: None,
+    };
+    let kernel = Kernel::new(&registry);
+    ready(kernel.handle_any(
+        &store,
+        angzarr_embedded::CommandBookExt::command_of(project, &named),
+        &sampled(1),
+    ))
+    .unwrap();
+    let synced = ready(kernel.handle_sync(
+        &store,
+        book(
+            FIRST,
+            SessionCommand::from(mint("amber-swift-owl")).to_any(),
+        ),
+        &["session-index".to_string()],
+        &sampled(2),
+    ))
+    .unwrap_or_else(|failure| panic!("{failure:?}"));
+    let [projection] = synced.projections.as_slice() else {
+        panic!("one projection: {:?}", synced.projections);
+    };
+    assert_eq!(projection.projector, "session-index");
+    let any = projection.projection.as_ref().expect("a view");
+    let session = daemon_proto::v1::Session::decode(any.value.as_slice()).unwrap();
+    assert_eq!(
+        session.name,
+        "projects/calm-quiet-heron/sessions/amber-swift-owl"
+    );
+    assert_eq!(session.uid, id_text(FIRST));
+    assert_eq!(session.engine, "claude-code");
+    let mut caught = SessionIndex::caught_up(index.clone());
+    ready(caught.step(&store, registry.catalog())).unwrap();
+    assert_eq!(index.index().records().len(), 1, "folded once");
+}
+
+/// The projects' stream of calm-otter, naming it `harp`, as the store hands
+/// it; `pages` none for a gone stream, else its one event.
+fn project_book(harp: Option<&str>, next_sequence: u64) -> angzarr_embedded::v1::EventBook {
+    use angzarr_embedded::v1::{event_page, EventBook, EventPage};
+    let pages = harp
+        .map(|harp| {
+            vec![EventPage {
+                sequence: 0,
+                body: Some(event_page::Body::Event(
+                    sessions::ProjectEvent::ProjectNamed(sessions::ProjectNamed {
+                        project_id: "calm-otter".to_string(),
+                        harp: harp.to_string(),
+                    })
+                    .to_any(),
+                )),
+                meta: None,
+            }]
+        })
+        .unwrap_or_default();
+    EventBook {
+        cover: Some(Cover {
+            domain: sessions::PROJECTS_DOMAIN.to_string(),
+            root: Some(sessions::project_id_root("calm-otter")),
+            edition: None,
+        }),
+        pages,
+        snapshot: None,
+        next_sequence,
+    }
+}
+
+fn hand(index: &SessionIndexes, book: angzarr_embedded::v1::EventBook) {
+    use angzarr_embedded::angzarr_router::hpb::ProjectRequest;
+    use angzarr_embedded::ProjectorHandler;
+    ready(index.dispatch(&ProjectRequest { events: Some(book) })).unwrap();
+}
+
+// S32, S42: the session as its resource message: named by its project's harp
+// and its own, its summary its title, its times, kept and closed, its
+// incarnation, its owner and its children by their names.
+#[test]
+fn a_session_is_its_resource_with_its_owner_and_children_named() {
+    let mut project = Project::new();
+    let mut index = SessionIndex::catch_up();
+    project.run(&mut index, FIRST, mint("boss"));
+    project.run(
+        &mut index,
+        FIRST,
+        sessions::LaunchChild {
+            child_project_id: "calm-otter".to_string(),
+            child_session: id_text(SECOND),
+            child_root: "/work/proj".to_string(),
+            harp: "kid".to_string(),
+            engine: "claude-code".to_string(),
+            trust: sessions::TargetTrust {
+                same_project: true,
+                trusted: true,
+            },
+            delegation_limit: 1,
+            requester: None,
+            prompt: String::new(),
+        },
+    );
+    project.run(
+        &mut index,
+        SECOND,
+        MintSession {
+            depth: 1,
+            owner: Some(sessions::SessionRef {
+                project_id: "calm-otter".to_string(),
+                session: id_text(FIRST),
+            }),
+            ..mint("kid")
+        },
+    );
+    project.run_book(&mut index, prompt(SECOND, "p1", "Fix the build"));
+    project.run(&mut index, SECOND, SetKept { kept: true });
+    project.run(
+        &mut index,
+        SECOND,
+        RecordEnd {
+            at: Timestamp {
+                seconds: 900,
+                nanos: 0,
+            },
+        },
+    );
+    project.run(
+        &mut index,
+        SECOND,
+        sessions::CloseSession {
+            cause: "done".to_string(),
+            requester: None,
+        },
+    );
+    hand(index.projector(), project_book(Some("calm-quiet-heron"), 1));
+    let held = index.projector().index();
+    let child = held.resource(&held.find_by_id(&id_text(SECOND)).unwrap());
+    assert_eq!(child.name, "projects/calm-quiet-heron/sessions/kid");
+    assert_eq!(child.summary, "Fix the build");
+    assert!(child.start_time.is_some());
+    assert_eq!(child.end_time.map(|t| t.seconds), Some(900));
+    assert!(child.kept);
+    assert!(child.closed);
+    assert_eq!(child.incarnation, 1);
+    assert_eq!(child.owner, "projects/calm-quiet-heron/sessions/boss");
+    let owner = held.resource(&held.find_by_id(&id_text(FIRST)).unwrap());
+    assert_eq!(owner.children, ["projects/calm-quiet-heron/sessions/kid"]);
+    assert!(!owner.kept && !owner.closed);
+}
+
+// A project stream gone (purged: no page at 0) takes its harp with it, and
+// a session's name is empty again; a book with no page that is not at 0
+// changes nothing.
+#[test]
+fn a_gone_project_stream_takes_its_harp_with_it() {
+    let mut index = SessionIndex::new();
+    let record = SessionRecord {
+        project_id: "calm-otter".to_string(),
+        harp: "amber-swift-owl".to_string(),
+        ..SessionRecord::default()
+    };
+    index
+        .project(&project_book(Some("calm-quiet-heron"), 1))
+        .unwrap();
+    index.project(&project_book(None, 1)).unwrap();
+    assert_eq!(
+        index.name_of(&record),
+        "projects/calm-quiet-heron/sessions/amber-swift-owl"
+    );
+    index.project(&project_book(None, 0)).unwrap();
+    assert_eq!(index.name_of(&record), "");
+}
+
+// Owner, 2026-11-12, slice 2 B3: a record carries its resource name once its
+// project is named (none before), and the resource carries the title set
+// (S55) beside the first-prompt summary.
+#[test]
+fn a_record_carries_its_name_and_the_resource_its_title() {
+    let mut project = Project::new();
+    let mut index = SessionIndex::catch_up();
+    project.run(&mut index, FIRST, mint("amber-swift-owl"));
+    assert_eq!(records(&index)[0].name, "", "no project harp yet");
+    hand(index.projector(), project_book(Some("calm-quiet-heron"), 1));
+    assert_eq!(
+        records(&index)[0].name,
+        "projects/calm-quiet-heron/sessions/amber-swift-owl"
+    );
+    project.run(
+        &mut index,
+        FIRST,
+        sessions::SetSessionTitle {
+            title: "the auth refactor".to_string(),
+        },
+    );
+    let index = index.projector().index();
+    let record = &index.records()[0];
+    let resource = index.resource(record);
+    assert_eq!(resource.title, "the auth refactor");
+    assert_eq!(resource.name, record.name);
+}
+
+/// A fill that records each gap it is asked and reads nothing.
+#[derive(Default)]
+struct Recording(std::sync::Mutex<Vec<(u64, u64)>>);
+
+impl held_projection::Fill for Recording {
+    fn pages<'a>(
+        &'a self,
+        _: &'a angzarr_embedded::v1::Cover,
+        from: u64,
+        to: u64,
+    ) -> angzarr_embedded::angzarr_ports::BoxFuture<
+        'a,
+        Result<Vec<angzarr_embedded::v1::EventPage>, angzarr_embedded::StoreError>,
+    > {
+        self.0.lock().unwrap().push((from, to));
+        Box::pin(async { Ok(Vec::new()) })
+    }
+}
+
+// S32: a model made filled reads a gap through its fill: a session's book
+// that starts past where the model is asks for the pages before it.
+#[test]
+fn a_filled_model_reads_a_gap_through_its_fill() {
+    use angzarr_embedded::angzarr_router::hpb::ProjectRequest;
+    use angzarr_embedded::ProjectorHandler;
+    let fill = std::sync::Arc::new(Recording::default());
+    let model = crate::SessionIndexes::filled(fill.clone());
+    let late = angzarr_embedded::v1::EventBook {
+        cover: Some(angzarr_embedded::v1::Cover {
+            domain: sessions::SESSION_DOMAIN.to_string(),
+            root: Some(angzarr_embedded::v1::Uuid::from_bytes([7; 16])),
+            edition: None,
+        }),
+        pages: vec![angzarr_embedded::v1::EventPage {
+            sequence: 2,
+            body: None,
+            meta: None,
+        }],
+        snapshot: None,
+        next_sequence: 3,
+    };
+    angzarr_embedded::testing::block_on_ready(
+        model.dispatch(&ProjectRequest { events: Some(late) }),
+    )
+    .unwrap();
+    assert_eq!(*fill.0.lock().unwrap(), [(0, 2)]);
+}
+
+// Project registration (owner, 2026-11-12): the index finds a project by its
+// harp, with the root and VCS identity it was registered from, for the
+// daemon's GetProject.
+#[test]
+fn a_project_is_found_by_its_harp_with_its_registration() {
+    use angzarr_embedded::v1::{event_page, EventPage};
+    let index = SessionIndexes::default();
+    let mut book = project_book(Some("calm-quiet-heron"), 2);
+    book.pages.push(EventPage {
+        sequence: 1,
+        body: Some(event_page::Body::Event(
+            sessions::ProjectEvent::ProjectRegistered(sessions::ProjectRegistered {
+                project_id: "calm-otter".to_string(),
+                root: "/work/calm".to_string(),
+                git_common_dir: "/work/calm/.git".to_string(),
+                root_commit: "c0ffee".to_string(),
+            })
+            .to_any(),
+        )),
+        meta: None,
+    });
+    hand(&index, book);
+    let row = index
+        .index()
+        .project_named_by("calm-quiet-heron")
+        .expect("found by its harp");
+    assert_eq!(
+        row,
+        crate::ProjectRow {
+            project_id: "calm-otter".to_string(),
+            harp: "calm-quiet-heron".to_string(),
+            root: "/work/calm".to_string(),
+            git_common_dir: "/work/calm/.git".to_string(),
+            root_commit: "c0ffee".to_string(),
+        }
+    );
+    assert_eq!(
+        index.index().project_harp("calm-otter"),
+        Some("calm-quiet-heron")
+    );
+    assert!(index.index().project_named_by("far-heron").is_none());
+}
+
+// Owner, 2026-11-12 (after step 5): a project registered outside git that
+// adopted its first VCS identity is found with it; its root stays.
+#[test]
+fn a_project_that_adopted_its_identity_is_found_with_it() {
+    use angzarr_embedded::v1::{event_page, EventPage};
+    let index = SessionIndexes::default();
+    let mut book = project_book(Some("calm-quiet-heron"), 3);
+    let events = [
+        sessions::ProjectEvent::ProjectRegistered(sessions::ProjectRegistered {
+            project_id: "calm-otter".to_string(),
+            root: "/work/calm".to_string(),
+            git_common_dir: String::new(),
+            root_commit: String::new(),
+        }),
+        sessions::ProjectEvent::ProjectIdentityAdopted(sessions::ProjectIdentityAdopted {
+            project_id: "calm-otter".to_string(),
+            git_common_dir: "/work/calm/.git".to_string(),
+            root_commit: "c0ffee".to_string(),
+        }),
+    ];
+    for (sequence, event) in (1..).zip(events) {
+        book.pages.push(EventPage {
+            sequence,
+            body: Some(event_page::Body::Event(event.to_any())),
+            meta: None,
+        });
+    }
+    hand(&index, book);
+    let row = index
+        .index()
+        .project_named_by("calm-quiet-heron")
+        .expect("found by its harp");
+    assert_eq!(
+        (
+            row.root.as_str(),
+            row.git_common_dir.as_str(),
+            row.root_commit.as_str()
+        ),
+        ("/work/calm", "/work/calm/.git", "c0ffee")
+    );
+}
+
+// S54: a project's harp is its own: one project named says nothing of
+// another's.
+#[test]
+fn a_project_harp_is_only_its_own_projects() {
+    let index = SessionIndexes::default();
+    hand(&index, project_book(Some("calm-quiet-heron"), 1));
+    assert_eq!(
+        index.index().project_harp("calm-otter"),
+        Some("calm-quiet-heron")
+    );
+    assert_eq!(index.index().project_harp("far-otter"), None);
+}
+
+// The resource carries the record's native binding, its places and its
+// rotation lineage as the record holds them.
+#[test]
+fn the_resource_carries_the_binding_places_and_rotations() {
+    let record = SessionRecord {
+        native_id: "id-2".to_string(),
+        project_dir: "/work/proj".to_string(),
+        output_dir: "/work/proj/ctxloom/amber-swift-owl".to_string(),
+        rotations: vec![Rotation {
+            native_id: "id-1".to_string(),
+            transcript_path: "/t/id-1.jsonl".to_string(),
+            rotated_at: Some(Timestamp {
+                seconds: 5,
+                nanos: 0,
+            }),
+        }],
+        ..SessionRecord::default()
+    };
+    let resource = SessionIndex::new().resource(&record);
+    assert_eq!(resource.native_session, "id-2");
+    assert_eq!(resource.project_root, "/work/proj");
+    assert_eq!(resource.output_dir, "/work/proj/ctxloom/amber-swift-owl");
+    assert_eq!(
+        resource.rotations,
+        [daemon_proto::v1::SessionRotation {
+            native_id: "id-1".to_string(),
+            transcript_path: "/t/id-1.jsonl".to_string(),
+            rotated_at: Some(daemon_proto::google::protobuf::Timestamp {
+                seconds: 5,
+                nanos: 0,
+            }),
+        }]
+    );
+}
+
+// Step 10c U13: a session's record carries the loadout its stream last
+// recorded (a later incarnation's replaces an earlier one's), none before
+// one is, and none of another session's.
+#[test]
+fn a_record_carries_the_loadout_its_session_last_recorded() {
+    let loadout = |profile: &str| sessions::SessionLoadout {
+        agent: String::new(),
+        profiles: vec![profile.to_string()],
+        bundles: vec![format!("{profile}-bundle")],
+    };
+    let recorded = |id: u8, n: u32, profile: &str| {
+        let payload = wire(&sessions::RecordLoadout {
+            loadout: loadout(profile),
+            incarnation: n,
+            covered: Vec::new(),
+        });
+        fact(id, payload, &format!("loadout:{id}:{n}"))
+    };
+    let mut project = Project::new();
+    let mut index = SessionIndex::catch_up();
+    project.run(&mut index, FIRST, mint("amber-swift-owl"));
+    project.run(&mut index, SECOND, mint("brisk-copper-moth"));
+    let of = |index: &Index, harp: &str| {
+        index
+            .projector()
+            .index()
+            .find(harp)
+            .and_then(|record| record.loadout)
+    };
+    assert_eq!(of(&index, "amber-swift-owl"), None);
+    project.run_book(&mut index, recorded(FIRST, 1, "dev"));
+    assert_eq!(of(&index, "amber-swift-owl"), Some(loadout("dev")));
+    project.run_book(&mut index, recorded(FIRST, 2, "review"));
+    assert_eq!(of(&index, "amber-swift-owl"), Some(loadout("review")));
+    assert_eq!(of(&index, "brisk-copper-moth"), None);
+    assert_eq!(
+        of(&project.rebuilt(), "amber-swift-owl"),
+        Some(loadout("review")),
+        "caught up afresh, as another process's index"
+    );
+    // Its context, as of its last loadout: recorded at the Project's clock
+    // (the second loadout at 104), covering no position yet.
+    let handed = |index: &Index, harp: &str| {
+        index
+            .projector()
+            .index()
+            .find(harp)
+            .and_then(|record| record.context)
+    };
+    assert_eq!(
+        handed(&index, "amber-swift-owl").map(|h| h.loaded_at.seconds),
+        Some(104)
+    );
+    assert_eq!(handed(&index, "brisk-copper-moth"), None);
+    // Purged and minted again: nothing of the old stream's loadout is left.
+    project.purge(FIRST);
+    project.run(&mut index, FIRST, mint("bright-keen-hawk"));
+    assert_eq!(of(&index, "bright-keen-hawk"), None);
+    assert_eq!(
+        index
+            .projector()
+            .index()
+            .find("bright-keen-hawk")
+            .and_then(|record| record.context),
+        None
+    );
+}
+
+/// A position of `tree` at `sequence`.
+fn at(tree: &str, sequence: u64) -> sessions::TreePosition {
+    sessions::TreePosition {
+        tree: tree.to_string(),
+        sequence,
+    }
+}
+
+// Step 10c U13 rework: a session's owed changes are folded from its own
+// stream, past the positions its context covers; a re-assembly covers what
+// it names and no more, so a change recorded while it was being handed
+// (past its positions) stays owed (the old wall-clock mark lost it).
+#[test]
+fn test_a_session_is_owed_each_change_past_what_its_context_covers() {
+    const TREE: &str = "projects/p/checkouts/c/library";
+    const HOME: &str = "users/me/library";
+    let mut project = Project::new();
+    let mut index = SessionIndex::catch_up();
+    project.run(&mut index, FIRST, mint("amber-swift-owl"));
+    let loadout = wire(&sessions::RecordLoadout {
+        loadout: sessions::SessionLoadout {
+            agent: "a".to_string(),
+            profiles: Vec::new(),
+            bundles: vec!["demo".to_string()],
+        },
+        incarnation: 1,
+        covered: vec![at(TREE, 3)],
+    });
+    project.run_book(&mut index, fact(FIRST, loadout, "loadout:1:1"));
+    let owed = |tree: &str, sequence: u64, bundles: &[&str]| {
+        let payload = wire(&sessions::RecordContextOwed {
+            tree: tree.to_string(),
+            sequence,
+            bundles: bundles.iter().map(|b| b.to_string()).collect(),
+            paths: bundles.iter().map(|b| format!("{b}.md")).collect(),
+        });
+        fact(
+            FIRST,
+            payload,
+            &format!("owed:{tree}@{sequence}:{}", bundles.join("+")),
+        )
+    };
+    let handed = |index: &Index| {
+        index
+            .projector()
+            .index()
+            .find("amber-swift-owl")
+            .and_then(|record| record.context)
+            .expect("its context")
+    };
+    assert_eq!(handed(&index).covered.get(TREE), Some(&3));
+    // At or below its covered position: not owed.
+    project.run_book(&mut index, owed(TREE, 3, &["demo"]));
+    assert!(handed(&index).owed.is_empty(), "{:?}", handed(&index));
+    project.run_book(&mut index, owed(TREE, 4, &["demo"]));
+    project.run_book(&mut index, owed(TREE, 4, &["config"]));
+    project.run_book(&mut index, owed(HOME, 2, &["demo"]));
+    // Recorded out of order (two streams' books): the latest still counts.
+    project.run_book(&mut index, owed(HOME, 1, &["demo"]));
+    assert_eq!(
+        handed(&index).owed_positions(),
+        vec![at(TREE, 4), at(HOME, 2)],
+        "each tree's latest, sorted by tree"
+    );
+    assert_eq!(handed(&index).owed_bundles(), vec!["config", "demo"]);
+    assert_eq!(
+        handed(&index).owed_paths(),
+        [(TREE, "config.md"), (TREE, "demo.md"), (HOME, "demo.md")]
+            .map(|(t, p)| (t.to_string(), p.to_string()))
+            .to_vec(),
+        "every path owed, with its tree, sorted, its merges included"
+    );
+    // A delivery of the batch read so far: a change recorded meanwhile
+    // (sequence 5) is past what it covers, and stays owed.
+    project.run_book(&mut index, owed(TREE, 5, &["demo"]));
+    let delivered = wire(&sessions::RecordContextRedelivered {
+        bundles: vec!["config".to_string(), "demo".to_string()],
+        cause: String::new(),
+        size: 1,
+        sha256: String::new(),
+        carried_by: "UserPromptSubmit".to_string(),
+        covered: vec![at(TREE, 4), at(HOME, 2)],
+    });
+    project.run_book(&mut index, fact(FIRST, delivered, "reinject:1:a"));
+    let now = handed(&index);
+    assert_eq!(now.covered.get(TREE), Some(&4));
+    assert_eq!(now.covered.get(HOME), Some(&2));
+    assert_eq!(
+        now.owed,
+        vec![OwedChange {
+            tree: TREE.to_string(),
+            sequence: 5,
+            bundles: vec!["demo".to_string()],
+            paths: vec!["demo.md".to_string()],
+        }]
+    );
+    // A later incarnation's loadout is a fresh assembly: nothing owed.
+    let again = wire(&sessions::RecordLoadout {
+        loadout: sessions::SessionLoadout {
+            agent: "a".to_string(),
+            profiles: Vec::new(),
+            bundles: Vec::new(),
+        },
+        incarnation: 2,
+        covered: vec![at(TREE, 5)],
+    });
+    project.run_book(&mut index, fact(FIRST, again, "loadout:1:2"));
+    assert!(handed(&index).owed.is_empty());
+    assert_eq!(
+        project
+            .rebuilt()
+            .projector()
+            .index()
+            .find("amber-swift-owl")
+            .and_then(|record| record.context)
+            .map(|h| h.covered),
+        Some([(TREE.to_string(), 5)].into_iter().collect()),
+        "caught up afresh, as another process's index"
+    );
+}
+
+// A context covering a position of a tree is owed what is past it there;
+// covering none, what was recorded after its loadout.
+#[test]
+fn test_a_context_owes_past_its_position_else_after_its_loadout() {
+    let handed = super::Handed {
+        loaded_at: Timestamp {
+            seconds: 100,
+            nanos: 0,
+        },
+        covered: [("t".to_string(), 4)].into_iter().collect(),
+        owed: Vec::new(),
+    };
+    let at = |seconds| Timestamp { seconds, nanos: 0 };
+    assert!(handed.owes("other", 1, at(101)));
+    assert!(!handed.owes("other", 1, at(100)));
+    assert!(!handed.owes("t", 4, at(i64::MAX)));
+    assert!(handed.owes("t", 5, at(0)));
 }

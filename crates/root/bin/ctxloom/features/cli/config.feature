@@ -1,8 +1,11 @@
+# world: base
 # Ported from cli/config.feature (rev f36e8dfb2)
-# NOT ported: any of it yet (the Feature is @pending).
+# NOT ported: the scenarios tagged @pending, each with its reason.
+# OD-40 (aip/configuration, 2026-11-13; OQ-19): the JSON steps read the AIP resource (library.proto's
+#   `Config` singleton, design §3.9, §5.8): `{name: projects/{project}/config, document: {...}}`, so
+#   a path into the configuration starts `document.`.
 
 @doc
-@pending
 Feature: config — the project's one configuration document, read and scaffolded
 
   Covers: `ctxloom config show [section]`, `config create`, `config edit`,
@@ -61,8 +64,8 @@ Feature: config — the project's one configuration document, read and scaffolde
         """
       Then the command succeeds
       And the output contains "claude-code"
-      And the output reports "agents.default.engine" as "<names the agents section>"
-      And the output reports "default_agent" as "<names the default agent>"
+      And the output reports "document.agents.default.engine" as "<names the agents section>"
+      And the output reports "document.default_agent" as "<names the default agent>"
 
     @json-default
     Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
@@ -88,8 +91,8 @@ Feature: config — the project's one configuration document, read and scaffolde
         """
       When I run "ctxloom config <flags>"
       Then the command succeeds
-      And the output reports "agents.default.engine" as "<names the agents section>"
-      And the output reports "default_agent" as "<names the default agent>"
+      And the output reports "document.agents.default.engine" as "<names the agents section>"
+      And the output reports "document.default_agent" as "<names the default agent>"
       And the output does not contain "Available Commands:"
 
     @json-default
@@ -150,8 +153,8 @@ Feature: config — the project's one configuration document, read and scaffolde
         """
       Then the command succeeds
       And the output contains "claude-code"
-      And the output reports "default.engine" as "<names the engine>"
-      And the output reports "default.runtime" as "<names the runtime>"
+      And the output reports "document.default.engine" as "<names the engine>"
+      And the output reports "document.default.runtime" as "<names the runtime>"
       And the output does not contain "editor:"
       And the output does not contain "agents:"
 
@@ -180,7 +183,10 @@ Feature: config — the project's one configuration document, read and scaffolde
     # refused the same way: by file, key path and the type that was expected.
     # It used to be a warning, and the command ran on a setting the schema
     # could not vouch for.
-    Scenario: A config value of the wrong type is refused, naming the file, key and expected type
+    # Redrafted (owner, 2026-11-19): angzarr-yaml keeps a scalar as its text and
+    # cannot tell `5` from `"5"`, so no build can say "expected string"; the
+    # finding is the pattern's own words.
+    Scenario: A config value of the wrong type is refused, naming the file, key and pattern
       Given an initialized ctxloom project
       And the project already has the file ".ctxloom/config.yaml":
         """
@@ -194,10 +200,11 @@ Feature: config — the project's one configuration document, read and scaffolde
       Then the command fails
       And the output contains ".ctxloom/config.yaml"
       And the output contains "`session_reap_age`"
-      And the output contains "expected string"
+      And the output contains "does not match pattern"
 
     # --degraded is the escape hatch for every fatal startup finding, this one
     # included: the violation is still reported, and the command runs.
+    # Redrafted (owner, 2026-11-19): the finding's words are the pattern's.
     Scenario: Under --degraded a config value of the wrong type is warned about and the config loads
       Given an initialized ctxloom project
       And the project already has the file ".ctxloom/config.yaml":
@@ -210,9 +217,8 @@ Feature: config — the project's one configuration document, read and scaffolde
         ctxloom --degraded config show agents
         """
       Then the command succeeds
-      And the output contains "claude-code"
       And the output contains "`session_reap_age`"
-      And the output contains "expected string"
+      And the output contains "does not match pattern"
 
     # The refusal has to be USEFUL, not merely correct: a caller who guessed
     # wrong recovers from the message or not at all, so it names every section
@@ -258,6 +264,9 @@ Feature: config — the project's one configuration document, read and scaffolde
         ctxloom config create
         """
       Then the command succeeds
+      # DRAFT (the library is git-free, owner 2026-11-18): was "the scaffold makes the directory a git repository, as init does" (G1, QUESTIONS.md E, superseded).
+      And the output does not contain "git repository"
+      And the file ".git" does not exist
       And the file ".ctxloom/config.yaml" is valid YAML
       And the file ".ctxloom/config.yaml" contains "engine: claude-code"
       And the file ".ctxloom/remotes.yaml" contains "schema_version: 1"
@@ -279,15 +288,16 @@ Feature: config — the project's one configuration document, read and scaffolde
     # config.CurrentConfigVersion — bump both together), and `engine:` is a
     # key only the scaffold writes — its absence is what says no scaffold ran.
     Scenario: Create refuses an existing config and leaves it byte-for-byte alone
+      # changed: step 11 (draft, owner's standing ruling "accept draft text verbatim"): the fixture's config is the current generation, config::CURRENT = 9, which this scenario's note says it tracks ("bump both together"): 8 -> 9.
       Given an initialized ctxloom project
-      And the file ".ctxloom/config.yaml" contains "schema_version: 8"
+      And the file ".ctxloom/config.yaml" contains "schema_version: 9"
       When Alice scaffolds over a project that already has a configuration:
         """
         ctxloom config create
         """
       Then the command fails
       And the output contains "config already exists"
-      And the file ".ctxloom/config.yaml" contains "schema_version: 8"
+      And the file ".ctxloom/config.yaml" contains "schema_version: 9"
       And the file ".ctxloom/config.yaml" does not contain "engine:"
 
   Rule: Edit refuses to open an editor on a config that is not there
@@ -303,6 +313,11 @@ Feature: config — the project's one configuration document, read and scaffolde
     # The positive half of this claim lives in the create scenarios above: a
     # scaffolded project genuinely HAS the file this refusal is about, so
     # "absent" here means absent, not unwritten-by-the-fixture.
+    # Still pending (step 11): awaiting the git-free undo (owner, 2026-11-18).
+    # The empty directory is refused `library-tree-not-in-git` before the
+    # config is looked for; under the git-free ruling the library works in
+    # any directory, and the undo unit that drops the refusal has not landed.
+    @pending
     Scenario: Editing a project with no config says so and names the fix
       Given an empty project directory
       When Alice reaches for the editor before the project has a config:
@@ -313,3 +328,36 @@ Feature: config — the project's one configuration document, read and scaffolde
       And the output contains "no config at"
       And the output contains "ctxloom config create"
       And the file ".ctxloom/config.yaml" does not exist
+
+  Rule: --raw shows only what the configuration's layers set
+
+    `config show` gives the configuration in effect: the home's layer, the
+    project's laid over it, then the environment's and the flags' overrides.
+    `--raw` answers the other question, what the files themselves say: the
+    two layers merged, and nothing a run adds over them.
+
+    Scenario: --raw shows what the home and the project set, and no override
+      # new: owner ruling 2026-11-17: `--raw` (GetConfig's SET view) is the
+      # layers merged, home and project, nothing filled in; it was a copy of
+      # the effective configuration.
+      Given an initialized ctxloom project
+      And the home already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        editor:
+          command: vim
+        """
+      And the project already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        output:
+          dir: notes/
+        """
+      When Alice reads what her configuration files say:
+        """
+        ctxloom --config-set sync.on_run=none config show --raw
+        """
+      Then the command succeeds
+      And the output reports "document.editor.command" as "vim"
+      And the output reports "document.output.dir" as "notes/"
+      And the output does not contain "on_run"

@@ -8,21 +8,20 @@ use std::sync::{Arc, Mutex};
 
 use angzarr_diagnostic::{Diagnostic, Report};
 use angzarr_embedded::testing::MemoryStore;
-use angzarr_embedded::v1::{event_page, CommandBook, Cover, EventPage, Uuid};
+use angzarr_embedded::v1::{event_page, CommandBook, Cover, EventPage};
 use angzarr_embedded::{Answered, Catalog, CommandBookExt, Failure, Rejected, StoreError};
 use library_application::{
     AppError as PlanError, DryRun, FindingRow, Flags, Notice, Outcome, Previewed, RunRequest,
 };
-use ports::{CommandIds, Names, Project, ProjectIdentity};
+use ports::{Names, Project, ProjectIdentity};
 use run_launcher::fakes::{
     names as event_names, run_events, session_events, Credentialed, MemoryRecords, ScriptedEngine,
     ScriptedRunner, TestEdge,
 };
 use run_launcher::{Launcher, Orders};
 use run_ports::{
-    Arrival, BoxFuture, CertMint, CertNames, Credentials, Edge, FailureClass, HookCertificate,
-    HookServer, Limits, LinkState, LoginLinks, PublicCert, RecordsError, Serving, Token,
-    TokenSource, TurnOutcome, Unserved,
+    Arrival, Credentials, Edge, FailureClass, Limits, LinkState, LoginLinks, RecordsError,
+    TurnOutcome, Unserved,
 };
 use runs_application::{AppError as CoreError, Enqueuer};
 
@@ -42,20 +41,19 @@ struct Seen {
     mint_refused: AtomicBool,
     /// The claims of a name that were made.
     claims: AtomicUsize,
-    /// Every command and fact handled, the certificate's mint and the
-    /// listener's serve, in the order they happened (ruling 73f's order).
+    /// Every command and fact handled, in the order they happened (ruling
+    /// 73f's order).
     timeline: Timeline,
     /// The last run command sent, decoded: what an enqueue was judged on.
     enqueued: Mutex<Option<runs::EnqueueRun>>,
 }
 
-/// What happened, in order, across the edge, the certificate's mint and the
-/// listener: `EnqueueRun refused`, `MintSession`, `certificate`, `serve`; and
-/// the locks taken and let go (`run-lock`, `lock <harp>`, ...).
+/// What happened, in order, across the edge (`EnqueueRun refused`,
+/// `MintSession`, ...) and the locks taken and let go (`run-lock`,
+/// `lock <harp>`, ...).
 type Timeline = Arc<Mutex<Vec<String>>>;
 
-/// The timeline without the locks: what crossed the edge, the mint and the
-/// listener.
+/// The timeline without the locks: what crossed the edge.
 fn edge_timeline(rig: &Rig) -> Vec<String> {
     rig.timeline
         .lock()
@@ -194,6 +192,7 @@ struct ScriptedPlan {
     asked: Arc<Mutex<Vec<RunRequest>>>,
     axis: String,
     agent: String,
+    untrusted: Vec<String>,
 }
 
 impl Planner for ScriptedPlan {
@@ -213,8 +212,8 @@ impl Planner for ScriptedPlan {
             workspace: String::new(),
             runtime: String::new(),
             engine: self.backend.clone(),
-            profiles: Vec::new(),
-            fragments: Vec::new(),
+            profiles: vec!["dev".to_string()],
+            fragments: vec!["demo#fragments/example".to_string()],
             context: "THE-CONTEXT".to_string(),
             tokens: 0,
             prompt: self.prompt.clone(),
@@ -238,6 +237,7 @@ impl Planner for ScriptedPlan {
                 deny_tools: vec!["PLANNED-DENY".to_string()],
                 ..Default::default()
             },
+            untrusted: self.untrusted.clone(),
         };
         Outcome {
             result: Ok(Previewed {
@@ -287,119 +287,6 @@ impl Names for ScriptedNames {
     }
 }
 
-struct FixedIds;
-
-impl CommandIds for FixedIds {
-    fn command_id(&mut self) -> Uuid {
-        Uuid::from_bytes(*uuid::Uuid::now_v7().as_bytes())
-    }
-}
-
-#[derive(Default)]
-struct CountingSource(Mutex<u8>);
-
-impl TokenSource for CountingSource {
-    fn mint(&self) -> Token {
-        let mut n = self.0.lock().unwrap();
-        *n += 1;
-        Token::from_bytes([*n; 32])
-    }
-}
-
-/// What the hook server saw, in order, each with how many launches (a turn's
-/// or the terminal's) the runner had seen by then (the engine's starts), so
-/// the order is read off the run and never waited for.
-#[derive(Clone, Default)]
-struct Hooks {
-    log: Arc<Mutex<Vec<(String, usize)>>>,
-    /// The runner whose launches are counted.
-    runner: Option<ScriptedRunner>,
-    /// A reason to refuse to serve, if any.
-    refuse: Option<&'static str>,
-    /// The private key of the identity each serve was given.
-    identities: Arc<Mutex<Vec<String>>>,
-    timeline: Timeline,
-}
-
-/// The key the fake mint gives: a secret that must reach the listener and
-/// nothing else.
-const MINTED_KEY: &str = "MINTED-KEY-PEM-SECRET";
-
-/// The DER the fake mint gives.
-fn minted_public() -> PublicCert {
-    PublicCert::from_der(vec![0x30, 0x04, 1, 2, 3, 4]).unwrap()
-}
-
-/// What mints the run's certificate: it records the names asked for.
-#[derive(Clone, Default)]
-struct Certs {
-    asked: Arc<Mutex<Vec<CertNames>>>,
-    refuse: Option<&'static str>,
-    timeline: Timeline,
-}
-
-impl CertMint for Certs {
-    fn mint(&self, names: &CertNames) -> Result<HookCertificate, Report> {
-        self.asked.lock().unwrap().push(names.clone());
-        self.timeline
-            .lock()
-            .unwrap()
-            .push("certificate".to_string());
-        if let Some(reason) = self.refuse {
-            return Err(Report::new(reason));
-        }
-        Ok(HookCertificate::new(
-            minted_public(),
-            MINTED_KEY.to_string(),
-        ))
-    }
-}
-
-impl Hooks {
-    fn note(&self, what: String) {
-        let launched = self.runner.as_ref().map_or(0, |r| {
-            r.seen.lock().unwrap().len() + r.seen_terminal.lock().unwrap().len()
-        });
-        self.log.lock().unwrap().push((what, launched));
-    }
-}
-
-struct Listening(Hooks);
-
-/// The port the fake listener reports.
-const FAKE_PORT: u16 = 40123;
-
-impl Serving for Listening {
-    fn port(&self) -> u16 {
-        FAKE_PORT
-    }
-
-    fn stop(self: Box<Self>) -> BoxFuture<'static, ()> {
-        Box::pin(async move { self.0.note("stop".to_string()) })
-    }
-}
-
-impl HookServer for Hooks {
-    fn serve_tcp<'a>(
-        &'a self,
-        bind: std::net::IpAddr,
-        identity: &'a HookCertificate,
-    ) -> BoxFuture<'a, Result<Box<dyn Serving>, Report>> {
-        Box::pin(async move {
-            self.timeline.lock().unwrap().push("serve".to_string());
-            if let Some(reason) = self.refuse {
-                return Err(Report::new(reason));
-            }
-            self.identities
-                .lock()
-                .unwrap()
-                .push(identity.key_pem().to_string());
-            self.note(format!("serve_tcp {bind}"));
-            Ok(Box::new(Listening(self.clone())) as Box<dyn Serving>)
-        })
-    }
-}
-
 /// The session locks, in memory: each hold and each let-go is said on the
 /// timeline (`lock <harp>`, `unlock <harp>`) with how many launches the runner
 /// had seen by then, so a test reads the order off the run, never waits.
@@ -407,12 +294,13 @@ impl HookServer for Hooks {
 struct Locks {
     timeline: Timeline,
     runner: Option<ScriptedRunner>,
-    /// Whether the fake listener was stopped, at each let-go.
-    hooks_log: Arc<Mutex<Vec<(String, usize)>>>,
-    /// Each let-go: (harp, launches seen, listener stopped).
-    released: Arc<Mutex<Vec<(String, usize, bool)>>>,
+    /// Each let-go: (harp, launches seen).
+    released: Arc<Mutex<Vec<(String, usize)>>>,
     /// Each hold: (harp, launches seen).
     held: Arc<Mutex<Vec<(String, usize)>>>,
+    /// A reason every hold is refused, as another process holding it: a
+    /// failure after the session is minted and before its engine starts.
+    refuse: Option<&'static str>,
 }
 
 impl Locks {
@@ -431,18 +319,11 @@ struct FakeHeld {
 
 impl Drop for FakeHeld {
     fn drop(&mut self) {
-        let stopped = self
-            .locks
-            .hooks_log
+        self.locks
+            .released
             .lock()
             .unwrap()
-            .iter()
-            .any(|(what, _)| what == "stop");
-        self.locks.released.lock().unwrap().push((
-            self.harp.clone(),
-            self.locks.launches(),
-            stopped,
-        ));
+            .push((self.harp.clone(), self.locks.launches()));
         self.locks
             .timeline
             .lock()
@@ -453,6 +334,9 @@ impl Drop for FakeHeld {
 
 impl session_ports::SessionLock for Locks {
     fn hold(&mut self, harp: &str) -> Result<session_ports::Held, session_ports::LockError> {
+        if let Some(reason) = self.refuse {
+            return Err(session_ports::LockError::Held(Report::new(reason)));
+        }
         self.held
             .lock()
             .unwrap()
@@ -506,8 +390,11 @@ impl run_ports::RunLocks for RunLocks {
         ))
     }
 
-    fn probe(&self, _: &str) -> run_ports::LockProbe {
-        run_ports::LockProbe::Unproven
+    fn probe(&self, path: &str) -> run_ports::LockProbe {
+        match path == FRONTEND_LOCK {
+            true => run_ports::LockProbe::Held,
+            false => run_ports::LockProbe::Unproven,
+        }
     }
 
     fn session(&self, _: &str, harp: &str) -> run_ports::LockProbe {
@@ -523,9 +410,7 @@ struct Rig {
     run_locks: RunLocks,
     locks: Locks,
     timeline: Timeline,
-    hooks: Hooks,
-    certs: Certs,
-    runs: Runs<TestCore, CountingSource, ScriptedRunner, MemoryRecords>,
+    runs: Runs<TestCore, ScriptedRunner, MemoryRecords>,
     edge: Arc<TestEdge>,
     runner: ScriptedRunner,
     records: MemoryRecords,
@@ -591,9 +476,8 @@ struct Script {
     os: &'static str,
     /// The directory of the running binary.
     program_dir: &'static str,
-    /// A reason the hook server refuses to serve, if it does.
-    hooks_refuse: Option<&'static str>,
-    certs_refuse: Option<&'static str>,
+    /// A reason the session's lock is refused, if it is.
+    lock_refuse: Option<&'static str>,
     /// The user's git identity, if known.
     git_user: Option<run_ports::GitUser>,
     /// The workspace the plan settles on (`DryRun.axes.0`), and its agent.
@@ -602,6 +486,8 @@ struct Script {
     /// How the launcher's workspaces port answers; none: the launcher has
     /// none.
     workspaces: Option<Arc<run_launcher::fakes::ScriptedWorkspaces>>,
+    /// The untrusted project settings the plan says the launch reads.
+    untrusted: &'static [&'static str],
 }
 
 impl Script {
@@ -624,21 +510,25 @@ impl Script {
             login: true,
             os: "linux",
             program_dir: "/opt/ctxloom/bin",
-            hooks_refuse: None,
-            certs_refuse: None,
+            lock_refuse: None,
             git_user: None,
             axis: "",
             agent: "",
             workspaces: None,
+            untrusted: &[],
         }
     }
 }
+
+/// The harp the composition root named the run's project with (slice 2 M1).
+const PROJECT_HARP: &str = "calm-quiet-heron";
 
 /// Where the scripted run is, its user's home the one the composition root
 /// resolves from the script's environment on unix.
 fn place(script: &Script) -> Place {
     Place {
         project_dir: "/work/proj".to_string(),
+        project_harp: PROJECT_HARP.to_string(),
         output_root: "/home/u/Documents/ctxloom/proj".to_string(),
         program_dir: script.program_dir.to_string(),
         user_home: script
@@ -690,17 +580,6 @@ fn rig(script: Script) -> Rig {
     )
     .on_os(script.os);
     let launcher = placing_through(launcher, script.workspaces.clone());
-    let hooks = Hooks {
-        runner: Some(script.runner.clone()),
-        refuse: script.hooks_refuse,
-        timeline: Arc::clone(&timeline),
-        ..Hooks::default()
-    };
-    let certs = Certs {
-        refuse: script.certs_refuse,
-        timeline: Arc::clone(&timeline),
-        ..Certs::default()
-    };
     let run_locks = RunLocks {
         timeline: Arc::clone(&timeline),
         runner: Some(script.runner.clone()),
@@ -709,7 +588,7 @@ fn rig(script: Script) -> Rig {
     let locks = Locks {
         timeline: Arc::clone(&timeline),
         runner: Some(script.runner.clone()),
-        hooks_log: Arc::clone(&hooks.log),
+        refuse: script.lock_refuse,
         ..Locks::default()
     };
     let runs = Runs::new(Parts {
@@ -726,13 +605,13 @@ fn rig(script: Script) -> Rig {
             asked: Arc::clone(&asked),
             axis: script.axis.to_string(),
             agent: script.agent.to_string(),
+            untrusted: script.untrusted.iter().map(ToString::to_string).collect(),
         }),
         identity: Box::new(FixedProject(script.project_error)),
         names: Box::new(ScriptedNames(
             script.names.iter().map(|n| n.to_string()).collect(),
         )),
-        ids: Box::new(FixedIds),
-        enqueuer: Enqueuer::new(Arc::clone(&seen), Arc::new(CountingSource::default())),
+        enqueuer: Enqueuer::new(Arc::clone(&seen)),
         launcher,
         dirs: Box::new(records.clone()),
         orders,
@@ -744,8 +623,6 @@ fn rig(script: Script) -> Rig {
             .collect(),
         links: Box::new(links.clone()),
         os: script.os.to_string(),
-        hooks: Box::new(hooks.clone()),
-        certs: Box::new(certs.clone()),
         locks: Box::new(locks.clone()),
         run_locks: Arc::new(run_locks.clone()),
         git_user: script.git_user.clone(),
@@ -754,8 +631,6 @@ fn rig(script: Script) -> Rig {
         run_locks,
         locks,
         timeline,
-        hooks,
-        certs,
         runs,
         edge,
         runner: script.runner,
@@ -801,6 +676,13 @@ async fn a_one_shot_answers_with_the_engines_reply_on_a_session_of_its_own() {
     assert_eq!(answer.answer, "THE-ANSWER");
     assert_eq!(answer.harp, "amber-swift-owl");
     assert_eq!(answer.engine, "fake");
+    // Slice 2 B3: the session's stable id is the UUIDv5 of its name.
+    assert_eq!(
+        answer.session,
+        sessions::SessionName::new(PROJECT_HARP, "amber-swift-owl")
+            .unwrap()
+            .uid()
+    );
     // The session was minted on the name, once, and its run ran and ended.
     let events = session_events(&rig.edge, &answer.session).await;
     assert!(events
@@ -820,6 +702,41 @@ async fn a_one_shot_answers_with_the_engines_reply_on_a_session_of_its_own() {
             "RunEnded"
         ]
     );
+}
+
+// Step 8 (D7): a one-shot's engine asks through ctxloom's approval prompt,
+// so the daemon that hosts it is told, with where it was placed, the agent it
+// was planned for and how long its asks wait; the terminal's is told it is
+// one (its asks are her terminal's, S28).
+#[tokio::test]
+async fn a_placement_tells_the_agent_and_the_approval_timeout_its_asks_take() {
+    let told = Arc::new(Mutex::new(Vec::new()));
+    let placed = |told: &Arc<Mutex<Vec<crate::Placement>>>| {
+        let told = Arc::clone(told);
+        Box::new(move |p: &crate::Placement| told.lock().unwrap().push(p.clone())) as crate::Telling
+    };
+    let mut script = Script::answering();
+    script.agent = "dev";
+    script.drive.approval_timeout = std::time::Duration::from_secs(90);
+    let mut runs = rig(script).runs.telling(placed(&told));
+    runs.one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let mut script = Script::answering();
+    script.prompt = "";
+    script.runner = ScriptedRunner::exits(0);
+    let mut runs = rig(script).runs.telling(placed(&told));
+    runs.interactive(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let told = told.lock().unwrap();
+    assert_eq!(told.len(), 2, "{told:?}");
+    assert_eq!(told[0].agent, "dev");
+    assert_eq!(told[0].approval_timeout, std::time::Duration::from_secs(90));
+    assert!(!told[0].interactive);
+    assert!(told[1].interactive);
 }
 
 #[tokio::test]
@@ -936,7 +853,7 @@ async fn a_fatal_startup_finding_refuses_the_run_before_any_session() {
     ));
     assert!(rig.runner.seen.lock().unwrap().is_empty());
     // Rulings 73e, 73f: the enqueue judged it, and refused it before a name was
-    // claimed, a session minted, a certificate minted or a listener served.
+    // claimed or a session minted.
     assert_eq!(edge_timeline(&rig), ["EnqueueRun refused"]);
 }
 
@@ -959,6 +876,46 @@ async fn a_one_shot_with_no_prompt_refuses_before_a_session_exists() {
             "{prompt:?}: {error:?}"
         );
         assert_eq!(error.code(), "runs-no-prompt");
+        assert_eq!(error.exit(), Exit::REFUSED);
+        assert!(rig.records.names("amber-swift-owl").is_empty());
+        assert!(rig.runner.seen.lock().unwrap().is_empty());
+    }
+}
+
+// Step 8 U2 (ruling 142): the untrusted project settings the plan says the
+// launch reads are its evidence, and the run is refused on them before a
+// session exists, a one-shot and the terminal alike.
+#[tokio::test]
+async fn untrusted_project_settings_refuse_the_run_before_a_session_exists() {
+    for interactive in [false, true] {
+        let mut rig = rig(Script {
+            untrusted: &["engines.fake.command"],
+            ..Script::answering()
+        });
+        let error = match interactive {
+            false => rig
+                .runs
+                .one_shot(&Flags::default(), &ask())
+                .await
+                .result
+                .err(),
+            true => rig
+                .runs
+                .interactive(&Flags::default(), &ask())
+                .await
+                .result
+                .err(),
+        }
+        .expect("refused");
+        assert!(
+            matches!(
+                &error,
+                RunError::Refused(runs::RunRejection::UntrustedProjectSettings { paths })
+                    if paths == "engines.fake.command"
+            ),
+            "{error:?}"
+        );
+        assert_eq!(error.code(), "runs-untrusted-project-settings");
         assert_eq!(error.exit(), Exit::REFUSED);
         assert!(rig.records.names("amber-swift-owl").is_empty());
         assert!(rig.runner.seen.lock().unwrap().is_empty());
@@ -1073,7 +1030,7 @@ async fn a_project_that_cannot_be_told_starts_nothing() {
     // The proposal for ruling 73f: the project is told once the run is
     // enqueued, and a project that cannot be told ends the run it enqueued, so
     // no run is left owed a runner; no name was claimed and nothing served.
-    assert_eq!(edge_timeline(&rig), ["EnqueueRun", "LaunchFailed"]);
+    assert_eq!(edge_timeline(&rig), ["EnqueueRun", "RecordLaunchFailed"]);
 }
 
 // The mint is the first thing that can fail, and the name is claimed first: a
@@ -1127,7 +1084,10 @@ async fn names_that_are_all_taken_refuse_the_run_with_the_kernels_refusal() {
     // was served.
     let timeline = edge_timeline(&rig);
     assert_eq!(timeline.first().map(String::as_str), Some("EnqueueRun"));
-    assert_eq!(timeline.last().map(String::as_str), Some("LaunchFailed"));
+    assert_eq!(
+        timeline.last().map(String::as_str),
+        Some("RecordLaunchFailed")
+    );
     assert!(
         !timeline.iter().any(|t| t == "serve" || t == "certificate"),
         "{timeline:?}"
@@ -1191,11 +1151,12 @@ async fn a_credential_the_engine_refused_is_that_error() {
 
 #[tokio::test]
 async fn a_command_that_never_started_is_that_error() {
-    let runner =
-        ScriptedRunner::answering(run_ports::Launch::NotStarted(run_ports::LaunchFailure {
+    let runner = ScriptedRunner::answering(run_ports::TurnLaunch::NotStarted(
+        run_ports::LaunchFailure {
             deterministic: true,
             detail: "claude: not found".to_string(),
-        }));
+        },
+    ));
     let mut rig = rig(Script {
         runner,
         ..Script::answering()
@@ -1246,7 +1207,10 @@ async fn a_name_claimed_for_a_mint_that_fails_is_released() {
         ["Claimed", "Released"]
     );
     let timeline = edge_timeline(&rig);
-    assert_eq!(timeline.last().map(String::as_str), Some("LaunchFailed"));
+    assert_eq!(
+        timeline.last().map(String::as_str),
+        Some("RecordLaunchFailed")
+    );
 }
 
 /// The events of `harp`'s claim stream, by their short type names.
@@ -1254,7 +1218,11 @@ async fn claim_events(edge: &TestEdge, harp: &str) -> Vec<String> {
     use run_ports::Edge;
     let cover = angzarr_embedded::v1::Cover {
         domain: sessions::NAMES_DOMAIN.to_string(),
-        root: Some(sessions::claim_root("calm-otter", harp)),
+        root: Some(
+            sessions::SessionName::new(PROJECT_HARP, harp)
+                .unwrap()
+                .root(),
+        ),
         edition: None,
     };
     edge.events(&cover, 0)
@@ -1281,7 +1249,11 @@ async fn claim(edge: &TestEdge, harp: &str, session: &str) {
     });
     let cover = angzarr_embedded::v1::Cover {
         domain: sessions::NAMES_DOMAIN.to_string(),
-        root: Some(sessions::claim_root("calm-otter", harp)),
+        root: Some(
+            sessions::SessionName::new(PROJECT_HARP, harp)
+                .unwrap()
+                .root(),
+        ),
         edition: None,
     };
     edge.handle(angzarr_embedded::v1::CommandBook::command_of(cover, &claim))
@@ -1323,11 +1295,12 @@ async fn an_interactive_run_gives_her_terminal_to_the_engine_and_ends_by_its_exi
 #[tokio::test]
 async fn an_interactive_run_that_cannot_start_its_engine_says_so() {
     let mut script = Script::answering();
-    script.runner =
-        ScriptedRunner::answering(run_ports::Launch::NotStarted(run_ports::LaunchFailure {
+    script.runner = ScriptedRunner::answering(run_ports::TurnLaunch::NotStarted(
+        run_ports::LaunchFailure {
             deterministic: true,
             detail: "no claude".to_string(),
-        }));
+        },
+    ));
     let mut rig = rig(script);
     let done = rig.runs.interactive(&Flags::default(), &ask()).await;
     assert!(matches!(done.result, Err(RunError::NotStarted { .. })));
@@ -1353,7 +1326,7 @@ async fn a_claim_refused_for_another_reason_is_not_tried_again_with_another_name
     assert!(rig.runner.seen.lock().unwrap().is_empty());
     assert_eq!(
         edge_timeline(&rig),
-        ["EnqueueRun", "LaunchFailed"],
+        ["EnqueueRun", "RecordLaunchFailed"],
         "the enqueued run is ended"
     );
 }
@@ -1467,10 +1440,9 @@ fn file_only() -> Script {
 // Ruling 53: a child of an engine whose source is a file alone is refused with
 // the typed refusal naming the engine and the variables to export, even with
 // one of them exported (the source names none, so the engine would not be
-// given it): no listener served, no certificate minted, no name claimed, no
-// engine spawned.
+// given it): no name claimed, no engine spawned.
 #[tokio::test]
-async fn a_one_shot_on_a_file_only_source_is_refused_before_its_listener_or_session() {
+async fn a_one_shot_on_a_file_only_source_is_refused_before_its_session() {
     let mut script = file_only();
     script.env.push(("CLAUDE_CODE_OAUTH_TOKEN", "t")); // gitleaks:allow
     let mut rig = rig(script);
@@ -1487,14 +1459,6 @@ async fn a_one_shot_on_a_file_only_source_is_refused_before_its_listener_or_sess
     );
     assert_eq!(error.code(), "runs-file-only-credential");
     assert_eq!(error.exit(), Exit::REFUSED);
-    assert!(
-        rig.hooks.log.lock().unwrap().is_empty(),
-        "no listener served"
-    );
-    assert!(
-        rig.certs.asked.lock().unwrap().is_empty(),
-        "no certificate minted"
-    );
     assert_eq!(rig.runs.core.0.claims.load(Ordering::SeqCst), 0);
     assert!(rig.runner.seen.lock().unwrap().is_empty());
 }
@@ -1509,21 +1473,15 @@ async fn the_primary_on_a_file_only_source_runs() {
     assert!(done.result.is_ok(), "{:?}", done.result.err());
 }
 
-// A child with no env credential at all is refused before its listener is
-// served, as a file-only one is.
+// A child with no env credential at all is refused before its session is
+// made, as a file-only one is.
 #[tokio::test]
-async fn a_one_shot_with_no_env_credential_serves_no_listener() {
+async fn a_one_shot_with_no_env_credential_makes_no_session() {
     let mut rig = rig(needing_a_token());
     let done = rig.runs.one_shot(&Flags::default(), &ask()).await;
     assert!(done.result.is_err());
-    assert!(
-        rig.hooks.log.lock().unwrap().is_empty(),
-        "no listener served"
-    );
-    assert!(
-        rig.certs.asked.lock().unwrap().is_empty(),
-        "no certificate minted"
-    );
+    assert_eq!(rig.runs.core.0.claims.load(Ordering::SeqCst), 0);
+    assert!(rig.runner.seen.lock().unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -1668,18 +1626,58 @@ async fn an_engine_that_asks_for_nothing_shares_nothing_and_notices_nothing_of_i
     assert_eq!(done.notices.len(), 1, "only the plan's own");
 }
 
-// NEW-DESIGN (owner ruling 2026-11-09, item 16; ruling 9): the interactive
-// engine's environment holds the endpoint, the run and the hook bearer: the
-// bearer's token is the one whose digest the run journaled as the HOOK's, and
-// no other principal's.
+/// The caller's own hook variables, as a run started from inside another
+/// session inherits them.
+const INHERITED: [(&str, &str); 5] = [
+    ("CTXLOOM_ENDPOINT", "https://10.0.0.9:1"),
+    ("CTXLOOM_BEARER", "inherited.secret"),
+    ("CTXLOOM_RUN", "inherited"),
+    ("CTXLOOM_TLS_CERT", "inherited-cert"),
+    (
+        "CTXLOOM_SESSION",
+        "projects/far-otter/sessions/inherited-harp",
+    ),
+];
+
+/// The run's id as its engine is told it.
+fn run_text(session: &str) -> String {
+    let run = runs::run_root(session, 1);
+    uuid::Uuid::from_slice(&run.value)
+        .unwrap()
+        .hyphenated()
+        .to_string()
+}
+
+/// `env` names the run and its session (`harp`) by their own values, and
+/// none of the env-named arrival's variables (slice 4 U7, owner ruling
+/// s4-Q3: its hooks find the user's daemon themselves).
+fn names_the_run_alone(
+    env: &std::collections::BTreeMap<String, String>,
+    session: &str,
+    harp: &str,
+) {
+    assert_eq!(env["CTXLOOM_RUN"], run_text(session));
+    // The hook finds its session by its resource name, the one variable the
+    // engine's environment names it in (s3-Q3); no harp variable beside it.
+    assert_eq!(env["CTXLOOM_SESSION"], session_name(harp));
+    assert!(!env.contains_key("CTXLOOM_SESSION_HARP"), "{env:?}");
+    for name in run_ports::LISTENER_VARIABLES {
+        assert!(!env.contains_key(name), "{name}: {env:?}");
+    }
+}
+
+// Slice 4 U7 (s4-Q3, OD-13): the terminal session's engine is told its run
+// and its session, and no endpoint, bearer or certificate: what the caller
+// inherited from another session is never passed on.
 #[tokio::test]
-async fn an_interactive_run_is_handed_the_listener_endpoint_and_the_hook_bearer() {
+async fn an_interactive_run_names_its_run_and_session_and_no_listener() {
     let mut script = Script::answering();
     script.env = vec![
         ("PATH", "/bin"),
         ("HOME", "/home/u"),
         ("CTXLOOM_HOME", "/home/u"),
     ];
+    script.env.extend(INHERITED);
     let mut rig = rig(script);
     let ended = rig
         .runs
@@ -1688,42 +1686,16 @@ async fn an_interactive_run_is_handed_the_listener_endpoint_and_the_hook_bearer(
         .result
         .unwrap();
     let env = rig.runner.seen_terminal.lock().unwrap()[0].env.clone();
-    let run = runs::run_root(&ended.session, 1);
-    let run_text = uuid::Uuid::from_slice(&run.value)
-        .unwrap()
-        .hyphenated()
-        .to_string();
-    assert_eq!(env["CTXLOOM_RUN"], run_text);
-    // The hook finds its session by the harp: the engine's environment names it.
-    assert_eq!(env["CTXLOOM_SESSION_HARP"], ended.harp);
-    assert_eq!(env["CTXLOOM_ENDPOINT"], "https://127.0.0.1:40123");
-    let (bearer_run, token) = run_ports::Bearer::parse(&env["CTXLOOM_BEARER"]).unwrap();
-    assert_eq!(bearer_run, run_text);
-    let events = run_events(&rig.edge, &ended.session).await;
-    let runs::RunEvent::RunEnqueued(enqueued) = &events[0] else {
-        panic!("first event is the enqueue: {events:?}");
-    };
-    assert_eq!(enqueued.hook_credential_hash, token.hash().as_bytes());
-    assert_ne!(enqueued.runner_credential_hash, token.hash().as_bytes());
-    assert_ne!(enqueued.model_credential_hash, token.hash().as_bytes());
+    names_the_run_alone(&env, &ended.session, &ended.harp);
 }
 
-// Ruling 51 (with 27 and 29): a one-shot is its own owner, so its CHILD's turn
-// is handed the run's own listener variables too: the endpoint of the port it
-// serves, its run, the hook bearer (whose digest the run journaled as the
-// HOOK's), its certificate and its harp. What the caller's own environment held
-// (a run started from inside another session) is replaced, never passed on.
+// Ruling 51 with slice 4 U7: a one-shot CHILD's turn is told the same: its
+// run and its session, no listener, nothing inherited.
 #[tokio::test]
-async fn a_childs_turn_is_handed_its_own_listener_endpoint_and_hook_bearer() {
+async fn a_childs_turn_names_its_run_and_session_and_no_listener() {
     let mut script = Script::answering();
-    script.env = vec![
-        ("PATH", "/bin"),
-        ("CTXLOOM_ENDPOINT", "https://10.0.0.9:1"),
-        ("CTXLOOM_BEARER", "inherited.secret"),
-        ("CTXLOOM_RUN", "inherited"),
-        ("CTXLOOM_TLS_CERT", "inherited-cert"),
-        ("CTXLOOM_SESSION_HARP", "inherited-harp"),
-    ];
+    script.env = vec![("PATH", "/bin")];
+    script.env.extend(INHERITED);
     let mut rig = rig(script);
     let answer = rig
         .runs
@@ -1732,199 +1704,7 @@ async fn a_childs_turn_is_handed_its_own_listener_endpoint_and_hook_bearer() {
         .result
         .unwrap();
     let env = rig.runner.seen.lock().unwrap()[0].env.clone();
-    let run = runs::run_root(&answer.session, 1);
-    let run_text = uuid::Uuid::from_slice(&run.value)
-        .unwrap()
-        .hyphenated()
-        .to_string();
-    assert_eq!(env["CTXLOOM_RUN"], run_text);
-    assert_eq!(env["CTXLOOM_SESSION_HARP"], answer.harp);
-    assert_eq!(env["CTXLOOM_ENDPOINT"], "https://127.0.0.1:40123");
-    assert_eq!(env["CTXLOOM_TLS_CERT"], minted_public().to_env_value());
-    let (bearer_run, token) = run_ports::Bearer::parse(&env["CTXLOOM_BEARER"]).unwrap();
-    assert_eq!(bearer_run, run_text);
-    let events = run_events(&rig.edge, &answer.session).await;
-    let runs::RunEvent::RunEnqueued(enqueued) = &events[0] else {
-        panic!("first event is the enqueue: {events:?}");
-    };
-    assert_eq!(enqueued.hook_credential_hash, token.hash().as_bytes());
-    assert_ne!(enqueued.runner_credential_hash, token.hash().as_bytes());
-    assert_ne!(enqueued.model_credential_hash, token.hash().as_bytes());
-}
-
-// NEW-DESIGN: a primary run launched from inside another interactive session
-// gets its OWN bearer, never the inherited one.
-#[tokio::test]
-async fn an_inherited_bearer_is_replaced_by_the_runs_own() {
-    let mut script = Script::answering();
-    script.env = vec![
-        ("CTXLOOM_HOME", "/home/u"),
-        ("CTXLOOM_BEARER", "inherited.secret"),
-    ];
-    let mut rig = rig(script);
-    rig.runs
-        .interactive(&Flags::default(), &ask())
-        .await
-        .result
-        .unwrap();
-    let env = rig.runner.seen_terminal.lock().unwrap()[0].env.clone();
-    assert_ne!(env["CTXLOOM_BEARER"], "inherited.secret");
-}
-
-// NEW-DESIGN (no secret in a log line or an error): the bearer is in no Debug of
-// what carries it from the launching code to the engine, nor in the error of a
-// launch that failed to start.
-#[tokio::test]
-async fn the_bearer_is_in_no_debug_or_error_rendering() {
-    let mut script = Script::answering();
-    script.env = vec![("CTXLOOM_HOME", "/home/u")];
-    script.runner =
-        ScriptedRunner::answering(run_ports::Launch::NotStarted(run_ports::LaunchFailure {
-            deterministic: true,
-            detail: "no claude".to_string(),
-        }));
-    let mut rig = rig(script);
-    let error = rig
-        .runs
-        .interactive(&Flags::default(), &ask())
-        .await
-        .result
-        .unwrap_err();
-    let command = rig.runner.seen_terminal.lock().unwrap()[0].clone();
-    let bearer = command.env["CTXLOOM_BEARER"].clone();
-    let secret = bearer.rsplit_once('.').unwrap().1.to_string();
-    for shown in [
-        format!("{error} {error:?}"),
-        format!("{command:?}"),
-        format!(
-            "{:?}",
-            run_launcher::Order {
-                harp: "h".into(),
-                engine: "e".into(),
-                context: String::new(),
-                prompt: String::new(),
-                env: command.env.clone(),
-                user_home: None,
-                cwd: None,
-                workspace: Default::default(),
-                interactive: true,
-                model: String::new(),
-                effort: String::new(),
-                permissions: None,
-                settings: Default::default(),
-                owned: Vec::new(),
-                git_user: None,
-                resume: None,
-                surfaces: Default::default(),
-            }
-        ),
-    ] {
-        assert!(!shown.contains(&secret), "{shown}");
-    }
-}
-
-// A launch that fails stops the listener too: no socket outlives the run.
-#[tokio::test]
-async fn a_launch_that_fails_still_stops_the_listener() {
-    let mut script = Script::answering();
-    script.runner =
-        ScriptedRunner::answering(run_ports::Launch::NotStarted(run_ports::LaunchFailure {
-            deterministic: true,
-            detail: "no claude".to_string(),
-        }));
-    let mut rig = rig(script);
-    let done = rig.runs.interactive(&Flags::default(), &ask()).await;
-    assert!(matches!(done.result, Err(RunError::NotStarted { .. })));
-    let log = rig.hooks.log.lock().unwrap().clone();
-    let what: Vec<&str> = log.iter().map(|(what, _)| what.as_str()).collect();
-    assert_eq!(what.len(), 2, "{what:?}");
-    assert!(what[0].starts_with("serve_tcp "), "{what:?}");
-    assert_eq!(what[1], "stop");
-}
-
-// A listener that cannot be started means no hook could reach the run: the
-// engine is not launched, and the error says why.
-#[tokio::test]
-async fn a_listener_that_cannot_start_stops_the_run_before_its_engine() {
-    let mut script = Script::answering();
-    script.hooks_refuse = Some("hook-listener-bind");
-    let mut rig = rig(script);
-    let done = rig.runs.interactive(&Flags::default(), &ask()).await;
-    let error = done.result.unwrap_err();
-    assert!(
-        matches!(&error, RunError::Listener(report) if report.code() == "hook-listener-bind"),
-        "{error:?}"
-    );
-    assert_eq!(error.exit(), Exit::FAILED);
-    assert!(rig.runner.seen_terminal.lock().unwrap().is_empty());
-}
-
-// Ruling 51: a one-shot serves the same listener as the terminal session, on
-// loopback, before its child is launched, and stops it after the child exits.
-#[tokio::test]
-async fn a_one_shot_serves_its_listener_on_loopback_before_the_child_and_stops_it_after() {
-    let mut rig = rig(Script::answering());
-    rig.runs
-        .one_shot(&Flags::default(), &ask())
-        .await
-        .result
-        .unwrap();
-    assert_eq!(
-        *rig.hooks.log.lock().unwrap(),
-        [
-            ("serve_tcp 127.0.0.1".to_string(), 0),
-            ("stop".to_string(), 1)
-        ],
-        "served on loopback before the child starts, stopped after it exits"
-    );
-}
-
-// No listener, no child: a hook could not be heard, so nothing is made and no
-// engine started, and the error says why.
-#[tokio::test]
-async fn a_one_shot_whose_listener_cannot_start_launches_no_child() {
-    let mut rig = rig(Script {
-        hooks_refuse: Some("hook-listener-bind"),
-        ..Script::answering()
-    });
-    let error = rig
-        .runs
-        .one_shot(&Flags::default(), &ask())
-        .await
-        .result
-        .unwrap_err();
-    assert_eq!(error.code(), "run-application-listener");
-    assert!(rig.runner.seen.lock().unwrap().is_empty());
-    // Ruling 73f: the session is minted before the listener is served, so a
-    // listener that cannot start finds it made: its run is ended, and its
-    // directory written, as a run whose engine could not be spawned is.
-    assert_eq!(rig.runs.core.0.claims.load(Ordering::SeqCst), 1);
-    after_its_session_the_run_ended(&rig);
-}
-
-// A child that cannot be spawned stops the listener: no port outlives the run.
-// A one-shot the plan's checks refuse (no prompt) serves none at all.
-#[tokio::test]
-async fn a_one_shot_that_does_not_run_still_stops_its_listener() {
-    let mut never = Script::answering();
-    never.runner =
-        ScriptedRunner::answering(run_ports::Launch::NotStarted(run_ports::LaunchFailure {
-            deterministic: true,
-            detail: "no claude".to_string(),
-        }));
-    let mut silent = Script::answering();
-    silent.prompt = "";
-    for (script, served) in [
-        (never, &["serve_tcp 127.0.0.1", "stop"][..]),
-        (silent, &[][..]),
-    ] {
-        let mut rig = rig(script);
-        let done = rig.runs.one_shot(&Flags::default(), &ask()).await;
-        assert!(done.result.is_err());
-        let log = rig.hooks.log.lock().unwrap().clone();
-        let what: Vec<&str> = log.iter().map(|(what, _)| what.as_str()).collect();
-        assert_eq!(what, served);
-    }
+    names_the_run_alone(&env, &answer.session, &answer.harp);
 }
 
 fn rig_again_with(script: Script) -> Rig {
@@ -1996,100 +1776,6 @@ async fn the_running_binarys_directory_leads_a_childs_path() {
         rig.runner.seen.lock().unwrap()[0].env["PATH"],
         "/opt/ctxloom/bin:/bin"
     );
-}
-
-// Owner rulings 2026-11-09, items 31-33: the interactive run's hook listener
-// binds loopback on a port of the system's choosing, serves before the engine
-// starts, and the engine is told the URL of that port.
-#[tokio::test]
-async fn an_interactive_runs_engine_is_told_the_loopback_url_of_the_port_served() {
-    let mut script = Script::answering();
-    script.env = vec![("PATH", "/bin"), ("CTXLOOM_HOME", "/home/u")];
-    let mut rig = rig(script);
-    rig.runs
-        .interactive(&Flags::default(), &ask())
-        .await
-        .result
-        .unwrap();
-    let env = rig.runner.seen_terminal.lock().unwrap()[0].env.clone();
-    assert_eq!(env["CTXLOOM_ENDPOINT"], "https://127.0.0.1:40123");
-    let log = rig.hooks.log.lock().unwrap().clone();
-    assert_eq!(
-        log,
-        [
-            ("serve_tcp 127.0.0.1".to_string(), 0),
-            ("stop".to_string(), 1)
-        ],
-        "served on loopback before the engine starts, stopped after it exits"
-    );
-}
-
-// A run refused by its checks (an engine nobody drives) serves no listener at
-// all, and neither does one that fails before it (the project cannot be told,
-// ruling 73f's order).
-#[tokio::test]
-async fn a_run_refused_or_failing_before_its_listener_serves_none() {
-    let mut rig = rig(Script::answering());
-    let bogus = OneShot {
-        engine: "bogus-engine".to_string(),
-        ..ask()
-    };
-    let error = rig
-        .runs
-        .interactive(&Flags::default(), &bogus)
-        .await
-        .result
-        .unwrap_err();
-    assert!(
-        matches!(
-            error,
-            RunError::Refused(runs::RunRejection::UnknownEngine { .. })
-        ),
-        "{error:?}"
-    );
-    assert!(
-        rig.hooks.log.lock().unwrap().is_empty(),
-        "no listener served"
-    );
-    let mut rig = rig_with_project_error();
-    let error = rig
-        .runs
-        .interactive(&Flags::default(), &ask())
-        .await
-        .result
-        .unwrap_err();
-    assert!(matches!(error, RunError::Project(_)), "{error:?}");
-    assert!(
-        rig.hooks.log.lock().unwrap().is_empty(),
-        "no listener served"
-    );
-}
-
-fn rig_with_project_error() -> Rig {
-    rig(Script {
-        project_error: Some(Report::new("ports-project-unwritable")),
-        ..Script::answering()
-    })
-}
-
-// A listener that cannot be bound fails the run after its session was made
-// (ruling 73f): the run is ended and the session's directory says so.
-#[tokio::test]
-async fn a_listener_that_cannot_bind_ends_the_run_its_session_was_made_for() {
-    let mut rig = rig(Script {
-        hooks_refuse: Some("hook-listener-bind"),
-        ..Script::answering()
-    });
-    let error = rig
-        .runs
-        .interactive(&Flags::default(), &ask())
-        .await
-        .result
-        .unwrap_err();
-    assert_eq!(error.code(), "run-application-listener");
-    assert_eq!(rig.runs.core.0.claims.load(Ordering::SeqCst), 1);
-    assert!(rig.runner.seen_terminal.lock().unwrap().is_empty());
-    after_its_session_the_run_ended(&rig);
 }
 
 // A live probe (2026-11-09): a model never reached claude. The agent's model
@@ -2178,78 +1864,36 @@ async fn the_plans_permissions_are_handed_to_the_engine_for_a_turn_and_for_the_t
     );
 }
 
-// Rulings 35-37: the run's certificate is minted for every address the child
-// may dial, BEFORE the listener is served with it (the identity the listener
-// was given is the mint's), and the child is told the PUBLIC part alone.
+// Ruling 73f with slice 4 U7: a run that fails after its session was made
+// (here its session's lock is held elsewhere) ends the run, starts no
+// engine, and its session's directory says so.
 #[tokio::test]
-async fn the_certificate_is_minted_for_the_binds_names_and_served_and_told() {
-    let mut script = Script::answering();
-    script.env = vec![("PATH", "/bin"), ("CTXLOOM_HOME", "/home/u")];
-    let mut rig = rig(script);
-    rig.runs
-        .interactive(&Flags::default(), &ask())
-        .await
-        .result
-        .unwrap();
-    let asked = rig.certs.asked.lock().unwrap().clone();
-    assert_eq!(asked.len(), 1);
-    assert_eq!(
-        asked[0].ips(),
-        vec![
-            std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
-            std::net::IpAddr::V6(std::net::Ipv6Addr::LOCALHOST)
-        ]
-    );
-    assert!(asked[0].dns().is_empty());
-    // The listener was served with the mint's identity.
-    assert_eq!(*rig.hooks.identities.lock().unwrap(), [MINTED_KEY]);
-    // The child was told the certificate, and no variable holds the key.
-    let env = rig.runner.seen_terminal.lock().unwrap()[0].env.clone();
-    assert_eq!(env["CTXLOOM_TLS_CERT"], minted_public().to_env_value());
-    for (name, value) in &env {
-        assert!(!value.contains(MINTED_KEY), "{name}");
+async fn a_failure_after_the_mint_ends_the_run_its_session_was_made_for() {
+    for interactive in [false, true] {
+        let mut rig = rig(Script {
+            lock_refuse: Some("file-lock-timeout"),
+            ..Script::answering()
+        });
+        let error = if interactive {
+            rig.runs
+                .interactive(&Flags::default(), &ask())
+                .await
+                .result
+                .unwrap_err()
+        } else {
+            rig.runs
+                .one_shot(&Flags::default(), &ask())
+                .await
+                .result
+                .err()
+                .unwrap()
+        };
+        assert!(matches!(error, RunError::Lock(_)), "{error:?}");
+        assert_eq!(rig.runs.core.0.claims.load(Ordering::SeqCst), 1);
+        assert!(rig.runner.seen.lock().unwrap().is_empty());
+        assert!(rig.runner.seen_terminal.lock().unwrap().is_empty());
+        after_its_session_the_run_ended(&rig);
     }
-}
-
-// Ruling 51: a one-shot's listener has its own certificate, minted for the
-// bind's names before it is served, served with it, and told (the public part
-// alone) to the child.
-#[tokio::test]
-async fn a_one_shot_mints_its_certificate_serves_with_it_and_tells_the_child() {
-    let mut rig = rig(Script::answering());
-    rig.runs
-        .one_shot(&Flags::default(), &ask())
-        .await
-        .result
-        .unwrap();
-    assert_eq!(rig.certs.asked.lock().unwrap().len(), 1);
-    assert_eq!(*rig.hooks.identities.lock().unwrap(), [MINTED_KEY]);
-    let env = rig.runner.seen.lock().unwrap()[0].env.clone();
-    assert_eq!(env["CTXLOOM_TLS_CERT"], minted_public().to_env_value());
-    for (name, value) in &env {
-        assert!(!value.contains(MINTED_KEY), "{name}");
-    }
-}
-
-// A certificate that cannot be minted fails the run after its session was
-// made (ruling 73f): nothing is served, no engine started, and the run ended.
-#[tokio::test]
-async fn a_certificate_that_cannot_be_minted_ends_the_run_and_serves_nothing() {
-    let mut rig = rig(Script {
-        certs_refuse: Some("hook-tls-generate"),
-        ..Script::answering()
-    });
-    let error = rig
-        .runs
-        .interactive(&Flags::default(), &ask())
-        .await
-        .result
-        .unwrap_err();
-    assert_eq!(error.code(), "run-application-listener");
-    assert!(rig.hooks.log.lock().unwrap().is_empty(), "nothing served");
-    assert_eq!(rig.runs.core.0.claims.load(Ordering::SeqCst), 1);
-    assert!(rig.runner.seen_terminal.lock().unwrap().is_empty());
-    after_its_session_the_run_ended(&rig);
 }
 
 // ---- engines.<e>.* reaches the launch (owner rulings 44, 46, 48) ----
@@ -2615,13 +2259,13 @@ async fn a_permit_for_the_path_the_run_builds_or_for_home_is_ignored() {
 // ---- every pre-launch check, decided by the run's enqueue (owner rulings 73, 73a-f) ----
 
 /// A run that failed after its session was made: the enqueued run is ended
-/// (a `LaunchFailed`), and nothing is written into its directory (ruling
+/// (a `RecordLaunchFailed`), and nothing is written into its directory (ruling
 /// 87a: the run's end is its stream's).
 fn after_its_session_the_run_ended(rig: &Rig) {
     let timeline = edge_timeline(rig);
     let at = |what: &str| timeline.iter().position(|t| t == what);
     assert!(at("EnqueueRun") < at("MintSession"), "{timeline:?}");
-    assert!(at("LaunchFailed").is_some(), "{timeline:?}");
+    assert!(at("RecordLaunchFailed").is_some(), "{timeline:?}");
     let names = rig.records.names("amber-swift-owl");
     assert!(names.iter().all(|n| n.starts_with("home/")), "{names:?}");
 }
@@ -2777,9 +2421,9 @@ async fn the_findings_the_prompt_and_the_engine_fail_together() {
 // The proposal for ruling 73f's residue: the enqueue is sent before a name is
 // claimed or a session minted, so a REFUSED run leaves nothing: no name, no
 // session in the store or on disk, no run event (a refusal journals nothing),
-// no certificate, no listener. The user sees the refusal and nothing else.
+// The user sees the refusal and nothing else.
 #[tokio::test]
-async fn a_refused_run_claims_no_name_mints_no_session_and_serves_nothing() {
+async fn a_refused_run_claims_no_name_and_mints_no_session() {
     for interactive in [false, true] {
         let mut script = needing_a_token();
         script.prompt = "";
@@ -2809,17 +2453,14 @@ async fn a_refused_run_claims_no_name_mints_no_session_and_serves_nothing() {
         );
         assert_eq!(rig.runs.core.0.claims.load(Ordering::SeqCst), 0);
         assert!(rig.records.names("amber-swift-owl").is_empty());
-        assert!(rig.certs.asked.lock().unwrap().is_empty());
-        assert!(rig.hooks.log.lock().unwrap().is_empty());
     }
 }
 
-// Ruling 73f's order for a run that starts: enqueued (its checks judged and
-// its hook credential's digest journaled), then named and minted, then its
-// certificate minted and its listener served; so when the listener serves, a
-// hook's bearer already finds its run.
+// Ruling 73f's order for a run that starts: enqueued (its checks judged),
+// then named and minted; no certificate is minted and no listener served
+// (slice 4 U7).
 #[tokio::test]
-async fn a_run_is_enqueued_then_named_and_minted_then_certified_and_served() {
+async fn a_run_is_enqueued_then_named_and_minted() {
     for interactive in [false, true] {
         let mut script = Script::answering();
         if interactive {
@@ -2840,16 +2481,10 @@ async fn a_run_is_enqueued_then_named_and_minted_then_certified_and_served() {
                 .unwrap();
         }
         let timeline = edge_timeline(&rig);
-        let first: Vec<&str> = timeline.iter().take(5).map(String::as_str).collect();
+        let first: Vec<&str> = timeline.iter().take(3).map(String::as_str).collect();
         assert_eq!(
             first,
-            [
-                "EnqueueRun",
-                "ClaimName",
-                "MintSession",
-                "certificate",
-                "serve"
-            ],
+            ["EnqueueRun", "ClaimName", "MintSession"],
             "interactive {interactive}"
         );
     }
@@ -2885,8 +2520,13 @@ async fn the_enqueue_is_judged_on_the_engines_driven_and_the_credentials_names()
     assert!(!format!("{credential:?}").contains("VALUE-NEVER-SENT"));
 }
 
+/// The resource name of the rig's session `harp` (s3-Q3).
+fn session_name(harp: &str) -> String {
+    format!("projects/{PROJECT_HARP}/sessions/{harp}")
+}
+
 // Review finding 6 (ruling 87): the engine is told its run's SESSION, by its
-// stable id, so a hook addresses its facts to it without reading anything in
+// resource name (s3-Q3, once its stable id), so a hook addresses its facts to it without reading anything in
 // the session's directory; an inherited one (a run started inside another
 // session) is replaced by this run's. The terminal and a child's turn alike.
 #[tokio::test]
@@ -2896,15 +2536,16 @@ async fn the_engine_is_told_the_runs_session_by_its_id_never_an_inherited_one() 
         script.env = vec![
             ("PATH", "/bin"),
             ("HOME", "/home/u"),
-            ("CTXLOOM_SESSION", "00000000-0000-4000-8000-00000000dead"),
+            ("CTXLOOM_SESSION", "projects/far-otter/sessions/dead-harp"),
         ];
         let mut rig = rig(script);
+        // s3-Q3: told by its resource name, from which a hook derives the id.
         let session = if interactive {
             let ended = rig.runs.interactive(&Flags::default(), &ask()).await;
-            ended.result.unwrap().session
+            session_name(&ended.result.unwrap().harp)
         } else {
             let answered = rig.runs.one_shot(&Flags::default(), &ask()).await;
-            answered.result.unwrap().session
+            session_name(&answered.result.unwrap().harp)
         };
         let env = if interactive {
             rig.runner.seen_terminal.lock().unwrap()[0].env.clone()
@@ -2921,7 +2562,7 @@ async fn the_engine_is_told_the_runs_session_by_its_id_never_an_inherited_one() 
 
 // Defect 1: the run holds its session's lock for its life: taken once the
 // session is minted and before the engine starts, let go only after the
-// engine exited and the listener stopped. Interactive and one-shot alike.
+// engine exited. Interactive and one-shot alike.
 #[tokio::test]
 async fn the_run_holds_its_sessions_lock_from_its_mint_until_after_its_engine() {
     for interactive in [false, true] {
@@ -2946,8 +2587,8 @@ async fn the_run_holds_its_sessions_lock_from_its_mint_until_after_its_engine() 
         );
         assert_eq!(
             *rig.locks.released.lock().unwrap(),
-            [("amber-swift-owl".to_string(), 1, true)],
-            "interactive={interactive}: let go after the engine and the listener"
+            [("amber-swift-owl".to_string(), 1)],
+            "interactive={interactive}: let go after the engine"
         );
         let timeline = rig.timeline.lock().unwrap().clone();
         let at = |what: &str| timeline.iter().position(|t| t == what);
@@ -2969,7 +2610,12 @@ async fn a_refused_run_takes_no_lock_and_a_failed_one_lets_its_lock_go() {
     let _ = refused.runs.one_shot(&Flags::default(), &ask()).await;
     assert!(refused.locks.held.lock().unwrap().is_empty());
     let mut failed = rig(Script {
-        hooks_refuse: Some("hook-listener-bind"),
+        runner: ScriptedRunner::answering(run_ports::TurnLaunch::NotStarted(
+            run_ports::LaunchFailure {
+                deterministic: true,
+                detail: "no claude".to_string(),
+            },
+        )),
         ..Script::answering()
     });
     let done = failed.runs.one_shot(&Flags::default(), &ask()).await;
@@ -3037,7 +2683,10 @@ async fn names_whose_directories_all_exist_refuse_the_run_as_taken() {
             .any(|t| t.starts_with("ClaimName") || t == "MintSession"),
         "{timeline:?}"
     );
-    assert_eq!(timeline.last().map(String::as_str), Some("LaunchFailed"));
+    assert_eq!(
+        timeline.last().map(String::as_str),
+        Some("RecordLaunchFailed")
+    );
 }
 
 /// The incarnations `session`'s stream records as ended: (incarnation, cause).
@@ -3089,13 +2738,14 @@ async fn a_runs_end_closes_its_sessions_incarnation() {
     }
 }
 
-// Ruling 85: a run that ends before its engine starts (here its listener
-// cannot bind, after its session was minted) closes its incarnation too.
+// Ruling 85: a run that ends before its engine starts (here its session's
+// lock is held elsewhere, after its session was minted) closes its
+// incarnation too.
 // PROPOSAL: the cause is `launch-failed`.
 #[tokio::test]
 async fn a_run_that_fails_after_its_mint_closes_its_incarnation() {
     let mut rig = rig(Script {
-        hooks_refuse: Some("hook-listener-bind"),
+        lock_refuse: Some("file-lock-timeout"),
         ..Script::answering()
     });
     let _ = rig.runs.one_shot(&Flags::default(), &ask()).await;
@@ -3159,6 +2809,40 @@ async fn the_run_lock_is_held_from_before_the_enqueue_until_the_runner_starts() 
     }
 }
 
+/// The run lock a frontend took before it asked (U5's start-report race),
+/// which the fake reads held.
+const FRONTEND_LOCK: &str = "/home/u/.ctxloom/runs/0193a8f0-request.lock";
+
+// U5's start-report race (owner 2026-11-14): a terminal run whose FRONTEND
+// holds the run's own lock journals that lock as its launcher lock and takes
+// none of its own, so a daemon started before the start report reads the
+// frontend alive; one not held (an older frontend's, or a path given and
+// let go) is passed over, and the run's own taken as before.
+#[tokio::test]
+async fn a_lock_the_frontend_holds_is_journaled_and_none_of_its_own_taken() {
+    for (given, journaled, taken) in [
+        (FRONTEND_LOCK, FRONTEND_LOCK, false),
+        ("/home/u/.ctxloom/runs/let-go.lock", RUN_LOCK, true),
+        ("", RUN_LOCK, true),
+    ] {
+        let mut rig = rig(Script::answering());
+        rig.runs.held_by_frontend(Some(given.to_string()));
+        rig.runs
+            .interactive(&Flags::default(), &ask())
+            .await
+            .result
+            .unwrap();
+        let enqueued = rig.runs.core.0.enqueued.lock().unwrap().clone().unwrap();
+        assert_eq!(enqueued.launcher_lock, journaled, "given {given:?}");
+        let timeline = rig.timeline.lock().unwrap().clone();
+        assert_eq!(
+            timeline.iter().any(|t| t == "run-lock"),
+            taken,
+            "given {given:?}: {timeline:?}"
+        );
+    }
+}
+
 // Ruling 92: a refused run lets its run lock go (it made nothing else).
 #[tokio::test]
 async fn a_refused_run_lets_its_run_lock_go() {
@@ -3180,11 +2864,12 @@ async fn a_refused_run_lets_its_run_lock_go() {
 #[tokio::test]
 async fn a_run_whose_command_never_started_closes_its_incarnation_as_launch_failed() {
     let mut script = Script::answering();
-    script.runner =
-        ScriptedRunner::answering(run_ports::Launch::NotStarted(run_ports::LaunchFailure {
+    script.runner = ScriptedRunner::answering(run_ports::TurnLaunch::NotStarted(
+        run_ports::LaunchFailure {
             deterministic: true,
             detail: "no claude".to_string(),
-        }));
+        },
+    ));
     let mut rig = rig(script);
     let _ = rig.runs.one_shot(&Flags::default(), &ask()).await;
     let session = enqueued_session(&rig);
@@ -3418,7 +3103,7 @@ fn placing(
     (script, workspaces)
 }
 
-/// Where the run's `RunnerStarted` says its runner works.
+/// Where the run's `RecordRunnerStarted` says its runner works.
 async fn started_in(rig: &Rig, session: &str) -> String {
     run_events(&rig.edge, session)
         .await
@@ -3579,17 +3264,16 @@ async fn a_resume_in_another_workspace_is_refused() {
 }
 
 // Owner ruling 2026-11-12 (Q2): a run's checkout is let go once its engine
-// has exited and its listener has stopped, while the session's lock is still
-// held: removed when clean.
+// has exited, while the session's lock is still held: removed when clean.
 #[tokio::test]
-async fn a_runs_clean_checkout_is_removed_after_the_listener_and_before_the_lock() {
+async fn a_runs_clean_checkout_is_removed_after_the_engine_and_before_the_lock() {
     let (script, workspaces) = placing("worktree", run_launcher::fakes::worktree_checkout);
     let mut rig = rig(script);
-    let (locks, hooks) = (rig.locks.clone(), rig.hooks.clone());
+    let (locks, runner) = (rig.locks.clone(), rig.runner.clone());
     *workspaces.witness.lock().unwrap() = Some(Box::new(move || {
-        let stopped = hooks.log.lock().unwrap().iter().any(|(w, _)| w == "stop");
+        let launched = runner.seen.lock().unwrap().len();
         let released = locks.released.lock().unwrap().len();
-        format!("listener stopped {stopped}, locks let go {released}")
+        format!("engines launched {launched}, locks let go {released}")
     }));
     let done = rig.runs.one_shot(&Flags::default(), &ask()).await;
     let answer = done.result.unwrap();
@@ -3600,7 +3284,7 @@ async fn a_runs_clean_checkout_is_removed_after_the_listener_and_before_the_lock
     );
     assert_eq!(
         *workspaces.witnessed.lock().unwrap(),
-        ["listener stopped true, locks let go 0"]
+        ["engines launched 1, locks let go 0"]
     );
     assert!(!done
         .notices
@@ -3665,4 +3349,26 @@ async fn the_plans_surfaces_reach_the_engines_prepare() {
         .unwrap();
     let prepared = prepared.lock().unwrap();
     assert_eq!(prepared[0].surfaces.0.deny_tools, ["PLANNED-DENY"]);
+}
+
+// Step 10c U13: a run's session records what its plan draws on (its agent,
+// profiles and the bundles its fragments came from), as its incarnation's
+// loadout, so a change to one of them is told the session.
+#[tokio::test]
+async fn a_runs_session_records_its_plans_loadout() {
+    let mut rig = rig(Script::answering());
+    let done = rig.runs.one_shot(&Flags::default(), &ask()).await;
+    let answer = done.result.unwrap();
+    let events = session_events(&rig.edge, &answer.session).await;
+    let loadouts: Vec<&sessions::LoadoutRecorded> = events
+        .iter()
+        .filter_map(|e| match e {
+            sessions::SessionEvent::LoadoutRecorded(recorded) => Some(recorded),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(loadouts.len(), 1, "{events:?}");
+    assert_eq!(loadouts[0].incarnation, 1);
+    assert_eq!(loadouts[0].loadout.profiles, ["dev"]);
+    assert_eq!(loadouts[0].loadout.bundles, ["demo"]);
 }

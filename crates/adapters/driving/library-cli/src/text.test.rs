@@ -17,6 +17,7 @@ fn shown(write: impl FnOnce(&mut Vec<u8>) -> io::Result<()>) -> String {
 
 fn bundle(name: &str, fragments: u64, commands: u64, mcp: u64) -> BundleRow {
     BundleRow {
+        commit: String::new(),
         name: name.to_string(),
         reference: format!("ctxloom+local:{name}"),
         path: String::new(),
@@ -38,7 +39,6 @@ fn bundle(name: &str, fragments: u64, commands: u64, mcp: u64) -> BundleRow {
 fn test_the_bundle_listing_pluralizes_what_a_bundle_contains() {
     let list = BundleList {
         rows: vec![bundle("demo", 4, 1, 2), bundle("style", 1, 0, 0)],
-        no_root: false,
         hint: String::new(),
     };
     let text = shown(|out| bundle_list(out, &list));
@@ -49,36 +49,30 @@ fn test_the_bundle_listing_pluralizes_what_a_bundle_contains() {
     assert!(text.contains("    Contains: 1 fragment\n"));
 }
 
-// bundle_list.go runBundleList: three empties, three words (goldens
-// empty-bundle-list-text, emptybundles-bundle-list-text, noproject-...).
+// bundle_list.go runBundleList had three empties, three words (goldens
+// empty-bundle-list-text, emptybundles-bundle-list-text, noproject-...);
+// owner ruling 2026-11-17: a project with no bundles directory is one with
+// no bundles, so every empty listing says so, then its hint.
 #[test]
-fn test_an_empty_bundle_listing_says_why() {
-    let say = |no_root: bool, hint: &str| {
+fn test_an_empty_bundle_listing_says_no_bundles_then_its_hint() {
+    let say = |hint: &str| {
         shown(|out| {
             bundle_list(
                 out,
                 &BundleList {
                     rows: Vec::new(),
-                    no_root,
                     hint: hint.to_string(),
                 },
             )
         })
     };
     assert_eq!(
-        say(true, "Add remote bundles"),
-        "No bundles directory found. Create one with: mkdir -p .ctxloom/content/bundles\n"
-    );
-    assert_eq!(
-        say(
-            true,
-            "No project here: run 'ctxloom init' to set one up with its default content."
-        ),
-        "No project here: run 'ctxloom init' to set one up with its default content.\n"
-    );
-    assert_eq!(
-        say(false, "Add remote bundles"),
+        say("Add remote bundles"),
         "No bundles installed.\nAdd remote bundles\n"
+    );
+    assert_eq!(
+        say("No project here: run 'ctxloom init' to set one up with its default content."),
+        "No bundles installed.\nNo project here: run 'ctxloom init' to set one up with its default content.\n"
     );
 }
 
@@ -137,6 +131,7 @@ fn test_a_skill_listing_shows_description_files_and_tags() {
     let list = SkillList {
         rows: vec![SkillRow {
             name: "demo/reviewer".to_string(),
+            display_name: String::new(),
             description: "SKILL-MARKER".to_string(),
             tags: vec!["sample".to_string(), "quality".to_string()],
             source: "demo".to_string(),
@@ -163,6 +158,7 @@ fn test_a_skill_listing_shows_description_files_and_tags() {
 fn test_a_profile_listing_summarizes_each_profile() {
     let list = ProfileList {
         rows: vec![ProfileRow {
+            entry: String::new(),
             name: "dev".to_string(),
             display_name: "dev".to_string(),
             description: "dev profile".to_string(),
@@ -178,12 +174,22 @@ fn test_a_profile_listing_summarizes_each_profile() {
     };
     assert_eq!(
         shown(|out| profile_list(out, &list)),
-        "Profiles (1):\n  dev (default)\n    dev profile\n    from bundle: ctxloom+local:project, parents: base, 1 bundles\n"
+        "Profiles (1):\n  dev (default)\n    dev profile\n    from bundle: ctxloom+local:project, parents: base, 1 bundle\n"
+    );
+    // Divergence from Go (smoke 2026-11-19): one bundle is "1 bundle", more
+    // are "<n> bundles".
+    let mut two = list.clone();
+    two.rows[0].bundles.push("more".to_string());
+    assert!(
+        shown(|out| profile_list(out, &two)).ends_with("parents: base, 2 bundles\n"),
+        "{}",
+        shown(|out| profile_list(out, &two))
     );
 }
 
 fn agent_row(engine: &str) -> AgentRow {
     AgentRow {
+        session_home: String::new(),
         name: "dev".to_string(),
         engine: engine.to_string(),
         profiles: vec!["p1".to_string(), "p2".to_string()],
@@ -209,6 +215,7 @@ fn line(engine: &str, line: &str, permissions: bool) -> library_application::Eng
 #[test]
 fn test_an_agent_listing_shows_the_engine_blocks_in_the_config_s_shape() {
     let row = AgentRow {
+        session_home: String::new(),
         engine_lines: vec![
             line(
                 "claude-code",
@@ -231,6 +238,7 @@ fn test_an_agent_listing_shows_the_engine_blocks_in_the_config_s_shape() {
 fn test_an_unresolved_agent_show_says_its_permissions_are_passed_verbatim() {
     let show = AgentShow {
         definition: AgentRow {
+            session_home: String::new(),
             engine_lines: vec![line(
                 "opencode",
                 "engines.opencode: {permissions: {edit: deny}}",
@@ -337,7 +345,6 @@ fn test_agent_show_says_a_resolution_failed_and_carries_on() {
             context: String::new(),
             fragments: vec!["a".to_string()],
             driving: String::new(),
-            session_home: "session".to_string(),
             command: String::new(),
         }),
         resolution_error: String::new(),
@@ -346,36 +353,36 @@ fn test_agent_show_says_a_resolution_failed_and_carries_on() {
     let text = shown(|out| agent_show(out, &resolved));
     assert!(text.contains("Resolved engine: mock (model: o1)\n"));
     assert!(!text.contains("Resolved permissions"));
-    assert!(text.contains("Session home: session\nComposed fragments: 1\n"));
+    assert!(text.contains("Session home: session (default)\nComposed fragments: 1\n"));
 }
 
-// companion.go renderCompanionList: a command whose program is not there says
-// how to drop it; one that is says so; nothing is run to know.
+// companion.go renderCompanionList: a name whose program is not on PATH says
+// how to bring or drop it; one that is says so; a disabled one is marked;
+// nothing is run to know.
 #[test]
 fn test_a_companion_whose_program_is_not_there_says_so() {
+    use library_application::CompanionState;
     let rows = [
         library_application::CompanionRow {
             name: "acme".to_string(),
-            command: vec![
-                "acme-bin".to_string(),
-                "--as".to_string(),
-                "acme".to_string(),
-            ],
+            program: "ctxloom-companion-acme".to_string(),
             exists: false,
+            state: CompanionState::Enabled,
         },
         library_application::CompanionRow {
             name: "ltk".to_string(),
-            command: vec!["ltk".to_string()],
+            program: "ltk".to_string(),
             exists: true,
+            state: CompanionState::Disabled,
         },
     ];
     assert_eq!(
         shown(|out| companion_list(out, &rows)),
-        "acme         acme-bin --as acme           NOT FOUND \u{2014} fix the command, or: ctxloom companion remove acme --yes\nltk          ltk                          found\n"
+        "acme         ctxloom-companion-acme       NOT FOUND \u{2014} install ctxloom-companion-acme on PATH, or: ctxloom companion remove acme --yes\nltk          ltk                          found (disabled)\n"
     );
     assert_eq!(
         shown(|out| companion_list(out, &[])),
-        "No companions registered.\nUse 'ctxloom companion add <name> --command <program> [args...]' to register one.\n"
+        "No companions registered.\nUse 'ctxloom companion add <name>' to register one.\n"
     );
 }
 
@@ -399,6 +406,7 @@ fn mcp_shown(notes: &str, installation: &str) -> library_application::ShownMcp {
 
 fn bundle_shown() -> BundleShow {
     BundleShow {
+        listing: BundleRow::default(),
         name: st("demo"),
         path: st("/p/bundle.yaml"),
         version: st("1.0.0"),
@@ -415,6 +423,7 @@ fn bundle_shown() -> BundleShow {
                 distilled: true,
                 no_distill: false,
                 premise: String::new(),
+                stale: false,
             },
         )]
         .into_iter()
@@ -427,6 +436,7 @@ fn bundle_shown() -> BundleShow {
                 preview: String::new(),
                 distilled: false,
                 no_distill: true,
+                stale: false,
             },
         )]
         .into_iter()
@@ -458,6 +468,7 @@ Notes:\n  bundle notes\n"
 #[test]
 fn test_a_bundle_show_leaves_out_what_it_does_not_have() {
     let bare = BundleShow {
+        listing: BundleRow::default(),
         name: st("bare"),
         path: st("/p/bundle.yaml"),
         version: String::new(),
@@ -520,6 +531,7 @@ fn test_an_altered_publisher_body_is_noted_by_what_it_names() {
 fn test_a_view_collapses_blank_runs_only_for_one_item() {
     let content = "a\n\n\n\n\n\n\nb\n";
     let view = |item| BundleView {
+        viewed: Default::default(),
         bundle: st("demo"),
         path: String::new(),
         distilled: false,
@@ -541,10 +553,12 @@ fn test_a_view_collapses_blank_runs_only_for_one_item() {
 #[test]
 fn test_an_item_show_prints_its_marker_name_and_body() {
     let show = |distilled| ItemShow {
+        bundle: String::new(),
         name: st("golang"),
         reference: st("demo#fragments/golang"),
         content: st("BODY\n\n\n\n\n\n\nEND"),
         distilled,
+        state: library_application::DistilledState::None,
     };
     let mut notes = Notes(Vec::new());
     assert_eq!(
@@ -556,6 +570,48 @@ fn test_an_item_show_prints_its_marker_name_and_body() {
         shown(|out| item_show(out, &mut notes, &show(true))),
         "# (distilled version)\ngolang\n\nBODY\n\n\n\nEND\n"
     );
+}
+
+// S51: a distilled form that no longer matches its source is said, with the
+// command that distills it again.
+#[test]
+fn test_an_item_show_says_a_stale_distilled_form() {
+    let show = |reference: &str, state| ItemShow {
+        bundle: String::new(),
+        name: st("x"),
+        reference: st(reference),
+        content: st("BODY"),
+        distilled: false,
+        state,
+    };
+    use library_application::DistilledState::{Fresh, Stale};
+    for (reference, state, said) in [
+        (
+            "demo#fragments/x",
+            Stale,
+            Some("distilled: stale (run `ctxloom fragment distill demo#fragments/x`)"),
+        ),
+        (
+            "demo#commands/x",
+            Stale,
+            Some("distilled: stale (run `ctxloom command distill demo#commands/x`)"),
+        ),
+        ("demo#fragments/x", Fresh, None),
+    ] {
+        let mut notes = Notes(Vec::new());
+        assert_eq!(
+            shown(|out| item_show(out, &mut notes, &show(reference, state))),
+            "x\n\nBODY\n"
+        );
+        assert_eq!(
+            notes
+                .0
+                .iter()
+                .find(|n| n.starts_with("distilled:"))
+                .map(String::as_str),
+            said
+        );
+    }
 }
 
 // premises.go: the instruction alone when nothing is premised; otherwise a
@@ -648,6 +704,7 @@ fn test_a_skill_row_without_a_description_or_tags_is_just_its_name_and_files() {
     let list = SkillList {
         rows: vec![SkillRow {
             name: st("demo/a"),
+            display_name: String::new(),
             description: String::new(),
             tags: Vec::new(),
             source: st("demo"),
@@ -664,6 +721,7 @@ fn test_a_skill_row_without_a_description_or_tags_is_just_its_name_and_files() {
 
 fn profile_shown() -> ProfileShow {
     ProfileShow {
+        entry: String::new(),
         name: st("dev"),
         description: st("Dev"),
         parents: sv(&["base"]),
@@ -675,7 +733,61 @@ fn profile_shown() -> ProfileShow {
         path: st("/p/dev.yaml"),
         bundle: st("proj"),
         default: true,
+        select_tags: Vec::new(),
+        fragments: Vec::new(),
+        hooks: Default::default(),
+        deny_tools: Vec::new(),
     }
+}
+
+// step 10a U2 (owner ruling 2026-11-17): a profile's fragments, selecting
+// tags, denied tools and hooks print too, each hook on one line in YAML's
+// flow form under its document path, keys sorted
+#[test]
+fn test_a_profile_show_prints_its_fragments_selecting_tags_denied_tools_and_hooks() {
+    use library_application::{FragmentRef, Hook};
+    let mut hooks = library_application::ProfileHooks::default();
+    hooks.unified.insert(
+        st("pre_tool"),
+        vec![Hook {
+            event: st("pre_tool"),
+            name: st("0"),
+            kind: st("command"),
+            command: st("lint"),
+            args: sv(&["--fix"]),
+            timeout: 5,
+            ..Hook::default()
+        }],
+    );
+    hooks.ext.entry(st("claude-code")).or_default().insert(
+        st("Notification"),
+        vec![Hook {
+            command: st("ping"),
+            is_async: true,
+            order: Some(1),
+            ..Hook::default()
+        }],
+    );
+    let full = ProfileShow {
+        select_tags: sv(&["go"]),
+        fragments: vec![
+            FragmentRef {
+                name: st("plain"),
+                priority: 0,
+            },
+            FragmentRef {
+                name: st("demo#fragments/pri"),
+                priority: 3,
+            },
+        ],
+        hooks,
+        deny_tools: sv(&["Bash"]),
+        ..profile_shown()
+    };
+    assert_eq!(
+        shown(|out| profile_show(out, &full)),
+        "Profile: dev\nPath: /p/dev.yaml\nBundle: proj\nDefault: yes\nDescription: Dev\nParents:\n  - base\nBundles:\n  - demo\nFragments:\n  - plain\n  - demo#fragments/pri (priority 3)\nTags:\n  - t\nSelect tags:\n  - go\nVariables:\n  k: v\nExcluded fragments:\n  - f\nExcluded MCP servers:\n  - m\nDenied tools:\n  - Bash\nHooks:\n  unified.pre_tool:\n    - {args: [--fix], command: lint, timeout: 5, type: command}\n  ext.claude-code.Notification:\n    - {async: true, command: ping, order: 1}\n"
+    );
 }
 
 // profile_show.go: every section when it has entries.
@@ -718,7 +830,6 @@ fn test_an_agent_show_prints_no_posture() {
             context: String::new(),
             fragments: sv(&["a", "b"]),
             driving: String::new(),
-            session_home: String::new(),
             command: String::new(),
         }),
         resolution_error: String::new(),
@@ -734,7 +845,7 @@ fn test_an_agent_show_prints_no_posture() {
     };
     let text = shown(|out| agent_show(out, &show));
     assert!(text.contains(
-        "Resolved engine: claude-code\nComposed fragments: 2\nRequires:\n  - tree-sitter (mcp ts)\n"
+        "Resolved engine: claude-code\nSession home: session (default)\nComposed fragments: 2\nRequires:\n  - tree-sitter (mcp ts)\n"
     ));
     assert!(!text.contains("Headless posture"));
     assert!(!text.contains("Resolved permissions"));
@@ -825,6 +936,7 @@ fn hit(kind: &str, tags: &[&str], source: &str) -> library_application::SearchHi
         tags: sv(tags),
         source: st(source),
         r#match: st("name"),
+        located: None,
     }
 }
 
@@ -877,6 +989,7 @@ fn plan() -> DryRun {
         settings: None,
         settings_agent: st("dev"),
         surfaces: Default::default(),
+        untrusted: Vec::new(),
     }
 }
 
@@ -928,6 +1041,14 @@ fn test_a_dry_run_shows_each_setting_with_the_place_that_said_it() {
             overrides_source: Some("engine"),
             change: Some("weakens"),
         },
+        session_home: library_application::SourcedValue {
+            value: "session".to_string(),
+            source: "default",
+        },
+        approval_timeout: library_application::SourcedValue {
+            value: "5m".to_string(),
+            source: "default",
+        },
         env: EnvSetting {
             value: sv(&["HTTPS_PROXY", "ALPHA"]),
             source: "agent",
@@ -961,6 +1082,8 @@ fn test_a_dry_run_shows_each_setting_with_the_place_that_said_it() {
             "  permissions  {defaultMode: acceptEdits}  (default)\n",
             "               passed to claude-code verbatim; ctxloom does not check it\n",
             "  runtime      host  (agents.dev; replaces engines.claude-code container-rootless: weakens isolation)\n",
+            "  session_home  session  (default)\n",
+            "  approval_timeout  5m  (default)\n",
             "  env          HTTPS_PROXY  (engines.claude-code), ALPHA  (agents.dev)\n",
             "\n=== Profiles ===\n",
         )),
@@ -993,7 +1116,7 @@ fn test_a_dry_run_shows_each_setting_with_the_place_that_said_it() {
     });
     assert!(
         shown_plan.contains(
-            "  runtime      container-rootless  (runtime)\n  env          none  (default)\n"
+            "  runtime      container-rootless  (runtime)\n  session_home  session  (default)\n  approval_timeout  5m  (default)\n  env          none  (default)\n"
         ),
         "{shown_plan}"
     );
@@ -1025,6 +1148,14 @@ fn test_a_dry_run_of_the_default_agent_names_its_place_in_full() {
             overrides: None,
             overrides_source: None,
             change: None,
+        },
+        session_home: library_application::SourcedValue {
+            value: "session".to_string(),
+            source: "default",
+        },
+        approval_timeout: library_application::SourcedValue {
+            value: "5m".to_string(),
+            source: "default",
         },
         env: EnvSetting {
             value: Vec::new(),
@@ -1082,6 +1213,14 @@ fn test_a_permissions_document_is_shown_as_written_and_said_unchecked() {
             overrides: None,
             overrides_source: None,
             change: None,
+        },
+        session_home: library_application::SourcedValue {
+            value: "session".to_string(),
+            source: "default",
+        },
+        approval_timeout: library_application::SourcedValue {
+            value: "5m".to_string(),
+            source: "default",
         },
         env: EnvSetting {
             value: Vec::new(),
@@ -1242,6 +1381,14 @@ fn settings(model: Option<&str>) -> library_application::AgentSettings {
             overrides_source: None,
             change: None,
         },
+        session_home: library_application::SourcedValue {
+            value: "session".to_string(),
+            source: "default",
+        },
+        approval_timeout: library_application::SourcedValue {
+            value: "5m".to_string(),
+            source: "default",
+        },
         env: library_application::EnvSetting {
             value: Vec::new(),
             source: "default",
@@ -1258,11 +1405,81 @@ fn test_a_built_in_bundle_is_listed_under_its_origin() {
             origin: "ctxloom/builtin".to_string(),
             ..bundle("testing", 3, 0, 0)
         }],
-        no_root: false,
         hint: String::new(),
     };
     let mut out = Vec::new();
     bundle_list(&mut out, &list).unwrap();
     let text = String::from_utf8(out).unwrap();
     assert!(text.contains("  testing (v1.2.0) [built-in]\n"), "{text}");
+}
+
+// OD-41 (D16): the dry run's Settings name the engine block that said an
+// approval_timeout, as written.
+#[test]
+fn test_a_dry_runs_settings_name_the_engine_block_of_its_approval_timeout() {
+    let said = library_application::AgentSettings {
+        approval_timeout: library_application::SourcedValue {
+            value: st("now"),
+            source: "engine",
+        },
+        ..settings(None)
+    };
+    let shown_plan = shown(|out| {
+        dry_run(
+            out,
+            &DryRun {
+                settings: Some(said),
+                ..plan()
+            },
+        )
+    });
+    assert!(
+        shown_plan.contains("\n  approval_timeout  now  (engines.claude-code)\n"),
+        "{shown_plan}"
+    );
+}
+
+// Step 10a U2 (D10): `bundle list` from the daemon's message alone reads as
+// the view's text did: each bundle by its catalog name, the built-in one
+// marked, and an empty listing's hint a project's or none's.
+#[test]
+fn test_bundle_list_from_the_daemon_s_message() {
+    use daemon_proto::v1;
+    let listed = v1::ListBundlesResponse {
+        bundles: vec![
+            v1::Bundle {
+                name: "projects/p/bundles/ctxloom".to_string(),
+                origin: v1::bundle::Origin::Builtin as i32,
+                version: "1.0.0".to_string(),
+                command_count: 2,
+                ..v1::Bundle::default()
+            },
+            v1::Bundle {
+                name: "projects/p/remotes/acme/bundles/rules".to_string(),
+                origin: v1::bundle::Origin::Remote as i32,
+                fragment_count: 1,
+                tags: vec!["team".to_string()],
+                ..v1::Bundle::default()
+            },
+        ],
+        next_page_token: String::new(),
+    };
+    let mut out = Vec::new();
+    super::bundles(&mut out, &listed, true).unwrap();
+    let text = String::from_utf8(out).unwrap();
+    assert_eq!(
+        text,
+        "Installed bundles (2):\n\n  ctxloom (v1.0.0) [built-in]\n    Contains: 2 commands\n\n  acme/rules\n    Contains: 1 fragment\n    Tags: team\n\n"
+    );
+    for (in_project, hint) in [
+        (true, library_application::LISTING_HINT),
+        (false, library_application::NO_PROJECT_HINT),
+    ] {
+        let mut out = Vec::new();
+        super::bundles(&mut out, &v1::ListBundlesResponse::default(), in_project).unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            format!("No bundles installed.\n{hint}\n")
+        );
+    }
 }

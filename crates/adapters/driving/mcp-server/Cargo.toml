@@ -1,0 +1,40 @@
+[package]
+name = "mcp-server"
+version = "0.1.0"
+description = "ctxloom's own MCP server (`ctxloom mcp serve`, hidden): an engine's way to the daemon, over stdio, each tool a call of the daemon-api client use cases"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+angzarr-diagnostic.workspace = true
+clap.workspace = true
+daemon-api.workspace = true
+daemon-proto.workspace = true
+# The official Rust MCP SDK (ruling 150, OD/s3-Q1), pinned exactly, its
+# default features off: the server and the stdio transport alone (no macros,
+# no HTTP, no TLS) and elicitation (step 10c U11: a preview's needs are
+# put to the engine; it brings `url`, already in the lock).
+rmcp = { version = "=3.9.0", default-features = false, features = ["server", "transport-io", "elicitation"] }
+serde.workspace = true
+serde_json.workspace = true
+# `time`: the terminal wake's 60 s and the watch's re-open.
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "io-util", "time"] }
+
+[dev-dependencies]
+# A withdrawal's fact, decoded from the book the server sent.
+angzarr-embedded.workspace = true
+approvals-proto.workspace = true
+mutants.workspace = true
+prost.workspace = true
+prost-types.workspace = true
+# The terminal wake's 60 s, passed on tokio's paused clock (`test-util`).
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "io-util", "sync", "time", "test-util"] }
+
+[features]
+# `diagnostic_samples`, for other crates' catalog tests.
+test-support = []
+
+[lints]
+workspace = true

@@ -1,7 +1,9 @@
-//! The sessions domain. A session is one aggregate: its stream's root is a
-//! stable id minted at creation, and the harp is only its name (plan 3.1,
-//! D5 Q1). The name is kept unique by a claim stream of its own, domain
-//! `session-names`, one per (project, harp text).
+//! The sessions domain. A session is one aggregate: its stream's root is the
+//! UUIDv5 of its resource name, `projects/{project}/sessions/{session}`
+//! ([`SessionName`], owner 2026-11-12, slice 2 B3/re-root), both harps
+//! minted once and never changed. The name is kept unique by a claim stream
+//! of its own at the same root, domain `session-names` (a destroyed
+//! session's name stays claimed).
 //!
 //! The domain types, their wire conversions, their `DomainMessage` impls and
 //! the [`SessionCommand`] and [`SessionEvent`] payloads are generated from
@@ -22,12 +24,16 @@ mod generated {
     include!(concat!(env!("OUT_DIR"), "/ctxloom.sessions.v1.domain.rs"));
 }
 mod aggregate;
+mod daemon;
 mod harp;
 mod lifeline;
+mod name;
 mod names;
+mod projects;
 mod refusal;
 mod rejection;
 mod state;
+mod wake;
 
 use angzarr_embedded::Timestamp;
 
@@ -39,16 +45,33 @@ pub type SessionEvent = SessionStateEvent;
 pub type NameClaimCommand = NameClaimStateCommand;
 /// The name-claim aggregate's events, one variant per event type.
 pub type NameClaimEvent = NameClaimStateEvent;
+/// The project aggregate's commands (S54).
+pub type ProjectCommand = ProjectStateCommand;
+/// The project aggregate's events (S54).
+pub type ProjectEvent = ProjectStateEvent;
+/// The project harp claim's commands (S54).
+pub type ProjectNameCommand = ProjectNameStateCommand;
+/// The project harp claim's events (S54).
+pub type ProjectNameEvent = ProjectNameStateEvent;
 
 pub use aggregate::SessionAggregate;
+pub use daemon::{command_id, keyed_book, urgency_word};
 pub use generated::*;
-pub use harp::validate;
-pub use names::{claim_root, project_namespace, NameClaimAggregate};
+pub use harp::{validate, validate_session_name, RESERVED_PREFIX, RESERVED_REASON};
+pub use lifeline::{DRAINED, REHOSTED, REHOST_BUDGET};
+pub use name::{project_id_root, root_of, ProjectName, SessionName, NAMESPACE};
+pub use names::NameClaimAggregate;
+pub use projects::{
+    fold_project, removal_refused, ProjectAggregate, ProjectNameAggregate, REMOVAL_STEPS,
+};
 pub use refusal::NotOurs;
 #[cfg(any(test, feature = "test-support"))]
 pub use rejection::diagnostic_samples;
 pub use rejection::{SessionRejection, EN_US};
-pub use state::{NameClaimState, SessionState, NAMES_DOMAIN, SESSION_DOMAIN};
+pub use state::{
+    Child, NameClaimState, OpenRemoval, ProjectNameState, ProjectState, SessionState, NAMES_DOMAIN,
+    PROJECTS_DOMAIN, PROJECT_NAMES_DOMAIN, SESSION_DOMAIN,
+};
 
 /// Fold `event`, recorded at `recorded_at` (its page's
 /// `EventMeta.recorded_at`), into `state`: what the aggregate's appliers do,
@@ -67,6 +90,7 @@ pub fn apply(state: &mut SessionState, event: &SessionEvent, recorded_at: Timest
             state.origin = Some(minted.origin);
             state.started_at = minted.started_at.unwrap_or(recorded_at);
             state.depth = minted.depth;
+            state.owner = minted.owner.clone();
             state.workspace = minted.workspace.clone();
         }
         SessionEvent::EngineSessionBound(bound) => {
@@ -111,16 +135,37 @@ pub fn apply(state: &mut SessionState, event: &SessionEvent, recorded_at: Timest
         | SessionEvent::ToolCalled(_)
         | SessionEvent::TurnEnded(_)
         | SessionEvent::SessionEnded(_)
-        | SessionEvent::Compacted(_) => {}
+        | SessionEvent::Compacted(_)
+        | SessionEvent::ConversationCleared(_)
+        | SessionEvent::CaptureGapped(_)
+        | SessionEvent::ContextRedelivered(_)
+        | SessionEvent::ContextOwed(_)
+        | SessionEvent::LoadoutRecorded(_) => {}
         // A run's end is when the session's last run ended (the proto's
         // RecordEnd: IncarnationEnded supersedes it), at its page's instant.
         SessionEvent::IncarnationEnded(_) => {
             state.ended_at = Some(recorded_at);
             lifeline::apply(state, event);
         }
-        SessionEvent::IncarnationOwed(_) | SessionEvent::StopOrdered(_) => {
-            lifeline::apply(state, event)
-        }
+        SessionEvent::IncarnationOwed(_) => lifeline::apply(state, event),
+        // Retired (owner 2026-11-15: no stop latch): it folds to nothing.
+        SessionEvent::StopOrdered(_) => {}
+        // A clear is the read side's (the clear policy): no state of the
+        // session.
+        SessionEvent::ClearRequested(_) => {}
+        // The terminal wake's journal, and the messages still pending, so a
+        // delivery records each once (the lean hook RPC).
+        SessionEvent::WakeIssued(_)
+        | SessionEvent::WakeDisarmed(_)
+        | SessionEvent::WakeRedeemed(_)
+        | SessionEvent::MessageSent(_)
+        | SessionEvent::MessagesDelivered(_) => wake::apply(state, event),
+        SessionEvent::SessionClosed(_)
+        | SessionEvent::SessionReopened(_)
+        | SessionEvent::ChildLaunched(_)
+        | SessionEvent::ChildLaunchFailed(_)
+        | SessionEvent::ChildEnded(_)
+        | SessionEvent::ChildForgotten(_) => daemon::apply(state, event),
     }
 }
 
@@ -164,6 +209,7 @@ fn session_minted(
         origin: mint.origin,
         started_at: mint.started_at,
         depth: mint.depth,
+        owner: mint.owner.clone(),
         workspace: mint.workspace.clone(),
     })
 }
@@ -281,6 +327,71 @@ pub(crate) fn live(state: &SessionState) -> Result<&SessionState, SessionRejecti
         return Err(SessionRejection::NoSession);
     }
     Ok(state)
+}
+
+/// The external id of a session's loadout for its incarnation
+/// `incarnation` (step 10c U13): `loadout:<session>:<incarnation>`.
+pub fn loadout_key(session: &str, incarnation: u32) -> String {
+    format!("loadout:{session}:{incarnation}")
+}
+
+/// The external id of a context redelivered to `session` covering the tree
+/// positions `cause` names (step 10c U13 rework, [`positions_text`]):
+/// `reinject:<session>:<H(positions)>`, H the UUIDv5 of the text, so a
+/// batch handed again is a DUPLICATE.
+pub fn redelivery_key(session: &str, cause: &str) -> String {
+    let hashed = uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_URL, cause.as_bytes());
+    format!("reinject:{session}:{hashed}")
+}
+
+/// Tree positions as one text, each `<tree>@<sequence>`, sorted by tree,
+/// joined by `,` (step 10c U13 rework): what a redelivery's key hashes and
+/// its record names as its cause.
+pub fn positions_text(positions: &[TreePosition]) -> String {
+    let mut named: Vec<String> = positions
+        .iter()
+        .map(|position| format!("{}@{}", position.tree, position.sequence))
+        .collect();
+    named.sort();
+    named.join(",")
+}
+
+/// The external id of a change owed to `session` (step 10c U13 rework):
+/// `owed:<session>:<tree>@<sequence>`, so the projector's book handed again
+/// records it once.
+pub fn owed_key(session: &str, tree: &str, sequence: u64) -> String {
+    format!("owed:{session}:{tree}@{sequence}")
+}
+
+/// The external id of a change owed to `session` found when its loadout
+/// was handled (step 10c U13 rework): `owed-at-load:<session>:<tree>@<seq>`.
+pub fn owed_at_load_key(session: &str, tree: &str, sequence: u64) -> String {
+    format!("owed-at-load:{session}:{tree}@{sequence}")
+}
+
+/// The book that records `fact` on the session stream `cover` names, keyed
+/// by `external_id`, so a repeat is answered DUPLICATE.
+pub fn fact_book(
+    cover: angzarr_embedded::v1::Cover,
+    fact: &impl angzarr_embedded::markup::DomainMessage,
+    external_id: &str,
+) -> angzarr_embedded::v1::CommandBook {
+    use angzarr_embedded::v1::{command_page, CommandBook, CommandPage, Fact, FactOrigin};
+    CommandBook {
+        cover: Some(cover),
+        page: Some(CommandPage {
+            body: Some(command_page::Body::Fact(Fact {
+                payload: Some(
+                    angzarr_embedded::Any::from_msg(&fact.to_wire()).expect("a fact encodes"),
+                ),
+                origin: Some(FactOrigin {
+                    external_id: external_id.to_string(),
+                    description: String::new(),
+                }),
+            })),
+            ..CommandPage::default()
+        }),
+    }
 }
 
 /// The book that records `bind` on the session stream `cover` names: a Fact

@@ -146,6 +146,14 @@ fn fold(held: &mut (Option<Stream>, Armed), event: SchedulerEvent, correlation: 
     }
 }
 
+/// What holds a due model a loop reads: the model alone ([`DueModel`]), or
+/// an application's handle on one it shares with its kernel, which folds
+/// each commit inline beside the loop's own catch-up (each page once).
+pub trait ReadsDue {
+    /// `read` given the model as it stands.
+    fn read_due<R>(&self, read: impl FnOnce(&Due) -> R) -> R;
+}
+
 /// The due model on angzarr-embedded's projector port.
 #[derive(Default)]
 pub struct DueModel(Mutex<Due>);
@@ -154,6 +162,12 @@ impl DueModel {
     /// The model, locked.
     pub fn due(&self) -> MutexGuard<'_, Due> {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+impl ReadsDue for DueModel {
+    fn read_due<R>(&self, read: impl FnOnce(&Due) -> R) -> R {
+        read(&self.due())
     }
 }
 

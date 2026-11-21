@@ -143,6 +143,14 @@ pub(crate) struct Walk<'a> {
     /// The repositories fetched this walk, and whether they could be.
     pub fetched: BTreeMap<String, Result<(), String>>,
     bundles: BTreeMap<(String, String, String), Option<Bundle>>,
+    /// Why each reference that could not be resolved, and that the lock has
+    /// no pin for, could not be: the repository's fetch failure when it had
+    /// one, else the resolution's; by identity.
+    causes: BTreeMap<String, String>,
+    /// A profile's own bundle references among them, by identity, with
+    /// their cause: pins that cannot be had (a parent's bundle out of reach
+    /// is an unexpanded part, kept, not one of these).
+    pub unresolved: BTreeMap<String, String>,
     pub notices: Vec<Notice>,
 }
 
@@ -167,6 +175,8 @@ impl<'a> Walk<'a> {
             resolved: BTreeMap::new(),
             fetched: BTreeMap::new(),
             bundles: BTreeMap::new(),
+            causes: BTreeMap::new(),
+            unresolved: BTreeMap::new(),
             notices: Vec::new(),
         }
     }
@@ -215,7 +225,7 @@ impl<'a> Walk<'a> {
             }
         }
         for bundle in &profile.bundles {
-            self.record(bundle);
+            self.record(bundle, true);
         }
         for parent in &profile.parents {
             self.recurse_parent(parent);
@@ -224,8 +234,9 @@ impl<'a> Walk<'a> {
 
     /// A reference to a bundle: noted in the closure with the commit it
     /// resolves to. None for a local or companion bundle, for a repository no
-    /// remote is registered for, and for one that cannot be resolved.
-    fn record(&mut self, reference: &str) -> Option<(RemoteRef, Resolved)> {
+    /// remote is registered for, and for one that cannot be resolved: a
+    /// profile's `own` reference among those is a pin that cannot be had.
+    fn record(&mut self, reference: &str, own: bool) -> Option<(RemoteRef, Resolved)> {
         let expanded = self.expand(reference);
         let remote = RemoteRef::parse(&expanded)?;
         if self.registry.lookup_url(&remote.url).is_none() {
@@ -239,6 +250,9 @@ impl<'a> Walk<'a> {
             // Unresolvable: skipped rather than pinned at an empty commit, but
             // its subtree is missing, so the closure is incomplete.
             self.closure.mark_unexpanded(reference);
+            if let Some(why) = self.causes.get(&remote.identity).filter(|_| own) {
+                self.unresolved.insert(remote.identity.clone(), why.clone());
+            }
             return None;
         };
         self.closure.record(Pin {
@@ -343,6 +357,11 @@ impl<'a> Walk<'a> {
                         "could not resolve {}@{}; skipping: {cause}",
                         remote.identity, remote.constraint
                     )));
+                    let why = match self.fetched.get(&remote.url) {
+                        Some(Err(fetch)) => fetch.clone(),
+                        _ => cause.to_string(),
+                    };
+                    self.causes.insert(remote.identity.clone(), why);
                 }
                 locked
             }
@@ -364,7 +383,7 @@ impl<'a> Walk<'a> {
             )));
             return;
         };
-        let Some((rec, resolved)) = self.record(&remote.bundle_ref()) else {
+        let Some((rec, resolved)) = self.record(&remote.bundle_ref(), false) else {
             return;
         };
         let guard = format!("{}#profiles/{name}@{}", rec.identity, resolved.hash);

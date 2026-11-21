@@ -7,8 +7,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use ctxloom_ports::{Change, ContentRepo, Failure, TreeFiles};
 use deps_ports::{
-    BundleSlot, CopyOutcome, DepsFiles, Endpoint, Forge, ForgeRepo, Opened, PullRequest, Remotes,
-    RepoTree, Repository, Why,
+    BundleSlot, DepsFiles, Endpoint, Forge, ForgeRepo, Opened, PullRequest, Remotes, RepoTree,
+    Repository, Why,
 };
 
 use crate::Deps;
@@ -280,6 +280,23 @@ impl Remotes for FakeRemotes {
                 })
                 .collect();
             Ok((!tree.is_empty()).then_some(tree))
+        })
+    }
+
+    /// A stand-in for git's id (no fake computes one): the commit and the
+    /// bundle's path, where that commit has the bundle.
+    fn bundle_tree(&self, repo: &Repository, sha: &str, bundle: &str) -> Result<String, Why> {
+        let url = repo.url.as_str();
+        self.cloned(url, |repo| {
+            let commit = repo
+                .tree_at(sha)
+                .ok_or_else(|| format!("bad object {sha}"))?;
+            let prefix = format!("{BUNDLES}/{bundle}/");
+            if commit.files.keys().any(|path| path.starts_with(&prefix)) {
+                Ok(format!("tree:{sha}:{bundle}"))
+            } else {
+                Err(format!("no tree {prefix} at {sha}"))
+            }
         })
     }
 
@@ -563,25 +580,6 @@ impl DepsFiles for FakeFiles {
         let state = self.state();
         state.directories.contains(path) || state.placed.contains_key(path)
     }
-
-    fn copy_bundle(
-        &self,
-        dir: &str,
-        name: &str,
-        files: &BTreeMap<String, Vec<u8>>,
-        force: bool,
-    ) -> Result<CopyOutcome, Why> {
-        let dest = format!("{dir}/.ctxloom/content/bundles/v2/{name}");
-        let mut state = self.state();
-        if dir == "." {
-            return Ok(CopyOutcome::Itself(dest));
-        }
-        if state.placed.contains_key(&dest) && !force {
-            return Ok(CopyOutcome::Exists(dest));
-        }
-        state.placed.insert(dest.clone(), files.clone());
-        Ok(CopyOutcome::Copied(dest))
-    }
 }
 
 /// The project's authored bundles, for the closure's roots.
@@ -630,6 +628,19 @@ impl ContentRepo for FakeContent {
 
     fn manifest_path(&self, name: &str) -> String {
         format!("/p/.ctxloom/content/bundles/v2/{name}/bundle.yaml")
+    }
+
+    fn bundle_dir_in(&self, app_dir: &str, name: &str) -> String {
+        format!("{app_dir}/content/bundles/v2/{name}")
+    }
+
+    fn move_into(&self, name: &str, _app_dir: &str) -> Result<bool, Failure> {
+        Ok(self
+            .bundles
+            .lock()
+            .expect("the bundles")
+            .remove(name)
+            .is_some())
     }
 
     fn apply(&self, name: &str, changes: &[Change]) -> Result<(), Failure> {

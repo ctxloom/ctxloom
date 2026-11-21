@@ -1,0 +1,51 @@
+[package]
+name = "library-api"
+version = "0.1.0"
+description = "The library's reads in the daemon (step 10a U2): each read observes its tree through git first (the reconcile), records what changed as one fact of the library domain, refuses a tree outside git or one git ignores, and says what a read must"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+angzarr-diagnostic.workspace = true
+angzarr-embedded.workspace = true
+# What git sees of a tree (U12's port).
+ctxloom-ports.workspace = true
+# The API's messages a read answers with.
+daemon-proto.workspace = true
+# The library's use cases a read is answered by (U2).
+library-application.workspace = true
+# The remotes' and the lock's use cases the deps reads are answered by (U2).
+deps-application.workspace = true
+serde_json.workspace = true
+# A notice the daemon said, rebuilt from its code and flattened args.
+run-application.workspace = true
+# The library domain: its fact, its names, its fold and its refusals.
+library-tree.workspace = true
+# A trash slot's purge is one command, its id derived from the slot (G12).
+uuid.workspace = true
+# The trees as last observed, what a read reconciles against.
+library-checkout.workspace = true
+# The edge an observation is recorded through.
+run-ports.workspace = true
+sessions.workspace = true
+
+[dev-dependencies]
+deps-application = { workspace = true, features = ["test-support"] }
+deps-ports.workspace = true
+library-application = { workspace = true, features = ["test-support"] }
+angzarr-embedded = { workspace = true, features = ["test-support"] }
+library-domain-proto.workspace = true
+library-tree = { workspace = true, features = ["test-support"] }
+mutants.workspace = true
+prost.workspace = true
+run-ports = { workspace = true, features = ["test-support"] }
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[features]
+# `diagnostic_samples`, for other crates' catalog tests.
+test-support = []
+
+[lints]
+workspace = true

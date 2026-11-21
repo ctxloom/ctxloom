@@ -484,6 +484,22 @@ fn scaffold() -> (Arc<Rooted>, ScaffoldFs) {
     (fs, scaffold)
 }
 
+// Step 10c U5: a scaffold file is read back as it is, and one not there is
+// none, never an error.
+#[test]
+fn test_a_scaffold_file_reads_back_and_one_not_there_is_none() {
+    let (_fs, scaffold) = scaffold();
+    assert_eq!(scaffold.read(".gitignore").unwrap(), None);
+    scaffold
+        .write(&[Put::file(".gitignore", "/cache\n")])
+        .unwrap();
+    assert_eq!(
+        scaffold.read(".gitignore").unwrap().as_deref(),
+        Some(&b"/cache\n"[..])
+    );
+    assert!(scaffold.read("../escape").is_err());
+}
+
 // cli/init.go resolveAppDir(false): under the working directory
 #[test]
 fn test_a_new_project_is_made_under_the_working_directory() {
@@ -706,4 +722,16 @@ fn test_the_project_layer_is_named_only_when_it_is_a_file_apart_from_the_homes()
         ignored_root: None,
     };
     assert_eq!(files_of(fs, same).project_layer_path(), None);
+}
+
+// Step 10c U6: the scaffold is new while its `.ctxloom` is not there; once
+// anything is written there it is not.
+#[test]
+fn test_a_scaffold_is_new_until_its_directory_is_there() {
+    let (_fs, scaffold) = scaffold();
+    assert!(scaffold.is_new().unwrap());
+    scaffold
+        .write(&[Put::file("config.yaml", "schema_version: 9\n")])
+        .unwrap();
+    assert!(!scaffold.is_new().unwrap());
 }

@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+// The discovery file (T3, T12, slice 2): what the user's daemon writes, once
+// it serves, so that a client can find it, pin it and present the user
+// bearer. It is `~/.ctxloom/daemon/daemon.discovery` under ctxloom's home
+// (`CTXLOOM_HOME` first, then `HOME`), a 0600 file in the 0700 daemon
+// directory (on Windows no mode is set: the profile directory's inherited
+// ACL, M8), written atomically (a temporary file renamed over it), holding
+// one `Discovery` in protobuf's binary encoding (owner, S5). `daemon-proto`
+// compiles it; `run_ports::Discovery` is its codec.
+//
+// What the file keeps out is other USERS: on the host there is one
+// principal, the user, and every process of hers can read this file (the
+// separation model, slice 2).
+package ctxloom.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// The serving daemon, as its file says it.
+message Discovery {
+  // The file's own format; this is 1. A reader that finds another refuses
+  // the file as unreadable and treats the daemon as absent.
+  uint32 format = 1;
+
+  // The daemon's process id, for `daemon status` and the log, never a
+  // liveness proof (rulings 85, 86): a daemon is live when it answers the
+  // health check (T16, M11), whatever this says.
+  uint32 pid = 2;
+
+  // `https://127.0.0.1:<port>`: TLS only, never port 0 (run-ports'
+  // `endpoint` builder and parser, as for the per-run listener before it).
+  string endpoint = 3;
+
+  // The daemon's PUBLIC certificate, DER. Every client pins it as its sole
+  // trust root (no system roots, no fallback to plaintext), so a process of
+  // another user that binds a stale port first cannot present it. Minted at
+  // each start (D-N24: a month's window), its key in the daemon's memory
+  // alone.
+  bytes certificate = 4;
+
+  // The USER bearer (T12): 256 bits, 64 lowercase hex, minted at each start.
+  // Every call to the daemon presents it as `authorization: Bearer <this>`,
+  // a CLI command's and a hook's alike: it is the daemon's one principal. It
+  // proves a caller can read the user's files, nothing more. The daemon
+  // keeps only its SHA-256 in memory and compares in constant time; nothing
+  // but this file holds the token, and it is never logged, journaled, put in
+  // an error or rendered by a Debug.
+  string bearer = 5;
+
+  // When this daemon started serving (for `daemon status`). Not written yet.
+  google.protobuf.Timestamp started_at = 6;
+
+  // The build that serves: its FULL versionator stamp (M3), the binary's own
+  // (`ctxloom version`), never the package version. A client whose stamp
+  // differs treats the daemon as another build (M3's skew rule).
+  string stamp = 7;
+
+  // The ctxloom home the daemon serves (`CTXLOOM_HOME` as it resolved it,
+  // else the account's home): there is ONE daemon per OS account, so a
+  // client whose ctxloom home is another is refused, naming both, and never
+  // served by a second daemon. A file naming none is unreadable.
+  string home = 8;
+}

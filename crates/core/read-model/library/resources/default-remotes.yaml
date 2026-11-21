@@ -3,7 +3,8 @@
 # `remotes:` (`ctxloom remote create <name> <url>` adds one).
 #
 # Registering a remote is the trust act: its content reaches the assistant
-# because the project added it. ctxloom's default content is built in and
-# needs no remote.
+# because the project added it. ctxloom builds in no guidance for the
+# assistant: until a remote is added, or the project writes bundles of its
+# own, the assistant is given none.
 
 schema_version: 1

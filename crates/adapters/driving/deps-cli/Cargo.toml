@@ -12,11 +12,17 @@ angzarr-diagnostic.workspace = true
 angzarr-presentation.workspace = true
 cli-support.workspace = true
 clap.workspace = true
+# The API messages the json answers print (OD-40, B4), their generated JSON.
+daemon-proto.workspace = true
 deps-application.workspace = true
+# The deps reads' messages and the notices a read said (step 10a U2).
+library-api.workspace = true
 serde.workspace = true
 
 [dev-dependencies]
 angzarr-yaml.workspace = true
+# A served write's notices as the daemon flattens them (step 10c U4).
+run-application.workspace = true
 deps-ports.workspace = true
 serde_json.workspace = true
 mutants.workspace = true

@@ -221,6 +221,10 @@ impl Remotes for GitRemotes {
         read::bundle(&self.git, &self.cloned(repo)?, sha, bundle)
     }
 
+    fn bundle_tree(&self, repo: &Repository, sha: &str, bundle: &str) -> Result<String, Why> {
+        read::bundle_tree(&self.git, &self.cloned(repo)?, sha, bundle)
+    }
+
     fn list_bundles(&self, repo: &Repository) -> Result<Vec<String>, Why> {
         read::bundles(&self.git, &self.cloned(repo)?)
     }

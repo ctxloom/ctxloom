@@ -1,6 +1,7 @@
 # Ported from probes/capability_context_approaches.feature (rev f36e8dfb2)
-# NOT ported: any of it yet (the Feature is @pending).
+# NOT ported: any of it yet (the Feature is @pending, its reason below).
 
+# Pending (OD-48, live-only): it needs a real engine or model, and there is no Rust live lane yet.
 @live @probe-p1-approach-sweep
 @pending
 Feature: Context-approach sweep — the same task, delivered by each mechanism the engine declares

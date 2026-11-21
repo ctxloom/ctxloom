@@ -1,7 +1,7 @@
 [package]
 name = "hook-listener"
 version = "0.1.0"
-description = "The run's hook listener: the standard Handle of the angzarr coordinator on TCP, behind ctxloom's admission gate, while an interactive run is live"
+description = "The user daemon's hook listener: the standard Handle of the angzarr coordinator on TCP, behind ctxloom's admission gate"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -16,7 +16,7 @@ angzarr-proto-transport-distributed.workspace = true
 runs-application.workspace = true
 tokio = { workspace = true, features = ["time"] }
 # The server's identity and TLS config; `tls-ring` is the one provider.
-tonic = { version = "0.14", default-features = false, features = ["server", "tls-ring"] }
+tonic = { version = "0.14", default-features = false, features = ["codegen", "server", "tls-ring"] }
 
 [dev-dependencies]
 angzarr-embedded = { workspace = true, features = ["test-support"] }

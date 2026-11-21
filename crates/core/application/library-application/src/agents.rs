@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use angzarr_diagnostic::Diagnostic;
 use library::config::engines::{self, AuthError, Effective, EngineError};
 use library::model::McpServer;
+use library::premise::Surface;
 use library::profile::ResolvedProfile;
 
 use crate::config::{mcp_row, Agent};
@@ -80,19 +81,24 @@ pub(crate) struct Served {
 }
 
 impl Project {
-    /// The registered companions, each with whether its program exists. Only
-    /// that is checked: a companion is never run to list it.
+    /// The registered companions, each with its program, whether that is on
+    /// the `PATH` of the probe site (D1), and its state. Only that is
+    /// checked: a companion is never run to list it.
     fn companion_list(&self) -> Vec<CompanionRow> {
         self.config
             .companions()
             .into_iter()
-            .map(|companion| CompanionRow {
-                exists: companion
-                    .command
-                    .first()
-                    .is_some_and(|program| self.binaries.find(program).is_some()),
-                name: companion.name,
-                command: companion.command,
+            .map(|companion| {
+                let program = companion.program();
+                CompanionRow {
+                    exists: self
+                        .companions
+                        .as_ref()
+                        .is_some_and(|probe| probe.find(&program, &self.probe_site).is_some()),
+                    program,
+                    name: companion.name,
+                    state: companion.state,
+                }
             })
             .collect()
     }
@@ -267,7 +273,7 @@ impl Project {
             agent.profiles.clone()
         };
         let set = self.resolve_profiles(&names, &mut findings)?;
-        let assembled = self.assemble_set(&set, &[], &[], &mut findings);
+        let assembled = self.assemble_set(&set, &[], &[], Some(Surface::AtRest), &mut findings);
         let effective = self.effective_of(agent)?;
         let resolved = ResolvedAgent {
             name: agent.name.clone(),
@@ -277,7 +283,6 @@ impl Project {
             context: assembled.context.clone(),
             fragments: assembled.loaded.clone(),
             driving: agent.driving.clone(),
-            session_home: effective.session_home.value.clone(),
             command: effective.command.value.clone(),
         };
         let (requirements, requirements_error) = self.requirements(&set);

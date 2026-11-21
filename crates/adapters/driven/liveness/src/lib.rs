@@ -2,8 +2,9 @@
 //! (release/0.7).
 //!
 //! The signal is an EXCLUSIVE FILE LOCK that the session-owning process holds
-//! on `<project>/.ctxloom/sessions/<harp>.lock` for as long as it runs, BESIDE the
-//! session directory and never inside it. A probe tries the lock:
+//! on `<project>/.ctxloom/sessions/<harp>/session.lock` for as long as it runs,
+//! INSIDE the session directory (`session_ports::lock_path`, step 10 U9: the
+//! two move as one). A probe tries the lock:
 //!
 //! - it acquires it: the owner is DEAD, the kernel having released the lock
 //!   however the owner ended (a kill, a crash, power loss): [`LockState::Free`];
@@ -19,6 +20,10 @@
 //! lock, `<home>/.ctxloom/runs/<run>.lock` ([`RunLockFiles`], rulings 86, 92,
 //! 93), is held by its enqueuer until its runner is started; its file is
 //! removed when it is let go, so it is a dead holder's alone that reads free.
+
+mod frontends;
+
+pub use frontends::{FrontendHeld, FrontendLocks, FrontendNotice};
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -43,12 +48,11 @@ impl LockFiles {
         }
     }
 
-    /// Where `harp`'s lock is: `<project>/.ctxloom/sessions/<harp>.lock`.
+    /// Where `harp`'s lock is: inside its directory,
+    /// `<project>/.ctxloom/sessions/<harp>/session.lock`
+    /// ([`session_ports::lock_path`]).
     pub fn path(&self, harp: &str) -> PathBuf {
-        self.project
-            .join(".ctxloom")
-            .join("sessions")
-            .join(format!("{harp}.lock"))
+        session_ports::lock_path(&self.project.join(".ctxloom").join("sessions").join(harp))
     }
 }
 

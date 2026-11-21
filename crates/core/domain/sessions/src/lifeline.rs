@@ -1,5 +1,6 @@
 //! The session's run lifeline (plan 3.1): the incarnation it owes, whether one
-//! is open, and the stop flag.
+//! is open. There is no stop flag (owner 2026-11-15): `StopOrdered`, retired,
+//! folds to nothing.
 //!
 //! What drives it (owner ruling 85): a mint owes the first incarnation, and
 //! the run application tells the session when that run ends, however it ends
@@ -13,8 +14,8 @@
 use angzarr_embedded::markup::{pack_message, Bug, FactEmit};
 
 use crate::{
-    live, IncarnationEnded, IncarnationOwed, RecordIncarnationEnded, ResumeSession,
-    SessionAggregate, SessionEvent, SessionRejection, SessionState, StopOrdered, StopSession,
+    live, IncarnationEnded, IncarnationOwed, RecordIncarnationEnded, RehostSession, ResumeSession,
+    SessionAggregate, SessionEvent, SessionRejection, SessionReopened, SessionState,
 };
 
 /// The incarnation a mint owes: the first (owner ruling 2026-11-04, S5
@@ -30,14 +31,16 @@ pub(crate) fn first_owed() -> IncarnationOwed {
 pub(crate) const RESUMED: &str = "resume";
 
 /// What a resume records (owner ruling 115): the session's next incarnation
-/// owed. Refused for a stream holding no session (a destroyed one: the
+/// owed, after its reopen when it was closed (owner 2026-11-15: an explicit
+/// resume reopens a closed session; a close is ctxloom's control of its
+/// sessions, not the engine's conversation). Refused for a stream holding no session (a destroyed one: the
 /// caller asks only for a claimed name), while an incarnation is open, before
 /// the engine bound a native session, for another engine, and for another
 /// workspace axis than the one it was minted on (none recorded: `none`).
 pub(crate) fn resumed(
     held: &SessionState,
     resume: &ResumeSession,
-) -> Result<IncarnationOwed, SessionRejection> {
+) -> Result<(Option<SessionReopened>, IncarnationOwed), SessionRejection> {
     let harp = || resume.harp.clone();
     if live(held).is_err() {
         return Err(SessionRejection::SessionDestroyed { harp: harp() });
@@ -64,27 +67,64 @@ pub(crate) fn resumed(
     if held.native_id.is_empty() {
         return Err(SessionRejection::NoNativeSession { harp: harp() });
     }
-    Ok(IncarnationOwed {
-        incarnation: held.incarnation + 1,
-        reason: RESUMED.to_string(),
-    })
+    let reopened = held.closed.then(|| SessionReopened {
+        cause: RESUMED.to_string(),
+    });
+    Ok((
+        reopened,
+        IncarnationOwed {
+            incarnation: held.incarnation + 1,
+            reason: RESUMED.to_string(),
+        },
+    ))
 }
 
-/// What a stop order records: refused from a child (Go's I2); a second order
-/// records nothing.
-pub(crate) fn stop_ordered(
+/// Why an incarnation a re-host owes is owed, after its host was lost: the
+/// one reason the re-host budget counts.
+pub const REHOSTED: &str = "rehost";
+
+/// Why an incarnation a draining daemon's hand-over owes is owed (s4-Q5):
+/// never counted, never refused for the budget.
+pub const DRAINED: &str = "drain";
+
+/// How many re-hosts a child may have in the hour before a loss (S47).
+pub const REHOST_BUDGET: u32 = 60;
+
+/// What a re-host records (T19, s4-Q9): the child's next incarnation owed,
+/// for the cause it gives (`rehost`, the default, or `drain`). Refused for a
+/// stream holding no session, a closed one, one whose incarnation is open,
+/// one whose engine bound no native session, and, for a `rehost`, one with
+/// [`REHOST_BUDGET`] or more re-hosts in its recent hour.
+pub(crate) fn rehosted(
     held: &SessionState,
-    stop: &StopSession,
-) -> Result<Option<StopOrdered>, SessionRejection> {
+    rehost: &RehostSession,
+) -> Result<IncarnationOwed, SessionRejection> {
     let held = live(held)?;
-    if stop.requester_depth > 0 {
-        return Err(SessionRejection::ChildCannotStop {
-            depth: u64::from(stop.requester_depth),
+    let harp = || held.harp.clone();
+    if held.closed {
+        return Err(SessionRejection::SessionClosed { harp: harp() });
+    }
+    if held.open_incarnation.is_some() {
+        return Err(SessionRejection::SessionRunning { harp: harp() });
+    }
+    if held.native_id.is_empty() {
+        return Err(SessionRejection::NoNativeSession { harp: harp() });
+    }
+    let cause = match rehost.cause.as_str() {
+        "" => REHOSTED,
+        cause => cause,
+    };
+    if cause != DRAINED && rehost.recent_rehosts >= REHOST_BUDGET {
+        return Err(SessionRejection::RehostBudgetSpent {
+            harp: harp(),
+            limit: REHOST_BUDGET,
+            recent: rehost.recent_rehosts,
         });
     }
-    Ok((!held.stopped).then(|| StopOrdered {
-        reason: stop.reason.clone(),
-    }))
+    Ok(IncarnationOwed {
+        incarnation: held.incarnation + 1,
+        reason: cause.to_string(),
+    })
 }
 
 /// Go's idle reaper's terminal (`CauseIdleReaped`): an expected end that
@@ -109,7 +149,7 @@ pub(crate) fn ended(
     })]))
 }
 
-/// Fold a lifeline event: the incarnation owed, its end, and the stop flag.
+/// Fold a lifeline event: the incarnation owed, and its end.
 pub(crate) fn apply(state: &mut SessionState, event: &SessionEvent) {
     match event {
         SessionEvent::IncarnationOwed(owed) => {
@@ -117,7 +157,6 @@ pub(crate) fn apply(state: &mut SessionState, event: &SessionEvent) {
             state.open_incarnation = Some(owed.incarnation);
         }
         SessionEvent::IncarnationEnded(_) => state.open_incarnation = None,
-        SessionEvent::StopOrdered(_) => state.stopped = true,
         _ => {}
     }
 }

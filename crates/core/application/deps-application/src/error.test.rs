@@ -141,8 +141,6 @@ fn test_an_error_is_failed_or_declined_by_its_kind() {
             to: s(),
             known: s(),
         },
-        AppError::DestinationExists { dest: s() },
-        AppError::DestinationItself { dest: s() },
         AppError::PullRequestNeedsForge {
             remote: s(),
             forge: s(),

@@ -57,3 +57,20 @@ fn a_century_year_that_is_not_a_leap_year_has_no_february_29() {
     assert_eq!(rfc3339(7_289_611_200), "2200-12-31T12:00:00Z");
     assert_eq!(rfc3339(13_574_563_200), "2400-02-29T00:00:00Z");
 }
+
+// The bytes of a line do not hang on serde_json's map: under its
+// `preserve_order` (agent-client-protocol turns it on across the build) the
+// keys still come sorted, as they always have.
+#[test]
+fn a_lines_keys_are_sorted_whatever_the_map_keeps() {
+    let line = entry_line("h", "s", "opencode", 0, 0, Speaker::User, "hi");
+    assert_eq!(
+        line,
+        "{\"engine\":\"opencode\",\"entry\":{\"content\":\"hi\",\"type\":\"user\"},\"harp\":\"h\",\
+         \"kind\":\"entry\",\"seq\":0,\"session_id\":\"s\",\"ts\":\"1970-01-01T00:00:00Z\",\"v\":1}\n"
+    );
+    assert_eq!(
+        sorted(serde_json::json!({"z": [{"b": 1, "a": 2}], "a": null})).to_string(),
+        r#"{"a":null,"z":[{"a":2,"b":1}]}"#
+    );
+}

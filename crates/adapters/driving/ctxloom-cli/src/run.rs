@@ -139,6 +139,7 @@ fn extended(
                 .get_many::<String>("config_set")
                 .map(|values| values.cloned().collect())
                 .unwrap_or_default(),
+            trusted: false,
         },
     };
     match services.extension().run(noun, &call, catalog, out, err) {

@@ -1,13 +1,15 @@
-//! The run's enqueue, which mints its three credentials (D29; owner ruling
-//! 2026-11-04, item 16): each token is returned once, only its SHA-256 is
-//! journaled.
+//! The run's enqueue. It mints no credential: the runner's and the model's
+//! tokens went with the separation model (slice 2: one principal, the
+//! user), and the hook bearer's with the per-run listener (slice 4 U7, owner
+//! ruling s4-Q3: a hook delivers to the user's daemon with the user
+//! bearer).
 
 use std::sync::Arc;
 
 use angzarr_embedded::markup::TypedRefusal;
 use angzarr_embedded::v1::{CommandBook, Cover, Uuid};
 use angzarr_embedded::{CommandBookExt, Failure, Rejected};
-use run_ports::{Edge, Token, TokenSource};
+use run_ports::Edge;
 
 use runs::RunRejection;
 
@@ -25,6 +27,9 @@ pub struct EnqueueRequest {
     /// runner is started (rulings 86, 92): journaled, so a later process can
     /// tell when its launcher died.
     pub launcher_lock: String,
+    /// What the run is given (step 9: the grant record, journaled): its MCP
+    /// servers by name and its permissions document; none, no record.
+    pub grant: Option<runs::Grant>,
 }
 
 /// The evidence of a run's pre-launch checks, as the run application asked its
@@ -45,6 +50,10 @@ pub struct Evidence {
     /// How many fatal startup findings the plan refused the run for (ruling
     /// 73h: a count; the findings themselves stay the library's).
     pub fatal_findings: u32,
+    /// The project-only settings this launch reads that its project's own
+    /// config says and the user has not trusted (step 8 U2, ruling 142):
+    /// their dotted paths. Empty when the project is trusted.
+    pub untrusted_settings: Vec<String>,
 }
 
 /// What a child's run authenticates with (ruling 53).
@@ -70,6 +79,7 @@ impl Evidence {
             drivable_engines: vec![engine.to_string()],
             credential: None,
             fatal_findings: 0,
+            untrusted_settings: Vec::new(),
         }
     }
 }
@@ -82,64 +92,44 @@ pub enum EnqueueError {
     Failed(AppError),
 }
 
-/// What the enqueue gives back: the run's root and its three tokens, shown once.
-/// The runner's goes to the runner's 0600 file (launcher, S6); the model's to a
-/// separate file only the model-side adapter reads (S6, S10). Owner ruling
-/// 2026-11-04, item 16: two principals per run. The hook's goes into the
-/// engine's environment (the terminal session's or a one-shot child's) and
-/// nowhere else (owner rulings 2026-11-09, items 16 and 51); like the others it is held by the launching code
-/// alone, and `Token`'s `Debug` is redacted.
+/// What the enqueue gives back: the run's root.
 #[derive(Debug)]
 pub struct Enqueued {
     pub run: Uuid,
-    pub runner_token: Token,
-    pub model_token: Token,
-    pub hook_token: Token,
 }
 
-pub struct Enqueuer<E: Edge, T: TokenSource> {
+pub struct Enqueuer<E: Edge> {
     edge: Arc<E>,
-    source: Arc<T>,
 }
 
-impl<E: Edge, T: TokenSource> Enqueuer<E, T> {
-    pub fn new(edge: Arc<E>, source: Arc<T>) -> Enqueuer<E, T> {
-        Enqueuer { edge, source }
+impl<E: Edge> Enqueuer<E> {
+    pub fn new(edge: Arc<E>) -> Enqueuer<E> {
+        Enqueuer { edge }
     }
 
     pub async fn enqueue(&self, request: EnqueueRequest) -> Result<Enqueued, EnqueueError> {
-        let runner_token = self.source.mint();
-        let model_token = self.source.mint();
-        let hook_token = self.source.mint();
         let run = runs::run_root(&request.session, request.incarnation);
         let cover = Cover {
             domain: runs::RUN_DOMAIN.to_string(),
             root: Some(run.clone()),
             edition: None,
         };
-        // Only the digests are journaled (D29); the run refuses equal ones.
         let enqueue = runs::EnqueueRun {
             session: request.session,
             incarnation: request.incarnation,
             mode: request.mode,
-            runner_credential_hash: runner_token.hash().as_bytes().to_vec(),
-            model_credential_hash: model_token.hash().as_bytes().to_vec(),
-            hook_credential_hash: hook_token.hash().as_bytes().to_vec(),
             prompt_given: request.evidence.prompt_given,
             engine: request.evidence.engine,
             drivable_engines: request.evidence.drivable_engines,
             credential: credential(request.evidence.credential.unwrap_or_default()),
             fatal_findings: request.evidence.fatal_findings,
             launcher_lock: request.launcher_lock,
+            untrusted_settings: request.evidence.untrusted_settings,
+            grant: request.grant,
         };
         let book = CommandBook::command_of(cover, &runs::RunCommand::from(enqueue));
         self.edge.handle(book).await.map_err(refused)?;
-        Ok(Enqueued {
-            run,
-            runner_token,
-            model_token,
-            hook_token,
-        })
+        Ok(Enqueued { run })
     }
 }
 

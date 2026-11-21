@@ -1,8 +1,7 @@
 # world: base
 # Ported from journeys/j002200_isolation.feature (rev f36e8dfb2)
 # NOT ported: the scenarios tagged @pending: the container lane, which waits
-#   for a container launch, and the session-home outlines, which wait for
-#   their own steps. The container gates, the dry-run preview, the
+#   for a container launch. The container gates, the dry-run preview, the
 #   worktree's git exclude and the credential refusals are cli/run.feature's.
 #   The "mock agent" is claude-code, a stub on PATH that records where it
 #   ran and writes a note there.
@@ -18,9 +17,13 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   are not what protects the rest of her disk. Something else has to.
 
   ctxloom gives her two independent choices. The workspace: the live project,
-  or a checkout of its own. The runtime: her machine, or a container. Each
+  or a checkout of its own. The runtime: her machine, or a container. Only
+  the container runtime bounds what the agent can reach: on her machine the
+  agent runs as her, and a checkout of its own or its session home is a
+  place to work, not a wall (absolute paths reach the rest of her disk). Each
   run also gets its own session home, so the agent does not run on her own
-  engine setup, with her memory, her MCP servers and her history.
+  engine setup, with her memory, her MCP servers and her history: a
+  relocation, not confinement.
 
   This journey is Alice establishing that the choices are real: that a run
   asking for its own checkout works somewhere else, that two such runs never
@@ -118,7 +121,6 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
 
   # Alice's agent runs from its own session home, whether or not its agent
   # says so: her own engine setup is never opened, and is left as it was.
-  @pending
   Scenario Outline: An in-tree AGENT run gets a per-session config-home instance instead of Alice's own home
     # substitution: one scenario for a session's own home, with the agent declaring it or not
     Given Alice has a git-backed project
@@ -139,7 +141,6 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
 
   # An agent can opt into Alice's own engine setup. It gets exactly that, and
   # ctxloom tells her the choice is unsafe.
-  @pending
   Scenario Outline: An in-tree AGENT run that declares session_home: host keeps Alice's own real home
     # new: Go's scenario of this name says engine_home; the vocabulary ruling (2026-11-06) renamed the setting to session_home, so the scenario carries the new name. The run says the choice is unsafe; no session home is what Alice sees
     Given Alice has a git-backed project

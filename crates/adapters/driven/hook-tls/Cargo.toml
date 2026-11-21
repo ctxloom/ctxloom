@@ -1,7 +1,7 @@
 [package]
 name = "hook-tls"
 version = "0.1.0"
-description = "The run's listener certificate: a per-run self-signed ECDSA P-256 server certificate (ring), valid from a few minutes before the clock to a day after it, covering every address the child may dial"
+description = "A hook listener's certificate: a self-signed ECDSA P-256 server certificate (ring), with an explicit window, covering every address a client may dial"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

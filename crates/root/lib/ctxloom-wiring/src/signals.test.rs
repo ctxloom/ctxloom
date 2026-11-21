@@ -8,7 +8,7 @@ use host_launcher::Stop;
 use os::{Signal, Signals};
 use run_application::RunError;
 
-use super::{forward, Heard, HEARD, STOP_ONE_SHOT, STOP_SESSION};
+use super::{forward, CommandStops, Heard, HEARD, STOP_ONE_SHOT, STOP_SESSION};
 
 fn runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread()
@@ -103,4 +103,50 @@ fn test_a_stopped_run_ends_as_the_signal_says_and_one_not_stopped_as_it_did() {
     let mut failed = Err::<u8, RunError>(RunError::EmptyAnswer);
     heard.overrule(&mut failed);
     assert_eq!(failed.unwrap_err().exit(), Exit::signal(15));
+}
+
+/// `stops`' first stop, waited for (bounded): the listener's thread hears
+/// what was raised.
+fn first_heard(stops: &CommandStops) -> String {
+    runtime().block_on(async {
+        tokio::time::timeout(Duration::from_secs(10), stops.heard())
+            .await
+            .expect("heard within the bound")
+    })
+}
+
+// Ruling 114 for a command that follows a daemon's run (a distill): its
+// stops are heard from before its first daemon call, each of the three;
+// one heard BEFORE the follow begins is told to it as heard already (its
+// race forced: the signal is raised before anything asks), and a second
+// changes nothing.
+#[test]
+fn test_a_commands_stop_heard_before_its_follow_is_told_to_it() {
+    for signal in Signal::ALL {
+        let (raise, signals) = Signals::fake(&HEARD);
+        let stops = CommandStops::hearing(move || Ok(signals));
+        assert!(stops.unheard().is_none());
+        assert_eq!(stops.signal(), None);
+        raise.raise(signal);
+        assert_eq!(first_heard(&stops), signal.name());
+        assert_eq!(stops.signal(), Some(signal));
+        let other = if signal == Signal::Terminate {
+            Signal::Hangup
+        } else {
+            Signal::Terminate
+        };
+        raise.raise(other);
+        assert_eq!(first_heard(&stops), signal.name(), "the first counts");
+    }
+}
+
+// Signals that cannot be listened for are said, and nothing is heard.
+#[test]
+fn test_a_command_that_cannot_listen_says_why() {
+    let stops = CommandStops::hearing(|| Err(std::io::Error::other("no signals here")));
+    assert!(stops
+        .unheard()
+        .unwrap_or_default()
+        .contains("no signals here"));
+    assert_eq!(stops.signal(), None);
 }

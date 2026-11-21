@@ -1,43 +1,28 @@
 //! The project refresh a pull previewed and did not write for want of
-//! `--yes`: said in words, or carried in the pull's json as
-//! `refresh_skipped`.
+//! `--yes`: said in words, or carried in the pull's json as its
+//! `skipped_refresh` (OD-40, B4: `ProjectRefresh`).
 
 use std::io::{self, Write};
 
 use angzarr_presentation::Catalog;
-use deps_application::{PullReport, Refresh};
-use serde::Serialize;
+use daemon_proto::v1;
+use deps_application::Refresh;
 
 use cli_support::FixOf;
 
-/// A pull as json: its report, and the refresh it skipped, when it did.
-#[derive(Serialize)]
-pub(crate) struct Pulled<'a> {
-    #[serde(flatten)]
-    pub report: &'a PullReport,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub refresh_skipped: Option<Skipped>,
-}
-
-/// The refresh a pull skipped.
-#[derive(Serialize)]
-pub(crate) struct Skipped {
+/// The refresh a pull skipped, its refusals in words.
+pub struct Skipped {
     target: String,
     engines: Vec<Engine>,
 }
 
-#[derive(Serialize)]
 struct Engine {
     engine: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
     wrote: Vec<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
     released: Vec<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
     refused: Vec<Refused>,
 }
 
-#[derive(Serialize)]
 struct Refused {
     kind: String,
     reason: String,
@@ -45,7 +30,7 @@ struct Refused {
 }
 
 /// `refresh`, its refusals said from the catalog.
-pub(crate) fn view(refresh: &Refresh, catalog: &Catalog) -> Skipped {
+pub fn view(refresh: &Refresh, catalog: &Catalog) -> Skipped {
     Skipped {
         target: refresh.target.clone(),
         engines: refresh
@@ -64,6 +49,70 @@ pub(crate) fn view(refresh: &Refresh, catalog: &Catalog) -> Skipped {
                         fix: catalog
                             .render(&FixOf(r.cause.as_ref(), format!("{}-fix", r.cause.code())))
                             .unwrap_or_default(),
+                    })
+                    .collect(),
+            })
+            .collect(),
+    }
+}
+
+/// The refresh a pull's answer carries (step 10c U4), read back: each
+/// engine by its ID, each refusal in the words it was said in.
+pub(crate) fn from_message(message: &v1::ProjectRefresh) -> Skipped {
+    Skipped {
+        target: message.target.clone(),
+        engines: message
+            .engines
+            .iter()
+            .map(|e| Engine {
+                engine: e
+                    .engine
+                    .rsplit_once("/engines/")
+                    .map_or(e.engine.as_str(), |(_, id)| id)
+                    .to_string(),
+                wrote: e.written_kinds.clone(),
+                released: e.released_kinds.clone(),
+                refused: e
+                    .refused_kinds
+                    .iter()
+                    .map(|r| Refused {
+                        kind: r.kind.clone(),
+                        reason: r.reason.clone(),
+                        fix: r.fix.clone(),
+                    })
+                    .collect(),
+            })
+            .collect(),
+    }
+}
+
+/// Whether applying it would write or release anything (with only
+/// refusals there is nothing to apply).
+pub(crate) fn applies(skipped: &Skipped) -> bool {
+    skipped
+        .engines
+        .iter()
+        .any(|e| !e.wrote.is_empty() || !e.released.is_empty())
+}
+
+/// The refresh as its API message, `ProjectRefresh`, each engine by name.
+pub(crate) fn message(parent: &str, skipped: &Skipped) -> v1::ProjectRefresh {
+    v1::ProjectRefresh {
+        target: skipped.target.clone(),
+        engines: skipped
+            .engines
+            .iter()
+            .map(|e| v1::RefreshEngine {
+                engine: format!("{parent}/engines/{}", e.engine),
+                written_kinds: e.wrote.clone(),
+                released_kinds: e.released.clone(),
+                refused_kinds: e
+                    .refused
+                    .iter()
+                    .map(|r| v1::RefusedKind {
+                        kind: r.kind.clone(),
+                        reason: r.reason.clone(),
+                        fix: r.fix.clone(),
                     })
                     .collect(),
             })

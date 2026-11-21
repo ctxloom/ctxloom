@@ -220,20 +220,38 @@ fn test_the_doctor_s_query_names_each_agent_that_loses_something() {
     assert_eq!(found[0].not_carried[0].event, "session_end");
 }
 
-// An agent with no profiles configures nothing, so it loses nothing, even on
-// an engine that cannot carry a registered companion's hook.
+// A registered companion's hooks count for EVERY agent (OD-22, owner
+// 2026-11-13): an agent with no profiles still loses the companion's hook its
+// engine cannot carry.
 #[test]
-fn test_an_agent_with_no_profiles_loses_nothing() {
+fn test_an_agent_with_no_profiles_loses_what_a_companion_hooks() {
     use ctxloom_ports::CompanionLoadout::Loaded;
     const GUARD: &str = "run:\n  version: 1.0.0\n  hooks:\n    pre_tool:\n      - command: guard\n        type: command\n";
     let (library, _) = Setup {
         bundles: &[("house", HOUSE), ("project", PROJECT)],
-        layers: &["schema_version: 9\nagents:\n  bare:\n    engine: opencode\ncompanions:\n  guard:\n    command: [guard]\n"],
+        layers: &[
+            "schema_version: 9\nagents:\n  bare:\n    engine: opencode\ncompanions:\n  guard: {}\n",
+        ],
         companions: &[("guard", Loaded(GUARD.to_string()))],
         ..Setup::default()
     }
     .fixture();
     let library = library.with_hook_losses(losses());
+    let found = library.agents_losses(&plain()).result.unwrap();
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].agent, "bare");
+    let events: Vec<&str> = found[0]
+        .not_carried
+        .iter()
+        .map(|l| l.event.as_str())
+        .collect();
+    assert_eq!(events, ["pre_tool"], "{found:?}");
+}
+
+// An agent with no profiles and no companion registered loses nothing.
+#[test]
+fn test_an_agent_with_no_profiles_and_no_companion_loses_nothing() {
+    let (library, _) = world_with("schema_version: 9\nagents:\n  bare:\n    engine: opencode\n");
     let found = library.agents_losses(&plain()).result.unwrap();
     assert!(found.is_empty(), "{found:?}");
 }

@@ -1,12 +1,13 @@
 //! `skill create|remove|export|import` (Go's `operations` skill leaves). A
-//! skill is the directory `skills/<n>/` of a bundle; the sidecar
-//! `skills/.<n>.meta.yaml` says which of its files are executable (the plan's
-//! rule: an exec bit comes from the sidecar and from nowhere else).
+//! skill is the one directory `skills/<n>/` of a bundle, its metadata
+//! `skills/<n>/.meta.yaml` inside it (owner T27), which says which of its
+//! files are executable (the plan's rule: an exec bit comes from the metadata
+//! and from nowhere else).
 
 use library::frontmatter::split_front_matter;
 use library::write::archive::{self, Entry, Limits};
 use library::write::item::valid_name;
-use library::write::skill::{self, DEFAULT_DESCRIPTION};
+use library::write::skill::{self, DEFAULT_DESCRIPTION, EMPTY_META};
 
 use crate::error::AppError;
 use crate::project::{Library, Outcome, Project};
@@ -29,7 +30,8 @@ impl Library {
         self.run(flags, |p| p.skill_create(bundle, name, description))
     }
 
-    /// `skill remove <bundle>#skills/<name> [--yes]`: the package and its sidecar.
+    /// `skill remove <bundle>#skills/<name> [--yes]`: the package, its
+    /// metadata inside it.
     pub fn skill_remove(
         &self,
         flags: &Flags,
@@ -118,6 +120,7 @@ impl Project {
             }
             .into());
         }
+        super::require_id("skill", name)?;
         let entry = self.bundle(bundle)?;
         let mut plan = self.plan_of(&entry.name)?;
         let dir = skill::package_dir(name);
@@ -136,6 +139,8 @@ impl Project {
             &format!("{dir}/SKILL.md"),
             skill::skill_md(name, description),
         );
+        // Its metadata, empty, inside it (owner T27): one new directory.
+        plan.write(&skill::meta_path(name), EMPTY_META.to_string());
         self.commit(&entry.name, plan)?;
         Ok(SkillCreated {
             status: "created".to_string(),
@@ -159,7 +164,6 @@ impl Project {
             )));
         }
         plan.remove_dir(&dir);
-        plan.remove(&skill::sidecar_path(&name));
         self.commit(&entry.name, plan)?;
         Ok(Removal::Done(SkillRemoved {
             status: "removed".to_string(),
@@ -174,8 +178,9 @@ impl Project {
         let entry = self.bundle(&bundle)?;
         let plan = self.plan_to_read(&entry.name)?;
         let dir = self.skill_dir(&plan, &name)?;
-        let sidecar = plan.text(&skill::sidecar_path(&name));
-        let executable = skill::executable_files(sidecar.as_deref());
+        // The directory whole, its metadata too (owner T27).
+        let meta = plan.text(&skill::meta_path(&name));
+        let executable = skill::executable_files(meta.as_deref());
         let prefix = format!("{dir}/");
         let entries: Vec<Entry> = plan
             .below(&dir)
@@ -227,6 +232,7 @@ impl Project {
         if !valid_name(&name) {
             return Err(WriteError::BadSkillName { name }.into());
         }
+        super::require_id("skill", &name)?;
         let Some(descriptor) = unpacked.entries.iter().find(|e| e.path == "SKILL.md") else {
             return Err(invalid(&name, "SKILL.md is required"));
         };
@@ -270,13 +276,11 @@ impl Project {
             .filter(|e| e.executable)
             .map(|e| e.path.clone())
             .collect();
-        let sidecar = plan.text(&skill::sidecar_path(&name));
-        match skill::with_executable(sidecar.as_deref(), &executable).map_err(AppError::cause)? {
-            Some(text) => plan.write(&skill::sidecar_path(&name), text),
-            None => {
-                plan.remove(&skill::sidecar_path(&name));
-            }
-        }
+        // The metadata the archive brings (else the empty mapping), its
+        // `executable:` the archive's modes.
+        let meta = plan.text(&skill::meta_path(&name));
+        let meta = skill::with_executable(meta.as_deref(), &executable).map_err(AppError::cause)?;
+        plan.write(&skill::meta_path(&name), meta);
         self.commit(&entry.name, plan)?;
         Ok(SkillImported {
             status: "imported".to_string(),

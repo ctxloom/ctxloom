@@ -15,8 +15,7 @@ const DEMO: &[(&str, &str)] = &[
     ("fragments/old.md", "OLD"),
     ("fragments/old.distilled.md", "OLD-DISTILLED"),
     ("prompts/review.md", "REVIEW"),
-    ("mcp/m.yaml", "command: m\n"),
-    ("mcp/.m.meta.yaml", "notes: n\n"),
+    ("mcp/m.yaml", "command: m\nnotes: n\n"),
     (
         "skills/s/SKILL.md",
         "---\nname: s\ndescription: d\n---\nbody",
@@ -112,11 +111,9 @@ fn test_create_refuses_a_name_that_climbs_and_writes_nothing() {
         );
     }
     assert_eq!(mem.writes(), 0);
-    library
-        .bundle_create(&plain(), "team/rules", "")
-        .result
-        .unwrap();
-    assert!(mem.has_bundle("team/rules"));
+    // OQ-5: a nested name is refused (it was created, as Go did).
+    assert!(err(library.bundle_create(&plain(), "team/rules", "")).contains("BadId"));
+    assert!(!mem.has_bundle("team/rules"));
 }
 
 #[test]
@@ -221,7 +218,6 @@ fn test_edit_detaches_items_with_their_other_files() {
         "fragments/old.distilled.md",
         "prompts/review.md",
         "mcp/m.yaml",
-        "mcp/.m.meta.yaml",
     ] {
         assert_eq!(mem.text("demo", gone), None, "{gone}");
     }
@@ -316,6 +312,106 @@ fn test_remove_without_yes_names_the_cost_and_destroys_nothing() {
     assert_eq!(preview.apply, "ctxloom bundle remove demo --yes");
     assert_eq!(mem.writes(), 0);
     assert!(mem.text("demo", "bundle.yaml").is_some());
+}
+
+// Owner ruling 2026-11-19: the preview names every profile and agent that
+// includes the bundle (a local reference, or through a parent), and says a
+// run of each is refused until it is edited.
+#[test]
+fn test_remove_without_yes_names_every_profile_and_agent_that_includes_it() {
+    use crate::write::views::{Dependent, DependentKind};
+    let (library, mem) = Setup {
+        bundles: &[
+            ("demo", DEMO),
+            (
+                "other",
+                &[
+                    ENVELOPE,
+                    ("profiles/direct.yaml", "bundles: [demo]\n"),
+                    ("profiles/spelled.yaml", "bundles: [ctxloom+local:demo]\n"),
+                    ("profiles/unrelated.yaml", "bundles: [other]\n"),
+                ],
+            ),
+            (
+                "project",
+                &[
+                    ENVELOPE,
+                    ("profiles/child.yaml", "parents: [other#profiles/direct]\n"),
+                    ("profiles/grandchild.yaml", "parents: [child]\n"),
+                    ("profiles/scoped.yaml", "bundles: [demo#fragments/example]\n"),
+                    ("profiles/item.yaml", "bundle_items: [demo#prompts/review]\n"),
+                    ("profiles/orphan.yaml", "parents: [demo#profiles/p]\n"),
+                    ("profiles/plain.yaml", "parents: [other#profiles/unrelated]\n"),
+                    // A bare command name is a command, not the bundle.
+                    ("profiles/bare.yaml", "commands: [demo]\n"),
+                ],
+            ),
+        ],
+        layers: &["schema_version: 9\nagents:\n  a:\n    profiles: [grandchild]\n  b:\n    profiles: [plain]\n  c:\n    profiles: [demo#profiles/p]\n"],
+        ..Setup::default()
+    }
+    .fixture();
+    let Removal::Preview(preview) = library
+        .bundle_remove(&plain(), "demo", false)
+        .result
+        .unwrap()
+    else {
+        panic!("a preview");
+    };
+    let profile = |name: &str| Dependent {
+        kind: DependentKind::Profile,
+        name: name.to_string(),
+    };
+    let agent = |name: &str| Dependent {
+        kind: DependentKind::Agent,
+        name: name.to_string(),
+    };
+    assert_eq!(
+        preview.dependents,
+        [
+            profile("child"),
+            profile("grandchild"),
+            profile("item"),
+            profile("orphan"),
+            profile("other#profiles/direct"),
+            profile("other#profiles/spelled"),
+            profile("scoped"),
+            agent("a"),
+            agent("c"),
+        ]
+    );
+    assert_eq!(
+        preview.detail,
+        [
+            "2 fragment(s), 1 command(s), 1 MCP server(s), 1 skill package(s), 1 profile(s)",
+            "profile child includes it",
+            "profile grandchild includes it",
+            "profile item includes it",
+            "profile orphan includes it",
+            "profile other#profiles/direct includes it",
+            "profile other#profiles/spelled includes it",
+            "profile scoped includes it",
+            "agent a includes it",
+            "agent c includes it",
+            "a run of each is refused until it is edited",
+        ]
+    );
+    assert_eq!(mem.writes(), 0);
+}
+
+// A bundle nothing includes says nothing of dependents.
+#[test]
+fn test_remove_of_a_bundle_nothing_includes_names_no_dependent() {
+    let (library, _mem) = world();
+    let Removal::Preview(preview) = library
+        .bundle_remove(&plain(), "other", false)
+        .result
+        .unwrap()
+    else {
+        panic!("a preview");
+    };
+    assert!(preview.dependents.is_empty(), "{:?}", preview.dependents);
+    assert_eq!(preview.detail, ["1 fragment(s)"]);
 }
 
 #[test]
@@ -416,7 +512,7 @@ fn test_an_export_makes_executable_what_the_sidecar_declares_and_nothing_else() 
             "---\nname: s\ndescription: d\n---\nbody",
         ),
         ("skills/s/run.sh", "#!/bin/sh\n"),
-        ("skills/.s.meta.yaml", "executable:\n  - run.sh\n"),
+        ("skills/s/.meta.yaml", "executable:\n  - run.sh\n"),
     ];
     let (library, mem) = Setup {
         bundles: &[("demo", tree)],
@@ -450,7 +546,7 @@ fn test_an_import_makes_executable_what_its_sidecar_declares_and_nothing_else() 
     );
     mem.put_user("in/mine/skills/s/run.sh", b"#!/bin/sh\n", false);
     mem.put_user(
-        "in/mine/skills/.s.meta.yaml",
+        "in/mine/skills/s/.meta.yaml",
         b"executable:\n  - run.sh\n",
         false,
     );
@@ -506,7 +602,7 @@ fn test_import_copies_a_tree_in_under_its_own_name() {
     exported_demo(&mem);
     mem.put_user("in/demo/skills/s/run.sh", b"#!/bin/sh", false);
     mem.put_user(
-        "in/demo/skills/.s.meta.yaml",
+        "in/demo/skills/s/.meta.yaml",
         b"executable:\n  - run.sh\n",
         false,
     );
@@ -625,4 +721,88 @@ fn test_import_will_not_take_a_name_that_is_no_bundles() {
     // The name is the directory's: ".hidden" is not a bundle's.
     assert!(err(library.bundle_import(&plain(), "dir/.hidden", false)).contains("BadBundleName"));
     assert_eq!(mem.writes(), 0);
+}
+
+// OQ-5, OQ-6 (design §1.3): a created bundle's name is an ID, and a nested
+// one (`team/rules`) is refused; nothing is written.
+#[test]
+fn test_create_refuses_a_name_that_is_no_id_or_nested_and_writes_nothing() {
+    let (library, mem) = world();
+    for bad in [
+        "Upper",
+        "under_score",
+        "dot.ted",
+        "two words",
+        "9lead",
+        "trail-",
+        "a-very-long-name-that-runs-past-sixty-three-characters-xxxxxxxxxx",
+    ]
+    .into_iter()
+    .chain(["team/rules"])
+    {
+        let got = err(library.bundle_create(&plain(), bad, ""));
+        assert!(got.contains("BadId"), "{bad:?}: {got}");
+    }
+    assert_eq!(mem.writes(), 0);
+}
+
+// OQ-6: what an edit adds to a bundle is minted there, so its name is an ID.
+#[test]
+fn test_edit_refuses_to_add_a_name_that_is_no_id() {
+    let (library, mem) = world();
+    for bad in [
+        "Upper",
+        "under_score",
+        "dot.ted",
+        "two words",
+        "9lead",
+        "trail-",
+        "a-very-long-name-that-runs-past-sixty-three-characters-xxxxxxxxxx",
+    ] {
+        let out = library.bundle_edit(
+            &plain(),
+            &BundleEditRequest {
+                add_fragments: vec![bad.to_string()],
+                ..edit("demo")
+            },
+        );
+        let got = err(out);
+        assert!(got.contains("BadId"), "{bad:?}: {got}");
+    }
+    assert_eq!(mem.writes(), 0);
+}
+
+// OQ-6: an import mints the bundle's name from its directory, an ID.
+#[test]
+fn test_import_refuses_a_directory_whose_name_is_no_id() {
+    let (library, mem) = Setup {
+        layers: &[CONFIG],
+        ..Setup::default()
+    }
+    .fixture();
+    mem.put_user(
+        "dir/Team_Rules/bundle.yaml",
+        b"schema_version: 4\nversion: 1.0.0\n",
+        false,
+    );
+    let got = err(library.bundle_import(&plain(), "dir/Team_Rules", false));
+    assert!(got.contains("BadId"), "{got}");
+    assert_eq!(mem.writes(), 0);
+}
+
+// CI on Windows (2026-11-19): the daemon joined a relative import to the
+// caller's directory with `\`, and the bundle's name was taken after the last
+// `/` alone, so it was the whole path, refused as a traversal. Either
+// separator ends a segment.
+#[test]
+fn an_imports_directory_and_name_are_read_with_either_separator() {
+    use super::{import_dir, import_name};
+    assert_eq!(import_dir(r"C:\p\handoff/bundle.yaml"), r"C:\p\handoff");
+    assert_eq!(import_dir(r"C:\p\handoff\bundle.yaml"), r"C:\p\handoff");
+    assert_eq!(import_dir(r"C:\p\handoff\"), r"C:\p\handoff");
+    assert_eq!(import_dir("handoff/bundle.yaml"), "handoff");
+    assert_eq!(import_dir("bundle.yaml"), ".");
+    assert_eq!(import_dir("a/handoffbundle.yaml"), "a/handoffbundle.yaml");
+    assert_eq!(import_name(r"C:\p\handoff"), "handoff");
+    assert_eq!(import_name("p/handoff"), "handoff");
 }

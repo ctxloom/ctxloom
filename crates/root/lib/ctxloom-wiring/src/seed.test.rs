@@ -116,7 +116,7 @@ fn the_seed_plants_the_sessions_files_backdated_to_its_end() {
         fs().read_to_string(&dir.join("notes/plan.md")).unwrap(),
         "authored\n"
     );
-    let lock = sessions.join(format!("{HARP}.lock"));
+    let lock = dir.join("session.lock");
     for path in [dir.join("notes/plan.md"), lock] {
         near(fs().metadata(&path).unwrap().modified, ago(3600));
     }
@@ -152,49 +152,35 @@ fn a_name_already_claimed_is_refused_as_a_seed_error() {
     }
 }
 
-// The bind hook records the engine's session and transcript against the
-// harp: the session then shows them.
+// The sessions service binds a seeded session to the engine's session and
+// transcript: the session then shows them, and a repeat records nothing.
+// (The hook's bind is delivered to the daemon as capture is:
+// `capture.test.rs`.)
 #[test]
-fn the_bind_hook_binds_the_session_it_names() {
-    use ctxloom_cli::Extension;
-    let mut world = World::new("seed-bind");
+fn the_sessions_service_binds_a_seeded_session() {
+    let world = World::new("seed-bind");
     let wiring = world.wiring();
     let unbound = Seed {
         native: None,
         ..seed()
     };
     wiring.seed_session(&unbound).unwrap();
-    world.set("CTXLOOM_SESSION_HARP", HARP);
-    let payload = r#"{"session_id":"native-9","transcript_path":"/t/native-9.jsonl"}"#;
-    let mut commands = world.commands();
-    let program = clap::Command::new("ctxloom").subcommands(commands.nouns());
-    let matches = program
-        .try_get_matches_from(["ctxloom", "hook", "claude-code", "execute", "SessionStart"])
-        .unwrap();
-    let call = ctxloom_cli::Call::with_globals(
-        &matches,
-        Some(angzarr_presentation::Format::Text),
-        angzarr_presentation::Format::Text,
-        library_application::Flags::default(),
-    );
-    let catalog = angzarr_presentation::Catalog::en_us(&[crate::EN_US]).unwrap();
-    let (mut out, mut err) = (Vec::new(), Vec::new());
-    commands
-        .hook(payload, &call, &catalog, &mut out, &mut err)
-        .ok()
-        .unwrap();
     let mut sessions = world.wiring().sessions();
-    let views = block(sessions.list(ListQuery::default())).unwrap();
-    assert_eq!(views[0].record.native_id, "native-9");
-    assert_eq!(views[0].record.transcript_path, "/t/native-9.jsonl");
-    // And the service itself binds: a repeat of the same binding records nothing.
-    let again = block(sessions.bind(BindRequest {
+    let bind = || BindRequest {
         project: None,
         harp: HARP.to_string(),
         native_id: "native-9".to_string(),
         transcript_path: "/t/native-9.jsonl".to_string(),
-    }))
-    .unwrap();
+    };
+    let first = block(sessions.bind(bind())).unwrap();
+    assert!(
+        !matches!(first, sessions_application::Bound::Unchanged),
+        "{first:?}"
+    );
+    let views = block(sessions.list(ListQuery::default())).unwrap();
+    assert_eq!(views[0].record.native_id, "native-9");
+    assert_eq!(views[0].record.transcript_path, "/t/native-9.jsonl");
+    let again = block(sessions.bind(bind())).unwrap();
     assert!(
         matches!(again, sessions_application::Bound::Unchanged),
         "{again:?}"
@@ -221,7 +207,7 @@ fn a_go_session_of_the_project_is_imported() {
         0o644,
     );
     let mut sessions = wiring.sessions();
-    let report = block(sessions.import(ImportRequest {})).unwrap();
+    let report = block(sessions.import(ImportRequest::default())).unwrap();
     let harps: Vec<&str> = report.imported.iter().map(|i| i.harp.as_str()).collect();
     assert_eq!(harps, ["amber-swift-owl"], "{report:?}");
 }
@@ -238,4 +224,33 @@ fn a_seeded_sessions_output_dir_is_under_the_projects_output_directory() {
     let views = block(sessions.list(ListQuery::default())).unwrap();
     let expected = wiring.project_dir().join("ctxloom").join(HARP);
     assert_eq!(views[0].record.output_dir, expected.display().to_string());
+}
+
+// Step 10c U13's harness: a session seeded on a profile is one whose run
+// was planned on it: its loadout, as the daemon assembled the profile, is
+// recorded on it, so the index's record carries it.
+#[test]
+fn a_seed_with_a_loadout_records_it_on_the_session() {
+    let world = World::new("seed-profile");
+    let wiring = world.wiring();
+    let loadout = sessions::SessionLoadout {
+        agent: String::new(),
+        profiles: vec!["dev".to_string()],
+        bundles: vec!["demo".to_string()],
+    };
+    let on_profile = Seed {
+        loadout: Some(loadout.clone()),
+        ..seed()
+    };
+    wiring.seed_session(&on_profile).unwrap();
+    let events = wiring.session_events(HARP, None).unwrap();
+    let recorded: Vec<&serde_json::Value> = events
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|row| row["type"] == "LoadoutRecorded")
+        .collect();
+    assert_eq!(recorded.len(), 1, "{events}");
+    assert_eq!(recorded[0]["bundles"], serde_json::json!(["demo"]));
+    assert_eq!(recorded[0]["profiles"], serde_json::json!(["dev"]));
 }

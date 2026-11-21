@@ -5,12 +5,12 @@
 //! lock is taken (rulings 86, 92) and the run enqueued, its pre-launch checks
 //! judged by the run itself; the project is told, a name claimed (never one
 //! whose directory exists, defect 3) and the session minted; the session's
-//! lock is taken for the run's life (defect 1); the run's hook listener is
-//! served (a one-shot is its own owner: its child's hooks call back to it, to
-//! the session the engine is told by id, `CTXLOOM_SESSION`); the launcher,
-//! caught up on the store, finds it owed a runner, drives the engine for one
-//! turn and lets the run's lock go once the runner is started; the listener
-//! is stopped; the session is told its incarnation ended (ruling 85); the run
+//! lock is taken for the run's life (defect 1); the launcher, caught up on
+//! the store, finds it owed a runner, drives the engine for one turn (its
+//! hooks deliver to the user's daemon, to the session the engine is told by
+//! name, `CTXLOOM_SESSION`: no run serves a listener of its own, slice 4 U7)
+//! and lets the run's lock go once the runner is started; the session is
+//! told its incarnation ended (ruling 85); the run
 //! is checked to have ended, and the answer is returned. Nothing is written
 //! into the session's directory but its home (ruling 87a: the events are the
 //! record). A plan that is refused, or a session that cannot be made, has
@@ -24,15 +24,15 @@ use angzarr_diagnostic::Diagnostic;
 use angzarr_embedded::v1::{Cover, Uuid};
 use angzarr_embedded::{Catalog, CommandBookExt, Failure, Payload, Processed, ReadStore, Store};
 use library_application::{AppError as PlanError, Flags, Notice, Outcome, Previewed, RunRequest};
-use ports::{CommandIds, Names, Project, ProjectIdentity};
+use ports::{Names, Project, ProjectIdentity};
 use run_launcher::{Launched, Launcher, Order, Orders, Outcome as Turn};
-use run_ports::{CertMint, Edge, HookServer, LoginLinks, RunnerLauncher, SessionRecords};
+use run_ports::{Edge, LoginLinks, RunnerLauncher, SessionRecords};
 use runs_application::{
     AppError as CoreError, EnqueueError, EnqueueRequest, Enqueued, Enqueuer, Evidence,
 };
 use sessions::{
-    claim_root, ClaimName, MintSession, NameClaimCommand, NameClaimEvent, Origin, ReleaseName,
-    ResumeSession, SessionCommand, SessionEvent, SessionRejection, SessionState, NAMES_DOMAIN,
+    ClaimName, MintSession, NameClaimCommand, NameClaimEvent, Origin, ReleaseName, ResumeSession,
+    SessionCommand, SessionEvent, SessionName, SessionRejection, SessionState, NAMES_DOMAIN,
     SESSION_DOMAIN,
 };
 
@@ -166,6 +166,10 @@ pub trait Core {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Place {
     pub project_dir: String,
+    /// The harp the project was named with at its resolution (slice 2 M1),
+    /// before any session of it is minted: a session's name, and so its
+    /// stable id, is this and its own harp.
+    pub project_harp: String,
     pub output_root: String,
     /// The directory of the running ctxloom binary, which leads an
     /// engine's `PATH` (the terminal's and a child's) so a hook's bare
@@ -186,13 +190,12 @@ pub struct Place {
 }
 
 /// The run use cases over their ports.
-pub struct Runs<K: Core, T: run_ports::TokenSource, L: RunnerLauncher, R: SessionRecords> {
+pub struct Runs<K: Core, L: RunnerLauncher, R: SessionRecords> {
     pub(crate) core: K,
     pub(crate) planner: Box<dyn Planner>,
     pub(crate) identity: Box<dyn ProjectIdentity>,
     pub(crate) names: Box<dyn Names>,
-    pub(crate) ids: Box<dyn CommandIds>,
-    pub(crate) enqueuer: Enqueuer<K::Edge, T>,
+    pub(crate) enqueuer: Enqueuer<K::Edge>,
     pub(crate) launcher: Launcher<K::Edge, L, R>,
     pub(crate) dirs: Box<dyn SessionRecords>,
     pub(crate) orders: Arc<Orders>,
@@ -200,24 +203,54 @@ pub struct Runs<K: Core, T: run_ports::TokenSource, L: RunnerLauncher, R: Sessio
     pub(crate) env: BTreeMap<String, String>,
     pub(crate) links: Box<dyn LoginLinks>,
     pub(crate) os: String,
-    pub(crate) hooks: Box<dyn HookServer>,
-    pub(crate) certs: Box<dyn CertMint>,
     pub(crate) locks: Box<dyn session_ports::SessionLock>,
     pub(crate) run_locks: Arc<dyn run_ports::RunLocks>,
     pub(crate) git_user: Option<run_ports::GitUser>,
+    /// Told once the run is placed (U4: the daemon that hosts a one-shot
+    /// answers its client then); none, nobody is told.
+    pub(crate) told: Option<Telling>,
+    /// The run's own lock, held by its FRONTEND at this path since before
+    /// it asked (the start-report race, U5): journaled as the run's
+    /// launcher lock instead of one of the use cases' own, while it reads
+    /// held; none, they take their own.
+    pub(crate) frontend_lock: Option<String>,
 }
 
-/// What an engine is told of the run's listener: its URL and the public part
-/// of its certificate.
-struct Told {
-    endpoint: String,
-    cert: run_ports::PublicCert,
+/// What is told where each run was placed ([`Runs::telling`]).
+pub type Telling = Box<dyn FnMut(&Placement) + Send>;
+
+/// Where a run was placed, once its run is enqueued, its session made and
+/// its order placed, before its engine is launched: what the daemon that
+/// hosts it tells its client (U4).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Placement {
+    /// The run's root, as text.
+    pub run: String,
+    /// The session's stable id.
+    pub session: String,
+    /// The session's resource name (`projects/{project}/sessions/{harp}`).
+    pub name: String,
+    pub harp: String,
+    pub engine: String,
+    /// The agent the run was planned for (the plan's, else the default
+    /// agent it took): what an ask of its engine names (step 8, D7).
+    pub agent: String,
+    /// Its engine's `approval_timeout`, as its plan read it: how long an
+    /// ask of its engine waits (step 8, D7).
+    pub approval_timeout: std::time::Duration,
+    /// The human's terminal session: its asks are hers to answer at her
+    /// terminal (S28), never routed.
+    pub interactive: bool,
 }
 
-/// The run's listener, serving, and what the engine is told of it.
-struct Listening {
-    serving: Box<dyn run_ports::Serving>,
-    told: Told,
+/// The agent `plan` is for: the one it was asked for, else the default
+/// agent it took; none, empty.
+fn planned_agent(plan: &library_application::DryRun) -> String {
+    [&plan.agent, &plan.settings_agent]
+        .into_iter()
+        .find(|a| !a.is_empty())
+        .cloned()
+        .unwrap_or_default()
 }
 
 /// A run made and enqueued, its order placed: the session, its name, the
@@ -258,7 +291,10 @@ fn chosen_engine(plan: &library_application::DryRun, request: &OneShot) -> Strin
 /// asked for the engine the caller forces (`run --engine`, ruling 57), so it
 /// resolved that engine's settings; a plan for another engine (a caller that
 /// did not ask it) runs on the forced engine's built-ins.
-fn settings_of(plan: &library_application::DryRun, engine: &str) -> run_ports::EngineSettings {
+pub(crate) fn settings_of(
+    plan: &library_application::DryRun,
+    engine: &str,
+) -> run_ports::EngineSettings {
     if plan.engine != engine {
         return run_ports::EngineSettings::default();
     }
@@ -284,17 +320,18 @@ fn settings_of(plan: &library_application::DryRun, engine: &str) -> run_ports::E
             }
         },
         env: drive.env.clone(),
+        // Read with the plan, once per launch and re-host (T21, OD-41).
+        approval_timeout: drive.approval_timeout,
     }
 }
 
 /// Everything [`Runs`] is made of.
-pub struct Parts<K: Core, T: run_ports::TokenSource, L: RunnerLauncher, R: SessionRecords> {
+pub struct Parts<K: Core, L: RunnerLauncher, R: SessionRecords> {
     pub core: K,
     pub planner: Box<dyn Planner>,
     pub identity: Box<dyn ProjectIdentity>,
     pub names: Box<dyn Names>,
-    pub ids: Box<dyn CommandIds>,
-    pub enqueuer: Enqueuer<K::Edge, T>,
+    pub enqueuer: Enqueuer<K::Edge>,
     pub launcher: Launcher<K::Edge, L, R>,
     /// The session directories, asked whether a harp's exists (defect 3).
     pub dirs: Box<dyn SessionRecords>,
@@ -308,11 +345,6 @@ pub struct Parts<K: Core, T: run_ports::TokenSource, L: RunnerLauncher, R: Sessi
     /// The operating system's name (`std::env::consts::OS`), which says
     /// whether a login can be shared by a link at all.
     pub os: String,
-    /// Where a run's hook processes are served (the run's loopback port), the
-    /// terminal session's and a one-shot child's alike.
-    pub hooks: Box<dyn HookServer>,
-    /// What mints a run's listener certificate.
-    pub certs: Box<dyn CertMint>,
     /// The session's liveness lock, which the run holds for its life
     /// (defect 1), so the session reads live to every other process.
     pub locks: Box<dyn session_ports::SessionLock>,
@@ -324,20 +356,18 @@ pub struct Parts<K: Core, T: run_ports::TokenSource, L: RunnerLauncher, R: Sessi
     pub git_user: Option<run_ports::GitUser>,
 }
 
-impl<K, T, L, R> Runs<K, T, L, R>
+impl<K, L, R> Runs<K, L, R>
 where
     K: Core,
-    T: run_ports::TokenSource,
     L: RunnerLauncher,
     R: SessionRecords,
 {
-    pub fn new(parts: Parts<K, T, L, R>) -> Runs<K, T, L, R> {
+    pub fn new(parts: Parts<K, L, R>) -> Runs<K, L, R> {
         Runs {
             core: parts.core,
             planner: parts.planner,
             identity: parts.identity,
             names: parts.names,
-            ids: parts.ids,
             enqueuer: parts.enqueuer,
             launcher: parts.launcher,
             dirs: parts.dirs,
@@ -346,16 +376,33 @@ where
             env: parts.env,
             links: parts.links,
             os: parts.os,
-            hooks: parts.hooks,
-            certs: parts.certs,
             locks: parts.locks,
             run_locks: parts.run_locks,
             git_user: parts.git_user,
+            told: None,
+            frontend_lock: None,
         }
     }
 
-    /// The core, every other part let go: the enqueuer's, the launcher's and
-    /// the listener's edges dropped with them, so what reaches the core's
+    /// Journal `lock` (the path of the run lock its
+    /// FRONTEND took before it asked, U5's start-report race) as the run's
+    /// launcher lock, instead of taking one of their own, when it reads
+    /// held; one that does not (none, or an older frontend's) is passed
+    /// over and their own is taken, as before.
+    pub fn held_by_frontend(&mut self, lock: Option<String>) {
+        self.frontend_lock = lock.filter(|path| !path.is_empty());
+    }
+
+    /// The use cases, telling `told` where each run was placed, once it is
+    /// (U4: a hosted one-shot's daemon answers its client then).
+    #[must_use]
+    pub fn telling(mut self, told: Telling) -> Runs<K, L, R> {
+        self.told = Some(told);
+        self
+    }
+
+    /// The core, every other part let go: the enqueuer's and the launcher's
+    /// edges dropped with them, so what reaches the core's
     /// store afterwards is the core alone, and what its runtime still runs
     /// (ruling 131: the composition root closes the store once both are
     /// gone).
@@ -428,14 +475,14 @@ where
     /// The session named `harp`, if it can be resumed as far as a read says:
     /// a name no session holds is `SessionUnknown`, a claimed name whose
     /// stream holds nothing (`session remove` destroyed it, its claim kept,
-    /// ruling 94c) `SessionDestroyed`, and a session whose lock another
+    /// ruling 94c) `SessionIsDestroyed`, and a session whose lock another
     /// process holds `SessionRunning`. Runs other processes left are swept
     /// first (the launcher's step: an owner found dead ends its incarnation,
     /// ruling 93), so a crashed session's open incarnation does not keep it.
     async fn resumable(&mut self, harp: &str) -> Result<Resume, RunError> {
         let refuse = RunError::Resume;
         self.launch().await?;
-        let project = self.identity.for_write(None).map_err(RunError::Project)?;
+        self.identity.for_write(None).map_err(RunError::Project)?;
         let edge = self.core.edge();
         let failed = |e: &dyn std::fmt::Display| {
             RunError::Session(CoreError::Failed {
@@ -445,7 +492,7 @@ where
         let mut holder = None;
         for any in event_bodies(
             &edge
-                .events(&claim_cover(&project, harp), 0)
+                .events(&self.claim_cover(harp).map_err(no_name)?, 0)
                 .await
                 .map_err(|e| failed(&e))?,
         ) {
@@ -539,55 +586,19 @@ where
         }
         let run = RunRequest {
             engine: String::new(),
+            engine_named: true,
             ..request.run.clone()
         };
         self.planner.plan(flags, &run)
     }
 
-    /// The run's hook listener: bound before the run is minted (the port it
-    /// was given is part of what the engine is told), on loopback (the host
-    /// row of the bind table), with the run's freshly minted certificate. A
-    /// one-shot is its own owner (ruling 29), so it serves one as the
-    /// terminal session does. Its caller stops it if the run does not start.
-    async fn serve(&self) -> Result<Listening, RunError> {
-        let plan = run_ports::bind_for(run_ports::Runtime::Host, &run_ports::PlatformFacts::NONE)
-            .and_then(|plan| plan.check().map(|()| plan))
-            .map_err(|e| RunError::Bind(Box::new(e)))?;
-        // The run's certificate is minted for every address the child may
-        // dial, before anything is served or made; its private key goes to the
-        // listener alone, and the child is told the public part.
-        let identity = self
-            .certs
-            .mint(&run_ports::CertNames::for_plan(&plan))
-            .map_err(RunError::Listener)?;
-        let serving = self
-            .hooks
-            .serve_tcp(plan.bind_addr, &identity)
-            .await
-            .map_err(RunError::Listener)?;
-        match run_ports::endpoint_url(&plan.told_host, serving.port()) {
-            Ok(endpoint) => Ok(Listening {
-                serving,
-                told: Told {
-                    endpoint,
-                    cert: identity.public().clone(),
-                },
-            }),
-            Err(error) => {
-                serving.stop().await;
-                Err(RunError::Listener(angzarr_diagnostic::Report::of(&error)))
-            }
-        }
-    }
-
     /// Everything a run does before its engine is launched (owner rulings
     /// 73f, 73g, in this order): the run's lock taken and the run enqueued,
     /// its pre-launch checks judged by the run itself; the project told, a
-    /// name claimed, the session minted and its lock taken; the certificate
-    /// minted and the listener served; the order placed and the primary
-    /// handed her login. A refused run has made nothing (its run lock let
-    /// go); a failure after the enqueue ends the run it enqueued and its
-    /// session's incarnation, and the listener is stopped if it was served.
+    /// name claimed, the session minted and its lock taken; the order placed
+    /// and the primary handed her login. A refused run has made nothing (its
+    /// run lock let go); a failure after the enqueue ends the run it enqueued
+    /// and its session's incarnation.
     async fn ready(
         &mut self,
         previewed: Previewed,
@@ -595,23 +606,12 @@ where
         resume: Option<Resume>,
         interactive: bool,
         notices: &mut Vec<Notice>,
-    ) -> Result<(Box<dyn run_ports::Serving>, Started), RunError> {
+    ) -> Result<Started, RunError> {
         let engine = chosen_engine(&previewed.plan, request);
         let settings = settings_of(&previewed.plan, &engine);
         let axis = run_launcher::Axis::of(&previewed.plan.axes.0);
-        // A resume owes its session the next incarnation before its run is
-        // enqueued (owner ruling 115), so a refused resume has burned no run
-        // stream; a new session is minted after (its first incarnation).
-        let (session, incarnation) = match &resume {
-            Some(resume) => (
-                resume.session.clone(),
-                self.owe(resume, &engine, axis.word()).await?,
-            ),
-            None => {
-                let id = uuid::Uuid::from_slice(&self.ids.command_id().value).unwrap_or_default();
-                (id.hyphenated().to_string(), 1)
-            }
-        };
+        let (session, incarnation, chosen) =
+            self.placing(resume.as_ref(), &engine, axis.word()).await?;
         let enqueued = match self
             .enqueue(
                 &previewed,
@@ -642,9 +642,15 @@ where
                 return Err(error);
             }
         };
-        let made = match &resume {
-            Some(resume) => Ok(resume.harp.clone()),
-            None => self.make(&session, &engine, axis, interactive).await,
+        let made = match (&resume, chosen) {
+            (Some(resume), _) => Ok(resume.harp.clone()),
+            (None, Some(chosen)) => {
+                self.make(&session, chosen, &engine, axis, interactive)
+                    .await
+            }
+            (None, None) => Err(RunError::Session(CoreError::Failed {
+                reason: "no name was chosen".to_string(),
+            })),
         };
         let harp = match made {
             Ok(harp) => harp,
@@ -654,6 +660,9 @@ where
                     .await)
             }
         };
+        // What its plan draws on, recorded on its session (step 10c U13).
+        self.record_loadout(&session, incarnation, &previewed.plan)
+            .await;
         let lock = match self.locks.hold(&harp) {
             Ok(lock) => lock,
             Err(lock) => {
@@ -663,19 +672,11 @@ where
                     .await);
             }
         };
-        let Listening { serving, told } = match self.serve().await {
-            Ok(listening) => listening,
-            Err(error) => {
-                return Err(self
-                    .abandon(&enqueued.run, &session, incarnation, true, error)
-                    .await)
-            }
-        };
+        let agent = planned_agent(&previewed.plan);
         let started = self.start(
             previewed,
             request,
             interactive,
-            &told,
             Placed {
                 session,
                 harp,
@@ -685,11 +686,27 @@ where
             &enqueued,
             lock,
         );
+        let placement = Placement {
+            run: text(&started.run),
+            session: started.session.clone(),
+            name: self
+                .name_of(&started.harp)
+                .map(|name| name.to_string())
+                .unwrap_or_default(),
+            harp: started.harp.clone(),
+            engine: started.engine.clone(),
+            agent,
+            approval_timeout: settings.approval_timeout,
+            interactive,
+        };
+        if let Some(told) = self.told.as_mut() {
+            told(&placement);
+        }
         // The primary is handed her login before her engine starts.
         if interactive {
             notices.extend(self.sign_in(&settings, &started));
         }
-        Ok((serving, started))
+        Ok(started)
     }
 
     /// What the primary's terminal session is told of how it is signed in,
@@ -726,22 +743,18 @@ where
         .collect()
     }
 
-    /// Launch what is owed, stop the listener (a hook still in flight as
-    /// the engine exits is delivered before it has drained), let go of the
-    /// engine's checkout, then tell the session its incarnation ended
+    /// Launch what is owed, let go of the engine's checkout, then tell the
+    /// session its incarnation ended
     /// (ruling 85). This run's launch, its
     /// run's end checked. The session's lock is let go by the caller, after.
     async fn drive(
         &mut self,
-        serving: Box<dyn run_ports::Serving>,
         started: &Started,
         notices: &mut Vec<Notice>,
     ) -> Result<Launched, RunError> {
-        let launched = self.launch().await;
-        serving.stop().await;
-        let launched = launched?;
+        let launched = self.launch().await?;
         let ours = ours(launched, &started.session).ok_or_else(|| not_ended(&started.session))?;
-        // The engine is over and its listener stopped: its checkout is let
+        // The engine is over: its checkout is let
         // go while the session's lock is still held (owner ruling
         // 2026-11-12, Q2), removed when clean, else left and said.
         if let Some(checkout) = &ours.checkout {
@@ -782,10 +795,10 @@ where
         resume: Option<Resume>,
         notices: &mut Vec<Notice>,
     ) -> Result<Ended, RunError> {
-        let (serving, started) = self
+        let started = self
             .ready(previewed, request, resume, true, notices)
             .await?;
-        let launched = self.drive(serving, &started, notices).await?;
+        let launched = self.drive(&started, notices).await?;
         said_permits(&launched, notices);
         let Started {
             session,
@@ -838,20 +851,36 @@ where
             drivable_engines: self.launcher.engines(),
             credential: self.credential(engine, settings, interactive),
             fatal_findings: u32::try_from(previewed.fatal.len()).unwrap_or(u32::MAX),
+            untrusted_settings: previewed.plan.untrusted.clone(),
         };
         // The run's own lock, taken before its enqueue is visible (ruling 92):
         // no other process ever sees it owed a runner with its lock free.
-        let run = text(&runs::run_root(session, incarnation));
-        let lock = self.run_locks.hold_run(&run).map_err(RunError::Lock)?;
+        // A frontend's, held since before it asked (U5): journaled, and
+        // let go by the frontend once its start report is recorded.
+        let frontend = self
+            .frontend_lock
+            .take()
+            .filter(|path| self.run_locks.probe(path) == run_ports::LockProbe::Held);
+        let (launcher_lock, own) = match frontend {
+            Some(path) => (path, None),
+            None => {
+                let run = text(&runs::run_root(session, incarnation));
+                let lock = self.run_locks.hold_run(&run).map_err(RunError::Lock)?;
+                (lock.path().to_string(), Some(lock))
+            }
+        };
         let request = EnqueueRequest {
             session: session.to_string(),
             incarnation,
             mode,
             evidence,
-            launcher_lock: lock.path().to_string(),
+            launcher_lock,
+            // A one-shot journals no grant record yet (step 9 records a
+            // hosted child's).
+            grant: None,
         };
         let enqueued = self.enqueuer.enqueue(request).await;
-        if enqueued.is_ok() {
+        if let (true, Some(lock)) = (enqueued.is_ok(), own) {
             // Held until the launcher has started the runner.
             self.orders.hold(session, incarnation, lock);
         }
@@ -894,17 +923,102 @@ where
     async fn make(
         &mut self,
         session: &str,
+        chosen: Chosen,
         engine: &str,
         axis: run_launcher::Axis,
         interactive: bool,
     ) -> Result<String, RunError> {
         let project = self.identity.for_write(None).map_err(RunError::Project)?;
-        self.mint(&project, session, engine, axis, interactive)
+        self.mint(&project, session, chosen, engine, axis, interactive)
             .await
     }
 
+    /// Where the run is placed before it is enqueued: its session's id, its
+    /// incarnation, and a new session's harp. A resume owes its session the
+    /// next incarnation first (owner ruling 115), so a refused resume has
+    /// burned no run stream; a new session's stable id is the UUIDv5 of its
+    /// name (slice 2 B3), so its harp is chosen now and claimed after the
+    /// enqueue, with its first incarnation.
+    async fn placing(
+        &mut self,
+        resume: Option<&Resume>,
+        engine: &str,
+        workspace: &str,
+    ) -> Result<(String, u32, Option<Chosen>), RunError> {
+        if let Some(resume) = resume {
+            return Ok((
+                resume.session.clone(),
+                self.owe(resume, engine, workspace).await?,
+                None,
+            ));
+        }
+        let chosen = self.choose().await?;
+        let session = self.name_of(&chosen.harp).map_err(no_name)?.uid();
+        Ok((session, 1, Some(chosen)))
+    }
+
+    /// The claim stream of the name `harp`: its name's root (slice 2 B3), the
+    /// session's own.
+    fn claim_cover(&self, harp: &str) -> Result<Cover, SessionRejection> {
+        Ok(Cover {
+            domain: NAMES_DOMAIN.to_string(),
+            root: Some(self.name_of(harp)?.root()),
+            edition: None,
+        })
+    }
+
+    /// The resource name of the session `harp` of this run's project (slice
+    /// 2 B3): its project's harp, named at the project's resolution, and its
+    /// own.
+    fn name_of(&self, harp: &str) -> Result<SessionName, SessionRejection> {
+        SessionName::new(&self.place.project_harp, harp)
+    }
+
+    /// Whether `harp`'s claim stream holds no claim now.
+    async fn unclaimed(&self, harp: &str) -> Result<bool, RunError> {
+        let pages = self
+            .core
+            .edge()
+            .events(&self.claim_cover(harp).map_err(no_name)?, 0)
+            .await
+            .map_err(|e| {
+                RunError::Session(CoreError::Failed {
+                    reason: e.to_string(),
+                })
+            })?;
+        let mut held = false;
+        for any in event_bodies(&pages) {
+            match NameClaimEvent::from_any(any) {
+                Ok(NameClaimEvent::Claimed(_)) => held = true,
+                Ok(NameClaimEvent::Released(_)) => held = false,
+                Err(_) => {}
+            }
+        }
+        Ok(!held)
+    }
+
+    /// The harp a new session is minted on, chosen before its run is
+    /// enqueued (its stable id is its name's): the first fresh harp whose
+    /// directory is not there (defect 3) and whose name nobody holds; else
+    /// the last tried, marked taken, so the run it is enqueued for ends
+    /// refused `NamesTaken` and claims nothing.
+    async fn choose(&mut self) -> Result<Chosen, RunError> {
+        let mut last = None;
+        for _ in 0..NAME_TRIES {
+            let harp = self.names.project_id();
+            if !self.dirs.exists(&harp) && self.unclaimed(&harp).await? {
+                return Ok(Chosen { harp, free: true });
+            }
+            last = Some(harp);
+        }
+        Ok(Chosen {
+            harp: last.unwrap_or_default(),
+            free: false,
+        })
+    }
+
     /// End the enqueued `run` of `session` that `error` stopped before its
-    /// engine was launched (owner ruling 73g): a `LaunchFailed`, so no run is
+    /// engine was launched (owner ruling 73g): a `RecordLaunchFailed`, so no run is
     /// left owed a runner, its run lock let go, and, for a session already
     /// `minted`, its incarnation ended (ruling 85). The error is the run's,
     /// whatever recording its end met.
@@ -928,15 +1042,13 @@ where
         error
     }
 
-    /// The order placed for the run enqueued and its session minted, with
-    /// what the engine is told of the listener.
+    /// The order placed for the run enqueued and its session minted.
     #[allow(clippy::too_many_arguments)]
     fn start(
         &mut self,
         previewed: Previewed,
         request: &OneShot,
         interactive: bool,
-        told: &Told,
         placed: Placed,
         enqueued: &Enqueued,
         lock: session_ports::Held,
@@ -951,11 +1063,11 @@ where
         let engine = chosen_engine(&plan, request);
         let settings = settings_of(&plan, &engine);
         let workspace = self.workspace(&plan, &harp);
-        // The order is placed once the run's tokens exist: the hook bearer
-        // reaches the engine's environment through it (the terminal session's
-        // and a one-shot child's alike, ruling 51), and the caller's own
-        // listener variables, from a session it was started inside, are
-        // replaced by this run's, never passed on.
+        // The engine's environment names its run and session (the terminal
+        // session's and a one-shot child's alike, ruling 51), and the
+        // caller's own hook variables, from a session it was started inside,
+        // are replaced by this run's, never passed on: no endpoint, bearer
+        // or certificate (slice 4 U7), so its hooks deliver to the daemon.
         let mut env = self.env.clone();
         // What the run itself sets for the engine, which no permit replaces
         // (ruling 78b): HOME, which the engine's adapter makes the session
@@ -963,13 +1075,6 @@ where
         // processes' wiring reads first), and the PATH below; the CTXLOOM_*
         // names are the run's whatever this says.
         let mut owned = vec!["HOME".to_string()];
-        for name in run_ports::HOOK_VARIABLES {
-            env.remove(name);
-        }
-        // The engine's environment is the only thing a hook process is
-        // given: the session's harp (for its statusline) and, below, the
-        // session's id it addresses its facts to.
-        env.insert(run_ports::HARP_VARIABLE.to_string(), harp.clone());
         // The running binary's directory leads the engine's PATH, so a hook's
         // bare program (this binary's file name, ruling 163) is this binary
         // and not another one the user has; the inherited PATH follows it,
@@ -986,13 +1091,14 @@ where
             owned.push("PATH".to_string());
         }
         let run_text = text(&enqueued.run);
-        env.extend(run_ports::hook_environment(
-            &told.endpoint,
-            &run_text,
-            &session,
-            &enqueued.hook_token,
-            &told.cert,
-        ));
+        // The engine's environment is the only thing a hook process is
+        // given: the session by its resource name (s3-Q3), whose harp a
+        // statusline shows and whose UUIDv5 a hook addresses its facts to.
+        let name = self
+            .name_of(&harp)
+            .map(|name| name.to_string())
+            .unwrap_or_default();
+        run_ports::name_the_run(&mut env, &run_text, &name);
         self.orders.place(
             &session,
             incarnation,
@@ -1032,11 +1138,7 @@ where
     /// is for (the plan's, else the default agent it took). The launcher
     /// places the engine.
     fn workspace(&self, plan: &library_application::DryRun, harp: &str) -> run_launcher::Workspace {
-        let agent = [&plan.agent, &plan.settings_agent]
-            .into_iter()
-            .find(|a| !a.is_empty())
-            .cloned()
-            .unwrap_or_default();
+        let agent = planned_agent(plan);
         run_launcher::Workspace {
             axis: run_launcher::Axis::of(&plan.axes.0),
             work_dir: if self.place.worktrees.is_empty() {
@@ -1056,9 +1158,7 @@ where
             .map_err(RunError::Launch)
     }
 
-    /// The one-shot: its listener served for its child's hooks (a one-shot is
-    /// its own owner, ruling 29), one turn, and the reply the child's stream
-    /// gave.
+    /// The one-shot: one turn, and the reply the child's stream gave.
     async fn run(
         &mut self,
         previewed: Previewed,
@@ -1066,10 +1166,10 @@ where
         resume: Option<Resume>,
         notices: &mut Vec<Notice>,
     ) -> Result<Answer, RunError> {
-        let (serving, started) = self
+        let started = self
             .ready(previewed, request, resume, false, notices)
             .await?;
-        let ours = self.drive(serving, &started, notices).await?;
+        let ours = self.drive(&started, notices).await?;
         said_permits(&ours, notices);
         let Started {
             session,
@@ -1099,68 +1199,60 @@ where
         }
     }
 
-    /// Claim a name and mint the session on it: the session's id text and its
-    /// harp. A name already claimed (the claim refused `NamesTaken`, read by
-    /// the refusal's type) is tried again with another, and so is one whose
-    /// directory exists (defect 3: however the store came to have no claim on
-    /// it), without claiming it. A mint refused after its name was claimed
-    /// gives the name back (review finding 7), best effort: the mint's
-    /// refusal is the error.
+    /// Claim the chosen name and mint the session on it: its harp. A name
+    /// taken (by its directory, or a claim another run made since it was
+    /// chosen: the claim refused `NamesTaken`, read by the refusal's type) is
+    /// the run's refusal. A mint refused after its name was claimed gives
+    /// the name back (review finding 7), best effort: the mint's refusal is
+    /// the error.
     async fn mint(
         &mut self,
         project: &Project,
         session: &str,
+        chosen: Chosen,
         engine: &str,
         axis: run_launcher::Axis,
         interactive: bool,
     ) -> Result<String, RunError> {
         let edge = self.core.edge();
-        let session = session.to_string();
-        let mut taken = None;
-        for _ in 0..NAME_TRIES {
-            let harp = self.names.project_id();
-            if self.dirs.exists(&harp) {
-                taken = Some(names_taken(&harp));
-                continue;
-            }
-            let claim = NameClaimCommand::from(ClaimName {
-                project_id: project.id.clone(),
-                harp: harp.clone(),
-                session: session.clone(),
-            });
-            match edge
-                .handle(angzarr_embedded::v1::CommandBook::command_of(
-                    claim_cover(project, &harp),
-                    &claim,
-                ))
-                .await
-            {
-                Ok(_) => {
-                    let minted = self
-                        .mint_on(project, engine, &session, &harp, axis, interactive)
-                        .await;
-                    if minted.is_err() {
-                        let release = NameClaimCommand::from(ReleaseName {
-                            session: session.clone(),
-                        });
-                        let _ = edge
-                            .handle(angzarr_embedded::v1::CommandBook::command_of(
-                                claim_cover(project, &harp),
-                                &release,
-                            ))
-                            .await;
-                    }
-                    return minted.map(|()| harp);
-                }
-                Err(Failure::Rejected(rejected)) if refused_taken(&rejected) => {
-                    taken = Some(names_taken(&harp));
-                }
-                Err(failure) => return Err(RunError::Session(CoreError::from_failure(failure))),
-            }
+        let Chosen { harp, free } = chosen;
+        if !free {
+            return Err(RunError::Session(names_taken(&harp)));
         }
-        Err(RunError::Session(taken.unwrap_or(CoreError::Failed {
-            reason: "no name was tried".to_string(),
-        })))
+        let claim = NameClaimCommand::from(ClaimName {
+            project_id: project.id.clone(),
+            harp: harp.clone(),
+            session: session.to_string(),
+        });
+        let cover = self.claim_cover(&harp).map_err(no_name)?;
+        match edge
+            .handle(angzarr_embedded::v1::CommandBook::command_of(
+                cover.clone(),
+                &claim,
+            ))
+            .await
+        {
+            Ok(_) => {
+                let minted = self
+                    .mint_on(project, engine, session, &harp, axis, interactive)
+                    .await;
+                if minted.is_err() {
+                    let release = NameClaimCommand::from(ReleaseName {
+                        session: session.to_string(),
+                    });
+                    let _ = edge
+                        .handle(angzarr_embedded::v1::CommandBook::command_of(
+                            cover, &release,
+                        ))
+                        .await;
+                }
+                minted.map(|()| harp)
+            }
+            Err(Failure::Rejected(rejected)) if refused_taken(&rejected) => {
+                Err(RunError::Session(names_taken(&harp)))
+            }
+            Err(failure) => Err(RunError::Session(CoreError::from_failure(failure))),
+        }
     }
 
     async fn mint_on(
@@ -1185,6 +1277,7 @@ where
             },
             started_at: None,
             depth: 0,
+            owner: None,
             // The axis is a session trait: a resume works in the same place.
             workspace: Some(axis.word().to_string()),
         }
@@ -1204,6 +1297,38 @@ where
             .await
             .map(drop)
             .map_err(|failure| RunError::Session(CoreError::from_failure(failure)))
+    }
+
+    /// The loadout of `plan` recorded as the incarnation `incarnation`'s of
+    /// the session `session` (step 10c U13; keyed by both, so it is
+    /// recorded once). Best effort: one not recorded leaves the run as it
+    /// is, and a change is told the session at no hook.
+    async fn record_loadout(
+        &self,
+        session: &str,
+        incarnation: u32,
+        plan: &library_application::DryRun,
+    ) {
+        let Ok(id) = uuid::Uuid::parse_str(session) else {
+            return;
+        };
+        let cover = Cover {
+            domain: SESSION_DOMAIN.to_string(),
+            root: Some(Uuid::from_bytes(*id.as_bytes())),
+            edition: None,
+        };
+        let agent = planned_agent(plan);
+        let fact = sessions::RecordLoadout {
+            loadout: crate::loadout_of_plan(&agent, &plan.profiles, &plan.fragments),
+            incarnation,
+            covered: Vec::new(),
+        };
+        let key = sessions::loadout_key(session, incarnation);
+        let _ = self
+            .core
+            .edge()
+            .handle(sessions::fact_book(cover, &fact, &key))
+            .await;
     }
 
     /// The run's stream holds its end.
@@ -1287,13 +1412,20 @@ fn session_cover(session: &str) -> Cover {
     }
 }
 
-/// The claim stream of `harp` in `project`.
-fn claim_cover(project: &Project, harp: &str) -> Cover {
-    Cover {
-        domain: NAMES_DOMAIN.to_string(),
-        root: Some(claim_root(&project.id, harp)),
-        edition: None,
-    }
+/// A name that is no session's (its project's harp, or its own, no harp),
+/// as the run's error.
+fn no_name(rejection: SessionRejection) -> RunError {
+    RunError::Session(CoreError::Refused {
+        code: rejection.code().to_string(),
+        args: BTreeMap::new(),
+    })
+}
+
+/// A new session's harp, chosen before its run is enqueued: `free` when
+/// no directory or claim held it then.
+struct Chosen {
+    harp: String,
+    free: bool,
 }
 
 /// Whether a claim was refused because the name is taken: the refusal's

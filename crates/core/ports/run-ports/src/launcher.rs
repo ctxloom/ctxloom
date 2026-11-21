@@ -3,7 +3,7 @@
 //! A child agent on claude runs turn-as-command: each turn is one command, a
 //! later turn a new one, so a launch is a command and its end, with no
 //! long-lived process in between. The launcher runs `command` under `limits`
-//! and answers how it went; [`Launch::events`] is that answer as the
+//! and answers how it went; [`TurnLaunch::events`] is that answer as the
 //! launcher's facts. This module is pure: a driven adapter (`host-launcher`)
 //! does the running.
 //!
@@ -24,6 +24,7 @@ use std::fmt;
 use std::time::Duration;
 
 use crate::hook::RedactedEnv;
+use crate::launch::{Launch, LaunchKind};
 use crate::ProgramNotFound;
 
 /// The command of one turn: the program, its arguments, its WHOLE
@@ -123,7 +124,7 @@ pub struct LaunchFailure {
 
 /// What came of launching a command.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Launch {
+pub enum TurnLaunch {
     NotStarted(LaunchFailure),
     /// It started, and is over.
     Over(TurnOutput),
@@ -142,18 +143,18 @@ pub enum LaunchEvent {
     },
 }
 
-impl Launch {
+impl TurnLaunch {
     /// The facts the answer itself makes, in order: a command that started
     /// and is over is `RunExited`; one that did not start is `LaunchFailed`.
-    /// (`RunnerStarted`, with the pid, is the caller's to record between
+    /// (`RecordRunnerStarted`, with the pid, is the caller's to record between
     /// [`RunnerLauncher::launch`] and [`Running::finish`].)
     pub fn events(&self) -> Vec<LaunchEvent> {
         match self {
-            Launch::NotStarted(failure) => vec![LaunchEvent::LaunchFailed {
+            TurnLaunch::NotStarted(failure) => vec![LaunchEvent::LaunchFailed {
                 deterministic: failure.deterministic,
                 detail: failure.detail.clone(),
             }],
-            Launch::Over(output) => vec![LaunchEvent::RunExited {
+            TurnLaunch::Over(output) => vec![LaunchEvent::RunExited {
                 code: output.exit.code,
                 signal: output.exit.signal,
             }],
@@ -169,6 +170,20 @@ pub trait Running: Send {
     /// Wait until the command is over (or killed at its deadline). A failure
     /// here is a wait that broke after the command started.
     fn finish(self: Box<Self>) -> Result<TurnOutput, LaunchFailure>;
+}
+
+/// Where a command's end is waited for. [`Running::finish`] blocks, and a turn
+/// is waited on by PARKING a thread (owner, 2026-11-19): this is the port by
+/// which the waiter says on WHICH thread, so that a parked turn never takes an
+/// async runtime worker, which stay free for messages, steers and requests.
+/// The parked threads are bounded by construction: a runner runs one agent,
+/// and an agent has one turn at a time.
+pub trait Parks: Send + Sync {
+    /// `running`'s end, waited for on a thread of the implementation's own.
+    fn park(
+        &self,
+        running: Box<dyn Running>,
+    ) -> crate::BoxFuture<'static, Result<TurnOutput, LaunchFailure>>;
 }
 
 /// Starts one turn's command. [`Running::finish`] blocks until it is over.
@@ -195,6 +210,23 @@ pub trait RunnerLauncher: Send + Sync {
     /// that searches nothing (a fake).
     fn find_program(&self, command: &TurnCommand) -> Result<String, ProgramNotFound> {
         Ok(command.program.clone())
+    }
+
+    /// Start `launch` (T10), as its kind is started: a one-shot's turn
+    /// under `limits` ([`RunnerLauncher::launch`]), a terminal or an
+    /// editor on this process's terminal
+    /// ([`RunnerLauncher::launch_terminal`]). A child is its engine's to
+    /// start (`ChildEngine::start`): refused, nothing started. An `Err`
+    /// started nothing.
+    fn start(&self, launch: &Launch, limits: &Limits) -> Result<Box<dyn Running>, LaunchFailure> {
+        match launch.kind {
+            LaunchKind::OneShot => self.launch(&launch.command(), limits),
+            LaunchKind::Terminal | LaunchKind::Editor => self.launch_terminal(&launch.command()),
+            LaunchKind::Child => Err(LaunchFailure {
+                deterministic: true,
+                detail: format!("a child of {} is started by its engine", launch.engine),
+            }),
+        }
     }
 }
 

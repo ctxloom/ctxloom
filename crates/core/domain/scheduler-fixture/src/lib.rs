@@ -1,8 +1,8 @@
 //! A test-only domain that consumes the scheduler. `dummy` records a deadline
 //! ([`SetDeadline`] -> [`DeadlineSet`]); [`ArmsDeadline`], its policy, asks the
-//! scheduler for an alarm at it and withdraws it on [`Closed`]; the
+//! scheduler for an alarm at it and withdraws it on [`DummyClosed`]; the
 //! scheduler's delivery policy ([`DeliverToDummy`], one `delivery!` line)
-//! hands it `AlarmReached`, which it re-checks against its own deadline and
+//! hands it `RecordAlarmReached`, which it re-checks against its own deadline and
 //! records as [`DeadlinePassed`] only if it still matches.
 
 use std::convert::Infallible;
@@ -10,7 +10,9 @@ use std::convert::Infallible;
 use angzarr_embedded::markup::{pack_message, Commands, FactEmit, PageContext, Snapshots};
 use angzarr_embedded::Timestamp;
 use angzarr_embedded_macros::{aggregate, applies, handles_cmd, handles_fact, on_event, policy};
-use scheduler::{stream_for, AlarmReached, ArmAlarm, CancelAlarm, SchedulerAggregate, Stream};
+use scheduler::{
+    stream_for, ArmAlarm, CancelAlarm, RecordAlarmReached, SchedulerAggregate, Stream,
+};
 
 /// The generated wire types, as the domain layer names them. The anchor
 /// message (`DummyState`) is a declaration only, never constructed.
@@ -67,18 +69,18 @@ impl DummyAggregate {
     }
 
     #[handles_cmd(Close)]
-    fn close(&self, cmd: Close, ctx: &Context) -> Result<Closed, Failed<Unrefusable>> {
+    fn close(&self, cmd: Close, ctx: &Context) -> Result<DummyClosed, Failed<Unrefusable>> {
         let _ = (cmd, ctx);
-        Ok(Closed {})
+        Ok(DummyClosed {})
     }
 
     /// The scheduler says the deadline is reached: re-checked against this
     /// dummy's own arming, recorded only if it is still the deadline and the
     /// dummy is still open and has not passed yet.
-    #[handles_fact(AlarmReached)]
+    #[handles_fact(RecordAlarmReached)]
     fn reached(
         &self,
-        fact: AlarmReached,
+        fact: RecordAlarmReached,
         ctx: &Context,
     ) -> Result<FactEmit<Self>, angzarr_embedded::markup::Bug> {
         let _ = ctx;
@@ -95,8 +97,8 @@ impl DummyAggregate {
         self.deadline = Some(event.deadline);
     }
 
-    #[applies(Closed)]
-    fn closed_(&mut self, event: Closed, page: &PageContext) {
+    #[applies(DummyClosed)]
+    fn closed_(&mut self, event: DummyClosed, page: &PageContext) {
         let _ = (event, page);
         self.closed = true;
     }
@@ -142,10 +144,10 @@ impl ArmsDeadline {
         ))
     }
 
-    #[on_event(Closed)]
+    #[on_event(DummyClosed)]
     fn closed(
         &self,
-        event: &Closed,
+        event: &DummyClosed,
         ctx: &PolicyContext,
     ) -> Result<Commands<SchedulerAggregate>, Infallible> {
         let _ = event;

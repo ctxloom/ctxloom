@@ -624,7 +624,11 @@ fn test_the_source_words_are_stable() {
 
 // ruling 46: a project layer cannot name the program to run, a credentials
 // file, or the host's own session home
-fn stripped(text: &str) -> (Vec<String>, Value) {
+fn pair(path: &str, value: &str) -> (String, String) {
+    (path.to_string(), value.to_string())
+}
+
+fn stripped(text: &str) -> (Vec<(String, String)>, Value) {
     let mut layer = cfg(text);
     let removed = strip_project_only(&mut layer);
     (removed, layer)
@@ -638,9 +642,9 @@ fn a_project_layer_loses_the_command_the_auth_file_and_a_host_session_home() {
     assert_eq!(
         removed,
         [
-            "engines.claude-code.command",
-            "engines.claude-code.session_home",
-            "engines.claude-code.auth.file"
+            pair("engines.claude-code.command", "/tmp/evil"),
+            pair("engines.claude-code.session_home", "host"),
+            pair("engines.claude-code.auth.file", "/x/creds.json"),
         ]
     );
     assert_eq!(
@@ -649,10 +653,22 @@ fn a_project_layer_loses_the_command_the_auth_file_and_a_host_session_home() {
     );
 }
 
+// step 8 U1: a command that is no text is still taken out, said as empty
+#[test]
+fn a_command_that_is_no_text_is_taken_out_and_said_as_empty() {
+    let (removed, layer) = stripped("engines:\n  opencode:\n    command: [a, b]\n");
+    assert_eq!(removed, [pair("engines.opencode.command", "")]);
+    assert!(layer
+        .get("engines")
+        .and_then(|e| e.get("opencode"))
+        .and_then(|b| b.get("command"))
+        .is_none());
+}
+
 #[test]
 fn a_file_only_auth_leaves_no_empty_auth_behind() {
     let (removed, layer) = stripped("engines:\n  claude-code:\n    auth:\n      file: /x\n");
-    assert_eq!(removed, ["engines.claude-code.auth.file"]);
+    assert_eq!(removed, [pair("engines.claude-code.auth.file", "/x")]);
     assert!(layer
         .get("engines")
         .and_then(|e| e.get("claude-code"))
@@ -669,6 +685,45 @@ fn what_a_project_may_say_is_left_alone() {
     assert!(stripped("agents: {}\n").0.is_empty());
 }
 
+// owner ruling of 2026-11-13 (superseding 44(b) for this key): an agent's
+// session_home is its own, the engine block's its default, like the runtime
+#[test]
+fn test_an_agent_s_session_home_stands_over_its_engine_block_s() {
+    let doc = "engines:\n  claude-code:\n    session_home: host\nagents:\n  own:\n    session_home: session\n  said:\n    session_home: host\n  silent:\n    engine: claude-code\n";
+    assert_eq!(of(doc, "own").session_home, text("session", Source::Agent));
+    assert_eq!(of(doc, "said").session_home, text("host", Source::Agent));
+    assert_eq!(of(doc, "silent").session_home, text("host", Source::Engine));
+    let bare = "agents:\n  dev:\n    session_home: host\n";
+    assert_eq!(of(bare, "dev").session_home, text("host", Source::Agent));
+    let none = "agents:\n  dev:\n    engine: claude-code\n";
+    assert_eq!(
+        of(none, "dev").session_home,
+        text("session", Source::Default)
+    );
+}
+
+// the agent's own session_home is engine-neutral: `run --engine` keeps it
+#[test]
+fn test_an_agent_s_session_home_is_kept_on_another_engine() {
+    let config = cfg("engines:\n  opencode:\n    session_home: session\nagents:\n  dev:\n    engine: claude-code\n    session_home: host\n");
+    let got = effective_on(&config, "dev", "opencode").unwrap();
+    assert_eq!(got.session_home, text("host", Source::Agent));
+}
+
+// ruling 46 at either level: an agent's `session_home: host` in a project
+// layer is taken out, as the engine block's is; `session` stays
+#[test]
+fn test_a_project_layer_loses_an_agent_s_host_session_home() {
+    let (removed, layer) = stripped(
+        "agents:\n  dev:\n    session_home: host\n    runtime: host\n  calm:\n    session_home: session\n",
+    );
+    assert_eq!(removed, [pair("agents.dev.session_home", "host")]);
+    assert_eq!(
+        layer,
+        cfg("agents:\n  dev:\n    runtime: host\n  calm:\n    session_home: session\n")
+    );
+}
+
 // ---- the drive: what a launch is told of how to run the engine ----
 
 #[test]
@@ -679,6 +734,14 @@ fn test_a_drive_of_an_agent_carries_its_engine_block_and_its_own_passthrough() {
     assert_eq!(drive.session_home, "host");
     // ruling 66: the engine's names, then the agent's
     assert_eq!(drive.env, names(&["A", "B"]));
+}
+
+// the launch reads the agent's effective session_home, not the engine block's
+#[test]
+fn test_a_drive_of_an_agent_carries_its_own_session_home() {
+    let config = cfg("engines:\n  claude-code:\n    session_home: session\nagents:\n  dev:\n    session_home: host\n");
+    let drive = Drive::from(&effective(&config, "dev").unwrap());
+    assert_eq!(drive.session_home, "host");
 }
 
 #[test]
@@ -809,4 +872,57 @@ fn test_the_engine_asked_for_is_the_agent_s_unless_it_is_the_default_it_already_
         text("claude-code", Source::Agent)
     );
     assert_eq!(on("named", "opencode"), text("opencode", Source::Agent));
+}
+
+// OD-41 (D16): how long an ask of the engine waits is its engine block's
+// `approval_timeout`, as written and from the block, else 300 seconds said
+// by nobody; `now` is zero (every ask denied at once); an agent never says it.
+#[test]
+fn test_an_engines_approval_timeout_is_its_blocks_else_five_minutes() {
+    let silent = of("agents:\n  dev:\n    profiles: [p]\n", "dev");
+    assert_eq!(silent.approval_timeout, text("5m", Source::Default));
+    assert_eq!(
+        Drive::from(&silent).approval_timeout,
+        Duration::from_secs(300)
+    );
+    assert_eq!(APPROVAL_TIMEOUT_DEFAULT, Duration::from_secs(300));
+    assert_eq!(
+        span_of(APPROVAL_TIMEOUT_DEFAULT_TEXT),
+        APPROVAL_TIMEOUT_DEFAULT
+    );
+
+    let said = "engines:\n  claude-code:\n    approval_timeout: 1h\n  opencode:\n    approval_timeout: now\nagents:\n  dev:\n    profiles: [p]\n";
+    let got = of(said, "dev");
+    assert_eq!(got.approval_timeout, text("1h", Source::Engine));
+    assert_eq!(
+        Drive::from(&got).approval_timeout,
+        Duration::from_secs(3600)
+    );
+    // On another engine (`run --engine`), that engine's block says it.
+    let on = effective_on(&cfg(said), "dev", "opencode").unwrap();
+    assert_eq!(on.approval_timeout, text("now", Source::Engine));
+    assert_eq!(Drive::from(&on).approval_timeout, Duration::ZERO);
+    // A launch with no agent reads the engine's block alone.
+    let bare = engine_drive(&cfg(said), "claude-code").unwrap();
+    assert_eq!(bare.approval_timeout, Duration::from_secs(3600));
+    let unsaid = engine_drive(&cfg("schema_version: 9\n"), "opencode").unwrap();
+    assert_eq!(unsaid.approval_timeout, APPROVAL_TIMEOUT_DEFAULT);
+    assert_eq!(Drive::default().approval_timeout, APPROVAL_TIMEOUT_DEFAULT);
+    // What every agent of the engine shares, as `engine show` lists it.
+    let shared = engine_settings(&cfg(said), "claude-code").unwrap();
+    assert_eq!(shared.approval_timeout, text("1h", Source::Engine));
+}
+
+// A value that does not read as a span (a config read `--degraded`, its
+// violation already said) is not taken: the default stands, said by nobody.
+#[test]
+fn test_an_approval_timeout_that_does_not_read_is_the_default() {
+    let got = of(
+        "engines:\n  claude-code:\n    approval_timeout: soon\nagents:\n  dev:\n    profiles: [p]\n",
+        "dev",
+    );
+    assert_eq!(got.approval_timeout, text("5m", Source::Default));
+    assert_eq!(span_of("soon"), APPROVAL_TIMEOUT_DEFAULT);
+    assert_eq!(span_of("90s"), Duration::from_secs(90));
+    assert_eq!(span_of("now"), Duration::ZERO);
 }

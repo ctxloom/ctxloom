@@ -91,18 +91,12 @@ fn a_turn_request_renders_its_env_keys_and_never_the_bearer() {
         model: String::new(),
         effort: String::new(),
         settings: crate::EngineSettings::default(),
+        approval_prompt: true,
     };
     assert_eq!(
         format!("{request:?}"),
-        r#"TurnRequest { prompt: "p", home: "/h", context_path: "/h/c", resume: None, env: {"CTXLOOM_BEARER": "<redacted>", "PATH": "<redacted>"}, user_home: None, cwd: None, model: "", effort: "", settings: EngineSettings { command: "", session_home: Session, auth: Builtin, env: [] } }"#
+        r#"TurnRequest { prompt: "p", home: "/h", context_path: "/h/c", resume: None, env: {"CTXLOOM_BEARER": "<redacted>", "PATH": "<redacted>"}, user_home: None, cwd: None, model: "", effort: "", settings: EngineSettings { command: "", session_home: Session, auth: Builtin, env: [], approval_timeout: 300s }, approval_prompt: true }"#
     );
-}
-
-// Ruling 58: an engine says its session ends with its exit only by saying so;
-// one that does not (claude, whose SessionEnd hook says it) leaves it to hooks.
-#[test]
-fn an_engine_that_says_nothing_does_not_end_its_session_by_its_exit() {
-    assert!(!Plain.session_ends_with_exit());
 }
 
 // Ruling 168: an engine with nothing to say of a plan advises nothing, a plan
@@ -117,12 +111,13 @@ fn an_engine_that_says_nothing_advises_nothing() {
 #[test]
 fn a_home_file_renders_its_path_and_never_its_bytes() {
     let file = HomeFile {
+        executable: false,
         rel: "settings.json".to_string(),
         bytes: br#"{"env":{"TOKEN":"TOPSECRET"}}"#.to_vec(),
     };
     assert_eq!(
         format!("{file:?}"),
-        r#"HomeFile { rel: "settings.json", bytes: "<29 bytes>" }"#
+        r#"HomeFile { rel: "settings.json", bytes: "<29 bytes>", executable: false }"#
     );
 }
 

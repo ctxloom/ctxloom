@@ -203,6 +203,64 @@ pub(crate) fn prune(files: &ProjectFiles, keep: &[(String, String)]) -> Result<V
 }
 
 /// The directories below `dir` that are an installed tree: they hold a marker.
+/// `dir` below the app directory, `/`-separated.
+fn relative(files: &ProjectFiles, dir: &Path) -> String {
+    dir.strip_prefix(&files.app_dir)
+        .unwrap_or(dir)
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// Where `install(slot, sha)` puts its tree, below the app directory.
+pub(crate) fn relative_path(files: &ProjectFiles, slot: &BundleSlot, sha: &str) -> String {
+    relative(files, &bundle_dir(files, slot).join(sha))
+}
+
+/// The trees `install(slot, sha)` replaces (the identity's at any other
+/// commit), each below the app directory; it removes nothing.
+pub(crate) fn replaced(files: &ProjectFiles, slot: &BundleSlot, sha: &str) -> Vec<String> {
+    let base = bundle_dir(files, slot);
+    installed_trees(files, &base)
+        .into_iter()
+        .filter(|name| name != sha)
+        .map(|name| relative(files, &base.join(name)))
+        .collect()
+}
+
+/// What `prune(keep)` would take, removing nothing: each tree's directory
+/// below the app directory, and the identities that would go (as `prune`
+/// answers them).
+pub(crate) fn prunable(
+    files: &ProjectFiles,
+    keep: &[(String, String)],
+) -> Result<(Vec<String>, Vec<String>), Why> {
+    let mut trees = Vec::new();
+    find(files, &root(files), &mut trees);
+    let (mut dirs, mut gone) = (Vec::new(), Vec::new());
+    for dir in trees {
+        let sha = dir
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let identity = files
+            .read_text(&dir.join(IDENTITY_MARKER))?
+            .unwrap_or_default();
+        if keep.iter().any(|(i, s)| *i == identity && *s == sha) {
+            continue;
+        }
+        dirs.push(relative(files, &dir));
+        if !identity.is_empty()
+            && !keep.iter().any(|(i, _)| *i == identity)
+            && !gone.contains(&identity)
+        {
+            gone.push(identity);
+        }
+    }
+    Ok((dirs, gone))
+}
+
 fn find(files: &ProjectFiles, dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = files.fs.read_dir(dir) else {
         return;

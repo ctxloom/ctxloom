@@ -44,10 +44,6 @@ pub enum AppError {
     BundleNotFound { name: String },
     /// A move to a place that is neither a remote nor a directory.
     BadDestination { to: String, known: String },
-    /// A move onto a bundle already there.
-    DestinationExists { dest: String },
-    /// A move onto the bundle's own directory.
-    DestinationItself { dest: String },
     /// A publish that did not land.
     Publish { remote: String, detail: String },
     /// A pull request, which needs a forge with an API (GitHub's).
@@ -102,8 +98,6 @@ impl ExitClass for AppError {
             | AppError::NothingToHold { .. }
             | AppError::BundleNotFound { .. }
             | AppError::BadDestination { .. }
-            | AppError::DestinationExists { .. }
-            | AppError::DestinationItself { .. }
             | AppError::PullRequestNeedsForge { .. }
             | AppError::DiscoverSource { .. }
             | AppError::EmptyFile { .. }
@@ -136,8 +130,6 @@ impl Diagnostic for AppError {
             AppError::NothingToHold { .. } => code!("nothing-to-hold"),
             AppError::BundleNotFound { .. } => code!("bundle-not-found"),
             AppError::BadDestination { .. } => code!("bad-destination"),
-            AppError::DestinationExists { .. } => code!("destination-exists"),
-            AppError::DestinationItself { .. } => code!("destination-itself"),
             AppError::Publish { .. } => code!("publish"),
             AppError::PullRequestNeedsForge { .. } => code!("pull-request-needs-forge"),
             AppError::DiscoverSource { .. } => code!("discover-source"),
@@ -184,9 +176,6 @@ impl Diagnostic for AppError {
             ],
             AppError::BadDestination { to, known } => {
                 vec![("to", to.as_str().into()), ("known", known.as_str().into())]
-            }
-            AppError::DestinationExists { dest } | AppError::DestinationItself { dest } => {
-                vec![("dest", dest.as_str().into())]
             }
             AppError::CloneNotRefreshed { url, detail } => vec![
                 ("url", url.as_str().into()),
@@ -323,10 +312,6 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
             to: s("nowhere"),
             known: s(" (configured remotes: origin)"),
         }),
-        Box::new(AppError::DestinationExists {
-            dest: s("other/.ctxloom/content/bundles/v2/demo"),
-        }),
-        Box::new(AppError::DestinationItself { dest: s("demo") }),
         Box::new(AppError::Publish {
             remote: s("origin"),
             detail: s("rejected"),

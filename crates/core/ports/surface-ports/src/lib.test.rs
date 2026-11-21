@@ -216,3 +216,8 @@ fn only_the_context_rides_a_launch_by_default() {
         assert!(!Named("x", true).rides_launch(kind), "{kind:?}");
     }
 }
+
+#[test]
+fn test_ctxloom_server_is_started_with_mcp_serve() {
+    assert_eq!(ctxloom_server_args(), ["mcp", "serve"]);
+}

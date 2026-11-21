@@ -13,6 +13,7 @@ use angzarr_yaml::Value;
 
 use crate::error::ProfileError;
 use crate::findings::Finding;
+use crate::model::Hook;
 use crate::refs;
 use crate::yamlx::{self, key_line};
 
@@ -58,6 +59,54 @@ impl HooksConfig {
             for (event, hooks) in events {
                 append_hooks(mine.entry(event.clone()).or_default(), hooks);
             }
+        }
+    }
+}
+
+/// A profile's hooks each read as a [`Hook`] (`document::hook`), field for
+/// field [`HooksConfig`]: what `profile show` and a profile's message give
+/// (step 10a U2, owner ruling 2026-11-17). An event or an engine with no
+/// hook is left out, and so is an entry the library cannot read as a hook,
+/// as the launch package leaves it out.
+#[derive(Clone, Default, PartialEq, Eq, Debug)]
+pub struct ProfileHooks {
+    /// Neutral events to their hooks.
+    pub unified: BTreeMap<String, Vec<Hook>>,
+    /// Engine name to that engine's native events to their hooks.
+    pub ext: BTreeMap<String, BTreeMap<String, Vec<Hook>>>,
+}
+
+/// `events`' hooks read as hooks, those with none left out.
+fn read_events(events: &BTreeMap<String, Vec<Value>>, at: &str) -> BTreeMap<String, Vec<Hook>> {
+    events
+        .iter()
+        .filter_map(|(event, hooks)| {
+            let read: Vec<Hook> = hooks
+                .iter()
+                .enumerate()
+                .filter_map(|(i, value)| {
+                    let path = format!("{at}.{event}[{i}]");
+                    crate::document::hook(value, event, &i.to_string(), &path).ok()
+                })
+                .collect();
+            (!read.is_empty()).then(|| (event.clone(), read))
+        })
+        .collect()
+}
+
+impl HooksConfig {
+    /// Its hooks read as hooks ([`ProfileHooks`]).
+    pub fn read(&self) -> ProfileHooks {
+        ProfileHooks {
+            unified: read_events(&self.unified, "hooks.unified"),
+            ext: self
+                .ext
+                .iter()
+                .filter_map(|(engine, events)| {
+                    let read = read_events(events, &format!("hooks.ext.{engine}"));
+                    (!read.is_empty()).then(|| (engine.clone(), read))
+                })
+                .collect(),
         }
     }
 }

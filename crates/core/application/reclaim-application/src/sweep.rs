@@ -13,30 +13,33 @@
 //! | otherwise                                     | purged (planned without `yes`) |
 //!
 //! Before its row, each session's scratch worktrees are rows of their own
-//! (`worktree`), asked of the worktree leaf with the sweep's own apply
-//! decision: reaped (done), reapable (planned), spared in place (held) or
-//! skipped, each saying why.
+//! (`worktree`), classified by the worktree leaf first, changing nothing:
+//! reapable, spared in place (held) or skipped, each saying why. Checkouts
+//! go ONLY as part of destroying their session (owner rulings 2026-11-13
+//! and 2026-11-14, as `session remove <harp>`): a session the sweep keeps,
+//! for ANY reason (skipped, marked keep, spared by a checkout, no purge
+//! age, active since it, within its retention, or its purge refused or
+//! failed), keeps every checkout, its clean ones held, saying why the
+//! session was kept. A session it purges has them planned, and on `yes`
+//! removed by the purge itself, through `session remove`'s order (done).
 //!
 //! Nothing is decided by a model: the same sessions give the same report.
-//! The purge acts through `session remove` (a destroy, owner ruling 98), so
-//! every refusal it makes is the sweep's.
+//! The purge acts through `session remove`'s own order ([`crate::remove`],
+//! a destroy, owner ruling 98), so every refusal it makes is the sweep's.
+//! The sessions are the caller's (the daemon's warm index, slice 2).
 
 use std::collections::BTreeMap;
 
-use isolation_application::{IsolationError, Row, Verdict as Worktree, WorktreeUse};
+use isolation_application::{IsolationError, Report, Row, Verdict as Worktree};
 use serde::Serialize;
-use session_index::stamp;
-use sessions_application::{
-    AppError, ListQuery, Refusal, RemoveRequest, SessionService, State, Timestamp,
-};
+use session_index::{stamp, View};
+use sessions_application::{Refusal, Removal, RemoveRequest, State, Timestamp};
 
-use crate::ReclaimError;
+use crate::{ReclaimError, Removals};
 
 /// What a sweep is asked.
 #[derive(Clone, Debug, Default)]
 pub struct SweepRequest {
-    /// Every project's sessions, not only the current one's.
-    pub all_projects: bool,
     /// Sessions last active before this are purged; none holds every purge.
     pub purge_cutoff: Option<Timestamp>,
     /// Act on the plan (`--yes`); without it only report.
@@ -69,7 +72,7 @@ impl Verdict {
 }
 
 /// One session's row.
-#[derive(Clone, PartialEq, Eq, Debug, Serialize)]
+#[derive(Clone, PartialEq, Debug, Serialize)]
 pub struct SweepRow {
     pub harp: String,
     pub action: &'static str,
@@ -85,6 +88,9 @@ pub struct SweepRow {
     /// done), each relative to the session's directory (owner ruling 104).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub authored: Vec<String>,
+    /// The removal a purge row planned or applied, its file plan whole.
+    #[serde(skip)]
+    pub removal: Option<Removal>,
 }
 
 pub(crate) fn is_zero(n: &u64) -> bool {
@@ -92,7 +98,7 @@ pub(crate) fn is_zero(n: &u64) -> bool {
 }
 
 /// The sweep's answer.
-#[derive(Clone, PartialEq, Eq, Debug, Serialize)]
+#[derive(Clone, PartialEq, Debug, Serialize)]
 pub struct SweepReport {
     /// When purging begins, as a date; none when purges are held.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -116,92 +122,57 @@ fn row(
         command,
         bytes: 0,
         authored: Vec::new(),
+        removal: None,
     }
 }
 
-/// Sweep the project's sessions (or every project's).
-pub async fn sweep<S: SessionService + WorktreeUse>(
+/// Sweep `views`, a project's sessions (or every project's), each in its
+/// state.
+pub async fn sweep<S: Removals + Send>(
     service: &mut S,
+    views: &[View],
     request: &SweepRequest,
 ) -> Result<SweepReport, ReclaimError> {
-    let views = service
-        .list(ListQuery {
-            project: None,
-            all: request.all_projects,
-            state: None,
-        })
-        .await?;
     let mut rows = Vec::new();
-    for view in &views {
+    for view in views {
         let harp = view.record.harp.as_str();
-        let checkouts = worktree_rows(service, harp, request.yes)?;
+        let project = Some(view.record.project_id.as_str()).filter(|id| !id.is_empty());
+        // Classified first, changing nothing. Checkouts go ONLY as part of
+        // destroying their session (owner rulings 2026-11-13 and
+        // 2026-11-14, `session remove`'s whole or not at all): the purge
+        // removes them through `session remove`'s own order, and a session
+        // the sweep keeps, for any reason, keeps every one.
+        let checkouts = worktree_rows(service, project, harp)?;
         let preserved = preserved_worktree(&checkouts).map(str::to_string);
-        rows.extend(checkouts.into_iter().map(|c| c.row));
-        let purge = format!("ctxloom session remove {harp} --yes");
-        let decided = match view.state {
-            State::Live => Some(row(
-                harp,
-                "skip",
-                Verdict::Skipped,
-                "it is running",
-                String::new(),
-            )),
-            State::Unknown => Some(row(
-                harp,
-                "skip",
-                Verdict::Skipped,
-                "its liveness cannot be proven",
-                format!("ctxloom session remove {harp} --even-if-live"),
-            )),
-            State::Ended if view.record.kept => Some(row(
-                harp,
-                "keep",
-                Verdict::Held,
-                "it is marked keep: its transcript is kept at any age",
-                format!("ctxloom session keep {harp} --undo"),
-            )),
-            State::Ended => None,
+        let (decided, outcome) =
+            decide(service, view, project, preserved.as_deref(), request).await;
+        let checkouts = match outcome {
+            Outcome::Classified => checkouts,
+            Outcome::Applied(report) => report
+                .map(|report| checkout_rows(harp, &report))
+                .unwrap_or_default(),
+            // What is left after a purge that failed part way.
+            Outcome::Failed => worktree_rows(service, project, harp).unwrap_or(checkouts),
         };
-        if let Some(decided) = decided {
-            rows.push(decided);
-            continue;
-        }
-        // Go's DecideSweep: a checkout that must be preserved spares its
-        // session from purge too, whatever the purge age says.
-        if let Some(worktree) = preserved {
-            rows.push(row(
-                harp,
-                "spare",
-                Verdict::Left,
-                &format!(
-                    "its scratch worktree {worktree} must be preserved, so the session is spared from reclaim and purge and the work stays where it is"
-                ),
-                String::new(),
-            ));
-            continue;
-        }
-        let Some(cutoff) = request.purge_cutoff else {
-            rows.push(row(
-                harp,
-                "purge",
-                Verdict::Held,
-                "no --purge-older-than or session_purge_age is set, so nothing is purged",
-                String::new(),
-            ));
-            continue;
+        let destroyed = decided.action == "purge"
+            && matches!(decided.verdict, Verdict::Planned | Verdict::Done);
+        let why = match &preserved {
+            Some(worktree) => format!(
+                "its scratch worktree {worktree} must be preserved, so the session is spared"
+            ),
+            None if decided.verdict == Verdict::Failed => {
+                format!("its purge failed ({})", decided.reason)
+            }
+            None => decided.reason.clone(),
         };
-        let active = view.end().unwrap_or(view.record.started_at);
-        if (active.seconds, active.nanos) > (cutoff.seconds, cutoff.nanos) {
-            rows.push(row(
-                harp,
-                "purge",
-                Verdict::Left,
-                "it was active after the purge age",
-                String::new(),
-            ));
-            continue;
-        }
-        rows.push(purge_row(service, harp, &purge, request.yes).await?);
+        rows.extend(checkouts.into_iter().map(|c| {
+            if c.reapable && !destroyed {
+                kept_whole(harp, &c.worktree, &why)
+            } else {
+                c.row
+            }
+        }));
+        rows.push(decided);
     }
     let counts = tally(&rows);
     Ok(SweepReport {
@@ -211,6 +182,94 @@ pub async fn sweep<S: SessionService + WorktreeUse>(
         rows,
         counts,
     })
+}
+
+/// What the purge did to the session's checkouts.
+enum Outcome {
+    /// Nothing was applied: the classification stands.
+    Classified,
+    /// `session remove`'s order ran on `yes`: its worktrees' report (none
+    /// when the session has none).
+    Applied(Option<Report>),
+    /// The purge failed: what is left is read again.
+    Failed,
+}
+
+/// The session's own row, by the module's table, and what became of its
+/// checkouts.
+async fn decide<S: Removals + Send>(
+    service: &mut S,
+    view: &View,
+    project: Option<&str>,
+    preserved: Option<&str>,
+    request: &SweepRequest,
+) -> (SweepRow, Outcome) {
+    let harp = view.record.harp.as_str();
+    let kept = |r| (r, Outcome::Classified);
+    match view.state {
+        State::Live => {
+            return kept(row(
+                harp,
+                "skip",
+                Verdict::Skipped,
+                "it is running",
+                String::new(),
+            ))
+        }
+        State::Unknown => {
+            return kept(row(
+                harp,
+                "skip",
+                Verdict::Skipped,
+                "its liveness cannot be proven",
+                format!("ctxloom session remove {harp} --even-if-live"),
+            ))
+        }
+        State::Ended if view.record.kept => {
+            return kept(row(
+                harp,
+                "keep",
+                Verdict::Held,
+                "it is marked keep: its transcript is kept at any age",
+                format!("ctxloom session keep {harp} --undo"),
+            ))
+        }
+        State::Ended => {}
+    }
+    // Go's DecideSweep: a checkout that must be preserved spares its
+    // session from purge too, whatever the purge age says.
+    if let Some(worktree) = preserved {
+        return kept(row(
+            harp,
+            "spare",
+            Verdict::Left,
+            &format!(
+                "its scratch worktree {worktree} must be preserved, so the session is spared from reclaim and purge and the work stays where it is"
+            ),
+            String::new(),
+        ));
+    }
+    let Some(cutoff) = request.purge_cutoff else {
+        return kept(row(
+            harp,
+            "purge",
+            Verdict::Held,
+            "no --purge-older-than or session_purge_age is set, so nothing is purged",
+            String::new(),
+        ));
+    };
+    let active = view.end().unwrap_or(view.record.started_at);
+    if (active.seconds, active.nanos) > (cutoff.seconds, cutoff.nanos) {
+        return kept(row(
+            harp,
+            "purge",
+            Verdict::Left,
+            "it was active after the purge age",
+            String::new(),
+        ));
+    }
+    let purge = format!("ctxloom session remove {harp} --yes");
+    purge_row(service, project, harp, &purge, request.yes).await
 }
 
 /// How many rows of each verdict.
@@ -232,10 +291,27 @@ fn tally(rows: &[SweepRow]) -> BTreeMap<&'static str, u64> {
     counts
 }
 
-/// One checkout's row, and whether it must be preserved.
+/// One checkout's row, whether it must be preserved, and whether it was
+/// classified reapable (clean, its owner dead, not yet removed).
 struct Checkout {
     row: SweepRow,
     preserved: Option<String>,
+    reapable: bool,
+    /// The checkout's directory name.
+    worktree: String,
+}
+
+/// The row of a clean checkout its kept session keeps: held, saying `why`
+/// the session was kept, and naming no command (checkouts go only with
+/// their session).
+fn kept_whole(harp: &str, clean: &str, why: &str) -> SweepRow {
+    row(
+        harp,
+        "worktree",
+        Verdict::Held,
+        &format!("{clean} kept: its session is kept whole, every checkout with it: {why}"),
+        String::new(),
+    )
 }
 
 /// The first checkout that must be preserved (spared in place, or skipped:
@@ -244,28 +320,34 @@ fn preserved_worktree(checkouts: &[Checkout]) -> Option<&str> {
     checkouts.iter().find_map(|c| c.preserved.as_deref())
 }
 
-/// A session's scratch checkouts, through the worktree leaf and with the
-/// sweep's own apply decision: reaped, planned, spared in place, or skipped,
-/// each with its reason. A session with no directory has none.
-fn worktree_rows<S: WorktreeUse>(
+/// A session's scratch checkouts, classified through the worktree leaf,
+/// changing nothing: planned, spared in place, or skipped, each with its
+/// reason. A session with no directory has none.
+fn worktree_rows<S: Removals>(
     service: &mut S,
+    project: Option<&str>,
     harp: &str,
-    apply: bool,
 ) -> Result<Vec<Checkout>, ReclaimError> {
-    let report = match service.worktrees(Some(harp), apply) {
-        Ok(report) => report,
-        Err(IsolationError::NoSession { .. }) => return Ok(Vec::new()),
-        Err(error) => return Err(ReclaimError::Isolation(error)),
-    };
-    Ok(report
+    match service.worktrees(project, harp, false) {
+        Ok(report) => Ok(checkout_rows(harp, &report)),
+        Err(IsolationError::NoSession { .. }) => Ok(Vec::new()),
+        Err(error) => Err(ReclaimError::Isolation(error)),
+    }
+}
+
+/// The checkouts of a worktree leaf's report.
+fn checkout_rows(harp: &str, report: &Report) -> Vec<Checkout> {
+    report
         .worktrees
         .iter()
         .map(|checkout| Checkout {
             row: worktree_row(harp, checkout),
             preserved: matches!(checkout.verdict, Worktree::Spared | Worktree::Skipped)
                 .then(|| checkout.worktree.clone()),
+            reapable: checkout.verdict == Worktree::Reapable,
+            worktree: checkout.worktree.clone(),
         })
-        .collect())
+        .collect()
 }
 
 fn worktree_row(harp: &str, checkout: &Row) -> SweepRow {
@@ -292,23 +374,28 @@ fn worktree_row(harp: &str, checkout: &Row) -> SweepRow {
     row(harp, "worktree", verdict, &reason, command)
 }
 
-/// The purge of one session, planned and, on `yes`, applied.
-async fn purge_row<S: SessionService>(
+/// The purge of one session, planned and, on `yes`, applied, through
+/// `session remove`'s own order ([`crate::remove`]).
+async fn purge_row<S: Removals + Send>(
     service: &mut S,
+    project: Option<&str>,
     harp: &str,
     command: &str,
     yes: bool,
-) -> Result<SweepRow, ReclaimError> {
+) -> (SweepRow, Outcome) {
     let ask = |yes| RemoveRequest {
+        project: project.map(str::to_string),
         harp: harp.to_string(),
         yes,
-        ..RemoveRequest::default()
+        even_if_live: false,
     };
-    let planned = match service.remove(ask(false)).await {
-        Ok(planned) => planned,
-        Err(error) => return Ok(failed(harp, &error)),
+    // Its words alone are held across the next wait: an isolation error is
+    // not `Send`.
+    let (removal, kept) = match crate::remove(service, ask(false)).await {
+        Ok(planned) => (planned.removal, planned.kept.map(|kept| kept.to_string())),
+        Err(error) => return (failed(harp, &error), Outcome::Failed),
     };
-    if let Some(refusal) = &planned.refusal {
+    if let Some(refusal) = &removal.refusal {
         let (verdict, reason, command) = match refusal {
             Refusal::Retained { detail, .. } => (
                 Verdict::Held,
@@ -325,37 +412,76 @@ async fn purge_row<S: SessionService>(
                 reason.clone(),
                 format!("ctxloom session remove {harp} --even-if-live"),
             ),
+            // A sweep never asks `even_if_live`, so a held lock is
+            // NotProvenDead first; said as one should the order change.
+            Refusal::LockHeld { lock, .. } => (
+                Verdict::Skipped,
+                format!("its lock {lock} is held: end the session first"),
+                String::new(),
+            ),
         };
-        return Ok(row(harp, "purge", verdict, &reason, command));
+        return (
+            row(harp, "purge", verdict, &reason, command),
+            Outcome::Classified,
+        );
     }
-    let bytes: u64 = planned.files.destroy.iter().map(|i| i.bytes).sum();
-    if planned.files.destroy.is_empty() {
-        return Ok(row(
-            harp,
-            "purge",
-            Verdict::Left,
-            "nothing to purge",
-            String::new(),
-        ));
+    if let Some(kept) = kept {
+        return (
+            row(harp, "purge", Verdict::Held, &kept, String::new()),
+            Outcome::Classified,
+        );
     }
+    // A session whose directory holds no file is purged too: its record is
+    // its stream (ruling 87a), which the destroy takes.
+    let bytes: u64 = removal.files.destroy.iter().map(|i| i.bytes).sum();
     if !yes {
         let mut r = row(harp, "purge", Verdict::Planned, "", command.to_string());
         r.bytes = bytes;
-        r.authored = planned.authored();
-        return Ok(r);
+        r.authored = removal.authored();
+        r.removal = Some(removal);
+        return (r, Outcome::Classified);
     }
-    match service.remove(ask(true)).await {
-        Ok(done) => {
+    let done = match crate::remove(service, ask(true)).await {
+        Ok(done) => done,
+        Err(error) => return (failed(harp, &error), Outcome::Failed),
+    };
+    let r = match &done {
+        done if done.removal.applied => {
             let mut r = row(harp, "purge", Verdict::Done, "", String::new());
-            r.bytes = done.files.bytes_freed;
-            r.authored = done.authored();
-            Ok(r)
+            r.bytes = done.removal.files.bytes_freed;
+            r.authored = done.removal.authored();
+            r.removal = Some(done.removal.clone());
+            r
         }
-        Err(error) => Ok(failed(harp, &error)),
-    }
+        // Something changed between the plan and the apply: what it says.
+        done => match (&done.kept, &done.removal.refusal) {
+            (Some(kept), _) => row(
+                harp,
+                "purge",
+                Verdict::Held,
+                &kept.to_string(),
+                String::new(),
+            ),
+            (None, Some(refusal)) => row(
+                harp,
+                "purge",
+                Verdict::Held,
+                &refusal.to_string(),
+                String::new(),
+            ),
+            (None, None) => row(
+                harp,
+                "purge",
+                Verdict::Left,
+                "nothing to purge",
+                String::new(),
+            ),
+        },
+    };
+    (r, Outcome::Applied(done.worktrees))
 }
 
-fn failed(harp: &str, error: &AppError) -> SweepRow {
+fn failed(harp: &str, error: &ReclaimError) -> SweepRow {
     row(
         harp,
         "purge",

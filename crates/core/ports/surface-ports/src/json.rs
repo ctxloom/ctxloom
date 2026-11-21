@@ -119,6 +119,15 @@ impl Json {
     }
 }
 
+impl Json {
+    /// The document on one line, with no whitespace between tokens: a line of
+    /// a JSON-lines stream (a newline in a string is written `\n`).
+    pub fn compact(&self) -> String {
+        // As `pretty`: writing a `Json` cannot fail.
+        serde_json::to_string(self).unwrap_or_default()
+    }
+}
+
 impl Serialize for Json {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self {

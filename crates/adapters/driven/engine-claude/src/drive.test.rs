@@ -4,7 +4,9 @@ use run_ports::{
     AuthSetting, Engine, EngineError, EngineSettings, PrepareRequest, SessionHome, TurnRequest,
 };
 
-use crate::drive::{COPY_IN_ALLOWLIST, EFFORT_LEVELS, ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST};
+use crate::drive::{
+    COPY_IN_ALLOWLIST, EFFORT_LEVELS, ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST, OUR_TOOLS,
+};
 use crate::{Claude, CONTEXT_PROMPT_FILE};
 
 fn request() -> TurnRequest {
@@ -19,6 +21,7 @@ fn request() -> TurnRequest {
         model: String::new(),
         effort: String::new(),
         settings: EngineSettings::default(),
+        approval_prompt: true,
     }
 }
 
@@ -46,9 +49,39 @@ fn a_turn_is_one_print_command_that_streams_json() {
             "/p/.ctxloom/sessions/h/home/ctxloom-mcp.json",
             "--settings",
             "/p/.ctxloom/sessions/h/home/ctxloom-hooks.json",
+            "--permission-prompt-tool",
+            "mcp__ctxloom__approval_prompt",
         ]
     );
     assert_eq!(command.cwd.as_deref(), Some("/p"));
+}
+
+// Step 8 (D7): a one-shot's asks go to ctxloom's approval prompt, a tool of
+// the ctxloom server its launch carries; a launch with no context carries no
+// server (OD-38), so it names no prompt claude would not find. The terminal
+// session asks at its own terminal (S28), and never names one.
+#[test]
+fn only_a_turn_that_carries_ctxloom_s_server_names_its_approval_prompt() {
+    assert_eq!(crate::APPROVAL_PROMPT_TOOL, "mcp__ctxloom__approval_prompt");
+    assert!(crate::APPROVAL_PROMPT_TOOL.starts_with(OUR_TOOLS.trim_end_matches('*')));
+    let mut bare = request();
+    bare.approval_prompt = false;
+    let command = Claude::new().drive_turn(&bare).unwrap();
+    assert!(
+        !command
+            .args
+            .contains(&"--permission-prompt-tool".to_string()),
+        "{:?}",
+        command.args
+    );
+    let mut terminal = request();
+    terminal.prompt = String::new();
+    let tui = Claude::new().drive_interactive(&terminal).unwrap();
+    assert!(
+        !tui.args.contains(&"--permission-prompt-tool".to_string()),
+        "{:?}",
+        tui.args
+    );
 }
 
 #[test]
@@ -244,7 +277,6 @@ fn an_interactive_home_gets_settings_whose_hooks_call_ctxloom_execute() {
         "MessageDisplay",
         "PostToolBatch",
         "Stop",
-        "SessionEnd",
         "PreCompact",
         "PostCompact",
     ] {
@@ -334,10 +366,11 @@ fn a_childs_home_registers_the_per_turn_events_and_not_the_per_process_ones() {
     );
 }
 
-// The terminal session's set is unchanged: it also hears the session begin
-// and end.
+// The terminal session's set: it also hears the session begin. Owner
+// 2026-11-15 (SessionEnded is lost): ctxloom registers no SessionEnd of its
+// own (a bundle's authored session_end hook still rides the launch).
 #[test]
-fn an_interactive_home_registers_the_session_events_too() {
+fn an_interactive_home_registers_the_session_start_too() {
     assert_eq!(
         registered_events(&prepared(true)),
         [
@@ -345,7 +378,6 @@ fn an_interactive_home_registers_the_session_events_too() {
             "PostCompact",
             "PostToolBatch",
             "PreCompact",
-            "SessionEnd",
             "SessionStart",
             "Stop",
             "UserPromptSubmit"
@@ -435,13 +467,13 @@ fn the_terminal_and_a_childs_turn_are_both_passed_the_listener_variables() {
         for name in run_ports::HOOK_VARIABLES {
             assert_eq!(command.env.get(name), asked.env.get(name), "{name}");
         }
-        assert_eq!(command.env["CTXLOOM_SESSION_HARP"], "brisk-copper-moth");
+        // s3-Q3: retired; the session's name is `CTXLOOM_SESSION`'s alone.
+        assert!(!command.env.contains_key("CTXLOOM_SESSION_HARP"));
     }
-    for name in run_ports::HOOK_VARIABLES.into_iter().chain([
-        run_ports::HOME_VARIABLE,
-        run_ports::HARP_VARIABLE,
-        run_ports::ROOT_VARIABLE,
-    ]) {
+    for name in run_ports::HOOK_VARIABLES
+        .into_iter()
+        .chain([run_ports::HOME_VARIABLE, run_ports::ROOT_VARIABLE])
+    {
         assert!(INTERACTIVE_ENV_ALLOWLIST.contains(&name), "{name}");
         assert!(ENV_ALLOWLIST.contains(&name), "{name} reaches a turn");
     }
@@ -601,9 +633,10 @@ fn the_permissions_document_is_the_user_settings_and_never_the_hooks_file() {
         let prepared = prepare_home(interactive, Some(DOCUMENT), BTreeMap::new());
         let text = file_of(&prepared, "settings.json").expect("settings.json in the home");
         let doc = surface_ports::Json::parse(&text).unwrap();
-        // The file is the document as its `permissions`, and nothing else.
+        // The file is the document as its `permissions`, ctxloom's own
+        // allowance laid into its `allow` (OD-4), and nothing else.
         assert_eq!(
-            doc,
+            without_ours(doc.clone()),
             surface_ports::Json::object([(
                 "permissions",
                 surface_ports::Json::parse(DOCUMENT).unwrap()
@@ -638,7 +671,7 @@ fn the_permissions_document_is_the_user_settings_and_never_the_hooks_file() {
             )
         );
         let hooks = surface_ports::Json::parse(&hooks).unwrap();
-        assert!(hooks.get("permissions").is_none(), "{hooks:?}");
+        assert_eq!(hooks.get("permissions"), None, "{hooks:?}");
         assert!(crate::hooks::has_callback(&hooks, "ctxloom"), "{hooks:?}");
     }
 }
@@ -678,17 +711,21 @@ fn the_settings_are_regenerated_whatever_the_home_holds() {
     }
 }
 
-// No document: the user-scope settings are empty (so nothing an agent wrote
-// there lingers), and the hooks file holds no permissions.
+// No document: the user-scope settings hold ctxloom's own allowance alone
+// (OD-4; so nothing an agent wrote there lingers), and the hooks file holds
+// no permissions.
 #[test]
-fn with_no_document_the_settings_hold_no_permissions() {
+fn with_no_document_the_settings_hold_ctxlooms_allowance_alone() {
     for interactive in [false, true] {
         let prepared = prepare_home(interactive, None, BTreeMap::new());
-        assert_eq!(file_of(&prepared, "settings.json").as_deref(), Some("{}\n"));
+        assert_eq!(
+            home_settings(&prepared),
+            doc(r#"{"permissions":{"allow":["mcp__ctxloom__*"]}}"#)
+        );
         let hooks = file_of(&prepared, HOOKS_FILE).expect("the hooks file");
-        let doc = surface_ports::Json::parse(&hooks).unwrap();
-        assert!(doc.get("permissions").is_none(), "{hooks}");
-        assert!(crate::hooks::has_callback(&doc, "ctxloom"), "{hooks}");
+        let hooks = surface_ports::Json::parse(&hooks).unwrap();
+        assert_eq!(hooks.get("permissions"), None, "{hooks:?}");
+        assert!(crate::hooks::has_callback(&hooks, "ctxloom"), "{hooks:?}");
     }
 }
 
@@ -714,7 +751,8 @@ fn a_document_that_is_not_json_is_refused() {
 }
 
 // Ruling 137 retires ruling 116's flag: no `--permission-mode` is passed, for
-// a turn or for the terminal, whatever the document says.
+// a turn or for the terminal, whatever the document says. (A turn's
+// `--permission-prompt-tool` names where its asks go, step 8: no mode.)
 #[test]
 fn no_permission_mode_flag_is_ever_passed() {
     let asked = request();
@@ -723,7 +761,10 @@ fn no_permission_mode_flag_is_ever_passed() {
         Claude::new().drive_interactive(&asked).unwrap(),
     ] {
         assert!(
-            !command.args.iter().any(|a| a.contains("permission")),
+            !command
+                .args
+                .iter()
+                .any(|a| a.contains("permission") && a != "--permission-prompt-tool"),
             "{command:?}"
         );
     }
@@ -794,7 +835,10 @@ fn the_primarys_token_is_never_a_childs_whatever_the_config_says() {
         ("CTXLOOM_ENDPOINT", "e"),
         ("CTXLOOM_RUN", "r"),
         ("CTXLOOM_HOME", "/h"),
-        ("CTXLOOM_SESSION_HARP", "brisk-copper-moth"),
+        (
+            "CTXLOOM_SESSION",
+            "projects/amber-quiet-heron/sessions/brisk-copper-moth",
+        ),
         ("ANTHROPIC_AUTH_TOKEN", "primary-only"), // gitleaks:allow
     ]);
     let turn = Claude::new().drive_turn(&asked).unwrap();
@@ -967,12 +1011,6 @@ fn a_childs_turn_reads_the_session_dirs_settings_in_both_home_modes() {
     }
 }
 
-// Ruling 58: claude's SessionEnd hook says a session ended; its exit does not.
-#[test]
-fn test_its_session_end_is_its_hooks_not_its_exit() {
-    assert!(!Claude::new().session_ends_with_exit());
-}
-
 /// claude's own state file, `prepare`d for a home whose `.claude.json` holds
 /// `existing` (none: not there), for a session run in `cwd`.
 fn claude_state(existing: Option<&str>, cwd: Option<&str>) -> Option<String> {
@@ -1090,7 +1128,7 @@ fn under_a_host_home_the_block_stays_in_the_hooks_file_and_no_user_settings_are_
         let hooks = file_of(&prepared, HOOKS_FILE).expect("the hooks file");
         let doc = surface_ports::Json::parse(&hooks).unwrap();
         assert_eq!(
-            doc.get("permissions"),
+            without_ours(doc.clone()).get("permissions"),
             Some(&surface_ports::Json::parse(DOCUMENT).unwrap())
         );
         assert!(crate::hooks::has_callback(&doc, "ctxloom"), "{hooks}");
@@ -1152,7 +1190,11 @@ fn a_home_prepared_by_a_claude_calling_another_program_calls_that_program() {
 #[test]
 fn the_terminal_session_is_told_the_terminal_and_its_colours() {
     let mut asked = request();
-    asked.env = env(&[("TERM", "xterm-256color"), ("COLORTERM", "truecolor")]);
+    asked.env = env(&[
+        ("TERM", "xterm-256color"),
+        ("COLORTERM", "truecolor"),
+        ("NO_COLOR", "1"),
+    ]);
     let command = Claude::new().drive_interactive(&asked).unwrap();
     assert_eq!(
         command.env.get("TERM").map(String::as_str),
@@ -1164,6 +1206,9 @@ fn the_terminal_session_is_told_the_terminal_and_its_colours() {
     );
     let turn = Claude::new().drive_turn(&asked).unwrap();
     assert!(!turn.env.contains_key("TERM"), "{:?}", turn.env.keys());
+    // Her colour choice (no-color.org) reaches the terminal session too.
+    assert_eq!(command.env.get("NO_COLOR").map(String::as_str), Some("1"));
+    assert!(!turn.env.contains_key("NO_COLOR"), "{:?}", turn.env.keys());
     assert!(!turn.env.contains_key("COLORTERM"), "{:?}", turn.env.keys());
 }
 
@@ -1203,12 +1248,113 @@ fn home_settings(prepared: &run_ports::Prepared) -> surface_ports::Json {
     surface_ports::Json::parse(&file_of(prepared, "settings.json").expect("settings.json")).unwrap()
 }
 
+/// `settings` with [`OUR_TOOLS`] out of its `permissions.allow` (held to be
+/// its last entry), and an `allow`, then a `permissions`, left empty taken out.
+fn without_ours(mut settings: surface_ports::Json) -> surface_ports::Json {
+    use surface_ports::Json;
+    let permissions = settings.get_mut("permissions").expect("permissions");
+    let Some(Json::Array(allow)) = permissions.get_mut("allow") else {
+        panic!("no allow: {permissions:?}");
+    };
+    assert_eq!(allow.pop(), Some(Json::text(OUR_TOOLS)), "ours, last");
+    if allow.is_empty() {
+        permissions.remove("allow");
+    }
+    if permissions == &Json::Object(Vec::new()) {
+        settings.remove("permissions");
+    }
+    settings
+}
+
+// OD-4 (owner, 2026-11-13; amended 2026-11-14): ctxloom allows its own MCP
+// server's tools by laying `permissions.allow: [mcp__ctxloom__*]` INTO the
+// agent's document, where the document lives and as `deny_tools` is laid
+// into its `deny`: merged after the document's own allow, once. In the
+// session home that is the user-scope `settings.json`, and ctxloom's hooks
+// file holds no permissions; under `host` it is the hooks file's.
+#[test]
+fn ctxloom_lays_its_own_allowance_into_the_document_where_it_lives() {
+    let cases = [
+        (
+            Some(r#"{"allow":["Read"],"defaultMode":"plan"}"#),
+            r#"{"allow":["Read","mcp__ctxloom__*"],"defaultMode":"plan"}"#,
+        ),
+        (
+            Some(r#"{"allow":["mcp__ctxloom__*"]}"#),
+            r#"{"allow":["mcp__ctxloom__*"]}"#,
+        ),
+        (
+            Some(r#"{"allow":"Read"}"#),
+            r#"{"allow":["mcp__ctxloom__*"]}"#,
+        ),
+        (None, r#"{"allow":["mcp__ctxloom__*"]}"#),
+    ];
+    for (document, laid) in cases {
+        for interactive in [false, true] {
+            let home = prepare_home(interactive, document, BTreeMap::new());
+            assert_eq!(
+                home_settings(&home).get("permissions"),
+                Some(&doc(laid)),
+                "{document:?}"
+            );
+            let hooks = hooks_doc(&home);
+            assert_eq!(hooks.get("permissions"), None, "{hooks:?}");
+        }
+        let host = Claude::new()
+            .prepare(&PrepareRequest {
+                home: "/h".to_string(),
+                context: "c".to_string(),
+                offered: Vec::new(),
+                interactive: false,
+                cwd: None,
+                existing: Default::default(),
+                permissions: document.map(str::to_string),
+                session_home: SessionHome::Host,
+                surfaces: Default::default(),
+            })
+            .unwrap();
+        assert_eq!(
+            hooks_doc(&host).get("permissions"),
+            Some(&doc(laid)),
+            "{document:?}"
+        );
+    }
+    assert_eq!(OUR_TOOLS, "mcp__ctxloom__*");
+}
+
+// The allowance and `deny_tools` are laid into the one document together:
+// each list the document's own first, then ctxloom's.
+#[test]
+fn the_allowance_and_the_deny_list_are_laid_together() {
+    let with = prepare_carrying(
+        false,
+        SessionHome::Session,
+        Some(r#"{"allow":["Read"],"deny":["WebFetch"]}"#),
+        carried(),
+    );
+    assert_eq!(
+        home_settings(&with).get("permissions"),
+        Some(&doc(
+            r#"{"allow":["Read","mcp__ctxloom__*"],"deny":["WebFetch","Bash"]}"#
+        ))
+    );
+    assert_eq!(hooks_doc(&with).get("permissions"), None);
+    let host = prepare_carrying(false, SessionHome::Host, None, carried());
+    assert_eq!(
+        hooks_doc(&host).get("permissions"),
+        Some(&doc(
+            r#"{"deny":["Bash","WebFetch"],"allow":["mcp__ctxloom__*"]}"#
+        ))
+    );
+}
+
 fn doc(text: &str) -> surface_ports::Json {
     surface_ports::Json::parse(text).unwrap()
 }
 
 // Owner ruling 169: the session home's user-scope settings are the user's
-// own, ctxloom's values laid over them: her attribution (and model, env,
+// own, ctxloom's values laid over them (its own tools' allowance, OD-4,
+// taken out here: `ctxloom_lays_its_own_allowance_...` holds it): her attribution (and model, env,
 // plugins, hooks, statusline, ...) reach the session as she wrote them.
 #[test]
 fn the_users_own_settings_are_the_session_homes_base() {
@@ -1220,7 +1366,7 @@ fn the_users_own_settings_are_the_session_homes_base() {
         run_ports::SessionHome::Session,
     );
     assert_eq!(
-        home_settings(&prepared),
+        without_ours(home_settings(&prepared)),
         doc(
             r#"{"attribution":{"commit":"","pr":""},"model":"opus","env":{"K":"v"},"permissions":{"defaultMode":"acceptEdits"}}"#
         )
@@ -1239,11 +1385,11 @@ fn the_agents_permissions_replace_the_users_whole() {
         run_ports::SessionHome::Session,
     );
     assert_eq!(
-        home_settings(&prepared),
+        without_ours(home_settings(&prepared)),
         doc(r#"{"permissions":{"deny":["WebFetch"]},"x":1}"#)
     );
     let none = prepare_over(Some(users(hers)), None, run_ports::SessionHome::Session);
-    assert_eq!(home_settings(&none), doc(r#"{"x":1}"#));
+    assert_eq!(without_ours(home_settings(&none)), doc(r#"{"x":1}"#));
 }
 
 // Ruling 169 (and 166, now a case of it): her acceptance of claude's
@@ -1257,7 +1403,7 @@ fn the_users_acceptance_of_the_bypass_warning_crosses_with_her_settings() {
         run_ports::SessionHome::Session,
     );
     assert_eq!(
-        home_settings(&prepared),
+        without_ours(home_settings(&prepared)),
         doc(
             r#"{"skipDangerousModePermissionPrompt":true,"permissions":{"defaultMode":"bypassPermissions"}}"#
         )
@@ -1279,7 +1425,7 @@ fn a_users_file_that_is_no_object_is_left_out_and_named() {
             run_ports::SessionHome::Session,
         );
         assert_eq!(
-            home_settings(&prepared),
+            without_ours(home_settings(&prepared)),
             doc(r#"{"permissions":{"defaultMode":"acceptEdits"}}"#),
             "{user:?}"
         );
@@ -1303,12 +1449,12 @@ fn a_missing_users_file_is_a_start_from_nothing() {
         run_ports::SessionHome::Session,
     );
     assert_eq!(
-        home_settings(&prepared),
+        without_ours(home_settings(&prepared)),
         doc(r#"{"permissions":{"defaultMode":"acceptEdits"}}"#)
     );
     assert!(prepared.left_out.is_empty());
     let bare = prepare_over(None, None, run_ports::SessionHome::Session);
-    assert_eq!(file_of(&bare, "settings.json").as_deref(), Some("{}\n"));
+    assert_eq!(without_ours(home_settings(&bare)), doc("{}"));
 }
 
 // T21 and ruling 169: the home's settings are rewritten whole from hers at
@@ -1328,8 +1474,14 @@ fn the_users_settings_are_copied_afresh_at_every_launch() {
         None,
         run_ports::SessionHome::Session,
     );
-    assert_eq!(home_settings(&first), doc(r#"{"model":"opus"}"#));
-    assert_eq!(home_settings(&second), doc(r#"{"model":"sonnet"}"#));
+    assert_eq!(
+        without_ours(home_settings(&first)),
+        doc(r#"{"model":"opus"}"#)
+    );
+    assert_eq!(
+        without_ours(home_settings(&second)),
+        doc(r#"{"model":"sonnet"}"#)
+    );
 }
 
 // Ruling 169: under `session_home: host` the config dir IS hers, never
@@ -1681,9 +1833,37 @@ fn the_servers_ride_an_mcp_config_the_command_names() {
         None,
         surface_ports::Inputs::default(),
     );
+    // Slice 3 step 3 (T20): every session home registers ctxloom's own
+    // server, the running program's `mcp serve`, with no identity in the
+    // entry (the engine's environment carries it).
+    let ours = surface_ports::Json::parse(&file_of(&none, MCP_CONFIG_FILE).unwrap()).unwrap();
     assert_eq!(
-        file_of(&none, MCP_CONFIG_FILE).unwrap().trim(),
-        "{\n  \"mcpServers\": {}\n}"
+        ours,
+        surface_ports::Json::parse(
+            r#"{"mcpServers":{"ctxloom":{"command":"ctxloom","args":["mcp","serve"]}}}"#
+        )
+        .unwrap()
+    );
+    assert_eq!(
+        mcp.get("mcpServers")
+            .and_then(|s| s.get("ctxloom"))
+            .and_then(|t| t.get("command"))
+            .and_then(surface_ports::Json::as_str),
+        Some("ctxloom")
+    );
+    // OD-6: a bundle's server named `ctxloom` is shadowed by ctxloom's own.
+    let mut shadowing = carried();
+    shadowing.mcp[0].name = "ctxloom".to_string();
+    let shadowed = prepare_carrying(false, SessionHome::Session, None, shadowing);
+    let shadowed =
+        surface_ports::Json::parse(&file_of(&shadowed, MCP_CONFIG_FILE).unwrap()).unwrap();
+    assert_eq!(
+        shadowed
+            .get("mcpServers")
+            .and_then(|s| s.get("ctxloom"))
+            .and_then(|t| t.get("command"))
+            .and_then(surface_ports::Json::as_str),
+        Some("ctxloom")
     );
     let mut asked = request();
     asked.prompt = "the opening".to_string();
@@ -1705,6 +1885,53 @@ fn the_servers_ride_an_mcp_config_the_command_names() {
     }
 }
 
+// OD-38 (owner, 2026-11-13): "no context, no mcp server (mcp instructions
+// are context)". A launch with no context lists no server in
+// `ctxloom-mcp.json`, ctxloom's own included, and so allows none of its
+// tools: the agent's document stands as written where it lives (the
+// session home's `settings.json`, the hooks file under `host`); the hooks
+// stay.
+#[test]
+fn a_launch_with_no_context_registers_no_server_and_allows_none_of_ours() {
+    let bare = || surface_ports::Inputs {
+        no_context: true,
+        ..Default::default()
+    };
+    for interactive in [false, true] {
+        let prepared = prepare_carrying(interactive, SessionHome::Session, None, bare());
+        assert_eq!(
+            surface_ports::Json::parse(&file_of(&prepared, MCP_CONFIG_FILE).unwrap()).unwrap(),
+            doc(r#"{"mcpServers":{}}"#)
+        );
+        let hooks = hooks_doc(&prepared);
+        assert_eq!(hooks.get("permissions"), None, "{hooks:?}");
+        assert!(hooks.get("hooks").is_some(), "{hooks:?}");
+        assert_eq!(home_settings(&prepared).get("permissions"), None);
+        let written = prepare_carrying(
+            interactive,
+            SessionHome::Session,
+            Some(r#"{"allow":["Read"]}"#),
+            bare(),
+        );
+        assert_eq!(
+            home_settings(&written).get("permissions"),
+            Some(&doc(r#"{"allow":["Read"]}"#))
+        );
+    }
+    let host = prepare_carrying(
+        false,
+        SessionHome::Host,
+        Some(r#"{"allow":["Read"]}"#),
+        bare(),
+    );
+    assert_eq!(
+        hooks_doc(&host).get("permissions"),
+        Some(&doc(r#"{"allow":["Read"]}"#))
+    );
+    let none = prepare_carrying(false, SessionHome::Host, None, bare());
+    assert_eq!(hooks_doc(&none).get("permissions"), None);
+}
+
 // The commands and skills are the session home's (the session's
 // CLAUDE_CONFIG_DIR): claude's user-scope `commands/` and `skills/`.
 #[test]
@@ -1715,6 +1942,40 @@ fn the_commands_and_skills_ride_the_session_home() {
         "---\ndescription: Example\n---\n\nEXAMPLE-BODY"
     );
     assert!(file_of(&prepared, "skills/reviewer/SKILL.md").is_some());
+}
+
+// A skill rides the launch whole (step 3, M5): its script, which its sidecar
+// declares executable, is written executable where the launch puts it, the
+// session home's `skills/` and, under `host`, the checkout's; every other
+// file of it is not.
+#[test]
+fn a_skills_declared_script_rides_the_launch_executable() {
+    let mut surfaces = carried();
+    surfaces.skills[0].files.push(surface_ports::SkillFile {
+        path: "scripts/run.sh".to_string(),
+        bytes: b"#!/bin/sh\necho ran\n".to_vec(),
+        executable: true,
+    });
+    let executable = |files: &[run_ports::HomeFile], rel: &str| {
+        files
+            .iter()
+            .find(|f| f.rel == rel)
+            .unwrap_or_else(|| panic!("no {rel}: {files:?}"))
+            .executable
+    };
+    let session = prepare_carrying(true, SessionHome::Session, None, surfaces.clone());
+    assert!(executable(&session.files, "skills/reviewer/scripts/run.sh"));
+    assert!(!executable(&session.files, "skills/reviewer/SKILL.md"));
+    assert!(!executable(&session.files, "commands/demo-example.md"));
+    let host = prepare_carrying(true, SessionHome::Host, None, surfaces);
+    assert!(executable(
+        &host.workspace_files,
+        ".claude/skills/reviewer/scripts/run.sh"
+    ));
+    assert!(!executable(
+        &host.workspace_files,
+        ".claude/skills/reviewer/SKILL.md"
+    ));
 }
 
 // Owner ruling 2026-11-12 (Q3): under `session_home: host` the config dir is
@@ -1779,4 +2040,129 @@ fn a_hook_claude_cannot_narrow_refuses_the_launch() {
             if engine == "claude-code" && ext_err_txt.contains("\"browser\"")),
         "{refused:?}"
     );
+}
+
+// ---- MCP_TOOL_TIMEOUT (owner ruling Q12, step 8) ----
+
+// Over 300 seconds, the limit is the ask's time plus a minute, in
+// milliseconds; at or under it (`now` among them), none.
+#[test]
+fn an_mcp_tool_timeout_is_set_only_past_three_hundred_seconds() {
+    use crate::{mcp_tool_timeout, MCP_TOOL_TIMEOUT_FLOOR, MCP_TOOL_TIMEOUT_MARGIN};
+    use std::time::Duration;
+    assert_eq!(MCP_TOOL_TIMEOUT_FLOOR, Duration::from_secs(300));
+    assert_eq!(MCP_TOOL_TIMEOUT_MARGIN, Duration::from_secs(60));
+    assert_eq!(
+        mcp_tool_timeout(Duration::from_secs(3600)).as_deref(),
+        Some("3660000")
+    );
+    assert_eq!(
+        mcp_tool_timeout(Duration::from_secs(301)).as_deref(),
+        Some("361000")
+    );
+    for under in [0, 2, 299, 300] {
+        assert_eq!(
+            mcp_tool_timeout(Duration::from_secs(under)),
+            None,
+            "{under}"
+        );
+    }
+}
+
+// A child's turn is given the limit its approval_timeout needs, over
+// whatever the caller had; the terminal session, which asks at its own
+// terminal, never is; at the default, neither is.
+#[test]
+fn a_childs_turn_is_given_an_mcp_tool_timeout_past_a_long_approval_timeout() {
+    let mut asked = request();
+    asked.env = env(&[("PATH", "/usr/bin"), ("MCP_TOOL_TIMEOUT", "1000")]);
+    asked.settings.approval_timeout = std::time::Duration::from_secs(3600);
+    let turn = Claude::new().drive_turn(&asked).unwrap();
+    assert_eq!(
+        turn.env.get(crate::MCP_TOOL_TIMEOUT).map(String::as_str),
+        Some("3660000")
+    );
+    let child = crate::child::child_command(&run_ports::ChildSpec {
+        home: asked.home.clone(),
+        context_path: asked.context_path.clone(),
+        env: asked.env.clone(),
+        user_home: None,
+        cwd: asked.cwd.clone(),
+        model: String::new(),
+        effort: String::new(),
+        settings: asked.settings.clone(),
+        resume: None,
+        session_id: None,
+        permissions: run_ports::ChildPermissions::default(),
+    })
+    .unwrap();
+    assert_eq!(
+        child.env.get(crate::MCP_TOOL_TIMEOUT).map(String::as_str),
+        Some("3660000")
+    );
+    let mut terminal = asked.clone();
+    terminal.prompt = String::new();
+    let tui = Claude::new().drive_interactive(&terminal).unwrap();
+    assert!(!tui.env.contains_key(crate::MCP_TOOL_TIMEOUT), "{tui:?}");
+    let mut default = request();
+    default.env = env(&[("PATH", "/usr/bin")]);
+    let turn = Claude::new().drive_turn(&default).unwrap();
+    assert!(!turn.env.contains_key(crate::MCP_TOOL_TIMEOUT), "{turn:?}");
+}
+
+// Set by ctxloom, the name is owned (ruling 78b): a permit for it is
+// ignored, never the engine's; unset, a permit may still give one.
+#[test]
+fn a_set_mcp_tool_timeout_is_owned_and_no_permit_replaces_it() {
+    let caller = env(&[
+        ("PATH", "/usr/bin"),
+        ("CTXLOOM_PERMIT_MCP_TOOL_TIMEOUT", "1000"),
+    ]);
+    let mut asked = request();
+    asked.env = caller.clone();
+    asked.settings.approval_timeout = std::time::Duration::from_secs(3600);
+    let mut turn = Claude::new().drive_turn(&asked).unwrap();
+    let ignored = run_ports::apply_permits(&caller, &mut turn.env, &[]);
+    assert_eq!(
+        turn.env.get(crate::MCP_TOOL_TIMEOUT).map(String::as_str),
+        Some("3660000")
+    );
+    assert!(
+        matches!(ignored.as_slice(), [run_ports::Ignored::Owned { permit }] if permit == "CTXLOOM_PERMIT_MCP_TOOL_TIMEOUT"),
+        "{ignored:?}"
+    );
+    let mut default = request();
+    default.env = caller.clone();
+    let mut turn = Claude::new().drive_turn(&default).unwrap();
+    let ignored = run_ports::apply_permits(&caller, &mut turn.env, &[]);
+    assert!(ignored.is_empty(), "{ignored:?}");
+    assert_eq!(
+        turn.env.get(crate::MCP_TOOL_TIMEOUT).map(String::as_str),
+        Some("1000")
+    );
+}
+
+// Step 10c U13 (G6/G7, protos.md §3): claude is handed a re-assembled
+// context at its next UserPromptSubmit or PostToolUse, as the hook's
+// context (its codec writes `hookSpecificOutput.additionalContext`, which
+// claude 2.1.325's hook schema takes on both); any other hook is not the
+// place, and the session stays owed.
+#[test]
+fn a_context_is_handed_to_claude_at_its_next_prompt_or_tool_result() {
+    use run_ports::ContextDelivery as Delivery;
+    let claude = Claude::new();
+    for hook in ["UserPromptSubmit", "PostToolUse"] {
+        assert_eq!(
+            claude.deliver_context(hook, "the context"),
+            Delivery::HookContext("the context".to_string()),
+            "{hook}"
+        );
+    }
+    for hook in ["SessionStart", "Stop", "PreCompact", ""] {
+        assert_eq!(
+            claude.deliver_context(hook, "the context"),
+            Delivery::NotHere,
+            "{hook}"
+        );
+    }
 }

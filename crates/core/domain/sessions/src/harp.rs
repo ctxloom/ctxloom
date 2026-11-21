@@ -1,5 +1,5 @@
 //! What a harp may be called: Go's `harp.Validate`. A harp is minted, never
-//! chosen by a human (S55), so Go's `ValidateRename` bound is gone.
+//! chosen by a human (S42, S55), so Go's `ValidateRename` bound is gone.
 
 use crate::SessionRejection;
 
@@ -26,6 +26,28 @@ pub fn validate(name: &str) -> Result<(), SessionRejection> {
     }
     if name.trim() != name {
         return Err(invalid("whitespace"));
+    }
+    Ok(())
+}
+
+/// What a SESSION's name may not begin with: an approval ask's names do
+/// (step 8, Q7), so a word beginning it names an ask, never a session.
+pub const RESERVED_PREFIX: &str = "ask-";
+
+/// The reason a session name beginning [`RESERVED_PREFIX`] is refused
+/// (texts.md §5b).
+pub const RESERVED_REASON: &str = "reserved: names beginning ask- are an approval ask's";
+
+/// Whether `name` can be a NEW session's name: [`validate`]'s path rules,
+/// and not the ask form (Q7). A session already named so keeps its name
+/// (Q-B): nothing re-judges an existing harp.
+pub fn validate_session_name(name: &str) -> Result<(), SessionRejection> {
+    validate(name)?;
+    if name.starts_with(RESERVED_PREFIX) {
+        return Err(SessionRejection::HarpInvalid {
+            harp: name.to_string(),
+            reason: RESERVED_REASON.to_string(),
+        });
     }
     Ok(())
 }

@@ -21,67 +21,31 @@ fn bare() -> crate::fakes::World {
 }
 
 // manage.feature: Scenario: A misspelled engine is refused by name, and
-// nothing is scaffolded
+// nothing is scaffolded (step 10c U6: refused before the daemon is asked)
 #[test]
-fn test_a_misspelled_engine_is_refused_and_nothing_is_scaffolded() {
+fn test_a_misspelled_engine_is_refused_by_name() {
     let w = bare();
     let err = w
         .setup
-        .install(&InstallRequest {
-            engine: Some("totally-bogus-engine".into()),
-            ..InstallRequest::default()
-        })
+        .check_engine(Some("totally-bogus-engine"))
         .unwrap_err();
     assert!(
         matches!(err, SetupError::UnknownEngine { ref known, .. } if known == "claude-code, mock")
     );
-    assert!(
-        w.mem.scaffold_paths().is_empty()
-            || !w.mem.scaffold_paths().iter().any(|p| p == "config.yaml")
-    );
+    assert!(w.setup.check_engine(Some("mock")).is_ok());
+    assert!(w.setup.check_engine(None).is_ok());
 }
 
 // Go's checkInstallEngineApplies: --engine over a project that has its config
 // is refused (the flag would silently do nothing).
 #[test]
 fn test_an_engine_asked_for_over_an_existing_project_is_refused() {
-    let w = bare();
-    w.mem
-        .set_scaffold_for_test("config.yaml", "schema_version: 8\n");
-    let err = w
-        .setup
-        .install(&InstallRequest {
-            engine: Some("claude-code".into()),
-            ..InstallRequest::default()
-        })
-        .unwrap_err();
-    assert!(matches!(err, SetupError::EngineNotApplied { .. }));
-}
-
-// manage.feature: Scenario Outline: Installing scaffolds the project and
-// writes no engine file
-#[test]
-fn test_install_scaffolds_the_config_and_the_gitignore_and_no_engine_file() {
-    let w = bare();
-    let done = w
-        .setup
-        .install(&InstallRequest {
-            engine: Some("claude-code".into()),
-            no_pull: true,
-            ..InstallRequest::default()
-        })
-        .unwrap()
-        .value;
-    assert!(done.initialized);
-    assert_eq!(done.gitignore_status, "updated");
-    assert_eq!(done.pull.status, "skipped");
-    assert!(w.mem.scaffold_text("config.yaml").is_some());
-    let ignore = w.mem.scaffold_text(".gitignore").unwrap();
-    assert_eq!(ignore.matches("ctxloom's private working state").count(), 1);
-    for pattern in ["/cache\n", "/state\n", "*.lock\n"] {
-        assert!(ignore.contains(pattern), "{ignore}");
-    }
-    assert!(w.store.state().claims.is_empty());
+    assert!(matches!(
+        engine_applies(Some("claude-code"), true),
+        Err(SetupError::EngineNotApplied { .. })
+    ));
+    assert!(engine_applies(Some("claude-code"), false).is_ok());
+    assert!(engine_applies(None, true).is_ok());
 }
 
 // manage.feature: Scenario: Repeated gitignore installs do not stack comment
@@ -108,26 +72,16 @@ fn test_the_gitignore_is_written_wholesale_and_not_twice() {
 fn test_the_pull_is_reported_and_a_failed_one_does_not_fail_the_install() {
     let w = bare();
     let setup = w.setup.with_puller(Rc::new(Pulls(Ok(2))));
-    let pulled = setup.install(&InstallRequest::default()).unwrap().value;
-    assert_eq!(
-        (pulled.pull.status.as_str(), pulled.pull.installed),
-        ("pulled", 2)
-    );
+    let pulled = setup.pull_report(false);
+    assert_eq!((pulled.status.as_str(), pulled.installed), ("pulled", 2));
     let w = bare();
     let setup = w.setup.with_puller(Rc::new(Pulls(Err("offline".into()))));
-    let failed = setup.install(&InstallRequest::default()).unwrap().value;
+    let failed = setup.pull_report(false);
     assert_eq!(
-        (failed.pull.status.as_str(), failed.pull.error.as_str()),
+        (failed.status.as_str(), failed.error.as_str()),
         ("failed", "offline")
     );
-    let skipped = setup
-        .install(&InstallRequest {
-            no_pull: true,
-            ..InstallRequest::default()
-        })
-        .unwrap()
-        .value;
-    assert_eq!(skipped.pull.status, "skipped");
+    assert_eq!(setup.pull_report(true).status, "skipped");
 }
 
 // manage.feature: Scenario: Uninstall strips the harness but keeps the

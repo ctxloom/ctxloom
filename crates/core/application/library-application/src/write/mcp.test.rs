@@ -17,9 +17,8 @@ fn world() -> (Library, Arc<Mem>) {
                 ENVELOPE,
                 (
                     "mcp/tools.yaml",
-                    "command: echo\nargs:\n  - KEEP-THIS-ARGUMENT\n",
+                    "command: echo\nargs:\n  - KEEP-THIS-ARGUMENT\nnotes: KEEP-THESE-NOTES\n",
                 ),
-                ("mcp/.tools.meta.yaml", "notes: KEEP-THESE-NOTES\n"),
             ],
         )],
         layers: &[CONFIG],
@@ -40,7 +39,7 @@ fn patch() -> McpPatch {
 
 // mcp.feature: A name the bundle lacks is created as a remote server
 #[test]
-fn test_set_creates_a_server_the_bundle_lacks_with_its_sidecar() {
+fn test_set_creates_a_server_the_bundle_lacks_as_its_one_file() {
     let (library, mem) = world();
     let done = library
         .mcp_set(
@@ -71,17 +70,15 @@ fn test_set_creates_a_server_the_bundle_lacks_with_its_sidecar() {
             "/p/.ctxloom/content/bundles/v2/demo/bundle.yaml"
         )
     );
+    // owner T27: what is said about it is in its one file, no sidecar.
     assert_eq!(
         mem.text("demo", "mcp/search.yaml").unwrap(),
-        "url: https://mcp.example.com/v1\nheaders:\n  X-Team: core\n"
+        "url: https://mcp.example.com/v1\nheaders:\n  X-Team: core\ntags:\n  - search-index\nnotes: Team search index\ninstallation: Ask core for a seat\n"
     );
-    assert_eq!(
-        mem.text("demo", "mcp/.search.meta.yaml").unwrap(),
-        "tags:\n  - search-index\nnotes: Team search index\ninstallation: Ask core for a seat\n"
-    );
+    assert_eq!(mem.text("demo", "mcp/.search.meta.yaml"), None);
     assert_eq!(
         mem.text("demo", "mcp/tools.yaml").unwrap(),
-        "command: echo\nargs:\n  - KEEP-THIS-ARGUMENT\n"
+        "command: echo\nargs:\n  - KEEP-THIS-ARGUMENT\nnotes: KEEP-THESE-NOTES\n"
     );
 }
 
@@ -108,11 +105,7 @@ fn test_set_updates_what_it_names_and_keeps_the_rest() {
     assert_eq!(done.status, "updated");
     assert_eq!(
         mem.text("demo", "mcp/tools.yaml").unwrap(),
-        "command: search-mcp\nargs:\n  - --stdio\nenv:\n  LOG_LEVEL: debug\n"
-    );
-    assert_eq!(
-        mem.text("demo", "mcp/.tools.meta.yaml").unwrap(),
-        "notes: KEEP-THESE-NOTES\n"
+        "command: search-mcp\nargs:\n  - --stdio\nenv:\n  LOG_LEVEL: debug\nnotes: KEEP-THESE-NOTES\n"
     );
 }
 
@@ -135,7 +128,7 @@ fn test_set_can_clear_the_old_target_and_name_the_new_one_together() {
         .unwrap();
     assert_eq!(
         mem.text("demo", "mcp/tools.yaml").unwrap(),
-        "served_by: session-endpoint\n"
+        "served_by: session-endpoint\nnotes: KEEP-THESE-NOTES\n"
     );
 }
 
@@ -224,11 +217,7 @@ fn test_edit_writes_the_editors_result_back_and_keeps_the_rest() {
     );
     assert_eq!(
         mem.text("demo", "mcp/tools.yaml").unwrap(),
-        "command: EDITED-BY-TEST\nargs:\n  - KEEP-THIS-ARGUMENT\n"
-    );
-    assert_eq!(
-        mem.text("demo", "mcp/.tools.meta.yaml").unwrap(),
-        "notes: KEEP-THESE-NOTES\n"
+        "command: EDITED-BY-TEST\nargs:\n  - KEEP-THIS-ARGUMENT\nnotes: KEEP-THESE-NOTES\n"
     );
     assert_eq!(
         mem.edits(),
@@ -265,4 +254,60 @@ fn test_edit_of_a_server_nobody_ships_fails_before_the_editor_runs() {
     assert!(err(library.mcp_edit(&plain(), "demo")).contains("McpReference"));
     assert!(mem.edits().is_empty());
     assert_eq!(mem.writes(), 0);
+}
+
+// OQ-6 (design §1.3): a server `mcp server set` creates is named by an ID;
+// one the bundle already ships is set by its name as it is.
+#[test]
+fn test_set_refuses_to_create_a_server_whose_name_is_no_id() {
+    let (library, mem) = world();
+    let p = McpPatch {
+        url: Some("https://mcp.example.com".to_string()),
+        ..patch()
+    };
+    for bad in [
+        "Upper",
+        "under_score",
+        "dot.ted",
+        "two words",
+        "9lead",
+        "trail-",
+        "a-very-long-name-that-runs-past-sixty-three-characters-xxxxxxxxxx",
+    ] {
+        let got = err(library.mcp_set(&plain(), &format!("demo#mcp/{bad}"), &p));
+        assert!(got.contains("BadId"), "{bad:?}: {got}");
+    }
+    assert_eq!(mem.writes(), 0);
+}
+
+// An update that may not create (AIP-134 `allow_missing` false) of a name
+// the bundle lacks is refused McpNotFound, naming the reference, and saves
+// nothing; one of a server the bundle holds changes it as a set does.
+#[test]
+fn test_an_update_that_may_not_create_refuses_a_missing_server_and_saves_nothing() {
+    let (library, _mem) = world();
+    let url = || McpPatch {
+        url: Some("https://mcp.example.com/v1".to_string()),
+        ..patch()
+    };
+    let refused = library.mcp_update(&plain(), "demo#mcp/search", &url(), false);
+    let refused = refused.result.expect_err("refused");
+    assert!(
+        matches!(&refused, crate::AppError::McpNotFound { name } if name == "demo#mcp/search"),
+        "{refused:?}"
+    );
+    assert!(err(library.mcp_edit(&plain(), "demo#mcp/search")).contains("McpServerNotFound"));
+    let updated = library
+        .mcp_update(
+            &plain(),
+            "demo#mcp/tools",
+            &McpPatch {
+                notes: Some("changed".to_string()),
+                ..patch()
+            },
+            false,
+        )
+        .result
+        .unwrap();
+    assert_eq!(updated.status, "updated");
 }

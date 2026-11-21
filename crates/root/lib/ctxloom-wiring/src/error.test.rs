@@ -72,8 +72,33 @@ fn the_samples_are_the_same_whether_or_not_test_support_is_built() {
             "ctxloom-wiring-no-home",
             "ctxloom-wiring-bad-session",
             "ctxloom-wiring-no-runtime",
+            "ctxloom-wiring-daemon-other-home",
+            "ctxloom-wiring-project-unnamed",
+            "ctxloom-wiring-daemon-instance-held",
+            "ctxloom-wiring-checkout",
+            "ctxloom-wiring-scan",
             "ctxloom-wiring-store",
             "ctxloom-wiring-store",
+            "ctxloom-wiring-held-set-aside",
+            "ctxloom-wiring-shutdown-bad-time",
+            "ctxloom-wiring-shutdown-incomplete",
+            "ctxloom-wiring-shutdown-held",
         ]
     );
+}
+
+// Owner ruling 2026-11-14: a dry run's names in a project nothing has named
+// are a decline (20), naming the root; every other wiring error failed (10).
+#[test]
+fn a_dry_runs_names_in_an_unnamed_project_are_a_decline_naming_its_root() {
+    use cli_support::{Exit, ExitClass};
+    let unnamed = LibError::ProjectUnnamed {
+        root: "/work/app".to_string(),
+    };
+    assert_eq!(unnamed.exit(), Exit::REFUSED);
+    assert!(text(unnamed.args()).contains("/work/app"));
+    let other = LibError::NoRuntime {
+        detail: "why".to_string(),
+    };
+    assert_eq!(other.exit(), Exit::FAILED);
 }

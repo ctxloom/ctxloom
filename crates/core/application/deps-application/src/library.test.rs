@@ -40,7 +40,7 @@ fn test_installed_bundles_are_named_by_their_remote_and_carry_their_tree() {
         "#!/bin/sh\n".to_string(),
     ));
     files.push((
-        format!("{BUNDLES}/demo/skills/.runner.meta.yaml"),
+        format!("{BUNDLES}/demo/skills/runner/.meta.yaml"),
         "executable:\n  - scripts/run.sh\n".to_string(),
     ));
     let refs: Vec<(&str, &str)> = files

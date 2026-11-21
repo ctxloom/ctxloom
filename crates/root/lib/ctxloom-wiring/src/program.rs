@@ -50,6 +50,19 @@ fn without_suffix<'n>(name: &'n str, suffix: &str) -> &'n str {
     }
 }
 
+/// The program a run the daemon hosts for a client runs (owner,
+/// 2026-11-18): the client's, as its request named it; none named, the
+/// daemon's own ([`running`]).
+pub(crate) fn of_client(client: Option<&daemon_application::Program>) -> Program {
+    match client {
+        Some(client) => Program {
+            dir: client.dir.clone(),
+            name: client.name.clone(),
+        },
+        None => running().clone(),
+    }
+}
+
 /// The running binary, asked once per process.
 pub(crate) fn running() -> &'static Program {
     static RUNNING: OnceLock<Program> = OnceLock::new();

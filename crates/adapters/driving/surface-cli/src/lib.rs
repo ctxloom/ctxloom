@@ -8,6 +8,7 @@
 
 mod commands;
 mod text;
+pub mod wire;
 
 use cli_support::{Exit, ExitClass};
 use std::io::{self, Read, Write};
@@ -15,10 +16,12 @@ use std::io::{self, Read, Write};
 use angzarr_presentation::{Catalog, Format};
 use clap::ArgMatches;
 use cli_support::{flag, many, one, say_notices};
+use daemon_proto::v1;
 use library_application::Flags;
 use serde::Serialize;
 use setup_application::{
-    DiffRequest, InstallRequest, MaterializeRequest, Setup, SetupError, SurfaceSpec,
+    DiffRequest, EngineOutcome, MaterializeResult, NotCarried, Setup, SetupError, SurfaceSpec,
+    UninstallReport,
 };
 
 pub use commands::nouns;
@@ -47,8 +50,75 @@ fn failed(error: SetupError) -> Failure {
     error.into_failure()
 }
 
+/// The setup writes the daemon makes (step 10c U10): other tools' files,
+/// written as one sequence of its own.
+pub trait Foreign {
+    fn materialize(
+        &self,
+        request: v1::MaterializeRequest,
+    ) -> Result<v1::MaterializeResponse, Failure>;
+    fn uninstall(
+        &self,
+        request: v1::UninstallManageRequest,
+    ) -> Result<v1::UninstallManageResponse, Failure>;
+    /// `manage check`, the daemon's read (step 10c U5): each engine's
+    /// wiring read off its files where the caller stands.
+    fn check(&self, request: v1::CheckManageRequest) -> Result<v1::CheckManageResponse, Failure>;
+    /// `manage gitignore install`, the daemon's write (step 10c U5):
+    /// `.ctxloom/.gitignore`, one file of the project's library.
+    fn install_gitignore(
+        &self,
+        request: v1::InstallGitignoreRequest,
+    ) -> Result<v1::InstallGitignoreResponse, Failure>;
+    /// `manage install`, the daemon's write (step 10c U6): a new project
+    /// created whole as init creates it, or one there given its
+    /// `.gitignore`.
+    fn install_manage(
+        &self,
+        request: v1::InstallManageRequest,
+    ) -> Result<v1::InstallManageResponse, Failure>;
+    /// The project the daemon named `project_id` bound at its root; empty,
+    /// the one there, named as found.
+    fn bind_project(&self, project_id: &str) -> Result<(), Failure>;
+}
+
+/// The report a materialize's answer says, as it has always been printed.
+pub fn materialize_report(answered: &v1::MaterializeResponse) -> MaterializeResult {
+    MaterializeResult {
+        target: answered.target.clone(),
+        created: answered.created,
+        profiles: answered.profiles.clone(),
+        engines: answered
+            .engines
+            .iter()
+            .map(|engine| EngineOutcome {
+                engine: engine.engine.clone(),
+                wrote: engine.wrote.clone(),
+                released: engine.released.clone(),
+                context_file: engine.context_file.clone(),
+                not_carried: engine
+                    .not_carried
+                    .iter()
+                    .map(|lost| NotCarried {
+                        surface: lost.surface.clone(),
+                        reason: lost.reason.clone(),
+                    })
+                    .collect(),
+                skipped: engine.skipped.clone(),
+                warnings: engine.warnings.clone(),
+                refused: Vec::new(),
+            })
+            .collect(),
+        status: answered.status.clone(),
+        errors: answered.errors.clone(),
+        warnings: answered.warnings.clone(),
+        failures: Vec::new(),
+    }
+}
+
 struct Context<'a> {
     setup: &'a Setup,
+    foreign: &'a dyn Foreign,
     flags: Flags,
     format: Format,
     catalog: &'a Catalog,
@@ -57,6 +127,7 @@ struct Context<'a> {
 /// Run `noun` (given the matches of the whole line).
 pub fn run(
     setup: &Setup,
+    foreign: &dyn Foreign,
     noun: &str,
     call: &Call<'_>,
     catalog: &Catalog,
@@ -70,6 +141,7 @@ pub fn run(
     });
     let cx = Context {
         setup,
+        foreign,
         flags: call.globals.clone(),
         format,
         catalog,
@@ -103,6 +175,41 @@ fn emit<T: Serialize>(
     })
 }
 
+/// `manage install`, the daemon's (step 10c U6): the engine refused by
+/// name first, and asked of a project there refused from the preview, so
+/// nothing is written either way.
+fn install(
+    cx: &Context<'_>,
+    args: &ArgMatches,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> Result<(), Failure> {
+    let engine = one(args, "engine");
+    cx.setup.check_engine(engine.as_deref()).map_err(failed)?;
+    let request = v1::InstallManageRequest {
+        engine: engine.clone().unwrap_or_default(),
+        caller: v1::Caller::of(Some(library_api::reads::globals_of(&cx.flags)), None),
+        ..v1::InstallManageRequest::default()
+    };
+    let preview = cx.foreign.install_manage(v1::InstallManageRequest {
+        validate_only: true,
+        ..request.clone()
+    })?;
+    setup_application::engine_applies(engine.as_deref(), !preview.initialized).map_err(failed)?;
+    let answered = cx.foreign.install_manage(request)?;
+    cx.foreign.bind_project(&answered.project_id)?;
+    say_v1(cx, &answered.notices, err);
+    let report = setup_application::InstallReport {
+        app_dir: answered.app_dir,
+        initialized: answered.initialized,
+        gitignore: answered.gitignore,
+        gitignore_status: answered.gitignore_status,
+        pull: cx.setup.pull_report(flag(args, "no-pull")),
+    };
+    emit(cx, out, &report, |w| text::install(w, &report))?;
+    Ok(())
+}
+
 fn manage(
     cx: &Context<'_>,
     sub: &ArgMatches,
@@ -120,20 +227,19 @@ fn manage(
                 .map_err(failed)?;
             emit(cx, out, &plan, |w| text::plan(w, &plan))?;
         }
-        "install" => {
-            let done = cx
-                .setup
-                .install(&InstallRequest {
-                    engine: one(args, "engine"),
-                    no_pull: flag(args, "no-pull"),
-                    flags: cx.flags.clone(),
-                })
-                .map_err(failed)?;
-            say_notices(&done.notices, PROG, cx.format, cx.catalog, err);
-            emit(cx, out, &done.value, |w| text::install(w, &done.value))?;
-        }
+        "install" => install(cx, args, out, err)?,
         "uninstall" => {
-            let report = cx.setup.uninstall().map_err(failed)?;
+            let answered = cx.foreign.uninstall(v1::UninstallManageRequest {
+                caller: v1::Caller::of(Some(library_api::reads::globals_of(&cx.flags)), None),
+                ..v1::UninstallManageRequest::default()
+            })?;
+            say_v1(cx, &answered.notices, err);
+            let report = UninstallReport {
+                status: answered.status,
+                backends: answered.backends,
+                errors: answered.errors,
+                note: answered.note,
+            };
             emit(cx, out, &report, |w| text::uninstall(w, &report))?;
             if let Some(first) = report.errors.first() {
                 return Err(failed(SetupError::Request {
@@ -182,12 +288,23 @@ fn manage(
         }
         _ => {
             if args.subcommand_name() == Some("install") {
-                let report = cx.setup.gitignore_install().map_err(failed)?;
+                let answered = cx.foreign.install_gitignore(v1::InstallGitignoreRequest {
+                    caller: v1::Caller::of(Some(library_api::reads::globals_of(&cx.flags)), None),
+                    ..v1::InstallGitignoreRequest::default()
+                })?;
+                say_v1(cx, &answered.notices, err);
+                let report = wire::gitignore_report(&answered);
                 emit(cx, out, &report, |w| text::gitignore(w, &report))?;
             }
         }
     }
     Ok(Exit::OK)
+}
+
+/// The daemon's notices, said as the use case's own were.
+fn say_v1(cx: &Context<'_>, notices: &[v1::Notice], err: &mut dyn Write) {
+    let said: Vec<_> = notices.iter().map(library_api::reads::said).collect();
+    say_notices(&said, PROG, cx.format, cx.catalog, err);
 }
 
 #[derive(Serialize)]
@@ -197,9 +314,13 @@ struct StatuslineAnswer {
 }
 
 fn check(cx: &Context<'_>, out: &mut dyn Write, err: &mut dyn Write) -> Result<(), Failure> {
-    let done = cx.setup.check(&cx.flags).map_err(failed)?;
-    say_notices(&done.notices, PROG, cx.format, cx.catalog, err);
-    emit(cx, out, &done.value, |w| text::check(w, &done.value))
+    let answered = cx.foreign.check(v1::CheckManageRequest {
+        caller: v1::Caller::of(Some(library_api::reads::globals_of(&cx.flags)), None),
+        ..v1::CheckManageRequest::default()
+    })?;
+    say_v1(cx, &answered.notices, err);
+    let report = wire::check_report(&answered);
+    emit(cx, out, &report, |w| text::check(w, &report))
 }
 
 fn materialize(
@@ -229,28 +350,31 @@ fn materialize(
         })?;
         return Ok(Exit::OK);
     }
-    let request = MaterializeRequest {
+    // Parsed above so a malformed one is refused before the daemon is
+    // asked; the daemon parses what it is sent.
+    let _ = surfaces;
+    let answered = cx.foreign.materialize(v1::MaterializeRequest {
         profiles: many(args, "profiles"),
-        target: one(args, "target"),
+        target: one(args, "target").unwrap_or_default(),
         yes: flag(args, "yes"),
-        engines: many(args, "backend"),
-        surfaces,
+        backends: many(args, "backend"),
+        surfaces: many(args, "surface"),
         release: flag(args, "release"),
         dry_run: flag(args, "dry-run"),
-        leave_launch_context: false,
-        flags: cx.flags.clone(),
-    };
-    let mut done = cx.setup.materialize(&request).map_err(failed)?;
-    say_notices(&done.notices, PROG, cx.format, cx.catalog, err);
-    for failure in &done.value.failures {
-        done.value.errors.push(cx.catalog.message(failure));
-    }
-    emit(cx, out, &done.value, |w| text::materialize(w, &done.value))?;
+        caller: v1::Caller::of(Some(library_api::reads::globals_of(&cx.flags)), None),
+        ..v1::MaterializeRequest::default()
+    })?;
+    say_v1(cx, &answered.notices, err);
+    let report = materialize_report(&answered);
+    emit(cx, out, &report, |w| text::materialize(w, &report))?;
     // A delivery that was refused leaves the file as it was, and the command
     // is refused (ruling 152): a script gating on the exit code must not
     // believe it landed.
-    match done.value.failures.into_iter().next() {
-        Some(first) => Err(Failure::new(first, Exit::REFUSED)),
+    match answered.failures.first() {
+        Some(first) => Err(Failure::new(
+            library_api::reads::reported(first),
+            Exit::REFUSED,
+        )),
         None => Ok(Exit::OK),
     }
 }

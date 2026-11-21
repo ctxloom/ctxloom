@@ -1,0 +1,41 @@
+[package]
+name = "approvals"
+version = "0.1.0"
+description = "The approvals domain: a session's permission ask, its options, answered once by the user, withdrawn or expired; and the ask names' claims, decided and folded on angzarr-embedded"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+angzarr-embedded.workspace = true
+angzarr-diagnostic.workspace = true
+angzarr-embedded-macros.workspace = true
+approvals-proto.workspace = true
+prost.workspace = true
+# An ask's expiry is the scheduler's alarm (U5: the arm policy towards it,
+# its delivery, and the reached fact the aggregate handles).
+scheduler.workspace = true
+# An ask's input is the engine's JSON text: read for the rule it implies
+# (pure computation, as surface-ports' serde_json is).
+serde_json.workspace = true
+# The input's SHA-256, journaled beside its excerpt.
+sha2.workspace = true
+# An ask's stream root is the UUIDv5 of its asking session and its key; a
+# name's claim, the UUIDv5 of its resource name (sessions::root_of).
+sessions.workspace = true
+uuid.workspace = true
+
+[build-dependencies]
+angzarr-build.workspace = true
+
+[dev-dependencies]
+angzarr-embedded = { workspace = true, features = ["test-support"] }
+mutants.workspace = true
+
+[features]
+# `diagnostic_samples`, for other crates' catalog tests.
+test-support = []
+
+[lints]
+workspace = true

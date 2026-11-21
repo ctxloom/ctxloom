@@ -1,0 +1,17 @@
+# Go-parity commands: id <TAB> fixture <TAB> [ENV=value ...] arguments
+# Each line, in every file of fixtures/parity/ (one per noun, design §8.4),
+# is run by scripts/go-library-goldens.sh against Go ctxloom
+# (release/0.7 860336c4e) to make fixtures/golden/<id>.stdout and .exit, and
+# by the Rust acceptance test (library_parity.test.rs) against this binary.
+# Source of every line: the Go feature named in the id's group comment.
+#
+# OD-40 (design §8.1): Go parity ends for JSON. A companion's JSON is its
+# AIP resource (ListCompanionsResponse), held by library-cli's and the
+# binary's companion tests; its JSON rows are retired, the text rows (and the
+# rows that hold a refusal) stay as Go parity.
+#
+# cli/companion.feature
+companion-list-text	lib	companion list --format text
+# Nothing there: no content directory at all, and an empty one (empty_listing_hint, cli/agent.feature)
+empty-companion-list-text	empty	companion list --format text
+emptybundles-companion-list-text	emptybundles	companion list --format text

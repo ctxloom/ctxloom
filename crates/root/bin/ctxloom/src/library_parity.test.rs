@@ -1,7 +1,7 @@
 //! Go parity (S1): the same commands on the same fixtures give what Go
 //! ctxloom gave.
 //!
-//! `fixtures/parity.tsv` lists the commands; `scripts/go-library-goldens.sh`
+//! `fixtures/parity/<noun>.tsv` (one file per noun, design §8.4) list the commands; `scripts/go-library-goldens.sh`
 //! ran each against Go ctxloom (release/0.7, 860336c4e, which is ca14d6046 or
 //! later) in a copy of its fixture, and kept the output as
 //! `fixtures/golden/<id>.stdout` and `<id>.exit`. These tests run the same
@@ -32,6 +32,18 @@
 //!   (`config.premised`, owner ruling of 2026-11-12): Go never put it there,
 //!   so a dry run's context, its token estimate and its text are compared
 //!   without it (`without_index`).
+//! - The JSON of the catalog verbs (OD-40, design §8.1: Go parity ends for
+//!   JSON): bundle, fragment, command, skill, mcp and profile print their
+//!   AIP resources (library.proto), not Go's shapes, so such a row is held
+//!   to its exit code and to answering JSON at all (`aip_json`); the shapes
+//!   are asserted by `library_cli_<noun>`, `library_write_<noun>` and the
+//!   features. Their text rows stay Go parity.
+//! - A converted noun's JSON shape (OD-40, design §8.1: Go parity ends for
+//!   JSON): an agent's and a companion's JSON rows are retired. Where the AIP
+//!   resource carries Go's answer whole, that answer is still compared:
+//!   `config show`'s `document` (`as_go_printed`) and a dry run's compared
+//!   keys, a default proto3 JSON leaves out read as Go's printed default
+//!   (`printed`).
 //! - Error texts. A failing command's stdout is empty in both and its exit
 //!   code is compared; the words are asserted in `library_cli.test.rs` from
 //!   the Gherkin. A usage error is exit 20 here (D28, ruled), where Go's
@@ -83,8 +95,12 @@ const CONFIG_REFUSALS: [&str; 14] = [
 
 /// Rows where the owner overrides Go (D15, 2026-11-03): a config whose
 /// `schema_version` is newer, older, unstamped or not a number is refused with
-/// exit 20, where Go warned and read on (`config_version_refusal_test.go`).
-const OWNER_REFUSALS: [&str; 8] = [
+/// exit 20, where Go warned and read on (`config_version_refusal_test.go`);
+/// and a value the schema breaks where Go took it.
+const OWNER_REFUSALS: [&str; 9] = [
+    // `--config-set companions=zzz`: a registration is a mapping of names
+    // (OD-10), and a string breaks the schema where Go took it.
+    "cfg-layers-set-json",
     "cfg-newer-show-json",
     "cfg-newer-bundle-list",
     "cfg-older-show-json",
@@ -95,9 +111,14 @@ const OWNER_REFUSALS: [&str; 8] = [
     "cfg-notint-bundle-list",
 ];
 
+/// Fixtures every row of which is a refusal (exit 20, no answer) where Go
+/// answered: `cfg/v8` holds keys a hard migrate made unknown (the top-level
+/// `auth`, engines track 1; an agent's `permissions`, owner ruling 134).
+const REFUSED_FIXTURES: [&str; 1] = ["cfg/v8"];
+
 /// Rows where the owner overrides Go (2026-11-12): a skill file's mode is its
-/// sidecar's `executable:` declaration, on every OS, never the mode on disk
-/// Go read. The `lib` fixture's sidecar declares `scripts/run.sh`, which git
+/// metadata's `executable:` declaration, on every OS, never the mode on disk
+/// Go read. The `lib` fixture's metadata declares `scripts/run.sh`, which git
 /// checks out 0644, so Go said 0644 and this build says 0755.
 const SIDECAR_MODE_ROWS: [&str; 2] = ["skill-show-json", "skill-show-text"];
 
@@ -116,18 +137,176 @@ fn as_declared(id: &str, golden: String) -> String {
         .replace(&format!("0644  {SCRIPT}"), &format!("0755  {SCRIPT}"))
 }
 
-/// Fixtures Go reads that register companions by bare name (`companions:
-/// [acme]`, schema 8): from schema 9 a companion is a name and the command
-/// that runs it, and the bare list is refused, never migrated (virtuous-word,
-/// owner ruling 2026-11-06). Their rows hold the refusal (exit 20, no answer)
-/// where Go answered; the new shape's behaviour is held by `library_config`'s
-/// layering test on `cfg/layers9`, and by `library_cli`'s companion tests.
-const BARE_COMPANION_FIXTURES: [&str; 3] = ["cfg/v8", "cfg/layers", "cfg/layers-empty-companions"];
+/// The rows whose text lists a skill's files where the owner moved its
+/// metadata into its directory (T27, 2026-11-18, evening): a file of the
+/// package, so listed first and counted (Go kept it beside the package).
+/// Each with the digest of its fixture's `.meta.yaml`.
+const SKILL_META_ROWS: [(&str, &str); 3] = [
+    (
+        "skill-show-text",
+        "96a796879d68dc7d7ad2812cddc5946e7fe0192045e2cf94228532acbd3882de",
+    ),
+    ("skill-list-text", ""),
+    (
+        "gold-skill-show-text",
+        "c2f5c3dac38dbf5631daebaf7987ee71675ba32b820bca08415de518cca9c458",
+    ),
+];
 
-/// Go's golden as this build words it where the owner changed it (virtuous-word,
-/// 2026-11-06): the schema stamp (Go writes 8, this build 9: the companions
-/// registration) and the hint under an empty `companion list` (a companion is
-/// added with the command that runs it); and Go's boolean
+/// Go's golden for a [`SKILL_META_ROWS`] row, the skill's metadata among
+/// its files: a listing's count one more, a show's `Files` led by it.
+fn as_delivered(id: &str, golden: String) -> String {
+    let Some((_, digest)) = SKILL_META_ROWS.iter().find(|(row, _)| *row == id) else {
+        return golden;
+    };
+    if digest.is_empty() {
+        return golden.replace("[2 file(s)]", "[3 file(s)]");
+    }
+    let mut out = String::new();
+    for line in golden.split_inclusive('\n') {
+        match line
+            .strip_prefix("Files (")
+            .and_then(|rest| rest.strip_suffix("):\n"))
+            .and_then(|n| n.parse::<u32>().ok())
+        {
+            Some(n) => {
+                out.push_str(&format!("Files ({}):\n", n + 1));
+                out.push_str(&format!("  0644  sha256:{digest}  .meta.yaml\n"));
+            }
+            None => out.push_str(line),
+        }
+    }
+    out
+}
+
+/// The rows whose answer the owner changed from Go's: `bundle list` of a
+/// project with no bundles directory says what an empty one says (owner
+/// ruling 2026-11-17: "in the event of no directory, we should create it or
+/// tell the user to install bundles, which would create it"; a read never
+/// creates it), not Go's `mkdir` line. And `profile show` prints a
+/// profile's selecting tags, fragments, denied tools and hooks (owner
+/// ruling 2026-11-17, step 10a U2), which Go's printed none of: the curated
+/// golden profile's, after the sections Go printed. bundle.tsv and
+/// profile.tsv mark the rows.
+fn as_ruled(id: &str, golden: String) -> String {
+    match id {
+        "gold-profile-show-curated-text" => format!(
+            "{}\nSelect tags:\n  - ctxloom\nDenied tools:\n  - Task\nHooks:\n  unified.pre_tool:\n    - {{command: echo golden, type: command}}\n",
+            golden.trim_end()
+        ),
+        "empty-bundle-list-text" => golden.replace(
+            "No bundles directory found. Create one with: mkdir -p .ctxloom/content/bundles",
+            &format!(
+                "No bundles installed.\n{}",
+                library_application::LISTING_HINT
+            ),
+        ),
+        "noproject-bundle-list-text" => format!("No bundles installed.\n{golden}"),
+        _ => golden,
+    }
+}
+
+/// The rows whose text prints canonical forms (owner ruling 2026-11-17,
+/// corrected the same day): a profile's bundle and parents, its bundles,
+/// an MCP server's bundle and a dry run's profiles are their SHORT library
+/// references (`demo`, `project#profiles/dev`), harp-free, as a person
+/// types them, never the text written. profile.tsv, mcp.tsv and run.tsv
+/// mark them.
+const CANONICAL_ROWS: [&str; 9] = [
+    "run-dry-dev-text",
+    "gold-run-dry-auto-text",
+    "mcp-server-list-text",
+    "mcp-server-show-text",
+    "profile-list-text",
+    "profile-show-dev-text",
+    "profile-show-base-text",
+    "gold-profile-list-text",
+    "gold-profile-show-curated-text",
+];
+
+/// A bundle's short reference, as Go's text names it (`ctxloom+local:<b>`
+/// or bare): its catalog name.
+fn bundle_short(text: &str) -> String {
+    text.strip_prefix("ctxloom+local:")
+        .unwrap_or(text)
+        .to_string()
+}
+
+/// A profile's short reference, as Go's text names a parent (a project
+/// profile's bare name): `project#profiles/<name>`.
+fn profile_short(text: &str) -> String {
+    format!("project#profiles/{text}")
+}
+
+/// Go's golden for a [`CANONICAL_ROWS`] row, its references as their
+/// short references: `Bundle:` and `from bundle:` the bundle's, `parents:`
+/// and a `Parents:` item a profile's, a `Bundles:` item a bundle's.
+fn as_canonical(id: &str, golden: String) -> String {
+    if !CANONICAL_ROWS.contains(&id) {
+        return golden;
+    }
+    let mut section = "";
+    let lines: Vec<String> = golden
+        .lines()
+        .map(|line| {
+            let trimmed = line.trim_start();
+            let indent = &line[..line.len() - trimmed.len()];
+            if let Some(bundle) = trimmed.strip_prefix("Bundle: ") {
+                return format!("{indent}Bundle: {}", bundle_short(bundle));
+            }
+            if trimmed.starts_with("from bundle: ") {
+                let parts: Vec<String> = trimmed
+                    .split(", ")
+                    .map(|part| {
+                        if let Some(b) = part.strip_prefix("from bundle: ") {
+                            format!("from bundle: {}", bundle_short(b))
+                        } else if let Some(p) = part.strip_prefix("parents: ") {
+                            format!("parents: {}", profile_short(p))
+                        } else if part == "1 bundles" {
+                            // Divergence (smoke 2026-11-19): one is singular.
+                            "1 bundle".to_string()
+                        } else {
+                            part.to_string()
+                        }
+                    })
+                    .collect();
+                return format!("{indent}{}", parts.join(", "));
+            }
+            if line.starts_with("=== ") {
+                section = if line == "=== Profiles ===" {
+                    "profiles"
+                } else {
+                    ""
+                };
+                return line.to_string();
+            }
+            if section == "profiles" {
+                if let Some(p) = line.strip_prefix("  ") {
+                    return format!("  {}", profile_short(p));
+                }
+                return line.to_string();
+            }
+            if line.ends_with(':') && !line.starts_with(' ') {
+                section = match line {
+                    "Parents:" => "parents",
+                    "Bundles:" => "bundles",
+                    _ => "",
+                };
+                return line.to_string();
+            }
+            match (section, line.strip_prefix("  - ")) {
+                ("parents", Some(p)) => format!("  - {}", profile_short(p)),
+                ("bundles", Some(b)) => format!("  - {}", bundle_short(b)),
+                _ => line.to_string(),
+            }
+        })
+        .collect();
+    lines.join("\n")
+}
+
+/// Go's golden as this build words it where the owner changed it: the schema
+/// stamp (Go writes 8, this build 9; Go's bare-name companions list is read
+/// as generation 9's names, OD-10); and Go's boolean
 /// `config.use_distilled` as the word that replaced it, `config.content_form`
 /// (owner ruling 59: the fixtures say the word, Go's goldens stay Go's).
 fn as_changed(golden: &str) -> String {
@@ -148,10 +327,6 @@ fn as_changed(golden: &str) -> String {
         // Owner ruling 134: an agent has no engine-neutral `permissions` (Go
         // listed an empty one).
         .replace(",\n    \"permissions\": {}", "")
-        .replace(
-            "Use 'ctxloom companion add <name>' to register one.",
-            "Use 'ctxloom companion add <name> --command <program> [args...]' to register one.",
-        )
 }
 
 /// The premise index's own first line: on demand (`config.premised`, owner
@@ -175,6 +350,27 @@ fn json_without_index(mut got: Value) -> Value {
     if let Some(context) = context {
         got["tokens"] = Value::from(library::tokens::estimate(&context) as u64);
         got["context"] = Value::String(context);
+    }
+    got
+}
+
+/// A dry run's agent and profiles as Go printed them, their configured text:
+/// the `Run` names them (design §2, owner ruling 2026-11-14), each name's
+/// last segment the text it was resolved from (every parity fixture's agent
+/// and profile is the project's own, by a bare name).
+fn as_configured(mut got: Value) -> Value {
+    let last = |name: &Value| {
+        name.as_str()
+            .map(|name| Value::from(name.rsplit('/').next().unwrap_or(name)))
+            .unwrap_or_else(|| name.clone())
+    };
+    if let Some(agent) = got.get("agent").map(last) {
+        got["agent"] = agent;
+    }
+    if let Some(Value::Array(profiles)) = got.get_mut("profiles") {
+        for profile in profiles.iter_mut() {
+            *profile = last(profile);
+        }
     }
     got
 }
@@ -243,6 +439,23 @@ fn carries_retired_llm(golden: &str) -> bool {
         || golden.contains("\"backend\"")
 }
 
+/// The nouns whose JSON is their AIP resources (OD-40, B1), not Go's.
+const AIP_NOUNS: [&str; 6] = ["bundle", "fragment", "command", "skill", "mcp", "profile"];
+
+/// Whether `row` asks a noun of [`AIP_NOUNS`] for json (`bundle push` and
+/// `bundle move` are not converted yet): its stdout is not Go's.
+fn aip_json(row: &Row) -> bool {
+    let words: Vec<&str> = row
+        .args
+        .iter()
+        .map(String::as_str)
+        .filter(|w| !w.starts_with('-') && *w != "json")
+        .collect();
+    let noun = words.first().copied().unwrap_or_default();
+    let verb = words.get(1).copied().unwrap_or_default();
+    AIP_NOUNS.contains(&noun) && !(noun == "bundle" && matches!(verb, "push" | "move"))
+}
+
 /// A dry run's text sections that print later slices' surfaces.
 const DRY_RUN_SECTIONS: [&str; 5] = ["Environment", "Delivery", "Context File", "LLM", "Engine"];
 
@@ -254,7 +467,16 @@ struct Row {
 }
 
 fn rows() -> Vec<Row> {
-    let text = files::read(fixtures().join("parity.tsv")).expect("parity.tsv");
+    let mut tables: Vec<_> = files::children(fixtures().join("parity"))
+        .into_iter()
+        .filter(|path| path.extension().is_some_and(|e| e == "tsv"))
+        .collect();
+    tables.sort();
+    let text: String = tables
+        .iter()
+        .map(|path| files::read(path).unwrap_or_else(|e| panic!("{}: {e}", path.display())))
+        .collect::<Vec<_>>()
+        .join("\n");
     text.lines()
         .filter(|l| !l.is_empty() && !l.starts_with('#'))
         .map(|line| {
@@ -326,8 +548,7 @@ fn mismatch(row: &Row, project: &Project) -> Option<String> {
         .trim()
         .parse()
         .expect("an exit code");
-    if OWNER_REFUSALS.contains(&row.id.as_str())
-        || BARE_COMPANION_FIXTURES.contains(&row.fixture.as_str())
+    if OWNER_REFUSALS.contains(&row.id.as_str()) || REFUSED_FIXTURES.contains(&row.fixture.as_str())
     {
         // owner override of Go, D15, 2026-11-03
         return (ran.code != 20 || !ran.stdout.trim().is_empty())
@@ -343,7 +564,16 @@ fn mismatch(row: &Row, project: &Project) -> Option<String> {
     if !agreed {
         return Some(format!("exit {} (Go {go_exit}): {}", ran.code, ran.said()));
     }
-    let want = as_declared(&row.id, as_changed(&golden(&row.id, "stdout")));
+    let want = as_canonical(
+        &row.id,
+        as_ruled(
+            &row.id,
+            as_delivered(
+                &row.id,
+                as_declared(&row.id, as_changed(&golden(&row.id, "stdout"))),
+            ),
+        ),
+    );
     if !is_dry_run(&row.id) && carries_retired_llm(&want) {
         return None;
     }
@@ -352,14 +582,17 @@ fn mismatch(row: &Row, project: &Project) -> Option<String> {
         return (!got.trim().is_empty()).then(|| format!("stdout should be empty: {got:?}"));
     }
     match serde_json::from_str::<Value>(&want) {
+        Ok(_) if aip_json(row) => serde_json::from_str::<Value>(&got)
+            .is_err()
+            .then(|| format!("stdout is not JSON: {got:?}")),
         Ok(want) => {
             let Ok(got) = serde_json::from_str::<Value>(&got) else {
                 return Some(format!("stdout is not JSON: {got:?}"));
             };
             let got = if is_dry_run(&row.id) {
-                json_without_index(got)
+                as_configured(json_without_index(got))
             } else {
-                got
+                as_go_printed(row, got)
             };
             json_mismatch(&row.id, &want, &got)
         }
@@ -387,13 +620,47 @@ fn mismatch(row: &Row, project: &Project) -> Option<String> {
     }
 }
 
+/// The noun a row runs: its first word that is no flag and no flag's value.
+fn noun(row: &Row) -> &str {
+    row.args
+        .iter()
+        .find(|word| !word.starts_with('-') && !word.contains('='))
+        .map_or("", String::as_str)
+}
+
+/// This build's json as Go printed it, where the AIP resource (OD-40)
+/// carries Go's answer whole: `config show` is the `Config` singleton, whose
+/// `document` is the configuration Go printed (design §5.8), so that is what
+/// is compared. Every other noun's json is compared as it is.
+fn as_go_printed(row: &Row, got: Value) -> Value {
+    if noun(row) == "config" {
+        return got.get("document").cloned().unwrap_or(got);
+    }
+    got
+}
+
+/// A value as proto3 JSON prints it (OD-40: the dry run is the `Run`
+/// message): a default (null, false, a zero, an empty text or list) is left
+/// out, so Go's printed default and this build's absent field agree, and
+/// nothing else does.
+fn printed(value: Option<&Value>) -> Option<&Value> {
+    value.filter(|value| match value {
+        Value::Null => false,
+        Value::Bool(b) => *b,
+        Value::Number(n) => n.as_f64() != Some(0.0),
+        Value::String(s) => !s.is_empty(),
+        Value::Array(a) => !a.is_empty(),
+        Value::Object(_) => true,
+    })
+}
+
 fn json_mismatch(id: &str, want: &Value, got: &Value) -> Option<String> {
     if !is_dry_run(id) {
         return (want != got).then(|| format!("JSON differs\n--- Go\n{want:#}\n--- here\n{got:#}"));
     }
     let mut wrong = Vec::new();
     for key in DRY_RUN_KEYS {
-        if want.get(key) != got.get(key) {
+        if printed(want.get(key)) != printed(got.get(key)) {
             wrong.push(format!(
                 "{key}: Go {:?}, here {:?}",
                 want.get(key),
@@ -403,12 +670,12 @@ fn json_mismatch(id: &str, want: &Value, got: &Value) -> Option<String> {
     }
     // Findings: how many, and which are fatal (their words are the
     // catalog's).
-    let flags = |doc: &Value| -> Vec<(Value, Value)> {
+    let flags = |doc: &Value| -> Vec<(Value, bool)> {
         doc["findings"]
             .as_array()
             .map(|a| {
                 a.iter()
-                    .map(|f| (f["kind"].clone(), f["fatal"].clone()))
+                    .map(|f| (f["kind"].clone(), f["fatal"].as_bool().unwrap_or(false)))
                     .collect()
             })
             .unwrap_or_default()

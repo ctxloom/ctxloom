@@ -255,7 +255,7 @@ pub(crate) fn bundles() -> Vec<(&'static str, Vec<(&'static str, &'static str)>)
                     "---\nname: admit\ndescription: Admit.\n---\nA\n",
                 ),
                 (
-                    "skills/.admit.meta.yaml",
+                    "skills/admit/.meta.yaml",
                     "tags: [ctxloom:link_id=nightly]\n",
                 ),
                 (
@@ -263,7 +263,7 @@ pub(crate) fn bundles() -> Vec<(&'static str, Vec<(&'static str, &'static str)>)
                     "---\nname: unattended\ndescription: Work.\n---\nB\n",
                 ),
                 (
-                    "skills/.unattended.meta.yaml",
+                    "skills/unattended/.meta.yaml",
                     "tags: [ctxloom:link_id=nightly]\n",
                 ),
             ],

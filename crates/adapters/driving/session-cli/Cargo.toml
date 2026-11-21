@@ -1,7 +1,7 @@
 [package]
 name = "session-cli"
 version = "0.1.0"
-description = "The `session` commands: list, search, show, edit, keep, remove and the transcripts, translated to the sessions application and rendered as json or text"
+description = "The `session` commands (list, search, show, edit, keep, remove, the transcripts and a session's children) and the `trust` noun, translated to the application and rendered as json or text"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -12,6 +12,8 @@ angzarr-diagnostic.workspace = true
 angzarr-presentation.workspace = true
 cli-support.workspace = true
 clap.workspace = true
+daemon-api.workspace = true
+daemon-proto.workspace = true
 isolation-application.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -22,6 +24,10 @@ tokio.workspace = true
 
 [dev-dependencies]
 mutants.workspace = true
+# The binary's serde_json (engine-opencode's agent-client-protocol turns
+# `preserve_order` on there), so a hand-written object's key order in these
+# tests is the order the binary prints (OQ-21's byte-equality spike).
+serde_json = { workspace = true, features = ["preserve_order"] }
 # The crate's own tests (and its lint, `--all-targets`) hold `session remove`,
 # the destroy (owner rulings 94b, 98), which only `session-destroy` compiles: the
 # crate depends on itself with it, for its tests alone. A plain build builds no

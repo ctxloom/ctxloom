@@ -1,0 +1,10 @@
+# googleapis commit ff8fd20f3840386e12f4f69750eff6dc99f6e1b7
+# github.com/googleapis/googleapis, 2026-10-30. Checked by scripts/vendor-googleapis.sh
+# (`just vendor-googleapis` fetches, `just lint-api` checks). Apache-2.0: google/LICENSE.
+c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4  google/LICENSE
+5e9fc117290fe7d3472791543c979bec7cf4497f3fe6ffaf9de9ae99cc4f1804  google/api/client.proto
+e2a1ac88c49909d4579bacbb18519085e82da32c2c7bb15c31037f3be19f667f  google/api/field_behavior.proto
+68e22c9821227b4e84c7029569fce1055c21e6ccab991e0986bc75f12ef4dd82  google/api/launch_stage.proto
+815d51eada4341bf01672b474b5ec0abbea190e8df9f4aa26a0c96dbdad2993b  google/api/resource.proto
+5d2e7f9eeb55b8417b50e0a536a092babd32d26e4fbeb7099c6cdcda6e16db9c  google/longrunning/operations.proto
+f5bfd262e6705c7ae73f32e0ad8ee20ce8c0a2578df8c4f76ebf76b572f295ed  google/rpc/status.proto

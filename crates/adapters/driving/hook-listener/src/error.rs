@@ -1,4 +1,4 @@
-//! Why the run's hook listener could not be started or stopped.
+//! Why the hook listener could not be started or stopped.
 
 use std::fmt;
 

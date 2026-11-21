@@ -1,6 +1,7 @@
 //! Claude Code's two halves. The drive half (`drive`, step 1b-i) is a child
 //! agent's turn-as-command: what one `claude -p` turn is handed and how its
-//! stream is read. The surface half (S9; Go's `internal/engines/claude`
+//! stream is read; and (`child`, `conversation`, D15) a long-lived child, one
+//! streaming `claude -p` process for many turns, behind `run_ports::ChildEngine`. The surface half (S9; Go's `internal/engines/claude`
 //! `definition.go`, `surfaces.go`, `commandfiles.go`, `hookcodec.go`) is
 //! below.
 //!
@@ -15,10 +16,13 @@
 //! ship, and no file is conjured for none.
 
 mod advice;
+mod child;
 mod codec;
 mod commands;
+mod conversation;
 mod drive;
 mod hooks;
+mod messaging;
 mod skills;
 mod stream;
 
@@ -30,11 +34,14 @@ use surface_ports::{
 #[cfg(any(test, feature = "test-support"))]
 pub use advice::diagnostic_samples;
 pub use advice::{ClaudeNotice, EN_US};
+pub use child::{launcher_environment, transcripts_of};
 pub use codec::Codec;
 pub use drive::{
-    CONTEXT_PROMPT_FILE, COPY_IN_ALLOWLIST, ENV_ALLOWLIST, INTERACTIVE_ENV_ALLOWLIST,
-    MCP_CONFIG_FILE,
+    mcp_tool_timeout, APPROVAL_PROMPT_TOOL, CONTEXT_PROMPT_FILE, COPY_IN_ALLOWLIST, ENV_ALLOWLIST,
+    INTERACTIVE_ENV_ALLOWLIST, MCP_CONFIG_FILE, MCP_TOOL_TIMEOUT, MCP_TOOL_TIMEOUT_FLOOR,
+    MCP_TOOL_TIMEOUT_MARGIN,
 };
+pub use messaging::{messaging_wake, MessagingWake, SOCKET_VARIABLE, TOKEN_VARIABLE};
 
 /// The engine's name.
 pub const NAME: &str = "claude-code";

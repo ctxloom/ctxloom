@@ -98,6 +98,8 @@ fn test_a_hold_is_recorded_once_by_short_or_canonical_name_and_released() {
     let writes = fx.files.lock_writes();
     let held = ok(fx.deps.hold("origin/demo", true));
     assert_eq!((held.status, held.name.as_str()), ("held", "origin/demo"));
+    // The identity the short name expands to (OD-40: its Dependency's name).
+    assert_eq!(held.identity, demo_ref());
     assert!(ok(fx.deps.list()).deps[0].held);
     assert_eq!(fx.files.lock_writes(), writes + 1);
     ok(fx.deps.hold(&demo_ref(), true));
@@ -127,6 +129,7 @@ fn test_holding_a_bundle_of_this_project_holds_nothing_and_says_so() {
             (result.status, result.name.as_str()),
             ("not_tracked", "mine")
         );
+        assert_eq!(result.identity, "");
         let verb = if held { "hold" } else { "unhold" };
         assert!(
             matches!(&notices[..], [Notice::Text { text, .. }] if text.contains(&format!("nothing to {verb}"))),

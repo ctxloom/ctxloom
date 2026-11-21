@@ -7,19 +7,24 @@
 //!   the lock names. Installing replaces whatever was installed for the
 //!   identity, in one rename.
 //! - The bundles the project authors, at `<app dir>/content/bundles/v2/`.
+//! - [`RecordingDepsFiles`]: the same files, every write recorded and never
+//!   made (step 10c U4: the daemon plans a pull where the caller stands,
+//!   then makes what it recorded as a sequence of its own).
 
 mod installed;
 mod local;
+mod recording;
 
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use deps_ports::{BundleSlot, CopyOutcome, DepsFiles, RepoTree, Why};
+use deps_ports::{BundleSlot, DepsFiles, RepoTree, Why};
 use file_system::{Fs, Kind, Perms};
 use os::Mode;
 
 pub use installed::IDENTITY_MARKER;
+pub use recording::{Install, Recorded, RecordingDepsFiles};
 
 /// `rel`, a `/`-separated path, below `top`, a step at a time, so the host's
 /// own separator joins each step (as the path is shown).
@@ -38,6 +43,27 @@ impl ProjectFiles {
     /// The files of the project (or home) whose `.ctxloom` is `app_dir`.
     pub fn new(fs: Arc<dyn Fs>, app_dir: PathBuf) -> ProjectFiles {
         ProjectFiles { fs, app_dir }
+    }
+
+    /// Where `install(slot, sha)` puts its tree, below the app directory
+    /// (step 10c U4: the daemon's new directory for it).
+    pub fn install_path(&self, slot: &deps_ports::BundleSlot, sha: &str) -> String {
+        installed::relative_path(self, slot, sha)
+    }
+
+    /// The trees `install(slot, sha)` replaces, below the app directory;
+    /// nothing is removed.
+    pub fn replaced_by(&self, slot: &deps_ports::BundleSlot, sha: &str) -> Vec<String> {
+        installed::replaced(self, slot, sha)
+    }
+
+    /// What `prune(keep)` would take, removing nothing: each tree below the
+    /// app directory, and the identities that would go.
+    ///
+    /// # Errors
+    /// A tree's marker that does not read.
+    pub fn prunable(&self, keep: &[(String, String)]) -> Result<(Vec<String>, Vec<String>), Why> {
+        installed::prunable(self, keep)
     }
 
     fn read_text(&self, path: &Path) -> Result<Option<String>, Why> {
@@ -143,16 +169,6 @@ impl DepsFiles for ProjectFiles {
 
     fn exists(&self, path: &str) -> bool {
         self.fs.exists(Path::new(path)).unwrap_or(false)
-    }
-
-    fn copy_bundle(
-        &self,
-        dir: &str,
-        name: &str,
-        files: &std::collections::BTreeMap<String, Vec<u8>>,
-        force: bool,
-    ) -> Result<CopyOutcome, Why> {
-        local::copy(self, dir, name, files, force)
     }
 }
 

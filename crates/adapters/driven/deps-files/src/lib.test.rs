@@ -1,10 +1,10 @@
 //! The project's files over a rooted filesystem.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::Arc;
 
-use deps_ports::{BundleSlot, CachePath, CopyOutcome, DepsFiles, RepoTree};
+use deps_ports::{BundleSlot, CachePath, DepsFiles, RepoTree};
 use file_system::{Fs, Rooted};
 use os::Mode;
 
@@ -314,7 +314,7 @@ fn test_an_authored_bundle_is_found_read_and_removed_whole() {
     put(&fs, &format!("{root}/fragments/example.md"), "# Example\n");
     put(
         &fs,
-        &format!("{root}/skills/.s.meta.yaml"),
+        &format!("{root}/skills/s/.meta.yaml"),
         "executable: []\n",
     );
     assert_eq!(
@@ -325,7 +325,7 @@ fn test_an_authored_bundle_is_found_read_and_removed_whole() {
     let paths: Vec<&str> = read.keys().map(String::as_str).collect();
     assert_eq!(
         paths,
-        vec!["bundle.yaml", "fragments/example.md", "skills/.s.meta.yaml"]
+        vec!["bundle.yaml", "fragments/example.md", "skills/s/.meta.yaml"]
     );
     assert_eq!(read["fragments/example.md"], b"# Example\n");
     files.remove_local_bundle("demo").expect("removes");
@@ -352,96 +352,6 @@ fn test_a_directory_is_told_from_a_file_and_from_nothing() {
     assert!(!files.is_directory("/nowhere"));
     assert!(files.exists("/somewhere/file.txt") && files.exists("/somewhere"));
     assert!(!files.exists("/nowhere"));
-}
-
-fn contents() -> BTreeMap<String, Vec<u8>> {
-    BTreeMap::from([
-        ("bundle.yaml".to_string(), b"description: d\n".to_vec()),
-        ("fragments/example.md".to_string(), b"# Example\n".to_vec()),
-    ])
-}
-
-// bundle.feature: Moving a bundle into another project lands it in that
-// project's content tree
-#[test]
-fn test_a_copy_into_a_project_lands_in_its_content_tree() {
-    let (files, fs) = files();
-    put(&fs, "/other/.ctxloom/.keep", "");
-    let landed = files
-        .copy_bundle(&host_path("/other"), "demo", &contents(), false)
-        .expect("copies");
-    let dest = "/other/.ctxloom/content/bundles/v2/demo";
-    assert_eq!(landed, CopyOutcome::Copied(host_path(dest)));
-    assert_eq!(
-        fs.read(Path::new(&format!("{dest}/fragments/example.md")))
-            .expect("a file"),
-        b"# Example\n"
-    );
-}
-
-#[test]
-fn test_a_copy_into_an_app_dir_or_a_plain_directory() {
-    let (files, fs) = files();
-    fs.create_dir_all(Path::new("/x/.ctxloom"), Mode::from_bits(0o755))
-        .expect("a directory");
-    fs.create_dir_all(Path::new("/plain"), Mode::from_bits(0o755))
-        .expect("a directory");
-    assert_eq!(
-        files.copy_bundle(&host_path("/x/.ctxloom"), "demo", &contents(), false),
-        Ok(CopyOutcome::Copied(host_path(
-            "/x/.ctxloom/content/bundles/v2/demo"
-        )))
-    );
-    assert_eq!(
-        files.copy_bundle(&host_path("/plain"), "demo", &contents(), false),
-        Ok(CopyOutcome::Copied(host_path("/plain/demo")))
-    );
-}
-
-#[test]
-fn test_a_copy_onto_a_bundle_is_refused_unless_forced_and_force_replaces_it_whole() {
-    let (files, fs) = files();
-    fs.create_dir_all(Path::new("/plain"), Mode::from_bits(0o755))
-        .expect("a directory");
-    let plain = host_path("/plain");
-    files
-        .copy_bundle(&plain, "demo", &contents(), false)
-        .expect("copies");
-    put(&fs, "/plain/demo/stale.md", "stale");
-    assert_eq!(
-        files.copy_bundle(&plain, "demo", &contents(), false),
-        Ok(CopyOutcome::Exists(host_path("/plain/demo")))
-    );
-    assert!(files.exists("/plain/demo/stale.md"), "refused: untouched");
-    assert_eq!(
-        files.copy_bundle(&plain, "demo", &contents(), true),
-        Ok(CopyOutcome::Copied(host_path("/plain/demo")))
-    );
-    assert!(
-        !files.exists("/plain/demo/stale.md"),
-        "the old tree went whole"
-    );
-}
-
-#[test]
-fn test_a_copy_onto_the_bundles_own_directory_is_refused() {
-    let (files, fs) = files();
-    put(
-        &fs,
-        "/proj/.ctxloom/content/bundles/v2/demo/bundle.yaml",
-        "d: 1\n",
-    );
-    assert_eq!(
-        files.copy_bundle(&host_path("/proj"), "demo", &contents(), true),
-        Ok(CopyOutcome::Itself(host_path(
-            "/proj/.ctxloom/content/bundles/v2/demo"
-        )))
-    );
-    assert_eq!(
-        files.read_local_bundle("demo").expect("reads")["bundle.yaml"],
-        b"d: 1\n",
-        "even forced, it is not overwritten"
-    );
 }
 
 #[test]
@@ -473,24 +383,6 @@ fn test_pruning_everything_leaves_the_cache_root() {
 }
 
 #[test]
-fn test_a_copy_onto_the_bundle_itself_is_known_by_another_spelling_of_its_place() {
-    let (files, fs) = files();
-    put(
-        &fs,
-        "/proj/.ctxloom/content/bundles/v2/demo/bundle.yaml",
-        "d: 1\n",
-    );
-    fs.create_dir_all(Path::new("/proj/sub"), Mode::from_bits(0o755))
-        .expect("a directory");
-    assert_eq!(
-        files.copy_bundle(&host_path("/proj/sub/.."), "demo", &contents(), false),
-        Ok(CopyOutcome::Itself(host_path(
-            "/proj/sub/../.ctxloom/content/bundles/v2/demo"
-        )))
-    );
-}
-
-#[test]
 fn test_installing_a_commit_replaces_the_trees_of_other_commits_by_any_abbreviation() {
     let (files, fs) = files();
     let base = "/proj/.ctxloom/cache/bundles/example.test/o/r/demo";
@@ -515,4 +407,45 @@ fn test_installing_a_commit_replaces_the_trees_of_other_commits_by_any_abbreviat
         "a crashed install's staging goes too"
     );
     assert!(files.is_installed(&slot(IDENTITY), SHA));
+}
+
+// Step 10c U4: what an install and a prune would do, planned, doing nothing.
+#[test]
+fn test_an_install_and_a_prune_are_planned_below_the_app_dir_and_remove_nothing() {
+    let (files, fs) = files();
+    let other = "ctxloom+git://example.test/o/r//bundles/other";
+    files
+        .install(&slot(IDENTITY), SHA, &demo_tree("A\n"), &none())
+        .expect("installs");
+    files
+        .install(&slot(other), SHA, &demo_tree("O\n"), &none())
+        .expect("installs");
+    let demo = format!("cache/bundles/example.test/o/r/demo/{SHA}");
+    assert_eq!(
+        files.install_path(&slot(IDENTITY), NEXT),
+        format!("cache/bundles/example.test/o/r/demo/{NEXT}")
+    );
+    // A new commit replaces the identity's other trees; the same one, none.
+    assert_eq!(files.replaced_by(&slot(IDENTITY), NEXT), [demo]);
+    assert!(files.replaced_by(&slot(IDENTITY), SHA).is_empty());
+    let beside = format!("/proj/.ctxloom/cache/bundles/example.test/o/r/demo/{NEXT}");
+    put(&fs, &format!("{beside}/{IDENTITY_MARKER}"), IDENTITY);
+    let (dirs, gone) = files
+        .prunable(&[(IDENTITY.to_string(), SHA.to_string())])
+        .expect("planned");
+    let mut dirs = dirs;
+    dirs.sort();
+    assert_eq!(
+        dirs,
+        [
+            format!("cache/bundles/example.test/o/r/demo/{NEXT}"),
+            format!("cache/bundles/example.test/o/r/other/{SHA}"),
+        ]
+    );
+    assert_eq!(gone, [other.to_string()]);
+    assert!(
+        files.is_installed(&slot(other), SHA),
+        "a plan removed a tree"
+    );
+    assert!(files.exists(&beside));
 }

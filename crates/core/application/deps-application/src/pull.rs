@@ -92,6 +92,19 @@ impl Deps {
             return Ok(empty_report());
         }
         let mut installs = self.install_pins(&pins, &active, force);
+        // A reference no commit could be resolved for, and the lock has no
+        // pin for, cannot be had: a failed item, so the pull fails.
+        let unresolved = std::mem::take(&mut walk.unresolved);
+        let total = (pins.len() + unresolved.len()) as u64;
+        installs
+            .failed
+            .extend(unresolved.into_iter().map(|(reference, error)| FailedItem {
+                reference,
+                kind: "bundle",
+                status: "failed",
+                error,
+                fix: INSTALL_FIX.to_string(),
+            }));
         let mut next = plan::relock(&active, &installable(&pins, &installs, &active));
         if !unexpanded.is_empty() {
             let kept = plan::preserve_unreached(&active, &mut next);
@@ -129,7 +142,7 @@ impl Deps {
             .collect();
         Ok(report(
             installs,
-            pins.len() as u64,
+            total,
             removed,
             pruned,
             unexpanded,

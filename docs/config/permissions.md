@@ -6,6 +6,20 @@ words**, and ctxloom passes them on as a **verbatim copy**. ctxloom does
 engine does not take, or a typo reaches the engine as written, and it is the
 engine that accepts, warns about or ignores it (owner rulings 133-139).
 
+**One exception: ctxloom allows its own tools.** Every session's engine is
+given ctxloom's own MCP server (`ctxloom mcp serve`), so the agent can call
+its daemon. On claude-code ctxloom lays `permissions.allow:
+["mcp__ctxloom__*"]` into your block, after the block's own `allow` and
+once, in the same place and the same way it lays a profile's `deny_tools`
+into the block's `deny`: the session home's `settings.json`, or
+`ctxloom-hooks.json` under `session_home: host`, where your block lives
+there. So those calls are never asked for, and every other word of your
+block reaches claude as you wrote it. A run with no context (`run
+--no-context`) is offered no server, so nothing is allowed for it. That is
+the only permission ctxloom adds of its own (owner ruling OD-4, 2026-11-13,
+amended 2026-11-14). To hold one of the tools back, `deny` it: in claude's
+rules a deny wins over an allow.
+
 ## Where the block goes
 
 The block lives on the agent, under the engine it is for:
@@ -52,6 +66,100 @@ These files are in the session's own directory, where the agent's own file
 tools can reach them, so ctxloom writes each one again, whole, from your
 config at every launch (a new session, a child's turn, a resume). An edit the
 agent makes to its own permissions never carries into a launch.
+
+## How long an ask waits: `engines.<engine>.approval_timeout`
+
+When the engine's own rules say "ask" for a tool call of a child (a session
+the daemon hosts, or a one-shot), the ask waits for your answer for the
+engine's `approval_timeout`; then it is denied, and the engine is told that no
+answer came in time (OD-41). It is the engine's setting, shared by all of its
+agents; no agent overrides it:
+
+    engines:
+      claude-code:
+        approval_timeout: 15m
+
+- The value is a span in the config's one grammar: one or more links of a
+  number and a unit, `90s`, `5m`, `1h30m` or `1.5h`, in whole seconds. A
+  bare number has no unit and is refused.
+- `now` denies every ask at once, and nothing ever waits (D16). Use it for a
+  session nobody watches.
+- Unset, an ask waits 300 seconds (`5m`).
+
+The value is read with the rest of the engine's settings when a child is
+launched, and again when it is hosted again (T21). A change to the config
+reaches the next launch, never a child already running. `engine show` and
+the Settings section of `run --dry-run` give the value and the layer that
+said it (`engines.<engine>`, or `default`).
+
+On claude-code, an ask is a call to ctxloom's own approval tool, and claude
+stops waiting for an MCP tool call after a limit of its own. When
+`approval_timeout` is over 300 seconds, ctxloom gives the child
+`MCP_TOOL_TIMEOUT`, in milliseconds, of the timeout plus 60 seconds. Then
+the ask expires, and its call is answered, before claude gives up on the
+call. At 300 seconds or less, the variable is not set (owner ruling Q12).
+When ctxloom sets it, it is a name ctxloom owns: a
+`CTXLOOM_PERMIT_MCP_TOOL_TIMEOUT` is ignored, and the run says so. A terminal
+session asks at its own terminal and is never given it.
+
+## Answering an ask: `session approvals`
+
+A child or a one-shot has nobody at its terminal, so when its engine's rules
+say "ask", the ask is put to you through the daemon, and the engine waits.
+List the waiting asks, from any terminal in the project:
+
+    ctxloom session approvals [<harp>]
+
+Each ask is listed under the root of its session tree, with its name
+(`ask-<two words>`), the tool and an excerpt of its input, and the options it
+offers. Answer it by its name, or by the asking session's harp while that
+session has exactly one ask waiting:
+
+    ctxloom session approvals answer <ask|harp> <option> ["<message>"] [--yes]
+
+Only you answer: ctxloom gives agents no tool that answers an ask. A claude
+ask offers four options, built by ctxloom from the rule the ask implies, the
+tool and its exact input (`Bash(<command>)`; `<Tool>(<path>)` for Read,
+Write, Edit, MultiEdit and NotebookEdit):
+
+- `allow-once`: run it, this once.
+- `allow-session`: run it, and the same call again, unasked, for the rest of
+  the session. claude keeps the rule; nothing is written.
+- `allow-always`: as `allow-session`, and the rule is also written into the
+  asking agent's `agents.<agent>.engines.claude-code.permissions` `allow`, so
+  every later launch carries it (see below).
+- `deny`: do not run it. A message, when you give one, is said to the model.
+
+Any other tool's ask offers `allow-once` and `deny` alone. An answer to an
+ask already settled (answered, expired or withdrawn) is refused.
+
+**Where `allow-always` writes.** The rule goes where it takes effect. A
+project's definition of an agent replaces the home's of the same name whole,
+so the rule is written into the project's config when the project defines
+the agent, and into the home's otherwise. It starts from that definition's
+own permissions document for the engine, and one with none starts from the
+engine's default (`{defaultMode: acceptEdits}` on claude-code), so nothing
+of that is lost. It is a config write like any other: it previews first,
+naming the file (off a terminal without `--yes`; exit 1 under
+`--detailed-exitcode`), asks `[y/N]` at a terminal, and applies with
+`--yes`. The config is written before the ask is answered; if the ask was
+settled meanwhile (it expired, say), the written rule stays and the command
+says so (exit 20).
+
+**An ask that is withdrawn.** When the asking turn is interrupted (a steer),
+claude cancels its call and the ask is withdrawn at once: it is listed no
+more. An ask whose session ends without withdrawing it waits out its
+`approval_timeout`.
+
+**What asks, and what does not.** Asks are routed from claude-code children
+and one-shots only. An interactive session asks at its own terminal. A
+launch with no context (`run --no-context`, and the distiller) is given no
+ctxloom server, so no approval tool: claude's headless default denies its
+asks, and nothing is listed (owner ruling, 2026-11-16). An opencode child's
+permission request is refused, and an opencode one-shot (`opencode run`)
+has no way to ask, so its asks are rejected: routing opencode's asks is not
+in this build yet. Whether an engine asks at all is its permissions
+document's to say.
 
 ## claude-code
 
@@ -139,10 +247,12 @@ refused (exit 20) until they are moved.
   claude's, and has not been verified against a live claude.
 - opencode's `mode: build|plan|auto` has no replacement in the block: it was
   never passed to opencode. Write opencode's own `permission` rules instead.
-- `permissions.approver`, `permissions.approval_timeout`,
-  `permissions.sandbox` and `permissions.network`, at the project level and
-  on an agent, are deleted, with no replacement in ctxloom. Say the intent in
-  the engine's own words instead:
+- `permissions.approval_timeout`, at the project level and on an agent, is
+  deleted. Its replacement is the engine block's `approval_timeout` (above),
+  which is the engine's, never an agent's.
+- `permissions.approver`, `permissions.sandbox` and `permissions.network`, at
+  the project level and on an agent, are deleted, with no replacement in
+  ctxloom. Say the intent in the engine's own words instead:
   - who answers a prompt: claude's `defaultMode` (`dontAsk` denies what
     would prompt, `auto` lets its classifier decide) and
     `permissions.denyInsteadOfPrompting`; opencode's `ask`/`deny` effects;

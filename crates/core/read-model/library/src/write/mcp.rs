@@ -1,6 +1,6 @@
 //! An MCP server a bundle ships, as its tree keeps it (Go's `surface_exec.go`):
-//! `mcp/<n>.yaml` holds how it is reached, `mcp/.<n>.meta.yaml` what is said
-//! about it; and the patch `mcp server set` applies.
+//! `mcp/<n>.yaml` holds how it is reached and what is said about it, one
+//! file (owner T27: no sidecar); and the patch `mcp server set` applies.
 
 use std::collections::BTreeMap;
 
@@ -26,11 +26,6 @@ pub struct McpPatch {
 /// `mcp/<name>.yaml`.
 pub fn content_path(name: &str) -> String {
     format!("mcp/{name}.yaml")
-}
-
-/// `mcp/.<name>.meta.yaml`.
-pub fn meta_path(name: &str) -> String {
-    format!("mcp/.{name}.meta.yaml")
 }
 
 /// The server a bare `bundle edit --add-mcp <name>` adds: it launches `name`.
@@ -115,7 +110,7 @@ fn content_entries(server: &McpServer) -> Vec<(String, Value)> {
     out
 }
 
-/// The sidecar entries, in order, the ones the server has.
+/// What is said about the server, in order, the ones it has.
 fn meta_entries(server: &McpServer) -> Vec<(String, Value)> {
     let mut out = Vec::new();
     if !server.tags.is_empty() {
@@ -130,24 +125,19 @@ fn meta_entries(server: &McpServer) -> Vec<(String, Value)> {
     out
 }
 
-/// The content file: `command`, `args`, `env`, `url`, `headers`, `served_by`,
-/// in that order, `{}` when the server has none of them.
+/// The server's file: `command`, `args`, `env`, `url`, `headers`,
+/// `served_by`, then `tags`, `notes`, `installation`, in that order, the ones
+/// it has; `{}` when it has none.
 pub fn content_file(server: &McpServer) -> String {
-    angzarr_yaml::write(&Value::Map(content_entries(server)), usize::MAX)
-}
-
-/// The sidecar: `tags`, `notes`, `installation`; none when there is nothing
-/// to say.
-pub fn meta_file(server: &McpServer) -> Option<String> {
-    let entries = meta_entries(server);
-    (!entries.is_empty()).then(|| angzarr_yaml::write(&Value::Map(entries), usize::MAX))
-}
-
-/// What an editor is given: every field the server has, as one document.
-pub fn editor_text(server: &McpServer) -> String {
     let mut entries = content_entries(server);
     entries.extend(meta_entries(server));
     angzarr_yaml::write(&Value::Map(entries), usize::MAX)
+}
+
+/// What an editor is given: every field the server has, as one document,
+/// the server's own file.
+pub fn editor_text(server: &McpServer) -> String {
+    content_file(server)
 }
 
 const KEYS: [&str; 9] = [

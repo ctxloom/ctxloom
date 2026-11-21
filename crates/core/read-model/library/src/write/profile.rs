@@ -24,14 +24,16 @@ pub struct NewProfile {
     pub description: String,
     pub parents: Vec<String>,
     pub bundles: Vec<String>,
+    /// The skills it curates, by reference (`<bundle>#skills/<name>`).
+    pub skills: Vec<String>,
 }
 
 fn list(items: &[String]) -> Value {
     Value::Seq(items.iter().cloned().map(Value::Scalar).collect())
 }
 
-/// The document for `new`: `description`, `parents`, `bundles`, the
-/// ones it has, in that order.
+/// The document for `new`: `description`, `parents`, `bundles`, `skills`,
+/// the ones it has, in that order.
 pub fn new_profile(new: &NewProfile) -> String {
     let mut entries: Vec<(String, Value)> = Vec::new();
     if !new.description.is_empty() {
@@ -45,6 +47,9 @@ pub fn new_profile(new: &NewProfile) -> String {
     }
     if !new.bundles.is_empty() {
         entries.push(("bundles".to_string(), list(&new.bundles)));
+    }
+    if !new.skills.is_empty() {
+        entries.push(("skills".to_string(), list(&new.skills)));
     }
     angzarr_yaml::write(&Value::Map(entries), usize::MAX)
 }

@@ -3,7 +3,7 @@
 //! typed reading of what it says.
 
 use angzarr_yaml::Value;
-use ctxloom_ports::{ConfigFiles, LayerText, RegisteredCompanion, Scope, Source};
+use ctxloom_ports::{ConfigFiles, LayerText, Scope, Source};
 use library::compose::Premised;
 use library::config::engines;
 use library::config::layer::{self, Note};
@@ -14,6 +14,7 @@ use library::ConfigError;
 
 use crate::error::{AppError, Notice};
 use crate::views::{AgentRow, McpRow};
+use library::companion::State as CompanionState;
 
 /// The flags and variables that bear on the configuration.
 #[derive(Clone, Debug, Default)]
@@ -24,6 +25,14 @@ pub struct Flags {
     pub config_set: Vec<String>,
     /// `--no-companions`.
     pub no_companions: bool,
+    /// Whether the user trusts the project (step 8 U2, ruling 142): the
+    /// daemon's verdict, from its trust index, for a launch it makes and
+    /// every library read it serves (step 10a U7, D7). Only
+    /// then does the project layer's own project-only settings (ruling 46's
+    /// keys) apply; otherwise they are held back, said, and named in
+    /// [`Config::held_back`]. Never the client's to say: no flag or variable
+    /// sets it, and every in-process verb holds them back (until T13).
+    pub trusted: bool,
 }
 
 /// Where a session's outputs go when `output.dir` names nowhere: `ctxloom/`
@@ -57,9 +66,14 @@ pub enum LegacyGo {
 #[derive(Clone, Debug)]
 pub struct Config {
     pub value: Value,
-    /// What the files and overrides set, without the shipped registry.
+    /// What the layers set, home and project merged (`config show --raw`):
+    /// no override of the environment's or the flags', nothing filled in.
     pub raw: Value,
     pub source: Source,
+    /// The project-only settings the project layer said and an untrusted
+    /// project holds back (ruling 46's keys): their dotted paths, in the
+    /// order they were found. Empty for a trusted project.
+    pub held_back: Vec<String>,
 }
 
 /// Load the configuration: the layers, the environment's overrides, the
@@ -78,15 +92,19 @@ pub fn load(
     let mut violations: Vec<String> = Vec::new();
     let mut shape_failure = false;
     let mut values = Vec::new();
+    let mut held_back = Vec::new();
     for layer in &layers {
         let mut value = read_layer(layer, notices)?;
-        if project_path.as_deref() == Some(layer.path.as_str()) {
-            for key in engines::strip_project_only(&mut value) {
-                notices.push(Notice::text(format!(
-                    "{key} in {} is ignored: a project's config cannot set it (ruling 46); put it in your home config ({})",
-                    layer.path,
-                    files.layer_path(Scope::Home)
-                )));
+        if project_path.as_deref() == Some(layer.path.as_str()) && !flags.trusted {
+            // Step 10a U7 (D7): held back until the user trusts the
+            // project, and said by its typed notice.
+            for (key, _) in engines::strip_project_only(&mut value) {
+                held_back.push(key.clone());
+                notices.push(Notice::UntrustedSetting {
+                    path: key,
+                    file: layer.path.clone(),
+                    home_file: files.layer_path(Scope::Home),
+                });
             }
         }
         let mut home_only = Vec::new();
@@ -115,20 +133,23 @@ pub fn load(
         return Err(refused(&violations));
     }
     let merged = layer::merge_layers(&values);
+    // `--raw` (GetConfig's SET): what the layers set, home and project
+    // merged, before any override or stamp (owner ruling 2026-11-17).
+    let raw = merged.clone();
     let merged = override_with(merged, environ, flags, notices)?;
     let mut merged = reduced_when_unreadable(merged, shape_failure);
     stamp(&mut merged);
-    let raw = merged.clone();
     Ok(Config {
         value: merged,
         raw,
         source: files.source(),
+        held_back,
     })
 }
 
 /// The path of the project's own config file, when there is a project and it
 /// is a file apart from the home's.
-fn read_layer(layer: &LayerText, notices: &mut Vec<Notice>) -> Result<Value, AppError> {
+pub(crate) fn read_layer(layer: &LayerText, notices: &mut Vec<Notice>) -> Result<Value, AppError> {
     let read = layer::read(&layer.text).map_err(|e| match e {
         ConfigError::Syntax { cause } => AppError::ConfigUnparsable {
             path: layer.path.clone(),
@@ -153,15 +174,6 @@ fn read_layer(layer: &LayerText, notices: &mut Vec<Notice>) -> Result<Value, App
                     path,
                     found,
                     oldest,
-                })
-            }
-            // Registered by name alone: refused, never migrated into a
-            // registration (a name says nothing of what to run).
-            Note::LegacyCompanions { found, names } => {
-                return Err(AppError::ConfigCompanionsBare {
-                    path,
-                    found,
-                    names: names.join(", "),
                 })
             }
             Note::NotInteger => return Err(AppError::ConfigVersionUnreadable { path }),
@@ -348,6 +360,9 @@ pub struct Agent {
     pub runtime: String,
     pub driving: String,
     pub env: Vec<String>,
+    /// `session` | `host` as the binding says it (owner ruling of
+    /// 2026-11-13); empty, unsaid.
+    pub session_home: String,
     /// The per-engine blocks (`agents.<n>.engines`, ruling 57).
     pub engines: Value,
 }
@@ -445,6 +460,13 @@ impl Config {
         }
     }
 
+    /// How long a drain waits for what the daemon hosts (owner,
+    /// 2026-11-15): `daemon.drain_timeout`, a span or `now`; none when it
+    /// is not said (or, read with `--degraded`, does not read).
+    pub fn drain_timeout(&self) -> Option<std::time::Duration> {
+        duration_text::parse(&self.text("daemon.drain_timeout")).ok()
+    }
+
     /// Where a session's outputs go, as written: `output.dir`, else
     /// [`OUTPUT_DIR_DEFAULT`] (rulings 89, 106). Relative to the project
     /// root unless absolute; the caller knows the root.
@@ -469,8 +491,8 @@ impl Config {
         library::config::engines::engines_in_use(&self.value)
     }
 
-    /// The registered companions, by name: each with the command that runs
-    /// it (empty where the registration holds none).
+    /// The registered companions, by name, each with its state (OD-9, OD-10:
+    /// a registration is a name; its program is found where it is asked).
     pub fn companions(&self) -> Vec<RegisteredCompanion> {
         let Some(Value::Map(registered)) = self.value.get("companions") else {
             return Vec::new();
@@ -479,7 +501,7 @@ impl Config {
             .iter()
             .map(|(name, body)| RegisteredCompanion {
                 name: name.clone(),
-                command: list_at(body, "command"),
+                state: CompanionState::of(&text_at(body, "state")),
             })
             .collect();
         all.sort_by(|a, b| a.name.cmp(&b.name));
@@ -510,6 +532,7 @@ impl Agent {
             },
             driving: text_at(body, "driving"),
             env: list_at(body, "env"),
+            session_home: text_at(body, "session_home"),
         }
     }
 
@@ -538,6 +561,7 @@ impl Agent {
             runtime: self.runtime.clone(),
             driving: self.driving.clone(),
             env: self.env.clone(),
+            session_home: self.session_home.clone(),
             engines: crate::json::permissions(&self.engines),
             engine_lines,
         }
@@ -575,6 +599,22 @@ fn stamp(value: &mut Value) {
         *value = Value::Map(Vec::new());
     }
     *value.entry("schema_version") = Value::Scalar(CURRENT.to_string());
+}
+
+/// A companion as the configuration registers it: its name and its state.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct RegisteredCompanion {
+    /// The name it is registered under.
+    pub name: String,
+    /// Whether it contributes.
+    pub state: CompanionState,
+}
+
+impl RegisteredCompanion {
+    /// The program its name stands for (`library::companion::program`).
+    pub fn program(&self) -> String {
+        library::companion::program(&self.name)
+    }
 }
 
 #[cfg(test)]

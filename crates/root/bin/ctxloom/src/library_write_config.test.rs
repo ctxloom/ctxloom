@@ -61,17 +61,19 @@ fn test_create_scaffolds_the_config_the_remotes_registry_and_the_seeded_profile(
             .as_deref(),
         Some(SEED_PROFILE)
     );
+    // What it wrote reads: the seeded profile and the default agent resolve.
+    // Read as text: `config create` mints no project id, and a text read
+    // names none, so none is minted (owner ruling 2026-11-14).
     project
-        .run(&["config", "show"])
+        .run(&["config", "show", "--format", "text"])
         .succeeds()
         .contains("claude-code");
-    // What it wrote reads: the seeded profile and the default agent resolve.
     project
-        .run(&["profile", "list"])
+        .run(&["profile", "list", "--format", "text"])
         .succeeds()
         .contains("default");
     project
-        .run(&["agent", "list"])
+        .run(&["agent", "list", "--format", "text"])
         .succeeds()
         .contains("default");
 }
@@ -126,13 +128,17 @@ fn test_create_refuses_an_existing_config_and_leaves_it_byte_for_byte_alone() {
 // the fix
 #[test]
 fn test_editing_a_project_with_no_config_says_so_and_names_the_fix() {
-    let project = Project::bare();
-    project
-        .run(&["config", "edit"])
-        .fails()
-        .contains("no config at")
-        .contains("ctxloom config create");
-    project.file_is_absent(CONFIG);
+    // Step 10b U3: `config edit` is the daemon's write; the use case's
+    // refusal is the scenario's, in git or not (the library is git-free,
+    // owner 2026-11-18).
+    for project in [Project::bare(), Project::bare_in_git()] {
+        project
+            .run(&["config", "edit"])
+            .fails()
+            .contains("no config at")
+            .contains("ctxloom config create");
+        project.file_is_absent(CONFIG);
+    }
 }
 
 // cli/config.go edit (documented condition): the config file is handed to
@@ -145,6 +151,7 @@ fn test_edit_opens_the_config_in_the_editor_of_the_environment() {
         return;
     }
     let project = Project::initialized();
+    project.at_a_terminal();
     let editor = project.dir().join("editor.sh");
     files::put_program(&editor, "#!/bin/sh\nprintf '# edited\\n' >> \"$1\"\n");
     let editor = editor.to_str().expect("utf-8");
@@ -173,6 +180,18 @@ fn test_edit_opens_the_config_in_the_editor_of_the_environment() {
     project
         .run_with(&[("EDITOR", "false")], &["config", "edit"])
         .fails();
+    // A config that does not load can still be mended (step 10b U3: the
+    // daemon's write reads it as text, through the editor and back).
+    project.write(CONFIG, "schema_version: 9\nagents: [unclosed\n");
+    let mend = project.dir().join("mend.sh");
+    files::put_program(&mend, "#!/bin/sh\nprintf 'schema_version: 9\\n' > \"$1\"\n");
+    project
+        .run_with(
+            &[("EDITOR", mend.to_str().expect("utf-8"))],
+            &["config", "edit"],
+        )
+        .succeeds();
+    assert_eq!(project.read(CONFIG).as_deref(), Some("schema_version: 9\n"));
     project
         .run_with(
             &[("EDITOR", editor)],
@@ -191,7 +210,7 @@ fn test_a_config_write_is_a_section_merge_with_sorted_keys() {
     let project = Project::initialized();
     project.write(
         CONFIG,
-        "# my config\nschema_version: 9\nworkspace: none # my own\ncompanions:\n  acme:\n    command:\n      - acme-bin\nagents:\n  zeta:\n    engine: mock\n    profiles:\n      - p\n  alpha:\n    engine: mock\n    profiles:\n      - p\n",
+        "# my config\nschema_version: 9\nworkspace: none # my own\ncompanions:\n  acme:\n    state: disabled\nagents:\n  zeta:\n    engine: mock\n    profiles:\n      - p\n  alpha:\n    engine: mock\n    profiles:\n      - p\n",
     );
     project
         .run(&[
@@ -206,7 +225,7 @@ fn test_a_config_write_is_a_section_merge_with_sorted_keys() {
         .succeeds();
     assert_eq!(
         project.read(CONFIG).as_deref(),
-        Some("# my config\nschema_version: 9\nworkspace: none # my own\ncompanions:\n  acme:\n    command:\n      - acme-bin\nagents:\n  alpha:\n    engine: mock\n    profiles:\n      - p\n  mid:\n    engine: mock\n    profiles:\n      - p\n  zeta:\n    engine: mock\n    profiles:\n      - p\n")
+        Some("# my config\nschema_version: 9\nworkspace: none # my own\ncompanions:\n  acme:\n    state: disabled\nagents:\n  alpha:\n    engine: mock\n    profiles:\n      - p\n  mid:\n    engine: mock\n    profiles:\n      - p\n  zeta:\n    engine: mock\n    profiles:\n      - p\n")
     );
     // A key the write does not own is as the author left it.
     project.run(&["agent", "default", "ghost"]).succeeds();

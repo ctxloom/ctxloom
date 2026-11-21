@@ -62,7 +62,21 @@ fn test_the_loadout_is_yaml_by_default_and_the_same_document_either_way() {
     // It needs no project: a loadout is a probe's answer, read before there
     // is a project.
     let empty = Project::bare();
-    assert_eq!(empty.run(&["loadout"]).stdout, bare.stdout);
+    let outside = empty.run(&["loadout"]);
+    outside.succeeds();
+    assert_eq!(outside.stdout, bare.stdout);
+}
+
+// Step 10a U2: the daemon's `GetLoadout`, asked as the home's: a probe in a
+// directory that is no project and no git repository names, mints and
+// observes no project there: no identity, library or repository is made.
+#[test]
+fn test_the_loadout_outside_a_project_leaves_the_directory_as_it_was() {
+    let empty = Project::bare();
+    empty.run(&["loadout"]).succeeds();
+    for written in [".project-id", ".ctxloom", ".git"] {
+        assert!(!empty.exists(written), "the loadout wrote {written}");
+    }
 }
 
 // loadout_cmd.go (documented condition): `loadout --format json` and `text`

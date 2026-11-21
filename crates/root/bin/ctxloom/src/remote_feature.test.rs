@@ -145,8 +145,9 @@ fn test_bare_remote_remove_reports_and_destroys_nothing() {
         } else {
             let doc = ran.json();
             assert_eq!(reports_as(&doc, "applied"), reports);
+            // OD-40: `DeleteRemoteResponse`'s preview names its apply command.
             assert_eq!(
-                reports_as(&doc, "apply"),
+                reports_as(&doc, "apply_command"),
                 "ctxloom remote remove origin --yes"
             );
         }

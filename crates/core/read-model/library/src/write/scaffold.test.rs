@@ -2,12 +2,15 @@ use super::*;
 
 // Owner ruling 111: the registry a new project starts with seeds no remote;
 // it was Go's resources/default-remotes.yaml at ca14d6046, which seeded
-// `ctxloom-default`.
+// `ctxloom-default`. Its header is a DRAFT (smoke 2026-11-19): under rulings
+// 117 and 126 nothing built in is guidance (the built-in bundle is never
+// injected), so a fresh project's assistant is given none until a remote is
+// added; it said "ctxloom's default content is built in and needs no remote".
 #[test]
 fn test_the_default_remotes_seed_no_remote() {
     assert_eq!(
         DEFAULT_REMOTES,
-        "# ctxloom Remote Sources\n# The repositories this project draws bundles and profiles from, under\n# `remotes:` (`ctxloom remote create <name> <url>` adds one).\n#\n# Registering a remote is the trust act: its content reaches the assistant\n# because the project added it. ctxloom's default content is built in and\n# needs no remote.\n\nschema_version: 1\n"
+        "# ctxloom Remote Sources\n# The repositories this project draws bundles and profiles from, under\n# `remotes:` (`ctxloom remote create <name> <url>` adds one).\n#\n# Registering a remote is the trust act: its content reaches the assistant\n# because the project added it. ctxloom builds in no guidance for the\n# assistant: until a remote is added, or the project writes bundles of its\n# own, the assistant is given none.\n\nschema_version: 1\n"
     );
     assert!(!DEFAULT_REMOTES.contains("ctxloom-default"));
 }
@@ -58,6 +61,44 @@ fn test_what_it_scaffolds_is_a_config_this_build_reads() {
         assert!(crate::config::schema::validate(&doc).is_empty(), "{engine}");
         assert_eq!(doc.get("schema_version").and_then(Value::as_str), Some("9"));
     }
+}
+
+// Step 10c U6: init's answers are written in the config the scaffold
+// creates, so its one create holds them: `output.dir` and
+// `config.premised`, each only when answered, the keys sorted as a fresh
+// document's are.
+#[test]
+fn test_init_answers_ride_in_the_scaffolded_config() {
+    assert_eq!(
+        initial_config_with("claude-code", &Answered::default()),
+        initial_config("claude-code")
+    );
+    let both = initial_config_with(
+        "opencode",
+        &Answered {
+            output_dir: Some("out/".to_string()),
+            premised: Some("always".to_string()),
+        },
+    );
+    assert_eq!(
+        both,
+        "agents:\n  default:\n    engine: opencode\n    profiles:\n      - default\n    runtime: host\nconfig:\n  premised: always\ndefault_agent: default\noutput:\n  dir: out/\nschema_version: 9\n"
+    );
+    let doc = angzarr_yaml::parse(&both).unwrap();
+    let violations = crate::config::schema::validate(&doc);
+    assert!(violations.is_empty(), "{violations:?}");
+    let dir_only = initial_config_with(
+        "mock",
+        &Answered {
+            output_dir: Some("ctxloom/".to_string()),
+            premised: None,
+        },
+    );
+    assert!(
+        dir_only.contains("output:\n  dir: ctxloom/\n"),
+        "{dir_only}"
+    );
+    assert!(!dir_only.contains("premised"), "{dir_only}");
 }
 
 // The nested `.gitignore`: the comment, then each private-state pattern on a

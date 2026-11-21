@@ -1,0 +1,22 @@
+[package]
+name = "git-cli"
+version = "0.1.0"
+description = "Running the git command line for the git adapters (G9): the repository-location variables scrubbed, never interactive, bounded in time with its whole process tree"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+os.workspace = true
+process-env.workspace = true
+run-within.workspace = true
+
+[dev-dependencies]
+fixture-program.workspace = true
+file-system = { workspace = true, features = ["test-support"] }
+os = { workspace = true, features = ["test-support"] }
+run-within = { workspace = true, features = ["test-support"] }
+
+[lints]
+workspace = true

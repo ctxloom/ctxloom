@@ -3,7 +3,7 @@
 use crate::agents::Served;
 use crate::error::{AppError, Notice};
 use crate::project::{Library, Outcome, Project};
-use crate::views::{RemoteFound, SearchHit, SearchResults};
+use crate::views::{Located, RemoteFound, SearchHit, SearchResults};
 use crate::Flags;
 
 /// The most local results a search answers.
@@ -153,6 +153,10 @@ impl Project {
                 };
                 Some(SearchHit {
                     kind: "fragment".to_string(),
+                    located: Some(Located {
+                        bundle: info.bundle.clone(),
+                        item: info.name.clone(),
+                    }),
                     name: info.name,
                     tags: info.tags,
                     source: info.bundle,
@@ -169,6 +173,10 @@ impl Project {
             .filter(|info| contains(&info.name, query))
             .map(|info| SearchHit {
                 kind: "command".to_string(),
+                located: Some(Located {
+                    bundle: info.bundle.clone(),
+                    item: info.name.clone(),
+                }),
                 name: info.name,
                 tags: Vec::new(),
                 source: info.bundle,
@@ -191,8 +199,18 @@ impl Project {
                 } else {
                     return None;
                 };
+                // A skill's row is named `<bundle>/<skill>`.
+                let item = row
+                    .name
+                    .strip_prefix(&format!("{}/", row.source))
+                    .unwrap_or(&row.name)
+                    .to_string();
                 Some(SearchHit {
                     kind: "skill".to_string(),
+                    located: Some(Located {
+                        bundle: row.source.clone(),
+                        item,
+                    }),
                     name: row.name,
                     tags: row.tags,
                     source: row.source,
@@ -218,6 +236,7 @@ impl Project {
                 };
                 Some(SearchHit {
                     kind: "profile".to_string(),
+                    located: self.locate(&format!("{}#profiles/{}", row.bundle, row.display_name)),
                     name: row.name,
                     tags: row.tags,
                     source: String::new(),
@@ -240,6 +259,7 @@ impl Project {
                 };
                 (contains(&name, query) || contains(&target, query)).then(|| SearchHit {
                     kind: "mcp_server".to_string(),
+                    located: self.locate(&format!("{}#mcp/{name}", served.source)),
                     name,
                     tags: Vec::new(),
                     source: target,
@@ -249,6 +269,29 @@ impl Project {
             .collect()
     }
 }
+
+impl Project {
+    /// Where the item `reference` (`<bundle reference>#<kind>/<name>`) is in
+    /// the catalog: its bundle as the catalog names it (a companion's
+    /// loadout by its own reference) and its name; none when the catalog
+    /// holds no such bundle (OD-40).
+    pub(crate) fn locate(&self, reference: &str) -> Option<Located> {
+        let (bundle, selector) = reference.split_once('#')?;
+        let (_, item) = selector.split_once('/')?;
+        let bundle = if bundle.starts_with(COMPANION_PREFIX) {
+            bundle.to_string()
+        } else {
+            self.catalog.lookup(bundle).ok()?.name.clone()
+        };
+        Some(Located {
+            bundle,
+            item: item.to_string(),
+        })
+    }
+}
+
+/// How a companion's loadout's reference begins.
+const COMPANION_PREFIX: &str = "ctxloom+companion:";
 
 /// Name matches first, then tag, then the rest; by name then type within.
 fn sort_by_relevance(hits: &mut [SearchHit]) {
@@ -264,3 +307,7 @@ fn sort_by_relevance(hits: &mut [SearchHit]) {
             .then_with(|| a.kind.cmp(&b.kind))
     });
 }
+
+#[cfg(test)]
+#[path = "search.test.rs"]
+mod tests;

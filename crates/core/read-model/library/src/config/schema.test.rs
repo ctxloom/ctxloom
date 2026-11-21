@@ -18,7 +18,7 @@ fn texts(doc: &str) -> Vec<String> {
 // the fixture `cfg/v8`: every key of the schema, correctly used
 #[test]
 fn test_a_config_using_every_key_correctly_has_no_violation() {
-    let doc = "schema_version: 8\neditor:\n  command: vim\n  args: [-u, NONE]\nconfig:\n  content_form: original\n  statusline: none\nsync:\n  on_run: none\nworkspace: worktree\nruntime: host\ndelegation:\n  concurrency: 3\n  depth: 2\n  idle_timeout: 5m\nshell_timeout:\n  default: 30s\n  max: 1h\nisolation_images:\n  claude-code: example.com/img:1\nisolation_base: ctxloom\nisolation_memory_limit: 4g\nisolation_pids_limit: 512\noutput:\n  dir: /var/out\nisolation_engines: [claude-code]\ncompanions:\n  acme:\n    command: [acme-bin, --flag]\n  beta:\n    command: [beta-bin]\nui:\n  prefix_key: ctrl-b\n  list_window: 7d\nsession_reap_age: 30d\nsession_purge_age: 90d\nsession_transcript_retention: 365d\nnon_tty_format: json\nagents:\n  dev:\n    engine: claude-code\n    engines:\n      claude-code:\n        model: opus\n        effort: low\n        permissions:\n          defaultMode: plan\n    profiles: [p1]\n    runtime: host\n    driving: oneshot\n    env: [ALPHA]\ndefault_agent: dev\nengines:\n  claude-code:\n    auth: login\n";
+    let doc = "schema_version: 8\neditor:\n  command: vim\n  args: [-u, NONE]\nconfig:\n  content_form: original\n  statusline: none\nsync:\n  on_run: none\nworkspace: worktree\nruntime: host\ndelegation:\n  concurrency: 3\n  depth: 2\n  idle_timeout: 5m\nshell_timeout:\n  default: 30s\n  max: 1h\nisolation_images:\n  claude-code: example.com/img:1\nisolation_base: ctxloom\nisolation_memory_limit: 4g\nisolation_pids_limit: 512\noutput:\n  dir: /var/out\nisolation_engines: [claude-code]\ncompanions:\n  acme:\n    state: enabled\n  beta:\n    state: disabled\nui:\n  prefix_key: ctrl-b\n  list_window: 7d\nsession_reap_age: 30d\nsession_purge_age: 90d\nsession_transcript_retention: 365d\nnon_tty_format: json\nagents:\n  dev:\n    engine: claude-code\n    engines:\n      claude-code:\n        model: opus\n        effort: low\n        permissions:\n          defaultMode: plan\n    profiles: [p1]\n    runtime: host\n    driving: oneshot\n    env: [ALPHA]\ndefault_agent: dev\nengines:\n  claude-code:\n    auth: login\n";
     assert_eq!(texts(doc), Vec::<String>::new());
 }
 
@@ -28,7 +28,7 @@ fn test_a_config_using_every_key_correctly_has_no_violation() {
 fn test_an_unknown_top_level_key_is_named_with_the_keys_there_are() {
     assert_eq!(
         texts("schema_version: 8\nzzz: 1\n"),
-        ["unknown key `zzz` in config.yaml: ctxloom does not know it (known keys at the top level: agents, companions, config, default_agent, delegation, editor, engines, isolation_base, isolation_devcontainer_service, isolation_engines, isolation_images, isolation_memory_limit, isolation_pids_limit, legacy, non_tty_format, output, runtime, schema_version, session_purge_age, session_reap_age, session_transcript_retention, shell_timeout, sync, ui, workspace)"]
+        ["unknown key `zzz` in config.yaml: ctxloom does not know it (known keys at the top level: agents, companions, config, daemon, default_agent, delegation, editor, engines, isolation_base, isolation_devcontainer_service, isolation_engines, isolation_images, isolation_memory_limit, isolation_pids_limit, legacy, non_tty_format, output, runtime, schema_version, session_purge_age, session_reap_age, session_transcript_retention, shell_timeout, sync, ui, workspace)"]
     );
     // The inline profiles block, the native mcp block and the retired turn cap
     // are keys the schema does not describe.
@@ -46,7 +46,7 @@ fn test_an_unknown_top_level_key_is_named_with_the_keys_there_are() {
 fn test_an_unknown_nested_key_is_named_by_its_path_and_where_it_would_be_legal() {
     assert_eq!(
         texts("schema_version: 8\nagents:\n  developer:\n    profiles: [dev]\n    auth: login\n"),
-        ["unknown key `agents.developer.auth` in config.yaml: ctxloom does not know it (known keys at `agents.developer`: driving, engine, engines, env, may_delegate, profiles, roots, runtime, surfaces)"]
+        ["unknown key `agents.developer.auth` in config.yaml: ctxloom does not know it (known keys at `agents.developer`: driving, engine, engines, env, may_delegate, profiles, roots, runtime, session_home, surfaces)"]
     );
 }
 
@@ -160,10 +160,11 @@ fn test_an_override_value_is_checked_at_its_path() {
     assert!(err.contains("value must be one of"), "{err}");
     assert!(validate_at(&p("delegation.concurrency"), &Value::Scalar("0".into())).is_err());
     assert!(validate_at(
-        &p("companions.acme.command"),
-        &Value::Seq(vec![Value::Scalar("a".into())])
+        &p("companions.acme.state"),
+        &Value::Scalar("disabled".into())
     )
     .is_ok());
+    assert!(validate_at(&p("companions.acme.state"), &Value::Scalar("off".into())).is_err());
     assert!(validate_at(
         &p("companions"),
         &Value::Seq(vec![Value::Scalar("a".into())])
@@ -251,9 +252,10 @@ fn test_a_memory_limit_is_a_number_with_a_unit_or_unlimited() {
 fn test_the_schema_describes_exactly_the_paths_it_lists() {
     let path = |p: &[&str]| -> Vec<String> { p.iter().map(ToString::to_string).collect() };
     for known in [
-        &["companions", "acme", "command", "0"][..],
+        &["companions", "acme", "state"][..],
         &["editor", "command"],
         &["engines", "claude-code", "session_home"],
+        &["agents", "dev", "session_home"],
         &["engines", "opencode", "env", "0"],
         &["agents", "dev", "env", "0"],
         &["agents", "dev", "engines", "claude-code", "model"],
@@ -270,6 +272,7 @@ fn test_the_schema_describes_exactly_the_paths_it_lists() {
     }
     for unknown in [
         &["companions", "acme", "x"][..],
+        &["companions", "acme", "command", "0"],
         &["editor", "bogus"],
         &["agents", "dev", "nope"],
         &["engines", "claude-code", "model"],
@@ -302,24 +305,21 @@ fn test_a_scalar_reads_as_the_type_the_validator_names() {
     }
 }
 
-// generation 9: a registration is a name and its command.
+// generation 9: a registration is a name, and its state a word (OD-9,
+// OD-10): a command is an unknown key (hard migrate).
 #[test]
-fn test_a_companion_is_registered_with_a_command_list() {
+fn test_a_companion_is_registered_by_name_with_a_state_word() {
     assert_eq!(
-        texts("schema_version: 9\ncompanions:\n  acme:\n    command: [acme-bin, loadout]\n"),
+        texts("schema_version: 9\ncompanions:\n  acme: {}\n  beta:\n    state: disabled\n  gamma:\n    state: enabled\n"),
         Vec::<String>::new()
     );
     assert_eq!(
-        texts("schema_version: 9\ncompanions:\n  acme:\n    command: acme-bin\n"),
-        ["config.yaml: `companions.acme.command` holds a string, expected array"]
+        texts("schema_version: 9\ncompanions:\n  acme:\n    state: off\n"),
+        ["config.yaml: `companions.acme.state` breaks the schema: value must be one of \"enabled\", \"disabled\""]
     );
     assert_eq!(
-        texts("schema_version: 9\ncompanions:\n  acme:\n    command: [\"\"]\n"),
-        ["config.yaml: `companions.acme.command.0` breaks the schema: length must be >= 1, but got 0"]
-    );
-    assert_eq!(
-        texts("schema_version: 9\ncompanions:\n  acme:\n    cmd: [a]\n"),
-        ["unknown key `companions.acme.cmd` in config.yaml: ctxloom does not know it (known keys at `companions.acme`: command)"]
+        texts("schema_version: 9\ncompanions:\n  acme:\n    command: [acme-bin]\n"),
+        ["unknown key `companions.acme.command` in config.yaml: ctxloom does not know it (known keys at `companions.acme`: state)"]
     );
     assert_eq!(
         texts("schema_version: 9\ncompanions: [acme]\n"),
@@ -382,6 +382,18 @@ fn test_the_engine_block_refuses_values_the_schema_does_not_give() {
         assert_eq!(texts(&doc).len(), 1, "{key}: {value}: {:?}", texts(&doc));
     }
     let said = texts("schema_version: 9\nengines:\n  claude-code:\n    env: [\"A=b\"]\n");
+    assert_eq!(said.len(), 1, "{said:?}");
+}
+
+// owner ruling of 2026-11-13 (superseding 44(b) for this key): an agent says
+// its own session_home, in the engine block's words
+#[test]
+fn test_an_agent_s_session_home_takes_the_engine_block_s_words() {
+    for word in ["session", "host"] {
+        let doc = format!("schema_version: 9\nagents:\n  dev:\n    session_home: {word}\n");
+        assert_eq!(texts(&doc), Vec::<String>::new(), "{word}");
+    }
+    let said = texts("schema_version: 9\nagents:\n  dev:\n    session_home: elsewhere\n");
     assert_eq!(said.len(), 1, "{said:?}");
 }
 
@@ -725,4 +737,49 @@ fn test_home_only_keys_are_taken_out_of_a_layer() {
     assert!(validate(&parse("legacy:\n  go: present\n")).is_empty());
     assert!(validate(&parse("legacy:\n  go: retired\n")).is_empty());
     assert_eq!(validate(&parse("legacy:\n  go: true\n")).len(), 1);
+}
+
+// Owner, 2026-11-15: `daemon.drain_timeout` is a span of the one grammar,
+// or `now`, and the home config's alone (taken out of a project layer).
+#[test]
+fn test_the_drain_timeout_is_a_span_said_by_the_home_config_alone() {
+    for good in ["5m", "1h30m", "90s", "0s", "now"] {
+        let doc = parse(&format!("daemon:\n  drain_timeout: {good}\n"));
+        assert!(validate(&doc).is_empty(), "{good}");
+    }
+    for bad in ["soon", "5", "-1m", "true", "500ms"] {
+        let doc = parse(&format!("daemon:\n  drain_timeout: {bad}\n"));
+        assert_eq!(validate(&doc).len(), 1, "{bad}");
+    }
+    assert_eq!(validate(&parse("daemon:\n  other: 5m\n")).len(), 1);
+    let mut layer = parse("daemon:\n  drain_timeout: 2m\nworkspace: none\n");
+    assert_eq!(take_home_only(&mut layer), ["daemon.drain_timeout"]);
+    assert_eq!(layer, parse("workspace: none\n"));
+}
+
+// OD-41 (D16): `engines.<e>.approval_timeout` is a span of the one grammar,
+// or `now`, of every engine's block; said in a project layer too (it is not
+// one of ruling 46's keys, nor the home config's alone).
+#[test]
+fn test_an_engines_approval_timeout_is_a_span_or_now() {
+    for good in ["5m", "1h", "90s", "2s", "0s", "now"] {
+        for engine in ["claude-code", "opencode"] {
+            let doc = parse(&format!(
+                "engines:\n  {engine}:\n    approval_timeout: {good}\n"
+            ));
+            assert!(validate(&doc).is_empty(), "{engine} {good}");
+        }
+    }
+    for bad in ["soon", "300", "-1m", "true", "500ms", "\"\""] {
+        let doc = parse(&format!(
+            "engines:\n  claude-code:\n    approval_timeout: {bad}\n"
+        ));
+        assert_eq!(validate(&doc).len(), 1, "{bad}");
+    }
+    let mut layer = parse("engines:\n  claude-code:\n    approval_timeout: 2s\n");
+    assert!(take_home_only(&mut layer).is_empty());
+    // An agent's binding has no such key (ruling 134's `approval_timeout`
+    // under `permissions` is gone; this one is the engine's).
+    let agent = parse("agents:\n  a:\n    approval_timeout: 5m\n");
+    assert_eq!(validate(&agent).len(), 1);
 }

@@ -92,11 +92,13 @@ fn test_no_command_takes_llm_any_more() {
     }
 }
 
-// the engine's home moved to the engine block: an agent no longer carries it
+// owner ruling of 2026-11-13 (superseding 44(b) for this key): an agent
+// says its session_home again; the retired engine_home is no flag
 #[test]
-fn test_an_agent_no_longer_takes_an_engine_home() {
+fn test_an_agent_takes_a_session_home_and_no_engine_home() {
     assert!(parse(&["agent", "edit", "dev", "--engine-home", "host"]).is_err());
-    assert!(parse(&["agent", "edit", "dev", "--session-home", "host"]).is_err());
+    assert!(parse(&["agent", "edit", "dev", "--session-home", "host"]).is_ok());
+    assert!(parse(&["agent", "create", "dev", "--session-home", "session"]).is_ok());
 }
 
 // the run names its engine the way an agent does
@@ -142,4 +144,35 @@ fn test_each_item_create_names_its_own_reference_form() {
         "{}",
         help("command")
     );
+}
+
+// An item noun's distill speaks of its own kind: a fragment's, a fragment
+// and its reference; a command's, a command.
+#[test]
+fn test_each_item_nouns_distill_names_its_own_kind() {
+    let distill = |noun: &str| {
+        nouns()
+            .into_iter()
+            .find(|n| n.get_name() == noun)
+            .unwrap_or_else(|| panic!("the {noun} noun"))
+            .find_subcommand("distill")
+            .unwrap_or_else(|| panic!("{noun} distill"))
+            .clone()
+    };
+    let help = |command: &Command| {
+        let about = command.get_about().map(ToString::to_string).unwrap();
+        let reference = command
+            .get_arguments()
+            .find(|a| a.get_id() == "ref")
+            .and_then(|a| a.get_help())
+            .map(ToString::to_string)
+            .unwrap();
+        (about, reference)
+    };
+    let (about, reference) = help(&distill("fragment"));
+    assert!(about.starts_with("Distill a fragment:"), "{about}");
+    assert_eq!(reference, "bundle#fragments/name");
+    let (about, reference) = help(&distill("command"));
+    assert!(about.starts_with("Distill a command:"), "{about}");
+    assert_eq!(reference, "bundle#commands/name");
 }

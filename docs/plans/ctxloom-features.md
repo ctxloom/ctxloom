@@ -200,7 +200,8 @@ feature file; it belongs in git history.
   hooks have delivered so far; nothing projects the events into a file (no transcript file,
   no `records/`, no `metadata.json`). Each session also has one git-ignored directory,
   `.ctxloom/sessions/<harp>/`, holding what its engine needs (its session home, the
-  engine's own history, its worktree checkout), and a lock beside it, `<harp>.lock`, which
+  engine's own history, its worktree checkout), and its lock inside it,
+  `<harp>/session.lock` (DRAFT: the directory and its lock move as one, step 10 U9), which
   its run holds for its life: held is live, free is ended. A name is unique because its
   claim is; a mint never takes a harp whose directory exists. Deleting `.ctxloom` removes
   the directories; leaving ctxloom entirely is deleting `~/.ctxloom` too, which holds the

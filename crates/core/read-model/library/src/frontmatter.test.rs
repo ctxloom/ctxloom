@@ -61,10 +61,6 @@ fn test_path_helpers() {
         assert_eq!(stem_of(path), stem, "stem_of({path})");
     }
     assert_eq!(meta_path("mcp/postgres.yaml"), "mcp/.postgres.meta.yaml");
-    assert_eq!(
-        meta_path_for_name("skills", "code-reviewer"),
-        "skills/.code-reviewer.meta.yaml"
-    );
     // paths.go MetaPathForName: the dot goes on the LAST segment of a name
     // that holds a separator, or the sidecar lands in a hidden directory.
     assert_eq!(

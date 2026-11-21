@@ -3,7 +3,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use run_ports::{FailureClass, Launch, LaunchFailure, Limits, TurnOutcome};
+use run_ports::{FailureClass, LaunchFailure, Limits, TurnLaunch, TurnOutcome};
 use runs::{EndCause, RunEvent};
 use sessions::SessionEvent;
 
@@ -116,7 +116,7 @@ fn now<T>(future: impl std::future::Future<Output = T>) -> T {
 
 // The double launch, forced and not waited for: the instant the command is
 // spawned (here: while it runs, silent, with no word of its own), the store
-// already holds the launcher's RunnerStarted, and a catch-up that reads the
+// already holds the launcher's RecordRunnerStarted, and a catch-up that reads the
 // streams THEN does not owe the run a runner again.
 #[tokio::test]
 async fn a_spawned_silent_turn_is_already_started_when_a_catch_up_reads_it() {
@@ -592,7 +592,7 @@ async fn each_failure_class_is_the_runs_own() {
 // aggregate gives a failed launch, and the reason is its detail.
 #[tokio::test]
 async fn a_command_that_could_not_start_ends_the_run_as_a_failed_launch() {
-    let runner = ScriptedRunner::answering(Launch::NotStarted(LaunchFailure {
+    let runner = ScriptedRunner::answering(TurnLaunch::NotStarted(LaunchFailure {
         deterministic: true,
         detail: "claude: not found".to_string(),
     }));
@@ -624,9 +624,9 @@ async fn a_command_that_could_not_start_ends_the_run_as_a_failed_launch() {
     );
 }
 
-// The ordering the truthful RunnerStarted rests on, forced and not waited
+// The ordering the truthful RecordRunnerStarted rests on, forced and not waited
 // for: INSIDE the spawn (the pid not yet given to the launcher) the store
-// holds no RunnerStarted, and the moment the command runs it holds one with
+// holds no RecordRunnerStarted, and the moment the command runs it holds one with
 // the spawn's pid.
 #[tokio::test]
 async fn the_runner_start_is_recorded_after_the_spawn_and_not_before() {
@@ -668,7 +668,7 @@ async fn an_interactive_command_that_could_not_start_records_no_runner_start() {
     interactive.interactive = true;
     let mut rig = rig(
         ScriptedEngine::answering("", None),
-        ScriptedRunner::answering(Launch::NotStarted(LaunchFailure {
+        ScriptedRunner::answering(TurnLaunch::NotStarted(LaunchFailure {
             deterministic: true,
             detail: "no claude".to_string(),
         })),
@@ -874,7 +874,7 @@ async fn an_interactive_command_that_cannot_start_is_not_started() {
     interactive.interactive = true;
     let mut rig = rig(
         ScriptedEngine::answering("", None),
-        ScriptedRunner::answering(Launch::NotStarted(LaunchFailure {
+        ScriptedRunner::answering(TurnLaunch::NotStarted(LaunchFailure {
             deterministic: true,
             detail: "no claude".to_string(),
         })),
@@ -1112,115 +1112,37 @@ async fn the_orders_engine_settings_reach_the_engines_request() {
     }
 }
 
-// Ruling 58: an engine with no hook for its session's end (opencode) has it
-// recorded by the launcher at its terminal command's exit, once, before the
-// run ends; an engine whose hooks say it (claude) does not, and neither does a
-// command that never started, nor a child's turn.
+// Owner 2026-11-15 (SessionEnded is lost): a terminal session's exit
+// records only its run's facts, for every engine: no session end (opencode's
+// once was the launcher's) and no bind (claude's once came from its hooks'
+// end; its conversation is the one its SessionStart bound, delivered like
+// any capture fact).
 #[tokio::test]
-async fn an_engine_whose_session_ends_with_its_exit_has_the_end_recorded_at_the_exit() {
-    use crate::fakes::EndsByExit;
-    let launch = |interactive: bool, runner: ScriptedRunner| {
-        let mut asked = order("fake");
-        asked.interactive = interactive;
-        asked.prompt = String::new();
-        let edge = Arc::new(TestEdge::new());
-        let records = MemoryRecords::default();
-        let launcher = Launcher::new(
-            Arc::clone(&edge),
-            runner,
-            records.clone(),
-            vec![Arc::new(EndsByExit(ScriptedEngine::answering("ok", None)))
-                as Arc<dyn run_ports::Engine>],
-            orders_with(asked),
-            limits(),
-        );
-        (edge, launcher, records)
-    };
-    let (edge, mut launcher, records) = launch(true, ScriptedRunner::exits(0));
-    enqueued(&edge, SESSION, HARP).await;
-    launcher.step(&edge.store, edge.catalog()).await.unwrap();
-    let ended: Vec<_> = session_events(&edge, SESSION)
-        .await
-        .into_iter()
-        .filter_map(|e| match e {
-            SessionEvent::SessionEnded(ended) => Some(ended),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(
-        ended,
-        [sessions::SessionEnded {
-            native_session: String::new(),
-            reason: "exit".to_string(),
-        }]
-    );
-    assert!(records.text(HARP, "transcripts/transcript.jsonl").is_none());
-    assert_eq!(
-        names(&run_events(&edge, SESSION).await),
-        ["RunEnqueued", "RunnerAttached", "RunnerStarted", "RunEnded"]
-    );
-
-    for (interactive, runner) in [
-        (
-            true,
-            ScriptedRunner::answering(Launch::NotStarted(LaunchFailure {
-                deterministic: true,
-                detail: "no opencode".to_string(),
-            })),
-        ),
-        (false, ScriptedRunner::exits(0)),
-    ] {
-        let (edge, mut launcher, _) = launch(interactive, runner);
-        enqueued(&edge, SESSION, HARP).await;
-        launcher.step(&edge.store, edge.catalog()).await.unwrap();
-        assert!(
-            !session_events(&edge, SESSION)
-                .await
-                .iter()
-                .any(|e| matches!(e, SessionEvent::SessionEnded(_))),
-            "interactive {interactive}: no end recorded"
-        );
-    }
-}
-
-// Owner ruling 115: a terminal session is resumed by its engine's own
-// session, which its hooks name at its end (claude's SessionEnd): once the
-// terminal exits, the launcher binds the last one named, as a child's turn
-// binds the one its stream names. None named, nothing is bound.
-#[tokio::test]
-async fn a_terminal_sessions_native_session_its_hooks_named_is_bound_at_its_exit() {
-    let bound = |events: Vec<SessionEvent>| -> Vec<String> {
-        events
-            .into_iter()
-            .filter_map(|e| match e {
-                SessionEvent::EngineSessionBound(b) => Some(b.native_id),
-                _ => None,
-            })
-            .collect()
-    };
+async fn a_terminal_sessions_exit_records_its_runs_end_and_nothing_of_the_session() {
     let mut asked = order("fake");
     asked.interactive = true;
-    let mut named = rig(
-        ScriptedEngine::answering("ok", None),
-        ScriptedRunner::exits(0),
-        orders_with(asked.clone()),
-    );
-    enqueued(&named.edge, SESSION, HARP).await;
-    crate::fakes::hook_session_ended(&named.edge, SESSION, "native-term-1").await;
-    named.step().await;
-    assert_eq!(
-        bound(session_events(&named.edge, SESSION).await),
-        ["native-term-1"]
-    );
-
-    let mut none = rig(
+    asked.prompt = String::new();
+    let mut rig = rig(
         ScriptedEngine::answering("ok", None),
         ScriptedRunner::exits(0),
         orders_with(asked),
     );
-    enqueued(&none.edge, SESSION, HARP).await;
-    none.step().await;
-    assert!(bound(session_events(&none.edge, SESSION).await).is_empty());
+    enqueued(&rig.edge, SESSION, HARP).await;
+    rig.step().await;
+    assert!(
+        !session_events(&rig.edge, SESSION)
+            .await
+            .iter()
+            .any(|e| matches!(
+                e,
+                SessionEvent::EngineSessionBound(_) | SessionEvent::SessionEnded(_)
+            )),
+        "the exit recorded something of the session"
+    );
+    assert_eq!(
+        names(&run_events(&rig.edge, SESSION).await),
+        ["RunEnqueued", "RunnerAttached", "RunnerStarted", "RunEnded"]
+    );
 }
 
 // Ruling 78: the caller's CTXLOOM_PERMIT_<NAME> reaches the engine's command
@@ -1428,7 +1350,6 @@ async fn as_the_runner(edge: &Arc<TestEdge>, fact: runs_application::RunnerFact)
         incarnation: 1,
         harp: HARP.to_string(),
         depth: 0,
-        principal: runs_application::Principal::Runner,
     };
     runs_application::Facts::new(Arc::clone(edge))
         .record(&who, fact)
@@ -1442,7 +1363,7 @@ async fn started_run(edge: &Arc<TestEdge>) {
     enqueued_by(edge, SESSION, HARP, RUN_LOCK).await;
     as_the_runner(
         edge,
-        runs_application::RunnerFact::RunnerStarted(runs::RunnerStarted {
+        runs_application::RunnerFact::RunnerStarted(runs::RecordRunnerStarted {
             runtime: "fake".to_string(),
             workspace: "/work/proj".to_string(),
             pid: 7,
@@ -1453,7 +1374,7 @@ async fn started_run(edge: &Arc<TestEdge>) {
 
 // Rulings 86, 92, 100: a run owed a runner whose own lock is free has lost
 // its launcher, and nobody else holds its order: the next process to catch up
-// records `LaunchOrphaned` (no launch failed), which ends it and closes its
+// records `RecordLaunchOrphaned` (no launch failed), which ends it and closes its
 // session's incarnation (ruling 85). Nothing is launched for it.
 #[tokio::test]
 async fn a_run_whose_launchers_lock_is_free_is_recorded_as_an_orphan() {
@@ -1462,7 +1383,7 @@ async fn a_run_whose_launchers_lock_is_free_is_recorded_as_an_orphan() {
     let mut later = another_process(&edge, Locks::saying(Free, Unproven));
     let launched = later.step(&edge.store, edge.catalog()).await.unwrap();
     assert!(launched.is_empty(), "an orphan is not launched");
-    // Not `LaunchFailed`: no orphan claims a launch failure.
+    // Not `RecordLaunchFailed`: no orphan claims a launch failure.
     assert_eq!(ends(&edge).await, [orphaned()]);
     assert_eq!(closed(&edge).await, [(1, "orphaned".to_string())]);
 }
@@ -1541,7 +1462,7 @@ async fn a_run_whose_order_this_process_holds_is_launched_not_orphaned() {
 
 // Rulings 93, 95: a STARTED run whose session's lock is free has lost its
 // owner (the run holds its session's lock from its mint to its end): it is
-// ended by `RunnerLost`, for runner loss, and its incarnation closed.
+// ended by `RecordRunnerLost`, for runner loss, and its incarnation closed.
 #[tokio::test]
 async fn a_started_run_whose_sessions_lock_is_free_is_ended_for_runner_loss() {
     let edge = Arc::new(TestEdge::new());
@@ -1554,7 +1475,7 @@ async fn a_started_run_whose_sessions_lock_is_free_is_ended_for_runner_loss() {
 
 // Ruling 95, the race forced: two processes find the same started orphan,
 // the second catching up in the gap between the first one's probe and its
-// record. `RunnerLost` is keyed by the run, so the second is a DUPLICATE: the
+// record. `RecordRunnerLost` is keyed by the run, so the second is a DUPLICATE: the
 // run ends once, its incarnation is closed once, and neither fails.
 #[tokio::test]
 async fn two_processes_that_find_the_same_started_orphan_end_it_once() {
@@ -1605,7 +1526,7 @@ async fn a_sweep_racing_a_normal_end_ends_the_run_once_by_its_exit() {
     *locks.before.lock().unwrap() = Some(Box::new(move || {
         now(as_the_runner(
             &owner_edge,
-            runs_application::RunnerFact::RunExited(runs::RunExited { code: 0, signal: 0 }),
+            runs_application::RunnerFact::RunExited(runs::RecordRunExited { code: 0, signal: 0 }),
         ));
         now(
             runs_application::Facts::new(Arc::clone(&owner_edge)).incarnation_ended(
@@ -1693,7 +1614,7 @@ async fn a_launch_that_never_started_lets_its_run_lock_go() {
         let edge = Arc::new(TestEdge::new());
         let mut launcher = Launcher::new(
             Arc::clone(&edge),
-            ScriptedRunner::answering(Launch::NotStarted(LaunchFailure {
+            ScriptedRunner::answering(TurnLaunch::NotStarted(LaunchFailure {
                 deterministic: true,
                 detail: "no program".to_string(),
             })),
@@ -1725,7 +1646,7 @@ async fn a_sweep_that_finds_the_runner_started_since_records_nothing() {
     *locks.before.lock().unwrap() = Some(Box::new(move || {
         now(as_the_runner(
             &owner_edge,
-            runs_application::RunnerFact::RunnerStarted(runs::RunnerStarted {
+            runs_application::RunnerFact::RunnerStarted(runs::RecordRunnerStarted {
                 runtime: "fake".to_string(),
                 workspace: "/work/proj".to_string(),
                 pid: 7,
@@ -1736,6 +1657,162 @@ async fn a_sweep_that_finds_the_runner_started_since_records_nothing() {
     sweeper.step(&edge.store, edge.catalog()).await.unwrap();
     assert!(ends(&edge).await.is_empty(), "the started run is not ended");
     assert!(closed(&edge).await.is_empty());
+}
+
+// T3, T18: a STARTED run whose own lock is free has lost the host that held
+// it for the run's life (a killed daemon's child: no session lock, its run
+// lock left free): it is ended by `RecordRunnerLost`, and its incarnation closed.
+#[tokio::test]
+async fn a_started_run_whose_own_lock_is_free_is_ended_for_runner_loss() {
+    let edge = Arc::new(TestEdge::new());
+    started_run(&edge).await;
+    let mut later = another_process(&edge, Locks::saying(Free, Unproven));
+    later.step(&edge.store, edge.catalog()).await.unwrap();
+    assert_eq!(ends(&edge).await, [lost()]);
+    assert_eq!(closed(&edge).await, [(1, "orphaned".to_string())]);
+}
+
+// T18: the sweep is the daemon's first step too, on its own: it answers the
+// runs it ended, and a second sweep of the same runs ends nothing again.
+#[tokio::test]
+async fn the_sweep_answers_the_runs_it_ended_and_a_second_ends_none() {
+    let edge = Arc::new(TestEdge::new());
+    started_run(&edge).await;
+    let mut pending = pending_launches::catch_up();
+    pending.step(&edge.store, edge.catalog()).await.unwrap();
+    let (owed, started) = {
+        let model = pending.projector().pending();
+        (model.launches(), model.started())
+    };
+    let sweeper = crate::Sweeper::new(Arc::clone(&edge), Locks::saying(Free, Unproven));
+    let swept = sweeper.sweep(&owed, &started).await.unwrap();
+    assert_eq!(
+        swept,
+        [crate::Swept {
+            run: runs::run_root(SESSION, 1),
+            session: SESSION.to_string(),
+            incarnation: 1,
+            started: true,
+            project_dir: started[0].project_dir.clone(),
+            workspace: "/work/proj".to_string(),
+            released: crate::Released::Nothing,
+        }]
+    );
+    assert!(sweeper.sweep(&owed, &started).await.unwrap().is_empty());
+    assert_eq!(ends(&edge).await, [lost()], "ended once");
+}
+
+/// The runs owed a runner and started, as the store holds them now.
+async fn swept_runs(
+    edge: &Arc<TestEdge>,
+) -> (
+    Vec<pending_launches::PendingLaunch>,
+    Vec<pending_launches::StartedRun>,
+) {
+    let mut pending = pending_launches::catch_up();
+    pending.step(&edge.store, edge.catalog()).await.unwrap();
+    let model = pending.projector().pending();
+    (model.launches(), model.started())
+}
+
+/// Queue a turn of `message` on `SESSION`'s first run, as the daemon's
+/// delivery does.
+async fn queued(edge: &Arc<TestEdge>, message: &str) {
+    let cover = angzarr_embedded::v1::Cover {
+        domain: runs::RUN_DOMAIN.to_string(),
+        root: Some(runs::run_root(SESSION, 1)),
+        edition: None,
+    };
+    let book = angzarr_embedded::CommandBookExt::command_of(
+        cover,
+        &runs::RunCommand::from(runs::QueueTurn {
+            prompt_ref: String::new(),
+            resume: false,
+            message_ids: vec![message.to_string()],
+            urgency: runs::TurnUrgency::Wake,
+        }),
+    );
+    run_ports::Edge::handle(&**edge, book).await.unwrap();
+}
+
+// S18: a lost run's turn in flight is ended failed, runner-lost, BEFORE the
+// run's end (after it the run records no turn's end), so its owner is told;
+// a second sweep fails it no second time.
+#[tokio::test]
+async fn a_lost_runs_turn_in_flight_ends_failed_before_the_run_ends() {
+    let edge = Arc::new(TestEdge::new());
+    started_run(&edge).await;
+    queued(&edge, "m-1").await;
+    let (owed, started) = swept_runs(&edge).await;
+    let sweeper = crate::Sweeper::new(Arc::clone(&edge), Locks::saying(Free, Unproven));
+    sweeper.sweep(&owed, &started).await.unwrap();
+    let events = run_events(&edge, SESSION).await;
+    let failed: Vec<(runs::TurnFailureClass, Vec<String>)> = events
+        .iter()
+        .filter_map(|event| match event {
+            RunEvent::TurnFailedRecorded(failed) => {
+                Some((failed.class, failed.message_ids.clone()))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        failed,
+        [(runs::TurnFailureClass::RunnerLost, vec!["m-1".to_string()])]
+    );
+    let at = |want: fn(&RunEvent) -> bool| events.iter().position(want).unwrap();
+    assert!(
+        at(|e| matches!(e, RunEvent::TurnFailedRecorded(_)))
+            < at(|e| matches!(e, RunEvent::RunEnded(_))),
+        "the turn fails before the run ends"
+    );
+    assert!(sweeper.sweep(&owed, &started).await.unwrap().is_empty());
+    let again = run_events(&edge, SESSION).await;
+    assert_eq!(
+        again
+            .iter()
+            .filter(|e| matches!(e, RunEvent::TurnFailedRecorded(_)))
+            .count(),
+        1
+    );
+}
+
+/// Releases that say each run they were asked of, and answer `answer`.
+struct Releasing(std::sync::Mutex<Vec<(String, String)>>, crate::Released);
+
+impl crate::Releases for Releasing {
+    fn release(&self, swept: &crate::Swept) -> crate::Released {
+        self.0
+            .lock()
+            .unwrap()
+            .push((swept.project_dir.clone(), swept.workspace.clone()));
+        self.1.clone()
+    }
+}
+
+// OD-19: what a lost run held is let go through the sweeper's releases,
+// told where it worked, and what that came to is in its sweep; a sweeper
+// with none releases nothing (above).
+#[tokio::test]
+async fn a_lost_runs_checkout_is_released_through_the_sweepers_releases() {
+    let edge = Arc::new(TestEdge::new());
+    started_run(&edge).await;
+    let (owed, started) = swept_runs(&edge).await;
+    let left = crate::Released::Left {
+        path: "/work/proj".to_string(),
+        why: "it holds work".to_string(),
+    };
+    let releases = Arc::new(Releasing(std::sync::Mutex::default(), left.clone()));
+    let swept = crate::Sweeper::new(Arc::clone(&edge), Locks::saying(Free, Unproven))
+        .releasing(Arc::clone(&releases) as Arc<dyn crate::Releases>)
+        .sweep(&owed, &started)
+        .await
+        .unwrap();
+    assert_eq!(swept[0].released, left);
+    assert_eq!(
+        *releases.0.lock().unwrap(),
+        [(started[0].project_dir.clone(), "/work/proj".to_string())]
+    );
 }
 
 /// An engine that tells its command the user's home it was asked with (as
@@ -1810,7 +1887,7 @@ fn rig_placing(order: crate::Order, workspaces: Arc<crate::fakes::ScriptedWorksp
     rig
 }
 
-/// The `RunnerStarted` the launch recorded: where it said the runner works.
+/// The `RecordRunnerStarted` the launch recorded: where it said the runner works.
 async fn started_in(edge: &Arc<TestEdge>) -> String {
     run_events(edge, SESSION)
         .await
@@ -2066,7 +2143,8 @@ async fn the_engine_is_prepared_with_the_launchs_surfaces() {
 #[tokio::test]
 async fn files_the_engine_reads_where_it_works_go_into_its_checkout_and_out_at_release() {
     use crate::fakes::{
-        worktree_checkout, worktree_order, Placing, ScriptedWorkspaces, PLACED, WORK_DIR,
+        worktree_checkout, worktree_order, Placing, ScriptedWorkspaces, PLACED, PLACED_SCRIPT,
+        WORK_DIR,
     };
     let workspaces = Arc::new(ScriptedWorkspaces::new(worktree_checkout));
     let mut rig = rig(
@@ -2084,19 +2162,45 @@ async fn files_the_engine_reads_where_it_works_go_into_its_checkout_and_out_at_r
     );
     assert_eq!(
         *workspaces.files.lock().unwrap(),
-        [format!("{path}/{PLACED}")]
+        [
+            format!("{path}/{PLACED}"),
+            format!("{path}/{PLACED_SCRIPT} (executable)")
+        ]
     );
-    assert_eq!(launched[0].checkout_files, [PLACED]);
+    assert_eq!(launched[0].checkout_files, [PLACED, PLACED_SCRIPT]);
     let checkout = launched[0].checkout.clone().unwrap();
     rig.launcher.release(&checkout, &launched[0].checkout_files);
     assert_eq!(
         *workspaces.files.lock().unwrap(),
         [
             format!("{path}/{PLACED}"),
+            format!("{path}/{PLACED_SCRIPT} (executable)"),
             format!("-{path}/{PLACED}"),
+            format!("-{path}/{PLACED_SCRIPT}"),
             format!("remove {path}")
         ]
     );
+}
+
+// A file the engine says is executable (a skill's declared script, step 3)
+// is written executable in its home; every other one is not.
+#[tokio::test]
+async fn a_home_file_the_engine_says_is_executable_is_written_executable() {
+    use crate::fakes::{Placing, PLACED_SCRIPT};
+    let mut rig = rig(
+        Placing(ScriptedEngine::answering("A", None)),
+        ScriptedRunner::exits(0),
+        orders_with(order("fake")),
+    );
+    enqueued(&rig.edge, SESSION, HARP).await;
+    rig.step().await;
+    let script = format!("home/{PLACED_SCRIPT}");
+    assert_eq!(
+        rig.records.text(HARP, &script).as_deref(),
+        Some("#!/bin/sh\n")
+    );
+    assert!(rig.records.is_executable(HARP, &script));
+    assert!(!rig.records.is_executable(HARP, "home/ctx.md"));
 }
 
 // In the live project nothing of it is written: the project is not the
@@ -2246,4 +2350,91 @@ fn rig_quiet() -> Rig {
         ScriptedRunner::exits(0),
         orders_with(order("fake")),
     )
+}
+
+// Owner, 2026-11-19 evening: a turn is waited on by PARKING a thread, and
+// never a runtime worker (`finish` blocks). Forced, no sleep: a runtime of ONE
+// worker, a turn whose command is held at a point the test releases, and an
+// unrelated task that must run meanwhile. With the wait on the worker it
+// never does (the bound only turns that hang into a failure).
+#[test]
+fn a_parked_turn_does_not_take_the_only_worker() {
+    parked_turn_leaves_the_worker(false);
+}
+
+// The terminal session is waited on the same way.
+#[test]
+fn a_parked_terminal_session_does_not_take_the_only_worker() {
+    parked_turn_leaves_the_worker(true);
+}
+
+fn parked_turn_leaves_the_worker(interactive: bool) {
+    let mut order = order("fake");
+    order.interactive = interactive;
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .build()
+        .unwrap();
+    let mut rig = rig(
+        ScriptedEngine::answering("A", None),
+        ScriptedRunner::exits(0),
+        orders_with(order),
+    );
+    rig.launcher = rig.launcher.with_parks(Arc::new(BlockingPool));
+    let (parked, hear_parked) = std::sync::mpsc::channel::<()>();
+    let (release, held) = std::sync::mpsc::channel::<()>();
+    let (parked, held) = (Mutex::new(parked), Mutex::new(held));
+    *rig.runner.during.lock().unwrap() = Some(Arc::new(move || {
+        parked.lock().unwrap().send(()).unwrap();
+        held.lock().unwrap().recv().unwrap();
+    }));
+    let edge = Arc::clone(&rig.edge);
+    let turn = runtime.spawn(async move {
+        enqueued(&edge, SESSION, HARP).await;
+        rig.step().await
+    });
+    hear_parked.recv().unwrap();
+    let (done, hear_done) = std::sync::mpsc::channel::<()>();
+    runtime.spawn(async move {
+        let _ = done.send(());
+    });
+    let ran = hear_done.recv_timeout(std::time::Duration::from_secs(30));
+    release.send(()).unwrap();
+    assert!(
+        ran.is_ok(),
+        "an unrelated task ran while the turn was parked"
+    );
+    assert_eq!(runtime.block_on(turn).unwrap().len(), 1);
+}
+
+/// The composition root's parking, as a runtime with a blocking pool gives it.
+struct BlockingPool;
+
+impl run_ports::Parks for BlockingPool {
+    fn park(
+        &self,
+        running: Box<dyn run_ports::Running>,
+    ) -> run_ports::BoxFuture<'static, Result<run_ports::TurnOutput, LaunchFailure>> {
+        Box::pin(async move {
+            tokio::task::spawn_blocking(move || running.finish())
+                .await
+                .expect("the parked thread did not panic")
+        })
+    }
+}
+
+// `parks_turns` says what `with_parks` set, and a new launcher parks nothing.
+#[test]
+fn a_launcher_parks_its_turns_only_once_told_to() {
+    let rig = rig(
+        ScriptedEngine::answering("A", None),
+        ScriptedRunner::exits(0),
+        orders_with(order("fake")),
+    );
+    assert!(!rig.launcher.parks_turns());
+    assert!(rig
+        .launcher
+        .with_parks(Arc::new(BlockingPool))
+        .parks_turns());
 }

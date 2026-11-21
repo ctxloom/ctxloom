@@ -1,9 +1,8 @@
+# world: base
 # Ported from journeys/j000600_agent_skill.feature (rev f36e8dfb2)
-# NOT ported: the scenarios tagged @pending: it waits for `ctxloom run` to
-#   launch an engine. The skill's body and script reaching each engine's skill
-#   folder are cli/skill.feature's.
+# NOT ported: nothing. The skill's body and script reaching each engine's
+#   skill folder at rest are cli/skill.feature's.
 
-@pending
 Feature: A skill you author once, and your assistant simply has
 
   Alice writes a "deploy-doctor" skill: guidance for diagnosing a broken

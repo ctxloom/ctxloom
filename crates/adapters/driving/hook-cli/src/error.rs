@@ -45,6 +45,17 @@ pub enum HookWarning {
     /// record. The engine's answer is unaffected; `what` is the fact's
     /// external id and `why` the delivery's text.
     NotRecorded { what: String, why: String },
+    /// An observation kept in its session's hold (s4-Q14): `why` it was not
+    /// delivered now (the daemon is older, none could be reached, the
+    /// delivery was not settled).
+    Held {
+        what: String,
+        harp: String,
+        why: String,
+    },
+    /// An observation kept in its session's hold behind the facts it
+    /// already holds (first-in, first-out).
+    HeldBehind { what: String, harp: String },
 }
 
 impl fmt::Display for HookWarning {
@@ -58,6 +69,8 @@ impl Diagnostic for HookWarning {
         match self {
             HookWarning::NoUsableHarp { .. } => code!("no-usable-harp"),
             HookWarning::NotRecorded { .. } => code!("not-recorded"),
+            HookWarning::Held { .. } => code!("held"),
+            HookWarning::HeldBehind { .. } => code!("held-behind"),
         }
     }
 
@@ -66,6 +79,17 @@ impl Diagnostic for HookWarning {
             HookWarning::NoUsableHarp { harp } => vec![("harp", harp.as_str().into())],
             HookWarning::NotRecorded { what, why } => {
                 vec![("what", what.as_str().into()), ("why", why.as_str().into())]
+            }
+            HookWarning::Held { what, harp, why } => vec![
+                ("what", what.as_str().into()),
+                ("harp", harp.as_str().into()),
+                ("why", why.as_str().into()),
+            ],
+            HookWarning::HeldBehind { what, harp } => {
+                vec![
+                    ("what", what.as_str().into()),
+                    ("harp", harp.as_str().into()),
+                ]
             }
         }
     }
@@ -91,6 +115,15 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(HookWarning::NotRecorded {
             what: "hook:prompt:s:p".to_string(),
             why: "the listener is not running".to_string(),
+        }),
+        Box::new(HookWarning::Held {
+            what: "hook:prompt:s:p".to_string(),
+            harp: "brisk-copper-moth".to_string(),
+            why: "the serving daemon is ctxloom v0.1.0-aaaaaaa, older than this hook's ctxloom v0.2.0-bbbbbbb".to_string(),
+        }),
+        Box::new(HookWarning::HeldBehind {
+            what: "hook:turn-end:s:p".to_string(),
+            harp: "brisk-copper-moth".to_string(),
         }),
     ]
 }

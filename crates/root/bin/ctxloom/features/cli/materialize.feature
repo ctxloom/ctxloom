@@ -4,8 +4,11 @@
 # Ported from journeys/j000800_onboarding.feature (rev f36e8dfb2)
 # Ported from journeys/j001400_bundle_distribution.feature (rev f36e8dfb2)
 # NOT ported: the Rules tagged @pending: "A run says so when the project holds
-#   materialized context" needs a running mock engine (S6); "A pulled
-#   bundle's surfaces reach an agent in every workspace" has no steps yet.
+#   materialized context" is not built (step 11: no run warns of materialized
+#   context or names `materialize --release`, and the mock engine drives no
+#   run); "A pulled bundle's surfaces reach an agent in every workspace" has
+#   no steps yet (Trent's atelier fixture, and its container rows are step
+#   7's).
 @doc
 Feature: materialize — the profiles' surfaces written at rest, any subset of them
 

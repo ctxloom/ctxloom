@@ -2,8 +2,8 @@
 //! live project, or a checkout of the session's own for its agent.
 //!
 //! The placement is one of the launch's setup steps, so it is made where
-//! every other one is, the launcher's `prepare`, for every launch path
-//! alike: a one-shot child's turn, the terminal session, a hosted child. Its
+//! every other one is, `set_up_launch`, for every launch path alike: a
+//! one-shot child's turn, the terminal session, a hosted child. Its
 //! outcomes:
 //!
 //! | asked | the workspaces port says | the engine's directory |

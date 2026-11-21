@@ -125,6 +125,18 @@ fn config() -> Command {
     noun("config", "Show ctxloom configuration")
         .subcommand(Command::new("edit").about("Open config.yaml in $EDITOR"))
         .subcommand(
+            Command::new("set")
+                .about("Set one key of the configuration (the project's; the home's with --home)")
+                .arg(one("key", "The key's dotted path (editor.command)"))
+                .arg(one("value", "Its value, as typed"))
+                .arg(
+                    Arg::new("home")
+                        .long("home")
+                        .action(ArgAction::SetTrue)
+                        .help("Set it in the home's config instead of the project's"),
+                ),
+        )
+        .subcommand(
             Command::new("create")
                 .about("Scaffold a default config.yaml (and remotes.yaml)")
                 .arg(
@@ -207,7 +219,20 @@ fn bundle() -> Command {
                     "path",
                     "A bundle tree: its directory, or its bundle.yaml",
                 ))
-                .arg(force("Overwrite existing bundle")),
+                .arg(force("Overwrite existing bundle"))
+                .arg(
+                    Arg::new("yes")
+                        .short('y')
+                        .long("yes")
+                        .action(ArgAction::SetTrue)
+                        .help("Apply at once (an import asks nothing; accepted for scripts)"),
+                ),
+        )
+        .subcommand(
+            Command::new("distill")
+                .about("Distill every fragment and command of a bundle (each stored beside its source)")
+                .arg(one("name", "The bundle"))
+                .arg(force("Distill each again even where its distilled form matches its source")),
         )
 }
 
@@ -232,7 +257,8 @@ fn item_writes(noun: Command, word: &'static str, dir: &'static str) -> Command 
                 Arg::new("name")
                     .value_name("NAME")
                     .help("The new item's name, after a bundle (no editor is opened)"),
-            ),
+            )
+            .arg(body_arg("The item's text, stored as it is (no editor is opened)")),
     )
     .subcommand(
         remove(match word {
@@ -246,6 +272,21 @@ fn item_writes(noun: Command, word: &'static str, dir: &'static str) -> Command 
                 _ => "bundle#commands/name",
             },
         )),
+    )
+    .subcommand(
+        Command::new("distill")
+            .about(match word {
+                "fragment" => "Distill a fragment: a compact form stored beside it, for assembly",
+                _ => "Distill a command: a compact form stored beside it",
+            })
+            .arg(one(
+                "ref",
+                match dir {
+                    "fragments" => "bundle#fragments/name",
+                    _ => "bundle#commands/name",
+                },
+            ))
+            .arg(force("Distill it again even where its distilled form matches its source")),
     )
     .subcommand(
         Command::new("edit")
@@ -265,8 +306,15 @@ fn item_writes(noun: Command, word: &'static str, dir: &'static str) -> Command 
                     .long("no-distill")
                     .action(ArgAction::SetTrue)
                     .help("Skip re-distillation for this edit"),
-            ),
+            )
+            .arg(body_arg("The item's new body, its front matter kept (no editor is opened)")),
     )
+}
+
+/// `--body <text>` (step 10b's spec): the item's text given on the command
+/// line, so no editor is opened.
+fn body_arg(help: &'static str) -> Arg {
+    Arg::new("body").long("body").value_name("TEXT").help(help)
 }
 
 fn fragment() -> Command {
@@ -379,6 +427,11 @@ fn profile() -> Command {
                         .action(ArgAction::Append)
                         .help("Bundle(s) the profile includes"),
                 )
+                .arg(list_flag("add-bundle", "Bundle(s) the profile includes"))
+                .arg(list_flag(
+                    "add-skill",
+                    "Skill(s) the profile curates (<bundle>#skills/<name>)",
+                ))
                 .arg(description("Description of the profile"))
                 .arg(named(
                     "bundle",
@@ -494,6 +547,16 @@ fn agent_write(name: &'static str, about: &'static str) -> Command {
             "runtime",
             "Runtime axis: host|container-rootless|container-rootful (empty = project default)",
         ))
+        .arg(named(
+            "session-home",
+            "Whose home the engine runs on: session|host (host only with --home; empty = the engine block's, else session)",
+        ))
+        .arg(
+            Arg::new("home")
+                .long("home")
+                .action(ArgAction::SetTrue)
+                .help("Write the binding to your home config instead of the project's"),
+        )
         .arg(each(
             "surface",
             "Delivery preference: kind=approach (repeatable)",
@@ -557,15 +620,6 @@ fn mcp() -> Command {
                     "url",
                     "Endpoint of a remote server, http or https (empty clears it)",
                 ))
-                .arg(each(
-                    "header",
-                    "HTTP header as Name=value (repeatable; replaces the map)",
-                ))
-                .arg(each("tag", "Tag (repeatable; replaces the list)"))
-                .arg(named(
-                    "served-by",
-                    "session-endpoint: the running session serves this entry (empty clears it)",
-                ))
                 .arg(named("notes", "Human-readable notes (empty clears them)"))
                 .arg(named(
                     "installation",
@@ -578,27 +632,17 @@ fn mcp() -> Command {
 fn companion() -> Command {
     noun("companion", "List the companion programs ctxloom runs")
         .subcommand(list(
-            "List registered companions, their commands and whether each program exists",
+            "List registered companions, the program each name stands for, whether it is on PATH and whether it is enabled",
         ))
         .subcommand(
             Command::new("add")
-                .about("Register a companion with the command that runs it, after checking it answers")
-                .arg(one("name", "The companion's name").allow_hyphen_values(true))
-                .trailing_var_arg(true)
+                .about("Register a companion by name, after checking its program on PATH answers")
                 .arg(
-                    Arg::new("command")
-                        .long("command")
-                        .value_name("PROGRAM")
-                        .required(true)
-                        .allow_hyphen_values(true)
-                        .help("The program that runs the companion; asked `loadout --format yaml` once before it is recorded"),
-                )
-                .arg(
-                    Arg::new("args")
-                        .value_name("ARGS")
-                        .num_args(0..)
-                        .allow_hyphen_values(true)
-                        .help("The program's arguments, after it; everything from the first is taken as one (put --format before them)"),
+                    one(
+                        "name",
+                        "The companion's name (ltk, taskloom, reprise; any other name n runs ctxloom-companion-n)",
+                    )
+                    .allow_hyphen_values(true),
                 ),
         )
         .subcommand(
@@ -607,6 +651,16 @@ fn companion() -> Command {
                 .about("Unregister a companion")
                 .arg(one("name", "The companion's name"))
                 .arg(yes()),
+        )
+        .subcommand(
+            Command::new("enable")
+                .about("Let a registered companion contribute again")
+                .arg(one("name", "The companion's name")),
+        )
+        .subcommand(
+            Command::new("disable")
+                .about("Keep a companion registered, contributing nothing until it is enabled")
+                .arg(one("name", "The companion's name")),
         )
 }
 
@@ -653,25 +707,29 @@ fn many(name: &'static str, short: char, help: &'static str) -> Arg {
 }
 
 fn context() -> Command {
-    noun("context", "Assemble context").subcommand(
-        Command::new("assemble")
-            .about("Assemble the context of a profile set, fragments and tags")
-            .arg(many(
-                "profile",
-                'p',
-                "Profile(s) to compose (can be repeated)",
-            ))
-            .arg(many(
-                "fragment",
-                'f',
-                "Fragment(s) to include (can be repeated)",
-            ))
-            .arg(many(
-                "tag",
-                't',
-                "Include fragments with this tag (can be repeated)",
-            )),
-    )
+    noun("context", "Assemble context")
+        .subcommand(Command::new("refresh").about(
+            "Forget what the daemon has seen of the library and observe it now (a DRAFT, step 10c)",
+        ))
+        .subcommand(
+            Command::new("assemble")
+                .about("Assemble the context of a profile set, fragments and tags")
+                .arg(many(
+                    "profile",
+                    'p',
+                    "Profile(s) to compose (can be repeated)",
+                ))
+                .arg(many(
+                    "fragment",
+                    'f',
+                    "Fragment(s) to include (can be repeated)",
+                ))
+                .arg(many(
+                    "tag",
+                    't',
+                    "Include fragments with this tag (can be repeated)",
+                )),
+        )
 }
 
 fn run() -> Command {
@@ -718,6 +776,12 @@ fn run() -> Command {
                 .long("workspace")
                 .value_name("AXIS")
                 .help("Session workspace axis (none|worktree; empty = project default)"),
+        )
+        .arg(
+            Arg::new("no-context")
+                .long("no-context")
+                .action(ArgAction::SetTrue)
+                .help("Hand the engine no context and no MCP server (its hooks stay); excludes -p/-f/-t"),
         )
         .arg(
             Arg::new("dry-run")

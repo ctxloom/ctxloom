@@ -10,7 +10,7 @@
 #
 #   go build -ldflags "-X github.com/ctxloom/ctxloom/internal/shared/version.Version=v0.7.0-860336c4e-20261103T000000" -o ctxloom ./cmd/ctxloom
 #
-# Each line of fixtures/parity.tsv is run in a fresh copy of its fixture
+# Each line of fixtures/parity/*.tsv (one file per noun) is run in a fresh copy of its fixture
 # (fixtures/<fixture>/project, with fixtures/<fixture>/home as the home), by
 # CTXLOOM_ROOT, with a throwaway home. The project's path in the output is
 # written as {PROJECT} and the home's as {HOME}.
@@ -62,4 +62,4 @@ while IFS=$'\t' read -r id fixture rest; do
     printf '%s' "$out" | python3 "$fx/strip_self_companion.py" "$proj" "$home" "$id" > "$fx/golden/$id.stdout"
     echo "$code" > "$fx/golden/$id.exit"
     echo "ok $id (exit $code)"
-done < "$fx/parity.tsv"
+done < <(cat "$fx"/parity/*.tsv)

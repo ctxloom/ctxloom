@@ -40,6 +40,10 @@ impl SweepConfig for Config {
             })),
         }
     }
+
+    fn retention(&mut self) -> Result<Option<String>, Failure> {
+        unreachable!("the purge age reads no retention")
+    }
 }
 
 // The sweep's purge-age rule: a purge age is `--purge-older-than`, else

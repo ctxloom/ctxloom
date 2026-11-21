@@ -1,6 +1,7 @@
 # Ported from cli/context_status.feature (rev f36e8dfb2)
 # NOT ported: any of it yet (the Feature is @pending).
 
+# Pending (OD-48, not built, tracked work): `context_status`.
 @pending
 Feature: Measuring context-window occupancy
   An agent that suspects it is running out of room should measure instead of

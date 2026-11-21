@@ -41,6 +41,11 @@ pub struct HomeFile {
     /// Slash-separated, relative to the home.
     pub rel: String,
     pub bytes: Vec<u8>,
+    /// Whether it is written executable: a skill's file its sidecar declares
+    /// (`skills/<n>/.meta.yaml`'s `executable:`, the ONLY word on a file's
+    /// executability), so a script a skill ships runs where the launch put
+    /// it, as an install writes it.
+    pub executable: bool,
 }
 
 impl fmt::Debug for HomeFile {
@@ -50,6 +55,7 @@ impl fmt::Debug for HomeFile {
         f.debug_struct("HomeFile")
             .field("rel", &self.rel)
             .field("bytes", &format!("<{} bytes>", self.bytes.len()))
+            .field("executable", &self.executable)
             .finish()
     }
 }
@@ -217,6 +223,11 @@ pub struct TurnRequest {
     /// How the config says the engine is run (program, home, credential
     /// source, environment passthrough).
     pub settings: crate::settings::EngineSettings,
+    /// ctxloom's MCP server rides the launch, so its approval prompt
+    /// (`approval_prompt`) can answer the engine's permission asks (step 8,
+    /// D7). A launch with no context carries no server at all (OD-38), and
+    /// so no prompt: an engine names none it would not find.
+    pub approval_prompt: bool,
 }
 
 impl fmt::Debug for TurnRequest {
@@ -233,6 +244,7 @@ impl fmt::Debug for TurnRequest {
             .field("model", &self.model)
             .field("effort", &self.effort)
             .field("settings", &self.settings)
+            .field("approval_prompt", &self.approval_prompt)
             .finish()
     }
 }
@@ -361,6 +373,18 @@ pub struct Planned {
 /// there is one), said as a notice. Never a refusal: the run goes on.
 pub type Advice = Box<dyn angzarr_diagnostic::Diagnostic + Send + Sync>;
 
+/// How a re-assembled context reaches a live session at the hook its
+/// engine fired (step 10c U13, G6/G7: one polymorphic interface, every
+/// engine).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ContextDelivery {
+    /// The hook's answer carries this as its context (claude:
+    /// `hookSpecificOutput.additionalContext`, which its codec writes).
+    HookContext(String),
+    /// Not at this hook: the session stays owed, for its next.
+    NotHere,
+}
+
 /// An agent engine's contribution to running a child.
 pub trait Engine: Send + Sync {
     /// The engine's name.
@@ -395,12 +419,15 @@ pub trait Engine: Send + Sync {
     /// The command of the human's terminal run.
     fn drive_interactive(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError>;
 
-    /// Whether the human's terminal session ends when the engine's command
-    /// exits, with no hook of the engine's to say so (opencode, owner ruling
-    /// 58): the launcher then records the session's end itself, at the exit.
-    /// An engine whose hooks report it (claude's SessionEnd) leaves it to them.
-    fn session_ends_with_exit(&self) -> bool {
-        false
+    /// How `context`, a live session's re-assembled context, is handed to
+    /// the engine at its native hook `hook` (step 10c U13, G6/G7, owner: one
+    /// polymorphic interface, every engine; protos.md §3). An engine that
+    /// cannot carry it there answers [`ContextDelivery::NotHere`], and the session
+    /// stays owed; by default none can (opencode's TUI and the ACP profiles
+    /// are slice 10d's).
+    fn deliver_context(&self, hook: &str, context: &str) -> ContextDelivery {
+        let _ = (hook, context);
+        ContextDelivery::NotHere
     }
 
     /// The home files (relative to it) the engine merges its own keys into

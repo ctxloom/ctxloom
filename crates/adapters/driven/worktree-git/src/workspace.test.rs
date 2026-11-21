@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use isolation_ports::{
-    session_worktrees, worktrees_root, Prepared, Removal, Request, Safety, Standing, Workspaces,
+    session_worktrees, worktrees_root, PlacedFile, Prepared, Removal, Request, Safety, Standing,
+    Workspaces,
 };
 
 use super::{
@@ -352,14 +353,16 @@ fn a_session_is_known_by_its_directory() {
     assert!(!ws.session_known("../escape").unwrap());
 }
 
-// A session whose directory was never written (one that wrote nothing in
-// it, as the test seed's) is still known by the lock it left beside it: the
-// file its state is read from.
+// A session whose directory holds nothing but its lock (one that wrote
+// nothing else in it, as the test seed's) is known by it.
 #[test]
 fn a_session_is_known_by_its_lock_alone() {
     let f = Fixture::new();
-    mkdirs(f.sessions());
-    put(f.sessions().join("amber-swift-owl.lock"), "");
+    mkdirs(f.sessions().join("amber-swift-owl"));
+    put(
+        f.sessions().join("amber-swift-owl").join("session.lock"),
+        "",
+    );
     let ws = f.adapter();
     assert!(ws.session_known("amber-swift-owl").unwrap());
     assert!(!ws.session_known("nobody").unwrap());
@@ -875,7 +878,7 @@ fn files_placed_in_a_checkout_are_hidden_and_taken_out_before_its_removal() {
     };
     let ws = f.adapter();
     let rel = ".claude/commands/demo-example.md".to_string();
-    ws.place_files(&checkout.path, &[(rel.clone(), b"BODY".to_vec())])
+    ws.place_files(&checkout.path, &[PlacedFile::plain(&rel, b"BODY")])
         .unwrap();
     let placed = Path::new(&checkout.path).join(&rel);
     assert_eq!(slurp(&placed), "BODY");
@@ -895,6 +898,38 @@ fn files_placed_in_a_checkout_are_hidden_and_taken_out_before_its_removal() {
     );
 }
 
+// A placed file that says it is executable (a skill's declared script, step
+// 3) is written so; every other one is not.
+#[test]
+fn a_placed_file_that_is_executable_is_written_executable() {
+    let f = Fixture::new();
+    let checkout = f.prepared("amber-quiet-heron", "reviewer");
+    let script = ".claude/skills/reviewer/scripts/run.sh";
+    let body = ".claude/skills/reviewer/SKILL.md";
+    f.adapter()
+        .place_files(
+            &checkout.path,
+            &[
+                PlacedFile {
+                    executable: true,
+                    ..PlacedFile::plain(script, b"#!/bin/sh\n")
+                },
+                PlacedFile::plain(body, b"BODY"),
+            ],
+        )
+        .unwrap();
+    let mode = |rel: &str| {
+        fs().metadata(&Path::new(&checkout.path).join(rel))
+            .unwrap()
+            .mode
+            .map(|m| m.bits() & 0o111)
+    };
+    // Windows keeps no mode.
+    let kept = |bits: u32| (os::host().flavor() == os::Flavor::Unix).then_some(bits);
+    assert_eq!(mode(script), kept(0o111));
+    assert_eq!(mode(body), kept(0));
+}
+
 // Taking a placed file out takes out only the directories it leaves empty:
 // one that still holds another file, and every one above it, stays.
 #[test]
@@ -907,8 +942,8 @@ fn taking_a_placed_file_out_keeps_a_directory_that_still_holds_one() {
     ws.place_files(
         &checkout.path,
         &[
-            (gone.clone(), b"GONE".to_vec()),
-            (kept.clone(), b"KEPT".to_vec()),
+            PlacedFile::plain(&gone, b"GONE"),
+            PlacedFile::plain(&kept, b"KEPT"),
         ],
     )
     .unwrap();
@@ -923,10 +958,9 @@ fn taking_a_placed_file_out_keeps_a_directory_that_still_holds_one() {
 fn a_placed_file_may_not_climb_out_of_its_checkout() {
     let f = Fixture::new();
     let checkout = f.prepared("amber-quiet-heron", "reviewer");
-    let refused = f.adapter().place_files(
-        &checkout.path,
-        &[("../escape.md".to_string(), b"x".to_vec())],
-    );
+    let refused = f
+        .adapter()
+        .place_files(&checkout.path, &[PlacedFile::plain("../escape.md", b"x")]);
     assert!(refused.is_err());
     assert!(!exists(Path::new(&checkout.path).join("../escape.md")));
 }

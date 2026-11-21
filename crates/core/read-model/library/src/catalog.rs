@@ -77,18 +77,33 @@ pub struct ItemRead {
     pub content: String,
     pub distilled: String,
     pub distilled_by: String,
+    /// The distilled form against its source, judged as it was read (T30).
+    pub distilled_state: crate::distill::DistilledState,
     pub no_distill: bool,
 }
 
 impl ItemRead {
     /// The body to deliver, and whether it is the distilled form: the
-    /// distilled form when it is preferred and there is one.
+    /// distilled form when it is preferred and FRESH (T30: its recorded
+    /// digest is its source's now); a stale one is never served.
     pub fn resolve(&self, prefer_distilled: bool) -> (&str, bool) {
-        if prefer_distilled && !self.distilled.is_empty() && !self.no_distill {
+        if prefer_distilled
+            && self.distilled_state == crate::distill::DistilledState::Fresh
+            && !self.no_distill
+        {
             (&self.distilled, true)
         } else {
             (&self.content, false)
         }
+    }
+
+    /// Whether a delivery that prefers distilled forms would have served
+    /// this one's and could not, because it no longer matches its source
+    /// (`library-application-stale-distilled`, S51).
+    pub fn stale_for(&self, prefer_distilled: bool) -> bool {
+        prefer_distilled
+            && !self.no_distill
+            && self.distilled_state == crate::distill::DistilledState::Stale
     }
 }
 
@@ -512,6 +527,7 @@ fn read_item(
         content: body.content.clone(),
         distilled: body.distilled.clone(),
         distilled_by: body.distilled_by.clone(),
+        distilled_state: body.distilled_state(),
         no_distill: body.no_distill,
     }
 }

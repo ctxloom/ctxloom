@@ -2,9 +2,16 @@
 # Ported from cli/run.feature (rev f36e8dfb2)
 # Ported from journeys/j001200_recall.feature (rev f36e8dfb2): the Rule on resuming a session
 # Ported from journeys/j002200_isolation.feature (rev f36e8dfb2): the last three Rules
-# NOT ported: the scenarios tagged @pending (the mock engine's recorded input,
-#   one-shot, tag and agent selection, deny_tools, the opencode TUI):
-#   they need `run` to launch an engine. Plan override: clap's usage error says
+# NOT ported: the scenarios tagged @pending, each with its reason (the
+#   launch's findings in the agent's context, the untrusted-repository
+#   refusal, a run on the
+#   mock engine, the containers). Retired (owner, 2026-11-19; rulings 115,
+#   87a, Q1): the Rule "Resuming a session folds in its recorded conversation"
+#   (a resume is the engine's own session; the transcript is the session's
+#   events) and the Rule "A worktree run hides its per-agent config from the
+#   project's git" (checkouts live outside the project). Deleted (OD-29, owner 2026-11-13): the
+#   Rule "An opencode label runs opencode's own TUI on ctxloom's terminal"
+#   (its label, mail-drain and wake socket are dead terms). Plan override: clap's usage error says
 #   "unexpected argument" where cobra said "unknown flag"; the step maps one to
 #   the other (plan 8.2).
 @doc
@@ -26,6 +33,7 @@ Feature: run — assembling a project's context and handing it to an engine
     ctxloom run --command/-r <name>      (a saved command as the prompt)
     ctxloom run --agent <name>
     ctxloom run --session <harp>         (resume a session, owner ruling 115)
+    ctxloom run --no-context             (no context and no MCP server; hooks stay, OD-38)
 
   A RUN IS EITHER A SESSION OR A SINGLE TURN, and `--one-shot` is how a caller
   says which. The flag names the MODE, not its output: every mode prints, and
@@ -35,15 +43,27 @@ Feature: run — assembling a project's context and handing it to an engine
   opencode scenario at the end, whose scripted engine records what it was
   launched with and exits.
 
+  A RUN IS THE USER'S DAEMON'S WORK (cli/daemon.feature). `run` is a
+  client: the daemon plans the run, assembles its context, enqueues it,
+  mints its session and writes its session home. A one-shot's engine is then
+  started by the DAEMON, which hosts it, holds its session's lock and
+  streams its reply back to the command; the interactive session's TUI is
+  started by the command itself, on the user's terminal, from the launch the
+  daemon computed (the one launch type both use), and the command holds its
+  session's lock and reports the TUI's start and exit to the daemon. A `run`
+  that can neither find nor start a daemon fails before anything is planned
+  or started.
+
   A RUN ASKED TO STOP STOPS ITS ENGINE FIRST (ruling 114). For the whole run
   ctxloom hears SIGHUP, SIGINT and SIGTERM, so none ends it by its default
   and leaves the engine working with no one listening. A one-shot stops on
-  any of the three: the turn's process tree is asked to stop (SIGTERM),
-  given five seconds, then killed. The session stops on SIGHUP or SIGTERM:
-  its engine (the direct child) is killed; a SIGINT is the terminal's Ctrl-C,
-  which reaches the engine itself, and ctxloom lets it pass. Either way the
-  run's end is recorded as for any engine that exited, and the command exits
-  with 128 plus the signal's number (129, 130, 143), the error
+  any of the three: the command asks the daemon to stop it, and the daemon
+  asks the turn's process tree to stop (SIGTERM), gives it five seconds,
+  then kills it. The session stops on SIGHUP or SIGTERM: the command kills
+  its engine (the direct child); a SIGINT is the terminal's Ctrl-C, which
+  reaches the engine itself, and ctxloom lets it pass. Either way the run's
+  end is recorded as for any engine that exited, and the command exits with
+  128 plus the signal's number (129, 130, 143), the error
   `run-application-stopped` naming the signal. j001000 proves the one-shot's
   SIGTERM end to end.
 
@@ -90,7 +110,6 @@ Feature: run — assembling a project's context and handing it to an engine
     # engine and runtime, so combining it with the flags that assemble context
     # by hand is a caller asking for two different answers to the same
     # question.
-    @pending
     Scenario: An agent binding and a hand-assembled profile cannot both decide the context
       Given an initialized ctxloom project
       And a profile "dev" exists
@@ -101,7 +120,6 @@ Feature: run — assembling a project's context and handing it to an engine
       Then the command fails
       And the output contains "none of the others can be"
 
-  @pending
   Rule: A one-shot takes exactly one turn, and refuses to take an empty one
 
     Scenario: Run hands the assembled context to the model and returns its reply
@@ -252,7 +270,92 @@ Feature: run — assembling a project's context and handing it to an engine
       Then the command fails
       And the output contains "no-such-tag-anywhere"
 
-  @pending
+  Rule: --no-context runs the engine with no context and no MCP server, and its hooks still record it
+
+    `--no-context` (owner, OD-38, 2026-11-13) hands the engine NOTHING
+    ctxloom assembles: no profile, no fragment, no premise index, no
+    companion's guidance, and no MCP server, ctxloom's own included (a
+    server's instructions are context too). The run's capture hooks stay,
+    so the session is recorded like any other, and the engine's own setup
+    is unchanged: its session home, its credential and the agent's
+    permissions (the agent is `--agent`, else the default agent where there
+    is one). It answers what context to give, so asking for context beside
+    it (`--profile`, `--fragment`, `--tag`) is refused. Distilling content
+    runs on it, so the distiller sees the item and nothing of the project's
+    guidance. With no server it has no approval prompt either (owner,
+    2026-11-16): an ask its engine's permissions make is never routed to
+    `session approvals`, and claude's headless default denies it.
+
+    Scenario: A dry run with no context composes nothing the profile would have given
+      # new: owner OD-38 (2026-11-13)
+      Given an initialized ctxloom project
+      And a bundle "demo" exists
+      And a fragment "testing" in bundle "demo" exists
+      And a profile "dev" with bundle "demo"
+      And the project already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        agents:
+          default:
+            profiles: [dev]
+        default_agent: default
+        """
+      When Alice checks what her default agent would be sent:
+        """
+        ctxloom run --dry-run hello
+        """
+      Then the command succeeds
+      And the output contains "FRAGMENT-BODY-testing"
+      When Alice checks what it would be sent with no context:
+        """
+        ctxloom run --dry-run --no-context --format json hello
+        """
+      Then the command succeeds
+      And the output does not contain "FRAGMENT-BODY-testing"
+      And the output reports "prompt" as "hello"
+      And the output reports "context" as ""
+      And the output reports no "fragments"
+
+    Scenario Outline: No context beside a selection of context is refused
+      # new: owner OD-38 (2026-11-13)
+      Given an initialized ctxloom project
+      And a bundle "demo" exists
+      And a fragment "testing" in bundle "demo" exists
+      And a profile "dev" with bundle "demo"
+      When I run "ctxloom run --dry-run --no-context <selection> hello"
+      Then the command exits with code 20
+      And the output contains "--no-context"
+      And the output contains "<flag>"
+
+      Examples:
+        | selection                     | flag       |
+        | --profile dev                 | --profile  |
+        | --fragment demo#fragments/testing | --fragment |
+        | --tag example                 | --tag      |
+
+    Scenario: A child run with no context is handed no MCP server and no context, and its hooks still record it
+      # new: owner OD-38 (2026-11-13): "no context, no mcp server (mcp
+      # instructions are context). we need hooks"
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      And Alice's default profile ships the MCP server "ledger" and a fragment of guidance
+      When Alice runs a child agent on her default agent:
+        """
+        ctxloom run --one-shot hello
+        """
+      Then the command succeeds
+      And the assistant was handed the MCP server "ledger"
+      And the assistant was handed the profile's guidance
+      When Alice runs a child agent with no context:
+        """
+        ctxloom run --one-shot --no-context hello
+        """
+      Then the command succeeds
+      And the assistant was handed no MCP server at all
+      And the assistant was not handed the profile's guidance
+      And the assistant's settings still register ctxloom's hooks
+      And the assistant's settings hold the permissions '{"defaultMode": "acceptEdits"}'
+
   Rule: What the profile declares reaches the launched backend
 
     A profile carries more than fragments: tool denials, permission posture,
@@ -277,6 +380,9 @@ Feature: run — assembling a project's context and handing it to an engine
       Then the command succeeds
       And the mock recorded input contains "WebFetch"
 
+  # Still pending (step 11): not built. No launch delivers its findings into
+  # the agent's context (no DOCTOR-CHECK-STARTUP-FINDINGS or
+  # DOCTOR-CHECK-WITHHELD-ITEMS row), and run has no --no-startup-findings.
   @pending
   Rule: What the launch learned about its own environment reaches the agent
 
@@ -380,25 +486,6 @@ Feature: run — assembling a project's context and handing it to an engine
       And the mock recorded input does not contain "DOCTOR-CHECK-STARTUP-FINDINGS"
       And the mock recorded input does not contain "unknown key `runt1me`"
 
-  @pending
-  Rule: An opencode label runs opencode's own TUI on ctxloom's terminal
-
-    # A SCRIPTED opencode (the label's binary_path) stands in for the real
-    # CLI: no model, no network. It records what it was handed and exits, so
-    # the record proves the interactive launch end to end — the TUI's argv
-    # (the prompt a flag, not stdin), a terminal on both ends, the assembled
-    # guidance in the AGENTS.md delivered to its config dir, Alice's own
-    # tui.json carried in beside it (the relocated config would otherwise
-    # drop her theme), the snapshot default a TUI's /undo needs, and the
-    # bridge plugin that carries her session's hooks, mail and wake.
-    @opencode
-    Scenario: An opencode label's run is opencode's TUI on a terminal, with the guidance and Alice's TUI preferences
-      Given Alice has an opencode label served by a scripted opencode TUI, and a fragment of guidance
-      And Alice keeps her own opencode TUI preferences
-      When Alice runs the opencode label interactively with the prompt "hello tui"
-      Then the scripted opencode TUI ran on a terminal with the prompt as a flag, the guidance and Alice's preferences in its config dir
-      And the bridge plugin in its config dir fires ctxloom's session-start and mail-drain for opencode, and the TUI is told its wake socket
-
   # Owner ruling 115 (2026-11-10): `run --session <harp>` resumes a session,
   # a one-shot's or the terminal's: its engine is handed its own session
   # (claude's `--resume <id>`, opencode's `--session <id>`), in the same
@@ -420,6 +507,21 @@ Feature: run — assembling a project's context and handing it to an engine
       And the reply names the same session
       And the assistant was resumed on its own session "00000000-0000-4000-8000-0000000000aa"
 
+    # A close is ctxloom's control of its sessions (it takes no more work),
+    # not the engine's conversation: an explicit resume of a closed session
+    # reopens it, and the session takes work again.
+    Scenario: Another turn on a closed session reopens it, in the engine's own session
+      # new: owner 2026-11-15 (an explicit resume reopens a closed session).
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      And Alice has started her assistant through ctxloom
+      And Alice has closed that session
+      When Alice takes another turn on that session with "and then?"
+      Then the command succeeds
+      And the reply names the same session
+      And the assistant was resumed on its own session "00000000-0000-4000-8000-0000000000aa"
+      And the session is no longer closed
+
     Scenario: A name no session holds is refused, and nothing is launched
       # new: owner ruling 115 (2026-11-10).
       Given Alice has a project that has never used ctxloom
@@ -432,44 +534,7 @@ Feature: run — assembling a project's context and handing it to an engine
       And the refusal is "sessions-session-unknown"
       And no assistant was launched
 
-  # Superseded by ruling 115 above (resume is the engine's own session, not a
-  # context fold); kept pending as Go's design.
-  @pending
-  Rule: Resuming a session folds in its recorded conversation, and leaves the record as it was
-
-    `run --session <harp>` reads the session's recorded conversation, the one
-    ctxloom keeps whatever engine held it, and folds it into the run's
-    context. The fixture's session carries one marker in its title and
-    another only in its conversation, so "found by its title" and "resumed
-    with its conversation" are told apart.
-
-    Scenario: Resuming the March session puts that conversation back in front of a model
-      # substitution: the journey's March fixture is a Given of the scenario, not a Background.
-      Given a design question everyone remembers deciding and nobody remembers why
-      When I run "ctxloom run --session amber-quiet-heron --dry-run -p default"
-      Then the assembled context carries the conversation she had in March
-
-    # A resume that consumed, truncated or rewrote what it read would fail the
-    # second person to ask. The record is read back by its bytes.
-    Scenario: Recalling a session does not consume it
-      # substitution: the journey's March fixture is a Given of the scenario, not a Background.
-      Given a design question everyone remembers deciding and nobody remembers why
-      When I run "ctxloom run --session amber-quiet-heron --dry-run -p default"
-      Then the canonical transcript she recalled from is still on disk, untouched
-
-  @pending
-  Rule: A worktree run hides its per-agent config from the project's git
-
-    # A worktree run's per-agent config edits are kept out of the shared
-    # project tree through .git/info/exclude, not left as new files a
-    # developer could merge back by accident.
-    Scenario: A worktree run leaves the project tree clean
-      # substitution: the journey's Background is the scenario's first Given
-      Given Alice has a git-backed project with a mock agent
-      When Alice runs the mock agent under workspace "worktree" with prompt "cleanup-check"
-      Then none of the per-agent worktree config artifacts appear in the project's git status
-      And the shared git exclude file carries the ctxloom per-agent worktree config block
-
+  # Pending (OD-48, containers): no run launches into a container yet (step 7).
   @pending
   Rule: Every gate that loses a requested container refuses the run, --degraded or not
 
@@ -544,8 +609,12 @@ Feature: run — assembling a project's context and handing it to an engine
         |            |
         | --degraded |
 
+  # Still pending (step 11): not built, and its steps are the workspace and
+  # session-home Worlds' (`Alice has whatever credentials ...`, `Alice's agent
+  # declares session_home ...`, `Alice runs the isolated ...`). The
+  # untrusted-repository refusal is not built.
   @pending
-  Rule: A run whose engine cannot authenticate, or cannot load its MCP servers, is refused before the engine starts
+  Rule: A run that cannot load its MCP servers is refused before the engine starts
 
     # session_home: host leaves claude's MCP servers in the project's own
     # .mcp.json, which claude loads only in a repository Alice trusted in her
@@ -559,24 +628,36 @@ Feature: run — assembling a project's context and handing it to an engine
       When Alice runs the isolated "claude-code" agent under workspace "none"
       Then the run is refused because an untrusted repository's session cannot load the project's MCP file
 
-    # A login session needs the login: with no claude login on the host, it
-    # is refused before any engine is spawned, naming what to do. The host and
-    # the container refuse alike.
-    Scenario: Alice's login session with no login on the host is refused, naming auth token
-      # substitution: the agent declares session_home where Go's step says engine_home (vocabulary ruling, 2026-11-06)
-      Given Alice has a git-backed project
-      And Alice has no "claude-code" credentials or API key on the host
-      And Alice has no "claude-code" credentials on the host
-      And Alice's agent declares session_home "session"
-      And Alice's own session authenticates with "login"
-      When Alice runs the isolated "claude-code" agent under workspace "none"
-      Then the run is refused without any isolation finding, naming "auth: token"
+  # Redrafted (owner, 2026-11-19): Go refused a login session with no login,
+  # naming "auth: token". Nothing refuses here: a child under `auth: login`
+  # asks for no variable, and a primary's missing login is only said.
+  Rule: A primary session with no login to share is told so, and runs
+
+    Scenario: Alice's interactive session with no login on the host runs, and says no login is shared
+      # substitution: Go refused, naming "auth: token"; here the missing login is a notice.
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      And Alice has exported no credential
+      When Alice runs her assistant interactively, through her daemon:
+        """
+        ctxloom run
+        """
+      Then the command succeeds
+      # The sentence's end is every platform's: where a link cannot be made
+      # (macOS's keychain, Windows) it says why in its own words first.
+      And the output contains "the primary session will not be signed in"
+      And the assistant was started with the program, arguments, environment and directory of the daemon's launch, and nothing else
 
   Rule: A run holds its session's lock for as long as it runs, so its session reads live
 
-    The lock is `.ctxloom/sessions/<harp>.lock`, beside the session's
-    directory: an exclusive file lock the run takes once its session is
-    minted and lets go after its engine exits. Another process probes it
+    The lock is `.ctxloom/sessions/<harp>/session.lock`, inside the
+    session's directory (step 10, T28: the directory and its lock move as
+    one rename): an exclusive file lock taken once its session is minted, by
+    the process that starts its engine (the command on the user's terminal
+    for an interactive session, the user's daemon for a one-shot or a
+    child), and let go after its engine exits. So a session outlives its
+    daemon: a daemon killed while the session runs finds it live again, by
+    its lock, when it comes back. Another process probes it
     without holding it: held is live, free is ended. So while a session runs,
     ctxloom will not remove it without `--even-if-live`. A harp never changes
     (S55): a rename sets the session's title, live or ended, and its directory
@@ -732,16 +813,16 @@ Feature: run — assembling a project's context and handing it to an engine
       # new: owner ruling 78 (2026-11-10).
       Given Alice has a project that has never used ctxloom
       And Alice has set ctxloom up in her project
-      And the environment variable "CTXLOOM_PERMIT_CTXLOOM_BEARER" is set to "forged-bearer-not-real"
+      And the environment variable "CTXLOOM_PERMIT_CTXLOOM_RUN" is set to "forged-run-not-real"
       When Alice runs her assistant on opencode interactively, and it reports its environment:
         """
         ctxloom run --engine opencode
         """
       Then the command succeeds
-      And the output contains "CTXLOOM_PERMIT_CTXLOOM_BEARER"
+      And the output contains "CTXLOOM_PERMIT_CTXLOOM_RUN"
       And the output contains "never replaced"
-      And the output does not contain "forged-bearer-not-real"
-      And opencode's "CTXLOOM_BEARER" was the run's own, not "forged-bearer-not-real"
+      And the output does not contain "forged-run-not-real"
+      And opencode's "CTXLOOM_RUN" was the run's own, not "forged-run-not-real"
 
     # A permit never replaces what ctxloom itself sets for the engine: the
     # session home it relocates the engine into, and the PATH it builds for
@@ -842,7 +923,6 @@ Feature: run — assembling a project's context and handing it to an engine
       Then the command succeeds
       And opencode's data directory held a link to her opencode login, not a copy
 
-  @pending
   Rule: --engine runs the engine it names, with that engine's defaults
 
     A run says what runs in one of two ways: `--agent <name>` runs an agent,
@@ -850,6 +930,10 @@ Feature: run — assembling a project's context and handing it to an engine
     no agent named. An engine ctxloom does not have is refused by name, and
     nothing runs.
 
+    # Still pending (step 11): the behaviour differs. The mock engine is a
+    # surface half alone and drives no run, so `run --one-shot --engine mock`
+    # is refused; a run on an engine is claude-code's or opencode's.
+    @pending
     Scenario: A run naming an engine runs that engine with its defaults
       # new: run takes --engine.
       Given an initialized ctxloom project
@@ -1103,3 +1187,141 @@ Feature: run — assembling a project's context and handing it to an engine
       Then the command succeeds
       And the assistant's settings hold the permissions '{"defaultMode": "acceptEdits"}'
       And the assistant's settings still register ctxloom's hooks
+
+  Rule: run is a client of the user's daemon, which hosts a one-shot and prepares a session
+
+    The daemon plans every run and hosts every engine that needs no
+    terminal. A one-shot's reply is streamed from the daemon to the command,
+    which prints it. An interactive session's TUI is started by the command,
+    on the user's terminal, exactly as the daemon's launch says: its
+    program, its arguments, its whole environment, its directory. Every call
+    the command makes for the session names its project and its session.
+
+    Scenario: A one-shot is run by the daemon, and its reply printed by the command
+      # new: a one-shot is a daemon-hosted child.
+      Given Alice has a project that has never used ctxloom
+      And Alice has exported her assistant's token
+      And Alice has set ctxloom up in her project
+      When Alice asks her assistant one thing, which her daemon runs:
+        """
+        ctxloom run --one-shot "Run the shell command: echo hi"
+        """
+      Then the command succeeds
+      And the assistant's reply is printed
+      And the assistant was a child of the daemon, and its session's lock was the daemon's
+
+    Scenario Outline: A one-shot asked to stop is stopped by the daemon, and the command exits as the signal says
+      # new: the stop of a hosted one-shot.
+      Given Alice has a project that has never used ctxloom
+      And Alice has exported her assistant's token
+      And Alice has set ctxloom up in her project
+      When Alice asks her assistant one thing, and ctxloom is sent a <signal> while the assistant works:
+        """
+        ctxloom run --one-shot "Run the shell command: sleep 30"
+        """
+      Then the daemon asked the assistant to stop, and it was gone before the command exited
+      And the command exits 128 plus the signal's number, <code>, saying the run was stopped by <signal>
+
+      Examples:
+        | signal  | code |
+        | SIGHUP  | 129  |
+        | SIGINT  | 130  |
+        | SIGTERM | 143  |
+
+    Scenario: An interactive session's TUI is started by the command, exactly as the daemon's launch says
+      # new: the launch is the daemon's; the command starts the TUI.
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      When Alice runs her assistant interactively, through her daemon:
+        """
+        ctxloom run
+        """
+      Then the command succeeds
+      And the assistant was started with the program, arguments, environment and directory of the daemon's launch, and nothing else
+      And the command took the session's lock before the assistant started and let it go after it exited
+      And the daemon recorded the assistant's start and its exit, each once
+
+    Scenario Outline: A run that can neither find nor start a daemon fails before anything starts
+      # new: no daemon, no run.
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      And no ctxloom daemon can be started for this home
+      When Alice runs:
+        """
+        <command>
+        """
+      Then the command exits with code 10
+      And the output contains "no ctxloom daemon could be started"
+      And no assistant was launched
+      And no session was minted
+
+      Examples:
+        | command                                   |
+        | ctxloom run --one-shot "Run the shell command: echo hi" |
+        | ctxloom run                               |
+
+    Scenario: An interactive session outlives its daemon, and the command finds the next one
+      # new: the frontend reconnects.
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      When Alice runs her assistant interactively, and its daemon is killed outright while it works:
+        """
+        ctxloom run
+        """
+      Then the command succeeds
+      And the assistant was never stopped
+      And the command started a new daemon, and reported the assistant's exit to it once
+
+    Scenario: A daemon killed under her session is replaced, and her session's exit ends it and lets its checkout go
+      # new: owner ruling OD-59 (2026-11-15): the next daemon adopts a live session.
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      When Alice runs her assistant interactively in a worktree, and its daemon is killed outright while it works:
+        """
+        ctxloom run --workspace worktree
+        """
+      Then the command succeeds
+      And the next daemon took her session over, and her session's exit ended it once
+      And her session's checkout was let go
+
+    Scenario: A daemon killed before her assistant starts leaves her session to start
+      # new: owner ruling OD-59 (2026-11-15): the start-report race orphans nothing.
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      When Alice runs her assistant interactively, and its daemon is killed outright before the assistant starts:
+        """
+        ctxloom run
+        """
+      Then the command succeeds
+      And her session was never ended as orphaned, and its exit ended it once
+
+    Scenario: What her session reports while no daemon can take it is kept, and reaches the next daemon in order
+      # new: owner ruling OD-59 (2026-11-15): the frontend's reports are held.
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      And no ctxloom daemon can be started while her assistant starts
+      When Alice runs her assistant interactively:
+        """
+        ctxloom run
+        """
+      Then the command succeeds, saying her session's start was held
+      And the next daemon recorded her session's start, then its exit, in that order
+
+    Scenario: A TUI's exit held while no daemon serves ends its run with its exit code
+      # new: owner ruling OD-59 (2) (2026-11-16): the start-up sweep delivers a judged run's session's hold first.
+      Given an initialized ctxloom project
+      And an interactive session "tui" whose engine has started
+      And the daemon is killed and no daemon can start
+      When the session's engine exits with code 3
+      Then the session's exit report is held
+      When a ctxloom command starts a new daemon
+      Then the session's run ends "runner-exit" with exit code 3
+      And the session's incarnation ends "runner-exit"
+      And the run was never ended "runner-lost"
+
+    Scenario: A held exit report the new daemon cannot take leaves the run lost, and says why
+      # new: owner ruling OD-59 (2) (2026-11-16): what the start-up flush cannot deliver leaves the run to the sweep, said.
+      Given an interactive session "tui" whose exit report was held by a newer ctxloom
+      When an older daemon starts
+      Then the session's run ends "runner-lost"
+      And the daemon's log says the run ended runner-lost without what its hold held

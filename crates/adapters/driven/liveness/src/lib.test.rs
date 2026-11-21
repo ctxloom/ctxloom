@@ -39,15 +39,17 @@ fn made(fs: &Rooted, locks: &LockFiles, harp: &str) -> std::path::PathBuf {
     path
 }
 
-// The lock is beside the session directory, never inside it: on Windows an
-// open handle blocks deletion, so one inside would stop the sweep holding it
-// from removing the directory.
+// Step 10 U9 (T28): the lock is inside the session directory, so the
+// directory and its lock move as one (on Windows a held one refuses the
+// rename, D18).
 #[test]
-fn the_lock_sits_beside_the_session_directory() {
+fn the_lock_sits_inside_the_session_directory() {
     let (_, locks) = locks();
     assert_eq!(
         locks.path(HARP),
-        Path::new(&at("/work/proj/.ctxloom/sessions/amber-swift-owl.lock"))
+        Path::new(&at(
+            "/work/proj/.ctxloom/sessions/amber-swift-owl/session.lock"
+        ))
     );
 }
 

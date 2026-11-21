@@ -5,8 +5,11 @@ use std::path::Path;
 use std::sync::Arc;
 
 use auth_application::Auth;
-use ctxloom_ports::{ConfigFiles, Executables, Failure, GitIdentity, Scope, Source, UserFiles};
-use library_application::{AgentLosses, LegacyGo};
+use ctxloom_ports::{
+    ConfigFiles, Executables, Failure, ForeignWorktrees, GitIdentity, Scope, Source, UserFiles,
+};
+use library_application::{AgentLosses, AgentUnresolved, LegacyGo};
+use run_ports::HeldFacts;
 use serde::Serialize;
 
 use crate::checks::{self, Check, Status};
@@ -51,7 +54,43 @@ pub struct Doctor {
     /// What each agent's engine cannot carry of its profiles, asked when the
     /// report is made; none asked, none.
     losses: Option<Box<dyn Fn() -> Vec<AgentLosses>>>,
+    /// The agents whose run would be refused as planned, asked when the
+    /// report is made; none asked, none.
+    unresolved: Option<Box<dyn Fn() -> Vec<AgentUnresolved>>>,
+    /// The project's worktrees ctxloom did not create; none wired, no row.
+    worktrees: Option<Arc<dyn ForeignWorktrees>>,
+    /// The items whose distilled form is stale (T30, S51), asked when the
+    /// report is made; none wired, no row.
+    stale: Option<Box<dyn Fn() -> Vec<String>>>,
+    /// The bundles whose metadata is in the old layout (step 10c U5, D15),
+    /// asked when the report is made.
+    old_layouts: Option<OldLayouts>,
+    /// The enabled registered companions, each asked for its loadout through
+    /// the library's one probe, when the report is made; none wired, no row.
+    companions: Option<CompanionsAsked>,
+    /// This home's holds (s4-Q14, H4), judged by this ctxloom's stamp at an
+    /// instant; none wired, no row.
+    holds: Option<Holds>,
 }
+
+/// The holds doctor reports: the port, this ctxloom's stamp, and now
+/// (seconds since the epoch).
+struct Holds {
+    held: Arc<dyn HeldFacts>,
+    own: String,
+    now: i64,
+}
+
+/// Asks the enabled registered companions for their loadouts: what
+/// answered, and what was noticed of the rest.
+/// What a doctor asks for the bundles in the old layout (step 10c U5):
+/// each one's refusal and the move that migrates it, as the library's
+/// catalog says them (the composition root renders them: their messages
+/// select on their args).
+pub type OldLayouts = Box<dyn Fn() -> Vec<(String, String)>>;
+
+pub type CompanionsAsked =
+    Box<dyn Fn() -> library_application::Outcome<Vec<library_application::CompanionInit>>>;
 
 impl Doctor {
     pub fn new(
@@ -73,6 +112,52 @@ impl Doctor {
             version: version.to_string(),
             program: "ctxloom".to_string(),
             losses: None,
+            unresolved: None,
+            worktrees: None,
+            stale: None,
+            old_layouts: None,
+            companions: None,
+            holds: None,
+        }
+    }
+
+    /// The doctor, its files (what `--fix` reads and writes) `files`: a
+    /// recording store's in the daemon (step 10c U10), whose write is then
+    /// one sequence of the files it would have written.
+    #[must_use]
+    pub fn writing_through(self, files: Arc<dyn UserFiles>) -> Doctor {
+        Doctor { files, ..self }
+    }
+
+    /// This doctor, reporting what `held` holds, judged by this ctxloom's
+    /// stamp `own` (the one a command flushes as) at `now`, seconds since
+    /// the epoch (s4-Q14, H4).
+    pub fn reporting_holds(self, held: Arc<dyn HeldFacts>, own: &str, now: i64) -> Doctor {
+        Doctor {
+            holds: Some(Holds {
+                held,
+                own: own.to_string(),
+                now,
+            }),
+            ..self
+        }
+    }
+
+    /// This doctor, asking the registered companions for their loadouts
+    /// (each enabled one is run: only a registered name ever is).
+    pub fn reporting_companions(self, companions: CompanionsAsked) -> Doctor {
+        Doctor {
+            companions: Some(companions),
+            ..self
+        }
+    }
+
+    /// This doctor, reporting the project's worktrees ctxloom did not create
+    /// as `worktrees` lists them (j001300).
+    pub fn reporting_worktrees(self, worktrees: Arc<dyn ForeignWorktrees>) -> Doctor {
+        Doctor {
+            worktrees: Some(worktrees),
+            ..self
         }
     }
 
@@ -81,6 +166,34 @@ impl Doctor {
     pub fn reporting_losses(self, losses: Box<dyn Fn() -> Vec<AgentLosses>>) -> Doctor {
         Doctor {
             losses: Some(losses),
+            ..self
+        }
+    }
+
+    /// This doctor, asking `unresolved` which agents' runs would be refused
+    /// as planned (the library's, for `AGENTS-b2`).
+    pub fn reporting_unresolved(self, unresolved: Box<dyn Fn() -> Vec<AgentUnresolved>>) -> Doctor {
+        Doctor {
+            unresolved: Some(unresolved),
+            ..self
+        }
+    }
+
+    /// This doctor, asking `old_layouts` which bundles keep their metadata
+    /// in the old layout (the library's, step 10c U5, D15), for a row of
+    /// its own.
+    pub fn reporting_old_layouts(self, old_layouts: OldLayouts) -> Doctor {
+        Doctor {
+            old_layouts: Some(old_layouts),
+            ..self
+        }
+    }
+
+    /// This doctor, asking `stale` which items' distilled forms no longer
+    /// match their sources (S51), for a row of its own.
+    pub fn reporting_stale_distilled(self, stale: Box<dyn Fn() -> Vec<String>>) -> Doctor {
+        Doctor {
+            stale: Some(stale),
             ..self
         }
     }
@@ -207,7 +320,14 @@ impl Doctor {
                     refused.as_ref().map(|(m, f)| (m.as_str(), f.as_str())),
                 ),
                 deps,
-                checks::agents(config.as_deref()),
+                checks::agents(
+                    config.as_deref(),
+                    &self
+                        .unresolved
+                        .as_ref()
+                        .map(|ask| ask())
+                        .unwrap_or_default(),
+                ),
                 checks::credentials(&layers, &self.auth),
                 checks::version(&self.version),
                 checks::hooks(&settings, &self.program),
@@ -223,6 +343,37 @@ impl Doctor {
         report
             .checks
             .splice(at..at, checks::go_era_hooks(&left_alone));
+        // The stale distilled forms' row, where it is asked, before the
+        // stated limit (and the foreign worktrees' row).
+        if let Some(stale) = &self.stale {
+            let at = report.checks.len() - 1;
+            report.checks.insert(at, checks::stale_distilled(&stale()));
+        }
+        if let Some(ask) = &self.old_layouts {
+            let at = report.checks.len() - 1;
+            report.checks.insert(at, checks::sidecars(&ask()));
+        }
+        if let Some(ask) = &self.companions {
+            let at = report.checks.len() - 1;
+            report.checks.insert(at, checks::companions(&ask()));
+        }
+        if let Some(holds) = &self.holds {
+            let at = report.checks.len() - 1;
+            report.checks.insert(
+                at,
+                crate::held::held_facts(&holds.held.survey(), &holds.own, holds.now),
+            );
+        }
+        if let Some(worktrees) = &self.worktrees {
+            let listing = match &root {
+                Some(root) => worktrees.foreign(root),
+                None => ctxloom_ports::ForeignListing::NotARepository,
+            };
+            let at = report.checks.len() - 1;
+            report
+                .checks
+                .insert(at, checks::foreign_worktrees(root.as_deref(), &listing));
+        }
         report
     }
 

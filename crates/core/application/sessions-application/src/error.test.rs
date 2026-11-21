@@ -95,6 +95,11 @@ fn the_refusals_have_codes_and_the_arg_their_fix_needs() {
         detail: "x".to_string(),
     };
     assert_eq!(retained.code(), "sessions-application-refused-retained");
+    let held = Refusal::LockHeld {
+        harp: "h".to_string(),
+        lock: "C:/p/.ctxloom/sessions/h/session.lock".to_string(),
+    };
+    assert_eq!(held.code(), "sessions-application-refused-lock-held");
     let nothing = RemovedNothing {
         command: "ctxloom session remove h --yes".to_string(),
     };

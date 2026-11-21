@@ -4,7 +4,7 @@ use deps_ports::Endpoint;
 use exit_code::{Exit, ExitClass};
 
 use crate::fakes::Fixture;
-use crate::{AppError, MoveRequest, Outcome, PushRequest};
+use crate::{AppError, MoveRequest, MoveTarget, Outcome, PushRequest};
 
 const URL: &str = "file:///srv/team.git";
 
@@ -127,32 +127,6 @@ fn test_a_push_that_cannot_go_is_refused_naming_why() {
     }
 }
 
-// bundle.feature: Moving a bundle into another project lands it in that
-// project's content tree
-#[test]
-fn test_a_move_to_a_directory_lands_the_bundle_there_and_removes_the_source() {
-    let fx = authored();
-    fx.files.directory("other-project");
-    let moved = ok(fx.deps.move_bundle(&MoveRequest {
-        name: "authored".to_string(),
-        to: "other-project".to_string(),
-        ..MoveRequest::default()
-    }));
-    assert_eq!((moved.status, moved.dest_kind), ("moved", "path"));
-    assert_eq!(
-        moved.dest,
-        "other-project/.ctxloom/content/bundles/v2/authored"
-    );
-    assert_eq!(
-        moved.source,
-        "/p/.ctxloom/content/bundles/v2/authored/bundle.yaml"
-    );
-    assert_eq!((moved.remote.as_str(), moved.commit_sha.as_str()), ("", ""));
-    let placed = fx.files.placed(&moved.dest).expect("placed");
-    assert_eq!(placed["fragments/example.md"], b"# Example Fragment\n");
-    assert!(!fx.files.has_authored("authored"));
-}
-
 #[test]
 fn test_a_move_to_a_remote_publishes_first_then_removes_the_source() {
     let fx = authored();
@@ -203,29 +177,11 @@ fn test_a_move_that_cannot_land_leaves_the_source_alone() {
         }
         other => panic!("{other:?}"),
     }
+    // A directory is no destination here: the daemon moves into one.
     fx.files.directory("elsewhere");
-    ok(fx.deps.move_bundle(&MoveRequest {
-        name: "authored".to_string(),
-        to: "elsewhere".to_string(),
-        ..MoveRequest::default()
-    }));
-    // The bundle is gone from here; a second one of the same name is not.
-    fx.files.author("authored", &[("bundle.yaml", "v: 2\n")]);
     assert!(matches!(
         moves("elsewhere", false),
-        AppError::DestinationExists { .. }
-    ));
-    ok(fx.deps.move_bundle(&MoveRequest {
-        name: "authored".to_string(),
-        to: "elsewhere".to_string(),
-        force: true,
-        ..MoveRequest::default()
-    }));
-    fx.files.author("authored", &[("bundle.yaml", "v: 3\n")]);
-    fx.files.directory(".");
-    assert!(matches!(
-        moves(".", false),
-        AppError::DestinationItself { .. }
+        AppError::BadDestination { .. }
     ));
     assert!(fx.files.has_authored("authored"));
     assert!(matches!(
@@ -501,7 +457,7 @@ fn test_a_push_and_a_pull_request_commit_executable_what_the_sidecars_declare() 
         ("bundle.yaml", "description: acceptance fixture bundle\n"),
         ("skills/s/SKILL.md", "---\nname: s\n---\n"),
         ("skills/s/run.sh", "#!/bin/sh\n"),
-        ("skills/.s.meta.yaml", "executable:\n  - run.sh\n"),
+        ("skills/s/.meta.yaml", "executable:\n  - run.sh\n"),
     ];
     let want = std::collections::BTreeSet::from([format!(
         "{}/scripted/skills/s/run.sh",
@@ -519,4 +475,23 @@ fn test_a_push_and_a_pull_request_commit_executable_what_the_sidecars_declare() 
     fx.files.author("scripted", tree);
     ok(fx.deps.push(&pr("scripted", "hub")));
     assert_eq!(fx.forge.opened()[0].1.executable, want);
+}
+
+// Step 10b U9: `--to` is told apart before anything moves: a configured
+// remote is published here, a directory is the daemon's local move, and
+// anything else is refused naming the remotes there are.
+#[test]
+fn test_a_move_target_is_a_remote_a_directory_or_refused() {
+    let fx = Fixture::new();
+    fx.origin("team", URL);
+    fx.files.directory("elsewhere");
+    assert_eq!(fx.deps.move_target("team").unwrap(), MoveTarget::Remote);
+    assert_eq!(
+        fx.deps.move_target("elsewhere").unwrap(),
+        MoveTarget::Directory
+    );
+    assert!(matches!(
+        fx.deps.move_target("nowhere"),
+        Err(AppError::BadDestination { .. })
+    ));
 }

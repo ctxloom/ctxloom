@@ -1,0 +1,211 @@
+syntax = "proto3";
+
+// DRAFT for the owner's review (ruling 132, design-by-test). No build.rs
+// lists this file, so nothing is generated from it yet.
+//
+// NEEDS AND ANSWERS (owner, API Q2, Q12; S9). The daemon owns every
+// question; the client presents it; nothing pauses a call. A write method's
+// preview (`validate_only = true`, AIP-163) answers what the change would do
+// and the `Need`s a person must answer first, with an `etag` (AIP-154) of
+// what it was planned against. The apply is the same method with
+// `validate_only = false`, the `etag` and an `Answer` per need; a stale
+// `etag` is refused `PlanStale`, a missing answer `NeedsUnanswered`, and the
+// person previews again. `--yes` is one call with no etag and no answers:
+// the daemon plans and applies (API Q6).
+//
+// How each client presents a need:
+//   - the CLI at a terminal asks (confirm, choose, ask), or, for an `Edit`
+//     with `can_launch`, starts the need's EDITOR `Launch` (T10) and sends
+//     the file's text back;
+//   - an eliciting client (ctxloom's MCP server, T20) turns each into an
+//     MCP elicitation; an `Edit` is answered with the new document text
+//     (API Q12);
+//   - a CLI off a terminal shows the preview and applies nothing (exit 0,
+//     or 1 with `--detailed-exitcode` when it would change something).
+package ctxloom.v1;
+
+import "google/api/field_behavior.proto";
+import "ctxloom/v1/launch.proto";
+
+// What the caller can present (sent on every write request).
+message Presentable {
+  // It can ask a person: a CLI on a TTY, an eliciting MCP client.
+  bool can_ask = 1 [(google.api.field_behavior) = OPTIONAL];
+  // It can put a program on a person's terminal: a CLI on a TTY only.
+  bool can_launch = 2 [(google.api.field_behavior) = OPTIONAL];
+}
+
+// A message argument, for a client that renders its own text.
+message NeedArg {
+  // The arg's name, as the message's catalog entry uses it.
+  string name = 1;
+  // Its value, as text.
+  string value = 2;
+}
+
+// Confirm what the preview shows (a destroyer, an overwrite, a trust).
+message Confirm {
+  // The question, in en-US.
+  string text = 1;
+  // Its catalog code, for a client that renders its own text.
+  string code = 2;
+  // Its code's args.
+  repeated NeedArg args = 3;
+}
+
+// Choose one of several.
+message Choose {
+  // The question, in en-US.
+  string text = 1;
+  // Its catalog code, for a client that renders its own text.
+  string code = 2;
+  // Its code's args.
+  repeated NeedArg args = 3;
+  // The choices, one of which the answer names.
+  repeated string choices = 4;
+}
+
+// Type a value, with a suggestion (init's `output.dir`).
+message Ask {
+  // The question, in en-US.
+  string text = 1;
+  // Its catalog code, for a client that renders its own text.
+  string code = 2;
+  // Its code's args.
+  repeated NeedArg args = 3;
+  // The value suggested, taken when the person gives none.
+  string suggestion = 4;
+}
+
+// Edit a document. The text is always carried (API Q12); the EDITOR launch
+// only when the request said `can_launch`.
+message Edit {
+  // The document's file name, for an editor's highlighting.
+  string file_name = 1;
+  // The document's text as it stands.
+  string text = 2;
+  // The EDITOR launch on the document, set only when the request said
+  // `can_launch`.
+  Launch launch = 3;
+}
+
+// One thing a person must answer before a write applies.
+message Need {
+  // Unique within the preview.
+  string id = 1;
+  oneof kind {
+    // Confirm what the preview shows.
+    Confirm confirm = 2;
+    // Choose one of several.
+    Choose choose = 3;
+    // Type a value.
+    Ask ask = 4;
+    // Edit a document.
+    Edit edit = 5;
+  }
+  // 10c (U6): an optional need may go unanswered; the apply then takes its
+  // suggestion, or writes nothing it alone would write. A required need
+  // unanswered is `NeedsUnanswered` (as ever). Additive.
+  bool optional = 6;
+}
+
+// A person's answer to one need of a preview, sent with the apply.
+message Answer {
+  // The need it answers (`Need.id`).
+  string need_id = 1 [(google.api.field_behavior) = REQUIRED];
+  oneof answer {
+    // A `Confirm`'s answer.
+    bool confirmed = 2;
+    // A `Choose`'s answer: one of its choices.
+    string chosen = 3;
+    // An `Ask`'s answer.
+    string text = 4;
+    // The edited document.
+    string edited = 5;
+  }
+}
+
+// A notice said beside a result (a permit ignored, a stale distilled form).
+message Notice {
+  // The notice's catalog code (crate-prefixed).
+  string code = 1;
+  // Its code's args.
+  repeated NeedArg args = 2;
+  // The notice in en-US.
+  string text = 3;
+}
+
+// The caller's environment (S7).
+message EnvVars {
+  // Each variable, by name.
+  repeated EnvVar vars = 1 [(google.api.field_behavior) = OPTIONAL];
+}
+
+// The global flags (`library_application::Flags`).
+message Globals {
+  // `--degraded`: what would refuse the call (a broken config, an
+  // unresolvable profile or bundle) is said as a warning instead.
+  bool degraded = 1 [(google.api.field_behavior) = OPTIONAL];
+  // `--no-companions`: no registered companion runs, so none contributes
+  // commands, hooks, MCP servers or context.
+  bool no_companions = 2 [(google.api.field_behavior) = OPTIONAL];
+  // `--config-set PATH=VALUE`: config values overridden for this call alone,
+  // in order.
+  repeated string config_set = 3 [(google.api.field_behavior) = OPTIONAL];
+}
+
+// The client's working context (owner, 2026-11-18): what the daemon reads of
+// the process that asked, carried as one message at field 98 of every request
+// made on a user's behalf (everything that plans, reads the library, runs
+// git, writes or launches; not a read by name or a daemon lifecycle call). It
+// replaced the env (94), presentable (95), globals (96) and cwd (97) each
+// request once copied by hand. NOT in it (owner, 2026-11-18): the umask (a
+// known limit for group-shared trees), the caller's session (a domain
+// command's `requester`), the locale, TZ, uid, OS and the render flags.
+message Caller {
+  // The client's working directory: the daemon resolves the project and its
+  // checkout from it (a git worktree is a checkout of its own, L2); empty,
+  // the project's registered root.
+  string cwd = 1 [(google.api.field_behavior) = OPTIONAL];
+  // The client's whole environment (S7), held in memory for the call's life:
+  // the daemon runs git on its `PATH`, and takes the call's temporary
+  // directory from it (`TMPDIR`; on Windows `TMP`, `TEMP`, `USERPROFILE`),
+  // never from its own.
+  EnvVars env = 2 [(google.api.field_behavior) = OPTIONAL];
+  // The global flags (`--degraded`, `--no-companions`, `--config-set`) the
+  // call is planned under.
+  Globals globals = 3 [(google.api.field_behavior) = OPTIONAL];
+  // What the client can present of a need: ask a person, or put a program
+  // on their terminal.
+  Presentable presentable = 4 [(google.api.field_behavior) = OPTIONAL];
+  // Which client asked.
+  Client client = 5 [(google.api.field_behavior) = REQUIRED];
+}
+
+// The program that asked the daemon.
+message Client {
+  // The kind of client.
+  enum Kind {
+    // Unset (proto3's zero value); refused as a version not the daemon's.
+    KIND_UNSPECIFIED = 0;
+    // A `ctxloom` command.
+    CLI = 1;
+    // `ctxloom mcp serve`, a session's MCP server.
+    MCP = 2;
+    // An engine's hook (`ctxloom hook ...`).
+    HOOK = 3;
+  }
+  // The kind of client.
+  Kind kind = 1 [(google.api.field_behavior) = REQUIRED];
+  // The running binary's file name, its executable suffix stripped
+  // (`ctxloom`): what a launch's hook commands and statusline run (owner
+  // rulings 163, 164).
+  string program = 2 [(google.api.field_behavior) = OPTIONAL];
+  // The directory the running binary is in: a launch's engine `PATH` leads
+  // with it, so the bare `program` is this binary. Taken as sent: the client
+  // is the same user as the daemon (ruling 37's trust boundary).
+  string program_dir = 3 [(google.api.field_behavior) = OPTIONAL];
+  // Its full versionator stamp (M3). The daemon refuses a client whose stamp
+  // is not its own (`ClientVersionMismatch`), whatever its kind.
+  string version = 4 [(google.api.field_behavior) = REQUIRED];
+}

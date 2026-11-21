@@ -16,6 +16,9 @@ prost-types.workspace = true
 # The client channel, TLS on ring (never aws-lc): the endpoint is https and the run's
 # certificate is the channel's sole root.
 tonic = { version = "0.14", default-features = false, features = ["channel", "codegen", "tls-ring"] }
+# The standard grpc.health.v1 client (liveness, T16), at the version the lock
+# already holds for angzarr's server: nothing new is linked.
+tonic-health = { version = "0.14.9", default-features = false }
 # One current-thread runtime for the call: time for the deadline, net for the connection.
 tokio = { workspace = true, features = ["rt", "time", "net"] }
 

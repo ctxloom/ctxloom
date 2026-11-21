@@ -1,0 +1,74 @@
+syntax = "proto3";
+
+// A session's HOLD (s4-Q14, H1): the capture facts a hook kept because no
+// daemon that is up to date for it took them (its VERSION, by semver, not
+// older than the hook's; run-ports' `up_to_date`), kept for a ctxloom
+// process of an up-to-date version to deliver later, in the order held.
+//
+// It is `~/.ctxloom/held/<session root>.held` under ctxloom's home
+// (`CTXLOOM_HOME` first, then `HOME`): a 0600 file in the 0700 `held`
+// directory (on Windows no mode is set: the profile directory's inherited
+// ACL, M8), as sensitive as the store, since a fact carries a prompt's text
+// and a tool call's whole input. The file is the magic `CTXHELD\x01` (its
+// last byte the format) and then records, each a little-endian u32 length,
+// a little-endian u32 CRC-32 of the payload, and the payload: one
+// `HeldRecord` in protobuf's binary encoding. `daemon-proto` compiles it;
+// `fact-spool` is its codec and its keeper.
+package ctxloom.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// One record of a hold: a fact kept, or where one could not be.
+message HeldRecord {
+  oneof kind {
+    // A fact kept, to deliver later.
+    HeldFact fact = 1;
+    // A fact that could not be kept.
+    HeldGap gap = 2;
+  }
+}
+
+// A fact a hook kept. Never logged; its Rust wrapper's Debug withholds
+// `book`.
+message HeldFact {
+  // The hook binary's full versionator stamp: a reader of any version tells
+  // from it whether a daemon is up to date for the record.
+  string stamp = 1;
+
+  // `CTXLOOM_SESSION`'s resource name, `projects/{p}/sessions/{harp}`.
+  string session = 2;
+
+  // The fact's `FactOrigin.external_id`, the same as the book's (a
+  // deliverer checks): a redelivery is a DUPLICATE.
+  string external_id = 3;
+
+  // The angzarr `CommandBook`, prost-encoded, exactly as the hook made it.
+  bytes book = 4;
+
+  // The hook's clock when it held the fact: an age to report, ordering
+  // nothing (the file's order is the order held).
+  google.protobuf.Timestamp held_at = 5;
+
+  // A fact on the session's RUN stream (the frontend's own reports,
+  // RecordRunnerStarted, RecordRunExited and RecordLaunchFailed, held as hook facts are:
+  // slice 4, a daemon dying under a live TUI): the incarnation whose run
+  // it is, the book's root `runs::run_root(session, incarnation)`. 0: a
+  // fact of the session's own stream.
+  uint32 incarnation = 6;
+}
+
+// A fact the hold could not keep (past its bound): where the record has a
+// hole. Reported, never delivered.
+message HeldGap {
+  // The stamp of the hook that dropped it.
+  string stamp = 1;
+
+  // The external id of the fact dropped.
+  string external_id = 2;
+
+  // The hook's clock when it dropped the fact: an age to report.
+  google.protobuf.Timestamp held_at = 3;
+
+  // Why: "bound" (the session's or the home's), or "disk".
+  string why = 4;
+}

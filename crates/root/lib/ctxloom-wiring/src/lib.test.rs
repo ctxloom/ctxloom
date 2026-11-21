@@ -128,6 +128,46 @@ fn test_a_test_starts_from_none_of_an_enclosing_session_s_variables() {
     assert_eq!(names, ["PATH", "LANG", "HOME"]);
 }
 
+/// The variables that place ctxloom's home or an engine's state, which a
+/// test run never inherits from the shell it was started in (OD-34).
+const GUARDED_HOMES: [&str; 7] = [
+    "CTXLOOM_HOME",
+    "CLAUDE_CONFIG_DIR",
+    "OPENCODE_CONFIG_DIR",
+    "XDG_CONFIG_HOME",
+    "XDG_DATA_HOME",
+    "XDG_STATE_HOME",
+    "XDG_CACHE_HOME",
+];
+
+// OD-34: the wiring's fixtures once started from the process's environment
+// with CTXLOOM_HOME in it (it outranks HOME), so a test run from the owner's
+// shell registered 85 temporary projects in the owner's real ctxloom home.
+// The run itself holds no such home now: nextest's setup script
+// `guard-homes` names each of these variables as a FILE, under which nothing
+// can be created, so a test that reads one from the process and writes under
+// it fails instead of writing into the caller's. Read only, never written.
+#[test]
+fn test_the_run_inherits_no_home_a_test_could_write_into() {
+    let process = {
+        let _held = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        EnvSnapshot::from_process()
+    };
+    let open: Vec<String> = GUARDED_HOMES
+        .iter()
+        .filter_map(|name| {
+            let value = process.var(name)?;
+            let kind = fs().metadata(Path::new(value)).map(|meta| meta.kind);
+            (!matches!(kind, Ok(file_system::Kind::File)))
+                .then(|| format!("{name}={} ({kind:?})", value.to_string_lossy()))
+        })
+        .collect();
+    assert!(
+        open.is_empty(),
+        "the test run inherits a home a test could write into: {open:#?}"
+    );
+}
+
 /// A hold on the process's environment and working directory: what a test
 /// sets is put back when it ends, however it ends.
 struct Env {
@@ -675,11 +715,7 @@ fn test_opening_a_store_makes_it_under_the_home_and_names_its_database() {
     let env = Env::new("open-store");
     let wiring = from_process().ok().unwrap();
     let path = wiring.open_store("jolly-mute-magma").ok().unwrap();
-    assert_eq!(
-        path,
-        env.home()
-            .join(".ctxloom/projects/jolly-mute-magma/ctxloom.db")
-    );
+    assert_eq!(path, env.home().join(".ctxloom/ctxloom.db"));
     assert!(exists(&path), "the database is made");
 }
 
@@ -729,4 +765,52 @@ fn test_the_catalog_has_the_shared_project_dir_messages_and_the_samples_carry_it
         codes.len() >= 5 && !crate::catalog_sources().is_empty(),
         "{codes:?}"
     );
+}
+
+// S54: the project is named once, in the one store, and keeps its harp; the
+// harp is three words, as a session's is.
+#[test]
+fn test_the_project_is_named_once_in_the_one_store_and_keeps_its_harp() {
+    let env = Env::new("name-project");
+    let wiring = from_process().ok().unwrap();
+    let named = wiring.name_project().ok().unwrap();
+    assert!(named.named, "{named:?}");
+    assert_eq!(named.harp.split('-').count(), 3, "{named:?}");
+    assert!(
+        exists(env.home().join(".ctxloom/ctxloom.db")),
+        "the one store"
+    );
+    let again = wiring.name_project().ok().unwrap();
+    assert_eq!(again.harp, named.harp, "permanent");
+    assert!(!again.named);
+    assert_eq!(again.project_id, named.project_id);
+}
+
+// Owner ruling 2026-11-14 (revising 2026-11-13's "only run and init mint"):
+// a command that must NAME its project mints its id at the resolved root;
+// a dry run never mints (`Minting::Never`), so it can never reach the
+// minting branch: in a project nothing has named it is refused and writes
+// nothing.
+#[test]
+fn test_a_name_needing_read_mints_at_the_root_and_a_dry_run_never_does() {
+    use super::Minting;
+    let world = crate::commands::tests::world_without_programs("names-mint");
+    let wiring = world.wiring();
+    let marker = world.work().join(".ctxloom/project-id");
+    let refused = wiring.library_registration(Minting::Never).unwrap_err();
+    assert!(
+        matches!(refused, LibError::ProjectUnnamed { .. }),
+        "{refused:?}"
+    );
+    assert!(!exists(&marker), "a dry run's names minted");
+    let named = wiring
+        .library_registration(Minting::AtRoot)
+        .unwrap()
+        .expect("a ctxloom project");
+    assert!(exists(&marker), "minted at the root");
+    let read = wiring
+        .library_registration(Minting::Never)
+        .unwrap()
+        .expect("named now");
+    assert_eq!(read.project_id, named.project_id);
 }

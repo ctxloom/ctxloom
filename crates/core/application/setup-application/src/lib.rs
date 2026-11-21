@@ -13,11 +13,13 @@
 //! `init`, `doctor`, `clean` and `auth` are S12's and are not here.
 
 mod config_write;
+mod delivery;
 mod diff;
 mod error;
 #[cfg(test)]
 mod fakes;
 mod hooks;
+mod hooks_wake;
 mod manage;
 mod materialize;
 mod materialize_diff;
@@ -31,13 +33,18 @@ use library_application::{Library, Notice};
 use surface_ports::{ForeignFiles, Registry, SurfaceStore};
 
 pub use config_write::ConfigWritten;
+pub use delivery::{
+    compose_context, messages_context, remaining, Delivery, HookMessage, DAEMON_SENDER,
+    HOOK_CONTEXT_BUDGET,
+};
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{SetupError, EN_US};
-pub use hooks::{harp_marker, HookAnswer, SessionBind};
+pub use hooks::{harp_marker, hook_skills, HookAnswer, HookLibrary, HookSkill};
+pub use hooks_wake::{HookCarried, HookContexts, Offered};
 pub use manage::{
-    BackendStatus, CheckReport, GitignoreReport, HookRow, HooksEvent, HooksList, InstallPlan,
-    InstallReport, InstallRequest, PullReport, SurfaceCurrency, UninstallReport,
+    engine_applies, BackendStatus, CheckReport, GitignoreReport, HookRow, HooksEvent, HooksList,
+    InstallPlan, InstallReport, InstallRequest, PullReport, SurfaceCurrency, UninstallReport,
 };
 pub use materialize::{
     EngineOutcome, MaterializeRequest, MaterializeResult, NotCarried, SurfaceSpec,
@@ -73,6 +80,12 @@ pub struct Setup {
     /// The operating system's name (`std::env::consts::OS`), whose rules a
     /// path is read by: unix's unless told `windows`.
     os: String,
+    /// The library as the hooks read it, through the daemon (O3); none,
+    /// the hooks say nothing of the library.
+    hook_library: Option<Box<dyn hooks::HookLibrary>>,
+    /// A primary's pending messages, as its hooks deliver them (the
+    /// terminal wake); none, they deliver none.
+    hook_contexts: Option<Box<dyn hooks_wake::HookContexts>>,
 }
 
 impl Setup {
@@ -96,7 +109,15 @@ impl Setup {
             project_dir: project_dir.into(),
             cwd: cwd.into(),
             os: String::new(),
+            hook_library: None,
+            hook_contexts: None,
         }
+    }
+
+    /// The hooks read the library through `library` (O3: the daemon's).
+    pub fn with_hook_library(mut self, library: Box<dyn hooks::HookLibrary>) -> Setup {
+        self.hook_library = Some(library);
+        self
     }
 
     /// Paths read by the rules of the operating system `os`

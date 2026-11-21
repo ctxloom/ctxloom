@@ -33,6 +33,11 @@ fn library_run() -> Command {
                 .action(ArgAction::Append),
         )
         .arg(Arg::new("workspace").long("workspace"))
+        .arg(
+            Arg::new("no-context")
+                .long("no-context")
+                .action(ArgAction::SetTrue),
+        )
 }
 
 struct Double {
@@ -106,6 +111,7 @@ fn go(line: &[&str], format: Option<Format>, piped: Option<&str>, service: &mut 
             degraded: true,
             no_companions: false,
             config_set: Vec::new(),
+            trusted: false,
         },
     };
     let catalog = Catalog::en_us(&[library_application::EN_US, crate::EN_US]).unwrap();
@@ -275,6 +281,24 @@ fn every_selection_flag_reaches_the_request() {
     // Ruling 57: the plan is asked for the engine too, so it resolves the
     // agent's block for it.
     assert_eq!(asked.run.engine, "claude-code");
+    assert!(!asked.run.no_context);
+}
+
+// OD-38: `--no-context` reaches the request, a one-shot's and a session's.
+#[test]
+fn no_context_reaches_the_request() {
+    let mut service = Double::answering("A");
+    go(
+        &["--one-shot", "--no-context", "hi"],
+        Some(Format::Text),
+        None,
+        &mut service,
+    );
+    assert!(service.asked[0].1.run.no_context);
+    let mut session = Double::answering("A");
+    session.ended = Some(Ok(ended(Some(0))));
+    let _ = go_session(&["--no-context"], &mut session);
+    assert!(session.asked[0].1.run.no_context);
 }
 
 #[test]

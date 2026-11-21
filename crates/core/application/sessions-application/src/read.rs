@@ -8,8 +8,10 @@
 use angzarr_diagnostic::Report;
 use angzarr_embedded::Registry;
 use ports::{Project, ProjectIdentity};
-use session_index::{only_state, title_of, Captured, SessionIndex, SessionRecord, State, View};
-use session_ports::{Liveness, LockState, ProjectStores, SessionFiles};
+use session_index::{
+    only_state, title_of, Captured, PendingMessage, SessionIndex, SessionRecord, State, View,
+};
+use session_ports::{Liveness, LockState, ProjectStores};
 
 /// A session as its store records it, and its transcript.
 pub(crate) struct Held {
@@ -19,21 +21,19 @@ pub(crate) struct Held {
 
 use crate::{failed, AppError, ListQuery, SearchQuery, ShowQuery, TranscriptQuery, TranscriptRow};
 
-/// A read's way to its projects, stores, files and locks, borrowed from the
+/// A read's way to its projects, stores and locks, borrowed from the
 /// service for one call.
-pub(crate) struct Reading<'s, I, S, F, L> {
+pub(crate) struct Reading<'s, I, S, L> {
     pub identity: &'s mut I,
     pub stores: &'s mut S,
-    pub files: &'s mut F,
     pub liveness: &'s mut L,
     pub registry: &'s Registry,
 }
 
-impl<I, S, F, L> Reading<'_, I, S, F, L>
+impl<I, S, L> Reading<'_, I, S, L>
 where
     I: ProjectIdentity,
     S: ProjectStores,
-    F: SessionFiles,
     L: Liveness,
 {
     /// The projects a call spans: every project's under `all`, else the one
@@ -50,8 +50,9 @@ where
         Ok(project.into_iter().collect())
     }
 
-    /// `project`'s sessions as its store holds them now, most recently
-    /// started first; none where it has no store yet.
+    /// `project`'s sessions as the store holds them now, most recently
+    /// started first; none where there is no store yet. The one store holds
+    /// every project's (T14): only `project`'s are its.
     pub(crate) async fn records(&mut self, project: &Project) -> Result<Vec<Held>, AppError> {
         let Some(store) = self.stores.open_existing(project).await.map_err(failed)? else {
             return Ok(Vec::new());
@@ -69,6 +70,7 @@ where
         Ok(index
             .records()
             .into_iter()
+            .filter(|record| record.project_id == project.id)
             .map(|record| Held {
                 transcript: index.transcript(&record.id),
                 record,
@@ -146,6 +148,7 @@ where
             state,
             title,
             captured,
+            pending: Vec::new(),
         }
     }
 
@@ -180,11 +183,38 @@ where
             .collect())
     }
 
+    /// One session, with the messages it was sent that no turn has carried
+    /// (D30).
     pub(crate) async fn show(&mut self, query: ShowQuery) -> Result<View, AppError> {
-        let (_, held) = self
+        let (project, held) = self
             .find_held(query.project.as_deref(), &query.harp)
             .await?;
-        Ok(self.view(held))
+        let session = held.record.id.clone();
+        let mut view = self.view(held);
+        view.pending = self.pending(&project, &session).await?;
+        Ok(view)
+    }
+
+    /// The messages `session` (its id) in `project` was sent and no turn has
+    /// carried: the pending messages, caught up fresh from the store.
+    async fn pending(
+        &mut self,
+        project: &Project,
+        session: &str,
+    ) -> Result<Vec<PendingMessage>, AppError> {
+        let Some(store) = self.stores.open_existing(project).await.map_err(failed)? else {
+            return Ok(Vec::new());
+        };
+        let mut catch_up = pending_messages::catch_up();
+        let caught = catch_up
+            .step(store, self.registry.catalog())
+            .await
+            .map_err(|error| AppError::Failed(Report::of(&error)))?;
+        if let Some((_, error)) = caught.failures().first() {
+            return Err(AppError::Failed(Report::of(error)));
+        }
+        let pending = catch_up.projector().pending().pending(session);
+        Ok(pending)
     }
 
     pub(crate) async fn transcripts(

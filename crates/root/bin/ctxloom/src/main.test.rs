@@ -39,6 +39,78 @@ pub(crate) fn temp_root() -> std::path::PathBuf {
         .to_path_buf()
 }
 
+/// The variable that names a test process's lifeline to every `ctxloom` it
+/// spawns (the wiring's `LIFELINE_VARIABLE`, test-support only).
+pub(crate) const LIFELINE: &str = "CTXLOOM_TEST_LIFELINE";
+
+/// This test process's LIFELINE: a lock file it holds for its life, taken
+/// once, handed to every `ctxloom` it spawns ([`LIFELINE`]). A daemon a test
+/// starts (or that its command starts) that can take the lock has outlived
+/// the test (a test killed by nextest's timeout drops no TempDir and stops
+/// nothing) and exits, ending what it hosts. The files are under the
+/// system's temporary directory, `ctxloom-test-lifelines/<pid>-<nanos>.lock`;
+/// each one whose lock is free is removed when the next is made, so they do
+/// not pile up.
+pub(crate) fn lifeline() -> &'static Path {
+    static LINE: OnceLock<(PathBuf, file_lock::Locked)> = OnceLock::new();
+    &LINE
+        .get_or_init(|| {
+            let fs = files::fs();
+            let dir = temp_root().join("ctxloom-test-lifelines");
+            for stale in files::children(&dir) {
+                if let Ok(free) = file_lock::lock_within(&*fs, &stale, std::time::Duration::ZERO) {
+                    // Another process may have reaped it first.
+                    let _ = fs.remove_file(&stale);
+                    drop(free);
+                }
+            }
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos());
+            let path = dir.join(format!("{}-{nanos}.lock", std::process::id()));
+            let held = take_own_lifeline(&*fs, &path);
+            (path, held)
+        })
+        .0
+}
+
+/// How long a test process waits for its own new lifeline's lock: another
+/// process's reaper, which locks every lifeline it finds free to see whether
+/// it was left behind, may hold a NEW one for an instant.
+const OWN_LIFELINE_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// The lock of this test process's own lifeline at `path`, waited for within
+/// [`OWN_LIFELINE_WAIT`] (a reaper that removed the file meanwhile is the
+/// lock's own re-check: it is taken again on a new file).
+fn take_own_lifeline(fs: &dyn file_system::Fs, path: &Path) -> file_lock::Locked {
+    file_lock::lock_within(fs, path, OWN_LIFELINE_WAIT).expect("this test process's lifeline")
+}
+
+// CI on macOS (2026-11-19): a test process took its new lifeline's lock
+// without waiting, and failed (`Timeout { waited_ms: 0 }`) because another
+// test process's reaper held it at that instant. The race forced: another
+// taker holds the lock when it is taken, and lets it go a moment later.
+#[test]
+fn a_lifeline_another_process_holds_for_an_instant_is_still_taken() {
+    let fs = files::fs();
+    let dir = temp_root().join(format!("ctxloom-test-lifeline-race-{}", std::process::id()));
+    let path = dir.join("own.lock");
+    let reaper =
+        file_lock::lock_within(&*fs, &path, std::time::Duration::ZERO).expect("the lock is free");
+    let let_go = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        drop(reaper);
+    });
+    let own = take_own_lifeline(&*fs, &path);
+    let_go.join().expect("the reaper let go");
+    assert!(
+        file_lock::lock_within(&*fs, &path, std::time::Duration::ZERO).is_err(),
+        "the process holds its lifeline"
+    );
+    drop(own);
+    let _ = fs.remove_dir_all(&dir);
+}
+
 /// A variable of the process the tests run in, for passing on to the binary
 /// they spawn (the process's environment is read once, by the snapshot).
 pub(crate) fn host_var(name: &str) -> Option<std::ffi::OsString> {
@@ -194,6 +266,7 @@ impl Env {
             .env("HOME", self.home())
             .env("USERPROFILE", self.home())
             .env("TMPDIR", crate::tests::temp_root())
+            .env(crate::tests::LIFELINE, crate::tests::lifeline())
             .current_dir(self.home());
         for name in ["PATH", "SystemRoot"] {
             if let Some(value) = crate::tests::host_var(name) {
@@ -249,6 +322,9 @@ pub(crate) fn cargo_metadata() -> serde_json::Value {
 #[path = "files.test.rs"]
 pub(crate) mod files;
 
+#[path = "procs.test.rs"]
+pub(crate) mod procs;
+
 #[path = "catalog.test.rs"]
 mod catalog;
 
@@ -257,6 +333,12 @@ pub(crate) mod companion_stub;
 
 #[path = "companion_assembly.test.rs"]
 mod companion_assembly;
+
+#[path = "daemon.test.rs"]
+pub(crate) mod daemon;
+
+#[path = "mcp_serve.test.rs"]
+pub(crate) mod mcp_serve;
 
 #[path = "deps.test.rs"]
 mod deps;
@@ -279,6 +361,9 @@ mod gherkin_common;
 #[path = "gherkin_features.test.rs"]
 mod gherkin_features;
 
+#[path = "gherkin_spy.test.rs"]
+mod gherkin_spy;
+
 #[path = "hook.test.rs"]
 mod hook;
 
@@ -294,8 +379,41 @@ mod launch_exit;
 #[path = "library.test.rs"]
 mod library;
 
+#[path = "library_events.test.rs"]
+mod library_events;
+
 #[path = "library_cli.test.rs"]
 mod library_cli;
+
+#[path = "library_cli_agent.test.rs"]
+mod library_cli_agent;
+
+#[path = "library_cli_bundle.test.rs"]
+mod library_cli_bundle;
+
+#[path = "library_cli_companion.test.rs"]
+mod library_cli_companion;
+
+#[path = "library_cli_context.test.rs"]
+mod library_cli_context;
+
+#[path = "library_cli_item.test.rs"]
+mod library_cli_item;
+
+#[path = "library_cli_mcp.test.rs"]
+mod library_cli_mcp;
+
+#[path = "library_cli_profile.test.rs"]
+mod library_cli_profile;
+
+#[path = "library_cli_run.test.rs"]
+mod library_cli_run;
+
+#[path = "library_cli_search.test.rs"]
+mod library_cli_search;
+
+#[path = "library_cli_skill.test.rs"]
+mod library_cli_skill;
 
 #[path = "library_config.test.rs"]
 mod library_config;
@@ -330,8 +448,20 @@ mod library_write_profile;
 #[path = "library_write_skill.test.rs"]
 mod library_write_skill;
 
+#[path = "no_listener.test.rs"]
+mod no_listener;
+
+#[path = "tui_adopt.test.rs"]
+mod tui_adopt;
+
+#[path = "project_resolver.test.rs"]
+mod project_resolver;
+
 #[path = "session.test.rs"]
 mod session;
+
+#[path = "held.test.rs"]
+mod held;
 
 #[path = "gherkin_surfaces.test.rs"]
 mod gherkin_surfaces;

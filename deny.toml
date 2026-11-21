@@ -15,12 +15,13 @@ ignore = [
   # Revisit when a sqlx release admits libsqlite3-sys >= 0.39.0 (or the store pins
   # sqlx's main by rev); delete this entry then.
   { id = "RUSTSEC-2026-0459", reason = "bundled SQLite via angzarr's store; databases are the user's own; upstream bump pending" },
-  # RUSTSEC-2026-0542: humantime 2.4.0 is flagged unmaintained because chrono is
-  # (informational; no vulnerability, no safe upgrade exists). It is reached only
-  # through cucumber 0.21.1, a dev-dependency of the ctxloom test harness, so it is
-  # not in any shipped binary. Revisit when cucumber drops humantime or moves off
-  # chrono; delete this entry then.
-  { id = "RUSTSEC-2026-0542", reason = "unmaintained, informational; dev-only via cucumber; no upgrade available" },
+  # RUSTSEC-2026-0543 / -0542: chrono is declared unmaintained, and humantime,
+  # which wraps it, with it. Unmaintained, no vulnerability; ctxloom names
+  # neither, both reach the lock transitively (rmcp, schemars, serde_with,
+  # cucumber), and no safe upgrade exists. Owner ruling 2026-11-17. Revisit
+  # when those drop chrono or a vulnerability advisory lands; delete them then.
+  { id = "RUSTSEC-2026-0543", reason = "chrono unmaintained, no CVE; transitive via rmcp, schemars, serde_with, cucumber; revisit when they drop chrono or a vulnerability advisory lands" },
+  { id = "RUSTSEC-2026-0542", reason = "humantime unmaintained (wraps chrono), no safe upgrade, no CVE; transitive via cucumber; revisit when it drops chrono or a vulnerability advisory lands" },
 ]
 
 [licenses]

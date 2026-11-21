@@ -293,7 +293,9 @@ fn accepts_restart(w: &mut World) {
     w.common.set_env("CTXLOOM_TEST_TERMINAL", "1".to_string());
     w.before_run();
     let init = w.setup.init.clone();
-    let typed = format!("{}y\n", w.setup.answers);
+    // Init's companion question (M4), answered with none, before the
+    // restart's.
+    let typed = format!("{}\ny\n", w.setup.answers);
     w.common_mut().run_lines(&init, &typed);
 }
 

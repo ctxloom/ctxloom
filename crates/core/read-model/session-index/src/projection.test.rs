@@ -1,7 +1,8 @@
 //! The transcript folded from the session stream (PROPOSAL,
 //! design/hook-capture). The envelope is D27's: `v, harp, session_id, engine,
 //! seq, ts, kind`. The kinds beyond `entry` are proposed here: `assistant_delta`,
-//! `tool`, `turn_end`, `session_end`, `compaction`.
+//! `tool`, `turn_end`, `compaction`, `gap` and `clear`; a
+//! retired `SessionEnded` renders none.
 
 use serde_json::{json, Value};
 use sessions::{CompactionPhase, SessionEvent};
@@ -152,16 +153,6 @@ fn the_other_observations_have_their_own_kinds() {
     let ended = parse(&p.fold(1, 0, &turn_ended()));
     assert_eq!(ended[0]["kind"], "turn_end");
     assert_eq!(ended[0]["prompt_id"], "p1");
-    let session_end = parse(&p.fold(
-        2,
-        0,
-        &SessionEvent::SessionEnded(sessions::SessionEnded {
-            native_session: "n1".to_string(),
-            reason: "prompt_input_exit".to_string(),
-        }),
-    ));
-    assert_eq!(session_end[0]["kind"], "session_end");
-    assert_eq!(session_end[0]["reason"], "prompt_input_exit");
     let compaction = parse(&p.fold(
         3,
         0,
@@ -179,6 +170,54 @@ fn the_other_observations_have_their_own_kinds() {
     assert_eq!(compaction[0]["trigger"], "auto");
     assert_eq!(compaction[0]["summary_bytes"], 12);
     assert_eq!(compaction[0]["summary_sha256"], "ab");
+}
+
+// Owner 2026-11-15 (SessionEnded retired in place): a
+// stream's SessionEnded renders no line and takes no seq, so the lines after
+// it number on as if it were not there.
+#[test]
+fn a_retired_session_end_renders_no_line_and_takes_no_seq() {
+    let mut p = projection();
+    let mut all = Vec::new();
+    all.extend(p.fold(1, 0, &turn_ended()));
+    let ended = p.fold(
+        2,
+        0,
+        &SessionEvent::SessionEnded(sessions::SessionEnded {
+            native_session: "n1".to_string(),
+            reason: "prompt_input_exit".to_string(),
+        }),
+    );
+    assert!(ended.is_empty(), "{ended:?}");
+    all.extend(ended);
+    all.extend(p.fold(3, 0, &prompt("again")));
+    let seqs: Vec<u64> = parse(&all)
+        .iter()
+        .map(|l| l["seq"].as_u64().unwrap())
+        .collect();
+    assert_eq!(seqs, [0, 1]);
+    assert_eq!(p.lines(), 2);
+}
+
+// Owner 2026-11-15 (clears captured, typed): a clear is a
+// line of its own kind, `clear`, naming the conversation after it and what
+// the engine said set it off. It carries no content.
+#[test]
+fn a_clear_is_a_clear_line_naming_the_new_conversation() {
+    let mut p = projection();
+    let cleared = parse(&p.fold(
+        1,
+        0,
+        &SessionEvent::ConversationCleared(sessions::ConversationCleared {
+            native_session: "n2".to_string(),
+            trigger: "clear".to_string(),
+        }),
+    ));
+    assert_eq!(cleared.len(), 1, "{cleared:?}");
+    assert_eq!(cleared[0]["kind"], "clear");
+    assert_eq!(cleared[0]["native_session"], "n2");
+    assert_eq!(cleared[0]["trigger"], "clear");
+    assert_eq!(cleared[0]["seq"], 0);
 }
 
 // seq is the projector's: the order lines were made in, by the stream's order,
@@ -266,4 +305,48 @@ fn a_prompt_line_is_the_line_the_launcher_writes() {
             "hello"
         )
     );
+}
+
+// s4-Q14, H3 (PROPOSAL, the owner's to word): a fact a hook dropped is a
+// `gap` line in its place: how many facts are missing there (one a gap),
+// which, why, and when it was dropped (the hook's clock, not the line's
+// `ts`, which is when the gap was recorded).
+#[test]
+fn a_capture_gap_is_a_gap_line_in_its_place() {
+    let mut p = projection();
+    let mut lines = p.fold(1, 1_700_000_000, &prompt("hi"));
+    lines.extend(p.fold(
+        2,
+        1_700_000_100,
+        &SessionEvent::CaptureGapped(sessions::CaptureGapped {
+            dropped: "hook:turn-end:s:p1".to_string(),
+            why: "bound".to_string(),
+            dropped_at: angzarr_embedded::Timestamp {
+                seconds: 1_700_000_050,
+                nanos: 0,
+            },
+            stamp: "v0.2.0-aaaaaaa".to_string(),
+        }),
+    ));
+    let parsed = parse(&lines);
+    assert_eq!(parsed.len(), 2);
+    assert_eq!(
+        parsed[1],
+        json!({
+            "v": 1,
+            "harp": "amber-swift-owl",
+            "session_id": SESSION,
+            "engine": "claude-code",
+            "seq": 1,
+            "ts": "2023-11-14T22:15:00Z",
+            "kind": "gap",
+            "gap": {
+                "facts": 1,
+                "dropped": "hook:turn-end:s:p1",
+                "why": "bound",
+                "dropped_at": "2023-11-14T22:14:10Z",
+            },
+        })
+    );
+    assert_eq!(p.lines(), 2);
 }

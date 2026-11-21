@@ -1,6 +1,7 @@
 # Ported from cli/fragment_draft_premise.feature (rev f36e8dfb2)
 # NOT ported: any of it yet (the Feature is @pending).
 
+# Pending (OD-48, not built, tracked work): `fragment draft-premise`.
 @pending
 Feature: fragment draft-premise — a drafted and critiqued premise is a proposal, never a write
 

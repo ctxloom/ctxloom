@@ -38,7 +38,8 @@ fn clean() -> Command {
             "Removes .ctxloom/cache: the pulled bundle copies, the git clone cache and the \
              assembled context files. Each is rebuilt by a command the report names.\n\n\
              Never taken: authored content and profiles, lock.yaml, a session's identity and \
-             its output dir. Without --yes this only reports.",
+             its output dir. Without --yes this only reports. \
+             What it removes is kept in .ctxloom/state/trash for 7 days.",
         )
         .after_help("Examples:\n  ctxloom clean            # report what would be removed\n  ctxloom clean --yes")
         .arg(

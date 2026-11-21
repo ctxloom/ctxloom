@@ -1,0 +1,26 @@
+[package]
+name = "fact-spool"
+version = "0.1.0"
+description = "Each session's hold of capture facts (s4-Q14): run-ports' HeldFacts as ~/.ctxloom/held/<session root>.held, framed length + CRC + HeldRecord, under an append and a flush file lock"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+# The records' CRC-32 (held.proto's frame), already in the lock (zip's).
+crc32fast = "1"
+daemon-proto.workspace = true
+file-lock.workspace = true
+file-system.workspace = true
+os.workspace = true
+prost.workspace = true
+run-ports.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+file-system = { workspace = true, features = ["test-support"] }
+mutants.workspace = true
+
+[lints]
+workspace = true

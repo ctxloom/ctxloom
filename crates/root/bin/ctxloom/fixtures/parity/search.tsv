@@ -1,0 +1,17 @@
+# Go-parity commands: id <TAB> fixture <TAB> [ENV=value ...] arguments
+# Each line, in every file of fixtures/parity/ (one per noun, design §8.4),
+# is run by scripts/go-library-goldens.sh against Go ctxloom
+# (release/0.7 860336c4e) to make fixtures/golden/<id>.stdout and .exit, and
+# by the Rust acceptance test (library_parity.test.rs) against this binary.
+# Source of every line: the Go feature named in the id's group comment.
+# OD-40 (design §8.1): Go parity ends for search's JSON, which is the AIP
+# message `SearchLibraryResponse` (held by library_cli_search.test.rs and
+# library-cli's noun/search.test.rs); its JSON rows are gone, the text rows stay.
+#
+# cli/search.feature
+search-name-text	lib	search --local golang --format text
+search-no-query	lib	search --local
+search-bad-type	lib	search --local --type widget testing
+# ctxloom-project bundle, adapters/content's tree fixtures, a premised bundle
+gold-search-tag-text	gold	search --local --tag golden --format text
+# Nothing there: no content directory at all, and an empty one (empty_listing_hint, cli/agent.feature)

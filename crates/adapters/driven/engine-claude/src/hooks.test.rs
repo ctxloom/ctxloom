@@ -298,3 +298,24 @@ fn test_an_authored_callback_is_installed_to_call_the_program_it_is_given() {
         Some("ctxloom-other")
     );
 }
+
+// Step 8 (probe P0): claude's PermissionRequest hook fires beside the
+// approval prompt and races it, so no home ctxloom writes registers one of
+// ctxloom's: neither a child's (whose asks the prompt answers) nor the
+// terminal's (whose asks its human answers).
+#[test]
+fn test_no_home_registers_a_permission_request_hook_of_ctxlooms() {
+    for interactive in [false, true] {
+        let settings = Json::parse(&home_settings(interactive, "ctxloom")).unwrap();
+        let hooks = settings.get("hooks").expect("hooks");
+        assert!(
+            hooks.get("SessionStart").is_some() == interactive,
+            "{settings:?}"
+        );
+        assert!(hooks.get("Stop").is_some(), "{settings:?}");
+        assert!(
+            hooks.get("PermissionRequest").is_none(),
+            "interactive {interactive}: {settings:?}"
+        );
+    }
+}

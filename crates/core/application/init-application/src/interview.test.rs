@@ -9,22 +9,30 @@ use super::{interview, Ended, LaunchFailure, Outcome, Sessions, Terminal, RESTAR
 use crate::{PromptFailure, Prompts};
 
 /// What the project's catalog holds as the setup interview (owner ruling
-/// 128): its text, or a refusal; and how often it was asked.
+/// 128): its text, or a refusal; how often it was asked; and the enabled
+/// companions' setup guidance.
 struct Catalog {
     text: Option<&'static str>,
     asked: RefCell<u32>,
+    guidance: Vec<&'static str>,
 }
 
 /// The interview text the fake catalog holds.
 const SETUP_INTERVIEW: &str = "THE CATALOG'S SETUP INTERVIEW";
 
 impl Prompts for Catalog {
-    fn setup_interview(&self) -> Result<String, PromptFailure> {
+    fn setup_interview(&self) -> Result<crate::PromptRead, PromptFailure> {
         *self.asked.borrow_mut() += 1;
-        self.text.map(str::to_string).ok_or_else(|| PromptFailure {
-            cause: Box::new(deps_application::AppError::DefaultNeedsName),
-            exit: Exit::REFUSED,
-        })
+        self.text
+            .map(|t| t.to_string().into())
+            .ok_or_else(|| PromptFailure {
+                cause: Box::new(deps_application::AppError::DefaultNeedsName),
+                exit: Exit::REFUSED,
+            })
+    }
+
+    fn companion_guidance(&self) -> Vec<String> {
+        self.guidance.iter().map(ToString::to_string).collect()
     }
 }
 
@@ -32,6 +40,7 @@ fn catalog() -> Catalog {
     Catalog {
         text: Some(SETUP_INTERVIEW),
         asked: RefCell::default(),
+        guidance: Vec::new(),
     }
 }
 
@@ -119,6 +128,24 @@ fn off_a_terminal_nothing_is_launched_or_asked() {
     assert_eq!(*prompts.asked.borrow(), 0, "no prompt is read for nobody");
 }
 
+// j000300: the interview carries ctxloom's own setup guidance and then each
+// enabled companion's, composed in order; nothing replaces anything.
+#[test]
+fn the_interview_opening_composes_each_companions_setup_guidance_after_ctxlooms() {
+    let (who, sessions) = (person(true, false), launches(Some(0)));
+    let prompts = Catalog {
+        guidance: vec!["ACME ONBOARDING", "", "ALICE'S PREFERENCES"],
+        ..catalog()
+    };
+    interview(&who, &sessions, &prompts).expect("no failure");
+    assert_eq!(
+        sessions.launched.borrow()[0],
+        format!(
+            "interview:{SETUP_INTERVIEW}\n\n---\n\nACME ONBOARDING\n\n---\n\nALICE'S PREFERENCES"
+        )
+    );
+}
+
 // j000200 scenario 2: the interview opens with the setup interview's text,
 // then the offer is made, then her yes restarts her into the configured one.
 #[test]
@@ -180,7 +207,7 @@ fn an_interview_the_catalog_lacks_launches_nothing() {
     let (who, sessions) = (person(true, true), launches(Some(0)));
     let prompts = Catalog {
         text: None,
-        asked: RefCell::default(),
+        ..catalog()
     };
     let failure = interview(&who, &sessions, &prompts).expect_err("refused");
     assert_eq!(failure.exit, Exit::REFUSED);

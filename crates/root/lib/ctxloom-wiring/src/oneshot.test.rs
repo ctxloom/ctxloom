@@ -171,7 +171,7 @@ fn the_core_serves_the_catalog_of_its_domains() {
     let fs = Arc::new(file_system::Rooted::temp().unwrap());
     let core = runtime.block_on(async {
         let store = ctxloom_store_sqlite::Stores::new(fs, "/home/u")
-            .open("calm-otter")
+            .open()
             .await
             .unwrap();
         crate::InProcessCore::start(store).await
@@ -247,7 +247,7 @@ mod runtime_shape {
     use std::sync::mpsc;
     use std::time::Duration;
 
-    use super::super::run_runtime;
+    use crate::frontend::run_runtime;
 
     /// Spawn a task that signals, then block the driving thread on a std
     /// channel, as `Running::finish` blocks on a process: whether the signal
@@ -284,262 +284,6 @@ mod runtime_shape {
             &runtime,
             Duration::from_millis(200)
         ));
-    }
-}
-
-// The run's hook listener, wired over the real in-process core: served through
-// the port the run use case holds, on a loopback port of the system's choosing
-// that is open while it serves and closed once it is stopped; an unspecified
-// address is refused with the listener's own code, which the run reports.
-// Each run here ends as a real run does (ruling 131): the core consumed and
-// its runtime shut down, then the store closed, nothing left beside its file.
-mod hooks {
-    use std::net::{IpAddr, Ipv4Addr};
-    use std::sync::{mpsc, Arc, Mutex};
-    use std::time::Duration;
-
-    use angzarr_diagnostic::Diagnostic;
-    use angzarr_embedded::angzarr_store_sqlite::SqliteStore;
-    use angzarr_embedded::v1::{CommandBook, Cover, EventPage};
-    use angzarr_embedded::{Answered, Failure, Rejected, StoreError};
-    use embedded_edge::EmbeddedEdge;
-    use run_ports::{Arrival, Delivery, Edge, FactSink, HookServer, Unserved};
-
-    use super::super::Hooks;
-    use crate::{CoreStores, InProcessCore};
-
-    type TheEdge = EmbeddedEdge<CoreStores<SqliteStore>>;
-
-    /// A run's core over a real store, on a runtime of the run's kind.
-    struct Run {
-        fs: Arc<file_system::Rooted>,
-        core: InProcessCore<SqliteStore>,
-        runtime: tokio::runtime::Runtime,
-    }
-
-    impl Run {
-        fn new() -> Run {
-            let runtime = tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(2)
-                .enable_all()
-                .build()
-                .unwrap();
-            let fs = Arc::new(file_system::Rooted::temp().unwrap());
-            let core = runtime.block_on(async {
-                let store = ctxloom_store_sqlite::Stores::new(fs.clone(), "/home/u")
-                    .open("calm-otter")
-                    .await
-                    .unwrap();
-                InProcessCore::start(store).await
-            });
-            Run { fs, core, runtime }
-        }
-
-        fn hooks(&self) -> Hooks<TheEdge> {
-            Hooks {
-                edge: self.core.edge(),
-            }
-        }
-
-        /// The run's end: the core consumed, the store closed on the
-        /// runtime the run served on (left running, as a run's is until
-        /// the process ends), and nothing left beside its file.
-        fn end(self) {
-            self.runtime
-                .block_on(self.core.close())
-                .expect("the store closes");
-            use file_system::Fs;
-            let dir = std::path::Path::new("/home/u/.ctxloom/projects/calm-otter");
-            let beside: Vec<&str> = ["ctxloom.db-wal", "ctxloom.db-shm"]
-                .into_iter()
-                .filter(|name| self.fs.exists(&dir.join(name)).unwrap())
-                .collect();
-            assert_eq!(beside, Vec::<&str>::new(), "closed: nothing beside");
-        }
-    }
-
-    /// The run's real certificate, minted by the wiring's own mint.
-    fn identity() -> run_ports::HookCertificate {
-        use run_ports::CertMint;
-        hook_tls::Minter::new(hook_tls::SystemClock)
-            .mint(&run_ports::CertNames::new(
-                vec![IpAddr::V4(Ipv4Addr::LOCALHOST)],
-                Vec::new(),
-            ))
-            .unwrap()
-    }
-
-    /// What a hook delivering to `port`, pinning `cert`, is answered: the
-    /// wiring's own sink, with a bearer no run holds. The listener presenting
-    /// `cert` answers it (the gate refuses the run); anyone else on the port
-    /// (another test's listener, once the port is freed and given again)
-    /// fails the pinned handshake, and nobody refuses the connection: both are
-    /// unavailable.
-    async fn delivered(port: u16, cert: &run_ports::PublicCert) -> run_ports::Delivery {
-        use run_ports::FactSink;
-        let sink = hook_sink_grpc::GrpcSink::new(
-            run_ports::endpoint_url("127.0.0.1", port).unwrap(),
-            run_ports::Bearer::compose("no-such-run", &run_ports::Token::from_bytes([7; 32])),
-            cert.clone(),
-        );
-        tokio::task::spawn_blocking(move || {
-            sink.deliver(
-                angzarr_embedded::v1::CommandBook::default(),
-                std::time::Duration::from_secs(10),
-            )
-        })
-        .await
-        .unwrap()
-    }
-
-    // Stopped is judged by THIS run's certificate, never by the port staying
-    // free: under one process (cargo test, the mutation run) a freed port can
-    // be given at once to another test's listener, which a plain connect
-    // would take for this one.
-    #[test]
-    fn the_run_use_case_serves_and_stops_the_listener_through_the_port() {
-        let run = Run::new();
-        let hooks = run.hooks();
-        let identity = identity();
-        run.runtime.block_on(async {
-            let serving = hooks
-                .serve_tcp(IpAddr::V4(Ipv4Addr::LOCALHOST), &identity)
-                .await
-                .expect("serves");
-            let port = serving.port();
-            assert_ne!(port, 0, "the port the system gave is reported");
-            let answered = delivered(port, identity.public()).await;
-            assert!(
-                matches!(answered, run_ports::Delivery::Refused { .. }),
-                "served when serve_tcp returns: {answered:?}"
-            );
-            serving.stop().await;
-            let stopped = delivered(port, identity.public()).await;
-            assert!(
-                matches!(stopped, run_ports::Delivery::Unavailable { .. }),
-                "closed on stop: {stopped:?}"
-            );
-        });
-        drop(hooks);
-        run.end();
-    }
-
-    #[test]
-    fn two_runs_get_two_ports() {
-        let run = Run::new();
-        let hooks = run.hooks();
-        run.runtime.block_on(async {
-            let a = hooks
-                .serve_tcp(IpAddr::V4(Ipv4Addr::LOCALHOST), &identity())
-                .await
-                .unwrap();
-            let b = hooks
-                .serve_tcp(IpAddr::V4(Ipv4Addr::LOCALHOST), &identity())
-                .await
-                .unwrap();
-            assert_ne!(a.port(), b.port());
-            a.stop().await;
-            b.stop().await;
-        });
-        drop(hooks);
-        run.end();
-    }
-
-    #[test]
-    fn an_unspecified_address_is_refused_with_the_listeners_code() {
-        let run = Run::new();
-        let hooks = run.hooks();
-        let refused = run
-            .runtime
-            .block_on(hooks.serve_tcp(IpAddr::V4(Ipv4Addr::UNSPECIFIED), &identity()))
-            .err()
-            .expect("refused");
-        assert_eq!(refused.code(), "hook-listener-bind-unspecified");
-        drop(hooks);
-        run.end();
-    }
-
-    /// An edge whose reads never answer: the hook gate reads the run's
-    /// stream first (`HookGate::resolve`), so a call is held in the
-    /// listener's handler, keeping the edge, with the test told it arrived.
-    struct Stalling {
-        inner: Arc<TheEdge>,
-        arrived: Mutex<mpsc::Sender<()>>,
-    }
-
-    impl Edge for Stalling {
-        async fn serve(&self, book: CommandBook, arrival: Arrival) -> Result<Answered, Unserved> {
-            self.inner.serve(book, arrival).await
-        }
-
-        async fn handle(&self, book: CommandBook) -> Result<Answered, Failure<Rejected>> {
-            self.inner.handle(book).await
-        }
-
-        async fn events(&self, _: &Cover, _: u64) -> Result<Vec<EventPage>, StoreError> {
-            let _ = self.arrived.lock().unwrap().send(());
-            std::future::pending().await
-        }
-    }
-
-    /// The race ruling 131's close must not lose: a hook call still in the
-    /// listener when the engine exits. Forced, not hoped for: the edge never
-    /// answers it and the test is told it is in the handler, so the
-    /// listener's stop really runs out its grace (`hook_listener::STOP_GRACE`).
-    /// The stop must end the call's connection and return only once every
-    /// copy of the listener's service, and so the edge, is released (ruling
-    /// 140, angzarr's `Running::shutdown_within`): the moment it returns, the
-    /// core alone holds its edge, and the run's end closes the store with the
-    /// runtime still running (nothing shuts it down for the close), leaving
-    /// nothing beside the file. The hook's call was cut, never applied.
-    #[test]
-    fn a_hook_call_held_past_the_listeners_grace_is_let_go_before_the_store_closes() {
-        let run = Run::new();
-        let (arrived, in_handler) = mpsc::channel();
-        let hooks = Hooks {
-            edge: Arc::new(Stalling {
-                inner: run.core.edge(),
-                arrived: Mutex::new(arrived),
-            }),
-        };
-        let cert = identity();
-        let serving = run
-            .runtime
-            .block_on(hooks.serve_tcp(IpAddr::V4(Ipv4Addr::LOCALHOST), &cert))
-            .expect("serves");
-        let endpoint = run_ports::endpoint_url("127.0.0.1", serving.port()).unwrap();
-        let cert_text = cert.public().to_env_value();
-        // A hook process's delivery, from a thread of its own, as from
-        // another process: any well-formed bearer reaches the gate's read.
-        let hook = std::thread::spawn(move || {
-            let bearer = format!("{}.{}", uuid::Uuid::now_v7(), "0".repeat(64));
-            let sink =
-                crate::HookSink::from_environment(Some(&endpoint), Some(&bearer), Some(&cert_text));
-            sink.deliver(CommandBook::default(), Duration::from_secs(60))
-        });
-        in_handler
-            .recv_timeout(Duration::from_secs(30))
-            .expect("the call is in the handler");
-        // The engine exited: the run stops its listener, which runs out its
-        // grace and ends the held call's connection, and lets its hooks go.
-        let started = std::time::Instant::now();
-        run.runtime.block_on(serving.stop());
-        assert!(
-            started.elapsed() >= hook_listener::STOP_GRACE,
-            "the stop ran out its grace"
-        );
-        drop(hooks);
-        assert_eq!(
-            run.core.edge_holders(),
-            1,
-            "once the listener's stop returns, the held call holds nothing"
-        );
-        run.end();
-        let delivered = hook.join().expect("the hook thread ends");
-        assert!(
-            !matches!(delivered, Delivery::Applied),
-            "the held call was cut: {delivered:?}"
-        );
     }
 }
 
@@ -606,66 +350,6 @@ fn a_run_installs_the_missing_dependencies_at_its_start_unless_on_run_is_none() 
             "run `ctxloom deps pull` once the remotes are reachable, or set `sync.on_run: none` to skip this".to_string()
         )]
     );
-}
-
-// Rulings 59, 60: a run's start pulls through its puller unless
-// `sync.on_run: none`, and what the pull did is said with the run's notices.
-mod start_sync {
-    use std::cell::Cell;
-    use std::rc::Rc;
-    use std::sync::Arc;
-
-    use library_application::Flags;
-    use run_application::{OneShot, RunService};
-
-    use crate::oneshot::OneShots;
-
-    struct Counting(Cell<u32>);
-
-    impl setup_application::Puller for Counting {
-        fn pull(&self) -> Result<u64, String> {
-            self.0.set(self.0.get() + 1);
-            Ok(2)
-        }
-    }
-
-    fn pulls(on_run: &str) -> (u32, bool) {
-        let world = crate::commands::tests::world_without_programs("start-sync");
-        let config = format!(
-            "schema_version: 9\nsync:\n  on_run: {on_run}\nagents:\n  dev:\n    engine: claude-code\n    profiles: [dev]\n    runtime: host\ndefault_agent: dev\n"
-        );
-        crate::fixtures::put_mode(
-            world.dir().join("work/.ctxloom/config.yaml"),
-            &config,
-            0o644,
-        );
-        let wiring = crate::Wiring::new(Arc::clone(&world.env())).unwrap();
-        let library = crate::library::build(&wiring, None).unwrap();
-        let puller = Rc::new(Counting(Cell::new(0)));
-        let mut runs = OneShots::new(&wiring, library).with_puller(puller.clone());
-        // An engine nobody drives: refused after the start's pull.
-        let request = OneShot {
-            run: library_application::RunRequest {
-                prompt: "hello".to_string(),
-                ..library_application::RunRequest::default()
-            },
-            engine: "nope".to_string(),
-            session: String::new(),
-        };
-        let done = runs.one_shot(&Flags::default(), &request);
-        assert!(done.result.is_err());
-        let said = done.notices.iter().any(|n| {
-            matches!(n, library_application::Notice::Finding { text, .. }
-                if text.starts_with("installed 2 missing dependencies"))
-        });
-        (puller.0.get(), said)
-    }
-
-    #[test]
-    fn a_run_pulls_at_its_start_unless_on_run_is_none() {
-        assert_eq!(pulls("missing"), (1, true));
-        assert_eq!(pulls("none"), (0, false));
-    }
 }
 
 // Owner ruling 112: the git identity a session home is seeded with is git's
@@ -1021,4 +705,49 @@ mod opencode_recent_models {
         let wiring = Wiring::new(Arc::new(env)).unwrap();
         assert_eq!(opencode_recent_models(&wiring), None);
     }
+}
+
+// Owner, 2026-11-19: every run's launcher waits for a turn on a parked
+// blocking thread, never an async worker (`equipped`, which `runs_over`
+// builds each launcher through): a launcher not so equipped waits on the
+// calling thread.
+#[test]
+fn every_runs_launcher_parks_its_turns() {
+    use std::sync::Arc;
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .build()
+        .unwrap();
+    let dir = crate::fixtures::root();
+    let fs = crate::fixtures::fs();
+    let core = runtime.block_on(async {
+        let store = ctxloom_store_sqlite::Stores::new(Arc::clone(&fs), dir.root().join("home"))
+            .open()
+            .await
+            .unwrap();
+        crate::InProcessCore::start(store).await
+    });
+    let bare = run_launcher::Launcher::new(
+        core.edge(),
+        host_launcher::HostLauncher::default(),
+        session_files::SessionDirs::new(Arc::clone(&fs), dir.root().to_path_buf()),
+        Vec::new(),
+        Arc::new(run_launcher::Orders::new()),
+        run_ports::Limits::new(std::time::Duration::from_secs(1)),
+    );
+    assert!(!bare.parks_turns(), "a new launcher parks nothing");
+    let locks: Arc<dyn run_ports::RunLocks> =
+        Arc::new(liveness::RunLockFiles::new(Arc::clone(&fs), dir.root()));
+    let workspaces = Arc::new(worktree_git::GitWorkspaces::new(
+        Arc::clone(&fs),
+        dir.root().to_path_buf(),
+        None,
+        Arc::new(EnvSnapshot::of(Vec::<(&str, &str)>::new())),
+    ));
+    let equipped = super::equipped(bare, (&locks, workspaces, "linux"));
+    assert!(equipped.parks_turns());
+    drop(equipped);
+    runtime.block_on(core.close()).unwrap();
 }

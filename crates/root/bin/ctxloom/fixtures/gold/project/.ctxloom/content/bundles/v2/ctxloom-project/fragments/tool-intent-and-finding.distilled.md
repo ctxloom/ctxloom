@@ -1,4 +1,5 @@
 ---
+source_sha256: 412cc445d966584f279a90c70b167329338a7b8183338d7441eebb9a0dfbca48
 distilled_by: claude-opus-5-5
 ---
 # Say what you are looking for, and what you found

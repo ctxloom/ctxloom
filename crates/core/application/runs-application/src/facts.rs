@@ -17,16 +17,13 @@ use angzarr_embedded::{Answered, Any, Failure, KernelError};
 use run_ports::{Arrival, Edge, Unserved};
 
 use crate::error::AppError;
-use crate::identity::{Identity, Principal};
+use crate::identity::Identity;
 
-/// A fact of one principal: what [`Facts::record`] takes. Implemented by
-/// [`RunnerFact`] and [`ModelFact`] only; each is authored by exactly one
-/// principal, so a call site holding a model's credential cannot even
-/// construct what only the runner may observe (owner ruling 2026-11-04).
+/// A fact of a run: what [`Facts::record`] takes. Implemented by
+/// [`RunnerFact`] (what the runner observed) and [`ModelFact`] (what the
+/// model claimed): a provenance, not a permission (one principal, the user,
+/// since slice 2).
 pub trait Fact: Clone + std::fmt::Debug + Send + Sync {
-    /// The only principal that may record this kind of fact.
-    const AUTHOR: Principal;
-
     /// The fact as the `CommandBook` the edge takes.
     fn book(&self, who: &Identity) -> CommandBook;
 }
@@ -36,13 +33,13 @@ pub trait Fact: Clone + std::fmt::Debug + Send + Sync {
 /// never rejects.
 #[derive(Clone, Debug, PartialEq)]
 pub enum RunnerFact {
-    RunnerAttached(runs::RunnerAttached),
+    RunnerAttached(runs::RecordRunnerAttached),
     /// The launcher made the runner's process: `started:<run>`.
-    RunnerStarted(runs::RunnerStarted),
-    TurnStarted(runs::TurnStarted),
-    TurnCompleted(runs::TurnCompleted),
-    TurnFailed(runs::TurnFailed),
-    RunExited(runs::RunExited),
+    RunnerStarted(runs::RecordRunnerStarted),
+    TurnStarted(runs::RecordTurnStarted),
+    TurnCompleted(runs::RecordTurnCompleted),
+    TurnFailed(runs::RecordTurnFailed),
+    RunExited(runs::RecordRunExited),
     /// The SessionStart hook's bind, a fact since the owner ruling of
     /// 2026-11-04 (S5 review item 8): `bind:<session>:<native_id>`. The hook
     /// holds the RUNNER's credential (it is launched by the runner; owner
@@ -57,10 +54,10 @@ pub enum RunnerFact {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ModelFact {
     /// A model's summary or progress report: `report:<run>:<turn>:<ordinal>`.
-    SummaryReported(runs::SummaryReported),
+    SummaryReported(runs::RecordSummaryReported),
     /// A model's "my work is done": a CLAIM that notifies the parent and
     /// transitions nothing. `final:<run>:<turn>`.
-    FinalReported(runs::FinalReported),
+    FinalReported(runs::RecordFinalReported),
 }
 
 /// The stream a fact addresses.
@@ -80,6 +77,32 @@ fn text(uuid: &Uuid) -> String {
     uuid::Uuid::from_slice(&uuid.value)
         .map(|u| u.hyphenated().to_string())
         .unwrap_or_default()
+}
+
+/// What a turn's facts are keyed by (D28 S-b): the first of its messages,
+/// else (a turn of no message, the one-shot's) its number.
+fn turn_key(turn: u64, message_ids: &[String]) -> String {
+    message_ids
+        .first()
+        .cloned()
+        .unwrap_or_else(|| turn.to_string())
+}
+
+/// The book of the core's `RecordLaunchFailed` of `run`, keyed as
+/// [`Facts::launch_failed`] records it (`launch-failed:<run>`): what a
+/// frontend reports of a terminal launch it never started (U5), so the
+/// frontend's report and the daemon's own record are one fact.
+pub fn launch_failed_book(run: &Uuid, deterministic: bool, detail: &str) -> CommandBook {
+    let cover = Cover {
+        domain: runs::RUN_DOMAIN.to_string(),
+        root: Some(run.clone()),
+        edition: None,
+    };
+    let fact = runs::RecordLaunchFailed {
+        deterministic,
+        detail: detail.to_string(),
+    };
+    book_of(cover, any_of(&fact), format!("launch-failed:{}", text(run)))
 }
 
 /// The book of a fact on `cover`.
@@ -131,9 +154,15 @@ impl RunnerFact {
         match self {
             RunnerFact::RunnerAttached(m) => format!("attach:{run}:{}", m.runner_id),
             RunnerFact::RunnerStarted(_) => format!("started:{run}"),
-            RunnerFact::TurnStarted(m) => format!("turn:{run}:{}:started", m.turn),
-            RunnerFact::TurnCompleted(m) => format!("turn:{run}:{}:completed", m.turn),
-            RunnerFact::TurnFailed(m) => format!("turn:{run}:{}:failed", m.turn),
+            RunnerFact::TurnStarted(m) => {
+                format!("turn:{run}:{}:started", turn_key(m.turn, &m.message_ids))
+            }
+            RunnerFact::TurnCompleted(m) => {
+                format!("turn:{run}:{}:completed", turn_key(m.turn, &m.message_ids))
+            }
+            RunnerFact::TurnFailed(m) => {
+                format!("turn:{run}:{}:failed", turn_key(m.turn, &m.message_ids))
+            }
             RunnerFact::RunExited(_) => format!("exit:{run}"),
             RunnerFact::EngineSessionBound(m) => format!("bind:{session}:{}", m.native_id),
         }
@@ -165,28 +194,33 @@ impl RunnerFact {
     #[cfg(any(test, feature = "test-support"))]
     pub fn samples() -> Vec<RunnerFact> {
         vec![
-            RunnerFact::RunnerAttached(runs::RunnerAttached {
+            RunnerFact::RunnerAttached(runs::RecordRunnerAttached {
                 runner_id: "runner-1".to_string(),
                 protocol: "v1".to_string(),
             }),
-            RunnerFact::RunnerStarted(runs::RunnerStarted {
+            RunnerFact::RunnerStarted(runs::RecordRunnerStarted {
                 runtime: "claude-code".to_string(),
                 workspace: "/w".to_string(),
                 pid: 7,
             }),
-            RunnerFact::TurnStarted(runs::TurnStarted { turn: 1 }),
-            RunnerFact::TurnCompleted(runs::TurnCompleted {
+            RunnerFact::TurnStarted(runs::RecordTurnStarted {
+                turn: 1,
+                message_ids: Vec::new(),
+            }),
+            RunnerFact::TurnCompleted(runs::RecordTurnCompleted {
                 turn: 1,
                 native_key: String::new(),
                 answer_ref: String::new(),
                 exit_code: 0,
+                message_ids: Vec::new(),
             }),
-            RunnerFact::TurnFailed(runs::TurnFailed {
+            RunnerFact::TurnFailed(runs::RecordTurnFailed {
                 turn: 1,
                 class: runs::TurnFailureClass::EngineError,
                 detail: String::new(),
+                message_ids: Vec::new(),
             }),
-            RunnerFact::RunExited(runs::RunExited { code: 0, signal: 0 }),
+            RunnerFact::RunExited(runs::RecordRunExited { code: 0, signal: 0 }),
             RunnerFact::EngineSessionBound(sessions::BindEngineSession {
                 native_id: "native-1".to_string(),
                 transcript_path: "/t".to_string(),
@@ -231,13 +265,13 @@ impl ModelFact {
     #[cfg(any(test, feature = "test-support"))]
     pub fn samples() -> Vec<ModelFact> {
         vec![
-            ModelFact::SummaryReported(runs::SummaryReported {
+            ModelFact::SummaryReported(runs::RecordSummaryReported {
                 turn: 1,
                 ordinal: 0,
                 scope: "progress".to_string(),
                 text_ref: "t:1".to_string(),
             }),
-            ModelFact::FinalReported(runs::FinalReported {
+            ModelFact::FinalReported(runs::RecordFinalReported {
                 turn: 1,
                 text_ref: "t:final".to_string(),
             }),
@@ -246,16 +280,12 @@ impl ModelFact {
 }
 
 impl Fact for RunnerFact {
-    const AUTHOR: Principal = Principal::Runner;
-
     fn book(&self, who: &Identity) -> CommandBook {
         RunnerFact::book(self, who)
     }
 }
 
 impl Fact for ModelFact {
-    const AUTHOR: Principal = Principal::Model;
-
     fn book(&self, who: &Identity) -> CommandBook {
         ModelFact::book(self, who)
     }
@@ -284,20 +314,13 @@ impl<E: Edge> Facts<E> {
         Facts { edge }
     }
 
-    /// Record `fact` on a stream `who` owns, if `who` is the fact's author
-    /// ([`Fact::AUTHOR`]); another principal's fact is `Denied` (hidden)
-    /// and nothing is sent (defence in depth: the types already keep a model
-    /// call site from building a runner fact). The answer is the kernel's: a
+    /// Record `fact` on a stream `who` owns. The answer is the kernel's: a
     /// fact it dead-letters (a handler bug, a race lost to the cap, or a
     /// rejection, which the kernel since 7873207 treats as its handler's bug)
     /// is `Parked`, and the letter is the kernel's, kept in the store; this
     /// crate files none.
     pub async fn record<F: Fact>(&self, who: &Identity, fact: F) -> Result<Recorded, AppError> {
         let book = fact.book(who);
-        if who.principal != F::AUTHOR {
-            let domain = book.cover.map(|c| c.domain).unwrap_or_default();
-            return Err(AppError::Denied(Unserved::Hidden { domain }));
-        }
         match self.edge.serve(book, Arrival::Loopback).await {
             Ok(answered) => Recorded::of(&answered).ok_or_else(|| AppError::Failed {
                 reason: "the kernel gave no delivery outcome".to_string(),
@@ -313,18 +336,13 @@ impl<E: Edge> Facts<E> {
 
 impl<E: Edge> Facts<E> {
     /// Record what the engine's hooks observed (or the launcher, standing in
-    /// for them on a run it drives itself) on `who`'s own session stream. The
-    /// observation is the RUNNER's: another principal's is `Denied`.
+    /// for them on a run it drives itself) on `who`'s own session stream.
     pub async fn observe(
         &self,
         who: &Identity,
         observation: &crate::Observation,
     ) -> Result<Recorded, AppError> {
         let book = observation.book(&who.session);
-        if who.principal != Principal::Runner {
-            let domain = book.cover.map(|c| c.domain).unwrap_or_default();
-            return Err(AppError::Denied(Unserved::Hidden { domain }));
-        }
         match self.edge.serve(book, Arrival::Loopback).await {
             Ok(answered) => Recorded::of(&answered).ok_or_else(|| AppError::Failed {
                 reason: "the kernel gave no delivery outcome".to_string(),
@@ -346,7 +364,7 @@ impl<E: Edge> Facts<E> {
         deterministic: bool,
         detail: &str,
     ) -> Result<Recorded, AppError> {
-        let fact = runs::LaunchFailed {
+        let fact = runs::RecordLaunchFailed {
             deterministic,
             detail: detail.to_string(),
         };
@@ -358,7 +376,7 @@ impl<E: Edge> Facts<E> {
     /// The core's fact, the unexposed path; keyed `runner-lost:<run>`, so a
     /// second sweeper's is a DUPLICATE.
     pub async fn runner_lost(&self, run: &Uuid) -> Result<Recorded, AppError> {
-        self.of_the_core(run, &runs::RunnerLost {}, "runner-lost")
+        self.of_the_core(run, &runs::RecordRunnerLost {}, "runner-lost")
             .await
     }
 
@@ -366,7 +384,7 @@ impl<E: Edge> Facts<E> {
     /// starting one (its run lock free, rulings 92, 100): orphaned, no launch
     /// failure. Keyed `launch-orphaned:<run>`.
     pub async fn launch_orphaned(&self, run: &Uuid) -> Result<Recorded, AppError> {
-        self.of_the_core(run, &runs::LaunchOrphaned {}, "launch-orphaned")
+        self.of_the_core(run, &runs::RecordLaunchOrphaned {}, "launch-orphaned")
             .await
     }
 

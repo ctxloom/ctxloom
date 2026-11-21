@@ -93,12 +93,12 @@ fn test_keys_other_than_agents_still_deep_merge() {
 
 // merge_test.go: TestLayerMergeFunc_CompanionsUnionAcrossLayers /
 // _ProjectCannotRemoveAHomeCompanion / TestLoad_ProjectCompanionsAddToHomes,
-// on the registration as a map (generation 9).
+// on the registration as a map of names (generation 9, OD-10).
 #[test]
 fn test_companions_union_across_layers_and_a_project_cannot_remove_one() {
     let v = merged(&[
-        "companions:\n  acme: {command: [acme-bin]}\n  beta: {command: [beta-bin]}\n",
-        "companions:\n  beta: {command: [other]}\n  gamma: {command: [gamma-bin]}\n",
+        "companions:\n  acme: {}\n  beta: {state: disabled}\n",
+        "companions:\n  beta: {}\n  gamma: {}\n",
     ]);
     let names: Vec<&str> = v
         .get("companions")
@@ -108,10 +108,8 @@ fn test_companions_union_across_layers_and_a_project_cannot_remove_one() {
         .map(|(k, _)| k.as_str())
         .collect();
     assert_eq!(names, ["acme", "beta", "gamma"]);
-    let kept = merged(&[
-        "companions:\n  acme: {command: [acme-bin]}\n",
-        "companions: {}\n",
-    ]);
+    assert_eq!(text(&v, "companions.beta.state"), "disabled");
+    let kept = merged(&["companions:\n  acme: {}\n", "companions: {}\n"]);
     assert_eq!(
         kept.get("companions")
             .and_then(Value::as_map)
@@ -122,34 +120,46 @@ fn test_companions_union_across_layers_and_a_project_cannot_remove_one() {
 }
 
 #[test]
-fn test_a_companions_command_is_the_highest_layers() {
+fn test_a_companions_state_is_the_highest_layers_that_says_one() {
     let v = merged(&[
-        "companions:\n  beta: {command: [home-bin, --home]}\n",
-        "companions:\n  beta: {command: [project-bin]}\n",
+        "companions:\n  beta: {state: disabled}\n",
+        "companions:\n  beta: {state: enabled}\n",
     ]);
-    assert_eq!(seq(&v, "companions.beta.command"), ["project-bin"]);
+    assert_eq!(text(&v, "companions.beta.state"), "enabled");
     let v = merged(&[
-        "companions:\n  beta: {command: [home-bin]}\n",
+        "companions:\n  beta: {state: disabled}\n",
         "editor:\n  command: vim\n",
     ]);
-    assert_eq!(seq(&v, "companions.beta.command"), ["home-bin"]);
+    assert_eq!(text(&v, "companions.beta.state"), "disabled");
 }
 
-// generation 9: companions are registered with their command.
+// generation 9 registers a companion by name (OD-10): Go's bare-name list of
+// generation 7 or 8 is migrated, each name enabled.
 #[test]
-fn test_a_bare_name_list_at_a_generation_before_9_is_noted_not_migrated() {
+fn test_a_bare_name_list_at_a_generation_before_9_is_migrated_to_names() {
     for generation in [7, 8] {
         let r = read(&format!(
             "schema_version: {generation}\ncompanions: [acme, ltk]\n"
         ))
         .unwrap();
-        assert_eq!(
-            r.notes,
-            [Note::LegacyCompanions {
-                found: generation,
-                names: vec!["acme".to_string(), "ltk".to_string()]
-            }]
-        );
+        assert!(r.notes.is_empty(), "{:?}", r.notes);
+        let names: Vec<&str> = r
+            .value
+            .get("companions")
+            .and_then(Value::as_map)
+            .unwrap()
+            .iter()
+            .map(|(k, v)| {
+                assert_eq!(
+                    *v,
+                    Value::Map(Vec::new()),
+                    "registered with nothing but its name"
+                );
+                k.as_str()
+            })
+            .collect();
+        assert_eq!(names, ["acme", "ltk"]);
+        assert_eq!(text(&r.value, "schema_version"), "9");
     }
 }
 
@@ -169,20 +179,17 @@ fn test_an_empty_or_absent_companions_list_loads_and_migrates() {
 
 #[test]
 fn test_a_companions_map_at_generation_8_or_9_is_left_to_the_schema() {
-    // Not a bare list: nothing here to refuse; the schema judges the shape.
+    // A mapping is not migrated: the schema judges the shape.
     let r = read("schema_version: 8\ncompanions:\n  acme: {command: [a]}\n").unwrap();
     assert!(r.notes.is_empty());
-    assert!(r.value.get("companions").is_some());
+    assert_eq!(seq(&r.value, "companions.acme.command"), ["a"]);
     // A list at the current generation is a schema violation, not a note.
     let r = read("schema_version: 9\ncompanions: [acme]\n").unwrap();
     assert!(r.notes.is_empty());
     assert!(
-        r.value.get("companions").is_some(),
+        r.value.get("companions").and_then(Value::as_seq).is_some(),
         "a current file is not migrated: the schema judges the list"
     );
-    // One generation below, an empty list is dropped by the migration.
-    let below = read("schema_version: 8\ncompanions: []\n").unwrap();
-    assert!(below.value.get("companions").is_none());
 }
 
 // merge_with: lists the higher layer sets replace the lower's (koanf's default)

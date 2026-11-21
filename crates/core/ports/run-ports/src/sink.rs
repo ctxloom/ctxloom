@@ -26,7 +26,17 @@ pub enum Delivery {
     TimedOut,
     /// The admission gate or the handler refused it: final.
     Refused { detail: String },
+    /// The daemon has no record of the session it is addressed to (its
+    /// stream holds no session: never minted, or destroyed), so it was
+    /// recorded nowhere: final (s4-Q14, H3 follow-up). Answered under the
+    /// reason key [`NO_SUCH_SESSION`].
+    NoSuchSession,
 }
+
+/// The reason key a capture fact addressed to a session the daemon has no
+/// record of is answered with: the full name of the typed answer
+/// `ctxloom.sessions.v1.FactSessionUnknown` (capture.proto).
+pub const NO_SUCH_SESSION: &str = "ctxloom.sessions.v1.FactSessionUnknown";
 
 impl Delivery {
     /// Whether nothing more can come of delivering this book again: the

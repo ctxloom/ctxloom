@@ -13,9 +13,8 @@ publish = false
 [workspace.dependencies]
 # The runtime pair: the lock holds ONE angzarr-embedded, angzarr-proto,
 # angzarr-ports and angzarr-diagnostic (and one of every angzarr crate). The
-# pins agree: angzarr-embedded 94f630a (angzarr-router bec0c2b), angzarr core
-# f6fed5e, angzarr-build 7547415 and angzarr-platform a35789e are one line of
-# revs, taskloom's crates (d43fb68) and rust-support's (d543b4e) are built on the
+# pins agree: angzarr (core, embedded, router, platform, build: one repository now)
+# 71b453a, taskloom's crates (d43fb68) and rust-support's (d543b4e) are built on the
 # same ones, and moving any of them moves the others with it.
 #
 # angzarr-proto, angzarr-ports and angzarr-store-sqlite are reached through
@@ -34,7 +33,7 @@ angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr", rev =
 angzarr-embedded-runner = { git = "https://github.com/angzarr-io/angzarr", rev = "71b453a4c0ee43bf9de3659f1a9339c110f6ae59" }
 # angzarr-build (with angzarr-codegen; the markup domain layer generator, in
 # its own repository): a build dependency of the wire and domain crates, pinned
-# by full commit, on angzarr core f6fed5e (the rev the pins above share), as
+# by full commit, on angzarr 71b453a4 (the rev the pins above share), as
 # taskloom pins it.
 angzarr-build = { git = "https://github.com/angzarr-io/angzarr", rev = "71b453a4c0ee43bf9de3659f1a9339c110f6ae59" }
 angzarr-diagnostic = { git = "https://github.com/angzarr-io/angzarr", rev = "71b453a4c0ee43bf9de3659f1a9339c110f6ae59" }
@@ -46,7 +45,7 @@ angzarr-yaml = { git = "https://github.com/angzarr-io/angzarr", rev = "71b453a4c
 angzarr-proto-transport-distributed = { git = "https://github.com/angzarr-io/angzarr", rev = "71b453a4c0ee43bf9de3659f1a9339c110f6ae59" }
 # Presentation at the driving edge (json or text, catalogs, envelopes).
 angzarr-presentation = { git = "https://github.com/angzarr-io/angzarr", rev = "71b453a4c0ee43bf9de3659f1a9339c110f6ae59" }
-# The coordinator edge (core f6fed5e): the gate (Gate, Principal, Allowlist,
+# The coordinator edge (angzarr 71b453a): the gate (Gate, Principal, Allowlist,
 # Credential), the Commands half and the gRPC server that serves them on a
 # unix socket. Transport-free except angzarr-coordinator-grpc.
 angzarr-coordinator = { default-features = false, git = "https://github.com/angzarr-io/angzarr", rev = "71b453a4c0ee43bf9de3659f1a9339c110f6ae59" }
@@ -73,6 +72,11 @@ harp-core = { git = "https://github.com/benjaminabbitt/harp", rev = "e27196f5a42
 # prost must be the version angzarr-proto generates for.
 prost = "0.14"
 prost-types = "0.14"
+# proto3 JSON for the prost types (owner OQ-21, 2026-11-13): pbjson-build
+# generates the serde impls (proto field names kept), pbjson is their
+# runtime. Exact pins; neither has a feature to turn off.
+pbjson = "=0.9.0"
+pbjson-build = "=0.9.0"
 
 sessions-application = { path = "crates/core/application/sessions-application" }
 runs-proto = { path = "crates/core/wire/runs-proto" }
@@ -84,21 +88,43 @@ scheduler-loop = { path = "crates/core/application/scheduler-loop" }
 scheduler-fixture = { path = "crates/core/domain/scheduler-fixture" }
 scheduler-due = { path = "crates/core/read-model/scheduler-due" }
 pending-launches = { path = "crates/core/read-model/pending-launches" }
+pending-messages = { path = "crates/core/read-model/pending-messages" }
+held-projection = { path = "crates/core/read-model/held-projection" }
+daemon-board = { path = "crates/core/read-model/daemon-board" }
 trees = { path = "crates/core/domain/trees" }
+trust-proto = { path = "crates/core/wire/trust-proto" }
+trust = { path = "crates/core/domain/trust" }
+trust-index = { path = "crates/core/read-model/trust-index" }
+library-domain-proto = { path = "crates/core/wire/library-domain-proto" }
+library-tree = { path = "crates/core/domain/library-tree" }
+library-checkout = { path = "crates/core/read-model/library-checkout" }
+library-api = { path = "crates/core/application/library-api" }
+approvals-proto = { path = "crates/core/wire/approvals-proto" }
+approvals = { path = "crates/core/domain/approvals" }
+pending-approvals = { path = "crates/core/read-model/pending-approvals" }
 run-ports = { path = "crates/core/ports/run-ports" }
 runs-application = { path = "crates/core/application/runs-application" }
 run-launcher = { path = "crates/core/application/run-launcher" }
+daemon-application = { path = "crates/core/application/daemon-application" }
 run-application = { path = "crates/core/application/run-application" }
 credentials = { path = "crates/adapters/driven/credentials" }
 hook-sink-grpc = { path = "crates/adapters/driven/hook-sink-grpc" }
 embedded-edge = { path = "crates/adapters/driven/embedded-edge" }
 session-ports = { path = "crates/core/ports/session-ports" }
 sessions-proto = { path = "crates/core/wire/sessions-proto" }
+daemon-proto = { path = "crates/core/wire/daemon-proto" }
+daemon-ports = { path = "crates/core/ports/daemon-ports" }
+daemon-api = { path = "crates/core/application/daemon-api" }
+daemon-api-grpc = { path = "crates/adapters/driving/daemon-api-grpc" }
+daemon-client = { path = "crates/adapters/driven/daemon-client" }
 sessions = { path = "crates/core/domain/sessions" }
 session-index = { path = "crates/core/read-model/session-index" }
+session-policies = { path = "crates/core/application/session-policies" }
 liveness = { path = "crates/adapters/driven/liveness" }
+fact-spool = { path = "crates/adapters/driven/fact-spool" }
 session-files = { path = "crates/adapters/driven/session-files" }
 session-cli = { path = "crates/adapters/driving/session-cli" }
+mcp-server = { path = "crates/adapters/driving/mcp-server" }
 hook-cli = { path = "crates/adapters/driving/hook-cli" }
 hook-listener = { path = "crates/adapters/driving/hook-listener" }
 hook-tls = { path = "crates/adapters/driven/hook-tls" }
@@ -118,6 +144,7 @@ deps = { path = "crates/core/read-model/deps" }
 pin-changes = { path = "crates/core/read-model/pin-changes" }
 deps-ports = { path = "crates/core/ports/deps-ports" }
 deps-application = { path = "crates/core/application/deps-application" }
+git-cli = { path = "crates/adapters/support/git-cli" }
 remote-git = { path = "crates/adapters/driven/remote-git" }
 deps-files = { path = "crates/adapters/driven/deps-files" }
 deps-cli = { path = "crates/adapters/driving/deps-cli" }
@@ -201,6 +228,13 @@ time = { version = "0.3", features = ["formatting", "parsing"] }
 # ring backend, which tonic's `tls-ring` already makes the one crypto provider.
 rcgen = { version = "0.13", default-features = false, features = ["crypto", "pem", "ring"] }
 tokio = { version = "1", features = ["rt", "time"] }
+# opencode's long-lived child speaks ACP (owner, D21, 2026-11-10): the
+# official SDK, client side only, pinned exactly (a major every 1-3 months),
+# default features off: no `process` (run-within spawns) and no `unstable_*`.
+agent-client-protocol = { version = "=5.2.0", default-features = false }
+# Its connection is futures' (no runtime): engine-opencode runs it on
+# futures' executor, on a thread of the child's.
+futures = "0.3"
 uuid = { version = "1", features = ["v5", "v7"] }
 
 [workspace.lints.clippy]
@@ -221,6 +255,14 @@ excessive_nesting = "warn"
 # stripped binary next to its debug file. `split-debuginfo` is cargo's
 # default (linux: off, so objcopy splits it; macOS: packed, a .dSYM; Windows
 # MSVC: a .pdb).
+# Dependencies are built without debug info (2026-11-18, the owner's
+# choice): a backtrace through them still names their functions (symbols
+# are kept), only their file:line and variables are gone; the workspace's
+# own crates keep full debug info. The test profile inherits it. The
+# release and ci-artifact profiles are their own and unaffected.
+[profile.dev.package."*"]
+debug = 0
+
 [profile.release]
 opt-level = 3
 lto = "fat"

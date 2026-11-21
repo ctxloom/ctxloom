@@ -11,6 +11,8 @@ publish.workspace = true
 exit-code.workspace = true
 angzarr-diagnostic.workspace = true
 ctxloom-ports.workspace = true
+# A hook's library read, as the daemon answers it (O3).
+daemon-proto.workspace = true
 library.workspace = true
 library-application.workspace = true
 run-ports.workspace = true
@@ -18,9 +20,12 @@ serde.workspace = true
 surface-ports.workspace = true
 
 [dev-dependencies]
+# The hooks' reads in the tests, answered as the daemon answers them.
+library-api.workspace = true
 angzarr-presentation = { workspace = true, features = ["test-support"] }
 library-application = { workspace = true, features = ["test-support"] }
 serde_json.workspace = true
+mutants.workspace = true
 
 [features]
 # `diagnostic_samples`, for other crates' catalog tests.

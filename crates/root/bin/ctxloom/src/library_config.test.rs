@@ -42,8 +42,11 @@ fn test_show_renders_the_whole_configuration_document() {
                 .contains("default_agent: default");
         } else {
             let doc = ran.json();
-            assert_eq!(reports_as(&doc, "agents.default.engine"), "claude-code");
-            assert_eq!(reports_as(&doc, "default_agent"), "default");
+            assert_eq!(
+                reports_as(&doc, "document.agents.default.engine"),
+                "claude-code"
+            );
+            assert_eq!(reports_as(&doc, "document.default_agent"), "default");
         }
     }
 }
@@ -61,8 +64,11 @@ fn test_bare_config_shows_the_document_instead_of_printing_help() {
             ran.contains("agents:").contains("default_agent:");
         } else {
             let doc = ran.json();
-            assert_eq!(reports_as(&doc, "agents.default.engine"), "claude-code");
-            assert_eq!(reports_as(&doc, "default_agent"), "default");
+            assert_eq!(
+                reports_as(&doc, "document.agents.default.engine"),
+                "claude-code"
+            );
+            assert_eq!(reports_as(&doc, "document.default_agent"), "default");
         }
     }
 }
@@ -75,7 +81,16 @@ fn test_the_machine_readable_rendering_carries_the_document_not_an_empty_object(
     project.write(".ctxloom/config.yaml", AGENT_CONFIG);
     let ran = project.run(&["--format", "json", "config", "show"]);
     ran.succeeds().contains("claude-code");
-    assert!(ran.json().as_object().is_some_and(|o| !o.is_empty()));
+    // OD-40: the `Config` singleton, its document under `document`.
+    assert!(ran.json()["document"]
+        .as_object()
+        .is_some_and(|o| !o.is_empty()));
+    let name = ran.json()["name"].as_str().unwrap_or_default().to_string();
+    assert!(
+        name.starts_with("projects/") && name.ends_with("/config"),
+        "{}",
+        ran.stdout
+    );
 }
 
 // config.feature: Scenario Outline: The agents section carries the engine
@@ -96,8 +111,8 @@ fn test_the_agents_section_carries_the_engine_bindings_and_nothing_above_it() {
                 .contains("runtime: host");
         } else {
             let doc = ran.json();
-            assert_eq!(reports_as(&doc, "default.engine"), "claude-code");
-            assert_eq!(reports_as(&doc, "default.runtime"), "host");
+            assert_eq!(reports_as(&doc, "document.default.engine"), "claude-code");
+            assert_eq!(reports_as(&doc, "document.default.runtime"), "host");
         }
     }
 }
@@ -196,10 +211,10 @@ fn test_the_retired_config_booleans_are_refused_and_their_words_read() {
         .run(&["config", "show", "--format", "json"])
         .succeeds()
         .json();
-    assert_eq!(reports_as(&doc, "config.content_form"), "original");
-    assert_eq!(reports_as(&doc, "config.statusline"), "none");
-    assert_eq!(reports_as(&doc, "sync.on_run"), "none");
-    assert_eq!(reports_as(&doc, "output.dir"), "docs/sessions");
+    assert_eq!(reports_as(&doc, "document.config.content_form"), "original");
+    assert_eq!(reports_as(&doc, "document.config.statusline"), "none");
+    assert_eq!(reports_as(&doc, "document.sync.on_run"), "none");
+    assert_eq!(reports_as(&doc, "document.output.dir"), "docs/sessions");
 }
 
 // hand-test 2026-11-10: a `--config-set` saying what a config file may not
@@ -257,8 +272,8 @@ fn test_a_schema_7_config_migrates_in_memory_dropping_essence_max_chars() {
     let ran = project.run(&["config", "show", "--format", "json"]);
     ran.succeeds().lacks("essence_max_chars");
     let doc = ran.json();
-    assert_eq!(reports_as(&doc, "schema_version"), "9");
-    assert_eq!(reports_as(&doc, "config.content_form"), "original");
+    assert_eq!(reports_as(&doc, "document.schema_version"), "9");
+    assert_eq!(reports_as(&doc, "document.config.content_form"), "original");
     // The file is not touched: persisting an upgrade is --write-upgrades'.
     let kept = files::read(project.dir().join(".ctxloom/config.yaml")).unwrap();
     assert!(kept.contains("essence_max_chars"), "{kept}");
@@ -269,7 +284,11 @@ fn test_a_schema_7_config_migrates_in_memory_dropping_essence_max_chars() {
     );
     let emptied = project.run(&["config", "show", "--format", "json"]);
     emptied.succeeds();
-    assert!(emptied.json().get("config").is_none(), "{}", emptied.stdout);
+    assert!(
+        emptied.json()["document"].get("config").is_none(),
+        "{}",
+        emptied.stdout
+    );
 }
 
 // config_version_refusal_test.go (the stamp): owner override of Go, D15,
@@ -311,7 +330,8 @@ fn test_a_config_of_another_generation_is_refused() {
 
 // cli/config.feature, configload/merge.go: layering is home < project, an
 // agent binding replaces the home's of the same name wholesale, companions
-// merge by name, a scalar of the project wins.
+// merge by name (a name's state the project's where both say one), a scalar
+// of the project wins.
 #[test]
 fn test_layers_merge_home_under_project() {
     let project = Project::from_fixture("cfg/layers9");
@@ -319,19 +339,31 @@ fn test_layers_merge_home_under_project() {
         .run(&["config", "show", "--format", "json"])
         .succeeds()
         .json();
-    assert_eq!(reports_as(&doc, "editor.command"), "project-editor");
-    assert!(contains_value(&doc, "editor.args", "-h"), "{doc}");
-    assert_eq!(reports_as(&doc, "workspace"), "worktree");
-    assert_eq!(reports_as(&doc, "agents.proj.engine"), "claude-code");
-    assert!(contains_value(&doc, "agents.proj.profiles", "x"), "{doc}");
-    assert!(contains_value(&doc, "agents.home.profiles", "h"), "{doc}");
-    // Names union; a name's command is the project's where both register it.
     assert_eq!(
-        doc["companions"],
+        reports_as(&doc, "document.editor.command"),
+        "project-editor"
+    );
+    assert!(contains_value(&doc, "document.editor.args", "-h"), "{doc}");
+    assert_eq!(reports_as(&doc, "document.workspace"), "worktree");
+    assert_eq!(
+        reports_as(&doc, "document.agents.proj.engine"),
+        "claude-code"
+    );
+    assert!(
+        contains_value(&doc, "document.agents.proj.profiles", "x"),
+        "{doc}"
+    );
+    assert!(
+        contains_value(&doc, "document.agents.home.profiles", "h"),
+        "{doc}"
+    );
+    // Names union; a name's state is the project's where both say one.
+    assert_eq!(
+        doc["document"]["companions"],
         serde_json::json!({
-            "acme": {"command": ["acme-bin"]},
-            "beta": {"command": ["other-beta"]},
-            "gamma": {"command": ["gamma-bin"]},
+            "acme": {},
+            "beta": {"state": "enabled"},
+            "gamma": {},
         })
     );
 }
@@ -343,7 +375,10 @@ fn test_overrides_beat_the_files_and_the_flag_beats_the_variable() {
     let project = Project::initialized();
     let env = [("CTXLOOM_CONFIG_EDITOR_COMMAND", "nano")];
     let from_env = project.run_with(&env, &["config", "show", "editor", "--format", "json"]);
-    assert_eq!(reports_as(&from_env.succeeds().json(), "command"), "nano");
+    assert_eq!(
+        reports_as(&from_env.succeeds().json(), "document.command"),
+        "nano"
+    );
     let both = project.run_with(
         &env,
         &[
@@ -356,7 +391,10 @@ fn test_overrides_beat_the_files_and_the_flag_beats_the_variable() {
             "json",
         ],
     );
-    assert_eq!(reports_as(&both.succeeds().json(), "command"), "vim");
+    assert_eq!(
+        reports_as(&both.succeeds().json(), "document.command"),
+        "vim"
+    );
     // An entry with no "=" is warned about and the rest is read.
     project
         .run(&[
@@ -385,29 +423,31 @@ fn test_without_a_project_the_home_config_is_the_whole_configuration() {
         project.dir(),
         &["config", "show", "editor", "--format", "json"],
     );
-    assert_eq!(reports_as(&ran.succeeds().json(), "command"), "nano");
+    assert_eq!(
+        reports_as(&ran.succeeds().json(), "document.command"),
+        "nano"
+    );
     assert!(
         !files::exists(project.dir().join(".ctxloom")),
         "reading creates nothing"
     );
 }
 
-// virtuous-word (owner ruling 2026-11-06): schema 9 registers a companion with
-// the command that runs it. A bare-name list, as Go and schema 8 wrote it, is
-// refused with what to do; nothing is migrated.
+// OD-10 (owner, 2026-11-13): a companion is registered by name. Go's
+// bare-name list (schema 7 or 8) is read as the names it registers, each
+// enabled; the file is not rewritten.
 #[test]
-fn test_a_bare_name_companions_list_is_refused_telling_how_to_register_again() {
+fn test_a_bare_name_companions_list_is_read_as_the_names_it_registers() {
     for generation in [7, 8] {
         let project = Project::initialized();
         project.write(
             ".ctxloom/config.yaml",
             &format!("schema_version: {generation}\ncompanions: [acme, ltk]\n"),
         );
-        let ran = project.run(&["config", "show", "editor", "--format", "text"]);
-        assert_eq!(ran.code, 20, "{}", ran.said());
-        ran.contains("companions acme, ltk are registered by name alone")
-            .contains("ctxloom companion add <name> --command <program>");
-        assert!(ran.stdout.is_empty(), "no answer is given: {}", ran.stdout);
+        let ran = project.run(&["companion", "list", "--format", "json"]);
+        let doc = ran.succeeds().json();
+        assert!(reports_as(&doc, "companions.0.name").ends_with("/companions/acme"));
+        assert_eq!(reports_as(&doc, "companions.1.bin"), "ltk");
         let kept = files::read(project.dir().join(".ctxloom/config.yaml")).unwrap();
         assert!(kept.contains("companions: [acme, ltk]"), "not rewritten");
     }
@@ -422,14 +462,101 @@ fn test_a_bare_name_companions_list_is_refused_telling_how_to_register_again() {
         .succeeds();
 }
 
-// config show on the registration: the text form is the YAML Go prints, now a
-// map of name to command.
+// A command in a registration is an unknown key (OD-10, a hard migrate).
 #[test]
-fn test_config_show_prints_the_registration_as_a_map_of_commands() {
+fn test_a_registration_holding_a_command_is_refused_as_an_unknown_key() {
+    let project = Project::initialized();
+    project.write_home(
+        ".ctxloom/config.yaml",
+        "schema_version: 9\ncompanions:\n  acme:\n    command: [acme-bin]\n",
+    );
+    let ran = project.run(&["companion", "list", "--format", "text"]);
+    assert_eq!(ran.code, 20, "{}", ran.said());
+    ran.contains("unknown key `companions.acme.command`");
+}
+
+// config show on the registration: the text form is the YAML Go prints, a
+// map of name to its state.
+#[test]
+fn test_config_show_prints_the_registration_as_a_map_of_names() {
     let project = Project::from_fixture("cfg/layers9");
     let ran = project.run(&["config", "show", "companions", "--format", "text"]);
     ran.succeeds();
-    ran.contains("acme:\n  command:\n    - acme-bin\n")
-        .contains("beta:\n  command:\n    - other-beta\n")
-        .contains("gamma:\n  command:\n    - gamma-bin\n");
+    ran.contains("acme: {}\n")
+        .contains("beta:\n  state: enabled\n")
+        .contains("gamma: {}\n");
+}
+
+// OD-40 (OQ-3): outside a project a json answer is named under the home,
+// `users/me/config`, with no project to resolve, so no identity is minted
+// and nothing is written where the command ran.
+#[test]
+fn test_outside_a_project_a_json_read_is_named_under_the_home_and_writes_nothing() {
+    let project = Project::bare();
+    project.write_home(".ctxloom/config.yaml", "schema_version: 9\n");
+    let ran = project.run_in(project.dir(), &["config", "show", "--format", "json"]);
+    assert_eq!(
+        reports_as(&ran.succeeds().json(), "name"),
+        "users/me/config"
+    );
+    assert!(project.tree("").is_empty(), "{:?}", project.tree("").keys());
+}
+
+/// The project's name (`projects/<harp>`) as a json read from `dir` gives it.
+fn named_from(project: &Project, dir: &std::path::Path) -> String {
+    let ran = project.run_in(dir, &["config", "show", "--format", "json"]);
+    let name = reports_as(&ran.succeeds().json(), "name");
+    name.strip_suffix("/config")
+        .unwrap_or_else(|| panic!("{name} is no config's name"))
+        .to_string()
+}
+
+// OD-40 (OQ-2): inside a project, a json read from a subdirectory names the
+// project of the nearest `.ctxloom` up from it, the one its root names, and
+// writes nothing: no identity of the subdirectory's own. The initialized
+// project carries the id `init` mints (one with none would get it at its
+// root, owner ruling 2026-11-14).
+#[test]
+fn test_a_json_read_from_a_subdirectory_names_the_nearest_project_and_writes_nothing() {
+    let project = Project::initialized();
+    let sub = project.dir().join("src").join("deep");
+    files::mkdirs(&sub);
+    let at_root = named_from(&project, project.dir());
+    assert!(at_root.starts_with("projects/"), "{at_root}");
+    let before = project.tree("");
+    assert_eq!(named_from(&project, &sub), at_root);
+    assert_eq!(project.tree(""), before, "a read wrote in the project");
+    assert!(
+        !files::exists(sub.join(".ctxloom")),
+        "the subdirectory got an identity"
+    );
+}
+
+// Owner ruling 2026-11-14 (revising 2026-11-13's): a first json read from a
+// subdirectory of a project nothing has named names the ROOT's project, and
+// writes its id at the root only, never in the subdirectory.
+#[test]
+fn test_a_first_json_read_from_a_subdirectory_names_the_roots_project() {
+    let project = Project::configured();
+    let sub = project.dir().join("src");
+    files::mkdirs(&sub);
+    let before = project.tree("");
+    let ran = project.run_in(&sub, &["config", "show", "--format", "json"]);
+    assert_eq!(ran.code, 0, "{}", ran.said());
+    let name = reports_as(&ran.json(), "name");
+    assert!(name.starts_with("projects/"), "{name}");
+    assert!(
+        !files::exists(sub.join(".ctxloom")),
+        "the subdirectory got an identity"
+    );
+    let mut after = project.tree("");
+    assert!(
+        after.remove(".ctxloom/project-id").is_some(),
+        "minted at the root"
+    );
+    // The read observes the checkout at the root first (step 10a U2, L2).
+    assert!(after.remove(".ctxloom/state/checkout").is_some());
+    assert_eq!(after, before, "the read wrote more than the root's id");
+    let from_root = project.run_in(project.dir(), &["config", "show", "--format", "json"]);
+    assert_eq!(reports_as(&from_root.json(), "name"), name);
 }

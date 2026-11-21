@@ -9,7 +9,7 @@
 //! - "the project already has the bundle ...:" takes Go's inline bundle
 //!   document and writes the tree this port reads (an envelope with inline
 //!   items is refused by the tree reader).
-//! - a skill's execute bit comes from the sidecar's `executable:` (plan 8.2),
+//! - a skill's execute bit comes from its metadata's `executable:` (plan 8.2),
 //!   not from the file's mode.
 //! - the engines are the ones this port registers: `claude-code`, `mock`,
 //!   `mock-launch`, `mock-lossy` and `mock-noskills`.
@@ -65,6 +65,11 @@ struct World {
     onboarding: onboarding::State,
     /// The git remotes the scenario seeds (search, deps), made on first use.
     remotes: Option<super::deps::Remotes>,
+    /// The daemon a step started for the home (deps.feature's U4 rule),
+    /// kept serving to the scenario's end.
+    daemon: Option<std::process::Child>,
+    /// What the CLI contract features' steps keep.
+    cli: cli::State,
 }
 
 impl fmt::Debug for World {
@@ -81,6 +86,13 @@ impl CommonWorld for World {
     fn common_mut(&mut self) -> &mut Common {
         &mut self.common
     }
+
+    fn alice_runs(&mut self, step: &Step) {
+        if onboarding::alice_starts(self, step) {
+            return;
+        }
+        self.common.run_lines(&doc(step), "");
+    }
 }
 
 impl World {
@@ -95,6 +107,8 @@ impl World {
             command: String::new(),
             onboarding: onboarding::State::default(),
             remotes: None,
+            daemon: None,
+            cli: cli::State::default(),
         }
     }
 
@@ -109,6 +123,12 @@ impl World {
 
 #[path = "gherkin_onboarding.test.rs"]
 mod onboarding;
+
+#[path = "gherkin_session_home.test.rs"]
+mod session_home;
+
+#[path = "gherkin_surfaces_cli.test.rs"]
+mod cli;
 
 // ------------------------------------------------------------------ given
 
@@ -127,6 +147,41 @@ fn git_remote(w: &mut World, name: String) {
         .git_remote(&w.common.project, &env, &name);
 }
 
+/// A daemon serving for the scenario's home before the next command (step
+/// 10 U4): `ctxloom daemon serve`, started with the scenario's environment
+/// (so its `PATH` is never a later command's own), awaited until `daemon
+/// status` names it. The project ends it with the scenario.
+#[given("a ctxloom daemon is serving for this home")]
+fn daemon_serving(w: &mut World) {
+    let env: Vec<(&str, &str)> = w
+        .common
+        .env
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+    w.daemon = Some(
+        w.common
+            .project
+            .start_with(&env, &["daemon", "serve", "--idle-seconds", "300"]),
+    );
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        let status = w
+            .common
+            .project
+            .run_with(&env, &["daemon", "status", "--format", "json"]);
+        assert_eq!(status.code, 0, "{}", status.said());
+        if status.json().get("pid").is_some() {
+            return;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the daemon never served"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
 /// Go's `the remote "<name>" advances its bundle`: version two, its fragment
 /// rewritten.
 #[given(expr = "the remote {string} advances its bundle")]
@@ -137,11 +192,80 @@ fn remote_advances(w: &mut World, name: String) {
         .advances(&name);
 }
 
+/// Go's `the profile "<profile>" draws on a bundle straight from an
+/// unregistered git repository`.
+#[given(
+    expr = "the profile {string} draws on a bundle straight from an unregistered git repository"
+)]
+fn profile_unregistered(w: &mut World, profile: String) {
+    w.remotes
+        .get_or_insert_with(super::deps::Remotes::new)
+        .profile_from_unregistered(&w.common.project, &profile);
+}
+
+/// Go's `a git remote "<name>" serving a bundle "<bundle>" whose profile
+/// "<profile>" draws on bundle "<target>" of the remote "<other>"`.
+#[given(
+    expr = "a git remote {string} serving a bundle {string} whose profile {string} draws on bundle {string} of the remote {string}"
+)]
+fn git_remote_reaching(
+    w: &mut World,
+    name: String,
+    bundle: String,
+    profile: String,
+    target: String,
+    other: String,
+) {
+    let env: Vec<(&str, &str)> = w
+        .common
+        .env
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+    w.remotes
+        .as_mut()
+        .expect("a git remote was seeded")
+        .git_remote_reaching(
+            &w.common.project,
+            &env,
+            &name,
+            (&bundle, &profile),
+            (&target, &other),
+        );
+}
+
+/// Go's `the remote "<name>" changes fragment "<fragment>" to "<content>"`.
+#[given(expr = "the remote {string} changes fragment {string} to {string}")]
+fn remote_changes_fragment(w: &mut World, name: String, fragment: String, content: String) {
+    w.remotes
+        .as_mut()
+        .expect("a git remote was seeded")
+        .changes_fragment(&name, &fragment, &content);
+}
+
+/// No object of the array at `path` has `key` as `value`'s text; an array
+/// proto3 JSON leaves out (it is empty) holds none.
+#[then(expr = "the JSON output array {string} contains no object whose {string} is {string}")]
+fn array_lacks(w: &mut World, path: String, key: String, value: String) {
+    let doc = w.common.json();
+    let found = super::library::at(&doc, &path)
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .any(|o| match &o[&key] {
+            serde_json::Value::String(s) => *s == value,
+            serde_json::Value::Null => false,
+            other => serde_json::to_string(other).is_ok_and(|text| text == value),
+        });
+    assert!(!found, "an object with {key}={value}: {doc}");
+}
+
 #[given(expr = "the session harp is {string}")]
 fn session_harp(w: &mut World, name: String) {
-    w.common
-        .env
-        .push(("CTXLOOM_SESSION_HARP".to_string(), name));
+    w.common.env.push((
+        "CTXLOOM_SESSION".to_string(),
+        format!("projects/amber-quiet-heron/sessions/{name}"),
+    ));
 }
 
 #[given(expr = "the session index records harp {string} on engine {string}")]
@@ -150,7 +274,9 @@ fn index_records(_w: &mut World, _harp: String, _engine: String) {
 }
 
 /// Go's inline bundle document, as the tree this port reads: the envelope, a
-/// hook per entry (its `order:` in a sidecar), a skill's tags in its sidecar.
+/// hook per entry (its `order:` in a sidecar), a fragment or command per
+/// entry (its fields its front matter), a server per `mcp:` entry, a skill's
+/// tags in its metadata.
 #[given(expr = "the project already has the bundle {string}:")]
 fn project_bundle(w: &mut World, step: &Step, name: String) {
     let parsed = angzarr_yaml::parse(&doc(step)).expect("a bundle document");
@@ -198,6 +324,48 @@ fn project_bundle(w: &mut World, step: &Step, name: String) {
             }
         }
     }
+    // A fragment or a command is its one file, its `content` the body and
+    // every other field its front matter.
+    for (key, dir) in [("fragments", "fragments"), ("commands", "prompts")] {
+        for (item, body) in parsed
+            .get(key)
+            .and_then(angzarr_yaml::Value::as_map)
+            .unwrap_or_default()
+        {
+            let fields = body.as_map().unwrap_or_default();
+            let content = fields
+                .iter()
+                .find(|(k, _)| k == "content")
+                .and_then(|(_, v)| v.as_str())
+                .unwrap_or_default();
+            let front: Vec<(String, angzarr_yaml::Value)> = fields
+                .iter()
+                .filter(|(k, _)| k != "content")
+                .cloned()
+                .collect();
+            let text = if front.is_empty() {
+                format!("{content}\n")
+            } else {
+                let front = angzarr_yaml::write(&angzarr_yaml::Value::Map(front), usize::MAX);
+                format!("---\n{front}---\n{content}\n")
+            };
+            w.common
+                .project
+                .write(&format!("{root}/{dir}/{item}.md"), &text);
+        }
+    }
+    // A server is its one file, `mcp/<name>.yaml` (owner T27), its fields
+    // as Go's inline entry gave them.
+    for (server, body) in parsed
+        .get("mcp")
+        .and_then(angzarr_yaml::Value::as_map)
+        .unwrap_or_default()
+    {
+        w.common.project.write(
+            &format!("{root}/mcp/{server}.yaml"),
+            &angzarr_yaml::write(body, usize::MAX),
+        );
+    }
     for (skill, body) in parsed
         .get("skills")
         .and_then(angzarr_yaml::Value::as_map)
@@ -211,7 +379,7 @@ fn project_bundle(w: &mut World, step: &Step, name: String) {
             .filter_map(|t| t.as_str().map(str::to_string))
             .collect();
         w.common.project.write(
-            &format!("{root}/skills/.{skill}.meta.yaml"),
+            &format!("{root}/skills/{skill}/.meta.yaml"),
             &format!("tags:\n  - {}\n", tags.join("\n  - ")),
         );
     }
@@ -278,10 +446,12 @@ fn skill_listed(w: &mut World, skill: String, bundle: String) {
         ran.contains(&format!("- {name}"));
         return;
     };
-    let listed = doc.as_array().is_some_and(|skills| {
+    // OD-40: `ListSkillsResponse`, each skill named below its bundle.
+    let suffix = format!("/bundles/{bundle}/skills/{skill}");
+    let listed = doc["skills"].as_array().is_some_and(|skills| {
         skills
             .iter()
-            .any(|s| s["name"].as_str() == Some(&name) && s["source"].as_str() == Some(&bundle))
+            .any(|s| s["name"].as_str().is_some_and(|n| n.ends_with(&suffix)))
     });
     assert!(listed, "no skill {name} of bundle {bundle}: {}", ran.said());
 }
@@ -317,11 +487,95 @@ fn add_script(w: &mut World, marker: String, reference: String) {
         &format!("{dir}/scripts/run.sh"),
         &format!("#!/bin/sh\necho {marker}\n"),
     );
-    let sidecar = dir.replace("/skills/", "/skills/.") + ".meta.yaml";
-    let held = w.common.project.read(&sidecar).unwrap_or_default();
+    // The skill's metadata, inside its directory (owner T27); a new
+    // skill's is the empty mapping, which a key replaces.
+    let meta = format!("{dir}/.meta.yaml");
+    let held = w.common.project.read(&meta).unwrap_or_default();
+    let held = if held.trim() == "{}" {
+        String::new()
+    } else {
+        held
+    };
+    w.common
+        .project
+        .write(&meta, &format!("{held}executable:\n  - scripts/run.sh\n"));
+}
+
+/// Go's `a companion "ctxloom-companion-<name>" shipping a "<event>" hook is
+/// on PATH`: the stub companion's program on the `PATH`, answering a
+/// loadout with one hook on `event`. A companion is registered by name in
+/// this port (OD-10), so it is added too, as Alice would add it.
+#[given(
+    regex = r#"^a companion "ctxloom-companion-([^"]+)" shipping a "([^"]+)" hook is on PATH$"#
+)]
+fn companion_with_hook(w: &mut World, name: String, event: String) {
+    let loadout = format!(
+        "run:\n  version: 1.0.0\n  hooks:\n    {event}:\n      - command: echo COMPANION-HOOK-{name}\n        type: command\n"
+    );
+    let dir = w.scratch().join("companion-hooks");
+    let stub = crate::tests::companion_stub::Stub::install(&dir, &name, &loadout);
+    w.common.project.put_on_path(stub.bin());
+    let args = stub.add_args(&name);
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    w.common.project.run(&args).succeeds();
+}
+
+/// A second directory-form bundle beside the project's first (Go's `a
+/// directory-form bundle "landed" exists`): the project stays as it is.
+#[given(expr = "a directory-form bundle {string} exists")]
+fn another_directory_bundle(w: &mut World, name: String) {
     w.common.project.write(
-        &sidecar,
-        &format!("{held}executable:\n  - scripts/run.sh\n"),
+        &format!(".ctxloom/content/bundles/v2/{name}/bundle.yaml"),
+        "schema_version: 4\nversion: 1.0.0\n",
+    );
+}
+
+/// Every file of the landed skill is the authored one's, byte for byte, and
+/// none is missing or added; the modes travel by the metadata, the ONLY word
+/// on a file's executability: the landed skill's declares what the
+/// authored one's does.
+#[then(
+    expr = "the imported files under {string} match the originally-authored {string}, byte for byte"
+)]
+fn imported_match(w: &mut World, landed: String, authored: String) {
+    let (landed_dir, authored_dir) = (skill_dir(&landed), skill_dir(&authored));
+    let got = w.common.project.tree(&landed_dir);
+    let want = w.common.project.tree(&authored_dir);
+    assert!(
+        !want.is_empty(),
+        "nothing was authored under {authored_dir}"
+    );
+    assert_eq!(
+        got.keys().collect::<Vec<_>>(),
+        want.keys().collect::<Vec<_>>(),
+        "the imported skill's files are not the authored ones: {}",
+        w.ran().said()
+    );
+    for (rel, bytes) in &want {
+        assert!(got.get(rel) == Some(bytes), "{rel} differs once imported");
+    }
+    let meta = |dir: &str| format!("{dir}/.meta.yaml");
+    let declared = |dir: &str| {
+        let text = w.common.project.read(&meta(dir)).unwrap_or_default();
+        // The metadata's `executable:` list, one `  - <path>` line each.
+        let mut listed: Vec<String> = text
+            .lines()
+            .skip_while(|l| l.trim_end() != "executable:")
+            .skip(1)
+            .map_while(|l| l.trim().strip_prefix("- "))
+            .map(|p| p.trim_matches('"').to_string())
+            .collect();
+        listed.sort();
+        listed
+    };
+    assert_eq!(
+        declared(&landed_dir),
+        declared(&authored_dir),
+        "the imported skill does not declare the authored one's executables"
+    );
+    assert!(
+        declared(&landed_dir).contains(&"scripts/run.sh".to_string()),
+        "the imported skill declares no scripts/run.sh executable"
     );
 }
 
@@ -360,10 +614,17 @@ fn materialize_profile(w: &mut World, profile: String, engine: String) {
 
 // ------------------------------------------------------------------- then
 
-/// A pattern of `\A`, `\z`, `\n`, `\n?`, `[\s\S]*` and literal text, which is
-/// all Go's scenarios use.
+/// A pattern of `\A`, `\z`, `\n`, `\n?`, `\s+`, `[\s\S]*` and literal text,
+/// led by `(?s)` (its `.*` then any text, `[\s\S]*`) or `(?m)^` (starting at
+/// a line's start), which is all Go's scenarios use.
 fn matches(pattern: &str, text: &str) -> bool {
     fn go(p: &str, t: &str, at_start: bool) -> bool {
+        if let Some(rest) = p.strip_prefix("\\s+") {
+            let spaces = t.len() - t.trim_start().len();
+            return (1..=spaces)
+                .filter(|i| t.is_char_boundary(*i))
+                .any(|i| go(rest, &t[i..], false));
+        }
         if let Some(rest) = p.strip_prefix("\\A") {
             return at_start && go(rest, t, at_start);
         }
@@ -387,6 +648,14 @@ fn matches(pattern: &str, text: &str) -> bool {
             _ => false,
         }
     }
+    if let Some(rest) = pattern.strip_prefix("(?s)") {
+        return matches(&rest.replace(".*", "[\\s\\S]*"), text);
+    }
+    if let Some(rest) = pattern.strip_prefix("(?m)^") {
+        return (0..=text.len())
+            .filter(|i| *i == 0 || text.as_bytes()[i - 1] == b'\n')
+            .any(|i| go(rest, &text[i..], false));
+    }
     // An unanchored pattern may start anywhere.
     if pattern.starts_with("\\A") {
         go(pattern, text, true)
@@ -408,10 +677,11 @@ fn search_said_nothing(w: &mut World) {
         ran.contains("No results found");
         return;
     }
+    // proto3 JSON (OD-40) leaves a zero count and an empty list out.
     let doc = ran.json();
-    assert_eq!(doc["count"], 0, "{doc}");
+    assert!(super::library::holds(&doc, "count", "0").is_ok(), "{doc}");
     for side in ["local", "remote"] {
-        assert_eq!(doc[side], serde_json::json!([]), "{side}: {doc}");
+        assert_eq!(super::library::entries(&doc, side), 0, "{side}: {doc}");
     }
 }
 
@@ -428,12 +698,6 @@ fn output_matches(w: &mut World, pattern: String) {
 fn file_matches(w: &mut World, rel: String, pattern: String) {
     let held = w.common.project.read(&rel).expect("a file");
     assert!(matches(&pattern, &held), "{rel}: {held:?}");
-}
-
-#[then(expr = "the file {string} is valid YAML")]
-fn valid_yaml(w: &mut World, rel: String) {
-    let held = w.common.project.read(&rel).expect("a file");
-    angzarr_yaml::parse(&held).unwrap_or_else(|e| panic!("{rel}: {e}"));
 }
 
 #[then(expr = "the file {string} registers a SessionStart hook whose command contains {string}")]
@@ -1055,5 +1319,10 @@ common_steps!();
 /// Run one feature file with this World: whether it passed, and each
 /// scenario's outcome.
 pub(super) fn run(file: &Path) -> super::gherkin_common::FeatureRun {
-    super::gherkin_common::run_feature::<World>(file)
+    run_only(file, None)
+}
+
+/// [`run`], only the scenario whose id is `only` when one is named.
+pub(super) fn run_only(file: &Path, only: Option<&str>) -> super::gherkin_common::FeatureRun {
+    super::gherkin_common::run_feature::<World>(file, only)
 }

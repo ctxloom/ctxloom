@@ -1,0 +1,22 @@
+# Go-parity commands: id <TAB> fixture <TAB> [ENV=value ...] arguments
+# Each line, in every file of fixtures/parity/ (one per noun, design §8.4),
+# is run by scripts/go-library-goldens.sh against Go ctxloom
+# (release/0.7 860336c4e) to make fixtures/golden/<id>.stdout and .exit, and
+# by the Rust acceptance test (library_parity.test.rs) against this binary.
+# Source of every line: the Go feature named in the id's group comment.
+#
+# cli/skill.feature
+skill-list-json	lib	skill list --format json
+skill-list-text	lib	skill list --format text
+skill-show-json	lib	skill show demo#skills/reviewer --format json
+skill-show-text	lib	skill show demo#skills/reviewer --format text
+skill-show-unknown	lib	skill show demo#skills/never-created
+# ctxloom-project bundle, adapters/content's tree fixtures, a premised bundle
+gold-skill-list-json	gold	skill list --format json
+gold-skill-show-json	gold	skill show code-quality#skills/code-reviewer --format json
+gold-skill-show-text	gold	skill show code-quality#skills/code-reviewer --format text
+# Nothing there: no content directory at all, and an empty one (empty_listing_hint, cli/agent.feature)
+empty-skill-list-text	empty	skill list --format text
+emptybundles-skill-list-text	emptybundles	skill list --format text
+# No project here (configload/appdir.go: no .ctxloom up the path, so the home's config alone)
+noproject-skill-list-text	noproject	CTXLOOM_ROOT= skill list --format text

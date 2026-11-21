@@ -2,7 +2,7 @@
 //! target stream, holding that target's alarms.
 //!
 //! Arming and cancelling are commands, refusable (OD-3); the clock's
-//! `AlarmDue` is a fact, never refused, and records nothing it cannot use.
+//! `RecordAlarmDue` is a fact, never refused, and records nothing it cannot use.
 
 use angzarr_embedded::markup::{
     pack_message, Bug, Context, FactEmit, Failed, PageContext, Refuses, Snapshots, Unrefusable,
@@ -11,8 +11,8 @@ use angzarr_embedded_macros::{aggregate, applies, handles_cmd, handles_fact};
 
 use crate::refusal::refuse;
 use crate::{
-    apply, instant, stream_for, stream_text, AlarmArmed, AlarmCancelled, AlarmDue, AlarmFired,
-    AlarmIdEmpty, ArmAlarm, CancelAlarm, SchedulerCommand, SchedulerEvent, SchedulerRejection,
+    apply, instant, stream_for, stream_text, AlarmArmed, AlarmCancelled, AlarmFired, AlarmIdEmpty,
+    ArmAlarm, CancelAlarm, RecordAlarmDue, SchedulerCommand, SchedulerEvent, SchedulerRejection,
     SchedulerState, TargetMismatch,
 };
 
@@ -111,8 +111,8 @@ impl SchedulerAggregate {
     /// The clock says an instant is reached. Fires the alarm only if it is
     /// armed at exactly this instant; a moved, cancelled or fired alarm
     /// records nothing.
-    #[handles_fact(AlarmDue)]
-    fn due(&self, fact: AlarmDue, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
+    #[handles_fact(RecordAlarmDue)]
+    fn due(&self, fact: RecordAlarmDue, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
         let _ = ctx;
         let alarm = self.scheduler.alarms.get(&fact.alarm_id);
         let armed =

@@ -1,9 +1,10 @@
 # Ported from probes/capability_native_history.feature (rev f36e8dfb2)
-# NOT ported: any of it yet (the Feature is @pending).
+# NOT ported: any of it yet (the Feature is @pending, its reason below).
 #   Left out: "claude writes through a symlinked projects/ and
 #   leaves the link in place": it runs the vendor binary directly, so it tests
 #   Claude Code, not ctxloom.
 
+# Pending (OD-48, live-only): it needs a real engine or model, and there is no Rust live lane yet.
 @live @probe-p14-native-history
 @pending
 Feature: P14 — claude keeps its conversation history under the config home's projects/, and writes through a symlinked one

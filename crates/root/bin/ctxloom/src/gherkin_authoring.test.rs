@@ -198,6 +198,7 @@ impl World {
             .env("HOME", &home)
             .env("USERPROFILE", &home)
             .env("TMPDIR", crate::tests::temp_root())
+            .env(crate::tests::LIFELINE, crate::tests::lifeline())
             .env("CTXLOOM_ROOT", &dir)
             .current_dir(&dir)
             .stdin(Stdio::piped())
@@ -205,6 +206,11 @@ impl World {
             .stderr(Stdio::piped());
         if let Some(path) = crate::tests::host_var("SystemRoot") {
             command.env("SystemRoot", path);
+        }
+        // Her editor is launched at her terminal only (the Caller ruling),
+        // stood in as init's terminal scenarios stand one in.
+        if files::exists(self.editor_dir().join("editor.sh")) {
+            command.env("CTXLOOM_TEST_TERMINAL", "1");
         }
         for (name, value) in &self.common.env {
             command.env(name, value);
@@ -369,7 +375,7 @@ impl World {
                 SKILL_SCRIPT,
             );
             files::put(
-                tree.join("skills/.review-checklist.meta.yaml"),
+                tree.join("skills/review-checklist/.meta.yaml"),
                 "executable:\n  - scripts/check.sh\n",
             );
             files::put(
@@ -641,14 +647,18 @@ fn sees_bundle(w: &mut World, bundle: String) {
         None,
     );
     ran.succeeds();
+    // OD-40: the `Bundle` lists each child as a summary naming it.
     let shown = ran.json();
     for (kind, name) in [
         ("fragments", "house-style"),
         ("commands", "conventional-commits"),
         ("skills", "review-checklist"),
     ] {
+        let suffix = format!("/{kind}/{name}");
         assert!(
-            shown.get(kind).and_then(|k| k.get(name)).is_some(),
+            shown[kind].as_array().is_some_and(|items| items
+                .iter()
+                .any(|i| i["item"].as_str().is_some_and(|n| n.ends_with(&suffix)))),
             "the bundle shows no {kind} {name}: {}",
             ran.said()
         );

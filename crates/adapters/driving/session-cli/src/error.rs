@@ -61,6 +61,29 @@ impl Diagnostic for CliFault {
     }
 }
 
+/// A close of a session that was closed already (slice 4 U3): said beside
+/// the session's json, as its text says it on the answer's line.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct AlreadyClosed {
+    pub harp: String,
+}
+
+impl fmt::Display for AlreadyClosed {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        angzarr_diagnostic::display(self, f)
+    }
+}
+
+impl Diagnostic for AlreadyClosed {
+    fn code(&self) -> &str {
+        code!("already-closed")
+    }
+
+    fn args(&self) -> Vec<(&str, Arg)> {
+        vec![("harp", self.harp.as_str().into())]
+    }
+}
+
 /// This crate's en-US messages, its name first.
 pub const EN_US: (&str, &str) = (
     env!("CARGO_PKG_NAME"),
@@ -70,7 +93,7 @@ pub const EN_US: (&str, &str) = (
 /// One value of every fault, for the catalog test.
 #[cfg(any(test, feature = "test-support"))]
 pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
-    vec![
+    let faults: Vec<Box<dyn Diagnostic>> = vec![
         Box::new(CliFault::BadState {
             value: "running".to_string(),
             states: "live, ended, unknown".to_string(),
@@ -82,7 +105,11 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
             ext_err_txt: "broken pipe".to_string(),
         }),
         Box::new(CliFault::SweepFailed { count: 2 }),
-    ]
+        Box::new(AlreadyClosed {
+            harp: "brisk-copper-moth".to_string(),
+        }),
+    ];
+    faults.into_iter().chain(crate::text::samples()).collect()
 }
 
 #[cfg(test)]

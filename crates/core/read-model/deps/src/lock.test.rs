@@ -305,3 +305,13 @@ fn test_every_spelling_of_null_is_a_lock_with_no_document() {
         );
     }
 }
+
+// OD-40, OQ-15: a Dependency's ID is the first 16 hex digits of its
+// identity's SHA-256.
+#[test]
+fn test_a_dependency_id_is_sixteen_hex_digits_of_its_identitys_sha256() {
+    // sha256("abc") = ba7816bf8f01cfea414140de5dae2223b00361a3...
+    assert_eq!(dependency_id("abc"), "ba7816bf8f01cfea");
+    assert_eq!(dependency_id(KEY).len(), 16);
+    assert_ne!(dependency_id(KEY), dependency_id("abc"));
+}

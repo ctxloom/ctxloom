@@ -1,8 +1,8 @@
+# world: surfaces
 # Ported from journeys/j000800_onboarding.feature (rev f36e8dfb2)
 # NOT ported: "Materializing for an engine that cannot carry hooks says so" is
 #   materialize's contract, in cli/materialize.feature.
 @doc
-@pending
 Feature: A new engineer clones the repo and is already set up
 
   The day a new engineer joins, everything the team has standardized on should
@@ -39,7 +39,7 @@ Feature: A new engineer clones the repo and is already set up
     Examples:
       | engine      |
       | claude-code |
-      | mock        |
+      | opencode    |
 
   Scenario: Content the project references from another repository reaches Bob on a fresh clone
     # substitution: Bob fetches with ctxloom deps pull and starts his session with ctxloom run.

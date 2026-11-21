@@ -19,6 +19,8 @@ pub enum AppError {
     NoSession { harp: String },
     /// A transcript asked for of a session that has none captured.
     NoCapturedTranscript { harp: String },
+    /// A project named with no harp to try (S54).
+    NoProjectHarp { project_id: String },
     /// The domain refused the command: tell the person.
     Rejected(Report),
     /// The store or the kernel failed in a way a retry will not mend.
@@ -62,6 +64,7 @@ impl ExitClass for AppError {
             AppError::Rejected(_)
             | AppError::NoSession { .. }
             | AppError::NoCapturedTranscript { .. } => Exit::REFUSED,
+            AppError::NoProjectHarp { .. } => Exit::FAILED,
             AppError::Failed(_)
             | AppError::Identity(_)
             | AppError::Files(_)
@@ -81,6 +84,7 @@ impl Diagnostic for AppError {
         match self {
             AppError::NoSession { .. } => code!("no-session"),
             AppError::NoCapturedTranscript { .. } => code!("no-captured-transcript"),
+            AppError::NoProjectHarp { .. } => code!("no-project-harp"),
             AppError::GaveUp { .. } => code!("gave-up"),
             AppError::Rejected(cause)
             | AppError::Failed(cause)
@@ -94,6 +98,9 @@ impl Diagnostic for AppError {
         match self {
             AppError::NoSession { harp } | AppError::NoCapturedTranscript { harp } => {
                 vec![("harp", harp.as_str().into())]
+            }
+            AppError::NoProjectHarp { project_id } => {
+                vec![("project_id", project_id.as_str().into())]
             }
             AppError::GaveUp { attempts, error } => vec![
                 ("attempts", u64::from(*attempts).into()),
@@ -145,6 +152,10 @@ pub enum Refusal {
     /// The session ended within the transcript retention, or nothing proves
     /// when it ended; `detail` says which.
     Retained { harp: String, detail: String },
+    /// The session's lock `lock` is held, and the platform cannot move a
+    /// directory holding an open file (D18, Windows): refused whatever
+    /// `--even-if-live` says.
+    LockHeld { harp: String, lock: String },
 }
 
 impl fmt::Display for Refusal {
@@ -159,6 +170,7 @@ impl Diagnostic for Refusal {
             Refusal::NotProvenDead { .. } => code!("refused-not-dead"),
             Refusal::Kept { .. } => code!("refused-kept"),
             Refusal::Retained { .. } => code!("refused-retained"),
+            Refusal::LockHeld { .. } => code!("refused-lock-held"),
         }
     }
 
@@ -173,6 +185,10 @@ impl Diagnostic for Refusal {
             Refusal::Retained { harp, detail } => vec![
                 ("harp", harp.as_str().into()),
                 ("detail", detail.as_str().into()),
+            ],
+            Refusal::LockHeld { harp, lock } => vec![
+                ("harp", harp.as_str().into()),
+                ("lock", lock.as_str().into()),
             ],
         }
     }
@@ -230,6 +246,41 @@ impl Diagnostic for DestroysAuthored {
     }
 }
 
+/// A removal of a session whose hold keeps facts no daemon has recorded
+/// (s4-Q14, H4; owner H-Q8 (a)): a notice, never a refusal, said whether
+/// the removal was applied (the hold discarded with it) or only reported.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct DestroysHeld {
+    pub harp: String,
+    /// The facts its hold keeps.
+    pub facts: u64,
+    /// Its hold's set-aside parts: what a flush could never record.
+    pub set_aside: u32,
+}
+
+impl fmt::Display for DestroysHeld {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        angzarr_diagnostic::display(self, f)
+    }
+}
+
+impl Diagnostic for DestroysHeld {
+    fn code(&self) -> &str {
+        code!("destroys-held")
+    }
+
+    fn args(&self) -> Vec<(&str, Arg)> {
+        vec![
+            ("harp", self.harp.as_str().into()),
+            (
+                "facts",
+                i64::try_from(self.facts).unwrap_or(i64::MAX).into(),
+            ),
+            ("set_aside", i64::from(self.set_aside).into()),
+        ]
+    }
+}
+
 /// This crate's en-US messages, its name first.
 pub const EN_US: (&str, &str) = (
     env!("CARGO_PKG_NAME"),
@@ -255,6 +306,9 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
     samples.extend::<Vec<Box<dyn Diagnostic>>>(vec![
         Box::new(AppError::NoSession { harp: harp() }),
         Box::new(AppError::NoCapturedTranscript { harp: harp() }),
+        Box::new(AppError::NoProjectHarp {
+            project_id: "jolly-mute-magma".to_string(),
+        }),
         Box::new(AppError::GaveUp {
             attempts: 10,
             error: Report::new("x-busy"),
@@ -269,12 +323,21 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
             harp: harp(),
             detail: "it ended an hour ago".to_string(),
         }),
+        Box::new(Refusal::LockHeld {
+            harp: harp(),
+            lock: "C:/work/.ctxloom/sessions/amber-swift-owl/session.lock".to_string(),
+        }),
         Box::new(RemovedNothing {
             command: "ctxloom session remove amber-swift-owl --yes".to_string(),
         }),
         Box::new(DestroysAuthored {
             harp: harp(),
             files: "design-notes.md, plan.md".to_string(),
+        }),
+        Box::new(DestroysHeld {
+            harp: harp(),
+            facts: 3,
+            set_aside: 1,
         }),
     ]);
     samples

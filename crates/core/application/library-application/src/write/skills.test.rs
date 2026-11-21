@@ -21,7 +21,7 @@ fn world() -> (Library, Arc<Mem>) {
                     ("skills/reviewer/scripts/run.sh", "#!/bin/sh\n"),
                     ("skills/reviewer/assets/blob.bin", "BLOB"),
                     (
-                        "skills/.reviewer.meta.yaml",
+                        "skills/reviewer/.meta.yaml",
                         "tags:\n  - t\nexecutable:\n  - scripts/run.sh\n",
                     ),
                     (
@@ -75,6 +75,19 @@ fn test_create_scaffolds_the_package_with_go_s_skill_md() {
     assert_eq!(
         mem.text("landed", "skills/fresh/SKILL.md").unwrap(),
         "---\nname: fresh\ndescription: SKILL-MARKER-fresh\n---\n\n# fresh\n\nTODO: describe what this skill does and how to use it.\n"
+    );
+    // Its metadata, empty, inside it (owner T27): the directory is all of it.
+    assert_eq!(
+        mem.paths("landed"),
+        [
+            "bundle.yaml",
+            "skills/fresh/.meta.yaml",
+            "skills/fresh/SKILL.md"
+        ]
+    );
+    assert_eq!(
+        mem.text("landed", "skills/fresh/.meta.yaml").unwrap(),
+        "{}\n"
     );
     assert_eq!(mem.log(), ["apply landed"]);
     let shown = library
@@ -134,7 +147,7 @@ fn test_create_by_reference_scaffolds_the_named_package() {
 
 // skill.feature: Removing a skill drops its on-disk directory
 #[test]
-fn test_remove_previews_then_takes_the_package_and_its_sidecar_only() {
+fn test_remove_previews_then_takes_the_package_whole_its_metadata_with_it() {
     let (library, mem) = world();
     let Removal::Preview(p) = library
         .skill_remove(&plain(), "vault#skills/reviewer", false)
@@ -192,7 +205,7 @@ fn test_remove_of_a_skill_nobody_created_is_refused() {
 
 // skill.feature: A skill's files survive export and import byte-for-byte
 #[test]
-fn test_export_packs_the_package_with_exec_bits_from_the_sidecar_only() {
+fn test_export_packs_the_directory_whole_with_exec_bits_from_its_metadata_only() {
     let (library, mem) = world();
     // A file made executable on disk but not declared travels as plain.
     mem.set_exec_for_test("vault", "skills/reviewer/assets/blob.bin");
@@ -217,6 +230,8 @@ fn test_export_packs_the_package_with_exec_bits_from_the_sidecar_only() {
     assert_eq!(
         listed,
         [
+            // The metadata travels with the directory (owner T27).
+            (".meta.yaml", false),
             ("SKILL.md", false),
             ("assets/blob.bin", false),
             ("scripts/run.sh", true)
@@ -250,7 +265,7 @@ fn archive(entries: &[Entry]) -> Vec<u8> {
 }
 
 #[test]
-fn test_import_lands_the_files_whole_and_records_the_executables_in_the_sidecar() {
+fn test_import_lands_the_files_whole_and_records_the_executables_in_its_metadata() {
     let (library, mem) = world();
     mem.put_user(
         "reviewer.zip",
@@ -289,13 +304,13 @@ fn test_import_lands_the_files_whole_and_records_the_executables_in_the_sidecar(
     );
     assert!(!mem.file("landed", "skills/reviewer/a.bin").unwrap().1);
     assert_eq!(
-        mem.text("landed", "skills/.reviewer.meta.yaml").unwrap(),
+        mem.text("landed", "skills/reviewer/.meta.yaml").unwrap(),
         "executable:\n  - scripts/run.sh\n"
     );
 }
 
 #[test]
-fn test_an_import_with_no_executables_writes_no_sidecar() {
+fn test_an_import_with_no_executables_writes_the_empty_metadata() {
     let (library, mem) = world();
     mem.put_user(
         "r.zip",
@@ -306,7 +321,35 @@ fn test_an_import_with_no_executables_writes_no_sidecar() {
         .skill_import(&plain(), "r.zip", "landed", false)
         .result
         .unwrap();
-    assert_eq!(mem.text("landed", "skills/.reviewer.meta.yaml"), None);
+    // A skill is its directory with its metadata inside (owner T27).
+    assert_eq!(
+        mem.text("landed", "skills/reviewer/.meta.yaml").as_deref(),
+        Some("{}\n")
+    );
+}
+
+// owner T27: the metadata an archive brings is the skill's, its executables
+// the archive's modes.
+#[test]
+fn test_an_import_keeps_the_metadata_its_archive_brings() {
+    let (library, mem) = world();
+    mem.put_user(
+        "r.zip",
+        &archive(&[
+            entry("SKILL.md", SKILL_MD, false),
+            entry(".meta.yaml", "tags:\n  - brought\n", false),
+            entry("run.sh", "#!/bin/sh\n", true),
+        ]),
+        false,
+    );
+    library
+        .skill_import(&plain(), "r.zip", "landed", false)
+        .result
+        .unwrap();
+    assert_eq!(
+        mem.text("landed", "skills/reviewer/.meta.yaml").unwrap(),
+        "tags:\n  - brought\nexecutable:\n  - run.sh\n"
+    );
 }
 
 // plan §10 S2: an import over an existing item refuses, and the local edit survives
@@ -348,9 +391,9 @@ fn test_import_over_a_skill_refuses_unless_forced_and_force_replaces_the_package
         "the package is replaced, not merged"
     );
     assert_eq!(
-        mem.text("vault", "skills/.reviewer.meta.yaml").unwrap(),
-        "tags:\n  - t\n",
-        "the sidecar's other keys stay, the executables go"
+        mem.text("vault", "skills/reviewer/.meta.yaml").unwrap(),
+        "{}\n",
+        "the metadata is the directory's, replaced with it (owner T27)"
     );
     assert!(mem.text("vault", "skills/planner/SKILL.md").is_some());
 }
@@ -396,5 +439,31 @@ fn test_import_refuses_an_archive_that_is_not_one_a_package_without_skill_md_or_
     assert!(
         err(library.skill_import(&plain(), "ok.zip", "nobundle", false)).contains("BundleNotFound")
     );
+    assert_eq!(mem.writes(), 0);
+}
+
+// OQ-6 (design §1.3): a created or imported skill's name is an ID.
+#[test]
+fn test_create_and_import_refuse_a_name_that_is_no_id() {
+    let (library, mem) = world();
+    for bad in [
+        "Upper",
+        "under_score",
+        "dot.ted",
+        "two words",
+        "9lead",
+        "trail-",
+        "a-very-long-name-that-runs-past-sixty-three-characters-xxxxxxxxxx",
+    ] {
+        let got = err(library.skill_create(&plain(), "vault", bad, "d"));
+        assert!(got.contains("BadId"), "{bad:?}: {got}");
+    }
+    mem.put_user(
+        "upper.zip",
+        &pack("Reviewer_Two", &[entry("SKILL.md", SKILL_MD, false)]).unwrap(),
+        false,
+    );
+    let got = err(library.skill_import(&plain(), "upper.zip", "vault", false));
+    assert!(got.contains("BadId"), "{got}");
     assert_eq!(mem.writes(), 0);
 }

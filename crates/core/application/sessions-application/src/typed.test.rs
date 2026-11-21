@@ -13,7 +13,7 @@ use angzarr_embedded_runner::{Refusal, Runner, Unrun};
 use exit_code::ExitClass;
 use sessions::{
     AdoptRotations, ClaimName, MintSession, NameClaimAggregate, NameClaimCommand, ReleaseName,
-    SessionAggregate, SessionCommand, SessionRejection, SetKept, StopSession,
+    SessionAggregate, SessionCommand, SessionRejection, SetKept,
 };
 
 use super::run;
@@ -96,6 +96,7 @@ fn mint(harp: &str) -> MintSession {
         origin: sessions::Origin::Session,
         started_at: None,
         depth: 0,
+        owner: None,
         workspace: None,
     }
 }
@@ -197,21 +198,6 @@ fn the_mint_and_rename_refusals_are_told_by_their_type() {
         SessionRejection::NoSession,
         "sessions-no-session",
         &[],
-        20,
-    );
-
-    expect(
-        told(
-            &store,
-            false,
-            to_session(StopSession {
-                reason: "end".to_string(),
-                requester_depth: 1,
-            }),
-        ),
-        SessionRejection::ChildCannotStop { depth: 1 },
-        "sessions-child-cannot-stop",
-        &[("depth", "1")],
         20,
     );
 }

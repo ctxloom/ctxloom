@@ -1,0 +1,315 @@
+syntax = "proto3";
+
+// A project's harp (owner S54, accepted): a session's resource name is
+// `projects/{project-harp}/sessions/{session-harp}` (S42), so each project
+// has a harp of its own, minted ONCE and never changed, as a session's is.
+// Two aggregates in the one store (T14):
+//
+// - `projects`: one stream per project, its root the project's namespace
+//   (`project_namespace(project_id)`, owner-approved and fixed), holding the
+//   harp it was named with;
+// - `project-names`: one claim stream per harp text, its root UUIDv5 of the
+//   harp in the user's project-names namespace, so a project harp is unique
+//   for the user because a stream is.
+//
+// A project is named by claiming a harp for it first (`ClaimProjectName`),
+// then `NameProject`; a project already named records nothing, whatever
+// harp is asked, and keeps the one it has.
+package ctxloom.sessions.v1;
+
+import "io/angzarr/v1/options.proto";
+
+message ProjectState {
+  option (io.angzarr.v1.component) = {
+    component_name: "project"
+    aggregate: {domain: "projects"}
+  };
+
+  string project_id = 1;
+  // The project's harp; empty until it is named.
+  string harp = 2;
+  // Its registration (owner, 2026-11-12, project registration), empty until
+  // a daemon client first registers it: the root path the client resolved,
+  // its git common directory (a worktree's is its primary checkout's, so
+  // a worktree is its primary's project) and the repository's root commit.
+  // Outside git the two are empty (an empty VCS identity).
+  string root = 3;
+  string git_common_dir = 4;
+  string root_commit = 5;
+  // O2 (step 10b U9): the session removals intended and not yet done, by
+  // request id. A removal done is dropped, so nothing of a removed session
+  // stays here.
+  map<string, OpenRemoval> removals = 6;
+}
+
+// A session's removal intended and not yet done (O2): its steps, in order,
+// and how many are done.
+message OpenRemoval {
+  string request_id = 1;
+  string harp = 2;
+  repeated string steps = 3;
+  uint32 done = 4;
+}
+
+// Name the project `harp`, once. A project already named records nothing
+// (its harp is permanent); its stream says the harp it has.
+message NameProject {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.sessions.v1.ProjectState"
+    emits: ["ctxloom.sessions.v1.ProjectNamed"]
+    refuses: "ctxloom.sessions.v1.HarpInvalid"
+  };
+
+  string project_id = 1;
+  string harp = 2;
+}
+
+message ProjectNamed {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.ProjectState"};
+
+  string project_id = 1;
+  string harp = 2;
+}
+
+// Register the project's root and its VCS identity on first sight, or
+// recheck them on every later access (owner, 2026-11-12, project
+// registration): a project registered records nothing again, and is
+// refused when its root commit is not the one registered (another
+// repository at its place) or when the client expected another harp. The
+// project must be named first (S54): its harp is what a refusal names.
+//
+// A project registered outside git (an empty VCS identity) ADOPTS the first
+// identity it is seen with, a git common dir and a root commit, as the
+// event `ProjectIdentityAdopted` (owner, 2026-11-12, after step 5); after
+// that the comparison is strict, as for a project registered inside git.
+message RegisterProject {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.sessions.v1.ProjectState"
+    emits: ["ctxloom.sessions.v1.ProjectRegistered", "ctxloom.sessions.v1.ProjectIdentityAdopted"]
+    refuses: "ctxloom.sessions.v1.UnnamedProject"
+    refuses: "ctxloom.sessions.v1.ProjectIdentityMismatch"
+    refuses: "ctxloom.sessions.v1.ProjectHarpMismatch"
+  };
+
+  string project_id = 1;
+  string root = 2;
+  string git_common_dir = 3;
+  string root_commit = 4;
+  // The project harp the client expects (the one its session names); empty
+  // when it expects none.
+  string expected_harp = 5;
+}
+
+message ProjectRegistered {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.ProjectState"};
+
+  string project_id = 1;
+  string root = 2;
+  string git_common_dir = 3;
+  string root_commit = 4;
+}
+
+// A project registered with an empty VCS identity took the first one it was
+// seen with (owner, 2026-11-12, after step 5). Its root stays the one
+// registered.
+message ProjectIdentityAdopted {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.ProjectState"};
+
+  string project_id = 1;
+  string git_common_dir = 2;
+  string root_commit = 3;
+}
+
+message ProjectNameState {
+  option (io.angzarr.v1.component) = {
+    component_name: "project-name"
+    aggregate: {domain: "project-names"}
+  };
+
+  string harp = 1;
+  // The project that holds the harp; empty while it is free.
+  string project_id = 2;
+}
+
+// Take the harp for `project_id`. Refused `sessions-project-name-taken`
+// while another project holds it; the holder asking again records nothing.
+message ClaimProjectName {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.sessions.v1.ProjectNameState"
+    emits: ["ctxloom.sessions.v1.ProjectNameClaimed"]
+    refuses: "ctxloom.sessions.v1.ProjectNameTaken"
+  };
+
+  string harp = 1;
+  string project_id = 2;
+}
+
+message ProjectNameClaimed {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.ProjectNameState"};
+
+  string harp = 1;
+  string project_id = 2;
+}
+
+// region session removal (O2, step 10b U9)
+
+// What a removal is judged on, found by the daemon before it sends the
+// command (S41: decide reads no lock, clock or disk): the lock's verdict,
+// the session's kept flag, its transcript retention, its worktrees'
+// classification.
+message RemovalEvidence {
+  string harp = 1;
+  // The lock proves the owner ended (it is there and free).
+  bool ended = 2;
+  // When it does not: why (held, or no lock), as the refusal says it.
+  string not_ended = 3;
+  bool kept = 4;
+  // Within the transcript retention: how (when it ended, or that nothing
+  // records it); empty once past it.
+  string retained = 5;
+  // Its worktrees a removal would spare (work in them) and skip (their
+  // owner not proven ended).
+  uint64 spared = 6;
+  uint64 skipped = 7;
+  // A lock held open that keeps its directory from being renamed into the
+  // trash (D18: on Windows a directory holding an open file cannot be
+  // moved): its path, set only there; empty everywhere else.
+  string blocking_lock = 8;
+}
+
+// Remove one session (`session remove <harp> --yes`), a T28 sequence the
+// daemon runs on the event: its worktrees (reclaim), then its directory,
+// lock inside, renamed into the checkout's `state/trash/<request id>/`,
+// then its streams purged, then the slot removed. The steps are listed in
+// the event, and a retry resumes at the first not done. Its command id is
+// the request id, which this stream keeps when the session's own is purged.
+message RemoveSession {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.sessions.v1.ProjectState"
+    emits: ["ctxloom.sessions.v1.SessionRemovalIntended"]
+    refuses: "ctxloom.sessions.v1.SessionLive"
+    refuses: "ctxloom.sessions.v1.SessionKept"
+    refuses: "ctxloom.sessions.v1.WithinRetention"
+    refuses: "ctxloom.sessions.v1.KeepsSession"
+    refuses: "ctxloom.sessions.v1.SessionLockHeld"
+  };
+
+  string project = 1;
+  string harp = 2;
+  bool even_if_live = 3;
+  RemovalEvidence evidence = 4;
+}
+
+message SessionRemovalIntended {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.ProjectState"};
+  string request_id = 1;
+  string harp = 2;
+  // `worktrees`, `trash`, `purge`, `purge_trash`, in order.
+  repeated string steps = 3;
+}
+
+// The daemon's word that a step is done (keyed `{request_id}:{step}`).
+message RecordRemovalStepDone {
+  option (io.angzarr.v1.fact) = {
+    component: "ctxloom.sessions.v1.ProjectState"
+    emits: ["ctxloom.sessions.v1.RemovalStepDone"]
+  };
+  string request_id = 1;
+  uint32 step = 2;
+}
+
+message RemovalStepDone {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.ProjectState"};
+  string request_id = 1;
+  uint32 step = 2;
+}
+
+// endregion session removal
+
+// region refusals
+
+// A removal of a session whose lock does not prove its owner ended (held,
+// or no lock), without `even_if_live`. Maps back to
+// `sessions-application-refused-not-dead`'s words.
+message SessionLive {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  string harp = 1;
+  string reason = 2;
+}
+
+// A removal of a session marked keep (`sessions-application-refused-kept`).
+message SessionKept {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  string harp = 1;
+}
+
+// A removal within the transcript retention
+// (`sessions-application-refused-retained`).
+message WithinRetention {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  string harp = 1;
+  string detail = 2;
+}
+
+// A removal a spared or skipped worktree keeps the session from
+// (`isolation-application-keeps-session`): removed whole or not at all.
+message KeepsSession {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  string harp = 1;
+  uint64 spared = 2;
+  uint64 skipped = 3;
+}
+
+// A removal, `--even-if-live` or not, of a session whose lock is held
+// where a held lock keeps its directory from being moved (D18, Windows):
+// refused before anything is touched, naming the lock; end the session
+// first (`sessions-session-lock-held`).
+message SessionLockHeld {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  string harp = 1;
+  // The lock's path, as the daemon found it held.
+  string lock = 2;
+}
+
+// A claim on a project harp another project holds.
+message ProjectNameTaken {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_ALREADY_EXISTS;
+
+  string harp = 1;
+}
+
+// A registration of a project that has no harp yet.
+message UnnamedProject {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  string project_id = 1;
+}
+
+// A recheck whose repository is not the one registered: its root commit
+// changed (another repository at the project's place). Names the
+// registered project.
+message ProjectIdentityMismatch {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  // `projects/{project}`, the registered project.
+  string project = 1;
+  string root = 2;
+  string registered_commit = 3;
+  string found_commit = 4;
+}
+
+// A recheck that expected another project harp than the registered one.
+message ProjectHarpMismatch {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  // `projects/{project}`, the registered project.
+  string project = 1;
+  string expected = 2;
+}
+
+// endregion refusals

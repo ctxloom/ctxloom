@@ -54,10 +54,8 @@ fn enqueued(n: u8, incarnation: u32, mode: RunMode) -> EventBook {
         session,
         incarnation,
         mode,
-        runner_credential_hash: vec![1; 32],
-        model_credential_hash: vec![2; 32],
-        hook_credential_hash: vec![3; 32],
         launcher_lock: lock_of(n),
+        grant: None,
     });
     book(RUN_DOMAIN, root, vec![page(0, event.to_any())])
 }
@@ -122,8 +120,24 @@ fn an_enqueued_run_is_owed_a_runner() {
             incarnation: 1,
             mode: RunMode::OneShot,
             launcher_lock: lock_of(1),
+            project_dir: String::new(),
+            harp: String::new(),
         }
     );
+}
+
+// A run owed a runner is listed with its session's place once its mint is
+// seen: a daemon that adopts it lets its checkout go in that project.
+#[test]
+fn a_run_owed_a_runner_is_listed_with_its_sessions_place() {
+    let model = fold(&[
+        minted(1, "amber-swift-owl"),
+        enqueued(1, 1, RunMode::Interactive),
+    ]);
+    let launches = model.launches();
+    assert_eq!(launches.len(), 1);
+    assert_eq!(launches[0].project_dir, "/work/p1");
+    assert_eq!(launches[0].harp, "amber-swift-owl");
 }
 
 #[test]
@@ -189,7 +203,10 @@ fn a_sign_of_life_without_a_start_does_not_clear_the_launch() {
             2,
             1,
             1,
-            RunEvent::TurnStartedRecorded(TurnStartedRecorded { turn: 1 }),
+            RunEvent::TurnStartedRecorded(TurnStartedRecorded {
+                turn: 1,
+                message_ids: Vec::new(),
+            }),
         ),
     ]);
     assert_eq!(
@@ -311,6 +328,7 @@ fn a_book_after_the_first_page_does_not_start_its_stream_afresh() {
         turn: 1,
         class: runs::TurnFailureClass::RateLimited,
         detail: String::new(),
+        message_ids: Vec::new(),
     });
     let model = fold(&[enqueued(1, 1, RunMode::OneShot), later(1, 1, 1, failed)]);
     assert_eq!(
@@ -369,6 +387,7 @@ fn minted(n: u8, harp: &str) -> EventBook {
             origin: sessions::Origin::Session,
             started_at: None,
             depth: 0,
+            owner: None,
             workspace: None,
         })
         .to_any(),
@@ -377,7 +396,9 @@ fn minted(n: u8, harp: &str) -> EventBook {
 }
 
 // Ruling 93: a run started and not ended is listed with its session's
-// project and harp (its lock's place), until it ends.
+// project and harp (its lock's place), until it ends;
+// and with its own lock, which a host holding it for the run's life lets go
+// only with the run (T3, T18).
 #[test]
 fn a_started_run_is_listed_with_its_sessions_lock_until_it_ends() {
     let (_, session) = session_root(1);
@@ -395,6 +416,7 @@ fn a_started_run_is_listed_with_its_sessions_lock_until_it_ends() {
             incarnation: 1,
             project_dir: "/work/p1".to_string(),
             harp: "amber-swift-owl".to_string(),
+            launcher_lock: lock_of(1),
         }]
     );
     assert!(
@@ -417,3 +439,6 @@ fn a_run_owed_a_runner_is_not_started() {
     assert!(model.started().is_empty());
     assert_eq!(model.launches().len(), 1);
 }
+
+#[path = "bus.test.rs"]
+mod bus;

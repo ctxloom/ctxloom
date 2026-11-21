@@ -1,9 +1,12 @@
 //! A bundle read from its tree of files (Go's `internal/adapters/content`
 //! tree reader and `bundles.ReadTree`): an envelope `bundle.yaml` and, per
 //! kind, `fragments/<n>.md` (+ `<n>.distilled.md`), `prompts/<n>.md`,
-//! `mcp/<n>.yaml` (+ `.<n>.meta.yaml`), `skills/<n>/...` (+ the sidecar
-//! `skills/.<n>.meta.yaml` beside the package), `hooks/<event>/<n>.yaml`
-//! (+ a sidecar with `order` and `tags`) and `profiles/<n>.yaml`.
+//! `mcp/<n>.yaml` (what it says of itself too), `skills/<n>/...` (its
+//! metadata `skills/<n>/.meta.yaml` inside the package, a file of it),
+//! `hooks/<event>/<n>.yaml` (+ a sidecar with `order` and `tags`) and
+//! `profiles/<n>.yaml`. Metadata in the old layout, beside a skill or a
+//! server (`skills/.<n>.meta.yaml`, `mcp/.<n>.meta.yaml`), refuses the
+//! bundle (owner T27, D15): it is never read, and never moved by ctxloom.
 
 use std::collections::BTreeMap;
 
@@ -18,7 +21,7 @@ use crate::yamlx;
 
 /// The files of a bundle's tree by path relative to the bundle, slash
 /// separated: `bundle.yaml`, `fragments/solid.md`,
-/// `skills/.code-reviewer.meta.yaml`.
+/// `skills/code-reviewer/.meta.yaml`.
 pub type Files = BTreeMap<String, Vec<u8>>;
 
 /// Read the tree of the bundle `name`. The envelope's `schema_version` (0 to
@@ -48,6 +51,19 @@ pub fn read_tree(name: &str, files: &Files) -> Result<Bundle, BundleError> {
     reader.skills(&mut bundle)?;
     reader.hooks(&mut bundle)?;
     Ok(bundle)
+}
+
+/// A skill's metadata, inside its package: `skills/<n>/.meta.yaml`.
+pub const SKILL_META: &str = ".meta.yaml";
+
+/// What a flat kind does with a dot-prefixed `.<n>.meta.yaml` beside an item.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Beside {
+    /// A kind that never kept one: refused as unexplained.
+    Unexplained,
+    /// A kind whose metadata moved into the item's own file (an MCP
+    /// server, owner T27): refused as the old layout.
+    OldLayout,
 }
 
 /// The file every tree holds at its root.
@@ -119,14 +135,14 @@ impl<'a> Reader<'a> {
         }
     }
 
-    /// A flat kind directory: `<stem><ext>` items, `.<stem>.meta.yaml`
-    /// sidecars, and (for markdown kinds) `<stem>.distilled.md` forms. Anything
-    /// else is unclaimed; a sidecar on a kind that keeps none is refused.
+    /// A flat kind directory: `<stem><ext>` items and (for markdown kinds)
+    /// `<stem>.distilled.md` forms. Anything else is unclaimed; a
+    /// `.<stem>.meta.yaml` beside an item is refused, as `beside` says.
     fn flat(
         &self,
         dir: &str,
         ext: &str,
-        keeps_meta: bool,
+        beside: Beside,
         distilled_form: bool,
     ) -> Result<BTreeMap<String, FlatItem<'a>>, BundleError> {
         let mut items: BTreeMap<String, FlatItem<'a>> = BTreeMap::new();
@@ -138,15 +154,18 @@ impl<'a> Reader<'a> {
             }
             if is_meta_path(rest) {
                 let stem = stem_of(rest);
-                if !keeps_meta {
-                    return Err(BundleError::UnexplainedMeta {
+                return Err(match beside {
+                    Beside::Unexplained => BundleError::UnexplainedMeta {
                         kind: dir.to_string(),
                         item: stem,
                         path: format!("{dir}/{rest}"),
-                    });
-                }
-                items.entry(stem).or_default().meta = Some(bytes);
-                continue;
+                    },
+                    Beside::OldLayout => self.old_layout(
+                        "mcp",
+                        &format!("{dir}/{rest}"),
+                        &format!("{dir}/{stem}{ext}"),
+                    ),
+                });
             }
             let Some(base) = rest.strip_suffix(ext) else {
                 stray.push(rest);
@@ -169,7 +188,7 @@ impl<'a> Reader<'a> {
     }
 
     fn fragments(&self, bundle: &mut Bundle) -> Result<(), BundleError> {
-        for (name, item) in self.flat("fragments", ".md", false, true)? {
+        for (name, item) in self.flat("fragments", ".md", Beside::Unexplained, true)? {
             let doc = MdItem::read(self, &format!("fragments/{name}"), &item)?;
             bundle.fragments.insert(
                 name,
@@ -183,7 +202,7 @@ impl<'a> Reader<'a> {
     }
 
     fn commands(&self, bundle: &mut Bundle) -> Result<(), BundleError> {
-        for (name, item) in self.flat("prompts", ".md", false, true)? {
+        for (name, item) in self.flat("prompts", ".md", Beside::Unexplained, true)? {
             let doc = MdItem::read(self, &format!("prompts/{name}"), &item)?;
             bundle.commands.insert(
                 name,
@@ -198,21 +217,16 @@ impl<'a> Reader<'a> {
     }
 
     fn mcp(&self, bundle: &mut Bundle) -> Result<(), BundleError> {
-        for (name, item) in self.flat("mcp", ".yaml", true, false)? {
+        for (name, item) in self.flat("mcp", ".yaml", Beside::OldLayout, false)? {
             let at = format!("mcp/{name}");
             let content = self.yaml(item.raw)?;
-            let meta = self.yaml(item.meta)?;
-            let mut server = mcp_server(&content, &at)?;
-            server.tags = strings(&meta, "tags", &at)?;
-            server.notes = string(&meta, "notes", &at)?;
-            server.installation = string(&meta, "installation", &at)?;
-            bundle.mcp.insert(name, server);
+            bundle.mcp.insert(name, mcp_server(&content, &at)?);
         }
         Ok(())
     }
 
     fn profiles(&self, bundle: &mut Bundle) -> Result<(), BundleError> {
-        for (name, item) in self.flat("profiles", ".yaml", false, false)? {
+        for (name, item) in self.flat("profiles", ".yaml", Beside::Unexplained, false)? {
             let source = text(item.raw.unwrap_or_default());
             let mut profile = Profile::decode(&source).map_err(|cause| BundleError::Profile {
                 name: name.clone(),
@@ -233,10 +247,22 @@ impl<'a> Reader<'a> {
         }
     }
 
+    /// The refusal of metadata in the old layout, at `old`, that belongs at
+    /// `new` (both below the bundle).
+    fn old_layout(&self, kind: &str, old: &str, new: &str) -> BundleError {
+        BundleError::OldLayout {
+            bundle: self.bundle.to_string(),
+            kind: kind.to_string(),
+            old: old.to_string(),
+            new: new.to_string(),
+            remote: String::new(),
+        }
+    }
+
     fn skills(&self, bundle: &mut Bundle) -> Result<(), BundleError> {
-        // Packages: `skills/<name>/<file...>`; sidecars: `skills/.<name>.meta.yaml`.
+        // Packages: `skills/<name>/<file...>`, the metadata one of them
+        // (`skills/<name>/.meta.yaml`).
         let mut packages: BTreeMap<String, Vec<(&str, &[u8])>> = BTreeMap::new();
-        let mut sidecars: BTreeMap<String, &[u8]> = BTreeMap::new();
         let mut unclaimed: Vec<String> = Vec::new();
         for (rest, bytes) in self.under("skills") {
             if let Some((name, inner)) = rest.split_once('/') {
@@ -249,7 +275,12 @@ impl<'a> Reader<'a> {
                         .push((inner, bytes));
                 }
             } else if is_meta_path(rest) {
-                sidecars.insert(stem_of(rest), bytes);
+                let name = stem_of(rest);
+                return Err(self.old_layout(
+                    "skill",
+                    &format!("skills/{rest}"),
+                    &format!("skills/{name}/{SKILL_META}"),
+                ));
             } else {
                 unclaimed.push(rest.to_string());
             }
@@ -263,18 +294,17 @@ impl<'a> Reader<'a> {
                 unclaimed.extend(files.iter().map(|(path, _)| format!("{name}/{path}")));
             }
         }
-        unclaimed.extend(
-            sidecars
-                .keys()
-                .filter(|name| !kept.contains_key(*name))
-                .map(|name| format!(".{name}.meta.yaml")),
-        );
         if !unclaimed.is_empty() {
             let rests: Vec<&str> = unclaimed.iter().map(String::as_str).collect();
             return Err(self.unclaimed("skills", &rests));
         }
         for (name, files) in kept {
-            let meta = self.yaml(sidecars.get(&name).copied())?;
+            let meta = self.yaml(
+                files
+                    .iter()
+                    .find(|(path, _)| *path == SKILL_META)
+                    .map(|(_, bytes)| *bytes),
+            )?;
             let at = format!("skills/{name}");
             let executable = strings(&meta, "executable", &at)?;
             let mut package: Vec<SkillFile> = files
@@ -401,6 +431,7 @@ impl MdItem {
                 installation: string(&meta, "installation", at)?,
                 content: body,
                 content_hash: string(&meta, "content_hash", at)?,
+                source_digest: crate::distill::source_digest(item.raw.unwrap_or_default()),
                 no_distill: match meta.get("no_distill") {
                     Some(v) => yamlx::boolean(v).map_err(|d| reader.item_error(at, d))?,
                     None => false,
@@ -415,6 +446,7 @@ impl MdItem {
             let dmeta = parse_meta(&dmeta)?;
             out.body.distilled = dbody;
             out.body.distilled_by = string(&dmeta, "distilled_by", at)?;
+            out.body.distilled_digest = string(&dmeta, crate::distill::SOURCE_DIGEST_KEY, at)?;
         }
         Ok(out)
     }

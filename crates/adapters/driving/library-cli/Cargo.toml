@@ -12,7 +12,11 @@ angzarr-diagnostic.workspace = true
 angzarr-presentation.workspace = true
 cli-support.workspace = true
 clap.workspace = true
+# The API messages a converted noun prints (OD-40), their generated JSON.
+daemon-proto.workspace = true
 library-application.workspace = true
+# The library's resource names, one naming with the daemon's (U2).
+library-api.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 

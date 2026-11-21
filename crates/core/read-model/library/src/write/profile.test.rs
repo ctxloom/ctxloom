@@ -26,6 +26,7 @@ fn test_a_new_profile_is_the_bytes_go_writes() {
         description: "d".to_string(),
         parents: strings(&["base", "other"]),
         bundles: strings(&["demo", "x"]),
+        ..NewProfile::default()
     };
     assert_eq!(
         new_profile(&full),
@@ -41,6 +42,24 @@ fn test_a_new_profile_is_the_bytes_go_writes() {
     assert_eq!(read.description, "d");
     assert_eq!(read.parents, ["base", "other"]);
     assert_eq!(read.bundles, ["demo", "x"]);
+}
+
+// The vocabulary's `--add-skill` (step 3, j000600): a profile created with
+// skills curates them, after its bundles, and reads back so.
+#[test]
+fn test_a_new_profile_curates_the_skills_it_is_given() {
+    let new = NewProfile {
+        bundles: strings(&["ops"]),
+        skills: strings(&["ops#skills/deploy-doctor"]),
+        ..NewProfile::default()
+    };
+    let text = new_profile(&new);
+    assert_eq!(
+        text,
+        "bundles:\n  - ops\nskills:\n  - ops#skills/deploy-doctor\n"
+    );
+    let read = crate::profile::Profile::decode(&text).unwrap();
+    assert_eq!(read.skills, ["ops#skills/deploy-doctor"]);
 }
 
 const BASE: &str = "description: acceptance fixture profile\nbundles:\n  - demo\n";

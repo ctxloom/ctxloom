@@ -11,6 +11,7 @@ publish.workspace = true
 base64.workspace = true
 deps-ports.workspace = true
 file-system.workspace = true
+git-cli.workspace = true
 os.workspace = true
 process-env.workspace = true
 run-within.workspace = true

@@ -16,6 +16,12 @@ pub trait SessionRecords: Send {
     /// Make `rel` hold `bytes`, creating the directories above it.
     fn write(&mut self, harp: &str, rel: &str, bytes: &[u8]) -> Result<(), RecordsError>;
 
+    /// As [`SessionRecords::write`], the file executable by its owner alone
+    /// (a skill's declared script, which the engine runs where the launch
+    /// put it).
+    fn write_executable(&mut self, harp: &str, rel: &str, bytes: &[u8])
+        -> Result<(), RecordsError>;
+
     /// Add `bytes` to the end of `rel`, creating it (and the directories
     /// above it) when absent.
     fn append(&mut self, harp: &str, rel: &str, bytes: &[u8]) -> Result<(), RecordsError>;

@@ -128,9 +128,11 @@ fn request_of(run: &ArgMatches, prompt: String) -> OneShot {
             // The plan resolves the agent on the engine asked for (its block
             // for it, owner ruling 57); the run drives it (below).
             engine: one(run, "engine").unwrap_or_default(),
+            engine_named: false,
             prompt,
             saved_command: one(run, "command").unwrap_or_default(),
             workspace: one(run, "workspace").unwrap_or_default(),
+            no_context: flag(run, "no-context"),
         },
         engine: one(run, "engine").unwrap_or_default(),
         session: one(run, "session").unwrap_or_default(),

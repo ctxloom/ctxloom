@@ -14,8 +14,14 @@ sessions.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
-angzarr-embedded = { workspace = true, features = ["test-support"] }
+# The Bus proof (`src/bus.test.rs`): angzarr-embedded's Bus over its in-memory
+# and SQLite stores (`sqlite` re-exports angzarr-store-sqlite, the store
+# ctxloom runs), a temporary directory for the SQLite file, and tokio's
+# runtime for both; tests only.
+angzarr-embedded = { workspace = true, features = ["test-support", "sqlite"] }
+angzarr-test-dir.workspace = true
 mutants.workspace = true
+tokio = { workspace = true, features = ["macros"] }
 
 [lints]
 workspace = true

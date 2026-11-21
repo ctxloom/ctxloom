@@ -17,7 +17,7 @@ mod render;
 
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use file_system::{Fs, Kind as FileKind, Perms};
 use os::Mode;
@@ -32,6 +32,26 @@ pub struct SurfaceFiles {
     fs: Arc<dyn Fs>,
     /// The home's `records/` directory.
     records: PathBuf,
+    /// A recording store's plan (step 10c U10): what it would have written,
+    /// read back by its own later reads; none for a store that writes.
+    recorded: Option<Mutex<Vec<Recorded>>>,
+}
+
+/// One file a recording store would have written (step 10c U10): another
+/// tool's file, or its own record of what it claims, as it would be left.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Recorded {
+    /// Its absolute path.
+    pub path: String,
+    /// Its bytes; none where it would be removed.
+    pub bytes: Option<Vec<u8>>,
+    pub executable: bool,
+    /// The directory a removal empties nothing above (the target, or the
+    /// records' directory).
+    pub keep: String,
+    /// Whether it is the store's own record (the first step of a foreign
+    /// writer's sequence, protos.md §1.1).
+    pub record: bool,
 }
 
 impl SurfaceFiles {
@@ -40,7 +60,76 @@ impl SurfaceFiles {
         SurfaceFiles {
             fs,
             records: records.into(),
+            recorded: None,
         }
+    }
+
+    /// A store that WRITES NOTHING (step 10c U10): each file it would write
+    /// or remove is recorded instead, and its own reads see what it
+    /// recorded, so what [`SurfaceFiles::take_recorded`] answers is what a
+    /// writing store would have left.
+    pub fn recording(fs: Arc<dyn Fs>, records: impl Into<PathBuf>) -> SurfaceFiles {
+        SurfaceFiles {
+            recorded: Some(Mutex::new(Vec::new())),
+            ..SurfaceFiles::new(fs, records)
+        }
+    }
+
+    /// What this store recorded, once: its records first, then every other
+    /// file in the order it was first written; each as it would be left.
+    pub fn take_recorded(&self) -> Vec<Recorded> {
+        let Some(recorded) = &self.recorded else {
+            return Vec::new();
+        };
+        let taken = std::mem::take(&mut *recorded.lock().unwrap_or_else(|e| e.into_inner()));
+        let (mut records, files): (Vec<_>, Vec<_>) = taken.into_iter().partition(|r| r.record);
+        records.extend(files);
+        records
+    }
+
+    /// The bytes at `path`: what this store recorded there, else the disk's.
+    fn read_at(&self, path: &Path) -> Result<Option<Vec<u8>>, SurfaceError> {
+        if let Some(recorded) = &self.recorded {
+            let recorded = recorded.lock().unwrap_or_else(|e| e.into_inner());
+            let key = path.display().to_string();
+            if let Some(found) = recorded.iter().find(|r| r.path == key) {
+                return Ok(found.bytes.clone());
+            }
+        }
+        read(&*self.fs, path)
+    }
+
+    /// `bytes` at `path`, or (none) the file removed up to `keep`: written,
+    /// or recorded by a recording store.
+    fn put_at(
+        &self,
+        path: &Path,
+        bytes: Option<&[u8]>,
+        (executable, keep, record): (bool, &Path, bool),
+    ) -> Result<(), SurfaceError> {
+        let Some(recorded) = &self.recorded else {
+            return match bytes {
+                Some(bytes) => write(&*self.fs, path, bytes, executable),
+                None if record => match self.fs.remove_file(path) {
+                    Err(e) if e.kind() != io::ErrorKind::NotFound => Err(io_error(path, &e)),
+                    _ => Ok(()),
+                },
+                None => remove(&*self.fs, &keep.display().to_string(), path),
+            };
+        };
+        let entry = Recorded {
+            path: path.display().to_string(),
+            bytes: bytes.map(<[u8]>::to_vec),
+            executable,
+            keep: keep.display().to_string(),
+            record,
+        };
+        let mut recorded = recorded.lock().unwrap_or_else(|e| e.into_inner());
+        match recorded.iter_mut().find(|r| r.path == entry.path) {
+            Some(there) => *there = entry,
+            None => recorded.push(entry),
+        }
+        Ok(())
     }
 
     fn record_path(&self, target: &str) -> PathBuf {
@@ -59,22 +148,26 @@ impl SurfaceFiles {
 
     fn load(&self, target: &str) -> Result<Record, SurfaceError> {
         let path = self.record_path(target);
-        match self.fs.read_to_string(&path) {
-            Ok(text) => Record::decode(&path.display().to_string(), &text),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Record::default()),
-            Err(e) => Err(io_error(&path, &e)),
+        match self.read_at(&path)? {
+            Some(bytes) => {
+                let text = String::from_utf8(bytes).map_err(|e| SurfaceError::Io {
+                    file: path.display().to_string(),
+                    detail: e.to_string(),
+                })?;
+                Record::decode(&path.display().to_string(), &text)
+            }
+            None => Ok(Record::default()),
         }
     }
 
     fn save(&self, target: &str, record: &Record) -> Result<(), SurfaceError> {
         let path = self.record_path(target);
+        let keep = self.records.clone();
         if record.files.is_empty() {
-            return match self.fs.remove_file(&path) {
-                Err(e) if e.kind() != io::ErrorKind::NotFound => Err(io_error(&path, &e)),
-                _ => Ok(()),
-            };
+            return self.put_at(&path, None, (false, &keep, true));
         }
-        write(&*self.fs, &path, record.encode(target).as_bytes(), false)
+        let text = record.encode(target);
+        self.put_at(&path, Some(text.as_bytes()), (false, &keep, true))
     }
 }
 
@@ -164,7 +257,7 @@ impl SurfaceFiles {
         // The file is known when the record already held claims in it.
         let known = !prior.is_empty();
         let path = below(target, rel)?;
-        let current = read(&*self.fs, &path)?;
+        let current = self.read_at(&path)?;
         // What the file held before ctxloom's claims, unless somebody has
         // changed it since: then ctxloom's old entries are cut out of what it
         // holds now.
@@ -193,10 +286,8 @@ impl SurfaceFiles {
                 (None, None) => false,
             };
             if !dry && changed {
-                match &base {
-                    Some(bytes) => write(&*self.fs, &path, bytes, false)?,
-                    None => remove(&*self.fs, target, &path)?,
-                }
+                let keep = Path::new(target);
+                self.put_at(&path, base.as_deref(), (false, keep, false))?;
             }
             return Ok(Settled {
                 record: None,
@@ -217,7 +308,7 @@ impl SurfaceFiles {
         });
         let changed = current.as_deref() != Some(bytes.as_slice());
         if !dry && changed {
-            write(&*self.fs, &path, &bytes, executable)?;
+            self.put_at(&path, Some(&bytes), (executable, Path::new(target), false))?;
         }
         rec.written = bytes;
         Ok(Settled {
@@ -352,7 +443,7 @@ impl SurfaceStore for SurfaceFiles {
     }
 
     fn read(&self, target: &str, rel: &str) -> Result<Option<Vec<u8>>, SurfaceError> {
-        read(&*self.fs, &below(target, rel)?)
+        self.read_at(&below(target, rel)?)
     }
 
     fn read_absolute(&self, path: &str) -> Result<Option<Vec<u8>>, SurfaceError> {

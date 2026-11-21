@@ -102,14 +102,15 @@ pub(crate) fn ops(
 }
 
 /// The unified events the terminal session's home is installed to call
-/// ctxloom for: the primary agent's data comes from them.
+/// ctxloom for: the primary agent's data comes from them. Not its
+/// `session_end` (owner 2026-11-15): nothing of ctxloom's is in it, its
+/// conversation's bind being SessionStart's and its end its run's.
 const HOME_EVENTS: &[&str] = &[
     "session_start",
     "turn_start",
     "message_display",
     "post_tool_batch",
     "turn_end",
-    "session_end",
     "PreCompact",
     "PostCompact",
 ];

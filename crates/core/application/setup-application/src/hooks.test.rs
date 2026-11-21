@@ -149,7 +149,7 @@ fn test_executing_a_hook_of_an_unknown_engine_is_refused_listing_the_known_ones(
 }
 
 #[test]
-fn test_a_session_start_answers_the_marker_and_the_notice_and_asks_for_the_bind() {
+fn test_a_session_start_answers_the_marker_and_the_notice_and_carries_its_event() {
     let w = world("schema_version: 8\n");
     let answer = w
         .setup
@@ -168,19 +168,17 @@ fn test_a_session_start_answers_the_marker_and_the_notice_and_asks_for_the_bind(
         "{}",
         answer.stdout
     );
+    // Its bind is an observation of the event, recorded with the rest.
+    let event = answer.event.expect("the decoded event");
     assert_eq!(
-        answer.bind,
-        Some(SessionBind {
-            harp: "brisk-copper-moth".into(),
-            native_id: "vendor-42".into(),
-            transcript: "/t/a.jsonl".into(),
-        })
+        (event.native_session.as_str(), event.transcript.as_str()),
+        ("vendor-42", "/t/a.jsonl")
     );
     assert!(!answer.harp_missing);
 }
 
 #[test]
-fn test_a_session_start_with_no_usable_harp_says_nothing_and_binds_nothing() {
+fn test_a_session_start_with_no_usable_harp_says_nothing() {
     let w = world(CONFIG);
     for harp in ["", "has\"quote", "has>angle"] {
         let answer = w
@@ -188,7 +186,6 @@ fn test_a_session_start_with_no_usable_harp_says_nothing_and_binds_nothing() {
             .execute_hook("claude-code", "SessionStart", "{}", harp)
             .unwrap();
         assert!(!answer.stdout.contains("kind=\"harp\""), "{harp:?}");
-        assert_eq!(answer.bind, None, "{harp:?}");
         assert!(answer.harp_missing, "{harp:?}");
     }
 }
@@ -206,7 +203,6 @@ fn test_a_post_tool_call_answers_what_skill_mates_does() {
             .skill_mates("claude-code", r#"{"skill":"admit"}"#)
             .unwrap()
     );
-    assert_eq!(answer.bind, None);
 }
 
 // The primary agent's data events are recorded elsewhere (M2); here they are
@@ -220,7 +216,6 @@ fn test_the_events_that_carry_data_answer_silence() {
             .execute_hook("claude-code", native, "{}", "brisk-copper-moth")
             .unwrap();
         assert_eq!(answer.stdout, "context=;notice=\n", "{native}");
-        assert_eq!(answer.bind, None, "{native}");
         assert!(!answer.harp_missing, "{native}");
     }
 }
@@ -287,4 +282,241 @@ fn test_the_decoded_event_rides_every_answer_kind() {
             .unwrap();
         assert!(answer.event.is_some(), "{native}");
     }
+}
+
+// O3 (owner 2026-11-17): the hooks read the library through the daemon
+// alone; one that did not answer in time leaves the engine's answer well
+// formed and empty of the library, with no read in process.
+struct NoDaemon;
+
+impl crate::HookLibrary for NoDaemon {
+    fn agents_and_profiles(&self) -> Option<(bool, bool)> {
+        None
+    }
+    fn skills(&self) -> Option<Vec<crate::HookSkill>> {
+        None
+    }
+}
+
+#[test]
+fn test_with_no_daemon_in_time_the_hooks_say_nothing_of_the_library() {
+    let w = crate::fakes::world("schema_version: 8\n");
+    let setup = w.setup.with_hook_library(Box::new(NoDaemon));
+    assert_eq!(
+        setup.session_start("claude-code", "{}").unwrap(),
+        "context=;notice=\n"
+    );
+    assert_eq!(
+        setup
+            .skill_mates("claude-code", r#"{"skill":"admit"}"#)
+            .unwrap(),
+        "context=;notice=\n"
+    );
+}
+
+#[test]
+fn test_a_listed_skill_s_bundle_is_its_name_before_skills() {
+    let listed = daemon_proto::v1::ListSkillsResponse {
+        skills: vec![
+            daemon_proto::v1::Skill {
+                name: "projects/p/remotes/acme/bundles/rules/skills/admit".to_string(),
+                tags: vec!["ctxloom:link_id=x".to_string()],
+                ..daemon_proto::v1::Skill::default()
+            },
+            daemon_proto::v1::Skill {
+                name: "not a skill's name".to_string(),
+                ..daemon_proto::v1::Skill::default()
+            },
+        ],
+        next_page_token: String::new(),
+    };
+    assert_eq!(
+        crate::hook_skills(&listed),
+        vec![crate::HookSkill {
+            name: "admit".to_string(),
+            bundle: "projects/p/remotes/acme/bundles/rules".to_string(),
+            tags: vec!["ctxloom:link_id=x".to_string()],
+        }]
+    );
+}
+
+// Owner ruling 2026-11-17 (U2 part 2's escalations): a skill's mates are
+// matched on its SKILL.md frontmatter `name:` (the `Skill`'s
+// `display_name`), as before the hooks read through the daemon, so a skill
+// whose directory and frontmatter name differ is still matched by the name
+// the engine reports.
+#[test]
+fn test_mates_are_matched_by_the_frontmatter_name_not_the_directory() {
+    let mut owned = crate::fakes::bundles();
+    owned[0].1.extend([
+        (
+            "skills/admit-dir/SKILL.md",
+            "---\nname: admit-renamed\ndescription: Admit.\n---\nA\n",
+        ),
+        (
+            "skills/admit-dir/.meta.yaml",
+            "tags: [ctxloom:link_id=pair]\n",
+        ),
+        (
+            "skills/mate-dir/SKILL.md",
+            "---\nname: mate-renamed\ndescription: Mate.\n---\nM\n",
+        ),
+        (
+            "skills/mate-dir/.meta.yaml",
+            "tags: [ctxloom:link_id=pair]\n",
+        ),
+    ]);
+    let w = crate::fakes::world_of(
+        CONFIG,
+        owned,
+        vec![Box::new(crate::fakes::Engine::all("claude-code"))],
+    );
+    let out = w
+        .setup
+        .skill_mates("claude-code", r#"{"skill":"admit-renamed"}"#)
+        .unwrap();
+    assert_eq!(
+        out,
+        "context=Skill admit-renamed completed; linked skills not yet invoked this session: mate-renamed;notice=\n"
+    );
+}
+
+#[test]
+fn test_a_listed_skill_is_judged_by_its_display_name_else_its_id() {
+    let listed = daemon_proto::v1::ListSkillsResponse {
+        skills: vec![
+            daemon_proto::v1::Skill {
+                name: "projects/p/bundles/demo/skills/admit-dir".to_string(),
+                display_name: "admit".to_string(),
+                ..daemon_proto::v1::Skill::default()
+            },
+            daemon_proto::v1::Skill {
+                name: "projects/p/bundles/demo/skills/plain".to_string(),
+                ..daemon_proto::v1::Skill::default()
+            },
+        ],
+        next_page_token: String::new(),
+    };
+    let names: Vec<String> = crate::hook_skills(&listed)
+        .into_iter()
+        .map(|skill| skill.name)
+        .collect();
+    assert_eq!(names, ["admit", "plain"]);
+}
+
+/// The daemon owing a re-assembly (step 10c U13): what each hook's one
+/// call asked it, `<hook> <budget>`, and the context it answers.
+#[derive(Default)]
+struct Owes(std::sync::Mutex<Vec<String>>);
+
+impl crate::HookContexts for Owes {
+    fn hook_context(
+        &self,
+        hook: &str,
+        _: &[&str],
+        _: &str,
+        budget: usize,
+    ) -> Option<crate::HookCarried> {
+        self.0.lock().unwrap().push(format!("{hook} {budget}"));
+        Some(crate::HookCarried {
+            context: "re-assembled".to_string(),
+            ..crate::HookCarried::default()
+        })
+    }
+}
+
+// Step 10c U13 (G6/G7): at a prompt submitted or a tool's result, the hook
+// asks the daemon once (the lean hook RPC) what its session carries, by its
+// engine's own hook name, and carries it as its context; no other hook
+// asks.
+#[test]
+fn test_a_prompt_or_a_tool_result_carries_the_context_its_session_is_owed() {
+    let owes = std::sync::Arc::new(Owes::default());
+    struct Shared(std::sync::Arc<Owes>);
+    impl crate::HookContexts for Shared {
+        fn hook_context(
+            &self,
+            hook: &str,
+            urgencies: &[&str],
+            wake: &str,
+            budget: usize,
+        ) -> Option<crate::HookCarried> {
+            self.0.hook_context(hook, urgencies, wake, budget)
+        }
+    }
+    let w = crate::fakes::world(CONFIG);
+    let setup = w
+        .setup
+        .with_hook_contexts(Box::new(Shared(std::sync::Arc::clone(&owes))));
+    for native in ["UserPromptSubmit", "PostToolUse"] {
+        let answer = setup
+            .execute_hook("claude-code", native, "{}", "brisk-copper-moth")
+            .unwrap();
+        assert_eq!(answer.stdout, "context=re-assembled;notice=\n", "{native}");
+    }
+    for native in ["SessionStart", "Stop"] {
+        setup
+            .execute_hook("claude-code", native, "{}", "brisk-copper-moth")
+            .unwrap();
+    }
+    assert_eq!(
+        *owes.0.lock().unwrap(),
+        ["UserPromptSubmit 10000", "PostToolUse 10000"],
+        "nothing else in the answer: the whole budget"
+    );
+}
+
+// A tool's result that completed a skill carries its mates' line and the
+// owed context both, the line first, the call given what the line left.
+#[test]
+fn test_a_skills_mates_and_an_owed_context_are_carried_together() {
+    struct Mates;
+    impl crate::HookLibrary for Mates {
+        fn agents_and_profiles(&self) -> Option<(bool, bool)> {
+            None
+        }
+        fn skills(&self) -> Option<Vec<crate::HookSkill>> {
+            let skill = |name: &str| crate::HookSkill {
+                name: name.to_string(),
+                bundle: "rules".to_string(),
+                tags: vec!["ctxloom:link_id=x".to_string()],
+            };
+            Some(vec![skill("admit"), skill("unattended")])
+        }
+    }
+    struct Left;
+    impl crate::HookContexts for Left {
+        fn hook_context(
+            &self,
+            _: &str,
+            _: &[&str],
+            _: &str,
+            budget: usize,
+        ) -> Option<crate::HookCarried> {
+            assert!(budget < 10_000, "what the mates line left: {budget}");
+            Some(crate::HookCarried {
+                context: "re-assembled".to_string(),
+                ..crate::HookCarried::default()
+            })
+        }
+    }
+    let w = crate::fakes::world(CONFIG);
+    let setup = w
+        .setup
+        .with_hook_library(Box::new(Mates))
+        .with_hook_contexts(Box::new(Left));
+    let answer = setup
+        .execute_hook(
+            "claude-code",
+            "PostToolUse",
+            r#"{"skill":"admit"}"#,
+            "brisk-copper-moth",
+        )
+        .unwrap();
+    assert!(
+        answer.stdout.starts_with("context=Skill admit completed;")
+            && answer.stdout.contains("\n\nre-assembled;notice="),
+        "{}",
+        answer.stdout
+    );
 }

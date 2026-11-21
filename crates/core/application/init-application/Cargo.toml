@@ -11,8 +11,6 @@ publish.workspace = true
 exit-code.workspace = true
 angzarr-diagnostic.workspace = true
 ctxloom-ports.workspace = true
-deps-application.workspace = true
-serde.workspace = true
 
 [dev-dependencies]
 angzarr-presentation = { workspace = true, features = ["test-support"] }

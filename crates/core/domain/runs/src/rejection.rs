@@ -14,13 +14,8 @@ pub enum RunRejection {
     TurnInFlight { turn: u64 },
     /// A command to a run that has ended (the end fence).
     Ended,
-    /// A credential hash that is not a SHA-256 digest (32 bytes).
-    CredentialHashInvalid { length: u64 },
     /// A stream whose root is not the run's derived root.
     NotItsStream,
-    /// The runner's and the model's credential hashes are the same, so a
-    /// token would not name one principal (fail closed).
-    CredentialsNotDistinct,
     /// A child agent's run asked for with none of the environment
     /// credentials its engine authenticates with.
     NoCredential { engine: String, variables: String },
@@ -35,6 +30,10 @@ pub enum RunRejection {
     /// A run on an engine this build cannot drive (ruling 73c): `known` are
     /// the ones it drives, comma separated.
     UnknownEngine { name: String, known: String },
+    /// A launch that reads project-only settings (ruling 46's keys, D3) the
+    /// project's own config says and the user has not trusted (step 8 U2,
+    /// ruling 142): `paths`, their dotted paths, comma separated, sorted.
+    UntrustedProjectSettings { paths: String },
     /// A launch refused for more than one reason, or for one beside the plan's
     /// fatal findings (rulings 73, 73b, 73c): each refusal, in check order;
     /// `fatal_findings`, how many fatal findings the plan had too (the library says
@@ -69,13 +68,14 @@ impl Diagnostic for RunRejection {
             RunRejection::NoRun => code!("no-run"),
             RunRejection::TurnInFlight { .. } => code!("turn-in-flight"),
             RunRejection::Ended => code!("ended"),
-            RunRejection::CredentialHashInvalid { .. } => code!("credential-hash-invalid"),
             RunRejection::NotItsStream => code!("not-its-stream"),
-            RunRejection::CredentialsNotDistinct => code!("credentials-not-distinct"),
             RunRejection::NoCredential { .. } => code!("no-credential"),
             RunRejection::FileOnlyCredential { .. } => code!("file-only-credential"),
             RunRejection::NoPrompt => code!("no-prompt"),
             RunRejection::UnknownEngine { .. } => code!("unknown-engine"),
+            RunRejection::UntrustedProjectSettings { .. } => {
+                code!("untrusted-project-settings")
+            }
             RunRejection::LaunchRefused { .. } => code!("launch-refused"),
         }
     }
@@ -83,7 +83,6 @@ impl Diagnostic for RunRejection {
     fn args(&self) -> Vec<(&str, Arg)> {
         match self {
             RunRejection::TurnInFlight { turn } => vec![("turn", (*turn).into())],
-            RunRejection::CredentialHashInvalid { length } => vec![("length", (*length).into())],
             RunRejection::NoCredential { engine, variables }
             | RunRejection::FileOnlyCredential { engine, variables } => vec![
                 ("engine", engine.as_str().into()),
@@ -93,6 +92,9 @@ impl Diagnostic for RunRejection {
                 ("name", name.as_str().into()),
                 ("known", known.as_str().into()),
             ],
+            RunRejection::UntrustedProjectSettings { paths } => {
+                vec![("paths", paths.as_str().into())]
+            }
             RunRejection::LaunchRefused {
                 refusals,
                 fatal_findings,
@@ -104,7 +106,6 @@ impl Diagnostic for RunRejection {
             | RunRejection::NoRun
             | RunRejection::Ended
             | RunRejection::NotItsStream
-            | RunRejection::CredentialsNotDistinct
             | RunRejection::NoPrompt => Vec::new(),
         }
     }
@@ -124,9 +125,7 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(RunRejection::NoRun),
         Box::new(RunRejection::TurnInFlight { turn: 1 }),
         Box::new(RunRejection::Ended),
-        Box::new(RunRejection::CredentialHashInvalid { length: 7 }),
         Box::new(RunRejection::NotItsStream),
-        Box::new(RunRejection::CredentialsNotDistinct),
         Box::new(RunRejection::NoCredential {
             engine: "claude-code".to_string(),
             variables: "CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY".to_string(),
@@ -139,6 +138,9 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(RunRejection::UnknownEngine {
             name: "bogus".to_string(),
             known: "claude-code, opencode".to_string(),
+        }),
+        Box::new(RunRejection::UntrustedProjectSettings {
+            paths: "engines.claude-code.command".to_string(),
         }),
         Box::new(RunRejection::LaunchRefused {
             refusals: vec![RunRejection::NoPrompt],

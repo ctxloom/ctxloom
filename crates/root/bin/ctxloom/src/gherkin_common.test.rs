@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use cucumber::gherkin::{Feature, GherkinEnv, Rule, Scenario, Step};
 use serde_json::Value;
 
-use super::library::{contains_value, entries, reports_as, Project};
+use super::library::{contains_value, entries, holds, Project};
 use super::Ran;
 use crate::tests::files;
 
@@ -33,6 +33,13 @@ pub(crate) struct Common {
     /// session's harp is minted, never chosen (owner S55), so a journey's
     /// "amber-quiet-heron" is whichever harp its session was given.
     pub(crate) aliases: Vec<(String, String)>,
+    /// What a step noted from a command's output, each `(label, value)`
+    /// (`I note ... as "<label>"`): `{<label>}` in a later command line or
+    /// in `the output contains` is the value (a minted name, never chosen).
+    pub(crate) notes: Vec<(String, String)>,
+    /// What the next step's commands alone run with, over [`Common::env`]
+    /// (`... of the next command alone`): taken by [`Common::run_lines_at`].
+    pub(crate) next_env: Vec<(String, String)>,
 }
 
 impl Common {
@@ -43,6 +50,8 @@ impl Common {
             ran: None,
             line: String::new(),
             aliases: Vec::new(),
+            notes: Vec::new(),
+            next_env: Vec::new(),
         }
     }
 
@@ -51,9 +60,35 @@ impl Common {
     /// JSON, as JSON writes it, so a Windows path's `\` is escaped); the first
     /// to fail is the one the next step sees.
     pub(crate) fn run_lines(&mut self, lines: &str, input: &str) {
+        self.run_lines_at(None, lines, input);
+    }
+
+    /// `text` with each noted `{<label>}` as the value noted under it
+    /// ([`Common::note`]); text naming no note is as written.
+    pub(crate) fn expanded(&self, text: &str) -> String {
+        self.notes
+            .iter()
+            .fold(text.to_string(), |text, (label, value)| {
+                text.replace(&format!("{{{label}}}"), value)
+            })
+    }
+
+    /// Keep `value` under `label`, for `{<label>}` in a later step.
+    pub(crate) fn note(&mut self, label: &str, value: &str) {
+        self.notes.retain(|(noted, _)| noted != label);
+        self.notes.push((label.to_string(), value.to_string()));
+    }
+
+    /// [`Common::run_lines`], each command run from `cwd` when one is given
+    /// (another project, found by walking up from it: no `CTXLOOM_ROOT`),
+    /// else in the project.
+    pub(crate) fn run_lines_at(&mut self, cwd: Option<&Path>, lines: &str, input: &str) {
+        let lines = self.expanded(lines);
+        let lines = lines.as_str();
         let dir = self.project.dir().display().to_string();
         let quoted = serde_json::to_string(&dir).expect("a string is JSON");
         let in_json = &quoted[1..quoted.len() - 1];
+        let next_env = std::mem::take(&mut self.next_env);
         for line in lines.lines().map(str::trim).filter(|l| !l.is_empty()) {
             let line = line.replace("$PROJECT_DIR", &dir);
             let words: Vec<String> = split(&line)
@@ -66,13 +101,23 @@ impl Common {
                 })
                 .collect();
             assert_eq!(words.first().map(String::as_str), Some("ctxloom"), "{line}");
-            let args: Vec<&str> = words[1..].iter().map(String::as_str).collect();
+            let mut args: Vec<&str> = words[1..].iter().map(String::as_str).collect();
             let env: Vec<(&str, &str)> = self
                 .env
                 .iter()
+                .filter(|(k, _)| !next_env.iter().any(|(n, _)| n == k))
+                .chain(next_env.iter())
                 .map(|(k, v)| (k.as_str(), v.as_str()))
                 .collect();
-            let ran = if input.is_empty() {
+            // A stood-in terminal reads what a real one does: `init`'s prose
+            // (the default format off a stream that is no terminal is json).
+            let at_terminal = env.iter().any(|(k, _)| *k == "CTXLOOM_TEST_TERMINAL");
+            if at_terminal && args.first() == Some(&"init") && !args.contains(&"--format") {
+                args.extend(["--format", "text"]);
+            }
+            let ran = if let Some(cwd) = cwd {
+                self.project.run_in_with(cwd, &env, &args)
+            } else if input.is_empty() {
                 self.project.run_with(&env, &args)
             } else {
                 self.project
@@ -93,6 +138,51 @@ impl Common {
 
     pub(crate) fn json(&self) -> Value {
         super::parse_one(&self.ran().stdout)
+    }
+
+    /// The directory of the recording git ([`Common::record_git_calls_next`]),
+    /// beside the scenario's home.
+    fn recording_git_dir(&self) -> PathBuf {
+        self.project.home().join("..").join("recording-git")
+    }
+
+    /// Put a `git` that logs each call, then execs the real one, first on
+    /// the `PATH` of the next step's commands alone (step 10 U4: the daemon
+    /// runs git in the asking command's environment). Its log is one line
+    /// per call, `<parent pid> <args>`: the parent is the process that ran
+    /// it (the shim execs `sh`, so `$PPID` is the caller).
+    pub(crate) fn record_git_calls_next(&mut self) {
+        let path = self
+            .env
+            .iter()
+            .find(|(name, _)| name == "PATH")
+            .map(|(_, value)| std::ffi::OsString::from(value))
+            .or_else(|| super::host_var("PATH"))
+            .unwrap_or_default();
+        let dirs = files::search_path(&path);
+        let real = real_git(&dirs, |git| files::exists(git)).expect("a git on the PATH");
+        let dir = self.recording_git_dir();
+        let log = dir.join("calls.log");
+        files::put_program(
+            dir.join("git"),
+            &format!(
+                "printf '%s %s\\n' \"$PPID\" \"$*\" >> '{}'\nexec '{}' \"$@\"\n",
+                log.display(),
+                real.display()
+            ),
+        );
+        let joined = std::env::join_paths(std::iter::once(dir).chain(dirs)).expect("a PATH");
+        self.next_env.retain(|(name, _)| name != "PATH");
+        self.next_env.push((
+            "PATH".to_string(),
+            joined.to_str().expect("utf-8").to_string(),
+        ));
+    }
+
+    /// The recording git's calls, each `(parent pid, args)`; none when it
+    /// was never run.
+    pub(crate) fn recorded_git_calls(&self) -> Vec<(u32, String)> {
+        git_calls(&files::read(self.recording_git_dir().join("calls.log")).unwrap_or_default())
     }
 
     pub(crate) fn set_env(&mut self, name: &str, value: String) {
@@ -159,9 +249,12 @@ impl Common {
     pub(crate) fn output_reports_containing(&self, path: &str, value: &str) {
         let ran = self.ran();
         let Ok(doc) = serde_json::from_str::<Value>(&ran.stdout) else {
+            // A text row names a reference by its short form, harp-free
+            // (owner ruling 2026-11-17), so no `{project}` is substituted.
             ran.contains(value);
             return;
         };
+        let (path, value) = (&self.named(path), &self.named(value));
         assert!(
             contains_value(&doc, path, value),
             "{path} should contain {value}: {}",
@@ -179,6 +272,7 @@ impl Common {
             ran.lacks(value);
             return;
         };
+        let (path, value) = (&self.named(path), &self.named(value));
         assert!(
             !contains_value(&doc, path, value),
             "{path} should not contain {value}: {}",
@@ -195,17 +289,51 @@ impl Common {
             ran.contains(n);
             return;
         };
+        let path = &self.named(path);
         assert_eq!(entries(&doc, path).to_string(), n, "{path}: {}", ran.said());
     }
 
     pub(crate) fn output_reports(&self, path: &str, value: &str) {
         let ran = self.ran();
         match serde_json::from_str::<Value>(&ran.stdout) {
-            Ok(doc) => assert_eq!(reports_as(&doc, path), value, "{}", ran.said()),
+            Ok(doc) => {
+                let (path, value) = (self.named(path), self.named(value));
+                if let Err(why) = holds(&doc, &path, &value) {
+                    // A path the spec writes with `/` is reported in the
+                    // host's spelling (`\` on Windows), as a person reads it
+                    // there (CI on Windows, 2026-11-19).
+                    let hosts = host_spelled(&value);
+                    if hosts == value || holds(&doc, &path, &hosts).is_err() {
+                        panic!("{why}: {}", ran.said());
+                    }
+                }
+            }
             Err(_) => {
                 ran.contains(value);
             }
         }
+    }
+
+    /// `text` with `{project}` as the project's harp (OD-40, design §8.1):
+    /// what the daemon's `ResolveProject` names this project (OQ-2), asked
+    /// through the hidden `ctxloom test project-name`, which answers
+    /// `projects/<harp>`. Text without it is as written, and nothing is asked.
+    pub(crate) fn named(&self, text: &str) -> String {
+        if !text.contains("{project}") {
+            return text.to_string();
+        }
+        let env: Vec<(&str, &str)> = self
+            .env
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+        let ran = self.project.run_with(&env, &["test", "project-name"]);
+        assert_eq!(ran.code, 0, "the project has no name: {}", ran.said());
+        let name = ran.stdout.trim();
+        let harp = name
+            .strip_prefix("projects/")
+            .unwrap_or_else(|| panic!("{name:?} names no project"));
+        text.replace("{project}", harp)
     }
 }
 
@@ -216,6 +344,13 @@ pub(crate) trait CommonWorld {
 
     /// What a World does before each command (plants its sessions).
     fn before_run(&mut self) {}
+
+    /// What a World does before the command `line` a step names runs, ahead
+    /// of [`CommonWorld::before_run`] (a harness the command needs: a stub
+    /// engine, a daemon the scenario owns).
+    fn before_line(&mut self, line: &str) {
+        let _ = line;
+    }
 
     /// An `Alice ...:` step: its docstring's commands, run. A World whose
     /// step is told in stages (it needs the rest of the scenario before it
@@ -280,6 +415,24 @@ pub(crate) fn doc(step: &Step) -> String {
         .to_string()
 }
 
+/// The first `git` (or Windows' `git.exe`) of `dirs` that `exists`.
+fn real_git(dirs: &[PathBuf], exists: impl Fn(&Path) -> bool) -> Option<PathBuf> {
+    dirs.iter()
+        .flat_map(|dir| ["git", "git.exe"].map(|name| dir.join(name)))
+        .find(|git| exists(git))
+}
+
+/// The recording git's log, `<parent pid> <args>` a line, as `(pid, args)`;
+/// a line whose first word is no pid is not a call.
+pub(crate) fn git_calls(log: &str) -> Vec<(u32, String)> {
+    log.lines()
+        .filter_map(|line| {
+            let (pid, args) = line.split_once(' ').unwrap_or((line, ""));
+            pid.parse().ok().map(|pid| (pid, args.to_string()))
+        })
+        .collect()
+}
+
 /// Define the steps every World has, in a module of its own, against the
 /// `World` in scope (which implements [`CommonWorld`]).
 macro_rules! common_steps {
@@ -297,9 +450,37 @@ macro_rules! common_steps {
                 w.common_mut().project = Project::initialized();
             }
 
+            /// A directory, not yet a project: her commands find the
+            /// project from where she types them, as hers do, with no
+            /// `CTXLOOM_ROOT` (an empty one is none), so outside any project
+            /// is outside any project.
             #[given("an empty project directory")]
             fn empty(w: &mut World) {
                 w.common_mut().project = Project::bare();
+                w.common_mut().set_env("CTXLOOM_ROOT", String::new());
+            }
+
+            /// A project from before git was required (step 10, G1).
+            #[given("an initialized ctxloom project outside git")]
+            fn initialized_outside_git(w: &mut World) {
+                w.common_mut().project = Project::configured_outside_git().named();
+            }
+
+            /// The repository is the project's parent; the home is outside it.
+            #[given("an initialized ctxloom project in a subdirectory of a git repository")]
+            fn initialized_in_a_subdirectory(w: &mut World) {
+                w.common_mut().project = Project::configured_in_a_subdirectory().named();
+            }
+
+            #[given("an empty project directory in a subdirectory of a git repository")]
+            fn empty_in_a_subdirectory(w: &mut World) {
+                w.common_mut().project = Project::bare_in_a_subdirectory();
+            }
+
+            /// Her live repository: `git init` and one empty commit.
+            #[given("an empty project directory that is a git repository")]
+            fn empty_in_git(w: &mut World) {
+                w.common_mut().project = Project::bare_in_git();
             }
 
             /// Go's fixture bundle: a manifest, an example fragment and an
@@ -333,14 +514,25 @@ macro_rules! common_steps {
                 w.common().project.profile(&name, &bundle);
             }
 
+            /// A file of the project's own bundle lands in that bundle as an
+            /// initialized project has it, its manifest there (as `init` and
+            /// `profile create` write it; `Project::profile` does the same).
             #[given(expr = "the project already has the file {string}:")]
             fn project_file(w: &mut World, step: &Step, rel: String) {
-                w.common().project.write(&rel, &format!("{}\n", doc(step)));
+                let manifest = ".ctxloom/content/bundles/v2/project/bundle.yaml";
+                let project = &w.common().project;
+                if rel.starts_with(".ctxloom/content/bundles/v2/project/")
+                    && !project.exists(manifest)
+                {
+                    project.write(manifest, "schema_version: 4\nversion: 1.0.0\n");
+                }
+                project.write(&rel, &format!("{}\n", doc(step)));
             }
 
             #[given(expr = "I run {string}")]
             #[when(expr = "I run {string}")]
             fn run(w: &mut World, line: String) {
+                w.before_line(&line);
                 w.before_run();
                 w.common_mut().run_lines(&line, "");
             }
@@ -348,6 +540,7 @@ macro_rules! common_steps {
             #[given(expr = "I run {string} with input:")]
             #[when(expr = "I run {string} with input:")]
             fn run_with_input(w: &mut World, step: &Step, line: String) {
+                w.before_line(&line);
                 w.before_run();
                 w.common_mut().run_lines(&line, &doc(step));
             }
@@ -375,11 +568,13 @@ macro_rules! common_steps {
 
             #[then(expr = "the output contains {string}")]
             fn output_contains(w: &mut World, text: String) {
-                w.ran().contains(&Common::clap_wording(&text));
+                let text = w.common().expanded(&text);
+                w.ran().contains_as_platform(&Common::clap_wording(&text));
             }
 
             #[then(expr = "the output does not contain {string}")]
             fn output_lacks(w: &mut World, text: String) {
+                let text = w.common().expanded(&text);
                 w.ran().lacks(&Common::clap_wording(&text));
             }
 
@@ -424,19 +619,64 @@ macro_rules! common_steps {
                 w.common().project.file_contains(&rel, &text);
             }
 
+            #[given("a git that records each call is first on the PATH of the next command alone")]
+            fn recording_git(w: &mut World) {
+                w.common_mut().record_git_calls_next();
+            }
+
+            /// The serving daemon ran the recording git: a call whose
+            /// parent is the daemon `daemon status` names, never the command
+            /// that asked (whose PATH alone held it).
+            #[then("the recording git was called for the pull")]
+            fn recorded_for_pull(w: &mut World) {
+                let common = w.common();
+                let calls = common.recorded_git_calls();
+                let env: Vec<(&str, &str)> = common
+                    .env
+                    .iter()
+                    .map(|(k, v)| (k.as_str(), v.as_str()))
+                    .collect();
+                let status = common
+                    .project
+                    .run_with(&env, &["daemon", "status", "--format", "json"]);
+                assert_eq!(status.code, 0, "{}", status.said());
+                let pid = status.json()["pid"].as_u64();
+                assert!(
+                    calls
+                        .iter()
+                        .any(|(parent, _)| Some(u64::from(*parent)) == pid),
+                    "no git call of the serving daemon ({pid:?}): {calls:?}"
+                );
+            }
+
             #[then(expr = "the file {string} contains {string} exactly {int} times")]
             fn file_contains_times(w: &mut World, rel: String, text: String, times: usize) {
                 w.common().project.file_counts(&rel, &text, times);
             }
 
+            /// Go's: a file that is not there contains nothing.
             #[then(expr = "the file {string} does not contain {string}")]
             fn file_lacks(w: &mut World, rel: String, text: String) {
-                w.common().project.file_lacks(&rel, &text);
+                if w.common().project.exists(&rel) {
+                    w.common().project.file_lacks(&rel, &text);
+                }
             }
 
             #[then(expr = "the file {string} exists")]
             fn file_exists(w: &mut World, rel: String) {
                 assert!(w.common().project.exists(&rel), "{rel} should exist");
+            }
+
+            /// The file parses as YAML (angzarr-yaml, the reader ctxloom's
+            /// own documents go through); a parse error fails the step with it.
+            #[then(expr = "the file {string} is valid YAML")]
+            fn file_valid_yaml(w: &mut World, rel: String) {
+                let held = w
+                    .common()
+                    .project
+                    .read(&rel)
+                    .unwrap_or_else(|| panic!("{rel} should exist"));
+                angzarr_yaml::parse(&held).unwrap_or_else(|e| panic!("{rel}: {e}"));
             }
 
             #[then(expr = "the file {string} does not exist")]
@@ -453,7 +693,59 @@ pub(crate) use common_steps;
 pub(crate) struct FeatureRun {
     pub(crate) passed: bool,
     pub(crate) scenarios: Vec<(String, bool)>,
+    /// Each step that failed, in the order they failed: what the ratchet's
+    /// `<list>.failures` says of a red scenario.
+    pub(crate) failures: Vec<Failure>,
 }
+
+/// A step that failed: its scenario's id ([`scenario_id`]), the step as the
+/// feature writes it (its keyword and text), and what it said.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Failure {
+    pub(crate) scenario: String,
+    pub(crate) step: String,
+    pub(crate) message: String,
+}
+
+/// A cucumber writer beside the console's that keeps each failed step
+/// ([`Failure`]) of one feature, whatever the console shows.
+struct StepFailures {
+    feature: String,
+    kept: std::sync::Arc<std::sync::Mutex<Vec<Failure>>>,
+}
+
+impl<W: cucumber::World> cucumber::Writer<W> for StepFailures {
+    type Cli = cucumber::cli::Empty;
+
+    async fn handle_event(
+        &mut self,
+        event: cucumber::parser::Result<cucumber::Event<cucumber::event::Cucumber<W>>>,
+        _: &Self::Cli,
+    ) {
+        use cucumber::event::{Cucumber, Feature as F, Rule as R, Scenario as S, Step};
+        let Ok(event) = event else { return };
+        let Cucumber::Feature(_, feature) = event.value else {
+            return;
+        };
+        let (rule, scenario, event) = match feature {
+            F::Scenario(scenario, event) => (None, scenario, event),
+            F::Rule(rule, R::Scenario(scenario, event)) => (Some(rule), scenario, event),
+            _ => return,
+        };
+        let (S::Step(step, Step::Failed(_, _, _, error))
+        | S::Background(step, Step::Failed(_, _, _, error))) = event.event
+        else {
+            return;
+        };
+        self.kept.lock().expect("not poisoned").push(Failure {
+            scenario: scenario_id(&self.feature, rule.as_deref(), &scenario),
+            step: format!("{} {}", step.keyword.trim(), step.value),
+            message: error.to_string(),
+        });
+    }
+}
+
+impl cucumber::writer::Normalized for StepFailures {}
 
 /// The id of what failed in a feature outside any scenario (it did not
 /// parse, a hook failed, it has no World): `<feature> :: (outside a
@@ -462,13 +754,186 @@ pub(crate) fn outside_id(feature: &str) -> String {
     format!("{feature} :: (outside a scenario)")
 }
 
-/// Run one feature file with the World `W`, its pending scenarios left out:
+/// `GHERKIN_TIMINGS=<absolute file>`'s profile: each scenario's wall time,
+/// from its start to its end, appended to the file as `<seconds>\t<id>`.
+#[derive(Clone, Default)]
+struct Timings {
+    file: Option<PathBuf>,
+    started:
+        std::sync::Arc<std::sync::Mutex<std::collections::BTreeMap<String, std::time::Instant>>>,
+}
+
+impl Timings {
+    fn asked() -> Timings {
+        Timings {
+            file: super::host_var("GHERKIN_TIMINGS").map(PathBuf::from),
+            started: std::sync::Arc::default(),
+        }
+    }
+
+    fn on(&self) -> bool {
+        self.file.is_some()
+    }
+
+    fn start(&self, id: String) {
+        if self.on() {
+            let now = std::time::Instant::now();
+            self.started.lock().expect("not poisoned").insert(id, now);
+        }
+    }
+
+    fn finish(&self, id: &str) {
+        let Some(file) = &self.file else { return };
+        let Some(start) = self.started.lock().expect("not poisoned").remove(id) else {
+            return;
+        };
+        use std::io::Write as _;
+        let line = format!("{:.2}\t{id}\n", start.elapsed().as_secs_f64());
+        // A profile, best effort: a line that cannot be written is lost.
+        let _ = files::open_append(file).and_then(|mut f| f.write_all(line.as_bytes()));
+    }
+}
+
+/// Run one feature file with the World `W`, its pending scenarios left out
+/// (and, when `only` names a scenario id, every other scenario too):
 /// whether it passed, and each scenario's outcome. A failure no scenario
 /// owns is the feature's [`outside_id`]. A scenario whose step found the host
 /// cannot run a fake program (`files::put_program`'s [`files::UNSUPPORTED`]
 /// panic, off unix) is skipped, said `SKIP <scenario>: <why>` on stderr, and
 /// fails nothing; on unix no step panics so.
-pub(crate) fn run_feature<W>(file: &Path) -> FeatureRun
+///
+/// A whole feature's scenarios run at once, [`SCENARIOS_AT_ONCE`] at a
+/// time, each a cucumber run of its own on a thread of its own
+/// ([`scenario_ids`], then this with `only` naming it): within one cucumber
+/// run they take turns, because every step blocks its one executor thread.
+/// Each scenario has a temporary root of its own, so nothing one runs is
+/// another's. Under `GHERKIN_TIMINGS` (and for a feature whose scenarios
+/// cannot be listed, so its parse error is reported as before) the feature
+/// is one run, its scenarios one at a time.
+pub(crate) fn run_feature<W>(file: &Path, only: Option<&str>) -> FeatureRun
+where
+    W: cucumber::World + cucumber::codegen::WorldInventory + fmt::Debug,
+{
+    if only.is_none() && !Timings::asked().on() {
+        if let Some(ids) = scenario_ids(file).filter(|ids| !ids.is_empty()) {
+            return run_scenarios_at_once(&ids, scenarios_at_once(), |id| {
+                run_feature_whole::<W>(file, Some(id))
+            });
+        }
+    }
+    run_feature_whole::<W>(file, only)
+}
+
+/// How many scenarios of one feature run at once: nextest already runs as
+/// many features at once as it runs tests, so a few more each.
+// 2, not 3: measured 2026-11-18 with nextest's 12 threads, as fast on a quiet host and faster under load, at ~60% of 20x3's load average.
+pub(crate) const SCENARIOS_AT_ONCE: usize = 2;
+
+/// How many scenarios of one feature run at once in this test process:
+/// `GHERKIN_SCENARIOS_AT_ONCE`, read once, else [`SCENARIOS_AT_ONCE`] (a
+/// knob for measuring the run, as `NEXTEST_TEST_THREADS` is nextest's).
+fn scenarios_at_once() -> usize {
+    static AT_ONCE: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *AT_ONCE.get_or_init(|| {
+        scenarios_at_once_from(super::host_var("GHERKIN_SCENARIOS_AT_ONCE").as_deref())
+    })
+}
+
+/// [`scenarios_at_once`] of the variable's value: unset is the default, a
+/// positive count is that count; anything else panics, so a mistyped knob
+/// never measures the default.
+pub(crate) fn scenarios_at_once_from(value: Option<&std::ffi::OsStr>) -> usize {
+    let Some(value) = value else {
+        return SCENARIOS_AT_ONCE;
+    };
+    value
+        .to_str()
+        .and_then(|text| text.parse::<usize>().ok())
+        .filter(|&count| count > 0)
+        .unwrap_or_else(|| {
+            panic!("GHERKIN_SCENARIOS_AT_ONCE is {value:?}, not a count of 1 or more")
+        })
+}
+
+/// The ids of a feature file's scenarios that a run would run (its pending
+/// ones left out), each once, in the file's order; `None` when it does not
+/// parse.
+pub(crate) fn scenario_ids(file: &Path) -> Option<Vec<String>> {
+    use cucumber::feature::Ext as _;
+    let feature = Feature::parse_path(file, GherkinEnv::default()).ok()?;
+    let feature = join_spaced_placeholders(feature).expand_examples().ok()?;
+    let name = file
+        .strip_prefix(features_dir())
+        .unwrap_or(file)
+        .display()
+        .to_string();
+    let mut ids: Vec<String> = Vec::new();
+    let plain = feature.scenarios.iter().map(|s| (None, s));
+    let ruled = feature
+        .rules
+        .iter()
+        .flat_map(|r| r.scenarios.iter().map(move |s| (Some(r), s)));
+    for (rule, scenario) in plain.chain(ruled) {
+        if is_pending(&feature, rule, scenario) {
+            continue;
+        }
+        let id = scenario_id(&name, rule, scenario);
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
+    Some(ids)
+}
+
+/// Run each of `ids` by `run`, `at_once` at a time, each on a thread of
+/// its own, and put their outcomes together, in the order of `ids`: the
+/// feature passed when every run did.
+pub(crate) fn run_scenarios_at_once(
+    ids: &[String],
+    at_once: usize,
+    run: impl Fn(&str) -> FeatureRun + Sync,
+) -> FeatureRun {
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let runs: Vec<std::sync::Mutex<Option<FeatureRun>>> =
+        ids.iter().map(|_| std::sync::Mutex::new(None)).collect();
+    std::thread::scope(|scope| {
+        for _ in 0..at_once.clamp(1, ids.len().max(1)) {
+            scope.spawn(|| loop {
+                let i = next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let Some(id) = ids.get(i) else { break };
+                *runs[i].lock().expect("not poisoned") = Some(run(id));
+            });
+        }
+    });
+    let mut all = FeatureRun {
+        passed: true,
+        scenarios: Vec::new(),
+        failures: Vec::new(),
+    };
+    for (id, one) in ids.iter().zip(runs) {
+        let mut one = one
+            .into_inner()
+            .expect("not poisoned")
+            .expect("every id ran");
+        // An id its own run did not run is red, never left out of the list.
+        if one.scenarios.is_empty() {
+            one.passed = false;
+            one.scenarios.push((id.clone(), false));
+            one.failures.push(Failure {
+                scenario: id.clone(),
+                step: "(none)".to_string(),
+                message: "its own run ran no scenario of this id".to_string(),
+            });
+        }
+        all.passed &= one.passed;
+        all.scenarios.extend(one.scenarios);
+        all.failures.extend(one.failures);
+    }
+    all
+}
+
+/// [`run_feature`]'s one cucumber run.
+fn run_feature_whole<W>(file: &Path, only: Option<&str>) -> FeatureRun
 where
     W: cucumber::World + cucumber::codegen::WorldInventory + fmt::Debug,
 {
@@ -484,11 +949,33 @@ where
     let unsupported = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let skips = std::sync::Arc::clone(&unsupported);
     let named = feature.clone();
+    let chosen = feature.clone();
+    let only = only.map(str::to_string);
+    let failures = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let recorder = StepFailures {
+        feature: feature.clone(),
+        kept: std::sync::Arc::clone(&failures),
+    };
+    let timings = Timings::asked();
+    let at_once = if timings.on() { 1 } else { 4 };
+    let stamp = timings.clone();
+    let stamped = feature.clone();
     let writer = futures::executor::block_on(
         W::cucumber::<&Path>()
+            .with_writer({
+                use cucumber::WriterExt as _;
+                cucumber::writer::Basic::stdout()
+                    .summarized()
+                    .tee::<W, _>(recorder.discard_arbitrary_writes().discard_stats_writes())
+            })
             .with_parser(SpacedPlaceholders)
+            .before(move |_, rule, scenario, _| {
+                stamp.start(scenario_id(&stamped, rule, scenario));
+                async {}.boxed_local()
+            })
             .after(move |feature, rule, scenario, finished, _| {
                 let id = scenario_id(&named, rule, scenario);
+                timings.finish(&id);
                 if let Some(why) = unsupported_here(finished) {
                     eprintln!("SKIP {id}: {why}");
                     skips.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -512,10 +999,13 @@ where
             })
             // The test harness's own arguments (`--exact`) are not ours.
             .with_cli(cucumber::cli::Opts::<_, _, _, cucumber::cli::Empty>::default())
-            .max_concurrent_scenarios(4)
+            .max_concurrent_scenarios(at_once)
             .fail_on_skipped()
-            .filter_run(file, |feature, rule, scenario| {
+            .filter_run(file, move |feature, rule, scenario| {
                 !is_pending(feature, rule, scenario)
+                    && only
+                        .as_deref()
+                        .is_none_or(|id| scenario_id(&chosen, rule, scenario) == id)
             }),
     );
     // Each skipped scenario failed the one step that found the host unable.
@@ -530,7 +1020,12 @@ where
     if !passed && scenarios.iter().all(|(_, ok)| *ok) {
         scenarios.push((outside_id(&feature), false));
     }
-    FeatureRun { passed, scenarios }
+    let failures = std::mem::take(&mut *failures.lock().expect("not poisoned"));
+    FeatureRun {
+        passed,
+        scenarios,
+        failures,
+    }
 }
 
 /// cucumber 0.21's parser for one feature file, except that an outline's
@@ -767,6 +1262,28 @@ pub(crate) fn world_of(text: &str) -> Result<&str, String> {
     }
 }
 
+/// The real git is found by either spelling, the first directory holding
+/// one: Windows' is `git.exe` (found there, the recording git step reaches
+/// `put_program`, whose unsupported-host panic skips the scenario).
+#[test]
+fn the_real_git_is_found_as_git_or_as_git_exe() {
+    let dirs = [
+        PathBuf::from("/a"),
+        PathBuf::from("/b"),
+        PathBuf::from("/c"),
+    ];
+    // Paths are built as the platform joins them (Windows' separator).
+    let at = |dir: &str, name: &str| PathBuf::from(dir).join(name);
+    let found = |holding: &[PathBuf]| real_git(&dirs, |path| holding.iter().any(|h| h == path));
+    assert_eq!(found(&[at("/b", "git")]), Some(at("/b", "git")));
+    assert_eq!(found(&[at("/b", "git.exe")]), Some(at("/b", "git.exe")));
+    assert_eq!(
+        found(&[at("/c", "git"), at("/b", "git.exe")]),
+        Some(at("/b", "git.exe"))
+    );
+    assert_eq!(found(&[]), None);
+}
+
 /// Only `put_program`'s unsupported-host panic skips a scenario: any other
 /// panic, and any other ending, is the scenario's own outcome.
 #[test]
@@ -818,4 +1335,27 @@ fn spaced_columns_are_joined_in_the_header_and_wherever_the_outline_names_them()
     use cucumber::feature::Ext as _;
     let expanded = feature.expand_examples().expect("it expands");
     assert_eq!(expanded.rules[0].scenarios[0].name, "o a b");
+}
+
+/// The recording git's log: each line its caller's pid, then the call's
+/// words; a call with no words is the pid alone, and a line that starts
+/// with no pid is not a call.
+#[test]
+fn the_recording_gits_log_reads_as_each_call_and_its_caller() {
+    assert_eq!(
+        git_calls("41 fetch --quiet origin\n42\nnot-a-pid clone\n\n7 ls-remote"),
+        vec![
+            (41, "fetch --quiet origin".to_string()),
+            (42, String::new()),
+            (7, "ls-remote".to_string()),
+        ]
+    );
+}
+
+/// `value` with each `/` the host's separator: itself off Windows.
+fn host_spelled(value: &str) -> String {
+    match os::host().flavor() {
+        os::Flavor::Windows => value.replace('/', "\\"),
+        os::Flavor::Unix => value.to_string(),
+    }
 }

@@ -48,7 +48,8 @@ Feature: Cross-engine transcript capture — every engine's conversation becomes
   # stub opencode loads that plugin (under node, as opencode loads it under
   # Bun) and feeds it the events a real opencode emits for a prompt, a tool
   # call and a reply; its turn also idles, which ends the turn a second time.
-  # opencode says nothing of a session's end: ctxloom records it at the exit.
+  # opencode says nothing of a session's end, and ctxloom records none: a
+  # session's end is its run's end, which its listing says.
   Scenario: The events an interactive opencode session emits become the session's transcript
     # new: ruling 58, with a stub opencode on PATH running the real plugin.
     Given Alice has a project that has never used ctxloom
@@ -59,7 +60,7 @@ Feature: Cross-engine transcript capture — every engine's conversation becomes
       """
     Then opencode ran in its session home, with what its plugin's hooks need to reach ctxloom and without OPENCODE_PURE
     And every hook the plugin ran left nothing unrecorded
-    And the session's transcript holds her prompt, the tool call with its status, the assistant's words, the turn's end and the session's end at the exit, each once
+    And the session's transcript holds her prompt, the tool call with its status, the assistant's words and the turn's end, each once
 
   # The interactive engine reports what happens through the hooks its session
   # home registers; the stub engine fires them as separate processes, with the
@@ -75,10 +76,75 @@ Feature: Cross-engine transcript capture — every engine's conversation becomes
       """
     Then the assistant's environment held what its hooks need to reach ctxloom
     And every hook it fired answered, said nothing was left unrecorded, and exited 0
-    And the session's transcript holds her prompt, the assistant's words in order, the tool call as a digest, the turn's end and the session's end, each once
+    And the session's transcript holds her prompt, the assistant's words in order, the tool call as a digest and the turn's end, each once
     And while the engine ran, its session's transcript already held what its hooks had delivered
     And the session's directory holds its session home and nothing projected from its events
-    And a hook fired after the run has ended is refused without failing, and adds nothing to the transcript
+    # A late hook reaches the user's daemon, and what it repeats adds nothing;
+    # a late hook with something new is recorded (the scenario below).
+    And a hook fired again after the run has ended is answered without failing, and adds nothing a second time
+
+  # A hook is a separate process: one can still be delivering after its
+  # engine has exited and the run has ended. What it observed is recorded in
+  # its session like anything else; only a repeat of what is already there
+  # adds nothing (owner, 2026-11-15: a session records until it is destroyed).
+  Scenario: A hook that reports something new after its run has ended is recorded
+    # new: owner 2026-11-15 (no session end gates capture).
+    Given Alice has a project that has never used ctxloom
+    And Alice has set ctxloom up in her project
+    When Alice runs her assistant interactively, and it fires its session's hooks twice each:
+      """
+      ctxloom run
+      """
+    And after the run has ended, a hook of her session reports a turn's end it had not reported
+    Then that hook answered, said nothing was left unrecorded, and exited 0
+    And the session's transcript ends with that turn's end, once
+    And the session is listed as ended under its own name
+
+  # claude's /clear starts a new conversation in the same session: its
+  # SessionStart hook says `clear` and names the new conversation. The
+  # session's record keeps the clear as its own line, binds the new
+  # conversation, and keeps the old one in its lineage, so the next turn on
+  # the session resumes the conversation after the clear.
+  Scenario: A clear in an interactive session is recorded, and the session resumes after it
+    # new: owner 2026-11-15 (clears captured, typed).
+    Given Alice has a project that has never used ctxloom
+    And Alice has set ctxloom up in her project
+    When Alice runs her assistant interactively, and clears its conversation between two prompts:
+      """
+      ctxloom run
+      """
+    Then every hook it fired answered, said nothing was left unrecorded, and exited 0
+    And the session's transcript holds her first prompt, its turn's end, the clear, her second prompt and its turn's end, each once
+    And the session's record keeps the conversation before the clear in its lineage
+    When Alice takes another turn on that session with "and then?"
+    Then the assistant was resumed on the conversation after the clear
+
+  # The engine names its own conversation when the session starts (claude's
+  # SessionStart); that is what `run --session` resumes. Nothing waits for
+  # the session's end to learn it. The SessionStart hook delivers that bind
+  # to the user's daemon like any capture fact, and holds it like one.
+  Scenario: A terminal session is resumed on the conversation its start named
+    # new: owner 2026-11-15 (no session end); ruling 115; H-Q9 folded in.
+    Given Alice has a project that has never used ctxloom
+    And Alice has set ctxloom up in her project
+    And Alice has run her assistant interactively, and its engine named its conversation "00000000-0000-4000-8000-0000000000bb" when it started
+    When Alice takes another turn on that session with "and then?"
+    Then the command succeeds
+    And the assistant was resumed on its own session "00000000-0000-4000-8000-0000000000bb"
+
+  # A compaction is in the session's record, typed: before and after, with
+  # what set it off, and of the summary the engine wrote only its size and
+  # digest, never its text.
+  Scenario: A compaction in an interactive session is recorded as its size and digest
+    # new: owner 2026-11-15 (compaction in the log, typed).
+    Given Alice has a project that has never used ctxloom
+    And Alice has set ctxloom up in her project
+    When Alice runs her assistant interactively, and it compacts its context once by hand:
+      """
+      ctxloom run
+      """
+    Then every hook it fired answered, said nothing was left unrecorded, and exited 0
+    And the session's transcript holds the compaction before and after it, with its trigger "manual" and the summary's size and digest, and not its text
 
   # A session opened with a prompt on its command line: the engine submits it
   # as its first prompt, and its UserPromptSubmit hook records it. Hooks are
@@ -94,11 +160,11 @@ Feature: Cross-engine transcript capture — every engine's conversation becomes
       """
     Then the assistant's environment held what its hooks need to reach ctxloom
     And every hook it fired answered, said nothing was left unrecorded, and exited 0
-    And the session's transcript holds her prompt, the assistant's words in order, the tool call as a digest, the turn's end and the session's end, each once
+    And the session's transcript holds her prompt, the assistant's words in order, the tool call as a digest and the turn's end, each once
 
   # A one-shot's assistant is a child turn (`claude -p`), heard through the
   # same hooks (owner ruling 51): its session home registers the per-turn
-  # events, and the one-shot serves the listener they call back to. The stub
+  # events, which call back to Alice's daemon, as every hook does. The stub
   # engine fires them as the interactive one does, each twice.
   Scenario: The hooks a one-shot's assistant fires become the session's transcript
     # new: hook capture of a child turn, with a stub engine on PATH.
@@ -132,7 +198,7 @@ Feature: Cross-engine transcript capture — every engine's conversation becomes
 
   # Ruling 114: a ctxloom asked to stop while its assistant works (a SIGTERM,
   # a SIGHUP, or a SIGINT for a one-shot) passes the stop on to the assistant,
-  # gives it a bounded grace to exit, records the session's end and exits as
+  # gives it a bounded grace to exit, records its run's end and exits as
   # a shell reports the signal, instead of dying and leaving the assistant
   # working with no one listening.
   Scenario: A one-shot asked to stop stops its assistant first and ends its session

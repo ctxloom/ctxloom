@@ -29,6 +29,7 @@ fn request() -> TurnRequest {
         model: String::new(),
         effort: String::new(),
         settings: EngineSettings::default(),
+        approval_prompt: true,
     }
 }
 
@@ -202,16 +203,12 @@ fn test_only_the_curated_variables_pass_and_opencode_pure_never_does() {
         }),
     ] {
         let names: Vec<&str> = command.env.keys().map(String::as_str).collect();
-        for passed in [
-            "PATH",
-            "OPENAI_API_KEY",
-            "NAMED",
-            "CTXLOOM_ENDPOINT",
-            "CTXLOOM_SESSION_HARP",
-        ] {
+        for passed in ["PATH", "OPENAI_API_KEY", "NAMED", "CTXLOOM_ENDPOINT"] {
             assert!(names.contains(&passed), "{passed}: {names:?}");
         }
         for kept in [
+            // s3-Q3: retired; the session's name is `CTXLOOM_SESSION`'s.
+            "CTXLOOM_SESSION_HARP",
             "CTXLOOM_OPENCODE_API_KEY",
             "OPENCODE_PURE",
             "OPENCODE_CONFIG",
@@ -229,7 +226,6 @@ fn test_only_the_curated_variables_pass_and_opencode_pure_never_does() {
             assert!(list.contains(&hook), "{hook}");
         }
         assert!(list.contains(&run_ports::HOME_VARIABLE));
-        assert!(list.contains(&run_ports::HARP_VARIABLE));
         assert!(list.contains(&run_ports::ROOT_VARIABLE));
     }
 }
@@ -395,13 +391,6 @@ fn test_a_host_home_keeps_the_users_own_dirs_and_still_loads_the_plugin() {
     );
 }
 
-// Ruling 58: opencode has no native "session ended"; the launcher records it
-// at the TUI's exit.
-#[test]
-fn test_its_session_ends_with_its_exit() {
-    assert!(Opencode::new().session_ends_with_exit());
-}
-
 #[test]
 fn test_its_name_as_an_engine_is_opencode() {
     assert_eq!(Engine::name(&Opencode::new()), "opencode");
@@ -473,7 +462,11 @@ fn test_its_login_links_everywhere_and_is_copied_on_windows_when_no_link_can_be_
 #[test]
 fn test_the_tui_is_told_the_terminal_and_its_colours() {
     let mut asked = request();
-    asked.env = env(&[("TERM", "xterm-256color"), ("COLORTERM", "truecolor")]);
+    asked.env = env(&[
+        ("TERM", "xterm-256color"),
+        ("COLORTERM", "truecolor"),
+        ("NO_COLOR", "1"),
+    ]);
     let command = terminal(&asked);
     assert_eq!(
         command.env.get("TERM").map(String::as_str),
@@ -485,6 +478,13 @@ fn test_the_tui_is_told_the_terminal_and_its_colours() {
     );
     let child = turn(&asked);
     assert!(!child.env.contains_key("TERM"), "{:?}", child.env.keys());
+    // Her colour choice (no-color.org) reaches the terminal session too.
+    assert_eq!(command.env.get("NO_COLOR").map(String::as_str), Some("1"));
+    assert!(
+        !child.env.contains_key("NO_COLOR"),
+        "{:?}",
+        child.env.keys()
+    );
     assert!(
         !child.env.contains_key("COLORTERM"),
         "{:?}",

@@ -36,7 +36,7 @@ const CLAUDE_REMEDY: &str = "run `claude setup-token` and export CLAUDE_CODE_OAU
 #[derive(Clone, PartialEq, Eq, Debug, Serialize)]
 pub struct Row {
     pub engine: String,
-    pub mode: &'static str,
+    pub mode: String,
     /// Whether the credential is exported: a variable row's alone. A file
     /// row has none (owner ruling 65): nothing here looks at a file.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -55,8 +55,8 @@ pub struct Row {
     /// Who the credential serves when it is not every run: `primary` for a
     /// source that is a file alone (owner ruling 53), which the human's own
     /// interactive session may use and no child agent can.
-    #[serde(skip_serializing_if = "str::is_empty")]
-    pub usable_by: &'static str,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub usable_by: String,
 }
 
 /// Whether one configured engine could authenticate a run.
@@ -78,6 +78,11 @@ pub struct Verdict {
     /// Ready on no credential at all: the source's variables are optional
     /// (opencode's built-in keys, rulings 69 and 79) and none is exported.
     pub keyless: bool,
+    /// Not ready, and only a CHILD would be refused for it (owner ruling
+    /// 2026-11-19): the primary session can still sign in, with the
+    /// engine's own login (the built-in source, `token` too) or the file
+    /// the source names. `message` and `remedy` then say what a child needs.
+    pub primary_signs_in: bool,
 }
 
 /// The catalog of the runs messages [`FileOnly`] is said in.
@@ -123,6 +128,18 @@ struct Need {
     /// The file of a source that is a file alone, which serves the primary
     /// session only; `vars` is then empty.
     file: Option<String>,
+    /// What the primary session signs in with when no variable is set:
+    /// none for a source of variables alone.
+    login: Option<Login>,
+}
+
+/// What a primary session signs in with beside the environment.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Login {
+    /// The engine's own login, which the built-in source shares with it.
+    Engine,
+    /// The file the source names beside its variables.
+    File,
 }
 
 /// The use case, over the environment it is launched in.
@@ -160,31 +177,31 @@ impl Auth {
             if let Some(file) = &need.file {
                 return Row {
                     engine: need.engine.clone(),
-                    mode: FILE,
+                    mode: FILE.to_string(),
                     present: None,
                     vars: Vec::new(),
                     via: file.clone(),
                     message: file_only_message(&need.engine),
                     remedy: remedy(&need),
-                    usable_by: PRIMARY,
+                    usable_by: PRIMARY.to_string(),
                 };
             }
             let found = need.vars.iter().find(|v| self.env.is_exported(v)).cloned();
             if found.is_none() && !need.required {
                 return Row {
                     engine: need.engine.clone(),
-                    mode: TOKEN,
+                    mode: TOKEN.to_string(),
                     present: Some(false),
                     vars: Vec::new(),
                     via: String::new(),
                     message: keyless_message(&need),
                     remedy: String::new(),
-                    usable_by: "",
+                    usable_by: String::new(),
                 };
             }
             Row {
                 engine: need.engine.clone(),
-                mode: TOKEN,
+                mode: TOKEN.to_string(),
                 present: Some(found.is_some()),
                 vars: found.iter().cloned().collect(),
                 remedy: if found.is_some() {
@@ -194,7 +211,7 @@ impl Auth {
                 },
                 via: found.unwrap_or_default(),
                 message: String::new(),
-                usable_by: "",
+                usable_by: String::new(),
             }
         })
         .collect()
@@ -235,19 +252,28 @@ impl Auth {
             .map(|need| {
                 let exported = need.vars.iter().any(|v| self.env.is_exported(v));
                 let keyless = need.file.is_none() && !need.required && !exported;
+                let ready = need.file.is_some() || !need.required || exported;
+                let signs_in = (!ready).then_some(need.login).flatten();
                 Verdict {
-                    ready: need.file.is_some() || !need.required || exported,
+                    ready,
                     mode: if need.file.is_some() { FILE } else { TOKEN },
                     message: if need.file.is_some() {
                         file_only_message(&need.engine)
                     } else if keyless {
                         keyless_message(&need)
+                    } else if let Some(login) = signs_in {
+                        children_only_message(&need, login)
                     } else {
                         String::new()
                     },
-                    remedy: remedy(&need),
+                    remedy: if signs_in.is_some() {
+                        child_remedy(&need)
+                    } else {
+                        remedy(&need)
+                    },
                     primary_only: need.file.is_some(),
                     keyless,
+                    primary_signs_in: signs_in.is_some(),
                     vars: need.vars,
                     engine: need.engine,
                 }
@@ -274,6 +300,14 @@ fn needs(config: &angzarr_yaml::Value, wanted: &[String]) -> Vec<Need> {
                 return None;
             };
             let builtin = source.source == engines::Source::Default;
+            // The built-in source, said or spelled `token`, shares the
+            // engine's own login with the primary; a configured one shares
+            // only the file it names.
+            let login = if builtin || says_token(config, engine) {
+                Some(Login::Engine)
+            } else {
+                file.as_ref().map(|_| Login::File)
+            };
             // A file alone serves the primary session and no child (ruling
             // 53): its row says so.
             if env.is_empty() {
@@ -283,6 +317,7 @@ fn needs(config: &angzarr_yaml::Value, wanted: &[String]) -> Vec<Need> {
                     vars: Vec::new(),
                     builtin,
                     file: Some(file),
+                    login: None,
                 });
             }
             Some(Need {
@@ -291,9 +326,59 @@ fn needs(config: &angzarr_yaml::Value, wanted: &[String]) -> Vec<Need> {
                 vars: env,
                 builtin,
                 file: None,
+                login,
             })
         })
         .collect()
+}
+
+/// Whether `engine`'s block says `auth: token`, the built-in source.
+fn says_token(config: &angzarr_yaml::Value, engine: &str) -> bool {
+    config
+        .get("engines")
+        .and_then(|engines| engines.get(engine))
+        .and_then(|block| block.get("auth"))
+        .is_some_and(|auth| engines::AuthSource::parse(auth) == Ok(engines::AuthSource::Token))
+}
+
+/// What a missing variable means when the primary signs in without it: a
+/// child's run is refused, in the refusal's words (`runs-no-credential`,
+/// ruling 81), and the primary is not.
+// DRAFT text (owner ruling 2026-11-19): the clause after the refusal.
+fn children_only_message(need: &Need, login: Login) -> String {
+    let refused = runs::RunRejection::NoCredential {
+        engine: need.engine.clone(),
+        variables: need.vars.join(", "),
+    };
+    let with = match login {
+        Login::Engine => format!("{}'s own login", need.engine),
+        Login::File => format!("the file engines.{}.auth names", need.engine),
+    };
+    format!(
+        "{}; the primary interactive session can still sign in with {with}",
+        InRunsWords(&refused)
+    )
+}
+
+/// What a child needs when the primary signs in without it: one of the
+/// source's variables, or another named in `engines.<engine>.auth.env`.
+// DRAFT text (owner ruling 2026-11-19).
+fn child_remedy(need: &Need) -> String {
+    let one = match need.vars.as_slice() {
+        [only] => only.clone(),
+        many => format!("one of {}", many.join(", ")),
+    };
+    let setup = if need.engine == "claude-code"
+        && need.vars.iter().any(|v| v == "CLAUDE_CODE_OAUTH_TOKEN")
+    {
+        " (for claude-code, `claude setup-token` makes CLAUDE_CODE_OAUTH_TOKEN)"
+    } else {
+        ""
+    };
+    format!(
+        "for a child agent, export {one}, or name the variable it reads in engines.{}.auth.env and export that{setup}",
+        need.engine
+    )
 }
 
 /// The variables of `engine`'s built-in source: what a source that is a file

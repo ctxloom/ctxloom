@@ -49,6 +49,9 @@ pub struct View {
     pub title: Option<String>,
     /// Its transcript, when its events hold one (owner ruling 87a: no file).
     pub captured: Option<Captured>,
+    /// The messages it was sent that no turn has carried yet (D30): what
+    /// `session show` lists. Filled by `show`; a listing leaves it empty.
+    pub pending: Vec<crate::PendingMessage>,
 }
 
 /// A captured transcript, as the session's events hold it.

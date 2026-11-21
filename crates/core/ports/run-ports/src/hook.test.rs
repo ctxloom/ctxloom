@@ -1,9 +1,9 @@
 use angzarr_diagnostic::Diagnostic;
 
 use crate::hook::{
-    endpoint_url, hook_environment, parse_endpoint, Bearer, BearerError, Dial, EndpointError,
-    RedactedEnv, BEARER_VARIABLE, ENDPOINT_VARIABLE, HOOK_VARIABLES, RUN_VARIABLE,
-    TLS_CERT_VARIABLE,
+    endpoint_url, hook_environment, name_the_run, parse_endpoint, Bearer, BearerError, Dial,
+    EndpointError, RedactedEnv, BEARER_VARIABLE, ENDPOINT_VARIABLE, HOOK_VARIABLES,
+    LISTENER_VARIABLES, RUN_VARIABLE, SESSION_VARIABLE, TLS_CERT_VARIABLE,
 };
 use crate::{PublicCert, Token};
 
@@ -144,6 +144,17 @@ fn the_bearer_is_the_run_and_the_token_and_parses_back() {
     let (run, parsed) = Bearer::parse(bearer.expose()).unwrap();
     assert_eq!(run, RUN_TEXT);
     assert_eq!(parsed, token());
+}
+
+// The user bearer is the token alone: no run, and nothing a run's bearer
+// parse takes for one.
+#[test]
+fn the_user_bearer_is_the_token_alone() {
+    let token = Token::from_bytes([0xab; 32]);
+    let bearer = Bearer::user(&token);
+    assert_eq!(bearer.expose(), token.to_text());
+    assert!(Bearer::parse(bearer.expose()).is_err());
+    assert_eq!(format!("{bearer:?}"), "Bearer(redacted)");
 }
 
 #[test]
@@ -312,4 +323,35 @@ fn the_runs_session_is_one_of_the_variables_a_hook_is_given() {
         HOOK_VARIABLES.contains(&crate::SESSION_VARIABLE),
         "{HOOK_VARIABLES:?}"
     );
+}
+
+// Slice 4 U7 (s4-Q3, OD-13): a host run's engine is told its session and its
+// run, and none of the env-named arrival's variables, whatever it inherited.
+#[test]
+fn a_host_run_names_its_session_and_run_and_passes_on_no_inherited_hook_variable() {
+    let mut env: std::collections::BTreeMap<String, String> = HOOK_VARIABLES
+        .iter()
+        .map(|name| (name.to_string(), "inherited".to_string()))
+        .chain([("LANG".to_string(), "C".to_string())])
+        .collect();
+    name_the_run(&mut env, "the-run", SESSION_TEXT);
+    assert_eq!(
+        env,
+        std::collections::BTreeMap::from([
+            ("LANG".to_string(), "C".to_string()),
+            (RUN_VARIABLE.to_string(), "the-run".to_string()),
+            (SESSION_VARIABLE.to_string(), SESSION_TEXT.to_string()),
+        ])
+    );
+}
+
+#[test]
+fn the_listener_variables_are_the_endpoint_the_bearer_and_the_certificate() {
+    assert_eq!(
+        LISTENER_VARIABLES,
+        [ENDPOINT_VARIABLE, BEARER_VARIABLE, TLS_CERT_VARIABLE]
+    );
+    for name in LISTENER_VARIABLES {
+        assert!(HOOK_VARIABLES.contains(&name), "{name}");
+    }
 }

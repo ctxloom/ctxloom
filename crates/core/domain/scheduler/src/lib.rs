@@ -4,9 +4,9 @@
 //! `compute_root("scheduler", <the target stream's text>)` ([`stream_for`]).
 //! A target's own policy arms and cancels alarms on it with commands
 //! ([`ArmAlarm`], [`CancelAlarm`]); a clock loop sends the private fact
-//! [`AlarmDue`] under the deterministic id [`alarm_external_id`]; the
+//! [`RecordAlarmDue`] under the deterministic id [`alarm_external_id`]; the
 //! scheduler records [`AlarmFired`]; and a per-domain delivery policy
-//! ([`delivery!`]) hands the target [`AlarmReached`], a fact it re-checks
+//! ([`delivery!`]) hands the target [`RecordAlarmReached`], a fact it re-checks
 //! against its own arming.
 //!
 //! Nothing here knows an application: the crate lifts into angzarr (core; embedded the first user)
@@ -34,7 +34,7 @@ pub type SchedulerEvent = SchedulerStateEvent;
 pub use aggregate::SchedulerAggregate;
 pub use delivery::delivered;
 pub use generated::*;
-pub use reached::AlarmReached;
+pub use reached::RecordAlarmReached;
 pub use refusal::NotOurs;
 #[cfg(any(test, feature = "test-support"))]
 pub use rejection::diagnostic_samples;
@@ -99,7 +99,7 @@ pub fn rfc3339_nanos(at: &Timestamp) -> String {
     )
 }
 
-/// The external id of the clock's [`AlarmDue`] fact: `alarm:<stream>/<alarm_id>@<at>`
+/// The external id of the clock's [`RecordAlarmDue`] fact: `alarm:<stream>/<alarm_id>@<at>`
 /// (scheduler.plan.md OD-1). Deterministic, so a re-sent fact is a duplicate.
 pub fn alarm_external_id(target: &Stream, alarm_id: &str, at: &Timestamp) -> String {
     format!(

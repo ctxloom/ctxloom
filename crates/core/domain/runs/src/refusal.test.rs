@@ -4,8 +4,8 @@ use angzarr_embedded::markup::{Failed, Refuses, TypedRefusal};
 
 use super::*;
 use crate::{
-    EnqueueRun, LaunchRefused, NoPrompt, QueueTurn, Refusal, RequestStop, RunAggregate,
-    RunRejection, UnknownEngine,
+    EnqueueRun, LaunchRefusals, NoPrompt, QueueTurn, Refusal, RequestStop, RunAggregate,
+    RunRejection, UnknownEngine, UntrustedProjectSettings,
 };
 
 /// One refusal message of every rejection, with the rejection it must read
@@ -21,18 +21,10 @@ fn table() -> Vec<(TypedRefusal, RunRejection)> {
             TypedRefusal::of(&TurnInFlight { turn: 7 }),
             RunRejection::TurnInFlight { turn: 7 },
         ),
-        (TypedRefusal::of(&Ended {}), RunRejection::Ended),
-        (
-            TypedRefusal::of(&CredentialHashInvalid { length: 5 }),
-            RunRejection::CredentialHashInvalid { length: 5 },
-        ),
+        (TypedRefusal::of(&RunIsEnded {}), RunRejection::Ended),
         (
             TypedRefusal::of(&NotItsStream {}),
             RunRejection::NotItsStream,
-        ),
-        (
-            TypedRefusal::of(&CredentialsNotDistinct {}),
-            RunRejection::CredentialsNotDistinct,
         ),
         (
             TypedRefusal::of(&NoCredential {
@@ -56,6 +48,14 @@ fn table() -> Vec<(TypedRefusal, RunRejection)> {
         ),
         (TypedRefusal::of(&NoPrompt {}), RunRejection::NoPrompt),
         (
+            TypedRefusal::of(&UntrustedProjectSettings {
+                paths: "engines.claude-code.command".to_string(),
+            }),
+            RunRejection::UntrustedProjectSettings {
+                paths: "engines.claude-code.command".to_string(),
+            },
+        ),
+        (
             TypedRefusal::of(&UnknownEngine {
                 name: "bogus".to_string(),
                 known: "claude-code".to_string(),
@@ -66,7 +66,7 @@ fn table() -> Vec<(TypedRefusal, RunRejection)> {
             },
         ),
         (
-            TypedRefusal::of(&LaunchRefused {
+            TypedRefusal::of(&LaunchRefusals {
                 no_prompt: vec![NoPrompt {}],
                 unknown_engine: vec![UnknownEngine {
                     name: "bogus".to_string(),
@@ -75,6 +75,7 @@ fn table() -> Vec<(TypedRefusal, RunRejection)> {
                 no_credential: Vec::new(),
                 file_only_credential: Vec::new(),
                 fatal_findings: 1,
+                untrusted_project_settings: Vec::new(),
             }),
             RunRejection::LaunchRefused {
                 refusals: vec![
@@ -97,7 +98,7 @@ fn table() -> Vec<(TypedRefusal, RunRejection)> {
 /// aggregate read back, in their order.
 fn credential_table() -> Vec<(TypedRefusal, RunRejection)> {
     vec![(
-        TypedRefusal::of(&LaunchRefused {
+        TypedRefusal::of(&LaunchRefusals {
             no_prompt: Vec::new(),
             unknown_engine: Vec::new(),
             no_credential: vec![NoCredential {
@@ -109,6 +110,9 @@ fn credential_table() -> Vec<(TypedRefusal, RunRejection)> {
                 variables: "C".to_string(),
             }],
             fatal_findings: 0,
+            untrusted_project_settings: vec![UntrustedProjectSettings {
+                paths: "engines.opencode.command".to_string(),
+            }],
         }),
         RunRejection::LaunchRefused {
             refusals: vec![
@@ -119,6 +123,9 @@ fn credential_table() -> Vec<(TypedRefusal, RunRejection)> {
                 RunRejection::FileOnlyCredential {
                     engine: "opencode".to_string(),
                     variables: "C".to_string(),
+                },
+                RunRejection::UntrustedProjectSettings {
+                    paths: "engines.opencode.command".to_string(),
                 },
             ],
             fatal_findings: 0,
@@ -147,7 +154,7 @@ fn queue_turn_refuses(rejection: RunRejection) -> Failed<Refuses<RunAggregate, Q
         RunRejection,
         rejection,
         Refuses<RunAggregate, QueueTurn>,
-        [NoRun => NoRun, Ended => Ended, TurnInFlight{turn} => TurnInFlight]
+        [NoRun => NoRun, Ended => RunIsEnded, TurnInFlight{turn} => TurnInFlight]
     )
 }
 
@@ -161,8 +168,8 @@ fn a_handler_refuses_with_the_message_of_the_rejection_under_its_declared_status
         ),
         (
             RunRejection::Ended,
-            TypedRefusal::of(&Ended {}),
-            <Ended as Refusal>::REFUSAL_STATUS,
+            TypedRefusal::of(&RunIsEnded {}),
+            <RunIsEnded as Refusal>::REFUSAL_STATUS,
         ),
         (
             RunRejection::TurnInFlight { turn: 3 },
@@ -201,11 +208,11 @@ fn enqueue_refuses(rejection: RunRejection) -> Failed<Refuses<RunAggregate, Enqu
 // compared here with another message's of the same meaning, never spelled.
 #[test]
 fn the_enqueue_refuses_each_pre_launch_check_with_its_message_under_its_status() {
-    let invalid = <CredentialHashInvalid as Refusal>::REFUSAL_STATUS;
+    let invalid = <NotItsStream as Refusal>::REFUSAL_STATUS;
     let precondition = <NoCredential as Refusal>::REFUSAL_STATUS;
     assert_eq!(<NoPrompt as Refusal>::REFUSAL_STATUS, invalid);
     assert_eq!(<UnknownEngine as Refusal>::REFUSAL_STATUS, invalid);
-    assert_eq!(<LaunchRefused as Refusal>::REFUSAL_STATUS, precondition);
+    assert_eq!(<LaunchRefusals as Refusal>::REFUSAL_STATUS, precondition);
     let aggregate = RunRejection::LaunchRefused {
         refusals: vec![
             RunRejection::NoPrompt,

@@ -1,7 +1,7 @@
 //! `profile list` and `profile show`, and the profiles of the project's
 //! bundles as a source for resolution.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use angzarr_diagnostic::Diagnostic;
 use library::findings::Finding;
@@ -11,6 +11,7 @@ use library::ProfileError;
 use crate::error::AppError;
 use crate::project::{Library, Outcome, Project};
 use crate::views::{ProfileList, ProfileRow, ProfileShow};
+use crate::write::views::{Dependent, DependentKind};
 use crate::Flags;
 
 /// The bundle every project's own profiles are items of.
@@ -31,6 +32,8 @@ impl Library {
 /// The profiles the project's local bundles ship, by their canonical key.
 pub(crate) struct Profiles {
     pub(crate) by_key: BTreeMap<String, (Profile, String)>,
+    /// The catalog name of the bundle that ships each, by its key.
+    entries: BTreeMap<String, String>,
     /// The repository a remote profile was shipped in, by its key: it may
     /// name only that repository's content.
     sources: BTreeMap<String, String>,
@@ -98,6 +101,7 @@ impl Project {
     pub(crate) fn profiles(&self) -> Profiles {
         let mut by_key = BTreeMap::new();
         let mut sources = BTreeMap::new();
+        let mut entries = BTreeMap::new();
         for entry in self.catalog.entries() {
             let dir = crate::shown::parent(&entry.manifest_path);
             let origin = self.catalog.origin(&entry.name);
@@ -123,6 +127,7 @@ impl Project {
                     }
                     sources.insert(key.clone(), origin.url.clone());
                 }
+                entries.insert(key.clone(), entry.name.clone());
                 by_key.insert(
                     key,
                     (
@@ -132,7 +137,11 @@ impl Project {
                 );
             }
         }
-        Profiles { by_key, sources }
+        Profiles {
+            by_key,
+            entries,
+            sources,
+        }
     }
 
     /// The canonical keys of the profiles the default agent composes.
@@ -162,17 +171,16 @@ impl Project {
                 path: path.clone(),
                 is_remote: profiles.sources.contains_key(key),
                 bundle: bundle_of(key),
+                entry: profiles.entries.get(key).cloned().unwrap_or_default(),
             })
             .collect();
         rows.sort_by_key(|r| r.name.to_lowercase());
         ProfileList {
             rows,
             hint: if self.no_project() {
-                "No project here: run 'ctxloom init' to set one up with its default content."
-                    .to_string()
+                crate::NO_PROJECT_HINT.to_string()
             } else {
-                "Use 'ctxloom profile create <name> --include <bundle>...' to create one."
-                    .to_string()
+                crate::PROFILE_HINT.to_string()
             },
         }
     }
@@ -198,9 +206,14 @@ impl Project {
             variables: found.variables.clone(),
             exclude_fragments: found.exclude_fragments.clone(),
             exclude_mcp: found.exclude_mcp.clone(),
+            select_tags: found.select_tags.clone(),
+            fragments: found.fragments.clone(),
+            hooks: found.hooks.read(),
+            deny_tools: found.deny_tools.clone(),
             path: path.clone(),
             bundle: bundle_of(&key),
             default: defaults.contains(&key),
+            entry: profiles.entries.get(&key).cloned().unwrap_or_default(),
         })
     }
 
@@ -224,6 +237,121 @@ impl Project {
         }
         Ok(out)
     }
+}
+
+impl Project {
+    /// The profiles and agents that include the local bundle `name` (owner
+    /// ruling 2026-11-19): a profile naming it (a whole-bundle or an item
+    /// reference), or one of whose parents does, or lives in it; an agent
+    /// one of whose profiles does, or lives in it. A profile that lives in
+    /// the bundle goes with it and is not named. Profiles first, then
+    /// agents, each in name order.
+    pub(crate) fn bundle_dependents(&self, name: &str) -> Vec<Dependent> {
+        let profiles = self.profiles();
+        let target = format!("ctxloom+local:{name}");
+        let mut walk = Walk {
+            profiles: &profiles,
+            target: target.clone(),
+            spell: &|reference| self.spelled_out(reference),
+            memo: BTreeMap::new(),
+            visiting: BTreeSet::new(),
+        };
+        let mut named: Vec<String> = profiles
+            .by_key
+            .keys()
+            .filter(|key| bundle_of(key) != target)
+            .filter(|key| walk.includes(key))
+            .map(|key| shown_name(key))
+            .collect();
+        named.sort();
+        let mut out: Vec<Dependent> = named
+            .into_iter()
+            .map(|name| Dependent {
+                kind: DependentKind::Profile,
+                name,
+            })
+            .collect();
+        for agent in self.config.agents() {
+            let on_it = agent.profiles.iter().any(|profile| {
+                profile::canonical_key(&self.spelled_out(profile))
+                    .is_ok_and(|key| walk.includes(&key))
+            });
+            if on_it {
+                out.push(Dependent {
+                    kind: DependentKind::Agent,
+                    name: agent.name,
+                });
+            }
+        }
+        out
+    }
+}
+
+/// Which profiles reach one bundle, each judged once.
+struct Walk<'a> {
+    profiles: &'a Profiles,
+    /// The bundle's canonical reference.
+    target: String,
+    spell: &'a dyn Fn(&str) -> String,
+    memo: BTreeMap<String, bool>,
+    /// The chain being judged, so a cycle (which resolution refuses) ends.
+    visiting: BTreeSet<String>,
+}
+
+impl Walk<'_> {
+    /// Whether the profile of `key` lives in the bundle, names it, or has
+    /// a parent that does.
+    fn includes(&mut self, key: &str) -> bool {
+        if bundle_of(key) == self.target {
+            return true;
+        }
+        if let Some(known) = self.memo.get(key) {
+            return *known;
+        }
+        let Some((found, _)) = self.profiles.by_key.get(key) else {
+            return false;
+        };
+        if !self.visiting.insert(key.to_string()) {
+            return false;
+        }
+        let found = found.clone();
+        // `bundles` and `bundle_items` are bundle references; a command,
+        // skill or fragment names its bundle only as `<bundle>#...`.
+        let scoped = found
+            .commands
+            .iter()
+            .chain(&found.skills)
+            .chain(found.fragments.iter().map(|f| &f.name))
+            .filter(|reference| reference.contains('#'));
+        let named = found
+            .bundles
+            .iter()
+            .chain(&found.bundle_items)
+            .chain(scoped)
+            .any(|reference| self.names_target(reference));
+        let reached = named
+            || found.parents.iter().any(|parent| {
+                profile::canonical_key(&(self.spell)(parent)).is_ok_and(|key| self.includes(&key))
+            });
+        self.visiting.remove(key);
+        self.memo.insert(key.to_string(), reached);
+        reached
+    }
+
+    /// Whether `reference` (`<bundle>` or `<bundle>#<item>`) is the bundle's.
+    fn names_target(&self, reference: &str) -> bool {
+        let base = reference.split('#').next().unwrap_or(reference);
+        library::refs::canonical_bundle_ref(&(self.spell)(base)).is_ok_and(|c| c == self.target)
+    }
+}
+
+/// A profile's key as a profile's `parents` names it: a project profile
+/// bare, a local bundle's `<bundle>#profiles/<name>`.
+fn shown_name(key: &str) -> String {
+    let asked = ask_name(key);
+    asked
+        .strip_prefix("ctxloom+local:")
+        .map_or(asked.clone(), ToString::to_string)
 }
 
 /// The bundle of a profile's key (`<bundle>#profiles/<name>`).

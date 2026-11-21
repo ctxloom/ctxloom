@@ -81,12 +81,6 @@ fn test_a_place_exists_as_a_directory_or_as_a_placed_bundle() {
     files.directory("/d");
     assert!(files.exists("/d"));
     assert!(!files.exists("/d/x"));
-    let files = FakeFiles::default();
-    files
-        .copy_bundle("/e", "b", &BTreeMap::new(), false)
-        .expect("copies");
-    assert!(files.exists("/e/.ctxloom/content/bundles/v2/b"));
-    assert!(!files.exists("/e"));
 }
 
 #[test]

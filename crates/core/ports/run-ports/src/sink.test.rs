@@ -11,6 +11,7 @@ fn only_a_delivery_that_did_not_reach_the_handler_is_unsettled() {
         Delivery::Refused {
             detail: "not allowlisted".to_string(),
         },
+        Delivery::NoSuchSession,
     ] {
         assert!(settled.settled(), "{settled:?}");
     }

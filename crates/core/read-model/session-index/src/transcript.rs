@@ -39,7 +39,31 @@ pub fn entry_line(
         "kind": "entry",
         "entry": {"type": speaker.name(), "content": content},
     });
-    format!("{line}\n")
+    format!("{}\n", sorted(line))
+}
+
+/// `value` with every object's members in key order: a line's bytes are the
+/// same whether serde_json's map keeps insertion order (its
+/// `preserve_order`, which agent-client-protocol turns on across the build)
+/// or sorts.
+// Without `preserve_order` (a crate's own `cargo test`, as mutation runs
+// it) the map sorts anyway, so a mutant that drops the object arm is
+// equivalent there; the unified workspace build is where the guard bites.
+#[cfg_attr(test, mutants::skip)]
+pub(crate) fn sorted(value: serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(members) => {
+            let members: std::collections::BTreeMap<String, serde_json::Value> = members
+                .into_iter()
+                .map(|(key, inner)| (key, sorted(inner)))
+                .collect();
+            serde_json::Value::Object(members.into_iter().collect())
+        }
+        serde_json::Value::Array(items) => {
+            serde_json::Value::Array(items.into_iter().map(sorted).collect())
+        }
+        other => other,
+    }
 }
 
 /// `seconds` since the epoch as an RFC 3339 instant in UTC (Hinnant's civil

@@ -12,19 +12,17 @@ use angzarr_embedded::v1::{command_page, CommandBook, CommandPage, Cover, Fact, 
 use angzarr_embedded::{Any, Failure, Handled, Payload, Registry};
 
 use crate::{
-    run_root, CredentialEvidence, EndCause, EnqueueRun, FinalReported, LaunchFailed,
-    LaunchOrphaned, QueueTurn, RequestStop, RunAggregate, RunCommand, RunEnded, RunEvent,
-    RunExited, RunMode, RunRejection, RunState, RunnerAttached, RunnerLost, RunnerStarted,
-    SummaryReported, TurnCompleted, TurnFailed, TurnFailureClass, TurnStarted, RUN_DOMAIN,
+    run_root, CredentialEvidence, EndCause, EnqueueRun, Grant, QueueTurn, RecordFinalReported,
+    RecordLaunchFailed, RecordLaunchOrphaned, RecordRunExited, RecordRunnerAttached,
+    RecordRunnerLost, RecordRunnerStarted, RecordSummaryReported, RecordTurnCompleted,
+    RecordTurnFailed, RecordTurnStarted, RequestStop, RunAggregate, RunCommand, RunEnded, RunEvent,
+    RunMode, RunRejection, RunState, TurnFailureClass, RUN_DOMAIN,
 };
 
 const SESSION: &str = "5f0c7a52-1111-5111-8111-000000000001";
 // Two principals per run (owner ruling 2026-11-04, item 16): a hash each.
-const RUNNER_HASH: [u8; 32] = [0xab; 32];
-const MODEL_HASH: [u8; 32] = [0xcd; 32];
-const HOOK_HASH: [u8; 32] = [0xef; 32];
 
-type Said = (String, BTreeMap<String, String>);
+pub(crate) type Said = (String, BTreeMap<String, String>);
 
 /// The domain's rejection a typed refusal is, by its type.
 fn refused(rejected: &angzarr_embedded::Rejected) -> RunRejection {
@@ -59,12 +57,12 @@ fn cover() -> Cover {
     }
 }
 
-struct Run {
+pub(crate) struct Run {
     harness: Harness<RunAggregate>,
 }
 
 impl Run {
-    fn new() -> Run {
+    pub(crate) fn new() -> Run {
         let mut registry = Registry::new();
         registry
             .aggregate::<RunAggregate>(RunAggregate::default)
@@ -74,7 +72,7 @@ impl Run {
         }
     }
 
-    fn enqueued() -> Run {
+    pub(crate) fn enqueued() -> Run {
         let mut run = Run::new();
         run.command(enqueue()).unwrap();
         run
@@ -88,7 +86,10 @@ impl Run {
         }
     }
 
-    fn command(&mut self, command: impl Into<RunCommand>) -> Result<Vec<RunEvent>, Said> {
+    pub(crate) fn command(
+        &mut self,
+        command: impl Into<RunCommand>,
+    ) -> Result<Vec<RunEvent>, Said> {
         match self.harness.when(command).result() {
             Ok(events) => Ok(events),
             Err(Failure::Rejected(rejected)) => Err(said(&refused(&rejected))),
@@ -98,13 +99,13 @@ impl Run {
 
     /// A fact, delivered as the listener delivers one: a Fact body with its
     /// derived `external_id`.
-    fn fact(&mut self, fact: impl DomainMessage, external_id: &str) -> Vec<RunEvent> {
+    pub(crate) fn fact(&mut self, fact: impl DomainMessage, external_id: &str) -> Vec<RunEvent> {
         self.harness
             .when_book(fact_book(fact, external_id))
             .events()
     }
 
-    fn state(&self) -> RunState {
+    pub(crate) fn state(&self) -> RunState {
         self.harness.state().state().clone()
     }
 
@@ -138,15 +139,22 @@ fn enqueue() -> EnqueueRun {
         session: SESSION.to_string(),
         incarnation: 1,
         mode: RunMode::Interactive,
-        runner_credential_hash: RUNNER_HASH.to_vec(),
-        model_credential_hash: MODEL_HASH.to_vec(),
-        hook_credential_hash: HOOK_HASH.to_vec(),
         prompt_given: true,
         engine: "claude-code".to_string(),
         drivable_engines: vec!["claude-code".to_string(), "opencode".to_string()],
         credential: not_asked(),
         fatal_findings: 0,
         launcher_lock: launcher_lock(),
+        untrusted_settings: Vec::new(),
+        grant: None,
+    }
+}
+
+/// What a child was given (step 9): two servers and its claude document.
+fn grant() -> Grant {
+    Grant {
+        mcp_servers: vec!["ctxloom".to_string(), "fix-tools".to_string()],
+        permissions: r#"{"defaultMode":"acceptEdits"}"#.to_string(),
     }
 }
 
@@ -204,18 +212,20 @@ fn queue_turn() -> QueueTurn {
     QueueTurn {
         prompt_ref: "prompt:1".to_string(),
         resume: false,
+        message_ids: Vec::new(),
+        urgency: crate::TurnUrgency::Wake,
     }
 }
 
-fn exited(code: i32) -> RunExited {
-    RunExited { code, signal: 0 }
+fn exited(code: i32) -> RecordRunExited {
+    RecordRunExited { code, signal: 0 }
 }
 
-// NEW-DESIGN (plan 3.3, D29; owner ruling 2026-11-04, item 16: two principals
-// per run): the event holds a hash for each principal and nothing else of
-// either credential; the fold keeps both for `identify`.
+// NEW-DESIGN (plan 3.3), owner ruling s4-Q3: the event holds the session,
+// its incarnation and the mode, and no credential (the hook bearer's digest
+// went with the per-run listener).
 #[test]
-fn enqueue_records_the_session_incarnation_mode_and_the_hash_of_the_token() {
+fn enqueue_records_the_session_incarnation_and_mode() {
     let mut run = Run::new();
     let events = run.command(enqueue()).unwrap();
     let [RunEvent::RunEnqueued(enqueued)] = events.as_slice() else {
@@ -223,14 +233,13 @@ fn enqueue_records_the_session_incarnation_mode_and_the_hash_of_the_token() {
     };
     assert_eq!(enqueued.session, SESSION);
     assert_eq!(enqueued.incarnation, 1);
-    assert_eq!(enqueued.runner_credential_hash, RUNNER_HASH.to_vec());
-    assert_eq!(enqueued.model_credential_hash, MODEL_HASH.to_vec());
-    assert_eq!(enqueued.hook_credential_hash, HOOK_HASH.to_vec());
+    assert_eq!(enqueued.mode, RunMode::Interactive);
     let state = run.state();
-    assert_eq!(state.runner_credential_hash, RUNNER_HASH.to_vec());
-    assert_eq!(state.model_credential_hash, MODEL_HASH.to_vec());
-    assert_eq!(state.hook_credential_hash, HOOK_HASH.to_vec());
-    assert!(!state.credential_revoked);
+    assert_eq!(
+        (state.session.as_str(), state.incarnation, state.mode),
+        (SESSION, 1, Some(RunMode::Interactive))
+    );
+    assert_eq!(state.ended, None);
 }
 
 // Rulings 86, 92: the run journals its own lock, which its launcher holds
@@ -246,63 +255,23 @@ fn enqueue_journals_the_lock_its_launcher_holds() {
     assert_eq!(enqueued.launcher_lock, launcher_lock());
 }
 
-// NEW-DESIGN (D29: "only its SHA-256 goes in the event"), for each principal's
-// hash.
+// Step 9 (owner ruling 2026-11-17): the grant record is journaled. What the
+// command says a run was given is its RunEnqueued's, and its state keeps it,
+// so a later edit of its agent leaves this run's record as it was.
 #[test]
-fn enqueue_refuses_a_credential_hash_that_is_not_a_sha256_digest() {
-    let shorts = [
-        EnqueueRun {
-            runner_credential_hash: vec![1, 2, 3],
-            ..enqueue()
-        },
-        EnqueueRun {
-            model_credential_hash: vec![1, 2, 3, 4],
-            ..enqueue()
-        },
-        EnqueueRun {
-            hook_credential_hash: vec![1, 2, 3, 4, 5],
-            ..enqueue()
-        },
-    ];
-    for (short, length) in shorts.into_iter().zip(["3", "4", "5"]) {
-        let mut run = Run::new();
-        let (code, args) = run.command(short).unwrap_err();
-        assert_eq!(code, "runs-credential-hash-invalid");
-        assert_eq!(args["length"], length);
-        assert_eq!(run.event_count(), 0);
-    }
-}
-
-// NEW-DESIGN, owner ruling 2026-11-04 (item 16, fail closed): a token must
-// name exactly ONE principal, so an enqueue whose two hashes are equal is
-// refused and journals nothing.
-#[test]
-fn enqueue_refuses_one_hash_for_both_principals() {
+fn enqueue_journals_what_the_run_was_given() {
     let mut run = Run::new();
-    let same = EnqueueRun {
-        model_credential_hash: RUNNER_HASH.to_vec(),
-        ..enqueue()
-    };
-    let (code, _) = run.command(same).unwrap_err();
-    assert_eq!(code, "runs-credentials-not-distinct");
-    assert_eq!(run.event_count(), 0);
-}
-
-// NEW-DESIGN, owner ruling 2026-11-09 (item 16): the hook principal's token
-// names exactly one principal too, so a hook hash equal to either of the others
-// is refused and journals nothing.
-#[test]
-fn enqueue_refuses_a_hook_hash_equal_to_another_principals() {
-    for same in [RUNNER_HASH, MODEL_HASH] {
-        let mut run = Run::new();
-        let cmd = EnqueueRun {
-            hook_credential_hash: same.to_vec(),
+    let events = run
+        .command(EnqueueRun {
+            grant: Some(grant()),
             ..enqueue()
-        };
-        let (code, _) = run.command(cmd).unwrap_err();
-        assert_eq!(code, "runs-credentials-not-distinct");
-        assert_eq!(run.event_count(), 0);
-    }
+        })
+        .unwrap();
+    let [RunEvent::RunEnqueued(enqueued)] = events.as_slice() else {
+        panic!("one RunEnqueued, got {events:?}");
+    };
+    assert_eq!(enqueued.grant, Some(grant()));
+    assert_eq!(run.state().grant, Some(grant()));
 }
 
 // NEW-DESIGN (plan 3.3: a run is enqueued once).
@@ -356,24 +325,38 @@ fn the_turn_in_flight_is_the_sequence_of_its_turn_queued_event() {
 fn two_turns_of_one_runner_are_one_run_enqueued_and_one_run_ended() {
     let mut run = Run::enqueued();
     run.command(queue_turn()).unwrap();
-    run.fact(TurnStarted { turn: 1 }, "turn:r:1:started");
     run.fact(
-        TurnCompleted {
+        RecordTurnStarted {
+            turn: 1,
+            message_ids: Vec::new(),
+        },
+        "turn:r:1:started",
+    );
+    run.fact(
+        RecordTurnCompleted {
             turn: 1,
             native_key: "k".to_string(),
             answer_ref: String::new(),
             exit_code: 0,
+            message_ids: Vec::new(),
         },
         "turn:r:1:completed",
     );
     run.command(queue_turn()).unwrap();
-    run.fact(TurnStarted { turn: 3 }, "turn:r:3:started");
     run.fact(
-        TurnCompleted {
+        RecordTurnStarted {
+            turn: 3,
+            message_ids: Vec::new(),
+        },
+        "turn:r:3:started",
+    );
+    run.fact(
+        RecordTurnCompleted {
             turn: 3,
             native_key: "k".to_string(),
             answer_ref: String::new(),
             exit_code: 0,
+            message_ids: Vec::new(),
         },
         "turn:r:3:completed",
     );
@@ -395,18 +378,19 @@ fn two_turns_of_one_runner_are_one_run_enqueued_and_one_run_ended() {
     assert_eq!((enqueued, ended), (1, 1));
 }
 
-// NEW-DESIGN (plan 3.3: TurnCompleted, then RunIdle): a completed turn frees
+// NEW-DESIGN (plan 3.3: RecordTurnCompleted, then RunIdle): a completed turn frees
 // the gate, so the next one queues.
 #[test]
 fn a_completed_turn_frees_the_gate() {
     let mut run = Run::enqueued();
     run.command(queue_turn()).unwrap();
     run.fact(
-        TurnCompleted {
+        RecordTurnCompleted {
             turn: 1,
             native_key: String::new(),
             answer_ref: String::new(),
             exit_code: 0,
+            message_ids: Vec::new(),
         },
         "turn:r:1:completed",
     );
@@ -414,17 +398,18 @@ fn a_completed_turn_frees_the_gate() {
     run.command(queue_turn()).unwrap();
 }
 
-// NEW-DESIGN (plan 3.3: TurnFailed records the class; the policy run->hold
+// NEW-DESIGN (plan 3.3: RecordTurnFailed records the class; the policy run->hold
 // reads it).
 #[test]
 fn a_failed_turn_records_its_class_and_frees_the_gate() {
     let mut run = Run::enqueued();
     run.command(queue_turn()).unwrap();
     let events = run.fact(
-        TurnFailed {
+        RecordTurnFailed {
             turn: 1,
             class: TurnFailureClass::RateLimited,
             detail: "429".to_string(),
+            message_ids: Vec::new(),
         },
         "turn:r:1:failed",
     );
@@ -458,7 +443,7 @@ fn the_first_terminal_input_ends_the_run_and_a_second_records_nothing() {
     ));
     let before = run.event_count();
     let second = run.fact(
-        LaunchFailed {
+        RecordLaunchFailed {
             deterministic: true,
             detail: String::new(),
         },
@@ -477,14 +462,14 @@ fn the_first_terminal_input_ends_the_run_and_a_second_records_nothing() {
 fn runner_lost_ends_a_started_run_for_runner_loss_once() {
     let mut run = Run::enqueued();
     run.fact(
-        RunnerStarted {
+        RecordRunnerStarted {
             runtime: "fake".to_string(),
             workspace: "/w".to_string(),
             pid: 7,
         },
         "started:r",
     );
-    let ended = run.fact(RunnerLost {}, "runner-lost:r");
+    let ended = run.fact(RecordRunnerLost {}, "runner-lost:r");
     assert_eq!(
         ended,
         [RunEvent::RunEnded(RunEnded {
@@ -493,10 +478,10 @@ fn runner_lost_ends_a_started_run_for_runner_loss_once() {
             detail: String::new(),
         })]
     );
-    assert!(run.state().credential_revoked);
+    assert_eq!(run.state().ended, Some(EndCause::RunnerLoss));
     let handled = run
         .harness
-        .when_book(fact_book(RunnerLost {}, "runner-lost:r"))
+        .when_book(fact_book(RecordRunnerLost {}, "runner-lost:r"))
         .handled()
         .unwrap();
     assert!(matches!(handled, Handled::Duplicate(..)));
@@ -506,7 +491,7 @@ fn runner_lost_ends_a_started_run_for_runner_loss_once() {
 #[test]
 fn launch_orphaned_ends_a_waiting_run_orphaned_and_claims_no_launch_failure() {
     let mut run = Run::enqueued();
-    let ended = run.fact(LaunchOrphaned {}, "launch-orphaned:r");
+    let ended = run.fact(RecordLaunchOrphaned {}, "launch-orphaned:r");
     assert_eq!(
         ended,
         [RunEvent::RunEnded(RunEnded {
@@ -515,10 +500,10 @@ fn launch_orphaned_ends_a_waiting_run_orphaned_and_claims_no_launch_failure() {
             detail: String::new(),
         })]
     );
-    assert!(run.state().credential_revoked);
+    assert_eq!(run.state().ended, Some(EndCause::LaunchOrphaned));
     let handled = run
         .harness
-        .when_book(fact_book(LaunchOrphaned {}, "launch-orphaned:r"))
+        .when_book(fact_book(RecordLaunchOrphaned {}, "launch-orphaned:r"))
         .handled()
         .unwrap();
     assert!(matches!(handled, Handled::Duplicate(..)));
@@ -528,13 +513,15 @@ fn launch_orphaned_ends_a_waiting_run_orphaned_and_claims_no_launch_failure() {
 fn an_orphan_fact_on_an_ended_or_unenqueued_run_records_nothing() {
     let mut ended = Run::enqueued();
     ended.fact(exited(0), "exit:r");
-    assert!(ended.fact(RunnerLost {}, "runner-lost:r").is_empty());
+    assert!(ended.fact(RecordRunnerLost {}, "runner-lost:r").is_empty());
     assert!(ended
-        .fact(LaunchOrphaned {}, "launch-orphaned:r")
+        .fact(RecordLaunchOrphaned {}, "launch-orphaned:r")
         .is_empty());
     let mut none = Run::new();
-    assert!(none.fact(RunnerLost {}, "runner-lost:r").is_empty());
-    assert!(none.fact(LaunchOrphaned {}, "launch-orphaned:r").is_empty());
+    assert!(none.fact(RecordRunnerLost {}, "runner-lost:r").is_empty());
+    assert!(none
+        .fact(RecordLaunchOrphaned {}, "launch-orphaned:r")
+        .is_empty());
 }
 
 // NEW-DESIGN (plan 4.3: a re-sent fact with the same external_id is
@@ -558,7 +545,7 @@ fn every_end_revokes_the_credential_whatever_the_cause() {
     };
     let launch_failed = |run: &mut Run| {
         run.fact(
-            LaunchFailed {
+            RecordLaunchFailed {
                 deterministic: false,
                 detail: "boom".to_string(),
             },
@@ -567,26 +554,26 @@ fn every_end_revokes_the_credential_whatever_the_cause() {
     };
     for end in [&exit as &dyn Fn(&mut Run), &launch_failed] {
         let mut run = Run::enqueued();
-        assert!(!run.state().credential_revoked);
+        assert_eq!(run.state().ended, None);
         end(&mut run);
-        assert!(run.state().credential_revoked);
+        assert!(run.state().ended.is_some());
     }
 }
 
 // PORTED-FROM-GO: internal/core/coord/session_owner_revoke_test.go
-// TestRevokeSessionOwner_RevocationSurvivesAdoption: the revocation is a
-// fact in the stream, so a fresh process replaying it still sees the token
-// revoked (`Harness::state` replays from the store, as the next process does).
+// TestRevokeSessionOwner_RevocationSurvivesAdoption: the end is a fact in the
+// stream, so a fresh process replaying it still sees the run ended
+// (`Harness::state` replays from the store, as the next process does).
 #[test]
-fn a_revocation_survives_a_restart() {
+fn an_end_survives_a_restart() {
     let mut run = Run::enqueued();
     run.fact(exited(0), "exit:r");
     let replayed = run.harness.state();
-    assert!(replayed.state().credential_revoked);
+    assert!(replayed.state().ended.is_some());
 }
 
 // NEW-DESIGN (plan 3.3: RequestStop from the policy session->run; the run
-// ends later by RunExited or StopGraceElapsed, not by the request).
+// ends later by RecordRunExited or StopGraceElapsed, not by the request).
 #[test]
 fn a_stop_request_is_recorded_once_and_does_not_end_the_run() {
     let mut run = Run::enqueued();
@@ -641,7 +628,6 @@ fn a_final_claim_is_recorded_and_ends_nothing() {
     let state = run.state();
     assert_eq!(state.final_reported, Some(1));
     assert_eq!(state.ended, None, "the run did not end");
-    assert!(!state.credential_revoked, "no credential was revoked");
     assert_eq!(
         state.turn_in_flight,
         Some(1),
@@ -673,8 +659,8 @@ fn a_claim_again_is_a_duplicate_and_a_new_ordinal_is_a_new_claim() {
 
 type State = (&'static str, fn() -> Run);
 
-fn summary(turn: u64, ordinal: u32) -> SummaryReported {
-    SummaryReported {
+fn summary(turn: u64, ordinal: u32) -> RecordSummaryReported {
+    RecordSummaryReported {
         turn,
         ordinal,
         scope: "progress".to_string(),
@@ -682,11 +668,86 @@ fn summary(turn: u64, ordinal: u32) -> SummaryReported {
     }
 }
 
-fn final_claim(turn: u64) -> FinalReported {
-    FinalReported {
+fn final_claim(turn: u64) -> RecordFinalReported {
+    RecordFinalReported {
         turn,
         text_ref: "text:final".to_string(),
     }
+}
+
+/// One book of every fact the run takes, and its name.
+fn facts() -> Vec<(CommandBook, &'static str)> {
+    vec![
+        (
+            fact_book(
+                RecordRunnerAttached {
+                    runner_id: "r".to_string(),
+                    protocol: "v1".to_string(),
+                },
+                "attach",
+            ),
+            "attach",
+        ),
+        (
+            fact_book(
+                RecordRunnerStarted {
+                    runtime: "claude-code".to_string(),
+                    workspace: "/w".to_string(),
+                    pid: 7,
+                },
+                "runner-started",
+            ),
+            "runner-started",
+        ),
+        (
+            fact_book(
+                RecordTurnStarted {
+                    turn: 1,
+                    message_ids: Vec::new(),
+                },
+                "started",
+            ),
+            "started",
+        ),
+        (
+            fact_book(
+                RecordTurnCompleted {
+                    turn: 1,
+                    native_key: String::new(),
+                    answer_ref: String::new(),
+                    exit_code: 0,
+                    message_ids: Vec::new(),
+                },
+                "completed",
+            ),
+            "completed",
+        ),
+        (
+            fact_book(
+                RecordTurnFailed {
+                    turn: 1,
+                    class: TurnFailureClass::EngineError,
+                    detail: String::new(),
+                    message_ids: Vec::new(),
+                },
+                "failed",
+            ),
+            "failed",
+        ),
+        (fact_book(exited(0), "exit"), "exit"),
+        (
+            fact_book(
+                RecordLaunchFailed {
+                    deterministic: false,
+                    detail: String::new(),
+                },
+                "launch",
+            ),
+            "launch",
+        ),
+        (fact_book(summary(1, 0), "summary"), "summary"),
+        (fact_book(final_claim(1), "final"), "final"),
+    ]
 }
 
 // NEW-DESIGN, owner ruling 2026-11-04 (item 16, totality): a fact is what
@@ -696,68 +757,6 @@ fn final_claim(turn: u64) -> FinalReported {
 // compiling when a fact is added without being listed here.
 #[test]
 fn every_fact_applies_in_every_state() {
-    fn facts() -> Vec<(CommandBook, &'static str)> {
-        vec![
-            (
-                fact_book(
-                    RunnerAttached {
-                        runner_id: "r".to_string(),
-                        protocol: "v1".to_string(),
-                    },
-                    "attach",
-                ),
-                "attach",
-            ),
-            (
-                fact_book(
-                    RunnerStarted {
-                        runtime: "claude-code".to_string(),
-                        workspace: "/w".to_string(),
-                        pid: 7,
-                    },
-                    "runner-started",
-                ),
-                "runner-started",
-            ),
-            (fact_book(TurnStarted { turn: 1 }, "started"), "started"),
-            (
-                fact_book(
-                    TurnCompleted {
-                        turn: 1,
-                        native_key: String::new(),
-                        answer_ref: String::new(),
-                        exit_code: 0,
-                    },
-                    "completed",
-                ),
-                "completed",
-            ),
-            (
-                fact_book(
-                    TurnFailed {
-                        turn: 1,
-                        class: TurnFailureClass::EngineError,
-                        detail: String::new(),
-                    },
-                    "failed",
-                ),
-                "failed",
-            ),
-            (fact_book(exited(0), "exit"), "exit"),
-            (
-                fact_book(
-                    LaunchFailed {
-                        deterministic: false,
-                        detail: String::new(),
-                    },
-                    "launch",
-                ),
-                "launch",
-            ),
-            (fact_book(summary(1, 0), "summary"), "summary"),
-            (fact_book(final_claim(1), "final"), "final"),
-        ]
-    }
     // The domain's facts are not an enum the compiler can match on; the count
     // is the guard: a new fact in runs.proto fails here until it is added above.
     assert_eq!(facts().len(), 9, "one case per fact of the runs proto");
@@ -801,7 +800,7 @@ fn every_fact_applies_in_every_state() {
 fn a_runner_attaching_is_recorded_on_the_run() {
     let mut run = Run::enqueued();
     let events = run.fact(
-        RunnerAttached {
+        RecordRunnerAttached {
             runner_id: "r1".to_string(),
             protocol: "v1".to_string(),
         },
@@ -815,7 +814,7 @@ fn a_runner_attaching_is_recorded_on_the_run() {
 // the fold keeps what it said.
 #[test]
 fn a_runner_starting_is_recorded_on_the_run_and_only_while_it_is_live() {
-    let started = || RunnerStarted {
+    let started = || RecordRunnerStarted {
         runtime: "claude-code".to_string(),
         workspace: "/w".to_string(),
         pid: 7,
@@ -956,7 +955,7 @@ fn a_child_needs_one_of_its_variables_set_unless_its_engine_asks_for_none() {
     }
 }
 
-// Rulings 73, 73b: two failing checks are ONE refusal, LaunchRefused, holding
+// Rulings 73, 73b: two failing checks are ONE refusal, LaunchRefusals, holding
 // both in check order; its count is how many failed.
 #[test]
 fn two_failing_checks_are_one_launch_refused_holding_both_in_check_order() {
@@ -978,6 +977,65 @@ fn two_failing_checks_are_one_launch_refused_holding_both_in_check_order() {
     assert_eq!(code, "runs-launch-refused");
     assert_eq!(args["count"], "2");
     assert_eq!(run.event_count(), 0);
+}
+
+// Step 8 U2 (ruling 142, D3): the untrusted project-only settings this
+// launch reads are the typed UntrustedProjectSettings, naming each path,
+// and nothing is journaled.
+#[test]
+fn untrusted_project_settings_refuse_the_launch_naming_each_path() {
+    for mode in [RunMode::OneShot, RunMode::Interactive, RunMode::Structured] {
+        let mut run = Run::new();
+        let cmd = EnqueueRun {
+            mode,
+            untrusted_settings: vec![
+                "agents.default.session_home".to_string(),
+                "engines.claude-code.command".to_string(),
+            ],
+            ..one_shot()
+        };
+        let rejection = run.rejection(cmd);
+        assert_eq!(
+            rejection,
+            RunRejection::UntrustedProjectSettings {
+                paths: "agents.default.session_home, engines.claude-code.command".to_string(),
+            },
+            "{mode:?}"
+        );
+        let (code, args) = said(&rejection);
+        assert_eq!(code, "runs-untrusted-project-settings");
+        assert_eq!(
+            args["paths"],
+            "agents.default.session_home, engines.claude-code.command"
+        );
+        assert_eq!(run.event_count(), 0);
+    }
+}
+
+// Owner Q9: the trust check is the LAST, so beside another refusal it is
+// one LaunchRefusals holding both, the untrusted settings after the rest.
+#[test]
+fn untrusted_settings_are_the_last_refusal_of_a_launch_refused() {
+    let mut run = Run::new();
+    let cmd = EnqueueRun {
+        prompt_given: false,
+        credential: accepting(false),
+        untrusted_settings: vec!["engines.claude-code.command".to_string()],
+        ..one_shot()
+    };
+    assert_eq!(
+        run.rejection(cmd),
+        RunRejection::LaunchRefused {
+            refusals: vec![
+                RunRejection::NoPrompt,
+                no_credential(),
+                RunRejection::UntrustedProjectSettings {
+                    paths: "engines.claude-code.command".to_string(),
+                },
+            ],
+            fatal_findings: 0,
+        }
+    );
 }
 
 // Ruling 73d: an engine nobody drives has no credential policy, so its
@@ -1083,4 +1141,53 @@ fn the_enqueue_judges_no_posture() {
         }
     );
     assert_eq!(said(&rejection).1["count"], "2");
+}
+
+// ---- the pre-launch checks judged before anything is recorded (S10, U3)
+
+/// NEW-DESIGN (daemon slice 4 §3.4): a launch every check passes is judged
+/// so, and nothing is recorded.
+#[test]
+fn a_launch_every_check_passes_has_no_pre_launch_refusal() {
+    assert!(crate::pre_launch_refusal(&one_shot()).is_none());
+}
+
+/// NEW-DESIGN (§3.4): a child with no credential set is refused before its
+/// hand-off is written, with the typed refusal the enqueue would answer and
+/// the status its message declares.
+#[test]
+fn a_child_with_no_credential_is_refused_as_its_enqueue_would_be() {
+    let child = EnqueueRun {
+        mode: RunMode::Structured,
+        credential: accepting(false),
+        ..enqueue()
+    };
+    let (refusal, status) = crate::pre_launch_refusal(&child).expect("refused");
+    assert_eq!(
+        RunRejection::try_from(&refusal),
+        Ok(RunRejection::NoCredential {
+            engine: "claude-code".to_string(),
+            variables: "CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY".to_string(),
+        })
+    );
+    assert_eq!(
+        status,
+        <crate::NoCredential as crate::Refusal>::REFUSAL_STATUS
+    );
+}
+
+/// NEW-DESIGN (§3.4): a file-only source refuses a child as its enqueue
+/// does.
+#[test]
+fn a_child_on_a_file_only_source_is_refused_as_its_enqueue_would_be() {
+    let child = EnqueueRun {
+        mode: RunMode::Structured,
+        credential: file_only(),
+        ..enqueue()
+    };
+    let (refusal, _) = crate::pre_launch_refusal(&child).expect("refused");
+    assert!(matches!(
+        RunRejection::try_from(&refusal),
+        Ok(RunRejection::FileOnlyCredential { .. })
+    ));
 }

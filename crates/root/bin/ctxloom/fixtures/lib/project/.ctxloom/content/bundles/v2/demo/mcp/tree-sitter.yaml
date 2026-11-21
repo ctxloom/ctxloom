@@ -3,3 +3,7 @@ args:
   - --stdio
 env:
   LOG: debug
+tags:
+  - code
+notes: parse trees
+installation: npm i tree-sitter

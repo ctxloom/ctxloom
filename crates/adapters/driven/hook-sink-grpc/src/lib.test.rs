@@ -15,9 +15,14 @@ use angzarr_proto_transport_distributed::v1::{
     CommandResult, CommandSyncResult, HandleSyncRequest,
 };
 use hook_tls::{Clock, Minter, SystemClock};
-use run_ports::{Bearer, CertMint, CertNames, Delivery, FactSink, HookCertificate, Token};
+use run_ports::{
+    Bearer, CertMint, CertNames, Delivery, FactSink, HookCertificate, Token, DEAD_LETTERED,
+};
 use tonic::transport::{Identity, ServerTlsConfig};
 use tonic::{Request, Response, Status};
+use tonic_health::pb::health_server::HealthServer;
+use tonic_health::server::{HealthReporter, HealthService};
+use tonic_health::ServingStatus;
 
 use super::*;
 
@@ -183,6 +188,54 @@ fn serve(answer: Answer) -> Running {
 }
 
 fn serve_as(answer: Answer, serving: Serving<'_>) -> Running {
+    serve_with(Some(answer), serving, None)
+}
+
+/// A fake serving the health check alone, answering `status` (TLS, the
+/// run's certificate).
+fn serve_health(status: ServingStatus) -> (Running, Arc<Mutex<Vec<Option<String>>>>) {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let health = FakeHealth {
+        status,
+        seen: Arc::clone(&seen),
+    };
+    (serve_with(None, Serving::Tls(cert()), Some(health)), seen)
+}
+
+/// tonic-health's own `grpc.health.v1.Health` server, its overall status
+/// `status`, keeping each call's `authorization` metadata.
+struct FakeHealth {
+    status: ServingStatus,
+    seen: Arc<Mutex<Vec<Option<String>>>>,
+}
+
+impl FakeHealth {
+    /// The server, its overall status set: made on the serving runtime.
+    async fn server(
+        self,
+    ) -> tonic::service::interceptor::InterceptedService<
+        HealthServer<HealthService>,
+        impl tonic::service::Interceptor + Clone,
+    > {
+        let reporter = HealthReporter::new();
+        reporter.set_service_status("", self.status).await;
+        let seen = self.seen;
+        HealthServer::with_interceptor(
+            HealthService::from_health_reporter(reporter),
+            move |request: Request<()>| {
+                let auth = request
+                    .metadata()
+                    .get("authorization")
+                    .and_then(|v| v.to_str().ok())
+                    .map(str::to_string);
+                seen.lock().unwrap().push(auth);
+                Ok(request)
+            },
+        )
+    }
+}
+
+fn serve_with(answer: Option<Answer>, serving: Serving<'_>, health: Option<FakeHealth>) -> Running {
     let tls = match serving {
         Serving::Tls(cert) => Some(Identity::from_pem(cert.public().to_pem(), cert.key_pem())),
         Serving::Plain => None,
@@ -193,11 +246,11 @@ fn serve_as(answer: Answer, serving: Serving<'_>) -> Running {
     let (stop, stopped) = mpsc::channel::<()>();
     let (ready_tx, ready) = mpsc::channel();
     let (url_tx, url_rx) = mpsc::channel();
-    let fake = Fake {
+    let fake = answer.map(|answer| Fake {
         answer,
         seen: Arc::clone(&seen),
         arrived: arrived_tx,
-    };
+    });
     let thread = std::thread::spawn(move || {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -214,6 +267,10 @@ fn serve_as(answer: Answer, serving: Serving<'_>) -> Running {
         ready_tx.send(()).unwrap();
         let incoming = tokio_stream::wrappers::TcpListenerStream::new(listener);
         runtime.block_on(async {
+            let health = match health {
+                Some(health) => Some(health.server().await),
+                None => None,
+            };
             let mut builder = tonic::transport::Server::builder();
             if let Some(identity) = tls {
                 builder = builder
@@ -221,7 +278,8 @@ fn serve_as(answer: Answer, serving: Serving<'_>) -> Running {
                     .unwrap();
             }
             let server = builder
-                .add_service(CommandHandlerCoordinatorServiceServer::new(fake))
+                .add_optional_service(fake.map(CommandHandlerCoordinatorServiceServer::new))
+                .add_optional_service(health)
                 .serve_with_incoming(incoming);
             let stopped = async move {
                 let _ = tokio::task::spawn_blocking(move || stopped.recv()).await;
@@ -244,6 +302,76 @@ fn serve_as(answer: Answer, serving: Serving<'_>) -> Running {
 }
 
 const BUDGET: Duration = Duration::from_secs(5);
+
+const SERVING: ServingStatus = ServingStatus::Serving;
+const NOT_SERVING: ServingStatus = ServingStatus::NotServing;
+
+// The health check is tonic-health's (the owner, after step 3/4): its
+// messages and client, never a hand-written copy of them.
+#[test]
+fn the_health_check_is_tonic_healths_not_a_hand_written_one() {
+    let lib = include_str!("lib.rs");
+    assert!(
+        !lib.contains("mod health;"),
+        "no hand-written health module"
+    );
+    assert!(lib.contains("tonic_health"), "the client is tonic-health's");
+}
+
+// T16, M11: liveness is the standard health check over the pinned
+// certificate, and presents no bearer.
+#[test]
+fn a_listener_answering_serving_over_the_pinned_certificate_serves() {
+    let (server, seen) = serve_health(SERVING);
+    assert!(serving(&server.url, cert().public(), BUDGET));
+    assert_eq!(*seen.lock().unwrap(), vec![None], "no bearer is presented");
+}
+
+#[test]
+fn a_listener_answering_not_serving_does_not_serve() {
+    let (server, _) = serve_health(NOT_SERVING);
+    assert!(!serving(&server.url, cert().public(), BUDGET));
+}
+
+#[test]
+fn a_listener_whose_certificate_is_not_the_pinned_one_does_not_serve_and_hears_nothing() {
+    let (server, seen) = serve_health(SERVING);
+    assert!(!serving(&server.url, own_cert().public(), BUDGET));
+    assert!(seen.lock().unwrap().is_empty(), "no call reached it");
+}
+
+#[test]
+fn a_port_nobody_listens_on_does_not_serve() {
+    assert!(!serving(&closed_url(), own_cert().public(), BUDGET));
+}
+
+#[test]
+fn a_listener_with_no_health_service_does_not_serve() {
+    let server = serve(Answer::Result(DeliveryOutcome::Applied));
+    assert!(!serving(&server.url, cert().public(), BUDGET));
+}
+
+#[test]
+fn a_plaintext_endpoint_is_never_checked() {
+    let (server, seen) = serve_health(SERVING);
+    let plain = server.url.replace("https://", "http://");
+    assert!(!serving(&plain, cert().public(), BUDGET));
+    assert!(seen.lock().unwrap().is_empty());
+}
+
+#[test]
+fn a_listener_that_never_answers_is_not_serving_once_the_deadline_passes() {
+    // A TLS port that accepts and never completes a handshake.
+    let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("https://127.0.0.1:{}", silent.local_addr().unwrap().port());
+    let started = Instant::now();
+    assert!(!serving(
+        &url,
+        own_cert().public(),
+        Duration::from_millis(300)
+    ));
+    assert!(started.elapsed() < Duration::from_secs(3), "bounded");
+}
 
 #[test]
 fn an_applied_fact_is_applied_and_carries_the_bearer() {
@@ -682,4 +810,95 @@ fn an_error_chain_is_one_line_of_its_causes_outermost_first() {
         "transport error: connection failed: No such file"
     );
     assert_eq!(chain(&Layer("alone", None)), "alone");
+}
+
+// s4-Q14, H3 follow-up: the daemon's typed answer to a fact addressed to a
+// session it has no record of is its own delivery, by the answer's key as
+// message or reason; another not-found stays a refusal.
+#[test]
+fn a_fact_of_no_such_session_is_its_own_answer() {
+    use run_ports::NO_SUCH_SESSION;
+    assert_eq!(
+        delivery_of_code(Code::NotFound, NO_SUCH_SESSION, ""),
+        Delivery::NoSuchSession
+    );
+    assert_eq!(
+        delivery_of_code(Code::NotFound, "x", NO_SUCH_SESSION),
+        Delivery::NoSuchSession
+    );
+    assert!(matches!(
+        delivery_of_code(Code::NotFound, "x", "y"),
+        Delivery::Refused { .. }
+    ));
+}
+
+#[test]
+fn a_fact_of_no_such_session_over_the_wire_is_answered_so() {
+    let server = serve(Answer::Fail(Code::NotFound, run_ports::NO_SUCH_SESSION));
+    let sink = server.sink();
+    assert_eq!(
+        sink.deliver(CommandBook::default(), BUDGET),
+        Delivery::NoSuchSession
+    );
+}
+
+// One root for infrastructure errors (owner, 2026-11-14): a status a
+// listener answers through `run_ports::Infrastructure` (its code, and its
+// key as the message) is read back as the delivery each error means.
+fn answered(error: run_ports::Infrastructure) -> Status {
+    Status::new(
+        Code::from_i32(error.status()),
+        error.key().unwrap_or("said"),
+    )
+}
+
+#[test]
+fn each_infrastructure_error_reads_back_as_its_delivery() {
+    use run_ports::Infrastructure;
+    for error in Infrastructure::ALL {
+        let status = answered(error);
+        let delivery = delivery_of_code(status.code(), status.message(), "");
+        let kind = match &delivery {
+            Delivery::NoSuchSession => "no such session",
+            Delivery::Parked => "parked",
+            Delivery::TimedOut => "timed out",
+            Delivery::Unavailable { .. } => "unavailable",
+            Delivery::Refused { .. } => "refused",
+            other => panic!("{error:?}: {other:?}"),
+        };
+        let expected = match error {
+            Infrastructure::SessionUnknown => "no such session",
+            Infrastructure::Parked => "parked",
+            Infrastructure::TimedOut => "timed out",
+            Infrastructure::Conflict
+            | Infrastructure::Failed
+            | Infrastructure::Unavailable
+            | Infrastructure::Exhausted
+            | Infrastructure::Unknown
+            | Infrastructure::DataLoss => "unavailable",
+            Infrastructure::Malformed
+            | Infrastructure::Unimplemented
+            | Infrastructure::Unauthenticated
+            | Infrastructure::Unmet => "refused",
+        };
+        assert_eq!(kind, expected, "{error:?}");
+    }
+}
+
+#[test]
+fn the_keyed_infrastructure_errors_read_back_over_the_wire() {
+    use run_ports::Infrastructure;
+    for (error, expected) in [
+        (Infrastructure::SessionUnknown, Delivery::NoSuchSession),
+        (Infrastructure::Parked, Delivery::Parked),
+    ] {
+        let status = answered(error);
+        let message: &'static str = error.key().expect("a keyed error");
+        let server = serve(Answer::Fail(status.code(), message));
+        assert_eq!(
+            server.sink().deliver(CommandBook::default(), BUDGET),
+            expected,
+            "{error:?}"
+        );
+    }
 }

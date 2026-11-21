@@ -6,8 +6,29 @@
 
 use super::*;
 use crate::testdata::{code_quality, files};
+use angzarr_diagnostic::Diagnostic;
 
 angzarr_presentation::english_for!(&[crate::EN_US.1]);
+
+/// The `<code>-fix` text of `error`, rendered from the catalog.
+fn fix_of(error: &BundleError) -> String {
+    #[derive(Debug)]
+    struct Fix<'a>(&'a BundleError, String);
+    impl std::fmt::Display for Fix<'_> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str(&self.1)
+        }
+    }
+    impl Diagnostic for Fix<'_> {
+        fn code(&self) -> &str {
+            &self.1
+        }
+        fn args(&self) -> Vec<(&str, angzarr_diagnostic::Arg)> {
+            self.0.args()
+        }
+    }
+    Fix(error, format!("{}-fix", error.code())).english()
+}
 
 fn read(files: &Files) -> Bundle {
     read_tree("code-quality", files).unwrap_or_else(|e| panic!("{}", e.english()))
@@ -145,10 +166,10 @@ fn test_a_command_carries_every_engines_block_as_authored() {
     );
 }
 
-// tree_test.go: TestMCP_SidecarIsAComponentAndContentFileStaysPure and
-// TestSurfaces_DecodeAuthoredFields (mcp)
+// tree_test.go: TestSurfaces_DecodeAuthoredFields (mcp); owner T27: what is
+// said about a server is in its one file, beside how it is reached.
 #[test]
-fn test_an_mcp_server_reads_its_file_and_its_sidecar() {
+fn test_an_mcp_server_reads_its_notes_and_installation_from_its_own_file() {
     let bundle = read(&code_quality());
     let postgres = &bundle.mcp["postgres"];
     assert_eq!(postgres.command, "mcp-postgres");
@@ -159,17 +180,22 @@ fn test_an_mcp_server_reads_its_file_and_its_sidecar() {
     assert_eq!(postgres.installation, "brew install mcp-postgres");
 }
 
-// tree_test.go: TestSkill_DotPrefixedSidecarIsAComponentAndDeclaresExecutability
-// and TestSurfaces_DecodeAuthoredFields (skill)
+// tree_test.go: TestSurfaces_DecodeAuthoredFields (skill); owner T27: the
+// metadata is `skills/<n>/.meta.yaml`, a file of the package, delivered with it.
 #[test]
-fn test_a_skill_package_lists_its_files_and_the_sidecar_declares_the_executable() {
+fn test_a_skill_package_lists_its_files_and_its_meta_declares_the_executable() {
     let mut tree = code_quality();
     let bundle = read(&tree);
     let skill = &bundle.skills["code-reviewer"];
     let paths: Vec<&str> = skill.files.iter().map(|f| f.path.as_str()).collect();
     assert_eq!(
         paths,
-        ["SKILL.md", "references/checklist.md", "scripts/run.sh"]
+        [
+            ".meta.yaml",
+            "SKILL.md",
+            "references/checklist.md",
+            "scripts/run.sh"
+        ]
     );
     assert_eq!(skill.notes, "Wraps the house review checklist.");
     assert_eq!(skill.tags, ["review"]);
@@ -188,9 +214,9 @@ fn test_a_skill_package_lists_its_files_and_the_sidecar_declares_the_executable(
         "the declaration is the source of truth"
     );
 
-    // Editing ONLY the sidecar, dropping the declaration, drops the mode.
+    // Editing ONLY the metadata, dropping the declaration, drops the mode.
     tree.insert(
-        "skills/.code-reviewer.meta.yaml".to_string(),
+        "skills/code-reviewer/.meta.yaml".to_string(),
         b"tags:\n  - review\nnotes: Wraps the house review checklist.\n".to_vec(),
     );
     let bundle = read(&tree);
@@ -508,11 +534,161 @@ fn test_a_file_no_kind_claims_is_refused_by_its_path() {
     }
 }
 
-// tree_read.go: a blank sidecar is the empty document
+// tree_read.go: a blank metadata file is the empty document
 #[test]
-fn test_a_blank_sidecar_is_the_empty_document() {
+fn test_a_blank_skill_meta_is_the_empty_document() {
     let mut tree = code_quality();
-    tree.insert("mcp/.postgres.meta.yaml".to_string(), b" \n\t\n".to_vec());
+    tree.insert(
+        "skills/code-reviewer/.meta.yaml".to_string(),
+        b" \n\t\n".to_vec(),
+    );
     let bundle = read(&tree);
-    assert_eq!(bundle.mcp.keys().collect::<Vec<_>>(), ["postgres"]);
+    let skill = &bundle.skills["code-reviewer"];
+    assert!(skill.tags.is_empty() && skill.files.iter().all(|f| !f.executable));
+}
+
+// owner T27 (D15, QUESTIONS 2(a)): a bundle whose metadata is still beside
+// the item (`skills/.<n>.meta.yaml`, `mcp/.<n>.meta.yaml`) is refused whole,
+// naming where it is and where it belongs, never read or moved; with its
+// package or server there or not.
+#[test]
+fn test_metadata_in_the_old_layout_refuses_the_bundle_naming_where_it_belongs() {
+    for (old, new, kind, drop) in [
+        (
+            "skills/.code-reviewer.meta.yaml",
+            "skills/code-reviewer/.meta.yaml",
+            "skill",
+            None,
+        ),
+        (
+            "skills/.gone.meta.yaml",
+            "skills/gone/.meta.yaml",
+            "skill",
+            None,
+        ),
+        ("mcp/.postgres.meta.yaml", "mcp/postgres.yaml", "mcp", None),
+        (
+            "mcp/.postgres.meta.yaml",
+            "mcp/postgres.yaml",
+            "mcp",
+            Some("mcp/postgres.yaml"),
+        ),
+    ] {
+        let mut tree = code_quality();
+        if let Some(path) = drop {
+            tree.remove(path);
+        }
+        tree.insert(old.to_string(), b"notes: in the old place\n".to_vec());
+        let refused = read_tree("code-quality", &tree).unwrap_err();
+        assert_eq!(
+            refused,
+            BundleError::OldLayout {
+                bundle: "code-quality".to_string(),
+                kind: kind.to_string(),
+                old: old.to_string(),
+                new: new.to_string(),
+                remote: String::new(),
+            },
+            "{old}"
+        );
+        assert_eq!(refused.code(), "library-sidecar-old-layout");
+    }
+}
+
+// owner T27: the refusal names the paths as the person reaches them (from
+// the project's root), and for an installed bundle the remote to migrate.
+#[test]
+fn test_an_old_layout_refusal_is_located_below_its_bundle_and_names_an_installed_ones_remote() {
+    let refused = BundleError::OldLayout {
+        bundle: "demo".to_string(),
+        kind: "skill".to_string(),
+        old: "skills/.r.meta.yaml".to_string(),
+        new: "skills/r/.meta.yaml".to_string(),
+        remote: String::new(),
+    };
+    assert_eq!(
+        refused
+            .clone()
+            .located(".ctxloom/content/bundles/v2/demo", ""),
+        BundleError::OldLayout {
+            bundle: "demo".to_string(),
+            kind: "skill".to_string(),
+            old: ".ctxloom/content/bundles/v2/demo/skills/.r.meta.yaml".to_string(),
+            new: ".ctxloom/content/bundles/v2/demo/skills/r/.meta.yaml".to_string(),
+            remote: String::new(),
+        }
+    );
+    assert_eq!(
+        refused.clone().located(r"C:\p\.ctxloom\b", ""),
+        BundleError::OldLayout {
+            bundle: "demo".to_string(),
+            kind: "skill".to_string(),
+            old: r"C:\p\.ctxloom\b\skills\.r.meta.yaml".to_string(),
+            new: r"C:\p\.ctxloom\b\skills\r\.meta.yaml".to_string(),
+            remote: String::new(),
+        },
+        "spelled as the directory is"
+    );
+    // A relative directory is spelled as it is typed from the project's
+    // root, with `/`, whatever the host joined it with (CI on Windows,
+    // 2026-11-19: `.ctxloom\content\...\demo/skills/...`, half and half).
+    assert_eq!(
+        refused
+            .clone()
+            .located(r".ctxloom\content\bundles\v2\demo", ""),
+        BundleError::OldLayout {
+            bundle: "demo".to_string(),
+            kind: "skill".to_string(),
+            old: ".ctxloom/content/bundles/v2/demo/skills/.r.meta.yaml".to_string(),
+            new: ".ctxloom/content/bundles/v2/demo/skills/r/.meta.yaml".to_string(),
+            remote: String::new(),
+        },
+        "a relative directory, with `/`"
+    );
+    let installed = refused.located("/c/b", "https://git.example/x.git");
+    let said = installed.english();
+    assert!(said.contains("/c/b/skills/.r.meta.yaml"), "{said}");
+    let fix = fix_of(&installed);
+    assert!(fix.contains("https://git.example/x.git"), "{fix}");
+    assert!(!fix.contains("git mv"), "{fix}");
+    // A project bundle's fix is the move itself.
+    let local = BundleError::OldLayout {
+        bundle: "demo".to_string(),
+        kind: "skill".to_string(),
+        old: "a/skills/.r.meta.yaml".to_string(),
+        new: "a/skills/r/.meta.yaml".to_string(),
+        remote: String::new(),
+    };
+    assert_eq!(
+        fix_of(&local),
+        "git mv a/skills/.r.meta.yaml a/skills/r/.meta.yaml"
+    );
+}
+
+// T30: an item's source is read with its digest, and its distilled form with
+// the digest it records; the state is judged from the two.
+#[test]
+fn test_a_tree_item_carries_its_source_s_digest_and_the_one_its_distilled_form_records() {
+    let raw = "---\ntags: [a]\n---\nlong form\n";
+    let bundle = read(&files(&[
+        ("bundle.yaml", "version: 1.0.0\n"),
+        ("fragments/kept.md", raw),
+        (
+            "fragments/kept.distilled.md",
+            &crate::distill::distilled_file("abc123", "short"),
+        ),
+        ("prompts/go.md", "a command\n"),
+    ]));
+    let kept = &bundle.fragments["kept"].body;
+    assert_eq!(kept.source_digest, crate::sha256::hex(raw.as_bytes()));
+    assert_eq!(kept.distilled_digest, "abc123");
+    assert_eq!(kept.distilled.trim(), "short");
+    assert_eq!(
+        kept.distilled_state(),
+        crate::distill::DistilledState::Stale
+    );
+    let go = &bundle.commands["go"].body;
+    assert_eq!(go.source_digest, crate::sha256::hex(b"a command\n"));
+    assert_eq!(go.distilled_digest, "");
+    assert_eq!(go.distilled_state(), crate::distill::DistilledState::None);
 }

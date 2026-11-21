@@ -1,11 +1,11 @@
 //! The hook listener end to end: a real loopback TCP port (port 0), the
-//! generated `Handle` client with the hook bearer in `authorization`, the
-//! real kernel (`App` over an in-memory store) behind the real gate. Each test
+//! generated `Handle` client with the user bearer in `authorization`, the
+//! real kernel (`App` over an in-memory store) behind the user daemon's real
+//! gate (the per-run `HookGate` is gone: slice 4 U7, owner ruling s4-Q3). Each test
 //! forces the interleaving it concerns: a run ends between two calls, a stop
 //! is awaited, a client call is made from a thread while the one that drives
 //! the runtime is blocked; none waits for a time.
 
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 use angzarr_embedded::testing::{MemoryStore, Samples};
@@ -18,7 +18,7 @@ use angzarr_embedded_host::stores::OneStore;
 use angzarr_embedded_host::App;
 use angzarr_proto_transport_distributed::v1::command_handler_coordinator_service_client::CommandHandlerCoordinatorServiceClient;
 use embedded_edge::EmbeddedEdge;
-use run_ports::{Bearer, Edge as _, Token, TokenSource};
+use run_ports::{Bearer, Edge as _, Token};
 use runs_application::{EnqueueRequest, Enqueuer, Observation};
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Endpoint};
 use tonic::Code;
@@ -36,15 +36,24 @@ type TheEdge = EmbeddedEdge<OneStore<MemoryStore>>;
 const SESSION: &str = "5f0c7a52-1111-5111-8111-000000000001";
 const OTHER_SESSION: &str = "5f0c7a52-2222-5222-8222-000000000002";
 
-/// Tokens `[1; 32]`, `[2; 32]`, ...
-#[derive(Default)]
-struct Counting(AtomicU32);
+/// The user bearer's token the world's daemon minted.
+fn user() -> Token {
+    Token::from_bytes([76; 32])
+}
 
-impl TokenSource for Counting {
-    fn mint(&self) -> Token {
-        let n = self.0.fetch_add(1, Ordering::SeqCst) + 1;
-        Token::from_bytes([n as u8; 32])
-    }
+/// The daemon's listener over `edge` at `addr`, behind the user's gate.
+async fn serve_tcp<E: runs_application::Edge + 'static>(
+    edge: Arc<E>,
+    addr: SocketAddr,
+    identity: TlsIdentity,
+) -> Result<HookListener, ListenerError> {
+    HookListener::serve_tcp_gated(
+        edge,
+        runs_application::UserGate::new(&user()),
+        addr,
+        identity,
+    )
+    .await
 }
 
 fn uuid(text: &str) -> Uuid {
@@ -165,8 +174,8 @@ fn request(book: CommandBook, authorization: Option<&str>) -> tonic::Request<Com
     request
 }
 
-/// What the world holds: the kernel, two sessions each with a live run, the
-/// hook's bearer for the first, and the socket path the first's run names.
+/// What the world holds: the kernel, two sessions each with a live run, and
+/// the user bearer a hook presents.
 struct World {
     edge: Arc<TheEdge>,
     run: Uuid,
@@ -174,7 +183,6 @@ struct World {
     other_session: Uuid,
     other_run: Uuid,
     bearer: String,
-    runner_bearer: String,
     /// Where the listener last served.
     addr: Mutex<Option<SocketAddr>>,
 }
@@ -209,7 +217,6 @@ impl World {
         let edge = Arc::new(EmbeddedEdge::new(Arc::new(app), move || {
             samples.lock().unwrap().next_sample()
         }));
-        let source = Arc::new(Counting::default());
         let mut parties = Vec::new();
         for (session, harp) in [
             (SESSION, "amber-swift-owl"),
@@ -224,6 +231,7 @@ impl World {
                 origin: sessions::Origin::Session,
                 started_at: None,
                 depth: 0,
+                owner: None,
                 workspace: None,
             };
             edge.handle(CommandBook::command_of(
@@ -232,13 +240,14 @@ impl World {
             ))
             .await
             .unwrap();
-            let enqueued = Enqueuer::new(Arc::clone(&edge), Arc::clone(&source))
+            let enqueued = Enqueuer::new(Arc::clone(&edge))
                 .enqueue(EnqueueRequest {
                     session: session.to_string(),
                     incarnation: 1,
                     mode: runs::RunMode::Interactive,
                     evidence: runs_application::Evidence::passing("claude-code"),
                     launcher_lock: String::new(),
+                    grant: None,
                 })
                 .await
                 .unwrap();
@@ -246,18 +255,7 @@ impl World {
         }
         let other = parties.pop().unwrap();
         let mine = parties.pop().unwrap();
-        let run_text = |run: &Uuid| {
-            uuid::Uuid::from_slice(&run.value)
-                .unwrap()
-                .hyphenated()
-                .to_string()
-        };
-        let bearer = Bearer::compose(&run_text(&mine.run), &mine.hook_token)
-            .expose()
-            .to_string();
-        let runner_bearer = Bearer::compose(&run_text(&mine.run), &mine.runner_token)
-            .expose()
-            .to_string();
+        let bearer = Bearer::user(&user()).expose().to_string();
         World {
             edge,
             run: mine.run,
@@ -265,16 +263,14 @@ impl World {
             other_session: uuid(OTHER_SESSION),
             other_run: other.run,
             bearer,
-            runner_bearer,
             addr: Mutex::new(None),
         }
     }
 
     async fn serve(&self) -> HookListener {
-        let listener =
-            HookListener::serve_tcp(Arc::clone(&self.edge), LOOPBACK_ANY_PORT, identity())
-                .await
-                .expect("the listener starts");
+        let listener = serve_tcp(Arc::clone(&self.edge), LOOPBACK_ANY_PORT, identity())
+            .await
+            .expect("the listener starts");
         *self.addr.lock().unwrap() = Some(listener.local_addr());
         listener
     }
@@ -315,7 +311,7 @@ impl World {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_capture_fact_with_the_hook_bearer_is_applied_to_the_session_stream() {
+async fn a_capture_fact_with_the_user_bearer_is_applied_to_the_session_stream() {
     let world = World::new().await;
     let listener = world.serve().await;
     let before = world.watched().await;
@@ -379,20 +375,14 @@ async fn a_credential_that_does_not_identify_is_unauthenticated_and_writes_nothi
     let listener = world.serve().await;
     let mut client = world.client().await;
     let held = world.watched().await;
-    let secret = world.bearer.rsplit_once('.').unwrap().1.to_string();
-    let run_text = world.bearer.rsplit_once('.').unwrap().0.to_string();
-    let wrong = format!("Bearer {run_text}.{}", "ee".repeat(32));
-    let unknown_run = format!("Bearer 00000000-0000-4000-8000-000000000000.{secret}");
-    let cases: [(&str, Option<String>); 7] = [
+    let secret = world.bearer.clone();
+    let wrong = format!("Bearer {}", "ee".repeat(32));
+    let a_runs = format!("Bearer 00000000-0000-4000-8000-000000000000.{secret}");
+    let cases: [(&str, Option<String>); 5] = [
         ("no authorization", None),
         ("a wrong secret", Some(wrong)),
-        ("an unknown run", Some(unknown_run)),
+        ("a run's bearer of the user's secret", Some(a_runs)),
         ("not a bearer text", Some("Bearer garbage".to_string())),
-        ("the secret alone", Some(format!("Bearer {secret}"))),
-        (
-            "the runner's bearer",
-            Some(format!("Bearer {}", world.runner_bearer)),
-        ),
         ("another scheme", Some("Basic dXNlcjpwYXNz".to_string())),
     ];
     for (what, authorization) in cases {
@@ -403,34 +393,6 @@ async fn a_credential_that_does_not_identify_is_unauthenticated_and_writes_nothi
         assert_eq!(status.code(), Code::Unauthenticated, "{what}");
     }
     assert_eq!(world.watched().await, held, "nothing was written");
-    listener.stop().await.unwrap();
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_run_that_ends_between_two_calls_is_unauthenticated_on_the_second() {
-    let world = World::new().await;
-    let listener = world.serve().await;
-    let mut client = world.client().await;
-    let bearer = format!("Bearer {}", world.bearer);
-    client
-        .handle(request(world.turn_ended("p1"), Some(&bearer)))
-        .await
-        .expect("applied while the run is live");
-    // The run ends (its runner exited), through the kernel, as a launcher
-    // would record it.
-    let exited = fact(
-        cover(runs::RUN_DOMAIN, &world.run),
-        &runs::RunExited { code: 0, signal: 0 },
-        "exit:fixture",
-    );
-    world.edge.handle(exited).await.unwrap();
-    let held = world.watched().await;
-    let status = client
-        .handle(request(world.turn_ended("p2"), Some(&bearer)))
-        .await
-        .expect_err("revoked");
-    assert_eq!(status.code(), Code::Unauthenticated);
-    assert_eq!(world.watched().await, held);
     listener.stop().await.unwrap();
 }
 
@@ -466,27 +428,11 @@ async fn what_the_gate_forbids_is_answered_as_an_unknown_domain_and_writes_nothi
     assert_ne!(unknown.code(), Code::Unauthenticated);
     let forbidden: Vec<(&str, CommandBook)> = vec![
         (
-            "a fact for another session's stream",
-            world_fact(&world.other_session, "p9"),
-        ),
-        (
-            "a runner-lifecycle fact on the run's stream",
+            "a runner-lifecycle fact the user's processes never report",
             fact(
                 cover(runs::RUN_DOMAIN, &world.run),
-                &runs::RunExited { code: 0, signal: 0 },
-                "exit:forged",
-            ),
-        ),
-        (
-            "a runner-lifecycle fact on the session's stream",
-            fact(
-                mine.clone(),
-                &sessions::BindEngineSession {
-                    native_id: "forged".to_string(),
-                    transcript_path: "/t".to_string(),
-                    engine_version: None,
-                },
-                "bind:forged",
+                &runs::RecordRunnerLost {},
+                "runner-lost:forged",
             ),
         ),
         (
@@ -496,23 +442,6 @@ async fn what_the_gate_forbids_is_answered_as_an_unknown_domain_and_writes_nothi
                 &sessions::RecordTurnEnded {
                     prompt_id: "p".to_string(),
                 },
-            ),
-        ),
-        (
-            "a command to mint a session",
-            CommandBook::command_of(
-                mine,
-                &sessions::SessionCommand::from(sessions::MintSession {
-                    harp: "forged-name-here".to_string(),
-                    project_id: "p".to_string(),
-                    project_dir: "/w".to_string(),
-                    output_dir: "/o".to_string(),
-                    engine: "claude-code".to_string(),
-                    origin: sessions::Origin::Session,
-                    started_at: None,
-                    depth: 0,
-                    workspace: None,
-                }),
             ),
         ),
     ];
@@ -633,7 +562,7 @@ async fn a_client_that_holds_a_connection_open_cannot_hold_the_stop() {
         inner: Arc::clone(&world.edge),
         arrived,
     });
-    let listener = HookListener::serve_tcp(Arc::clone(&edge), LOOPBACK_ANY_PORT, identity_of(&own))
+    let listener = serve_tcp(Arc::clone(&edge), LOOPBACK_ANY_PORT, identity_of(&own))
         .await
         .expect("the listener starts");
     let addr = listener.local_addr();
@@ -698,7 +627,7 @@ async fn tcp_client(addr: SocketAddr) -> CommandHandlerCoordinatorServiceClient<
 async fn a_capture_fact_over_tcp_is_applied_to_the_session_stream() {
     let world = World::new().await;
     let own = mint(&SystemClock, LOOPBACK_ANY_PORT.ip());
-    let listener = HookListener::serve_tcp(
+    let listener = serve_tcp(
         Arc::clone(&world.edge),
         LOOPBACK_ANY_PORT,
         identity_of(&own),
@@ -729,10 +658,10 @@ async fn a_capture_fact_over_tcp_is_applied_to_the_session_stream() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn two_listeners_on_port_zero_get_two_ports() {
     let world = World::new().await;
-    let a = HookListener::serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT, identity())
+    let a = serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT, identity())
         .await
         .unwrap();
-    let b = HookListener::serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT, identity())
+    let b = serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT, identity())
         .await
         .unwrap();
     assert_ne!(a.local_addr().port(), b.local_addr().port());
@@ -744,11 +673,10 @@ async fn two_listeners_on_port_zero_get_two_ports() {
 async fn an_unspecified_address_is_never_bound() {
     let world = World::new().await;
     for addr in ["0.0.0.0:0", "[::]:0"] {
-        let error =
-            HookListener::serve_tcp(Arc::clone(&world.edge), addr.parse().unwrap(), identity())
-                .await
-                .err()
-                .expect("refused");
+        let error = serve_tcp(Arc::clone(&world.edge), addr.parse().unwrap(), identity())
+            .await
+            .err()
+            .expect("refused");
         assert_eq!(
             error,
             crate::ListenerError::Unspecified {
@@ -773,7 +701,7 @@ async fn the_declared_arrival_follows_the_bind() {
     assert_eq!(crate::reach_of("172.18.0.1".parse().unwrap()), Reach::Ip);
     assert_eq!(crate::reach_of("192.168.1.9".parse().unwrap()), Reach::Ip);
     let world = World::new().await;
-    let listener = HookListener::serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT, identity())
+    let listener = serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT, identity())
         .await
         .unwrap();
     assert_eq!(listener.reach(), Reach::Loopback);
@@ -785,7 +713,7 @@ async fn the_declared_arrival_follows_the_bind() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_request_over_the_size_limit_is_refused_and_writes_nothing() {
     let world = World::new().await;
-    let listener = HookListener::serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT, identity())
+    let listener = serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT, identity())
         .await
         .unwrap();
     let held = world.watched().await;
@@ -819,16 +747,15 @@ async fn a_request_over_the_size_limit_is_refused_and_writes_nothing() {
 async fn an_authentication_failure_says_nothing_of_the_token_or_its_digest() {
     use sha2::{Digest, Sha256};
     let world = World::new().await;
-    let listener = HookListener::serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT, identity())
+    let listener = serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT, identity())
         .await
         .unwrap();
-    let secret = world.bearer.rsplit_once('.').unwrap().1.to_string();
+    let secret = world.bearer.clone();
     let digest: String = Sha256::digest(hex_bytes(&secret))
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect();
-    let run_text = world.bearer.rsplit_once('.').unwrap().0.to_string();
-    let attempted = format!("{run_text}.{}", "ee".repeat(32));
+    let attempted = "ee".repeat(32);
     let status = tcp_client(listener.local_addr())
         .await
         .handle(request(
@@ -887,7 +814,7 @@ fn fact_of_encoded_size(world: &World, size: usize) -> CommandBook {
 async fn the_request_limit_is_exactly_one_mebibyte() {
     assert_eq!(crate::MAX_REQUEST_BYTES, 1_048_576);
     let world = World::new().await;
-    let listener = HookListener::serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT, identity())
+    let listener = serve_tcp(Arc::clone(&world.edge), LOOPBACK_ANY_PORT, identity())
         .await
         .unwrap();
     let bearer = format!("Bearer {}", world.bearer);
@@ -962,7 +889,7 @@ async fn a_client_that_pins_another_certificate_refuses_the_listener() {
 async fn an_expired_certificate_is_refused() {
     let world = World::new().await;
     let expired = mint(&At(1_577_836_800), LOOPBACK_ANY_PORT.ip());
-    let listener = HookListener::serve_tcp(
+    let listener = serve_tcp(
         Arc::clone(&world.edge),
         LOOPBACK_ANY_PORT,
         identity_of(&expired),
@@ -978,7 +905,7 @@ async fn an_expired_certificate_is_refused() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_unusable_identity_is_a_typed_bind_error() {
     let world = World::new().await;
-    let error = HookListener::serve_tcp(
+    let error = serve_tcp(
         Arc::clone(&world.edge),
         LOOPBACK_ANY_PORT,
         TlsIdentity::from_pem("not a certificate", "not a key"),
@@ -995,4 +922,59 @@ fn the_identity_does_not_render_the_key() {
     let shown = format!("{:?}", identity());
     assert!(!shown.contains("PRIVATE"), "{shown}");
     assert!(!shown.contains(certificate().key_pem().lines().nth(1).unwrap()));
+}
+
+// The separation model: the daemon's listener has one principal, the user.
+// Her bearer is admitted for any session's facts and commands; a run's
+// composite bearer (`<run>.<hex>`, which no host run mints any more), and a
+// bearer it did not mint, are a bare UNAUTHENTICATED that says nothing of
+// why (S11).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_daemons_listener_admits_the_user_bearer_alone() {
+    let world = World::new().await;
+    let user = Token::from_bytes([77; 32]);
+    let gate = runs_application::UserGate::new(&user);
+    let listener =
+        HookListener::serve_tcp_gated(Arc::clone(&world.edge), gate, LOOPBACK_ANY_PORT, identity())
+            .await
+            .expect("serves");
+    let mut client = tcp_client(listener.local_addr()).await;
+    let theirs = format!("Bearer {}", user.to_text());
+    let mine = client
+        .handle(request(world.turn_ended("p1"), Some(&theirs)))
+        .await
+        .expect("the user's fact is applied")
+        .into_inner();
+    assert_eq!(mine.delivery(), DeliveryOutcome::Applied);
+    let elsewhere = client
+        .handle(request(
+            world_fact(&world.other_session, "p2"),
+            Some(&theirs),
+        ))
+        .await
+        .expect("any session's stream is the user's")
+        .into_inner();
+    assert_eq!(elsewhere.delivery(), DeliveryOutcome::Applied);
+    let held = world.watched().await;
+    let mut said = Vec::new();
+    let run = uuid::Uuid::from_slice(&world.run.value)
+        .unwrap()
+        .to_string();
+    for authorization in [
+        format!("Bearer {}", Bearer::compose(&run, &user).expose()),
+        format!("Bearer {}", world.bearer),
+        format!("Bearer {}", Token::from_bytes([78; 32]).to_text()),
+        "Bearer garbage".to_string(),
+    ] {
+        let status = client
+            .handle(request(world.turn_ended("p3"), Some(&authorization)))
+            .await
+            .expect_err("refused");
+        assert_eq!(status.code(), Code::Unauthenticated);
+        assert!(!status.message().contains(&user.to_text()));
+        said.push(status.message().to_string());
+    }
+    assert!(said.windows(2).all(|w| w[0] == w[1]), "{said:?}");
+    assert_eq!(world.watched().await, held, "nothing was written");
+    listener.stop().await.unwrap();
 }

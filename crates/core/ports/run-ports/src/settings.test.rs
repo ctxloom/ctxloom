@@ -153,6 +153,25 @@ fn settings_render_names_and_paths_only() {
     };
     assert_eq!(
         format!("{settings:?}"),
-        r#"EngineSettings { command: "/opt/claude", session_home: Session, auth: Source { env: ["ACME_TOKEN"], file: Some("/x/c.json") }, env: [] }"#
+        r#"EngineSettings { command: "/opt/claude", session_home: Session, auth: Source { env: ["ACME_TOKEN"], file: Some("/x/c.json") }, env: [], approval_timeout: 300s }"#
     );
+}
+
+// OD-41: the engine's own settings wait 300 seconds for an answer to an ask,
+// as the config's default does; nothing else of the default changes.
+#[test]
+fn test_the_default_settings_wait_five_minutes_for_an_answer() {
+    let settings = EngineSettings::default();
+    assert_eq!(
+        settings.approval_timeout,
+        std::time::Duration::from_secs(300)
+    );
+    assert_eq!(
+        APPROVAL_TIMEOUT_DEFAULT,
+        std::time::Duration::from_secs(300)
+    );
+    assert_eq!(settings.command, "");
+    assert_eq!(settings.session_home, SessionHome::Session);
+    assert_eq!(settings.auth, AuthSetting::Builtin);
+    assert!(settings.env.is_empty());
 }

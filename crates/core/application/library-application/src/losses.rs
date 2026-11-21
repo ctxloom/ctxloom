@@ -1,4 +1,5 @@
-//! What an engine cannot carry of what an agent's profiles configure: the
+//! What an engine cannot carry of what an agent's profiles and the
+//! registered companions configure: the
 //! capability-loss report `agent show`, `agent edit --engine`'s swap preview
 //! and doctor give.
 //!
@@ -6,8 +7,9 @@
 //! ([`Library::with_hook_losses`]): each engine's unified hook events it has
 //! no native form for, with the reason (an engine's surface half,
 //! `surface_ports::EngineSurfaces::hook_losses`). A profile's hook on such an
-//! event is lost on that engine; ctxloom's own callbacks are not the
-//! profile's, so an engine that cannot fire one is not a loss the team made.
+//! event is lost on that engine, and so is a registered companion's, for every
+//! agent (OD-22); ctxloom's own callbacks are not the profile's, so an engine
+//! that cannot fire one is not a loss the team made.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -88,15 +90,17 @@ pub(crate) fn engine_or_default(engine: &str) -> String {
 }
 
 impl Project {
-    /// What `engine` cannot carry of what the `profiles` configure, one entry
-    /// per event the profiles hook that the engine has no form for. Profiles
-    /// that do not resolve configure nothing here (their refusal is the
-    /// launch's and the write's own).
+    /// What `engine` cannot carry of what the `profiles` and the registered
+    /// companions configure, one entry per event they hook that the engine
+    /// has no form for. A companion's hooks ride every agent's launch, so they
+    /// count for an agent with no profiles too (OD-22). Profiles that do not
+    /// resolve configure nothing here (their refusal is the launch's and the
+    /// write's own).
     pub(crate) fn losses_on(&mut self, profiles: &[String], engine: &str) -> Vec<NotCarried> {
         let Some(lost) = self.hook_losses.get(engine).cloned() else {
             return Vec::new();
         };
-        if lost.is_empty() || profiles.is_empty() {
+        if lost.is_empty() {
             return Vec::new();
         }
         let events: BTreeSet<String> = self

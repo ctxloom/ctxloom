@@ -9,7 +9,7 @@ use angzarr_embedded::v1::{Cover, EventPage, Uuid};
 use run_ports::Edge;
 
 use crate::error::AppError;
-use crate::gate::{failed, owns, Credential, Gate, RunsGate};
+use crate::gate::{failed, owns};
 use crate::identity::Identity;
 
 /// Where one stream's reader is: the next sequence it wants.
@@ -73,11 +73,11 @@ impl<E: Edge> Feeds<E> {
         read(&*self.edge, who, cover, from).await
     }
 
-    /// Follow one stream from `cursor`, re-identifying on every poll.
-    pub fn follow(&self, credential: Credential, cursor: Cursor) -> Follow<E> {
+    /// Follow one stream from `cursor`, for `who`.
+    pub fn follow(&self, who: Identity, cursor: Cursor) -> Follow<E> {
         Follow {
             edge: Arc::clone(&self.edge),
-            credential,
+            who,
             cursor,
         }
     }
@@ -86,23 +86,17 @@ impl<E: Edge> Feeds<E> {
 /// A resumable reader of one stream.
 pub struct Follow<E: Edge> {
     edge: Arc<E>,
-    credential: Credential,
+    who: Identity,
     cursor: Cursor,
 }
 
 impl<E: Edge> Follow<E> {
     /// The pages at or above the cursor, which then moves past them: no gap and
-    /// no duplicate by construction. Empty when nothing is new. Fails
-    /// `Unauthenticated` once the run has ended (D29: a token dies with its
-    /// run).
+    /// no duplicate by construction. Empty when nothing is new.
     pub async fn next(&mut self) -> Result<Vec<EventPage>, AppError> {
-        // Re-identified on every poll: a run's end ends its feed (D29).
-        let who = RunsGate::new(Arc::clone(&self.edge))
-            .identify(&self.credential)
-            .await?;
         let pages = read(
             &*self.edge,
-            &who,
+            &self.who,
             &self.cursor.cover(),
             self.cursor.next_sequence,
         )

@@ -1,4 +1,4 @@
-//! Where the run's hook listener binds and what a child is told (owner
+//! Where a hook listener binds and what a child is told (owner
 //! ruling 2026-11-09, item 33): the narrowest bind the child can reach, per
 //! runtime, with the bind address and the address told to the child kept
 //! apart. Pure: the platform's facts (a bridge's gateway, the result of a
@@ -15,9 +15,12 @@
 //! | Colima, Lima                | 127.0.0.1           | `host.lima.internal`        |
 //!
 //! No plan binds an unspecified address, and a loopback bind a probe found
-//! unreachable is a refusal with its fix, never a wider bind. Only the host
-//! row is wired to a launch; the container rows are the table the child
-//! hooks landing uses.
+//! unreachable is a refusal with its fix, never a wider bind.
+//!
+//! No row is wired to a launch (slice 4 U7: no host run serves a listener of
+//! its own; the user daemon binds loopback by itself). The table is KEPT for
+//! M10b's container arrival (OD-13): where a container's hooks are told to
+//! deliver. Flag it as dead code if M10b lands without calling it.
 
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr};

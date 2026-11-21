@@ -1,10 +1,11 @@
-//! Running git: which variables are scrubbed, and what a failure says.
+//! Running git: what a failure says in the workspaces' words (the runner's
+//! own scrub and bounds are git-cli's tests).
 
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use super::{environment, is_local, local_variables, Git, GitError, User, DEFAULT_TIMEOUT};
-use crate::fixtures::{env, exists, fs, put, root, runs_scripts, slurp};
+use super::{Git, GitError, User, VcsIdentity, DEFAULT_TIMEOUT};
+use crate::fixtures::{env, fs, put, root, runs_scripts};
 
 /// A "git" that is a script, in a directory of its own.
 fn stub(body: &str) -> (file_system::Rooted, Git, Duration) {
@@ -19,53 +20,6 @@ fn run(dir: &Path, args: &[&str]) -> Result<String, String> {
     Git::on(fs(), env())
         .run(dir, args)
         .map_err(|e| e.to_string())
-}
-
-fn names(list: &[&str]) -> Option<Vec<String>> {
-    Some(list.iter().map(ToString::to_string).collect())
-}
-
-#[test]
-fn git_names_its_repository_local_variables() {
-    let local = local_variables().as_ref().expect("git answers");
-    assert!(local.iter().any(|n| n == "GIT_DIR"), "{local:?}");
-}
-
-#[test]
-fn a_variable_git_calls_local_is_scrubbed_and_others_are_not() {
-    let local = names(&["GIT_DIR"]);
-    assert!(is_local("GIT_DIR", &local));
-    assert!(!is_local("HOME", &local));
-    assert!(!is_local("GIT_SSH", &local), "only what git listed");
-}
-
-#[test]
-fn when_git_cannot_be_asked_every_git_variable_is_scrubbed() {
-    assert!(is_local("GIT_INDEX_FILE", &None));
-    assert!(!is_local("HOME", &None));
-}
-
-#[test]
-fn indexed_config_variables_are_scrubbed_only_with_their_count() {
-    let counted = names(&["GIT_CONFIG_COUNT"]);
-    assert!(is_local("GIT_CONFIG_KEY_0", &counted));
-    assert!(is_local("GIT_CONFIG_VALUE_3", &counted));
-    assert!(!is_local("GIT_CONFIG_OTHER", &counted));
-    assert!(!is_local("FOO", &counted));
-    assert!(!is_local("GIT_CONFIG_KEY_0", &names(&["GIT_DIR"])));
-}
-
-#[test]
-fn the_environment_keeps_the_callers_and_never_prompts() {
-    let given =
-        process_env::EnvSnapshot::of([("PATH", "/bin"), ("FOO", "bar"), ("GIT_DIR", "/elsewhere")]);
-    let env = environment(&given);
-    let has = |k: &str, v: &str| env.iter().any(|(key, val)| key == k && val == v);
-    assert!(has("PATH", "/bin"));
-    assert!(has("FOO", "bar"));
-    assert!(!env.iter().any(|(k, _)| k == "GIT_DIR"));
-    assert!(has("GIT_TERMINAL_PROMPT", "0"));
-    assert!(has("GIT_ASKPASS", ""));
 }
 
 #[test]
@@ -127,96 +81,6 @@ fn a_git_that_outlives_its_limit_is_killed_reaped_and_named() {
         error.to_string(),
         "git status did not finish within 20ms and was killed"
     );
-}
-
-#[test]
-fn a_hook_the_git_started_is_killed_with_it() {
-    if !runs_scripts() || !exists("/proc/self") {
-        return;
-    }
-    // The hook holds git's pipes, as a real one would.
-    let (dir, _, _) = stub("#!/bin/sh\nsleep 30 &\necho $! > \"$(dirname \"$0\")/hook\"\nwait\n");
-    // A loaded machine may not have started the hook by the first limit:
-    // ask again with a longer one until it has.
-    let started = Instant::now();
-    for secs in [1, 5, 25] {
-        let git = Git::new(
-            fs(),
-            dir.root().join("git"),
-            Duration::from_secs(secs),
-            env(),
-        );
-        let error = git.run(dir.root(), &["checkout"]).unwrap_err();
-        assert!(matches!(error, GitError::TimedOut { .. }), "{error:?}");
-        if exists(dir.root().join("hook")) {
-            break;
-        }
-    }
-    assert!(started.elapsed() < Duration::from_secs(40));
-    let pid = slurp(dir.root().join("hook"));
-    assert!(gone_soon(pid.trim()), "the hook {pid} outlived the git");
-}
-
-/// Whether the killed process `pid` is gone within ten seconds. A run past
-/// its limit sends SIGKILL to the program's whole process group and reaps the
-/// program, not its descendants: a helper dies when the kernel next runs it,
-/// which can be just after the run returned (it was caught in state `R`), so
-/// one look at that instant can see a helper that is already doomed. The
-/// bounded look is forced in taskloom-cli-client's
-/// `a_helper_seen_alive_before_its_kill_lands_is_gone_within_the_bound`.
-fn gone_soon(pid: &str) -> bool {
-    let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    while !run_within::process_gone(pid) {
-        if std::time::Instant::now() >= until {
-            return false;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(1));
-    }
-    true
-}
-
-/// A hook that holds git's pipes after git exits, until the file `release`
-/// appears beside the script (or 30 seconds, its own bound), its pid in
-/// `hook`. A git that exits normally is not killed with what it started
-/// (run-within: the descendant may be meant to stay), so the test lets it go
-/// itself.
-const HELD: &str = "d=$(dirname \"$0\")\n\
-    ( i=0; while [ ! -e \"$d/release\" ] && [ \"$i\" -lt 3000 ]; do sleep 0.01; i=$((i+1)); done ) &\n\
-    echo $! > \"$d/hook\"\n";
-
-/// Lets a [`HELD`] hook in this directory go when dropped, whether the test
-/// passed or not.
-struct Release(std::path::PathBuf);
-
-impl Drop for Release {
-    fn drop(&mut self) {
-        let _ = fs().write_atomic(
-            &self.0.join("release"),
-            b"",
-            file_system::Perms::Exact(os::Mode::FILE),
-        );
-    }
-}
-
-#[test]
-fn a_hook_that_outlives_a_finished_git_does_not_hold_the_caller() {
-    if !runs_scripts() {
-        return;
-    }
-    let (dir, _, _) = stub(&format!("#!/bin/sh\n{HELD}echo done\n"));
-    let release = Release(dir.root().to_path_buf());
-    let git = Git::new(fs(), dir.root().join("git"), Duration::from_secs(30), env())
-        .drain_grace(Duration::from_millis(50));
-    let started = Instant::now();
-    assert_eq!(git.run(dir.root(), &["gc"]).unwrap(), "done\n");
-    assert!(started.elapsed() < Duration::from_secs(4));
-    let pid = slurp(dir.root().join("hook"));
-    assert!(
-        !run_within::process_gone(pid.trim()),
-        "the hook held the pipes"
-    );
-    drop(release);
-    assert!(gone_soon(pid.trim()), "the hook {pid} outlived the test");
 }
 
 #[test]
@@ -315,4 +179,47 @@ esac"#,
             email: "a@x".to_string(),
         }
     );
+}
+
+// Project registration (owner, 2026-11-12): a repository's common directory
+// and its root commit; of several roots, the lexically least.
+#[test]
+fn a_repositorys_identity_is_its_common_dir_and_its_least_root_commit() {
+    if !runs_scripts() {
+        return;
+    }
+    let (dir, _, _) = stub(
+        r#"case "$*" in
+  "-c core.longpaths=true rev-parse --path-format=absolute --git-common-dir") echo "/work/calm/.git" ;;
+  "-c core.longpaths=true rev-list --max-parents=0 HEAD") printf 'bbbb\naaaa\n' ;;
+  *) exit 1 ;;
+esac"#,
+    );
+    let git = Git::new(fs(), dir.root().join("git"), DEFAULT_TIMEOUT, env());
+    assert_eq!(
+        git.vcs_identity(dir.root()),
+        VcsIdentity {
+            git_common_dir: "/work/calm/.git".to_string(),
+            root_commit: "aaaa".to_string(),
+        }
+    );
+}
+
+// Outside git: an empty identity; a repository with no commit, no root.
+#[test]
+fn outside_git_the_identity_is_empty() {
+    if !runs_scripts() {
+        return;
+    }
+    let (dir, _, _) = stub("exit 128");
+    let git = Git::new(fs(), dir.root().join("git"), DEFAULT_TIMEOUT, env());
+    assert_eq!(git.vcs_identity(dir.root()), VcsIdentity::default());
+    let (dir, _, _) = stub(
+        r#"case "$*" in
+  rev-parse*) echo "/work/new/.git" ;;
+  *) exit 128 ;;
+esac"#,
+    );
+    let git = Git::new(fs(), dir.root().join("git"), DEFAULT_TIMEOUT, env());
+    assert_eq!(git.vcs_identity(dir.root()).root_commit, "");
 }

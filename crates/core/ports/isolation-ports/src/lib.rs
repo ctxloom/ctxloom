@@ -25,7 +25,13 @@ pub type Failure = Box<dyn Diagnostic>;
 /// own `CLAUDE.md` above it, and nothing in the project moves under it.
 /// `home` is the ctxloom home, the directory holding `.ctxloom`.
 pub fn worktrees_root(home: &Path, project_id: &str) -> PathBuf {
-    home.join(".ctxloom").join("worktrees").join(project_id)
+    scratch_root(home).join(project_id)
+}
+
+/// Where ctxloom keeps every project's checkouts, `<home>/.ctxloom/worktrees`:
+/// the whole tree is ctxloom's, so a worktree under it is never a person's.
+pub fn scratch_root(home: &Path) -> PathBuf {
+    home.join(".ctxloom").join("worktrees")
 }
 
 /// One session's checkouts: `<worktrees_root>/<harp>`, a [`Request`]'s
@@ -107,6 +113,26 @@ pub enum Removal {
     Left(String),
 }
 
+/// A file a launch places in a checkout: its path relative to the checkout,
+/// its bytes, and whether it is written executable (a skill's file its
+/// sidecar declares).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PlacedFile {
+    pub rel: String,
+    pub bytes: Vec<u8>,
+    pub executable: bool,
+}
+
+impl PlacedFile {
+    /// A file that is not executable.
+    pub fn plain(rel: &str, bytes: &[u8]) -> PlacedFile {
+        PlacedFile {
+            rel: rel.to_string(),
+            bytes: bytes.to_vec(),
+            executable: false,
+        }
+    }
+}
 /// The workspace axis.
 pub trait Workspaces {
     /// A worktree for `request.agent` on its own branch in `request.work_dir`,
@@ -123,11 +149,11 @@ pub trait Workspaces {
     /// directories ([`worktrees_root`]): one session's, or every session's.
     fn scratch(&self, harp: Option<&str>) -> Result<Vec<Scratch>, Failure>;
 
-    /// Write `files` (each a path relative to the checkout and its bytes)
-    /// into the checkout at `checkout`, its directories made: what a launch
-    /// carries that its engine reads only from where it works. A path that
-    /// is not plainly relative is refused, and nothing outside it written.
-    fn place_files(&self, checkout: &str, files: &[(String, Vec<u8>)]) -> Result<(), Failure>;
+    /// Write `files` into the checkout at `checkout`, its directories made:
+    /// what a launch carries that its engine reads only from where it works,
+    /// each executable where it says so. A path that is not plainly relative
+    /// is refused, and nothing outside it written.
+    fn place_files(&self, checkout: &str, files: &[PlacedFile]) -> Result<(), Failure>;
 
     /// Take out of the checkout at `checkout` the files at `rels` that a
     /// launch placed there, best effort, so they do not keep it from being

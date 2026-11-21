@@ -137,54 +137,40 @@ pub struct HooksList {
     pub events: Vec<HooksEvent>,
 }
 
+/// `--engine` asked of a project that was there already (`existed`) is
+/// refused: the engine is recorded only while scaffolding it (Go's
+/// `checkInstallEngineApplies`).
+pub fn engine_applies(engine: Option<&str>, existed: bool) -> Result<(), SetupError> {
+    match engine {
+        Some(engine) if existed => Err(SetupError::EngineNotApplied {
+            engine: engine.to_string(),
+        }),
+        _ => Ok(()),
+    }
+}
+
 impl Setup {
-    /// Scaffold `.ctxloom` (if absent), git-ignore ctxloom's private state,
-    /// and pull the dependencies the profiles reference. No engine file is
-    /// written: a session carries its own, and an explicit materialize writes
-    /// the project's.
-    pub fn install(&self, request: &InstallRequest) -> Result<Done<InstallReport>, SetupError> {
+    /// `manage install --engine`'s engine, refused unless this build
+    /// knows it (none asked is the default's). `manage install` itself is
+    /// the daemon's (step 10c U6, `InstallManage`).
+    pub fn check_engine(&self, engine: Option<&str>) -> Result<(), SetupError> {
         let known = self.engines.names();
-        if let Some(engine) = &request.engine {
-            if !known.contains(engine) {
-                return Err(SetupError::UnknownEngine {
-                    engine: engine.clone(),
-                    known: known.join(", "),
-                });
-            }
+        match engine {
+            Some(engine) if !known.iter().any(|k| k == engine) => Err(SetupError::UnknownEngine {
+                engine: engine.to_string(),
+                known: known.join(", "),
+            }),
+            _ => Ok(()),
         }
-        let exists = self
-            .scaffold
-            .exists("config.yaml")
-            .map_err(SetupError::Cause)?;
-        if exists {
-            if let Some(engine) = &request.engine {
-                return Err(SetupError::EngineNotApplied {
-                    engine: engine.clone(),
-                });
-            }
-        }
-        let mut notices = Vec::new();
-        if !exists {
-            let engine = request.engine.clone().unwrap_or_default();
-            let created = self.library.config_create(&engine);
-            notices.extend(created.notices);
-            created.result.map_err(SetupError::classed)?;
-        }
-        let (status, written) = self.write_nested_gitignore()?;
-        let pull = self.pull(request);
-        Ok(Done {
-            value: InstallReport {
-                app_dir: self.scaffold.app_dir(),
-                initialized: !exists,
-                gitignore: format!("{}/.gitignore", self.project_dir),
-                gitignore_status: if written {
-                    status
-                } else {
-                    "unchanged".to_string()
-                },
-                pull,
-            },
-            notices,
+    }
+
+    /// The pull `manage install` ends with, as it reports it: skipped with
+    /// `--no-pull` or no puller, else pulled or failed (a failed pull is
+    /// said, and the install stands).
+    pub fn pull_report(&self, no_pull: bool) -> PullReport {
+        self.pull(&InstallRequest {
+            no_pull,
+            ..InstallRequest::default()
         })
     }
 

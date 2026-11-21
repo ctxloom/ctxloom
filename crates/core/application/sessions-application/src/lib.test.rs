@@ -4,18 +4,19 @@
 //! release/0.7), or says it is design.
 
 use angzarr_diagnostic::Diagnostic;
+use exit_code::{Exit, ExitClass};
 use session_ports::LockState;
 
 use crate::fakes::{
-    bound, captured, claim, ended, holder, id_text, minted, project, ready, FakeClock, FakeDelay,
-    FakeFiles, FakeIdentity, FakeLiveness, FakeStores,
+    bound, captured, claim, ended, holder, id_text, minted, minted_in, project, ready, FakeClock,
+    FakeDelay, FakeIdentity, FakeLiveness, FakeStores,
 };
 use crate::{
-    AppError, BindRequest, Bound, Class, KeepRequest, ListQuery, Refusal, RemoveRequest,
-    SearchQuery, Service, SessionService, ShowQuery, State, TranscriptQuery,
+    AppError, BindRequest, Bound, KeepRequest, ListQuery, SearchQuery, Service, SessionService,
+    ShowQuery, State, TranscriptQuery,
 };
 
-type Svc = Service<FakeIdentity, FakeStores, FakeFiles, FakeLiveness, FakeClock, FakeDelay>;
+type Svc = Service<FakeIdentity, FakeStores, FakeLiveness, FakeClock, FakeDelay>;
 
 /// The fake clock reads from second 1_700_000_001: this is "now" (roughly) to
 /// a test of retention.
@@ -33,18 +34,9 @@ fn service() -> Svc {
             fails: None,
         },
         FakeStores::default(),
-        FakeFiles::default(),
         FakeLiveness::default(),
         FakeClock::default(),
         FakeDelay::default(),
-    )
-}
-
-/// The canonical transcript Go's fixture records: one user prompt.
-fn transcript_of(harp: &str) -> String {
-    format!(
-        r#"{{"v":1,"harp":"{harp}","engine":"claude-code","seq":0,"ts":"2026-01-01T00:00:00Z","kind":"entry","entry":{{"type":"user","content":"Seeded prompt for {harp}."}}}}
-"#
     )
 }
 
@@ -53,8 +45,9 @@ impl Svc {
     /// transcript captured and its lock `lock` (Go's fixtures: "a finished
     /// session ... with a transcript").
     fn seed(&mut self, project: &str, id: u8, harp: &str, started: i64, lock: Option<LockState>) {
-        let store = self.stores.stores.entry(project.to_string()).or_default();
-        minted(store, id, harp, "/work/proj", started);
+        let key = self.stores.key(project);
+        let store = self.stores.stores.entry(key).or_default();
+        minted_in(store, project, id, harp, "/work/proj", started);
         // Its hooks delivered its first prompt (ruling 87a: the transcript is
         // the session's events); an older ctxloom's transcript file is left
         // on disk too, for a removal to name.
@@ -65,9 +58,6 @@ impl Svc {
             "p0",
             &format!("Seeded prompt for {harp}."),
         );
-        self.files
-            .transcripts
-            .insert(harp.to_string(), transcript_of(harp));
         if let Some(lock) = lock {
             self.liveness.0.insert(harp.to_string(), lock);
         }
@@ -115,6 +105,25 @@ fn a_listing_holds_the_sessions_of_the_current_project() {
         ["brisk-copper-moth", "amber-swift-owl"],
         "this project's, most recently started first"
     );
+}
+
+// T14: every project's sessions are in the one store, and a listing holds the
+// current project's alone; --all reaches the others, each found in its own.
+#[test]
+fn the_one_store_lists_each_projects_sessions_under_its_own_project() {
+    let mut svc = service();
+    svc.stores.one = true;
+    svc.seed(HERE, 1, "amber-swift-owl", NOW - 2 * DAY, None);
+    svc.seed(ELSEWHERE, 3, "calm-dusty-wren", NOW - DAY, None);
+    assert_eq!(svc.stores.stores.len(), 1, "one store");
+    assert_eq!(svc.harps(ListQuery::default()), ["amber-swift-owl"]);
+    assert_eq!(svc.harps(all()), ["calm-dusty-wren", "amber-swift-owl"]);
+    let shown = ready(svc.show(ShowQuery {
+        project: Some(ELSEWHERE.to_string()),
+        harp: "calm-dusty-wren".to_string(),
+    }))
+    .unwrap();
+    assert_eq!(shown.record.project_id, ELSEWHERE);
 }
 
 // Design (queue-runner swap, unnamed-corsage): a read catches up fresh, so
@@ -489,426 +498,6 @@ fn keeping_an_unknown_session_fails_naming_it() {
     );
 }
 
-// ---------------------------------------------------------------------- remove
-
-fn remove(harp: &str, yes: bool) -> RemoveRequest {
-    RemoveRequest {
-        harp: harp.to_string(),
-        yes,
-        ..RemoveRequest::default()
-    }
-}
-
-/// A finished session whose transcript retention has passed (j001300): its
-/// lock free, its end 60 days ago, nothing worked on since.
-fn finished(svc: &mut Svc, id: u8, harp: &str) {
-    svc.seed(HERE, id, harp, NOW - 70 * DAY, Some(LockState::Free));
-    ended(svc.store(HERE), id, NOW - 70 * DAY + 10, NOW - 60 * DAY);
-    svc.files.last_active.insert(
-        harp.to_string(),
-        crate::Timestamp {
-            seconds: NOW - 60 * DAY,
-            nanos: 0,
-        },
-    );
-}
-
-// session.feature: "Delete reports before it removes": the plan, applied
-// false, and everything still there.
-#[test]
-fn a_removal_reports_before_it_removes() {
-    let mut svc = service();
-    finished(&mut svc, 1, "amber-swift-owl");
-    let removal = ready(svc.remove(remove("amber-swift-owl", false))).unwrap();
-    assert!(!removal.applied);
-    assert_eq!(removal.refusal, None);
-    let destroy: Vec<&str> = removal
-        .files
-        .destroy
-        .iter()
-        .map(|i| i.rel.as_str())
-        .collect();
-    assert_eq!(destroy, ["transcripts/transcript.jsonl"]);
-    assert_eq!(removal.files.bytes_freed, 0, "nothing freed on a report");
-    assert!(svc.files.destroyed_sessions.is_empty());
-    assert!(svc.files.transcripts.contains_key("amber-swift-owl"));
-    assert_eq!(svc.harps(all()), ["amber-swift-owl"], "still listed");
-}
-
-// Owner ruling 98: `session remove --yes` DESTROYS the session: its
-// authored files go with its native history (the whole directory), and it is
-// listed no more.
-#[test]
-fn a_removal_destroys_the_whole_directory_authored_files_too() {
-    let mut svc = service();
-    finished(&mut svc, 1, "amber-swift-owl");
-    svc.files.others.insert(
-        "amber-swift-owl".to_string(),
-        vec![("design-notes.md".to_string(), 12)],
-    );
-    let removal = ready(svc.remove(remove("amber-swift-owl", true))).unwrap();
-    assert!(removal.applied);
-    assert_eq!(removal.refusal, None);
-    let destroyed: Vec<&str> = removal
-        .files
-        .destroy
-        .iter()
-        .map(|i| i.rel.as_str())
-        .collect();
-    assert!(destroyed.contains(&"design-notes.md"), "{destroyed:?}");
-    assert_eq!(svc.files.destroyed_sessions, ["amber-swift-owl"]);
-    let session_root = uuid::Uuid::from_bytes([1; 16]);
-    assert_eq!(head(&mut svc, sessions::SESSION_DOMAIN, session_root), 0);
-    assert_eq!(svc.harps(all()), Vec::<String>::new(), "no longer listed");
-}
-
-// A removal's plan names each file's class: the engine's native history and
-// a transcript an older ctxloom left are machine-written, everything else is
-// a person's.
-#[test]
-fn a_removal_plan_names_the_machine_written_and_the_authored_files() {
-    let mut svc = service();
-    finished(&mut svc, 1, "amber-swift-owl");
-    svc.files.others.insert(
-        "amber-swift-owl".to_string(),
-        vec![
-            ("native/history.jsonl".to_string(), 3),
-            ("notes.md".to_string(), 4),
-        ],
-    );
-    let removal = ready(svc.remove(remove("amber-swift-owl", false))).unwrap();
-    let classes: Vec<(&str, Class)> = removal
-        .files
-        .destroy
-        .iter()
-        .map(|i| (i.rel.as_str(), i.class))
-        .collect();
-    assert_eq!(
-        classes,
-        [
-            ("native/history.jsonl", Class::Machine),
-            ("notes.md", Class::Authored),
-            ("transcripts/transcript.jsonl", Class::Machine),
-        ]
-    );
-}
-
-// Owner ruling 104: `Removal::authored` is what the warning names: exactly
-// the files a person wrote, in the plan's order, never the engine's native
-// history or a transcript an older ctxloom left; none when there are none.
-#[test]
-fn a_removal_names_exactly_its_authored_files() {
-    let mut svc = service();
-    finished(&mut svc, 1, "amber-swift-owl");
-    svc.files.others.insert(
-        "amber-swift-owl".to_string(),
-        vec![
-            ("design-notes.md".to_string(), 4),
-            ("native/history.jsonl".to_string(), 3),
-            ("plans/next.md".to_string(), 5),
-        ],
-    );
-    let removal = ready(svc.remove(remove("amber-swift-owl", false))).unwrap();
-    assert_eq!(removal.authored(), ["design-notes.md", "plans/next.md"]);
-
-    let mut machine_only = service();
-    finished(&mut machine_only, 1, "brisk-copper-moth");
-    machine_only.files.others.insert(
-        "brisk-copper-moth".to_string(),
-        vec![("native/history.jsonl".to_string(), 3)],
-    );
-    let removal = ready(machine_only.remove(remove("brisk-copper-moth", false))).unwrap();
-    assert_eq!(
-        removal.files.destroy.len(),
-        2,
-        "native history and transcript"
-    );
-    assert!(removal.authored().is_empty(), "{:?}", removal.authored());
-}
-
-/// The head of the stream `domain`/`root` in `project`'s store.
-fn head(svc: &mut Svc, domain: &str, root: uuid::Uuid) -> u64 {
-    use angzarr_embedded::EventStore;
-    let stream = angzarr_embedded::StreamRef::main(domain, root);
-    ready(EventStore::head(svc.store(HERE), stream))
-        .unwrap()
-        .next_sequence
-}
-
-/// A run stream of session `id`'s `incarnation`, with one event, as the run
-/// core would leave it.
-fn a_run_of(svc: &mut Svc, id: u8, incarnation: u32) -> uuid::Uuid {
-    use angzarr_embedded::{EventStore, Write};
-    let root = runs::run_root(&id_text(id), incarnation);
-    let root = uuid::Uuid::from_slice(&root.value).unwrap();
-    let page = angzarr_embedded::v1::EventPage {
-        sequence: 0,
-        body: Some(angzarr_embedded::v1::event_page::Body::Event(
-            angzarr_embedded::Any {
-                type_url: "type.googleapis.com/ctxloom.runs.v1.RunExited".to_string(),
-                value: Vec::new(),
-            },
-        )),
-        meta: None,
-    };
-    let stream = angzarr_embedded::StreamRef::main(runs::RUN_DOMAIN, root);
-    ready(EventStore::write(
-        svc.store(HERE),
-        Write::append(stream, 0, std::slice::from_ref(&page)),
-    ))
-    .unwrap();
-    root
-}
-
-/// `session remove <harp> --yes`: the destroy (owner ruling 98).
-fn destroy(harp: &str) -> RemoveRequest {
-    remove(harp, true)
-}
-
-// Owner rulings 94, 94a-c, 98: `session remove` DESTROYS the session: every event
-// of its stream and of every run of it (UUIDv5(session, 1..n)) is purged from
-// the store, and its directory and lock are removed. It is listed no more.
-// The name stays claimed, never reused.
-#[test]
-fn a_destroy_purges_the_session_and_every_run_of_it_and_its_directory() {
-    let mut svc = service();
-    finished(&mut svc, 1, "amber-swift-owl");
-    claim(svc.store(HERE), HERE, "amber-swift-owl", &id_text(1)).unwrap();
-    let store = svc.stores.stores.get(HERE).unwrap();
-    captured(store, 1, NOW - 70 * DAY + 20, "p1", "a prompt to destroy");
-    let run = a_run_of(&mut svc, 1, 1);
-    let session_root = uuid::Uuid::from_bytes([1; 16]);
-    assert!(head(&mut svc, sessions::SESSION_DOMAIN, session_root) > 0);
-    let events = head(&mut svc, sessions::SESSION_DOMAIN, session_root)
-        + head(&mut svc, runs::RUN_DOMAIN, run);
-    let destroyed = ready(svc.remove(destroy("amber-swift-owl"))).unwrap();
-    assert!(destroyed.applied);
-    assert_eq!(
-        destroyed.events_destroyed, events,
-        "every event of the session and its run, counted"
-    );
-    assert_eq!(head(&mut svc, sessions::SESSION_DOMAIN, session_root), 0);
-    assert_eq!(head(&mut svc, runs::RUN_DOMAIN, run), 0, "its run is gone");
-    assert_eq!(svc.files.destroyed_sessions, ["amber-swift-owl"]);
-    assert_eq!(svc.harps(all()), Vec::<String>::new(), "listed no more");
-    assert_eq!(
-        holder(svc.store(HERE), HERE, "amber-swift-owl"),
-        id_text(1),
-        "the name stays claimed (94c)"
-    );
-}
-
-// Ruling 94d: a hook fact delivered again after its session was destroyed
-// (its command id forgotten with the stream) finds no session, and records
-// nothing.
-#[test]
-fn a_hook_fact_redelivered_after_a_destroy_records_nothing() {
-    let mut svc = service();
-    finished(&mut svc, 1, "amber-swift-owl");
-    let store = svc.stores.stores.get(HERE).unwrap();
-    captured(store, 1, NOW - 70 * DAY + 20, "p1", "a prompt to destroy");
-    ready(svc.remove(destroy("amber-swift-owl"))).unwrap();
-    let store = svc.stores.stores.get(HERE).unwrap();
-    captured(store, 1, NOW, "p1", "a prompt to destroy");
-    let session_root = uuid::Uuid::from_bytes([1; 16]);
-    assert_eq!(head(&mut svc, sessions::SESSION_DOMAIN, session_root), 0);
-    assert_eq!(svc.harps(all()), Vec::<String>::new());
-}
-
-// Ruling 94b: a destroy reported (no --yes) changes nothing: the streams and
-// the directory stay.
-#[test]
-fn a_destroy_reported_and_not_applied_changes_nothing() {
-    let mut svc = service();
-    finished(&mut svc, 1, "amber-swift-owl");
-    let report = ready(svc.remove(RemoveRequest {
-        yes: false,
-        ..destroy("amber-swift-owl")
-    }))
-    .unwrap();
-    assert!(!report.applied);
-    let session_root = uuid::Uuid::from_bytes([1; 16]);
-    assert!(head(&mut svc, sessions::SESSION_DOMAIN, session_root) > 0);
-    assert!(svc.files.destroyed_sessions.is_empty());
-}
-
-// session.feature: "A session running again is refused by the transcript's own
-// destroyer": the refusal names the command that was run, `session remove`.
-#[test]
-fn the_refusal_names_the_destroyer_that_was_run() {
-    let mut svc = service();
-    svc.seed(
-        HERE,
-        1,
-        "amber-swift-owl",
-        NOW - 70 * DAY,
-        Some(LockState::Held),
-    );
-    match ready(svc.remove(remove("amber-swift-owl", true)))
-        .unwrap()
-        .refusal
-    {
-        Some(Refusal::NotProvenDead { verb, reason, .. }) => {
-            assert_eq!(verb, "session remove");
-            assert!(reason.contains("owner is alive"), "{reason}");
-        }
-        other => panic!("{other:?}"),
-    }
-}
-
-// session.feature: "A transcript within its retention is refused by every
-// destroyer" (session remove): refused, nothing destroyed, the plan shown.
-#[test]
-fn a_removal_within_the_retention_is_refused() {
-    let mut svc = service();
-    svc.seed(
-        HERE,
-        1,
-        "brisk-copper-moth",
-        NOW - 2 * HOUR,
-        Some(LockState::Free),
-    );
-    ended(svc.store(HERE), 1, NOW - HOUR, NOW - HOUR);
-    svc.files.last_active.insert(
-        "brisk-copper-moth".to_string(),
-        crate::Timestamp {
-            seconds: NOW - HOUR,
-            nanos: 0,
-        },
-    );
-    let removal = ready(svc.remove(remove("brisk-copper-moth", true))).unwrap();
-    assert!(matches!(removal.refusal, Some(Refusal::Retained { .. })));
-    assert!(!removal.applied);
-    assert!(svc.files.destroyed_sessions.is_empty());
-    assert_eq!(svc.harps(all()), ["brisk-copper-moth"]);
-    assert_eq!(removal.files.destroy.len(), 1, "the plan is still shown");
-}
-
-// session.feature: "A kept transcript is refused at any age".
-#[test]
-fn a_removal_of_a_kept_session_is_refused_at_any_age() {
-    let mut svc = service();
-    finished(&mut svc, 1, "amber-swift-owl");
-    ready(svc.keep(keep("amber-swift-owl", true))).unwrap();
-    let removal = ready(svc.remove(remove("amber-swift-owl", true))).unwrap();
-    assert_eq!(
-        removal.refusal,
-        Some(Refusal::Kept {
-            harp: "amber-swift-owl".to_string()
-        })
-    );
-    assert!(svc.files.destroyed_sessions.is_empty());
-    ready(svc.keep(keep("amber-swift-owl", false))).unwrap();
-    let removal = ready(svc.remove(remove("amber-swift-owl", true))).unwrap();
-    assert!(removal.applied, "released, it goes");
-}
-
-// session.feature: "A session the lock cannot prove finished is refused": a
-// free lock proves the owner dead; a held lock, or no lock at all, refuses.
-#[test]
-fn a_removal_of_a_session_the_lock_cannot_prove_dead_is_refused() {
-    for (lock, name) in [(Some(LockState::Held), "held"), (None, "no lock")] {
-        let mut svc = service();
-        svc.seed(HERE, 1, "amber-swift-owl", NOW - 70 * DAY, lock);
-        ended(svc.store(HERE), 1, NOW - 70 * DAY + 10, NOW - 60 * DAY);
-        let removal = ready(svc.remove(remove("amber-swift-owl", true))).unwrap();
-        assert!(
-            matches!(removal.refusal, Some(Refusal::NotProvenDead { .. })),
-            "{name}: {:?}",
-            removal.refusal
-        );
-        assert!(svc.files.destroyed_sessions.is_empty(), "{name}");
-    }
-}
-
-// session.feature: "--even-if-live sweeps it anyway".
-#[test]
-fn even_if_live_permits_a_session_whose_lock_proves_nothing() {
-    let mut svc = service();
-    svc.seed(HERE, 1, "amber-swift-owl", NOW - 70 * DAY, None);
-    ended(svc.store(HERE), 1, NOW - 70 * DAY + 10, NOW - 60 * DAY);
-    let removal = ready(svc.remove(RemoveRequest {
-        yes: true,
-        even_if_live: true,
-        ..remove("amber-swift-owl", true)
-    }))
-    .unwrap();
-    assert!(removal.applied);
-    assert_eq!(svc.harps(all()), Vec::<String>::new());
-}
-
-// Go: PurgeSession checks the lock first, then the retention.
-#[test]
-fn the_lock_is_asked_before_the_retention() {
-    let mut svc = service();
-    svc.seed(HERE, 1, "amber-swift-owl", NOW - 2 * HOUR, None);
-    ended(svc.store(HERE), 1, NOW - HOUR, NOW - HOUR);
-    let removal = ready(svc.remove(remove("amber-swift-owl", true))).unwrap();
-    assert!(matches!(
-        removal.refusal,
-        Some(Refusal::NotProvenDead { .. })
-    ));
-}
-
-// Go: TestRetention_OneShotIsReclaimableAtAnyAgeUnlessKept.
-#[test]
-fn an_internal_one_shot_is_reclaimable_at_any_age() {
-    let mut svc = service();
-    let store = svc.stores.stores.entry(HERE.to_string()).or_default();
-    crate::fakes::run(
-        store,
-        1,
-        NOW - 2 * HOUR,
-        sessions::MintSession {
-            harp: "gray-oneshot-wisp".to_string(),
-            project_id: HERE.to_string(),
-            project_dir: "/work/proj".to_string(),
-            output_dir: String::new(),
-            engine: "claude-code".to_string(),
-            origin: sessions::Origin::Oneshot,
-            started_at: None,
-            depth: 0,
-            workspace: None,
-        },
-    );
-    ended(store, 1, NOW - HOUR, NOW - HOUR);
-    svc.files.transcripts.insert(
-        "gray-oneshot-wisp".to_string(),
-        transcript_of("gray-oneshot-wisp"),
-    );
-    svc.liveness
-        .0
-        .insert("gray-oneshot-wisp".to_string(), LockState::Free);
-    let removal = ready(svc.remove(remove("gray-oneshot-wisp", true))).unwrap();
-    assert!(removal.applied, "{:?}", removal.refusal);
-}
-
-// Ruling 94b: a destroy purges the streams BEFORE it removes the directory,
-// so a failure removing the directory leaves a session nothing lists (its
-// harp never reused), not a listed session that lost its files.
-#[test]
-fn the_streams_go_before_the_directory() {
-    let mut svc = service();
-    finished(&mut svc, 1, "amber-swift-owl");
-    svc.files.fail_destroy = true;
-    let error = ready(svc.remove(remove("amber-swift-owl", true))).unwrap_err();
-    assert!(matches!(error, AppError::Files(_)), "{error:?}");
-    let session_root = uuid::Uuid::from_bytes([1; 16]);
-    assert_eq!(head(&mut svc, sessions::SESSION_DOMAIN, session_root), 0);
-    assert_eq!(svc.harps(all()), Vec::<String>::new(), "listed no more");
-}
-
-#[test]
-fn a_removal_of_an_unknown_session_fails_naming_it() {
-    let mut svc = service();
-    assert_eq!(
-        ready(svc.remove(remove("no-such-harp", true))).unwrap_err(),
-        AppError::NoSession {
-            harp: "no-such-harp".to_string()
-        }
-    );
-}
-
 // ------------------------------------------------------------------------ bind
 
 fn bind(harp: &str, native: &str, transcript: &str) -> BindRequest {
@@ -1006,10 +595,6 @@ fn a_title_is_set_and_shown_and_nothing_moves_or_is_claimed() {
     assert_eq!(views[0].record.id, id_text(1));
     assert_eq!(views[0].record.title, "the auth refactor");
     assert_eq!(views[0].title.as_deref(), Some("the auth refactor"));
-    assert!(
-        svc.files.sessions.contains("amber-swift-owl"),
-        "its directory is where it was"
-    );
     assert_eq!(holder(svc.store(HERE), HERE, "amber-swift-owl"), id_text(1));
     let again = ready(svc.set_title(title("amber-swift-owl", "the auth refactor"))).unwrap();
     assert!(!again.changed, "the title held records nothing");
@@ -1046,26 +631,6 @@ fn a_project_that_cannot_be_resolved_is_an_identity_failure() {
     assert_eq!(error.code(), "x-no-home");
 }
 
-// The refusal for a lock says which: held means the owner is running.
-#[test]
-fn a_held_lock_and_a_missing_one_are_refused_for_different_reasons() {
-    let reason = |lock: Option<LockState>| {
-        let mut svc = service();
-        svc.seed(HERE, 1, "amber-swift-owl", NOW - 70 * DAY, lock);
-        match ready(svc.remove(remove("amber-swift-owl", true)))
-            .unwrap()
-            .refusal
-        {
-            Some(Refusal::NotProvenDead { reason, .. }) => reason,
-            other => panic!("{other:?}"),
-        }
-    };
-    let held = reason(Some(LockState::Held));
-    let none = reason(None);
-    assert!(held.contains("running"), "{held}");
-    assert!(none.contains("no lock"), "{none}");
-}
-
 // The sample dead letter names its component and reason (a driving adapter's
 // tests say it).
 #[test]
@@ -1094,7 +659,6 @@ impl Svc {
                 prompt,
             );
         }
-        self.files.transcripts.remove(harp);
     }
 }
 
@@ -1132,10 +696,6 @@ fn a_transcript_is_shown_from_the_sessions_events_with_no_file() {
 fn a_transcript_file_left_on_disk_is_not_what_is_shown() {
     let mut svc = service();
     svc.seed_captured(1, "amber-swift-owl", NOW - DAY, &["from the events"]);
-    svc.files.transcripts.insert(
-        "amber-swift-owl".to_string(),
-        transcript_of("amber-swift-owl"),
-    );
     let text = ready(svc.transcript("amber-swift-owl")).unwrap();
     assert!(text.contains("from the events"), "{text}");
     assert!(!text.contains("Seeded prompt"), "{text}");
@@ -1215,7 +775,6 @@ fn the_transcript_listing_reads_the_events_and_names_no_file() {
 impl Svc {
     /// `harp`'s session directory exists, and its name is claimed by it.
     fn with_directory(&mut self, id: u8, harp: &str) {
-        self.files.sessions.insert(harp.to_string());
         claim(self.store(HERE), HERE, harp, &id_text(id)).unwrap();
     }
 }
@@ -1240,7 +799,7 @@ fn conflicting(
             sequence,
             body: Some(angzarr_embedded::v1::event_page::Body::Event(
                 angzarr_embedded::Any {
-                    type_url: "type.googleapis.com/ctxloom.runs.v1.RunExited".to_string(),
+                    type_url: "type.googleapis.com/ctxloom.runs.v1.RecordRunExited".to_string(),
                     value: Vec::new(),
                 },
             )),
@@ -1279,4 +838,407 @@ fn a_purge_that_conflicts_is_tried_again_three_times_then_fails() {
         ready(crate::write::purge(&store, stream)).is_err(),
         "a fourth conflict is the failure"
     );
+}
+
+// ------------------------------------------------- the daemon's model (D28)
+
+// D30: `session show` lists the messages the session was sent that no turn
+// has carried; an inform to an idle session stays there, visibly.
+#[test]
+fn show_lists_the_pending_messages() {
+    let mut svc = service();
+    svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, None);
+    let store = svc.stores.stores.get(HERE).unwrap();
+    crate::fakes::run(
+        store,
+        1,
+        NOW - DAY + 10,
+        sessions::SendMessage {
+            message_id: "m1".to_string(),
+            urgency: sessions::Urgency::Inform,
+            text: "when you are next on".to_string(),
+            requester: None,
+            supported: vec![sessions::Urgency::Inform],
+        },
+    );
+    let shown = ready(svc.show(ShowQuery {
+        project: None,
+        harp: "amber-swift-owl".to_string(),
+    }))
+    .unwrap();
+    assert_eq!(
+        shown.pending,
+        vec![session_index::PendingMessage {
+            message_id: "m1".to_string(),
+            urgency: sessions::Urgency::Inform,
+            text: "when you are next on".to_string(),
+            sender: None,
+        }]
+    );
+    let listed = ready(svc.list(all())).unwrap();
+    assert!(listed[0].pending.is_empty(), "a listing does not fill it");
+}
+
+// ------------------------------------------ the orchestrator's commands (D25)
+
+fn send(harp: &str, id: &str, urgency: sessions::Urgency, text: &str) -> crate::SendRequest {
+    crate::SendRequest {
+        project: None,
+        harp: harp.to_string(),
+        message_id: id.to_string(),
+        urgency,
+        text: text.to_string(),
+    }
+}
+
+fn close(harp: &str) -> crate::CloseRequest {
+    crate::CloseRequest {
+        project: None,
+        harp: harp.to_string(),
+        cause: "done".to_string(),
+    }
+}
+
+// D12: the user sends a message; its id is its key, so the same id again
+// records nothing; `show` lists it pending (D30).
+#[test]
+fn the_user_sends_a_session_a_message_once_by_its_id() {
+    let mut svc = service();
+    svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, None);
+    let sent = ready(svc.send(send(
+        "amber-swift-owl",
+        "m1",
+        sessions::Urgency::Inform,
+        "fyi",
+    )))
+    .unwrap();
+    assert_eq!(
+        (sent.harp.as_str(), sent.id.as_str(), sent.recorded),
+        ("amber-swift-owl", "m1", true)
+    );
+    let again = ready(svc.send(send(
+        "amber-swift-owl",
+        "m1",
+        sessions::Urgency::Inform,
+        "fyi",
+    )))
+    .unwrap();
+    assert!(!again.recorded, "a duplicate");
+    let view = ready(svc.show(ShowQuery {
+        project: None,
+        harp: "amber-swift-owl".to_string(),
+    }))
+    .unwrap();
+    assert_eq!(view.pending.len(), 1);
+    assert_eq!(view.pending[0].text, "fyi");
+    let minted =
+        ready(svc.send(send("amber-swift-owl", "", sessions::Urgency::Inform, "x"))).unwrap();
+    assert!(minted.recorded);
+    assert_ne!(minted.id, "", "an id is minted when none is given");
+}
+
+// S-c: a primary takes no wake yet, so a wake to it is refused on the
+// evidence; a send to no session is NoSession.
+#[test]
+fn a_wake_to_a_primary_and_a_send_to_nobody_are_refused() {
+    let mut svc = service();
+    svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, None);
+    let refused =
+        ready(svc.send(send("amber-swift-owl", "m1", sessions::Urgency::Wake, "go"))).unwrap_err();
+    assert_eq!(
+        refused.code(),
+        "sessions-urgency-unsupported",
+        "{refused:?}"
+    );
+    let nobody = ready(svc.send(send(
+        "nobody-here-now",
+        "m1",
+        sessions::Urgency::Inform,
+        "x",
+    )))
+    .unwrap_err();
+    assert!(matches!(nobody, AppError::NoSession { .. }), "{nobody:?}");
+}
+
+// K1: the user closes a session once; a closed session takes no message.
+#[test]
+fn the_user_closes_a_session_and_it_takes_no_more_messages() {
+    let mut svc = service();
+    svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, None);
+    assert!(ready(svc.close(close("amber-swift-owl"))).unwrap().recorded);
+    assert!(
+        !ready(svc.close(close("amber-swift-owl"))).unwrap().recorded,
+        "a second close records nothing"
+    );
+    let refused = ready(svc.send(send(
+        "amber-swift-owl",
+        "m1",
+        sessions::Urgency::Inform,
+        "x",
+    )))
+    .unwrap_err();
+    assert_eq!(refused.code(), "sessions-session-closed");
+}
+
+// K2: the user launches a child of an owner; the owner holds it.
+#[test]
+fn the_user_launches_a_child_of_an_owner() {
+    let mut svc = service();
+    svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, None);
+    ready(svc.name_project(name_request(&["calm-quiet-heron"]))).unwrap();
+    let launched = ready(svc.launch_child(crate::LaunchRequest {
+        project: None,
+        owner: "amber-swift-owl".to_string(),
+        harp: "lone-wolf-pup".to_string(),
+        engine: "claude-code".to_string(),
+        prompt: "port the parser".to_string(),
+        delegation_limit: 4,
+    }))
+    .unwrap();
+    assert!(launched.recorded);
+    assert_eq!(launched.harp, "amber-swift-owl");
+    let view = ready(svc.show(ShowQuery {
+        project: None,
+        harp: "amber-swift-owl".to_string(),
+    }))
+    .unwrap();
+    assert_eq!(view.record.children.len(), 1);
+    assert_eq!(
+        view.record.children[0].session.as_ref().unwrap().session,
+        launched.id
+    );
+    assert_eq!(view.record.children[0].root, "/work/proj");
+    let limited = ready(svc.launch_child(crate::LaunchRequest {
+        project: None,
+        owner: "amber-swift-owl".to_string(),
+        harp: "lone-wolf-cub".to_string(),
+        engine: "claude-code".to_string(),
+        prompt: String::new(),
+        delegation_limit: 1,
+    }))
+    .unwrap_err();
+    assert_eq!(limited.code(), "sessions-delegation-limit");
+}
+
+// Owner, 2026-11-12, slice 2 B3: a child's stable id is the UUIDv5 of its
+// name, its owner's project's harp and its own, so the caller that hands the
+// daemon the child keyed by it derives the same.
+#[test]
+fn a_childs_id_is_the_uuid_v5_of_its_name() {
+    let mut svc = service();
+    svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, None);
+    ready(svc.name_project(name_request(&["calm-quiet-heron"]))).unwrap();
+    let launched = ready(svc.launch_child(crate::LaunchRequest {
+        project: None,
+        owner: "amber-swift-owl".to_string(),
+        harp: "lone-wolf-pup".to_string(),
+        engine: "claude-code".to_string(),
+        prompt: String::new(),
+        delegation_limit: 4,
+    }))
+    .unwrap();
+    let derived = sessions::SessionName::new("calm-quiet-heron", "lone-wolf-pup")
+        .unwrap()
+        .uid();
+    assert_eq!(launched.id, derived);
+    let view = ready(svc.show(ShowQuery {
+        project: None,
+        harp: "amber-swift-owl".to_string(),
+    }))
+    .unwrap();
+    assert_eq!(
+        view.record.children[0].session.as_ref().unwrap().session,
+        derived
+    );
+}
+
+// Slice 2 M1: a project is named before any session of it is minted, so a
+// launch in a project with no harp is refused, launching nothing.
+#[test]
+fn a_launch_in_a_project_with_no_harp_is_refused() {
+    let mut svc = service();
+    svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, None);
+    let refused = ready(svc.launch_child(crate::LaunchRequest {
+        project: None,
+        owner: "amber-swift-owl".to_string(),
+        harp: "lone-wolf-pup".to_string(),
+        engine: "claude-code".to_string(),
+        prompt: String::new(),
+        delegation_limit: 4,
+    }))
+    .unwrap_err();
+    assert_eq!(refused.code(), "sessions-application-no-project-harp");
+}
+
+// Owner, 2026-11-12, slice 2 re-root: the projects stream, which mints the
+// harp, is rooted on the project id; the harp's claim on the project's
+// resource name, `projects/{harp}`.
+#[test]
+fn a_projects_stream_is_rooted_on_its_id_and_its_harps_claim_on_its_name() {
+    use angzarr_embedded::Kernel;
+    let mut svc = service();
+    ready(svc.name_project(name_request(&["calm-quiet-heron"]))).unwrap();
+    let registry = crate::registry();
+    let store = svc.store(HERE);
+    let projects = angzarr_embedded::v1::Cover {
+        domain: sessions::PROJECTS_DOMAIN.to_string(),
+        root: Some(sessions::project_id_root(HERE)),
+        edition: None,
+    };
+    let (project, _) =
+        ready(Kernel::new(&registry).load::<sessions::ProjectAggregate, _>(store, &projects))
+            .unwrap();
+    assert_eq!(project.state().state().harp, "calm-quiet-heron");
+    let claim = angzarr_embedded::v1::Cover {
+        domain: sessions::PROJECT_NAMES_DOMAIN.to_string(),
+        root: Some(
+            sessions::ProjectName::new("calm-quiet-heron")
+                .unwrap()
+                .root(),
+        ),
+        edition: None,
+    };
+    let (claim, _) =
+        ready(Kernel::new(&registry).load::<sessions::ProjectNameAggregate, _>(store, &claim))
+            .unwrap();
+    assert_eq!(claim.state().state().project_id, HERE);
+}
+
+// M1: the user asks a session to clear; the clear is recorded by its id.
+#[test]
+fn the_user_asks_a_session_to_clear() {
+    let mut svc = service();
+    svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, None);
+    let cleared = ready(svc.clear(crate::ClearRequest {
+        project: None,
+        harp: "amber-swift-owl".to_string(),
+        clear_id: "c1".to_string(),
+    }))
+    .unwrap();
+    assert_eq!((cleared.id.as_str(), cleared.recorded), ("c1", true));
+    let minted = ready(svc.clear(crate::ClearRequest {
+        project: None,
+        harp: "amber-swift-owl".to_string(),
+        clear_id: String::new(),
+    }))
+    .unwrap();
+    assert_ne!(minted.id, "");
+}
+
+#[test]
+fn the_urgencies_a_send_gives_as_evidence() {
+    use sessions::Urgency::{Inform, Steer, Wake};
+    assert_eq!(
+        crate::urgencies_of(true, "claude-code", false),
+        [Inform, Wake, Steer]
+    );
+    assert_eq!(crate::urgencies_of(false, "claude-code", false), [Inform]);
+    assert_eq!(
+        crate::urgencies_of(true, "opencode", false),
+        [Inform, Wake, Steer],
+        "OD-58: opencode's child adapter"
+    );
+    assert_eq!(crate::urgencies_of(false, "opencode", false), [Inform]);
+    assert_eq!(
+        crate::urgencies_of(false, "claude-code", true),
+        [Inform, Wake],
+        "the terminal wake: a primary its MCP server watches"
+    );
+}
+
+// OD-58: `session send` to a child hosted on opencode is accepted for a
+// wake and a steer, as one on claude-code is.
+#[test]
+fn a_wake_and_a_steer_to_an_opencode_child_are_recorded() {
+    let mut svc = service();
+    svc.seed(HERE, 1, "amber-swift-owl", NOW - DAY, None);
+    let store = svc.stores.stores.get(HERE).unwrap();
+    crate::fakes::run(
+        store,
+        2,
+        NOW - DAY + 5,
+        sessions::MintSession {
+            harp: "brisk-copper-moth".to_string(),
+            project_id: HERE.to_string(),
+            project_dir: "/work/proj".to_string(),
+            output_dir: "/work/proj/out".to_string(),
+            engine: "opencode".to_string(),
+            origin: sessions::Origin::Agent,
+            started_at: None,
+            depth: 1,
+            owner: Some(sessions::SessionRef {
+                project_id: HERE.to_string(),
+                session: uuid::Uuid::from_bytes([1; 16]).hyphenated().to_string(),
+            }),
+            workspace: None,
+        },
+    );
+    for (id, urgency) in [
+        ("m1", sessions::Urgency::Wake),
+        ("m2", sessions::Urgency::Steer),
+    ] {
+        let sent = ready(svc.send(send("brisk-copper-moth", id, urgency, "go")))
+            .unwrap_or_else(|refused| panic!("{urgency:?}: {refused:?}"));
+        assert!(sent.recorded, "{urgency:?}");
+    }
+}
+
+// ------------------------------------------------------------------ a project's harp (S54)
+
+fn name_request(harps: &[&str]) -> crate::NameProjectRequest {
+    crate::NameProjectRequest {
+        project: None,
+        harps: harps.iter().map(|h| h.to_string()).collect(),
+    }
+}
+
+// S54: a project is named once, with the first harp tried, and keeps it: a
+// second naming claims nothing and names nothing.
+#[test]
+fn a_project_is_named_once_and_keeps_its_harp() {
+    let mut svc = service();
+    let named = ready(svc.name_project(name_request(&["calm-quiet-heron"]))).unwrap();
+    assert_eq!(
+        named,
+        crate::ProjectHarp {
+            project_id: HERE.to_string(),
+            harp: "calm-quiet-heron".to_string(),
+            named: true,
+        }
+    );
+    let again = ready(svc.name_project(name_request(&["brisk-tall-fern"]))).unwrap();
+    assert_eq!(again.harp, "calm-quiet-heron", "permanent");
+    assert!(!again.named);
+}
+
+// S54: "its claim unique per user": a harp another project holds is passed
+// over for the next; with none left, the taken refusal is the answer.
+#[test]
+fn a_harp_another_project_holds_is_passed_over_for_the_next() {
+    let mut svc = service();
+    svc.stores.one = true;
+    ready(svc.name_project(crate::NameProjectRequest {
+        project: Some(ELSEWHERE.to_string()),
+        harps: vec!["calm-quiet-heron".to_string()],
+    }))
+    .unwrap();
+    let named =
+        ready(svc.name_project(name_request(&["calm-quiet-heron", "brisk-tall-fern"]))).unwrap();
+    assert_eq!(named.harp, "brisk-tall-fern");
+    assert!(named.named);
+    // A third project, through the same service (its clock's command ids
+    // run on: a fresh fake clock would repeat the first claim's id, a
+    // DUPLICATE on that stream).
+    svc.identity.bound = Some(project("calm-otter"));
+    let error = ready(svc.name_project(name_request(&["calm-quiet-heron"]))).unwrap_err();
+    assert_eq!(error.code(), "sessions-project-name-taken");
+    assert_eq!(error.exit(), Exit::REFUSED);
+}
+
+// Nothing to try is a failure of the caller's, not a refusal.
+#[test]
+fn a_project_given_no_harp_to_try_is_not_named() {
+    let mut svc = service();
+    let error = ready(svc.name_project(name_request(&[]))).unwrap_err();
+    assert_eq!(error.code(), "sessions-application-no-project-harp");
 }

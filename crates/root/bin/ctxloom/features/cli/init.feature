@@ -1,7 +1,8 @@
 # world: base
 # Ported from cli/init.feature (rev f36e8dfb2)
-# NOT ported: the Rules tagged @pending: the first-init rule (it asks its
-#   questions over a pty).
+# NOT ported: the scenario tagged @pending: the first-init rule's first (it
+#   asks its questions over a pty, and says what it chose for the rest, which
+#   is not built). The rule's companion scenarios run with a terminal stood in.
 # Divergence from Go (owner rulings 110, 111, 117): a first init seeds no
 #   remote, pulls nothing, and seeds a bare default profile.
 @doc
@@ -40,6 +41,22 @@ Feature: init — the setup interview, and what it does to a project that alread
   when conditional guidance loads, owner ruling of 2026-11-12) are
   answered before the interview.
 
+  THE LIBRARY IS GIT-FREE (owner, 2026-11-18; DRAFT text under the
+  standing ruling, replacing step 10's G1 paragraph). init asks nothing of
+  git and runs none: it makes no repository, wherever it is run, and
+  commits nothing. A directory in a work tree, or in none, is left as it
+  is.
+
+  INIT IS THE DAEMON'S (step 10c). Its questions are the daemon's preview:
+  the CLI presents them at her terminal (an output folder to type, a word
+  to choose, companions to confirm) and applies with her answers. The
+  apply creates `.ctxloom` as ONE directory, built under its own staging
+  and renamed in, so a killed init leaves no half project and its retry
+  creates it whole; the checkout is named and its baseline recorded after
+  it. Off a terminal nothing is asked, each question keeps its suggestion,
+  and what only an answer would write is not written. The interview is a
+  terminal run the daemon plans, as every `ctxloom run`.
+
   The interactive interview needs a terminal too. Off one, init resolves the
   engine and returns without launching anything, which is precisely what makes
   these scenarios hermetic. Before that it checks for the token every agent
@@ -62,13 +79,13 @@ Feature: init — the setup interview, and what it does to a project that alread
     # nothing, owner rulings 110, 111, 117); it still says nothing was written
     # beside the config.
     Scenario: A second init reports the directory and leaves the configuration alone
-      # substitution: the stamp asserted is this port's, 9 (a companion is registered with the command that runs it), where Go's is 8.
+      # substitution: the stamp asserted is this port's, 9 (a companion is registered by name, with its state), where Go's is 8.
       Given an initialized ctxloom project
       And the file ".ctxloom/config.yaml" contains "schema_version: 9"
       And the environment variable "CLAUDE_CODE_OAUTH_TOKEN" is set to "sk-ant-oat01-acceptance-fixture-not-real"
       When Alice runs setup again on a project that already has it:
         """
-        ctxloom init
+        ctxloom init --format text
         """
       Then the command succeeds
       And the output contains "ctxloom directory already exists"
@@ -94,15 +111,31 @@ Feature: init — the setup interview, and what it does to a project that alread
       And the environment variable "CLAUDE_CODE_OAUTH_TOKEN" is set to "sk-ant-oat01-acceptance-fixture-not-real"
       When Alice adds her own content repository while re-running setup:
         """
-        ctxloom init --remote file:///tmp/acceptance-remote.git --forge git
+        ctxloom init --remote file:///tmp/acceptance-remote.git --forge git --format json
         """
       Then the command succeeds
-      And the output contains "Added remote"
+      # DRAFT (owner ruling 2026-11-19, ruling 146): init answers ONE json
+      # message, the remotes it registered in it; the prose is `--format text`.
+      And the JSON output array "remotes" contains an object whose "remote_id" is "personal" and whose "registered" is "true"
       And the file ".ctxloom/remotes.yaml" contains "personal"
       And the file ".ctxloom/remotes.yaml" contains "acceptance-remote"
       When I run "ctxloom remote list"
       Then the command succeeds
       And the output contains "personal"
+
+    # new: DRAFT (owner ruling 2026-11-19, ruling 146): the prose of the same
+    # answer, in the text format.
+    Scenario: In text, init says each remote it added
+      Given an initialized ctxloom project
+      And the environment variable "CLAUDE_CODE_OAUTH_TOKEN" is set to "sk-ant-oat01-acceptance-fixture-not-real"
+      When Alice adds her own content repository while re-running setup:
+        """
+        ctxloom init --remote file:///tmp/acceptance-remote.git --format text
+        """
+      Then the command succeeds
+      And the output contains "Added remote"
+      And the output contains "file:///tmp/acceptance-remote.git"
+      And the output does not contain "registered"
 
   Rule: A first init seeds a bare default profile, and nothing is fetched for it
 
@@ -172,6 +205,108 @@ Feature: init — the setup interview, and what it does to a project that alread
       When I run "ctxloom bundle list --format text"
       Then the command succeeds
       And the output does not contain "[built-in"
+
+  Rule: Init asks nothing of git and runs none
+
+    Scenario: A first init outside git makes no repository
+      # new: DRAFT (owner, 2026-11-18, the library is git-free): replaces step 10 G1's "A first init outside git runs git init, says so, and commits nothing".
+      Given an empty project directory
+      And the environment variable "CLAUDE_CODE_OAUTH_TOKEN" is set to "sk-ant-oat01-acceptance-fixture-not-real"
+      When I run "ctxloom init"
+      Then the command succeeds
+      And the output does not contain "git repository"
+      And the file ".git" does not exist
+      And the file ".ctxloom/config.yaml" exists
+
+    Scenario: A first init inside a git repository runs no git init
+      # new: step 10, G1; a work tree is enough.
+      Given an empty project directory in a subdirectory of a git repository
+      And the environment variable "CLAUDE_CODE_OAUTH_TOKEN" is set to "sk-ant-oat01-acceptance-fixture-not-real"
+      When I run "ctxloom init"
+      Then the command succeeds
+      And the output does not contain "made this directory a git repository"
+      And the file ".git" does not exist
+      And the file ".ctxloom/config.yaml" exists
+
+    Scenario: Re-running init on a project outside git leaves it as it is
+      # new: DRAFT (owner, 2026-11-18, the library is git-free): replaces step 10 G1's "Re-running init on a project outside git makes it a repository, and leaves its configuration alone".
+      Given an initialized ctxloom project outside git
+      And the environment variable "CLAUDE_CODE_OAUTH_TOKEN" is set to "sk-ant-oat01-acceptance-fixture-not-real"
+      When I run "ctxloom init --format text"
+      Then the command succeeds
+      And the output contains "ctxloom directory already exists"
+      And the file ".git" does not exist
+      And the file ".ctxloom/config.yaml" contains "schema_version: 9"
+      And the file ".ctxloom/config.yaml" does not contain "engine:"
+
+    Scenario: With no git on the PATH, init still creates the project
+      # new: DRAFT (owner, 2026-11-18, the library is git-free): replaces step 10 G11's "With no git on the PATH, init fails before it scaffolds anything".
+      Given an empty project directory
+      And git is not on the PATH
+      When I run "ctxloom init"
+      Then the command succeeds
+      And the file ".ctxloom/config.yaml" exists
+
+  Rule: Init is the daemon's: its preview carries the questions, and its apply creates the project whole
+
+    Scenario: Init creates .ctxloom as one directory, and that is its checkout's first record
+      # new: step 10 U6, the apply is one CreateDirectory, then the checkout and its baseline.
+      Given an empty project directory that is a git repository
+      And the environment variable "CLAUDE_CODE_OAUTH_TOKEN" is set to "sk-ant-oat01-acceptance-fixture-not-real"
+      When I run "ctxloom init"
+      And I run "ctxloom test library-events --format json"
+      Then the command succeeds
+      And the output reports "events[0].type" as "ChangeIntended"
+      And the output reports "events[0].verb" as "init"
+      And the output reports "events[0].steps" having "1" entries
+      And the output reports "events[0].steps[0].kind" as "create"
+      And the output reports "events[1].type" as "StepApplied"
+      And the output reports "events[2].baseline" as "true"
+      And nothing is left under ".ctxloom/state/staging"
+
+    Scenario: An init killed in the middle of its scaffold leaves no half project, and its retry creates it whole
+      # new: step 10 U6 and U8; a killed init converges on its one retry.
+      Given an empty project directory that is a git repository
+      And the environment variable "CLAUDE_CODE_OAUTH_TOKEN" is set to "sk-ant-oat01-acceptance-fixture-not-real"
+      And the daemon will be killed outright after the write is staged, before it is renamed in
+      When I run "ctxloom init"
+      Then the command succeeds
+      And the command started a new daemon and sent the write once more, under the same id
+      And the file ".ctxloom/config.yaml" exists
+      And the file ".ctxloom/remotes.yaml" contains "schema_version: 1"
+      And the file ".ctxloom/content/bundles/v2/project/profiles/default.yaml" exists
+      And nothing is left under ".ctxloom/state/staging"
+
+    Scenario: At her terminal, init asks nothing about git, and makes no repository
+      # new: DRAFT (owner, 2026-11-18, the library is git-free): replaces step 10 U6's "At her terminal, init's preview says it will make the directory a repository, and asks nothing about it".
+      Given an empty project directory
+      And claude-code is the only engine installed, and nothing reaches the network
+      When Alice runs init at a terminal, taking every recommendation:
+        """
+        ctxloom init
+        """
+      Then init asked her nothing about git
+      And the file ".git" does not exist
+      And the file ".ctxloom/config.yaml" contains "dir: ctxloom/"
+
+    Scenario: Off a terminal, init asks nothing and writes none of what only an answer would
+      # new: step 10 U6, a question off a terminal keeps its suggestion and is not an error.
+      Given an empty project directory that is a git repository
+      And the environment variable "CLAUDE_CODE_OAUTH_TOKEN" is set to "sk-ant-oat01-acceptance-fixture-not-real"
+      When I run "ctxloom init --format json"
+      Then the command succeeds
+      And the file ".ctxloom/config.yaml" does not contain "output:"
+      And the file ".ctxloom/config.yaml" does not contain "premised"
+
+    Scenario: An init that cannot start a daemon creates nothing, and runs no git init
+      # new: step 10 U6 and D9: init always reaches or starts the daemon; no in-process scaffold.
+      Given an empty project directory
+      And no ctxloom daemon can be started for this home
+      When I run "ctxloom init"
+      Then the command exits with code 10
+      And the output contains "no ctxloom daemon could be started"
+      And the file ".ctxloom" does not exist
+      And the file ".git" does not exist
 
   Rule: Init never takes the agent token; without one it says how to create and export it, and carries on
 
@@ -249,6 +384,7 @@ Feature: init — the setup interview, and what it does to a project that alread
       And the output contains "prmopt"
       And the file ".ctxloom/config.yaml" does not exist
       And the file ".ctxloom/remotes.yaml" does not exist
+      And the file ".git" does not exist
       When I run "ctxloom config create"
       Then the command succeeds
       And the file ".ctxloom/config.yaml" exists
@@ -281,13 +417,15 @@ Feature: init — the setup interview, and what it does to a project that alread
       And the output contains "Phase 5 — Close"
 
     # Owner ruling 128: init reads the interview THROUGH the catalog. A
-    # project bundle named `ctxloom` overrides the built-in one whole: what it
-    # holds is what init opens with (a trust cost the owner accepted), and a
-    # setup interview it lacks is refused, naming the prompt, never taken
-    # from the built-in bundle.
+    # project bundle named `ctxloom` overrides the built-in one whole, once
+    # the user has trusted the project (cli/trust.feature: an untrusted one
+    # is passed over for the built-in prompts, with a notice): what it holds
+    # is what init opens with, and a setup interview it lacks is refused,
+    # naming the prompt, never taken from the built-in bundle.
     Scenario: A project bundle named ctxloom replaces the interview init opens with
-      # new: owner ruling 128.
+      # new: owner ruling 128, on a project the user trusts (step 8, D4).
       Given an initialized ctxloom project
+      And I run "ctxloom trust --yes"
       And the project already has the file ".ctxloom/content/bundles/v2/ctxloom/bundle.yaml":
         """
         schema_version: 4
@@ -306,8 +444,9 @@ Feature: init — the setup interview, and what it does to a project that alread
       And the output does not contain "Phase 1 — Open, orient, scan"
 
     Scenario: A project bundle named ctxloom without the interview is refused, naming it
-      # new: owner ruling 128.
+      # new: owner ruling 128, on a project the user trusts (step 8, D4).
       Given an initialized ctxloom project
+      And I run "ctxloom trust --yes"
       And the project already has the file ".ctxloom/content/bundles/v2/ctxloom/bundle.yaml":
         """
         schema_version: 4
@@ -342,11 +481,10 @@ Feature: init — the setup interview, and what it does to a project that alread
       Then the command succeeds
       And the output contains "You are a text compression assistant."
 
-  @pending
   Rule: A first init asks its questions at the terminal, and says what it chose for the rest
 
-    Init's questions are asked in-process, on the user's own terminal, before
-    any engine is involved. Two things are not asked: init says, in one line,
+    Init's questions are the daemon's preview, asked by the CLI on the
+    user's own terminal, before any engine is involved. Two things are not asked: init says, in one line,
     that a delegation commits uncommitted work (the parent's off-branch before
     a child's worktree is carved from it, reaching the parent's branch only
     once the child has started; the child's on its own branch when its run
@@ -367,8 +505,8 @@ Feature: init — the setup interview, and what it does to a project that alread
     is written as `config.premised`. Off a terminal neither is asked and
     nothing is written: the defaults stand. These two questions are BUILT
     (owner rulings 89, 106, and of 2026-11-12; j000200's terminal scenarios
-    and setup-cli's and init-application's tests hold them); the rest of
-    this Rule is not.
+    and setup-cli's and init-application's tests hold them), and so is the
+    companion offer below (M4); the delegation and permissions lines are not.
 
     Init also offers to add companions, by name. It seeds the offer with the
     companions ctxloom ships whose programs are on her machine, each one she
@@ -383,6 +521,7 @@ Feature: init — the setup interview, and what it does to a project that alread
     # remote is refused, and --skip-launch stops before the auth probe and
     # the setup session. The stub records any execution, which is how "no
     # engine ran" is proven rather than assumed.
+    @pending
     Scenario: A first init writes the answers given at the terminal
       Given an empty project directory
       And claude-code is the only engine installed, and nothing reaches the network
@@ -396,7 +535,8 @@ Feature: init — the setup interview, and what it does to a project that alread
 
     Scenario: A first init adds the companions she names, and refuses one she does not have
       # new: init offers to add companions by name.
-      Given an empty project directory
+      # changed: step 10, G1: the directory is already a repository, so "nothing outside .ctxloom" still holds.
+      Given an empty project directory that is a git repository
       And claude-code is the only engine installed, and nothing reaches the network
       And the "ltk" program is on Alice's machine
       And the "reprise" program is not on Alice's machine

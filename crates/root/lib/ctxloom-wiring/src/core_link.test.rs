@@ -1,34 +1,20 @@
 //! The use cases over the real `App::serve_in`, in process. RED (S5): the
-//! wiring is a stub. These are the in-process Facts / AgentRequests / Feeds
+//! wiring is a stub. These are the in-process Facts / Feeds
 //! checks of the task (scope 5) on the real exposure seam; the finer admission
 //! rules are `runs-application`'s, over a kernel double.
 
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
 use angzarr_embedded::testing::{Fault, FaultyStore, MemoryStore};
 use angzarr_embedded::v1::{Cover, Uuid};
 use angzarr_embedded::{CommandBookExt, Failure, KernelError, Malformed};
 use embedded_edge::EmbeddedEdge;
-use run_ports::{Arrival, Edge, Token, TokenSource, Unserved};
-use runs_application::{
-    Admission, AppError, Credential, EnqueueRequest, Enqueuer, Facts, Gate, Identity, Recorded,
-    RunnerFact, RunsGate, Why,
-};
+use run_ports::{Arrival, Edge, Unserved};
+use runs_application::{EnqueueRequest, Enqueuer, Facts, Identity, Recorded, RunnerFact};
 
-use crate::{run_id, InProcessCore};
+use crate::{run_id, InProcessCore, Projectors};
 
 const SESSION: &str = "5f0c7a52-1111-5111-8111-000000000001";
-
-#[derive(Default)]
-struct Counting(AtomicU32);
-
-impl TokenSource for Counting {
-    fn mint(&self) -> Token {
-        let n = self.0.fetch_add(1, Ordering::SeqCst) + 1;
-        Token::from_bytes([n as u8; 32])
-    }
-}
 
 type Core = InProcessCore<FaultyStore<MemoryStore>>;
 type TheEdge = EmbeddedEdge<crate::CoreStores<FaultyStore<MemoryStore>>>;
@@ -36,11 +22,8 @@ type TheEdge = EmbeddedEdge<crate::CoreStores<FaultyStore<MemoryStore>>>;
 struct World {
     core: Core,
     store: FaultyStore<MemoryStore>,
-    /// The runner principal's credential and identity.
-    credential: Credential,
+    /// The run, as the use cases address it.
     identity: Identity,
-    /// The model principal's (owner ruling 2026-11-04, item 16).
-    model_credential: Credential,
 }
 
 impl World {
@@ -58,6 +41,7 @@ impl World {
             origin: sessions::Origin::Session,
             started_at: None,
             depth: 0,
+            owner: None,
             workspace: None,
         };
         let cover = Cover {
@@ -73,34 +57,28 @@ impl World {
         ))
         .await
         .unwrap();
-        let enqueued = Enqueuer::new(Arc::clone(&edge), Arc::new(Counting::default()))
+        let enqueued = Enqueuer::new(Arc::clone(&edge))
             .enqueue(EnqueueRequest {
                 session: SESSION.to_string(),
                 incarnation: 1,
                 mode: runs::RunMode::Interactive,
                 evidence: runs_application::Evidence::passing("claude-code"),
                 launcher_lock: String::new(),
+                grant: None,
             })
             .await
             .unwrap();
-        let credential = Credential {
-            token: enqueued.runner_token,
-            run: enqueued.run.clone(),
-        };
-        let model_credential = Credential {
-            token: enqueued.model_token,
+        let identity = Identity {
             run: enqueued.run,
+            session: Uuid::from_bytes(*uuid::Uuid::parse_str(SESSION).unwrap().as_bytes()),
+            incarnation: 1,
+            harp: "amber-swift-owl".to_string(),
+            depth: 0,
         };
-        let identity = RunsGate::new(Arc::clone(&edge))
-            .identify(&credential)
-            .await
-            .unwrap();
         World {
             core,
             store,
-            credential,
             identity,
-            model_credential,
         }
     }
 
@@ -112,7 +90,7 @@ impl World {
 use angzarr_embedded::v1::CommandBook;
 
 fn exited() -> RunnerFact {
-    RunnerFact::RunExited(runs::RunExited { code: 0, signal: 0 })
+    RunnerFact::RunExited(runs::RecordRunExited { code: 0, signal: 0 })
 }
 
 // NEW-DESIGN (plan 6.2 "one code path": run_id in S4 and the run domain's
@@ -192,56 +170,6 @@ async fn a_fact_at_the_race_cap_is_parked_over_app_serve_in() {
         facts.record(&world.identity, exited()).await,
         Ok(Recorded::Parked)
     );
-    assert_eq!(
-        world
-            .edge()
-            .events(&world.identity.run_cover(), 0)
-            .await
-            .unwrap()
-            .len(),
-        before
-    );
-}
-
-// NEW-DESIGN (D29; item 16): the run's end, recorded by the fact, revokes BOTH
-// principals' tokens over the real App: the next request with either is refused.
-#[tokio::test]
-async fn the_token_is_refused_once_the_runs_end_is_recorded() {
-    let world = World::new().await;
-    let facts = Facts::new(world.edge());
-    facts.record(&world.identity, exited()).await.unwrap();
-    let admission = Admission::new(world.edge());
-    let book = exited().book(&world.identity);
-    for credential in [&world.credential, &world.model_credential] {
-        let refused = admission
-            .admit(Arrival::Ip, credential, book.clone())
-            .await
-            .unwrap_err();
-        assert_eq!(refused, AppError::Unauthenticated(Why::Revoked));
-    }
-}
-
-// NEW-DESIGN, owner ruling 2026-11-04 (item 16, fail closed): over the real
-// App, the model's token cannot record the runner's exit, and the run lives on.
-#[tokio::test]
-async fn the_models_token_cannot_record_an_exit_over_app_serve_in() {
-    let world = World::new().await;
-    let admission = Admission::new(world.edge());
-    let before = world
-        .edge()
-        .events(&world.identity.run_cover(), 0)
-        .await
-        .unwrap()
-        .len();
-    let denied = admission
-        .admit(
-            Arrival::Ip,
-            &world.model_credential,
-            exited().book(&world.identity),
-        )
-        .await
-        .unwrap_err();
-    assert!(matches!(denied, AppError::Denied(Unserved::Hidden { .. })));
     assert_eq!(
         world
             .edge()
@@ -352,7 +280,7 @@ mod the_edge_over_trees {
 
 // Step 1b-ii: the launcher and the recorder catch up from the core's own
 // store, through its own catalog: a run enqueued through the real App is owed
-// a runner, and then (the launcher's RunnerStarted recorded through the same App)
+// a runner, and then (the launcher's RecordRunnerStarted recorded through the same App)
 // is not.
 #[tokio::test]
 async fn the_pending_launches_catch_up_over_the_cores_store_and_catalog() {
@@ -370,7 +298,7 @@ async fn the_pending_launches_catch_up_over_the_cores_store_and_catalog() {
     Facts::new(world.edge())
         .record(
             &world.identity,
-            RunnerFact::RunnerStarted(runs::RunnerStarted {
+            RunnerFact::RunnerStarted(runs::RecordRunnerStarted {
                 runtime: "claude-code".to_string(),
                 workspace: "/work".to_string(),
                 pid: 0,
@@ -422,7 +350,7 @@ fn sqlite_core() -> (
     let fs = Arc::new(file_system::Rooted::temp().unwrap());
     let core = runtime.block_on(async {
         let store = ctxloom_store_sqlite::Stores::new(fs.clone(), "/home/u")
-            .open("calm-otter")
+            .open()
             .await
             .unwrap();
         InProcessCore::start(store).await
@@ -432,7 +360,7 @@ fn sqlite_core() -> (
 
 fn beside(fs: &file_system::Rooted) -> Vec<&'static str> {
     use file_system::Fs;
-    let dir = std::path::Path::new("/home/u/.ctxloom/projects/calm-otter");
+    let dir = std::path::Path::new("/home/u/.ctxloom");
     ["ctxloom.db-wal", "ctxloom.db-shm"]
         .into_iter()
         .filter(|name| fs.exists(&dir.join(name)).unwrap())
@@ -482,4 +410,621 @@ fn test_an_edge_leaked_past_the_run_is_a_close_error_not_a_drop() {
         "the run's store is still held (2 holders past the run's end) and was not closed"
     );
     drop(leaked);
+}
+
+// ------------------------------------------------ the read models registered (S32, T16)
+
+fn mint_book(harp: &str) -> CommandBook {
+    CommandBook::command_of(
+        Cover {
+            domain: sessions::SESSION_DOMAIN.to_string(),
+            root: Some(Uuid::from_bytes(
+                *uuid::Uuid::parse_str(SESSION).unwrap().as_bytes(),
+            )),
+            edition: None,
+        },
+        &sessions::SessionCommand::from(sessions::MintSession {
+            harp: harp.to_string(),
+            project_id: "calm-otter".to_string(),
+            project_dir: "/w".to_string(),
+            output_dir: "/o".to_string(),
+            engine: "claude-code".to_string(),
+            origin: sessions::Origin::Session,
+            started_at: None,
+            depth: 0,
+            owner: None,
+            workspace: None,
+        }),
+    )
+}
+
+// S32: the daemon's core registers the read models, so a SIMPLE request
+// through its edge waits for the ones it names and answers each one's view;
+// the same instances, caught up after, fold nothing twice.
+#[tokio::test]
+async fn a_simple_request_answers_the_named_read_models_views() {
+    use prost::Message as _;
+    let mut kept = Projectors::default();
+    let core = InProcessCore::start_with(MemoryStore::default(), |store| {
+        kept = Projectors::filled(store);
+        kept.clone()
+    })
+    .await;
+    let synced = core
+        .edge()
+        .serve_sync(
+            mint_book("amber-swift-owl"),
+            vec!["session-index".to_string(), "daemon-board".to_string()],
+            Arrival::Loopback,
+        )
+        .await
+        .unwrap();
+    let names: Vec<&str> = synced
+        .projections
+        .iter()
+        .map(|p| p.projector.as_str())
+        .collect();
+    assert_eq!(names, ["session-index", "daemon-board"]);
+    let session = daemon_proto::v1::Session::decode(
+        synced.projections[0]
+            .projection
+            .as_ref()
+            .expect("the index's view")
+            .value
+            .as_slice(),
+    )
+    .unwrap();
+    assert_eq!(session.uid, SESSION);
+    assert_eq!(session.engine, "claude-code");
+    let index = kept.index.clone().unwrap();
+    let mut caught = session_index::SessionIndex::caught_up(index.clone());
+    caught.step(core.store(), core.catalog()).await.unwrap();
+    assert_eq!(index.index().records().len(), 1, "folded once");
+    let board = kept.board.unwrap();
+    assert!(
+        board.board().session(SESSION).is_some(),
+        "the board folded it"
+    );
+}
+
+// A core a command runs registers no read model: a SIMPLE request naming
+// one is refused before anything runs, and records nothing.
+#[tokio::test]
+async fn a_core_with_no_read_model_refuses_a_simple_request_and_records_nothing() {
+    let core = InProcessCore::start(MemoryStore::default()).await;
+    let refused = core
+        .edge()
+        .serve_sync(
+            mint_book("amber-swift-owl"),
+            vec!["session-index".to_string()],
+            Arrival::Loopback,
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(
+            refused,
+            Unserved::Failed(Failure::Kernel(
+                KernelError::SyncProjectorNotSubscribed { .. }
+            ))
+        ),
+        "{refused:?}"
+    );
+    let cover = mint_book("x").cover.unwrap();
+    assert!(core.edge().events(&cover, 0).await.unwrap().is_empty());
+}
+
+// The exposure holds for a SIMPLE request as for any: a domain not exposed
+// to where it arrived from is hidden.
+#[tokio::test]
+async fn a_simple_request_to_a_domain_not_exposed_is_hidden() {
+    let core = InProcessCore::start_with(MemoryStore::default(), Projectors::filled).await;
+    let mut book = mint_book("amber-swift-owl");
+    book.cover.as_mut().unwrap().domain = sessions::PROJECTS_DOMAIN.to_string();
+    let refused = core
+        .edge()
+        .serve_sync(book, vec!["session-index".to_string()], Arrival::Loopback)
+        .await
+        .unwrap_err();
+    assert!(matches!(refused, Unserved::Hidden { .. }), "{refused:?}");
+}
+
+// Step 8 U1: the daemon's core holds a project's trust, on loopback, and a
+// SIMPLE request naming `trust-index` is answered the project's trust.
+#[tokio::test]
+async fn a_trust_granted_through_the_edge_is_answered_by_the_trust_index() {
+    use prost::Message as _;
+    let mut kept = Projectors::default();
+    let core = InProcessCore::start_with(MemoryStore::default(), |store| {
+        kept = Projectors::filled(store);
+        kept.clone()
+    })
+    .await;
+    let name = "projects/calm-quiet-heron/trust";
+    let grant = trust::GrantTrust {
+        name: name.to_string(),
+        project_id: "calm-otter".to_string(),
+        etag: "e".to_string(),
+        current_etag: "e".to_string(),
+        actor: trust::Actor {
+            user: "alice".to_string(),
+        },
+    };
+    let cover = Cover {
+        domain: trust::TRUST_DOMAIN.to_string(),
+        root: Some(trust::trust_root(name)),
+        edition: None,
+    };
+    let book = sessions::keyed_book(cover, &grant, "grant");
+    let synced = core
+        .edge()
+        .serve_sync(
+            book.clone(),
+            vec!["trust-index".to_string()],
+            Arrival::Loopback,
+        )
+        .await
+        .unwrap();
+    let trust = daemon_proto::v1::Trust::decode(
+        synced.projections[0]
+            .projection
+            .as_ref()
+            .expect("the index's view")
+            .value
+            .as_slice(),
+    )
+    .unwrap();
+    assert_eq!(trust.name, name);
+    assert!(trust.trusted);
+    assert_eq!(kept.trusts.unwrap().index().trusted_now().len(), 1);
+    // The network never reaches a trust.
+    let hidden = core
+        .edge()
+        .serve_sync(book, vec!["trust-index".to_string()], Arrival::Ip)
+        .await
+        .unwrap_err();
+    assert!(matches!(hidden, Unserved::Hidden { .. }), "{hidden:?}");
+}
+
+// Step 10a U0: the daemon's core holds a library tree, on loopback: an
+// observation recorded through the edge is answered by `library-checkout`
+// as the tree's state, each path at its event's sequence; the same
+// observation again is a duplicate; the network never reaches a tree.
+#[tokio::test]
+async fn an_observation_through_the_edge_is_answered_by_the_library_checkout() {
+    use prost::Message as _;
+    let mut kept = Projectors::default();
+    let core = InProcessCore::start_with(MemoryStore::default(), |store| {
+        kept = Projectors::filled(store);
+        kept.clone()
+    })
+    .await;
+    let project = sessions::ProjectName::parse("projects/calm-quiet-heron").unwrap();
+    let tree = library_tree::TreeName::checkout(project, "brisk-copper-moth").unwrap();
+    let path = "content/bundles/v2/demo/bundle.yaml";
+    let fact = library_tree::RecordTreeObserved {
+        name: tree.to_string(),
+        kind: library_tree::TreeKind::Checkout,
+        base_cause: String::new(),
+        head_before: String::new(),
+        head_after: "h-0".to_string(),
+        tree_after: "t-0".to_string(),
+        changes: vec![library_tree::Change {
+            path: path.to_string(),
+            status: library_tree::ChangeStatus::Added,
+            from_oid: String::new(),
+            to_oid: "y1".to_string(),
+            from_path: String::new(),
+        }],
+        dirty_after: vec![library_tree::DirtyPath {
+            path: path.to_string(),
+            oid: "y1".to_string(),
+        }],
+        baseline: true,
+    };
+    let book = library_tree::observation_book(&tree, &fact);
+    let synced = core
+        .edge()
+        .serve_sync(
+            book.clone(),
+            vec!["library-checkout".to_string()],
+            Arrival::Loopback,
+        )
+        .await
+        .unwrap();
+    let state = library_domain_proto::v1::LibraryState::decode(
+        synced.projections[0]
+            .projection
+            .as_ref()
+            .expect("the checkout's view")
+            .value
+            .as_slice(),
+    )
+    .unwrap();
+    assert_eq!(state.name, tree.to_string());
+    assert_eq!(state.head, "h-0");
+    assert_eq!(
+        state
+            .resources
+            .get(path)
+            .map(|r| (r.sequence, r.oid.as_str())),
+        Some((0, "y1"))
+    );
+    assert_eq!(
+        kept.checkouts
+            .as_ref()
+            .unwrap()
+            .checkouts()
+            .token(&tree.root(), path),
+        Some(0)
+    );
+    let cover = book.cover.clone().unwrap();
+    let again = core
+        .edge()
+        .serve_sync(
+            book.clone(),
+            vec!["library-checkout".to_string()],
+            Arrival::Loopback,
+        )
+        .await;
+    assert!(again.is_ok(), "{again:?}");
+    assert_eq!(core.edge().events(&cover, 0).await.unwrap().len(), 1);
+    let hidden = core
+        .edge()
+        .serve_sync(book, vec!["library-checkout".to_string()], Arrival::Ip)
+        .await
+        .unwrap_err();
+    assert!(matches!(hidden, Unserved::Hidden { .. }), "{hidden:?}");
+}
+
+/// An ask of the session `c` under the root `o`.
+fn an_ask() -> approvals::RecordApprovalAsked {
+    let reference = |session: &str| approvals::SessionRef {
+        project_id: "calm-otter".to_string(),
+        session: session.to_string(),
+    };
+    approvals::RecordApprovalAsked {
+        ask_id: "ask-tidy-wren".to_string(),
+        child: reference("c"),
+        run: "r".to_string(),
+        engine: "claude-code".to_string(),
+        root: reference("o"),
+        tool_name: "Bash".to_string(),
+        input_excerpt: "{}".to_string(),
+        input_bytes: 2,
+        input_sha256: "x".to_string(),
+        timeout_seconds: 300,
+        engine_request_id: "toolu_1".to_string(),
+        options: approvals::claude_options("Bash", r#"{"command":"ls"}"#),
+        name: "projects/calm-quiet-heron/approvals/ask-tidy-wren".to_string(),
+        child_name: "projects/calm-quiet-heron/sessions/c".to_string(),
+        root_name: "projects/calm-quiet-heron/sessions/o".to_string(),
+        agent: "default".to_string(),
+    }
+}
+
+// Step 8 U4: the daemon's core holds the asks and their names; the ask is
+// recorded in process, projected into the pending approvals, and its answer
+// is a loopback SIMPLE request answered the ask as the pending approvals
+// have it; the network reaches no ask, and no one outside reaches a name.
+#[tokio::test]
+async fn an_ask_recorded_in_process_is_answered_over_loopback_and_projected() {
+    use prost::Message as _;
+    let mut kept = Projectors::default();
+    let core = InProcessCore::start_with(MemoryStore::default(), |store| {
+        kept = Projectors::filled(store);
+        kept.clone()
+    })
+    .await;
+    let asked = an_ask();
+    let cover = Cover {
+        domain: approvals::APPROVALS_DOMAIN.to_string(),
+        root: Some(angzarr_embedded::v1::Uuid::from_bytes([5; 16])),
+        edition: None,
+    };
+    core.edge()
+        .handle(approvals::fact_book(
+            cover.clone(),
+            &asked,
+            "approval:r:toolu_1",
+        ))
+        .await
+        .unwrap();
+    let pending = kept.approvals.clone().unwrap();
+    assert_eq!(
+        pending
+            .index()
+            .listed("projects/calm-quiet-heron", None, true)
+            .len(),
+        1
+    );
+    let answer = approvals::AnswerApproval {
+        ask_id: "ask-tidy-wren".to_string(),
+        option: "allow-once".to_string(),
+        message: String::new(),
+    };
+    let book = sessions::keyed_book(cover, &answer, "answer:1");
+    let synced = core
+        .edge()
+        .serve_sync(
+            book.clone(),
+            vec!["pending-approvals".to_string()],
+            Arrival::Loopback,
+        )
+        .await
+        .unwrap();
+    let answered = daemon_proto::v1::Approval::decode(
+        synced.projections[0]
+            .projection
+            .as_ref()
+            .expect("the pending approvals' view")
+            .value
+            .as_slice(),
+    )
+    .unwrap();
+    assert_eq!(answered.state, "answered");
+    assert_eq!(answered.option, "allow-once");
+    let hidden = core
+        .edge()
+        .serve_sync(book, vec!["pending-approvals".to_string()], Arrival::Ip)
+        .await
+        .unwrap_err();
+    assert!(matches!(hidden, Unserved::Hidden { .. }), "{hidden:?}");
+    let claim = approvals::ClaimApprovalName {
+        project_id: "calm-otter".to_string(),
+        ask_id: "ask-pale-moth".to_string(),
+        approval: "a".to_string(),
+    };
+    let names = Cover {
+        domain: approvals::APPROVAL_NAMES_DOMAIN.to_string(),
+        root: Some(angzarr_embedded::v1::Uuid::from_bytes([6; 16])),
+        edition: None,
+    };
+    let unexposed = core
+        .edge()
+        .serve(
+            sessions::keyed_book(names, &claim, "claim"),
+            Arrival::Loopback,
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(unexposed, Unserved::Hidden { .. }),
+        "{unexposed:?}"
+    );
+}
+
+// Owner ruling 2026-11-16: only the daemon's core resumes owed policy work
+// at start, and only it registers the alarm consumers' policies; a CLI
+// command's core (`InProcessCore::start`) scans no policy source.
+mod resume_at_start {
+    use std::sync::{Arc, Mutex};
+
+    use angzarr_embedded::angzarr_ports::Uuid as CommandId;
+    use angzarr_embedded::angzarr_ports::{
+        ListStreams, PositionKey, PositionStore, Processed, Slice, SnapshotStore, StoreError,
+        StreamRef, Write, Written,
+    };
+    use angzarr_embedded::testing::MemoryStore;
+    use angzarr_embedded::v1::{Cover, EventPage, Snapshot, Uuid};
+    use angzarr_embedded::EventStore;
+    use run_ports::Edge as _;
+
+    use super::an_ask;
+    use crate::{InProcessCore, Projectors};
+
+    /// What a start asked of the store that only a resume asks: every
+    /// stream listed, each domain's streams, each handler's record.
+    #[derive(Default, Debug)]
+    struct Asked {
+        listed: usize,
+        covered: Vec<String>,
+        processed: Vec<String>,
+    }
+
+    /// A memory store that counts the scans a resume makes; clones share
+    /// the store and the count.
+    #[derive(Clone, Default)]
+    struct Counting {
+        inner: MemoryStore,
+        asked: Arc<Mutex<Asked>>,
+    }
+
+    impl Counting {
+        fn asked(&self) -> std::sync::MutexGuard<'_, Asked> {
+            self.asked.lock().unwrap()
+        }
+
+        fn forget(&self) {
+            *self.asked() = Asked::default();
+        }
+    }
+
+    impl EventStore for Counting {
+        async fn write(&self, write: Write<'_>) -> Result<Written, StoreError> {
+            self.inner.write(write).await
+        }
+
+        async fn read(
+            &self,
+            stream: StreamRef<'_>,
+            from: u64,
+            to: Option<u64>,
+        ) -> Result<Slice, StoreError> {
+            self.inner.read(stream, from, to).await
+        }
+
+        async fn find_command(
+            &self,
+            stream: StreamRef<'_>,
+            command_id: CommandId,
+        ) -> Result<Vec<EventPage>, StoreError> {
+            self.inner.find_command(stream, command_id).await
+        }
+
+        async fn covers(&self, domain: &str) -> Result<Vec<Cover>, StoreError> {
+            self.asked().covered.push(domain.to_string());
+            self.inner.covers(domain).await
+        }
+    }
+
+    impl SnapshotStore for Counting {
+        async fn read_snapshot(
+            &self,
+            stream: StreamRef<'_>,
+        ) -> Result<Option<Snapshot>, StoreError> {
+            self.inner.read_snapshot(stream).await
+        }
+
+        async fn write_snapshot(
+            &self,
+            stream: StreamRef<'_>,
+            snapshot: &Snapshot,
+        ) -> Result<(), StoreError> {
+            self.inner.write_snapshot(stream, snapshot).await
+        }
+    }
+
+    impl PositionStore for Counting {
+        async fn position(&self, key: PositionKey<'_>) -> Result<u64, StoreError> {
+            self.inner.position(key).await
+        }
+    }
+
+    impl ListStreams for Counting {
+        async fn list_streams(&self) -> Result<Vec<Cover>, StoreError> {
+            self.asked().listed += 1;
+            self.inner.list_streams().await
+        }
+    }
+
+    impl Processed for Counting {
+        async fn processed(&self, handler: &str) -> Result<Vec<(Cover, u64)>, StoreError> {
+            self.asked().processed.push(handler.to_string());
+            self.inner.processed(handler).await
+        }
+    }
+
+    fn ask_cover() -> Cover {
+        Cover {
+            domain: approvals::APPROVALS_DOMAIN.to_string(),
+            root: Some(Uuid::from_bytes([5; 16])),
+            edition: None,
+        }
+    }
+
+    /// A store holding one ask whose arming is owed: recorded by a core
+    /// with no alarm consumer, so no policy has handled it yet.
+    async fn an_owed_arming() -> Counting {
+        let store = Counting::default();
+        let core =
+            InProcessCore::start_consuming(store.clone(), |_| Projectors::default(), &[]).await;
+        core.edge()
+            .handle(approvals::fact_book(
+                ask_cover(),
+                &an_ask(),
+                "approval:r:toolu_1",
+            ))
+            .await
+            .unwrap();
+        drop(core);
+        assert!(
+            store
+                .covers(scheduler::SCHEDULER_DOMAIN)
+                .await
+                .unwrap()
+                .is_empty(),
+            "nothing armed yet"
+        );
+        store.forget();
+        store
+    }
+
+    // A CLI command's core starts without a resume: it lists no stream,
+    // scans no domain and reads no handler's record.
+    #[tokio::test]
+    async fn a_command_cores_start_scans_no_policy_source() {
+        let store = an_owed_arming().await;
+        let core = InProcessCore::start(store.clone()).await;
+        let asked = store.asked();
+        assert_eq!(asked.listed, 0, "{asked:?}");
+        assert!(asked.covered.is_empty(), "{asked:?}");
+        assert!(asked.processed.is_empty(), "{asked:?}");
+        drop(asked);
+        drop(core);
+    }
+
+    // So the owed arming stays owed through a command core's start, and the
+    // daemon's next start pays it: the ask's alarm is armed.
+    #[tokio::test]
+    async fn owed_policy_work_waits_for_the_daemons_start() {
+        let store = an_owed_arming().await;
+        drop(InProcessCore::start(store.clone()).await);
+        assert!(
+            store
+                .covers(scheduler::SCHEDULER_DOMAIN)
+                .await
+                .unwrap()
+                .is_empty(),
+            "a command core's start armed nothing"
+        );
+        let daemon = InProcessCore::start_with(store.clone(), |_| Projectors::default()).await;
+        assert_eq!(
+            store
+                .covers(scheduler::SCHEDULER_DOMAIN)
+                .await
+                .unwrap()
+                .len(),
+            1,
+            "the daemon's start armed the ask's alarm"
+        );
+        drop(daemon);
+    }
+
+    // The daemon's core resumes at start: every policy source is scanned,
+    // the approvals' (the arming) and the scheduler's (the delivery).
+    #[tokio::test]
+    async fn the_daemons_core_start_scans_every_policy_source() {
+        let store = an_owed_arming().await;
+        let core = InProcessCore::start_with(store.clone(), |_| Projectors::default()).await;
+        let asked = store.asked();
+        assert_eq!(asked.listed, 1, "{asked:?}");
+        assert!(
+            asked
+                .covered
+                .contains(&approvals::APPROVALS_DOMAIN.to_string()),
+            "{asked:?}"
+        );
+        assert!(
+            asked
+                .covered
+                .contains(&scheduler::SCHEDULER_DOMAIN.to_string()),
+            "{asked:?}"
+        );
+        drop(asked);
+        drop(core);
+    }
+
+    // A command core registers no alarm consumer either: an ask committed
+    // through it (none is, in production: every ask is the daemon's) arms
+    // nothing in process.
+    #[tokio::test]
+    async fn a_command_core_registers_no_alarm_consumer() {
+        let store = Counting::default();
+        let core = InProcessCore::start(store.clone()).await;
+        core.edge()
+            .handle(approvals::fact_book(
+                ask_cover(),
+                &an_ask(),
+                "approval:r:toolu_1",
+            ))
+            .await
+            .unwrap();
+        assert!(store
+            .covers(scheduler::SCHEDULER_DOMAIN)
+            .await
+            .unwrap()
+            .is_empty());
+        drop(core);
+    }
 }

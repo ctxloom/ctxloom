@@ -1,7 +1,7 @@
+# world: base
 # Ported from fault_tolerance.feature (rev f36e8dfb2)
-# NOT ported: any of it yet (the Feature is @pending).
+# NOT ported: nothing.
 
-@pending
 Feature: Fault tolerance
   ctxloom is fault tolerant: a missing reference or an unresolvable remote
   produces a warning, never a crash, and read commands still work. One thing

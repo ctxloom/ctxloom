@@ -2,17 +2,29 @@
 //!
 //! Owner rulings 40-44 (2026-11-09): `model`, `effort` and `permissions` are an
 //! AGENT's settings; the `engines.<engine>` block holds what is cross-agent:
-//! `command`, `session_home`, `auth`, and the default `runtime` /
-//! `env` an agent may override. An unset `model` / `effort` passes no flag;
+//! `command`, `auth`, and the default `runtime`, `session_home` and
+//! `env` an agent may override (`session_home`: owner ruling of 2026-11-13,
+//! superseding 44(b) for this key). An unset `model` / `effort` passes no flag;
 //! `permissions` is the engine's own document, passed to it verbatim (owner
 //! rulings 133-139), with ctxloom's default document for claude
 //! ([`default_permissions`]) when the agent writes none. Everything here is a pure
 //! function of the merged config tree: [`effective`] answers "what does this
 //! agent run with, and which layer said so", [`runtime_change`] is the
 //! isolation guard, [`AuthSource`] is where an engine's credential comes from
-//! (a source, never a value).
+//! (a source, never a value). [`approval_timeout_of`] is how long an ask of
+//! the engine's child waits (OD-41, D16).
 //!
+use std::time::Duration;
+
 use angzarr_yaml::Value;
+
+/// How long an ask waits for an answer when its engine's block says no
+/// `approval_timeout` (OD-41): 300 seconds.
+pub const APPROVAL_TIMEOUT_DEFAULT: Duration = Duration::from_secs(300);
+
+/// [`APPROVAL_TIMEOUT_DEFAULT`] as the config's grammar writes it, for a
+/// listing that shows the value with its layer.
+pub const APPROVAL_TIMEOUT_DEFAULT_TEXT: &str = "5m";
 
 /// Which layer said a value.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -285,6 +297,10 @@ pub struct Effective {
     pub command: Sourced<String>,
     pub session_home: Sourced<String>,
     pub auth: Sourced<AuthSource>,
+    /// How long an ask of the engine waits for an answer, as written (a span
+    /// or `now`): the engine block's (no agent overrides it), else
+    /// [`APPROVAL_TIMEOUT_DEFAULT_TEXT`]. [`span_of`] reads it.
+    pub approval_timeout: Sourced<String>,
 }
 
 /// The settings agent `agent` runs with on its own engine, over the merged
@@ -384,14 +400,9 @@ fn resolve(config: &Value, agent: &str, on: Option<&str>) -> Result<Effective, E
                 source: Source::Engine,
             },
         ),
-        session_home: from_block("session_home").map_or_else(
-            || default("session".to_string()),
-            |value| Sourced {
-                value,
-                source: Source::Engine,
-            },
-        ),
+        session_home: session_home_of(binding, block),
         auth,
+        approval_timeout: approval_timeout_of(block),
         engine,
     })
 }
@@ -412,14 +423,18 @@ pub fn default_permissions(engine: &str) -> Option<Value> {
 }
 
 /// What a launch of an engine is told of how to run it: the engine block's
-/// `command`, `session_home` and `auth`, and the `env` passthrough (the
-/// engine's names merged with the launching agent's). A source, never a value.
+/// `command` and `auth`, the effective `session_home` (the agent's, else the
+/// engine block's), and the `env` passthrough (the engine's names merged with
+/// the launching agent's). A source, never a value.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Drive {
     pub command: String,
     pub session_home: String,
     pub auth: Sourced<AuthSource>,
     pub env: Vec<String>,
+    /// How long an ask of the engine waits for an answer (OD-41); zero is
+    /// `now`, every ask denied at once (D16).
+    pub approval_timeout: Duration,
 }
 
 impl Default for Drive {
@@ -429,6 +444,7 @@ impl Default for Drive {
             session_home: "session".to_string(),
             auth: default_source(AuthSource::None),
             env: Vec::new(),
+            approval_timeout: APPROVAL_TIMEOUT_DEFAULT,
         }
     }
 }
@@ -449,6 +465,7 @@ impl From<&Effective> for Drive {
             session_home: effective.session_home.value.clone(),
             auth: effective.auth.clone(),
             env: effective.env.value.clone(),
+            approval_timeout: span_of(&effective.approval_timeout.value),
         }
     }
 }
@@ -477,6 +494,7 @@ pub fn engine_drive(config: &Value, engine: &str) -> Result<Drive, EngineError> 
             .unwrap_or_else(|| "session".to_string()),
         auth,
         env: block.and_then(|b| names_of(b, "env")).unwrap_or_default(),
+        approval_timeout: span_of(&approval_timeout_of(block).value),
     })
 }
 
@@ -625,30 +643,87 @@ fn runtime_of(
     (agent_said(value), kept)
 }
 
+/// Whose home the engine runs on (owner ruling of 2026-11-13, superseding
+/// ruling 44(b) for this key): the agent's own `session_home`, else the
+/// engine block's, else a session home of its own. Engine-neutral, like the
+/// runtime: `run --engine` keeps the agent's.
+/// The engine block's `approval_timeout` as written (OD-41), else the
+/// default. One that does not read as a span (a config read `--degraded`,
+/// whose violation was said) is not said: the default stands.
+pub fn approval_timeout_of(block: Option<&Value>) -> Sourced<String> {
+    match block
+        .and_then(|b| text_of(b, "approval_timeout"))
+        .filter(|text| duration_text::parse(text).is_ok())
+    {
+        Some(value) => Sourced {
+            value,
+            source: Source::Engine,
+        },
+        None => default(APPROVAL_TIMEOUT_DEFAULT_TEXT.to_string()),
+    }
+}
+
+/// An `approval_timeout` as written, as a span: `now` is zero (D16); one
+/// that does not read is [`APPROVAL_TIMEOUT_DEFAULT`].
+pub fn span_of(text: &str) -> Duration {
+    duration_text::parse(text).unwrap_or(APPROVAL_TIMEOUT_DEFAULT)
+}
+
+fn session_home_of(binding: &Value, block: Option<&Value>) -> Sourced<String> {
+    match (
+        text_of(binding, "session_home"),
+        block.and_then(|b| text_of(b, "session_home")),
+    ) {
+        (Some(value), _) => agent_said(value),
+        (None, Some(value)) => Sourced {
+            value,
+            source: Source::Engine,
+        },
+        (None, None) => default("session".to_string()),
+    }
+}
+
 /// Ruling 46: what a PROJECT layer may not say. `engines.<e>.command` and
 /// `engines.<e>.auth.file` are honoured only from the home-layer config, and
 /// `session_home: host` only through a trust check no layer reading can make:
-/// each is taken out of `layer` and its dotted path returned, so the loader
-/// can warn. Nothing else is touched.
-pub fn strip_project_only(layer: &mut Value) -> Vec<String> {
+/// each is taken out of `layer` and its dotted path returned with what it
+/// said (a value that is no text, as empty), so the loader can warn and a
+/// trust's preview can show it (step 8 U1). `session_home: host` is taken out at either level, an
+/// agent's (`agents.<a>.session_home`) as an engine block's. Nothing else is
+/// touched.
+pub fn strip_project_only(layer: &mut Value) -> Vec<(String, String)> {
+    let said = |value: Option<&Value>| {
+        value
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
     let mut removed = Vec::new();
+    if let Some(Value::Map(agents)) = layer.get_mut("agents") {
+        for (agent, binding) in agents.iter_mut() {
+            if binding.get("session_home").and_then(Value::as_str) == Some("host") {
+                binding.remove("session_home");
+                removed.push((format!("agents.{agent}.session_home"), "host".to_string()));
+            }
+        }
+    }
     let Some(Value::Map(engines)) = layer.get_mut("engines") else {
         return removed;
     };
     for (engine, block) in engines.iter_mut() {
         let at = |key: &str| format!("engines.{engine}.{key}");
         if block.get("command").is_some() {
+            removed.push((at("command"), said(block.get("command"))));
             block.remove("command");
-            removed.push(at("command"));
         }
         if block.get("session_home").and_then(Value::as_str) == Some("host") {
             block.remove("session_home");
-            removed.push(at("session_home"));
+            removed.push((at("session_home"), "host".to_string()));
         }
         if let Some(auth @ Value::Map(_)) = block.get_mut("auth") {
             if auth.get("file").is_some() {
+                removed.push((at("auth.file"), said(auth.get("file"))));
                 auth.remove("file");
-                removed.push(at("auth.file"));
             }
             if auth.as_map().is_some_and(<[_]>::is_empty) {
                 block.remove("auth");

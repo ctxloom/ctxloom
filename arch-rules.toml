@@ -20,8 +20,10 @@ dev_checked = ["adapters/driven", "adapters/driving"]
 # The driving adapters' shared presentation crates: domain-free, and what the
 # CLI and the server both write through.
 presentation = ["presentation", "*-presentation"]
-# Shared infrastructure crates every driven adapter may use, listed by name.
-support = []
+# Shared infrastructure crates every driven adapter may use, listed by name
+# (step 10, G9: git-cli, the one git runner of remote-git and
+# worktree-git).
+support = ["git-cli"]
 
 [roles."core/wire"]
 allow = ["core/wire"]
@@ -47,9 +49,18 @@ rule = "the core depends on the core only"
 allow = ["core/ports", "core/wire", "@support"]
 rule = "a driven adapter sees only ports and wire types, never another adapter"
 
+# A support crate is infrastructure shared by driven adapters: it knows no
+# port, no use case and no other adapter.
+[roles."adapters/support"]
+allow = []
+rule = "a support crate depends on no other workspace crate"
+
 [roles."adapters/driving"]
-allow = ["core/application", "@presentation"]
-rule = "a driving adapter sees only the application layer and the presentation crates, never another adapter"
+# core/wire (owner M7, slice 2): the generated types are pure data, what an
+# API edge (the daemon's gRPC service, its client's CLI) renders and takes;
+# they hold no behaviour of the core.
+allow = ["core/application", "core/wire", "@presentation"]
+rule = "a driving adapter sees only the application layer, the wire types and the presentation crates, never another adapter"
 
 # The composition root (the binaries and their wiring library) may depend on
 # anything; nothing else lists either, so nothing but the root depends on the
@@ -108,6 +119,18 @@ kind = "dev"
 reason = "test-only: mints the per-run certificates the fake TLS listener is served with, by the same mint the run uses"
 
 [[exception]]
+from = "daemon-client"
+to = "hook-tls"
+kind = "dev"
+reason = "test-only: mints the certificate the fake daemon is served with, by the same mint the daemon uses"
+
+[[exception]]
+from = "daemon-api-grpc"
+to = "run-ports"
+kind = "dev"
+reason = "test-only: builds the user bearer the gate is made from, as the daemon mints it"
+
+[[exception]]
 from = "hook-listener"
 to = "embedded-edge"
 kind = "dev"
@@ -141,3 +164,12 @@ from = "session-cli"
 to = "session-cli"
 kind = "dev"
 reason = "test-only: the crate's own tests compile the session-destroy feature (ruling 99) through a self dev-dependency, so no feature rule is needed and the plain binary stays without the destroy"
+
+# daemon-api-grpc depends on itself, as a dev-dependency, with
+# `session-destroy` (M5, owner 2026-11-12), for the same reason: the served
+# DeleteSession and SweepSessions compile only under it.
+[[exception]]
+from = "daemon-api-grpc"
+to = "daemon-api-grpc"
+kind = "dev"
+reason = "test-only: the crate's own tests compile the served destroy (M5) through a self dev-dependency, so no feature rule is needed and the plain daemon answers UNIMPLEMENTED"

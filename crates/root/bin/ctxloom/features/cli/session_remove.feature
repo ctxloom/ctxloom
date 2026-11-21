@@ -4,8 +4,9 @@
 # NOT ported: Go's other session destroyers. `session purge` (owner ruling
 #   98: one deleting verb), `session transcript purge` and `session worktrees
 #   purge` are retired: `session remove` is the one destroyer, and a removed
-#   session is gone, from the store and from disk. The age form (`--older-than`,
-#   a configured `session_purge_age`) is `session sweep`'s, not here. The
+#   session is gone, from the store and from disk. The age form (`session
+#   remove --older-than <age>`, `session sweep`'s rows by that age) is
+#   journeys/j001300_closeout.feature's, not here. The
 #   earlier design of this file (a `--force` override; a session holding a
 #   person's files refused whole) is dropped (owner ruling 104): the built
 #   verb's one override is `--even-if-live`, and a person's files go with the
@@ -14,7 +15,10 @@
 Feature: session remove — the one destroyer, and a removed session is gone
 
   `ctxloom session remove <harp>` destroys one session: its events and its
-  runs' in the store, its directory and its lock. Afterwards it is not in
+  runs' in the store, and its directory with its lock inside it
+  (`sessions/<harp>/session.lock`). The removal is a command of the
+  project's own stream, so a removal whose daemon died under it is answered,
+  on its retry, as the removal it was. Afterwards it is not in
   `session list`, and its name is never given to another session. The
   session's output dir (its plans, any summary) is the human's and is never
   touched.
@@ -40,11 +44,26 @@ Feature: session remove — the one destroyer, and a removed session is gone
 
     Scenario: --yes destroys the session and leaves its output dir
       # new: the destroy (owner rulings 94b, 98): its lock goes with it, the output dir is the human's.
+      # substitution: step 10 U9 (T28), the lock is inside the session's directory, so the two go as one.
       Given a finished session "amber-swift-owl" with a transcript and a summary an older ctxloom left
       When I run "ctxloom session remove amber-swift-owl --yes"
       Then the command succeeds
-      And the file ".ctxloom/sessions/amber-swift-owl.lock" does not exist
+      And the file ".ctxloom/sessions/amber-swift-owl/session.lock" does not exist
+      And the file ".ctxloom/sessions/amber-swift-owl" does not exist
+      And nothing is left under ".ctxloom/state/trash"
       And the output file "essence.md" of session "amber-swift-owl" exists
+      When I run "ctxloom session list --all"
+      Then the output does not contain "amber-swift-owl"
+
+    Scenario: A removal whose daemon is killed before it answers is answered as applied on its retry
+      # new: step 10 O2, the removal is a command on the project's stream, so its request id outlives the session's purged stream.
+      Given a finished session "amber-swift-owl" with a transcript
+      And the daemon will be killed outright after the write is applied, before it is answered
+      When I run "ctxloom session remove amber-swift-owl --yes"
+      Then the command succeeds
+      And the command started a new daemon and sent the write once more, under the same id
+      And the write was applied once, and its second delivery was a duplicate
+      And the output does not contain "sessions-session-unknown"
       When I run "ctxloom session list --all"
       Then the output does not contain "amber-swift-owl"
 

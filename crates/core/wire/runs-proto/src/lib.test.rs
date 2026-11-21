@@ -10,7 +10,10 @@ use prost::Name;
 #[test]
 fn the_wire_messages_are_named_by_their_full_names() {
     assert_eq!(v1::RunEnqueued::type_url(), "/ctxloom.runs.v1.RunEnqueued");
-    assert_eq!(v1::TurnStarted::type_url(), "/ctxloom.runs.v1.TurnStarted");
+    assert_eq!(
+        v1::RecordTurnStarted::type_url(),
+        "/ctxloom.runs.v1.RecordTurnStarted"
+    );
     assert_eq!(v1::FoundTree::type_url(), "/ctxloom.runs.v1.FoundTree");
 }
 

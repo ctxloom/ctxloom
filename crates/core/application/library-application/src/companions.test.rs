@@ -1,6 +1,6 @@
 //! The registered companions' loadouts joined to every assembly (virtuous-word,
 //! companions slice 1): Go's `companionAsks` and `Prober.ProbeCompanionLoadouts`
-//! over the `CompanionLoadouts` port's fake.
+//! over the `CompanionProbe` port's fake.
 
 use ctxloom_ports::CompanionLoadout::{self, Absent, Loaded, NoLoadout, ProbeFailed};
 
@@ -9,7 +9,7 @@ use crate::{AppError, AssembleRequest, Assembled, Flags, Library, Notice, Outcom
 
 const BUNDLE: &[(&str, &str)] = &[ENVELOPE, ("fragments/own.md", "OWN-BODY\n")];
 
-const CONFIG_WITH: &str = "schema_version: 9\ncompanions:\n  reprise:\n    command: [reprise]\n";
+const CONFIG_WITH: &str = "schema_version: 9\ncompanions:\n  reprise: {}\n";
 
 /// The premise index of the loadout's `later`, which on demand ends the
 /// context (config.premised, owner ruling of 2026-11-12).
@@ -230,14 +230,18 @@ fn a_companion_not_on_the_path_is_a_warning_and_nothing_more() {
     let (context, notices) = context(&library, &plain());
     assert_eq!(context, "OWN-BODY");
     assert!(
-        matches!(notices.as_slice(), [Notice::CompanionNotOnPath { name }] if name == "reprise"),
+        matches!(notices.as_slice(), [Notice::CompanionNotOnPath { name, program }] if name == "reprise" && program == "reprise"),
         "{notices:?}"
     );
 }
 
 #[test]
 fn a_companion_with_no_loadout_is_quiet() {
-    let (library, _) = setup(&[CONFIG_WITH], &only_reprise(NoLoadout), &[]);
+    let (library, _) = setup(
+        &[CONFIG_WITH],
+        &only_reprise(NoLoadout("exit status: 1".to_string())),
+        &[],
+    );
     let (context, notices) = context(&library, &plain());
     assert_eq!(context, "OWN-BODY");
     assert!(notices.is_empty(), "{notices:?}");
@@ -293,7 +297,7 @@ fn a_failing_companion_is_a_warning_under_strict_too() {
 
 #[test]
 fn one_companion_failing_does_not_cost_another_its_fragments() {
-    let layers = ["schema_version: 9\ncompanions:\n  acme: {command: [acme]}\n  reprise: {command: [reprise]}\n  ltk: {command: [ltk]}\n"];
+    let layers = ["schema_version: 9\ncompanions:\n  acme: {}\n  reprise: {}\n  ltk: {}\n"];
     let companions = [
         ("acme", Absent),
         ("reprise", Loaded(LOADOUT.to_string())),
@@ -315,7 +319,10 @@ fn one_companion_failing_does_not_cost_another_its_fragments() {
         )
     );
     assert_eq!(notices.len(), 1);
-    assert_eq!(mem.asked_companions(), ["acme", "ltk", "reprise"]);
+    assert_eq!(
+        mem.asked_companions(),
+        ["ctxloom-companion-acme", "ltk", "reprise"]
+    );
 }
 
 #[test]
@@ -332,8 +339,20 @@ fn a_command_that_assembles_twice_asks_each_companion_once_and_warns_once() {
     let (library, mem) = setup(&[CONFIG_WITH], &only_reprise(Absent), &[]);
     let outcome = library.run(&plain(), |p| {
         let mut findings = Vec::new();
-        p.assemble_set(&[], &["own".to_string()], &[], &mut findings);
-        p.assemble_set(&[], &["own".to_string()], &[], &mut findings);
+        p.assemble_set(
+            &[],
+            &["own".to_string()],
+            &[],
+            Default::default(),
+            &mut findings,
+        );
+        p.assemble_set(
+            &[],
+            &["own".to_string()],
+            &[],
+            Default::default(),
+            &mut findings,
+        );
         Ok::<(), AppError>(())
     });
     assert!(outcome.result.is_ok());
@@ -343,7 +362,7 @@ fn a_command_that_assembles_twice_asks_each_companion_once_and_warns_once() {
 
 #[test]
 fn a_registered_name_that_is_no_plain_name_is_said_and_never_asked() {
-    let layers = ["schema_version: 9\ncompanions:\n  -x: {command: [x]}\n  a/b: {command: [x]}\n"];
+    let layers = ["schema_version: 9\ncompanions:\n  -x: {}\n  a/b: {}\n"];
     let (library, mem) = setup(&layers, &[], &[]);
     let (context, notices) = context(&library, &plain());
     assert_eq!(context, "OWN-BODY");
@@ -373,4 +392,68 @@ fn companions_are_assembled_even_when_nothing_else_is_selected() {
     let (bare, _) = setup(&[CONFIG_WITH], &[], &[]);
     let nothing = bare.assemble(&plain(), &AssembleRequest::default());
     assert_eq!(nothing.result.unwrap().context, "");
+}
+
+// s3-Q5 (owner-approved 2026-11-14): the premise index's last clause follows
+// the surface its context rides. A run's plan rides the launch, where
+// ctxloom's server is offered, so it names the `context_assemble` tool; a
+// `context assemble` is at rest unless its caller says it asks for a launch
+// (the daemon, for the tool itself); `--no-context` carries no index at all.
+#[test]
+fn the_premise_index_is_worded_for_the_surface_its_context_rides() {
+    use crate::RunRequest;
+    use library::premise::Surface;
+    const AGENT: &str = "schema_version: 9\ncompanions:\n  reprise: {}\nagents:\n  dev:\n    engine: claude-code\ndefault_agent: dev\n";
+    let companions = only_reprise(Loaded(LOADOUT.to_string()));
+    let (library, _) = setup(&[AGENT], &companions, &[]);
+    let tool = "the ctxloom `context_assemble` tool";
+    let cli = "`ctxloom fragment show <name>`";
+    let plan = library
+        .dry_run(&plain(), &RunRequest::default())
+        .result
+        .expect("planned")
+        .plan;
+    assert!(plan.context.contains(tool), "{}", plan.context);
+    assert!(!plan.context.contains(cli), "{}", plan.context);
+    let (rest, _) = context(&library, &plain());
+    assert!(rest.contains(cli), "{rest}");
+    assert!(!rest.contains(tool), "{rest}");
+    let asked = library
+        .assemble(
+            &plain(),
+            &AssembleRequest {
+                fragments: vec!["own".to_string()],
+                surface: Some(Surface::Launch),
+                ..AssembleRequest::default()
+            },
+        )
+        .result
+        .expect("assembled")
+        .context;
+    assert!(asked.contains(tool), "{asked}");
+    let bare = library
+        .dry_run(
+            &plain(),
+            &RunRequest {
+                no_context: true,
+                prompt: "hello".to_string(),
+                ..RunRequest::default()
+            },
+        )
+        .result
+        .expect("planned")
+        .plan;
+    assert_eq!(bare.context, "", "no context, no index");
+}
+
+// init asks each enabled registered companion for its init section: what the
+// program answers from the moment it is set.
+#[test]
+fn the_companion_inits_are_each_registered_companions_init_section() {
+    let (library, mem) = setup(&[CONFIG_WITH], &[], &[]);
+    mem.set_companion_loadout("reprise", "init:\n  setup_guidance: ask first\n");
+    let inits = library.companion_inits(&plain()).result.unwrap();
+    assert_eq!(inits.len(), 1, "{inits:?}");
+    assert_eq!(inits[0].name, "reprise");
+    assert_eq!(inits[0].init.setup_guidance, "ask first");
 }

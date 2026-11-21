@@ -93,13 +93,15 @@ pub fn command(version: &str, nouns: Vec<Command>) -> Command {
 /// The groups whose bare form runs their default verb rather than printing
 /// their usage (D28: "a bare namespace runs its default verb"; Go's
 /// `groupNodeDefault`). A group added by a later slice names itself here.
-pub const BARE_RUNS_DEFAULT: [&str; 6] = [
+pub const BARE_RUNS_DEFAULT: [&str; 7] = [
     "session",
     "transcript",
     "init",
     "worktrees",
     "tooling",
     "container",
+    // Step 8 U1: bare `trust` previews, then trusts (its flags are its own).
+    "trust",
 ];
 
 /// A noun shaped as the command line shapes its own: no `help` command, and a

@@ -150,9 +150,7 @@ fn the_companion_diagnostics_have_samples() {
         "companion-not-on-path",
         "loadout-probe-failed",
         "loadout-unparseable",
-        "config-companions-bare",
         "write-companion-program-missing",
-        "write-companion-no-command",
     ] {
         assert!(
             codes.iter().any(|c| c.ends_with(want)),
@@ -200,4 +198,50 @@ fn test_an_error_is_failed_declined_or_fatal_by_its_kind() {
     .into();
     assert_eq!(taken.exit(), Exit::REFUSED);
     assert_eq!(taken.code(), "library-application-write-agent-exists");
+}
+
+// The notice names the key that said `host`: the engine block's words are
+// the owner's approved sentence exactly; an agent's name its own key.
+#[test]
+fn test_the_host_notice_names_the_key_that_said_it() {
+    let engine = Notice::SessionHomeHost {
+        engine: "claude-code".to_string(),
+        place: "engines.claude-code".to_string(),
+    };
+    assert_eq!(
+        english(&engine),
+        "claude-code runs in your own home (engines.claude-code.session_home: host): it reads and changes your own memory, MCP servers and history, and a session home is a relocation, not confinement"
+    );
+    let agent = Notice::SessionHomeHost {
+        engine: "claude-code".to_string(),
+        place: "agents.dev".to_string(),
+    };
+    assert_eq!(
+        english(&agent),
+        "claude-code runs in your own home (agents.dev.session_home: host): it reads and changes your own memory, MCP servers and history, and a session home is a relocation, not confinement"
+    );
+    assert_eq!(agent.code(), "library-application-notice-session-home-host");
+    // its fix names the same place
+    assert!(EN_US.1.contains(
+        "library-application-notice-session-home-host-fix = to give each run a session home of its own, remove session_home: host from { $place } in your home config"
+    ));
+}
+
+// The config version refusals are among the samples.
+#[test]
+fn the_config_version_refusals_have_samples() {
+    let codes: Vec<String> = diagnostic_samples()
+        .iter()
+        .map(|d| d.code().to_string())
+        .collect();
+    for want in [
+        "library-application-config-newer",
+        "library-application-config-older",
+        "library-application-config-version-unreadable",
+    ] {
+        assert!(
+            codes.iter().any(|c| c == want),
+            "no sample for {want}: {codes:?}"
+        );
+    }
 }

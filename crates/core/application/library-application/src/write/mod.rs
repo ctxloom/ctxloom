@@ -15,11 +15,13 @@
 
 use std::sync::Arc;
 
-use ctxloom_ports::{Editor, LoadoutProbe, Scaffold, UserFiles};
+use ctxloom_ports::{Editor, Scaffold, UserFiles};
 
 mod agents;
+mod always;
 mod bundles;
 pub(crate) mod companions;
+pub mod config_set;
 mod configfile;
 mod configs;
 mod editor;
@@ -29,19 +31,37 @@ mod items;
 mod mcp;
 mod plan;
 mod profiles;
+pub mod recording;
 pub mod requests;
 mod skills;
 pub mod views;
 
+pub use always::AlwaysAllowed;
 pub use error::WriteError;
+
+/// The one check of a name a write mints (a bundle, fragment, command,
+/// skill, MCP server or profile, at create, import or add): an ID
+/// (`library::write::item::valid_id`, OQ-6), never nested (OQ-5). `kind` is
+/// the word the refusal names.
+pub(crate) fn require_id(kind: &str, name: &str) -> Result<(), crate::AppError> {
+    if library::write::item::valid_id(name) {
+        Ok(())
+    } else {
+        Err(WriteError::BadId {
+            kind: kind.to_string(),
+            name: name.to_string(),
+        }
+        .into())
+    }
+}
 
 /// The ports the write side needs beyond the library's: the user's own files
 /// (where export writes and import reads), the scaffold of a new project, the
-/// editor, and the probe a companion is asked to answer.
+/// editor. A companion is checked through the library's probe
+/// ([`Library::with_companions`](crate::Library::with_companions)).
 #[derive(Clone)]
 pub struct WritePorts {
     pub user: Arc<dyn UserFiles>,
     pub scaffold: Arc<dyn Scaffold>,
     pub editor: Arc<dyn Editor>,
-    pub probe: Arc<dyn LoadoutProbe>,
 }

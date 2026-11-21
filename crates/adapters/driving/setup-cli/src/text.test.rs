@@ -59,8 +59,8 @@ fn nothing_present_says_so() {
 
 fn row(status: Status, remedy: &str) -> Check {
     Check {
-        marker: "DOCTOR-CHECK-X-a1",
-        name: "x",
+        marker: "DOCTOR-CHECK-X-a1".to_string(),
+        name: "x".to_string(),
         status,
         detail: "detail".to_string(),
         remedy: remedy.to_string(),
@@ -130,13 +130,13 @@ fn the_failure_count_is_exact_and_a_row_shows_a_fix_only_where_there_is_one() {
 fn an_optional_row_with_nothing_exported_reads_as_not_needed() {
     let row = auth_application::Row {
         engine: "opencode".to_string(),
-        mode: "token",
+        mode: "token".to_string(),
         present: Some(false),
         vars: Vec::new(),
         via: String::new(),
         message: "not needed: none of A, B is exported".to_string(),
         remedy: String::new(),
-        usable_by: "",
+        usable_by: String::new(),
     };
     let text = render(|o| crate::text::auth(&[row], o));
     assert_eq!(
@@ -151,13 +151,13 @@ fn an_optional_row_with_nothing_exported_reads_as_not_needed() {
 fn a_file_only_row_reads_as_the_primarys_alone() {
     let row = auth_application::Row {
         engine: "claude-code".to_string(),
-        mode: "file",
+        mode: "file".to_string(),
         present: None,
         vars: Vec::new(),
         via: "~/.claude/.credentials.json".to_string(),
         message: "a child agent run of claude-code needs a credential".to_string(),
         remedy: "name one of those variables".to_string(),
-        usable_by: "primary",
+        usable_by: "primary".to_string(),
     };
     let text = render(|o| crate::text::auth(&[row], o));
     assert_eq!(

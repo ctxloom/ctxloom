@@ -18,9 +18,10 @@ pub mod typed;
 
 /// The generation this build reads and writes.
 ///
-/// Generation 9 registers a companion with the command that runs it
-/// (`companions: {name: {command: [program, args...]}}`); a bare-name list
-/// (generation 8, which is the only one Go reads) is refused, not migrated.
+/// Generation 9 registers a companion by its name alone, with its state
+/// (`companions: {name: {state: enabled|disabled}}`, OD-9, OD-10); the
+/// bare-name list of generation 8 (the only one Go reads) is migrated in
+/// memory, each name enabled.
 pub const CURRENT: u32 = 9;
 
 /// The oldest generation it migrates.

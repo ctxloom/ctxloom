@@ -2,10 +2,9 @@
 //! red and WITHHELD from implementation until the owner reviews them (the
 //! brief of slice S4): `names.rs` holds only stubs.
 //!
-//! One claim stream per (project, harp text). A session takes its name
-//! first, on a mint or a rename; the name is refused while another session
-//! holds it; a rename moves the claim (claim the new name, release the old
-//! one, plan 3.1); a removed session's name stays claimed.
+//! One claim stream per session name. A session takes its name first, on
+//! its mint; the name is refused while another session holds it; a harp
+//! never changes (S55); a removed session's name stays claimed.
 
 use std::collections::BTreeMap;
 
@@ -204,23 +203,30 @@ fn the_claim_state_round_trips_through_its_wire_form() {
     assert_eq!(NameClaimState::try_from(wire).unwrap(), state);
 }
 
-// D5 Q1: the claim's root is derived from the project and the harp text, so a
-// name is unique in a project because a stream is.
+// Slice 2 B3/re-root: the claim's root is the name's, a session's stream
+// root, so a name is unique because a stream is.
 #[test]
-fn the_claim_stream_is_derived_from_the_project_and_the_name() {
-    let a = crate::claim_root("calm-otter", HARP);
+fn the_claim_stream_is_rooted_on_the_sessions_name() {
+    let name = crate::SessionName::new("calm-otter", HARP).unwrap();
     assert_eq!(
-        a,
-        crate::claim_root("calm-otter", HARP),
-        "a function of its inputs"
+        name.root(),
+        crate::SessionName::new("calm-otter", HARP).unwrap().root()
     );
     assert_ne!(
-        a,
-        crate::claim_root("calm-otter", "brisk-copper-moth"),
+        name.root(),
+        crate::SessionName::new("calm-otter", "brisk-copper-moth")
+            .unwrap()
+            .root(),
         "per name"
     );
-    assert_ne!(a, crate::claim_root("brisk-tall-oak", HARP), "per project");
+    assert_ne!(
+        name.root(),
+        crate::SessionName::new("brisk-tall-oak", HARP)
+            .unwrap()
+            .root(),
+        "per project"
+    );
     // UUIDv5: version nibble 5, RFC 4122 variant.
-    assert_eq!(a.value[6] >> 4, 5);
-    assert_eq!(a.value[8] >> 6, 0b10);
+    assert_eq!(name.root().value[6] >> 4, 5);
+    assert_eq!(name.root().value[8] >> 6, 0b10);
 }

@@ -1,6 +1,6 @@
 //! The scheduler's loop, end to end and in process: a dummy domain records a
 //! deadline, its policy arms an alarm, `tick(now)` fires it, and the delivery
-//! policy hands the dummy `AlarmReached`, which it records. A fake clock, an
+//! policy hands the dummy `RecordAlarmReached`, which it records. A fake clock, an
 //! in-memory store, and nothing sleeps.
 
 use std::time::Duration;
@@ -12,12 +12,14 @@ use angzarr_embedded::v1::{
     command_page, CommandBook, CommandPage, Cover, EventPage, Fact, FactOrigin, Uuid,
 };
 use angzarr_embedded::{
-    CommandBookExt as _, Handled, Kernel, OnRetryable, Payload, Registry, StreamRef, Timestamp,
+    CommandBookExt as _, Handled, Kernel, OnRetryable, Payload, ProjectorHandler, Registry,
+    StreamRef, Timestamp,
 };
 use scheduler::{
-    alarm_external_id, stream_for, AlarmDue, SchedulerAggregate, SchedulerEvent, Stream,
+    alarm_external_id, stream_for, RecordAlarmDue, SchedulerAggregate, SchedulerEvent, Stream,
     SCHEDULER_DOMAIN,
 };
+use scheduler_due::{DueModel, ReadsDue};
 use scheduler_fixture::{
     ArmsDeadline, Close, DeliverToDummy, DummyAggregate, DummyCommand, DummyEvent, SetDeadline,
     DEADLINE_ALARM, DUMMY_DOMAIN,
@@ -114,7 +116,11 @@ impl World {
         );
     }
 
-    fn tick(&self, scheduler: &mut SchedulerLoop, now: i64) -> Tick {
+    fn tick<M: ProjectorHandler + ReadsDue>(
+        &self,
+        scheduler: &mut SchedulerLoop<M>,
+        now: i64,
+    ) -> Tick {
         ready(scheduler.tick(&self.kernel(), &self.store, at(now))).unwrap()
     }
 
@@ -239,7 +245,7 @@ fn due_book(n: u8, seconds: i64) -> (CommandBook, String) {
         cover: Some(World::new().scheduler_cover(n)),
         page: Some(CommandPage {
             body: Some(command_page::Body::Fact(Fact {
-                payload: Some(pack_message(&AlarmDue {
+                payload: Some(pack_message(&RecordAlarmDue {
                     alarm_id: DEADLINE_ALARM.to_string(),
                     at: at(seconds),
                 })),
@@ -571,6 +577,73 @@ fn a_crash_between_the_firing_and_its_delivery_is_delivered_once_by_resume() {
     ready(w.kernel().resume(&w.store, &sampled)).unwrap();
     assert!(w.tick(&mut SchedulerLoop::new(), 200).sent.is_empty());
     assert_eq!(w.passed(1), vec![100]);
+}
+
+/// A due model the test shares with a loop: every clone is the same model.
+#[derive(Clone, Default)]
+struct Shared(std::sync::Arc<DueModel>);
+
+impl ProjectorHandler for Shared {
+    fn name(&self) -> &str {
+        self.0.name()
+    }
+
+    async fn dispatch(
+        &self,
+        request: &angzarr_embedded::angzarr_router::hpb::ProjectRequest,
+    ) -> Result<
+        angzarr_embedded::angzarr_router::hpb::ProjectResponse,
+        angzarr_embedded::angzarr_router::error::CodedError,
+    > {
+        self.0.dispatch(request).await
+    }
+}
+
+impl ReadsDue for Shared {
+    fn read_due<R>(&self, read: impl FnOnce(&scheduler_due::Due) -> R) -> R {
+        self.0.read_due(read)
+    }
+}
+
+// A loop sharing its model reads what another driver (an application's
+// kernel, inline) folded into it, not a model of its own: here an alarm the
+// store does not hold, so only the shared model can say it.
+#[test]
+fn a_loop_sharing_a_model_reads_what_another_driver_folded_into_it() {
+    let w = World::new();
+    let model = Shared::default();
+    let armed = scheduler::AlarmArmed {
+        target: target(1),
+        alarm_id: DEADLINE_ALARM.to_string(),
+        at: at(300),
+    };
+    let book = angzarr_embedded::v1::EventBook {
+        cover: Some(w.scheduler_cover(1)),
+        pages: vec![EventPage {
+            sequence: 0,
+            body: Some(angzarr_embedded::v1::event_page::Body::Event(
+                SchedulerEvent::from(armed).to_any(),
+            )),
+            meta: None,
+        }],
+        next_sequence: 1,
+        snapshot: None,
+    };
+    ready(
+        model.dispatch(&angzarr_embedded::angzarr_router::hpb::ProjectRequest {
+            events: Some(book),
+        }),
+    )
+    .unwrap();
+    let mut scheduler = SchedulerLoop::sharing(model.clone());
+    let early = w.tick(&mut scheduler, 100);
+    assert!(early.sent.is_empty());
+    assert_eq!(early.next, Some(at(300)));
+    // Due: sent, and the scheduler, holding no such alarm, records nothing.
+    let due = w.tick(&mut scheduler, 300);
+    assert_eq!(due.sent.len(), 1, "{:?}", due.sent);
+    assert_eq!(due.sent[0].0.alarm_id, DEADLINE_ALARM);
+    assert_eq!(due.sent[0].1, crate::Sent::Nothing);
 }
 
 // The crate's catalog test (the binary's holds the same for the whole graph).

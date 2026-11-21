@@ -11,6 +11,8 @@
 //!
 //! The drive half (`drive`) runs a child's turn as `opencode run --format
 //! json` and the human's session as opencode's TUI, both with the same plugin.
+//! A long-lived child (`child`, the [`run_ports::ChildEngine`]) is one
+//! `opencode acp` process driven as an ACP client, many turns on it.
 //!
 //! At a directory's root (the surface half) ctxloom gives opencode its context
 //! alone, as a section of `AGENTS.md`; MCP servers, settings, hooks, commands
@@ -21,7 +23,9 @@
 mod advice;
 mod authored;
 mod carried;
+mod child;
 mod codec;
+mod conversation;
 mod drive;
 mod home;
 mod stream;

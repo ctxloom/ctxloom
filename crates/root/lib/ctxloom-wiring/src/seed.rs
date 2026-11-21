@@ -21,8 +21,8 @@ use os::Mode;
 use ports::{Clock, CommandIds, Project, ProjectIdentity};
 use session_ports::ProjectStores;
 use sessions::{
-    claim_root, BindEngineSession, ClaimName, MintSession, NameClaimAggregate, NameClaimCommand,
-    Origin, RecordEnd, SessionAggregate, SessionCommand, SetKept, NAMES_DOMAIN, SESSION_DOMAIN,
+    BindEngineSession, ClaimName, MintSession, NameClaimAggregate, NameClaimCommand, Origin,
+    RecordEnd, SessionAggregate, SessionCommand, SetKept, NAMES_DOMAIN, SESSION_DOMAIN,
 };
 use system::System;
 
@@ -49,6 +49,12 @@ pub struct Seed {
     pub native: Option<(String, String)>,
     /// Authored files in the session directory.
     pub other_files: Vec<String>,
+    /// Its first incarnation ended, as a run's end tells it, so the session
+    /// can be resumed (`run --session`).
+    pub resumable: bool,
+    /// What its run was planned to draw on (step 10c U13's harness: a
+    /// session on a profile), recorded as its loadout once it is minted.
+    pub loadout: Option<sessions::SessionLoadout>,
 }
 
 fn seed_error(detail: impl ToString) -> TestError {
@@ -57,7 +63,158 @@ fn seed_error(detail: impl ToString) -> TestError {
     }
 }
 
+/// The book that records `loadout` as the first incarnation's of the
+/// session `id` (its stream `cover`), keyed as a run's would be: recorded
+/// at the seed's now (step 10c U13), so a change recorded since is one its
+/// context has not been given.
+fn loadout_book(cover: &Cover, id: [u8; 16], loadout: &sessions::SessionLoadout) -> CommandBook {
+    let session = uuid::Uuid::from_bytes(id).to_string();
+    let fact = sessions::RecordLoadout {
+        loadout: loadout.clone(),
+        incarnation: 1,
+        covered: Vec::new(),
+    };
+    sessions::fact_book(cover.clone(), &fact, &sessions::loadout_key(&session, 1))
+}
+
 impl Wiring {
+    /// The events of the cwd's project's session `harp`, as `ctxloom test
+    /// session-events` prints them (slice 3: a write applied once): each
+    /// one's type name, and a message's id and text.
+    pub fn session_events(
+        &self,
+        harp: &str,
+        run: Option<u32>,
+    ) -> Result<serde_json::Value, TestError> {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(seed_error)?;
+        runtime.block_on(self.events_of(harp, run))
+    }
+
+    /// The events of `harp`'s session stream, or of its run of incarnation
+    /// `run` when one is named (U5: the frontend's reports, as recorded).
+    async fn events_of(
+        &self,
+        harp: &str,
+        run: Option<u32>,
+    ) -> Result<serde_json::Value, TestError> {
+        use angzarr_embedded::v1::event_page;
+        use angzarr_embedded::{EventStore, StreamRef};
+        let mut sessions = self.sessions();
+        let named = sessions
+            .use_cases
+            .name_project(sessions_application::NameProjectRequest {
+                project: None,
+                harps: crate::fresh_project_harps(),
+            })
+            .await
+            .map_err(|e| seed_error(angzarr_diagnostic::Diagnostic::code(&e)))?;
+        let project = sessions
+            .use_cases
+            .identity
+            .for_write(None)
+            .map_err(seed_error_of)?;
+        let mut stores = sessions.use_cases.stores;
+        let read = async {
+            let store = stores.open(&project).await.map_err(seed_error)?;
+            let name = sessions::SessionName::new(&named.harp, harp).map_err(seed_error)?;
+            let cover = match run {
+                None => Cover {
+                    domain: SESSION_DOMAIN.to_string(),
+                    root: Some(name.root()),
+                    edition: None,
+                },
+                Some(incarnation) => Cover {
+                    domain: runs::RUN_DOMAIN.to_string(),
+                    root: Some(runs::run_root(&name.uid(), incarnation)),
+                    edition: None,
+                },
+            };
+            let stream = StreamRef::try_from(&cover).map_err(seed_error)?;
+            let slice = store.read(stream, 0, None).await.map_err(seed_error)?;
+            let mut events = Vec::new();
+            for page in slice.pages {
+                let Some(event_page::Body::Event(event)) = page.body else {
+                    continue;
+                };
+                let kind = event.type_url.rsplit('.').next().unwrap_or_default();
+                let mut row = serde_json::json!({"type": kind});
+                if let Ok(sessions::SessionEvent::MessageSent(sent)) =
+                    <sessions::SessionEvent as Payload>::from_any(&event)
+                {
+                    row["message_id"] = sent.message_id.into();
+                    row["text"] = sent.text.into();
+                }
+                // What a re-assembly handed the engine, by size and digest
+                // (step 10c U13), and what a loadout names.
+                match <sessions::SessionEvent as Payload>::from_any(&event) {
+                    Ok(sessions::SessionEvent::ContextRedelivered(handed)) => {
+                        row["bundles"] = handed.bundles.into();
+                        row["cause"] = handed.cause.into();
+                        row["size"] = handed.size.into();
+                        row["sha256"] = handed.sha256.into();
+                        row["carried_by"] = handed.carried_by.into();
+                    }
+                    Ok(sessions::SessionEvent::LoadoutRecorded(recorded)) => {
+                        row["profiles"] = recorded.loadout.profiles.into();
+                        row["bundles"] = recorded.loadout.bundles.into();
+                    }
+                    _ => {}
+                }
+                // Why an incarnation or a run ended (a daemon dying under a
+                // live TUI: the adoption's end path, as recorded).
+                if let Ok(sessions::SessionEvent::IncarnationEnded(ended)) =
+                    <sessions::SessionEvent as Payload>::from_any(&event)
+                {
+                    row["cause"] = ended.cause.into();
+                }
+                if let Ok(runs::RunEvent::RunEnded(ended)) =
+                    <runs::RunEvent as Payload>::from_any(&event)
+                {
+                    row["cause"] = format!("{:?}", ended.cause).into();
+                    if let Some(code) = ended.exit_code {
+                        row["exit_code"] = code.into();
+                    }
+                }
+                events.push(row);
+            }
+            Ok::<_, TestError>(serde_json::Value::Array(events))
+        }
+        .await;
+        let closed = stores.close().await.map_err(seed_error);
+        let events = read?;
+        closed?;
+        Ok(events)
+    }
+
+    /// The resource name of the cwd's project's session `harp`, the project
+    /// named in process as [`Wiring::seed_session`] names it (s4-Q14's hook
+    /// scenarios: a hook's `CTXLOOM_SESSION` without a daemon reached).
+    pub fn session_resource(&self, harp: &str) -> Result<String, TestError> {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(seed_error)?;
+        runtime.block_on(async {
+            let mut sessions = self.sessions();
+            let named = sessions
+                .use_cases
+                .name_project(sessions_application::NameProjectRequest {
+                    project: None,
+                    harps: crate::fresh_project_harps(),
+                })
+                .await
+                .map_err(|e| seed_error(angzarr_diagnostic::Diagnostic::code(&e)));
+            let closed = sessions.use_cases.stores.close().await.map_err(seed_error);
+            let named = named?;
+            closed?;
+            let name = sessions::SessionName::new(&named.harp, harp).map_err(seed_error)?;
+            Ok(name.to_string())
+        })
+    }
+
     /// Plant `seed`; its stable id.
     pub fn seed_session(&self, seed: &Seed) -> Result<String, TestError> {
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -68,13 +225,26 @@ impl Wiring {
     }
 
     async fn seed(&self, seed: &Seed) -> Result<String, TestError> {
-        let sessions = self.sessions();
+        let mut sessions = self.sessions();
+        // The project is named first, as a run names it (slice 2 M1): the
+        // session is rooted on its name.
+        let named = sessions
+            .use_cases
+            .name_project(sessions_application::NameProjectRequest {
+                project: seed.project.clone(),
+                harps: crate::fresh_project_harps(),
+            })
+            .await
+            .map_err(|e| seed_error(angzarr_diagnostic::Diagnostic::code(&e)));
         let mut identity = sessions.use_cases.identity;
         let mut stores = sessions.use_cases.stores;
         let project = identity
             .for_write(seed.project.as_deref())
             .map_err(seed_error_of)?;
-        let seeded = self.seed_in(&mut stores, &project, seed).await;
+        let seeded = match named {
+            Ok(named) => self.seed_in(&mut stores, &project, &named.harp, seed).await,
+            Err(error) => Err(error),
+        };
         // Closed, not dropped (ruling 131): the seed's commits are in the
         // file, with no log beside it, when the command exits.
         let closed = stores.close().await.map_err(seed_error);
@@ -88,9 +258,11 @@ impl Wiring {
         &self,
         stores: &mut SqliteStores,
         project: &Project,
+        project_harp: &str,
         seed: &Seed,
     ) -> Result<String, TestError> {
         let store = stores.open(project).await.map_err(seed_error)?;
+        let name = sessions::SessionName::new(project_harp, &seed.harp).map_err(seed_error)?;
         let cwd = self.fs.cwd().map_err(seed_error)?.to_path_buf();
         let output_dir = self.seed_output_dir(&seed.harp)?;
 
@@ -100,9 +272,9 @@ impl Wiring {
             seconds: now.seconds - i64::try_from(ago).unwrap_or(0),
             nanos: 0,
         };
-        let id = *uuid::Uuid::now_v7().as_bytes();
-        let registry = sessions_application::registry();
-        let registry = &registry;
+        // Its stable id is the UUIDv5 of its name (slice 2 B3).
+        let id = *name.id().as_bytes();
+        let registry = &sessions_application::registry();
         let session_cover = Cover {
             domain: SESSION_DOMAIN.to_string(),
             root: Some(Uuid::from_bytes(id)),
@@ -136,7 +308,7 @@ impl Wiring {
         };
         let started = before(seed.started_ago);
         // The name first, as the real mint takes it (plan 3.1).
-        claim_name(store, &project.id, seed, id, started).await?;
+        claim_name(store, &project.id, seed, &name, started).await?;
         run(
             started,
             MintSession {
@@ -152,6 +324,7 @@ impl Wiring {
                 },
                 started_at: Some(started),
                 depth: 0,
+                owner: None,
                 workspace: None,
             }
             .into(),
@@ -181,6 +354,12 @@ impl Wiring {
         }
         if let Some(ago) = seed.ended_ago {
             run(now, RecordEnd { at: before(ago) }.into()).await?;
+        }
+        if seed.resumable {
+            run_book(now, incarnation_ended(&session_cover)).await?;
+        }
+        if let Some(loadout) = &seed.loadout {
+            run_book(now, loadout_book(&session_cover, id, loadout)).await?;
         }
         self.plant_files(seed)?;
         Ok(uuid::Uuid::from_bytes(id).to_string())
@@ -223,7 +402,7 @@ impl Wiring {
             write(&dir.join(rel), "authored\n")?;
         }
         if seed.lock_free {
-            let lock = sessions_dir.join(format!("{}.lock", seed.harp));
+            let lock = session_ports::lock_path(&sessions_dir.join(&seed.harp));
             if let Some(parent) = lock.parent() {
                 self.fs
                     .create_dir_all(parent, Mode::from_bits(0o755))
@@ -244,6 +423,38 @@ impl Wiring {
             }
         }
         Ok(())
+    }
+}
+
+/// The end of the session's first incarnation, as its run's end tells it
+/// (keyed as the run's teller keys it).
+fn incarnation_ended(cover: &Cover) -> CommandBook {
+    use angzarr_embedded::markup::DomainMessage;
+    use angzarr_embedded::v1::{Fact, FactOrigin};
+    let session = cover
+        .root
+        .as_ref()
+        .and_then(|root| uuid::Uuid::from_slice(&root.value).ok())
+        .map(|id| id.to_string())
+        .unwrap_or_default();
+    let fact = sessions::RecordIncarnationEnded {
+        incarnation: 1,
+        cause: "runner-exit".to_string(),
+    };
+    CommandBook {
+        cover: Some(cover.clone()),
+        page: Some(CommandPage {
+            body: Some(command_page::Body::Fact(Fact {
+                payload: Some(
+                    angzarr_embedded::Any::from_msg(&fact.to_wire()).expect("a fact encodes"),
+                ),
+                origin: Some(FactOrigin {
+                    external_id: format!("incarnation-ended:{session}:1"),
+                    description: String::new(),
+                }),
+            })),
+            ..CommandPage::default()
+        }),
     }
 }
 
@@ -283,13 +494,13 @@ async fn claim_name<S: Store + ReadStore + Processed + Send + Sync>(
     store: &S,
     project_id: &str,
     seed: &Seed,
-    id: [u8; 16],
+    name: &sessions::SessionName,
     started: Timestamp,
 ) -> Result<(), TestError> {
     let claim = NameClaimCommand::from(ClaimName {
         project_id: project_id.to_string(),
         harp: seed.harp.clone(),
-        session: uuid::Uuid::from_bytes(id).to_string(),
+        session: name.uid(),
     });
     let claims = sessions_application::registry();
     Kernel::new(&claims)
@@ -298,7 +509,7 @@ async fn claim_name<S: Store + ReadStore + Processed + Send + Sync>(
             CommandBook {
                 cover: Some(Cover {
                     domain: NAMES_DOMAIN.to_string(),
-                    root: Some(claim_root(project_id, &seed.harp)),
+                    root: Some(name.root()),
                     edition: None,
                 }),
                 page: Some(CommandPage {

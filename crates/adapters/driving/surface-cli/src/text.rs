@@ -75,7 +75,14 @@ pub(crate) fn gitignore(w: &mut dyn Write, report: &GitignoreReport) -> io::Resu
 
 pub(crate) fn check(w: &mut dyn Write, report: &CheckReport) -> io::Result<()> {
     writeln!(w, "Project: {}", report.work_dir)?;
-    writeln!(w, "Statusline (HUD): {}\n", report.manage_statusline)?;
+    // The config's word for it (`config.statusline: ctxloom|none`, rulings
+    // 59 and 60), never a boolean.
+    let statusline = if report.manage_statusline {
+        "ctxloom"
+    } else {
+        "none"
+    };
+    writeln!(w, "Statusline (HUD): {statusline}\n")?;
     for b in &report.backends {
         if !b.settings_exists {
             writeln!(w, "  {}: not configured", b.backend)?;

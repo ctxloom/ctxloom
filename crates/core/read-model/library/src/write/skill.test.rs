@@ -1,9 +1,21 @@
 use super::*;
+use angzarr_yaml::Value;
 
+// owner T27: a skill is one directory, its metadata inside it.
 #[test]
-fn test_the_package_and_its_sidecar_are_in_the_skills_directory() {
+fn test_the_package_holds_its_metadata() {
     assert_eq!(package_dir("reviewer"), "skills/reviewer");
-    assert_eq!(sidecar_path("reviewer"), "skills/.reviewer.meta.yaml");
+    assert_eq!(meta_path("reviewer"), "skills/reviewer/.meta.yaml");
+}
+
+// owner T27 (2026-11-18, evening): a new skill's metadata is the empty mapping.
+#[test]
+fn test_a_new_skills_metadata_is_the_empty_mapping() {
+    assert_eq!(EMPTY_META, "{}\n");
+    assert_eq!(
+        angzarr_yaml::parse(EMPTY_META).unwrap(),
+        Value::Map(Vec::new())
+    );
 }
 
 // captured from a Go run: skill create
@@ -50,66 +62,68 @@ fn test_the_executable_files_are_what_the_sidecar_lists() {
 fn test_setting_the_executables_keeps_every_other_key() {
     let files = vec!["scripts/run.sh".to_string(), "bin/a".to_string()];
     assert_eq!(
-        with_executable(None, &files).unwrap().as_deref(),
-        Some("executable:\n  - bin/a\n  - scripts/run.sh\n")
+        with_executable(None, &files).unwrap(),
+        "executable:\n  - bin/a\n  - scripts/run.sh\n"
+    );
+    // A new skill's empty mapping takes the list in its place.
+    assert_eq!(
+        with_executable(Some(EMPTY_META), &files).unwrap(),
+        "executable:\n  - bin/a\n  - scripts/run.sh\n"
     );
     assert_eq!(
-        with_executable(Some("tags:\n  - t\nnotes: n # mine\n"), &files)
-            .unwrap()
-            .as_deref(),
-        Some("tags:\n  - t\nnotes: n # mine\nexecutable:\n  - bin/a\n  - scripts/run.sh\n")
+        with_executable(Some("tags:\n  - t\nnotes: n # mine\n"), &files).unwrap(),
+        "tags:\n  - t\nnotes: n # mine\nexecutable:\n  - bin/a\n  - scripts/run.sh\n"
     );
     assert_eq!(
-        with_executable(Some("executable:\n  - old\nnotes: n\n"), &files)
-            .unwrap()
-            .as_deref(),
-        Some("executable:\n  - bin/a\n  - scripts/run.sh\nnotes: n\n")
+        with_executable(Some("executable:\n  - old\nnotes: n\n"), &files).unwrap(),
+        "executable:\n  - bin/a\n  - scripts/run.sh\nnotes: n\n"
     );
 }
 
 #[test]
-fn test_an_empty_list_takes_the_key_and_the_sidecar_with_it() {
-    assert_eq!(with_executable(None, &[]).unwrap(), None);
+fn test_an_empty_list_takes_the_key_and_leaves_the_empty_mapping() {
+    assert_eq!(with_executable(None, &[]).unwrap(), EMPTY_META);
+    assert_eq!(with_executable(Some(EMPTY_META), &[]).unwrap(), EMPTY_META);
     assert_eq!(
         with_executable(Some("executable:\n  - a\n"), &[]).unwrap(),
-        None
+        EMPTY_META
     );
     assert_eq!(
-        with_executable(Some("notes: n\nexecutable:\n  - a\n"), &[])
-            .unwrap()
-            .as_deref(),
-        Some("notes: n\n")
+        with_executable(Some("notes: n\nexecutable:\n  - a\n"), &[]).unwrap(),
+        "notes: n\n"
     );
     assert!(with_executable(Some("executable: [unclosed\n"), &["a".to_string()]).is_err());
 }
 
-// Owner ruling 2026-11-12: a file's executability comes ONLY from its skill
-// sidecar's `executable:` list, on every OS; no mode is read.
+// Owner ruling 2026-11-12: a file's executability comes ONLY from its skill's
+// metadata's `executable:` list (`skills/<n>/.meta.yaml`, owner T27), on
+// every OS; no mode is read.
 #[test]
-fn test_a_bundles_executables_are_what_its_skills_sidecars_declare() {
+fn test_a_bundles_executables_are_what_its_skills_metadata_declares() {
     let files: crate::tree::Files = [
         ("bundle.yaml", "schema_version: 4\n"),
         ("skills/reviewer/SKILL.md", "---\nname: reviewer\n---\n"),
         ("skills/reviewer/scripts/run.sh", "echo\n"),
         ("skills/reviewer/notes.md", "n\n"),
         (
-            "skills/.reviewer.meta.yaml",
+            "skills/reviewer/.meta.yaml",
             "executable:\n  - scripts/run.sh\n  - gone.sh\n",
         ),
         ("skills/plain/SKILL.md", "---\nname: plain\n---\n"),
         ("skills/plain/run.sh", "echo\n"),
-        // A sidecar that does not parse declares nothing.
-        ("skills/.plain.meta.yaml", "executable: [\n"),
-        // Only a skill's sidecar says: a fragment's says nothing of this.
+        // Metadata that does not parse declares nothing.
+        ("skills/plain/.meta.yaml", "executable: [\n"),
+        // Only a skill's metadata says: a fragment's sidecar says nothing.
         ("fragments/.f.meta.yaml", "executable:\n  - x\n"),
         ("fragments/x", "x"),
-        // A sidecar-shaped file inside a skill's package is no skill's
-        // sidecar: only `skills/.<name>.meta.yaml` declares.
-        (
-            "skills/reviewer/.nested.meta.yaml",
-            "executable:\n  - x.sh\n",
-        ),
-        ("skills/nested/x.sh", "echo\n"),
+        // The old layout's sidecar beside the package declares nothing
+        // (reading refuses the bundle).
+        ("skills/.old.meta.yaml", "executable:\n  - run.sh\n"),
+        ("skills/old/run.sh", "echo\n"),
+        // A `.meta.yaml` deeper in a package is no skill's metadata.
+        ("skills/reviewer/sub/.meta.yaml", "executable:\n  - x.sh\n"),
+        ("skills/reviewer/sub/x.sh", "echo\n"),
+        ("skills/reviewer/x.sh", "echo\n"),
     ]
     .into_iter()
     .map(|(path, text)| (path.to_string(), text.as_bytes().to_vec()))

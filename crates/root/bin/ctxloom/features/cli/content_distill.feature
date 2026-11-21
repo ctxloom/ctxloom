@@ -1,7 +1,11 @@
+# world: base
 # Ported from cli/content_distill.feature (rev f36e8dfb2)
-# NOT ported: any of it yet (the Feature is @pending).
-
-@pending
+# NOT ported: nothing.
+# Plan override (OD-39, owner 2026-11-13): `bundle distill` names its bundle,
+#   `bundle distill <bundle>`, where Go took the manifest's path.
+# The distiller is a one-shot on no context (`run --no-context`, OD-38) of
+#   a stub model ("the mock LLM"), never a real one.
+@doc
 Feature: Distilling authored content — does the compression happen, is it kept, and is a bad one refused?
 
   Distillation is how an author keeps a bundle's guidance token-efficient: the
@@ -30,6 +34,12 @@ Feature: Distilling authored content — does the compression happen, is it kept
   feature is broken: reading only the stored output would be satisfied by a
   distiller handed an empty item, and reading only what the distiller received
   would be satisfied by a run whose answer was thrown away.
+
+  The distiller runs on no context, so it is given no ctxloom MCP server and
+  no approval prompt (owner, 2026-11-16): a permission ask its engine makes
+  is never routed to `session approvals`, and claude's headless default
+  denies it. Distilling needs no tool; an agent whose rules would ask is
+  told no.
 
   Background:
     Given an initialized ctxloom project
@@ -60,7 +70,7 @@ Feature: Distilling authored content — does the compression happen, is it kept
   # fragment AND the command is the point — a loop that stopped after its first
   # item would still satisfy either assertion alone.
   Scenario: Distilling a bundle stores an answer for every item in it
-    When I run "ctxloom bundle distill .ctxloom/content/bundles/v2/lore/bundle.yaml -f"
+    When I run "ctxloom bundle distill lore -f"
     Then the command succeeds
     And the distilled fragment "rules" in bundle "lore" is the distiller's answer
     And the distilled command "guidance" in bundle "lore" is the distiller's answer
@@ -106,3 +116,21 @@ Feature: Distilling authored content — does the compression happen, is it kept
     # or the runner's exit wins and the run's terminal names it ("exit status 1").
     And the output contains "failed: agent run:"
     And the output contains "exit"
+
+  # DRAFT (10b follow-up, owner's standing ruling: draft text verbatim, full
+  # review before release). A distill is a run the daemon owns (owner,
+  # 2026-11-18, evening), and ruling 114 holds for the command that follows
+  # it, as run.feature's one-shot: a signal stops the run, the distiller is
+  # asked to stop, nothing is stored, and the command exits 128 plus the
+  # signal's number.
+  Scenario Outline: A distill asked to stop stops its run, and the command exits as the signal says
+    Given the distiller works until it is asked to stop
+    When I run "ctxloom fragment distill lore#fragments/rules -f", and ctxloom is sent a <signal> while the distiller works
+    Then the distiller was asked to stop, and it was gone before the command exited
+    And the command exits 128 plus the signal's number, <code>, saying the run was stopped by <signal>
+    And the fragment "rules" in bundle "lore" has no distilled rendering
+
+    Examples:
+      | signal  | code |
+      | SIGINT  | 130  |
+      | SIGTERM | 143  |

@@ -39,6 +39,17 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: never
+  # The test gates' memory cap (gates/memory-cap.sh, a systemd user scope;
+  # owner ruling of 2026-11-16) is opted out of, deliberately: a hosted
+  # runner's VM is the job's alone, so a runaway test fails that job and
+  # nothing else, and the Windows and macOS runners have no systemd at all
+  # (whether the Linux one can make a user scope is not relied on). Each
+  # test step says so in its output.
+  TESTS_MEMORY_MAX: none
+  # nextest's threads stay one a core on a hosted runner (its own default):
+  # the default profile's `test-threads` (.config/nextest.toml) was measured
+  # on a 20-core host shared with other agents, not on a runner's cores.
+  NEXTEST_TEST_THREADS: num-cpus
 
 jobs:
   linux:
@@ -59,7 +70,7 @@ jobs:
       # outside the checkout, which rust-toolchain.toml does not reach.
       - uses: ctxloom/ci/.github/actions/setup-rust@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
         with:
-          tools: just@1.40.0,cargo-nextest@0.9.146,cargo-deny@0.20.2
+          tools: just@1.40.0,cargo-nextest@0.9.146,cargo-deny@0.20.2,cargo-sweep@0.8.0
           targets: x86_64-pc-windows-gnu
       - uses: ctxloom/ci/.github/actions/setup-protoc@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
       - uses: ctxloom/ci/.github/actions/setup-versionator@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
@@ -86,7 +97,10 @@ jobs:
       - run: just lint
       - run: just lint-os
       - run: just lint-deps
-      - run: just test
+      - name: just test (uncapped, TESTS_MEMORY_MAX=none)
+        run: |
+          echo "test gates: memory cap: none (TESTS_MEMORY_MAX=none): this runner's VM is the job's alone"
+          just test
       - run: just check-windows
       - run: just selftest
       - if: failure()
@@ -118,7 +132,10 @@ jobs:
       - name: Tool versions
         run: just --version; cargo nextest --version; protoc --version; node --version; jq --version; command -v versionator; echo "nextest profile $NEXTEST_PROFILE"
       - run: just build
-      - run: just test
+      - name: just test (uncapped, TESTS_MEMORY_MAX=none)
+        run: |
+          echo "test gates: memory cap: none (TESTS_MEMORY_MAX=none): this runner's VM is the job's alone"
+          just test
       - if: failure()
         uses: ctxloom/ci/.github/actions/gate-logs@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
         with:
@@ -149,7 +166,10 @@ jobs:
       - name: Tool versions
         run: just --version; cargo nextest --version; protoc --version; jq --version; sh --version | head -n 1; command -v versionator; echo "nextest profile $NEXTEST_PROFILE"
       - run: just build
-      - run: just test
+      - name: just test (uncapped, TESTS_MEMORY_MAX=none)
+        run: |
+          echo "test gates: memory cap: none (TESTS_MEMORY_MAX=none): this runner's VM is the job's alone"
+          just test
       - if: failure()
         uses: ctxloom/ci/.github/actions/gate-logs@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
         with:

@@ -155,17 +155,26 @@ impl HookCodec for Wire {
             skill: text("skill"),
             transcript: text("transcript"),
             native_session: text("session"),
+            prompt: text("prompt"),
             ..HookEvent::default()
         })
     }
 
     fn encode(&self, _event: &str, r: &HookResponse) -> Result<String, SurfaceError> {
-        Ok(format!("context={};notice={}\n", r.context, r.notice))
+        let block = match r.block {
+            true => format!(";block={}", r.reason),
+            false => String::new(),
+        };
+        Ok(format!(
+            "context={};notice={}{block}\n",
+            r.context, r.notice
+        ))
     }
 
     fn unified_event(&self, native: &str) -> String {
         match native {
             "SessionStart" => "session_start",
+            "UserPromptSubmit" => "turn_start",
             "PostToolUse" => "post_tool",
             "Stop" => "turn_end",
             other => other,
@@ -284,7 +293,7 @@ pub(crate) fn bundles() -> Vec<(&'static str, Vec<(&'static str, &'static str)>)
                     "---\nname: admit\ndescription: Admit.\n---\nA\n",
                 ),
                 (
-                    "skills/.admit.meta.yaml",
+                    "skills/admit/.meta.yaml",
                     "tags: [ctxloom:link_id=nightly]\n",
                 ),
                 (
@@ -292,7 +301,7 @@ pub(crate) fn bundles() -> Vec<(&'static str, Vec<(&'static str, &'static str)>)
                     "---\nname: unattended\ndescription: Work.\n---\nB\n",
                 ),
                 (
-                    "skills/.unattended.meta.yaml",
+                    "skills/unattended/.meta.yaml",
                     "tags: [ctxloom:link_id=nightly]\n",
                 ),
             ],
@@ -306,6 +315,41 @@ pub(crate) fn bundles() -> Vec<(&'static str, Vec<(&'static str, &'static str)>)
             ],
         ),
     ]
+}
+
+/// The hooks' library reads as the daemon answers them (library-api's
+/// reads over the library, degraded, under a project's parent).
+pub(crate) struct DaemonReads(pub library_application::Library);
+
+const PARENT: &str = "projects/calm-otter";
+
+fn degraded() -> library_application::Flags {
+    library_application::Flags {
+        degraded: true,
+        ..library_application::Flags::default()
+    }
+}
+
+impl crate::HookLibrary for DaemonReads {
+    fn agents_and_profiles(&self) -> Option<(bool, bool)> {
+        let agents =
+            library_api::reads::list_agents(&self.0, &degraded(), PARENT, &Default::default())
+                .result
+                .ok()?;
+        let profiles =
+            library_api::reads::list_profiles(&self.0, &degraded(), PARENT, &Default::default())
+                .result
+                .ok()?;
+        Some((!agents.agents.is_empty(), !profiles.profiles.is_empty()))
+    }
+
+    fn skills(&self) -> Option<Vec<crate::HookSkill>> {
+        let listed =
+            library_api::reads::list_skills(&self.0, &degraded(), PARENT, &Default::default())
+                .result
+                .ok()?;
+        Some(crate::hook_skills(&listed))
+    }
 }
 
 pub(crate) struct World {
@@ -352,6 +396,71 @@ pub(crate) fn world_of(
     .fixture();
     let store = Arc::new(Store::default());
     let engines = Registry::new(engines);
-    let setup = Setup::new(library, engines, store.clone(), mem.clone(), "/p", "/p");
+    // The hooks' reads, answered as the daemon answers them (O3), over the
+    // same bundles and config.
+    let (read, _) = LibrarySetup {
+        bundles: &slices,
+        layers: &layers,
+        ..LibrarySetup::default()
+    }
+    .fixture();
+    let setup = Setup::new(library, engines, store.clone(), mem.clone(), "/p", "/p")
+        .with_hook_library(Box::new(DaemonReads(read)));
     World { setup, store, mem }
+}
+
+/// Each acknowledgement a fake inbox recorded: its ids and its wake.
+pub(crate) type Deliveries = std::sync::Arc<std::sync::Mutex<Vec<(Vec<String>, String)>>>;
+
+/// Each call a hook made: its hook, urgencies and budget.
+pub(crate) type Asked = Arc<std::sync::Mutex<Vec<(String, Vec<String>, usize)>>>;
+
+/// A daemon as a hook's one call reaches it (`DeliverHookContext`): the
+/// session's pending messages, unless the daemon did not answer (`None`),
+/// OFFERED (nothing marked), then `owed`, joined within the budget, as the
+/// daemon joins them; and each ack recorded in `delivered` (refused when
+/// `refusing`: nothing recorded).
+#[derive(Default)]
+pub(crate) struct Inbox {
+    pub(crate) pending: std::sync::Mutex<Option<Vec<crate::HookMessage>>>,
+    /// Each ack received, as the daemon recorded it.
+    pub(crate) delivered: Deliveries,
+    pub(crate) refusing: bool,
+    /// What the session is owed (U13).
+    pub(crate) owed: String,
+    /// Each call's hook, urgencies and budget, in order.
+    pub(crate) asked: Asked,
+}
+
+impl crate::HookContexts for Inbox {
+    fn hook_context(
+        &self,
+        hook: &str,
+        urgencies: &[&str],
+        _wake: &str,
+        budget: usize,
+    ) -> Option<crate::HookCarried> {
+        self.asked.lock().unwrap().push((
+            hook.to_string(),
+            urgencies.iter().map(ToString::to_string).collect(),
+            budget,
+        ));
+        let pending = self.pending.lock().unwrap().clone()?;
+        let offered = crate::messages_context(&pending, urgencies, "amber-quiet-heron", budget);
+        Some(crate::HookCarried {
+            context: crate::compose_context(&[&offered.context, &self.owed]),
+            offered: offered.ids,
+        })
+    }
+
+    fn acknowledge(&self, offered: &crate::Offered) -> bool {
+        if self.refusing {
+            return false;
+        }
+        self.delivered
+            .lock()
+            .unwrap()
+            .push((offered.ids.clone(), offered.wake.clone()));
+        true
+    }
 }

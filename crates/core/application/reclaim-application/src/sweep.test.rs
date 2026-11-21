@@ -1,4 +1,4 @@
-//! The sweep's table of rows, over a fake of the sessions use cases. Go:
+//! The sweep's table of rows, over a fake of what a removal takes. Go:
 //! j001300_closeout.feature's sweep scenarios and `operations.DecideSweep`
 //! (release/0.7), minus the worktree rows (S11).
 
@@ -6,15 +6,20 @@ use std::future::Future;
 use std::pin::pin;
 use std::task::{Context, Poll, Waker};
 
-use isolation_application::{IsolationError, Report, Row, Verdict as Worktree, WorktreeUse};
+use isolation_application::{IsolationError, Report, Row, Verdict as Worktree};
 use session_index::{Captured, SessionRecord, View};
-use sessions_application::{
-    AppError, BindRequest, Bound, FilePlan, KeepRequest, Kept, ListQuery, Refusal, Removal,
-    RemoveRequest, SearchQuery, SessionService, ShowQuery, State, Timestamp, TranscriptQuery,
-    TranscriptRow,
-};
+use sessions_application::{AppError, FilePlan, Refusal, Removal, RemoveRequest, State, Timestamp};
 
-use crate::{sweep, SweepRequest, Verdict};
+use crate::{Removals, SweepReport, SweepRequest, Verdict};
+
+/// The sweep of the fake's own sessions.
+async fn sweep(
+    fake: &mut Fake,
+    request: &SweepRequest,
+) -> Result<SweepReport, crate::ReclaimError> {
+    let views = fake.views.clone();
+    crate::sweep(fake, &views, request).await
+}
 
 const NOW: i64 = 1_800_000_000;
 const DAY: i64 = 86_400;
@@ -39,7 +44,7 @@ fn view(harp: &str, state: State, ended_days_ago: i64, kept: bool) -> View {
         record: SessionRecord {
             id: String::new(),
             harp: harp.to_string(),
-            project_id: String::new(),
+            project_id: "calm-otter-id".to_string(),
             project_dir: String::new(),
             output_dir: String::new(),
             engine: String::new(),
@@ -53,11 +58,18 @@ fn view(harp: &str, state: State, ended_days_ago: i64, kept: bool) -> View {
             ended_at: Some(at(NOW - ended_days_ago * DAY)),
             incarnation: 1,
             last_captured: None,
+            owner: None,
+            closed: false,
+            children: Vec::new(),
             title: String::new(),
+            name: String::new(),
+            loadout: None,
+            context: None,
         },
         state,
         title: None,
         captured: Some(Captured { bytes: 10 }),
+        pending: Vec::new(),
     }
 }
 
@@ -74,26 +86,8 @@ struct Fake {
     scratch: Vec<Row>,
     /// What `worktrees` was asked: the session and whether to apply.
     worktrees_asked: Vec<(Option<String>, bool)>,
-}
-
-impl WorktreeUse for Fake {
-    fn worktrees(&mut self, harp: Option<&str>, apply: bool) -> Result<Report, IsolationError> {
-        self.worktrees_asked.push((harp.map(str::to_string), apply));
-        let rows: Vec<Row> = self
-            .scratch
-            .iter()
-            .filter(|r| harp.is_none_or(|h| h == r.harp))
-            .cloned()
-            .collect();
-        let count = |v: Worktree| rows.iter().filter(|r| r.verdict == v).count() as u64;
-        Ok(Report {
-            reaped: count(Worktree::Reaped),
-            spared: count(Worktree::Spared),
-            skipped: count(Worktree::Skipped),
-            worktrees: rows,
-            applied: apply,
-        })
-    }
+    /// The sessions' directories hold no file: each is its stream alone.
+    no_files: bool,
 }
 
 fn scratch(harp: &str, name: &str, verdict: Worktree, reason: &str) -> Row {
@@ -107,34 +101,49 @@ fn scratch(harp: &str, name: &str, verdict: Worktree, reason: &str) -> Row {
     }
 }
 
-fn nothing<T>() -> Result<T, AppError> {
-    Err(AppError::NoSession {
-        harp: String::new(),
-    })
-}
+impl Removals for Fake {
+    fn worktrees(
+        &mut self,
+        project: Option<&str>,
+        harp: &str,
+        apply: bool,
+    ) -> Result<Report, IsolationError> {
+        assert_eq!(project, Some("calm-otter-id"));
+        self.worktrees_asked.push((Some(harp.to_string()), apply));
+        // As the leaf does: `apply` removes exactly the reapable ones.
+        let rows: Vec<Row> = self
+            .scratch
+            .iter()
+            .filter(|r| r.harp == harp)
+            .cloned()
+            .map(|mut r| {
+                if apply && r.verdict == Worktree::Reapable {
+                    r.verdict = Worktree::Reaped;
+                }
+                r
+            })
+            .collect();
+        let count = |v: Worktree| rows.iter().filter(|r| r.verdict == v).count() as u64;
+        Ok(Report {
+            reaped: count(Worktree::Reaped),
+            spared: count(Worktree::Spared),
+            skipped: count(Worktree::Skipped),
+            worktrees: rows,
+            applied: apply,
+        })
+    }
 
-impl SessionService for Fake {
-    async fn list(&mut self, _: ListQuery) -> Result<Vec<View>, AppError> {
-        Ok(self.views.clone())
-    }
-    async fn search(&mut self, _: SearchQuery) -> Result<Vec<View>, AppError> {
-        nothing()
-    }
-    async fn show(&mut self, _: ShowQuery) -> Result<View, AppError> {
-        nothing()
-    }
-    async fn keep(&mut self, _: KeepRequest) -> Result<Kept, AppError> {
-        nothing()
-    }
     async fn remove(&mut self, request: RemoveRequest) -> Result<Removal, AppError> {
         self.asked.push((request.harp.clone(), request.yes));
         let mut files = FilePlan::default();
-        files.destroy.push(sessions_application::PlanItem {
-            path: String::new(),
-            rel: "transcripts/transcript.jsonl".to_string(),
-            class: sessions_application::Class::Machine,
-            bytes: 10,
-        });
+        if !self.no_files {
+            files.destroy.push(sessions_application::PlanItem {
+                path: String::new(),
+                rel: "transcripts/transcript.jsonl".to_string(),
+                class: sessions_application::Class::Machine,
+                bytes: 10,
+            });
+        }
         for rel in &self.authored {
             files.destroy.push(sessions_application::PlanItem {
                 path: String::new(),
@@ -153,26 +162,10 @@ impl SessionService for Fake {
             dead_letters: Vec::new(),
         })
     }
-    async fn set_title(
-        &mut self,
-        _: sessions_application::TitleRequest,
-    ) -> Result<sessions_application::Titled, AppError> {
-        nothing()
-    }
-    async fn transcripts(&mut self, _: TranscriptQuery) -> Result<Vec<TranscriptRow>, AppError> {
-        nothing()
-    }
-    async fn transcript(&mut self, _: &str) -> Result<String, AppError> {
-        nothing()
-    }
-    async fn bind(&mut self, _: BindRequest) -> Result<Bound, AppError> {
-        nothing()
-    }
 }
 
 fn request(yes: bool) -> SweepRequest {
     SweepRequest {
-        all_projects: false,
         purge_cutoff: Some(at(NOW - 90 * DAY)),
         yes,
     }
@@ -251,6 +244,27 @@ fn a_kept_session_is_held_and_the_release_is_named() {
     assert!(fake.asked.is_empty());
 }
 
+// A session's record is its stream (ruling 87a: its transcript is its
+// events, no file holds it), so one whose directory holds no file is purged
+// as any other: the destroy takes its streams (j001300's seeded sessions).
+#[test]
+fn a_session_whose_directory_holds_nothing_is_still_purged() {
+    for yes in [false, true] {
+        let mut fake = Fake {
+            views: vec![view("amber-quiet-heron", State::Ended, 120, false)],
+            no_files: true,
+            ..Fake::default()
+        };
+        let report = ready(sweep(&mut fake, &request(yes))).unwrap();
+        let want = if yes { Verdict::Done } else { Verdict::Planned };
+        assert_eq!(report.rows[0].verdict, want, "yes={yes}: {report:?}");
+        assert_eq!(
+            fake.asked.last(),
+            Some(&("amber-quiet-heron".to_string(), yes))
+        );
+    }
+}
+
 // session sweep --help: "Purging has NO default: without --purge-older-than or
 // session_purge_age the purge rows are reported as held and never acted on."
 #[test]
@@ -262,7 +276,6 @@ fn without_a_purge_age_every_purge_is_held() {
     let none = SweepRequest {
         purge_cutoff: None,
         yes: true,
-        ..SweepRequest::default()
     };
     let report = ready(sweep(&mut fake, &none)).unwrap();
     assert_eq!(report.rows[0].verdict, Verdict::Held);
@@ -342,7 +355,9 @@ fn yes_purges_the_planned_session() {
 
 // j001300 "The sweep removes only what it can prove is safe": the scratch
 // worktrees are reclaimed through the worktree leaf, which the sweep asks
-// with its own apply decision, and each outcome is a row of the report.
+// first to classify them, changing nothing, yes or not (owner ruling
+// 2026-11-13: a spared session keeps every checkout), and each outcome is a
+// row of the report.
 #[test]
 fn the_sweep_asks_the_worktree_leaf_for_each_session_with_its_own_decision() {
     let mut fake = Fake {
@@ -352,9 +367,20 @@ fn the_sweep_asks_the_worktree_leaf_for_each_session_with_its_own_decision() {
         ],
         ..Fake::default()
     };
+    // Each session's first ask is the sweep's own classification; a purge
+    // then classifies again, through `session remove`'s order.
+    let first = |asked: &[(Option<String>, bool)]| {
+        let mut seen: Vec<(Option<String>, bool)> = Vec::new();
+        for ask in asked {
+            if !seen.iter().any(|(harp, _)| *harp == ask.0) {
+                seen.push(ask.clone());
+            }
+        }
+        seen
+    };
     ready(sweep(&mut fake, &request(false))).unwrap();
     assert_eq!(
-        fake.worktrees_asked,
+        first(&fake.worktrees_asked),
         vec![
             (Some("olive-dirty-finch".to_string()), false),
             (Some("teal-running-wren".to_string()), false)
@@ -362,18 +388,34 @@ fn the_sweep_asks_the_worktree_leaf_for_each_session_with_its_own_decision() {
     );
     fake.worktrees_asked.clear();
     ready(sweep(&mut fake, &request(true))).unwrap();
-    assert!(fake.worktrees_asked.iter().all(|(_, apply)| *apply));
+    assert!(first(&fake.worktrees_asked)
+        .iter()
+        .all(|(_, apply)| !*apply));
+}
+
+// A planned purge carries its removal, its file plan whole.
+#[test]
+fn a_planned_purge_carries_its_removal() {
+    let mut fake = Fake {
+        views: vec![view("amber-quiet-heron", State::Ended, 120, false)],
+        ..Fake::default()
+    };
+    let report = ready(sweep(&mut fake, &request(false))).unwrap();
+    let removal = report.rows[0].removal.as_ref().expect("the removal");
+    assert_eq!(removal.files.destroy.len(), 1);
+    assert!(!removal.applied);
 }
 
 #[test]
 fn each_scratch_checkout_is_a_row_with_its_verdict_and_reason() {
     let mut fake = Fake {
         views: vec![
+            view("amber-quiet-heron", State::Ended, 120, false),
             view("olive-dirty-finch", State::Ended, 120, false),
             view("teal-running-wren", State::Live, 0, false),
         ],
         scratch: vec![
-            scratch("olive-dirty-finch", "clean", Worktree::Reaped, ""),
+            scratch("amber-quiet-heron", "clean", Worktree::Reapable, ""),
             scratch(
                 "olive-dirty-finch",
                 "wip",
@@ -419,7 +461,7 @@ fn a_session_with_a_preserved_worktree_is_spared_from_purge() {
                 view("amber-quiet-heron", State::Ended, 120, false),
             ],
             scratch: vec![
-                scratch("olive-dirty-finch", "clean", Worktree::Reaped, ""),
+                scratch("olive-dirty-finch", "clean", Worktree::Reapable, ""),
                 scratch("olive-dirty-finch", "wip", verdict, "uncommitted changes"),
             ],
             ..Fake::default()
@@ -428,6 +470,7 @@ fn a_session_with_a_preserved_worktree_is_spared_from_purge() {
         assert_eq!(
             fake.asked,
             vec![
+                ("amber-quiet-heron".to_string(), false),
                 ("amber-quiet-heron".to_string(), false),
                 ("amber-quiet-heron".to_string(), true)
             ],
@@ -486,7 +529,8 @@ fn a_reapable_checkout_is_planned_naming_the_leaf_that_removes_it() {
     );
 }
 
-// The purge is asked of the session the row is for (`session remove`).
+// The purge is asked of the session the row is for, through `session
+// remove`'s own order: planned, then planned again and applied.
 #[test]
 fn the_purge_names_the_session_and_its_scope() {
     let mut fake = Fake {
@@ -497,6 +541,7 @@ fn the_purge_names_the_session_and_its_scope() {
     assert_eq!(
         fake.asked,
         vec![
+            ("amber-quiet-heron".to_string(), false),
             ("amber-quiet-heron".to_string(), false),
             ("amber-quiet-heron".to_string(), true),
         ]
@@ -535,4 +580,274 @@ fn zero_bytes_are_skipped_and_others_are_not() {
     assert!(crate::sweep::is_zero(&0));
     assert!(!crate::sweep::is_zero(&1));
     assert!(!crate::sweep::is_zero(&10));
+}
+
+// Owner ruling 2026-11-13 (j001300, roadmap step 4): a session the sweep
+// spares keeps EVERY checkout, its clean one too, as `session remove`
+// keeps it whole: no partial teardown. Its checkouts are classified, never
+// applied, and the clean one's row says why it was kept.
+#[test]
+fn a_spared_session_keeps_its_clean_checkout_too() {
+    for verdict in [Worktree::Spared, Worktree::Skipped] {
+        let mut fake = Fake {
+            views: vec![view("olive-dirty-finch", State::Ended, 120, false)],
+            scratch: vec![
+                scratch("olive-dirty-finch", "clean", Worktree::Reapable, ""),
+                scratch("olive-dirty-finch", "wip", verdict, "uncommitted changes"),
+            ],
+            ..Fake::default()
+        };
+        let report = ready(sweep(&mut fake, &request(true))).unwrap();
+        assert!(
+            fake.worktrees_asked.iter().all(|(_, apply)| !apply),
+            "{verdict:?}: a spared session's checkouts are never applied: {:?}",
+            fake.worktrees_asked
+        );
+        let clean = report
+            .rows
+            .iter()
+            .find(|r| r.action == "worktree" && r.reason.contains("ctxloom-wt-clean"))
+            .unwrap_or_else(|| panic!("no row for the clean checkout: {report:?}"));
+        assert_eq!(clean.verdict, Verdict::Held, "{clean:?}");
+        assert!(clean.command.is_empty(), "{clean:?}");
+        assert!(
+            clean.reason.contains("kept")
+                && clean.reason.contains("spared")
+                && clean.reason.contains("ctxloom-wt-wip"),
+            "the clean row says why it was kept: {clean:?}"
+        );
+        assert_eq!(report.counts["done"], 0, "{report:?}");
+        assert!(fake.asked.is_empty(), "{:?}", fake.asked);
+    }
+}
+
+// A session no checkout spares has them applied on `yes`, after they were
+// classified, and the purge follows through `session remove`'s order.
+#[test]
+fn an_unspared_session_has_its_clean_checkouts_reaped_on_yes() {
+    let mut fake = Fake {
+        views: vec![view("amber-quiet-heron", State::Ended, 120, false)],
+        scratch: vec![scratch(
+            "amber-quiet-heron",
+            "clean",
+            Worktree::Reapable,
+            "",
+        )],
+        ..Fake::default()
+    };
+    let report = ready(sweep(&mut fake, &request(true))).unwrap();
+    assert_eq!(
+        fake.worktrees_asked.first(),
+        Some(&(Some("amber-quiet-heron".to_string()), false))
+    );
+    assert!(fake.worktrees_asked.iter().any(|(_, apply)| *apply));
+    let row = report.rows.iter().find(|r| r.action == "worktree").unwrap();
+    assert_eq!(row.verdict, Verdict::Done);
+    assert_eq!(verdict_of(&report, "amber-quiet-heron"), Verdict::Done);
+    assert_eq!(report.rows.last().map(|r| r.verdict), Some(Verdict::Done));
+}
+
+// Owner ruling 2026-11-14, extending 2026-11-13's: checkouts go ONLY as part
+// of destroying their session, as with `session remove <harp>`. A session the
+// sweep keeps, for any reason, keeps every checkout, its clean ones too; their
+// rows are held, saying why the session was kept, and the leaf is never asked
+// to apply. One case per reason the sweep keeps a session.
+fn kept_session_keeps_every_checkout(
+    case: &str,
+    mut fake: Fake,
+    request: &SweepRequest,
+    why: &str,
+) {
+    let harp = fake.views[0].record.harp.clone();
+    fake.scratch = vec![
+        scratch(&harp, "clean", Worktree::Reapable, ""),
+        scratch(&harp, "tidy", Worktree::Reapable, ""),
+    ];
+    let report = ready(sweep(&mut fake, request)).unwrap();
+    assert!(
+        fake.worktrees_asked.iter().all(|(_, apply)| !apply),
+        "{case}: a kept session's checkouts are never applied: {:?}",
+        fake.worktrees_asked
+    );
+    assert!(
+        fake.asked.iter().all(|(_, yes)| !yes),
+        "{case}: nothing is destroyed: {:?}",
+        fake.asked
+    );
+    let checkouts: Vec<_> = report
+        .rows
+        .iter()
+        .filter(|r| r.action == "worktree")
+        .collect();
+    assert_eq!(checkouts.len(), 2, "{case}: {report:?}");
+    for name in ["ctxloom-wt-clean", "ctxloom-wt-tidy"] {
+        let row = checkouts
+            .iter()
+            .find(|r| r.reason.contains(name))
+            .unwrap_or_else(|| panic!("{case}: no row for {name}: {report:?}"));
+        assert_eq!(row.verdict, Verdict::Held, "{case}: {row:?}");
+        assert!(row.command.is_empty(), "{case}: {row:?}");
+        assert!(
+            row.reason.contains("kept") && row.reason.contains(why),
+            "{case}: the row says why the checkout stayed ({why}): {row:?}"
+        );
+        assert!(
+            !row.reason.contains("purge failed"),
+            "{case}: no purge failed: {row:?}"
+        );
+    }
+    assert_eq!(report.counts["done"], 0, "{case}: {report:?}");
+}
+
+#[test]
+fn a_session_marked_keep_keeps_every_checkout() {
+    let fake = Fake {
+        views: vec![view("brisk-copper-moth", State::Ended, 120, true)],
+        ..Fake::default()
+    };
+    kept_session_keeps_every_checkout("marked keep", fake, &request(true), "marked keep");
+}
+
+#[test]
+fn a_session_its_keep_refusal_holds_keeps_every_checkout() {
+    let fake = Fake {
+        views: vec![view("brisk-copper-moth", State::Ended, 120, false)],
+        refusal: Some(Refusal::Kept {
+            harp: "brisk-copper-moth".to_string(),
+        }),
+        ..Fake::default()
+    };
+    kept_session_keeps_every_checkout("keep refusal", fake, &request(true), "marked keep");
+}
+
+#[test]
+fn a_session_within_its_retention_keeps_every_checkout() {
+    let fake = Fake {
+        views: vec![view("amber-quiet-heron", State::Ended, 120, false)],
+        refusal: Some(Refusal::Retained {
+            harp: "amber-quiet-heron".to_string(),
+            detail: "it ended an hour ago".to_string(),
+        }),
+        ..Fake::default()
+    };
+    kept_session_keeps_every_checkout("retention", fake, &request(true), "retention");
+}
+
+#[test]
+fn a_session_active_after_the_purge_age_keeps_every_checkout() {
+    let fake = Fake {
+        views: vec![view("amber-quiet-heron", State::Ended, 10, false)],
+        ..Fake::default()
+    };
+    kept_session_keeps_every_checkout(
+        "active since the purge age",
+        fake,
+        &request(true),
+        "active after the purge age",
+    );
+}
+
+#[test]
+fn a_session_with_no_purge_age_keeps_every_checkout() {
+    let fake = Fake {
+        views: vec![view("amber-quiet-heron", State::Ended, 400, false)],
+        ..Fake::default()
+    };
+    let none = SweepRequest {
+        purge_cutoff: None,
+        yes: true,
+    };
+    kept_session_keeps_every_checkout("no purge age", fake, &none, "nothing is purged");
+}
+
+// A report (no `yes`) holds a kept session's clean checkouts too: only a
+// session the sweep would destroy has them planned.
+#[test]
+fn a_report_holds_the_checkouts_of_a_session_it_would_keep() {
+    let fake = Fake {
+        views: vec![view("brisk-copper-moth", State::Ended, 120, true)],
+        ..Fake::default()
+    };
+    kept_session_keeps_every_checkout("report", fake, &request(false), "marked keep");
+}
+
+// A purge that fails keeps the checkouts the leaf still lists, saying so.
+#[test]
+fn a_checkout_of_a_session_whose_purge_failed_is_held() {
+    struct Failing(Fake);
+    impl Removals for Failing {
+        fn worktrees(
+            &mut self,
+            project: Option<&str>,
+            harp: &str,
+            apply: bool,
+        ) -> Result<Report, IsolationError> {
+            self.0.worktrees(project, harp, apply)
+        }
+        async fn remove(&mut self, request: RemoveRequest) -> Result<Removal, AppError> {
+            if request.yes {
+                return Err(AppError::NoSession { harp: request.harp });
+            }
+            self.0.remove(request).await
+        }
+    }
+    let mut failing = Failing(Fake {
+        views: vec![view("amber-quiet-heron", State::Ended, 120, false)],
+        // A checkout that will not go: it stays listed after the apply.
+        scratch: vec![scratch(
+            "amber-quiet-heron",
+            "clean",
+            Worktree::Reapable,
+            "",
+        )],
+        ..Fake::default()
+    });
+    let views = failing.0.views.clone();
+    let report = ready(crate::sweep(&mut failing, &views, &request(true))).unwrap();
+    let checkout = report.rows.iter().find(|r| r.action == "worktree").unwrap();
+    assert_eq!(checkout.verdict, Verdict::Held, "{checkout:?}");
+    assert!(checkout.command.is_empty(), "{checkout:?}");
+    assert!(
+        checkout.reason.contains("kept") && checkout.reason.contains("purge failed"),
+        "{checkout:?}"
+    );
+}
+
+// A purge planned clean that the apply then refuses (something changed in
+// between) is held with the refusal's words, never done.
+#[test]
+fn a_purge_the_apply_refuses_is_held_not_done() {
+    struct Changed(Fake);
+    impl Removals for Changed {
+        fn worktrees(
+            &mut self,
+            project: Option<&str>,
+            harp: &str,
+            apply: bool,
+        ) -> Result<Report, IsolationError> {
+            self.0.worktrees(project, harp, apply)
+        }
+        async fn remove(&mut self, request: RemoveRequest) -> Result<Removal, AppError> {
+            let yes = request.yes;
+            let mut removal = self.0.remove(request).await?;
+            if yes {
+                removal.applied = false;
+                removal.refusal = Some(Refusal::Retained {
+                    harp: removal.harp.clone(),
+                    detail: "it ran again".to_string(),
+                });
+            }
+            Ok(removal)
+        }
+    }
+    let mut changed = Changed(Fake {
+        views: vec![view("amber-quiet-heron", State::Ended, 120, false)],
+        ..Fake::default()
+    });
+    let views = changed.0.views.clone();
+    let report = ready(crate::sweep(&mut changed, &views, &request(true))).unwrap();
+    let row = report.rows.last().unwrap();
+    assert_eq!(row.verdict, Verdict::Held, "{row:?}");
+    assert!(row.reason.contains("it ran again"), "{row:?}");
+    assert_eq!(report.counts["done"], 0, "{report:?}");
 }

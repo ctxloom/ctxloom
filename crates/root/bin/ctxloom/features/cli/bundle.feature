@@ -1,8 +1,16 @@
+# world: base
 # Ported from cli/bundle.feature (rev f36e8dfb2)
-# NOT ported: any of it yet (the Feature is @pending).
+# NOT ported: the scenarios tagged @pending, each with its reason.
+# OD-23 (owner, 2026-11-16, "amend the count"): the listing holds the created
+#   bundle AND the built-in `ctxloom` (origin `ctxloom/builtin`, ruling 127).
+# OD-40 (aip/catalog and aip/remotes, 2026-11-13; OQ-19): the JSON steps read
+#   the AIP resources of library.proto (design §5.1): a listing is `ListBundlesResponse` (`{bundles: [...]}`), a bundle is named
+#   `projects/{project}/bundles/<b>` (selected by suffix, `[name$=...]`), `show`'s
+#   children are summaries naming each (`fragments[item$=/fragments/x]`), the origin is
+#   the enum's name, a removal's preview says `apply_command`, and a move is
+#   `MoveBundleResponse` (`applied`, `path`; B4's).
 
 @doc
-@pending
 Feature: bundle — the container authored content lives in, and everything that reads or moves one
 
   Covers: `ctxloom bundle list`, `bundle show`, `bundle view` (including the
@@ -76,8 +84,8 @@ Feature: bundle — the container authored content lives in, and everything that
     # which a renderer that lost every count would still print — so the counts
     # are asserted, and asserted again after the manifest changes underneath
     # them, so a hard-coded summary cannot pass twice. `bundle list`'s payload
-    # is a bare array of bundle objects, so cardinality is read off the array
-    # itself rather than a "count" field neither format has here.
+    # is the `bundles` list, so cardinality is read off the list itself
+    # rather than a "count" field neither format has here.
     Scenario Outline: The listing summarizes each bundle by version and by what it holds
       Given an initialized ctxloom project
       And a bundle "demo" exists
@@ -86,23 +94,29 @@ Feature: bundle — the container authored content lives in, and everything that
         ctxloom bundle list --no-companions <flags>
         """
       Then the command succeeds
-      And the output reports "$" having "<bundle count>" entries
-      And the output reports "[name=demo].version" as "<the version>"
-      And the output reports "[name=demo].fragment_count" as "<the fragment count>"
-      And the output reports "[name=demo].command_count" as "<the command count>"
+      And the output reports "bundles" having "<bundle count>" entries
+      And the output reports "bundles[name$=/bundles/demo].version" as "<the version>"
+      And the output reports "bundles[name$=/bundles/demo].fragment_count" as "<the fragment count>"
+      And the output reports "bundles[name$=/bundles/demo].command_count" as "<the command count>"
+      And the output reports "bundles[name$=/bundles/ctxloom].origin" as "<the built-in>"
       # Move the manifest and the summary has to move with it.
-      When I run "ctxloom bundle edit demo --version 2.0.0 --add-fragment testing"
+      # changed: one edit became two (the version, then the fragment), per
+      # the approved spec's OneChangePerCall, coordinator 2026-11-18, for
+      # owner review: the two flags change two files.
+      When I run "ctxloom bundle edit demo --version 2.0.0"
+      Then the command succeeds
+      When I run "ctxloom bundle edit demo --add-fragment testing"
       Then the command succeeds
       When I run "ctxloom bundle list <flags>"
-      Then the output reports "[name=demo].version" as "<the version after edit>"
-      And the output reports "[name=demo].fragment_count" as "<the fragment count after edit>"
+      Then the output reports "bundles[name$=/bundles/demo].version" as "<the version after edit>"
+      And the output reports "bundles[name$=/bundles/demo].fragment_count" as "<the fragment count after edit>"
 
       @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
-        | flags         | bundle count            | the version   | the fragment count    | the command count | the version after edit | the fragment count after edit |
-        |               | 1                        | 1.0.0         | 1                      | 1                  | 2.0.0                   | 2                              |
-        | --format json | 1                        | 1.0.0         | 1                      | 1                  | 2.0.0                   | 2                              |
-        | --format text | Installed bundles (1):  | demo (v1.0.0) | Contains: 1 fragment  | 1 command          | demo (v2.0.0)           | Contains: 2 fragments          |
+        | flags         | bundle count           | the version   | the fragment count   | the command count | the built-in                | the version after edit | the fragment count after edit |
+        |               | 2                      | 1.0.0         | 1                    | 1                 | BUILTIN                     | 2.0.0                  | 2                             |
+        | --format json | 2                      | 1.0.0         | 1                    | 1                 | BUILTIN                     | 2.0.0                  | 2                             |
+        | --format text | Installed bundles (2): | demo (v1.0.0) | Contains: 1 fragment | 1 command         | ctxloom (v1.0.0) [built-in] | demo (v2.0.0)          | Contains: 2 fragments         |
 
     # The bare noun answers the question somebody typing it has, through the
     # same seam `ctxloom remote` and `ctxloom deps` use.
@@ -111,16 +125,17 @@ Feature: bundle — the container authored content lives in, and everything that
       And a bundle "demo" exists
       When I run "ctxloom bundle --no-companions <flags>"
       Then the command succeeds
-      And the output reports "$" having "<bundle count>" entries
-      And the output reports "[name=demo].version" as "<the version>"
+      And the output reports "bundles" having "<bundle count>" entries
+      And the output reports "bundles[name$=/bundles/demo].version" as "<the version>"
+      And the output reports "bundles[name$=/bundles/ctxloom].origin" as "<the built-in>"
       And the output does not contain "Available Commands:"
 
       @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
-        | flags         | bundle count           | the version   |
-        |               | 1                       | 1.0.0         |
-        | --format json | 1                       | 1.0.0         |
-        | --format text | Installed bundles (1): | demo (v1.0.0) |
+        | flags         | bundle count           | the version   | the built-in                |
+        |               | 2                      | 1.0.0         | BUILTIN                     |
+        | --format json | 2                      | 1.0.0         | BUILTIN                     |
+        | --format text | Installed bundles (2): | demo (v1.0.0) | ctxloom (v1.0.0) [built-in] |
 
   Rule: Show renders the container's structure, never an item's body
 
@@ -135,9 +150,9 @@ Feature: bundle — the container authored content lives in, and everything that
     # every section, which IS the bundle's structure — passed. The sections
     # this scenario is named after are what it now reads. `show`'s payload has
     # no "count" field of its own for either section, so cardinality is read
-    # off each map directly (the structural analogue of "Fragments (N):"),
-    # and each fragment is also named individually — the map's cardinality
-    # alone would not prove WHICH two fragments are in it.
+    # off each list of child summaries directly (the structural analogue of
+    # "Fragments (N):"), and each fragment is also named individually — the
+    # list's cardinality alone would not prove WHICH two fragments are in it.
     Scenario Outline: Showing a bundle names every section it carries
       Given an initialized ctxloom project
       And a bundle "demo" exists
@@ -150,18 +165,18 @@ Feature: bundle — the container authored content lives in, and everything that
       And the output reports "name" as "<names the bundle>"
       And the output reports "description" as "<the description>"
       And the output reports "fragments" having "<fragment count>" entries
-      And the output reports "fragments.example.no_distill" as "<the seeded fragment's distill marker>"
-      And the output reports "fragments.testing.no_distill" as "<the added fragment's distill marker>"
+      And the output reports "fragments[item$=/fragments/example].no_distill" as "<the seeded fragment's distill marker>"
+      And the output reports "fragments[item$=/fragments/testing].no_distill" as "<the added fragment's distill marker>"
       And the output reports "commands" having "<command count>" entries
       # The command's own authored description, stored in the manifest and
       # printed from it — not a word the command line ever passed in.
-      And the output reports "commands.example.description" as "<the command's description>"
+      And the output reports "commands[item$=/commands/example].description" as "<the command's description>"
 
       @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | names the bundle | the description                   | fragment count   | the seeded fragment's distill marker | the added fragment's distill marker | command count  | the command's description |
-        |               | demo              | acceptance fixture bundle          | 2                 | true                                  | false                                | 1               | Example prompt             |
-        | --format json | demo              | acceptance fixture bundle          | 2                 | true                                  | false                                | 1               | Example prompt             |
+        |               | projects/{project}/bundles/demo | acceptance fixture bundle | 2       | true                                  | false                                | 1               | Example prompt             |
+        | --format json | projects/{project}/bundles/demo | acceptance fixture bundle | 2       | true                                  | false                                | 1               | Example prompt             |
         | --format text | Bundle: demo      | Description: acceptance fixture bundle | Fragments (2): | - example [example] (no_distill)      | - testing                            | Commands (1):   | Example prompt             |
 
     # THE ONE WRONG TURN THIS NOUN INVITES, pinned so it stays a documented
@@ -259,7 +274,7 @@ Feature: bundle — the container authored content lives in, and everything that
       And I run "ctxloom bundle edit demo --add-mcp tree-sitter"
       When Alice reads the server the bundle declares:
         """
-        ctxloom bundle view demo#mcp/tree-sitter
+        ctxloom bundle view demo#mcp/tree-sitter --format text
         """
       Then the command succeeds
       And the output contains "# MCP Server: tree-sitter"
@@ -332,22 +347,30 @@ Feature: bundle — the container authored content lives in, and everything that
     # reported success and removed nothing passes any exit-code check, and a
     # `--add-*` that wrote an empty entry passes any name check — the
     # placeholder body `edit` actually writes is what distinguishes both.
-    Scenario: Items are attached and detached by name, and the manifest follows
+    # ONE CHANGE PER CALL (owner T29, step 10 D14): each attachment and each
+    # detachment is its own file, so each is its own edit.
+    Scenario: Items are attached and detached by name, one per call, and the manifest follows
+      # substitution: T29, one file per edit; Go attached three items and a tag in one call.
       Given an initialized ctxloom project
       And a bundle "demo" exists
-      When Alice attaches a fragment, a command and a server:
+      When Alice attaches a fragment, a command and a server, one at a time:
         """
-        ctxloom bundle edit demo --add-fragment coding-standards --add-prompt review --add-mcp tree-sitter --add-tag golang
+        ctxloom bundle edit demo --add-fragment coding-standards
         """
+      And I run "ctxloom bundle edit demo --add-prompt review"
+      And I run "ctxloom bundle edit demo --add-mcp tree-sitter"
+      And I run "ctxloom bundle edit demo --add-tag golang"
       Then the command succeeds
       And the file ".ctxloom/content/bundles/v2/demo/fragments/coding-standards.md" exists
       And the file ".ctxloom/content/bundles/v2/demo/prompts/review.md" contains "Add prompt content here."
       And the file ".ctxloom/content/bundles/v2/demo/mcp/tree-sitter.yaml" exists
       And the file ".ctxloom/content/bundles/v2/demo/bundle.yaml" contains "golang"
-      When Alice detaches the two she did not want after all:
+      When Alice detaches the two she did not want after all, one at a time:
         """
-        ctxloom bundle edit demo --remove-fragment coding-standards --remove-mcp tree-sitter --remove-tag golang
+        ctxloom bundle edit demo --remove-fragment coding-standards
         """
+      And I run "ctxloom bundle edit demo --remove-mcp tree-sitter"
+      And I run "ctxloom bundle edit demo --remove-tag golang"
       Then the command succeeds
       And the file ".ctxloom/content/bundles/v2/demo/fragments/coding-standards.md" does not exist
       And the file ".ctxloom/content/bundles/v2/demo/mcp/tree-sitter.yaml" does not exist
@@ -356,23 +379,63 @@ Feature: bundle — the container authored content lives in, and everything that
       # took exactly what they named rather than emptying the manifest.
       And the file ".ctxloom/content/bundles/v2/demo/prompts/review.md" contains "Add prompt content here."
 
+    # THE REFUSAL IS PROVEN BY WHAT DID NOT HAPPEN: an edit that wrote the
+    # first file and refused the second would pass an exit-code check.
+    Scenario Outline: An edit that would change more than one file is refused, and changes none
+      # new: T29, S52 (owner): OneChangePerCall, exit 20.
+      Given an initialized ctxloom project
+      And a bundle "demo" exists
+      And the project's changes are committed
+      When I run "ctxloom bundle edit demo <flags>"
+      Then the command exits with code 20
+      And the refusal is "library-tree-one-change-per-call"
+      And the output contains "<first>"
+      And the output contains "<second>"
+      And git sees nothing changed in the project
+
+      Examples:
+        | flags                                             | first                  | second               |
+        | --add-fragment a --add-prompt b                   | fragments/a.md         | prompts/b.md         |
+        | --add-fragment a --add-tag golang                 | fragments/a.md         | bundle.yaml          |
+        | --remove-fragment example --remove-prompt example | fragments/example.md   | prompts/example.md   |
+
+    # Metadata and tags are both bundle.yaml's, so changing both is one file.
+    Scenario: A description and a tag changed together are one file, and one edit
+      # new: T29 counts files, not flags.
+      Given an initialized ctxloom project
+      And a bundle "demo" exists
+      When I run "ctxloom bundle edit demo -d updated-desc --add-tag golang"
+      Then the command succeeds
+      And the file ".ctxloom/content/bundles/v2/demo/bundle.yaml" contains "updated-desc"
+      And the file ".ctxloom/content/bundles/v2/demo/bundle.yaml" contains "golang"
+
     # An edit with no flags is a person who does not yet know what to type, and
     # the answer is help plus a plain statement that nothing happened — not a
     # silent exit 0 that reads as a successful edit.
+    # Redrafted (owner, 2026-11-19): the text says "No changes made." and no
+    # count, so the json rows count the changes and the text row says it.
     Scenario Outline: An edit that was told to change nothing says so
       Given an initialized ctxloom project
       And a bundle "demo" exists
       When I run "ctxloom bundle edit demo <flags>"
       Then the command succeeds
-      And the output reports "status" as "<no changes signal>"
+      And the output reports "applied" as "false"
+      And the output reports "changes" having "0" entries
       And the file ".ctxloom/content/bundles/v2/demo/bundle.yaml" contains "acceptance fixture bundle"
 
       @json-default
-      Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
-        | flags         | no changes signal |
-        |               | no_changes         |
-        | --format json | no_changes         |
-        | --format text | No changes made.   |
+      Examples: no --format at all takes the derived default off a terminal; an explicit one wins
+        | flags         |
+        |               |
+        | --format json |
+
+    Scenario: An edit that was told to change nothing says "No changes made." in text
+      Given an initialized ctxloom project
+      And a bundle "demo" exists
+      When I run "ctxloom bundle edit demo --format text"
+      Then the command succeeds
+      And the output contains "No changes made."
+      And the file ".ctxloom/content/bundles/v2/demo/bundle.yaml" contains "acceptance fixture bundle"
 
   Rule: A bundle travels as its tree, and an import never clobbers without being told to
 
@@ -495,8 +558,8 @@ Feature: bundle — the container authored content lives in, and everything that
         ctxloom bundle move demo --to other-project
         """
       Then the command succeeds
-      And the output reports "status" as "moved"
-      And the output reports "dest" as "other-project/.ctxloom/content/bundles/v2/demo"
+      And the output reports "applied" as "true"
+      And the output reports "path" as "other-project/.ctxloom/content/bundles/v2/demo"
       And the file "other-project/.ctxloom/content/bundles/v2/demo/bundle.yaml" contains "acceptance fixture bundle"
       And the file "other-project/.ctxloom/content/bundles/v2/demo/fragments/example.md" contains "# Example Fragment"
       And the file "other-project/.ctxloom/content/bundles/v2/demo/prompts/example.md" contains "Example prompt content. Describe what this prompt does."
@@ -548,7 +611,7 @@ Feature: bundle — the container authored content lives in, and everything that
     no fragment, profile or tag, so no session is handed it; only init and
     distill use it. Every project's listing carries it beside its own bundles
     and those installed from remotes, marked with its origin (`origin` is
-    `ctxloom/builtin` in json, `[built-in]` in text, ruling 127), with or
+    `BUILTIN` in json, `[built-in]` in text, ruling 127), with or
     without a bundles directory; `show`, `view` and `export` read it as it ships. It is
     read-only: every write to it (`bundle edit`, `bundle remove`, an item's
     create, edit or remove, an MCP server's or a skill's) is refused before
@@ -576,7 +639,7 @@ Feature: bundle — the container authored content lives in, and everything that
       And the output does not contain "ctxloom/default"
       When I run "ctxloom bundle list --format json"
       Then the command succeeds
-      And the output reports "rows.[name=ctxloom].origin" as "ctxloom/builtin"
+      And the output reports "bundles[name$=/bundles/ctxloom].origin" as "BUILTIN"
       When I run "ctxloom bundle remove ctxloom --yes"
       Then the command fails
       And the output contains "is built into ctxloom (ctxloom/builtin) and is read-only"
@@ -608,22 +671,61 @@ Feature: bundle — the container authored content lives in, and everything that
       Then the command succeeds
       And the output reports "applied" as "<nothing was applied>"
       And the output reports "detail.0" as "<the cost named>"
-      And the output reports "apply" as "<the invocation that would>"
+      And the output reports "apply_command" as "<the invocation that would>"
       # The report side asserts the bundle still EXISTS — on disk and in the
       # listing both, because a remove that pruned the listing while leaving
       # the file (or the reverse) would satisfy exactly one of these.
       And the file ".ctxloom/content/bundles/v2/demo/bundle.yaml" exists
       When I run "ctxloom bundle list <flags>"
-      Then the output reports "[name=demo].name" as "<the bundle that survived>"
+      Then the output reports "bundles[name$=/bundles/demo].name" as "<the bundle that survived>"
 
       @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | nothing was applied  | the cost named               | the invocation that would          | the bundle that survived |
-        |               | false                 | 2 fragment(s), 1 command(s)  | ctxloom bundle remove demo --yes   | demo                      |
-        | --format json | false                 | 2 fragment(s), 1 command(s)  | ctxloom bundle remove demo --yes   | demo                      |
+        |               | false                 | 2 fragment(s), 1 command(s)  | ctxloom bundle remove demo --yes   | projects/{project}/bundles/demo |
+        | --format json | false                 | 2 fragment(s), 1 command(s)  | ctxloom bundle remove demo --yes   | projects/{project}/bundles/demo |
         | --format text | Nothing was removed   | 2 fragment(s), 1 command(s)  | ctxloom bundle remove demo --yes   | demo                      |
 
+    # A profile that names the bundle, one that inherits it through a parent,
+    # and an agent standing on either would each have its run refused once
+    # the bundle is gone, so the preview names each and says so before
+    # anything goes; --yes still removes it.
+    Scenario: Bare bundle remove names every profile and agent that includes it
+      # new: DRAFT, owner ruling 2026-11-19 (batch 2, `bundle remove`).
+      Given an initialized ctxloom project
+      And a bundle "demo" exists
+      And a bundle "other" exists
+      And a profile "dev" with bundle "demo"
+      And a profile "unrelated" with bundle "other"
+      And the project already has the file ".ctxloom/content/bundles/v2/project/profiles/child.yaml":
+        """
+        description: inherits demo through its parent
+        parents:
+          - dev
+        """
+      And I run "ctxloom agent create reviewer --profiles child"
+      When Alice asks what removing the bundle would cost:
+        """
+        ctxloom bundle remove demo --format json
+        """
+      Then the command succeeds
+      And the output reports "dependents.0" as "projects/{project}/bundles/project/profiles/child"
+      And the output reports "dependents.1" as "projects/{project}/bundles/project/profiles/dev"
+      And the output reports "dependents.2" as "projects/{project}/agents/reviewer"
+      And the output does not contain "unrelated"
+      When I run "ctxloom bundle remove demo --format text"
+      Then the command succeeds
+      And the output contains "profile child includes it"
+      And the output contains "profile dev includes it"
+      And the output contains "agent reviewer includes it"
+      And the output contains "a run of each is refused until it is edited"
+      And the file ".ctxloom/content/bundles/v2/demo/bundle.yaml" exists
+      When I run "ctxloom bundle remove demo --yes"
+      Then the command succeeds
+      And the file ".ctxloom/content/bundles/v2/demo/bundle.yaml" does not exist
+
     Scenario Outline: Removing a bundle with --yes takes the file and the listing entry
+      # changed: step 11 (draft), OD-23 (owner, 2026-11-16) and ruling 127: the listing keeps the built-in `ctxloom` bundle, so it is never empty; the removed bundle is gone from it.
       Given an initialized ctxloom project
       And a bundle "demo" exists
       When Alice applies the removal:
@@ -633,14 +735,16 @@ Feature: bundle — the container authored content lives in, and everything that
       Then the command succeeds
       And the file ".ctxloom/content/bundles/v2/demo/bundle.yaml" does not exist
       When I run "ctxloom bundle list --no-companions <flags>"
-      Then the output reports "$" as empty, saying "No bundles installed."
+      Then the command succeeds
+      And the output reports "bundles[name$=/bundles/demo].name" not containing "<the removed bundle>"
+      And the output reports "bundles[name$=/bundles/ctxloom].name" as "<the built-in bundle>"
 
       @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
-        | flags         |
-        |               |
-        | --format json |
-        | --format text |
+        | flags         | the removed bundle              | the built-in bundle                |
+        |               | projects/{project}/bundles/demo | projects/{project}/bundles/ctxloom |
+        | --format json | projects/{project}/bundles/demo | projects/{project}/bundles/ctxloom |
+        | --format text | demo                            | ctxloom (v1.0.0) [built-in]        |
 
     # The aliases are not decoration: `rm` is what a person's fingers type, and
     # an alias that reached a different code path — a different default, a

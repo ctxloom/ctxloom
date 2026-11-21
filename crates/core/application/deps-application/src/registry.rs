@@ -37,6 +37,7 @@ impl Deps {
             .map(|r| RemoteRow {
                 name: r.name,
                 url: r.url,
+                forge: r.forge,
             })
             .collect();
         Ok(RemoteListing {

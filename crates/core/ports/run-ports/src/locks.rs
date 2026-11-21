@@ -5,7 +5,7 @@
 //! - A run's own lock, which the process that enqueues it holds from before
 //!   the enqueue is visible until its runner is started: a run still owed a
 //!   runner whose lock is free has lost its launcher (an orphan).
-//! - A session's lock (`<project>/.ctxloom/sessions/<harp>.lock`), which the
+//! - A session's lock (`<project>/.ctxloom/sessions/<harp>/session.lock`), which the
 //!   run holds from its mint until its end: a STARTED run whose session's
 //!   lock is free has lost its owner too.
 //!

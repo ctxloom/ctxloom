@@ -1,5 +1,5 @@
 //! The delivery policy: `AlarmFired` on a scheduler stream becomes
-//! `AlarmReached` on the target's. One policy per consuming domain, declared
+//! `RecordAlarmReached` on the target's. One policy per consuming domain, declared
 //! with [`delivery!`](crate::delivery), because a policy has a single target
 //! type and a const NAME that is its identity.
 
@@ -7,12 +7,12 @@ use angzarr_diagnostic::Report;
 use angzarr_embedded::v1::Uuid;
 use angzarr_embedded::{Any, Payload};
 
-use crate::{AlarmReached, SchedulerEvent};
+use crate::{RecordAlarmReached, SchedulerEvent};
 
 /// The fact owed `domain` for `event`, a scheduler event, and the root of the
-/// stream it is for: `AlarmReached` for an `AlarmFired` whose target is in
+/// stream it is for: `RecordAlarmReached` for an `AlarmFired` whose target is in
 /// `domain`; `None` for any other event, or another domain's firing.
-pub fn delivered(event: &Any, domain: &str) -> Result<Option<(Uuid, AlarmReached)>, Report> {
+pub fn delivered(event: &Any, domain: &str) -> Result<Option<(Uuid, RecordAlarmReached)>, Report> {
     let SchedulerEvent::AlarmFired(fired) =
         SchedulerEvent::from_any(event).map_err(|e| Report::of(&e))?
     else {
@@ -21,7 +21,7 @@ pub fn delivered(event: &Any, domain: &str) -> Result<Option<(Uuid, AlarmReached
     let Ok(root) = <[u8; 16]>::try_from(fired.target.root.as_slice()) else {
         return Ok(None);
     };
-    let reached = AlarmReached {
+    let reached = RecordAlarmReached {
         alarm_id: fired.alarm_id,
         at: fired.at,
     };
@@ -29,7 +29,7 @@ pub fn delivered(event: &Any, domain: &str) -> Result<Option<(Uuid, AlarmReached
 }
 
 /// Declare the delivery policy for `$target`, a domain that ingests
-/// [`AlarmReached`](crate::AlarmReached) (`#[handles_fact(AlarmReached)]`):
+/// [`RecordAlarmReached`](crate::RecordAlarmReached) (`#[handles_fact(RecordAlarmReached)]`):
 /// a unit struct named `$policy`, to register with `Registry::policy`. Its
 /// NAME is `<the invoking crate's package>::<$target>::alarms`, so it is the
 /// consumer's and does not change when the scheduler is lifted.

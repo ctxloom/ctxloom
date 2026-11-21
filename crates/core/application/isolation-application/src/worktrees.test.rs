@@ -125,7 +125,7 @@ impl Workspaces for &Fake {
         unreachable!("the worktree commands prepare nothing")
     }
 
-    fn place_files(&self, _: &str, _: &[(String, Vec<u8>)]) -> Result<(), Failure> {
+    fn place_files(&self, _: &str, _: &[isolation_ports::PlacedFile]) -> Result<(), Failure> {
         unreachable!("the worktree commands place nothing")
     }
 

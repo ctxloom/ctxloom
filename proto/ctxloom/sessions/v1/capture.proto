@@ -6,12 +6,15 @@ syntax = "proto3";
 //  - each fact is something that ALREADY HAPPENED in the engine, so it is
 //    never refused: a stream holding no live session records nothing, and a
 //    redelivery (same Fact.origin.external_id) is DUPLICATE;
-//  - a fact that could not be delivered is dropped: nothing queues or spools
-//    it, and the hook says so on stderr;
+//  - a fact that could not be delivered is HELD by its hook, in order, for a
+//    ctxloom process of an up-to-date version to deliver (s4-Q14); one the
+//    hold could not keep is dropped, said on stderr, and recorded in its
+//    place as a RecordCaptureGap (unit H3);
 //  - the stream order of the events is the transcript's order: no field here
 //    is a sequence, and the hook process assigns none.
 package ctxloom.sessions.v1;
 
+import "google/protobuf/timestamp.proto";
 import "io/angzarr/v1/options.proto";
 
 // The user submitted a prompt. external_id
@@ -85,18 +88,6 @@ message RecordTurnEnded {
   string prompt_id = 1;
 }
 
-// The engine's session ended. external_id
-// `hook:session-end:<session>:<native_session>`.
-message RecordSessionEnded {
-  option (io.angzarr.v1.fact) = {
-    component: "ctxloom.sessions.v1.SessionState"
-    emits: ["ctxloom.sessions.v1.SessionEnded"]
-  };
-
-  string native_session = 1;
-  string reason = 2;
-}
-
 enum CompactionPhase {
   COMPACTION_PHASE_UNSPECIFIED = 0;
   COMPACTION_PHASE_BEFORE = 1;
@@ -120,6 +111,43 @@ message RecordCompaction {
   string trigger = 3;
   uint64 summary_bytes = 4;
   string summary_sha256 = 5;
+}
+
+// PROPOSAL (s4-Q14, unit H3; the owner's to approve): a fact a hook observed
+// was DROPPED, never recorded: the session's hold could not keep it (past
+// its bound, or the disk refused it). The hold kept a gap record in the
+// dropped fact's place, and a flush delivers it here in the hold's order,
+// so the session's record says, for good, that a fact is missing there,
+// which, and when. One gap is one dropped fact. external_id
+// `hook:gap:<the dropped fact's external_id>`.
+message RecordCaptureGap {
+  option (io.angzarr.v1.fact) = {
+    component: "ctxloom.sessions.v1.SessionState"
+    emits: ["ctxloom.sessions.v1.CaptureGapped"]
+  };
+
+  // The dropped fact's external_id (its kind and the engine's ids; never
+  // its content).
+  string dropped = 1;
+  // Why it was dropped: `bound` (the hold was full) or `disk`.
+  string why = 2;
+  // The dropping hook's clock when it dropped the fact.
+  google.protobuf.Timestamp dropped_at = 3;
+  // The dropping hook's versionator stamp.
+  string stamp = 4;
+}
+
+// The answer (s4-Q14, H3 follow-up; owner: a DISTINCT, typed answer, never
+// "applied") to a capture fact addressed to a session the daemon has no
+// record of: its stream holds no session (never minted, or destroyed), so
+// the fact was recorded nowhere. Not a refusal (a fact is never refused,
+// and the markup holds `(refusal_status)` to a command's refusals): the
+// daemon's listener answers a capture fact that recorded nothing with this
+// message's full name as the reason key, under NOT_FOUND; a client sets the
+// fact aside, says so, and never retries it.
+message FactSessionUnknown {
+  // The session's stream root, as the fact's cover named it (UUID text).
+  string session = 1;
 }
 
 message PromptSubmitted {
@@ -160,6 +188,10 @@ message TurnEnded {
   string prompt_id = 1;
 }
 
+// RETIRED (owner 2026-11-15): never emitted; folded to nothing and rendered
+// nothing, kept only so the streams that hold one still read (angzarr refuses
+// an unknown stored type). Its fact, RecordSessionEnded, is gone: a session's
+// end is its run's end (`IncarnationEnded`) and its lock's verdict.
 message SessionEnded {
   option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
 
@@ -175,4 +207,117 @@ message Compacted {
   string trigger = 3;
   uint64 summary_bytes = 4;
   string summary_sha256 = 5;
+}
+
+// The engine started a new conversation within the session: claude's /clear
+// (SessionStart `source: clear`; a streaming child's
+// `conversation_reset{trigger: clear}`). It carries no content. The
+// conversation the clear left is the session's lineage already: the bind
+// that follows displaces it (`EngineSessionBound.displaced`). external_id
+// `hook:clear:<session>:<native_session>`, the NEW conversation's id, so the
+// hook and the driver reporting one clear are one fact.
+message RecordConversationCleared {
+  option (io.angzarr.v1.fact) = {
+    component: "ctxloom.sessions.v1.SessionState"
+    emits: ["ctxloom.sessions.v1.ConversationCleared"]
+  };
+
+  // The engine's conversation after the clear.
+  string native_session = 1;
+  // What the engine named as its cause (`clear`); empty when it named none.
+  string trigger = 2;
+}
+
+// 10c (U13, G6/G7): the re-assembled context a live session's engine was
+// handed, at the hook that carried it. Size and SHA-256 only (ruling B),
+// never the text. external_id `reinject:<session>:<H(the observation's
+// cause)>`, so a second hook of the same change records nothing, and the
+// delivery is once. Like every fact it carries no sequence (G4
+// superseded). Additive.
+message RecordContextRedelivered {
+  option (io.angzarr.v1.fact) = {
+    component: "ctxloom.sessions.v1.SessionState"
+    emits: ["ctxloom.sessions.v1.ContextRedelivered"]
+  };
+
+  // The bundles (and `config`) whose change caused it, sorted.
+  repeated string bundles = 1;
+  // The tree observation's cause it answers.
+  string cause = 2;
+  uint64 size = 3;
+  string sha256 = 4;
+  // The engine's hook it rode (`UserPromptSubmit`, `PostToolUse`).
+  string carried_by = 5;
+  // 10c (U13 rework): the tree stream positions the delivery covers, read
+  // from the session's owed changes before it was re-assembled; a change
+  // recorded past them stays owed. Additive.
+  repeated TreePosition covered = 6;
+}
+
+message ContextRedelivered {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
+
+  repeated string bundles = 1;
+  string cause = 2;
+  uint64 size = 3;
+  string sha256 = 4;
+  string carried_by = 5;
+  repeated TreePosition covered = 6;
+}
+
+// 10c (U13 rework): a library tree stream's position, its name
+// (`projects/{p}/checkouts/{c}/library`, `users/me/library`) and a sequence
+// of it. Additive.
+message TreePosition {
+  string tree = 1;
+  uint64 sequence = 2;
+}
+
+// 10c (U13 rework, owner 2026-11-18): a library change a live session's
+// loadout draws on, recorded on that session by the daemon's OwedContexts
+// projector as it handles the change's event: the tree, the event's
+// sequence, and the bundles (and `config`) of the loadout it touched,
+// sorted. external_id `owed:<session>:<tree>@<sequence>` (or, at a
+// loadout, `owed-at-load:<session>:<tree>@<sequence>`), so a book handed
+// again is a DUPLICATE. Never refused: a stream with no live session
+// records nothing. The session's next hook collects every change owed
+// past its covered positions in one delivery. Additive.
+message RecordContextOwed {
+  option (io.angzarr.v1.fact) = {
+    component: "ctxloom.sessions.v1.SessionState"
+    emits: ["ctxloom.sessions.v1.ContextOwed"]
+  };
+
+  string tree = 1;
+  uint64 sequence = 2;
+  repeated string bundles = 3;
+  // The paths (relative to the tree) of the change that the loadout draws
+  // on, sorted: what a delivery over the hook's budget gives whole (its
+  // changed fragments). Additive.
+  repeated string paths = 4;
+}
+
+message ContextOwed {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
+
+  string tree = 1;
+  uint64 sequence = 2;
+  repeated string bundles = 3;
+  repeated string paths = 4;
+}
+
+message ConversationCleared {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
+
+  string native_session = 1;
+  string trigger = 2;
+}
+
+message CaptureGapped {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
+
+  string dropped = 1;
+  string why = 2;
+  google.protobuf.Timestamp dropped_at = 3;
+  string stamp = 4;
 }

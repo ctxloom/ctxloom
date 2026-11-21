@@ -22,18 +22,11 @@ use crate::tests::files;
 
 const HARP: &str = "amber-swift-owl";
 
-/// The one project store under `home`.
+/// The one store under `home` (T14).
 fn store_under(home: &Path) -> PathBuf {
-    let projects = home.join(".ctxloom/projects");
-    let stores: Vec<PathBuf> = files::children(&projects)
-        .into_iter()
-        .map(|dir| dir.join("ctxloom.db"))
-        .filter(|db| files::exists(db))
-        .collect();
-    let [store] = stores.as_slice() else {
-        panic!("one store under {}: {stores:?}", projects.display());
-    };
-    store.clone()
+    let store = home.join(".ctxloom/ctxloom.db");
+    assert!(files::exists(&store), "the one store: {}", store.display());
+    store
 }
 
 /// What is beside `store`: its log and its index, where left.
@@ -64,26 +57,17 @@ fn test_every_session_command_closes_its_store_before_it_exits() {
         Vec::<&str>::new(),
         "the seed: nothing beside"
     );
-    for (args, writes) in [
-        (&["session", "list", "--format", "json"][..], false),
-        (&["session", "keep", HARP, "--format", "json"], true),
-        (&["session", "show", HARP, "--format", "json"], false),
-        (
-            &["session", "transcript", "show", HARP, "--format", "json"],
-            false,
-        ),
-    ] {
-        let ran = env.run(args);
-        ok(&ran, &format!("{args:?}"));
-        assert!(!logged(&store), "{args:?}: the log holds nothing");
-        if writes {
-            assert_eq!(
-                beside(&store),
-                Vec::<&str>::new(),
-                "{args:?}: nothing beside"
-            );
-        }
-    }
+    // `session list|show|search` and `transcript show` open no store: they
+    // are the daemon's reads (slice 2 step 6; the transcript's since the
+    // owner's H3 follow-up), and the daemon, the store's one owner (T14),
+    // holds it open while it serves. So the write is checked first, while
+    // no daemon serves.
+    let kept = env.run(&["session", "keep", HARP, "--format", "json"]);
+    ok(&kept, "keep");
+    assert!(!logged(&store), "keep: the log holds nothing");
+    assert_eq!(beside(&store), Vec::<&str>::new(), "keep: nothing beside");
+    let shown = env.run(&["session", "transcript", "show", HARP, "--format", "json"]);
+    ok(&shown, "transcript show");
 }
 
 // Not forced red: `test open-store` closes the store it opened with
@@ -99,11 +83,16 @@ fn test_the_store_a_test_command_opens_is_closed_before_it_exits() {
     assert_eq!(beside(&store), Vec::<&str>::new(), "made, migrated, closed");
 }
 
+// A session start's hook opens no store of its own (owner 2026-11-15, H-Q9):
+// its bind is delivered to the user's daemon, which holds the store from
+// then on, as every capture fact is.
 #[test]
-fn test_a_hook_that_binds_its_session_closes_the_store_before_it_answers() {
+fn test_a_session_starts_hook_has_the_daemon_bind_its_session() {
     let env = Env::new();
     ok(&env.run(&["test", "seed-session", HARP]), "seed");
-    let store = store_under(env.home());
+    let named = env.run(&["session", "show", HARP, "--format", "json"]);
+    ok(&named, "show");
+    let named = named.json()["name"].as_str().expect("a name").to_string();
     let transcript = env.home().join("native.jsonl");
     let payload = serde_json::json!({
         "session_id": "vendor-session-42",
@@ -115,7 +104,7 @@ fn test_a_hook_that_binds_its_session_closes_the_store_before_it_answers() {
     let ran = env.run_hook(
         &["hook", "claude-code", "execute", "SessionStart"],
         &payload,
-        &[("CTXLOOM_SESSION_HARP", HARP)],
+        &[("CTXLOOM_SESSION", named.as_str())],
     );
     ok(&ran, "SessionStart");
     let shown = env.run(&["session", "show", HARP, "--format", "json"]);
@@ -125,7 +114,6 @@ fn test_a_hook_that_binds_its_session_closes_the_store_before_it_answers() {
         "the hook bound the session: {}",
         shown.stdout
     );
-    assert!(!logged(&store), "the log holds nothing");
 }
 
 /// A child that answers its turn and fires no hook.
@@ -134,8 +122,10 @@ echo '{"type":"system","subtype":"init","session_id":"9d764b45-a56a-48d7-ac9d-c2
 echo '{"type":"result","subtype":"success","is_error":false,"result":"STORE-CLOSE-REPLY","session_id":"9d764b45-a56a-48d7-ac9d-c2a16c5669f1"}'
 "#;
 
+// U4, T7: a one-shot is the daemon's, and the command opens no store (T1);
+// the daemon that hosted it closes its one store as it exits.
 #[test]
-fn test_a_one_shot_closes_its_store_before_it_exits() {
+fn test_a_one_shot_opens_no_store_and_its_daemon_closes_the_store_at_its_exit() {
     if !files::runs_scripts() {
         return;
     }
@@ -167,14 +157,33 @@ fn test_a_one_shot_closes_its_store_before_it_exits() {
     assert!(ran.stdout.contains("STORE-CLOSE-REPLY"), "{}", ran.said());
     assert!(
         !ran.stderr.contains("was not closed") && !ran.stderr.contains("did not close"),
-        "the run's store closed, not left to its drop: {}",
+        "nothing of the run's store is the command's: {}",
         ran.said()
     );
     let store = store_under(project.home());
-    assert_eq!(
-        beside(&store),
-        Vec::<&str>::new(),
-        "the run's store closed: nothing beside ({})",
-        ran.said()
-    );
+    let stopped = project.run(&["daemon", "stop"]);
+    ok(&stopped, "daemon stop");
+    // Its exit is waited for (bounded): the daemon says it exited only
+    // once it has closed its store.
+    let log = project.home().join(".ctxloom/daemon/daemon.log");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while !files::read(&log).unwrap_or_default().contains(" exited") {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the daemon never exited: {}",
+            files::read(&log).unwrap_or_default()
+        );
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !beside(&store).is_empty() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the daemon's store closed: nothing beside ({:?}; {})",
+            beside(&store),
+            files::read(&log).unwrap_or_default()
+        );
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert!(!logged(&store), "its log holds nothing");
 }

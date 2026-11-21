@@ -228,9 +228,10 @@ fn test_a_tree_that_is_not_a_bundle_is_listed_by_its_files_with_a_warning() {
     assert_eq!(unreadable[0].sha, A_SHA);
 }
 
-// The disclosure's json carries the same fields as Go's.
+// The disclosure carries the fields Go's did (OD-40, B4: its json is now
+// the API's `PinChange`, deps-cli's; this holds what it is made from).
 #[test]
-fn test_the_change_serializes_as_gos_does() {
+fn test_the_change_carries_the_fields_gos_did() {
     let to = tree(&[
         ("bundle.yaml", ENVELOPE, false),
         ("mcp/srv.yaml", "command: srv\nenv:\n  K: v\n", false),
@@ -245,20 +246,18 @@ fn test_the_change_serializes_as_gos_does() {
             tree: &to,
         },
     );
-    let json = serde_json::to_value(&change).expect("json");
-    assert_eq!(json["identity"], "id");
-    assert_eq!(json["from_sha"], "");
-    assert_eq!(json["to_sha"], A_SHA);
-    assert_eq!(json["items"][0]["kind"], "mcp");
-    assert_eq!(json["items"][0]["change"], "added");
-    assert_eq!(json["items"][0]["exec"]["before"], serde_json::Value::Null);
-    assert_eq!(json["items"][0]["exec"]["after"]["command"], "srv");
-    assert_eq!(
-        json["items"][0]["exec"]["after"]["env"]["K"],
-        fingerprint("v")
-    );
-    assert_eq!(json["files"][0]["path"], "bundle.yaml");
-    assert!(json["files"][0].get("diff").is_none());
+    assert_eq!(change.identity, "id");
+    assert_eq!(change.from_sha, "");
+    assert_eq!(change.to_sha, A_SHA);
+    let item = &change.items[0];
+    assert_eq!((item.kind, item.change), ("mcp", Change::Added));
+    let exec = item.exec.as_ref().expect("what it runs");
+    assert_eq!(exec.before, None);
+    let after = exec.after.as_ref().expect("after");
+    assert_eq!(after.command, "srv");
+    assert_eq!(after.env["K"], fingerprint("v"));
+    assert_eq!(change.files[0].path, "bundle.yaml");
+    assert_eq!(change.files[0].diff, "");
 }
 
 fn moved(from: (&str, &str), to: (&str, &str)) -> Option<Compat> {
@@ -351,12 +350,10 @@ fn test_a_first_pin_has_no_classification() {
         },
     );
     assert_eq!(change.compat, None);
-    let json = serde_json::to_string(&change).expect("json");
-    assert!(!json.contains("compat"), "{json}");
 }
 
 #[test]
-fn test_a_classified_move_serializes_its_word() {
+fn test_a_classified_move_carries_its_classification() {
     let from = tree(&[("bundle.yaml", ENVELOPE, false)]);
     let (change, _) = diff_pin(
         "i",
@@ -372,8 +369,7 @@ fn test_a_classified_move_serializes_its_word() {
             tree: &from,
         },
     );
-    let json = serde_json::to_value(&change).expect("json");
-    assert_eq!(json["compat"], "breaking");
+    assert_eq!(change.compat, Some(Compat::Breaking));
 }
 
 // A tag on only one side is no pair of tags: the manifests are read instead.

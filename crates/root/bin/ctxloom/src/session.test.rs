@@ -52,6 +52,14 @@ impl Home {
         self.env.run(args)
     }
 
+    /// The resource name of the seeded session `harp` (`CTXLOOM_SESSION`'s
+    /// value for its hooks: the session a hook addresses its facts to).
+    fn name_of(&self, harp: &str) -> String {
+        let shown = self.run(&["session", "show", harp, "--format", "json"]);
+        assert_eq!(shown.code, 0, "{}", shown.said());
+        shown.json()["name"].as_str().expect("a name").to_string()
+    }
+
     /// Seed `harp` with `flags`; it must succeed.
     fn seed(&self, harp: &str, flags: &[&str]) {
         let mut args = vec!["test", "seed-session", harp];
@@ -111,28 +119,44 @@ impl Home {
             .env
             .home()
             .join(".ctxloom/sessions")
-            .join(format!("{harp}.lock"));
+            .join(harp)
+            .join("session.lock");
         let file = files::open_read(path).expect("a lock file: seed with --lock free");
         file.lock().expect("the lock is free to take");
         file
     }
 }
 
+/// The sessions a listing's proto3 JSON holds (ruling 146): its
+/// `sessions`, none when the message is empty.
 fn rows(ran: &Ran) -> Vec<Value> {
     assert_eq!(ran.code, 0, "{}", ran.said());
-    ran.json().as_array().expect("an array").clone()
+    ran.json()
+        .get("sessions")
+        .map(|sessions| sessions.as_array().expect("an array").clone())
+        .unwrap_or_default()
+}
+
+/// A session's harp: the last segment of its resource name.
+fn harp_of(session: &Value) -> String {
+    let name = session["name"].as_str().expect("a resource name");
+    name.rsplit('/').next().unwrap_or(name).to_string()
 }
 
 fn row<'a>(rows: &'a [Value], harp: &str) -> &'a Value {
     rows.iter()
-        .find(|r| r["harp"] == harp)
+        .find(|r| harp_of(r) == harp)
         .unwrap_or_else(|| panic!("no row for {harp} in {rows:?}"))
 }
 
 fn harps(rows: &[Value]) -> Vec<String> {
-    rows.iter()
-        .map(|r| r["harp"].as_str().unwrap().to_string())
-        .collect()
+    rows.iter().map(harp_of).collect()
+}
+
+/// A state word as proto3 JSON names the API's enum (`Session.State`,
+/// AIP-216: its values unprefixed).
+fn state(word: &str) -> String {
+    word.to_uppercase()
 }
 
 // ------------------------------------------------------ "Reading the record"
@@ -177,7 +201,7 @@ fn test_a_fresh_project_has_recorded_nothing() {
         let ran = home.run(&args);
         assert_eq!(ran.code, 0, "{flags:?}: {}", ran.said());
         if json {
-            assert_eq!(ran.json(), serde_json::json!([]), "{flags:?}");
+            assert_eq!(ran.json(), serde_json::json!({}), "{flags:?}");
         } else {
             assert_eq!(ran.stdout, "(no sessions)\n", "{flags:?}");
         }
@@ -189,7 +213,6 @@ fn test_a_fresh_project_has_recorded_nothing() {
 #[test]
 fn test_reading_creates_nothing() {
     let home = Home::new();
-    let before = files::children(home.env.home()).len();
     for args in [
         &["session", "list"][..],
         &["session", "list", "--all"],
@@ -198,7 +221,26 @@ fn test_reading_creates_nothing() {
     ] {
         assert_eq!(home.run(args).code, 0, "{args:?}");
     }
-    assert_eq!(files::children(home.env.home()).len(), before);
+    // The reads are the daemon's (slice 2 step 6), and a session read names
+    // no project, so it mints no project id (owner ruling 2026-11-14), so
+    // a project with none lists nothing, asking no daemon: what is there is
+    // at most the daemon's own (its directory, the one store it keeps); no
+    // identity, session, transcript or store of a read's.
+    let top = files::children(home.env.home());
+    assert_eq!(top, [home.env.home().join(".ctxloom")], "{top:?}");
+    for entry in files::children(home.env.home().join(".ctxloom")) {
+        let name = entry.file_name().unwrap().to_string_lossy().to_string();
+        assert!(
+            ["daemon", "projects"].contains(&name.as_str()) || name.starts_with("ctxloom.db"),
+            "{name} is no daemon's"
+        );
+    }
+    for project in files::children(home.env.home().join(".ctxloom/projects")) {
+        assert!(
+            !files::exists(project.join("ctxloom.db")),
+            "no store of a project's own"
+        );
+    }
 }
 
 // session.feature: "Showing a session prints its record, titled by its first
@@ -238,16 +280,16 @@ fn test_the_listing_takes_each_sessions_state_from_its_lock() {
     home.seed("calm-dusty-wren", &["--transcript", "--ended-ago", "7200"]);
     let _running = home.running("amber-swift-owl");
     let listed = rows(&home.run(&["session", "list", "--all", "--format", "json"]));
-    assert_eq!(row(&listed, "amber-swift-owl")["state"], "live");
+    assert_eq!(row(&listed, "amber-swift-owl")["state"], state("live"));
     assert!(
-        row(&listed, "amber-swift-owl").get("end").is_none(),
+        row(&listed, "amber-swift-owl").get("end_time").is_none(),
         "a live session's end is blank"
     );
-    assert_eq!(row(&listed, "brisk-copper-moth")["state"], "ended");
-    assert!(row(&listed, "brisk-copper-moth").get("end").is_some());
+    assert_eq!(row(&listed, "brisk-copper-moth")["state"], state("ended"));
+    assert!(row(&listed, "brisk-copper-moth").get("end_time").is_some());
     assert_eq!(
         row(&listed, "calm-dusty-wren")["state"],
-        "unknown",
+        state("unknown"),
         "no lock file"
     );
     let text = home.run(&["session", "list", "--all", "--format", "text"]);
@@ -309,7 +351,11 @@ fn test_state_keeps_only_the_sessions_in_that_state() {
             args.insert(2, "seeded");
         }
         let listed = rows(&home.run(&args));
-        assert_eq!(row(&listed, kept)["state"], state, "{leaf} {state}");
+        assert_eq!(
+            row(&listed, kept)["state"],
+            self::state(state),
+            "{leaf} {state}"
+        );
         for harp in dropped {
             assert!(
                 !harps(&listed).contains(&harp.to_string()),
@@ -368,7 +414,7 @@ fn test_a_query_that_matches_nothing_says_so() {
         "--format",
         "json",
     ]);
-    assert_eq!(json.json(), serde_json::json!([]));
+    assert_eq!(json.json(), serde_json::json!({}));
 }
 
 // ------------------------------------------------------------------- keep
@@ -472,7 +518,7 @@ fn test_remove_yes_destroys_the_whole_session_its_directory_lock_and_events() {
         !files::exists(
             home.env
                 .home()
-                .join(".ctxloom/sessions/amber-swift-owl.lock")
+                .join(".ctxloom/sessions/amber-swift-owl/session.lock")
         ),
         "its lock goes"
     );
@@ -644,7 +690,12 @@ fn test_a_rename_sets_the_title_and_moves_nothing() {
     let shown = home
         .run(&["session", "show", HARP, "--format", "json"])
         .json();
-    assert_eq!(shown["harp"], HARP);
+    assert!(
+        shown["name"]
+            .as_str()
+            .is_some_and(|name| name.ends_with(&format!("/sessions/{HARP}"))),
+        "{shown}"
+    );
     assert_eq!(shown["title"], "the auth refactor");
     assert!(files::exists(&essence), "the output folder did not move");
     let listed = rows(&home.run(&["session", "list", "--all"]));
@@ -677,12 +728,14 @@ const SESSION_START: &str = r#"{"session_id":"vendor-session-42","transcript_pat
 // session_hooks.feature: "Binding a session records the harp both in the
 // transcript and in the index", through the one callback form,
 // `hook claude-code execute SessionStart`: the marker on stdout (parsed ALONE as
-// JSON, as context) and the binding in the index.
+// JSON, as context) and the binding in the index, delivered to the user's
+// daemon as every capture fact is (owner 2026-11-15, H-Q9).
 #[test]
 fn test_executing_session_start_binds_the_session_and_emits_the_marker() {
     let home = Home::new();
     home.seed("brisk-copper-moth", &[]);
-    let vars = [("CTXLOOM_SESSION_HARP", "brisk-copper-moth")];
+    let name = home.name_of("brisk-copper-moth");
+    let vars = [("CTXLOOM_SESSION", name.as_str())];
     let ran = home.env.run_hook(
         &["hook", "claude-code", "execute", "SessionStart"],
         SESSION_START,
@@ -716,7 +769,8 @@ fn test_executing_session_start_binds_the_session_and_emits_the_marker() {
 fn test_a_second_bind_with_a_new_session_rotates_the_binding() {
     let home = Home::new();
     home.seed("brisk-copper-moth", &[]);
-    let vars = [("CTXLOOM_SESSION_HARP", "brisk-copper-moth")];
+    let name = home.name_of("brisk-copper-moth");
+    let vars = [("CTXLOOM_SESSION", name.as_str())];
     let bind = |payload: &str| {
         home.env.run_hook(
             &["hook", "claude-code", "execute", "SessionStart"],
@@ -744,7 +798,10 @@ fn test_binding_a_harp_nobody_recorded_still_emits_the_marker_and_exits_0() {
     let ran = home.env.run_hook(
         &["hook", "claude-code", "execute", "SessionStart"],
         SESSION_START,
-        &[("CTXLOOM_SESSION_HARP", "no-such-harp")],
+        &[(
+            "CTXLOOM_SESSION",
+            "projects/amber-quiet-heron/sessions/no-such-harp",
+        )],
     );
     assert_eq!(ran.code, 0, "{}", ran.said());
     assert!(ran.json()["hookSpecificOutput"]["additionalContext"]
@@ -808,12 +865,12 @@ fn test_import_gives_the_listing_go_gives_for_each_sidecar_generation() {
     let listed = rows(&home.run(&["session", "list", "--all", "--format", "json"]));
     let owl = row(&listed, "amber-swift-owl");
     assert_eq!(owl["engine"], "claude-code");
-    assert_eq!(owl["start"], "2026-04-10T00:00:00Z");
-    assert_eq!(owl["end"], "2026-04-10T01:00:00Z");
+    assert_eq!(owl["start_time"], "2026-04-10T00:00:00Z");
+    assert_eq!(owl["end_time"], "2026-04-10T01:00:00Z");
     assert!(owl.get("kept").is_none());
     let moth = row(&listed, "brisk-copper-moth");
     assert_eq!(moth["kept"], true);
-    assert_eq!(moth["start"], "2026-05-02T08:30:00.481Z");
+    assert_eq!(moth["start_time"], "2026-05-02T08:30:00.481Z");
     let wren = row(&listed, "calm-dusty-wren");
     assert_eq!(wren["kept"], true);
     // Owner ruling 102: Go's purged_at is not imported, and no row says
@@ -881,6 +938,6 @@ fn test_an_imported_session_has_the_derived_stable_id() {
     let shown = home
         .run(&["session", "show", "amber-swift-owl", "--format", "json"])
         .json();
-    let id = shown["id"].as_str().unwrap();
+    let id = shown["uid"].as_str().unwrap();
     assert_eq!(id.as_bytes()[14], b'5', "a version 5 UUID: {id}");
 }

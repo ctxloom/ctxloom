@@ -9,9 +9,7 @@ use angzarr_embedded::angzarr_ports::memory::MemoryStore;
 use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
 use angzarr_embedded::{Kernel, OnRetryable, Payload, Sampled, StoreError, Timestamp};
 use ports::{Project, ProjectIdentity};
-use session_ports::{
-    FileItem, GoSession, GoSessions, Liveness, LockState, ProjectStores, SessionFiles,
-};
+use session_ports::{GoSession, GoSessions, Liveness, LockState, ProjectStores};
 use sessions::{
     BindEngineSession, MintSession, Origin, RecordEnd, SessionAggregate, SessionCommand,
     SESSION_DOMAIN,
@@ -78,10 +76,27 @@ impl ProjectIdentity for FakeIdentity {
 /// One in-memory store per project, absent until a write opens it. The
 /// projects opened to write (`opened`) are recorded, so a test can say a read
 /// created nothing.
+///
+/// `one` makes it the one store (T14): every project's streams in one
+/// in-memory store, keyed [`ONE`].
 #[derive(Default)]
 pub struct FakeStores {
     pub stores: BTreeMap<String, MemoryStore>,
     pub opened: Vec<String>,
+    pub one: bool,
+}
+
+/// The key of the one store, where [`FakeStores::one`].
+pub const ONE: &str = "the-one-store";
+
+impl FakeStores {
+    /// The key `project`'s streams are kept under.
+    pub fn key(&self, project: &str) -> String {
+        match self.one {
+            true => ONE.to_string(),
+            false => project.to_string(),
+        }
+    }
 }
 
 impl ProjectStores for FakeStores {
@@ -89,14 +104,15 @@ impl ProjectStores for FakeStores {
 
     async fn open(&mut self, project: &Project) -> Result<&MemoryStore, StoreError> {
         self.opened.push(project.id.clone());
-        Ok(self.stores.entry(project.id.clone()).or_default())
+        let key = self.key(&project.id);
+        Ok(self.stores.entry(key).or_default())
     }
 
     async fn open_existing(
         &mut self,
         project: &Project,
     ) -> Result<Option<&MemoryStore>, StoreError> {
-        Ok(self.stores.get(&project.id))
+        Ok(self.stores.get(&self.key(&project.id)))
     }
 }
 
@@ -107,58 +123,6 @@ pub struct FakeLiveness(pub BTreeMap<String, LockState>);
 impl Liveness for FakeLiveness {
     fn lock_state(&mut self, harp: &str) -> LockState {
         self.0.get(harp).copied().unwrap_or(LockState::Unproven)
-    }
-}
-
-/// A session's files, in memory. `fail_destroy` makes a removal fail.
-#[derive(Default)]
-pub struct FakeFiles {
-    /// A transcript FILE an older ctxloom left, per harp (ruling 87a: never
-    /// read; a remove still names and destroys it).
-    pub transcripts: BTreeMap<String, String>,
-    pub last_active: BTreeMap<String, Timestamp>,
-    /// Other files per harp: (rel, bytes).
-    pub others: BTreeMap<String, Vec<(String, u64)>>,
-    pub fail_destroy: bool,
-    /// The session directories that exist, by harp.
-    pub sessions: std::collections::BTreeSet<String>,
-    /// Every session directory destroyed whole, by harp.
-    pub destroyed_sessions: Vec<String>,
-}
-
-const DIR: &str = "/home/.ctxloom/sessions";
-
-impl SessionFiles for FakeFiles {
-    fn destroy_session(&mut self, harp: &str) -> Result<u64, Report> {
-        if self.fail_destroy {
-            return Err(Report::new("fake-files-busy"));
-        }
-        self.destroyed_sessions.push(harp.to_string());
-        self.sessions.remove(harp);
-        Ok(self.transcripts.remove(harp).map_or(0, |t| t.len() as u64))
-    }
-
-    fn last_active(&mut self, harp: &str) -> Result<Option<Timestamp>, Report> {
-        Ok(self.last_active.get(harp).copied())
-    }
-
-    fn survey(&mut self, harp: &str) -> Result<Vec<FileItem>, Report> {
-        let mut found: Vec<(String, u64)> = self.others.get(harp).cloned().unwrap_or_default();
-        if let Some(text) = self.transcripts.get(harp) {
-            found.push((
-                "transcripts/transcript.jsonl".to_string(),
-                text.len() as u64,
-            ));
-        }
-        found.sort();
-        Ok(found
-            .into_iter()
-            .map(|(rel, bytes)| FileItem {
-                path: format!("{DIR}/{harp}/{rel}"),
-                rel,
-                bytes,
-            })
-            .collect())
     }
 }
 
@@ -208,19 +172,32 @@ fn run_book(store: &MemoryStore, seconds: i64, book: CommandBook) {
 /// A session minted in `store` at `started`, with an engine and (when
 /// `native_id` is not empty) bound.
 pub fn minted(store: &MemoryStore, id: u8, harp: &str, project_dir: &str, started: i64) {
+    minted_in(store, "jolly-mute-magma", id, harp, project_dir, started);
+}
+
+/// [`minted`], in `project`.
+pub fn minted_in(
+    store: &MemoryStore,
+    project: &str,
+    id: u8,
+    harp: &str,
+    project_dir: &str,
+    started: i64,
+) {
     run(
         store,
         id,
         started,
         MintSession {
             harp: harp.to_string(),
-            project_id: "jolly-mute-magma".to_string(),
+            project_id: project.to_string(),
             project_dir: project_dir.to_string(),
             output_dir: format!("/home/Documents/ctxloom/proj/{harp}"),
             engine: "claude-code".to_string(),
             origin: Origin::Session,
             started_at: None,
             depth: 0,
+            owner: None,
             workspace: None,
         },
     );
@@ -301,10 +278,12 @@ pub fn project_at(id: &str, root: &str) -> Project {
 }
 
 /// The claim stream of `harp` in project `project`.
+/// The claim stream of `harp` under the project harp `project` (its name's
+/// root, slice 2 B3).
 pub fn claim_cover(project: &str, harp: &str) -> Cover {
     Cover {
         domain: sessions::NAMES_DOMAIN.to_string(),
-        root: Some(sessions::claim_root(project, harp)),
+        root: Some(sessions::SessionName::new(project, harp).unwrap().root()),
         edition: None,
     }
 }

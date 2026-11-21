@@ -1,49 +1,17 @@
 //! The rows and documents the commands answer with, in both formats. The
 //! JSON keys are D16's: Go 0.7's `harp, summary, state, start, end` plus the
-//! plan's additions, each left out when empty as Go leaves its `omitempty`
-//! ones. Times are RFC 3339 in json and `2006-01-02 15:04:05` (UTC) in text.
+//! plan's additions (the resource `name`, slice 2 B3), each left out when
+//! empty as Go leaves its `omitempty` ones. Times are RFC 3339 in json and `2006-01-02 15:04:05` (UTC) in text.
 
 use std::io::{self, Write};
 
 use angzarr_diagnostic::{Arg, Diagnostic};
 use angzarr_presentation::text;
+use daemon_proto::v1;
 use serde::Serialize;
-use sessions_application::{stamp, ImportReport, Titled, TranscriptRow, View, NO_SUMMARY};
+use sessions_application::{stamp, ImportReport, Titled, TranscriptRow, NO_SUMMARY};
 #[cfg(feature = "session-destroy")]
 use sessions_application::{Class, FilePlan, PlanItem, Removal};
-
-/// One session as `session list` and `search` row it.
-#[derive(Serialize)]
-pub(crate) struct Row {
-    harp: String,
-    summary: String,
-    state: &'static str,
-    start: String,
-    /// When its last run ended; left out while it is live.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    end: Option<String>,
-    #[serde(skip_serializing_if = "is_false")]
-    kept: bool,
-    engine: String,
-}
-
-fn is_false(value: &bool) -> bool {
-    !value
-}
-
-impl Row {
-    pub(crate) fn of(view: &View) -> Row {
-        Row {
-            harp: view.record.harp.clone(),
-            summary: view.summary(),
-            state: view.state.as_str(),
-            start: stamp::rfc3339(view.record.started_at),
-            end: view.end().map(stamp::rfc3339),
-            kept: view.record.kept,
-            engine: view.record.engine.clone(),
-        }
-    }
-}
 
 /// Columns by display width, two spaces between, no trailing spaces.
 pub(crate) fn table(headers: &[&str], rows: &[Vec<String>]) -> String {
@@ -71,20 +39,56 @@ pub(crate) fn table(headers: &[&str], rows: &[Vec<String>]) -> String {
     out
 }
 
-/// The listing as text: the placeholder, or a table.
-pub(crate) fn rows_text(views: &[View], out: &mut dyn Write) -> io::Result<()> {
-    if views.is_empty() {
+/// A session's harp: the last segment of its resource name.
+fn harp_of(name: &str) -> &str {
+    name.rsplit('/').next().unwrap_or(name)
+}
+
+/// A session's state, as the rows say it.
+fn state_word(state: i32) -> &'static str {
+    match v1::session::State::try_from(state) {
+        Ok(v1::session::State::Live) => "live",
+        Ok(v1::session::State::Ended) => "ended",
+        _ => "unknown",
+    }
+}
+
+/// Its title: the one set, else its first prompt (S55).
+fn title_of(session: &v1::Session) -> Option<&str> {
+    [session.title.as_str(), session.summary.as_str()]
+        .into_iter()
+        .find(|text| !text.is_empty())
+}
+
+/// The row's summary: the title, or [`NO_SUMMARY`], with a badge for a kept
+/// one.
+fn summary_of(session: &v1::Session) -> String {
+    let mut summary = title_of(session).unwrap_or(NO_SUMMARY).to_string();
+    if session.kept {
+        summary.push_str("  \u{1f4cc} kept (transcript kept at any age)");
+    }
+    summary
+}
+
+/// A time as the text rows show it; blank when unset.
+fn when(at: Option<daemon_proto::google::protobuf::Timestamp>) -> String {
+    at.map(|at| stamp::text(at.into())).unwrap_or_default()
+}
+
+/// The listing the daemon answered, as text: the placeholder, or a table.
+pub(crate) fn listing_text(sessions: &[v1::Session], out: &mut dyn Write) -> io::Result<()> {
+    if sessions.is_empty() {
         return writeln!(out, "(no sessions)");
     }
-    let rows: Vec<Vec<String>> = views
+    let rows: Vec<Vec<String>> = sessions
         .iter()
-        .map(|v| {
+        .map(|s| {
             vec![
-                v.record.harp.clone(),
-                v.summary(),
-                v.state.as_str().to_string(),
-                stamp::text(v.record.started_at),
-                v.end().map(stamp::text).unwrap_or_default(),
+                harp_of(&s.name).to_string(),
+                summary_of(s),
+                state_word(s.state).to_string(),
+                when(s.start_time),
+                when(s.end_time),
             ]
         })
         .collect();
@@ -95,86 +99,82 @@ pub(crate) fn rows_text(views: &[View], out: &mut dyn Write) -> io::Result<()> {
     )
 }
 
-/// `session show`'s document in json.
-#[derive(Serialize)]
-pub(crate) struct ShowDoc {
-    id: String,
-    harp: String,
-    project: String,
-    project_id: String,
-    state: &'static str,
-    engine: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    native_session: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    title: Option<String>,
-    started_at: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    ended_at: Option<String>,
-    #[serde(skip_serializing_if = "is_false")]
-    kept: bool,
-    output_dir: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    rotations: Vec<RotationDoc>,
-}
-
-#[derive(Serialize)]
-struct RotationDoc {
-    native_id: String,
-    transcript_path: String,
-    rotated_at: String,
-}
-
-impl ShowDoc {
-    pub(crate) fn of(view: &View) -> ShowDoc {
-        let record = &view.record;
-        ShowDoc {
-            id: record.id.clone(),
-            harp: record.harp.clone(),
-            project: record.project_dir.clone(),
-            project_id: record.project_id.clone(),
-            state: view.state.as_str(),
-            engine: record.engine.clone(),
-            native_session: record.native_id.clone(),
-            title: view.title.clone(),
-            started_at: stamp::rfc3339(record.started_at),
-            ended_at: view.end().map(stamp::rfc3339),
-            kept: record.kept,
-            output_dir: record.output_dir.clone(),
-            rotations: record
-                .rotations
-                .iter()
-                .map(|r| RotationDoc {
-                    native_id: r.native_id.clone(),
-                    transcript_path: r.transcript_path.clone(),
-                    rotated_at: r.rotated_at.map(stamp::rfc3339).unwrap_or_default(),
-                })
-                .collect(),
-        }
-    }
-}
-
 /// One fact per line, absent facts left out rather than printed blank (Go:
 /// `renderSessionShow`).
-pub(crate) fn show_text(view: &View, out: &mut dyn Write) -> io::Result<()> {
-    let record = &view.record;
-    let title = view.title.as_deref().unwrap_or(NO_SUMMARY);
-    writeln!(out, "{}\n{title}\n", record.harp)?;
-    writeln!(out, "state:    {}", view.state.as_str())?;
-    writeln!(out, "engine:   {}", record.engine)?;
-    if !record.native_id.is_empty() {
-        writeln!(out, "native:   {}", record.native_id)?;
+pub(crate) fn session_text(session: &v1::Session, out: &mut dyn Write) -> io::Result<()> {
+    let title = title_of(session).unwrap_or(NO_SUMMARY);
+    writeln!(out, "{}\n{title}\n", harp_of(&session.name))?;
+    writeln!(out, "state:    {}", state_word(session.state))?;
+    writeln!(out, "engine:   {}", session.engine)?;
+    if !session.native_session.is_empty() {
+        writeln!(out, "native:   {}", session.native_session)?;
     }
-    writeln!(out, "project:  {}", record.project_dir)?;
-    writeln!(out, "started:  {}", stamp::text(record.started_at))?;
-    if let Some(end) = view.end() {
-        writeln!(out, "ended:    {}", stamp::text(end))?;
+    writeln!(out, "project:  {}", session.project_root)?;
+    writeln!(out, "started:  {}", when(session.start_time))?;
+    if session.end_time.is_some() {
+        writeln!(out, "ended:    {}", when(session.end_time))?;
     }
-    if record.kept {
+    if session.kept {
         writeln!(
             out,
             "kept:     its transcript is kept at any age (`ctxloom session keep --undo` releases it)"
         )?;
+    }
+    // The owner link, the close and the children (D-N35), as the json has
+    // them: each left out when unset.
+    if !session.owner.is_empty() {
+        writeln!(out, "owner:    {}", session.owner)?;
+    }
+    if session.closed {
+        writeln!(out, "closed:   yes")?;
+    }
+    if !session.children.is_empty() {
+        writeln!(out, "children: {} held", session.children.len())?;
+        for child in &session.children {
+            writeln!(out, "  {child}")?;
+        }
+    }
+    if !session.pending.is_empty() {
+        let count = session.pending.len();
+        let plural = if count == 1 { "" } else { "s" };
+        writeln!(
+            out,
+            "pending:  {count} message{plural} no turn has carried yet"
+        )?;
+        for message in &session.pending {
+            let first = message.text.lines().next().unwrap_or_default();
+            writeln!(
+                out,
+                "  {} ({}): {first}",
+                message.message_id, message.urgency
+            )?;
+        }
+    }
+    // What its latest run was launched with, and how its last turn failed
+    // (step 9): each left out when its run said none.
+    if let Some(grant) = &session.grant {
+        writeln!(
+            out,
+            "granted:  MCP servers {}",
+            grant.mcp_servers.join(", ")
+        )?;
+        if !grant.permissions.is_empty() {
+            writeln!(out, "          permissions {}", grant.permissions)?;
+        }
+    }
+    // The terminal wake: one sent and not answered (disarmed), or one
+    // still awaiting its turn. DRAFT words.
+    match session.wake.as_str() {
+        "not answered" => writeln!(out, "wake:     sent, not answered")?,
+        "outstanding" => writeln!(out, "wake:     sent, awaiting its turn")?,
+        _ => {}
+    }
+    if let Some(failure) = &session.last_failure {
+        let said = failure.notice.as_ref().map_or("", |n| n.text.as_str());
+        writeln!(out, "failed:   {}: {said}", failure.kind)?;
+        if !failure.detail.is_empty() {
+            writeln!(out, "          {}", failure.detail)?;
+        }
     }
     Ok(())
 }
@@ -204,28 +204,6 @@ pub(crate) struct KeepDoc {
     pub(crate) kept: bool,
 }
 
-/// One file in a removal's plan, as json.
-#[cfg(feature = "session-destroy")]
-#[derive(Serialize)]
-struct ItemDoc {
-    path: String,
-    rel: String,
-    class: &'static str,
-    bytes: u64,
-}
-
-#[cfg(feature = "session-destroy")]
-impl ItemDoc {
-    fn of(item: &PlanItem) -> ItemDoc {
-        ItemDoc {
-            path: item.path.clone(),
-            rel: item.rel.clone(),
-            class: class(item.class),
-            bytes: item.bytes,
-        }
-    }
-}
-
 #[cfg(feature = "session-destroy")]
 fn class(class: Class) -> &'static str {
     match class {
@@ -234,52 +212,65 @@ fn class(class: Class) -> &'static str {
     }
 }
 
+/// The removal the daemon answered (its plan, or its destroy), as the
+/// report renders it.
 #[cfg(feature = "session-destroy")]
-/// The file half of a removal: the session's whole directory.
-#[derive(Serialize)]
-struct FilesDoc {
-    harp: String,
-    applied: bool,
-    destroy: Vec<ItemDoc>,
-    bytes_freed: u64,
+pub(crate) fn removal_of(plan: &v1::DeleteSessionResponse) -> Removal {
+    Removal {
+        harp: plan.harp.clone(),
+        applied: plan.applied.unwrap_or(false),
+        files: FilePlan {
+            destroy: plan
+                .files
+                .iter()
+                .map(|file| PlanItem {
+                    path: file.path.clone(),
+                    rel: file.rel.clone(),
+                    class: match v1::removal_file::Class::try_from(file.class) {
+                        Ok(v1::removal_file::Class::Machine) => Class::Machine,
+                        _ => Class::Authored,
+                    },
+                    bytes: file.bytes,
+                })
+                .collect(),
+            bytes_freed: plan.bytes_freed,
+        },
+        events_destroyed: plan.events_destroyed,
+        refusal: None,
+        dead_letters: Vec::new(),
+    }
 }
 
+/// The worktrees the daemon answered, as `session worktrees` renders them.
 #[cfg(feature = "session-destroy")]
-/// `session remove`'s answer: the destroy of the session, its files named,
-/// and how many events of it (and of its runs) went from the store.
-#[derive(Serialize)]
-pub(crate) struct RemovalDoc {
-    harp: String,
-    applied: bool,
-    events_destroyed: u64,
-    files: FilesDoc,
-    /// The scratch worktrees a purge reached, when it reached any.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    worktrees: Option<isolation_application::Report>,
-}
-
-#[cfg(feature = "session-destroy")]
-impl RemovalDoc {
-    pub(crate) fn of(
-        removal: &Removal,
-        worktrees: Option<&isolation_application::Report>,
-    ) -> RemovalDoc {
-        let FilePlan {
-            destroy,
-            bytes_freed,
-        } = &removal.files;
-        RemovalDoc {
-            harp: removal.harp.clone(),
-            applied: removal.applied,
-            events_destroyed: removal.events_destroyed,
-            files: FilesDoc {
-                harp: removal.harp.clone(),
-                applied: removal.applied,
-                destroy: destroy.iter().map(ItemDoc::of).collect(),
-                bytes_freed: *bytes_freed,
-            },
-            worktrees: worktrees.cloned(),
-        }
+pub(crate) fn report_of(report: &v1::WorktreeReport) -> isolation_application::Report {
+    use isolation_application::{Row, Verdict};
+    isolation_application::Report {
+        worktrees: report
+            .worktrees
+            .iter()
+            .map(|row| Row {
+                harp: row.harp.clone(),
+                worktree: row.worktree.clone(),
+                path: row.path.clone(),
+                owner_state: match row.owner_state.as_str() {
+                    "alive" => "alive",
+                    "dead" => "dead",
+                    _ => "indeterminate",
+                },
+                verdict: match row.verdict.as_str() {
+                    "reaped" => Verdict::Reaped,
+                    "reapable" => Verdict::Reapable,
+                    "spared" => Verdict::Spared,
+                    _ => Verdict::Skipped,
+                },
+                reason: row.reason.clone(),
+            })
+            .collect(),
+        reaped: report.reaped,
+        spared: report.spared,
+        skipped: report.skipped,
+        applied: report.applied.unwrap_or(false),
     }
 }
 
@@ -425,8 +416,9 @@ pub(crate) fn worktrees_text(
 }
 
 /// A transcript read as a conversation: `user: ...`, `assistant: ...`, for
-/// each entry; the records that are not the conversation (the session's id, a
-/// completion, a tool call) say nothing a reader wants. The assistant's words
+/// each entry, and `gap: ...` where a hook dropped a fact (s4-Q14, H3); the
+/// records that are not the conversation (the session's id, a completion, a
+/// tool call) say nothing a reader wants. The assistant's words
 /// are coalesced here: a message's `assistant_delta` lines are joined by their
 /// `index`, and the message is one `assistant:` line.
 ///
@@ -525,10 +517,31 @@ pub(crate) fn conversation_text(transcript: &str, out: &mut dyn Write) -> io::Re
                     writeln!(out, "assistant: {text}")?;
                 }
             }
+            Some("gap") => {
+                let gap = &record["gap"];
+                writeln!(
+                    out,
+                    "gap: {} fact not recorded ({}, dropped at {}: {})",
+                    gap["facts"].as_u64().unwrap_or(1),
+                    gap["dropped"].as_str().unwrap_or_default(),
+                    gap["dropped_at"].as_str().unwrap_or_default(),
+                    gap_why(gap["why"].as_str().unwrap_or_default()),
+                )?;
+            }
             _ => {}
         }
     }
     Ok(())
+}
+
+/// Why a fact was dropped, as a gap line says it (PROPOSAL, s4-Q14 H3: the
+/// owner's to word); a word this ctxloom does not know, as it is.
+fn gap_why(word: &str) -> &str {
+    match word {
+        "bound" => "the session's hold was at its bound",
+        "disk" => "the disk refused it",
+        other => other,
+    }
 }
 
 /// `session import`'s answer.
@@ -609,13 +622,13 @@ pub(crate) fn import_text(report: &ImportReport, out: &mut dyn Write) -> io::Res
 /// Go's sweep report: a line per session, the reason under it, and a count.
 #[cfg(feature = "session-destroy")]
 pub(crate) fn sweep_text(
-    report: &reclaim_application::SweepReport,
+    report: &v1::SweepSessionsResponse,
     out: &mut dyn Write,
 ) -> io::Result<()> {
-    let purge = report
-        .purge_cutoff
-        .as_deref()
-        .map_or("not set (purges are held)".to_string(), str::to_string);
+    let purge = match report.purge_cutoff.is_empty() {
+        true => "not set (purges are held)".to_string(),
+        false => report.purge_cutoff.clone(),
+    };
     writeln!(out, "Session sweep: purge before {purge}.\n")?;
     for r in &report.rows {
         let size = if r.bytes > 0 {
@@ -626,10 +639,7 @@ pub(crate) fn sweep_text(
         writeln!(
             out,
             "  {:<28} {:<8} {:<8} {:>10}",
-            r.harp,
-            r.action,
-            format!("{:?}", r.verdict).to_lowercase(),
-            size
+            r.harp, r.action, r.verdict, size
         )?;
         if !r.reason.is_empty() {
             writeln!(out, "  {:<28} {}", "", r.reason)?;
@@ -638,15 +648,14 @@ pub(crate) fn sweep_text(
             writeln!(out, "  {:<28} run: {}", "", r.command)?;
         }
     }
-    let count = |k: &str| report.counts.get(k).copied().unwrap_or(0);
+    let count = report.counts.unwrap_or_default();
     writeln!(
         out,
         "\n{} done, {} planned, {} held, {} left, {} skipped, {} failed.",
-        count("done"),
-        count("planned"),
-        count("held"),
-        count("left"),
-        count("skipped"),
-        count("failed")
+        count.done, count.planned, count.held, count.left, count.skipped, count.failed
     )
 }
+
+#[cfg(test)]
+#[path = "render.test.rs"]
+mod tests;

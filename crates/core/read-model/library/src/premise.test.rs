@@ -201,6 +201,94 @@ fn test_the_instruction_is_byte_identical_to_gos() {
     assert_eq!(selection_instruction(), GO_INSTRUCTION);
 }
 
+/// The instruction on a launch surface (s3-Q5, owner-approved 2026-11-14):
+/// the context that rides a launch, where ctxloom's server is offered, ends
+/// with the `context_assemble` tool; written out in full, as `GO_INSTRUCTION`.
+const LAUNCH_INSTRUCTION: &str = "# Conditional guidance\n\nSome of this project's guidance applies CONDITIONALLY. Each entry gives a\nfragment's NAME and the PREMISE under which it applies. Load any your\ncontext does not already carry.\n\nMatch against WHAT YOU ARE ABOUT TO DO -- the next action, not the whole\nconversation behind you. Take each premise ON ITS OWN and ask whether it\ndescribes that action; you are not picking the single best match, and\nseveral premises often apply at once.\n\nWhen it is a BORDERLINE call, include it. An unnecessary fragment costs a\nlittle context; one you withhold is never learned to exist and cannot be\nasked for.\n\nSelect on the premise, not on the name. Then for each name you chose, call\nthe ctxloom `context_assemble` tool with those names as its `bundles`\nargument.\n";
+
+// s3-Q5: the last clause follows the surface. At rest (no server) it is the
+// CLI's; on a launch it is ctxloom's own tool, and nothing else changes.
+#[test]
+fn test_the_instruction_s_last_clause_follows_the_surface() {
+    assert_eq!(selection_instruction_on(Surface::AtRest), GO_INSTRUCTION);
+    assert_eq!(
+        selection_instruction_on(Surface::Launch),
+        LAUNCH_INSTRUCTION
+    );
+    assert_eq!(Surface::default(), Surface::AtRest, "at rest unless told");
+    let row = Entry {
+        name: "alpha".into(),
+        premise: "P".into(),
+    };
+    assert_eq!(
+        render_on(std::slice::from_ref(&row), Surface::Launch),
+        format!("{LAUNCH_INSTRUCTION}\n- alpha: P")
+    );
+    assert_eq!(
+        render_on(std::slice::from_ref(&row), Surface::AtRest),
+        render(&[row])
+    );
+    assert_eq!(render_on(&[], Surface::Launch), "");
+}
+
+// A launch's assembly carries the launch's clause; an assembly at rest the
+// CLI's.
+#[test]
+fn test_an_assembly_s_index_is_worded_for_its_surface() {
+    let (cat, profile) = selection_fixture(true);
+    let sel = select(&[profile], &cat, &SelectRequest::default(), &mut Vec::new());
+    let launch = assemble(
+        &cat,
+        &sel,
+        &Options {
+            surface: Some(Surface::Launch),
+            ..Options::default()
+        },
+    );
+    assert!(
+        launch.context.contains(LAUNCH_INSTRUCTION),
+        "{}",
+        launch.context
+    );
+    let rest = assemble(&cat, &sel, &Options::default());
+    assert!(rest.context.contains(GO_INSTRUCTION), "{}", rest.context);
+}
+
+// E2 (owner, 2026-11-17): an assembly whose caller renders the index at
+// its own presentation carries no index in its context, only the data of
+// what was held back.
+#[test]
+fn test_an_assembly_with_no_surface_holds_its_index_back_as_data() {
+    let (cat, profile) = selection_fixture(true);
+    let sel = select(&[profile], &cat, &SelectRequest::default(), &mut Vec::new());
+    let options = Options {
+        surface: None,
+        ..Options::default()
+    };
+    let data = assemble(&cat, &sel, &options);
+    assert!(
+        !data.context.contains("Conditional guidance"),
+        "{}",
+        data.context
+    );
+    let entries = crate::compose::index_of(&data.premised);
+    assert!(!entries.is_empty());
+    let rest = assemble(&cat, &sel, &Options::default());
+    assert_eq!(
+        rest.context,
+        format!(
+            "{}{}{}",
+            data.context,
+            if data.context.is_empty() {
+                ""
+            } else {
+                crate::compose::SECTION_SEPARATOR
+            },
+            render(&entries)
+        )
+    );
+}
+
 // premise_test.go: TestRenderPremiseIndex_KeepsTheThreeMeasuredProperties
 #[test]
 fn test_the_index_keeps_the_three_measured_properties() {

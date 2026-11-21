@@ -4,10 +4,7 @@
 
 use crate::aggregate::tests::{mint, Session};
 use crate::MintSession;
-use crate::{
-    IncarnationEnded, IncarnationOwed, RecordIncarnationEnded, SessionEvent, StopOrdered,
-    StopSession,
-};
+use crate::{IncarnationEnded, IncarnationOwed, RecordIncarnationEnded, SessionEvent, StopOrdered};
 
 fn ended(incarnation: u32, cause: &str) -> RecordIncarnationEnded {
     RecordIncarnationEnded {
@@ -51,6 +48,7 @@ fn a_mint_records_the_sessions_depth() {
     session
         .run(MintSession {
             depth: 2,
+            owner: None,
             ..mint(crate::aggregate::tests::HARP)
         })
         .unwrap();
@@ -92,29 +90,7 @@ fn an_end_records_when_the_sessions_last_run_ended() {
     );
 }
 
-// PORTED-FROM-GO: internal/core/coord/launchgate_giveup_test.go
-// TestAgentStop_OnAnEndedRunStillStopsTheRelaunch: a stop order sets the flag
-// even after the run ended.
-#[test]
-fn a_stop_ordered_after_the_end_still_sets_the_flag() {
-    let mut session = first_run_ended("runner-exit");
-    let events = session
-        .run(StopSession {
-            requester_depth: 0,
-            reason: "user".to_string(),
-        })
-        .unwrap();
-    assert_eq!(
-        events,
-        vec![SessionEvent::StopOrdered(StopOrdered {
-            reason: "user".to_string()
-        })]
-    );
-    assert!(session.state().stopped);
-}
-
-// Owner ruling 101: no end owes a relaunch, whatever its cause, stopped or
-// not; an idle reap, an expected end, notices nobody.
+// Owner ruling 101: no end owes a relaunch, whatever its cause; an idle reap, an expected end, notices nobody.
 #[test]
 fn no_end_owes_a_relaunch_and_an_idle_reap_notices_nobody() {
     for cause in ["runner-exit", "stopped", "orphaned", "launch-failed"] {
@@ -137,35 +113,6 @@ fn no_end_owes_a_relaunch_and_an_idle_reap_notices_nobody() {
             notice_parent: false,
         })]
     );
-}
-
-// NEW-DESIGN (plan 3.1, Go's I2: "refused from a child"). The depth is
-// STAMPED from the caller's identity by admission, never read from the
-// payload; the aggregate refuses depth > 0.
-#[test]
-fn a_stop_ordered_by_a_child_is_refused() {
-    let mut session = Session::minted();
-    let (code, args) = session
-        .run(StopSession {
-            requester_depth: 2,
-            reason: "x".to_string(),
-        })
-        .unwrap_err();
-    assert_eq!(code, "sessions-child-cannot-stop");
-    assert_eq!(args["depth"], "2");
-    assert!(!session.state().stopped);
-}
-
-// NEW-DESIGN: a second stop order records nothing.
-#[test]
-fn a_second_stop_order_records_nothing() {
-    let mut session = Session::minted();
-    let stop = StopSession {
-        requester_depth: 0,
-        reason: "u".to_string(),
-    };
-    assert_eq!(session.run(stop.clone()).unwrap().len(), 1);
-    assert!(session.run(stop).unwrap().is_empty());
 }
 
 // NEW-DESIGN: an end told twice (a retried policy step) records nothing the
@@ -332,4 +279,186 @@ fn a_session_with_no_workspace_recorded_resumes_as_one_in_the_project() {
     let (code, args) = session.run(resume_in("worktree")).unwrap_err();
     assert_eq!(code, "sessions-workspace-mismatch");
     assert_eq!(args["workspace"], "none");
+}
+
+fn rehost(recent: u32, cause: &str) -> crate::RehostSession {
+    crate::RehostSession {
+        recent_rehosts: recent,
+        cause: cause.to_string(),
+    }
+}
+
+/// A child whose first run bound its native session and was lost: its
+/// incarnation ended `orphaned` by a sweep.
+fn lost_child() -> Session {
+    let mut session = Session::new();
+    session.run(mint(crate::aggregate::tests::HARP)).unwrap();
+    session
+        .bound(crate::BindEngineSession {
+            native_id: "native-1".to_string(),
+            transcript_path: String::new(),
+            engine_version: None,
+        })
+        .unwrap();
+    session.fact(ended(1, "orphaned"), "end:s:1");
+    session
+}
+
+// T19, s4-Q9: a re-host owes the lost child its next incarnation, reason
+// `rehost`, on the same stream.
+#[test]
+fn a_rehost_owes_the_lost_childs_next_incarnation() {
+    let mut session = lost_child();
+    let events = session.run(rehost(0, "")).unwrap();
+    assert_eq!(
+        events,
+        vec![SessionEvent::IncarnationOwed(IncarnationOwed {
+            incarnation: 2,
+            reason: "rehost".to_string(),
+        })]
+    );
+    assert_eq!(session.state().open_incarnation, Some(2));
+}
+
+// S47: at 60 recent re-hosts it is refused, naming the budget, and nothing
+// is owed; at 59 it is not.
+#[test]
+fn a_rehost_past_its_budget_is_refused_and_owes_nothing() {
+    let mut session = lost_child();
+    let (code, args) = session.run(rehost(60, "rehost")).unwrap_err();
+    assert_eq!(code, "sessions-rehost-budget-spent");
+    assert_eq!(args["limit"], "60");
+    assert_eq!(args["recent"], "60");
+    assert_eq!(args["harp"], crate::aggregate::tests::HARP);
+    assert_eq!(session.state().open_incarnation, None);
+    assert!(session.run(rehost(59, "")).is_ok());
+}
+
+// s4-Q5: a drain's hand-over re-hosts with cause `drain`, never refused for
+// the budget.
+#[test]
+fn a_drains_rehost_is_never_refused_for_the_budget() {
+    let mut session = lost_child();
+    let events = session.run(rehost(600, "drain")).unwrap();
+    assert!(matches!(&events[..],
+        [SessionEvent::IncarnationOwed(o)] if o.reason == "drain" && o.incarnation == 2));
+}
+
+#[test]
+fn a_rehost_while_an_incarnation_is_open_is_refused_as_running() {
+    let mut session = lost_child();
+    session.run(rehost(0, "")).unwrap();
+    let (code, _) = session.run(rehost(0, "")).unwrap_err();
+    assert_eq!(code, "sessions-session-running");
+}
+
+#[test]
+fn a_rehost_of_a_child_with_no_native_session_is_refused() {
+    let mut session = first_run_ended("orphaned");
+    let (code, _) = session.run(rehost(0, "")).unwrap_err();
+    assert_eq!(code, "sessions-no-native-session");
+}
+
+#[test]
+fn a_rehost_of_no_session_is_refused() {
+    let mut session = Session::new();
+    let (code, _) = session.run(rehost(0, "")).unwrap_err();
+    assert_eq!(code, "sessions-no-session");
+}
+
+#[test]
+fn a_rehost_of_a_closed_child_is_refused() {
+    let mut session = lost_child();
+    session
+        .run(crate::CloseSession {
+            requester: None,
+            cause: "closed".to_string(),
+        })
+        .unwrap();
+    let (code, _) = session.run(rehost(0, "")).unwrap_err();
+    assert_eq!(code, "sessions-session-closed");
+}
+
+// ------------------------------------- a resume reopens a closed session
+//
+// Owner 2026-11-15: an explicit resume REOPENS a closed session. A close is
+// ctxloom's control lifecycle of its sessions, apart from the engine's
+// conversation: `run --session` on a closed session records that it was
+// reopened, then owes its next incarnation, and the session takes work again
+// with its close's cause cleared.
+
+/// The bound session, its run ended, then closed by a human.
+fn bound_ended_and_closed() -> Session {
+    let mut session = bound_and_ended();
+    session
+        .run(crate::CloseSession {
+            requester: None,
+            cause: "closed".to_string(),
+        })
+        .unwrap();
+    assert!(session.state().closed);
+    session
+}
+
+#[test]
+fn a_resume_of_a_closed_session_reopens_it_then_owes_the_next_incarnation() {
+    let mut session = bound_ended_and_closed();
+    let events = session.run(resume("")).unwrap();
+    assert_eq!(
+        events,
+        vec![
+            SessionEvent::SessionReopened(crate::SessionReopened {
+                cause: "resume".to_string(),
+            }),
+            SessionEvent::IncarnationOwed(IncarnationOwed {
+                incarnation: 2,
+                reason: "resume".to_string(),
+            }),
+        ]
+    );
+    let state = session.state();
+    assert!(!state.closed, "reopened: {state:?}");
+    assert_eq!(state.closed_cause, "", "its close's cause cleared");
+    assert_eq!(state.open_incarnation, Some(2));
+}
+
+#[test]
+fn a_reopened_session_takes_messages_again() {
+    let mut session = bound_ended_and_closed();
+    session.run(resume("")).unwrap();
+    let sent = session.run(crate::SendMessage {
+        message_id: "m1".to_string(),
+        urgency: crate::Urgency::Inform,
+        text: "after the reopen".to_string(),
+        requester: None,
+        supported: vec![crate::Urgency::Inform],
+    });
+    assert!(sent.is_ok(), "{sent:?}");
+}
+
+#[test]
+fn a_resume_of_an_open_session_records_no_reopen() {
+    let mut session = bound_and_ended();
+    let events = session.run(resume("")).unwrap();
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, SessionEvent::SessionReopened(_))),
+        "{events:?}"
+    );
+}
+
+// Only an explicit resume reopens: a re-host of a closed child stays refused
+// (`a_rehost_of_a_closed_child_is_refused`, above).
+
+// Owner 2026-11-15: the stop latch is removed. `StopOrdered`, in streams
+// recorded before, is retired in place: it still reads, and folds to nothing.
+#[test]
+fn a_stream_holding_a_retired_stop_order_folds_as_before() {
+    let mut session = first_run_ended("runner-exit");
+    let before = session.state();
+    session.given([SessionEvent::StopOrdered(StopOrdered {
+        reason: "user".to_string(),
+    })]);
+    assert_eq!(session.state(), before);
 }

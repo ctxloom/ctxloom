@@ -3,6 +3,10 @@
 #   a read-only `ctxloom engine` noun shows each engine's effective settings); Go has no such file.
 # RED (awaiting review): committed red on port/engines-schema. The shapes asserted here are the
 #   proposal's (engines-schema.proposal.md); the owner reviews the names before any is made to pass.
+# OD-40 (aip/spine, 2026-11-13): the JSON steps read the AIP resources (library.proto's
+#   `ListEnginesResponse` and `Engine`, design §5.6): a list is `{engines: [...]}`, an engine is
+#   named `projects/{project}/engines/<engine>` (selected by suffix, `[name$=...]`), an agent row
+#   says `agent` (AIP-122 reserves `name`), and the auth state is the enum's name.
 @doc
 Feature: engine — the programs ctxloom drives, and the settings they share
 
@@ -33,6 +37,8 @@ Feature: engine — the programs ctxloom drives, and the settings they share
   Every value `engine show` prints carries the layer that said it: `agent`,
   `engine`, `project` or `default`. A value nobody set is printed as the
   default it falls to, never omitted, so "what will this run use" has one answer.
+  Its JSON is the AIP resource (OD-40): `ListEnginesResponse` and `Engine`,
+  named under the project (`projects/{project}/engines/claude-code`).
 
   `engine` is READ-ONLY. The block is written in the config file itself
   (`ctxloom config edit`).
@@ -48,11 +54,11 @@ Feature: engine — the programs ctxloom drives, and the settings they share
         ctxloom engine list <flags>
         """
       Then the command succeeds
-      And the output reports "[name=claude-code].command.value" as "claude"
-      And the output reports "[name=claude-code].command.source" as "default"
-      And the output reports "[name=claude-code].runtime.value" as "host"
-      And the output reports "[name=claude-code].runtime.source" as "default"
-      And the output reports "[name=opencode].command.value" as "opencode"
+      And the output reports "engines[name$=/engines/claude-code].command.value" as "claude"
+      And the output reports "engines[name$=/engines/claude-code].command.source" as "default"
+      And the output reports "engines[name$=/engines/claude-code].runtime.value" as "host"
+      And the output reports "engines[name$=/engines/claude-code].runtime.source" as "default"
+      And the output reports "engines[name$=/engines/opencode].command.value" as "opencode"
 
       @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins
@@ -88,18 +94,18 @@ Feature: engine — the programs ctxloom drives, and the settings they share
         """
       When I run "ctxloom engine list --format json"
       Then the command succeeds
-      And the output reports "[name=claude-code].runtime.value" as "container-rootless"
-      And the output reports "[name=claude-code].runtime.source" as "engine"
-      And the output reports "[name=claude-code].session_home.value" as "host"
-      And the output reports "[name=claude-code].session_home.source" as "engine"
-      And the output reports "[name=opencode].runtime.source" as "default"
+      And the output reports "engines[name$=/engines/claude-code].runtime.value" as "container-rootless"
+      And the output reports "engines[name$=/engines/claude-code].runtime.source" as "engine"
+      And the output reports "engines[name$=/engines/claude-code].session_home.value" as "host"
+      And the output reports "engines[name$=/engines/claude-code].session_home.source" as "engine"
+      And the output reports "engines[name$=/engines/opencode].runtime.source" as "default"
 
     Scenario: Bare engine lists the engines
       # new: bare noun answers, as every noun does
       Given an initialized ctxloom project
       When I run "ctxloom engine --format json"
       Then the command succeeds
-      And the output reports "[name=claude-code].command.value" as "claude"
+      And the output reports "engines[name$=/engines/claude-code].command.value" as "claude"
 
   Rule: engine show reports one engine's settings, and what its agents resolve to
 
@@ -123,7 +129,7 @@ Feature: engine — the programs ctxloom drives, and the settings they share
         """
       When I run "ctxloom engine show claude-code --format json"
       Then the command succeeds
-      And the output reports "name" as "claude-code"
+      And the output reports "name" as "projects/{project}/engines/claude-code"
       And the output reports "command.value" as "/opt/claude/bin/claude"
       And the output reports "command.source" as "engine"
       And the output reports "session_home.value" as "session"
@@ -133,8 +139,8 @@ Feature: engine — the programs ctxloom drives, and the settings they share
       And the output reports "env.value" containing "HTTPS_PROXY"
       And the output reports "env.source" as "engine"
 
-    Scenario: A project's config cannot say which program or whose home a run uses
-      # new: ruling 46, a checked-out repository must not choose the program ctxloom runs
+    Scenario: A project's config cannot say which program or whose home a run uses until the user trusts the project
+      # changed: step 10 U7 (D7); ruling 46's strip becomes trust's hold, said by the daemon's read
       Given an initialized ctxloom project
       And the project already has the file ".ctxloom/config.yaml":
         """
@@ -149,7 +155,11 @@ Feature: engine — the programs ctxloom drives, and the settings they share
       And the output reports "command.value" as "claude"
       And the output reports "command.source" as "default"
       And the output reports "session_home.value" as "session"
-      And the output contains "a project's config cannot set it"
+      And the output contains "library-application-notice-untrusted-setting"
+      And the output contains "engines.claude-code.command"
+      And the output contains "held back until you trust this project"
+      And the output contains "ctxloom trust"
+      And the output does not contain "a project's config cannot set it"
 
     Scenario: An agent's own settings are listed with their sources, unset ones as the engine's own default
       # new: model and effort unset pass no flag; claude's permissions have a
@@ -170,12 +180,12 @@ Feature: engine — the programs ctxloom drives, and the settings they share
         """
       When I run "ctxloom engine show claude-code --format json"
       Then the command succeeds
-      And the output reports "agents[name=reviewer].model.value" as "haiku"
-      And the output reports "agents[name=reviewer].model.source" as "agent"
-      And the output reports "agents[name=reviewer].effort.value" as "low"
-      And the output reports "agents[name=plain].model.source" as "default"
-      And the output reports "agents[name=plain].permissions.value.defaultMode" as "acceptEdits"
-      And the output reports "agents[name=plain].permissions.source" as "default"
+      And the output reports "agents[agent=reviewer].model.value" as "haiku"
+      And the output reports "agents[agent=reviewer].model.source" as "agent"
+      And the output reports "agents[agent=reviewer].effort.value" as "low"
+      And the output reports "agents[agent=plain].model.source" as "default"
+      And the output reports "agents[agent=plain].permissions.value.defaultMode" as "acceptEdits"
+      And the output reports "agents[agent=plain].permissions.source" as "default"
       When I run "ctxloom engine show claude-code --format text"
       Then the command succeeds
       And the output contains "reviewer"
@@ -204,9 +214,9 @@ Feature: engine — the programs ctxloom drives, and the settings they share
         """
       When I run "ctxloom engine show opencode --format json"
       Then the command succeeds
-      And the output reports "agents[name=reviewer].model.value" as "opencode/big-pickle"
-      And the output reports "agents[name=reviewer].model.source" as "agent"
-      And the output reports "agents[name=reviewer].effort.source" as "default"
+      And the output reports "agents[agent=reviewer].model.value" as "opencode/big-pickle"
+      And the output reports "agents[agent=reviewer].model.source" as "agent"
+      And the output reports "agents[agent=reviewer].effort.source" as "default"
 
     Scenario: An agent's runtime that replaces the engine's is shown as an override, and a weaker one says so
       # new: the isolation guard is never silent
@@ -229,13 +239,13 @@ Feature: engine — the programs ctxloom drives, and the settings they share
         """
       When I run "ctxloom engine show claude-code --format json"
       Then the command succeeds
-      And the output reports "agents[name=loose].runtime.value" as "host"
-      And the output reports "agents[name=loose].runtime.source" as "agent"
-      And the output reports "agents[name=loose].runtime.overrides" as "container-rootless"
-      And the output reports "agents[name=loose].runtime.change" as "weakens"
-      And the output reports "agents[name=other].runtime.change" as "ownership-swap"
-      And the output reports "agents[name=kept].runtime.value" as "container-rootless"
-      And the output reports "agents[name=kept].runtime.source" as "engine"
+      And the output reports "agents[agent=loose].runtime.value" as "host"
+      And the output reports "agents[agent=loose].runtime.source" as "agent"
+      And the output reports "agents[agent=loose].runtime.overrides" as "container-rootless"
+      And the output reports "agents[agent=loose].runtime.change" as "weakens"
+      And the output reports "agents[agent=other].runtime.change" as "ownership-swap"
+      And the output reports "agents[agent=kept].runtime.value" as "container-rootless"
+      And the output reports "agents[agent=kept].runtime.source" as "engine"
       When I run "ctxloom engine show claude-code --format text"
       Then the command succeeds
       And the output contains "runtime: host (agent; replaces engine container-rootless: weakens isolation)"
@@ -270,7 +280,7 @@ Feature: engine — the programs ctxloom drives, and the settings they share
       And the output reports "auth.source" as "default"
       And the output reports "auth.value.env" containing "CLAUDE_CODE_OAUTH_TOKEN"
       And the output reports "auth.value.env" containing "ANTHROPIC_API_KEY"
-      And the output reports "auth.state" as "present"
+      And the output reports "auth.state" as "PRESENT"
       And the output reports "auth.via" as "ANTHROPIC_API_KEY"
 
     Scenario: A source the project names is the one read
@@ -289,11 +299,11 @@ Feature: engine — the programs ctxloom drives, and the settings they share
       When I run "ctxloom engine show claude-code --format json"
       Then the command succeeds
       And the output reports "auth.source" as "engine"
-      And the output reports "auth.state" as "missing"
+      And the output reports "auth.state" as "MISSING"
       Given the environment variable "TEAM_CLAUDE_TOKEN" is set to "team-token-acceptance-fixture-not-real"
       And I run "ctxloom engine show claude-code --format json"
       Then the command succeeds
-      And the output reports "auth.state" as "present"
+      And the output reports "auth.state" as "PRESENT"
       And the output reports "auth.via" as "TEAM_CLAUDE_TOKEN"
       And the output does not contain "team-token-acceptance-fixture-not-real"
 
@@ -309,7 +319,7 @@ Feature: engine — the programs ctxloom drives, and the settings they share
         """
       When I run "ctxloom engine show claude-code --format json"
       Then the command succeeds
-      And the output reports "auth.state" as "not-needed"
+      And the output reports "auth.state" as "NOT_NEEDED"
 
     Scenario: A secret written where a variable name belongs is refused, and not repeated
       # new: config is committed; a key that invites a secret is how one is pushed
@@ -339,9 +349,10 @@ Feature: engine — the programs ctxloom drives, and the settings they share
           claude-code:
             runtime: container-rootless
         """
+      # OD-40 (aip/configuration): the `Config` singleton, the section under `document`.
       When I run "ctxloom config show engines --format json"
       Then the command succeeds
-      And the output reports "claude-code.runtime" as "container-rootless"
+      And the output reports "document.claude-code.runtime" as "container-rootless"
       And the output does not contain "schema_version"
 
     Scenario: The default configuration no longer carries an llm registry

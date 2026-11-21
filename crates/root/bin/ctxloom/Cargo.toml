@@ -15,6 +15,8 @@ cache-files.workspace = true
 container-cli.workspace = true
 isolation-application.workspace = true
 worktree-git.workspace = true
+library-api.workspace = true
+library-tree.workspace = true
 tasks-ports.workspace = true
 config-files.workspace = true
 content-fs.workspace = true
@@ -36,9 +38,12 @@ run-launcher.workspace = true
 run-cli.workspace = true
 hook-listener.workspace = true
 hook-tls.workspace = true
+daemon-api.workspace = true
+daemon-ports.workspace = true
 setup-application.workspace = true
 surface-ports.workspace = true
 session-cli.workspace = true
+mcp-server.workspace = true
 session-files.workspace = true
 sessions-application.workspace = true
 sessions.workspace = true
@@ -77,12 +82,15 @@ test-support = [
     "setup-application/test-support",
     "surface-ports/test-support",
     "session-cli/test-support",
+    "mcp-server/test-support",
     "session-files/test-support",
     "sessions/test-support",
     "sessions-application/test-support",
     "container-cli/test-support",
     "isolation-application/test-support",
     "worktree-git/test-support",
+    "library-api/test-support",
+    "library-tree/test-support",
     "tasks-ports/test-support",
     "scheduler/test-support",
     "scheduler-loop/test-support",
@@ -91,6 +99,8 @@ test-support = [
     "run-cli/test-support",
     "hook-listener/test-support",
     "hook-tls/test-support",
+    "daemon-api/test-support",
+    "daemon-ports/test-support",
 ]
 
 [dev-dependencies]
@@ -104,6 +114,15 @@ futures = "0.3"
 serde_json.workspace = true
 file-system = { workspace = true, features = ["test-support"] }
 os = { workspace = true, features = ["test-support"] }
+# The daemon's API, called as a client calls it (slice 2 step 5).
+daemon-client.workspace = true
+daemon-proto.workspace = true
+run-ports.workspace = true
+# A session's hold, written as a hook writes it (s4-Q14, H4).
+fact-spool.workspace = true
+tokio = { workspace = true, features = ["rt", "time", "net"] }
+# A trust's grant time, read back as RFC 3339 text (step 8 U1).
+time.workspace = true
 
 [lints]
 workspace = true

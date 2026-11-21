@@ -13,10 +13,18 @@ fn files(path: &str, text: &str) -> Vec<(String, String)> {
     vec![(path.to_string(), text.to_string())]
 }
 
-// doctor.feature: "A blanket ignore rule is reported as a warning".
+// doctor.feature: "A blanket ignore rule is reported as a warning, with
+// exit 0" (the library is git-free, owner 2026-11-18: a library git
+// ignores is not refused, so the rule is a warning).
 #[test]
 fn a_blanket_ignore_rule_warns_and_names_the_install() {
-    for rule in [".ctxloom/", ".ctxloom", "/.ctxloom/", ".ctxloom/*"] {
+    for rule in [
+        ".ctxloom/",
+        ".ctxloom",
+        "/.ctxloom/",
+        ".ctxloom/*",
+        ".ctxloom/**",
+    ] {
         let check = checks::gitignore(Some(&format!("target/\n{rule}\n")), &[]);
         assert_eq!(check.status, Status::Warn, "{rule}");
         assert!(check.detail.contains("blanket"));
@@ -142,17 +150,26 @@ fn deps_want_git_and_an_identity() {
     assert!(checks::deps(false, true).detail.contains("not on the PATH"));
     assert_eq!(checks::deps(true, false).status, Status::Warn);
     assert!(checks::deps(true, false).detail.contains("has no identity"));
+    // What the identity is for: the library no longer commits, but a
+    // `bundle push` still does, and the warning names that, not "a commit".
+    let warned = checks::deps(true, false);
+    assert!(warned.detail.contains("bundle push"), "{}", warned.detail);
+    assert!(
+        !warned.detail.contains("a commit would fail"),
+        "{}",
+        warned.detail
+    );
     assert_eq!(checks::deps(true, true).status, Status::Ok);
 }
 
 #[test]
 fn an_agent_with_neither_an_engine_nor_profiles_resolves_to_nothing() {
     let bad = "schema_version: 8\nagents:\n  coder:\n    runtime: host\n";
-    assert_eq!(checks::agents(Some(bad)).status, Status::Warn);
+    assert_eq!(checks::agents(Some(bad), &[]).status, Status::Warn);
     let good = "schema_version: 8\nagents:\n  coder:\n    engine: claude-code\n";
-    assert_eq!(checks::agents(Some(good)).status, Status::Ok);
+    assert_eq!(checks::agents(Some(good), &[]).status, Status::Ok);
     assert_eq!(
-        checks::agents(Some("schema_version: 8\n")).status,
+        checks::agents(Some("schema_version: 8\n"), &[]).status,
         Status::Ok
     );
 }
@@ -252,17 +269,74 @@ fn credentials(layers: &[&str], exported: &'static [&'static str]) -> checks::Ch
     checks::credentials(&layers, &Auth::new(Arc::new(Exports(exported))))
 }
 
-// doctor.feature: "A missing agent credential is a fail row with run's fix".
+// Owner ruling 2026-11-19: a missing token refuses only a child when the
+// primary can sign in (the built-in source shares claude's own login), so
+// the row is a warn naming what a child needs, in the refusal's words.
 #[test]
-fn a_missing_claude_token_is_a_fail_row_with_runs_fix() {
+fn a_missing_claude_token_is_a_warn_row_when_the_primary_can_sign_in() {
     let check = credentials(&["schema_version: 8\n"], &[]);
     assert_eq!(check.marker, "DOCTOR-CHECK-CREDENTIALS-m5");
+    assert_eq!(check.status, Status::Warn);
+    assert_eq!(
+        check.detail,
+        "claude-code (auth token): a child agent run of claude-code needs a credential in the environment (any one of: CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY), and none is set; the primary interactive session can still sign in with claude-code's own login"
+    );
+    assert_eq!(
+        check.remedy,
+        "for a child agent, export one of CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY, or name the variable it reads in engines.claude-code.auth.env and export that (for claude-code, `claude setup-token` makes CLAUDE_CODE_OAUTH_TOKEN)"
+    );
+}
+
+// `auth: token` is the built-in source spelled out: the primary shares the
+// engine's own login, as with no auth at all.
+#[test]
+fn an_explicit_token_source_is_a_warn_row_too() {
+    let token = "schema_version: 9\nengines:\n  claude-code:\n    auth: token\n";
+    assert_eq!(credentials(&[token], &[]).status, Status::Warn);
+}
+
+// A source naming variables and a file: the primary runs on the file, so a
+// missing variable refuses only a child.
+#[test]
+fn a_source_with_a_file_is_a_warn_row_when_its_variable_is_missing() {
+    let both = "schema_version: 9\nengines:\n  claude-code:\n    auth:\n      env: [TEAM_TOKEN]\n      file: ~/team.json\n";
+    let check = credentials(&[both], &[]);
+    assert_eq!(check.status, Status::Warn);
+    assert_eq!(
+        check.detail,
+        "claude-code (auth token): a child agent run of claude-code needs a credential in the environment (any one of: TEAM_TOKEN), and none is set; the primary interactive session can still sign in with the file engines.claude-code.auth names"
+    );
+    assert_eq!(
+        check.remedy,
+        "for a child agent, export TEAM_TOKEN, or name the variable it reads in engines.claude-code.auth.env and export that"
+    );
+    assert_eq!(credentials(&[both], &["TEAM_TOKEN"]).status, Status::Ok);
+}
+
+// Nothing can run: a source of variables alone, none exported, shares no
+// login with the primary either, so the row stays a fail.
+#[test]
+fn a_source_of_variables_alone_missing_is_a_fail_row() {
+    let team = "schema_version: 9\nengines:\n  claude-code:\n    auth:\n      env: [TEAM_TOKEN]\n";
+    let check = credentials(&[team], &[]);
     assert_eq!(check.status, Status::Fail);
-    assert!(check.detail.contains("claude-code"), "{}", check.detail);
-    assert!(check
-        .detail
-        .contains("none of CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY is exported"));
-    assert!(check.remedy.contains("claude setup-token"));
+    assert_eq!(
+        check.detail,
+        "claude-code (auth token): TEAM_TOKEN is not exported"
+    );
+    assert_eq!(check.remedy, "export TEAM_TOKEN");
+}
+
+// A fail outranks a warn: one engine nothing can run on fails the row.
+#[test]
+fn an_engine_nothing_can_run_on_fails_the_row_beside_a_warned_one() {
+    let mixed = "schema_version: 9\nengines:\n  opencode:\n    auth:\n      env: [TEAM_TOKEN]\nagents:\n  c:\n    engine: claude-code\n  o:\n    engine: opencode\n";
+    let check = credentials(&[mixed], &[]);
+    assert_eq!(check.status, Status::Fail);
+    assert_eq!(
+        check.detail,
+        "opencode (auth token): TEAM_TOKEN is not exported"
+    );
 }
 
 #[test]
@@ -283,7 +357,7 @@ fn an_exported_token_is_ok_and_the_row_says_it_does_not_test_acceptance() {
 // No project and no config at all is the shipped default: claude-code.
 #[test]
 fn with_no_config_at_all_the_shipped_default_engine_is_checked() {
-    assert_eq!(credentials(&[], &[]).status, Status::Fail);
+    assert_eq!(credentials(&[], &[]).status, Status::Warn);
     assert_eq!(credentials(&[], TOKEN).status, Status::Ok);
 }
 
@@ -305,7 +379,7 @@ fn login_needs_no_credential_from_the_environment() {
 fn the_auth_of_the_highest_layer_wins() {
     let home = "schema_version: 9\nengines:\n  claude-code:\n    auth: login\n";
     let project = "schema_version: 9\nengines:\n  claude-code:\n    auth: token\n";
-    assert_eq!(credentials(&[home, project], &[]).status, Status::Fail);
+    assert_eq!(credentials(&[home, project], &[]).status, Status::Warn);
     assert_eq!(credentials(&[project, home], &[]).status, Status::Info);
 }
 
@@ -349,13 +423,12 @@ fn a_file_only_source_is_a_warn_row_usable_by_the_primary_not_by_children() {
 
 #[test]
 fn several_variables_missing_are_said_as_none_of_them() {
-    let check = credentials(&["schema_version: 9\n"], &[]);
-    assert!(
-        check
-            .detail
-            .contains("none of CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY is exported"),
-        "{}",
-        check.detail
+    let team =
+        "schema_version: 9\nengines:\n  claude-code:\n    auth:\n      env: [A_TOKEN, B_TOKEN]\n";
+    let check = credentials(&[team], &[]);
+    assert_eq!(
+        check.detail,
+        "claude-code (auth token): none of A_TOKEN, B_TOKEN is exported"
     );
 }
 
@@ -400,17 +473,17 @@ fn opencode_is_keyless_without_its_optional_key_and_never_fails() {
 #[test]
 fn an_agent_naming_an_engine_is_checked_and_one_naming_none_is_the_default() {
     let named = "schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n";
-    assert_eq!(credentials(&[named], &[]).status, Status::Fail);
+    assert_eq!(credentials(&[named], &[]).status, Status::Warn);
     let mocked = "schema_version: 9\nagents:\n  dev:\n    engine: mock\n";
     assert_eq!(credentials(&[mocked], &[]).status, Status::Info);
     let silent = "schema_version: 9\nagents:\n  dev:\n    profiles: [p]\n";
-    assert_eq!(credentials(&[silent], &[]).status, Status::Fail);
+    assert_eq!(credentials(&[silent], &[]).status, Status::Warn);
 }
 
 #[test]
 fn a_config_that_will_not_parse_is_the_setup_markers_to_report_and_checks_the_default() {
     let check = credentials(&["schema_version: [unclosed\n"], &[]);
-    assert_eq!(check.status, Status::Fail);
+    assert_eq!(check.status, Status::Warn);
 }
 
 // An agent is bound by a non-empty engine OR a non-empty profile list: each
@@ -418,11 +491,11 @@ fn a_config_that_will_not_parse_is_the_setup_markers_to_report_and_checks_the_de
 #[test]
 fn an_agent_bound_by_profiles_alone_or_engine_alone_is_bound_and_an_empty_list_is_not() {
     let profiles = "schema_version: 8\nagents:\n  a:\n    profiles: [dev]\n";
-    assert_eq!(checks::agents(Some(profiles)).status, Status::Ok);
+    assert_eq!(checks::agents(Some(profiles), &[]).status, Status::Ok);
     let engine = "schema_version: 8\nagents:\n  a:\n    engine: claude-code\n";
-    assert_eq!(checks::agents(Some(engine)).status, Status::Ok);
+    assert_eq!(checks::agents(Some(engine), &[]).status, Status::Ok);
     let empty = "schema_version: 8\nagents:\n  a:\n    profiles: []\n";
-    assert_eq!(checks::agents(Some(empty)).status, Status::Warn);
+    assert_eq!(checks::agents(Some(empty), &[]).status, Status::Warn);
 }
 
 #[test]
@@ -457,4 +530,246 @@ fn test_an_engine_that_cannot_carry_an_agent_s_hook_is_a_warning_naming_each() {
     assert!(warned
         .remedy
         .contains("ctxloom agent edit <name> --engine <engine>"));
+}
+
+// companion.feature: doctor asks each enabled registered companion for its
+// loadout; one that answered is named, one that gives nothing is a warning
+// saying why.
+#[test]
+fn test_the_registered_companions_are_named_and_one_that_gives_nothing_is_a_warning() {
+    use library_application::{CompanionInit, Notice, Outcome};
+    let answered = |names: &[&str]| -> Vec<CompanionInit> {
+        names
+            .iter()
+            .map(|n| CompanionInit {
+                name: (*n).to_string(),
+                init: library::loadout::InitLoadout::default(),
+            })
+            .collect()
+    };
+    let none = checks::companions(&Outcome {
+        result: Ok(Vec::new()),
+        notices: Vec::new(),
+    });
+    assert_eq!(none.marker, "DOCTOR-CHECK-COMPANIONS-m4");
+    assert_eq!(
+        (none.status, none.detail.as_str()),
+        (Status::Ok, "no enabled companion gives a loadout")
+    );
+    let ok = checks::companions(&Outcome {
+        result: Ok(answered(&["acme", "ltk"])),
+        notices: Vec::new(),
+    });
+    assert_eq!(
+        (ok.status, ok.detail.as_str()),
+        (Status::Ok, "answering: acme, ltk")
+    );
+    let warned = checks::companions(&Outcome {
+        result: Ok(answered(&["acme"])),
+        notices: vec![
+            Notice::CompanionNotOnPath {
+                name: "reprise".to_string(),
+                program: "reprise".to_string(),
+            },
+            Notice::LoadoutProbeFailed {
+                name: "x".to_string(),
+                detail: "did not answer within 3000ms".to_string(),
+            },
+            Notice::LoadoutUnparseable {
+                name: "garbled".to_string(),
+                cause: library::BundleError::LoadoutEmpty { bytes: 3 },
+            },
+        ],
+    });
+    assert_eq!(warned.status, Status::Warn);
+    assert_eq!(
+        warned.detail,
+        "reprise: its program reprise is not on PATH; x: its loadout probe failed (did not answer within 3000ms); garbled: its loadout does not parse"
+    );
+    assert!(warned.remedy.contains("ctxloom companion disable <name>"));
+}
+
+// j001300 "Worktrees ctxloom did not create are reported, never touched":
+// each foreign worktree is named with its measured states and the exact
+// commands that remove it (Go: doctorCheckForeignWorktrees), the forced
+// forms where the safe ones would refuse.
+#[test]
+fn a_foreign_worktree_is_named_with_its_states_and_the_commands_that_remove_it() {
+    use ctxloom_ports::{ForeignListing, ForeignWorktree};
+    let listing = ForeignListing::Listed(vec![
+        ForeignWorktree {
+            path: "/w/proj--stale-feature".to_string(),
+            branch: "stale-feature".to_string(),
+            merged: Some(false),
+            dirty: Some(true),
+        },
+        ForeignWorktree {
+            path: "/w/proj--done".to_string(),
+            branch: "done".to_string(),
+            merged: Some(true),
+            dirty: Some(false),
+        },
+    ]);
+    let check = checks::foreign_worktrees(Some("/p"), &listing);
+    assert_eq!(check.marker, "DOCTOR-CHECK-FOREIGN-WORKTREES-s9");
+    assert_eq!(check.status, Status::Warn);
+    let said = format!("{}\n{}", check.detail, check.remedy);
+    assert!(
+        said.contains("2 worktree(s) ctxloom did not create"),
+        "{said}"
+    );
+    assert!(
+        said.contains("/w/proj--stale-feature (branch stale-feature, unmerged, dirty)"),
+        "{said}"
+    );
+    assert!(
+        said.contains("/w/proj--done (branch done, merged, clean)"),
+        "{said}"
+    );
+    assert!(
+        said.contains("git -C /p worktree remove --force /w/proj--stale-feature"),
+        "{said}"
+    );
+    assert!(said.contains("git -C /p branch -D stale-feature"), "{said}");
+    assert!(
+        said.contains("git -C /p worktree remove /w/proj--done"),
+        "{said}"
+    );
+    assert!(said.contains("git -C /p branch -d done"), "{said}");
+    assert!(!said.contains("--force /w/proj--done"), "{said}");
+}
+
+// A state git did not answer is said as unknown, never assumed, and the
+// commands are the safe ones, which git itself refuses if they would lose
+// work.
+#[test]
+fn a_foreign_worktree_state_not_measured_is_unknown_and_its_commands_safe() {
+    use ctxloom_ports::{ForeignListing, ForeignWorktree};
+    let listing = ForeignListing::Listed(vec![ForeignWorktree {
+        path: "/w/x".to_string(),
+        branch: "x".to_string(),
+        merged: None,
+        dirty: None,
+    }]);
+    let check = checks::foreign_worktrees(Some("/p"), &listing);
+    let said = format!("{}\n{}", check.detail, check.remedy);
+    assert!(
+        said.contains("/w/x (branch x, merge state unknown, dirty state unknown)"),
+        "{said}"
+    );
+    assert!(said.contains("git -C /p worktree remove /w/x"), "{said}");
+    assert!(said.contains("git -C /p branch -d x"), "{said}");
+    assert!(!said.contains("--force") && !said.contains("-D"), "{said}");
+}
+
+// A detached worktree has no branch to delete.
+#[test]
+fn a_detached_foreign_worktree_names_no_branch_command() {
+    use ctxloom_ports::{ForeignListing, ForeignWorktree};
+    let listing = ForeignListing::Listed(vec![ForeignWorktree {
+        path: "/w/x".to_string(),
+        branch: String::new(),
+        merged: None,
+        dirty: Some(false),
+    }]);
+    let check = checks::foreign_worktrees(Some("/p"), &listing);
+    let said = format!("{}\n{}", check.detail, check.remedy);
+    assert!(said.contains("/w/x (detached, clean)"), "{said}");
+    assert!(!said.contains("branch -"), "{said}");
+}
+
+#[test]
+fn no_foreign_worktree_is_ok_and_no_repository_or_project_is_info() {
+    use ctxloom_ports::ForeignListing;
+    let ok = checks::foreign_worktrees(Some("/p"), &ForeignListing::Listed(Vec::new()));
+    assert_eq!(ok.status, Status::Ok);
+    assert!(ok.remedy.is_empty());
+    let not_git = checks::foreign_worktrees(Some("/p"), &ForeignListing::NotARepository);
+    assert_eq!(not_git.status, Status::Info);
+    assert!(
+        not_git.detail.contains("not a git repository"),
+        "{}",
+        not_git.detail
+    );
+    let none = checks::foreign_worktrees(None, &ForeignListing::NotARepository);
+    assert_eq!(none.status, Status::Info);
+    assert!(none.detail.contains("no project"), "{}", none.detail);
+    let failed =
+        checks::foreign_worktrees(Some("/p"), &ForeignListing::Unlisted("boom".to_string()));
+    assert_eq!(failed.status, Status::Warn);
+    assert!(failed.detail.contains("could not list") && failed.detail.contains("boom"));
+}
+
+// S51: a stale distilled form is a warning naming each; none is ok.
+#[test]
+fn test_a_stale_distilled_form_is_a_warning_naming_each() {
+    let ok = checks::stale_distilled(&[]);
+    assert_eq!(ok.marker, "DOCTOR-CHECK-STALE-DISTILLED-t1");
+    assert_eq!(ok.status, Status::Ok);
+    let warned = checks::stale_distilled(&[
+        "demo#fragments/rules".to_string(),
+        "demo#commands/review".to_string(),
+    ]);
+    assert_eq!(warned.status, Status::Warn);
+    assert_eq!(
+        warned.detail,
+        "stale distilled forms (their originals are used instead): demo#fragments/rules, demo#commands/review"
+    );
+    assert!(warned.remedy.contains("ctxloom fragment distill <ref>"));
+}
+
+// doctor.feature: "A bundle in the old metadata layout is a warning naming
+// the git mv" (step 10c U5, D15): each bundle in the old layout is said,
+// with the move that migrates it; none is quiet.
+#[test]
+fn a_bundle_in_the_old_layout_warns_naming_its_move() {
+    let quiet = checks::sidecars(&[]);
+    assert_eq!(
+        (quiet.marker.as_str(), quiet.status),
+        ("DOCTOR-CHECK-SIDECARS-u4", Status::Ok)
+    );
+    let found = checks::sidecars(&[
+        ("demo keeps it at a".to_string(), "git mv a b".to_string()),
+        ("kit keeps it at c".to_string(), "git mv c d".to_string()),
+    ]);
+    assert_eq!(found.status, Status::Warn);
+    assert!(
+        found.detail.contains("demo keeps it at a"),
+        "{}",
+        found.detail
+    );
+    assert!(
+        found.detail.contains("kit keeps it at c"),
+        "{}",
+        found.detail
+    );
+    assert_eq!(found.remedy, "git mv a b; git mv c d");
+}
+
+// Smoke 2026-11-19: an agent whose profile includes a bundle that is gone
+// does not resolve; its run would be refused, so the row is a `fail` naming
+// the agent and the bundle, with the plan's remedy.
+#[test]
+fn test_an_agent_that_does_not_resolve_fails_naming_it_and_why() {
+    use library_application::AgentUnresolved;
+    let config = "schema_version: 8\nagents:\n  dev:\n    profiles: [work]\n";
+    let failed = checks::agents(
+        Some(config),
+        &[AgentUnresolved {
+            agent: "dev".to_string(),
+            problems: vec!["bundle not found: mystd".to_string()],
+            fix: "run `ctxloom deps pull` or fix the bundle ref, or pass --degraded".to_string(),
+        }],
+    );
+    assert_eq!(failed.marker, "DOCTOR-CHECK-AGENTS-b2");
+    assert_eq!(failed.status, Status::Fail);
+    assert_eq!(
+        failed.detail,
+        "agent dev does not resolve, so its run is refused: bundle not found: mystd"
+    );
+    assert!(
+        failed.remedy.contains("ctxloom deps pull"),
+        "{}",
+        failed.remedy
+    );
 }

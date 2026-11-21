@@ -1,4 +1,5 @@
 ---
+source_sha256: aee7b4e78d0c6ba1e4a37ea3bd6e0d75bc3d4b84aef3ced62656ab2f96fb597e
 distilled_by: claude-opus-5-5
 ---
 # Not all of this project's guidance is in your context

@@ -14,7 +14,9 @@
 //! front of it again; an id it never had is claude's own error. Every launch
 //! writes down its input, the resumed conversation and the prompt, beside the
 //! stub (`model-input`), so "the mock recorded input" is what the last model
-//! asked had in front of it. It fires the turn's prompt and words through the
+//! asked had in front of it; with it, every file its command line named (the
+//! appended system prompt: the context) and its session home's
+//! `settings.json` (the permissions, a profile's `deny_tools` among them). It fires the turn's prompt and words through the
 //! hooks its one `--settings` file registers, as separate processes with its
 //! own environment, so ctxloom records them as it records claude's.
 //!
@@ -43,6 +45,11 @@ const ANSWER: &str =
 
 /// The stub model (see the head of this file).
 const MODEL_STUB: &str = r#"here="$(dirname "$0")"
+given=""
+for a in "$@"; do
+  [ -f "$a" ] && given="$given$(cat "$a")
+"
+done
 settings=""
 resume=""
 while [ $# -gt 0 ]; do
@@ -67,6 +74,8 @@ fi
 {
   [ -z "$resume" ] || cat "$history/$id"
   printf '%s\n' "$prompt"
+  printf '%s' "$given"
+  [ ! -f "$CLAUDE_CONFIG_DIR/settings.json" ] || cat "$CLAUDE_CONFIG_DIR/settings.json"
 } > "$here/model-input"
 reply="$(cat "$here/model-reply")"
 turn=0
@@ -83,6 +92,14 @@ fire MessageDisplay "$(jq -nc --arg s "$id" --arg i "$pid" --arg d "$reply" '{se
 jq -nc --arg s "$id" '{type:"system",subtype:"init",session_id:$s}'
 jq -nc --arg s "$id" --arg r "$reply" '{type:"result",subtype:"success",is_error:false,result:$r,session_id:$s}'
 "#;
+
+/// The stub model (see the head of this file) as `claude` in `bin`, beside
+/// a `ctxloom` that runs the binary under test, which its hooks call.
+pub(super) fn stub_model(bin: &std::path::Path) {
+    let ctxloom = crate::tests::binary().display().to_string();
+    files::put_program(bin.join("ctxloom"), &format!("exec '{ctxloom}' \"$@\"\n"));
+    files::put_program(bin.join("claude"), MODEL_STUB);
+}
 
 impl World {
     /// The directory of the stub model and what it writes down.
@@ -133,9 +150,7 @@ fn march(w: &mut World) {
     w.common.run_lines("ctxloom init", "");
     w.ran().succeeds();
     let bin = w.model_dir();
-    let ctxloom = crate::tests::binary().display().to_string();
-    files::put_program(bin.join("ctxloom"), &format!("exec '{ctxloom}' \"$@\"\n"));
-    files::put_program(bin.join("claude"), MODEL_STUB);
+    stub_model(&bin);
     w.record_session(HARP, QUESTION, ANSWER);
     w.record_session(NEIGHBOUR, "unrelated chatter", "unrelated reply");
 }
@@ -222,6 +237,16 @@ fn recorded_input(w: &mut World, text: String) {
     );
 }
 
+#[then(expr = "the mock recorded input does not contain {string}")]
+fn recorded_input_lacks(w: &mut World, text: String) {
+    let input = files::read(w.model_dir().join("model-input"))
+        .unwrap_or_else(|e| panic!("the model was asked nothing ({e}): {}", w.ran().said()));
+    assert!(
+        !input.contains(&text),
+        "the model had in front of it: {input}"
+    );
+}
+
 #[then("ctxloom refuses, naming the harp it could not find and the command that lists the sessions there are")]
 fn refuses_unknown(w: &mut World) {
     assert_eq!(w.ran().code, 20, "{}", w.ran().said());
@@ -274,7 +299,9 @@ fn array_lacks(w: &mut World, path: String, key: String, value: String) {
 }
 
 /// "Nothing matched" said in so many words: the text says `(no sessions)`,
-/// the json is an empty list, and neither is silence or a session's name.
+/// the json is the daemon's answer with no session in it (`{}`, its
+/// `sessions` empty and so left out), and neither is silence or a session's
+/// name.
 #[then("ctxloom says plainly that nothing matched")]
 fn nothing_matched(w: &mut World) {
     w.ran().succeeds();
@@ -283,7 +310,7 @@ fn nothing_matched(w: &mut World) {
         let said = ran.stdout.trim();
         match format {
             "text" => assert_eq!(said, "(no sessions)", "{}", ran.said()),
-            _ => assert_eq!(ran.json(), serde_json::json!([]), "{}", ran.said()),
+            _ => assert_eq!(ran.json(), serde_json::json!({}), "{}", ran.said()),
         }
     });
 }

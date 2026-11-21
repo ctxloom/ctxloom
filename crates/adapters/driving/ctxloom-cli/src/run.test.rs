@@ -411,6 +411,8 @@ fn test_a_mounted_noun_is_shaped_like_the_command_lines_own() {
     let listed = group("session");
     assert!(!listed.is_arg_required_else_help_set());
     assert!(listed.is_disable_help_subcommand_set());
+    // Step 8 U1: a bare `trust` previews and asks, as its own verb.
+    assert!(!group("trust").is_arg_required_else_help_set());
     let other = group("elsewhere");
     assert!(other.is_arg_required_else_help_set());
     assert!(other.is_disable_help_subcommand_set());

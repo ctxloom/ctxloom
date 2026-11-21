@@ -436,6 +436,42 @@ fn test_a_bundle_is_read_at_a_commit_with_its_bytes() {
     assert_eq!(later["fragments/a.md"], b"A2\n");
 }
 
+// Step 10c U4: an installed tree is recorded as git's own id of the
+// bundle's tree at the commit, as git reports it (`ls-tree` of the commit
+// names it), a different commit's tree its own; a bundle the commit lacks
+// has none.
+#[test]
+fn test_a_bundles_tree_id_is_gits_own_at_the_commit() {
+    let origin = Origin::new();
+    let first = demo(&origin);
+    let c = cache();
+    let url = origin.url();
+    c.remotes.ensure(&repo(&url)).expect("clones");
+    let tree = c
+        .remotes
+        .bundle_tree(&repo(&url), &first, "demo")
+        .expect("a tree");
+    let listed = git(
+        &origin.bare,
+        &["ls-tree", &first, &format!("{BUNDLE}/demo")],
+    );
+    assert!(
+        listed.contains(&format!("tree {tree}\t")),
+        "{tree} is not git's: {listed}"
+    );
+    assert!(c
+        .remotes
+        .bundle_tree(&repo(&url), &first, "absent")
+        .is_err());
+    let second = origin.commit(&[(&format!("{BUNDLE}/demo/fragments/a.md"), "A2\n", false)]);
+    c.remotes.refresh(&repo(&url)).expect("fetches");
+    let later = c
+        .remotes
+        .bundle_tree(&repo(&url), &second, "demo")
+        .expect("a tree");
+    assert_ne!(later, tree);
+}
+
 #[test]
 fn test_binary_bytes_survive_and_a_link_is_not_a_file_of_the_tree() {
     let origin = Origin::new();
@@ -754,47 +790,6 @@ fn test_an_inherited_git_dir_does_not_steer_the_repository() {
             .expect("resolves"),
         first
     );
-}
-
-#[test]
-fn test_which_variables_are_the_repository_s_own() {
-    let asked = Some(
-        ["GIT_DIR", "GIT_WORK_TREE", "GIT_CONFIG_COUNT"]
-            .map(String::from)
-            .to_vec(),
-    );
-    for local in [
-        "GIT_DIR",
-        "GIT_WORK_TREE",
-        "GIT_CONFIG_COUNT",
-        "GIT_CONFIG_KEY_0",
-        "GIT_CONFIG_VALUE_12",
-    ] {
-        assert!(command::is_local(local, &asked), "{local}");
-    }
-    for kept in [
-        "GIT_AUTHOR_NAME",
-        "GIT_SSH_COMMAND",
-        "PATH",
-        "HOME",
-        "GIT_CONFIG",
-    ] {
-        assert!(!command::is_local(kept, &asked), "{kept}");
-    }
-    // Without a counter, no numbered pair is the repository's.
-    let without = Some(vec!["GIT_DIR".to_string()]);
-    assert!(!command::is_local("GIT_CONFIG_KEY_0", &without));
-    // When git cannot be asked, every GIT_ variable goes.
-    assert!(command::is_local("GIT_AUTHOR_NAME", &None));
-    assert!(!command::is_local("HOME", &None));
-}
-
-#[test]
-fn test_the_local_variables_git_names_are_found() {
-    let names = command::local_variables()
-        .clone()
-        .expect("git can be asked");
-    assert!(names.iter().any(|n| n == "GIT_DIR"), "{names:?}");
 }
 
 // A clone clears the place it is made in first: that place is below the cache,

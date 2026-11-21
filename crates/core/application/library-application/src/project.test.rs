@@ -4,6 +4,7 @@
 
 use angzarr_diagnostic::Diagnostic;
 use exit_code::{Exit, ExitClass};
+use std::rc::Rc;
 
 use crate::fakes::{plain, Mem, Setup, CONFIG, ENVELOPE};
 use crate::{AppError, AssembleRequest, ItemKind, Library, WriteError};
@@ -72,7 +73,7 @@ fn test_a_project_lists_the_built_in_bundles_under_their_origin() {
     }
     .fixture();
     let list = ok(library.bundle_list(&plain()));
-    assert!(!list.no_root, "the built-in bundle is there");
+    assert!(!list.rows.is_empty(), "the built-in bundle is there");
     let rows: Vec<[String; 4]> = list
         .rows
         .iter()
@@ -324,16 +325,105 @@ fn test_an_operational_prompt_outside_a_project_is_the_built_in_one() {
     );
 }
 
+/// The flags of a project the user trusts (step 8 U2).
+fn trusted() -> crate::Flags {
+    crate::Flags {
+        trusted: true,
+        ..plain()
+    }
+}
+
 // A project bundle named `ctxloom` that holds the prompt replaces the
-// embedded text (the trust cost the owner accepted).
+// embedded text, once the user trusts the project (step 8 U2, D4).
 #[test]
 fn test_a_project_bundle_of_the_name_replaces_the_prompt() {
     let ours = own_ctxloom(&[("prompts/setup-interview.md", "OUR OWN INTERVIEW\n")]);
     let (library, _) = world(&[("ctxloom", &ours)]);
+    let read = library.operational_prompt(&trusted(), "setup-interview");
+    assert!(read.notices.is_empty(), "{:?}", read.notices);
+    assert_eq!(ok(read), "OUR OWN INTERVIEW\n");
+}
+
+// Step 8 U2 (D4): until the user trusts the project, its own `ctxloom`
+// bundle is passed over for the built-in prompts, every one of them, and
+// said; a broken one too.
+#[test]
+fn test_an_untrusted_project_bundle_of_the_name_is_passed_over_and_said() {
+    let ours = own_ctxloom(&[("prompts/setup-interview.md", "OUR OWN INTERVIEW\n")]);
+    let broken: &[(&str, &str)] = &[("bundle.yaml", "schema_version: 4\nversion: [\n")];
+    for files in [ours.as_slice(), broken] {
+        let (library, _) = world(&[("ctxloom", files)]);
+        for (name, text) in [
+            (
+                library::builtin::SETUP_INTERVIEW_NAME,
+                library::builtin::SETUP_INTERVIEW,
+            ),
+            (
+                library::builtin::DISTILL_NAME,
+                library::builtin::DISTILL_PROMPT,
+            ),
+        ] {
+            let read = library.operational_prompt(&plain(), name);
+            // A broken bundle is said skipped too, as every read says it.
+            let said: Vec<(String, String)> = read
+                .notices
+                .iter()
+                .map(|n| (n.code().to_string(), n.to_string()))
+                .filter(|(code, _)| code != "library-application-notice-bundle-skipped")
+                .collect();
+            assert!(
+                matches!(said.as_slice(), [(code, text)]
+                    if code == "library-application-notice-prompt-untrusted"
+                        && text.contains(&format!("prompt={name}"))),
+                "{said:?}"
+            );
+            assert_eq!(ok(read), text);
+        }
+    }
+    // With no project bundle of the name, nothing is passed over or said.
+    let (library, _) = world(&[("project", PROJECT)]);
+    assert!(library
+        .operational_prompt(&plain(), "setup-interview")
+        .notices
+        .is_empty());
+}
+
+// D4: where no flag says the project is trusted, the library asks its trust
+// source, and only where the answer decides something (a project `ctxloom`
+// bundle replacing the prompt): once, then the project's own prompt.
+#[test]
+fn test_the_trust_source_is_asked_only_where_it_decides_and_then_used() {
+    use std::cell::Cell;
+    let asked = Rc::new(Cell::new(0));
+    let ask = |answer: bool| -> crate::TrustAsk {
+        let asked = Rc::clone(&asked);
+        Rc::new(move || {
+            asked.set(asked.get() + 1);
+            answer
+        })
+    };
+    let ours = own_ctxloom(&[("prompts/setup-interview.md", "OUR OWN INTERVIEW\n")]);
+    let (library, _) = world(&[("ctxloom", &ours)]);
+    let library = library.with_trust(ask(true));
+    let read = library.operational_prompt(&plain(), "setup-interview");
+    assert!(read.notices.is_empty(), "{:?}", read.notices);
+    assert_eq!(ok(read), "OUR OWN INTERVIEW\n");
+    assert_eq!(asked.get(), 1);
+    let (library, _) = world(&[("ctxloom", &ours)]);
+    let library = library.with_trust(ask(false));
     assert_eq!(
         ok(library.operational_prompt(&plain(), "setup-interview")),
-        "OUR OWN INTERVIEW\n"
+        library::builtin::SETUP_INTERVIEW
     );
+    assert_eq!(asked.get(), 2);
+    // Nothing to decide: never asked.
+    let (library, _) = world(&[("project", PROJECT)]);
+    let library = library.with_trust(ask(true));
+    ok(library.operational_prompt(&plain(), "setup-interview"));
+    let (library, _) = world(&[("ctxloom", &ours)]);
+    let library = library.with_trust(ask(true));
+    ok(library.operational_prompt(&trusted(), "setup-interview"));
+    assert_eq!(asked.get(), 2);
 }
 
 // It overrides the built-in one WHOLE: a prompt it lacks is not taken from
@@ -342,7 +432,7 @@ fn test_a_project_bundle_of_the_name_replaces_the_prompt() {
 fn test_a_project_bundle_of_the_name_lacking_the_prompt_is_refused() {
     let ours = own_ctxloom(&[("prompts/setup-interview.md", "OUR OWN INTERVIEW\n")]);
     let (library, _) = world(&[("ctxloom", &ours)]);
-    let refused = library.operational_prompt(&plain(), "distill").result;
+    let refused = library.operational_prompt(&trusted(), "distill").result;
     let Err(e) = refused else {
         panic!("not refused: {refused:?}")
     };
@@ -361,7 +451,7 @@ fn test_an_unreadable_project_bundle_of_the_name_is_refused() {
     let broken: &[(&str, &str)] = &[("bundle.yaml", "schema_version: 4\nversion: [\n")];
     let (library, _) = world(&[("ctxloom", broken)]);
     let refused = library
-        .operational_prompt(&plain(), "setup-interview")
+        .operational_prompt(&trusted(), "setup-interview")
         .result;
     let Err(e) = refused else {
         panic!("not refused: {refused:?}")

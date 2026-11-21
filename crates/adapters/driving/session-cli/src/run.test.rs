@@ -9,11 +9,12 @@ use clap::{Args, Command, FromArgMatches};
 use cli_support::Exit;
 use serde_json::{json, Value};
 use sessions_application::{
-    dead_letter_sample, AppError, BindRequest, Bound, Captured, Class, FilePlan, ImportReport,
-    ImportRequest, ImportService, Imported, KeepRequest, Kept, Left, ListQuery, PlanItem, Refusal,
-    Removal, RemoveRequest, SearchQuery, SessionRecord, SessionService, ShowQuery, State,
+    dead_letter_sample, AppError, BindRequest, Bound, ImportReport, ImportRequest, ImportService,
+    Imported, KeepRequest, Kept, Left, ListQuery, Refusal, SearchQuery, SessionService, ShowQuery,
     TitleRequest, Titled, TranscriptQuery, TranscriptRow, View, Why,
 };
+
+use daemon_proto::v1;
 
 use super::run;
 use crate::Session;
@@ -31,13 +32,11 @@ struct Fake {
     views: Vec<View>,
     rows: Vec<TranscriptRow>,
     transcript: String,
-    removal: Option<Removal>,
     dead_letters: bool,
     list: Vec<ListQuery>,
     search: Vec<SearchQuery>,
     show: Vec<ShowQuery>,
     keep: Vec<KeepRequest>,
-    remove: Vec<RemoveRequest>,
     titled: Vec<TitleRequest>,
     transcripts: Vec<TranscriptQuery>,
     report: Option<ImportReport>,
@@ -51,17 +50,6 @@ struct Fake {
     log: Vec<&'static str>,
     /// Answer every worktree question with a refusal that is not "no session".
     wt_fails: bool,
-    /// `session_purge_age` as the fake configuration has it.
-    configured_age: Option<String>,
-    /// What was asked of the configuration.
-    config_asked: usize,
-}
-
-impl reclaim_application::SweepConfig for Fake {
-    fn purge_age(&mut self) -> Result<Option<String>, reclaim_application::Failure> {
-        self.config_asked += 1;
-        Ok(self.configured_age.clone())
-    }
 }
 
 impl isolation_application::WorktreeUse for Fake {
@@ -134,18 +122,6 @@ impl SessionService for Fake {
         })
     }
 
-    async fn remove(&mut self, request: RemoveRequest) -> Result<Removal, AppError> {
-        self.log.push(if request.yes {
-            "remove apply"
-        } else {
-            "remove plan"
-        });
-        self.remove.push(request);
-        self.removal.clone().ok_or(AppError::NoSession {
-            harp: "x".to_string(),
-        })
-    }
-
     async fn set_title(&mut self, request: TitleRequest) -> Result<Titled, AppError> {
         self.titled.push(request.clone());
         if request.harp == "no-such-harp" {
@@ -212,102 +188,171 @@ fn json_of(ran: &Ran) -> Value {
     serde_json::from_str(&ran.out).unwrap_or_else(|e| panic!("{e}: {:?}", ran.out))
 }
 
-fn view(harp: &str, state: State) -> View {
-    View {
-        record: SessionRecord {
-            id: "01010101-0101-0101-0101-010101010101".to_string(),
-            harp: harp.to_string(),
-            project_dir: "/work/proj".to_string(),
-            engine: "claude-code".to_string(),
-            started_at: ts(STARTED),
-            ..SessionRecord::default()
-        },
-        state,
-        title: Some(format!("Seeded prompt for {harp}.")),
-        captured: None,
+// -------------------------------------------------- list, search, show
+
+/// The daemon's client as a test sets it: the sessions it answers, and what
+/// it was asked.
+#[derive(Default)]
+struct Reads {
+    sessions: Vec<v1::Session>,
+    /// `list all state`, `search words all state`, `get harp`.
+    asked: std::cell::RefCell<Vec<String>>,
+    /// Answer every call with this, instead.
+    refuse: Option<daemon_api::CallError>,
+    /// The transcript's lines `get_transcript` answers.
+    transcript: Vec<String>,
+}
+
+impl daemon_api::SessionReads for Reads {
+    async fn list_sessions(
+        &self,
+        all: bool,
+        state: v1::session::State,
+    ) -> Result<v1::ListSessionsResponse, daemon_api::CallError> {
+        self.asked
+            .borrow_mut()
+            .push(format!("list {all} {}", state.as_str_name()));
+        if let Some(refused) = &self.refuse {
+            return Err(refused.clone());
+        }
+        Ok(v1::ListSessionsResponse {
+            sessions: self.sessions.clone(),
+            ..v1::ListSessionsResponse::default()
+        })
+    }
+
+    async fn search_sessions(
+        &self,
+        words: Vec<String>,
+        all: bool,
+        state: v1::session::State,
+    ) -> Result<v1::ListSessionsResponse, daemon_api::CallError> {
+        self.asked.borrow_mut().push(format!(
+            "search {} {all} {}",
+            words.join(" "),
+            state.as_str_name()
+        ));
+        Ok(v1::ListSessionsResponse {
+            sessions: self.sessions.clone(),
+            ..v1::ListSessionsResponse::default()
+        })
+    }
+
+    async fn get_session(&self, harp: &str) -> Result<v1::Session, daemon_api::CallError> {
+        self.asked.borrow_mut().push(format!("get {harp}"));
+        if let Some(refused) = &self.refuse {
+            return Err(refused.clone());
+        }
+        self.sessions
+            .first()
+            .cloned()
+            .ok_or(daemon_api::CallError::Call(daemon_ports_like_unreachable()))
+    }
+
+    async fn get_transcript(&self, harp: &str) -> Result<v1::Transcript, daemon_api::CallError> {
+        self.asked.borrow_mut().push(format!("transcript {harp}"));
+        if let Some(refused) = &self.refuse {
+            return Err(refused.clone());
+        }
+        Ok(v1::Transcript {
+            name: format!("projects/calm-otter/sessions/{harp}/transcript"),
+            lines: self
+                .transcript
+                .iter()
+                .map(|json| v1::TranscriptLine { json: json.clone() })
+                .collect(),
+        })
     }
 }
 
-fn keys(value: &Value) -> Vec<String> {
-    value.as_object().unwrap().keys().cloned().collect()
+/// `words` (a `transcript show`) read from the daemon, which answers the
+/// fake's transcript, its lines as the daemon keeps them (no empty one).
+fn shown(fake: &Fake, format: Format, words: &[&str]) -> Ran {
+    let reads = Reads {
+        transcript: fake
+            .transcript
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(str::to_string)
+            .collect(),
+        ..Reads::default()
+    };
+    let ran = read_go(&reads, format, words);
+    assert_eq!(
+        *reads.asked.borrow(),
+        vec![format!("transcript {}", words[2])],
+        "the daemon was asked for it"
+    );
+    ran
 }
 
-// ------------------------------------------------------------------------ list
-
-// Go: TestSessionRow_JSONShape: harp/summary/state/start, plus end, purged and
-// kept once set; D16 adds the transcript and the engine.
-#[test]
-fn a_row_has_harp_summary_state_start_and_the_engine() {
-    let mut fake = Fake {
-        views: vec![view("amber-swift-owl", State::Ended)],
-        ..Fake::default()
-    };
-    let rows = json_of(&go(&mut fake, Format::Json, &["list"]));
-    let row = &rows[0];
-    let mut got = keys(row);
-    got.sort();
-    assert_eq!(got, ["engine", "harp", "start", "state", "summary"]);
-    assert_eq!(row["harp"], "amber-swift-owl");
-    assert_eq!(row["summary"], "Seeded prompt for amber-swift-owl.");
-    assert_eq!(row["state"], "ended");
-    assert_eq!(row["start"], "2026-07-17T12:00:00Z");
-    assert_eq!(row["engine"], "claude-code");
+/// A call that came to nothing (no daemon answered).
+fn daemon_ports_like_unreachable() -> daemon_api::Called {
+    daemon_api::Called::Unreachable {
+        detail: "gone".to_string(),
+    }
 }
 
-// Go: end and kept "are omitted when unset" (its purged mark is gone, owner
-// ruling 102); the transcript when it was captured.
-#[test]
-fn end_kept_and_the_transcript_ride_the_row_once_set() {
-    let mut v = view("amber-swift-owl", State::Ended);
-    v.record.ended_at = Some(ts(STARTED + 3600));
-    v.record.kept = true;
-    v.captured = Some(Captured { bytes: 9 });
-    let mut fake = Fake {
-        views: vec![v],
-        ..Fake::default()
-    };
-    let rows = json_of(&go(&mut fake, Format::Json, &["list"]));
-    let row = &rows[0];
-    assert_eq!(row["end"], "2026-07-17T13:00:00Z");
-    assert!(row.get("purged").is_none(), "{row}");
-    assert_eq!(row["kept"], true);
-    // Ruling 87a: no file holds the transcript, so the row names none.
-    assert_eq!(row["transcript_path"], serde_json::Value::Null);
-    assert!(row["summary"].as_str().unwrap().contains("kept"));
+fn read_go(reads: &Reads, format: Format, words: &[&str]) -> Ran {
+    let session = parsed(words);
+    assert!(crate::is_read(&session), "{words:?} is a read");
+    let mut out = Vec::new();
+    let result = crate::read(&session, reads, format, &mut out);
+    Ran {
+        out: String::from_utf8(out).unwrap(),
+        result,
+    }
 }
 
-// session.feature: "The listing takes each session's state from its lock, not
-// its end stamp": a live session has no end though its record carries one.
+/// The session `harp` of the project `calm-otter`, as the daemon answers it.
+fn session(harp: &str, state: v1::session::State) -> v1::Session {
+    v1::Session {
+        name: format!("projects/calm-otter/sessions/{harp}"),
+        uid: "01010101-0101-0101-0101-010101010101".to_string(),
+        state: state as i32,
+        engine: "claude-code".to_string(),
+        summary: format!("Seeded prompt for {harp}."),
+        start_time: Some(ts(STARTED).into()),
+        project_root: "/work/proj".to_string(),
+        ..v1::Session::default()
+    }
+}
+
+// Ruling 146: a listing in json is the daemon's answer as its proto3 JSON.
 #[test]
-fn a_live_session_has_no_end_in_json() {
-    let mut live = view("amber-swift-owl", State::Live);
-    live.record.ended_at = Some(ts(STARTED + 3600));
-    let mut ended = view("brisk-copper-moth", State::Ended);
-    ended.record.ended_at = Some(ts(STARTED + 3600));
-    let mut fake = Fake {
-        views: vec![live, ended],
-        ..Fake::default()
+fn a_listing_in_json_is_the_daemons_answer() {
+    let reads = Reads {
+        sessions: vec![session("amber-swift-owl", v1::session::State::Ended)],
+        ..Reads::default()
     };
-    let rows = json_of(&go(&mut fake, Format::Json, &["list", "--all"]));
-    assert_eq!(rows[0]["state"], "live");
-    assert!(rows[0].get("end").is_none());
-    assert!(rows[1].get("end").is_some());
+    let doc = json_of(&read_go(&reads, Format::Json, &["list"]));
+    assert_eq!(
+        doc,
+        json!({"sessions": [{
+            "name": "projects/calm-otter/sessions/amber-swift-owl",
+            "uid": "01010101-0101-0101-0101-010101010101",
+            "state": "ENDED",
+            "engine": "claude-code",
+            "summary": "Seeded prompt for amber-swift-owl.",
+            "start_time": "2026-07-17T12:00:00Z",
+            "project_root": "/work/proj",
+        }]})
+    );
 }
 
 // session.feature: `session list --all --format text` has a STATE column;
-// session_state_test.go: "the table has a STATE column, and the live row prints
-// no END while the others print theirs".
+// the live row prints no END while the others print theirs.
 #[test]
 fn the_text_table_has_a_state_column_and_a_blank_end_while_live() {
-    let mut live = view("amber-swift-owl", State::Live);
-    live.record.ended_at = Some(ts(STARTED + 3600));
-    let mut ended = view("brisk-copper-moth", State::Ended);
-    ended.record.ended_at = Some(ts(STARTED + 3600));
-    let mut fake = Fake {
-        views: vec![live, ended],
-        ..Fake::default()
+    let live = session("amber-swift-owl", v1::session::State::Live);
+    let mut ended = session("brisk-copper-moth", v1::session::State::Ended);
+    ended.end_time = Some(ts(STARTED + 3600).into());
+    ended.kept = true;
+    let reads = Reads {
+        sessions: vec![live, ended],
+        ..Reads::default()
     };
-    let ran = go(&mut fake, Format::Text, &["list", "--all"]);
+    let ran = read_go(&reads, Format::Text, &["list", "--all"]);
     assert!(ran.result.is_ok());
     let lines: Vec<&str> = ran.out.lines().collect();
     for header in ["HARP", "SUMMARY", "STATE", "START", "END"] {
@@ -329,60 +374,75 @@ fn the_text_table_has_a_state_column_and_a_blank_end_while_live() {
         ended_line.contains("ended") && ended_line.contains("2026-07-17 13:00:00"),
         "{ended_line}"
     );
+    assert!(ended_line.contains("kept (transcript kept at any age)"));
     assert!(live_line.contains("2026-07-17 12:00:00"));
+    assert!(live_line.contains("Seeded prompt for amber-swift-owl."));
 }
 
-// session.feature: "A fresh project has recorded nothing": three examples, json
-// with no flag off a terminal, json and text; empty is an array, empty text is
-// the placeholder.
+// A title the user set is the row's summary, ahead of the first prompt.
 #[test]
-fn an_empty_listing_is_an_empty_array_or_the_placeholder() {
-    let mut fake = Fake::default();
-    let ran = go(&mut fake, Format::Json, &["list"]);
-    assert_eq!(json_of(&ran), json!([]));
-    let ran = go(&mut fake, Format::Text, &["list"]);
+fn a_set_title_is_the_rows_summary() {
+    let mut titled = session("amber-swift-owl", v1::session::State::Ended);
+    titled.title = "the auth refactor".to_string();
+    let mut bare = session("brisk-copper-moth", v1::session::State::Ended);
+    bare.summary = String::new();
+    let reads = Reads {
+        sessions: vec![titled, bare],
+        ..Reads::default()
+    };
+    let ran = read_go(&reads, Format::Text, &["list"]);
+    assert!(ran.out.contains("the auth refactor"), "{}", ran.out);
+    assert!(!ran.out.contains("Seeded prompt for amber"), "{}", ran.out);
+    assert!(ran.out.contains("(no summary)"), "{}", ran.out);
+}
+
+// session.feature: "A fresh project has recorded nothing": an empty
+// listing is the empty message in json, the placeholder in text.
+#[test]
+fn an_empty_listing_is_an_empty_message_or_the_placeholder() {
+    let reads = Reads::default();
+    let ran = read_go(&reads, Format::Json, &["list"]);
+    assert_eq!(json_of(&ran), json!({}));
+    let ran = read_go(&reads, Format::Text, &["list"]);
     assert_eq!(ran.out, "(no sessions)\n");
 }
 
 // A bare namespace runs its default verb (D28; Go: groupNodeDefault).
 #[test]
 fn a_bare_session_lists() {
-    let mut fake = Fake {
-        views: vec![view("amber-swift-owl", State::Ended)],
-        ..Fake::default()
+    let reads = Reads {
+        sessions: vec![session("amber-swift-owl", v1::session::State::Ended)],
+        ..Reads::default()
     };
-    let ran = go(&mut fake, Format::Json, &[]);
-    assert_eq!(json_of(&ran)[0]["harp"], "amber-swift-owl");
-    assert_eq!(fake.list, [ListQuery::default()]);
+    let ran = read_go(&reads, Format::Json, &[]);
+    assert_eq!(
+        json_of(&ran)["sessions"][0]["name"],
+        "projects/calm-otter/sessions/amber-swift-owl"
+    );
+    assert_eq!(*reads.asked.borrow(), ["list false STATE_UNSPECIFIED"]);
 }
 
 #[test]
-fn all_and_state_reach_the_use_case() {
-    let mut fake = Fake::default();
-    go(
-        &mut fake,
-        Format::Json,
-        &["list", "--all", "--state", "ended"],
-    );
+fn all_and_state_reach_the_daemon() {
+    let reads = Reads::default();
+    read_go(&reads, Format::Json, &["list", "--all", "--state", "ended"]);
+    read_go(&reads, Format::Json, &["list", "--state", "live"]);
+    read_go(&reads, Format::Json, &["list", "--state", "unknown"]);
     assert_eq!(
-        fake.list,
-        [ListQuery {
-            all: true,
-            state: Some(State::Ended),
-            project: None,
-        }]
+        *reads.asked.borrow(),
+        ["list true ENDED", "list false LIVE", "list false UNKNOWN"]
     );
 }
 
 // session.feature: "--state refuses a word that is not a state".
 #[test]
 fn a_state_that_is_not_one_is_refused_naming_the_states() {
-    let mut fake = Fake::default();
+    let reads = Reads::default();
     for words in [
         &["list", "--state", "running"][..],
         &["search", "x", "--state", "running"],
     ] {
-        let ran = go(&mut fake, Format::Json, words);
+        let ran = read_go(&reads, Format::Json, words);
         let failure = ran.result.unwrap_err();
         assert_eq!(failure.failure.exit, Exit::REFUSED);
         assert_eq!(failure.failure.cause.code(), "session-cli-bad-state");
@@ -397,22 +457,20 @@ fn a_state_that_is_not_one_is_refused_naming_the_states() {
         assert!(states.contains("live, ended, unknown"), "{states}");
     }
     assert!(
-        fake.list.is_empty() && fake.search.is_empty(),
+        reads.asked.borrow().is_empty(),
         "refused before it asked anything"
     );
 }
 
-// ---------------------------------------------------------------------- search
-
 // Go: runSessionQuery.
 #[test]
 fn a_search_carries_its_words_and_scope() {
-    let mut fake = Fake {
-        views: vec![view("amber-swift-owl", State::Ended)],
-        ..Fake::default()
+    let reads = Reads {
+        sessions: vec![session("amber-swift-owl", v1::session::State::Ended)],
+        ..Reads::default()
     };
-    let ran = go(
-        &mut fake,
+    let ran = read_go(
+        &reads,
         Format::Json,
         &[
             "search",
@@ -423,17 +481,13 @@ fn a_search_carries_its_words_and_scope() {
             "live",
         ],
     );
-    assert_eq!(json_of(&ran)[0]["harp"], "amber-swift-owl");
     assert_eq!(
-        fake.search,
-        [SearchQuery {
-            list: ListQuery {
-                all: true,
-                state: Some(State::Live),
-                project: None
-            },
-            words: vec!["lockfile".to_string(), "migration".to_string()],
-        }]
+        json_of(&ran)["sessions"][0]["name"],
+        "projects/calm-otter/sessions/amber-swift-owl"
+    );
+    assert_eq!(
+        *reads.asked.borrow(),
+        ["search lockfile migration true LIVE"]
     );
 }
 
@@ -441,32 +495,30 @@ fn a_search_carries_its_words_and_scope() {
 // nothing": the bytes, not the exit code (Go: TestRunSessionQuery_NoMatches).
 #[test]
 fn a_search_that_matches_nothing_says_so() {
-    let mut fake = Fake::default();
-    let ran = go(
-        &mut fake,
+    let reads = Reads::default();
+    let ran = read_go(
+        &reads,
         Format::Text,
         &["search", "J001200-MATCHES-ABSOLUTELY-NOTHING"],
     );
     assert!(ran.result.is_ok());
     assert_eq!(ran.out.trim(), "(no sessions)");
-    let ran = go(&mut fake, Format::Json, &["search", "nothing"]);
-    assert_eq!(ran.out.trim(), "[]");
+    let ran = read_go(&reads, Format::Json, &["search", "nothing"]);
+    assert_eq!(ran.out.trim(), "{}");
 }
-
-// ------------------------------------------------------------------------ show
 
 // Go: renderSessionShow.
 #[test]
 fn show_prints_the_record_one_fact_per_line() {
-    let mut v = view("amber-swift-owl", State::Ended);
-    v.record.native_id = "native-1".to_string();
-    v.record.ended_at = Some(ts(STARTED + 3600));
-    v.record.kept = true;
-    let mut fake = Fake {
-        views: vec![v],
-        ..Fake::default()
+    let mut s = session("amber-swift-owl", v1::session::State::Ended);
+    s.native_session = "native-1".to_string();
+    s.end_time = Some(ts(STARTED + 3600).into());
+    s.kept = true;
+    let reads = Reads {
+        sessions: vec![s],
+        ..Reads::default()
     };
-    let ran = go(&mut fake, Format::Text, &["show", "amber-swift-owl"]);
+    let ran = read_go(&reads, Format::Text, &["show", "amber-swift-owl"]);
     assert!(ran.result.is_ok());
     assert_eq!(
         ran.out,
@@ -481,57 +533,181 @@ fn show_prints_the_record_one_fact_per_line() {
          ended:    2026-07-17 13:00:00\n\
          kept:     its transcript is kept at any age (`ctxloom session keep --undo` releases it)\n"
     );
-    assert_eq!(fake.show[0].harp, "amber-swift-owl");
+    assert_eq!(*reads.asked.borrow(), ["get amber-swift-owl"]);
 }
 
 // Go: "absent facts left out rather than printed blank", and a title-less
 // session says so: j001200's "Show prints what the session was about".
 #[test]
 fn show_leaves_out_what_is_absent_and_names_a_session_with_no_title() {
-    let mut v = view("amber-swift-owl", State::Live);
-    v.title = None;
-    v.record.ended_at = Some(ts(STARTED + 3600));
-    let mut fake = Fake {
-        views: vec![v],
-        ..Fake::default()
+    let mut s = session("amber-swift-owl", v1::session::State::Live);
+    s.summary = String::new();
+    let reads = Reads {
+        sessions: vec![s],
+        ..Reads::default()
     };
-    let ran = go(&mut fake, Format::Text, &["show", "amber-swift-owl"]);
+    let ran = read_go(&reads, Format::Text, &["show", "amber-swift-owl"]);
     assert!(ran.out.contains("(no summary)"), "{}", ran.out);
-    for absent in ["native:", "ended:", "kept:"] {
+    for absent in [
+        "native:",
+        "ended:",
+        "kept:",
+        "owner:",
+        "closed:",
+        "children:",
+        "pending:",
+    ] {
         assert!(!ran.out.contains(absent), "{absent} in {}", ran.out);
     }
 }
 
+// Ruling 146: show in json is the session as its proto3 JSON.
 #[test]
-fn show_in_json_is_the_record() {
-    let mut v = view("amber-swift-owl", State::Ended);
-    v.record.native_id = "native-1".to_string();
-    let mut fake = Fake {
-        views: vec![v],
-        ..Fake::default()
+fn show_in_json_is_the_session() {
+    let mut s = session("amber-swift-owl", v1::session::State::Ended);
+    s.title = "the auth refactor".to_string();
+    let reads = Reads {
+        sessions: vec![s],
+        ..Reads::default()
     };
-    let doc = json_of(&go(&mut fake, Format::Json, &["show", "amber-swift-owl"]));
-    assert_eq!(doc["harp"], "amber-swift-owl");
-    assert_eq!(doc["state"], "ended");
-    assert_eq!(doc["engine"], "claude-code");
-    assert_eq!(doc["native_session"], "native-1");
-    assert_eq!(doc["project"], "/work/proj");
-    assert_eq!(doc["title"], "Seeded prompt for amber-swift-owl.");
-    assert_eq!(doc["started_at"], "2026-07-17T12:00:00Z");
-    assert_eq!(doc["id"], "01010101-0101-0101-0101-010101010101");
+    let doc = json_of(&read_go(&reads, Format::Json, &["show", "amber-swift-owl"]));
+    assert_eq!(doc["name"], "projects/calm-otter/sessions/amber-swift-owl");
+    assert_eq!(doc["state"], "ENDED");
+    assert_eq!(doc["title"], "the auth refactor");
+    assert!(doc.get("end_time").is_none(), "{doc}");
 }
 
+// D30, D-N35: show lists the pending messages, the owner, the close and the
+// children, each by what the daemon answered.
 #[test]
-fn a_failure_of_the_use_case_is_the_commands_failure_with_its_exit_code() {
-    let mut fake = Fake::default();
-    let failure = go(&mut fake, Format::Json, &["show", "no-such-harp"])
-        .result
-        .unwrap_err();
-    assert_eq!(
-        failure.failure.cause.code(),
-        "sessions-application-no-session"
-    );
-    assert_eq!(failure.failure.exit, Exit::REFUSED);
+fn show_in_text_names_the_owner_the_close_the_children_and_the_pending() {
+    let mut s = session("brisk-copper-moth", v1::session::State::Live);
+    s.owner = "projects/calm-otter/sessions/amber-quiet-heron".to_string();
+    s.closed = true;
+    s.children = vec!["projects/calm-otter/sessions/calm-dusty-wren".to_string()];
+    s.pending = vec![
+        v1::PendingMessage {
+            message_id: "m1".to_string(),
+            urgency: "inform".to_string(),
+            text: "when you are next on\nmore".to_string(),
+            sender: String::new(),
+        },
+        v1::PendingMessage {
+            message_id: "m2".to_string(),
+            urgency: "wake".to_string(),
+            text: "now".to_string(),
+            sender: String::new(),
+        },
+    ];
+    let reads = Reads {
+        sessions: vec![s],
+        ..Reads::default()
+    };
+    let ran = read_go(&reads, Format::Text, &["show", "brisk-copper-moth"]);
+    for line in [
+        "owner:    projects/calm-otter/sessions/amber-quiet-heron",
+        "closed:   yes",
+        "children: 1 held",
+        "  projects/calm-otter/sessions/calm-dusty-wren",
+        "pending:  2 messages no turn has carried yet",
+        "  m1 (inform): when you are next on",
+        "  m2 (wake): now",
+    ] {
+        assert!(ran.out.contains(line), "{line:?} in {}", ran.out);
+    }
+    assert!(!ran.out.contains("more"), "{}", ran.out);
+}
+
+// Step 9 (owner ruling 2026-11-17): show says what the session's latest run
+// was launched with, its servers by name and its permissions document, and
+// how its last turn failed, in the notice's words.
+#[test]
+fn show_in_text_names_what_its_run_was_given_and_how_its_last_turn_failed() {
+    let mut s = session("brisk-copper-moth", v1::session::State::Live);
+    s.grant = Some(v1::SessionGrant {
+        mcp_servers: vec!["ctxloom".to_string(), "review-tools".to_string()],
+        permissions: r#"{"defaultMode":"plan"}"#.to_string(),
+    });
+    s.last_failure = Some(v1::SessionFailure {
+        kind: "rate-limited".to_string(),
+        detail: "429".to_string(),
+        notice: Some(v1::Notice {
+            code: "daemon-api-turn-rate-limited".to_string(),
+            args: Vec::new(),
+            text: "its last turn ran into its rate limit".to_string(),
+        }),
+    });
+    let reads = Reads {
+        sessions: vec![s],
+        ..Reads::default()
+    };
+    let ran = read_go(&reads, Format::Text, &["show", "brisk-copper-moth"]);
+    for line in [
+        "granted:  MCP servers ctxloom, review-tools",
+        r#"          permissions {"defaultMode":"plan"}"#,
+        "failed:   rate-limited: its last turn ran into its rate limit",
+        "          429",
+    ] {
+        assert!(ran.out.contains(line), "{line:?} in {}", ran.out);
+    }
+    // A session whose run journaled no grant, and no failure, says neither.
+    let plain = Reads {
+        sessions: vec![session("calm-dusty-wren", v1::session::State::Live)],
+        ..Reads::default()
+    };
+    let ran = read_go(&plain, Format::Text, &["show", "calm-dusty-wren"]);
+    assert!(!ran.out.contains("granted:"), "{}", ran.out);
+    assert!(!ran.out.contains("failed:"), "{}", ran.out);
+}
+
+// A call that came to nothing is the command's failure, with its exit.
+#[test]
+fn a_failed_call_is_the_commands_failure_with_its_exit_code() {
+    let reads = Reads {
+        refuse: Some(daemon_api::CallError::Unreached(
+            daemon_api::Unreached::NotStarted {
+                log: "~/.ctxloom/daemon/daemon.log".to_string(),
+            },
+        )),
+        ..Reads::default()
+    };
+    for words in [&["show", "no-such-harp"][..], &["list"]] {
+        let failure = read_go(&reads, Format::Json, words).result.unwrap_err();
+        assert_eq!(failure.failure.cause.code(), "daemon-ports-not-started");
+        assert_eq!(failure.failure.exit, Exit::FAILED);
+    }
+}
+
+// Every verb but the reads runs on the sessions use cases; the reads are
+// list, search, show and `transcript show` (owner, H3 follow-up: a session
+// read reaches the daemon, so its flush runs first).
+#[test]
+fn only_list_search_show_and_transcript_show_are_the_daemons_reads() {
+    for words in [
+        &["keep", "a"][..],
+        &["rename", "a", "b"],
+        &["transcript"],
+        &["transcript", "list"],
+        &["import"],
+    ] {
+        assert!(!crate::is_read(&parsed(words)), "{words:?}");
+    }
+    for words in [&["list"][..], &["show", "a"], &["transcript", "show", "a"]] {
+        assert!(crate::is_read(&parsed(words)), "{words:?}");
+    }
+}
+
+// A transcript the daemon refuses (none recorded, no such session) fails the
+// read and writes nothing to stdout.
+#[test]
+fn a_transcript_the_daemon_refuses_writes_nothing() {
+    let reads = Reads {
+        refuse: Some(daemon_api::CallError::Call(daemon_ports_like_unreachable())),
+        ..Reads::default()
+    };
+    let ran = read_go(&reads, Format::Json, &["transcript", "show", "h"]);
+    assert!(ran.result.is_err());
+    assert_eq!(ran.out, "");
 }
 
 // ------------------------------------------------------------------------ keep
@@ -627,76 +803,284 @@ fn the_harp_changing_edit_is_gone() {
 }
 
 // ---------------------------------------------------------------------- remove
+// `session remove` and `session sweep` are the daemon's (owner,
+// 2026-11-12): the command asks its client, and renders what it answered.
 
-fn plan(applied: bool) -> Removal {
-    Removal {
-        harp: "amber-swift-owl".to_string(),
-        applied,
-        files: FilePlan {
-            destroy: vec![
-                PlanItem {
-                    path: "/h/.ctxloom/sessions/amber-swift-owl/native/history.jsonl".to_string(),
-                    rel: "native/history.jsonl".to_string(),
-                    class: Class::Machine,
-                    bytes: 9,
-                },
-                PlanItem {
-                    path: "/h/.ctxloom/sessions/amber-swift-owl/notes.md".to_string(),
-                    rel: "notes.md".to_string(),
-                    class: Class::Authored,
-                    bytes: 4,
-                },
-            ],
-            bytes_freed: if applied { 13 } else { 0 },
-        },
-        events_destroyed: if applied { 7 } else { 0 },
-        refusal: None,
-        dead_letters: Vec::new(),
+/// What the daemon answers a destroy with, and what it was asked.
+#[derive(Default)]
+struct Daemon {
+    removed: Option<daemon_api::Removed>,
+    swept: Option<v1::SweepSessionsResponse>,
+    /// Each delete asked: harp, yes, even_if_live.
+    deletes: std::cell::RefCell<Vec<(String, bool, bool)>>,
+    /// Each sweep asked: all, older_than, yes.
+    sweeps: std::cell::RefCell<Vec<(bool, Option<String>, bool)>>,
+    /// This process's holds, by session resource name (s4-Q14, H4).
+    held: std::collections::BTreeMap<String, reclaim_application::HeldOf>,
+    /// The holds' reads and discards fail.
+    holds_fail: bool,
+    /// Each hold discarded, by name.
+    discarded: std::cell::RefCell<Vec<String>>,
+    /// The person at the terminal and her answer (step 10c U11); none, no
+    /// terminal.
+    terminal: Option<bool>,
+    /// Each question asked at the terminal.
+    asked: std::cell::RefCell<Vec<String>>,
+    /// Each apply of a preview sent: harp, even_if_live, etag, answers.
+    applies: std::cell::RefCell<Vec<Applied>>,
+}
+
+/// An apply of a preview, as sent: harp, even_if_live, etag, answers.
+type Applied = (String, bool, String, Vec<v1::Answer>);
+
+impl crate::Asking for Daemon {
+    fn is_terminal(&self) -> bool {
+        self.terminal.is_some()
+    }
+
+    fn confirm(&self, question: &str) -> bool {
+        self.asked.borrow_mut().push(question.to_string());
+        self.terminal == Some(true)
     }
 }
 
-// Owner ruling 98: `session remove` reports the destroy first: every file of
-// the session's directory, authored ones too, and nothing applied.
+fn hold_failure() -> reclaim_application::HoldError {
+    reclaim_application::HoldError::Io {
+        path: "/h/.ctxloom/held".to_string(),
+        ext_err_txt: "Permission denied (os error 13)".to_string(),
+    }
+}
+
+impl reclaim_application::SessionHolds for Daemon {
+    fn held(
+        &self,
+        name: &str,
+    ) -> Result<Option<reclaim_application::HeldOf>, reclaim_application::HoldError> {
+        if self.holds_fail {
+            return Err(hold_failure());
+        }
+        Ok(self.held.get(name).copied())
+    }
+
+    fn discard(&self, name: &str) -> Result<(), reclaim_application::HoldError> {
+        if self.holds_fail {
+            return Err(hold_failure());
+        }
+        self.discarded.borrow_mut().push(name.to_string());
+        Ok(())
+    }
+}
+
+impl daemon_api::SessionRemovals for Daemon {
+    async fn delete_session(
+        &self,
+        harp: &str,
+        yes: bool,
+        even_if_live: bool,
+    ) -> Result<daemon_api::Removed, daemon_api::CallError> {
+        self.deletes
+            .borrow_mut()
+            .push((harp.to_string(), yes, even_if_live));
+        self.removed
+            .clone()
+            .ok_or(daemon_api::CallError::Call(daemon_api::Called::Failed {
+                code: 13,
+                detail: "boom".to_string(),
+            }))
+    }
+
+    async fn apply_removal(
+        &self,
+        harp: &str,
+        even_if_live: bool,
+        etag: &str,
+        answers: Vec<v1::Answer>,
+    ) -> Result<daemon_api::Removed, daemon_api::CallError> {
+        self.applies
+            .borrow_mut()
+            .push((harp.to_string(), even_if_live, etag.to_string(), answers));
+        Ok(daemon_api::Removed::Done(plan(true)))
+    }
+
+    async fn sweep_sessions(
+        &self,
+        all: bool,
+        older_than: Option<String>,
+        yes: bool,
+    ) -> Result<v1::SweepSessionsResponse, daemon_api::CallError> {
+        self.sweeps.borrow_mut().push((all, older_than, yes));
+        Ok(self.swept.clone().unwrap_or_default())
+    }
+}
+
+fn destroy_go(daemon: &Daemon, format: Format, words: &[&str]) -> Ran {
+    let session = parsed(words);
+    assert!(crate::is_destroy(&session), "{words:?}");
+    let mut out = Vec::new();
+    let result = crate::destroy(&session, daemon, daemon, daemon, format, &mut out);
+    Ran {
+        out: String::from_utf8(out).unwrap(),
+        result,
+    }
+}
+
+fn plan(applied: bool) -> v1::DeleteSessionResponse {
+    v1::DeleteSessionResponse {
+        name: "projects/calm-otter/sessions/amber-swift-owl".to_string(),
+        harp: "amber-swift-owl".to_string(),
+        applied: Some(applied),
+        authored: vec!["notes.md".to_string()],
+        files: vec![
+            v1::RemovalFile {
+                path: "/h/.ctxloom/sessions/amber-swift-owl/native/history.jsonl".to_string(),
+                rel: "native/history.jsonl".to_string(),
+                class: v1::removal_file::Class::Machine as i32,
+                bytes: 9,
+            },
+            v1::RemovalFile {
+                path: "/h/.ctxloom/sessions/amber-swift-owl/notes.md".to_string(),
+                rel: "notes.md".to_string(),
+                class: v1::removal_file::Class::Authored as i32,
+                bytes: 4,
+            },
+        ],
+        bytes_freed: if applied { 13 } else { 0 },
+        events_destroyed: if applied { 7 } else { 0 },
+        ..v1::DeleteSessionResponse::default()
+    }
+}
+
+fn done_with(plan: v1::DeleteSessionResponse) -> Daemon {
+    Daemon {
+        removed: Some(daemon_api::Removed::Done(plan)),
+        ..Daemon::default()
+    }
+}
+
+fn refused_with(why: Refusal) -> Daemon {
+    Daemon {
+        removed: Some(daemon_api::Removed::Refused {
+            plan: plan(false),
+            why: daemon_api::RemovalRejection::Session(why),
+        }),
+        ..Daemon::default()
+    }
+}
+
+/// A preview asking its confirmation, tagged `e-7`, for a daemon whose
+/// terminal is `terminal`.
+fn asking(terminal: Option<bool>) -> Daemon {
+    let mut preview = plan(false);
+    preview.etag = "e-7".to_string();
+    preview.needs = vec![v1::Need {
+        id: "confirm".to_string(),
+        kind: Some(v1::need::Kind::Confirm(v1::Confirm {
+            text: "Remove session \"amber-swift-owl\"?".to_string(),
+            ..v1::Confirm::default()
+        })),
+        optional: false,
+    }];
+    Daemon {
+        terminal,
+        ..done_with(preview)
+    }
+}
+
+// Step 10c U11: at her terminal the preview's own question is asked, and
+// her yes applies what it showed, its tag and her answer sent back; what is
+// said is the removal applied, nothing left that would change.
+#[test]
+fn at_a_terminal_a_yes_applies_the_preview_with_its_tag_and_her_answer() {
+    let daemon = asking(Some(true));
+    let ran = destroy_go(&daemon, Format::Json, &["remove", "amber-swift-owl"]);
+    assert_eq!(
+        *daemon.asked.borrow(),
+        ["Remove session \"amber-swift-owl\"?"]
+    );
+    let confirmed = vec![v1::Answer {
+        need_id: "confirm".to_string(),
+        answer: Some(v1::answer::Answer::Confirmed(true)),
+    }];
+    assert_eq!(
+        *daemon.applies.borrow(),
+        [(
+            "amber-swift-owl".to_string(),
+            false,
+            "e-7".to_string(),
+            confirmed
+        )]
+    );
+    assert_eq!(json_of(&ran)["applied"], true);
+    let done = ran.result.unwrap();
+    assert!(!done.would_change);
+    assert!(done
+        .notices
+        .iter()
+        .all(|n| n.code() != "sessions-application-removed-nothing"));
+}
+
+// Her no, or no terminal at all, applies nothing: the preview stands.
+#[test]
+fn a_no_or_no_terminal_applies_nothing() {
+    for (terminal, questions) in [(Some(false), 1), (None, 0)] {
+        let daemon = asking(terminal);
+        let ran = destroy_go(&daemon, Format::Json, &["remove", "amber-swift-owl"]);
+        assert_eq!(daemon.asked.borrow().len(), questions, "{terminal:?}");
+        assert!(daemon.applies.borrow().is_empty(), "{terminal:?}");
+        assert_eq!(json_of(&ran)["applied"], false);
+        assert!(ran.result.unwrap().would_change, "{terminal:?}");
+    }
+}
+
+// `--yes` is one call: nothing is asked, even at a terminal.
+#[test]
+fn yes_at_a_terminal_asks_nothing() {
+    let daemon = asking(Some(true));
+    destroy_go(
+        &daemon,
+        Format::Json,
+        &["remove", "amber-swift-owl", "--yes"],
+    );
+    assert!(daemon.asked.borrow().is_empty());
+    assert!(daemon.applies.borrow().is_empty());
+}
+
+// Owner ruling 98, ruling 146: `session remove` reports the destroy first:
+// the daemon's plan as its proto3 JSON, every file of the session's
+// directory, authored ones too, and nothing applied.
 #[test]
 fn a_removal_report_is_the_plan_and_says_nothing_was_removed() {
-    let mut fake = Fake {
-        removal: Some(plan(false)),
-        ..Fake::default()
-    };
-    let ran = go(&mut fake, Format::Json, &["remove", "amber-swift-owl"]);
+    let daemon = done_with(plan(false));
+    let ran = destroy_go(&daemon, Format::Json, &["remove", "amber-swift-owl"]);
     let doc = json_of(&ran);
     assert_eq!(doc["harp"], "amber-swift-owl");
-    assert_eq!(doc["applied"], false);
-    assert_eq!(doc["events_destroyed"], 0);
-    let files = &doc["files"];
-    assert_eq!(files["destroy"][0]["rel"], "native/history.jsonl");
-    assert_eq!(files["destroy"][0]["class"], "machine");
-    assert_eq!(files["destroy"][1]["class"], "authored");
-    assert_eq!(files["bytes_freed"], 0);
+    // OQ-7: `applied` has presence, so a plan says `false`, never leaves it out.
+    assert_eq!(doc["applied"], false, "a plan prints applied false");
+    assert_eq!(doc.get("events_destroyed"), None);
+    assert_eq!(doc["files"][0]["rel"], "native/history.jsonl");
+    assert_eq!(doc["files"][0]["class"], "MACHINE");
+    assert_eq!(doc["files"][0]["bytes"], "9");
+    assert_eq!(doc["files"][1]["class"], "AUTHORED");
+    assert_eq!(doc["authored"], json!(["notes.md"]));
     let notices = without_authored(ran.result.unwrap());
     assert_eq!(notices.len(), 1);
     assert_eq!(notices[0].code(), "sessions-application-removed-nothing");
-    let command = notices[0]
-        .args()
-        .into_iter()
-        .find(|(n, _)| *n == "command")
-        .map(|(_, a)| format!("{a:?}"))
-        .unwrap();
+    let command = format!("{:?}", notices[0].args());
     assert!(
         command.contains("ctxloom session remove amber-swift-owl --yes"),
         "{command}"
     );
-    assert!(!fake.remove[0].yes);
+    assert_eq!(
+        *daemon.deletes.borrow(),
+        [("amber-swift-owl".to_string(), false, false)]
+    );
 }
 
 // The plan's summary line, its table, and one line for the session itself.
 #[test]
 fn a_removal_report_in_text_names_each_file_and_the_session() {
-    let mut fake = Fake {
-        removal: Some(plan(false)),
-        ..Fake::default()
-    };
-    let ran = go(&mut fake, Format::Text, &["remove", "amber-swift-owl"]);
+    let daemon = done_with(plan(false));
+    let ran = destroy_go(&daemon, Format::Text, &["remove", "amber-swift-owl"]);
     let lines: Vec<&str> = ran.out.lines().collect();
     assert_eq!(
         lines[0],
@@ -711,16 +1095,14 @@ fn a_removal_report_in_text_names_each_file_and_the_session() {
         *lines.last().unwrap(),
         "session amber-swift-owl: would be destroyed, its events and its runs' with it; its name stays taken"
     );
+    assert!(ran.result.unwrap().would_change);
 }
 
 #[test]
 fn an_applied_removal_says_destroyed_and_adds_no_notice() {
-    let mut fake = Fake {
-        removal: Some(plan(true)),
-        ..Fake::default()
-    };
-    let ran = go(
-        &mut fake,
+    let daemon = done_with(plan(true));
+    let ran = destroy_go(
+        &daemon,
         Format::Text,
         &["remove", "amber-swift-owl", "--yes"],
     );
@@ -730,10 +1112,10 @@ fn an_applied_removal_says_destroyed_and_adds_no_notice() {
     assert!(ran.out.ends_with(
         "session amber-swift-owl: destroyed, 7 event(s) of it and its runs; its name stays taken\n"
     ));
-    assert!(without_authored(ran.result.unwrap()).is_empty());
-    // Planned first (its refusals asked, nothing applied), then applied.
-    let asked: Vec<bool> = fake.remove.iter().map(|r| r.yes).collect();
-    assert_eq!(asked, [false, true]);
+    let done = ran.result.unwrap();
+    assert!(!done.would_change);
+    assert!(without_authored(done).is_empty());
+    assert!(daemon.deletes.borrow()[0].1);
 }
 
 /// A command's notices but the authored-files warning (owner ruling 104),
@@ -763,11 +1145,8 @@ fn a_removal_that_destroys_authored_files_warns_naming_them() {
         &["remove", "amber-swift-owl"][..],
         &["remove", "amber-swift-owl", "--yes", "--even-if-live"][..],
     ] {
-        let mut fake = Fake {
-            removal: Some(plan(words.contains(&"--yes"))),
-            ..Fake::default()
-        };
-        let done = go(&mut fake, Format::Text, words).result.unwrap();
+        let daemon = done_with(plan(words.contains(&"--yes")));
+        let done = destroy_go(&daemon, Format::Text, words).result.unwrap();
         let warned = authored_warning(&done).unwrap_or_else(|| panic!("{words:?}: no warning"));
         assert!(warned.contains("notes.md"), "{words:?}: {warned}");
         assert!(
@@ -782,29 +1161,19 @@ fn a_removal_that_destroys_authored_files_warns_naming_them() {
 #[test]
 fn a_removal_of_machine_files_alone_or_a_refused_one_does_not_warn() {
     let mut machine = plan(true);
-    machine.files.destroy.retain(|i| i.class == Class::Machine);
-    let mut fake = Fake {
-        removal: Some(machine),
-        ..Fake::default()
-    };
-    let done = go(
-        &mut fake,
+    machine.authored.clear();
+    let done = destroy_go(
+        &done_with(machine),
         Format::Text,
         &["remove", "amber-swift-owl", "--yes"],
     )
     .result
     .unwrap();
     assert_eq!(authored_warning(&done), None);
-    let mut refused = plan(false);
-    refused.refusal = Some(Refusal::Kept {
-        harp: "amber-swift-owl".to_string(),
-    });
-    let mut fake = Fake {
-        removal: Some(refused),
-        ..Fake::default()
-    };
-    let failed = go(
-        &mut fake,
+    let failed = destroy_go(
+        &refused_with(Refusal::Kept {
+            harp: "amber-swift-owl".to_string(),
+        }),
         Format::Text,
         &["remove", "amber-swift-owl", "--yes"],
     )
@@ -813,49 +1182,225 @@ fn a_removal_of_machine_files_alone_or_a_refused_one_does_not_warn() {
     assert!(!format!("{:?}", failed.lines).contains("notes.md"));
 }
 
+const NAME: &str = "projects/calm-otter/sessions/amber-swift-owl";
+
+/// `daemon`, its session holding `facts` and `set_aside` parts.
+fn holding(mut daemon: Daemon, name: &str, facts: u64, set_aside: u32) -> Daemon {
+    daemon.held.insert(
+        name.to_string(),
+        reclaim_application::HeldOf { facts, set_aside },
+    );
+    daemon
+}
+
+/// The held-facts warning a command's notices hold, if any: its args.
+fn held_warning(done: &crate::Done) -> Option<String> {
+    done.notices
+        .iter()
+        .find(|n| n.code() == "sessions-application-destroys-held")
+        .map(|n| format!("{:?}", n.args()))
+}
+
+// s4-Q14, H-Q8 (a): a removal's plan warns of the session's held facts,
+// naming the count, and keeps them.
 #[test]
-fn even_if_live_reaches_the_use_case_and_the_applying_command_repeats_it() {
-    let mut fake = Fake {
-        removal: Some(plan(false)),
-        ..Fake::default()
-    };
-    let ran = go(
-        &mut fake,
+fn a_removal_report_warns_of_the_sessions_held_facts_and_keeps_them() {
+    let daemon = holding(done_with(plan(false)), NAME, 3, 0);
+    let done = destroy_go(&daemon, Format::Text, &["remove", "amber-swift-owl"])
+        .result
+        .unwrap();
+    let warned = held_warning(&done).expect("the held facts' warning");
+    assert!(warned.contains("amber-swift-owl"), "{warned}");
+    assert!(warned.contains("facts") && warned.contains('3'), "{warned}");
+    assert!(
+        daemon.discarded.borrow().is_empty(),
+        "a plan discards nothing"
+    );
+    assert!(done.would_change);
+}
+
+// H-Q8 (a): an applied removal warns, then discards the hold (its
+// set-aside parts with it).
+#[test]
+fn an_applied_removal_warns_of_its_held_facts_and_discards_them() {
+    let daemon = holding(done_with(plan(true)), NAME, 3, 1);
+    let done = destroy_go(
+        &daemon,
+        Format::Json,
+        &["remove", "amber-swift-owl", "--yes"],
+    )
+    .result
+    .unwrap();
+    let warned = held_warning(&done).expect("the held facts' warning");
+    assert!(
+        warned.contains("set_aside") && warned.contains('1'),
+        "{warned}"
+    );
+    assert_eq!(*daemon.discarded.borrow(), [NAME]);
+}
+
+// A session with no hold is warned of nothing, and no hold is touched.
+#[test]
+fn a_removal_of_a_session_that_holds_nothing_does_not_warn_of_held_facts() {
+    let daemon = holding(
+        done_with(plan(true)),
+        "projects/calm-otter/sessions/brisk-copper-moth",
+        9,
+        0,
+    );
+    let done = destroy_go(
+        &daemon,
+        Format::Text,
+        &["remove", "amber-swift-owl", "--yes"],
+    )
+    .result
+    .unwrap();
+    assert_eq!(held_warning(&done), None);
+    assert!(daemon.discarded.borrow().is_empty());
+}
+
+// A refused removal destroys nothing: its hold is neither warned of nor
+// discarded.
+#[test]
+fn a_refused_removal_leaves_its_hold_alone() {
+    let daemon = holding(
+        refused_with(Refusal::Kept {
+            harp: "amber-swift-owl".to_string(),
+        }),
+        NAME,
+        3,
+        0,
+    );
+    let failure = destroy_go(
+        &daemon,
+        Format::Text,
+        &["remove", "amber-swift-owl", "--yes"],
+    )
+    .result
+    .unwrap_err();
+    assert_eq!(failure.failure.exit, Exit::REFUSED);
+    assert!(daemon.discarded.borrow().is_empty());
+}
+
+// A hold that cannot be read or discarded fails the command (10), after the
+// daemon's answer is printed: never a quiet leftover.
+#[test]
+fn a_removal_whose_hold_cannot_be_reached_fails() {
+    let mut daemon = holding(done_with(plan(true)), NAME, 3, 0);
+    daemon.holds_fail = true;
+    let ran = destroy_go(
+        &daemon,
+        Format::Text,
+        &["remove", "amber-swift-owl", "--yes"],
+    );
+    assert!(ran.out.contains("destroyed"), "{}", ran.out);
+    let failure = ran.result.unwrap_err();
+    assert_eq!(failure.failure.exit, Exit::FAILED);
+    assert_eq!(failure.failure.cause.code(), "run-ports-hold-io");
+}
+
+// --even-if-live reaches the daemon, which judges by the lock; the applying
+// command repeats it.
+#[test]
+fn even_if_live_reaches_the_daemon_and_the_applying_command_repeats_it() {
+    let daemon = done_with(plan(false));
+    let ran = destroy_go(
+        &daemon,
         Format::Json,
         &["remove", "amber-swift-owl", "--even-if-live"],
     );
-    assert!(fake.remove[0].even_if_live);
+    assert!(daemon.deletes.borrow()[0].2);
     let notices = without_authored(ran.result.unwrap());
     let command = format!("{:?}", notices[0].args());
     assert!(command.contains("--yes --even-if-live"), "{command}");
 }
 
-// Go: a refusal prints the plan, then exits refused (2): "an action verb that
-// was asked for something and did not do it".
+// Go: a refusal prints the plan (the refusal carries it, owner 2026-11-12),
+// then exits refused (20), in the refusing use case's words.
 #[test]
 fn a_refusal_prints_the_plan_then_fails_refused() {
-    let mut refused = plan(false);
-    refused.refusal = Some(Refusal::Retained {
+    let daemon = refused_with(Refusal::Retained {
         harp: "amber-swift-owl".to_string(),
         detail: "it ended an hour ago".to_string(),
     });
-    let mut fake = Fake {
-        removal: Some(refused),
-        ..Fake::default()
-    };
-    let ran = go(
-        &mut fake,
+    let ran = destroy_go(
+        &daemon,
         Format::Json,
         &["remove", "amber-swift-owl", "--yes"],
     );
     let doc: Value = serde_json::from_str(&ran.out).unwrap();
-    assert_eq!(doc["applied"], false, "the plan is still printed");
+    assert_eq!(
+        doc["files"][1]["rel"], "notes.md",
+        "the plan is still printed"
+    );
     let failure = ran.result.unwrap_err();
     assert_eq!(failure.failure.exit, Exit::REFUSED);
     assert_eq!(
         failure.failure.cause.code(),
         "sessions-application-refused-retained"
     );
+    let text = destroy_go(
+        &daemon,
+        Format::Text,
+        &["remove", "amber-swift-owl", "--yes"],
+    );
+    assert!(text.out.contains("would destroy 2 file(s)"), "{}", text.out);
+}
+
+// A worktree that keeps the session is refused in isolation's words, after
+// the plan and the worktrees are printed.
+#[test]
+fn a_session_its_worktrees_keep_prints_them_then_fails_refused() {
+    let mut kept = plan(false);
+    kept.worktrees = Some(v1::WorktreeReport {
+        worktrees: vec![v1::ScratchWorktree {
+            harp: "amber-swift-owl".to_string(),
+            worktree: "ctxloom-wt-wip".to_string(),
+            path: "/h/wt".to_string(),
+            owner_state: "dead".to_string(),
+            verdict: "spared".to_string(),
+            reason: "uncommitted changes".to_string(),
+        }],
+        spared: 1,
+        ..v1::WorktreeReport::default()
+    });
+    let daemon = Daemon {
+        removed: Some(daemon_api::Removed::Refused {
+            plan: kept,
+            why: daemon_api::RemovalRejection::KeepsSession {
+                harp: "amber-swift-owl".to_string(),
+                spared: 1,
+                skipped: 0,
+            },
+        }),
+        ..Daemon::default()
+    };
+    let ran = destroy_go(
+        &daemon,
+        Format::Text,
+        &["remove", "amber-swift-owl", "--yes"],
+    );
+    assert!(ran.out.contains("ctxloom-wt-wip"), "{}", ran.out);
+    assert!(ran.out.contains("spared"), "{}", ran.out);
+    let failure = ran.result.unwrap_err();
+    assert_eq!(failure.failure.exit, Exit::REFUSED);
+    assert_eq!(
+        failure.failure.cause.code(),
+        "isolation-application-keeps-session"
+    );
+}
+
+// A call that came to nothing is the command's failure, with its exit.
+#[test]
+fn a_removal_the_daemon_could_not_answer_fails() {
+    let failure = destroy_go(
+        &Daemon::default(),
+        Format::Text,
+        &["remove", "amber-swift-owl", "--yes"],
+    )
+    .result
+    .unwrap_err();
+    assert_eq!(failure.failure.exit, Exit::FAILED);
 }
 
 // ------------------------------------------------------------------ transcript
@@ -947,12 +1492,12 @@ fn an_empty_transcript_listing_is_the_placeholder() {
 #[test]
 fn transcript_show_prints_the_records_as_they_are_stored() {
     let line = r#"{"v":1,"harp":"amber-swift-owl","engine":"claude-code","seq":0,"ts":"2026-01-01T00:00:00Z","kind":"entry","entry":{"type":"user","content":"Seeded prompt for amber-swift-owl."}}"#;
-    let mut fake = Fake {
+    let fake = Fake {
         transcript: format!("{line}\n"),
         ..Fake::default()
     };
-    let ran = go(
-        &mut fake,
+    let ran = shown(
+        &fake,
         Format::Json,
         &["transcript", "show", "amber-swift-owl"],
     );
@@ -968,11 +1513,11 @@ fn transcript_show_in_text_reads_as_a_conversation() {
     let user = r#"{"v":1,"harp":"h","engine":"claude-code","seq":0,"ts":"2026-01-01T00:00:00Z","kind":"entry","entry":{"type":"user","content":"What now?"}}"#;
     let assistant = r#"{"v":1,"harp":"h","engine":"claude-code","seq":1,"ts":"2026-01-01T00:00:01Z","kind":"entry","entry":{"type":"assistant","content":"This."}}"#;
     let session = r#"{"v":1,"harp":"h","engine":"claude-code","seq":2,"ts":"2026-01-01T00:00:02Z","kind":"session","session":{"session_id":"s"}}"#;
-    let mut fake = Fake {
+    let fake = Fake {
         transcript: format!("{user}\n{assistant}\n{session}\n"),
         ..Fake::default()
     };
-    let ran = go(&mut fake, Format::Text, &["transcript", "show", "h"]);
+    let ran = shown(&fake, Format::Text, &["transcript", "show", "h"]);
     assert_eq!(ran.out, "user: What now?\nassistant: This.\n");
 }
 
@@ -987,7 +1532,7 @@ fn transcript_show_in_text_joins_a_messages_deltas() {
     };
     let user = r#"{"v":1,"harp":"h","engine":"claude-code","seq":0,"ts":"2026-01-01T00:00:00Z","kind":"entry","entry":{"type":"user","content":"Hi"}}"#;
     let tool = r#"{"v":1,"harp":"h","engine":"claude-code","seq":2,"ts":"2026-01-01T00:00:00Z","kind":"tool","tool":{"id":"t","name":"Bash","input":"{}","response_bytes":1,"response_sha256":"00"}}"#;
-    let mut fake = Fake {
+    let fake = Fake {
         transcript: format!(
             "{user}\n{}\n{tool}\n{}\n{}\n",
             line(1, 1, "world"),
@@ -996,7 +1541,7 @@ fn transcript_show_in_text_joins_a_messages_deltas() {
         ),
         ..Fake::default()
     };
-    let ran = go(&mut fake, Format::Text, &["transcript", "show", "h"]);
+    let ran = shown(&fake, Format::Text, &["transcript", "show", "h"]);
     assert_eq!(ran.out, "user: Hi\nassistant: Hello world\n");
 }
 
@@ -1098,9 +1643,9 @@ impl std::io::Write for Broken {
 // An answer that cannot be written is the command's failure, not a success.
 #[test]
 fn an_answer_that_cannot_be_written_fails_the_command() {
-    let mut fake = Fake::default();
+    let reads = Reads::default();
     let session = parsed(&["list"]);
-    let failure = run(&session, &mut fake, Format::Json, &mut Broken).unwrap_err();
+    let failure = crate::read(&session, &reads, Format::Json, &mut Broken).unwrap_err();
     assert_eq!(failure.failure.cause.code(), "session-cli-output");
     assert_eq!(failure.failure.exit, Exit::FAILED);
 }
@@ -1108,12 +1653,12 @@ fn an_answer_that_cannot_be_written_fails_the_command() {
 // A transcript without a last newline still ends its last line, once.
 #[test]
 fn a_transcript_is_printed_with_one_closing_newline() {
-    let mut fake = Fake {
+    let fake = Fake {
         transcript: "{\"v\":1}".to_string(),
         ..Fake::default()
     };
     assert_eq!(
-        go(&mut fake, Format::Json, &["transcript", "show", "h"]).out,
+        shown(&fake, Format::Json, &["transcript", "show", "h"]).out,
         "{\"v\":1}\n"
     );
 }
@@ -1394,481 +1939,365 @@ fn notice_command(done: &crate::Done) -> String {
         .unwrap()
 }
 
-fn ended(harp: &str) -> View {
-    let mut v = view(harp, State::Ended);
-    v.record.ended_at = Some(ts(STARTED + 60));
-    v
+fn row(harp: &str, action: &str, verdict: &str, reason: &str, command: &str) -> v1::SweepRow {
+    v1::SweepRow {
+        harp: harp.to_string(),
+        action: action.to_string(),
+        verdict: verdict.to_string(),
+        reason: reason.to_string(),
+        command: command.to_string(),
+        ..v1::SweepRow::default()
+    }
 }
 
+fn swept(rows: Vec<v1::SweepRow>, counts: v1::SweepCounts) -> Daemon {
+    Daemon {
+        swept: Some(v1::SweepSessionsResponse {
+            rows,
+            purge_cutoff: "2026-07-16".to_string(),
+            counts: Some(counts),
+            ..v1::SweepSessionsResponse::default()
+        }),
+        ..Daemon::default()
+    }
+}
+
+// The daemon's report, a line per row with its reason and command, and the
+// tally; without --yes it names the command that applies it.
 #[test]
 fn a_sweep_reports_each_sessions_fate_with_its_reason_and_command_and_removes_nothing() {
-    let mut kept = ended("held-one");
-    kept.record.kept = true;
-    let mut fake = Fake {
-        views: vec![
-            view("live-one", State::Live),
-            kept,
-            ended("plan-one"),
-            view("unknown-one", State::Unknown),
+    let daemon = swept(
+        vec![
+            row("live-one", "skip", "skipped", "it is running", ""),
+            row(
+                "plan-one",
+                "purge",
+                "planned",
+                "",
+                "ctxloom session remove plan-one --yes",
+            ),
         ],
-        removal: Some(plan(false)),
-        ..Fake::default()
-    };
-    let ran = go(
-        &mut fake,
-        Format::Text,
-        &["sweep", "--purge-older-than", "1d", "--all-projects"],
+        v1::SweepCounts {
+            planned: 1,
+            skipped: 1,
+            ..v1::SweepCounts::default()
+        },
     );
-    let done = ran.result.unwrap();
-    let blank = " ".repeat(28);
-    let lines: Vec<&str> = ran.out.lines().collect();
+    let ran = destroy_go(
+        &daemon,
+        Format::Text,
+        &["sweep", "--purge-older-than", "1d"],
+    );
     assert!(
-        lines[0].starts_with("Session sweep: purge before 20"),
+        ran.out
+            .starts_with("Session sweep: purge before 2026-07-16."),
         "{}",
         ran.out
     );
-    assert_eq!(lines[1], "");
-    assert_eq!(
-        lines[2..],
-        [
-            format!(
-                "  {:<28} {:<8} {:<8} {:>10}",
-                "live-one", "skip", "skipped", ""
-            ),
-            format!("  {blank} it is running"),
-            format!(
-                "  {:<28} {:<8} {:<8} {:>10}",
-                "held-one", "keep", "held", ""
-            ),
-            format!("  {blank} it is marked keep: its transcript is kept at any age"),
-            format!("  {blank} run: ctxloom session keep held-one --undo"),
-            format!(
-                "  {:<28} {:<8} {:<8} {:>10}",
-                "plan-one", "purge", "planned", "13 B"
-            ),
-            format!("  {blank} run: ctxloom session remove plan-one --yes"),
-            format!(
-                "  {:<28} {:<8} {:<8} {:>10}",
-                "unknown-one", "skip", "skipped", ""
-            ),
-            format!("  {blank} its liveness cannot be proven"),
-            format!("  {blank} run: ctxloom session remove unknown-one --even-if-live"),
-            String::new(),
-            "0 done, 1 planned, 1 held, 0 left, 2 skipped, 0 failed.".to_string(),
-        ]
+    assert!(ran.out.contains("it is running"), "{}", ran.out);
+    assert!(
+        ran.out
+            .contains("run: ctxloom session remove plan-one --yes"),
+        "{}",
+        ran.out
     );
-    assert_eq!(fake.list.len(), 1);
-    assert!(fake.list[0].all);
-    assert_eq!(fake.remove.len(), 1, "only the planning ask");
-    assert!(!fake.remove[0].yes);
-    assert!(notice_command(&done)
-        .contains("ctxloom session sweep --all-projects --purge-older-than 1d --yes"));
+    assert!(ran
+        .out
+        .contains("0 done, 1 planned, 0 held, 0 left, 1 skipped, 0 failed."));
+    let done = ran.result.unwrap();
+    assert!(done.would_change);
+    let command = notice_command(&done);
+    assert!(
+        command.contains("ctxloom session sweep --purge-older-than 1d --yes"),
+        "{command}"
+    );
+    assert_eq!(
+        *daemon.sweeps.borrow(),
+        [(false, Some("1d".to_string()), false)]
+    );
 }
 
 #[test]
 fn a_sweep_without_a_purge_age_says_purges_are_held() {
-    let mut fake = Fake {
-        views: vec![ended("plan-one")],
-        removal: Some(plan(false)),
-        ..Fake::default()
-    };
-    let ran = go(&mut fake, Format::Text, &["sweep"]);
+    let mut daemon = swept(Vec::new(), v1::SweepCounts::default());
+    if let Some(swept) = daemon.swept.as_mut() {
+        swept.purge_cutoff.clear();
+    }
+    let ran = destroy_go(&daemon, Format::Text, &["sweep", "--all-projects"]);
+    assert!(ran.out.contains("not set (purges are held)"), "{}", ran.out);
     let done = ran.result.unwrap();
-    assert!(
-        ran.out
-            .starts_with("Session sweep: purge before not set (purges are held).\n\n"),
-        "{}",
-        ran.out
-    );
-    assert!(fake.remove.is_empty());
+    assert!(!done.would_change);
     let command = notice_command(&done);
-    assert!(command.contains("ctxloom session sweep --yes"), "{command}");
-    assert!(!command.contains("--all-projects"), "{command}");
+    assert!(
+        command.contains("ctxloom session sweep --all-projects --yes"),
+        "{command}"
+    );
+    assert_eq!(*daemon.sweeps.borrow(), [(true, None, false)]);
 }
 
+// Ruling 146: the report in json is the daemon's answer as its proto3 JSON.
 #[test]
 fn a_sweep_report_in_json_is_the_report() {
-    let mut fake = Fake {
-        views: vec![ended("plan-one")],
-        removal: Some(plan(false)),
-        ..Fake::default()
-    };
-    let doc = json_of(&go(
-        &mut fake,
+    let daemon = swept(
+        vec![row("plan-one", "purge", "planned", "", "")],
+        v1::SweepCounts {
+            planned: 1,
+            ..v1::SweepCounts::default()
+        },
+    );
+    let doc = json_of(&destroy_go(
+        &daemon,
         Format::Json,
         &["sweep", "--purge-older-than", "1d"],
     ));
     assert_eq!(doc["rows"][0]["harp"], "plan-one");
     assert_eq!(doc["rows"][0]["verdict"], "planned");
-    assert_eq!(doc["counts"]["planned"], 1);
+    assert_eq!(doc["counts"]["planned"], "1");
+    assert_eq!(doc["purge_cutoff"], "2026-07-16");
 }
 
 // Owner ruling 104: each session the sweep destroys (or plans to) that holds
 // a person's files gets the same warning `session remove` gives, naming them.
 #[test]
 fn a_sweep_warns_of_the_authored_files_each_destroy_takes() {
-    for (yes, removal) in [(false, plan(false)), (true, plan(true))] {
-        let mut fake = Fake {
-            views: vec![ended("plan-one")],
-            removal: Some(removal),
-            ..Fake::default()
-        };
-        let mut words = vec!["sweep", "--purge-older-than", "1d"];
-        if yes {
-            words.push("--yes");
-        }
-        let done = go(&mut fake, Format::Text, &words).result.unwrap();
-        let warned = authored_warning(&done).unwrap_or_else(|| panic!("yes={yes}: no warning"));
-        assert!(warned.contains("notes.md"), "{warned}");
+    let mut planned = row("plan-one", "purge", "planned", "", "");
+    planned.authored = vec!["notes.md".to_string()];
+    let daemon = swept(vec![planned], v1::SweepCounts::default());
+    let done = destroy_go(&daemon, Format::Text, &["sweep"])
+        .result
+        .unwrap();
+    let warned = authored_warning(&done).expect("the warning");
+    assert!(warned.contains("notes.md"), "{warned}");
+}
+
+/// A sweep's removal of `harp` (of calm-otter), `applied` or planned.
+fn swept_removal(harp: &str, applied: bool) -> v1::DeleteSessionResponse {
+    v1::DeleteSessionResponse {
+        name: format!("projects/calm-otter/sessions/{harp}"),
+        harp: harp.to_string(),
+        applied: Some(applied),
+        ..v1::DeleteSessionResponse::default()
     }
+}
+
+// s4-Q14, H-Q8 (a): each session a sweep plans to destroy warns of its held
+// facts; nothing is discarded by a report.
+#[test]
+fn a_sweep_report_warns_of_each_planned_destroys_held_facts() {
+    let mut daemon = swept(
+        vec![
+            row("plan-one", "purge", "planned", "", ""),
+            row("plan-two", "purge", "planned", "", ""),
+        ],
+        v1::SweepCounts {
+            planned: 2,
+            ..v1::SweepCounts::default()
+        },
+    );
+    if let Some(swept) = daemon.swept.as_mut() {
+        swept.sessions = vec![
+            swept_removal("plan-one", false),
+            swept_removal("plan-two", false),
+        ];
+    }
+    let daemon = holding(daemon, "projects/calm-otter/sessions/plan-two", 4, 0);
+    let done = destroy_go(&daemon, Format::Text, &["sweep"])
+        .result
+        .unwrap();
+    let warnings: Vec<String> = done
+        .notices
+        .iter()
+        .filter(|n| n.code() == "sessions-application-destroys-held")
+        .map(|n| format!("{:?}", n.args()))
+        .collect();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(warnings[0].contains("plan-two"), "{warnings:?}");
+    assert!(daemon.discarded.borrow().is_empty());
+}
+
+// Each session a sweep destroyed has its hold discarded, even when another
+// row failed (the failure is still the command's exit).
+#[test]
+fn a_sweep_discards_the_hold_of_each_session_it_destroyed() {
+    let mut daemon = swept(
+        vec![
+            row("gone-one", "purge", "done", "", ""),
+            row("bad-one", "purge", "failed", "boom", ""),
+        ],
+        v1::SweepCounts {
+            done: 1,
+            failed: 1,
+            ..v1::SweepCounts::default()
+        },
+    );
+    if let Some(swept) = daemon.swept.as_mut() {
+        swept.sessions = vec![swept_removal("gone-one", true)];
+    }
+    let daemon = holding(daemon, "projects/calm-otter/sessions/gone-one", 2, 0);
+    let failure = destroy_go(&daemon, Format::Text, &["sweep", "--yes"])
+        .result
+        .unwrap_err();
+    assert_eq!(failure.failure.cause.code(), "session-cli-sweep-failed");
+    assert_eq!(
+        *daemon.discarded.borrow(),
+        ["projects/calm-otter/sessions/gone-one"]
+    );
 }
 
 #[test]
 fn a_sweep_with_yes_acts_and_leaves_no_notice() {
-    let mut fake = Fake {
-        views: vec![ended("plan-one")],
-        removal: Some(plan(true)),
-        ..Fake::default()
-    };
-    let ran = go(
-        &mut fake,
-        Format::Text,
-        &["sweep", "--purge-older-than", "1d", "--yes"],
+    let daemon = swept(
+        vec![row("plan-one", "purge", "done", "", "")],
+        v1::SweepCounts {
+            done: 1,
+            ..v1::SweepCounts::default()
+        },
     );
-    assert!(without_authored(ran.result.unwrap()).is_empty());
+    let ran = destroy_go(&daemon, Format::Text, &["sweep", "--yes"]);
     assert!(ran.out.contains("1 done"), "{}", ran.out);
-    assert_eq!(fake.remove.len(), 2);
-    assert!(fake.remove[1].yes);
+    assert!(without_authored(ran.result.unwrap()).is_empty());
+    assert_eq!(*daemon.sweeps.borrow(), [(false, None, true)]);
 }
 
 #[test]
 fn a_sweep_that_failed_while_acting_exits_nonzero_but_a_report_of_a_failure_does_not() {
-    // The fake has nothing to remove: every purge fails.
-    let mut fake = Fake {
-        views: vec![ended("plan-one")],
-        removal: None,
-        ..Fake::default()
-    };
-    let ran = go(
-        &mut fake,
-        Format::Text,
-        &["sweep", "--purge-older-than", "1d"],
+    let daemon = swept(
+        vec![row("plan-one", "purge", "failed", "boom", "")],
+        v1::SweepCounts {
+            failed: 1,
+            ..v1::SweepCounts::default()
+        },
     );
+    let ran = destroy_go(&daemon, Format::Text, &["sweep"]);
     assert!(ran.out.contains("1 failed"), "{}", ran.out);
     assert!(ran.result.is_ok(), "a report only reports");
-    let ran = go(
-        &mut fake,
-        Format::Text,
-        &["sweep", "--purge-older-than", "1d", "--yes"],
-    );
-    let failure = ran.result.unwrap_err();
+    let failure = destroy_go(&daemon, Format::Text, &["sweep", "--yes"])
+        .result
+        .unwrap_err();
     assert_eq!(failure.failure.cause.code(), "session-cli-sweep-failed");
     assert_eq!(failure.failure.exit, Exit::FAILED);
 }
 
-// ------------------------------------------ remove reaps the session's worktrees
-
-// session_worktrees.feature "Purging a session takes its worktrees only when
-// it can prove that safe" (F2): `session remove` classifies the session's
-// scratch worktrees first, changing nothing; a session goes whole or not at
-// all, so one it cannot prove safe refuses the removal; otherwise the
-// worktrees go, through the worktree leaf, and only then the session.
-
-/// A removal of a session whose one worktree is planned `planned` and, once
-/// applied, comes to `applied`.
-fn holding(
-    planned: isolation_application::Verdict,
-    applied: isolation_application::Verdict,
-) -> Fake {
-    Fake {
-        removal: Some(plan(true)),
-        wt_report: Some(wt_report(
-            vec![checkout("amber-swift-owl", "clean", planned, "")],
-            false,
-        )),
-        wt_applied: Some(wt_report(
-            vec![checkout("amber-swift-owl", "clean", applied, "")],
-            true,
-        )),
-        ..Fake::default()
-    }
+// A --purge-older-than that is no age is refused here (exit 20), naming the
+// flag, before the daemon is asked.
+#[test]
+fn a_purge_age_that_is_none_is_refused_before_the_daemon_is_asked() {
+    let daemon = swept(Vec::new(), v1::SweepCounts::default());
+    let failure = destroy_go(
+        &daemon,
+        Format::Text,
+        &["sweep", "--purge-older-than", "soon"],
+    )
+    .result
+    .unwrap_err();
+    assert_eq!(failure.failure.exit, Exit::REFUSED);
+    assert_eq!(failure.failure.cause.code(), "reclaim-application-bad-age");
+    assert!(daemon.sweeps.borrow().is_empty());
 }
 
+// The age form of the one destroyer (docs/plans/ctxloom-features.md,
+// "Sessions": `session remove --older-than <age>`, owner ruling 98): this
+// project's sweep, its purge age the flag's, reported with the command that
+// applies it in the same verb; no single session is asked for.
 #[test]
-fn remove_with_yes_removes_the_clean_worktrees_and_only_then_destroys_the_session() {
-    use isolation_application::Verdict;
-    let mut fake = holding(Verdict::Reapable, Verdict::Reaped);
-    let ran = go(
-        &mut fake,
-        Format::Text,
-        &["remove", "amber-swift-owl", "--yes"],
+fn remove_older_than_sweeps_this_project_by_that_age_and_names_the_apply() {
+    let daemon = swept(
+        vec![row(
+            "plan-one",
+            "purge",
+            "planned",
+            "",
+            "ctxloom session remove plan-one --yes",
+        )],
+        v1::SweepCounts {
+            planned: 1,
+            ..v1::SweepCounts::default()
+        },
     );
-    assert_eq!(
-        fake.log,
-        [
-            "worktrees plan",
-            "remove plan",
-            "worktrees apply",
-            "remove apply"
-        ]
-    );
-    assert!(ran.out.contains("ctxloom-wt-clean"), "{}", ran.out);
+    let ran = destroy_go(&daemon, Format::Text, &["remove", "--older-than", "90d"]);
     assert!(
-        ran.out.contains("removed 1, spared 0, skipped 0"),
+        ran.out
+            .starts_with("Session sweep: purge before 2026-07-16."),
         "{}",
         ran.out
     );
-    assert!(without_authored(ran.result.unwrap()).is_empty());
-}
-
-#[test]
-fn remove_with_yes_carries_the_worktree_report_in_json() {
-    use isolation_application::Verdict;
-    let mut fake = holding(Verdict::Reapable, Verdict::Reaped);
-    let doc = json_of(&go(
-        &mut fake,
-        Format::Json,
-        &["remove", "amber-swift-owl", "--yes"],
-    ));
-    assert_eq!(doc["applied"], true);
-    assert_eq!(doc["worktrees"]["reaped"], 1);
-    assert_eq!(doc["worktrees"]["worktrees"][0]["verdict"], "reaped");
-}
-
-/// What a refused removal came to: its failure's code and exit, and what it
-/// asked.
-fn refused(fake: &mut Fake, words: &[&str]) -> (String, Exit, String) {
-    let ran = go(fake, Format::Json, words);
-    let Err(failure) = ran.result else {
-        panic!("the removal is refused: {}", ran.out)
-    };
-    (
-        failure.failure.cause.code().to_string(),
-        failure.failure.exit,
-        ran.out,
-    )
-}
-
-// The safety scenario: a worktree holding uncommitted work keeps its whole
-// session. Nothing is applied: no worktree removed, the session not destroyed.
-#[test]
-fn a_spared_worktree_refuses_the_whole_removal_and_nothing_is_applied() {
-    use isolation_application::Verdict;
-    let mut fake = Fake {
-        removal: Some(plan(true)),
-        wt_report: Some(wt_report(
-            vec![
-                checkout("amber-swift-owl", "clean", Verdict::Reapable, ""),
-                checkout(
-                    "amber-swift-owl",
-                    "wip",
-                    Verdict::Spared,
-                    "has uncommitted changes",
-                ),
-            ],
-            false,
-        )),
-        ..Fake::default()
-    };
-    let (code, exit, out) = refused(&mut fake, &["remove", "amber-swift-owl", "--yes"]);
-    assert_eq!(code, "isolation-application-keeps-session");
-    assert_eq!(exit, Exit::REFUSED);
-    assert!(out.contains("ctxloom-wt-wip"), "{out}");
-    assert_eq!(fake.log, ["worktrees plan", "remove plan"]);
-}
-
-// A worktree whose owner is not proven ended is never looked at, so it
-// cannot be proven safe either: --even-if-live (the session's override) does
-// not reach it.
-#[test]
-fn a_skipped_worktree_refuses_the_whole_removal_even_if_live() {
-    use isolation_application::Verdict;
-    for words in [
-        &["remove", "amber-swift-owl", "--yes"][..],
-        &["remove", "amber-swift-owl", "--yes", "--even-if-live"][..],
-    ] {
-        let mut fake = holding(Verdict::Skipped, Verdict::Skipped);
-        let (code, _, out) = refused(&mut fake, words);
-        assert_eq!(code, "isolation-application-keeps-session", "{words:?}");
-        assert!(out.contains("skipped"), "{out}");
-        assert_eq!(fake.log, ["worktrees plan", "remove plan"], "{words:?}");
-    }
-}
-
-// A preview refuses as the removal would: its report names the worktree.
-#[test]
-fn a_preview_of_a_removal_a_worktree_keeps_is_refused() {
-    use isolation_application::Verdict;
-    let mut fake = holding(Verdict::Spared, Verdict::Spared);
-    let (code, _, _) = refused(&mut fake, &["remove", "amber-swift-owl"]);
-    assert_eq!(code, "isolation-application-keeps-session");
-    assert_eq!(fake.log, ["worktrees plan", "remove plan"]);
-}
-
-// A worktree that went dirty between the plan and its removal is left by the
-// leaf; the session is then not destroyed.
-#[test]
-fn a_worktree_left_at_its_removal_keeps_the_session() {
-    use isolation_application::Verdict;
-    let mut fake = holding(Verdict::Reapable, Verdict::Spared);
-    let (code, _, out) = refused(&mut fake, &["remove", "amber-swift-owl", "--yes"]);
-    assert_eq!(code, "isolation-application-keeps-session");
-    assert!(out.contains("spared"), "{out}");
-    assert_eq!(
-        fake.log,
-        ["worktrees plan", "remove plan", "worktrees apply"],
-        "never destroyed"
-    );
-}
-
-#[test]
-fn a_removal_of_a_session_with_no_worktrees_is_unchanged() {
-    let mut fake = Fake {
-        removal: Some(plan(true)),
-        wt_report: Some(wt_report(Vec::new(), true)),
-        ..Fake::default()
-    };
-    let doc = json_of(&go(
-        &mut fake,
-        Format::Json,
-        &["remove", "amber-swift-owl", "--yes"],
-    ));
-    assert!(doc.get("worktrees").is_none(), "{doc}");
-    let ran = go(
-        &mut fake,
-        Format::Text,
-        &["remove", "amber-swift-owl", "--yes"],
-    );
-    assert!(!ran.out.contains("scratch worktrees"), "{}", ran.out);
-}
-
-#[test]
-fn a_removal_of_a_session_with_no_directory_still_succeeds() {
-    // The default Fake answers NoSession to every worktree question.
-    let mut fake = Fake {
-        removal: Some(plan(true)),
-        ..Fake::default()
-    };
-    let ran = go(
-        &mut fake,
-        Format::Text,
-        &["remove", "amber-swift-owl", "--yes"],
-    );
-    assert!(ran.result.is_ok());
-    assert_eq!(fake.log, ["worktrees plan", "remove plan", "remove apply"]);
-}
-
-#[test]
-fn remove_without_yes_only_previews_the_worktrees() {
-    use isolation_application::Verdict;
-    let mut fake = Fake {
-        removal: Some(plan(false)),
-        wt_report: Some(wt_report(
-            vec![checkout("amber-swift-owl", "clean", Verdict::Reapable, "")],
-            false,
-        )),
-        ..Fake::default()
-    };
-    let ran = go(&mut fake, Format::Text, &["remove", "amber-swift-owl"]);
-    assert_eq!(fake.log, ["worktrees plan", "remove plan"]);
-    assert!(ran.out.contains("reapable"), "{}", ran.out);
-    assert_eq!(without_authored(ran.result.unwrap()).len(), 1);
-}
-
-// A session the sessions use case refuses (its retention, its keep, its
-// lock) reaps nothing, and its report still names the worktrees it holds.
-#[test]
-fn a_refused_removal_reaps_nothing_and_names_its_worktrees() {
-    use isolation_application::Verdict;
-    let mut fake = holding(Verdict::Skipped, Verdict::Skipped);
-    let mut refusal = plan(false);
-    refusal.refusal = Some(Refusal::Retained {
-        harp: "amber-swift-owl".to_string(),
-        detail: "it ended an hour ago".to_string(),
-    });
-    fake.removal = Some(refusal);
-    let (code, _, out) = refused(&mut fake, &["remove", "amber-swift-owl", "--yes"]);
-    assert_eq!(
-        code, "sessions-application-refused-retained",
-        "the session's own"
-    );
-    assert!(out.contains("ctxloom-wt-clean"), "{out}");
-    assert_eq!(fake.log, ["worktrees plan", "remove plan"]);
-}
-
-#[test]
-fn a_worktree_failure_during_a_removal_is_reported_not_swallowed() {
-    let mut fake = Fake {
-        removal: Some(plan(true)),
-        wt_fails: true,
-        ..Fake::default()
-    };
-    let ran = go(
-        &mut fake,
-        Format::Json,
-        &["remove", "amber-swift-owl", "--yes"],
-    );
-    assert!(ran.result.is_err());
-    assert!(!fake.log.contains(&"remove apply"), "{:?}", fake.log);
-}
-
-// The sweep's purge-age rule: `--purge-older-than`, else `session_purge_age`;
-// the flag beats the configuration.
-#[test]
-fn a_sweep_without_the_flag_purges_by_the_configured_age() {
-    let mut fake = Fake {
-        views: vec![ended("plan-one")],
-        removal: Some(plan(false)),
-        configured_age: Some("1d".to_string()),
-        ..Fake::default()
-    };
-    let ran = go(&mut fake, Format::Text, &["sweep"]);
     let done = ran.result.unwrap();
-    assert!(!ran.out.contains("not set"), "{}", ran.out);
-    assert!(ran.out.contains("plan-one"), "{}", ran.out);
-    assert_eq!(fake.remove.len(), 1, "the configured age planned the purge");
-    // The confirming command is the same plain one: the configuration says
-    // the age again when it is run.
+    assert!(done.would_change);
     let command = notice_command(&done);
-    assert!(command.contains("ctxloom session sweep --yes"), "{command}");
-    assert!(!command.contains("--purge-older-than"), "{command}");
-}
-
-#[test]
-fn a_sweeps_flag_beats_the_configured_age() {
-    // The session ended long ago: a 1d flag purges it where a configured
-    // age of 100000d (older than any session) would leave it.
-    let mut fake = Fake {
-        views: vec![ended("plan-one")],
-        removal: Some(plan(false)),
-        configured_age: Some("100000d".to_string()),
-        ..Fake::default()
-    };
-    let ran = go(
-        &mut fake,
-        Format::Json,
-        &["sweep", "--purge-older-than", "1d"],
+    assert!(
+        command.contains("ctxloom session remove --older-than 90d --yes"),
+        "{command}"
     );
-    let doc = json_of(&ran);
-    assert_eq!(doc["rows"][0]["verdict"], "planned");
-    assert_eq!(fake.config_asked, 0);
+    assert_eq!(
+        *daemon.sweeps.borrow(),
+        [(false, Some("90d".to_string()), false)]
+    );
+    assert!(daemon.deletes.borrow().is_empty());
 }
 
 #[test]
-fn a_configured_age_that_is_none_is_a_usage_error_naming_the_key() {
-    let mut fake = Fake {
-        views: vec![ended("plan-one")],
-        configured_age: Some("soon".to_string()),
-        ..Fake::default()
-    };
-    let failure = go(&mut fake, Format::Text, &["sweep"]).result.unwrap_err();
+fn remove_older_than_with_yes_applies_the_sweep() {
+    let daemon = swept(
+        vec![row("plan-one", "purge", "done", "", "")],
+        v1::SweepCounts {
+            done: 1,
+            ..v1::SweepCounts::default()
+        },
+    );
+    let ran = destroy_go(
+        &daemon,
+        Format::Text,
+        &["remove", "--older-than", "90d", "--yes"],
+    );
+    let done = ran.result.unwrap();
+    assert!(!done.would_change);
+    assert!(without_authored(done).is_empty());
+    assert_eq!(
+        *daemon.sweeps.borrow(),
+        [(false, Some("90d".to_string()), true)]
+    );
+}
+
+// An age that is none is refused naming the flag the user typed, before the
+// daemon is asked.
+#[test]
+fn remove_older_than_an_age_that_is_none_is_refused_naming_the_flag() {
+    let daemon = swept(Vec::new(), v1::SweepCounts::default());
+    let failure = destroy_go(&daemon, Format::Text, &["remove", "--older-than", "soon"])
+        .result
+        .unwrap_err();
     assert_eq!(failure.failure.exit, Exit::REFUSED);
-    assert!(failure
-        .failure
-        .cause
-        .args()
-        .iter()
-        .any(|(k, a)| *k == "flag" && format!("{a:?}").contains("session_purge_age")));
+    assert_eq!(failure.failure.cause.code(), "reclaim-application-bad-age");
+    let args = format!("{:?}", failure.failure.cause.args());
+    assert!(args.contains("\"--older-than\""), "{args}");
+    assert!(daemon.sweeps.borrow().is_empty());
+}
+
+// One session or an age: exactly one of them, and `--even-if-live` is the
+// single session's override alone.
+#[test]
+fn remove_takes_a_session_or_an_age_never_both_nor_neither() {
+    let refused = |words: &[&str]| {
+        Session::augment_args(Command::new("session"))
+            .no_binary_name(true)
+            .try_get_matches_from(words.iter().map(|w| w.to_string()))
+            .is_err()
+    };
+    assert!(refused(&["remove"]));
+    assert!(refused(&[
+        "remove",
+        "amber-swift-owl",
+        "--older-than",
+        "90d"
+    ]));
+    assert!(refused(&[
+        "remove",
+        "--older-than",
+        "90d",
+        "--even-if-live"
+    ]));
+    assert!(!refused(&["remove", "amber-swift-owl"]));
+    assert!(!refused(&["remove", "--older-than", "90d"]));
 }
 
 // Two messages whose pieces interleave in the stream are two `assistant:`
@@ -1881,7 +2310,7 @@ fn transcript_show_in_text_keeps_two_messages_apart() {
             r#"{{"v":1,"harp":"h","engine":"claude-code","seq":{seq},"ts":"2026-01-01T00:00:00Z","kind":"assistant_delta","delta":{{"message_id":"{message}","index":{index},"final":false,"text":"{text}"}}}}"#
         )
     };
-    let mut fake = Fake {
+    let fake = Fake {
         transcript: format!(
             "{}\n{}\n{}\n{}\n",
             delta(0, "m1", 0, "One "),
@@ -1891,7 +2320,7 @@ fn transcript_show_in_text_keeps_two_messages_apart() {
         ),
         ..Fake::default()
     };
-    let ran = go(&mut fake, Format::Text, &["transcript", "show", "h"]);
+    let ran = shown(&fake, Format::Text, &["transcript", "show", "h"]);
     assert_eq!(ran.out, "assistant: One again\nassistant: Two too\n");
 }
 
@@ -1944,11 +2373,11 @@ fn transcript_show_in_text_places_a_message_under_its_own_prompt_whatever_arrive
         ],
     ];
     for lines in orders {
-        let mut fake = Fake {
+        let fake = Fake {
             transcript: format!("{}\n", lines.join("\n")),
             ..Fake::default()
         };
-        let ran = go(&mut fake, Format::Text, &["transcript", "show", "h"]);
+        let ran = shown(&fake, Format::Text, &["transcript", "show", "h"]);
         assert_eq!(
             ran.out, "user: q1\nassistant: a1\nuser: q2\nassistant: a2\n",
             "{lines:?}"
@@ -1970,40 +2399,35 @@ fn there_is_no_transcript_purge() {
 // does not.
 #[test]
 fn a_preview_that_would_destroy_says_it_would_change_and_an_applied_one_does_not() {
-    let mut fake = Fake {
-        removal: Some(plan(false)),
-        ..Fake::default()
-    };
-    let previewed = go(&mut fake, Format::Json, &["remove", "amber-swift-owl"]);
+    let previewed = destroy_go(
+        &done_with(plan(false)),
+        Format::Json,
+        &["remove", "amber-swift-owl"],
+    );
     assert!(previewed.result.unwrap().would_change);
-    let mut fake = Fake {
-        removal: Some(plan(true)),
-        ..Fake::default()
-    };
-    let applied = go(
-        &mut fake,
+    let applied = destroy_go(
+        &done_with(plan(true)),
         Format::Json,
         &["remove", "amber-swift-owl", "--yes"],
     );
     assert!(!applied.result.unwrap().would_change);
 
-    let sweep = |views: Vec<View>, words: &[&str]| {
-        let mut fake = Fake {
-            views,
-            removal: Some(plan(words.contains(&"--yes"))),
-            ..Fake::default()
-        };
-        go(&mut fake, Format::Json, words)
+    let sweep = |planned: u64, words: &[&str]| {
+        let daemon = swept(
+            Vec::new(),
+            v1::SweepCounts {
+                planned,
+                ..v1::SweepCounts::default()
+            },
+        );
+        destroy_go(&daemon, Format::Json, words)
             .result
             .unwrap()
             .would_change
     };
     let words = ["sweep", "--purge-older-than", "1d", "--all-projects"];
-    assert!(sweep(vec![ended("plan-one")], &words), "one is planned");
-    assert!(
-        !sweep(vec![view("live-one", State::Live)], &words),
-        "nothing is planned"
-    );
+    assert!(sweep(1, &words), "one is planned");
+    assert!(!sweep(0, &words), "nothing is planned");
     let yes = [
         "sweep",
         "--purge-older-than",
@@ -2011,5 +2435,310 @@ fn a_preview_that_would_destroy_says_it_would_change_and_an_applied_one_does_not
         "--all-projects",
         "--yes",
     ];
-    assert!(!sweep(vec![ended("plan-one")], &yes), "applied");
+    assert!(!sweep(1, &yes), "applied");
+}
+
+// Only `remove` and `sweep` are the daemon's destroys; a read or a
+// worktree listing is not.
+#[test]
+fn only_remove_and_sweep_are_destroys() {
+    for words in [
+        vec![],
+        vec!["list"],
+        vec!["show", "amber-swift-owl"],
+        vec!["worktrees"],
+    ] {
+        assert!(!crate::is_destroy(&parsed(&words)), "{words:?}");
+    }
+    for words in [vec!["remove", "amber-swift-owl"], vec!["sweep"]] {
+        assert!(crate::is_destroy(&parsed(&words)), "{words:?}");
+    }
+}
+
+// ---- the child verbs (slice 4 U3, S2, S19)
+
+/// The user's writes a test scripts: each answers with the target's
+/// session, applied unless `duplicate`, and records what it was asked.
+#[derive(Default)]
+struct Writes {
+    asked: std::sync::Mutex<Vec<String>>,
+    duplicate: bool,
+}
+
+impl Writes {
+    fn written(&self, harp: &str, id: &str) -> daemon_api::Written {
+        daemon_api::Written {
+            session: session(harp, v1::session::State::Live),
+            id: id.to_string(),
+            applied: !self.duplicate,
+        }
+    }
+}
+
+impl daemon_api::ChildWrites for Writes {
+    async fn launch(
+        &self,
+        launch: &daemon_api::Launch,
+    ) -> Result<daemon_api::Written, daemon_api::CallError> {
+        self.asked.lock().unwrap().push(format!("{launch:?}"));
+        Ok(self.written(launch.harp.as_deref().unwrap_or("minted-name-here"), "c1"))
+    }
+
+    async fn send_as(
+        &self,
+        target: &str,
+        urgency: sessions_application::Urgency,
+        text: &str,
+        id: Option<&str>,
+    ) -> Result<daemon_api::Written, daemon_api::CallError> {
+        self.asked
+            .lock()
+            .unwrap()
+            .push(format!("send {target} {urgency:?} {text} {id:?}"));
+        Ok(self.written(target, id.unwrap_or("minted")))
+    }
+
+    async fn clear(&self, target: &str) -> Result<daemon_api::Written, daemon_api::CallError> {
+        self.asked.lock().unwrap().push(format!("clear {target}"));
+        Ok(self.written(target, "k1"))
+    }
+
+    async fn close(&self, target: &str) -> Result<daemon_api::Written, daemon_api::CallError> {
+        self.asked.lock().unwrap().push(format!("close {target}"));
+        Ok(self.written(target, "uid"))
+    }
+
+    async fn stop(&self, target: &str) -> Result<daemon_api::Written, daemon_api::CallError> {
+        self.asked.lock().unwrap().push(format!("stop {target}"));
+        Ok(self.written(target, "uid"))
+    }
+}
+
+fn child_go(writes: &Writes, format: Format, words: &[&str]) -> Ran {
+    let command = parsed(words);
+    assert!(crate::is_child(&command), "{words:?} is a child verb");
+    let mut out = Vec::new();
+    let result = crate::child(&command, writes, format, &mut out);
+    Ran {
+        out: String::from_utf8(out).unwrap(),
+        result,
+    }
+}
+
+#[test]
+fn a_launch_names_its_owner_child_agent_engine_and_task() {
+    let writes = Writes::default();
+    let ran = child_go(
+        &writes,
+        Format::Text,
+        &[
+            "launch",
+            "amber-quiet-heron",
+            "--name",
+            "brisk-copper-moth",
+            "--agent",
+            "reviewer",
+            "--engine",
+            "claude-code",
+            "--project",
+            "../api",
+            "review the change",
+        ],
+    );
+    assert!(ran.result.is_ok());
+    assert_eq!(
+        ran.out,
+        "brisk-copper-moth: launched, a child of amber-quiet-heron\n"
+    );
+    let asked = writes.asked.lock().unwrap().clone();
+    assert_eq!(
+        asked,
+        [format!(
+            "{:?}",
+            daemon_api::Launch {
+                owner: Some("amber-quiet-heron".to_string()),
+                harp: Some("brisk-copper-moth".to_string()),
+                engine: "claude-code".to_string(),
+                agent: "reviewer".to_string(),
+                task: "review the change".to_string(),
+                project: Some("../api".to_string()),
+            }
+        )]
+    );
+}
+
+#[test]
+fn a_launch_in_json_is_the_childs_session() {
+    let writes = Writes::default();
+    let ran = child_go(
+        &writes,
+        Format::Json,
+        &["launch", "amber-quiet-heron", "--name", "brisk-copper-moth"],
+    );
+    assert!(ran.result.is_ok());
+    assert_eq!(
+        json_of(&ran)["name"],
+        "projects/calm-otter/sessions/brisk-copper-moth"
+    );
+}
+
+#[test]
+fn a_send_carries_its_urgency_text_and_id_and_says_a_duplicate() {
+    let writes = Writes::default();
+    let ran = child_go(
+        &writes,
+        Format::Text,
+        &[
+            "send",
+            "brisk-copper-moth",
+            "steer",
+            "look at main.rs",
+            "--id",
+            "m1",
+        ],
+    );
+    assert!(ran.result.is_ok());
+    assert_eq!(ran.out, "brisk-copper-moth: m1 recorded\n");
+    assert_eq!(
+        *writes.asked.lock().unwrap(),
+        ["send brisk-copper-moth Steer look at main.rs Some(\"m1\")".to_string()]
+    );
+    let again = Writes {
+        duplicate: true,
+        ..Writes::default()
+    };
+    let ran = child_go(
+        &again,
+        Format::Text,
+        &["send", "brisk-copper-moth", "wake", "x", "--id", "m1"],
+    );
+    assert_eq!(ran.out, "brisk-copper-moth: m1 already recorded\n");
+}
+
+#[test]
+fn a_send_with_no_urgency_is_a_usage_error_naming_the_three() {
+    let command = Session::augment_args(Command::new("session")).no_binary_name(true);
+    let refused = command
+        .try_get_matches_from(["send", "brisk-copper-moth", "check the tests"])
+        .unwrap_err()
+        .to_string();
+    assert!(refused.contains("inform, wake, steer"), "{refused}");
+}
+
+#[test]
+fn a_clear_and_a_close_say_what_they_did_and_a_second_close_says_so() {
+    let writes = Writes::default();
+    let ran = child_go(&writes, Format::Text, &["clear", "brisk-copper-moth"]);
+    assert_eq!(ran.out, "brisk-copper-moth: k1 recorded\n");
+    let ran = child_go(&writes, Format::Text, &["close", "brisk-copper-moth"]);
+    assert_eq!(ran.out, "brisk-copper-moth: closed\n");
+    let again = Writes {
+        duplicate: true,
+        ..Writes::default()
+    };
+    let ran = child_go(&again, Format::Text, &["close", "brisk-copper-moth"]);
+    assert_eq!(ran.out, "brisk-copper-moth: already closed\n");
+    assert!(ran.result.unwrap().notices.is_empty(), "said on its line");
+    let ran = child_go(&again, Format::Json, &["close", "brisk-copper-moth"]);
+    let notices = ran.result.unwrap().notices;
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0].code(), "session-cli-already-closed");
+    let ran = child_go(&writes, Format::Json, &["close", "brisk-copper-moth"]);
+    assert!(ran.result.unwrap().notices.is_empty(), "closed now");
+    let ran = child_go(
+        &again,
+        Format::Json,
+        &["send", "brisk-copper-moth", "wake", "x"],
+    );
+    assert!(ran.result.unwrap().notices.is_empty(), "no close");
+}
+
+#[test]
+fn a_refused_child_verb_fails_as_its_refusal_says() {
+    struct Refusing;
+    impl daemon_api::ChildWrites for Refusing {
+        async fn launch(
+            &self,
+            _: &daemon_api::Launch,
+        ) -> Result<daemon_api::Written, daemon_api::CallError> {
+            unreachable!()
+        }
+        async fn send_as(
+            &self,
+            _: &str,
+            _: sessions_application::Urgency,
+            _: &str,
+            _: Option<&str>,
+        ) -> Result<daemon_api::Written, daemon_api::CallError> {
+            Err(daemon_api::CallError::Refused(daemon_api::Rejection::Api(
+                daemon_api::ApiRejection::SessionNotFound {
+                    name: "brisk-copper-moth".to_string(),
+                },
+            )))
+        }
+        async fn clear(&self, _: &str) -> Result<daemon_api::Written, daemon_api::CallError> {
+            unreachable!()
+        }
+        async fn close(&self, _: &str) -> Result<daemon_api::Written, daemon_api::CallError> {
+            unreachable!()
+        }
+        async fn stop(&self, _: &str) -> Result<daemon_api::Written, daemon_api::CallError> {
+            unreachable!()
+        }
+    }
+    let command = parsed(&["send", "brisk-copper-moth", "wake", "one more thing"]);
+    let mut out = Vec::new();
+    let failed = crate::child(&command, &Refusing, Format::Text, &mut out).unwrap_err();
+    assert_eq!(failed.failure.exit, Exit::REFUSED);
+    assert_eq!(failed.failure.cause.code(), "daemon-api-session-not-found");
+}
+
+// S19's `session stop` (OD-57): the child's run is asked to stop, and the
+// child stays open; a stop of a run already stopped or ended says so.
+#[test]
+fn a_stop_stops_the_childs_run_and_says_so() {
+    let writes = Writes::default();
+    let ran = child_go(&writes, Format::Text, &["stop", "quiet-silver-fern"]);
+    assert_eq!(ran.out, "quiet-silver-fern: its run asked to stop\n");
+    assert_eq!(*writes.asked.lock().unwrap(), ["stop quiet-silver-fern"]);
+    let again = Writes {
+        duplicate: true,
+        ..Writes::default()
+    };
+    let ran = child_go(&again, Format::Text, &["stop", "quiet-silver-fern"]);
+    assert_eq!(ran.out, "quiet-silver-fern: no run of it to stop\n");
+    let ran = child_go(&writes, Format::Json, &["stop", "quiet-silver-fern"]);
+    assert!(
+        ran.out.contains("projects/"),
+        "the session as json: {}",
+        ran.out
+    );
+}
+
+#[test]
+fn only_the_four_child_verbs_are_child_verbs() {
+    assert!(!crate::is_child(&parsed(&["list"])));
+    assert!(!crate::is_child(&parsed(&["show", "x"])));
+    assert!(crate::is_child(&parsed(&["close", "x"])));
+}
+
+// The terminal wake (owner ruling 2026-11-18): show says a wake sent and not
+// answered, and one still outstanding; nothing when there is neither.
+#[test]
+fn show_in_text_says_a_wake_sent_and_not_answered() {
+    let shown = |wake: &str| {
+        let mut s = session("amber-quiet-heron", v1::session::State::Live);
+        s.wake = wake.to_string();
+        let reads = Reads {
+            sessions: vec![s],
+            ..Reads::default()
+        };
+        read_go(&reads, Format::Text, &["show", "amber-quiet-heron"]).out
+    };
+    let out = shown("not answered");
+    assert!(out.contains("wake:     sent, not answered"), "{out}");
+    let out = shown("outstanding");
+    assert!(out.contains("wake:     sent, awaiting its turn"), "{out}");
+    let out = shown("");
+    assert!(!out.contains("wake:"), "{out}");
 }

@@ -261,4 +261,107 @@ mod through_an_app {
         assert_eq!(sequences(edge.events(&cover(), 1).await.unwrap()), [1]);
         assert!(edge.events(&cover(), 2).await.unwrap().is_empty());
     }
+
+    /// What an edge told of the books it applied: each one's arrival.
+    type Told = Arc<std::sync::Mutex<Vec<Arrival>>>;
+
+    fn telling(edge: &EmbeddedEdge<OneStore<MemoryStore>>) -> Told {
+        let told: Told = Arc::default();
+        let tell = Arc::clone(&told);
+        assert!(edge.telling(Box::new(move |book: &CommandBook, arrival| {
+            assert_eq!(book.cover, Some(cover()));
+            tell.lock().unwrap().push(arrival);
+        })));
+        assert!(!edge.telling(Box::new(|_, _| {})), "set once");
+        told
+    }
+
+    // U6: a book applied is told, with its arrival (a handle is the core's
+    // own, loopback); one refused or hidden is not.
+    #[tokio::test]
+    async fn each_book_applied_is_told_with_its_arrival_and_no_other() {
+        let edge = edge()
+            .await
+            .exposed([(DOMAIN.to_string(), Expose::Loopback)].into());
+        let told = telling(&edge);
+        edge.handle(on()).await.unwrap();
+        assert!(edge.serve(off(), Arrival::Ip).await.is_err(), "hidden");
+        edge.serve(off(), Arrival::Loopback).await.unwrap();
+        assert!(edge
+            .serve_sync(on(), vec!["nobody".to_string()], Arrival::Loopback)
+            .await
+            .is_err());
+        assert_eq!(
+            *told.lock().unwrap(),
+            [Arrival::Loopback, Arrival::Loopback]
+        );
+    }
+
+    // A SIMPLE request is the kernel's handle_sync, behind the exposure the
+    // edge is told: a domain not exposed to the arrival is hidden; one that
+    // is, naming a projector the application does not run, is refused
+    // before anything runs and records nothing.
+    #[tokio::test]
+    async fn serve_sync_is_the_kernels_handle_sync_behind_the_exposure() {
+        let edge = edge()
+            .await
+            .exposed([(DOMAIN.to_string(), Expose::Loopback)].into());
+        let named = vec!["nobody".to_string()];
+        let hidden = edge
+            .serve_sync(on(), named.clone(), Arrival::Ip)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            hidden,
+            Unserved::Hidden {
+                domain: DOMAIN.to_string()
+            }
+        );
+        let refused = edge
+            .serve_sync(on(), named, Arrival::Loopback)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(
+                refused,
+                Unserved::Failed(angzarr_embedded::Failure::Kernel(
+                    angzarr_embedded::KernelError::SyncProjectorNotSubscribed { .. }
+                ))
+            ),
+            "{refused:?}"
+        );
+        assert!(edge.events(&cover(), 0).await.unwrap().is_empty());
+    }
+}
+
+// A SIMPLE request is held to the exposure the edge is told (T16): a domain
+// exposed to the network is reached from either side, one exposed to the
+// loopback from it alone, one not listed (exposed "none") from neither.
+#[test]
+fn a_simple_requests_domain_is_hidden_as_its_exposure_says() {
+    use angzarr_embedded::v1::{CommandBook, Cover};
+    use angzarr_embedded_host::config::Expose;
+    let exposed = std::collections::BTreeMap::from([
+        ("open".to_string(), Expose::Ip),
+        ("near".to_string(), Expose::Loopback),
+    ]);
+    let book = |domain: &str| CommandBook {
+        cover: Some(Cover {
+            domain: domain.to_string(),
+            root: None,
+            edition: None,
+        }),
+        page: None,
+    };
+    let hidden = |domain: &str, arrival| crate::hidden(&exposed, &book(domain), arrival);
+    assert_eq!(hidden("open", Arrival::Ip), None);
+    assert_eq!(hidden("open", Arrival::Loopback), None);
+    assert_eq!(hidden("near", Arrival::Loopback), None);
+    assert_eq!(hidden("near", Arrival::Ip), Some("near".to_string()));
+    assert_eq!(hidden("none", Arrival::Loopback), Some("none".to_string()));
+    let coverless = CommandBook {
+        cover: None,
+        page: None,
+    };
+    assert_eq!(crate::hidden(&exposed, &coverless, Arrival::Ip), None);
 }

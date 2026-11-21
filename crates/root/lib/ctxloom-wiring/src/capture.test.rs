@@ -18,14 +18,25 @@ use surface_ports::{HookEvent, ToolCall};
 use super::*;
 use crate::InProcessCore;
 
-const SESSION: &str = "5f0c7a52-1111-5111-8111-000000000001";
+/// The session's resource name, as `CTXLOOM_SESSION` carries it (s3-Q3).
+const SESSION: &str = "projects/amber-quiet-heron/sessions/amber-swift-owl";
 const HARP: &str = "amber-swift-owl";
 
 type Store = FaultyStore<MemoryStore>;
 type TheEdge = EmbeddedEdge<crate::CoreStores<Store>>;
 
 fn session_id() -> Uuid {
-    Uuid::from_bytes(*uuid::Uuid::parse_str(SESSION).unwrap().as_bytes())
+    Uuid::from_bytes(
+        *sessions::SessionName::parse(SESSION)
+            .unwrap()
+            .id()
+            .as_bytes(),
+    )
+}
+
+/// The session's stable id, as text.
+fn session_uid() -> String {
+    sessions::SessionName::parse(SESSION).unwrap().uid()
 }
 
 fn session_cover() -> Cover {
@@ -50,6 +61,7 @@ async fn world() -> (Store, Arc<TheEdge>) {
         origin: sessions::Origin::Session,
         started_at: None,
         depth: 0,
+        owner: None,
         workspace: None,
     };
     edge.handle(angzarr_embedded::v1::CommandBook::command_of(
@@ -109,6 +121,26 @@ async fn a_domain_the_edge_does_not_serve_is_refused_not_unavailable() {
         sink.deliver(book, Duration::from_secs(5)),
         Delivery::Refused { .. }
     ));
+}
+
+// s4-Q14, H3 follow-up: the in-process sink answers a capture fact
+// addressed to a session the store has no record of as the daemon's
+// listener does: no such session, never applied.
+#[tokio::test]
+async fn a_fact_to_a_session_with_no_record_is_no_such_session() {
+    let (_, edge) = world().await;
+    let sink = EdgeSink::new(edge);
+    let nobody = Uuid::from_bytes(*uuid::Uuid::from_u128(7).as_bytes());
+    let book = observe(&prompt("p1"))[0].book(&nobody);
+    assert_eq!(
+        sink.deliver(book, Duration::from_secs(5)),
+        Delivery::NoSuchSession
+    );
+    assert_eq!(
+        sink.deliver(book_of(&prompt("p1")), Duration::from_secs(5)),
+        Delivery::Applied,
+        "a live session's as ever"
+    );
 }
 
 #[tokio::test]
@@ -179,6 +211,14 @@ fn answer(event: HookEvent) -> HookAnswer {
     }
 }
 
+/// The not-recorded report an [`Unrecorded`] is (a test's expectation).
+fn dropped(unrecorded: &hook_cli::Unrecorded) -> &hook_cli::NotRecorded {
+    match unrecorded {
+        hook_cli::Unrecorded::Dropped(dropped) => dropped,
+        other => panic!("not dropped: {other:?}"),
+    }
+}
+
 fn batch() -> HookEvent {
     HookEvent {
         event: "post_tool_batch".to_string(),
@@ -220,19 +260,19 @@ async fn a_hook_records_its_observations_on_the_session_its_harp_names() {
 fn a_hook_with_no_listener_names_each_observation_it_could_not_record() {
     let recording = HookRecording::new(Unreachable, RunIds::from_environment(Some(SESSION)));
     let missed = recording.record("PostToolBatch", HARP, &answer(batch()));
-    let what: Vec<&str> = missed.iter().map(|m| m.what.as_str()).collect();
+    let what: Vec<&str> = missed.iter().map(|m| dropped(m).what.as_str()).collect();
     assert_eq!(
         what,
         [
-            format!("hook:tool:{SESSION}:a"),
-            format!("hook:tool:{SESSION}:b")
+            format!("hook:tool:{}:a", session_uid()),
+            format!("hook:tool:{}:b", session_uid())
         ]
     );
     assert!(
-        missed[0].why.contains("listener is not running"),
+        dropped(&missed[0]).why.contains("listener is not running"),
         "{missed:?}"
     );
-    assert!(missed[1].why.contains("not tried"), "{missed:?}");
+    assert!(dropped(&missed[1]).why.contains("not tried"), "{missed:?}");
 }
 
 #[test]
@@ -240,7 +280,7 @@ fn a_hook_whose_run_names_no_session_records_nothing_and_says_so() {
     let recording = HookRecording::new(Unreachable, RunIds::from_environment(None));
     let missed = recording.record("UserPromptSubmit", HARP, &answer(prompt("p1")));
     assert_eq!(missed.len(), 1);
-    assert!(missed[0].why.contains(HARP), "{missed:?}");
+    assert!(dropped(&missed[0]).why.contains(HARP), "{missed:?}");
 }
 
 #[test]
@@ -351,8 +391,11 @@ fn a_hook_recording_over_a_dead_listener_says_unavailable_once_and_stops_trying(
     let recording = HookRecording::new(sink, RunIds::from_environment(Some(SESSION)));
     let missed = recording.record("PostToolBatch", HARP, &answer(batch()));
     assert_eq!(missed.len(), 2);
-    assert!(missed[0].why.contains("cannot reach"), "{missed:?}");
-    assert!(missed[1].why.contains("not tried"), "{missed:?}");
+    assert!(
+        dropped(&missed[0]).why.contains("cannot reach"),
+        "{missed:?}"
+    );
+    assert!(dropped(&missed[1]).why.contains("not tried"), "{missed:?}");
 }
 
 /// A loopback URL nobody listens on: a port that was bound, then released.
@@ -375,9 +418,27 @@ fn a_hooks_session_is_the_one_its_environment_names_whatever_the_harp() {
     assert_eq!(ids.session_of("renamed-since"), Some(session_id()));
 }
 
+// Slice 3 step 1 (s3-Q3, ruled): `CTXLOOM_SESSION` carries the session's
+// resource name, and a hook derives the stable id from it, the UUIDv5 the
+// session's stream is rooted on: no second variable, no lookup.
+#[test]
+fn a_hooks_session_is_the_uuidv5_of_the_resource_name_its_environment_names() {
+    let name = "projects/amber-quiet-heron/sessions/amber-swift-owl";
+    let id = sessions::SessionName::parse(name).unwrap().id();
+    assert_eq!(
+        RunIds::from_environment(Some(name)).session_of(HARP),
+        Some(Uuid::from_bytes(*id.as_bytes()))
+    );
+}
+
 #[test]
 fn an_environment_that_names_no_usable_session_is_none() {
-    for held in [None, Some(""), Some("not-a-uuid")] {
+    for held in [
+        None,
+        Some(""),
+        Some("not-a-name"),
+        Some("projects/x/sessions/"),
+    ] {
         assert_eq!(
             RunIds::from_environment(held).session_of(HARP),
             None,
@@ -400,4 +461,468 @@ async fn a_hook_records_on_its_runs_session_with_no_session_directory() {
         .record("PostToolBatch", HARP, &answer(batch()))
         .is_empty());
     assert_eq!(pages(&edge).await.len(), before + 2);
+}
+
+/// The daemon's listener over `edge`: the user's gate for `bearer`, on a
+/// loopback port, with a fresh certificate; and the discovery it would
+/// write.
+async fn a_daemon(
+    edge: &Arc<TheEdge>,
+    bearer: &run_ports::Token,
+) -> (hook_listener::HookListener, run_ports::Discovery) {
+    use run_ports::CertMint;
+    let names = run_ports::CertNames::new(
+        vec![std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)],
+        Vec::new(),
+    );
+    let certificate = hook_tls::Minter::lasting(hook_tls::SystemClock, 3_600)
+        .mint(&names)
+        .unwrap();
+    let listener = hook_listener::HookListener::serve_tcp_gated(
+        Arc::clone(edge),
+        runs_application::UserGate::new(bearer),
+        "127.0.0.1:0".parse().unwrap(),
+        hook_listener::TlsIdentity::from_pem(certificate.public().to_pem(), certificate.key_pem()),
+    )
+    .await
+    .unwrap();
+    let discovery = run_ports::Discovery {
+        stamp: "v0.1.0-abc1234".to_string(),
+        pid: 1,
+        endpoint: format!("https://127.0.0.1:{}", listener.local_addr().port()),
+        cert: certificate.public().clone(),
+        bearer: bearer.clone(),
+        home: "/home/u".to_string(),
+    };
+    (listener, discovery)
+}
+
+// The separation model: at the daemon a hook presents the USER bearer its
+// discovery file names (the run's own bearer is not asked for), and a
+// discovery whose bearer the daemon did not mint delivers nothing there.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_hook_presents_the_user_bearer_its_discovery_names_to_the_daemon() {
+    let (_store, edge) = world().await;
+    let minted = run_ports::Token::from_bytes([5; 32]);
+    let (listener, discovery) = a_daemon(&edge, &minted).await;
+    let before = pages(&edge).await.len();
+    let stale = run_ports::Discovery {
+        bearer: run_ports::Token::from_bytes([6; 32]),
+        ..discovery.clone()
+    };
+    let deliver = |discovery: run_ports::Discovery, id: &'static str| {
+        tokio::task::spawn_blocking(move || {
+            daemon_sink(discovery).deliver(book_of(&prompt(id)), Duration::from_secs(10))
+        })
+    };
+    assert_eq!(deliver(discovery, "p1").await.unwrap(), Delivery::Applied);
+    assert_eq!(pages(&edge).await.len(), before + 1);
+    assert!(matches!(
+        deliver(stale, "p2").await.unwrap(),
+        Delivery::Refused { .. }
+    ));
+    assert_eq!(pages(&edge).await.len(), before + 1, "nothing more");
+    listener.stop().await.unwrap();
+}
+
+// ------------------------------------------- HoldingRecording (s4-Q14, H2)
+
+/// The hook's own stamp, and an older and a newer daemon's.
+const OWN: &str = "v0.2.0-aaaaaaa";
+const OLDER: &str = "v0.1.0-bbbbbbb";
+
+/// The daemon a test's hook reaches: none, or one of `stamp` over the
+/// in-process edge; the waits it was asked for, and what it runs inside its
+/// first delivery (another hook of the session, forcing their race).
+struct Reaching {
+    daemon: Option<(String, Arc<TheEdge>)>,
+    waits: std::sync::Mutex<Vec<Duration>>,
+    during: std::sync::Mutex<Option<Box<dyn FnOnce() + Send>>>,
+}
+
+impl Reaching {
+    fn none() -> Reaching {
+        Reaching {
+            daemon: None,
+            waits: std::sync::Mutex::new(Vec::new()),
+            during: std::sync::Mutex::new(None),
+        }
+    }
+
+    fn daemon(stamp: &str, edge: &Arc<TheEdge>) -> Reaching {
+        Reaching {
+            daemon: Some((stamp.to_string(), Arc::clone(edge))),
+            ..Reaching::none()
+        }
+    }
+}
+
+/// The in-process sink, running `during` inside its first delivery.
+struct Racing {
+    sink: EdgeSink<TheEdge>,
+    during: std::sync::Mutex<Option<Box<dyn FnOnce() + Send>>>,
+}
+
+impl FactSink for Racing {
+    fn deliver(&self, book: angzarr_embedded::v1::CommandBook, within: Duration) -> Delivery {
+        let during = self.during.lock().unwrap().take();
+        if let Some(during) = during {
+            during();
+        }
+        self.sink.deliver(book, within)
+    }
+}
+
+impl HookReach for Reaching {
+    type Sink = Racing;
+
+    fn reach(&self, wait: Duration) -> Option<(String, Racing)> {
+        self.waits.lock().unwrap().push(wait);
+        let (stamp, edge) = self.daemon.as_ref()?;
+        Some((
+            stamp.clone(),
+            Racing {
+                sink: EdgeSink::new(Arc::clone(edge)),
+                during: std::sync::Mutex::new(self.during.lock().unwrap().take()),
+            },
+        ))
+    }
+}
+
+/// A home's holds on a temporary file system.
+fn spool() -> fact_spool::Spool {
+    let fs = Arc::new(file_system::Rooted::temp().unwrap());
+    let home = std::path::PathBuf::from(os::host().flavor().from_top("/home/a"));
+    fact_spool::Spool::at_home(fs, &home)
+}
+
+fn holding(
+    reach: Reaching,
+    held: &fact_spool::Spool,
+) -> HoldingRecording<Reaching, fact_spool::Spool, RunIds> {
+    HoldingRecording::new(
+        reach,
+        held.clone(),
+        RunIds::from_environment(Some(SESSION)),
+        OWN,
+        SESSION,
+        std::time::Instant::now(),
+    )
+}
+
+fn root() -> uuid::Uuid {
+    uuid::Uuid::from_slice(&session_id().value).unwrap()
+}
+
+/// What the session's hold holds, by external id, in order.
+fn held_ids(held: &fact_spool::Spool) -> Vec<String> {
+    let batch = held.take(&root()).unwrap().expect("no other taker");
+    batch
+        .entries()
+        .iter()
+        .map(|entry| match entry {
+            run_ports::HeldEntry::Fact(fact) => fact.external_id.clone(),
+            run_ports::HeldEntry::Gap(gap) => format!("gap:{}", gap.external_id),
+        })
+        .collect()
+}
+
+fn external_ids(event: &HookEvent) -> Vec<String> {
+    observe(event)
+        .iter()
+        .map(|o| o.external_id(&session_id()))
+        .collect()
+}
+
+/// The external ids of the facts the session's stream recorded, in order.
+async fn recorded(edge: &TheEdge) -> Vec<String> {
+    pages(edge)
+        .await
+        .iter()
+        .filter_map(|page| match page.meta.as_ref()?.causation.as_ref()? {
+            angzarr_embedded::v1::event_meta::Causation::Fact(fact) => {
+                Some(fact.origin.as_ref()?.external_id.clone())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+// Owner 2026-11-15 (H-Q9 folded in): a SessionStart's bind of the engine's
+// conversation reaches the daemon as every capture fact does, and the
+// session is bound to it; none is written in the hook's own process.
+#[tokio::test]
+async fn a_session_starts_bind_is_delivered_to_the_daemon_and_binds_the_session() {
+    let (_, edge) = world().await;
+    let start = HookEvent {
+        event: "session_start".to_string(),
+        native_session: "native-9".to_string(),
+        transcript: "/t/native-9.jsonl".to_string(),
+        source: "startup".to_string(),
+        ..HookEvent::default()
+    };
+    let said = holding(Reaching::daemon(OWN, &edge), &spool()).record(
+        "SessionStart",
+        HARP,
+        &answer(start),
+    );
+    assert!(said.is_empty(), "{said:?}");
+    assert_eq!(
+        recorded(&edge).await,
+        [format!("bind:{}:native-9", session_uid())]
+    );
+}
+
+// A hook whose daemon is older than it (H-Q1) holds its facts, delivers
+// nothing, and says each held, naming both versions.
+#[tokio::test]
+async fn a_hook_newer_than_its_daemon_holds_its_facts_and_says_so() {
+    let (_, edge) = world().await;
+    let held = spool();
+    let before = pages(&edge).await.len();
+    let said = holding(Reaching::daemon(OLDER, &edge), &held).record(
+        "PostToolBatch",
+        HARP,
+        &answer(batch()),
+    );
+    assert_eq!(pages(&edge).await.len(), before, "nothing delivered");
+    assert_eq!(held_ids(&held), external_ids(&batch()));
+    assert_eq!(said.len(), 2);
+    for unrecorded in &said {
+        let hook_cli::Unrecorded::Held { harp, why, .. } = unrecorded else {
+            panic!("held: {unrecorded:?}")
+        };
+        assert_eq!(harp, HARP);
+        assert!(why.contains(OLDER) && why.contains(OWN), "{why}");
+    }
+}
+
+// A hook that reaches no daemon (none serves, none could be started) holds
+// (H-Q2), and says why, within the bound it was given.
+#[test]
+fn a_hook_that_reaches_no_daemon_holds_and_says_why() {
+    let held = spool();
+    let recording = holding(Reaching::none(), &held);
+    let said = recording.record("UserPromptSubmit", HARP, &answer(prompt("p1")));
+    assert_eq!(held_ids(&held), external_ids(&prompt("p1")));
+    let [hook_cli::Unrecorded::Held { why, .. }] = said.as_slice() else {
+        panic!("one held: {said:?}")
+    };
+    assert!(
+        why.contains("no ctxloom daemon could be reached or started within 10 s"),
+        "{why}"
+    );
+    let waits = recording.reach.waits.lock().unwrap().clone();
+    assert_eq!(waits.len(), 1);
+    assert!(
+        waits[0] <= crate::daemon::SPAWN_WAIT,
+        "a spawn waits at most a client's wait: {waits:?}"
+    );
+}
+
+// The spawn wait is what the hook's bound leaves a delivery's margin of:
+// S16's ten seconds, or the engine's own budget where it is shorter
+// (MessageDisplay's five); a bound no longer than the margin leaves no wait.
+#[test]
+fn a_hooks_spawn_wait_is_what_its_bound_leaves() {
+    assert_eq!(hook_bound("UserPromptSubmit"), crate::daemon::HOOK_BOUND);
+    assert_eq!(hook_bound("MessageDisplay"), Duration::from_secs(5));
+    let start = std::time::Instant::now();
+    let wait = spawn_wait(&Deadline(start + hook_bound("UserPromptSubmit")));
+    assert!(
+        wait <= crate::daemon::SPAWN_WAIT && wait > Duration::from_secs(7),
+        "{wait:?}"
+    );
+    assert_eq!(
+        spawn_wait(&Deadline(start + crate::daemon::DELIVERY_MARGIN)),
+        Duration::ZERO
+    );
+}
+
+// H-Q5 revised: an up-to-date hook delivers its session's hold first, in
+// held order, then its own fact, and the hold is gone.
+#[tokio::test]
+async fn an_up_to_date_hook_delivers_what_its_session_holds_then_its_own() {
+    let (_, edge) = world().await;
+    let held = spool();
+    holding(Reaching::daemon(OLDER, &edge), &held).record(
+        "UserPromptSubmit",
+        HARP,
+        &answer(prompt("p1")),
+    );
+    let before = recorded(&edge).await;
+    let said = holding(Reaching::daemon(OWN, &edge), &held).record(
+        "PostToolBatch",
+        HARP,
+        &answer(batch()),
+    );
+    assert!(said.is_empty(), "{said:?}");
+    let now = recorded(&edge).await;
+    assert_eq!(
+        now[before.len()..].to_vec(),
+        [external_ids(&prompt("p1")), external_ids(&batch())].concat()
+    );
+    assert!(held.is_empty(&root()).unwrap(), "nothing is held");
+}
+
+// Two hooks of one session at once, over the real hold and its flock: the
+// second fires INSIDE the first one's delivery of the held fact. It cannot
+// take the hold (the first holds its flush lock), so it holds behind; the
+// first takes it again and delivers it before its own. Each fact once, in
+// held order.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn two_hooks_of_one_session_at_once_record_each_fact_once_in_held_order() {
+    let (_, edge) = world().await;
+    let held = spool();
+    let (first_edge, first_held) = (Arc::clone(&edge), held.clone());
+    tokio::task::spawn_blocking(move || {
+        holding(Reaching::daemon(OLDER, &first_edge), &first_held).record(
+            "UserPromptSubmit",
+            HARP,
+            &answer(prompt("p1")),
+        )
+    })
+    .await
+    .unwrap();
+    let before = recorded(&edge).await;
+    let (second_said, told) = std::sync::mpsc::channel();
+    let reach = Reaching::daemon(OWN, &edge);
+    {
+        let (edge, held) = (Arc::clone(&edge), held.clone());
+        *reach.during.lock().unwrap() = Some(Box::new(move || {
+            let said = holding(Reaching::daemon(OWN, &edge), &held).record(
+                "UserPromptSubmit",
+                HARP,
+                &answer(prompt("p2")),
+            );
+            second_said.send(said).unwrap();
+        }));
+    }
+    let first_held = held.clone();
+    let first = tokio::task::spawn_blocking(move || {
+        holding(reach, &first_held).record("PostToolBatch", HARP, &answer(batch()))
+    })
+    .await
+    .unwrap();
+    let second = told.recv().unwrap();
+    assert!(
+        matches!(second.as_slice(), [hook_cli::Unrecorded::HeldBehind { .. }]),
+        "{second:?}"
+    );
+    assert!(first.is_empty(), "{first:?}");
+    let now = recorded(&edge).await;
+    assert_eq!(
+        now[before.len()..].to_vec(),
+        [
+            external_ids(&prompt("p1")),
+            external_ids(&prompt("p2")),
+            external_ids(&batch())
+        ]
+        .concat()
+    );
+    assert!(held.is_empty(&root()).unwrap());
+}
+
+// ----------------------------- the fold is fresh (owner, H3's condition)
+
+type SqliteEdge =
+    EmbeddedEdge<crate::CoreStores<angzarr_embedded::angzarr_store_sqlite::SqliteStore>>;
+
+/// The daemon's listener over `edge` (any core), as [`a_daemon`] serves one.
+async fn listening<E: Edge + 'static>(
+    edge: &Arc<E>,
+    bearer: &run_ports::Token,
+) -> (hook_listener::HookListener, run_ports::Discovery) {
+    use run_ports::CertMint;
+    let names = run_ports::CertNames::new(
+        vec![std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)],
+        Vec::new(),
+    );
+    let certificate = hook_tls::Minter::lasting(hook_tls::SystemClock, 3_600)
+        .mint(&names)
+        .unwrap();
+    let listener = hook_listener::HookListener::serve_tcp_gated(
+        Arc::clone(edge),
+        runs_application::UserGate::new(bearer),
+        "127.0.0.1:0".parse().unwrap(),
+        hook_listener::TlsIdentity::from_pem(certificate.public().to_pem(), certificate.key_pem()),
+    )
+    .await
+    .unwrap();
+    let discovery = run_ports::Discovery {
+        stamp: "v0.1.0-abc1234".to_string(),
+        pid: 1,
+        endpoint: format!("https://127.0.0.1:{}", listener.local_addr().port()),
+        cert: certificate.public().clone(),
+        bearer: bearer.clone(),
+        home: "/home/u".to_string(),
+    };
+    (listener, discovery)
+}
+
+/// The mint of the session `SESSION` names, as a command book.
+fn mint_book() -> angzarr_embedded::v1::CommandBook {
+    let mint = sessions::MintSession {
+        harp: HARP.to_string(),
+        project_id: "calm-otter".to_string(),
+        project_dir: "/w".to_string(),
+        output_dir: "/o".to_string(),
+        engine: "claude-code".to_string(),
+        origin: sessions::Origin::Session,
+        started_at: None,
+        depth: 0,
+        owner: None,
+        workspace: None,
+    };
+    angzarr_embedded::v1::CommandBook::command_of(
+        session_cover(),
+        &sessions::SessionCommand::from(mint),
+    )
+}
+
+// The owner's condition on "no such session": a fact is decided on its
+// aggregate's stream folded FRESH from the store, so a session another
+// process minted a moment ago is seen. Forced over the real one-file store
+// (sqlite) with two handles, the daemon's and another process's: the
+// daemon's listener first answers a capture fact for the session "no such
+// session" (it has loaded that empty stream once), then the other process
+// mints the session, and the very next delivery through the listener is
+// applied, never "no such session" from a cached fold.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_session_another_process_minted_a_moment_ago_is_seen_by_the_listener() {
+    let fs = Arc::new(file_system::Rooted::temp().unwrap());
+    let open = || async {
+        ctxloom_store_sqlite::Stores::new(fs.clone(), "/home/u")
+            .open()
+            .await
+            .unwrap()
+    };
+    let daemon = InProcessCore::start(open().await).await;
+    let other = InProcessCore::start(open().await).await;
+    let edge: Arc<SqliteEdge> = daemon.edge();
+    let bearer = run_ports::Token::from_bytes([5; 32]);
+    let (listener, discovery) = listening(&edge, &bearer).await;
+    let deliver = |id: &'static str| {
+        let discovery = discovery.clone();
+        tokio::task::spawn_blocking(move || {
+            daemon_sink(discovery).deliver(book_of(&prompt(id)), Duration::from_secs(10))
+        })
+    };
+    assert_eq!(deliver("p0").await.unwrap(), Delivery::NoSuchSession);
+    other.edge().handle(mint_book()).await.unwrap();
+    assert_eq!(
+        deliver("p1").await.unwrap(),
+        Delivery::Applied,
+        "the mint the other handle committed is in the fold"
+    );
+    let recorded = edge.events(&session_cover(), 0).await.unwrap();
+    assert!(
+        recorded.iter().any(|page| matches!(
+            page.meta.as_ref().and_then(|m| m.causation.as_ref()),
+            Some(angzarr_embedded::v1::event_meta::Causation::Fact(fact))
+                if fact.origin.as_ref().is_some_and(|o| o.external_id.ends_with(":p1"))
+        )),
+        "the prompt is recorded on the daemon's store"
+    );
+    listener.stop().await.unwrap();
 }

@@ -7,6 +7,7 @@
 use library::compose::{self, Options, Package, SelectRequest};
 use library::config::engines::{self, Drive, Effective};
 use library::findings::{Class, Finding};
+use library::premise::Surface;
 use library::profile::ResolvedProfile;
 use library::tokens;
 
@@ -14,7 +15,7 @@ use crate::agents::engine_error;
 use crate::config::Agent;
 use crate::error::{AppError, Notice};
 use crate::project::{Library, Outcome, Project};
-use crate::views::{Assembled, DryRun, FindingRow};
+use crate::views::{Assembled, DryRun, FindingRow, UsedFragment};
 use crate::Flags;
 
 /// What `run --dry-run` is asked.
@@ -26,18 +27,45 @@ pub struct RunRequest {
     pub tags: Vec<String>,
     /// `--engine`: the engine to drive instead of the agent's.
     pub engine: String,
+    /// An `--engine` was named though `engine` is empty: one this build
+    /// does not drive, planned on the agent's own engine (ruling 73d). With
+    /// no agent configured, as for `engine`, none is bound.
+    pub engine_named: bool,
     pub prompt: String,
     /// `--command <name>`: the saved command whose body is the prompt.
     pub saved_command: String,
     pub workspace: String,
+    /// `--no-context` (owner OD-38): nothing ctxloom assembles reaches the
+    /// engine (no profile, fragment, premise index or companion guidance)
+    /// and no MCP server, ctxloom's own included; the run's hooks, and the
+    /// engine's own setup (its session home, credential and the agent's
+    /// permissions), stay.
+    pub no_context: bool,
 }
 
 /// What `context assemble` is asked.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct AssembleRequest {
     pub profiles: Vec<String>,
     pub fragments: Vec<String>,
     pub tags: Vec<String>,
+    /// Where the assembly goes (s3-Q5), which words the premise index
+    /// ending the context; none, the index is not rendered (E2, owner
+    /// 2026-11-17: the daemon answers it as data, `Assembled::premised`,
+    /// and the driving edge renders it).
+    pub surface: Option<library::premise::Surface>,
+}
+
+/// Nothing asked, at rest: the index rendered for the CLI.
+impl Default for AssembleRequest {
+    fn default() -> AssembleRequest {
+        AssembleRequest {
+            profiles: Vec::new(),
+            fragments: Vec::new(),
+            tags: Vec::new(),
+            surface: Some(library::premise::Surface::AtRest),
+        }
+    }
 }
 
 /// A dry run: the plan, and the findings the startup gate refuses on.
@@ -118,7 +146,8 @@ impl Project {
     }
 
     /// The profiles, fragments and tags a run takes: the agent's binding, the
-    /// hand-assembled flags, or the default agent's binding.
+    /// hand-assembled flags, none for `--engine` where no agent is
+    /// configured, or the default agent's binding.
     fn selection(&self, request: &RunRequest) -> Result<Selection, AppError> {
         if !request.agent.is_empty() {
             return self.binding(&request.agent);
@@ -138,7 +167,51 @@ impl Project {
                 tags: request.tags.clone(),
             });
         }
+        // `--engine X` runs that engine with its defaults, no agent named:
+        // with no agent configured there is none to bind, and the engine is
+        // judged next (ruling 73's order), never refused for want of one.
+        let named = !request.engine.is_empty() || request.engine_named;
+        if named && self.config.agents().is_empty() && !self.no_project() {
+            return Ok(Selection {
+                agent: None,
+                profiles: Vec::new(),
+                fragments: Vec::new(),
+                tags: Vec::new(),
+            });
+        }
         self.binding(&self.config.default_agent())
+    }
+
+    /// What a run with no context is bound to (OD-38): the agent asked
+    /// for, else the default agent where there is one, else none (the
+    /// default engine); never a profile, fragment or tag, and one asked for
+    /// beside it is refused.
+    fn contextless(&self, request: &RunRequest) -> Result<Selection, AppError> {
+        let other = if !request.profile.is_empty() {
+            Some("--profile")
+        } else if !request.fragments.is_empty() {
+            Some("--fragment")
+        } else if !request.tags.is_empty() {
+            Some("--tag")
+        } else {
+            None
+        };
+        if let Some(other) = other {
+            return Err(AppError::NoContextExclusive {
+                other: other.to_string(),
+            });
+        }
+        let agent = if request.agent.is_empty() {
+            self.config.agent(&self.config.default_agent())
+        } else {
+            self.binding(&request.agent)?.agent
+        };
+        Ok(Selection {
+            agent,
+            profiles: Vec::new(),
+            fragments: Vec::new(),
+            tags: Vec::new(),
+        })
     }
 
     fn binding(&self, name: &str) -> Result<Selection, AppError> {
@@ -173,12 +246,14 @@ impl Project {
     }
 
     /// The selection of `set` and the caller's asks, assembled. Whether the
-    /// premised fragments load or are indexed follows `config.premised`.
+    /// premised fragments load or are indexed follows `config.premised`; the
+    /// index is worded for `surface` (s3-Q5).
     pub(crate) fn assemble_set(
         &mut self,
         set: &[ResolvedProfile],
         fragments: &[String],
         tags: &[String],
+        surface: Option<Surface>,
         findings: &mut Vec<Finding>,
     ) -> Package {
         let request = SelectRequest {
@@ -189,6 +264,7 @@ impl Project {
         let options = Options {
             prefer_distilled: self.config.prefers_distilled(),
             premised: self.config.premised(),
+            surface,
         };
         // The registered companions' fragments follow the selected ones, and
         // are read from a catalog that holds their loadouts.
@@ -283,7 +359,19 @@ impl Project {
         }
     }
 
-    fn dry_run(&mut self, request: &RunRequest) -> Result<Previewed, AppError> {
+    /// ctxloom's own MCP server keeps its name in every session (OD-6): a
+    /// server `surfaces` carries of that name is shadowed, and said.
+    fn say_shadowed(&mut self, surfaces: &surface_ports::Inputs) {
+        for server in &surfaces.mcp {
+            if server.name == surface_ports::CTXLOOM_SERVER {
+                self.notices.push(Notice::McpServerShadowed {
+                    name: server.name.clone(),
+                });
+            }
+        }
+    }
+
+    pub(crate) fn dry_run(&mut self, request: &RunRequest) -> Result<Previewed, AppError> {
         if !request.agent.is_empty() {
             let other = if !request.profile.is_empty() {
                 Some("profile")
@@ -314,9 +402,8 @@ impl Project {
             });
         }
         let prompt = self.prompt_of(request)?;
-        let selection = self.selection(request)?;
         let mut findings = Vec::new();
-        let package = self.compose(&selection, &mut findings)?;
+        let (selection, package) = self.selected(request, &mut findings)?;
         let Launch {
             engine,
             model,
@@ -326,6 +413,12 @@ impl Project {
             drive,
             settings,
         } = self.launch_of(request, selection.agent.as_ref())?;
+        self.notices.extend(host_notice(
+            &drive,
+            &engine,
+            selection.agent.as_ref(),
+            settings.as_ref(),
+        ));
         let degraded = self.flags.degraded;
         // Each finding is said once: a fatal one by the refusal that lists
         // it, any other as a warning.
@@ -345,7 +438,14 @@ impl Project {
             })
             .collect();
         let fatal = rows.iter().filter(|r| r.fatal).cloned().collect();
-        let surfaces = self.launch_surfaces(&selection.profiles, &package.selection);
+        let surfaces = self.surfaces_of(request, &selection, &package);
+        self.say_shadowed(&surfaces);
+        let settings_agent = selection
+            .agent
+            .as_ref()
+            .map(|a| a.name.clone())
+            .unwrap_or_default();
+        let untrusted = read_by_launch(&self.config.held_back, &engine, &settings_agent);
         let plan = DryRun {
             agent: request.agent.clone(),
             workspace: request.workspace.clone(),
@@ -367,14 +467,49 @@ impl Project {
             permissions,
             drive,
             settings,
-            settings_agent: selection
-                .agent
-                .as_ref()
-                .map(|a| a.name.clone())
-                .unwrap_or_default(),
+            settings_agent,
             surfaces,
+            untrusted,
         };
         Ok(Previewed { plan, fatal })
+    }
+
+    /// What a run is bound to, and the package it composes. No context
+    /// (OD-38) composes nothing, not even the companions' guidance or the
+    /// premise index.
+    fn selected(
+        &mut self,
+        request: &RunRequest,
+        findings: &mut Vec<Finding>,
+    ) -> Result<(Selection, Package), AppError> {
+        if request.no_context {
+            return Ok((self.contextless(request)?, Package::default()));
+        }
+        let selection = self.selection(request)?;
+        // The plan's context rides the launch, where ctxloom's server is
+        // offered (s3-Q5).
+        let package = self.compose(&selection, Some(Surface::Launch), findings)?;
+        Ok((selection, package))
+    }
+
+    /// What the launch carries besides its context. No context carries no
+    /// surface of the profiles' either, and no MCP server at all (OD-38: a
+    /// server's instructions are context); the statusline is the engine's
+    /// own setup and stays as configured.
+    fn surfaces_of(
+        &mut self,
+        request: &RunRequest,
+        selection: &Selection,
+        package: &Package,
+    ) -> surface_ports::Inputs {
+        if request.no_context {
+            return surface_ports::Inputs {
+                statusline: self.config.statusline(),
+                no_context: true,
+                ..surface_ports::Inputs::default()
+            };
+        }
+        self.launch_surfaces(&selection.profiles, &package.selection)
     }
 
     /// The package of a selection: profiles resolved, the bundles they name
@@ -383,6 +518,7 @@ impl Project {
     fn compose(
         &mut self,
         selection: &Selection,
+        surface: Option<Surface>,
         findings: &mut Vec<Finding>,
     ) -> Result<Package, AppError> {
         if selection.profiles.is_empty()
@@ -400,9 +536,28 @@ impl Project {
         }
         let set = self.resolve_profiles(&selection.profiles, findings)?;
         self.served(&set, findings);
-        let package = self.assemble_set(&set, &selection.fragments, &selection.tags, findings);
+        let package = self.assemble_set(
+            &set,
+            &selection.fragments,
+            &selection.tags,
+            surface,
+            findings,
+        );
         refuse_empty(selection, &package)?;
+        self.say_stale(&package);
         Ok(package)
+    }
+
+    /// Each fragment `package` delivered as its original because its
+    /// distilled form is stale, said (T30, S51): judged at this use, so a
+    /// dry run, a launch and `context assemble` say it alike.
+    pub(crate) fn say_stale(&mut self, package: &Package) {
+        for delivered in package.fragments.iter().filter(|d| d.stale) {
+            self.notices.push(Notice::StaleDistilled {
+                kind: "fragment".to_string(),
+                reference: delivered.reference.clone(),
+            });
+        }
     }
 
     fn assemble(&mut self, request: &AssembleRequest) -> Result<Assembled, AppError> {
@@ -424,7 +579,7 @@ impl Project {
         } else {
             selection
         };
-        let package = self.compose(&selection, &mut findings)?;
+        let package = self.compose(&selection, request.surface, &mut findings)?;
         for finding in library::findings::said(&findings) {
             self.notices.push(Notice::finding(finding));
         }
@@ -435,12 +590,38 @@ impl Project {
             .filter(|asked| !package.loaded.contains(asked))
             .cloned()
             .collect();
+        // Where each profile and fragment is (OD-40): a profile by the key
+        // its ask resolved to, a fragment by the reference it loaded by.
+        let profiles_located = package
+            .selection
+            .profiles
+            .iter()
+            .map(|ask| {
+                let key = library::profile::canonical_key(&self.spelled_out(ask)).ok()?;
+                self.locate(&key)
+            })
+            .collect();
+        let used = package
+            .loaded
+            .iter()
+            .map(|reference| UsedFragment {
+                located: self.locate(reference),
+                distilled: package
+                    .fragments
+                    .iter()
+                    .any(|d| d.reference == *reference && d.distilled),
+            })
+            .collect();
         Ok(Assembled {
             profiles: package.selection.profiles.clone(),
             context: package.context.clone(),
             fragments_loaded: package.loaded.clone(),
             missing_fragments,
             missing_tags: package.selection.missing_tags.clone(),
+            profiles_located,
+            used,
+            tokens: tokens::estimate(&package.context) as u64,
+            premised: library::compose::index_of(&package.premised),
         })
     }
 }
@@ -490,6 +671,32 @@ fn advice_of(
         .collect()
 }
 
+/// A launch on the user's own engine setup is never silent (j002200): a
+/// session home is a relocation, not confinement, and `host` gives up even
+/// that. Said from the plan, so a dry run and a launch alike, naming the
+/// place that said it: the agent's own key, else its engine block's (owner
+/// ruling of 2026-11-13).
+fn host_notice(
+    drive: &Drive,
+    engine: &str,
+    agent: Option<&Agent>,
+    settings: Option<&crate::AgentSettings>,
+) -> Option<Notice> {
+    if drive.session_home != "host" {
+        return None;
+    }
+    let place = match (agent, settings) {
+        (Some(agent), Some(settings)) if settings.session_home.source == "agent" => {
+            format!("agents.{}", agent.name)
+        }
+        _ => format!("engines.{engine}"),
+    };
+    Some(Notice::SessionHomeHost {
+        engine: engine.to_string(),
+        place,
+    })
+}
+
 /// The notice for a runtime the agent chose that is not the one the lower
 /// layers gave: a container replaced by the host weakens isolation, and the
 /// two container ownerships are never interchangeable. A stronger runtime
@@ -527,3 +734,26 @@ fn runtime_notice(effective: &Effective) -> Option<Notice> {
         remedy,
     })
 }
+
+/// Of the settings an untrusted project held back (`held`), the ones a
+/// launch on `engine` for the agent `agent` reads (owner Q8): its engine's
+/// block and its agent's; another engine's or agent's refuses nothing.
+/// Sorted, each once.
+fn read_by_launch(held: &[String], engine: &str, agent: &str) -> Vec<String> {
+    let engine_block = format!("engines.{engine}.");
+    let agent_block = format!("agents.{agent}.");
+    let mut read: Vec<String> = held
+        .iter()
+        .filter(|path| {
+            path.starts_with(&engine_block) || (!agent.is_empty() && path.starts_with(&agent_block))
+        })
+        .cloned()
+        .collect();
+    read.sort();
+    read.dedup();
+    read
+}
+
+#[cfg(test)]
+#[path = "run.test.rs"]
+mod tests;

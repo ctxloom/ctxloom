@@ -2,7 +2,7 @@ syntax = "proto3";
 
 // A TEST-ONLY domain that consumes the scheduler: it records a deadline,
 // asks the scheduler for an alarm at it (its own policy), withdraws it when
-// closed, and records the AlarmReached it is told of if it still matches its
+// closed, and records the alarm it is told of (`RecordAlarmReached`) if it still matches its
 // own arming. It exists so the scheduler's end-to-end path is proven without
 // any application domain (crates/core/domain/scheduler-fixture, publish=false).
 package io.angzarr.scheduler.fixture.v1;
@@ -33,7 +33,7 @@ message SetDeadline {
 message Close {
   option (io.angzarr.v1.command) = {
     component: "io.angzarr.scheduler.fixture.v1.DummyState"
-    emits: ["io.angzarr.scheduler.fixture.v1.Closed"]
+    emits: ["io.angzarr.scheduler.fixture.v1.DummyClosed"]
   };
 }
 
@@ -43,7 +43,7 @@ message DeadlineSet {
   google.protobuf.Timestamp deadline = 1;
 }
 
-message Closed {
+message DummyClosed {
   option (io.angzarr.v1.event) = {component: "io.angzarr.scheduler.fixture.v1.DummyState"};
 }
 

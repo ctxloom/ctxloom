@@ -8,7 +8,7 @@ use angzarr_embedded::v1::{DeliveryOutcome, Uuid};
 use angzarr_embedded::Answered;
 
 use crate::fakes::{uuid, World, SESSION_ME};
-use crate::{AppError, Facts, Identity, ModelFact, Principal, Recorded, RunnerFact};
+use crate::{Facts, Identity, ModelFact, Recorded, RunnerFact};
 
 fn identity() -> Identity {
     Identity {
@@ -21,18 +21,20 @@ fn identity() -> Identity {
         incarnation: 1,
         harp: "amber-swift-owl".to_string(),
         depth: 0,
-        principal: Principal::Runner,
     }
 }
 
 const RUN: &str = "a1a1a1a1-0000-5000-8000-000000000001";
 
 fn turn_started(turn: u64) -> RunnerFact {
-    RunnerFact::TurnStarted(runs::TurnStarted { turn })
+    RunnerFact::TurnStarted(runs::RecordTurnStarted {
+        turn,
+        message_ids: Vec::new(),
+    })
 }
 
 fn exited() -> RunnerFact {
-    RunnerFact::RunExited(runs::RunExited { code: 0, signal: 0 })
+    RunnerFact::RunExited(runs::RecordRunExited { code: 0, signal: 0 })
 }
 
 fn bound(native_id: &str) -> RunnerFact {
@@ -43,21 +45,55 @@ fn bound(native_id: &str) -> RunnerFact {
     })
 }
 
+// NEW-DESIGN (D28 S-b): a turn of the session's messages is keyed by them,
+// `turn:<run>:<first message id>:<phase>`, so the delivery's redelivery and
+// the driver's are DUPLICATE whatever number the turn carries.
+#[test]
+fn a_turn_of_messages_is_identified_by_its_first_message() {
+    let who = identity();
+    let ids = vec!["m1".to_string(), "m2".to_string()];
+    let started = RunnerFact::TurnStarted(runs::RecordTurnStarted {
+        turn: 4,
+        message_ids: ids.clone(),
+    });
+    let completed = RunnerFact::TurnCompleted(runs::RecordTurnCompleted {
+        turn: 4,
+        native_key: String::new(),
+        answer_ref: String::new(),
+        exit_code: 0,
+        message_ids: ids.clone(),
+    });
+    let failed = RunnerFact::TurnFailed(runs::RecordTurnFailed {
+        turn: 9,
+        class: runs::TurnFailureClass::Interrupted,
+        detail: String::new(),
+        message_ids: ids,
+    });
+    assert_eq!(started.external_id(&who), format!("turn:{RUN}:m1:started"));
+    assert_eq!(
+        completed.external_id(&who),
+        format!("turn:{RUN}:m1:completed")
+    );
+    assert_eq!(failed.external_id(&who), format!("turn:{RUN}:m1:failed"));
+}
+
 // NEW-DESIGN (plan 4.3 table): the external_id is derived from the fact's
 // cause, never from a counter, so a retry after any crash rebuilds the same id.
 #[test]
 fn turn_facts_are_identified_by_run_and_turn() {
     let who = identity();
-    let completed = RunnerFact::TurnCompleted(runs::TurnCompleted {
+    let completed = RunnerFact::TurnCompleted(runs::RecordTurnCompleted {
         turn: 4,
         native_key: String::new(),
         answer_ref: String::new(),
         exit_code: 0,
+        message_ids: Vec::new(),
     });
-    let failed = RunnerFact::TurnFailed(runs::TurnFailed {
+    let failed = RunnerFact::TurnFailed(runs::RecordTurnFailed {
         turn: 4,
         class: runs::TurnFailureClass::EngineError,
         detail: String::new(),
+        message_ids: Vec::new(),
     });
     assert_eq!(
         turn_started(4).external_id(&who),
@@ -76,7 +112,7 @@ fn turn_facts_are_identified_by_run_and_turn() {
 fn the_exit_and_the_attach_are_identified_by_the_run() {
     let who = identity();
     assert_eq!(exited().external_id(&who), format!("exit:{RUN}"));
-    let attached = RunnerFact::RunnerAttached(runs::RunnerAttached {
+    let attached = RunnerFact::RunnerAttached(runs::RecordRunnerAttached {
         runner_id: "r1".to_string(),
         protocol: "v1".to_string(),
     });
@@ -88,7 +124,7 @@ fn the_exit_and_the_attach_are_identified_by_the_run() {
 #[test]
 fn the_runner_start_is_identified_by_the_run() {
     let who = identity();
-    let started = RunnerFact::RunnerStarted(runs::RunnerStarted {
+    let started = RunnerFact::RunnerStarted(runs::RecordRunnerStarted {
         runtime: "claude-code".to_string(),
         workspace: "/w".to_string(),
         pid: 7,
@@ -123,17 +159,14 @@ fn the_engine_session_bind_is_identified_by_session_and_native_id() {
 // addresses the caller's own run.
 #[test]
 fn claims_are_identified_by_run_and_turn() {
-    let who = Identity {
-        principal: Principal::Model,
-        ..identity()
-    };
-    let summary = ModelFact::SummaryReported(runs::SummaryReported {
+    let who = identity();
+    let summary = ModelFact::SummaryReported(runs::RecordSummaryReported {
         turn: 3,
         ordinal: 2,
         scope: "progress".to_string(),
         text_ref: "t".to_string(),
     });
-    let done = ModelFact::FinalReported(runs::FinalReported {
+    let done = ModelFact::FinalReported(runs::RecordFinalReported {
         turn: 3,
         text_ref: "t".to_string(),
     });
@@ -269,70 +302,22 @@ async fn a_fact_the_kernel_dead_letters_is_parked_and_its_letter_is_in_the_store
     assert_eq!(letters[0].stream, who.run_cover());
 }
 
-// NEW-DESIGN, owner ruling 2026-11-04 (item 16, fail closed): a fact is
-// recorded only by its author. Every fact, offered by the OTHER principal, is
-// hidden, nothing is sent to the kernel and nothing is written.
+// NEW-DESIGN, owner ruling 2026-11-04 (item 16): claims are facts the model
+// makes, applied once and then DUPLICATE, on the run's stream. They are
+// advisory: the run does not end.
 #[tokio::test]
-async fn a_fact_of_the_other_principal_is_denied_and_nothing_is_sent() {
+async fn a_claim_is_recorded_and_ends_nothing() {
     let world = World::new().await;
     let facts = Facts::new(Arc::clone(&world.edge));
-    // Defence in depth: the types keep a model call site from building a runner
-    // fact, yet a runner fact offered with the model's identity (and a claim
-    // with the runner's) is still hidden, and nothing is sent.
-    let runner_facts = RunnerFact::samples();
-    let claims = ModelFact::samples();
-    for fact in runner_facts {
-        let other = &world.me.model_identity;
-        denied_and_unwritten(&world, &facts, other, fact).await;
-    }
-    for fact in claims {
-        let other = &world.me.identity;
-        denied_and_unwritten(&world, &facts, other, fact).await;
-    }
-}
-
-/// `fact` offered by `other`, who is not its author: hidden, nothing sent and
-/// nothing written to the run or the session.
-async fn denied_and_unwritten<F: crate::Fact>(
-    world: &World,
-    facts: &Facts<crate::fakes::KernelEdge>,
-    other: &Identity,
-    fact: F,
-) {
-    let served = world.edge.served();
-    let run_before = world.edge.pages(&other.run_cover()).await.len();
-    let session_before = world.edge.pages(&other.session_cover()).await.len();
-    let book = fact.book(other);
-    let denied = facts.record(other, fact).await.unwrap_err();
-    assert!(
-        matches!(denied, AppError::Denied(run_ports::Unserved::Hidden { .. })),
-        "{book:?}"
-    );
-    assert_eq!(world.edge.served(), served, "{book:?}");
-    assert_eq!(world.edge.pages(&other.run_cover()).await.len(), run_before);
-    assert_eq!(
-        world.edge.pages(&other.session_cover()).await.len(),
-        session_before
-    );
-}
-
-// NEW-DESIGN, owner ruling 2026-11-04 (item 16): claims are facts the MODEL
-// records, applied once and then DUPLICATE, on the run's stream. They are
-// advisory: the run does not end and the runner's own token still identifies.
-#[tokio::test]
-async fn a_claim_is_recorded_by_the_model_and_ends_nothing() {
-    use crate::{Gate, RunsGate};
-    let world = World::new().await;
-    let facts = Facts::new(Arc::clone(&world.edge));
-    let who = &world.me.model_identity;
+    let who = &world.me.identity;
     let claims = [
-        ModelFact::SummaryReported(runs::SummaryReported {
+        ModelFact::SummaryReported(runs::RecordSummaryReported {
             turn: 1,
             ordinal: 0,
             scope: "progress".to_string(),
             text_ref: "t:1".to_string(),
         }),
-        ModelFact::FinalReported(runs::FinalReported {
+        ModelFact::FinalReported(runs::RecordFinalReported {
             turn: 1,
             text_ref: "t:final".to_string(),
         }),
@@ -344,9 +329,14 @@ async fn a_claim_is_recorded_by_the_model_and_ends_nothing() {
         );
         assert_eq!(facts.record(who, claim).await, Ok(Recorded::Duplicate));
     }
-    let gate = RunsGate::new(Arc::clone(&world.edge));
-    assert!(gate.identify(&world.me.credential).await.is_ok());
-    assert!(gate.identify(&world.me.model_credential).await.is_ok());
+    let pages = world.edge.events(&who.run_cover(), 0).await.unwrap();
+    let ended = pages.iter().any(|page| match &page.body {
+        Some(angzarr_embedded::v1::event_page::Body::Event(any)) => {
+            any.type_url.ends_with(".RunEnded")
+        }
+        _ => false,
+    });
+    assert!(!ended, "the run is still live");
 }
 
 // NEW-DESIGN, owner ruling 2026-11-04 (item 16, totality): every AgentFact
@@ -356,7 +346,7 @@ async fn a_claim_is_recorded_by_the_model_and_ends_nothing() {
 #[tokio::test]
 async fn every_agent_fact_applies_in_every_state() {
     use crate::fakes::command_book;
-    let states = ["live", "turn in flight", "stop ordered", "ended"];
+    let states = ["live", "turn in flight", "stop requested", "ended"];
     for state in states {
         let world = World::new().await;
         let facts = Facts::new(Arc::clone(&world.edge));
@@ -366,6 +356,8 @@ async fn every_agent_fact_applies_in_every_state() {
                 let queue = runs::QueueTurn {
                     prompt_ref: "p".to_string(),
                     resume: false,
+                    message_ids: Vec::new(),
+                    urgency: runs::TurnUrgency::Wake,
                 };
                 world
                     .edge
@@ -373,14 +365,13 @@ async fn every_agent_fact_applies_in_every_state() {
                     .await
                     .unwrap();
             }
-            "stop ordered" => {
-                let stop = sessions::StopSession {
-                    requester_depth: 0,
+            "stop requested" => {
+                let stop = runs::RequestStop {
                     reason: "x".to_string(),
                 };
                 world
                     .edge
-                    .handle(command_book(me.identity.session_cover(), stop))
+                    .handle(command_book(me.identity.run_cover(), stop))
                     .await
                     .unwrap();
             }
@@ -394,7 +385,7 @@ async fn every_agent_fact_applies_in_every_state() {
         }
         for fact in ModelFact::samples() {
             let url = fact.type_url();
-            outcomes.push((url, facts.record(&me.model_identity, fact).await));
+            outcomes.push((url, facts.record(&me.identity, fact).await));
         }
         for (url, outcome) in outcomes {
             assert!(
@@ -463,6 +454,31 @@ async fn a_launch_that_never_started_ends_the_run_once() {
     assert_eq!(world.edge.pages(&who.run_cover()).await.len(), pages.len());
 }
 
+// U5: a frontend reports a launch it never started with the same book the
+// core's own launcher records it with, so the two are one fact.
+#[tokio::test]
+async fn a_launch_failed_book_is_the_one_the_core_records() {
+    use angzarr_embedded::v1::command_page::Body;
+    let world = World::new().await;
+    let who = &world.me.identity;
+    let book = crate::launch_failed_book(&who.run, true, "no claude");
+    assert_eq!(book.cover, Some(who.run_cover()));
+    let Some(Body::Fact(fact)) = book.page.clone().and_then(|page| page.body) else {
+        panic!("a fact body")
+    };
+    let run = uuid::Uuid::from_slice(&who.run.value).unwrap().hyphenated();
+    assert_eq!(
+        fact.origin.expect("an origin").external_id,
+        format!("launch-failed:{run}")
+    );
+    assert!(world.edge.handle(book).await.is_ok());
+    let facts = Facts::new(Arc::clone(&world.edge));
+    assert_eq!(
+        facts.launch_failed(&who.run, true, "no claude").await,
+        Ok(Recorded::Duplicate)
+    );
+}
+
 // Hook capture: the runner's observation lands on its own session's stream,
 // once; the model's credential cannot record one and nothing is sent.
 #[tokio::test]
@@ -494,15 +510,4 @@ async fn an_observation_lands_on_the_sessions_stream_once_and_only_for_the_runne
         world.edge.pages(&who.session_cover()).await.len(),
         before + 1
     );
-
-    let served = world.edge.served();
-    let denied = facts
-        .observe(&world.me.model_identity, &observation)
-        .await
-        .unwrap_err();
-    assert!(matches!(
-        denied,
-        AppError::Denied(run_ports::Unserved::Hidden { .. })
-    ));
-    assert_eq!(world.edge.served(), served, "nothing was sent");
 }

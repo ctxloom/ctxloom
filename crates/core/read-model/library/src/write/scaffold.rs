@@ -112,6 +112,30 @@ pub fn initial_config(engine: &str) -> String {
     render_sorted(&initial_sections(engine))
 }
 
+/// What a first init was answered (step 10c U6): each only when given.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Answered {
+    /// `output.dir`.
+    pub output_dir: Option<String>,
+    /// `config.premised` (`on-demand` or `always`).
+    pub premised: Option<String>,
+}
+
+/// The config a new project starts as for `engine`, with what init was
+/// answered written in it (step 10c U6: one create holds them). Keys sorted.
+pub fn initial_config_with(engine: &str, answered: &Answered) -> String {
+    let Value::Map(mut sections) = initial_sections(engine) else {
+        unreachable!("the initial config is a map")
+    };
+    if let Some(dir) = &answered.output_dir {
+        sections.push(("output".to_string(), map(vec![("dir", text(dir))])));
+    }
+    if let Some(word) = &answered.premised {
+        sections.push(("config".to_string(), map(vec![("premised", text(word))])));
+    }
+    render_sorted(&sorted(&Value::Map(sections)))
+}
+
 #[cfg(test)]
 #[path = "scaffold.test.rs"]
 mod tests;

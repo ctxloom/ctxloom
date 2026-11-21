@@ -77,7 +77,7 @@ pub(crate) fn read_turn(output: &TurnOutput) -> TurnOutcome {
 }
 
 /// The class of an error result: by the API status claude reports.
-fn class_of(result: &Json) -> FailureClass {
+pub(crate) fn class_of(result: &Json) -> FailureClass {
     let status = match result.get("api_error_status") {
         Some(Json::Number(n)) => n.parse::<u16>().ok(),
         _ => None,
@@ -90,7 +90,7 @@ fn class_of(result: &Json) -> FailureClass {
 }
 
 /// `text`, cut to [`STDERR_DETAIL`] bytes at a character boundary.
-fn bounded(text: &str) -> &str {
+pub(crate) fn bounded(text: &str) -> &str {
     let mut end = text.len().min(STDERR_DETAIL);
     while !text.is_char_boundary(end) {
         end -= 1;

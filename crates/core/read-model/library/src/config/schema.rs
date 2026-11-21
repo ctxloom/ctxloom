@@ -81,6 +81,8 @@ fn shown(path: &str) -> &str {
 enum Pat {
     Duration,
     Age,
+    /// A span of rust-support's grammar, or `now` ([`super::span`]).
+    Span,
     ListWindow,
     PrefixKey,
     MemoryLimit,
@@ -94,6 +96,7 @@ impl Pat {
         match self {
             Pat::Duration => "^[0-9]+(\\.[0-9]+)?(ns|us|\u{b5}s|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|\u{b5}s|ms|s|m|h))*$",
             Pat::Age => "^[0-9]+(d|w|h|m|s)$",
+            Pat::Span => "now, or a span such as 5m, 1h30m or 1.5h",
             Pat::ListWindow => "^(all|0|[0-9]+(d|w|h|m|s))$",
             Pat::PrefixKey => "^ctrl[-+].$",
             Pat::MemoryLimit => "^\\s*([0-9]+(\\.[0-9]+)?\\s*([kKmMgGtT]([iI]?[bB])?|[bB])?|[uU][nN][lL][iI][mM][iI][tT][eE][dD])\\s*$",
@@ -106,6 +109,7 @@ impl Pat {
         match self {
             Pat::Duration => durations(s, &["ns", "us", "\u{b5}s", "ms", "s", "m", "h"]),
             Pat::Age => age(s),
+            Pat::Span => duration_text::parse(s).is_ok(),
             Pat::ListWindow => s == "all" || s == "0" || age(s),
             Pat::PrefixKey => {
                 let mut chars = s.chars();
@@ -297,15 +301,23 @@ pub const ENGINES: &[&str] = &[
     "opencode",
 ];
 
+/// Whose home an engine runs on: a session home of its own, or the user's.
+const SESSION_HOMES: &[&str] = &["host", "session"];
+
 /// One `engines.<engine>` block: what its agents share. `model`, `effort` and
-/// `permissions` are the agent's, never here.
+/// `permissions` are the agent's, never here; `approval_timeout` is the
+/// engine's alone (no agent overrides it).
 fn engine_block() -> Node {
     object(vec![
         ("command", non_empty()),
-        ("session_home", choice(&["host", "session"])),
+        ("session_home", choice(SESSION_HOMES)),
         ("auth", Node::Auth),
         ("runtime", choice(RUNTIMES)),
         ("env", list(pattern(Pat::NoEquals))),
+        // OD-41 (D16): how long an ask of the engine's child waits for an
+        // answer, a span or `now` (every ask denied at once); 300 s unsaid
+        // ([`super::engines::APPROVAL_TIMEOUT_DEFAULT`]).
+        ("approval_timeout", pattern(Pat::Span)),
     ])
 }
 
@@ -348,6 +360,13 @@ fn root() -> Node {
                 "legacy",
                 object(vec![("go", choice(&["present", "retired"]))]),
             ),
+            // Owner, 2026-11-15: how long a drain (`ctxloom shutdown`, a
+            // SIGTERM to the daemon) waits for what it hosts before it
+            // stops what remains; the home config's alone.
+            (
+                "daemon",
+                object(vec![("drain_timeout", pattern(Pat::Span))]),
+            ),
             ("workspace", choice(&["none", "worktree"])),
             ("runtime", choice(RUNTIMES)),
             // Owner ruling 134: no engine-neutral `permissions` (approver,
@@ -377,10 +396,14 @@ fn root() -> Node {
             // project root unless absolute.
             ("output", object(vec![("dir", non_empty())])),
             ("isolation_engines", list(non_empty())),
-            // A registration: the name, and the command that runs it.
+            // A registration is the name alone (OD-10); its state a word
+            // (OD-9: `enabled`, the default, or `disabled`).
             (
                 "companions",
-                map_of(object(vec![("command", list(non_empty()))])),
+                map_of(object(vec![(
+                    "state",
+                    choice(&crate::companion::STATE_WORDS),
+                )])),
             ),
             ("agents", map_of(binding())),
             ("default_agent", string()),
@@ -432,6 +455,9 @@ fn binding() -> Node {
             ),
             ("profiles", list(non_empty())),
             ("runtime", choice(RUNTIMES)),
+            // Owner ruling of 2026-11-13 (superseding 44(b) for this key):
+            // the agent's own, the engine block's its default.
+            ("session_home", choice(SESSION_HOMES)),
             (
                 "may_delegate",
                 Node::Array {
@@ -541,10 +567,11 @@ fn node_at(path: &[String]) -> Option<std::borrow::Cow<'static, Node>> {
 }
 
 /// Every violation of `doc`.
-/// The keys only the home config may say (owner ruling 162): `legacy.go`,
+/// The keys only the home config may say: `legacy.go` (owner ruling 162),
 /// whether Go ctxloom runs on this machine, which a checked-out repository
-/// cannot know.
-pub const HOME_ONLY: &[(&str, &str)] = &[("legacy", "go")];
+/// cannot know; `daemon.drain_timeout` (owner, 2026-11-15), the user's one
+/// daemon's, which no project owns.
+pub const HOME_ONLY: &[(&str, &str)] = &[("legacy", "go"), ("daemon", "drain_timeout")];
 
 /// Take each of [`HOME_ONLY`] out of a PROJECT layer and return its dotted
 /// path, so the loader can refuse it (and `--degraded` never reads it); a

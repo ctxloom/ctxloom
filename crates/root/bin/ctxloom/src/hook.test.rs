@@ -23,6 +23,7 @@ impl Env {
             .env("HOME", self.home())
             .env("USERPROFILE", self.home())
             .env("TMPDIR", crate::tests::temp_root())
+            .env(crate::tests::LIFELINE, crate::tests::lifeline())
             .current_dir(self.home())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -55,6 +56,7 @@ impl Env {
             .args(args)
             .env_clear()
             .env("TMPDIR", crate::tests::temp_root())
+            .env(crate::tests::LIFELINE, crate::tests::lifeline())
             .current_dir(self.home())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -104,7 +106,7 @@ fn test_hud_prints_gos_line_without_a_newline() {
     let ran = env.run_hook(
         &["hook", "claude-code", "execute", "statusline"],
         HUD_PAYLOAD,
-        &[("CTXLOOM_SESSION_HARP", "brisk-copper-moth")],
+        &[("CTXLOOM_SESSION", RECORDED_SESSION)],
     );
     assert!(
         ran.stdout
@@ -129,7 +131,7 @@ fn test_hud_records_nothing() {
     let ran = env.run_hook(
         &["hook", "claude-code", "execute", "statusline"],
         HUD_PAYLOAD,
-        &[("CTXLOOM_SESSION_HARP", "brisk-copper-moth")],
+        &[("CTXLOOM_SESSION", RECORDED_SESSION)],
     );
     assert_eq!(ran.code, 0, "{}", ran.said());
     assert_eq!(tree(env.home()), before, "the home is as it was");
@@ -200,7 +202,7 @@ fn test_execute_statusline_renders_the_engines_half_and_ctxloom_s_own() {
     let ran = env.run_hook(
         &["hook", "claude-code", "execute", "statusline"],
         HUD_PAYLOAD,
-        &[("CTXLOOM_SESSION_HARP", "brisk-copper-moth")],
+        &[("CTXLOOM_SESSION", RECORDED_SESSION)],
     );
     assert_eq!(ran.code, 0, "{}", ran.said());
     for want in ["Opus 5", "42%", "brisk-copper-moth"] {
@@ -252,6 +254,29 @@ fn test_execute_under_an_unknown_engine_is_refused_listing_the_known_ones() {
     );
 }
 
+/// Make `home` one where no daemon can be started (s4-Q14, H2's tests): a
+/// file where its daemon directory goes, so a hook with no endpoint in its
+/// environment holds what it observed, and starts no daemon a test would
+/// leave behind.
+fn no_daemon_can_start(home: &Path) {
+    files::put(home.join(".ctxloom/daemon"), "not a directory");
+}
+
+/// `stderr` is exactly `expected` held warnings (s4-Q14), and the session's
+/// hold under `home` holds that many facts.
+fn assert_held(home: &Path, stderr: &str, expected: usize, what: &str) {
+    let said = warnings(stderr);
+    assert_eq!(said.len(), expected, "{what}: {stderr}");
+    for warning in &said {
+        assert_eq!(warning["code"], "hook-cli-held", "{what}: {warning}");
+    }
+    let held: Vec<PathBuf> = files::children(home.join(".ctxloom/held"))
+        .into_iter()
+        .filter(|p| p.extension().is_some_and(|e| e == "held"))
+        .collect();
+    assert_eq!(held.len(), usize::from(expected > 0), "{what}: {held:?}");
+}
+
 /// The warnings a hook said on stderr: one JSON document each.
 fn warnings(stderr: &str) -> Vec<serde_json::Value> {
     serde_json::Deserializer::from_str(stderr)
@@ -273,12 +298,13 @@ fn assert_not_recorded(stderr: &str, expected: usize, what: &str) {
 }
 
 // The events that carry the primary agent's data are answered as silence, and
-// each observation they hold that cannot be delivered (no listener yet) is
-// dropped with a stderr note: owner ruling C. An event that observes nothing
-// says nothing.
+// each observation they hold that cannot be delivered (no daemon serves, and
+// none can be started) is held with a stderr note: owner ruling C, s4-Q14
+// (H-Q2). An event that observes nothing says nothing.
 #[test]
 fn test_execute_of_the_data_events_answers_silence_and_notes_what_it_did_not_record() {
     let env = Env::new();
+    no_daemon_can_start(env.home());
     let fixtures = [
         (
             "Stop",
@@ -300,43 +326,52 @@ fn test_execute_of_the_data_events_answers_silence_and_notes_what_it_did_not_rec
         let ran = env.run_hook(
             &["hook", "claude-code", "execute", native],
             payload,
-            &[("CTXLOOM_SESSION_HARP", "brisk-copper-moth")],
+            &[("CTXLOOM_SESSION", RECORDED_SESSION)],
         );
         assert_eq!(ran.code, 0, "{native}: {}", ran.said());
         assert_eq!(ran.stdout.trim(), "{}", "{native}");
-        assert_not_recorded(&ran.stderr, observations, native);
+        let said = warnings(&ran.stderr);
+        assert_eq!(said.len(), observations, "{native}: {}", ran.stderr);
+        for warning in &said {
+            assert_eq!(warning["code"], "hook-cli-held", "{native}: {warning}");
+        }
     }
 }
 
-const RECORDED_HARP: &str = "brisk-copper-moth";
 const STOP: &str = r#"{"session_id":"s","prompt_id":"p","hook_event_name":"Stop","last_assistant_message":"done"}"#;
 /// A well formed bearer: `<run>.<64 hex>`.
 const A_BEARER: &str = "0a1b2c3d-0000-4000-8000-000000000001.\
     abababababababababababababababababababababababababababababababab"; // gitleaks:allow
 
-/// The session a run's hook is told by id (`CTXLOOM_SESSION`, review finding
-/// 6): what it addresses its facts to, with no session directory to read.
-const RECORDED_SESSION: &str = "0a1b2c3d-0000-4000-8000-0000000000aa";
+/// The session a run's hook is told by its resource name (`CTXLOOM_SESSION`,
+/// review finding 6, s3-Q3): what it addresses its facts to, its UUIDv5, with
+/// no session directory to read.
+const RECORDED_SESSION: &str = "projects/amber-quiet-heron/sessions/brisk-copper-moth";
 
-// The hook's delivery with no endpoint in its environment is as it was before
-// the listener: the observation is not recorded, said once, and the hook
-// answers and exits 0.
+// A hook with no endpoint in its environment delivers to the user's daemon
+// (S16); where none serves and none can be started it HOLDS the observation
+// (s4-Q14, H-Q2), said once, and answers and exits 0, within its bound.
 #[test]
-fn test_a_hook_with_no_endpoint_says_the_listener_is_not_running() {
+fn test_a_hook_with_no_endpoint_and_no_daemon_holds_its_fact_within_its_bound() {
     let env = Env::new();
+    no_daemon_can_start(env.home());
+    let started = std::time::Instant::now();
     let ran = env.run_hook(
         &["hook", "claude-code", "execute", "Stop"],
         STOP,
-        &[
-            ("CTXLOOM_SESSION_HARP", RECORDED_HARP),
-            ("CTXLOOM_SESSION", RECORDED_SESSION),
-        ],
+        &[("CTXLOOM_SESSION", RECORDED_SESSION)],
+    );
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(10),
+        "within S16's bound: {:?}",
+        started.elapsed()
     );
     assert_eq!(ran.code, 0, "{}", ran.said());
     assert_eq!(ran.stdout.trim(), "{}");
-    assert_not_recorded(&ran.stderr, 1, "no endpoint");
+    assert_held(env.home(), &ran.stderr, 1, "no endpoint");
     assert!(
-        ran.stderr.contains("listener is not running"),
+        ran.stderr
+            .contains("no ctxloom daemon could be reached or started"),
         "{}",
         ran.stderr
     );
@@ -344,19 +379,16 @@ fn test_a_hook_with_no_endpoint_says_the_listener_is_not_running() {
 
 // Review finding 6 (ruling 87): a hook finds its session from the run, by the
 // id its environment names (`CTXLOOM_SESSION`), with no session directory and
-// no metadata.json to read: it gets as far as the delivery, which fails open
-// for want of a listener here.
+// no metadata.json to read: it gets as far as the delivery, which holds for
+// want of a daemon here.
 #[test]
 fn test_a_hook_finds_its_session_from_the_run_with_no_session_directory() {
     let env = Env::new();
+    no_daemon_can_start(env.home());
     let ran = env.run_hook(
         &["hook", "claude-code", "execute", "Stop"],
         STOP,
-        &[
-            ("CTXLOOM_SESSION_HARP", RECORDED_HARP),
-            ("CTXLOOM_SESSION", RECORDED_SESSION),
-            ("CTXLOOM_SESSION", "0a1b2c3d-0000-4000-8000-0000000000aa"),
-        ],
+        &[("CTXLOOM_SESSION", RECORDED_SESSION)],
     );
     assert_eq!(ran.code, 0, "{}", ran.said());
     assert_eq!(ran.stdout.trim(), "{}");
@@ -365,11 +397,7 @@ fn test_a_hook_finds_its_session_from_the_run_with_no_session_directory() {
         "the session is the run's, not a directory's: {}",
         ran.stderr
     );
-    assert!(
-        ran.stderr.contains("listener is not running"),
-        "{}",
-        ran.stderr
-    );
+    assert_held(env.home(), &ran.stderr, 1, "no session directory");
 }
 
 /// A loopback URL nobody listens on: a port that was bound, then released.
@@ -389,7 +417,6 @@ fn test_a_hook_with_a_malformed_bearer_fails_open_without_echoing_it() {
         &["hook", "claude-code", "execute", "Stop"],
         STOP,
         &[
-            ("CTXLOOM_SESSION_HARP", RECORDED_HARP),
             ("CTXLOOM_SESSION", RECORDED_SESSION),
             ("CTXLOOM_ENDPOINT", &closed_endpoint()),
             ("CTXLOOM_BEARER", "not-a-bearer-zzz"),
@@ -409,7 +436,6 @@ fn test_a_hook_whose_endpoint_is_dead_says_it_could_not_reach_the_listener() {
         &["hook", "claude-code", "execute", "Stop"],
         STOP,
         &[
-            ("CTXLOOM_SESSION_HARP", RECORDED_HARP),
             ("CTXLOOM_SESSION", RECORDED_SESSION),
             ("CTXLOOM_ENDPOINT", &closed_endpoint()),
             ("CTXLOOM_BEARER", A_BEARER),
@@ -443,7 +469,6 @@ fn test_a_hook_without_a_usable_certificate_is_refused_and_says_so() {
         let env = Env::new();
         let endpoint = closed_endpoint();
         let mut vars = vec![
-            ("CTXLOOM_SESSION_HARP", RECORDED_HARP),
             ("CTXLOOM_SESSION", RECORDED_SESSION),
             ("CTXLOOM_ENDPOINT", endpoint.as_str()),
             ("CTXLOOM_BEARER", A_BEARER),
@@ -468,7 +493,6 @@ fn test_a_hook_with_a_plaintext_endpoint_is_refused_and_says_so() {
         &["hook", "claude-code", "execute", "Stop"],
         STOP,
         &[
-            ("CTXLOOM_SESSION_HARP", RECORDED_HARP),
             ("CTXLOOM_SESSION", RECORDED_SESSION),
             ("CTXLOOM_ENDPOINT", "http://127.0.0.1:9"),
             ("CTXLOOM_BEARER", A_BEARER),
@@ -542,6 +566,7 @@ fn test_hook_help_names_execute() {
 #[test]
 fn test_a_hook_process_without_home_finds_the_home_through_ctxloom_home() {
     let env = Env::new();
+    no_daemon_can_start(env.home());
     let home = env.home().to_string_lossy().to_string();
     let payload = r#"{"session_id":"s","prompt_id":"p","hook_event_name":"Stop","last_assistant_message":"done"}"#;
     let ran = env.run_hook_without_home(
@@ -549,7 +574,7 @@ fn test_a_hook_process_without_home_finds_the_home_through_ctxloom_home() {
         payload,
         &[
             ("CTXLOOM_HOME", &home),
-            ("CTXLOOM_SESSION_HARP", "brisk-copper-moth"),
+            ("CTXLOOM_SESSION", RECORDED_SESSION),
         ],
     );
     assert_eq!(ran.code, 0, "{}", ran.said());
@@ -558,9 +583,9 @@ fn test_a_hook_process_without_home_finds_the_home_through_ctxloom_home() {
         "{}",
         "a data event answers the empty response"
     );
-    // The home was found (no no-home refusal); the one observation of a turn
-    // end could not be delivered, and is said so.
-    assert_not_recorded(&ran.stderr, 1, "Stop");
+    // The home was found (no no-home refusal): the one observation of a turn
+    // end could not be delivered, and is held there, and said so.
+    assert_held(env.home(), &ran.stderr, 1, "Stop");
     let start = env.run_hook_without_home(
         &["hook", "claude-code", "execute", "SessionStart"],
         "{}",

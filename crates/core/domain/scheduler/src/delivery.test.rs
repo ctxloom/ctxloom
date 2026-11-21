@@ -1,7 +1,7 @@
 use angzarr_embedded::v1::Uuid;
 use angzarr_embedded::{Any, Payload, Timestamp};
 
-use crate::{delivered, AlarmArmed, AlarmFired, AlarmReached, SchedulerEvent, Stream};
+use crate::{delivered, AlarmArmed, AlarmFired, RecordAlarmReached, SchedulerEvent, Stream};
 
 fn target(domain: &str, root: Vec<u8>) -> Stream {
     Stream {
@@ -34,7 +34,7 @@ fn delivery_answers_alarm_fired_with_alarm_reached_fact_to_its_target_root() {
         got,
         Some((
             Uuid::from_bytes([5; 16]),
-            AlarmReached {
+            RecordAlarmReached {
                 alarm_id: "deadline".to_string(),
                 at: at(),
             }

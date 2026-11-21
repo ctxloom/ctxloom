@@ -92,6 +92,7 @@ fn diagnostic_samples() -> Vec<Box<dyn angzarr_diagnostic::Diagnostic>> {
     all.extend(surface_ports::diagnostic_samples());
     all.extend(setup_application::diagnostic_samples());
     all.extend(session_cli::diagnostic_samples());
+    all.extend(mcp_server::diagnostic_samples());
     all.extend(hook_cli::diagnostic_samples());
     all.extend(session_files::diagnostic_samples());
     all.extend(sessions_application::diagnostic_samples());
@@ -101,6 +102,8 @@ fn diagnostic_samples() -> Vec<Box<dyn angzarr_diagnostic::Diagnostic>> {
     all.extend(setup_cli::diagnostic_samples());
     all.extend(isolation_application::diagnostic_samples());
     all.extend(worktree_git::diagnostic_samples());
+    all.extend(library_api::diagnostic_samples());
+    all.extend(library_tree::diagnostic_samples());
     all.extend(tasks_ports::diagnostic_samples());
     all.extend(container_cli::diagnostic_samples());
     all.extend(scheduler::diagnostic_samples());
@@ -110,6 +113,8 @@ fn diagnostic_samples() -> Vec<Box<dyn angzarr_diagnostic::Diagnostic>> {
     all.extend(run_cli::diagnostic_samples());
     all.extend(hook_listener::diagnostic_samples());
     all.extend(hook_tls::diagnostic_samples());
+    all.extend(daemon_api::diagnostic_samples());
+    all.extend(daemon_ports::diagnostic_samples());
     all
 }
 

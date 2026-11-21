@@ -31,6 +31,30 @@ pub fn valid_name(name: &str) -> bool {
     !name.is_empty() && !name.starts_with('.') && !name.contains(['/', '\\', '\0'])
 }
 
+/// The longest an ID may be (RFC 1034's label).
+pub const ID_MAX: usize = 63;
+
+/// Whether `name` is an ID (OQ-6, design §1.3, library.proto's header):
+/// `^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$`, one to 63 lowercase ASCII letters,
+/// digits and hyphens, starting with a letter and not ending with a hyphen.
+/// It is the name a bundle, fragment, command, skill, MCP server or profile
+/// is created, imported or added under; no `/`, so a nested bundle name is
+/// none (OQ-5).
+pub fn valid_id(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    match (bytes.first(), bytes.last()) {
+        (Some(first), Some(last)) => {
+            bytes.len() <= ID_MAX
+                && first.is_ascii_lowercase()
+                && *last != b'-'
+                && bytes
+                    .iter()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || *b == b'-')
+        }
+        _ => false,
+    }
+}
+
 fn scalar(text: &str) -> Value {
     Value::Scalar(text.to_string())
 }

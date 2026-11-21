@@ -5,12 +5,13 @@
 //! run in a scratch project).
 //!
 //! Not here, each by what it needs: the `ctxloom://` resource assertions (the
-//! MCP cut list is open, D8), `materialize` (S9), `distill` (S7). The edit
-//! that re-distills has no distiller until S7: the default edit saves the
-//! content RAW and says so, which is the scenario "the distillation backend
-//! cannot start" of editing.feature.
+//! MCP cut list is open, D8), `materialize` (S9), `distill` (plan step 5,
+//! content_distill.feature). An edit writes the `.md` alone (owner T29,
+//! T30): it distills nothing, and a distilled form beside it reads stale by
+//! its digest.
 
 use super::library::{reports_as, Editor, Project};
+use crate::tests::files;
 
 const FORMATS: [&[&str]; 3] = [&[], &["--format", "json"], &["--format", "text"]];
 
@@ -80,10 +81,13 @@ fn test_creating_an_item_answers_and_refuses_what_it_must() {
                 "Created fragment \"testing\" in bundle \"demo\"\nEdit with: ctxloom fragment edit demo#fragments/testing\n"
             );
         } else {
+            // OD-40: `CreateFragmentResponse`.
             let doc = ran.json();
-            assert_eq!(reports_as(&doc, "status"), "created");
-            assert_eq!(reports_as(&doc, "bundle"), "demo");
-            assert_eq!(reports_as(&doc, "name"), "testing");
+            assert_eq!(reports_as(&doc, "applied"), "true");
+            assert!(
+                reports_as(&doc, "fragment.name").ends_with("/bundles/demo/fragments/testing"),
+                "{doc}"
+            );
             assert_eq!(reports_as(&doc, "path"), manifest);
         }
     }
@@ -112,7 +116,10 @@ fn test_bare_fragment_remove_reports_and_destroys_nothing() {
         let project = Project::initialized().on_gos_catalog();
         demo(&project);
         project.fragment("demo", "testing");
-        let before = project.tree(".ctxloom");
+        // A json answer names the project (OD-40, OQ-2): its id is written once.
+        project.run(&["test", "project-name"]).succeeds();
+        let mut before = project.tree(".ctxloom");
+        before.remove("state/checkout");
         let ran = with_flags(
             &project,
             &["fragment", "remove", "demo#fragments/testing"],
@@ -125,15 +132,15 @@ fn test_bare_fragment_remove_reports_and_destroys_nothing() {
                 "Would remove fragment \"testing\" from bundle \"demo\".\n\nNothing was removed. Re-run with --yes to apply:\n  ctxloom fragment remove demo#fragments/testing --yes\n"
             );
         } else {
+            // OD-40: `DeleteFragmentResponse`, the preview's.
             let doc = ran.json();
-            assert_eq!(reports_as(&doc, "status"), "preview");
             assert_eq!(reports_as(&doc, "applied"), "false");
-            assert_eq!(
-                reports_as(&doc, "target"),
-                "fragment \"testing\" from bundle \"demo\""
+            assert!(
+                reports_as(&doc, "fragment.name").ends_with("/bundles/demo/fragments/testing"),
+                "{doc}"
             );
             assert_eq!(
-                reports_as(&doc, "apply"),
+                reports_as(&doc, "apply_command"),
                 "ctxloom fragment remove demo#fragments/testing --yes"
             );
         }
@@ -141,7 +148,11 @@ fn test_bare_fragment_remove_reports_and_destroys_nothing() {
             &format!("{DEMO}/fragments/testing.md"),
             "FRAGMENT-BODY-testing",
         );
-        assert_eq!(project.tree(".ctxloom"), before);
+        // The daemon observes the checkout before it previews (step 10b
+        // U3, as a read does): its own state, never the library's.
+        let mut after = project.tree(".ctxloom");
+        after.remove("state/checkout");
+        assert_eq!(after, before);
     }
 }
 
@@ -181,9 +192,11 @@ fn test_removing_a_fragment_removes_exactly_it() {
             );
         } else {
             let doc = ran.json();
-            assert_eq!(reports_as(&doc, "status"), "deleted");
-            assert_eq!(reports_as(&doc, "bundle"), "demo");
-            assert_eq!(reports_as(&doc, "name"), "testing");
+            assert_eq!(reports_as(&doc, "applied"), "true");
+            assert!(
+                reports_as(&doc, "fragment.name").ends_with("/bundles/demo/fragments/testing"),
+                "{doc}"
+            );
         }
         project.file_is_absent(&format!("{DEMO}/fragments/testing.md"));
         project.file_is_absent(&format!("{DEMO}/fragments/testing.distilled.md"));
@@ -242,7 +255,10 @@ fn test_bare_command_remove_reports_and_destroys_nothing() {
         let project = Project::initialized().on_gos_catalog();
         demo(&project);
         project.command("demo", "review");
-        let before = project.tree(".ctxloom");
+        // A json answer names the project (OD-40, OQ-2): its id is written once.
+        project.run(&["test", "project-name"]).succeeds();
+        let mut before = project.tree(".ctxloom");
+        before.remove("state/checkout");
         let ran = with_flags(
             &project,
             &["command", "remove", "demo#commands/review"],
@@ -256,7 +272,11 @@ fn test_bare_command_remove_reports_and_destroys_nothing() {
         }
         ran.contains("ctxloom command remove demo#commands/review --yes");
         project.file_contains(&format!("{DEMO}/prompts/review.md"), "COMMAND-BODY-review");
-        assert_eq!(project.tree(".ctxloom"), before);
+        // The daemon observes the checkout before it previews (step 10b
+        // U3, as a read does): its own state, never the library's.
+        let mut after = project.tree(".ctxloom");
+        after.remove("state/checkout");
+        assert_eq!(after, before);
     }
 }
 
@@ -268,11 +288,17 @@ fn test_removing_a_command_removes_exactly_it() {
     demo(&project);
     project.command("demo", "review");
     let others = project.tree(".ctxloom/content/bundles/v2/demo/fragments");
+    // Its reference, exactly: a project's random name may hold `review`.
+    let listed = "demo#commands/review";
+    project
+        .run(&["command", "list"])
+        .succeeds()
+        .contains(listed);
     project
         .run(&["command", "remove", "demo#commands/review", "--yes"])
         .succeeds();
     project.file_is_absent(&format!("{DEMO}/prompts/review.md"));
-    project.run(&["command", "list"]).succeeds().lacks("review");
+    project.run(&["command", "list"]).succeeds().lacks(listed);
     assert_eq!(project.tree(&format!("{DEMO}/fragments")), others);
     let doc = {
         project.command("demo", "again");
@@ -287,7 +313,7 @@ fn test_removing_a_command_removes_exactly_it() {
             ])
             .json()
     };
-    assert_eq!(reports_as(&doc, "status"), "deleted");
+    assert_eq!(reports_as(&doc, "applied"), "true");
 }
 
 // command.feature: Scenario Outline: Editing with --no-distill warns instead
@@ -313,11 +339,22 @@ fn test_editing_with_no_distill_warns_instead_of_leaving_a_stale_distillation_un
                 .contains("Updated command \"review\" in bundle \"demo\"")
                 .contains("ctxloom bundle push demo [remote]");
         } else {
-            assert_eq!(reports_as(&ran.json(), "distilled"), "false");
+            // OD-40: `UpdateCommandResponse` claims no distilled form it did
+            // not refresh.
+            let doc = ran.json();
+            assert!(
+                super::library::at(&doc, "command.distilled").is_none(),
+                "{doc}"
+            );
+            assert_eq!(reports_as(&doc, "applied"), "true");
         }
         project.file_contains(&format!("{DEMO}/prompts/review.md"), "EDITED-BY-TEST");
-        // Never stale: the old distillation does not outlive the content.
-        project.file_is_absent(&format!("{DEMO}/prompts/review.distilled.md"));
+        // The edit writes the `.md` alone (T29, T30): the old distillation is
+        // left, and reads stale by its digest.
+        project.file_contains(
+            &format!("{DEMO}/prompts/review.distilled.md"),
+            "STALE DISTILLED",
+        );
     }
 }
 
@@ -338,8 +375,7 @@ fn test_an_editor_that_returns_nothing_is_refused_rather_than_emptying_the_comma
 // ---------------------------------------------------------------- editing.feature
 
 // editing.feature: Scenario: Editing a fragment lands the change across axes
-// (the file: the distillation backend cannot start, so the content is saved
-// RAW and the command says so)
+// (the file: the edit writes the `.md` alone and succeeds, owner T29, T30)
 #[test]
 fn test_editing_a_fragment_lands_the_change_across_axes() {
     let project = Project::with_editor(Editor::Marker).on_gos_catalog();
@@ -347,9 +383,61 @@ fn test_editing_a_fragment_lands_the_change_across_axes() {
     project.fragment("demo", "testing");
     project
         .run(&["fragment", "edit", "demo#fragments/testing"])
-        .fails()
-        .contains("content saved RAW");
+        .succeeds();
     project.file_contains(&format!("{DEMO}/fragments/testing.md"), "EDITED-BY-TEST");
+    project.file_is_absent(&format!("{DEMO}/fragments/testing.distilled.md"));
+}
+
+// The Caller ruling (kept 2026-11-19): off a terminal the CLI does not say
+// `can_launch`, so the preview's Edit need carries no launch and the editor
+// is not run; the apply goes unanswered and answers the preview again
+// (needs.proto: a CLI off a terminal shows the preview and applies nothing,
+// exit 0), the Edit need carrying the text and no launch, and the file stays
+// as it was.
+#[test]
+fn test_an_edit_off_a_terminal_launches_no_editor_and_applies_nothing() {
+    let project = Project::with_editor(Editor::Marker).on_gos_catalog();
+    project.off_a_terminal();
+    demo(&project);
+    project.fragment("demo", "testing");
+    let before = project.read(&format!("{DEMO}/fragments/testing.md"));
+    let ran = project.run(&["fragment", "edit", "demo#fragments/testing"]);
+    assert_eq!(ran.code, 0, "{}", ran.said());
+    let said = ran.json();
+    assert_eq!(said["applied"], false, "{said}");
+    assert_eq!(said["needs"][0]["edit"]["text"], "FRAGMENT-BODY-testing");
+    assert!(said["needs"][0]["edit"].get("launch").is_none(), "{said}");
+    assert_eq!(
+        project.read(&format!("{DEMO}/fragments/testing.md")),
+        before
+    );
+    project.file_lacks(&format!("{DEMO}/fragments/testing.md"), "EDITED-BY-TEST");
+}
+
+// The same at a real pseudo-terminal (`script` runs the binary on a pty, so
+// its standard input and output are a terminal and no stand-in is set): the
+// editor launches. Unix with `script` only; skipped, said, elsewhere.
+#[test]
+fn test_an_edit_on_a_real_pty_launches_the_editor() {
+    if !files::runs_scripts() || !on_a_pty_available() {
+        eprintln!("SKIP test_an_edit_on_a_real_pty_launches_the_editor: no `script` (util-linux) to stand a pty in");
+        return;
+    }
+    let project = Project::with_editor(Editor::Marker).on_gos_catalog();
+    project.off_a_terminal();
+    demo(&project);
+    project.fragment("demo", "testing");
+    let ran = project.run_on_a_pty(&["fragment", "edit", "demo#fragments/testing"]);
+    assert_eq!(ran.code, 0, "{}", ran.said());
+    project.file_contains(&format!("{DEMO}/fragments/testing.md"), "EDITED-BY-TEST");
+}
+
+/// Whether util-linux's `script` is here to stand a pty in.
+fn on_a_pty_available() -> bool {
+    std::process::Command::new("script")
+        .arg("--version")
+        .output()
+        .is_ok_and(|out| String::from_utf8_lossy(&out.stdout).contains("util-linux"))
 }
 
 // editing.feature: Scenario: Editing a prompt lands the change in the bundle
@@ -360,8 +448,7 @@ fn test_editing_a_prompt_lands_the_change_in_the_bundle() {
     project.command("demo", "review");
     project
         .run(&["command", "edit", "demo#commands/review"])
-        .fails()
-        .contains("content saved RAW");
+        .succeeds();
     project.file_contains(&format!("{DEMO}/prompts/review.md"), "EDITED-BY-TEST");
 }
 
@@ -406,9 +493,11 @@ fn test_an_edit_keeps_the_front_matter_and_says_when_nothing_changed() {
         "json",
     ]);
     let doc = json.json();
-    assert_eq!(reports_as(&doc, "status"), "updated");
-    assert_eq!(reports_as(&doc, "bundle"), "demo");
-    assert_eq!(reports_as(&doc, "name"), "plain");
+    assert_eq!(reports_as(&doc, "applied"), "true");
+    assert!(
+        reports_as(&doc, "fragment.name").ends_with("/bundles/demo/fragments/plain"),
+        "{doc}"
+    );
     assert_eq!(
         project
             .read(&format!("{DEMO}/fragments/plain.md"))
@@ -448,9 +537,13 @@ fn test_an_editor_that_changes_nothing_says_so() {
         if is_text(flags) {
             assert_eq!(ran.stdout, "No changes made.\n");
         } else {
+            // OD-40: `UpdateFragmentResponse`, nothing applied.
             let doc = ran.json();
-            assert_eq!(reports_as(&doc, "status"), "unchanged");
-            assert_eq!(reports_as(&doc, "distilled"), "false");
+            assert_eq!(reports_as(&doc, "applied"), "false");
+            assert!(
+                super::library::at(&doc, "fragment.distilled").is_none(),
+                "{doc}"
+            );
         }
         assert_eq!(project.tree(DEMO), before);
     }

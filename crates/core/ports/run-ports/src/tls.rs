@@ -1,5 +1,9 @@
-//! The run's listener certificate: what the child is told of it (owner
-//! rulings 2026-11-09, items 35-37) and what a mint is asked for.
+//! A listener's certificate: what a client is told of it (owner rulings
+//! 2026-11-09, items 35-37) and what a mint is asked for. The user daemon's
+//! own certificate is minted through [`CertMint`] at each start; no host run
+//! mints one of its own any more (slice 4 U7). [`CertNames::for_plan`] and
+//! [`PublicCert::to_env_value`]'s environment form are KEPT for M10b's
+//! container arrival (OD-13).
 //!
 //! TLS authenticates the SERVER to the child; the per-run bearer authenticates
 //! the child. The certificate is self-signed and per run, and the child's SOLE

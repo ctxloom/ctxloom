@@ -10,9 +10,13 @@
 //! with its keys sorted, every other section stays as the file has it, and a
 //! file that does not parse is never rewritten (the config tests carry that).
 
-use super::library::{contains_value, entries, reports_as, Project};
+use super::library::{contains_value, entries, names_ending, reports_as, Project};
 
 const FORMATS: [&[&str]; 3] = [&[], &["--format", "json"], &["--format", "text"]];
+
+/// The agent `developer` in a listing's json (OD-40: `ListAgentsResponse`,
+/// each agent named under its project).
+const DEVELOPER: &str = "agents[name$=/agents/developer]";
 
 fn with_flags(project: &Project, base: &[&str], flags: &[&str]) -> super::Ran {
     let mut args = base.to_vec();
@@ -57,12 +61,14 @@ fn test_creating_a_binding_records_every_axis_and_the_listing_reads_each_one_bac
         );
         ran.succeeds();
         if is_text(flags) {
+            // Step 10b U3: the summary is the served answer's, a profile its
+            // short library reference (owner ruling 2026-11-17, as listed).
             assert_eq!(
                 ran.stdout,
-                "Created agent \"developer\" (engine: claude-code, profiles: dev, runtime: container-rootless)\n"
+                "Created agent \"developer\" (engine: claude-code, profiles: project#profiles/dev, runtime: container-rootless)\n"
             );
         } else {
-            assert_eq!(reports_as(&ran.json(), "name"), "developer");
+            assert!(reports_as(&ran.json(), "agent.name").ends_with("/agents/developer"));
         }
         project.file_contains(CONFIG, "developer");
         let listed = with_flags(&project, &["agent", "list"], flags);
@@ -70,14 +76,20 @@ fn test_creating_a_binding_records_every_axis_and_the_listing_reads_each_one_bac
         if is_text(flags) {
             listed
                 .contains("engine: claude-code")
-                .contains("profiles: dev")
+                .contains("profiles: project#profiles/dev")
                 .contains("runtime: container-rootless");
         } else {
             let doc = listed.json();
-            assert_eq!(reports_as(&doc, "[name=developer].engine"), "claude-code");
-            assert!(contains_value(&doc, "[name=developer].profiles", "dev"));
+            assert!(
+                reports_as(&doc, &format!("{DEVELOPER}.engine")).ends_with("/engines/claude-code")
+            );
+            assert!(names_ending(
+                &doc,
+                &format!("{DEVELOPER}.profiles"),
+                "/bundles/project/profiles/dev"
+            ));
             assert_eq!(
-                reports_as(&doc, "[name=developer].runtime"),
+                reports_as(&doc, &format!("{DEVELOPER}.runtime")),
                 "container-rootless"
             );
         }
@@ -91,7 +103,7 @@ fn test_a_binding_is_written_with_sorted_keys_and_the_rest_of_the_file_is_kept()
     let project = with_dev();
     project.write(
         CONFIG,
-        "# my config\nschema_version: 9\ncompanions:\n  acme:\n    command:\n      - acme-bin\n",
+        "# my config\nschema_version: 9\ncompanions:\n  acme:\n    state: disabled\n",
     );
     project
         .run(&[
@@ -119,7 +131,7 @@ fn test_a_binding_is_written_with_sorted_keys_and_the_rest_of_the_file_is_kept()
     assert_eq!(
         project.read(CONFIG).as_deref(),
         Some(concat!(
-            "# my config\nschema_version: 9\ncompanions:\n  acme:\n    command:\n      - acme-bin\n",
+            "# my config\nschema_version: 9\ncompanions:\n  acme:\n    state: disabled\n",
             "agents:\n",
             "  dev2:\n",
             "    engine: claude-code\n",
@@ -142,10 +154,16 @@ fn test_a_binding_is_written_with_sorted_keys_and_the_rest_of_the_file_is_kept()
             "json",
         ])
         .json();
-    assert_eq!(reports_as(&doc, "name"), "dev3");
-    assert!(contains_value(&doc, "profiles", "dev"));
+    // OD-40: `CreateAgentResponse`, the agent as written.
+    assert!(reports_as(&doc, "agent.name").ends_with("/agents/dev3"));
+    assert!(names_ending(
+        &doc,
+        "agent.profiles",
+        "/bundles/project/profiles/dev"
+    ));
+    assert_eq!(reports_as(&doc, "applied"), "true");
     // Owner ruling 134: an agent has no engine-neutral posture any more.
-    assert_eq!(doc.get("permissions"), None, "{doc}");
+    assert_eq!(doc["agent"].get("permissions"), None, "{doc}");
     let text = project.run(&[
         "agent",
         "edit",
@@ -157,7 +175,7 @@ fn test_a_binding_is_written_with_sorted_keys_and_the_rest_of_the_file_is_kept()
     ]);
     assert_eq!(
         text.stdout,
-        "Updated agent \"dev2\" (engine: claude-code, profiles: dev, dev-base, runtime: host, engines.claude-code: {model: haiku}, env: A, B)\n"
+        "Updated agent \"dev2\" (engine: claude-code, profiles: project#profiles/dev, project#profiles/dev-base, runtime: host, engines.claude-code: {model: haiku}, env: A, B)\n"
     );
 }
 
@@ -191,7 +209,11 @@ fn test_create_refuses_an_existing_name_and_leaves_the_live_binding_untouched() 
         shown.succeeds();
         if !is_text(flags) {
             let doc = shown.json();
-            assert!(contains_value(&doc, "definition.profiles", "dev"));
+            assert!(names_ending(
+                &doc,
+                "profiles",
+                "/bundles/project/profiles/dev"
+            ));
             assert!(!contains_value(&doc, "resolved.profiles", "ops"));
         }
     }
@@ -215,7 +237,7 @@ fn test_edit_refuses_a_name_no_agent_has_and_creates_nothing() {
         if is_text(flags) {
             listed.contains("No agents defined");
         } else {
-            assert_eq!(entries(&listed.json(), "$"), 0);
+            assert_eq!(entries(&listed.json(), "agents"), 0);
         }
     }
 }
@@ -259,24 +281,31 @@ fn test_an_edit_naming_only_runtime_leaves_every_other_axis_intact() {
             ran.contains("Updated agent")
                 .contains("runtime: container-rootless")
                 .contains("engine: claude-code")
-                .contains("profiles: dev, ops")
+                .contains("profiles: project#profiles/dev, project#profiles/ops")
                 .contains("engines.claude-code: {model: haiku}");
         } else {
-            assert_eq!(reports_as(&ran.json(), "name"), "developer");
+            assert!(reports_as(&ran.json(), "agent.name").ends_with("/agents/developer"));
         }
         let listed = project.run(&["agent", "list", "--format", "json"]).json();
         assert_eq!(
-            reports_as(&listed, "[name=developer].runtime"),
+            reports_as(&listed, &format!("{DEVELOPER}.runtime")),
             "container-rootless"
         );
-        assert_eq!(
-            reports_as(&listed, "[name=developer].engine"),
-            "claude-code"
+        assert!(
+            reports_as(&listed, &format!("{DEVELOPER}.engine")).ends_with("/engines/claude-code")
         );
-        assert!(contains_value(&listed, "[name=developer].profiles", "dev"));
-        assert!(contains_value(&listed, "[name=developer].profiles", "ops"));
+        assert!(names_ending(
+            &listed,
+            &format!("{DEVELOPER}.profiles"),
+            "/bundles/project/profiles/dev"
+        ));
+        assert!(names_ending(
+            &listed,
+            &format!("{DEVELOPER}.profiles"),
+            "/bundles/project/profiles/ops"
+        ));
         assert_eq!(
-            reports_as(&listed, "[name=developer].engines.claude-code.model"),
+            reports_as(&listed, &format!("{DEVELOPER}.engines.claude-code.model")),
             "haiku"
         );
     }
@@ -314,7 +343,7 @@ fn test_setting_a_surface_delivery_preference_records_it_in_the_binding() {
         if is_text(flags) {
             ran.contains("Updated agent");
         } else {
-            assert_eq!(reports_as(&ran.json(), "name"), "developer");
+            assert!(reports_as(&ran.json(), "agent.name").ends_with("/agents/developer"));
         }
         project.file_contains(CONFIG, "context: system-prompt");
     }
@@ -499,25 +528,40 @@ fn test_an_edit_passing_an_empty_env_clears_the_names_and_clears_nothing_else_it
         .lacks("ALPHA_TOKEN");
 }
 
-// agent.feature: Scenario: An agent can no longer be given an engine home (it
-// is the engine's session_home, ruling 44(b))
+// agent.feature: Scenario: An agent can no longer be given an engine home
+// (the retired name); its session_home is its own again (owner ruling of
+// 2026-11-13, superseding 44(b) for this key), written by `--session-home`.
 #[test]
-fn test_an_agent_takes_no_engine_home() {
+fn test_an_agent_takes_its_session_home_and_no_engine_home() {
     let project = with_dev();
-    for flag in ["--engine-home", "--session-home"] {
-        project
-            .run(&[
-                "agent",
-                "create",
-                "isolated",
-                flag,
-                "session",
-                "--profiles",
-                "dev",
-            ])
-            .fails()
-            .contains(&format!("unexpected argument '{flag}'"));
-    }
+    project
+        .run(&[
+            "agent",
+            "create",
+            "isolated",
+            "--engine-home",
+            "session",
+            "--profiles",
+            "dev",
+        ])
+        .fails()
+        .contains("unexpected argument '--engine-home'");
+    project
+        .run(&[
+            "agent",
+            "create",
+            "isolated",
+            "--session-home",
+            "session",
+            "--profiles",
+            "dev",
+        ])
+        .succeeds();
+    let shown = project
+        .run(&["agent", "show", "isolated", "--format", "json"])
+        .succeeds()
+        .json();
+    assert_eq!(shown["session_home"], "session", "{shown}");
 }
 
 // agent.feature: Scenario: With nothing bound, the report says so; naming an
@@ -540,9 +584,12 @@ fn test_with_nothing_bound_the_report_says_so_and_naming_an_agent_binds_it() {
         .run(&["agent", "default", "--format", "text"])
         .succeeds()
         .contains("Default agent: developer");
-    // Go's answer, and the format it does not honour yet.
+    // Go's answer, asked for by name (off a terminal the default is json,
+    // smoke 2026-11-19), and the format the bare read does not honour yet.
     assert_eq!(
-        project.run(&["agent", "default", "developer"]).stdout,
+        project
+            .run(&["agent", "default", "developer", "--format", "text"])
+            .stdout,
         "Set default agent to \"developer\".\n"
     );
     project
@@ -583,13 +630,13 @@ fn test_bare_agent_remove_reports_and_destroys_nothing() {
             let doc = ran.json();
             assert_eq!(reports_as(&doc, "applied"), "false");
             assert_eq!(
-                reports_as(&doc, "apply"),
+                reports_as(&doc, "apply_command"),
                 "ctxloom agent remove developer --yes"
             );
         }
         assert_eq!(project.read(CONFIG), before, "a preview wrote the config");
         let listed = project.run(&["agent", "list", "--format", "json"]).json();
-        assert_eq!(reports_as(&listed, "[name=developer].name"), "developer");
+        assert!(reports_as(&listed, &format!("{DEVELOPER}.name")).ends_with("/agents/developer"));
     }
 }
 
@@ -612,14 +659,15 @@ fn test_yes_takes_the_binding_out_of_the_config_it_was_written_to() {
             assert_eq!(ran.stdout, "Removed agent \"developer\"\n");
         } else {
             let doc = ran.json();
-            assert_eq!(reports_as(&doc, "status"), "removed");
-            assert_eq!(reports_as(&doc, "name"), "developer");
+            // OD-40: `DeleteAgentResponse`, applied, naming what went.
+            assert_eq!(reports_as(&doc, "applied"), "true");
+            assert!(reports_as(&doc, "agent.name").ends_with("/agents/developer"));
         }
         project.file_lacks(CONFIG, "developer");
         // Exactly the target.
         project.file_contains(CONFIG, "other:");
         let listed = project.run(&["agent", "list", "--format", "json"]).json();
-        assert_eq!(entries(&listed, "$"), 1);
+        assert_eq!(entries(&listed, "agents"), 1);
     }
     let project = with_dev();
     project
@@ -666,21 +714,23 @@ fn test_the_listing_and_the_write_summary_show_the_engine_blocks_in_the_config_s
     ran.succeeds();
     assert_eq!(
         ran.stdout,
-        "Updated agent \"reviewer\" (engine: claude-code, profiles: dev, engines.claude-code: {model: haiku, permissions: {defaultMode: plan}}, permissions passed to claude-code verbatim; ctxloom does not check it)\n"
+        "Updated agent \"reviewer\" (engine: claude-code, profiles: project#profiles/dev, engines.claude-code: {model: haiku, permissions: {defaultMode: plan}}, permissions passed to claude-code verbatim; ctxloom does not check it)\n"
     );
     project
         .run(&["agent", "list", "--format", "text"])
         .succeeds()
-        .contains("  reviewer (engine: claude-code)\n    profiles: dev\n    engines.claude-code: {model: haiku, permissions: {defaultMode: plan}}\n      permissions passed to claude-code verbatim; ctxloom does not check it\n")
+        // The profile is its short reference (owner ruling 2026-11-17).
+        .contains("  reviewer (engine: claude-code)\n    profiles: project#profiles/dev\n    engines.claude-code: {model: haiku, permissions: {defaultMode: plan}}\n      permissions passed to claude-code verbatim; ctxloom does not check it\n")
         .lacks("claude-code={mode=plan}");
     let listed = project.run(&["agent", "list", "--format", "json"]).json();
+    let reviewer = &listed["agents"][0];
     assert_eq!(
-        listed[0]["engines"],
+        reviewer["engines"],
         serde_json::json!({"claude-code": {"model": "haiku", "permissions": {"defaultMode": "plan"}}})
     );
     // Owner ruling 134: no engine-neutral posture is listed.
-    assert!(listed[0].get("permissions").is_none(), "{listed}");
-    assert!(listed[0].get("model").is_none(), "{listed}");
+    assert!(reviewer.get("permissions").is_none(), "{listed}");
+    assert!(reviewer.get("model").is_none(), "{listed}");
 }
 
 // agent.feature: Scenario: A setting written for an agent that names no
@@ -702,7 +752,7 @@ fn test_a_setting_written_for_an_agent_that_names_no_engine_names_the_block() {
     ran.succeeds();
     assert_eq!(
         ran.stdout,
-        "Created agent \"plain\" (profiles: dev, engines.claude-code: {model: haiku})\n"
+        "Created agent \"plain\" (profiles: project#profiles/dev, engines.claude-code: {model: haiku})\n"
     );
     assert!(
         ran.stderr.contains("agent plain names no engine: its settings were written to agents.plain.engines.claude-code, the default engine's block"),

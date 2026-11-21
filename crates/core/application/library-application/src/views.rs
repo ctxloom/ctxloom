@@ -6,6 +6,9 @@ use std::collections::BTreeMap;
 
 use serde::Serialize;
 
+pub use library::model::Hook;
+pub use library::profile::{FragmentRef, ProfileHooks};
+
 fn no_text(s: &str) -> bool {
     s.is_empty()
 }
@@ -27,7 +30,7 @@ fn is_zero(n: &u64) -> bool {
 }
 
 /// One row of `bundle list`.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Default, Serialize)]
 pub struct BundleRow {
     pub name: String,
     #[serde(rename = "ref")]
@@ -49,15 +52,18 @@ pub struct BundleRow {
     pub mcp_count: u64,
     pub profile_count: u64,
     pub held: bool,
+    /// The commit an installed remote bundle is pinned at; empty for any
+    /// other (its API resource's `commit`, OD-40).
+    #[serde(skip)]
+    pub commit: String,
 }
 
 /// What `bundle list` answers.
 #[derive(Clone, Debug)]
 pub struct BundleList {
     pub rows: Vec<BundleRow>,
-    /// The project has no bundles directory at all.
-    pub no_root: bool,
-    /// The hint for an empty listing.
+    /// The hint for an empty listing (a project with no bundles directory
+    /// is one with no bundles: owner ruling 2026-11-17).
     pub hint: String,
 }
 
@@ -71,6 +77,9 @@ pub struct ShownFragment {
     pub no_distill: bool,
     #[serde(skip_serializing_if = "no_text")]
     pub premise: String,
+    /// Its distilled form no longer matches its source (T30).
+    #[serde(skip)]
+    pub stale: bool,
 }
 
 /// A command as `bundle show` shows it.
@@ -83,6 +92,9 @@ pub struct ShownCommand {
     pub preview: String,
     pub distilled: bool,
     pub no_distill: bool,
+    /// Its distilled form no longer matches its source (T30).
+    #[serde(skip)]
+    pub stale: bool,
 }
 
 /// An MCP server as `bundle show` shows it.
@@ -140,6 +152,34 @@ pub struct BundleShow {
     pub profiles: Vec<String>,
     #[serde(skip_serializing_if = "no_items")]
     pub hooks: Vec<String>,
+    /// The bundle as `bundle list` lists it: its origin, reference and
+    /// counts (its API resource's, OD-40).
+    #[serde(skip)]
+    pub listing: BundleRow,
+}
+
+/// What `bundle view` read, as data (its API resource, OD-40): the
+/// bundle's files, or the one item the path selects.
+#[derive(Clone, Debug, Default)]
+pub enum Viewed {
+    #[default]
+    Nothing,
+    /// The whole bundle: each file, by path, as text.
+    Files(Vec<(String, String)>),
+    /// A fragment or a command (`kind` its directory, `fragments` or
+    /// `commands`): the body served, and whether it is the distilled form.
+    Body {
+        kind: String,
+        name: String,
+        body: String,
+        distilled: bool,
+    },
+    Skill {
+        name: String,
+        skill: ShownSkill,
+    },
+    Mcp(McpRow),
+    Profile(ProfileShow),
 }
 
 /// What `bundle view` answers.
@@ -154,6 +194,9 @@ pub struct BundleView {
     /// Whether the content is one item's (its blank runs collapse in text).
     #[serde(skip)]
     pub item: bool,
+    /// What was read, as data.
+    #[serde(skip)]
+    pub viewed: Viewed,
 }
 
 /// One row of `fragment list` and `command list`.
@@ -185,9 +228,14 @@ pub struct ItemList {
 #[derive(Clone, Debug)]
 pub struct ItemShow {
     pub name: String,
+    /// The bundle the item is in, by its catalog name.
+    pub bundle: String,
     pub reference: String,
     pub content: String,
+    /// The content is the distilled form (asked for, and fresh).
     pub distilled: bool,
+    /// Its distilled form against its source, judged now (T30, S51).
+    pub state: library::distill::DistilledState,
 }
 
 /// One entry of `fragment premises`.
@@ -208,6 +256,10 @@ pub struct Premises {
 #[derive(Clone, Debug, Serialize)]
 pub struct SkillRow {
     pub name: String,
+    /// The name its SKILL.md frontmatter says, which an engine reports the
+    /// skill by (it may differ from its directory, the id in `name`).
+    #[serde(skip)]
+    pub display_name: String,
     #[serde(skip_serializing_if = "no_text")]
     pub description: String,
     #[serde(skip_serializing_if = "no_items")]
@@ -268,6 +320,10 @@ pub struct ProfileRow {
     pub is_remote: bool,
     #[serde(skip_serializing_if = "no_text")]
     pub bundle: String,
+    /// The catalog name of the bundle that ships it (its API resource's
+    /// parent, OD-40).
+    #[serde(skip)]
+    pub entry: String,
 }
 
 /// What `profile list` answers.
@@ -278,7 +334,7 @@ pub struct ProfileList {
 }
 
 /// What `profile show` answers.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Default, Serialize)]
 pub struct ProfileShow {
     pub name: String,
     #[serde(skip_serializing_if = "no_text")]
@@ -295,11 +351,26 @@ pub struct ProfileShow {
     pub exclude_fragments: Vec<String>,
     #[serde(skip_serializing_if = "no_items")]
     pub exclude_mcp: Vec<String>,
+    /// The fragment tags that select content (step 10a U2, owner ruling
+    /// 2026-11-17, as the four below).
+    #[serde(skip_serializing_if = "no_items")]
+    pub select_tags: Vec<String>,
+    /// The fragments it names directly, as written.
+    #[serde(skip)]
+    pub fragments: Vec<FragmentRef>,
+    /// Its hooks, each read as a hook.
+    #[serde(skip)]
+    pub hooks: ProfileHooks,
+    #[serde(skip_serializing_if = "no_items")]
+    pub deny_tools: Vec<String>,
     #[serde(skip_serializing_if = "no_text")]
     pub path: String,
     #[serde(skip_serializing_if = "no_text")]
     pub bundle: String,
     pub default: bool,
+    /// The catalog name of the bundle that ships it (OD-40).
+    #[serde(skip)]
+    pub entry: String,
 }
 
 /// An agent as its binding declares it.
@@ -316,6 +387,10 @@ pub struct AgentRow {
     pub driving: String,
     #[serde(skip_serializing_if = "no_items")]
     pub env: Vec<String>,
+    /// `session` | `host` as the binding says it; empty, unsaid (its engine
+    /// block's then stands; owner ruling of 2026-11-13).
+    #[serde(skip_serializing_if = "no_text")]
+    pub session_home: String,
     /// The agent's per-engine blocks as the config holds them
     /// (`agents.<n>.engines`, owner rulings 57 and 67); absent when none.
     #[serde(skip_serializing_if = "no_blocks")]
@@ -353,8 +428,8 @@ pub struct ResolvedAgent {
     pub name: String,
     pub profiles: Vec<String>,
     pub engine: String,
-    /// Model, effort, permissions, runtime and env, each with the
-    /// layer that said it.
+    /// Model, effort, permissions, runtime, env and session_home, each with
+    /// the layer that said it.
     #[serde(flatten)]
     pub settings: crate::AgentSettings,
     #[serde(skip_serializing_if = "no_text")]
@@ -363,9 +438,6 @@ pub struct ResolvedAgent {
     pub fragments: Vec<String>,
     #[serde(skip_serializing_if = "no_text")]
     pub driving: String,
-    /// The engine block's `session_home`.
-    #[serde(skip_serializing_if = "no_text")]
-    pub session_home: String,
     /// The program the engine block (else the engine's own name) runs.
     #[serde(skip_serializing_if = "no_text")]
     pub command: String,
@@ -408,10 +480,14 @@ pub struct AgentShow {
 #[derive(Clone, Debug, Serialize)]
 pub struct CompanionRow {
     pub name: String,
-    /// The program, then its arguments.
-    pub command: Vec<String>,
-    /// Whether the program is there; it is not run to find out.
+    /// The program its name stands for (OD-10).
+    pub program: String,
+    /// Whether the program is on the `PATH` where it is asked; it is not run
+    /// to find out.
     pub exists: bool,
+    /// Whether it contributes (OD-9).
+    #[serde(skip)]
+    pub state: crate::CompanionState,
 }
 
 /// A registered MCP server.
@@ -464,6 +540,16 @@ pub struct McpShow {
     pub entries: Vec<McpRow>,
 }
 
+/// Where an item is in the catalog (OD-40): its bundle's catalog name
+/// (`demo`; `<remote>/<bundle>` for one installed from a remote;
+/// `ctxloom+companion:<bin>` for a companion's loadout) and the item's own
+/// name, from which a driving adapter names its resource (design §1.2).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Located {
+    pub bundle: String,
+    pub item: String,
+}
+
 /// One result of `search`.
 #[derive(Clone, Debug, Serialize)]
 pub struct SearchHit {
@@ -476,6 +562,9 @@ pub struct SearchHit {
     pub source: String,
     #[serde(skip_serializing_if = "no_text")]
     pub r#match: String,
+    /// Where the hit is; none when its bundle is none the catalog holds.
+    #[serde(skip)]
+    pub located: Option<Located>,
 }
 
 /// One bundle a remote publishes, as a search found it.
@@ -575,6 +664,12 @@ pub struct DryRun {
     /// one's is empty. Not shown by a dry run.
     #[serde(skip)]
     pub surfaces: surface_ports::Inputs,
+    /// The project-only settings this launch reads (its engine's block and
+    /// its agent's, owner Q8) that an untrusted project's own layer said and
+    /// the config held back (step 8 U2, ruling 142): their dotted paths,
+    /// sorted. The run's enqueue is refused on them. Not shown by a dry run.
+    #[serde(skip)]
+    pub untrusted: Vec<String>,
 }
 
 /// What `context assemble` answers (Go's `assemble_context` result).
@@ -587,6 +682,29 @@ pub struct Assembled {
     pub missing_fragments: Vec<String>,
     #[serde(skip_serializing_if = "no_items")]
     pub missing_tags: Vec<String>,
+    /// Where each of `profiles` is, in its order; none for one the catalog
+    /// does not hold (OD-40).
+    #[serde(skip)]
+    pub profiles_located: Vec<Option<Located>>,
+    /// Each of `fragments_loaded`, in its order, located, with the form it
+    /// was used in (OD-40).
+    #[serde(skip)]
+    pub used: Vec<UsedFragment>,
+    /// The context's token estimate.
+    #[serde(skip)]
+    pub tokens: u64,
+    /// What a premise held back, as data (E2): the index the context ends
+    /// with when the assembly rendered it, for a caller that renders it.
+    #[serde(skip)]
+    pub premised: Vec<library::premise::Entry>,
+}
+
+/// A fragment an assembly used: where it is (none when its bundle is none
+/// the catalog holds) and whether its distilled form was used.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct UsedFragment {
+    pub located: Option<Located>,
+    pub distilled: bool,
 }
 
 #[cfg(test)]

@@ -891,3 +891,33 @@ fn test_whole_bundles_are_the_entries_without_an_item_selector_in_order() {
     let whole: Vec<&String> = resolved.whole_bundles().collect();
     assert_eq!(whole, ["b", "a"]);
 }
+
+// step 10a U2 (owner ruling 2026-11-17): a profile's hooks read as hooks,
+// what `profile show` and its message give; an event or an engine with none
+// is left out, and an entry the library cannot read as a hook too (as the
+// package leaves it out)
+#[test]
+fn test_a_profile_s_hooks_read_as_hooks_by_event_and_engine() {
+    let profile = Profile::decode(
+        "hooks:\n  unified:\n    pre_tool:\n      - command: lint\n        type: command\n        args: [--fix]\n        tool: shell\n        timeout: 5\n        order: 2\n        async: true\n      - command: bad\n        tool: nope\n    post_tool: []\n  ext:\n    claude-code:\n      Notification:\n        - command: ping\n          type: command\n    opencode: {}\n",
+    )
+    .unwrap();
+    let read = profile.hooks.read();
+    assert_eq!(read.unified.len(), 1, "{read:?}");
+    let pre = &read.unified["pre_tool"];
+    assert_eq!(pre.len(), 1, "the hook of no tool class is left out");
+    assert_eq!(pre[0].event, "pre_tool");
+    assert_eq!(pre[0].name, "0");
+    assert_eq!(pre[0].command, "lint");
+    assert_eq!(pre[0].kind, "command");
+    assert_eq!(pre[0].args, ["--fix"]);
+    assert_eq!(pre[0].tool, "shell");
+    assert_eq!(pre[0].timeout, 5);
+    assert_eq!(pre[0].order, Some(2));
+    assert!(pre[0].is_async);
+    assert_eq!(read.ext.len(), 1, "an engine with no events is left out");
+    let note = &read.ext["claude-code"]["Notification"];
+    assert_eq!(note[0].command, "ping");
+    assert_eq!(note[0].event, "Notification");
+    assert!(HooksConfig::default().read().unified.is_empty());
+}

@@ -19,6 +19,14 @@
 //!   with a deliberate difference (a mock engine this port registers, a
 //!   clap wording). The lint does not compare it, the comment is the record.
 //! - `# new: <why>`: the scenario is not in Go at all.
+//! - `# changed: <what and why>`: a later spec changed the scenario on
+//!   purpose (step 10's red spec, owner-approved 2026-11-16); the comment is
+//!   the record, and the lint does not compare it.
+//!
+//! A file with no `# Ported from` line holds nothing of Go's: every scenario
+//! in it is `# new:` or `# changed:`, and its Backgrounds (the Feature's or a
+//! Rule's) are its scenarios' own, so they need no marker and nothing in it
+//! is compared.
 //!
 //! The same markers go in the `Background:` block. The lint compares each
 //! unmarked scenario's steps (keyword, text, docstring, table) and its
@@ -209,7 +217,7 @@ fn compare(rust_text: &str, go: &[(String, Vec<Unit>)]) -> Vec<String> {
     };
     for unit in units(&feature) {
         let region = region(rust_text, &feature, &unit);
-        if marker(&region, "new").is_some() {
+        if marker(&region, "new").is_some() || marker(&region, "changed").is_some() {
             continue;
         }
         let kind = if unit.name == "Background" {
@@ -340,6 +348,18 @@ fn pending_findings(text: &str) -> Vec<String> {
     found
 }
 
+/// Whether every scenario of `feature` is marked `# new:` or `# changed:`
+/// (its Backgrounds are its scenarios' own).
+fn all_new(text: &str, feature: &Feature) -> bool {
+    units(feature)
+        .iter()
+        .filter(|u| u.name != "Background")
+        .all(|u| {
+            let region = region(text, feature, u);
+            marker(&region, "new").is_some() || marker(&region, "changed").is_some()
+        })
+}
+
 /// All the findings of one Rust feature file; `go` is the Go checkout, when
 /// there is one.
 fn findings(rel: &str, text: &str, go: Option<&Path>) -> Vec<String> {
@@ -347,13 +367,13 @@ fn findings(rel: &str, text: &str, go: Option<&Path>) -> Vec<String> {
     found.extend(pending_findings(text));
     let sources = ported_from(text);
     let feature = parse(text);
-    let all_new = feature.as_ref().is_ok_and(|f| {
-        units(f)
-            .iter()
-            .all(|u| marker(&region(text, f, u), "new").is_some())
-    });
+    let all_new = feature.as_ref().is_ok_and(|f| all_new(text, f));
     if sources.is_empty() && !all_new {
         found.push("no `# Ported from <path under the Go features>` header line (and not every scenario is `# new:`)".to_string());
+    }
+    if sources.is_empty() && all_new {
+        // Nothing of Go's to compare with.
+        return found.into_iter().map(|f| format!("{rel}: {f}")).collect();
     }
     if let Some(dir) = go {
         let mut units = Vec::new();
@@ -421,6 +441,30 @@ mod lint {
         let rust = GO.replace("| b |", "| c |").replace("a thing", "another");
         let found = compare(&rust, &go());
         assert_eq!(found.len(), 2, "{found:?}");
+    }
+
+    #[test]
+    fn a_changed_comment_excuses_its_scenario_only() {
+        let rust = GO
+            .replace("ctxloom a", "ctxloom z")
+            .replace("| b |", "| c |")
+            .replace(
+                "Scenario: one\n",
+                "Scenario: one\n    # changed: z is a now\n",
+            );
+        let found = compare(&rust, &go());
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].contains("\"two\""));
+    }
+
+    #[test]
+    fn a_file_of_new_and_changed_scenarios_needs_no_marker_on_its_backgrounds() {
+        let rust = "# world: base\n# NOT ported: nothing\nFeature: f\n  Rule: r\n    Background:\n      Given a thing\n\n    Scenario: one\n      # new: one\n      When I run \"ctxloom a\"\n\n    Scenario: two\n      # changed: two\n      When I run \"ctxloom b\"\n";
+        assert_eq!(findings("f.feature", rust, None), Vec::<String>::new());
+        let unmarked = rust.replace("      # changed: two\n", "");
+        let found = findings("f.feature", &unmarked, None);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].contains("no `# Ported from"), "{found:?}");
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! A session's files, through the file-system seam: its directory,
 //! `<project>/.ctxloom/sessions/<harp>/` (the session home and the engine's
-//! native history; no transcript file, owner ruling 87a), and its lock
-//! beside it.
+//! native history; no transcript file, owner ruling 87a), its lock inside
+//! it (`session.lock`, step 10 U9).
 //!
 //! - the native history's last activity is its newest file mtime: not a
 //!   directory's own, not a symlink's (Go: `TranscriptActivity`);
@@ -9,8 +9,10 @@
 //!   ephemeral ones (the engine homes, the locks, the worktrees, the
 //!   scratch): a purge runs no git, so a worktree is untouched by
 //!   construction, not by a filter applied after;
-//! - a removal takes the session's directory whole, and its lock (owner
-//!   ruling 94b), never following a link out of it.
+//! - a removal takes the session's directory whole, its lock inside it
+//!   (owner ruling 94b), into the checkout's trash (step 10b O2, the
+//!   daemon's atomic operation); here it is only measured, never following
+//!   a link out of it.
 
 mod error;
 
@@ -62,12 +64,10 @@ impl SessionDirs {
         self.project.join(".ctxloom").join("sessions").join(harp)
     }
 
-    /// `<project>/.ctxloom/sessions/<harp>.lock`, beside the directory.
+    /// `<project>/.ctxloom/sessions/<harp>/session.lock`, inside the
+    /// directory ([`session_ports::lock_path`]).
     pub fn lock_path(&self, harp: &str) -> PathBuf {
-        self.project
-            .join(".ctxloom")
-            .join("sessions")
-            .join(format!("{harp}.lock"))
+        session_ports::lock_path(&self.dir(harp))
     }
 }
 
@@ -119,7 +119,7 @@ impl SessionDirs {
             match entry.kind {
                 Kind::Dir if top_level && EPHEMERAL.contains(&rel.as_str()) => {}
                 Kind::Dir => self.files_under(&path, root, found)?,
-                Kind::File if top_level && rel == SIDECAR => {}
+                Kind::File if top_level && (rel == SIDECAR || rel == session_ports::LOCK_FILE) => {}
                 Kind::File => {
                     let bytes = self
                         .fs
@@ -156,24 +156,10 @@ impl SessionFiles for SessionDirs {
         Ok(found)
     }
 
-    fn destroy_session(&mut self, harp: &str) -> Result<u64, Report> {
-        let root = self.dir(harp);
+    fn size(&mut self, harp: &str) -> Result<u64, Report> {
         let mut found = Vec::new();
-        let mut freed = 0;
-        if self.fs.symlink_metadata(&root).is_ok() {
-            self.every_file(&root, &mut found);
-            freed = found.iter().sum();
-            self.fs
-                .remove_dir_all(&root)
-                .map_err(|e| Report::of(&FilesError::io("remove", &root, &e)))?;
-        }
-        let lock = self.lock_path(harp);
-        match self.fs.remove_file(&lock) {
-            Ok(()) => {}
-            Err(e) if e.kind() == ErrorKind::NotFound => {}
-            Err(e) => return Err(Report::of(&FilesError::io("remove", &lock, &e))),
-        }
-        Ok(freed)
+        self.every_file(&self.dir(harp), &mut found);
+        Ok(found.iter().sum())
     }
 }
 
@@ -214,20 +200,16 @@ impl SessionRecords for SessionDirs {
     }
 
     fn write(&mut self, harp: &str, rel: &str, bytes: &[u8]) -> Result<(), RecordsError> {
-        let path = self.record_path(harp, rel)?;
-        let io = |e: std::io::Error| RecordsError::Io {
-            harp: harp.to_string(),
-            rel: rel.to_string(),
-            ext_err_txt: e.to_string(),
-        };
-        if let Some(parent) = path.parent() {
-            self.fs
-                .create_dir_all(parent, Mode::from_bits(0o755))
-                .map_err(io)?;
-        }
-        self.fs
-            .write_atomic(&path, bytes, Perms::Exact(Mode::from_bits(0o600)))
-            .map_err(io)
+        self.write_mode(harp, rel, bytes, 0o600)
+    }
+
+    fn write_executable(
+        &mut self,
+        harp: &str,
+        rel: &str,
+        bytes: &[u8],
+    ) -> Result<(), RecordsError> {
+        self.write_mode(harp, rel, bytes, 0o700)
     }
 
     fn append(&mut self, harp: &str, rel: &str, bytes: &[u8]) -> Result<(), RecordsError> {
@@ -264,6 +246,32 @@ impl SessionRecords for SessionDirs {
 }
 
 impl SessionDirs {
+    /// Make `rel` of `harp` hold `bytes` with exactly `mode` (its owner's
+    /// alone: 0600, or 0700 for a file the engine runs), the directories
+    /// above it made.
+    fn write_mode(
+        &self,
+        harp: &str,
+        rel: &str,
+        bytes: &[u8],
+        mode: u32,
+    ) -> Result<(), RecordsError> {
+        let path = self.record_path(harp, rel)?;
+        let io = |e: std::io::Error| RecordsError::Io {
+            harp: harp.to_string(),
+            rel: rel.to_string(),
+            ext_err_txt: e.to_string(),
+        };
+        if let Some(parent) = path.parent() {
+            self.fs
+                .create_dir_all(parent, Mode::from_bits(0o755))
+                .map_err(io)?;
+        }
+        self.fs
+            .write_atomic(&path, bytes, Perms::Exact(Mode::from_bits(mode)))
+            .map_err(io)
+    }
+
     /// `rel` under `harp`'s directory, both checked: neither may leave it.
     fn record_path(&self, harp: &str, rel: &str) -> Result<PathBuf, RecordsError> {
         check_rel(harp)?;

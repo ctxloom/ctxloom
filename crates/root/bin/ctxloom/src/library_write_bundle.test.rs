@@ -86,9 +86,13 @@ fn test_creating_a_bundle_answers_in_json_and_in_text() {
                 format!("Created bundle: {manifest}\nEdit its item files to add your fragments and prompts.\n")
             );
         } else {
+            // OD-40: `CreateBundleResponse`.
             let doc = ran.json();
-            assert_eq!(reports_as(&doc, "status"), "created");
-            assert_eq!(reports_as(&doc, "name"), "demo");
+            assert_eq!(reports_as(&doc, "applied"), "true");
+            assert!(
+                reports_as(&doc, "bundle.name").ends_with("/bundles/demo"),
+                "{doc}"
+            );
             assert_eq!(reports_as(&doc, "path"), manifest);
         }
     }
@@ -114,14 +118,18 @@ fn test_creating_a_bundle_that_exists_is_refused_and_leaves_it_alone() {
     );
 }
 
-// operations.CreateBundle (documented condition): a slash separated name
-// lands in a nested directory; a name that climbs out is refused and writes
-// nothing.
+// operations.CreateBundle (documented condition): Go put a slash separated
+// name in a nested directory; OQ-5 refuses a nested local name (a hard
+// migrate), and OQ-6 holds a created name to the ID grammar. A name that
+// climbs out is refused and writes nothing, as before.
 #[test]
-fn test_a_bundle_name_may_be_nested_but_never_climbs_out() {
+fn test_a_bundle_name_is_never_nested_and_never_climbs_out() {
     let project = Project::initialized().on_gos_catalog();
-    project.run(&["bundle", "create", "team/rules"]).succeeds();
-    assert!(project.exists(".ctxloom/content/bundles/v2/team/rules/bundle.yaml"));
+    project
+        .run(&["bundle", "create", "team/rules"])
+        .fails()
+        .contains("is not an ID");
+    assert!(!project.exists(".ctxloom/content/bundles/v2/team/rules/bundle.yaml"));
     for bad in ["../evil", "/abs", "a/../b"] {
         let ran = project.run(&["bundle", "create", bad]);
         ran.fails().contains("invalid bundle name");
@@ -134,21 +142,17 @@ fn test_a_bundle_name_may_be_nested_but_never_climbs_out() {
 
 // bundle.feature: Scenario Outline: The listing summarizes each bundle by
 // version and by what it holds (the edit half: version and fragment count
-// after the edit)
+// after the edit). One edit per file (the approved spec's OneChangePerCall,
+// coordinator 2026-11-18): the version, then the fragment.
 #[test]
 fn test_the_listing_follows_an_edit_by_version_and_by_what_it_holds() {
     for flags in FORMATS {
         let project = demo();
         project
-            .run(&[
-                "bundle",
-                "edit",
-                "demo",
-                "--version",
-                "2.0.0",
-                "--add-fragment",
-                "testing",
-            ])
+            .run(&["bundle", "edit", "demo", "--version", "2.0.0"])
+            .succeeds();
+        project
+            .run(&["bundle", "edit", "demo", "--add-fragment", "testing"])
             .succeeds();
         let ran = with_flags(&project, &["bundle", "list"], flags);
         ran.succeeds();
@@ -157,8 +161,14 @@ fn test_the_listing_follows_an_edit_by_version_and_by_what_it_holds() {
                 .contains("Contains: 2 fragments");
         } else {
             let doc = ran.json();
-            assert_eq!(reports_as(&doc, "[name=demo].version"), "2.0.0");
-            assert_eq!(reports_as(&doc, "[name=demo].fragment_count"), "2");
+            assert_eq!(
+                reports_as(&doc, "bundles[name$=/bundles/demo].version"),
+                "2.0.0"
+            );
+            assert_eq!(
+                reports_as(&doc, "bundles[name$=/bundles/demo].fragment_count"),
+                "2"
+            );
         }
     }
 }
@@ -172,7 +182,7 @@ fn test_an_attached_mcp_server_is_reached_by_the_selector() {
         .run(&["bundle", "edit", "demo", "--add-mcp", "tree-sitter"])
         .succeeds();
     project
-        .run(&["bundle", "view", "demo#mcp/tree-sitter"])
+        .run(&["bundle", "view", "demo#mcp/tree-sitter", "--format", "text"])
         .succeeds()
         .contains("# MCP Server: tree-sitter")
         .contains("command: tree-sitter");
@@ -192,25 +202,20 @@ fn test_metadata_edits_land_in_the_file() {
 }
 
 // bundle.feature: Scenario: Items are attached and detached by name, and the
-// manifest follows
+// manifest follows, one per call (T29: each item is its own file)
 #[test]
 fn test_items_are_attached_and_detached_by_name_and_the_manifest_follows() {
     let project = demo();
-    project
-        .run(&[
-            "bundle",
-            "edit",
-            "demo",
-            "--add-fragment",
-            "coding-standards",
-            "--add-prompt",
-            "review",
-            "--add-mcp",
-            "tree-sitter",
-            "--add-tag",
-            "golang",
-        ])
-        .succeeds();
+    for (flag, name) in [
+        ("--add-fragment", "coding-standards"),
+        ("--add-prompt", "review"),
+        ("--add-mcp", "tree-sitter"),
+        ("--add-tag", "golang"),
+    ] {
+        project
+            .run(&["bundle", "edit", "demo", flag, name])
+            .succeeds();
+    }
     project
         .file_contains(
             &format!("{DEMO}/fragments/coding-standards.md"),
@@ -240,19 +245,15 @@ fn test_items_are_attached_and_detached_by_name_and_the_manifest_follows() {
             .as_deref(),
         Some("---\ndescription: review\n---\nAdd prompt content here.")
     );
-    project
-        .run(&[
-            "bundle",
-            "edit",
-            "demo",
-            "--remove-fragment",
-            "coding-standards",
-            "--remove-mcp",
-            "tree-sitter",
-            "--remove-tag",
-            "golang",
-        ])
-        .succeeds();
+    for (flag, name) in [
+        ("--remove-fragment", "coding-standards"),
+        ("--remove-mcp", "tree-sitter"),
+        ("--remove-tag", "golang"),
+    ] {
+        project
+            .run(&["bundle", "edit", "demo", flag, name])
+            .succeeds();
+    }
     project
         .file_is_absent(&format!("{DEMO}/fragments/coding-standards.md"))
         .file_is_absent(&format!("{DEMO}/mcp/tree-sitter.yaml"))
@@ -266,6 +267,8 @@ fn test_items_are_attached_and_detached_by_name_and_the_manifest_follows() {
 
 // operations.UpdateBundle (documented condition): what an edit did is named,
 // in order, in both formats; an add of a name already there is not a change.
+// Several fields of the one manifest are one edit (owner ruling 2026-11-18);
+// an item is a file of its own, so its own edit (T29).
 #[test]
 fn test_an_edit_names_what_it_changed() {
     let project = demo();
@@ -277,12 +280,6 @@ fn test_an_edit_names_what_it_changed() {
         "2.0.0",
         "--add-tag",
         "golang",
-        "--add-fragment",
-        "testing",
-        "--add-prompt",
-        "review",
-        "--add-mcp",
-        "tree-sitter",
         "--format",
         "text",
     ]);
@@ -290,11 +287,17 @@ fn test_an_edit_names_what_it_changed() {
     let manifest = project.shown(&format!("{DEMO}/bundle.yaml"));
     assert_eq!(
         ran.stdout,
-        format!(
-            "updated version\nadded tag: golang\nset fragment: testing\nset prompt: review\nset mcp: tree-sitter\nUpdated bundle: {}\n",
-            manifest
-        )
+        format!("updated version\nadded tag: golang\nUpdated bundle: {manifest}\n")
     );
+    for (flag, name, said) in [
+        ("--add-fragment", "testing", "set fragment: testing"),
+        ("--add-prompt", "review", "set prompt: review"),
+        ("--add-mcp", "tree-sitter", "set mcp: tree-sitter"),
+    ] {
+        let ran = project.run(&["bundle", "edit", "demo", flag, name, "--format", "text"]);
+        ran.succeeds();
+        assert_eq!(ran.stdout, format!("{said}\nUpdated bundle: {manifest}\n"));
+    }
     let again = project.run(&[
         "bundle",
         "edit",
@@ -305,22 +308,19 @@ fn test_an_edit_names_what_it_changed() {
         "json",
     ]);
     again.succeeds();
-    assert_eq!(reports_as(&again.json(), "status"), "no_changes");
-    let removed = project.run(&[
-        "bundle",
-        "edit",
-        "demo",
-        "--remove-fragment",
-        "testing",
-        "--remove-tag",
-        "golang",
-        "--format",
-        "json",
-    ]);
-    let doc = removed.json();
-    assert_eq!(reports_as(&doc, "status"), "updated");
-    assert_eq!(reports_as(&doc, "changes.0"), "removed tag: golang");
-    assert_eq!(reports_as(&doc, "changes.1"), "removed fragment: testing");
+    // OD-40: `UpdateBundleResponse`, nothing applied and no change listed.
+    assert_eq!(reports_as(&again.json(), "applied"), "false");
+    assert_eq!(entries(&again.json(), "changes"), 0);
+    for (flag, name, said) in [
+        ("--remove-tag", "golang", "removed tag: golang"),
+        ("--remove-fragment", "testing", "removed fragment: testing"),
+    ] {
+        let removed = project.run(&["bundle", "edit", "demo", flag, name, "--format", "json"]);
+        let doc = removed.json();
+        assert_eq!(reports_as(&doc, "applied"), "true");
+        assert_eq!(reports_as(&doc, "changes.0"), said);
+        assert_eq!(entries(&doc, "changes"), 1);
+    }
 }
 
 // bundle.feature: Scenario Outline: An edit that was told to change nothing
@@ -335,7 +335,8 @@ fn test_an_edit_that_was_told_to_change_nothing_says_so() {
         if is_text(flags) {
             ran.contains("No changes made.");
         } else {
-            assert_eq!(reports_as(&ran.json(), "status"), "no_changes");
+            assert_eq!(reports_as(&ran.json(), "applied"), "false");
+            assert_eq!(entries(&ran.json(), "changes"), 0);
         }
         project.file_contains(&format!("{DEMO}/bundle.yaml"), "acceptance fixture bundle");
         assert_eq!(project.tree(DEMO), before, "a no-op edit wrote something");
@@ -357,7 +358,8 @@ fn test_an_edit_restating_what_is_there_changes_nothing_and_a_missing_bundle_is_
         all.extend(args);
         let ran = project.run(&all);
         ran.succeeds();
-        assert_eq!(reports_as(&ran.json(), "status"), "no_changes", "{all:?}");
+        assert_eq!(reports_as(&ran.json(), "applied"), "false", "{all:?}");
+        assert_eq!(entries(&ran.json(), "changes"), 0, "{all:?}");
     }
     assert_eq!(project.tree(DEMO), before);
     project
@@ -411,17 +413,21 @@ fn test_export_can_name_the_destination_outright() {
 }
 
 // operations.ExportBundle / ImportBundle (documented conditions): the answer
-// in each format, the whole tree travels (items, sidecars and dotfiles
-// alike), and an export names a destination or is refused.
+// in each format, the whole tree travels (items, a skill's metadata and
+// dotfiles alike), and an export names a destination or is refused.
 #[test]
 fn test_export_and_import_answer_and_carry_the_whole_tree() {
     for flags in FORMATS {
         let project = demo();
-        project.write(&format!("{DEMO}/mcp/.search.meta.yaml"), "notes: N\n");
         project.write(
             &format!("{DEMO}/mcp/search.yaml"),
-            "url: https://x.example\n",
+            "url: https://x.example\nnotes: N\n",
         );
+        project.write(
+            &format!("{DEMO}/skills/s/SKILL.md"),
+            "---\nname: s\ndescription: d\n---\n",
+        );
+        project.write(&format!("{DEMO}/skills/s/.meta.yaml"), "tags: [t]\n");
         let exported = with_flags(&project, &["bundle", "export", "demo", "out"], flags);
         exported.succeeds();
         let manifest = project.shown(&format!("{DEMO}/bundle.yaml"));
@@ -431,11 +437,15 @@ fn test_export_and_import_answer_and_carry_the_whole_tree() {
                 format!("Exported: {} -> out/demo\n", manifest)
             );
         } else {
+            // OD-40: `ExportBundleResponse`.
             let doc = exported.json();
-            assert_eq!(reports_as(&doc, "status"), "exported");
-            assert_eq!(reports_as(&doc, "name"), "demo");
+            assert_eq!(reports_as(&doc, "applied"), "true");
+            assert!(
+                reports_as(&doc, "bundle").ends_with("/bundles/demo"),
+                "{doc}"
+            );
             assert_eq!(reports_as(&doc, "source"), manifest);
-            assert_eq!(reports_as(&doc, "dest"), "out/demo");
+            assert_eq!(reports_as(&doc, "destination"), "out/demo");
         }
         assert_eq!(project.tree("out/demo"), project.tree(DEMO));
         project
@@ -452,13 +462,18 @@ fn test_export_and_import_answer_and_carry_the_whole_tree() {
                 )
             );
         } else {
+            // OD-40: `ImportBundleResponse`, the bundle with its counts.
             let doc = imported.json();
-            assert_eq!(reports_as(&doc, "status"), "imported");
-            assert_eq!(reports_as(&doc, "source"), "out/demo");
-            assert_eq!(reports_as(&doc, "version"), "1.0.0");
-            assert_eq!(reports_as(&doc, "fragments"), "1");
-            assert_eq!(reports_as(&doc, "commands"), "1");
-            assert_eq!(reports_as(&doc, "mcp"), "1");
+            assert_eq!(reports_as(&doc, "applied"), "true");
+            assert!(
+                reports_as(&doc, "bundle.name").ends_with("/bundles/demo"),
+                "{doc}"
+            );
+            assert_eq!(reports_as(&doc, "path"), project.shown(DEMO));
+            assert_eq!(reports_as(&doc, "bundle.version"), "1.0.0");
+            assert_eq!(reports_as(&doc, "bundle.fragment_count"), "1");
+            assert_eq!(reports_as(&doc, "bundle.command_count"), "1");
+            assert_eq!(reports_as(&doc, "bundle.mcp_server_count"), "1");
         }
         assert_eq!(project.tree(DEMO), project.tree("out/demo"));
     }
@@ -550,13 +565,16 @@ fn test_bare_bundle_remove_reports_what_would_go_and_destroys_nothing() {
                 "Would remove bundle \"demo\":\n  2 fragment(s), 1 command(s)\n\nNothing was removed. Re-run with --yes to apply:\n  ctxloom bundle remove demo --yes\n"
             );
         } else {
+            // OD-40: `DeleteBundleResponse`, the preview's.
             let doc = ran.json();
-            assert_eq!(reports_as(&doc, "status"), "preview");
             assert_eq!(reports_as(&doc, "applied"), "false");
-            assert_eq!(reports_as(&doc, "target"), "bundle \"demo\"");
+            assert!(
+                reports_as(&doc, "bundle.name").ends_with("/bundles/demo"),
+                "{doc}"
+            );
             assert_eq!(reports_as(&doc, "detail.0"), "2 fragment(s), 1 command(s)");
             assert_eq!(
-                reports_as(&doc, "apply"),
+                reports_as(&doc, "apply_command"),
                 "ctxloom bundle remove demo --yes"
             );
         }
@@ -568,7 +586,10 @@ fn test_bare_bundle_remove_reports_what_would_go_and_destroys_nothing() {
         );
         let listed = with_flags(&project, &["bundle", "list"], flags);
         if !is_text(flags) {
-            assert_eq!(reports_as(&listed.json(), "[name=demo].name"), "demo");
+            assert!(
+                reports_as(&listed.json(), "bundles[name$=/bundles/demo].name")
+                    .ends_with("/bundles/demo")
+            );
         }
     }
 }
@@ -590,8 +611,11 @@ fn test_removing_a_bundle_with_yes_takes_the_file_and_the_listing_entry() {
             assert_eq!(ran.stdout, format!("Removed bundle: {}\n", manifest));
         } else {
             let doc = ran.json();
-            assert_eq!(reports_as(&doc, "status"), "deleted");
-            assert_eq!(reports_as(&doc, "name"), "demo");
+            assert_eq!(reports_as(&doc, "applied"), "true");
+            assert!(
+                reports_as(&doc, "bundle.name").ends_with("/bundles/demo"),
+                "{doc}"
+            );
             assert_eq!(reports_as(&doc, "path"), manifest);
         }
         // Exactly the target: the whole bundle's tree, items included (Go
@@ -603,8 +627,11 @@ fn test_removing_a_bundle_with_yes_takes_the_file_and_the_listing_entry() {
             listed.lacks("demo (v");
         } else {
             let doc = listed.json();
-            assert_eq!(entries(&doc, "$"), 1);
-            assert_eq!(reports_as(&doc, "[name=keep].name"), "keep");
+            assert_eq!(entries(&doc, "bundles"), 1);
+            assert!(
+                reports_as(&doc, "bundles.0.name").ends_with("/bundles/keep"),
+                "{doc}"
+            );
         }
     }
     let project = Project::initialized().on_gos_catalog();
@@ -616,6 +643,24 @@ fn test_removing_a_bundle_with_yes_takes_the_file_and_the_listing_entry() {
         .run(&["bundle", "remove", "nosuch"])
         .fails()
         .contains("bundle not found: nosuch");
+}
+
+// Step 10b texts.md §3 (G12): a removal applied into the trash says where
+// what it took is kept, and for how long; a preview says nothing of it.
+#[test]
+fn test_a_removal_into_the_trash_says_where_it_is_kept() {
+    let project = demo();
+    let previewed = project.run(&["bundle", "remove", "demo", "--format", "text"]);
+    previewed.lacks("is kept in");
+    let ran = project.run(&["bundle", "remove", "demo", "--yes", "--format", "text"]);
+    ran.succeeds();
+    assert!(
+        ran.stderr
+            .contains(".ctxloom/content/bundles/v2/demo is kept in .ctxloom/state/trash/")
+            && ran.stderr.contains("for 7 days"),
+        "{}",
+        ran.stderr
+    );
 }
 
 // bundle.feature: Scenario Outline: The rm alias previews and destroys

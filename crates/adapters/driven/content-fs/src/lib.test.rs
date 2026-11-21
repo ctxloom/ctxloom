@@ -319,7 +319,11 @@ fn test_the_errors_carry_their_args_and_their_samples_are_all_of_them() {
             "content-fs-bad-path",
             "content-fs-write-file",
             "content-fs-remove-path",
-            "content-fs-make-dir"
+            "content-fs-make-dir",
+            "content-fs-rename",
+            "content-fs-sync-dir",
+            "content-fs-bad-request",
+            "content-fs-state-link"
         ]
     );
 }
@@ -755,14 +759,25 @@ fn test_a_tree_that_is_not_there_cannot_be_read() {
     );
 }
 
+// Step 10b (D2: an export outside the trees is staged, then renamed in
+// NOREPLACE): the tree is put in whole or not at all, never over what is
+// there, and nothing staged is left beside it either way.
 #[test]
-fn test_write_tree_replaces_what_is_there_file_by_file() {
-    let (_fs, user) = user();
-    user.write_tree("t", &[Put::file("a", "1"), Put::file("b", "2")])
+fn test_write_tree_puts_the_tree_in_whole_and_never_over_what_is_there() {
+    let (fs, user) = user();
+    user.write_tree("out/t", &[Put::file("a", "1"), Put::file("b/c", "2")])
         .unwrap();
-    user.write_tree("t", &[Put::file("a", "new")]).unwrap();
-    assert_eq!(user.read_file("t/a").unwrap(), b"new");
-    assert_eq!(user.read_file("t/b").unwrap(), b"2");
+    assert_eq!(user.read_file("out/t/b/c").unwrap(), b"2");
+    let refused = user.write_tree("out/t", &[Put::file("a", "new")]);
+    assert!(refused.is_err(), "never over what is there");
+    assert_eq!(user.read_file("out/t/a").unwrap(), b"1");
+    let left: Vec<String> = fs
+        .read_dir(Path::new("/work/out"))
+        .unwrap()
+        .into_iter()
+        .map(|entry| entry.name.to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(left, ["t"], "nothing staged is left beside it");
 }
 
 // A path that cannot be looked at is an error, not an absence.

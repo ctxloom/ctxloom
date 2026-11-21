@@ -319,9 +319,10 @@ fn test_remove_of_an_item_nobody_has_is_refused_with_and_without_yes() {
     assert_eq!(mem.writes(), 0);
 }
 
-// command.feature: Editing with --no-distill warns instead of leaving a stale distillation unmentioned
+// command.feature: Editing with --no-distill warns instead of leaving a stale
+// distillation unmentioned; the edit writes the `.md` alone (owner T29, T30)
 #[test]
-fn test_edit_with_no_distill_saves_the_body_and_drops_the_stale_distillation() {
+fn test_edit_with_no_distill_saves_the_body_and_leaves_the_distilled_form_as_it_was() {
     let (library, mem) = world();
     let done = library
         .item_edit(&plain(), Kind::Command, "demo#commands/review", true)
@@ -346,7 +347,11 @@ fn test_edit_with_no_distill_saves_the_body_and_drops_the_stale_distillation() {
         mem.text("demo", "prompts/review.md").unwrap(),
         "---\ndescription: Review\n---\nCOMMAND-BODY-review\nEDITED-BY-TEST\n"
     );
-    assert_eq!(mem.text("demo", "prompts/review.distilled.md"), None);
+    assert_eq!(
+        mem.text("demo", "prompts/review.distilled.md").as_deref(),
+        Some("CMD-DISTILLED"),
+        "the edit writes the .md alone"
+    );
     assert_eq!(
         mem.edits(),
         [("review.md".to_string(), "COMMAND-BODY-review".to_string())]
@@ -372,22 +377,42 @@ fn test_the_editor_is_given_the_body_and_the_front_matter_stays_minus_the_hash()
     );
 }
 
-// editing.feature: Editing a fragment lands the change (the distillation backend cannot start)
+// editing.feature: an edit writes the `.md` only, and its distilled form
+// reads stale by its digest (owner T29, T30)
 #[test]
-fn test_an_edit_that_would_be_distilled_is_saved_raw_and_says_so() {
+fn test_an_edit_writes_the_md_alone_and_its_distilled_form_reads_stale() {
     let (library, mem) = world();
-    let said = err(library.item_edit(&plain(), Kind::Fragment, "demo#fragments/testing", false));
-    assert!(said.contains("DistillUnavailable"), "{said}");
+    let fresh = library::distill::distilled_file(
+        &library::distill::source_digest(b"FRAGMENT-BODY-testing"),
+        "DISTILLED",
+    );
+    mem.put("demo", "fragments/testing.distilled.md", &fresh);
+    let shown = |library: &Library| {
+        library
+            .item_show(&plain(), Kind::Fragment, "demo#fragments/testing", false)
+            .result
+            .unwrap()
+            .state
+    };
+    assert_eq!(shown(&library), library::distill::DistilledState::Fresh);
+    let done = library
+        .item_edit(&plain(), Kind::Fragment, "demo#fragments/testing", false)
+        .result
+        .unwrap();
+    assert_eq!(done.status, "updated");
+    assert!(!done.distilled);
+    assert!(!done.distill_skipped);
     assert_eq!(
         mem.text("demo", "fragments/testing.md").unwrap(),
         "FRAGMENT-BODY-testing\nEDITED-BY-TEST\n",
-        "the content is saved RAW"
     );
     assert_eq!(
-        mem.text("demo", "fragments/testing.distilled.md"),
-        None,
-        "never stale"
+        mem.text("demo", "fragments/testing.distilled.md")
+            .as_deref(),
+        Some(fresh.as_str()),
+        "the distilled form is left as it was"
     );
+    assert_eq!(shown(&library), library::distill::DistilledState::Stale);
 }
 
 // editing: nothing to change says so
@@ -468,4 +493,52 @@ fn test_create_by_reference_into_an_unreadable_bundle_is_refused_and_writes_noth
     assert!(mem.edits().is_empty(), "{:?}", mem.edits());
     assert_eq!(mem.writes(), 0);
     assert_eq!(mem.text("broken", "bundle.yaml").as_deref(), Some(""));
+}
+
+// OQ-6 (design §1.3): a created item's name is an ID,
+// `^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$`; one that breaks it is refused, in
+// either form, and nothing is written.
+#[test]
+fn test_create_refuses_a_name_that_is_no_id_and_writes_nothing() {
+    let (library, mem) = world();
+    for bad in [
+        "Upper",
+        "under_score",
+        "dot.ted",
+        "two words",
+        "9lead",
+        "trail-",
+        "a-very-long-name-that-runs-past-sixty-three-characters-xxxxxxxxxx",
+    ] {
+        let got = err(library.item_create(&plain(), Kind::Fragment, "demo", bad));
+        assert!(got.contains("BadId"), "{bad:?}: {got}");
+        let got =
+            err(library.item_create_at(&plain(), Kind::Command, &format!("demo#commands/{bad}")));
+        assert!(got.contains("BadId"), "{bad:?}: {got}");
+    }
+    assert!(mem.edits().is_empty(), "{:?}", mem.edits());
+    assert_eq!(mem.writes(), 0);
+    for good in [
+        "a",
+        "x9",
+        "house-rules",
+        "a-very-long-name-that-runs-to-sixty-three-characters-exactly-xx",
+    ] {
+        library
+            .item_create(&plain(), Kind::Fragment, "demo", good)
+            .result
+            .unwrap();
+    }
+}
+
+// OQ-5, OQ-6: a bundle the reference form makes is an ID too, never nested.
+#[test]
+fn test_create_by_reference_refuses_a_bundle_that_is_no_id_or_nested() {
+    let (library, mem) = world();
+    for bundle in ["Team", "team_rules", "team/rules"] {
+        let got =
+            err(library.item_create_at(&plain(), Kind::Fragment, &format!("{bundle}#fragments/x")));
+        assert!(got.contains("BadId"), "{bundle:?}: {got}");
+    }
+    assert_eq!(mem.writes(), 0);
 }

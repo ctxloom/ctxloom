@@ -42,6 +42,20 @@ library-bundle-inline-and-items = bundles: bundle.yaml of tree bundle "{ $bundle
 library-bundle-item = bundles: { $item } in tree bundle "{ $bundle }": { $detail }
 library-bundle-unclaimed = content: bundle "{ $bundle }" has a file that no surface type recognises: { $path }
 library-bundle-unexplained-meta = content: { $kind } item { $item } carries the metadata file { $path }, but { $kind } items keep no separate metadata file (the .<name>.meta.yaml name is reserved for ctxloom metadata, so the file is refused rather than silently ignored; remove or rename it)
+library-sidecar-old-layout = { $bundle } keeps its { $kind } metadata at { $old }, where ctxloom no longer reads it: it belongs { $kind ->
+    [skill] inside the skill's own directory
+   *[mcp] in the server's own file
+  }{ $installed ->
+    [1] , at { $new }; the bundle is installed from { $remote }
+   *[other] { "" }
+  }
+library-sidecar-old-layout-fix = { $installed ->
+    [1] migrate the bundle in { $remote }, the repository it is installed from (ctxloom never moves an installed copy), then ctxloom deps upgrade { $bundle }
+   *[other] { $kind ->
+        [skill] git mv { $old } { $new }
+       *[mcp] git mv { $old } { $new } would replace the server's file, so copy the fields of { $old } into { $new }, then git rm { $old }
+    }
+  }
 library-bundle-hook-matcher = content: hook { $hook }: matcher "{ $matcher }" names an engine's own tools; narrow the hook with `tool:` (one of shell, file_edit, skill) instead
 library-bundle-skill-empty = bundles: skill "{ $skill }" in tree bundle "{ $bundle }": the package has NO files; refusing to read it as an empty skill (an empty skill materializes without complaint and delivers nothing)
 

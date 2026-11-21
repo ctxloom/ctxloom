@@ -1,0 +1,365 @@
+syntax = "proto3";
+
+// DRAFT for the owner's review (rulings 132, 142), compiled since step 8 U4
+// (approvals-proto, and the approvals domain's markup).
+//
+// APPROVALS: the permission ask of a session the daemon runs (a child or a
+// one-shot), routed to the HUMAN (S25: no agent answers), answered once,
+// withdrawn when its engine cancels it, or denied when its time runs out
+// (S26, D11, D12). An angzarr aggregate, one stream per ask, in the one
+// per-user store (T14). Asks are expected to be rare: an agent's engine
+// permissions (rulings 133-137) let routine work run without asking.
+//
+// An ask happens only where the engine's OWN permissions document says to
+// ask; ctxloom decides none of it. Where the ask is heard depends on the
+// engine:
+//
+//   claude-code, a hosted child or one-shot (stream-json `-p`): launched with
+//     `--permission-prompt-tool mcp__ctxloom__approval_prompt` (S27, D7), a
+//     tool of `ctxloom mcp serve`. Verified on claude 2.1.322 (P0):
+//     - the tool's input is `{tool_name, input, tool_use_id}`;
+//     - its answer is the JSON text `{"behavior":"allow"[, "updatedInput"]
+//       [, "updatedPermissions"]}` or `{"behavior":"deny","message"}`;
+//     - a malformed answer fails closed;
+//     - a 310 s wait survives;
+//     - an interrupt sends `notifications/cancelled`.
+//     ctxloom BUILDS claude's options (owner, after P0, and Q5), from the
+//     rule the ask implies:
+//     - Bash: `Bash(<command>)`;
+//     - a path tool (Read, Write, Edit, MultiEdit, NotebookEdit; its input's
+//       `file_path` or `notebook_path`): `<Tool>(<path>)`;
+//     - both offer `allow-once`, `allow-session`, `allow-always`, `deny`;
+//     - any other tool has no rule, and offers `allow-once` and `deny` alone.
+//     `allow-session` and `allow-always` answer with the session rule
+//     (`updatedPermissions`, destination `session`); `allow-always` also
+//     writes the rule into the agent's config first (Q3).
+//   opencode, a hosted child or one-shot (`opencode acp`; a one-shot runs one
+//     turn over ACP, then closes): ACP's `session/request_permission`,
+//     received by the daemon's ACP client. Its options are the request's
+//     own `options[]`, relayed back by the option's own id; an
+//     `allow-always` is relayed only, never written (Q4). ACP's answer has
+//     no text, so an answer with a message is refused (Q6). When ctxloom
+//     itself cancels the turn (a steer), it answers each pending request
+//     `cancelled` and records the withdrawal (Q10).
+//   NO HOOK POINT: the mock engine, and every interactive TUI. The human
+//     answers at the terminal, and nothing is routed (S28).
+//
+// ROUTING (S25): listed under the session tree's ROOT, and answered from the
+// user's CLI. ctxloom cannot tell the human from her own processes (one
+// principal, the user).
+//
+// TIMEOUT (S26, OD-41, D16): the ask's engine's `engines.<e>.approval_timeout`
+// (a span; 300 s when unset; `now` is 0). A policy on `ApprovalAsked` arms the
+// scheduler's alarm `approval-expiry:<ask>` at the ask's time plus its
+// timeout, and a policy on `ApprovalAnswered` or `ApprovalWithdrawn` cancels
+// it. The alarm's `RecordAlarmReached` is handled here: on a waiting ask it
+// records `ApprovalExpired`, and on a settled one it records nothing. With a
+// timeout of 0, the ask is recorded and expired in one decide, and no alarm is
+// armed.
+//
+// WRITES go through angzarr's coordinator:
+//   - the ask is a FACT: claude's arrives by `Ctxloom.CreateApproval` (D10),
+//     where the daemon fills root, run, engine, timeout, the name and the
+//     options; opencode's is recorded in process by the daemon that hosts the
+//     ACP connection;
+//   - a withdrawal is a FACT (`Handle`, from `ctxloom mcp serve`);
+//   - the answer is a COMMAND (`HandleSync`, projector `pending-approvals`).
+// READS: `Ctxloom.GetApproval`, `ListApprovals`, and `WaitApproval` (the
+// tool's wait). All of them are served while the daemon drains (D6).
+package ctxloom.approvals.v1;
+
+import "io/angzarr/v1/options.proto";
+
+// A session as the approvals domain names it: its project's id and its
+// stable id. The sessions domain's own `SessionRef`, kept here so this
+// package compiles alone (a wire crate generates one package).
+message SessionRef {
+  string project_id = 1;
+  string session = 2;
+}
+
+// What an option does, in engine-neutral words. claude's four are
+// ALLOW_ONCE, ALLOW_SESSION, ALLOW_ALWAYS and REJECT_ONCE. ACP's are its own
+// four kinds; ACP has no ALLOW_SESSION.
+enum OptionKind {
+  OPTION_KIND_UNSPECIFIED = 0;
+  OPTION_KIND_ALLOW_ONCE = 1;
+  OPTION_KIND_ALLOW_SESSION = 2;
+  OPTION_KIND_ALLOW_ALWAYS = 3;
+  OPTION_KIND_REJECT_ONCE = 4;
+  OPTION_KIND_REJECT_ALWAYS = 5;
+}
+
+// One choice the ask offers.
+message ApprovalOption {
+  // The word the user types, one vocabulary for every engine (owner, Q2):
+  // `allow-once`, `allow-session`, `allow-always`, `deny`, `deny-always`.
+  // Unique within the ask.
+  string id = 1;
+  OptionKind kind = 2;
+  // What the human is shown: ctxloom's label for claude's options, or the
+  // ACP option's own `name` for opencode's.
+  string label = 3;
+  // claude: the rule the option allows, `Bash(rm -rf build/)`, written as the
+  // session rule (`updatedPermissions`, destination `session`) or into the
+  // agent's config. Empty for ACP.
+  string rule = 4;
+  // ACP: the request's own `optionId`, relayed back verbatim. Empty for claude.
+  string engine_option_id = 5;
+}
+
+enum ApprovalStatus {
+  APPROVAL_STATUS_UNSPECIFIED = 0;
+  APPROVAL_STATUS_WAITING = 1;
+  APPROVAL_STATUS_ANSWERED = 2;
+  APPROVAL_STATUS_EXPIRED = 3;
+  APPROVAL_STATUS_WITHDRAWN = 4;
+}
+
+message ApprovalState {
+  option (io.angzarr.v1.component) = {
+    component_name: "approval"
+    aggregate: {domain: "approvals"}
+  };
+
+  string ask_id = 1;
+  SessionRef child = 2;
+  SessionRef root = 3;
+  string tool_name = 4;
+  repeated ApprovalOption options = 5;
+  ApprovalStatus status = 6;
+  // The option answered with, when ANSWERED.
+  string answered_option = 7;
+  string engine = 8;
+}
+
+// region facts
+
+// The engine asked. Keyed `approval:<run>:<engine's request id>` (claude's
+// `tool_use_id`, ACP's JSON-RPC request id), so a redelivered ask is one ask.
+// The stream root is UUIDv5(the asking session, that key).
+message RecordApprovalAsked {
+  option (io.angzarr.v1.fact) = {
+    component: "ctxloom.approvals.v1.ApprovalState"
+    emits: ["ctxloom.approvals.v1.ApprovalAsked", "ctxloom.approvals.v1.ApprovalExpired"]
+  };
+
+  // The ask's name, `ask-<adjective>-<noun>` (D9, Q7), minted by the daemon
+  // and claimed in `approval-names`.
+  string ask_id = 1;
+  SessionRef child = 2;
+  string run = 3;
+  string engine = 4;
+  SessionRef root = 5;
+  // What the engine asks to do: the tool's name, and its input as the engine
+  // gave it, bounded (the first 4 KiB, as text), with its size and SHA-256,
+  // so a person can judge it. Journaled: a tool's input is the session's own
+  // work, never ctxloom's secret.
+  string tool_name = 6;
+  string input_excerpt = 7;
+  uint64 input_bytes = 8;
+  string input_sha256 = 9;
+  // The engine's `approval_timeout`, read at the session's launch (T21).
+  // 0 is `now`: expired in the same decide.
+  uint32 timeout_seconds = 10;
+  // The engine's request id, so a withdrawal and the transcript can name it
+  // (claude's `tool_use_id` is the stream's `tool_use` block id).
+  string engine_request_id = 11;
+  repeated ApprovalOption options = 12;
+  // The resource names it is listed and answered by, journaled once (harps
+  // never change, S42): the approval's, `projects/{project}/approvals/{ask}`
+  // under its ROOT's project (Q-A), and the asking session's and its
+  // root's, `projects/{project}/sessions/{session}`.
+  string name = 13;
+  string child_name = 14;
+  string root_name = 15;
+  // The agent the asking session was planned for: whose
+  // `agents.<agent>.engines.<engine>.permissions` an `allow-always` writes.
+  string agent = 16;
+}
+
+// The ask was withdrawn because its turn was interrupted (a steer). Recorded
+// by `ctxloom mcp serve` when claude sends `notifications/cancelled` for the
+// call, and by the daemon when it cancels an opencode turn and answers the
+// pending ACP request `cancelled` (Q10). Keyed `approval-withdrawn:<ask>`.
+// On a settled ask, nothing.
+message RecordApprovalWithdrawn {
+  option (io.angzarr.v1.fact) = {
+    component: "ctxloom.approvals.v1.ApprovalState"
+    emits: ["ctxloom.approvals.v1.ApprovalWithdrawn"]
+  };
+
+  string ask_id = 1;
+  // The engine's words, verbatim (claude's `reason`), as `ext_err_txt` is.
+  string reason = 2;
+}
+
+// endregion
+
+// region commands
+
+// Answer the ask with one of its options (S25: from the user's CLI).
+message AnswerApproval {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.approvals.v1.ApprovalState"
+    emits: ["ctxloom.approvals.v1.ApprovalAnswered"]
+    refuses: "ctxloom.approvals.v1.ApprovalUnknown"
+    refuses: "ctxloom.approvals.v1.ApprovalIsSettled"
+    refuses: "ctxloom.approvals.v1.OptionNotOffered"
+    refuses: "ctxloom.approvals.v1.MessageNotRelayed"
+  };
+
+  string ask_id = 1;
+  // One of the ask's `options[].id`.
+  string option = 2;
+  // Said to the engine with a claude deny (`message`); empty means the default
+  // deny text. On an ACP ask it is refused, `MessageNotRelayed` (Q6).
+  string message = 3;
+}
+
+// endregion
+
+// region events
+
+message ApprovalAsked {
+  option (io.angzarr.v1.event) = {component: "ctxloom.approvals.v1.ApprovalState"};
+
+  string ask_id = 1;
+  SessionRef child = 2;
+  string run = 3;
+  string engine = 4;
+  SessionRef root = 5;
+  string tool_name = 6;
+  string input_excerpt = 7;
+  uint64 input_bytes = 8;
+  string input_sha256 = 9;
+  uint32 timeout_seconds = 10;
+  string engine_request_id = 11;
+  repeated ApprovalOption options = 12;
+  // The resource names it is listed and answered by, journaled once (harps
+  // never change, S42): the approval's, `projects/{project}/approvals/{ask}`
+  // under its ROOT's project (Q-A), and the asking session's and its
+  // root's, `projects/{project}/sessions/{session}`.
+  string name = 13;
+  string child_name = 14;
+  string root_name = 15;
+  // The agent the asking session was planned for: whose
+  // `agents.<agent>.engines.<engine>.permissions` an `allow-always` writes.
+  string agent = 16;
+}
+
+message ApprovalAnswered {
+  option (io.angzarr.v1.event) = {component: "ctxloom.approvals.v1.ApprovalState"};
+
+  string option = 1;
+  OptionKind kind = 2;
+  string message = 3;
+}
+
+// Denied for want of an answer: the alarm fired, or the timeout was 0.
+message ApprovalExpired {
+  option (io.angzarr.v1.event) = {component: "ctxloom.approvals.v1.ApprovalState"};
+}
+
+message ApprovalWithdrawn {
+  option (io.angzarr.v1.event) = {component: "ctxloom.approvals.v1.ApprovalState"};
+
+  string reason = 1;
+}
+
+// endregion
+
+// region refusals
+
+message ApprovalUnknown {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_NOT_FOUND;
+
+  string ask_id = 1;
+}
+
+// Already answered, expired or withdrawn (`approvals-approval-settled`; N1's
+// state-naming, the code unchanged).
+message ApprovalIsSettled {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  string ask_id = 1;
+  // `answered`, `expired` or `withdrawn`.
+  string how = 2;
+  // When answered: the option it was answered with.
+  string option = 3;
+}
+
+// The answer names an option the ask does not offer
+// (`approvals-option-not-offered`).
+message OptionNotOffered {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+
+  string ask_id = 1;
+  string option = 2;
+  // The ask's option ids, comma separated, in order.
+  string offered = 3;
+}
+
+// A message given with an answer to an ask whose engine cannot carry one
+// (ACP: an answer is its selected option alone) (`approvals-message-not-relayed`;
+// owner, Q6: a usage error, exit 20). Nothing is answered.
+message MessageNotRelayed {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+
+  string ask_id = 1;
+  string engine = 2;
+}
+
+// endregion
+
+// region names
+
+// An ask's NAME, claimed per project (Q7): one stream per name in the
+// `approval-names` domain, rooted on UUIDv5(the project's namespace, the
+// name), so a name is unique among asks because a stream is (as a session's
+// harp is in `session-names`). No look at session harps: an ask's name
+// begins `ask-`, which no session's may.
+message ApprovalNameState {
+  option (io.angzarr.v1.component) = {
+    component_name: "approval-name"
+    aggregate: {domain: "approval-names"}
+  };
+
+  string project_id = 1;
+  string ask_id = 2;
+  // The root of the ask's stream that holds the name (its UUID's text);
+  // empty while free.
+  string approval = 3;
+}
+
+// Take the name for an ask. Claiming it again for the same ask records
+// nothing (a retry); for another ask it is refused.
+message ClaimApprovalName {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.approvals.v1.ApprovalNameState"
+    emits: ["ctxloom.approvals.v1.ApprovalNameClaimed"]
+    refuses: "ctxloom.approvals.v1.ApprovalNameTaken"
+  };
+
+  string project_id = 1;
+  string ask_id = 2;
+  string approval = 3;
+}
+
+message ApprovalNameClaimed {
+  option (io.angzarr.v1.event) = {component: "ctxloom.approvals.v1.ApprovalNameState"};
+
+  string project_id = 1;
+  string ask_id = 2;
+  string approval = 3;
+}
+
+// Another ask holds the name (`approvals-name-taken`): the daemon mints
+// another.
+message ApprovalNameTaken {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_ALREADY_EXISTS;
+
+  string ask_id = 1;
+}
+
+// endregion

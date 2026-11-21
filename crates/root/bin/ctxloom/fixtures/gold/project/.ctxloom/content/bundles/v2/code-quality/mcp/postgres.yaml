@@ -5,3 +5,5 @@ env:
   PGDATABASE: app
   PGHOST: localhost
   PGPORT: "5432"
+notes: Read-only connection to the app database.
+installation: brew install mcp-postgres

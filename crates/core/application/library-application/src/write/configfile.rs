@@ -114,7 +114,7 @@ impl Project {
             return Ok(Plan::of(files, Default::default()));
         }
         let files = self.content.read_tree(name).map_err(AppError::Cause)?;
-        // The sidecars' declarations, never a mode on disk (owner ruling
+        // The skills' metadata's declarations, never a mode on disk (owner ruling
         // 2026-11-12).
         let exec = library::write::skill::declared_executables(&files);
         Ok(Plan::of(files, exec))

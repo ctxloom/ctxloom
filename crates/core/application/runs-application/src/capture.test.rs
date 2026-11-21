@@ -15,7 +15,7 @@ use sha2::{Digest, Sha256};
 use surface_ports::{HookEvent, MessageDisplay, ToolCall, ToolStatus};
 
 use crate::fakes::{uuid, World, SESSION_ME, SESSION_OTHER};
-use crate::{delivery_budget, observe, Allowlist, Capture, Observation, Recorded};
+use crate::{delivery_budget, no_such_session, observe, Capture, Observation, Recorded};
 
 const S: &str = SESSION_ME;
 
@@ -217,17 +217,6 @@ fn a_turn_end_is_one_observation_without_text() {
 }
 
 #[test]
-fn a_session_end_names_the_engine_session_and_the_reason() {
-    assert_eq!(
-        observe(&session_end()),
-        [Observation::SessionEnded(sessions::RecordSessionEnded {
-            native_session: "n1".to_string(),
-            reason: "prompt_input_exit".to_string(),
-        })]
-    );
-}
-
-#[test]
 fn a_compaction_is_before_or_after_by_the_event() {
     assert_eq!(
         observe(&compaction("compaction_before", "p1")),
@@ -314,17 +303,11 @@ fn two_compactions_of_one_turn_have_two_ids() {
 }
 
 // A PostToolUse and a PostToolBatch both fire for one call: only the batch
-// reports it, so a call is never recorded twice. The bind is SessionStart's
-// own fact.
+// reports it, so a call is never recorded twice. (The bind is SessionStart's
+// observation, below.)
 #[test]
 fn events_that_observe_nothing_hold_no_observation() {
-    for event in [
-        "post_tool",
-        "post_file_edit",
-        "pre_tool",
-        "session_start",
-        "permission_ask",
-    ] {
+    for event in ["post_tool", "post_file_edit", "pre_tool", "permission_ask"] {
         let held = observe(&HookEvent {
             event: event.to_string(),
             tool: "Bash".to_string(),
@@ -332,6 +315,52 @@ fn events_that_observe_nothing_hold_no_observation() {
         });
         assert!(held.is_empty(), "{event}: {held:?}");
     }
+}
+
+// Owner 2026-11-15 (SessionEnded is lost entirely): a session's end
+// observes nothing. An older home that still registers
+// SessionEnd is answered, and records nothing.
+#[test]
+fn a_session_end_observes_nothing() {
+    assert!(observe(&session_end()).is_empty());
+}
+
+fn session_start(source: &str, native: &str) -> HookEvent {
+    HookEvent {
+        event: "session_start".to_string(),
+        native_session: native.to_string(),
+        transcript: format!("/home/u/.claude/projects/p/{native}.jsonl"),
+        source: source.to_string(),
+        ..HookEvent::default()
+    }
+}
+
+// Owner 2026-11-15 (H-Q9 folded in): SessionStart's bind of the
+// engine's own conversation is an observation like the rest, delivered and
+// held like any capture fact, keyed as `bind_book` keys it
+// (`bind:<session>:<native_id>`), for every source: a startup, a resume and
+// a compaction (the same id, so it records nothing new) alike.
+#[test]
+fn a_session_start_observes_its_conversations_bind() {
+    for source in ["startup", "resume", "compact"] {
+        assert_eq!(
+            ids(&[session_start(source, "n1")]),
+            [format!("bind:{S}:n1")],
+            "{source}"
+        );
+    }
+}
+
+// Owner 2026-11-15 (clears captured, typed): a SessionStart
+// whose source is `clear` observes the clear, keyed by the NEW conversation
+// (`hook:clear:<session>:<native>`, so the driver's report of the same clear
+// is one fact), and then the new conversation's bind, in that order.
+#[test]
+fn a_clear_observes_the_clear_then_the_new_conversations_bind() {
+    assert_eq!(
+        ids(&[session_start("clear", "n2")]),
+        [format!("hook:clear:{S}:n2"), format!("bind:{S}:n2")]
+    );
 }
 
 // ------------------------------------------------------------ external ids
@@ -343,7 +372,7 @@ fn an_external_id_spells_its_kind_session_and_cause() {
         delta("m1", 3, false, "x"),
         batch(&[("toolu_a", "Bash", "{}", "")]),
         turn_end(),
-        session_end(),
+        session_start("clear", "n1"),
         compaction("compaction_before", "p1"),
         compaction("compaction_after", "p1"),
     ];
@@ -354,7 +383,8 @@ fn an_external_id_spells_its_kind_session_and_cause() {
             format!("hook:text:{S}:m1:3"),
             format!("hook:tool:{S}:toolu_a"),
             format!("hook:turn-end:{S}:p1"),
-            format!("hook:session-end:{S}:n1"),
+            format!("hook:clear:{S}:n1"),
+            format!("bind:{S}:n1"),
             format!("hook:compact:{S}:p1:manual:before"),
             format!("hook:compact:{S}:p1:manual:after"),
         ]
@@ -384,7 +414,7 @@ fn an_id_does_not_depend_on_the_payload_beyond_its_cause() {
 // same cause in another session has another.
 #[test]
 fn distinct_causes_never_share_an_id() {
-    let mut events = vec![session_end()];
+    let mut events = vec![session_start("clear", "n1")];
     for p in ["p1", "p2"] {
         events.push(turn_start(p, "x"));
         events.push(compaction("compaction_before", p));
@@ -439,25 +469,6 @@ fn an_observation_is_a_fact_on_the_session_stream_keyed_by_its_id() {
     assert_eq!(fact.payload.unwrap().type_url, observation.type_url());
 }
 
-// The hook is launched by the runner and holds the runner's credential: its
-// facts are the runner's, and the model's credential cannot forge them.
-#[test]
-fn the_runner_may_record_observations_and_the_model_may_not() {
-    let all = [
-        turn_start("p1", "x"),
-        delta("m1", 0, true, "x"),
-        batch(&[("a", "Bash", "{}", "")]),
-        turn_end(),
-        session_end(),
-        compaction("compaction_before", "p1"),
-    ];
-    for observation in all.iter().flat_map(observe) {
-        let url = observation.type_url();
-        assert!(Allowlist::runner().permits_fact(&url), "runner: {url}");
-        assert!(!Allowlist::model().permits_fact(&url), "model: {url}");
-    }
-}
-
 // ---------------------------------------------------------- delivery policy
 
 #[test]
@@ -469,7 +480,6 @@ fn the_delivery_budget_is_under_the_engines_hook_timeout() {
         "MessageDisplay",
         "Stop",
         "PostToolBatch",
-        "SessionEnd",
         "PreCompact",
     ] {
         assert!(delivery_budget(native) > Duration::ZERO, "{native}");
@@ -677,13 +687,12 @@ async fn delivered_to_the_kernel_the_observations_become_events_and_a_redelivery
 }
 
 // Each native event's budget is exact: the long one the engine gives a prompt,
-// the short one it gives a session end, the middle one a streamed piece, and
+// the middle one a streamed piece, and
 // the default for the rest.
 #[test]
 fn each_native_events_delivery_budget_is_exact() {
     for (native, seconds) in [
         ("UserPromptSubmit", 20),
-        ("SessionEnd", 1),
         ("MessageDisplay", 5),
         ("Stop", 8),
         ("PostToolBatch", 8),
@@ -696,4 +705,132 @@ fn each_native_events_delivery_budget_is_exact() {
             "{native}"
         );
     }
+}
+
+// s4-Q14, H3: a hold's gap record, delivered through the real kernel, is
+// recorded as the gap event on the session's stream, once: a redelivery is
+// a DUPLICATE.
+#[tokio::test]
+async fn a_gap_delivered_to_the_kernel_is_recorded_once() {
+    let world = World::new().await;
+    let session = world.me.identity.session.clone();
+    let cover = world.me.identity.session_cover();
+    let before = world.edge.pages(&cover).await.len();
+    let gap = Observation::gap(&run_ports::HeldGap {
+        stamp: "v0.2.0-aaaaaaa".to_string(),
+        external_id: "hook:turn-end:s:p1".to_string(),
+        held_at: Some(daemon_proto::google::protobuf::Timestamp {
+            seconds: 1_700_000_050,
+            nanos: 0,
+        }),
+        why: "bound".to_string(),
+    });
+    assert_eq!(gap.external_id(&session), "hook:gap:hook:turn-end:s:p1");
+    for expected in [Recorded::Applied, Recorded::Duplicate] {
+        let answered = world
+            .edge
+            .serve(gap.book(&session), Arrival::Loopback)
+            .await
+            .unwrap();
+        assert_eq!(Recorded::of(&answered), Some(expected));
+    }
+    let pages = world.edge.pages(&cover).await;
+    assert_eq!(pages.len(), before + 1);
+    let Some(angzarr_embedded::v1::event_page::Body::Event(any)) = &pages[before].body else {
+        panic!("an event");
+    };
+    let sessions::SessionEvent::CaptureGapped(recorded) =
+        sessions::SessionEvent::from_any(any).unwrap()
+    else {
+        panic!("the gap event");
+    };
+    assert_eq!(recorded.dropped, "hook:turn-end:s:p1");
+    assert_eq!(recorded.why, "bound");
+    assert_eq!(recorded.dropped_at.seconds, 1_700_000_050);
+}
+
+// A gap record with no time is recorded at the epoch: it still says what
+// was dropped, and why.
+#[test]
+fn a_gap_with_no_time_is_dropped_at_the_epoch() {
+    let Observation::CaptureGap(gap) = Observation::gap(&run_ports::HeldGap {
+        stamp: String::new(),
+        external_id: "x".to_string(),
+        held_at: None,
+        why: "disk".to_string(),
+    }) else {
+        panic!("a gap");
+    };
+    assert_eq!(gap.dropped_at, angzarr_embedded::Timestamp::default());
+    assert_eq!(gap.why, "disk");
+}
+
+// s4-Q14, H3 follow-up: a capture fact the kernel applied with no event was
+// addressed to a session the daemon has no record of; anything else is not.
+#[test]
+fn a_capture_fact_applied_with_no_event_had_no_session() {
+    use angzarr_embedded::v1::DeliveryOutcome;
+    let session = uuid(S);
+    let fact = observe(&turn_start("p1", "echo hi"))[0].book(&session);
+    let gap = Observation::gap(&run_ports::HeldGap {
+        stamp: String::new(),
+        external_id: "x".to_string(),
+        held_at: None,
+        why: "bound".to_string(),
+    })
+    .book(&session);
+    let answered = |delivery, events: usize| angzarr_embedded::Answered {
+        delivery,
+        events: Some(angzarr_embedded::v1::EventBook {
+            pages: vec![angzarr_embedded::v1::EventPage::default(); events],
+            ..angzarr_embedded::v1::EventBook::default()
+        }),
+    };
+    let nothing = angzarr_embedded::Answered {
+        delivery: DeliveryOutcome::Applied,
+        events: None,
+    };
+    assert!(no_such_session(&fact, &nothing), "no event book at all");
+    assert!(no_such_session(
+        &fact,
+        &answered(DeliveryOutcome::Applied, 0)
+    ));
+    assert!(no_such_session(
+        &gap,
+        &answered(DeliveryOutcome::Applied, 0)
+    ));
+    assert!(!no_such_session(
+        &fact,
+        &answered(DeliveryOutcome::Applied, 1)
+    ));
+    assert!(!no_such_session(
+        &fact,
+        &answered(DeliveryOutcome::Duplicate, 0)
+    ));
+    // A command, or a fact of no capture (a bind records nothing when it
+    // changes nothing), is never read so.
+    let command = crate::fakes::command_book(
+        fact.cover.clone().unwrap(),
+        sessions::SetKept { kept: true },
+    );
+    assert!(!no_such_session(
+        &command,
+        &answered(DeliveryOutcome::Applied, 0)
+    ));
+    let mut elsewhere = fact.clone();
+    elsewhere.cover.as_mut().unwrap().domain = "runs".to_string();
+    assert!(!no_such_session(
+        &elsewhere,
+        &answered(DeliveryOutcome::Applied, 0)
+    ));
+}
+
+// The answer's reason key is the full name of the typed answer the protos
+// declare: capture.proto, package ctxloom.sessions.v1, FactSessionUnknown.
+#[test]
+fn the_no_such_session_key_is_the_typed_answers_full_name() {
+    let proto = include_str!("../../../../../proto/ctxloom/sessions/v1/capture.proto");
+    let (package, name) = run_ports::NO_SUCH_SESSION.rsplit_once('.').unwrap();
+    assert!(proto.contains(&format!("package {package};")), "{package}");
+    assert!(proto.contains(&format!("\nmessage {name} {{")), "{name}");
 }

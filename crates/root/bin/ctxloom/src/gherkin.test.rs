@@ -11,7 +11,7 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 
 use cucumber::gherkin::Step;
-use cucumber::{given, then};
+use cucumber::{given, then, when};
 use serde_json::Value;
 
 use super::gherkin_common::{common_steps, doc, Common, CommonWorld};
@@ -19,6 +19,12 @@ use super::library::{at, Project};
 use crate::tests::files;
 
 const DAY: u64 = 86_400;
+
+/// A session's lock file under `sessions`: inside its directory,
+/// `<harp>/session.lock` (step 10 U9, T28).
+pub(crate) fn session_lock(sessions: &Path, harp: &str) -> PathBuf {
+    sessions.join(harp).join("session.lock")
+}
 
 /// The uncommitted work a reaper must never destroy (Go: `j001300WIPMarker`).
 const WIP_MARKER: &str = "J001300-WIP-MARKER-5b8e21";
@@ -35,11 +41,16 @@ struct Planted {
     keep: bool,
     summary: bool,
     no_lock: bool,
+    /// The profile its run was planned on (step 10c U13), so its loadout
+    /// names that profile's bundles.
+    profile: Option<String>,
 }
 
 #[derive(cucumber::World)]
 #[world(init = Self::new)]
 struct World {
+    /// What a daemon scenario started: dropped first, before the home goes.
+    daemon_spec: daemon_spec::State,
     common: Common,
     planted: Vec<Planted>,
     seeded: bool,
@@ -58,6 +69,14 @@ struct World {
     planted_foreign: Vec<PathBuf>,
     /// The sessions planted with a free lock that is not held.
     lock_free_dead: Vec<String>,
+    /// The design notes nobody filed: the session, and each note's path
+    /// relative to its directory (j001300).
+    design_notes: Vec<(String, Vec<String>)>,
+    /// Every session the steps planted, by harp, once seeded.
+    seeded_harps: Vec<String>,
+    /// Every byte of the sessions' directories and scratch checkouts, as the
+    /// last command found them.
+    before: Vec<(PathBuf, Vec<u8>)>,
     /// What the j000100 scenarios keep.
     adopt: adopt::State,
     /// What j000200's scenario 2 keeps.
@@ -70,6 +89,16 @@ struct World {
     engines: engines::State,
     /// What the j001900 scenarios keep.
     diagnosis: diagnosis::State,
+    /// What the distill steps keep.
+    distill: distill::State,
+    /// What j000300's and init.feature's companion scenarios keep.
+    init_companions: init_companions::State,
+    /// What step 10b's write steps keep.
+    writes: writes::State,
+    /// What step 10c's reaction steps keep.
+    reactions: reactions::State,
+    /// What the CLI contract features' steps keep.
+    cli: cli::State,
 }
 
 impl fmt::Debug for World {
@@ -92,8 +121,11 @@ impl CommonWorld for World {
             || capture::fires(self, step)
             || capture_opencode::forwards(self, step)
             || capture_opencode::reports_login(self, step)
+            || daemon_spec::claims(self, step)
             || engines::starts(self, step)
+            || engines::authors(self, step)
             || diagnosis::runs(self, step)
+            || init_companions::runs(self, step)
         {
             return;
         }
@@ -101,16 +133,25 @@ impl CommonWorld for World {
         self.common.run_lines(&doc(step), "");
     }
 
+    fn before_line(&mut self, line: &str) {
+        daemon_spec::before_line(self, line);
+        writes::before_line(self, line);
+    }
+
     fn before_run(&mut self) {
         self.adopt_record();
         self.seed();
         self.seed_scratch();
+        self.before = self.session_bytes();
+        daemon_spec::before_run(self);
+        writes::before_run(self);
     }
 }
 
 impl World {
     fn new() -> World {
         World {
+            daemon_spec: daemon_spec::State::default(),
             common: Common::new(),
             planted: Vec::new(),
             seeded: false,
@@ -121,12 +162,20 @@ impl World {
             planted_scratch: Vec::new(),
             planted_foreign: Vec::new(),
             lock_free_dead: Vec::new(),
+            design_notes: Vec::new(),
+            seeded_harps: Vec::new(),
+            before: Vec::new(),
             adopt: adopt::State::default(),
             setup: setup::State::default(),
             capture: capture::State::default(),
             authoring: authoring::State::default(),
             engines: engines::State::default(),
             diagnosis: diagnosis::State::default(),
+            distill: distill::State::default(),
+            init_companions: init_companions::State::default(),
+            writes: writes::State::default(),
+            reactions: reactions::State::default(),
+            cli: cli::State::default(),
         }
     }
 
@@ -151,6 +200,8 @@ impl World {
         }
         self.seeded = true;
         let planted = std::mem::take(&mut self.planted);
+        self.seeded_harps
+            .extend(planted.iter().map(|session| session.harp.clone()));
         for session in &planted {
             let ended = session
                 .ended_ago
@@ -177,6 +228,9 @@ impl World {
             if session.keep {
                 flags.push("--keep");
             }
+            if let Some(profile) = &session.profile {
+                flags.extend(["--profile", profile]);
+            }
             let ran = self.common.project.run(&flags);
             assert_eq!(ran.code, 0, "seeding {}: {}", session.harp, ran.said());
             if session.kind != "running" && !session.no_lock {
@@ -187,13 +241,10 @@ impl World {
                 files::put(dir.join("essence.md"), "an older ctxloom's summary\n");
             }
             if session.kind == "running" {
-                let lock = files::open_read(
-                    self.common
-                        .project
-                        .dir()
-                        .join(".ctxloom/sessions")
-                        .join(format!("{}.lock", session.harp)),
-                )
+                let lock = files::open_read(session_lock(
+                    &self.common.project.dir().join(".ctxloom/sessions"),
+                    &session.harp,
+                ))
                 .expect("a lock file");
                 lock.lock().expect("the lock is free to take");
                 self.held.push(lock);
@@ -217,12 +268,14 @@ impl World {
                 "-c",
                 "init.defaultBranch=main",
             ])
+            .args(crate::tests::library::NO_MAINTENANCE)
             .args(args)
             .current_dir(dir)
             .env_clear()
             .env("PATH", crate::tests::host_var("PATH").unwrap_or_default())
             .env("HOME", self.common.project.home())
             .env("TMPDIR", crate::tests::temp_root())
+            .env(crate::tests::LIFELINE, crate::tests::lifeline())
             .output()
             .expect("git runs");
         assert!(
@@ -236,13 +289,51 @@ impl World {
     /// Make the project a git repository, once, with one commit.
     fn git_backed(&self) {
         let project = self.common.project.dir();
-        if files::exists(project.join(".git")) {
+        let in_git = files::exists(project.join(".git"));
+        // A repository with a commit is the harness's (or hers): used as it
+        // is. One `ctxloom init` made has none yet (step 10, G1: it commits
+        // nothing), so it gets the first commit here.
+        if in_git
+            && self
+                .common
+                .project
+                .git_output(project, &["rev-parse", "-q", "--verify", "HEAD"])
+                .status
+                .success()
+        {
             return;
         }
-        self.git(project, &["init", "-q"]);
+        if !in_git {
+            self.git(project, &["init", "-q"]);
+        }
         files::put(project.join("README.md"), "hello\n");
         self.git(project, &["add", "README.md"]);
         self.git(project, &["commit", "-q", "-m", "initial"]);
+    }
+
+    /// Every file under the project's sessions directory and the project's
+    /// scratch checkouts, with its bytes, sorted by path.
+    fn session_bytes(&self) -> Vec<(PathBuf, Vec<u8>)> {
+        fn walk(dir: &Path, found: &mut Vec<(PathBuf, Vec<u8>)>) {
+            for path in files::children(dir) {
+                if files::is_dir(&path) {
+                    walk(&path, found);
+                } else if let Ok(bytes) = files::read_bytes(&path) {
+                    found.push((path, bytes));
+                }
+            }
+        }
+        let mut found = Vec::new();
+        walk(
+            &self.common.project.dir().join(".ctxloom/sessions"),
+            &mut found,
+        );
+        walk(
+            &self.common.project.home().join(".ctxloom/worktrees"),
+            &mut found,
+        );
+        found.sort();
+        found
     }
 
     /// Whether `harp`'s owner is provably dead: it was planted with a free
@@ -322,6 +413,7 @@ impl World {
             keep: false,
             summary: false,
             no_lock: false,
+            profile: None,
         });
         self.planted.last_mut().expect("just pushed")
     }
@@ -342,6 +434,8 @@ mod capture;
 #[path = "gherkin_capture_opencode.test.rs"]
 mod capture_opencode;
 
+#[path = "gherkin_daemon.test.rs"]
+mod daemon_spec;
 #[path = "gherkin_workspace.test.rs"]
 mod workspace;
 
@@ -350,8 +444,31 @@ mod recall;
 
 #[path = "gherkin_diagnosis.test.rs"]
 mod diagnosis;
+
+#[path = "gherkin_companions.test.rs"]
+mod companions;
+
 #[path = "gherkin_engines.test.rs"]
 mod engines;
+#[path = "gherkin_init_companions.test.rs"]
+mod init_companions;
+
+#[path = "gherkin_distill.test.rs"]
+mod distill;
+
+#[path = "gherkin_separation.test.rs"]
+mod separation;
+
+#[path = "gherkin_library_changes.test.rs"]
+mod library_changes;
+
+#[path = "gherkin_writes.test.rs"]
+mod writes;
+
+#[path = "gherkin_cli.test.rs"]
+mod cli;
+#[path = "gherkin_reactions.test.rs"]
+mod reactions;
 
 // ------------------------------------------------------------------ given
 
@@ -361,18 +478,24 @@ fn env_set(w: &mut World, name: String, value: String) {
     w.common.env.push((name, value));
 }
 
-/// The mock LLM. In j001200 it is that journey's stub claude
-/// ([`recall::mock_responds`]); elsewhere the mock engine is the default
-/// agent's, and no reply is ever asked of it on this World (a dry run
-/// launches nothing), so the reply is not kept.
+/// The mock LLM: j001200's stub claude, first on `PATH`, answering `reply`
+/// and writing down what it was asked ([`recall::mock_responds`], once one
+/// is staged), with the token a child run needs, and the project's default
+/// agent on Claude Code: a one-shot launches the stub, a dry run nothing.
 #[given(expr = "the mock LLM responds {string}")]
 fn mock_responds(w: &mut World, reply: String) {
+    distill::remember(w, &reply);
     if recall::mock_responds(w, &reply) {
         return;
     }
+    adopt::claude_code(w);
+    adopt::token(w);
+    let bin = w.adopt_scratch().join("bin");
+    recall::stub_model(&bin);
+    files::put(bin.join("model-reply"), &reply);
     w.common.project.write(
         ".ctxloom/config.yaml",
-        "schema_version: 9\nagents:\n  default:\n    engine: mock\ndefault_agent: default\n",
+        "schema_version: 9\nagents:\n  default:\n    engine: claude-code\ndefault_agent: default\n",
     );
 }
 
@@ -437,6 +560,18 @@ fn still_running(w: &mut World, harp: String) {
     w.plant(&harp, "running");
 }
 
+#[given(expr = "a session {string} that is still running on the profile {string}")]
+fn still_running_on(w: &mut World, harp: String, profile: String) {
+    w.plant(&harp, "running").profile = Some(profile);
+    // Planted after the Background's reads, which seeded what was planted
+    // then (nothing), and seeded NOW (step 10c U13): its run is planned on
+    // the profile as the Given says, before the scenario changes anything.
+    // Seeded at the next command, its plan's assembly (a read) would see
+    // the change first, and its context would hold it already.
+    w.seeded = false;
+    w.seed();
+}
+
 #[given(expr = "a session {string} nothing can prove the liveness of")]
 fn unproven(w: &mut World, harp: String) {
     w.plant(&harp, "unproven").no_lock = true;
@@ -457,7 +592,24 @@ fn authored_file(w: &mut World, harp: String, rel: String) {
     files::put(w.session_dir(&harp).join(rel), "notes nobody filed\n");
 }
 
+/// The notes a person wrote in a session's directory and never filed
+/// (j001300): what a destroy takes with it after a warning (ruling 104).
+const DESIGN_NOTES: [&str; 2] = ["design-notes.md", "notes/api-shape.md"];
+
+#[given(
+    expr = "a finished session {string} carrying design notes nobody filed, whose transcript retention has passed"
+)]
+fn finished_with_notes(w: &mut World, harp: String) {
+    w.plant(&harp, "finished");
+    for rel in DESIGN_NOTES {
+        files::put(w.session_dir(&harp).join(rel), format!("{harp}: {rel}\n"));
+    }
+    w.design_notes
+        .push((harp, DESIGN_NOTES.iter().map(|r| r.to_string()).collect()));
+}
+
 #[given("the feature shipped on Friday and Alice is closing the workstream out")]
+#[given("the feature shipped on Monday and Alice is closing the workstream out the next week")]
 fn closing_out(w: &mut World) {
     w.common.project = Project::initialized();
 }
@@ -485,7 +637,10 @@ fn long_lived(w: &mut World, branch: String) {
         .common
         .project
         .home()
-        .join("workspace/worktrees")
+        // Joined a component at a time: the path doctor shows is the
+        // platform's spelling (`\` on Windows), and so is this one.
+        .join("workspace")
+        .join("worktrees")
         .join(format!("proj--{branch}"));
     w.foreign.push((branch, dir));
 }
@@ -496,6 +651,56 @@ fn idle(w: &mut World, days: u64) {
 }
 
 // ------------------------------------------------------------------- when
+
+/// The notes the steps planted in `harp`.
+fn notes_of(w: &World, harp: &str) -> Vec<String> {
+    w.design_notes
+        .iter()
+        .find(|(h, _)| h == harp)
+        .map(|(_, notes)| notes.clone())
+        .unwrap_or_else(|| panic!("no design notes were planted in {harp}"))
+}
+
+/// She files them where a session's outputs live, `<project>/<output.dir>/
+/// <harp>`: outside the session's directory, so a destroy leaves them.
+#[when(expr = "Alice files her design notes into the output dir of {string}")]
+fn files_notes(w: &mut World, harp: String) {
+    for rel in notes_of(w, &harp) {
+        let to = w.output_dir(&harp).join(&rel);
+        files::mkdirs(to.parent().expect("a parent"));
+        files::rename(w.session_dir(&harp).join(&rel), to);
+    }
+}
+
+/// She takes her uncommitted work out of the checkout, to a place of her
+/// own, so the checkout is clean.
+#[when(expr = "Alice saves the work she wants out of the scratch worktree of {string}")]
+fn saves_work(w: &mut World, harp: String) {
+    let dirty: Vec<String> = w
+        .planted_scratch
+        .iter()
+        .filter(|(h, _, dirty)| *h == harp && *dirty)
+        .map(|(_, name, _)| name.clone())
+        .collect();
+    assert!(
+        !dirty.is_empty(),
+        "no uncommitted work was seeded in {harp}"
+    );
+    for name in dirty {
+        let saved = w
+            .common
+            .project
+            .home()
+            .join("saved-work")
+            .join(&harp)
+            .join(&name);
+        files::mkdirs(&saved);
+        files::rename(
+            w.scratch_dir(&harp, &name).join("in-flight.go"),
+            saved.join("in-flight.go"),
+        );
+    }
+}
 
 // ------------------------------------------------------------------- then
 
@@ -646,23 +851,33 @@ fn registers_hook(w: &mut World, rel: String, text: String) {
 
 // The sweep (j001300).
 
+/// The report names each (its exit is the scenario's to say: a preview
+/// that would change something is 1 under `--detailed-exitcode`).
 #[then(expr = "the sweep report names {string} and {string}")]
 fn sweep_names(w: &mut World, a: String, b: String) {
-    w.ran().succeeds().contains(&a).contains(&b);
+    w.ran().contains(&a).contains(&b);
 }
 
+/// Nothing the command was run on changed: every session is still
+/// recorded (its transcript is its events, ruling 87a), and every file of
+/// the sessions' directories and scratch checkouts is as it was, byte for
+/// byte.
 #[then("every byte of every session is still on disk")]
 fn bytes_on_disk(w: &mut World) {
-    let sessions = w.common.project.home().join(".ctxloom/sessions");
-    for path in files::children(&sessions) {
-        if files::is_dir(&path) {
-            assert!(
-                files::exists(path.join("transcripts/transcript.jsonl")),
-                "{} lost its transcript",
-                path.display()
-            );
-        }
+    assert!(!w.seeded_harps.is_empty(), "no session was planted");
+    for harp in &w.seeded_harps {
+        assert!(recorded(w, harp), "{harp} is no longer recorded");
     }
+    let after = w.session_bytes();
+    let paths = |files: &[(PathBuf, Vec<u8>)]| -> Vec<PathBuf> {
+        files.iter().map(|(path, _)| path.clone()).collect()
+    };
+    assert_eq!(paths(&after), paths(&w.before), "{}", w.ran().said());
+    assert!(
+        after == w.before,
+        "a session's file changed: {}",
+        w.ran().said()
+    );
 }
 
 #[then(expr = "the sweep skipped {string} and {string} without touching either")]
@@ -673,10 +888,13 @@ fn sweep_skipped(w: &mut World, running: String, unproven: String) {
         .contains("its liveness cannot be proven")
         .contains(&format!("ctxloom session remove {unproven} --even-if-live"));
     for harp in [running, unproven] {
-        assert!(
-            files::exists(w.session_dir(&harp).join("transcripts/transcript.jsonl")),
-            "{harp} was touched"
-        );
+        assert!(recorded(w, &harp), "{harp} is no longer recorded");
+        for (h, name, _) in w.planted_scratch.iter().filter(|(h, _, _)| *h == harp) {
+            assert!(
+                files::is_dir(w.scratch_dir(h, name)),
+                "{h}'s worktree {name} was removed"
+            );
+        }
     }
 }
 
@@ -700,6 +918,35 @@ fn bulk_gone(w: &mut World, harp: String) {
     );
 }
 
+/// The preview names each note it would destroy, in ruling 104's warning
+/// (`sessions-application-destroys-authored`), and destroyed nothing.
+#[then(expr = "the preview warns it would destroy the design notes of {string}, naming each")]
+fn warns_of_notes(w: &mut World, harp: String) {
+    let notes = notes_of(w, &harp);
+    let mut ran = w.ran().succeeds().contains(&format!(
+        "session {harp} holds files a person wrote, and removing it destroys them with it"
+    ));
+    for rel in &notes {
+        ran = ran.contains(rel);
+    }
+    assert!(recorded(w, &harp), "the preview destroyed {harp}");
+    for rel in &notes {
+        assert!(
+            files::exists(w.session_dir(&harp).join(rel)),
+            "the preview destroyed {rel}"
+        );
+    }
+}
+
+#[then(expr = "her filed design notes are in the output dir of {string}")]
+fn notes_filed(w: &mut World, harp: String) {
+    for rel in notes_of(w, &harp) {
+        let body = files::read(w.output_dir(&harp).join(&rel))
+            .unwrap_or_else(|e| panic!("her filed note {rel} is GONE: {e}"));
+        assert_eq!(body, format!("{harp}: {rel}\n"));
+    }
+}
+
 #[then(expr = "the machine-written bulk of {string} is still there")]
 fn bulk_still_there(w: &mut World, harp: String) {
     assert!(
@@ -711,10 +958,8 @@ fn bulk_still_there(w: &mut World, harp: String) {
 
 #[then(expr = "the sweep kept the transcript of {string} and named {string}")]
 fn sweep_kept(w: &mut World, harp: String, named: String) {
-    assert!(
-        files::exists(w.session_dir(&harp).join("transcripts/transcript.jsonl")),
-        "{harp}'s transcript was destroyed"
-    );
+    // Its transcript is its events (ruling 87a): kept while it is recorded.
+    assert!(recorded(w, &harp), "{harp}'s transcript was destroyed");
     w.ran().contains(&harp).contains(&named);
 }
 
@@ -817,6 +1062,45 @@ fn foreign_untouched(w: &mut World) {
     }
 }
 
+/// j001300: doctor's row names her worktree by its path, its branch unmerged
+/// and its tree dirty, and the exact commands that remove it, the forced
+/// forms (the safe ones would refuse it); and nothing touched it.
+#[then(
+    "the checks name the foreign worktree, that it is unmerged and dirty, and the exact commands to remove it"
+)]
+fn doctor_names_foreign(w: &mut World) {
+    let doc = w.json();
+    let row = array(&doc, "checks")
+        .iter()
+        .find(|c| c["marker"] == "DOCTOR-CHECK-FOREIGN-WORKTREES-s9")
+        .unwrap_or_else(|| panic!("no foreign-worktrees row: {doc}"))
+        .clone();
+    assert_eq!(row["status"], "warn", "{row}");
+    let detail = row["detail"].as_str().unwrap_or_default();
+    let remedy = row["remedy"].as_str().unwrap_or_default();
+    assert!(
+        !w.planted_foreign.is_empty(),
+        "no foreign worktree was seeded"
+    );
+    for dir in &w.planted_foreign {
+        // The path it was added at, in the platform's spelling, as doctor
+        // shows it (git lists `C:/...` on Windows; doctor says `C:\...`).
+        let shown = dir.display().to_string();
+        assert!(
+            detail.contains(&format!("{shown} (branch stale-feature, unmerged, dirty)")),
+            "{row}"
+        );
+        assert!(
+            remedy.contains(&format!("worktree remove --force {shown}")),
+            "{row}"
+        );
+        assert!(remedy.contains("branch -D stale-feature"), "{row}");
+        let body = files::read(dir.join("uncommitted.txt"))
+            .unwrap_or_else(|e| panic!("her uncommitted work is GONE: {e}"));
+        assert!(body.contains(WIP_MARKER), "{body}");
+    }
+}
+
 #[then("the scratch worktree is still registered with git")]
 fn still_registered(w: &mut World) {
     let listed = w.git(w.common.project.dir(), &["worktree", "list", "--porcelain"]);
@@ -854,5 +1138,13 @@ common_steps!();
 /// Run one feature file with this World: whether it passed, and each
 /// scenario's outcome.
 pub(super) fn run(file: &std::path::Path) -> super::gherkin_common::FeatureRun {
-    super::gherkin_common::run_feature::<World>(file)
+    run_only(file, None)
+}
+
+/// [`run`], only the scenario whose id is `only` when one is named.
+pub(super) fn run_only(
+    file: &std::path::Path,
+    only: Option<&str>,
+) -> super::gherkin_common::FeatureRun {
+    super::gherkin_common::run_feature::<World>(file, only)
 }

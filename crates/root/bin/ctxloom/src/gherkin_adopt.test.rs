@@ -34,7 +34,7 @@ const OPERATIONAL_MARKERS: [&str; 2] = [
 /// The stub engine: records its launch beside itself, and replies as claude
 /// does under `--output-format stream-json`: its session's `init` and a
 /// `result` carrying the answer.
-const CLAUDE_STUB: &str = r#"rec="$(dirname "$0")/claude-launch"
+pub(super) const CLAUDE_STUB: &str = r#"rec="$(dirname "$0")/claude-launch"
 for a in "$@"; do
   printf '%s\n' "$a" >> "$rec"
   [ -f "$a" ] && cat "$a" >> "$rec"
@@ -66,7 +66,7 @@ pub(super) struct State {
     /// Every file of her home, then.
     home_before: Option<BTreeMap<String, Vec<u8>>>,
     /// The session the last turn was taken on, by its harp.
-    harp: Option<String>,
+    pub(super) harp: Option<String>,
 }
 
 /// Every file below `path` (or `path` itself, a file), by its path.
@@ -148,8 +148,9 @@ pub(super) fn claude_code(w: &mut World) {
     let project = &w.common.project;
     project.write_home(".claude/settings.json", "{\n  \"theme\": \"dark\"\n}\n");
     project.write_home(".claude/CLAUDE.md", "Alice's own instructions: be brief.\n");
-    let host = crate::tests::host_var("PATH").unwrap_or_default();
-    let path = format!("{}:{}", bin.display(), host.to_string_lossy());
+    // No shipped companion of this machine's: a first init offers each it
+    // finds (M4), and the scenarios answer init's questions.
+    let path = files::path_without_shipped_companions(&[bin]);
     w.common.set_env("PATH", path);
 }
 
@@ -195,6 +196,29 @@ fn set_up(w: &mut World) {
     w.before_run();
     w.common.run_lines("ctxloom init", "");
     w.ran().succeeds();
+    // init is the daemon's (step 10c U6): the daemon it started is stopped
+    // and its directory taken away, so she has set the project up and no
+    // daemon has served her yet, as before.
+    let env: Vec<(&str, &str)> = w
+        .common
+        .env
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+    let stopped = w.common.project.run_with(&env, &["daemon", "stop"]);
+    assert_eq!(stopped.code, 0, "daemon stop: {}", stopped.said());
+    // Its store closed (a closed store leaves no write-ahead log), bounded:
+    // what a later step compares the store with is the store at rest.
+    let wal = w.common.project.home().join(".ctxloom/ctxloom.db-wal");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while files::exists(&wal) {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the stopped daemon never closed its store"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    files::remove_tree(w.common.project.home().join(".ctxloom/daemon"));
 }
 
 #[given("Alice has started her assistant through ctxloom")]
@@ -211,16 +235,66 @@ fn started_through_ctxloom(w: &mut World) {
 /// (its reply, json off a terminal, names it), by `run --session`.
 #[when(expr = "Alice takes another turn on that session with {string}")]
 fn another_turn(w: &mut World, prompt: String) {
-    let harp = w.json()["harp"]
-        .as_str()
-        .unwrap_or_else(|| panic!("the last reply names its session: {}", w.ran().said()))
-        .to_string();
+    // The session a step already named (a close of it), else the one
+    // the last reply names.
+    let harp = match w.adopt.harp.clone() {
+        Some(harp) => harp,
+        None => w.json()["harp"]
+            .as_str()
+            .unwrap_or_else(|| panic!("the last reply names its session: {}", w.ran().said()))
+            .to_string(),
+    };
     w.adopt.harp = Some(harp.clone());
     w.before_run();
     w.common.run_lines(
         &format!("ctxloom run --one-shot \"{prompt}\" --session {harp}"),
         "",
     );
+}
+
+/// Alice closes the session the last one-shot
+/// made (its reply names it), as `session close` does.
+#[given("Alice has closed that session")]
+fn closed_that_session(w: &mut World) {
+    let harp = w.json()["harp"]
+        .as_str()
+        .unwrap_or_else(|| panic!("the last reply names its session: {}", w.ran().said()))
+        .to_string();
+    w.adopt.harp = Some(harp.clone());
+    w.before_run();
+    w.common
+        .run_lines(&format!("ctxloom session close {harp}"), "");
+    w.ran().succeeds();
+    assert!(session_shown(w, &harp)["closed"] == serde_json::Value::Bool(true));
+}
+
+/// The session the turn was taken on is open
+/// again (`session show`'s `closed`).
+#[then("the session is no longer closed")]
+fn no_longer_closed(w: &mut World) {
+    let harp = w.adopt.harp.clone().expect("a turn was taken on a session");
+    let shown = session_shown(w, &harp);
+    assert_ne!(
+        shown["closed"],
+        serde_json::Value::Bool(true),
+        "{harp} is still closed: {shown}"
+    );
+}
+
+/// `session show <harp> --format json`, now.
+fn session_shown(w: &World, harp: &str) -> serde_json::Value {
+    let env: Vec<(&str, &str)> = w
+        .common
+        .env
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+    let ran = w
+        .common
+        .project
+        .run_with(&env, &["session", "show", harp, "--format", "json"]);
+    assert_eq!(ran.code, 0, "{}", ran.said());
+    serde_json::from_str(&ran.stdout).unwrap_or_else(|e| panic!("{e}: {}", ran.stdout))
 }
 
 #[then("the reply names the same session")]
@@ -296,10 +370,21 @@ fn user_settings_path(w: &World) -> String {
 /// config dir, the rest of that file is the user's own claude settings as she
 /// wrote them (none of hers, nothing), and the `--settings` file (ctxloom's
 /// hooks) holds no permissions: a bad value in the block disables the block,
-/// never the hooks.
+/// never the hooks. Where ctxloom's server is offered, its own tools'
+/// allowance is laid into the document's `allow`, after its own (OD-4 as
+/// amended by the owner, 2026-11-14); a launch with no context offers none,
+/// so lays none (OD-38).
 #[then(expr = "the assistant's settings hold the permissions {string}")]
 fn settings_hold_permissions(w: &mut World, want: String) {
-    let want: serde_json::Value = serde_json::from_str(&want).expect("the step's JSON");
+    let mut want: serde_json::Value = serde_json::from_str(&want).expect("the step's JSON");
+    if handed_servers(w).contains_key("ctxloom") {
+        let ours = serde_json::json!("mcp__ctxloom__*");
+        match want["allow"].as_array_mut() {
+            Some(allow) if allow.contains(&ours) => {}
+            Some(allow) => allow.push(ours),
+            None => want["allow"] = serde_json::json!([ours]),
+        }
+    }
     let path = user_settings_path(w);
     let text = files::read(&path).unwrap_or_else(|e| panic!("reading {path}: {e}"));
     let user: serde_json::Value =
@@ -431,7 +516,7 @@ fn an_assistant(w: &mut World) {
 
 /// The error's json envelope: the last json document on the error stream
 /// (the warnings a run said before it, one json line each, come first).
-fn envelope_of(w: &World) -> serde_json::Value {
+pub(super) fn envelope_of(w: &World) -> serde_json::Value {
     serde_json::Deserializer::from_str(&w.ran().stderr)
         .into_iter::<serde_json::Value>()
         .map(|value| value.expect("the error stream is json documents"))
@@ -528,10 +613,53 @@ fn has_ctxloom(w: &mut World) {
     );
 }
 
+/// How long the daemon her one-shot started is given to see its home gone
+/// and exit.
+const DAEMON_EXIT_WAIT: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// Her daemon still serves when she deletes its home: it is named (its
+/// discovery file's pid) before the delete, and its exit is waited for
+/// (bounded) after it, so the steps that read her home read it once the
+/// daemon has had its say, never in a race with its next round.
 #[when("Alice takes ctxloom back out by deleting .ctxloom and ~/.ctxloom")]
 fn delete_ctxloom(w: &mut World) {
-    files::remove_tree(w.common.project.dir().join(".ctxloom"));
-    files::remove_tree(w.common.project.home().join(".ctxloom"));
+    let discovery = w
+        .common
+        .project
+        .home()
+        .join(run_ports::DAEMON_DIR)
+        .join(run_ports::DISCOVERY_FILE);
+    let daemon = files::read_bytes(&discovery)
+        .ok()
+        .and_then(|bytes| run_ports::Discovery::decode(&bytes))
+        .map(|found| found.pid);
+    files::remove_tree_settling(w.common.project.dir().join(".ctxloom"));
+    files::remove_tree_settling(w.common.project.home().join(".ctxloom"));
+    if let Some(pid) = daemon {
+        assert!(
+            exited_within(pid, DAEMON_EXIT_WAIT),
+            "her daemon (pid {pid}) still runs {DAEMON_EXIT_WAIT:?} after its home was deleted"
+        );
+    }
+}
+
+/// Whether process `pid` is gone, waited for at most `within`: `ps` answers
+/// whether it is there, a zombie gone (unix). Windows has no `ps`: it is
+/// taken as gone, and the home is read at once, as before.
+fn exited_within(pid: u32, within: std::time::Duration) -> bool {
+    if os::host().flavor() == os::Flavor::Windows {
+        return true;
+    }
+    let deadline = std::time::Instant::now() + within;
+    loop {
+        if !crate::tests::procs::alive(u64::from(pid)) {
+            return true;
+        }
+        if std::time::Instant::now() > deadline {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
 }
 
 #[then("nothing in her home directory outside ~/.ctxloom was written")]
@@ -666,9 +794,9 @@ fn says_when_it_ended(w: &mut World) {
         .run_with(&env, &["session", "show", &harp, "--format", "json"]);
     assert_eq!(shown.code, 0, "{}", shown.said());
     let doc = super::super::parse_one(&shown.stdout);
-    assert_eq!(doc["state"].as_str(), Some("ended"), "{doc}");
-    let ended = doc["ended_at"].as_str().expect("show says when it ended");
-    let started = doc["started_at"]
+    assert_eq!(doc["state"].as_str(), Some("ENDED"), "{doc}");
+    let ended = doc["end_time"].as_str().expect("show says when it ended");
+    let started = doc["start_time"]
         .as_str()
         .expect("show says when it started");
     assert!(
@@ -681,12 +809,122 @@ fn says_when_it_ended(w: &mut World) {
         .run_with(&env, &["session", "list", "--format", "json"]);
     assert_eq!(listed.code, 0, "{}", listed.said());
     let rows = super::super::parse_one(&listed.stdout);
-    let row = rows
+    let name = format!("/sessions/{harp}");
+    let row = rows["sessions"]
         .as_array()
         .and_then(|rows| {
             rows.iter()
-                .find(|r| r["harp"].as_str() == Some(harp.as_str()))
+                .find(|r| r["name"].as_str().is_some_and(|n| n.ends_with(&name)))
         })
         .unwrap_or_else(|| panic!("{harp} is not listed: {rows}"));
-    assert_eq!(row["end"].as_str(), Some(ended), "{row}");
+    assert_eq!(row["end_time"].as_str(), Some(ended), "{row}");
+}
+
+// ------------------------------------------- the context-free run (OD-38)
+
+/// The guidance the default profile's bundle carries, which nothing else in
+/// the scenario does.
+const PROFILE_GUIDANCE: &str = "J-NO-CONTEXT-PROFILE-GUIDANCE: keep the ledger balanced.";
+
+/// The bundle that ships it, and the MCP server, beside the project's own.
+const TOOLS_BUNDLE: &str = ".ctxloom/content/bundles/v2/tools";
+
+/// Init's seed profile ([`library::write::scaffold::SEED_NAME`]) gets the
+/// bundle `tools`, which ships an MCP server named `server` and a fragment
+/// of guidance: so a run on the default agent carries both.
+#[given(expr = "Alice's default profile ships the MCP server {string} and a fragment of guidance")]
+fn profile_ships_server(w: &mut World, server: String) {
+    let project = &w.common.project;
+    project.write(&format!("{TOOLS_BUNDLE}/bundle.yaml"), "version: 1.0.0\n");
+    project.write(
+        &format!("{TOOLS_BUNDLE}/mcp/{server}.yaml"),
+        "command: j-no-context-ledger\nargs: [--serve]\n",
+    );
+    project.write(
+        &format!("{TOOLS_BUNDLE}/fragments/guidance.md"),
+        &format!("{PROFILE_GUIDANCE}\n"),
+    );
+    let profile = project
+        .tree(".ctxloom")
+        .into_keys()
+        .find(|path| path.ends_with("/profiles/default.yaml"))
+        .unwrap_or_else(|| panic!("init seeded no default profile"));
+    let path = format!(".ctxloom/{profile}");
+    let seeded = project.read(&path).expect("the seed profile reads");
+    project.write(&path, &format!("{seeded}\nbundles:\n  - tools\n"));
+}
+
+/// The last launch's record: from its print-mode arguments on (the stub
+/// appends each launch to one record).
+fn last_launch(w: &World) -> String {
+    let record = w.launch_record();
+    match record.rfind("-p\n--output-format\n") {
+        Some(at) => record[at..].to_string(),
+        None => record,
+    }
+}
+
+/// The argument after `flag` in the last launch, if it was handed one. The
+/// stub writes a file argument's bytes after it, and a file that does not
+/// end in a newline runs into the next argument's line, so `flag` is found
+/// where its line ends, not where one starts.
+fn last_argument_after(w: &World, flag: &str) -> Option<String> {
+    let launch = last_launch(w);
+    let at = launch.find(&format!("{flag}\n"))? + flag.len() + 1;
+    launch[at..].lines().next().map(str::to_string)
+}
+
+/// The servers of the MCP config the last launch named (`--mcp-config`):
+/// none named, none.
+fn handed_servers(w: &World) -> serde_json::Map<String, serde_json::Value> {
+    let Some(path) = last_argument_after(w, "--mcp-config") else {
+        return serde_json::Map::new();
+    };
+    let text = files::read(&path).unwrap_or_else(|e| panic!("reading {path}: {e}"));
+    let doc: serde_json::Value =
+        serde_json::from_str(&text).unwrap_or_else(|e| panic!("{path} is not JSON ({e}): {text}"));
+    doc.get("mcpServers")
+        .and_then(serde_json::Value::as_object)
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// The context the last launch was handed (`--append-system-prompt-file`):
+/// none named, none.
+fn handed_context(w: &World) -> String {
+    last_argument_after(w, "--append-system-prompt-file")
+        .and_then(|path| files::read(path).ok())
+        .unwrap_or_default()
+}
+
+#[then(expr = "the assistant was handed the MCP server {string}")]
+fn handed_server(w: &mut World, server: String) {
+    let servers = handed_servers(w);
+    assert!(servers.contains_key(&server), "{servers:?}");
+}
+
+/// OD-38: no MCP config entry at all, ctxloom's own server included (an MCP
+/// server's instructions are context).
+#[then("the assistant was handed no MCP server at all")]
+fn handed_no_server(w: &mut World) {
+    assert!(!last_launch(w).is_empty(), "no assistant was launched");
+    let servers = handed_servers(w);
+    assert!(servers.is_empty(), "the launch carried {servers:?}");
+}
+
+#[then("the assistant was handed the profile's guidance")]
+fn handed_guidance(w: &mut World) {
+    let context = handed_context(w);
+    assert!(context.contains(PROFILE_GUIDANCE), "{context}");
+}
+
+#[then("the assistant was not handed the profile's guidance")]
+fn not_handed_guidance(w: &mut World) {
+    assert!(!last_launch(w).is_empty(), "no assistant was launched");
+    let context = handed_context(w);
+    assert!(!context.contains(PROFILE_GUIDANCE), "{context}");
+    assert!(
+        !last_launch(w).contains(PROFILE_GUIDANCE),
+        "the launch carried the guidance"
+    );
 }

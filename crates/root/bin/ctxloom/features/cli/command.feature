@@ -1,9 +1,8 @@
 # world: surfaces
 # Ported from cli/command.feature (rev f36e8dfb2)
-# NOT ported: the scenarios tagged @pending: create, the MCP resource reads
-#   (`the agent reads resource` has no MCP session in this port), remove, the
-#   --no-distill edit and distill refusals (they need an editor and the
-#   distiller), and the misspelled --bundle filter.
+# NOT ported: deleted (OD-48 amended, owner 2026-11-19: tools-only is the ruled design,
+#   so the MCP server serves no resources): "Reading a single command over
+#   MCP", and the resource-read steps of the create and remove scenarios.
 @doc
 Feature: command — authoring reusable prompt templates for AI coding assistants
 
@@ -46,17 +45,16 @@ Feature: command — authoring reusable prompt templates for AI coding assistant
         | engine      |
         | claude-code |
 
-  @pending
-  Rule: Creating a command writes real content, and it reaches every surface
+  Rule: Creating a command writes real content, and it reaches every listing
 
     # Same hazard as fragment.feature's create scenario: "review" is the
-    # argument the command line passed, and it is the YAML key, the listed
-    # name, and the resource entry alike — so `Content: ""` in cli.createItem
+    # argument the command line passed, and it is the YAML key and the listed
+    # name alike — so `Content: ""` in cli.createItem
     # stored no body at all and every axis stayed green regardless.
     # "Add content here." is the placeholder body create actually writes, and
     # it is the only string here that proves real bytes landed rather than a
-    # name being echoed back three times.
-    Scenario: Alice creates a command and it is listed and exposed to the agent
+    # name being echoed back.
+    Scenario: Alice creates a command and it is listed
       Given an initialized ctxloom project
       And a bundle "demo" exists
       When Alice creates a command for her team:
@@ -68,8 +66,6 @@ Feature: command — authoring reusable prompt templates for AI coding assistant
       And the file ".ctxloom/content/bundles/v2/demo/prompts/review.md" contains "Add content here."
       When I run "ctxloom command list"
       Then the output contains "review"
-      When the agent reads resource "ctxloom://commands"
-      Then the resource contains "review"
 
   Rule: A command's content reaches a person and an agent byte for byte
 
@@ -87,22 +83,6 @@ Feature: command — authoring reusable prompt templates for AI coding assistant
       And the output contains "review"
       And the output contains "COMMAND-BODY-review"
 
-    # The MIME type is a static field on the envelope: every MCP resource
-    # returning an EMPTY body left this green on the type alone. The body is
-    # the resource. The session endpoint serves the command as the SESSION's
-    # package carries it, so the owner stands on a profile that selects it.
-    @pending
-    Scenario: Reading a single command over MCP
-      Given an initialized ctxloom project
-      And a bundle "demo" exists
-      And a command "review" in bundle "demo" exists
-      And a profile "dev" with bundle "demo"
-      And a session owner is standing on the profile "dev"
-      When the agent reads resource "ctxloom://commands/review"
-      Then the resource MIME type is "text/markdown"
-      And the resource contains "COMMAND-BODY-review"
-
-  @pending
   Rule: Removing a command removes it from the manifest and from every listing
 
     # Bare `remove` is a preview: it must leave the manifest untouched. A
@@ -116,7 +96,7 @@ Feature: command — authoring reusable prompt templates for AI coding assistant
       When I run "ctxloom command remove demo#commands/review <flags>"
       Then the command succeeds
       And the output reports "applied" as "<reports nothing removed>"
-      And the output reports "apply" as "<names the apply command>"
+      And the output reports "apply_command" as "<names the apply command>"
       And the file ".ctxloom/content/bundles/v2/demo/prompts/review.md" contains "COMMAND-BODY-review"
 
     @json-default
@@ -130,8 +110,8 @@ Feature: command — authoring reusable prompt templates for AI coding assistant
     # Both halves are asserted on payload, separately: a remove that only
     # trimmed the cached listing (leaving the YAML entry behind) and a remove
     # that only trimmed the YAML (leaving a stale listing) would each satisfy
-    # exactly one of these three checks alone.
-    Scenario: Removing a command removes it from the manifest, the listing, and the agent's resource
+    # exactly one of these checks alone.
+    Scenario: Removing a command removes it from the manifest and the listing
       Given an initialized ctxloom project
       And a bundle "demo" exists
       And a command "review" in bundle "demo" exists
@@ -143,10 +123,7 @@ Feature: command — authoring reusable prompt templates for AI coding assistant
       And the file ".ctxloom/content/bundles/v2/demo/prompts/review.md" does not exist
       When I run "ctxloom command list"
       Then the output does not contain "review"
-      When the agent reads resource "ctxloom://commands"
-      Then the resource does not contain "review"
 
-  @pending
   Rule: --no-distill controls whether an edit gets re-distilled, honestly
 
     # --no-distill is a per-invocation opt-out, distinct from the item's own
@@ -165,14 +142,14 @@ Feature: command — authoring reusable prompt templates for AI coding assistant
         ctxloom command edit demo#commands/review --no-distill <flags>
         """
       Then the command succeeds
-      And the output reports "distilled" as "<says the distillation was not refreshed>"
+      And the output reports "command.distilled" as "<says the distillation was not refreshed>"
       And the file ".ctxloom/content/bundles/v2/demo/prompts/review.md" contains "EDITED-BY-TEST"
 
     @json-default
     Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
       | flags         | says the distillation was not refreshed  |
-      |               | false                                    |
-      | --format json | false                                    |
+      |               |                                          |
+      | --format json |                                          |
       | --format text | distilled form not refreshed (--no-distill) |
 
     # editInEditor returns whatever bytes are on disk with no length check, so
@@ -193,7 +170,6 @@ Feature: command — authoring reusable prompt templates for AI coding assistant
       And the output contains "refusing to overwrite"
       And the file ".ctxloom/content/bundles/v2/demo/prompts/review.md" contains "COMMAND-BODY-review"
 
-  @pending
   Rule: A command already marked no_distill is reported, not silently skipped
 
     # no_distill is checked BEFORE the distiller-availability check, so this
@@ -201,6 +177,7 @@ Feature: command — authoring reusable prompt templates for AI coding assistant
     # author's own declaration wins first, and distill says so rather than
     # exiting 0 with no explanation of which of the two reasons applied.
     Scenario Outline: Distilling a command marked no_distill reports why it did nothing
+      # changed: step 11 (draft), step 10b's DistillCommandResponse (library.proto, approved): the reason is a line of `detail`, the response has no `reason`.
       Given an initialized ctxloom project
       And the project already has the bundle "demo":
         """
@@ -215,7 +192,7 @@ Feature: command — authoring reusable prompt templates for AI coding assistant
         ctxloom command distill demo#commands/review <flags>
         """
       Then the command succeeds
-      And the output reports "reason" as "<names no_distill as the reason>"
+      And the output reports "detail" containing "<names no_distill as the reason>"
 
     @json-default
     Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
@@ -224,7 +201,6 @@ Feature: command — authoring reusable prompt templates for AI coding assistant
       | --format json | no_distill                     |
       | --format text | is marked as no_distill        |
 
-  @pending
   Rule: A --bundle filter that names nothing is refused, not answered empty
 
     # The UNFILTERED listing is non-empty whenever any command exists

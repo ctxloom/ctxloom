@@ -1,0 +1,22 @@
+[package]
+name = "library-checkout"
+version = "0.1.0"
+description = "The library trees as last observed: folded from the library streams, held in memory, what a read reconciles against and answers each resource's etag from"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+angzarr-embedded.workspace = true
+library-tree.workspace = true
+held-projection.workspace = true
+
+[dev-dependencies]
+angzarr-embedded = { workspace = true, features = ["test-support"] }
+library-domain-proto.workspace = true
+mutants.workspace = true
+prost.workspace = true
+
+[lints]
+workspace = true

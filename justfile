@@ -41,10 +41,17 @@ staged_tree := "../.{name}.staged"
 feature_rules := ""
 features_prepare := ""
 
-# A red commit off the default branch may carry the red it added, never green
-# it broke: `test-commit` asks `_red-judge` (scripts/red-commit-judge.sh), which
-# refuses a scenario turned red in a feature file the commit does not touch.
-red_judge := "_red-judge"
+# No judge of a red commit (owner ruling of 2026-11-13, fast hooks): a red
+# commit off the default branch goes through, and the landing gate's ratchet
+# (`land-ratchet`, `closeout-ratchet`) refuses red scenarios the branch added
+# or green ones it broke.
+red_judge := ""
+
+# The pre-commit test gate runs no feature file the commit does not stage
+# (2026-11-18): scripts/staged-features.sh narrows `test-staged` to every
+# test but the feature runner's, and those of the staged feature files. The
+# whole suite, every feature, is `test`'s, the landing gate's.
+staged_tests_filter := "scripts/staged-features.sh"
 
 # Mutation kill-rate thresholds, percent, by crate path: the one place they
 # are stated. A mutant is judged by the longest prefix its file matches; one
@@ -53,6 +60,38 @@ red_judge := "_red-judge"
 # root/bin at 0 reports its survivors and refuses nothing: the composition root
 # holds no logic, and the binary's wiring is shown by running it, not by unit
 # tests.
+# The mutation run's memory cap (gates/memory-cap.sh): a systemd user scope
+# with MemoryMax and MemorySwapMax, OOMPolicy=continue, so a mutant whose test
+# grows without bound is killed by the cap's OOM killer (caught) instead of
+# filling the machine (2026-11-15). MUTANTS_MEMORY_MAX=none opts out, said in
+# the run's log; MUTANTS_MEMORY_MAX and MUTANTS_SWAP_MAX change the cap.
+# 8G (owner ruling of 2026-11-16, down from 16G).
+mutants_memory_max := env("MUTANTS_MEMORY_MAX", "8G")
+mutants_swap_max := env("MUTANTS_SWAP_MAX", "2G")
+# The test gates' memory cap, the same scope (owner ruling of 2026-11-16):
+# every run of the gates' `_tests` (`test`, `test-pkg`, `test-staged`, and
+# the test leg of `closeout`, `closeout-ratchet` and `land-ratchet`) and the
+# ratchet base's feature runner (scripts/ratchet-base.sh); the whole-workspace
+# ones of them also under the machine-wide test lock (gates/tests-lock.sh,
+# one at a time per machine; `test-pkg` takes none). TESTS_MEMORY_MAX=none
+# opts out, said in the run's log; TESTS_MEMORY_MAX and TESTS_SWAP_MAX change
+# the cap.
+tests_memory_max := env("TESTS_MEMORY_MAX", "16G")
+tests_swap_max := env("TESTS_SWAP_MAX", "2G")
+
+# The worktree pool (owner ruling of 2026-11-16; scripts/slot.sh): slot_count
+# long-lived checkouts, slot_root/slot_prefix<n>, each with a warm target/,
+# leased one at a time. slot_root is ~/workspace/worktrees of the user's own
+# home, from the password database, not $HOME (an agent in a ctxloom session
+# runs with HOME its session home, ruling 112); CTXLOOM_SLOT_ROOT replaces
+# it. The sweep of their target/ (scripts/trim-targets.sh) is the released
+# cargo-sweep pinned at cargo_sweep_version (`cargo install --locked
+# cargo-sweep@0.8.0`); any other version fails it.
+slot_root := env("CTXLOOM_SLOT_ROOT", shell('eval "echo ~$(id -un)"') / "workspace/worktrees")
+slot_prefix := "ctxloom--slot-"
+slot_count := "3"
+cargo_sweep_version := "0.8.0"
+
 mutation_thresholds := "crates/core/domain=90 crates/core/read-model=90 crates/core/ports=90 crates/core/application=90 crates/adapters=90 crates/root/lib=0 crates/root/bin=0"
 
 # Staged paths outside any crate that can change what every crate builds or
@@ -63,7 +102,7 @@ workspace_wide := "Cargo.toml Cargo.lock rust-toolchain.toml proto/* .cargo/conf
 # The cargo arguments `check-windows` (gates/os-gates.just) compiles for a
 # Windows target: driven adapters that use the platform seams, without C
 # dependencies (those need a mingw C compiler).
-windows_packages := "-p content-fs -p config-files -p cache-files -p surface-files -p remote-git -p liveness -p session-files -p deps-files -p editor-process"
+windows_packages := "-p content-fs -p config-files -p cache-files -p surface-files -p remote-git -p library-git -p liveness -p session-files -p deps-files -p editor-process"
 
 # Where this machine's checkout of rust-support's templates/clippy-disallowed.toml
 # is, the canonical OS and filesystem list `lint-clippy-sync` compares
@@ -72,6 +111,7 @@ windows_packages := "-p content-fs -p config-files -p cache-files -p surface-fil
 clippy_template := env("RUST_SUPPORT_TEMPLATE", TOP + "/../rust-support/templates/clippy-disallowed.toml")
 
 # Build every crate. Needs protoc on PATH and access to github.com (angzarr-proto).
+# Then the plain binary it made is held to its checks (`plain-binary`).
 [group('check')]
 [doc("Build every crate (needs protoc and github.com)")]
 [no-exit-message]
@@ -80,15 +120,46 @@ build:
     set -euo pipefail
     terse=(-q --message-format=short)
     [ "${VERBOSE:-}" = 1 ] && terse=()
-    # Then the plain binary it made is held to knowing only the real engines
-    # (ruling 52: the mocks are test-support's; scripts/plain-engines-check.sh)
-    # and to having no destroy (ruling 94b: `session purge` is the
-    # session-destroy feature's; scripts/plain-destroy-check.sh).
+    just --justfile {{TOP}}/justfile _run build workspace cargo \
+        cargo build "${terse[@]}" --manifest-path {{TOP}}/Cargo.toml --workspace
+    exec just --justfile {{TOP}}/justfile plain-binary
+
+# The plain binary (a build of the workspace without its dev-dependencies,
+# as `build` makes it) is held to knowing only the real engines (ruling 52:
+# the mocks are test-support's; scripts/plain-engines-check.sh) and to
+# having no destroy (ruling 94b: scripts/plain-destroy-check.sh). No test
+# build can see either, since a test build unifies features. The
+# pre-commit gate after clippy (owner ruling 2026-11-18, evening), and the
+# end of `build`.
+[private]
+[group('hook')]
+[doc("pre-commit: the plain binary knows only the real engines and no destroy")]
+[no-exit-message]
+plain-binary:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    terse=(-q --message-format=short)
+    [ "${VERBOSE:-}" = 1 ] && terse=()
     target=${CARGO_TARGET_DIR:-{{TOP}}/target}
-    exec just --justfile {{TOP}}/justfile _run build workspace cargo \
+    exec just --justfile {{TOP}}/justfile _run plain-binary workspace plain-binary \
         bash -c 'cargo build "${@:3}" --manifest-path "$1/Cargo.toml" --workspace &&
             "$1/scripts/plain-engines-check.sh" "$2/debug/ctxloom" &&
-            "$1/scripts/plain-destroy-check.sh" "$2/debug/ctxloom"' build {{TOP}} "$target" "${terse[@]}"
+            "$1/scripts/plain-destroy-check.sh" "$2/debug/ctxloom"' plain-binary {{TOP}} "$target" "${terse[@]}"
+
+# `plain-binary`'s extract: a build's diagnostics as `cargo`'s are; else
+# the failing check's own words, its summary first (each check is silent
+# on a pass).
+[private]
+[positional-arguments]
+_extract-plain-binary log rc:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if grep -qE '^[^ ]+:[0-9]+:[0-9]+: error|^error(\[[A-Z0-9]+\])?: ' "$1"; then
+        exec just --justfile '{{TOP}}/justfile' _extract-cargo "$1" "$2"
+    fi
+    # A build's warnings are not why it failed: the check's words are.
+    said=$(grep -vE '^[^ ]+:[0-9]+:[0-9]+: warning|^warning: ' "$1" || true)
+    if [ -n "$said" ]; then echo "$said"; else echo "failed (exit $2)"; fi
 
 # Install the Rust ctxloom beside the Go one (owner ruling 164): the PLAIN
 # binary (no test-support, no session-destroy; held to that by the same two
@@ -99,11 +170,21 @@ build:
 # ~/.ctxloom-rs, so Go's ~/.ctxloom is never read. Its hooks call `ctxloom`,
 # the running binary's file name (ruling 163), which leads the engine's PATH.
 # Idempotent: a file already as it should be is left alone and said so. One
-# line per action.
+# line per action. One ctxloom version runs at a time (owner, OD-62): before
+# a changed binary replaces the installed one, the NEW binary asks every
+# running ctxloom of the home to stop, `ctxloom shutdown [when]` (the daemon
+# drained within `when`, else the home config's `daemon.drain_timeout`,
+# else five minutes; then each live TUI frontend and the daemon asked the
+# plain stop): `just install` drains, `just install now` stops everything at
+# once. What will not stop is said, and the install goes on. Shutdown
+# delivers the home's holds first (owner ruling 2026-11-16, "flush before
+# install"): one it could not deliver is a decline, and the installed
+# binary is NOT replaced (scripts/install-shutdown.sh, its self-test in
+# `just selftest`).
 [group('install')]
-[doc("Build the plain binary and install it as ~/.local/bin/ctxloom (home ~/.ctxloom-rs)")]
+[doc("Build the plain binary and install it as ~/.local/bin/ctxloom (home ~/.ctxloom-rs): install [when], when a duration or now")]
 [no-exit-message]
-install:
+install when="":
     #!/usr/bin/env bash
     set -euo pipefail
     terse=(-q --message-format=short)
@@ -121,6 +202,10 @@ install:
     if cmp -s "$built" "$program"; then
         echo "ok   unchanged $program"
     else
+        # Every running ctxloom of the home asked to stop first, by the new
+        # binary (an older one may know no `shutdown`); a decline (held
+        # facts no daemon took) leaves the installed binary as it is.
+        "{{TOP}}/scripts/install-shutdown.sh" "$built" "$HOME/.ctxloom-rs" {{quote(when)}}
         # Beside it, then renamed over it: a running ctxloom keeps its file.
         install -m 0755 "$built" "$program.new"
         mv -f "$program.new" "$program"
@@ -158,9 +243,9 @@ install:
 # no USERPROFILE (`just install` and `just build` hold the same build to them
 # on unix). Unverified: written without a Windows machine to run it on.
 [group('install')]
-[doc("On Windows (Git Bash): install ctxloom.exe in %LOCALAPPDATA%\\Programs\\ctxloom, CTXLOOM_HOME a user variable")]
+[doc("On Windows (Git Bash): install ctxloom.exe in %LOCALAPPDATA%\\Programs\\ctxloom, CTXLOOM_HOME a user variable: install-windows [when]")]
 [no-exit-message]
-install-windows:
+install-windows when="":
     #!/usr/bin/env bash
     set -euo pipefail
     case "$(uname -s)" in
@@ -183,6 +268,10 @@ install-windows:
     if cmp -s "$built" "$program"; then
         echo "ok   unchanged $program"
     else
+        # Every running ctxloom of the home asked to stop first, by the new
+        # binary, as `just install` does (OD-62), and not replaced on a
+        # decline.
+        "{{TOP}}/scripts/install-shutdown.sh" "$built" "$USERPROFILE\\.ctxloom-rs" {{quote(when)}}
         rm -f "$program.old" 2>/dev/null || true
         [ -e "$program" ] && mv -f "$program" "$program.old"
         cp "$built" "$program.new"
@@ -326,6 +415,37 @@ lint: lint-arch lint-path-deps
 lint-path-deps:
     @just --justfile {{TOP}}/justfile _run path-deps staged path-deps {{TOP}}/scripts/path-deps-check.sh {{TOP}}
 
+# api-linter over the daemon's API protos, proto/ctxloom/v1 (owner rulings
+# S36/S37/S57, D6; step 10 U1): the pinned release (scripts/lint-api.sh: its
+# version and its archive's SHA-256), after the vendored googleapis protos
+# are checked against their manifest. Linux x86_64 only; Linux CI runs it.
+# Its config, with each departure commented, is proto/api-linter.yaml.
+[group('check')]
+[doc("api-linter over the API protos (pinned, checked by SHA-256; Linux x86_64)")]
+[no-exit-message]
+lint-api:
+    @just --justfile {{TOP}}/justfile _run lint-api proto/ctxloom/v1 api {{TOP}}/scripts/lint-api.sh
+
+# The vendored googleapis protos (proto/third_party/google): fetched at the
+# commit their manifest (SHA256SUMS) pins, each refused unless its SHA-256 is
+# the manifest's (scripts/vendor-googleapis.sh fetch). `lint-api` checks them
+# without the network.
+[group('setup')]
+[doc("Fetch the vendored googleapis protos at their pinned commit, checked by SHA-256")]
+[no-exit-message]
+vendor-googleapis:
+    @{{TOP}}/scripts/vendor-googleapis.sh fetch
+
+# lint-api's failure: the linter's findings count (its yaml), then the log.
+[private]
+[positional-arguments]
+_extract-api log rc:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    n=$(grep -c '^ *rule_id:' "$1" || true)
+    if [ "$n" -gt 0 ]; then echo "$n api-linter findings, by rule:"; else echo "failed (exit $2)"; fi
+    grep -E '^ *rule_id:' "$1" | sed 's/^ *rule_id: *//' | sort | uniq -c | sort -rn || cat "$1"
+
 # Wire lefthook's git hooks into the repository's .git/hooks. Worktrees share
 # .git/hooks, so this is once per clone, and again whenever lefthook.yml or
 # gates/lefthook.yml names a hook not installed yet. Needs lefthook (1.13.6)
@@ -345,6 +465,30 @@ hooks-install:
 test-pkg +packages: (_require-nextest "test-pkg")
     @just --justfile '{{TOP}}/justfile' _run test-pkg "{{packages}}" tests just --justfile '{{TOP}}/justfile' _tests {{packages}}
 
+# The reconcile's bench (step 10a U2, plan O7): a library read's observation
+# as the daemon makes it, on a repository of 100 000 files with 500 in
+# .ctxloom, its p95 held to 50 ms for a read that sees nothing new and one
+# that sees a hand edit. It builds its repository first (about half a
+# minute); each case's p50, p95 and max are printed, the full run in
+# target/logs/bench-reconcile.log.
+[group('check')]
+[doc("The reconcile's bench (O7): p95 under 50 ms on 100k files")]
+[no-exit-message]
+bench-reconcile: (_require-nextest "bench-reconcile")
+    #!/usr/bin/env bash
+    set -uo pipefail
+    log='{{TOP}}/target/logs/bench-reconcile.log'
+    mkdir -p "$(dirname "$log")"
+    LIBRARY_BENCH=reconcile cargo nextest run --manifest-path '{{TOP}}/Cargo.toml' --package ctxloom-wiring \
+        --no-fail-fast --no-tests=fail --success-output immediate --failure-output immediate --hide-progress-bar \
+        --cargo-quiet -E 'test(a_reconcile_on_a_large_repository_is_within_its_budget)' > "$log" 2>&1
+    rc=$?
+    grep -E '^ *bench reconcile|over the budget' "$log" | sed 's/^ *//'
+    # A bench that skipped measured nothing.
+    [ "$rc" -ne 0 ] || grep -q 'bench reconcile' "$log" || rc=1
+    if [ "$rc" -eq 0 ]; then echo "ok   bench-reconcile (O7)"; else echo "FAIL bench-reconcile: exit $rc (full log: target/logs/bench-reconcile.log)"; fi
+    exit "$rc"
+
 # Mutation-test a batch (base..head; base defaults to the merge-base with main,
 # head to HEAD) in a throwaway worktree: scripts/mutants-batch.sh. Nothing else
 # runs cargo-mutants but the `mutants-staged` gate recipe it drives, and the
@@ -363,19 +507,50 @@ mutants-batch base="" head="HEAD":
 # mutants.out and its cargo-mutants exit (`exit`) go to `out`. Exit 0 when
 # cargo mutants judged (its 0, 2 missed or 3 timed out); its own code
 # otherwise (4: the tests fail unmutated). `mutants-score` judges the shards
-# together.
+# together. `package` narrows the run to that one crate (`0/1` for all of
+# it): how one crate's mutants are run whole, as for a runaway mutant's hunt.
+# It runs under the mutation run's memory cap (`mutants_memory_max`,
+# gates/memory-cap.sh) and says the scope's memory peak.
+#
+# The ratchet (owner ruling 165): a shard holding mutants of the binary runs
+# its feature runner, so on a tree that carries red spec on purpose (an
+# integration branch) its unmutated baseline would fail (exit 4) and judge
+# nothing. Such a shard first makes the tree's own scenario list (`just
+# ratchet-base HEAD`, the runner alone in a throwaway worktree, cached by
+# sha), and when that list has red the run is given it as
+# GHERKIN_RATCHET_BASE: every run of the runner, the baseline and each
+# mutant's, is judged against it in the test (a new red fails it, the
+# tree's red passes), so the binary's tests still kill. A list with no red
+# (main) sets nothing: the plain gate. A shard with no mutant of the binary
+# runs no runner and makes no list.
 [group('closeout')]
-[doc("One shard of a whole-workspace mutation run: mutants-shard <k/n> [out]")]
+[doc("One shard of a mutation run (the workspace, or one package): mutants-shard <k/n> [out] [package]")]
 [no-exit-message]
-mutants-shard shard out="target/logs/mutants-shard": _mutants-no-features
+mutants-shard shard out="target/logs/mutants-shard" package="": _mutants-no-features
     #!/usr/bin/env bash
     set -euo pipefail
     out='{{out}}'
     case "$out" in /*) ;; *) out={{TOP}}/$out ;; esac
     rm -rf "$out"
     mkdir -p "$out"
+    {{TOP}}/gates/memory-cap.sh mutants-shard '{{mutants_memory_max}}' '{{mutants_swap_max}}' --check
+    scope=(--workspace)
+    [ -z '{{package}}' ] || scope=(--package '{{package}}')
+    ratchet=()
+    binary=$(cargo mutants --dir {{TOP}} --list --json "${scope[@]}" --shard '{{shard}}' \
+        | jq '[.[] | select(.package == "ctxloom")] | length')
+    if [ "$binary" -gt 0 ]; then
+        just --justfile {{TOP}}/justfile ratchet-base HEAD
+        list={{TOP}}/target/ratchet/$(git -C {{TOP}} rev-parse HEAD).list
+        red=$(grep -c '^red' "$list" || true)
+        if [ "$red" -gt 0 ]; then
+            ratchet=(env "GHERKIN_RATCHET_BASE=$list")
+            echo "mutants-shard {{shard}}: ratchet: the tree carries $red red scenarios; each feature-runner run is judged against them (GHERKIN_RATCHET_BASE)"
+        fi
+    fi
     rc=0
-    cargo mutants --dir {{TOP}} --in-place --workspace --shard '{{shard}}' --output "$out" --colors never || rc=$?
+    "${ratchet[@]}" {{TOP}}/gates/memory-cap.sh mutants-shard '{{mutants_memory_max}}' '{{mutants_swap_max}}' \
+        cargo mutants --dir {{TOP}} --in-place "${scope[@]}" --shard '{{shard}}' --output "$out" --colors never || rc=$?
     echo "$rc" > "$out/exit"
     found=$(jq '.total_mutants // 0' "$out/mutants.out/outcomes.json" 2>/dev/null || echo 0)
     echo "mutants-shard {{shard}}: cargo mutants exit $rc, $found mutants"
@@ -446,6 +621,17 @@ closeout base="":
 closeout-ratchet base:
     @{{TOP}}/scripts/closeout-ratchet.sh '{{base}}'
 
+# The landing gate of a branch on an integration branch (owner ruling of
+# 2026-11-13): closeout-ratchet's gates and ratchet without mutation
+# (scripts/closeout-ratchet.sh --no-mutation). Each branch landing on the
+# integration branch runs it; closeout-ratchet, mutation included, runs once
+# per batch and before main.
+[group('closeout')]
+[doc("Landing gate on an integration branch, no mutation: land-ratchet <base>")]
+[no-exit-message]
+land-ratchet base:
+    @{{TOP}}/scripts/closeout-ratchet.sh --no-mutation '{{base}}'
+
 # The base's scenario list for the ratchet, cached by its sha
 # (scripts/ratchet-base.sh): the feature runner on the base's tip in a
 # throwaway worktree.
@@ -455,49 +641,109 @@ closeout-ratchet base:
 ratchet-base base:
     @{{TOP}}/scripts/ratchet-base.sh '{{base}}'
 
-# `test-commit`'s judge of a red commit (gates/gates.just's `red_judge`):
-# scripts/red-commit-judge.sh, given the tests' exit code.
-[private]
-[no-exit-message]
-_red-judge rc:
-    @{{TOP}}/scripts/red-commit-judge.sh
-
-# The feature runner's scenario list (GHERKIN_RATCHET) of this tree, written
-# to `list`: what the red-commit judge runs in the staged tree. Only
-# `every_feature_runs` runs; it passes whatever failed, the list says what.
-[private]
-[no-exit-message]
-_feature-list list:
-    cd {{TOP}} && GHERKIN_RATCHET='{{list}}' cargo nextest run --manifest-path {{TOP}}/Cargo.toml --package ctxloom \
-        --no-fail-fast --no-tests=fail --status-level fail --final-status-level fail --success-output never \
-        --failure-output final --hide-progress-bar --cargo-quiet -E 'test(=tests::gherkin_features::every_feature_runs)'
-
 # Delete target/ (the only sanctioned `cargo clean`; ltk blocks the raw one).
 [group('setup')]
 [doc("Delete target/ (what `cargo clean` would)")]
 clean-target:
     rm -rf {{TOP}}/target
 
+# The worktree pool (scripts/slot.sh, owner ruling of 2026-11-16): `slot
+# lease <branch> [--from <base>]` takes a free, clean slot, switches it to
+# the branch (made from <base> when new) and prints its path; `slot release
+# [<slot>]` (default: the slot `just` was run from) refuses while it holds
+# uncommitted or unpushed work (`--allow-unpushed`), detaches its HEAD, lets
+# the lease go and sweeps its target/; `slot list` says each slot's state.
+# The lease is a flock held for its owner's life, so a crashed agent's slot
+# frees itself.
+[group('setup')]
+[doc("The worktree pool: slot lease <branch> [--from <base>] [--wait <secs>] [--by <who>] [--holder <pid>] | slot release [<slot>] [--allow-unpushed] [--no-sweep] | slot list")]
+[no-exit-message]
+[positional-arguments]
+slot *args:
+    @SLOT_ROOT='{{slot_root}}' SLOT_PREFIX='{{slot_prefix}}' SLOT_COUNT='{{slot_count}}' TRIM_SWEEP_VERSION='{{cargo_sweep_version}}' SLOT_FROM='{{invocation_directory()}}' {{TOP}}/scripts/slot.sh "$@"
+
+# Sweep the pool's target/ directories (or the checkouts given) of build
+# artifacts no build has used for --days (default 2), by age, with the
+# pinned cargo-sweep (scripts/trim-targets.sh): a removed unit goes with its
+# fingerprint, so cargo rebuilds it when next wanted. `--dry-run` says what
+# it would free and removes nothing.
+[group('setup')]
+[doc("Sweep the pool's target/ of artifacts unused for days: trim-targets [--dry-run] [--days <n>] [<checkout>...]")]
+[no-exit-message]
+[positional-arguments]
+trim-targets *args:
+    @SLOT_ROOT='{{slot_root}}' SLOT_PREFIX='{{slot_prefix}}' SLOT_COUNT='{{slot_count}}' TRIM_SWEEP_VERSION='{{cargo_sweep_version}}' {{TOP}}/scripts/trim-targets.sh "$@"
+
 # The self-tests of this repository's scripts against fixture trees.
 [group('check')]
-[doc("Self-tests of the scripts: drop-worktree, mutants-batch, closeout, closeout-ratchet, ltk rules, output budget, tests exit, test-staged, red-commit judge, exec-mode check, path deps")]
+[doc("Self-tests of the scripts: drop-worktree, mutants-batch, mutants-verdict, memory cap, closeout, closeout-ratchet, ratchet-base, ltk rules, output budget, tests exit, test-staged, scratch-tree lock, machine-wide test lock, exec-mode check, path deps, vendored googleapis, mcp-env probe, install shutdown, slot pool, trim-targets")]
 [no-exit-message]
 selftest:
     @{{TOP}}/scripts/drop-worktree.selftest.sh
     @{{TOP}}/scripts/mutants-batch.selftest.sh
     @{{TOP}}/scripts/mutants-verdict.selftest.sh
+    @{{TOP}}/scripts/memory-cap.selftest.sh
     @{{TOP}}/scripts/closeout.selftest.sh
     @{{TOP}}/scripts/closeout-ratchet.selftest.sh
+    @{{TOP}}/scripts/ratchet-base.selftest.sh
     @{{TOP}}/scripts/ltk-rules-check.sh
     @{{TOP}}/scripts/output-budget.selftest.sh
     @{{TOP}}/scripts/tests-exit.selftest.sh
+    @{{TOP}}/scripts/red-commit-sanity.selftest.sh
     @{{TOP}}/scripts/test-staged.selftest.sh
-    @{{TOP}}/scripts/red-commit-judge.selftest.sh
+    @{{TOP}}/scripts/scratch-tree-lock.selftest.sh
+    @{{TOP}}/scripts/tests-lock.selftest.sh
     @{{TOP}}/scripts/exec-mode-check.selftest.sh
     @if [ -e {{TOP}}/.dev ]; then just dev::selftest; fi
     @{{TOP}}/scripts/path-deps-check.selftest.sh
+    @{{TOP}}/scripts/vendor-googleapis.selftest.sh
     @{{TOP}}/scripts/commit-msg.selftest.sh
     @{{TOP}}/scripts/release-package.selftest.sh
+    @{{TOP}}/scripts/mcp-env-probe.selftest.sh
+    @{{TOP}}/scripts/install-shutdown.selftest.sh
+    @{{TOP}}/scripts/slot.selftest.sh
+    @TRIM_SWEEP_VERSION='{{cargo_sweep_version}}' {{TOP}}/scripts/trim-targets.selftest.sh
+
+# The terminal wake's live probe against the installed claude (owner ruling
+# 2026-11-18): re-run on each claude bump. Not a gate. One model call (haiku);
+# `--no-model` makes none. Credentials: CLAUDE_CODE_OAUTH_TOKEN, else a link to
+# your claude login, never copied or printed.
+[group('check')]
+[doc("Live-probe claude's messaging socket wake: validate-wake-claude [claude] [--no-model]")]
+validate-wake-claude *args:
+    @python3 -I {{TOP}}/scripts/validate-wake-claude.py {{args}}
+
+# What the terminal wake adds to a primary's PostToolUse hook (and, reported
+# only, its UserPromptSubmit hook), nothing pending (owner ruling 2026-11-18:
+# under 20 ms at p95): the
+# test-support binary of <base> (default the wake's merge base, built in a
+# throwaway worktree beside the checkout, its own target dir
+# target/latency-base) against this tree's, each with a daemon of its own in
+# a temporary home, the calls interleaved (scripts/hook-latency.py). Not a
+# gate; run it on a quiet machine. Exit 1 when the budget is spent. `profile`
+# is cargo's (`ci-artifact`: release's optimizations, no LTO).
+[group('check')]
+[doc("Measure the wake's PostToolUse hook latency: hook-latency [base] [calls] [profile]")]
+hook-latency base="2579730b1" calls="200" profile="dev":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    while IFS= read -r v; do unset "$v"; done < <(git rev-parse --local-env-vars)
+    built() {
+        cargo build --quiet --message-format=json-render-diagnostics \
+            --manifest-path "$1/Cargo.toml" --package ctxloom \
+            --features test-support,session-destroy --bin ctxloom --profile {{profile}} "${@:2}" \
+            | jq -r 'select(.reason == "compiler-artifact" and .target.name == "ctxloom"
+                and .executable != null) | .executable'
+    }
+    sha=$(git -C {{TOP}} rev-parse --verify --quiet "{{base}}^{commit}") \
+        || { echo "FAIL hook-latency: {{base}} is not a commit" >&2; exit 1; }
+    wt=$(dirname {{TOP}})/.$(basename {{TOP}}).latency-base
+    {{TOP}}/gates/drop-worktree.sh {{TOP}} "$wt"
+    git -C {{TOP}} worktree add -q --detach "$wt" "$sha"
+    trap '{{TOP}}/gates/drop-worktree.sh {{TOP}} "$wt"' EXIT
+    before=$(built "$wt" --target-dir {{TOP}}/target/latency-base)
+    after=$(built {{TOP}})
+    python3 -I {{TOP}}/scripts/hook-latency.py "$before" "$after" {{calls}}
 
 # Run the ctxloom binary (cargo run, quiet) with the given arguments.
 [group('dev')]

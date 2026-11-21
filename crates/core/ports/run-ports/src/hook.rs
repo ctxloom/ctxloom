@@ -1,16 +1,26 @@
-//! What a hook process of a run's engine (the terminal session's, or a
-//! one-shot child's: owner ruling 51) is told (owner rulings 2026-11-08 item 9
-//! and 2026-11-09 item 16): where the run's listener is (a URL) and
-//! the bearer that is its hook-only credential, in three environment
-//! variables. Pure: the endpoint URL and the variables are computed from what
-//! they are given (the bound port is injected, never read here).
+//! What a hook process of a run's engine is told, in its environment.
 //!
-//! The bearer is a SECRET. It is a composite `<run-id>.<64 hex>`, so the gate
-//! can look the run up without upstream metadata support; it reaches the
-//! engine's environment and nowhere else: never a log line or an error
-//! message ([`Bearer`]'s `Debug` is redacted, [`BearerError`] does not
-//! echo what it was given, and [`RedactedEnv`] prints an environment's names
-//! and none of its values).
+//! On the HOST (slice 4 U7, owner ruling s4-Q3): the run's session, by its
+//! resource name ([`SESSION_VARIABLE`]), and the run ([`RUN_VARIABLE`]), set
+//! by [`name_the_run`]. A hook delivers to the user's daemon, found by its
+//! discovery file, with the USER bearer (U2); no host run serves a listener
+//! of its own, mints a credential of its own or tells its engine an
+//! endpoint, a bearer or a certificate.
+//!
+//! The env-named arrival ([`ENDPOINT_VARIABLE`], [`BEARER_VARIABLE`],
+//! [`TLS_CERT_VARIABLE`], [`hook_environment`], [`Bearer::compose`] and
+//! [`Bearer::parse`]) is KEPT for M10b's container arrival (OD-13): a
+//! container's hooks cannot read the host's discovery file, so M10b's
+//! launcher will tell them where to deliver and with which (per-container)
+//! bearer. Nothing on the host calls [`hook_environment`] (a workspace test
+//! holds it to M10b's list); flag it as dead code if M10b lands without
+//! calling it. Pure: the endpoint URL and the variables are computed from
+//! what they are given (the bound port is injected, never read here).
+//!
+//! A bearer is a SECRET. It reaches the engine's environment and nowhere
+//! else: never a log line or an error message ([`Bearer`]'s `Debug` is
+//! redacted, [`BearerError`] does not echo what it was given, and
+//! [`RedactedEnv`] prints an environment's names and none of its values).
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -20,31 +30,35 @@ use angzarr_diagnostic::{code, Arg, Diagnostic};
 use crate::tls::PublicCert;
 use crate::token::{Token, TokenError};
 
-/// The variable that names the run's listener: the listener's URL (`https://<host>:<port>`).
+/// The variable that names where a hook delivers, `https://<host>:<port>`:
+/// kept for M10b's container arrival (OD-13); no host run sets it, and a
+/// hook that finds it set delivers there alone, never to the daemon.
 pub const ENDPOINT_VARIABLE: &str = "CTXLOOM_ENDPOINT";
-/// The variable that holds the hook principal's bearer: the secret.
+/// The variable that holds the bearer of [`ENDPOINT_VARIABLE`]'s listener:
+/// the secret. Kept for M10b's container arrival (OD-13); no host run sets
+/// it.
 pub const BEARER_VARIABLE: &str = "CTXLOOM_BEARER";
 /// The variable that names the run (UUID text): not a secret.
 pub const RUN_VARIABLE: &str = "CTXLOOM_RUN";
 
-/// The variable that holds the run's listener certificate, the child's sole
-/// trust root: base64 of the DER on one line. Public, not a secret.
+/// The variable that holds [`ENDPOINT_VARIABLE`]'s listener certificate, the
+/// hook's sole trust root: base64 of the DER on one line. Public, not a
+/// secret. Kept for M10b's container arrival (OD-13); no host run sets it.
 pub const TLS_CERT_VARIABLE: &str = "CTXLOOM_TLS_CERT";
 
-/// The variable that names the session's harp: the address a hook finds its
-/// session by. The engine's environment carries it (the terminal session's
-/// and a one-shot child's).
-pub const HARP_VARIABLE: &str = "CTXLOOM_SESSION_HARP";
-
-/// The variable that names the run's session by its stable id (UUID text):
-/// what a hook addresses its facts to (review finding 6, ruling 87: never
-/// read from the session's directory). Not a secret; the gate still holds a
-/// hook to the session of the run its bearer names.
+/// The variable that names the run's session by its resource name,
+/// `projects/{project}/sessions/{session}` (slice 3, s3-Q3: the ONE variable;
+/// `CTXLOOM_SESSION_HARP` is retired): its harp is the name's last segment
+/// (a statusline's), the stable id a hook addresses its facts to is the
+/// name's UUIDv5 (review finding 6, ruling 87: never read from the session's
+/// directory), and ctxloom's MCP server is the session it names. Not a
+/// secret; the gate still holds a hook to the session of the run its bearer
+/// names.
 pub const SESSION_VARIABLE: &str = "CTXLOOM_SESSION";
 
-/// The five variables, which reach a run's engine's environment (the
-/// terminal session's and a one-shot child's, ruling 51), always the run's own:
-/// an inherited value is replaced.
+/// The five hook variables. A host run's engine is given its run's own
+/// session and run and none of the other three ([`name_the_run`]): an
+/// inherited value of any of the five is never passed on.
 pub const HOOK_VARIABLES: [&str; 5] = [
     ENDPOINT_VARIABLE,
     BEARER_VARIABLE,
@@ -52,6 +66,10 @@ pub const HOOK_VARIABLES: [&str; 5] = [
     TLS_CERT_VARIABLE,
     SESSION_VARIABLE,
 ];
+
+/// The three variables of the env-named arrival, which no host run tells its
+/// engine (slice 4 U7): kept for M10b's container arrival (OD-13).
+pub const LISTENER_VARIABLES: [&str; 3] = [ENDPOINT_VARIABLE, BEARER_VARIABLE, TLS_CERT_VARIABLE];
 
 /// The URL a hook process dials for the listener at `host` and `port`:
 /// `https://<host>:<port>`. An IPv6 literal is bracketed. Port 0 is a request
@@ -177,9 +195,13 @@ impl Diagnostic for EndpointError {
     }
 }
 
-/// The hook principal's bearer: `<run-id>.<64 hexadecimal digits>`. Its
+/// A bearer a client presents: the user bearer (T12), the daemon's token
+/// alone ([`Bearer::user`]), or a composite `<run-id>.<64 hexadecimal
+/// digits>` ([`Bearer::compose`], [`Bearer::parse`]), which no host run
+/// mints any more (owner ruling s4-Q3) and which is kept for M10b's
+/// container arrival (OD-13: its per-container bearer). Its
 /// `Debug` is redacted; the text comes out only through [`Bearer::expose`],
-/// for the environment of the one process that is given it.
+/// for the one call or environment it is given to.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Bearer(String);
 
@@ -187,6 +209,12 @@ impl Bearer {
     /// The bearer of `token` for the run named by `run` (UUID text).
     pub fn compose(run: &str, token: &Token) -> Bearer {
         Bearer(format!("{run}.{}", token.to_text()))
+    }
+
+    /// The user bearer (T12): `token`'s 64 hexadecimal digits alone, as the
+    /// daemon's discovery file holds it. It names no run.
+    pub fn user(token: &Token) -> Bearer {
+        Bearer(token.to_text())
     }
 
     /// The run text and token of a bearer's text, or why it holds none. The
@@ -238,9 +266,13 @@ impl Diagnostic for BearerError {
     }
 }
 
-/// The variables a run's engine is given for its hooks: the endpoint, the
-/// bearer, the run, its certificate and its session (the stable id a hook
-/// addresses its facts to).
+/// The variables of the env-named arrival: the endpoint, the bearer, the
+/// run, its certificate and its session (its resource name).
+///
+/// Kept for M10b's container arrival (OD-13): its container launcher tells a
+/// container's hooks where to deliver with these. No host run calls it
+/// (slice 4 U7; a workspace test holds its callers to M10b's list); flag it
+/// as dead code if M10b lands without calling it.
 pub fn hook_environment(
     endpoint: &str,
     run: &str,
@@ -258,6 +290,19 @@ pub fn hook_environment(
         (RUN_VARIABLE.to_string(), run.to_string()),
         (TLS_CERT_VARIABLE.to_string(), cert.to_env_value()),
     ])
+}
+
+/// `env` as a HOST run's engine is given it for its hooks (slice 4 U7):
+/// every inherited hook variable taken out (one from a session the caller
+/// was started inside is never passed on), then the run's own session, by
+/// its resource name, and run set. Nothing names an endpoint, a bearer or a
+/// certificate, so a hook delivers to the user's daemon (U2).
+pub fn name_the_run(env: &mut BTreeMap<String, String>, run: &str, session: &str) {
+    for name in HOOK_VARIABLES {
+        env.remove(name);
+    }
+    env.insert(SESSION_VARIABLE.to_string(), session.to_string());
+    env.insert(RUN_VARIABLE.to_string(), run.to_string());
 }
 
 /// An environment as `Debug` shows it: every variable's name, no value.

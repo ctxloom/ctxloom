@@ -43,3 +43,6 @@ done
     echo "CTXLOOM_TEST_BINARY=$ctxloom"
     echo "CTXLOOM_TEST_COMPANION_STUB=$stub"
 } >> "$NEXTEST_ENV"
+# Named for gates/red-sanity.sh too, which checks after a red run that they
+# still exist (a deleted build tree is no test failure).
+printf '%s\n%s\n' "$ctxloom" "$stub" > "${CARGO_TARGET_DIR:-target}/nextest-binaries.list"

@@ -31,6 +31,7 @@ macro_rules! write_errors {
         }
 
         /// One value of every error here, for the catalog test.
+        #[cfg(any(test, feature = "test-support"))]
         pub fn samples() -> Vec<Box<dyn Diagnostic>> {
             vec![$(Box::new(WriteError::$variant {
                 $($field: stringify!($field).to_string()),*
@@ -56,16 +57,28 @@ write_errors! {
     ItemExists { kind, name } = "write-item-exists";
     /// An item name that is no single path segment.
     BadItemName { kind, name } = "write-bad-item-name";
+    /// A name created, imported or added that is no ID (OQ-6, design
+    /// §1.3): a bundle, fragment, command, skill, MCP server or profile; a
+    /// nested bundle name is none (OQ-5).
+    BadId { kind, name } = "write-bad-id";
     /// An item nobody has.
     ItemNotFound { kind, name } = "write-item-not-found";
     /// An editor that returned nothing.
     EmptyEdit { kind, name } = "write-empty-edit";
-    /// An edit that saved its content raw because nothing can distill yet.
-    DistillUnavailable { kind, name, reference } = "write-distill-unavailable";
     /// An export with nowhere to go.
     ExportNeedsDest { } = "write-export-needs-dest";
     /// An export onto a file that is there.
     ExportExists { path } = "write-export-exists";
+    /// A local bundle move onto a bundle that is there (step 10b U9: one
+    /// rename, never over what is there, `--force` or not): `bundle` the
+    /// one moved, `dir` the project it was to land in, which its fix names
+    /// (owner 2026-11-18, night).
+    MoveDestinationExists { dest, bundle, dir } = "write-move-destination-exists";
+    /// A local bundle move onto its own place.
+    MoveDestinationItself { dest } = "write-move-destination-itself";
+    /// A bundle export onto a path that is there (D2: put in whole, never
+    /// over what is there).
+    ExportDestinationExists { path } = "write-export-destination-exists";
     /// An import that would replace what is there.
     ImportExists { what, path } = "write-import-exists";
     /// An import of what is no bundle.
@@ -96,6 +109,12 @@ write_errors! {
     UnknownEngine { name, engine, valid } = "write-unknown-engine";
     /// A runtime that is no axis.
     UnknownRuntime { name, value } = "write-unknown-runtime";
+    /// A session_home that is neither word (owner ruling of 2026-11-13).
+    UnknownSessionHome { name, value } = "write-unknown-session-home";
+    /// `session_home: host` asked of a project write: her home is hers to
+    /// hand an agent, from her home config alone (owner ruling of
+    /// 2026-11-14, ruling 46); `verb` is the write's (`create`, `edit`).
+    SessionHomeHostInProject { name, verb } = "write-session-home-host-in-project";
     /// An agent that binds nothing.
     AgentWithoutEngine { name } = "write-agent-without-engine";
     /// An env declaration that would not do what it says.
@@ -110,10 +129,8 @@ write_errors! {
     RootNeedsEngine { name } = "write-root-needs-engine";
     /// A name that is no companion's.
     CompanionName { name } = "write-companion-name";
-    /// A companion whose program does not exist.
+    /// A companion whose program is not on the `PATH`.
     CompanionProgramMissing { program, name } = "write-companion-program-missing";
-    /// A companion registered with no command.
-    CompanionNoCommand { name } = "write-companion-no-command";
     /// A command that does not answer the probe.
     NotACompanion { command, detail } = "write-not-a-companion";
     /// A command that prints no loadout.

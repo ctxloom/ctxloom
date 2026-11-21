@@ -1,7 +1,7 @@
 //! What a harp may be called. Go: `internal/shared/harp` (`Validate`,
 //! release/0.7; its `ValidateRename` bound is gone with the rename, S55).
 
-use crate::{validate, SessionRejection};
+use crate::{validate, validate_session_name, SessionRejection};
 
 fn invalid(harp: &str, reason: &str) -> SessionRejection {
     SessionRejection::HarpInvalid {
@@ -40,4 +40,25 @@ fn validate_accepts_harps_and_the_odd_name_a_person_might_choose() {
     ] {
         assert_eq!(validate(good), Ok(()), "{good:?}");
     }
+}
+
+// Step 8 Q7: a new session's name may not take the ask form; any other the
+// path rules let through may, and those rules still apply.
+#[test]
+fn a_new_sessions_name_may_not_begin_ask() {
+    assert_eq!(
+        validate_session_name("ask-tidy-wren"),
+        Err(invalid(
+            "ask-tidy-wren",
+            "reserved: names beginning ask- are an approval ask's"
+        ))
+    );
+    assert_eq!(validate_session_name("task-tidy"), Ok(()));
+    assert_eq!(validate_session_name("brisk-copper-moth"), Ok(()));
+    assert_eq!(
+        validate_session_name("a/b"),
+        Err(invalid("a/b", "separator"))
+    );
+    // The path rules alone still take it (an existing session's, Q-B).
+    assert_eq!(validate("ask-tidy-wren"), Ok(()));
 }

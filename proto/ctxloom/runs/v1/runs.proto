@@ -4,8 +4,8 @@ syntax = "proto3";
 // owner's, a child's, or an internal one-shot's. Its root is
 // UUIDv5(session, incarnation). ONE run per incarnation, NOT per turn
 // (owner, settled): two turns of one runner are one RunEnqueued and one
-// RunEnded. It owns the credential hash, the turn gate, stop, and the
-// exactly-once end. S5 carries the in-process subset: enqueue, the runner's
+// RunEnded. It owns the turn gate, stop, and the exactly-once end (it mints
+// and holds no credential: owner ruling s4-Q3). S5 carries the in-process subset: enqueue, the runner's
 // start and attach, the turn gate, stop, and the two terminal facts. Pause,
 // resume, summaries and artifacts arrive with S6 and S10.
 package ctxloom.runs.v1;
@@ -43,12 +43,22 @@ enum EndCause {
   END_CAUSE_DRAIN_INTERRUPTED = 7;
   // Value 8 was FINAL_REPORTED. Owner ruling 2026-11-04 (S5 review item 16): a
   // final report is a model's CLAIM, advisory, and never ends a run; the end is
-  // the runner's observation (RunExited and the like).
+  // the runner's observation (RecordRunExited and the like).
   reserved 8;
   // A run owed a runner whose launcher died before it started one (its run
   // lock free, ruling 100): no launch failed, nothing was launched.
   END_CAUSE_LAUNCH_ORPHANED = 9;
   reserved "END_CAUSE_FINAL_REPORTED";
+}
+
+// How soon a turn's messages are to be acted on: the session's message
+// urgency (`ctxloom.sessions.v1.Urgency`, D12) as the run's turn gate judges
+// it (S-b). Its own enum, so the runs protos import no sessions proto.
+enum TurnUrgency {
+  TURN_URGENCY_UNSPECIFIED = 0;
+  TURN_URGENCY_INFORM = 1;
+  TURN_URGENCY_WAKE = 2;
+  TURN_URGENCY_STEER = 3;
 }
 
 enum TurnFailureClass {
@@ -57,41 +67,45 @@ enum TurnFailureClass {
   TURN_FAILURE_CLASS_CREDENTIAL_REFUSED = 2;
   TURN_FAILURE_CLASS_ENGINE_ERROR = 3;
   TURN_FAILURE_CLASS_INTERRUPTED = 4;
+  // Its host was lost while the turn was in flight (a killed daemon), as
+  // the next start's sweep ends it (S18).
+  TURN_FAILURE_CLASS_RUNNER_LOST = 5;
 }
 
 // region commands
 
-// Enqueue the run for `session`'s `incarnation`, with the SHA-256 of each of
-// the THREE tokens the application minted (D29; owner rulings 2026-11-04 item
-// 16 and 2026-11-09 item 16): one for the runner principal, one for the model
-// principal, one for the hook principal, so the model's credential cannot
-// forge a runner fact and a hook's can sign capture facts alone. Only the
-// hashes are ever journaled, and they must differ. The policy session to run sends it on
-// `IncarnationOwed`.
+// Enqueue the run for `session`'s `incarnation`. A run carries no
+// credential: the runner's and the model's tokens went with the separation
+// model (slice 2: one principal, the user; fields 4 and 5 are reserved), and
+// the hook bearer's with the per-run listener (slice 4 U7, owner ruling
+// s4-Q3: a hook delivers to the user's daemon with the user bearer; field 6
+// is reserved; M10b mints per-container bearers with a record of their own).
+// The policy session to run sends it on `IncarnationOwed`.
 message EnqueueRun {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.runs.v1.RunState"
     emits: ["ctxloom.runs.v1.RunEnqueued"]
     refuses: "ctxloom.runs.v1.AlreadyEnqueued"
-    refuses: "ctxloom.runs.v1.CredentialHashInvalid"
-    refuses: "ctxloom.runs.v1.CredentialsNotDistinct"
     refuses: "ctxloom.runs.v1.NotItsStream"
     refuses: "ctxloom.runs.v1.NoCredential"
     refuses: "ctxloom.runs.v1.FileOnlyCredential"
     refuses: "ctxloom.runs.v1.NoPrompt"
     refuses: "ctxloom.runs.v1.UnknownEngine"
-    refuses: "ctxloom.runs.v1.LaunchRefused"
+    refuses: "ctxloom.runs.v1.UntrustedProjectSettings"
+    refuses: "ctxloom.runs.v1.LaunchRefusals"
   };
 
   string session = 1;
   uint32 incarnation = 2;
   RunMode mode = 3;
-  bytes runner_credential_hash = 4;
-  bytes model_credential_hash = 5;
-  // SHA-256 of the HOOK principal's token: the third credential, which the
-  // interactive engine's hook processes present for the capture facts alone.
-  // Required: a SHA-256 digest distinct from the other two.
-  bytes hook_credential_hash = 6;
+  // The runner's and the model's credential hashes (the separation model:
+  // theatre, deleted).
+  reserved 4, 5;
+  reserved "runner_credential_hash", "model_credential_hash";
+  // SHA-256 of the hook bearer's token, which the CLI run's own listener
+  // checked (deleted with that listener, s4-Q3).
+  reserved 6;
+  reserved "hook_credential_hash";
 
   // The EVIDENCE of the pre-launch checks (owner rulings 73e, 73f): what the
   // run application asked its ports (the plan, the engine registry, the
@@ -123,6 +137,31 @@ message EnqueueRun {
   // 59, 109), deleted with the engine-neutral posture by owner ruling 134.
   reserved 13;
   reserved "posture";
+  // The project-only settings (ruling 46's keys, D3) this run's project layer
+  // says and the user has not trusted (trust-index, read by the daemon for a
+  // one-shot, a terminal session and a child alike), of those THIS launch
+  // reads (owner Q8: its engine's block and its agent's): their dotted
+  // paths, sorted. Empty when there are none, or the project is trusted.
+  // Evidence, like the fields above: `RunEnqueued` carries none of it.
+  repeated string untrusted_settings = 14;
+  // What the run was GIVEN (owner ruling 2026-11-17, step 9: the grant record
+  // is journaled): unlike the evidence above it is journaled, in
+  // `RunEnqueued`, so `session show` says what a child was launched with
+  // after its agent is edited. Names and the permissions document only.
+  optional Grant grant = 15;
+}
+
+// What a run was launched with (owner ruling 2026-11-17): the MCP servers'
+// NAMES and the agent's permissions document as the launch passed it to its
+// engine. Never a server's command, arguments or environment (a trust rule:
+// they may hold a secret).
+message Grant {
+  // The MCP servers the launch carries, ctxloom's own among them, by name,
+  // sorted.
+  repeated string mcp_servers = 1;
+  // The engine's permissions document, JSON text as the plan wrote it; empty
+  // for none.
+  string permissions = 2;
 }
 
 // A child's credential, as the run application found it (ruling 53 and owner
@@ -141,22 +180,30 @@ message CredentialEvidence {
   bool accepted_set = 4;
 }
 
-// Queue the next turn. Refused while one is in flight and after the run's
-// end (the end fence: there is no courier, D5 Q4).
+// Queue the next turn, for the session's messages `message_ids` (the turn's
+// key, S-b): the delivery policy sends it, keyed `send:<message_id>`. Refused
+// after the run's end (the end fence: there is no courier, D5 Q4). While a
+// turn is in flight a STEER is queued and asks the turn in flight to be
+// interrupted, once; a wake or an inform is refused `TurnInFlight` (they wait
+// in the pending messages until the turn ends).
 message QueueTurn {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.runs.v1.RunState"
-    emits: ["ctxloom.runs.v1.TurnQueued"]
+    emits: ["ctxloom.runs.v1.InterruptRequested", "ctxloom.runs.v1.TurnQueued"]
     refuses: "ctxloom.runs.v1.NoRun"
-    refuses: "ctxloom.runs.v1.Ended"
+    refuses: "ctxloom.runs.v1.RunIsEnded"
     refuses: "ctxloom.runs.v1.TurnInFlight"
   };
 
   string prompt_ref = 1;
   bool resume = 2;
+  repeated string message_ids = 3;
+  TurnUrgency urgency = 4;
 }
 
-// Ask the run to stop (the policy session to run, on `StopOrdered`).
+// Ask the run to stop: a hosted one-shot's signal (U4), and the session's
+// stop verb when it is built (owner 2026-11-15: it ends the session's current
+// run, and nothing more; no latch on the session).
 message RequestStop {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.runs.v1.RunState"
@@ -171,7 +218,7 @@ message RequestStop {
 
 // region facts (what already happened: recorded, never refused)
 
-message RunnerAttached {
+message RecordRunnerAttached {
   option (io.angzarr.v1.fact) = {
     component: "ctxloom.runs.v1.RunState"
     emits: ["ctxloom.runs.v1.RunnerAttachedRecorded"]
@@ -186,7 +233,7 @@ message RunnerAttached {
 // which (`pid`, 0 when the launcher could not learn it). The sign that a
 // launch was made, so a run owed a runner stops being owed on it and not on
 // the runner's first word. Keyed `started:<run>`.
-message RunnerStarted {
+message RecordRunnerStarted {
   option (io.angzarr.v1.fact) = {
     component: "ctxloom.runs.v1.RunState"
     emits: ["ctxloom.runs.v1.RunnerStartedRecorded"]
@@ -198,16 +245,20 @@ message RunnerStarted {
 }
 
 // `turn` is the sequence of the TurnQueued event it answers (plan 4.3).
-message TurnStarted {
+// `message_ids` are the turn's messages (S-b): the turn is keyed by them,
+// `turn:<run>:<first message id>:<phase>`; a turn queued by no message (the
+// one-shot's) is keyed by its number, `turn:<run>:<turn>:<phase>`.
+message RecordTurnStarted {
   option (io.angzarr.v1.fact) = {
     component: "ctxloom.runs.v1.RunState"
     emits: ["ctxloom.runs.v1.TurnStartedRecorded"]
   };
 
   uint64 turn = 1;
+  repeated string message_ids = 2;
 }
 
-message TurnCompleted {
+message RecordTurnCompleted {
   option (io.angzarr.v1.fact) = {
     component: "ctxloom.runs.v1.RunState"
     emits: ["ctxloom.runs.v1.TurnCompletedRecorded"]
@@ -217,9 +268,10 @@ message TurnCompleted {
   string native_key = 2;
   string answer_ref = 3;
   int32 exit_code = 4;
+  repeated string message_ids = 5;
 }
 
-message TurnFailed {
+message RecordTurnFailed {
   option (io.angzarr.v1.fact) = {
     component: "ctxloom.runs.v1.RunState"
     emits: ["ctxloom.runs.v1.TurnFailedRecorded"]
@@ -228,11 +280,12 @@ message TurnFailed {
   uint64 turn = 1;
   TurnFailureClass class = 2;
   string detail = 3;
+  repeated string message_ids = 4;
 }
 
 // The runner (or the launcher, on process exit) ended. The FIRST terminal
 // input ends the run; a second records nothing.
-message RunExited {
+message RecordRunExited {
   option (io.angzarr.v1.fact) = {
     component: "ctxloom.runs.v1.RunState"
     emits: ["ctxloom.runs.v1.RunEnded"]
@@ -242,7 +295,7 @@ message RunExited {
   int32 signal = 2;
 }
 
-message LaunchFailed {
+message RecordLaunchFailed {
   option (io.angzarr.v1.fact) = {
     component: "ctxloom.runs.v1.RunState"
     emits: ["ctxloom.runs.v1.RunEnded"]
@@ -256,7 +309,7 @@ message LaunchFailed {
 // 95): a sweeping process records it, never the runner, and it ends the run
 // for runner loss. Keyed `runner-lost:<run>`, so a second sweeper's is a
 // DUPLICATE; on a run already ended it records nothing.
-message RunnerLost {
+message RecordRunnerLost {
   option (io.angzarr.v1.fact) = {
     component: "ctxloom.runs.v1.RunState"
     emits: ["ctxloom.runs.v1.RunEnded"]
@@ -265,9 +318,9 @@ message RunnerLost {
 
 // A run still owed a runner whose launcher died before starting one (its run
 // lock free, rulings 92, 100): no launch failed, so it is not a
-// `LaunchFailed`. A sweeping process records it; keyed
+// `RecordLaunchFailed`. A sweeping process records it; keyed
 // `launch-orphaned:<run>`, so a second sweeper's is a DUPLICATE.
-message LaunchOrphaned {
+message RecordLaunchOrphaned {
   option (io.angzarr.v1.fact) = {
     component: "ctxloom.runs.v1.RunState"
     emits: ["ctxloom.runs.v1.RunEnded"]
@@ -275,12 +328,12 @@ message LaunchOrphaned {
 }
 
 // The model's CLAIMS (owner ruling 2026-11-04, item 16): what the model said or
-// produced, recorded as facts by the MODEL principal, never the runner's.
-// Advisory: a claim changes no transition. `turn` and `ordinal` are stamped by
+// produced, recorded as facts. Advisory (a provenance, not a permission: one
+// principal, the user, since slice 2): a claim changes no transition. `turn` and `ordinal` are stamped by
 // the runner side, never chosen by the model, and the external id derives from
 // them (`report:<run>:<turn>:<ordinal>`, `final:<run>:<turn>`). References
 // (run, turn, text_ref), not embedded authority.
-message SummaryReported {
+message RecordSummaryReported {
   option (io.angzarr.v1.fact) = {
     component: "ctxloom.runs.v1.RunState"
     emits: ["ctxloom.runs.v1.SummaryReportedRecorded"]
@@ -295,7 +348,7 @@ message SummaryReported {
 // The model says its work is done. A CLAIM: it notifies the parent and
 // transitions nothing; acceptance is a separate refusable command by a decider
 // role. It does not end the run or revoke a credential.
-message FinalReported {
+message RecordFinalReported {
   option (io.angzarr.v1.fact) = {
     component: "ctxloom.runs.v1.RunState"
     emits: ["ctxloom.runs.v1.FinalReportedRecorded"]
@@ -315,17 +368,22 @@ message RunEnqueued {
   string session = 1;
   uint32 incarnation = 2;
   RunMode mode = 3;
-  bytes runner_credential_hash = 4;
-  bytes model_credential_hash = 5;
-  // SHA-256 of the HOOK principal's token: the third credential, which the
-  // interactive engine's hook processes present for the capture facts alone.
-  // Empty on a run enqueued before it existed.
-  bytes hook_credential_hash = 6;
+  // The runner's and the model's credential hashes (deleted, slice 2).
+  reserved 4, 5;
+  reserved "runner_credential_hash", "model_credential_hash";
+  // SHA-256 of the hook bearer's token (deleted with the per-run listener,
+  // s4-Q3): a run enqueued before then still holds it, and it is read by
+  // nothing.
+  reserved 6;
+  reserved "hook_credential_hash";
   // The run's lock file, which its launcher holds until the runner is started
   // (rulings 86, 92); empty on a run enqueued before it existed: never judged
   // an orphan. Numbered as in `EnqueueRun`, whose first six fields this
   // event's are.
   string launcher_lock = 12;
+  // What the run was given, as its `EnqueueRun` said (step 9); unset on a
+  // run enqueued before the record existed. Numbered as in `EnqueueRun`.
+  optional Grant grant = 15;
 }
 
 message RunnerAttachedRecorded {
@@ -348,12 +406,28 @@ message TurnQueued {
 
   string prompt_ref = 1;
   bool resume = 2;
+  // The session's messages this turn carries, and their urgency (S-b): the
+  // pending messages they were consume here.
+  repeated string message_ids = 3;
+  TurnUrgency urgency = 4;
+}
+
+// A steer asked the turn in flight to be interrupted (S-b): the driver sends
+// the engine's interrupt; the interrupted turn ends as it ends (a
+// RecordTurnFailed, class INTERRUPTED, or RecordTurnCompleted if it beat the interrupt).
+message InterruptRequested {
+  option (io.angzarr.v1.event) = {component: "ctxloom.runs.v1.RunState"};
+
+  // The sequence of the TurnQueued of the turn to interrupt, and its messages.
+  uint64 turn = 1;
+  repeated string message_ids = 2;
 }
 
 message TurnStartedRecorded {
   option (io.angzarr.v1.event) = {component: "ctxloom.runs.v1.RunState"};
 
   uint64 turn = 1;
+  repeated string message_ids = 2;
 }
 
 // A turn completed; the run is idle again.
@@ -364,6 +438,7 @@ message TurnCompletedRecorded {
   string native_key = 2;
   string answer_ref = 3;
   int32 exit_code = 4;
+  repeated string message_ids = 5;
 }
 
 message TurnFailedRecorded {
@@ -372,6 +447,7 @@ message TurnFailedRecorded {
   uint64 turn = 1;
   TurnFailureClass class = 2;
   string detail = 3;
+  repeated string message_ids = 4;
 }
 
 message StopRequested {
@@ -396,8 +472,7 @@ message FinalReportedRecorded {
   string text_ref = 2;
 }
 
-// The exactly-once end. Folding it revokes the credential, whatever the
-// cause, the owner's token included (D29).
+// The exactly-once end, whatever the cause.
 message RunEnded {
   option (io.angzarr.v1.event) = {component: "ctxloom.runs.v1.RunState"};
 
@@ -434,25 +509,12 @@ message TurnInFlight {
 }
 
 // A command to a run that has ended (the end fence).
-message Ended {
+message RunIsEnded {
   option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
-}
-
-// A credential hash that is not a SHA-256 digest (32 bytes).
-message CredentialHashInvalid {
-  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
-
-  uint64 length = 1;
 }
 
 // An enqueue on a stream whose root is not the run's derived root.
 message NotItsStream {
-  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
-}
-
-// The runner's and the model's credential hashes are the same, so a token
-// would not name one principal (fail closed).
-message CredentialsNotDistinct {
   option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
 }
 
@@ -474,8 +536,8 @@ message NoCredential {
 // FILE and no environment variable (owner ruling 53, 2026-11-09): a file is
 // the human's primary interactive session's alone (ruling 8), so no child of
 // that engine can authenticate. Refused, like NoCredential, by EnqueueRun's
-// `decide` from the credential evidence, before the listener is served, a
-// session made or an engine started.
+// `decide` from the credential evidence, before a session is made or an
+// engine started.
 message FileOnlyCredential {
   option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
 
@@ -484,6 +546,18 @@ message FileOnlyCredential {
   // The variables the engine's built-in source accepts, comma separated: the
   // ones to name in the source's `env` and export.
   string variables = 2;
+}
+
+// A launch whose project's own config says settings that reach past the
+// project, and that the user has not trusted (ruling 142, S24, D3)
+// (`runs-untrusted-project-settings`). Refused by EnqueueRun's `decide` from
+// `untrusted_settings`, the LAST of its checks (owner Q9), before any name is
+// claimed or session minted.
+message UntrustedProjectSettings {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  // The dotted paths, comma separated, sorted.
+  string paths = 1;
 }
 
 // A one-shot with no prompt from any door: it would ask nothing (ruling 73c).
@@ -509,7 +583,7 @@ message UnknownEngine {
 // singular message field, and an empty refusal (NoPrompt) must still be seen.
 // The fatal findings are not here: `fatal_findings` says only how many there
 // were, and the library says them.
-message LaunchRefused {
+message LaunchRefusals {
   option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
 
   repeated NoPrompt no_prompt = 1;
@@ -521,6 +595,7 @@ message LaunchRefused {
   // deleted with the engine-neutral posture by owner ruling 134.
   reserved 6;
   reserved "unenforced_posture";
+  repeated UntrustedProjectSettings untrusted_project_settings = 7;
 }
 
 // endregion refusals

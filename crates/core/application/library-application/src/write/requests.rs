@@ -25,6 +25,8 @@ pub struct ProfileCreateRequest {
     pub description: String,
     pub parents: Vec<String>,
     pub bundles: Vec<String>,
+    /// The skills it curates (`--add-skill`).
+    pub skills: Vec<String>,
     /// The local bundle the profile is written into; the project's own when
     /// empty.
     pub target: String,
@@ -43,4 +45,10 @@ pub struct AgentRequest {
     /// `kind=root` pairs; an empty list clears them.
     pub roots: Option<Vec<(String, String)>>,
     pub env: Option<Vec<String>>,
+    /// `session` | `host` (owner ruling of 2026-11-13); empty clears it.
+    /// `host` only on a home write (owner ruling of 2026-11-14).
+    pub session_home: Option<String>,
+    /// `--home`: the write goes to the home config, not the project's
+    /// (vocabulary §4: every write defaults to the project).
+    pub home: bool,
 }

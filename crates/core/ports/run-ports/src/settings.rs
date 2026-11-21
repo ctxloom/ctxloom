@@ -39,8 +39,12 @@ pub enum AuthSetting {
     },
 }
 
+/// How long an ask waits for an answer when the engine's block says no
+/// `approval_timeout` (OD-41): 300 seconds, the config's own default.
+pub const APPROVAL_TIMEOUT_DEFAULT: std::time::Duration = std::time::Duration::from_secs(300);
+
 /// The resolved `engines.<engine>` settings of one launch.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EngineSettings {
     /// The program to run; empty is the engine's own.
     pub command: String,
@@ -49,6 +53,22 @@ pub struct EngineSettings {
     /// Names of the caller's variables to pass on besides the curated ones:
     /// the whole set is bounded and enumerable (the container runtime reads it).
     pub env: Vec<String>,
+    /// How long an ask of the engine's child waits for an answer
+    /// (`engines.<engine>.approval_timeout`, OD-41), read once per launch
+    /// (T21); zero is `now`, every ask denied at once (D16).
+    pub approval_timeout: std::time::Duration,
+}
+
+impl Default for EngineSettings {
+    fn default() -> EngineSettings {
+        EngineSettings {
+            command: String::new(),
+            session_home: SessionHome::default(),
+            auth: AuthSetting::default(),
+            env: Vec::new(),
+            approval_timeout: APPROVAL_TIMEOUT_DEFAULT,
+        }
+    }
 }
 
 /// Who a run authenticates as, owned: [`Credentials`] met with the configured

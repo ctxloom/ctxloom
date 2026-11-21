@@ -24,7 +24,22 @@ pub struct ItemBody {
     /// The distilled rewrite; empty when there is none.
     pub distilled: String,
     pub distilled_by: String,
+    /// The source digest the distilled form records (T30); empty when it
+    /// records none.
+    pub distilled_digest: String,
+    /// The digest of the source as it was read ([`crate::distill::source_digest`]
+    /// of its file); empty where there is no source file (an inline
+    /// document).
+    pub source_digest: String,
     pub no_distill: bool,
+}
+
+impl ItemBody {
+    /// Whether the distilled form is there and still matches its source,
+    /// judged now (T30: no earlier verdict is kept).
+    pub fn distilled_state(&self) -> crate::distill::DistilledState {
+        crate::distill::state(&self.distilled, &self.distilled_digest, &self.source_digest)
+    }
 }
 
 /// A fragment: context an assistant just has. `premise` (the file's

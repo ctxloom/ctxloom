@@ -11,6 +11,8 @@ publish.workspace = true
 exit-code.workspace = true
 angzarr-diagnostic.workspace = true
 angzarr-yaml.workspace = true
+# The one span grammar (`daemon.drain_timeout`; `now` is zero).
+duration-text.workspace = true
 ctxloom-ports.workspace = true
 deps-ports.workspace = true
 library.workspace = true

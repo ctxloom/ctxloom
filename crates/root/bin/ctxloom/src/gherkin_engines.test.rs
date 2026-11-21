@@ -49,7 +49,7 @@ const J002000_HARP: &str = "amber-quiet-heron";
 
 /// The stub claude: records what it was handed, and exits.
 const CLAUDE_STUB: &str = r#"here="$(dirname "$0")"
-dir="$here/runs/$CTXLOOM_SESSION_HARP"
+dir="$here/runs/${CTXLOOM_SESSION##*/}"
 mkdir -p "$dir"
 echo claude-code > "$dir/engine"
 pwd > "$dir/cwd"
@@ -61,7 +61,7 @@ for a in "$@"; do printf '%s\n' "$a" >> "$dir/args"; done
 /// The stub opencode: records what it was handed, then runs every plugin of
 /// its config dir under node over a session's start.
 const OPENCODE_STUB: &str = r#"here="$(dirname "$0")"
-dir="$here/runs/$CTXLOOM_SESSION_HARP"
+dir="$here/runs/${CTXLOOM_SESSION##*/}"
 mkdir -p "$dir"
 echo opencode > "$dir/engine"
 pwd > "$dir/cwd"
@@ -104,6 +104,8 @@ pub(super) struct State {
     said: Vec<crate::tests::Ran>,
     /// The guidance the old engine's session started with (j002000).
     old_guidance: Option<String>,
+    /// The skill Alice wrote (j000600): its `SKILL.md`, then her script.
+    skill: Option<(String, String)>,
 }
 
 impl World {
@@ -134,14 +136,18 @@ impl World {
     /// The project's files outside the sessions' own directories, and
     /// outside the project's identity (`.ctxloom/project-id`, git-ignored,
     /// which the first command to open the project's store writes, whatever
-    /// the command).
+    /// the command) and its checkout's (`.ctxloom/state/checkout`, which the
+    /// daemon writes at the tree's first observation: a live session's tree
+    /// is observed each round, step 10c U13, G5(b)).
     fn outside_sessions(&self) -> BTreeMap<String, Vec<u8>> {
         self.common
             .project
             .tree("")
             .into_iter()
             .filter(|(path, _)| {
-                !path.starts_with(".ctxloom/sessions/") && path != ".ctxloom/project-id"
+                !path.starts_with(".ctxloom/sessions/")
+                    && path != ".ctxloom/project-id"
+                    && path != ".ctxloom/state/checkout"
             })
             .collect()
     }
@@ -540,7 +546,7 @@ fn shows_losses(w: &mut World) {
         ran.said()
     );
     assert!(
-        doc["apply"]
+        doc["apply_command"]
             .as_str()
             .is_some_and(|a| a.contains("--engine opencode") && a.contains("--yes")),
         "the preview names no command that applies it: {}",
@@ -554,9 +560,12 @@ fn still_old(w: &mut World) {
     w.common
         .run_lines("ctxloom agent show dev --format json", "");
     w.ran().succeeds();
-    assert_eq!(
-        w.json()["definition"]["engine"],
-        "claude-code",
+    // OD-40: `agent show` is the `Agent` resource itself; design §2: its
+    // engine is the engine's resource name.
+    assert!(
+        w.json()["engine"]
+            .as_str()
+            .is_some_and(|e| e.ends_with("/engines/claude-code")),
         "{}",
         w.ran().said()
     );
@@ -635,11 +644,14 @@ fn still_listed(w: &mut World) {
     w.common
         .run_lines("ctxloom session list --all --format json", "");
     w.ran().succeeds();
-    let rows = w.json();
-    let rows = rows.as_array().cloned().unwrap_or_default();
+    // The daemon's listing: each session its resource, named
+    // `projects/{project}/sessions/{harp}`.
+    let doc = w.json();
+    let rows = doc["sessions"].as_array().cloned().unwrap_or_default();
+    let named = format!("/sessions/{J002000_HARP}");
     assert!(
         rows.iter()
-            .any(|r| r["harp"].as_str() == Some(J002000_HARP)),
+            .any(|r| r["name"].as_str().is_some_and(|n| n.ends_with(&named))),
         "the session recorded before the switch is no longer listed: {}",
         w.ran().said()
     );
@@ -674,5 +686,166 @@ fn each_names_loss(w: &mut World) {
         }),
         "doctor names no session-end hook opencode cannot carry: {}",
         said[1].said()
+    );
+}
+
+// ------------------------------------------------------------- j000600
+
+/// The body Alice writes in her editor: the guidance, the only place this
+/// text is.
+const J000600_GUIDANCE: &str =
+    "# Deploy doctor\n\nJ000600-DEPLOY-DOCTOR-GUIDANCE-MARKER: run the precheck first.\n";
+/// What her precheck script prints.
+const J000600_SCRIPT_MARKER: &str = "J000600-PRECHECK-RAN-MARKER";
+/// Her skill, in its bundle's tree.
+const J000600_SKILL: &str = ".ctxloom/content/bundles/v2/ops/skills/deploy-doctor";
+
+/// `<bundle>#skills/<name>`'s directory in the project.
+fn skill_tree(reference: &str) -> String {
+    let (bundle, rest) = reference.split_once('#').expect("a skill reference");
+    let name = rest.strip_prefix("skills/").expect("a skill");
+    format!(".ctxloom/content/bundles/v2/{bundle}/skills/{name}")
+}
+
+/// A front matter block's text and what follows it.
+fn front_and_body(text: &str) -> (&str, &str) {
+    let rest = text.strip_prefix("---\n").expect("front matter");
+    let end = rest.find("\n---\n").expect("front matter's end");
+    (&text[..end + 9], &rest[end + 5..])
+}
+
+/// A bundle with its own directory and nothing in it yet, and the stub
+/// engines staged: Alice's skill is written into it by the commands.
+#[given(expr = "Alice's project has a directory-form bundle {string}")]
+fn j000600_bundle(w: &mut World, name: String) {
+    let project = crate::tests::library::Project::initialized();
+    project.write(
+        &format!(".ctxloom/content/bundles/v2/{name}/bundle.yaml"),
+        "schema_version: 4\nversion: 1.0.0\n",
+    );
+    w.common.project = project;
+    w.stage_engines();
+}
+
+/// "Alice creates the deploy-doctor skill ...": the command she types
+/// scaffolds it (no editor opens for a skill), and the full body she then
+/// writes in her editor replaces the scaffold's, under its front matter.
+pub(super) fn authors(w: &mut World, step: &Step) -> bool {
+    if !step
+        .value
+        .starts_with("Alice creates the deploy-doctor skill in ")
+    {
+        return false;
+    }
+    w.before_run();
+    w.common.run_lines(&doc(step), "");
+    w.ran().succeeds();
+    let rel = format!("{J000600_SKILL}/SKILL.md");
+    let scaffold = w
+        .common
+        .project
+        .read(&rel)
+        .unwrap_or_else(|| panic!("no {rel}: {}", w.ran().said()));
+    let (front, _) = front_and_body(&scaffold);
+    let written = format!("{front}\n{J000600_GUIDANCE}");
+    w.common.project.write(&rel, &written);
+    w.engines.skill = Some((written, String::new()));
+    true
+}
+
+#[when("the skill's front matter, as she writes it, lets her assistant run its precheck on her behalf:")]
+fn j000600_front_matter(w: &mut World, step: &Step) {
+    let rel = format!("{J000600_SKILL}/SKILL.md");
+    let held = w.common.project.read(&rel).expect("the skill");
+    let (_, body) = front_and_body(&held);
+    let written = format!("{}\n{body}", doc(step));
+    w.common.project.write(&rel, &written);
+    w.engines.skill = Some((written, String::new()));
+}
+
+/// The script, and the skill's metadata declaring it executable (the ONLY
+/// word on a file's executability).
+#[when(
+    regex = r#"^Alice adds an executable precheck script, scripts/run.sh, to the skill "([^"]*)"$"#
+)]
+fn j000600_script(w: &mut World, reference: String) {
+    let dir = skill_tree(&reference);
+    let script = format!("#!/bin/sh\necho {J000600_SCRIPT_MARKER}\n");
+    w.common
+        .project
+        .write(&format!("{dir}/scripts/run.sh"), &script);
+    // The skill's metadata, inside its directory (owner T27); a new
+    // skill's is the empty mapping, which a key replaces.
+    let meta = format!("{dir}/.meta.yaml");
+    let held = w.common.project.read(&meta).unwrap_or_default();
+    let held = if held.trim() == "{}" {
+        String::new()
+    } else {
+        held
+    };
+    w.common
+        .project
+        .write(&meta, &format!("{held}executable:\n  - scripts/run.sh\n"));
+    let skill = w.engines.skill.as_mut().expect("the skill was created");
+    skill.1 = script;
+}
+
+impl World {
+    /// The deploy-doctor skill's file `rel` where claude's session reads
+    /// it: its config dir's user-scope `skills/`.
+    fn session_skill_file(&self, rel: &str) -> PathBuf {
+        self.config_dir(&self.session_on("claude-code"))
+            .join("skills/deploy-doctor")
+            .join(rel)
+    }
+}
+
+#[then("Alice's session has the deploy-doctor skill, with the guidance she wrote")]
+fn j000600_has_skill(w: &mut World) {
+    let (written, _) = w.engines.skill.clone().expect("the skill was written");
+    let path = w.session_skill_file("SKILL.md");
+    let delivered = files::read(&path)
+        .unwrap_or_else(|e| panic!("{}: {e}: {}", path.display(), w.ran().said()));
+    assert_eq!(
+        delivered, written,
+        "the session's skill is not what she wrote"
+    );
+}
+
+/// The script she shipped, byte for byte, and runnable: executable where
+/// the session reads it, and it runs. Her front matter, which lets the
+/// assistant run it without asking, arrived with it.
+#[then("her assistant can run the skill's script as she shipped it, without asking her first")]
+fn j000600_runs_script(w: &mut World) {
+    let (written, shipped) = w.engines.skill.clone().expect("the skill was written");
+    assert!(!shipped.is_empty(), "no script was added");
+    let path = w.session_skill_file("scripts/run.sh");
+    let delivered = files::read(&path)
+        .unwrap_or_else(|e| panic!("{}: {e}: {}", path.display(), w.ran().said()));
+    assert_eq!(
+        delivered, shipped,
+        "the session's script is not what she shipped"
+    );
+    let skill = files::read(w.session_skill_file("SKILL.md")).expect("the skill");
+    assert!(
+        skill.contains("allowed-tools: Bash(scripts/run.sh)") && written.contains("allowed-tools"),
+        "the front matter that lets her assistant run the script did not arrive: {skill}"
+    );
+    if !files::keeps_exec_bits_for("running the script as the session has it") {
+        return;
+    }
+    let mode = files::mode_of(&path).expect("a mode");
+    assert_eq!(
+        mode & 0o100,
+        0o100,
+        "the script is not executable: {mode:o}"
+    );
+    let ran = std::process::Command::new(&path)
+        .output()
+        .unwrap_or_else(|e| panic!("{} does not run: {e}", path.display()));
+    assert!(
+        ran.status.success()
+            && String::from_utf8_lossy(&ran.stdout).contains(J000600_SCRIPT_MARKER),
+        "the script did not run as shipped: {ran:?}"
     );
 }

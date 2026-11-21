@@ -14,11 +14,19 @@ auth-application.workspace = true
 ctxloom-ports.workspace = true
 library.workspace = true
 library-application.workspace = true
+# The holds' port (s4-Q14, H4): what doctor reports of the held facts.
+run-ports.workspace = true
+session-index.workspace = true
+sessions.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
 mutants.workspace = true
+# A held record's instant, as the holds' summary carries it.
+daemon-proto.workspace = true
+# The holds' session roots, as the fake of the holds names them.
+uuid.workspace = true
 
 [lints]
 workspace = true

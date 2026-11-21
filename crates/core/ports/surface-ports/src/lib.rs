@@ -80,6 +80,15 @@ pub struct McpServer {
 /// told when it is built and which is this word when nothing else is known.
 pub const CALLBACK_PROGRAM: &str = "ctxloom";
 
+/// The name every session's engine registers ctxloom's own MCP server under
+/// (slice 3, T20; OD-6: a carried server of this name is shadowed by it).
+pub const CTXLOOM_SERVER: &str = "ctxloom";
+
+/// The arguments that start ctxloom's own MCP server: `<program> mcp serve`.
+pub fn ctxloom_server_args() -> Vec<String> {
+    vec!["mcp".to_string(), "serve".to_string()]
+}
+
 /// A lifecycle hook, in a unified event.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct Hook {
@@ -198,6 +207,11 @@ pub struct Inputs {
     pub statusline: bool,
     pub commands: Vec<Command>,
     pub skills: Vec<Skill>,
+    /// A launch with no context (`run --no-context`, owner OD-38): the
+    /// engine is handed no MCP server at all, ctxloom's own included (a
+    /// server's instructions are context too), and so no allowance of its
+    /// tools. Never set at rest.
+    pub no_context: bool,
 }
 
 /// What a claim on a JSON document does.

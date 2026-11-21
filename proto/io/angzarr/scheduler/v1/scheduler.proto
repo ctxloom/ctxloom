@@ -1,7 +1,7 @@
 syntax = "proto3";
 
 // The scheduler domain, an angzarr feature (core; embedded is the first user):
-// its public time messages (ArmAlarm, CancelAlarm, AlarmReached: field for
+// its public time messages (ArmAlarm, CancelAlarm, RecordAlarmReached: field for
 // field the draft spec's, angzarr-project branch prep/spec-20261102-draft,
 // io/angzarr/scheduler/v1/scheduler.proto) and its private stored events and
 // clock fact, all in ONE package, the spec's. A type URL is stored in every
@@ -42,7 +42,7 @@ message Stream {
 
 // region commands
 
-// A domain asks for an alarm on its own stream: tell `target` AlarmReached
+// A domain asks for an alarm on its own stream: tell `target` RecordAlarmReached
 // once `at` is reached. Addressed to the scheduler's stream for `target`.
 // Re-arming an armed alarm_id moves it; the old instant is never reached.
 message ArmAlarm {
@@ -80,8 +80,8 @@ message CancelAlarm {
 // `alarm_id`. Delivered to the TARGET's stream as a fact by the per-domain
 // delivery policy; the target re-checks it against its own arming. It has no
 // scheduler component, so it carries no option: a target ingests it with
-// `#[handles_fact(AlarmReached)]`.
-message AlarmReached {
+// `#[handles_fact(RecordAlarmReached)]`.
+message RecordAlarmReached {
   string alarm_id = 1; // As armed
   google.protobuf.Timestamp at = 2; // The instant armed, not the clock's reading when it fired
 }
@@ -90,7 +90,7 @@ message AlarmReached {
 // deterministic external id `alarm:<stream>/<alarm_id>@<at>` (OD-1, OD-2),
 // so a re-send is a duplicate. Never refused; recorded as AlarmFired only for
 // an alarm armed at exactly this `at`.
-message AlarmDue {
+message RecordAlarmDue {
   option (io.angzarr.v1.fact) = {
     component: "io.angzarr.scheduler.v1.SchedulerState"
     emits: ["io.angzarr.scheduler.v1.AlarmFired"]
@@ -119,7 +119,7 @@ message AlarmCancelled {
 }
 
 // The alarm's instant was reached while it was armed at it. The delivery
-// policy turns this into AlarmReached on the target.
+// policy turns this into RecordAlarmReached on the target.
 message AlarmFired {
   option (io.angzarr.v1.event) = {component: "io.angzarr.scheduler.v1.SchedulerState"};
 

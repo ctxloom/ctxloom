@@ -47,6 +47,7 @@ pub(crate) fn git_in(dir: &Path, args: &[&str]) -> String {
         .env("PATH", crate::tests::host_var("PATH").unwrap_or_default())
         .env("HOME", dir)
         .env("TMPDIR", crate::tests::temp_root())
+        .env(crate::tests::LIFELINE, crate::tests::lifeline())
         .env("GIT_AUTHOR_NAME", "Fixture")
         .env("GIT_AUTHOR_EMAIL", "fixture@example.test")
         .env("GIT_COMMITTER_NAME", "Fixture")
@@ -199,56 +200,19 @@ impl Remotes {
         );
         self.advance_with(name, &files);
     }
-}
-
-/// A project, and the git remotes its scenario seeds.
-pub(crate) struct World {
-    pub(crate) project: Project,
-    remotes: Remotes,
-}
-
-impl World {
-    /// Go's "an initialized ctxloom project".
-    pub(crate) fn initialized() -> World {
-        World {
-            project: Project::initialized(),
-            remotes: Remotes::new(),
-        }
-    }
-
-    pub(crate) fn run(&self, args: &[&str]) -> Ran {
-        self.project.run(args)
-    }
-
-    /// `ran` with these environment variables too.
-    pub(crate) fn run_with(&self, env: &[(&str, &str)], args: &[&str]) -> Ran {
-        self.project.run_with(env, args)
-    }
-
-    fn seed_bare(&mut self, files: &[(String, String)]) -> PathBuf {
-        self.remotes.seed_bare(files)
-    }
-
-    fn register(&mut self, name: &str, bare: PathBuf) {
-        self.remotes.register(&self.project, &[], name, bare);
-    }
-
-    /// Go's `a git remote "<name>" serving a ctxloom bundle`.
-    pub(crate) fn git_remote(&mut self, name: &str) {
-        self.remotes.git_remote(&self.project, &[], name);
-    }
 
     /// Go's `a git remote "<name>" serving a bundle "<bundle>" whose profile
-    /// "<profile>" draws on bundle "<target>" of the remote "<other>"`.
+    /// "<profile>" draws on bundle "<target>" of the remote "<other>"`,
+    /// registered in `project`.
     pub(crate) fn git_remote_reaching(
         &mut self,
+        project: &Project,
+        env: &[(&str, &str)],
         name: &str,
-        bundle: &str,
-        profile: &str,
-        target: &str,
-        other: &str,
+        (bundle, profile): (&str, &str),
+        (target, other): (&str, &str),
     ) {
-        let other_url = files::file_url(&self.remotes.seeded[other]);
+        let other_url = files::file_url(&self.seeded[other]);
         let root = tree_bundle(bundle);
         let files = vec![
             (
@@ -261,12 +225,12 @@ impl World {
             ),
         ];
         let bare = self.seed_bare(&files);
-        self.register(name, bare);
+        self.register(project, env, name, bare);
     }
 
     /// Go's `the profile "<profile>" draws on a bundle straight from an
-    /// unregistered git repository`.
-    pub(crate) fn profile_from_unregistered(&mut self, profile: &str) {
+    /// unregistered git repository`, in `project`.
+    pub(crate) fn profile_from_unregistered(&mut self, project: &Project, profile: &str) {
         let files = demo_tree(
             "1.0.0",
             "Demo bundle",
@@ -275,55 +239,10 @@ impl World {
             true,
         );
         let bare = self.seed_bare(&files);
-        self.project.profile(
+        project.profile(
             profile,
             &format!("ctxloom+{}//bundles/demo", files::file_url(&bare)),
         );
-    }
-
-    /// The canonical reference to `bundle` of the remote `name`, as `profile
-    /// create --include <name>/<bundle>` stores it.
-    pub(crate) fn reference(&self, name: &str, bundle: &str) -> String {
-        format!(
-            "ctxloom+{}//bundles/{bundle}",
-            files::file_url(&self.remotes.seeded[name])
-        )
-    }
-
-    /// Go's `ctxloom profile create dev --include <name>/<bundle> ...`.
-    pub(crate) fn profile_including(&self, profile: &str, bundles: &[(&str, &str)]) {
-        let refs: Vec<String> = bundles
-            .iter()
-            .map(|(remote, bundle)| self.reference(remote, bundle))
-            .collect();
-        self.write_profile(profile, &refs);
-    }
-
-    /// A profile of the project bundle naming exactly these bundles.
-    pub(crate) fn write_profile(&self, profile: &str, bundles: &[String]) {
-        let list: String = bundles.iter().map(|b| format!("  - {b}\n")).collect();
-        self.project.write(
-            ".ctxloom/content/bundles/v2/project/bundle.yaml",
-            "schema_version: 4\nversion: 1.0.0\n",
-        );
-        self.project.write(
-            &format!(".ctxloom/content/bundles/v2/project/profiles/{profile}.yaml"),
-            &format!("bundles:\n{list}"),
-        );
-    }
-
-    fn work_clone(&mut self, name: &str) -> PathBuf {
-        self.remotes.work_clone(name)
-    }
-
-    /// Go's `AdvanceRemote`: a commit that rewrites `files`.
-    pub(crate) fn advance_with(&mut self, name: &str, files: &[(String, String)]) {
-        self.remotes.advance_with(name, files);
-    }
-
-    /// Go's `the remote "<name>" advances its bundle`.
-    pub(crate) fn advances(&mut self, name: &str) {
-        self.remotes.advances(name);
     }
 
     /// Go's `the remote "<name>" changes fragment "<fragment>" to "<content>"`.
@@ -377,13 +296,154 @@ impl World {
         );
     }
 
+    /// Go's `RemoteFile`: `path` as the remote's default branch holds it.
+    pub(crate) fn remote_file(&self, name: &str, path: &str) -> String {
+        git_in(&self.bare[name], &["show", &format!("HEAD:{path}")])
+    }
+
+    /// A bare repository whose `main` holds `files`, registered in
+    /// `project` as the remote `name`.
+    pub(crate) fn publish(
+        &mut self,
+        project: &Project,
+        env: &[(&str, &str)],
+        name: &str,
+        files: &[(String, String)],
+    ) {
+        let bare = self.seed_bare(files);
+        self.register(project, env, name, bare);
+    }
+
+    /// The `file://` address the remote `name` was registered at.
+    pub(crate) fn url(&self, name: &str) -> String {
+        files::file_url(&self.seeded[name])
+    }
+
     /// Go's `BreakRemote`: the bare repository renamed out from under its
     /// `file://` address, so every later clone or fetch fails.
     pub(crate) fn becomes_unreachable(&mut self, name: &str) {
-        let bare = self.remotes.bare[name].clone();
+        let bare = self.bare[name].clone();
         let broken = PathBuf::from(format!("{}.unreachable", bare.display()));
         files::rename(&bare, &broken);
-        self.remotes.bare.insert(name.to_string(), broken);
+        self.bare.insert(name.to_string(), broken);
+    }
+}
+
+/// A project, and the git remotes its scenario seeds.
+pub(crate) struct World {
+    pub(crate) project: Project,
+    remotes: Remotes,
+}
+
+impl World {
+    /// Go's "an initialized ctxloom project".
+    pub(crate) fn initialized() -> World {
+        World {
+            project: Project::initialized(),
+            remotes: Remotes::new(),
+        }
+    }
+
+    pub(crate) fn run(&self, args: &[&str]) -> Ran {
+        self.project.run(args)
+    }
+
+    /// `ran` with these environment variables too.
+    pub(crate) fn run_with(&self, env: &[(&str, &str)], args: &[&str]) -> Ran {
+        self.project.run_with(env, args)
+    }
+
+    /// Go's `a git remote "<name>" serving a ctxloom bundle`.
+    pub(crate) fn git_remote(&mut self, name: &str) {
+        self.remotes.git_remote(&self.project, &[], name);
+    }
+
+    /// Go's `a git remote "<name>" serving a bundle "<bundle>" whose profile
+    /// "<profile>" draws on bundle "<target>" of the remote "<other>"`.
+    pub(crate) fn git_remote_reaching(
+        &mut self,
+        name: &str,
+        bundle: &str,
+        profile: &str,
+        target: &str,
+        other: &str,
+    ) {
+        self.remotes.git_remote_reaching(
+            &self.project,
+            &[],
+            name,
+            (bundle, profile),
+            (target, other),
+        );
+    }
+
+    /// Go's `the profile "<profile>" draws on a bundle straight from an
+    /// unregistered git repository`.
+    pub(crate) fn profile_from_unregistered(&mut self, profile: &str) {
+        self.remotes
+            .profile_from_unregistered(&self.project, profile);
+    }
+
+    /// The canonical reference to `bundle` of the remote `name`, as `profile
+    /// create --include <name>/<bundle>` stores it.
+    pub(crate) fn reference(&self, name: &str, bundle: &str) -> String {
+        format!(
+            "ctxloom+{}//bundles/{bundle}",
+            files::file_url(&self.remotes.seeded[name])
+        )
+    }
+
+    /// Go's `ctxloom profile create dev --include <name>/<bundle> ...`.
+    pub(crate) fn profile_including(&self, profile: &str, bundles: &[(&str, &str)]) {
+        let refs: Vec<String> = bundles
+            .iter()
+            .map(|(remote, bundle)| self.reference(remote, bundle))
+            .collect();
+        self.write_profile(profile, &refs);
+    }
+
+    /// A profile of the project bundle naming exactly these bundles.
+    pub(crate) fn write_profile(&self, profile: &str, bundles: &[String]) {
+        let list: String = bundles.iter().map(|b| format!("  - {b}\n")).collect();
+        self.project.write(
+            ".ctxloom/content/bundles/v2/project/bundle.yaml",
+            "schema_version: 4\nversion: 1.0.0\n",
+        );
+        self.project.write(
+            &format!(".ctxloom/content/bundles/v2/project/profiles/{profile}.yaml"),
+            &format!("bundles:\n{list}"),
+        );
+    }
+
+    /// Go's `AdvanceRemote`: a commit that rewrites `files`.
+    pub(crate) fn advance_with(&mut self, name: &str, files: &[(String, String)]) {
+        self.remotes.advance_with(name, files);
+    }
+
+    /// Go's `the remote "<name>" advances its bundle`.
+    pub(crate) fn advances(&mut self, name: &str) {
+        self.remotes.advances(name);
+    }
+
+    /// Go's `the remote "<name>" changes fragment "<fragment>" to "<content>"`.
+    pub(crate) fn changes_fragment(&mut self, name: &str, fragment: &str, content: &str) {
+        self.remotes.changes_fragment(name, fragment, content);
+    }
+
+    /// Go's `the remote "<name>" ships an MCP server "<server>" running
+    /// "<command>" and a skill script printing "<say>"`.
+    pub(crate) fn ships(&mut self, name: &str, server: &str, command: &str, say: &str) {
+        self.remotes.ships(name, server, command, say);
+    }
+
+    /// Go's `the remote "<name>" stops publishing bundle "<bundle>"`.
+    pub(crate) fn stops_publishing(&mut self, name: &str, bundle: &str) {
+        self.remotes.stops_publishing(name, bundle);
+    }
+
+    /// Go's `BreakRemote`.
+    pub(crate) fn becomes_unreachable(&mut self, name: &str) {
+        self.remotes.becomes_unreachable(name);
     }
 
     /// Tag the remote's default branch tip `tag`.
@@ -393,16 +453,13 @@ impl World {
 
     /// Go's `RemoteFile`: `path` as the remote's default branch holds it.
     pub(crate) fn remote_file(&self, name: &str, path: &str) -> String {
-        git_in(&self.remotes.bare[name], &["show", &format!("HEAD:{path}")])
+        self.remotes.remote_file(name, path)
     }
 
     /// Go's `the remote "<name>"'s cached clone is forced back to its first
     /// commit`: the one clone under `.ctxloom/cache/repos`.
     pub(crate) fn clone_forced_back_to_first_commit(&self) {
-        let clone = find_clone(&self.project.dir().join(".ctxloom/cache/repos"))
-            .expect("a cached clone of the remote");
-        let first = git_in(&clone, &["rev-list", "--max-parents=0", "HEAD"]);
-        git_in(&clone, &["reset", "--hard", first.trim()]);
+        clone_forced_back_to_first_commit(&self.project);
     }
 
     /// The text of a file of the project, if it is there.
@@ -436,6 +493,15 @@ impl World {
 }
 
 /// The first directory below `dir` holding a `.git`.
+/// Go's `the remote "<name>"'s cached clone is forced back to its first
+/// commit`: the one clone under `project`'s `.ctxloom/cache/repos`.
+pub(crate) fn clone_forced_back_to_first_commit(project: &Project) {
+    let clone = find_clone(&project.dir().join(".ctxloom/cache/repos"))
+        .expect("a cached clone of the remote");
+    let first = git_in(&clone, &["rev-list", "--max-parents=0", "HEAD"]);
+    git_in(&clone, &["reset", "--hard", first.trim()]);
+}
+
 fn find_clone(dir: &Path) -> Option<PathBuf> {
     for path in files::children(dir) {
         if files::is_dir(path.join(".git")) {

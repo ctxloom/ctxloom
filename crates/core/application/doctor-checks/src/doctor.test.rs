@@ -458,8 +458,8 @@ fn without_a_project_only_the_user_mcp_file_is_read() {
 #[test]
 fn a_report_fails_only_when_a_row_fails() {
     let row = |status| crate::Check {
-        marker: "M",
-        name: "n",
+        marker: "M".to_string(),
+        name: "n".to_string(),
         status,
         detail: String::new(),
         remedy: String::new(),
@@ -471,13 +471,26 @@ fn a_report_fails_only_when_a_row_fails() {
     assert!(!report(&[Status::Ok, Status::Warn, Status::Info]).failed());
 }
 
-// doctor.feature: "A missing agent credential is a fail row with run's fix,
-// and exit 3": the project's config is what is checked, and the report fails.
+// doctor.feature: "A credential nothing can run on is a fail row, and exit
+// 20": the project's config is what is checked, and the report fails; with
+// the built-in source the primary signs in, so it is a warn (owner ruling
+// 2026-11-19) and the report does not fail.
 #[test]
-fn a_missing_credential_fails_the_report_and_an_exported_one_does_not() {
-    let report = doctor_with_token(&project(), true, false).report(false);
+fn a_missing_credential_fails_the_report_only_when_nothing_can_run() {
+    let mem = project();
+    mem.files.lock().unwrap().insert(
+        "/work/.ctxloom/config.yaml".to_string(),
+        "schema_version: 9\nengines:\n  claude-code:\n    auth:\n      env: [CLAUDE_CODE_OAUTH_TOKEN]\n".to_string(),
+    );
+    let report = doctor_with_token(&mem, true, false).report(false);
     assert_eq!(status(&report, "DOCTOR-CHECK-CREDENTIALS-m5"), Status::Fail);
     assert!(report.failed());
+    let report = doctor_with_token(&mem, true, true).report(false);
+    assert_eq!(status(&report, "DOCTOR-CHECK-CREDENTIALS-m5"), Status::Ok);
+    assert!(!report.failed());
+    let report = doctor_with_token(&project(), true, false).report(false);
+    assert_eq!(status(&report, "DOCTOR-CHECK-CREDENTIALS-m5"), Status::Warn);
+    assert!(!report.failed());
     let report = doctor_with_token(&project(), true, true).report(false);
     assert_eq!(status(&report, "DOCTOR-CHECK-CREDENTIALS-m5"), Status::Ok);
     assert!(!report.failed());
@@ -699,4 +712,266 @@ fn a_doctor_reporting_losses_warns_of_each() {
     let lost = row(&report, "DOCTOR-CHECK-NOT-CARRIED-r8");
     assert_eq!(lost.status, Status::Warn);
     assert!(lost.detail.contains("agent dev on opencode cannot carry"));
+}
+
+// A doctor reporting unresolved agents asks for them, and the agents row
+// fails naming each (smoke 2026-11-19).
+#[test]
+fn a_doctor_reporting_unresolved_agents_fails_the_agents_row() {
+    use library_application::AgentUnresolved;
+    let report = doctor(&project(), true)
+        .reporting_unresolved(Box::new(|| {
+            vec![AgentUnresolved {
+                agent: "dev".to_string(),
+                problems: vec!["bundle not found: mystd".to_string()],
+                fix: String::new(),
+            }]
+        }))
+        .report(false);
+    let agents = row(&report, "DOCTOR-CHECK-AGENTS-b2");
+    assert_eq!(agents.status, Status::Fail);
+    assert!(
+        agents.detail.contains("agent dev does not resolve"),
+        "{}",
+        agents.detail
+    );
+}
+
+/// The project's foreign worktrees, as a fake lists them, recording where it
+/// was asked.
+struct Foreign(Mutex<Vec<String>>);
+
+impl ctxloom_ports::ForeignWorktrees for Foreign {
+    fn foreign(&self, project_dir: &str) -> ctxloom_ports::ForeignListing {
+        self.0.lock().unwrap().push(project_dir.to_string());
+        ctxloom_ports::ForeignListing::Listed(vec![ctxloom_ports::ForeignWorktree {
+            path: "/w/proj--stale".to_string(),
+            branch: "stale".to_string(),
+            merged: Some(false),
+            dirty: Some(true),
+        }])
+    }
+}
+
+// j001300: the foreign worktrees' row, asked of the project's root, sits just
+// before the stated limit, which stays last; a doctor with no worktrees port
+// has no such row.
+#[test]
+fn the_foreign_worktrees_row_is_asked_of_the_project_and_precedes_the_stated_limit() {
+    let mem = project();
+    let foreign = Arc::new(Foreign(Mutex::new(Vec::new())));
+    let report = doctor(&mem, true)
+        .reporting_worktrees(foreign.clone())
+        .report(false);
+    let markers: Vec<&str> = report.checks.iter().map(|c| c.marker.as_str()).collect();
+    let n = markers.len();
+    assert_eq!(
+        markers[n - 2],
+        "DOCTOR-CHECK-FOREIGN-WORKTREES-s9",
+        "{markers:?}"
+    );
+    assert_eq!(markers[n - 1], "DOCTOR-CHECK-INGESTION-q7");
+    assert_eq!(report.checks[n - 2].status, Status::Warn);
+    assert_eq!(*foreign.0.lock().unwrap(), ["/work"]);
+    let plain = doctor(&mem, true).report(false);
+    assert!(!plain
+        .checks
+        .iter()
+        .any(|c| c.marker == "DOCTOR-CHECK-FOREIGN-WORKTREES-s9"));
+}
+
+// Outside a project nothing is asked, and the row says there is no project.
+#[test]
+fn outside_a_project_the_foreign_worktrees_row_asks_nothing() {
+    let mem = Arc::new(Mem::default());
+    let foreign = Arc::new(Foreign(Mutex::new(Vec::new())));
+    let report = doctor(&mem, true)
+        .reporting_worktrees(foreign.clone())
+        .report(false);
+    let row = report
+        .checks
+        .iter()
+        .find(|c| c.marker == "DOCTOR-CHECK-FOREIGN-WORKTREES-s9")
+        .expect("the row");
+    assert_eq!(row.status, Status::Info);
+    assert!(foreign.0.lock().unwrap().is_empty());
+}
+
+// S51: a doctor asked for the stale distilled forms has their row, warning
+// of each, before the stated limit; one not asked has none.
+#[test]
+fn a_doctor_reporting_stale_distilled_forms_warns_of_each_before_the_stated_limit() {
+    let mem = project();
+    let report = doctor(&mem, true)
+        .reporting_stale_distilled(Box::new(|| vec!["demo#fragments/rules".to_string()]))
+        .report(false);
+    let markers: Vec<&str> = report.checks.iter().map(|c| c.marker.as_str()).collect();
+    let n = markers.len();
+    assert_eq!(
+        markers[n - 2],
+        "DOCTOR-CHECK-STALE-DISTILLED-t1",
+        "{markers:?}"
+    );
+    assert_eq!(markers[n - 1], "DOCTOR-CHECK-INGESTION-q7");
+    let stale = row(&report, "DOCTOR-CHECK-STALE-DISTILLED-t1");
+    assert_eq!(stale.status, Status::Warn);
+    assert!(stale.detail.contains("demo#fragments/rules"));
+    let plain = doctor(&mem, true).report(false);
+    assert!(!plain
+        .checks
+        .iter()
+        .any(|c| c.marker == "DOCTOR-CHECK-STALE-DISTILLED-t1"));
+}
+
+// A doctor asked to report the companions gives their row, just before the
+// stated limit, which stays last.
+#[test]
+fn the_companions_row_comes_just_before_the_stated_limit() {
+    let report = doctor(&project(), true)
+        .reporting_companions(Box::new(|| library_application::Outcome {
+            result: Ok(Vec::new()),
+            notices: Vec::new(),
+        }))
+        .report(false);
+    let markers: Vec<&str> = report.checks.iter().map(|c| c.marker.as_str()).collect();
+    let n = markers.len();
+    assert_eq!(
+        markers[n - 2..],
+        ["DOCTOR-CHECK-COMPANIONS-m4", "DOCTOR-CHECK-INGESTION-q7"],
+        "{markers:?}"
+    );
+}
+
+/// This home's holds, as the port surveys them (s4-Q14, H4).
+struct Held(Vec<run_ports::HoldSummary>);
+
+impl run_ports::HeldFacts for Held {
+    fn hold(
+        &self,
+        _: &uuid::Uuid,
+        _: run_ports::HeldFact,
+    ) -> Result<run_ports::Held, run_ports::HoldError> {
+        unreachable!("doctor holds nothing")
+    }
+
+    fn is_empty(&self, _: &uuid::Uuid) -> Result<bool, run_ports::HoldError> {
+        unreachable!("doctor asks no emptiness")
+    }
+
+    fn sessions(&self) -> Result<Vec<uuid::Uuid>, run_ports::HoldError> {
+        Ok(self.0.iter().map(|s| s.root).collect())
+    }
+
+    fn take(&self, _: &uuid::Uuid) -> Result<Option<run_ports::Batch>, run_ports::HoldError> {
+        unreachable!("doctor delivers nothing")
+    }
+
+    fn discard(&self, _: &uuid::Uuid) -> Result<u64, run_ports::HoldError> {
+        unreachable!("doctor discards nothing (owner H-Q7 (a))")
+    }
+
+    fn survey(&self) -> Result<Vec<run_ports::HoldSummary>, run_ports::HoldError> {
+        Ok(self.0.clone())
+    }
+}
+
+// s4-Q14, H4: a doctor reporting the holds has their row, judged by the
+// stamp it is told, before the stated limit; one not asked has none.
+#[test]
+fn a_doctor_reporting_the_holds_has_their_row_before_the_stated_limit() {
+    let mem = project();
+    let name = "projects/calm-otter/sessions/brisk-copper-moth";
+    let held = Held(vec![run_ports::HoldSummary {
+        root: sessions::SessionName::parse(name).unwrap().id(),
+        session: Some(name.to_string()),
+        facts: 3,
+        gaps: 0,
+        bytes: 10,
+        stamps: vec!["v0.5.0-fed4321".to_string()],
+        oldest: None,
+        set_aside: 0,
+        unreadable: false,
+        bad_tail: false,
+    }]);
+    let report = doctor(&mem, true)
+        .reporting_holds(Arc::new(held), "v0.4.0-abc1234", 1_794_700_800)
+        .report(false);
+    let markers: Vec<&str> = report.checks.iter().map(|c| c.marker.as_str()).collect();
+    let n = markers.len();
+    assert_eq!(markers[n - 2], crate::HELD_FACTS_MARKER, "{markers:?}");
+    assert_eq!(markers[n - 1], "DOCTOR-CHECK-INGESTION-q7");
+    assert_eq!(
+        report.checks[n - 2].status,
+        Status::Warn,
+        "a newer ctxloom's"
+    );
+    assert!(report.checks[n - 2].detail.contains("brisk-copper-moth"));
+    let plain = doctor(&mem, true).report(false);
+    assert!(!plain
+        .checks
+        .iter()
+        .any(|c| c.marker == crate::HELD_FACTS_MARKER));
+    // Doctor's json says the row as the others are said.
+    assert!(!report.failed(), "a warning is advisory");
+}
+
+// Step 10c U10: a doctor writing through other files reads and writes
+// them alone, so the daemon's recording one plans its fix and writes none.
+#[test]
+fn a_doctor_writing_through_other_files_fixes_them_and_leaves_its_own() {
+    let mem = retired(project());
+    let stale =
+        r#"{"hooks":{"SessionStart":[{"hooks":[{"command":"ctxloom hook inject-context abc"}]}]}}"#;
+    let through = Arc::new(Mem::default());
+    for files in [&mem, &through] {
+        files
+            .files
+            .lock()
+            .unwrap()
+            .insert("/work/.claude/settings.json".to_string(), stale.to_string());
+    }
+    let doctor = doctor(&mem, true).writing_through(through.clone());
+    assert_eq!(doctor.fix().unwrap().len(), 1);
+    assert_eq!(
+        mem.files.lock().unwrap()["/work/.claude/settings.json"],
+        stale,
+        "its own files were written"
+    );
+    assert!(
+        !through.files.lock().unwrap()["/work/.claude/settings.json"].contains("inject-context")
+    );
+}
+
+// doctor.feature: "A bundle in the old metadata layout is a warning naming
+// the git mv" (step 10c U5, D15): a doctor asked for the bundles in the old
+// layout says each as it is told, its fix the move, before the stated
+// limit; one not asked has no such row.
+#[test]
+fn a_doctor_reporting_old_layouts_warns_of_each_naming_the_move() {
+    let mem = project();
+    let report = doctor(&mem, true)
+        .reporting_old_layouts(Box::new(|| {
+            vec![(
+                "demo keeps its skill metadata at old, where ctxloom no longer reads it"
+                    .to_string(),
+                "git mv old new".to_string(),
+            )]
+        }))
+        .report(false);
+    let markers: Vec<&str> = report.checks.iter().map(|c| c.marker.as_str()).collect();
+    let n = markers.len();
+    assert_eq!(markers[n - 2], "DOCTOR-CHECK-SIDECARS-u4", "{markers:?}");
+    let found = row(&report, "DOCTOR-CHECK-SIDECARS-u4");
+    assert_eq!(found.status, Status::Warn);
+    assert!(
+        found.detail.contains("demo keeps its skill metadata"),
+        "{}",
+        found.detail
+    );
+    assert_eq!(found.remedy, "git mv old new");
+    let plain = doctor(&mem, true).report(false);
+    assert!(!plain
+        .checks
+        .iter()
+        .any(|c| c.marker == "DOCTOR-CHECK-SIDECARS-u4"));
 }

@@ -10,6 +10,9 @@ publish.workspace = true
 [dependencies]
 angzarr-diagnostic.workspace = true
 
+[dev-dependencies]
+mutants.workspace = true
+
 [features]
 test-support = []
 

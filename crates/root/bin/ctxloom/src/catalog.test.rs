@@ -61,15 +61,36 @@ fn message_vars(package: &Package, code: &str) -> Option<BTreeSet<String>> {
             continue;
         }
         let text = files::read(&entry).ok()?;
-        let mut lines = text
-            .lines()
-            .skip_while(|l| !wanted.iter().any(|id| l.starts_with(&format!("{id} ="))));
-        let Some(first) = lines.next() else { continue };
-        let rest = lines.take_while(|l| l.starts_with(' ') || l.is_empty());
-        let block: Vec<&str> = std::iter::once(first).chain(rest).collect();
-        return Some(vars(&block.join("\n")));
+        let Some((id, mut used)) = wanted
+            .iter()
+            .find_map(|id| block(&text, id).map(|b| (*id, vars(&b))))
+        else {
+            continue;
+        };
+        // A code's `-fix` is rendered with the same args as its message, so
+        // the args are exactly what the two use between them.
+        if let Some(fix) = block(&text, &format!("{id}-fix")) {
+            used.extend(vars(&fix));
+        }
+        return Some(used);
     }
     None
+}
+
+/// The message `id` of a catalog's `text`: its first line and the indented
+/// lines that continue it.
+fn block(text: &str, id: &str) -> Option<String> {
+    let mut lines = text
+        .lines()
+        .skip_while(|l| !l.starts_with(&format!("{id} =")));
+    let first = lines.next()?;
+    let rest = lines.take_while(|l| l.starts_with(' ') || l.is_empty());
+    Some(
+        std::iter::once(first)
+            .chain(rest)
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )
 }
 
 /// The names after each `$` in `text`.
@@ -182,7 +203,10 @@ fn test_the_binary_reports_the_diagnostics_of_every_crate_composed_in() {
         "content-fs",
         "ctxloom",
         "ctxloom-cli",
+        "ctxloom-store-sqlite",
         "ctxloom-wiring",
+        "daemon-api",
+        "daemon-ports",
         "deps",
         "deps-application",
         "duration-text",
@@ -195,7 +219,10 @@ fn test_the_binary_reports_the_diagnostics_of_every_crate_composed_in() {
         "isolation",
         "isolation-application",
         "library",
+        "library-api",
         "library-application",
+        "library-tree",
+        "mcp-server",
         "project-dir",
         "reclaim-application",
         "run-application",

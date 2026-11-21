@@ -3,7 +3,7 @@
 
 use angzarr_embedded::{Timestamp, WireError};
 
-use crate::{Origin, Rotation};
+use crate::{Origin, Rotation, SessionRef};
 
 /// The sessions domain's name: every session stream's `Cover.domain`.
 pub const SESSION_DOMAIN: &str = "sessions";
@@ -11,7 +11,13 @@ pub const SESSION_DOMAIN: &str = "sessions";
 /// The name claims' domain: every claim stream's `Cover.domain`.
 pub const NAMES_DOMAIN: &str = "session-names";
 
-/// The session, folded from its events. Derived values (its title, its
+/// The projects' domain (S54): one stream per project, holding its harp.
+pub const PROJECTS_DOMAIN: &str = "projects";
+
+/// The project harps' claim domain (S54): one stream per harp text.
+pub const PROJECT_NAMES_DOMAIN: &str = "project-names";
+
+/// The session, folded from its events. Derived values (its summary, its
 /// state now) are computed when read, never stored.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SessionState {
@@ -37,13 +43,29 @@ pub struct SessionState {
     pub incarnation: u32,
     /// The incarnation owed or running and not yet ended, if any.
     pub open_incarnation: Option<u32>,
-    /// Set by a stop order; no incarnation is owed after it.
-    pub stopped: bool,
+    /// The owner a child was minted for (D26); `None` for a top-level
+    /// session.
+    pub owner: Option<SessionRef>,
+    /// Set by `SessionClosed`, terminal (K1): no message, clear or new
+    /// incarnation after it.
+    pub closed: bool,
+    pub closed_cause: String,
+    /// The children this session holds as an owner, oldest first: launched
+    /// and not yet ended, failed or forgotten (K2).
+    pub children: Vec<Child>,
     /// The free-text title `session rename` sets (S55); empty when none is.
     pub title: String,
     /// The workspace axis it was minted on; none recorded (a session from
     /// before it was): `none`.
     pub workspace: Option<String>,
+    /// The terminal wake outstanding, by its nonce; empty when none is.
+    pub wake_outstanding: String,
+    /// The last wake, disarmed unanswered with nothing issued or redeemed
+    /// after it, by its nonce: `session show`'s "wake sent, not answered".
+    pub wake_unanswered: String,
+    /// The ids of the messages sent and not yet delivered, in the order
+    /// sent: what a `DeliverMessages` may still record (the lean hook RPC).
+    pub pending_messages: Vec<String>,
 }
 
 impl From<SessionState> for sessions_proto::v1::SessionState {
@@ -69,9 +91,19 @@ impl From<SessionState> for sessions_proto::v1::SessionState {
             depth: value.depth,
             incarnation: value.incarnation,
             open_incarnation: value.open_incarnation,
-            stopped: value.stopped,
+            owner: value.owner.map(sessions_proto::v1::SessionRef::from),
+            closed: value.closed,
+            closed_cause: value.closed_cause,
+            children: value
+                .children
+                .into_iter()
+                .map(sessions_proto::v1::Child::from)
+                .collect(),
             title: value.title,
             workspace: value.workspace,
+            wake_outstanding: value.wake_outstanding,
+            wake_unanswered: value.wake_unanswered,
+            pending_messages: value.pending_messages,
         }
     }
 }
@@ -114,9 +146,48 @@ impl TryFrom<sessions_proto::v1::SessionState> for SessionState {
             depth: value.depth,
             incarnation: value.incarnation,
             open_incarnation: value.open_incarnation,
-            stopped: value.stopped,
+            owner: value.owner.map(SessionRef::try_from).transpose()?,
+            closed: value.closed,
+            closed_cause: value.closed_cause,
+            children: value
+                .children
+                .into_iter()
+                .map(Child::try_from)
+                .collect::<Result<Vec<_>, _>>()?,
             title: value.title,
             workspace: value.workspace,
+            wake_outstanding: value.wake_outstanding,
+            wake_unanswered: value.wake_unanswered,
+            pending_messages: value.pending_messages,
+        })
+    }
+}
+
+/// One child an owner holds (K2): the child session and the directory it
+/// works in. Hand-written: no command or event carries it whole, so the
+/// markup generates none.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Child {
+    pub session: Option<SessionRef>,
+    pub root: String,
+}
+
+impl From<Child> for sessions_proto::v1::Child {
+    fn from(value: Child) -> Self {
+        sessions_proto::v1::Child {
+            session: value.session.map(sessions_proto::v1::SessionRef::from),
+            root: value.root,
+        }
+    }
+}
+
+impl TryFrom<sessions_proto::v1::Child> for Child {
+    type Error = WireError;
+
+    fn try_from(value: sessions_proto::v1::Child) -> Result<Self, WireError> {
+        Ok(Child {
+            session: value.session.map(SessionRef::try_from).transpose()?,
+            root: value.root,
         })
     }
 }
@@ -152,6 +223,120 @@ impl TryFrom<sessions_proto::v1::NameClaimState> for NameClaimState {
             harp: value.harp,
             session: value.session,
             claimed: value.claimed,
+        })
+    }
+}
+
+/// A project, folded from its events (S54): its harp, empty until named,
+/// and its registration (owner, 2026-11-12): the root a daemon client
+/// registered it from and its VCS identity, empty until registered.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProjectState {
+    pub project_id: String,
+    pub harp: String,
+    pub root: String,
+    pub git_common_dir: String,
+    pub root_commit: String,
+    /// The session removals intended and not yet done, by request id (O2,
+    /// step 10b U9).
+    pub removals: std::collections::BTreeMap<String, OpenRemoval>,
+}
+
+impl From<ProjectState> for sessions_proto::v1::ProjectState {
+    fn from(value: ProjectState) -> Self {
+        sessions_proto::v1::ProjectState {
+            project_id: value.project_id,
+            harp: value.harp,
+            root: value.root,
+            git_common_dir: value.git_common_dir,
+            root_commit: value.root_commit,
+            removals: value
+                .removals
+                .into_iter()
+                .map(|(id, removal)| (id, removal.into()))
+                .collect(),
+        }
+    }
+}
+
+impl TryFrom<sessions_proto::v1::ProjectState> for ProjectState {
+    type Error = WireError;
+
+    fn try_from(value: sessions_proto::v1::ProjectState) -> Result<Self, WireError> {
+        Ok(ProjectState {
+            project_id: value.project_id,
+            harp: value.harp,
+            root: value.root,
+            git_common_dir: value.git_common_dir,
+            root_commit: value.root_commit,
+            removals: value
+                .removals
+                .into_iter()
+                .map(|(id, removal)| Ok((id, removal.try_into()?)))
+                .collect::<Result<_, WireError>>()?,
+        })
+    }
+}
+
+/// A session removal intended and not yet done (O2, step 10b U9): its
+/// steps in order, and how many are done.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct OpenRemoval {
+    pub request_id: String,
+    pub harp: String,
+    pub steps: Vec<String>,
+    pub done: u32,
+}
+
+impl From<OpenRemoval> for sessions_proto::v1::OpenRemoval {
+    fn from(value: OpenRemoval) -> Self {
+        sessions_proto::v1::OpenRemoval {
+            request_id: value.request_id,
+            harp: value.harp,
+            steps: value.steps,
+            done: value.done,
+        }
+    }
+}
+
+impl TryFrom<sessions_proto::v1::OpenRemoval> for OpenRemoval {
+    type Error = WireError;
+
+    fn try_from(value: sessions_proto::v1::OpenRemoval) -> Result<Self, WireError> {
+        Ok(OpenRemoval {
+            request_id: value.request_id,
+            harp: value.harp,
+            steps: value.steps,
+            done: value.done,
+        })
+    }
+}
+
+/// A project harp's claim, folded from its events: held by a project, or
+/// free (never yet claimed).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProjectNameState {
+    pub harp: String,
+    /// The project that holds the harp; empty while it is free.
+    pub project_id: String,
+}
+
+impl From<ProjectNameState> for sessions_proto::v1::ProjectNameState {
+    fn from(value: ProjectNameState) -> Self {
+        sessions_proto::v1::ProjectNameState {
+            harp: value.harp,
+            project_id: value.project_id,
+        }
+    }
+}
+
+impl TryFrom<sessions_proto::v1::ProjectNameState> for ProjectNameState {
+    type Error = WireError;
+
+    fn try_from(value: sessions_proto::v1::ProjectNameState) -> Result<Self, WireError> {
+        Ok(ProjectNameState {
+            harp: value.harp,
+            project_id: value.project_id,
         })
     }
 }

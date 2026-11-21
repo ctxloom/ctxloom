@@ -1,6 +1,7 @@
 //! The checks that read only the text they are given.
 
 use auth_application::Auth;
+use ctxloom_ports::ForeignListing;
 use serde::Serialize;
 
 use crate::hooks::Stale;
@@ -19,8 +20,8 @@ pub enum Status {
 /// One row of the report.
 #[derive(Clone, PartialEq, Eq, Debug, Serialize)]
 pub struct Check {
-    pub marker: &'static str,
-    pub name: &'static str,
+    pub marker: String,
+    pub name: String,
     pub status: Status,
     pub detail: String,
     /// What to do about a warning or failure.
@@ -36,8 +37,8 @@ fn row(
     remedy: &str,
 ) -> Check {
     Check {
-        marker,
-        name,
+        marker: marker.to_string(),
+        name: name.to_string(),
         status,
         detail: detail.to_string(),
         remedy: remedy.to_string(),
@@ -89,7 +90,9 @@ pub fn setup_marker(
 
 /// `DEPS-a1`: what the machine needs whatever the project is: git, and the
 /// identity it commits with (as git resolves it where ctxloom runs, in her
-/// own environment: `ctxloom_ports::GitIdentity`).
+/// own environment: `ctxloom_ports::GitIdentity`). The library itself no
+/// longer commits; `bundle push` does, so that is what a missing identity
+/// breaks (the session home's identity is seeded from the same).
 pub fn deps(git_found: bool, identity_known: bool) -> Check {
     const M: &str = "DOCTOR-CHECK-DEPS-a1";
     const N: &str = "system dependencies";
@@ -107,7 +110,7 @@ pub fn deps(git_found: bool, identity_known: bool) -> Check {
             M,
             N,
             Status::Warn,
-            "git is there but has no identity (user.name and user.email): a commit would fail",
+            "git is there but has no identity (user.name and user.email): a bundle push, which commits, would fail",
             "git config --global user.name \"Your Name\" && git config --global user.email you@example.com",
         );
     }
@@ -121,10 +124,31 @@ pub fn deps(git_found: bool, identity_known: bool) -> Check {
 }
 
 /// `AGENTS-b2`: every configured agent names the engine it runs, or the
-/// profiles it is for (an agent bound to neither resolves nothing).
-pub fn agents(config: Option<&str>) -> Check {
+/// profiles it is for (an agent bound to neither resolves nothing), and
+/// resolves: one whose run would be refused as planned (`unresolved`, the
+/// library's word: a bundle its profiles include that is not there, a
+/// profile nobody has) is a `fail` naming the agent and why.
+pub fn agents(config: Option<&str>, unresolved: &[library_application::AgentUnresolved]) -> Check {
     const M: &str = "DOCTOR-CHECK-AGENTS-b2";
     const N: &str = "agents";
+    if !unresolved.is_empty() {
+        let detail: Vec<String> = unresolved
+            .iter()
+            .map(|agent| {
+                format!(
+                    "agent {} does not resolve, so its run is refused: {}",
+                    agent.agent,
+                    agent.problems.join("; ")
+                )
+            })
+            .collect();
+        let fix = unresolved
+            .iter()
+            .map(|agent| agent.fix.as_str())
+            .find(|fix| !fix.is_empty())
+            .unwrap_or("ctxloom agent edit <name> --profiles <profile>");
+        return row(M, N, Status::Fail, &detail.join("; "), fix);
+    }
     let Some(Ok(value)) = config.map(angzarr_yaml::parse) else {
         return row(
             M,
@@ -179,17 +203,26 @@ pub fn agents(config: Option<&str>) -> Check {
 
 /// `CREDENTIALS-m5`: whether the credential every configured engine needs is
 /// exported, in the mode the human's session authenticates in. One that is
-/// not is a `fail`: every run is refused for it. Only presence is read, never
-/// a value, and "present" is not "accepted": whether the engine accepts it is
-/// known only by launching the engine's own CLI. A source that is a file
-/// alone is a `warn`: the primary session may run on it, no child can.
+/// not is a `fail` when nothing can run on it (a source of variables alone),
+/// and a `warn` naming what a child needs when the primary can still sign in
+/// (the engine's own login, or the source's file; owner ruling 2026-11-19).
+/// Only presence is read, never a value, and "present" is not "accepted":
+/// whether the engine accepts it is known only by launching the engine's own
+/// CLI. A source that is a file alone is a `warn`: the primary session may
+/// run on it, no child can.
 pub fn credentials(layers: &[String], auth: &Auth) -> Check {
     const M: &str = "DOCTOR-CHECK-CREDENTIALS-m5";
     const N: &str = "credentials";
     let engines =
         library::config::engines::engines_in_use(&library::config::engines::merged(layers));
     let verdicts = auth.needed(&engines, layers);
-    let missing: Vec<_> = verdicts.iter().filter(|v| !v.ready).collect();
+    // Nothing can run on it: the primary has no login to sign in with
+    // either. One the primary signs in without refuses only a child, and is
+    // warned of below (owner ruling 2026-11-19).
+    let missing: Vec<_> = verdicts
+        .iter()
+        .filter(|v| !v.ready && !v.primary_signs_in)
+        .collect();
     if let Some(first) = missing.first() {
         let detail = missing
             .iter()
@@ -209,7 +242,10 @@ pub fn credentials(layers: &[String], auth: &Auth) -> Check {
     // A file alone serves the primary session; every child run of that
     // engine is refused (ruling 53), and the row says so in the refusal's
     // words (ruling 81).
-    let primary_only: Vec<_> = verdicts.iter().filter(|v| v.primary_only).collect();
+    let primary_only: Vec<_> = verdicts
+        .iter()
+        .filter(|v| v.primary_only || v.primary_signs_in)
+        .collect();
     if let Some(first) = primary_only.first() {
         let detail = primary_only
             .iter()
@@ -289,7 +325,8 @@ pub fn hooks(settings: &[(String, String)], name: &str) -> Check {
 }
 
 /// `GITIGNORE-f6`: a blanket `.ctxloom` ignore rule predates content moving
-/// into `.ctxloom/`; left in place it un-tracks the project's own content.
+/// into `.ctxloom/`; left in place it un-tracks the project's own content,
+/// a warning (the library is git-free, owner 2026-11-18).
 /// And the other half: ctxloom's private state that git can see
 /// (`unignored`, the patterns no ignore file covers).
 pub fn gitignore(text: Option<&str>, unignored: &[&str]) -> Check {
@@ -456,6 +493,203 @@ pub fn not_carried(losses: &[library_application::AgentLosses]) -> Check {
         Status::Warn,
         &detail.join("; "),
         "run the agent on an engine that carries it (`ctxloom agent edit <name> --engine <engine>`), or move what the hook does elsewhere",
+    )
+}
+
+/// `STALE-DISTILLED-t1` (T30, S51): every distilled form matches the source
+/// it was distilled from; one that does not (its source edited since, or no
+/// digest recorded) is never used, its original is, and it is a warning
+/// naming each, with the command that distills it again.
+pub fn stale_distilled(stale: &[String]) -> Check {
+    const M: &str = "DOCTOR-CHECK-STALE-DISTILLED-t1";
+    const N: &str = "every distilled form matches its source";
+    if stale.is_empty() {
+        return row(
+            M,
+            N,
+            Status::Ok,
+            "every distilled form matches the source it was distilled from",
+            "",
+        );
+    }
+    row(
+        M,
+        N,
+        Status::Warn,
+        &format!(
+            "stale distilled forms (their originals are used instead): {}",
+            stale.join(", ")
+        ),
+        "run `ctxloom fragment distill <ref>` (or `ctxloom command distill <ref>`) for each, or `ctxloom bundle distill <bundle>`",
+    )
+}
+
+/// `SIDECARS-u4` (step 10c U5, owner T27, D15): each bundle whose metadata
+/// is in the old layout, where it is no longer read, so the bundle is
+/// refused whole; `found` is each one's message and the move that migrates
+/// it, as the library says them. A warning: every other bundle still runs.
+pub fn sidecars(found: &[(String, String)]) -> Check {
+    const M: &str = "DOCTOR-CHECK-SIDECARS-u4";
+    const N: &str = "every bundle's metadata is where ctxloom reads it";
+    if found.is_empty() {
+        return row(
+            M,
+            N,
+            Status::Ok,
+            "no bundle keeps its metadata in the old layout",
+            "",
+        );
+    }
+    let said =
+        |pick: fn(&(String, String)) -> &str| found.iter().map(pick).collect::<Vec<_>>().join("; ");
+    row(
+        M,
+        N,
+        Status::Warn,
+        &said(|(message, _)| message),
+        &said(|(_, fix)| fix),
+    )
+}
+
+/// `COMPANIONS-m4`: each enabled registered companion asked for its loadout,
+/// through the one probe a session's assembly uses (OD-8): the ones that
+/// answered, and why each other one gives nothing. Only a registered name is
+/// ever run (companion.feature).
+pub fn companions(
+    asked: &library_application::Outcome<Vec<library_application::CompanionInit>>,
+) -> Check {
+    const M: &str = "DOCTOR-CHECK-COMPANIONS-m4";
+    const N: &str = "registered companions";
+    let answered: Vec<&str> = asked
+        .result
+        .as_ref()
+        .map(|inits| inits.iter().map(|c| c.name.as_str()).collect())
+        .unwrap_or_default();
+    let failing: Vec<String> = asked
+        .notices
+        .iter()
+        .filter_map(|notice| match notice {
+            library_application::Notice::CompanionNotOnPath { name, program } => {
+                Some(format!("{name}: its program {program} is not on PATH"))
+            }
+            library_application::Notice::LoadoutProbeFailed { name, detail } => {
+                Some(format!("{name}: its loadout probe failed ({detail})"))
+            }
+            library_application::Notice::LoadoutUnparseable { name, .. } => {
+                Some(format!("{name}: its loadout does not parse"))
+            }
+            _ => None,
+        })
+        .collect();
+    if failing.is_empty() {
+        let detail = if answered.is_empty() {
+            "no enabled companion gives a loadout".to_string()
+        } else {
+            format!("answering: {}", answered.join(", "))
+        };
+        return row(M, N, Status::Ok, &detail, "");
+    }
+    row(
+        M,
+        N,
+        Status::Warn,
+        &failing.join("; "),
+        "install the companion's program, or turn it off: `ctxloom companion disable <name>`",
+    )
+}
+
+/// `FOREIGN-WORKTREES-s9` (j001300): the project's worktrees ctxloom did not
+/// create, each named with the states git measured and the exact commands
+/// that remove it, which only she runs: ctxloom removes no worktree it did
+/// not create. A dirty one's removal is the forced form and an unmerged
+/// branch's delete is `-D`, each saying what it discards; a state not
+/// measured is said unknown, and its command is the safe form, which git
+/// itself refuses where it would lose work. Go: doctorCheckForeignWorktrees.
+pub fn foreign_worktrees(root: Option<&str>, listing: &ForeignListing) -> Check {
+    const M: &str = "DOCTOR-CHECK-FOREIGN-WORKTREES-s9";
+    const N: &str = "worktrees ctxloom did not create";
+    let Some(root) = root else {
+        return row(M, N, Status::Info, "no project directory to check", "");
+    };
+    let worktrees = match listing {
+        ForeignListing::NotARepository => {
+            return row(
+                M,
+                N,
+                Status::Info,
+                "the project is not a git repository: nothing to check",
+                "",
+            )
+        }
+        ForeignListing::Unlisted(why) => {
+            return row(
+                M,
+                N,
+                Status::Warn,
+                &format!("could not list the project's worktrees: {why}"),
+                "",
+            )
+        }
+        ForeignListing::Listed(worktrees) => worktrees,
+    };
+    if worktrees.is_empty() {
+        return row(
+            M,
+            N,
+            Status::Ok,
+            "no worktree of the project but its own checkout and ctxloom's scratch checkouts",
+            "",
+        );
+    }
+    let mut named = Vec::new();
+    let mut commands = Vec::new();
+    for tree in worktrees {
+        let merge = match tree.merged {
+            Some(true) => "merged",
+            Some(false) => "unmerged",
+            None => "merge state unknown",
+        };
+        let dirt = match tree.dirty {
+            Some(true) => "dirty",
+            Some(false) => "clean",
+            None => "dirty state unknown",
+        };
+        let states = if tree.branch.is_empty() {
+            format!("detached, {dirt}")
+        } else {
+            format!("branch {}, {merge}, {dirt}", tree.branch)
+        };
+        named.push(format!("{} ({states})", tree.path));
+        commands.push(match tree.dirty {
+            Some(true) => format!(
+                "git -C {root} worktree remove --force {} (discards its uncommitted changes)",
+                tree.path
+            ),
+            _ => format!("git -C {root} worktree remove {}", tree.path),
+        });
+        if !tree.branch.is_empty() {
+            commands.push(match tree.merged {
+                Some(false) => format!(
+                    "git -C {root} branch -D {} (discards its unmerged commits)",
+                    tree.branch
+                ),
+                _ => format!("git -C {root} branch -d {}", tree.branch),
+            });
+        }
+    }
+    row(
+        M,
+        N,
+        Status::Warn,
+        &format!(
+            "{} worktree(s) ctxloom did not create, which it never removes: {}",
+            worktrees.len(),
+            named.join("; ")
+        ),
+        &format!(
+            "to remove them yourself, once nothing in them is wanted: {}",
+            commands.join("; ")
+        ),
     )
 }
 

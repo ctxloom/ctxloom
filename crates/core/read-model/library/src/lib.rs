@@ -6,6 +6,8 @@
 //! - [`model`]: a bundle and its items.
 //! - [`document`] and [`tree`]: a bundle read from an inline document, and
 //!   from its tree of files; [`frontmatter`] splits an item file.
+//! - [`companion`]: a companion's registration, by name (OD-10), and its
+//!   state (OD-9).
 //! - [`loadout`]: a companion's loadout document, its `run:` bundle and
 //!   typed `init:` section.
 //! - [`profile`]: profiles, and their resolution with parents.
@@ -15,7 +17,8 @@
 //! - [`compose`]: selection (bookend, priority, dedupe) and assembly of the
 //!   context; [`mustache`] substitutes the profile's variables.
 //! - [`premise`]: the premise index (D24); [`tokens`]: the token estimate;
-//!   [`sha256`]: the digests.
+//!   [`sha256`]: the digests; [`distill`]: a distilled form's state against
+//!   its source (T30), the floor an answer must clear.
 //! - [`config`]: the layered configuration, its schema, overrides and output.
 //! - [`findings`]: what a read noticed and did not stop for.
 //! - [`write`]: the write side as pure planning (S2): the text of the files a
@@ -23,8 +26,10 @@
 
 pub mod builtin;
 pub mod catalog;
+pub mod companion;
 pub mod compose;
 pub mod config;
+pub mod distill;
 pub mod document;
 mod error;
 pub mod findings;

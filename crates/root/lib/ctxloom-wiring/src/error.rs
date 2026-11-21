@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
+use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
 use ctxloom_store_sqlite::StoreOpenError;
 
 /// This crate's en-US messages.
@@ -23,6 +23,39 @@ pub enum LibError {
     NoRuntime { detail: String },
     /// The project's store would not open.
     Store(StoreOpenError),
+    /// The project could not be named (S54).
+    Project(Report),
+    /// The user's one daemon serves another ctxloom home than this
+    /// command's: one daemon per OS user, never a second.
+    DaemonOtherHome { home: String, daemon_home: String },
+    /// A dry run's names in a ctxloom project nothing has named yet: a dry
+    /// run never mints a project id (owner ruling 2026-11-14), so it is
+    /// refused and writes nothing. (A command that must name its project
+    /// mints the id at its root instead.)
+    ProjectUnnamed { root: String },
+    /// `daemon serve` found another daemon holding the account's
+    /// single-instance lock: that one serves, and this one does not.
+    DaemonInstanceHeld { lock: String },
+    /// A library tree's checkout harp (`.ctxloom/state/checkout`, L2) could
+    /// not be read, minted or written.
+    Checkout { path: String, detail: String },
+    /// A library tree could not be walked or a file of it read (step 10c
+    /// U13 rework, the scanner).
+    Scan { path: String, detail: String },
+}
+
+impl cli_support::ExitClass for LibError {
+    /// A read in a project nothing has named, and a daemon that found
+    /// another holding the lock, are declines (20); every other wiring error
+    /// failed (10).
+    fn exit(&self) -> cli_support::Exit {
+        match self {
+            LibError::ProjectUnnamed { .. } | LibError::DaemonInstanceHeld { .. } => {
+                cli_support::Exit::REFUSED
+            }
+            _ => cli_support::Exit::FAILED,
+        }
+    }
 }
 
 impl fmt::Display for LibError {
@@ -40,6 +73,12 @@ impl Diagnostic for LibError {
             LibError::BadSession { .. } => code!("bad-session"),
             LibError::NoRuntime { .. } => code!("no-runtime"),
             LibError::Store(_) => code!("store"),
+            LibError::Project(cause) => cause.code(),
+            LibError::DaemonOtherHome { .. } => code!("daemon-other-home"),
+            LibError::ProjectUnnamed { .. } => code!("project-unnamed"),
+            LibError::Checkout { .. } => code!("checkout"),
+            LibError::Scan { .. } => code!("scan"),
+            LibError::DaemonInstanceHeld { .. } => code!("daemon-instance-held"),
         }
     }
 
@@ -52,6 +91,17 @@ impl Diagnostic for LibError {
             ],
             LibError::NoRuntime { detail } => vec![("ext_err_txt", detail.as_str().into())],
             LibError::Store(cause) => vec![("error", Arg::Nested(Box::new(cause.clone())))],
+            LibError::Project(cause) => cause.args(),
+            LibError::DaemonOtherHome { home, daemon_home } => vec![
+                ("home", home.as_str().into()),
+                ("daemon_home", daemon_home.as_str().into()),
+            ],
+            LibError::ProjectUnnamed { root } => vec![("root", root.as_str().into())],
+            LibError::Checkout { path, detail } | LibError::Scan { path, detail } => vec![
+                ("path", path.as_str().into()),
+                ("ext_err_txt", detail.as_str().into()),
+            ],
+            LibError::DaemonInstanceHeld { lock } => vec![("lock", lock.as_str().into())],
         }
     }
 }
@@ -59,7 +109,7 @@ impl Diagnostic for LibError {
 /// One value of every error here, for a catalog test.
 #[cfg(any(test, feature = "test-support"))]
 pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
-    vec![
+    let samples: Vec<Box<dyn Diagnostic>> = vec![
         Box::new(LibError::NoHome {
             variable: "HOME".to_string(),
         }),
@@ -69,6 +119,24 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         }),
         Box::new(LibError::NoRuntime {
             detail: "too many open files".to_string(),
+        }),
+        Box::new(LibError::DaemonOtherHome {
+            home: "/home/u/.ctxloom-other".to_string(),
+            daemon_home: "/home/u".to_string(),
+        }),
+        Box::new(LibError::ProjectUnnamed {
+            root: "/work/app".to_string(),
+        }),
+        Box::new(LibError::DaemonInstanceHeld {
+            lock: "/home/u/.ctxloom/daemon/daemon.lock".to_string(),
+        }),
+        Box::new(LibError::Checkout {
+            path: "/work/app/.ctxloom/state/checkout".to_string(),
+            detail: "permission denied".to_string(),
+        }),
+        Box::new(LibError::Scan {
+            path: "/work/app/.ctxloom".to_string(),
+            detail: "permission denied".to_string(),
         }),
         Box::new(LibError::Store(StoreOpenError::Open(
             ctxloom_store_sqlite::OpenError::Unplaced {
@@ -81,7 +149,16 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
                 id: "../escape".to_string(),
             },
         ))),
-    ]
+        Box::new(crate::daemon::flush::HeldSetAside {
+            session: "brisk-copper-moth".to_string(),
+            count: 2,
+            why: "the daemon refused it".to_string(),
+        }),
+    ];
+    samples
+        .into_iter()
+        .chain(crate::daemon::shutdown::samples())
+        .collect()
 }
 
 #[cfg(test)]

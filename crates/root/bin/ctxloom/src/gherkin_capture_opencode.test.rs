@@ -58,7 +58,7 @@ const TOOL_DIGEST: &str = "71ca0ef886ae43a96de885a15d913cc2cbe0553f553638a286018
 /// The stub opencode: records its environment, then runs the driver over the
 /// plugin its session home holds.
 const STUB: &str = r#"here="$(dirname "$0")"
-for v in CTXLOOM_ENDPOINT CTXLOOM_BEARER CTXLOOM_RUN CTXLOOM_HOME CTXLOOM_TLS_CERT CTXLOOM_SESSION_HARP OPENCODE_CONFIG_DIR; do
+for v in CTXLOOM_RUN CTXLOOM_HOME CTXLOOM_SESSION OPENCODE_CONFIG_DIR; do
   eval "[ -n \"\${$v:-}\" ]" || echo "$v" >> "$here/opencode-missing"
 done
 env | grep -E '^(CTXLOOM_|OPENCODE_|XDG_|HOME=)' > "$here/opencode-env"
@@ -303,6 +303,11 @@ fn opencode_environment(w: &mut World) {
         "{env}"
     );
     assert_eq!(var("OPENCODE_PURE"), None, "{env}");
+    // Slice 4 U7: its plugin's hooks find the user's daemon themselves; no
+    // listener of the run's own is named to them.
+    for name in ["CTXLOOM_ENDPOINT", "CTXLOOM_BEARER", "CTXLOOM_TLS_CERT"] {
+        assert_eq!(var(name), None, "{name}: {env}");
+    }
     for file in [
         "plugins/ctxloom.js",
         "AGENTS.md",
@@ -336,7 +341,7 @@ fn hooks_recorded(w: &mut World) {
 }
 
 #[cucumber::then(
-    "the session's transcript holds her prompt, the tool call with its status, the assistant's words, the turn's end and the session's end at the exit, each once"
+    "the session's transcript holds her prompt, the tool call with its status, the assistant's words and the turn's end, each once"
 )]
 fn transcript_holds(w: &mut World) {
     // Ruling 87a: read from the session's events, as a person reads it.
@@ -345,13 +350,8 @@ fn transcript_holds(w: &mut World) {
     let kinds: Vec<&str> = lines.iter().map(|l| l["kind"].as_str().unwrap()).collect();
     assert_eq!(
         kinds,
-        [
-            "entry",
-            "tool",
-            "assistant_delta",
-            "turn_end",
-            "session_end"
-        ],
+        // No `session_end` at the exit (owner 2026-11-15).
+        ["entry", "tool", "assistant_delta", "turn_end"],
         "each once, the turn ended twice (its completion and its idle): {lines:#?}"
     );
     for line in &lines {
@@ -373,7 +373,6 @@ fn transcript_holds(w: &mut World) {
     assert_eq!(words["delta"]["text"], WORDS);
     assert_eq!(words["delta"]["final"], true);
     assert_eq!(lines[3]["prompt_id"], PROMPT_ID);
-    assert_eq!(lines[4]["reason"], "exit");
     let whole = serde_json::to_string(&lines).unwrap();
     assert!(!whole.contains(TOOL_BODY), "the tool's output was kept");
     assert!(

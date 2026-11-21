@@ -1,0 +1,24 @@
+[package]
+name = "trust-index"
+version = "0.1.0"
+description = "The projects' trusts: folded from the trust streams, held in memory, what a launch's check and `trust list` read"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+angzarr-embedded.workspace = true
+trust.workspace = true
+# The resource message the model answers as its view (S32), and its fold on
+# the projector port.
+daemon-proto.workspace = true
+held-projection.workspace = true
+
+[dev-dependencies]
+angzarr-embedded = { workspace = true, features = ["test-support"] }
+mutants.workspace = true
+prost.workspace = true
+
+[lints]
+workspace = true

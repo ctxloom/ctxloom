@@ -4,6 +4,7 @@
 
 use crate::fakes::{plain, Setup, CONFIG, ENVELOPE};
 use crate::{AppError, AssembleRequest, ItemKind, Notice, RunRequest, SearchRequest};
+use angzarr_diagnostic::Diagnostic;
 use exit_code::{Exit, ExitClass};
 
 const DEMO: &[(&str, &str)] = &[
@@ -17,7 +18,11 @@ const DEMO: &[(&str, &str)] = &[
         "fragments/dist.md",
         "---\ntags: [distilled]\n---\nlong form\n",
     ),
-    ("fragments/dist.distilled.md", "short form\n"),
+    (
+        "fragments/dist.distilled.md",
+        // The source's digest (T30): the form is fresh.
+        "---\nsource_sha256: 1e6de09466e07ecb91f3f923292ba979acc739dc0d20700659e433e1859f8be5\n---\nshort form\n",
+    ),
     (
         "prompts/review.md",
         "---\ndescription: Review code\n---\nREVIEW-BODY\n",
@@ -98,6 +103,35 @@ fn test_a_malformed_bundle_is_skipped_with_a_notice_and_the_listing_goes_on() {
     );
 }
 
+// doctor.feature: "A bundle in the old metadata layout is a warning naming
+// the git mv" (step 10c U5, D15): the bundles whose metadata is in the old
+// layout, each its refusal, and no bundle unreadable for another reason.
+#[test]
+fn test_old_layouts_are_the_bundles_in_the_old_layout_alone() {
+    let old: &[(&str, &str)] = &[
+        ENVELOPE,
+        (
+            "skills/.review.meta.yaml",
+            "description: in the old place\n",
+        ),
+    ];
+    let bad: &[(&str, &str)] = &[("bundle.yaml", "")];
+    let library = Setup {
+        bundles: &[("good", DEMO), ("demo", old), ("empty", bad)],
+        layers: &[CONFIG],
+        ..Setup::default()
+    }
+    .library();
+    let found = library.old_layouts(&plain()).result.unwrap();
+    assert!(
+        matches!(
+            &found[..],
+            [library::BundleError::OldLayout { bundle, .. }] if bundle == "demo"
+        ),
+        "{found:?}"
+    );
+}
+
 // bundle show of a bundle that is there and cannot be read says so; of one
 // that is not there, "bundle not found" (golden bad-show-*).
 #[test]
@@ -115,6 +149,65 @@ fn test_showing_an_unreadable_bundle_names_the_fault_and_a_missing_one_is_not_fo
     assert!(matches!(missing, AppError::Declined(_)));
     // Ruling 152: a bundle nobody has declines the request.
     assert_eq!(missing.exit(), Exit::REFUSED);
+}
+
+// atomic_writes.feature (owner T27, D15, QUESTIONS 2(a)): a bundle whose
+// metadata is in the old layout is refused by its own code, the paths named
+// from the project's root as the `git mv` is typed; a listing lists the rest
+// and names it with the skipped-bundle notice.
+#[test]
+fn test_a_bundle_in_the_old_layout_is_refused_naming_the_move_from_the_projects_root() {
+    let old: &[(&str, &str)] = &[
+        ENVELOPE,
+        (
+            "skills/.review.meta.yaml",
+            "description: in the old place\n",
+        ),
+    ];
+    let library = Setup {
+        bundles: &[("good", DEMO), ("demo", old)],
+        layers: &[CONFIG],
+        ..Setup::default()
+    }
+    .library();
+    let refused = library.bundle_show(&plain(), "demo").result.unwrap_err();
+    assert_eq!(refused.code(), "library-sidecar-old-layout");
+    assert_eq!(refused.exit(), Exit::REFUSED);
+    let args: Vec<(String, String)> = refused
+        .args()
+        .into_iter()
+        .filter_map(|(k, v)| match v {
+            angzarr_diagnostic::Arg::Str(s) => Some((k.to_string(), s)),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        args.contains(&(
+            "old".to_string(),
+            ".ctxloom/content/bundles/v2/demo/skills/.review.meta.yaml".to_string()
+        )) && args.contains(&(
+            "new".to_string(),
+            ".ctxloom/content/bundles/v2/demo/skills/review/.meta.yaml".to_string()
+        )),
+        "{args:?}"
+    );
+    let list = library.bundle_list(&plain());
+    assert!(
+        matches!(
+            &list.notices[..],
+            [Notice::BundleSkipped {
+                cause: library::BundleError::OldLayout { .. },
+                ..
+            }]
+        ),
+        "{:?}",
+        list.notices
+    );
+    let rows = list.result.unwrap().rows;
+    assert_eq!(
+        rows.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(),
+        ["good"]
+    );
 }
 
 // config.feature / fault_tolerance.feature: an unknown key is refused naming
@@ -183,28 +276,16 @@ fn test_a_config_of_another_generation_is_refused() {
     }
 }
 
-// generation 9 (virtuous-word): a bare-name `companions:` list is refused with
-// what to do about it, never migrated; a config without one loads as before.
+// generation 9 (OD-10): Go's bare-name `companions:` list is read as the
+// names it registers, each enabled.
 #[test]
-fn test_a_config_registering_companions_by_bare_name_is_refused_not_migrated() {
+fn test_a_config_registering_companions_by_bare_name_is_migrated_to_names() {
     for generation in [7, 8] {
         let layer = format!("schema_version: {generation}\ncompanions: [acme, ltk]\n");
         let layers = [layer.as_str()];
-        let refused = setup(&layers)
-            .library()
-            .config_show(&plain(), Some("editor"), false)
-            .result
-            .err()
-            .expect("refused");
-        match &refused {
-            AppError::ConfigCompanionsBare { path, found, names } => {
-                assert_eq!(path, "/p/.ctxloom/layer-0.yaml");
-                assert_eq!(*found, generation);
-                assert_eq!(names, "acme, ltk");
-            }
-            other => panic!("{other:?}"),
-        }
-        assert_eq!(refused.exit(), Exit::REFUSED);
+        let rows = ok(setup(&layers).library().companion_list(&plain()));
+        let names: Vec<&str> = rows.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(names, ["acme", "ltk"]);
     }
 }
 
@@ -340,7 +421,7 @@ fn test_a_skill_mode_is_the_sidecars_declaration_and_a_headless_skill_is_withhel
         ),
         ("skills/reviewer/scripts/run.sh", "#!/bin/sh\n"),
         (
-            "skills/.reviewer.meta.yaml",
+            "skills/reviewer/.meta.yaml",
             "executable:\n  - scripts/run.sh\n",
         ),
         ("skills/headless/SKILL.md", "no frontmatter\n"),
@@ -358,7 +439,15 @@ fn test_a_skill_mode_is_the_sidecars_declaration_and_a_headless_skill_is_withhel
         .iter()
         .map(|f| (f.path.as_str(), f.mode.as_str()))
         .collect();
-    assert_eq!(modes, [("SKILL.md", "0644"), ("scripts/run.sh", "0755")]);
+    // The metadata is a file of the directory, shown with it (owner T27).
+    assert_eq!(
+        modes,
+        [
+            (".meta.yaml", "0644"),
+            ("SKILL.md", "0644"),
+            ("scripts/run.sh", "0755")
+        ]
+    );
     assert!(shown.files[0].sha256.starts_with("sha256:"));
     let list = library.skill_list(&plain(), "");
     assert!(list
@@ -407,37 +496,43 @@ fn test_the_registered_servers_follow_the_default_agents_profiles_and_their_excl
     assert!(none.servers.is_empty());
 }
 
-// companion.feature: a registered companion is listed with its command and
-// whether its program is there; nothing is run to say so.
+// companion.feature: a registered companion is listed with the program its
+// name stands for, whether that is on the PATH, and its state; nothing is
+// run to say so.
 #[test]
-fn test_a_companion_is_listed_with_its_command_and_whether_the_program_exists() {
-    let layers = ["schema_version: 9\ncompanions:\n  acme:\n    command: [/bin/acme, --as, acme]\n  ltk:\n    command: [ltk]\n  none: {}\n"];
+fn test_a_companion_is_listed_with_its_program_and_whether_it_is_on_the_path() {
+    use ctxloom_ports::CompanionLoadout;
+    let layers =
+        ["schema_version: 9\ncompanions:\n  acme: {}\n  ltk: {state: disabled}\n  none: {}\n"];
     let (library, mem) = Setup {
-        path: &[("/bin/acme", "/bin/acme")],
+        companions: &[("none", CompanionLoadout::Absent)],
         ..setup(&layers)
     }
     .fixture();
     let rows = ok(library.companion_list(&plain()));
-    let shown: Vec<(&str, Vec<&str>, bool)> = rows
+    let shown: Vec<(&str, &str, bool, crate::CompanionState)> = rows
         .iter()
-        .map(|r| {
-            (
-                r.name.as_str(),
-                r.command.iter().map(String::as_str).collect(),
-                r.exists,
-            )
-        })
+        .map(|r| (r.name.as_str(), r.program.as_str(), r.exists, r.state))
         .collect();
     assert_eq!(
         shown,
         [
-            ("acme", vec!["/bin/acme", "--as", "acme"], true),
-            ("ltk", vec!["ltk"], false),
-            ("none", vec![], false),
+            (
+                "acme",
+                "ctxloom-companion-acme",
+                true,
+                crate::CompanionState::Enabled
+            ),
+            ("ltk", "ltk", true, crate::CompanionState::Disabled),
+            (
+                "none",
+                "ctxloom-companion-none",
+                false,
+                crate::CompanionState::Enabled
+            ),
         ]
     );
     assert!(mem.asked_companions().is_empty(), "nothing is run to list");
-    assert!(mem.probed_commands().is_empty());
 }
 
 // search.feature: name matches rank before tag matches; a search needs a
@@ -660,7 +755,8 @@ fn test_agent_show_reports_the_declaration_the_resolution_and_a_failure_to_resol
         resolved.settings.permissions.value,
         Some(serde_json::json!({"defaultMode": "acceptEdits"}))
     );
-    assert_eq!(resolved.session_home, "session");
+    assert_eq!(resolved.settings.session_home.value, "session");
+    assert_eq!(resolved.settings.session_home.source, "default");
     assert_eq!(good.requirements.len(), 1);
     assert_eq!(good.requirements[0].command, "tree-sitter");
     assert_eq!(good.requirements[0].sources[0].kind, "mcp");
@@ -683,12 +779,18 @@ fn test_viewing_a_bundle_dumps_its_tree_or_one_item() {
     assert!(whole.content.starts_with("==> bundle.yaml <==\n"));
     assert!(!whole.item);
     let item = ok(library.bundle_view(&plain(), "demo#fragments/dist", true));
-    assert_eq!(item.content, "# (distilled version)\nshort form\n");
+    assert!(
+        matches!(&item.viewed, crate::Viewed::Body { body, distilled: true, .. } if body == "short form\n"),
+        "{:?}",
+        item.viewed
+    );
     assert!(item.distilled);
+    assert!(item.item);
     let mcp = ok(library.bundle_view(&plain(), "demo#mcp/tree-sitter", false));
-    assert_eq!(
-        mcp.content,
-        "# MCP Server: tree-sitter\ncommand: tree-sitter\nargs:\n  - --stdio\n"
+    assert!(
+        matches!(&mcp.viewed, crate::Viewed::Mcp(row) if row.command == "tree-sitter" && row.args == ["--stdio"]),
+        "{:?}",
+        mcp.viewed
     );
     assert!(matches!(
         library
@@ -720,4 +822,34 @@ fn test_the_fake_content_repo_refuses_a_path_that_climbs() {
     assert!(mem
         .apply("demo", &[Change::Write(Put::file("ok.md", b"fine"))])
         .is_ok());
+}
+
+// step 10a U2 (owner ruling 2026-11-17): `profile show` gives a profile's
+// select_tags, fragments, hooks and deny_tools, as one-item `bundle view`
+// does
+#[test]
+fn test_a_profile_show_gives_its_selecting_tags_fragments_hooks_and_denied_tools() {
+    let full: &[(&str, &str)] = &[
+        ENVELOPE,
+        (
+            "profiles/full.yaml",
+            "select_tags: [go]\nfragments:\n  - plain\n  - name: demo#fragments/pri\n    priority: 3\nhooks:\n  unified:\n    pre_tool:\n      - command: lint\n        type: command\ndeny_tools: [Bash]\n",
+        ),
+    ];
+    let library = Setup {
+        bundles: &[("demo", DEMO), ("project", full)],
+        layers: &[CONFIG],
+        ..Setup::default()
+    }
+    .library();
+    let shown = ok(library.profile_show(&plain(), "full"));
+    assert_eq!(shown.select_tags, ["go"]);
+    let fragments: Vec<(&str, i64)> = shown
+        .fragments
+        .iter()
+        .map(|f| (f.name.as_str(), f.priority))
+        .collect();
+    assert_eq!(fragments, [("plain", 0), ("demo#fragments/pri", 3)]);
+    assert_eq!(shown.hooks.unified["pre_tool"][0].command, "lint");
+    assert_eq!(shown.deny_tools, ["Bash"]);
 }

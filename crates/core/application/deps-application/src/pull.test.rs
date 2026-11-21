@@ -315,6 +315,10 @@ fn test_a_closure_part_that_cannot_be_reached_keeps_its_previous_entries_and_is_
     let again = pull(&fx);
     assert!(again.incomplete);
     assert_eq!(again.unreachable, vec![kit]);
+    // A parent's bundle out of reach is a part kept, never a failed pin:
+    // only a profile's own bundle reference fails the pull.
+    assert_eq!(again.errors, 0, "{:?}", again.failed);
+    assert!(again.failure().is_none());
     assert!(fx.files.lock_text().expect("a lock").contains(&sha));
 }
 
@@ -778,7 +782,7 @@ fn test_the_disclosure_takes_executability_from_the_sidecar_alone() {
         ("bundle.yaml", ENVELOPE.1),
         ("skills/s/SKILL.md", "---\nname: s\n---\n"),
         ("skills/s/go", "#!/bin/sh\n"),
-        ("skills/.s.meta.yaml", "executable:\n  - go\n"),
+        ("skills/s/.meta.yaml", "executable:\n  - go\n"),
     ]
     .into_iter()
     .map(|(path, text)| (path.to_string(), text.as_bytes().to_vec()))
@@ -791,4 +795,31 @@ fn test_the_disclosure_takes_executability_from_the_sidecar_alone() {
         .collect();
     assert_eq!(executable, ["skills/s/go"]);
     assert_eq!(disclosed["skills/s/go"].data, b"#!/bin/sh\n");
+}
+
+// fault_tolerance.feature: An unreachable remote fails the pull cleanly. A
+// bundle reference whose remote cannot be read and that the lock has no pin
+// for cannot be had: it is one failed item, naming the reference and the git
+// cause, and the pull fails (exit 10), never "No remote dependencies".
+#[test]
+fn test_a_first_pin_from_a_remote_that_cannot_be_read_fails_the_pull() {
+    const BROKEN: &str = "file:///nonexistent/ctxloom-repo.git";
+    let fx = Fixture::new();
+    fx.register("broken", BROKEN);
+    let reference = Fixture::reference(BROKEN, "demo");
+    fx.profile("dev", &[&reference]);
+    let report = pull(&fx);
+    assert_eq!((report.total, report.errors), (1, 1), "{report:?}");
+    assert_eq!(report.failed[0].reference, reference);
+    assert!(
+        report.failed[0]
+            .error
+            .contains("does not appear to be a git repository"),
+        "{:?}",
+        report.failed
+    );
+    assert!(matches!(
+        report.failure(),
+        Some(AppError::PullFailed { count: 1, .. })
+    ));
 }

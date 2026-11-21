@@ -1,8 +1,8 @@
+# world: base
 # Ported from cli/version.feature (rev f36e8dfb2)
-# NOT ported: any of it yet (the Feature is @pending).
+# NOT ported: nothing.
 
 @doc
-@pending
 Feature: version — the one question a build must always be able to answer
 
   Covers: `ctxloom version`, `ctxloom --format json version`, and the

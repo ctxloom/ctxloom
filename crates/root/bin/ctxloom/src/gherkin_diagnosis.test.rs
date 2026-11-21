@@ -245,6 +245,7 @@ fn diff(dir: &Path, args: &[String]) -> Ran {
         .env_clear()
         .env("PATH", crate::tests::host_var("PATH").unwrap_or_default())
         .env("TMPDIR", crate::tests::temp_root())
+        .env(crate::tests::LIFELINE, crate::tests::lifeline())
         .output()
         .expect("diff runs");
     Ran::of(output)
@@ -359,15 +360,23 @@ fn pulled_not_composed(w: &mut World) {
 #[then("she sees that her profile does not compose the runbook")]
 fn profile_lacks_runbook(w: &mut World) {
     let agent = w.diagnosis_ran("ctxloom agent show").succeeds().json();
-    let profiles = &agent["definition"]["profiles"];
+    // OD-40: `agent show` is the `Agent` resource itself; design §2: each
+    // profile it runs by its resource name.
+    let profiles = &agent["profiles"];
     assert!(
-        profiles
-            .as_array()
-            .is_some_and(|p| p.iter().any(|v| v == "default")),
+        profiles.as_array().is_some_and(|p| p.iter().any(|v| v
+            .as_str()
+            .is_some_and(|n| n.ends_with("/bundles/project/profiles/default")))),
         "agent show does not name the profile her agent runs: {agent}"
     );
     let profile = w.diagnosis_ran("ctxloom profile show").succeeds().json();
-    assert_eq!(profile["name"], "default", "{profile}");
+    // OD-40: the `Profile`, named in the project's own bundle.
+    assert!(
+        profile["name"]
+            .as_str()
+            .is_some_and(|n| n.ends_with("/bundles/project/profiles/default")),
+        "{profile}"
+    );
     let bundles: Vec<&str> = profile["bundles"]
         .as_array()
         .map(|b| b.iter().filter_map(Value::as_str).collect())
@@ -399,13 +408,20 @@ fn held_at_older(w: &mut World) {
 #[then("she sees the runbook named as held at the older version")]
 fn listed_held(w: &mut World) {
     let listing = w.diagnosis_ran("ctxloom deps list").succeeds().json();
-    let runbook = listing["deps"]
+    // OD-40: `ListDependenciesResponse`, each bundle by its resource name.
+    let runbook = listing["dependencies"]
         .as_array()
-        .and_then(|deps| deps.iter().find(|d| d["name"] == "runbook"))
+        .and_then(|deps| {
+            deps.iter().find(|d| {
+                d["bundle"]
+                    .as_str()
+                    .is_some_and(|b| b.ends_with("/bundles/runbook"))
+            })
+        })
         .unwrap_or_else(|| panic!("the listing does not name the runbook: {listing}"));
     assert_eq!(runbook["held"], true, "not named as held: {runbook}");
     assert_eq!(
-        runbook["sha"].as_str(),
+        runbook["commit"].as_str(),
         Some(w.diagnosis.older_commit.as_str()),
         "not held at the older version: {runbook}"
     );
@@ -431,7 +447,9 @@ fn loose_notes(w: &mut World) {
         NOTES,
         &format!("How we deploy\n\n{OLDER}: tag the release, then run the deploy job.\n"),
     );
-    // Her editor: she writes the notes up into whatever file it opens.
+    // Her editor: she writes the notes up into whatever file it opens, at
+    // her terminal (an editor is launched at one only).
+    project.at_a_terminal();
     let notes = project.dir().join(NOTES);
     project.write_home(
         ".ctxloom/config.yaml",
@@ -445,7 +463,11 @@ fn loose_notes(w: &mut World) {
 #[then("she sees that nothing packaged carries the deploy process")]
 fn nothing_packaged(w: &mut World) {
     let search = w.diagnosis_ran("ctxloom search").succeeds().json();
-    assert_eq!(search["count"], 0, "the search found something: {search}");
+    // proto3 JSON (OD-40) leaves a zero count out.
+    assert!(
+        search.get("count").is_none_or(|count| count == 0),
+        "the search found something: {search}"
+    );
     assert!(
         w.common
             .project

@@ -96,6 +96,17 @@ fn the_retired_neutral_verbs_are_go_era() {
     assert_eq!(subs, ["session-start", "skill-mates", "hud"]);
 }
 
+// The rewrite spells its keys sorted, as it always has, whatever serde_json's
+// map keeps (its `preserve_order`, which agent-client-protocol turns on).
+#[test]
+fn a_rewrite_keeps_its_keys_sorted_whatever_the_map_keeps() {
+    let text = r#"{"zeta":1,"hooks":{"Stop":[{"hooks":[{"command":"ctxloom hook inject-context abc","type":"command"}]}],"After":[]},"alpha":2}"#;
+    let (fixed, _) = strip(text, "ctxloom").unwrap();
+    let at = |key: &str| fixed.find(key).unwrap();
+    assert!(at("\"alpha\"") < at("\"hooks\""), "{fixed}");
+    assert!(at("\"hooks\"") < at("\"zeta\""), "{fixed}");
+}
+
 // Owner ruling 162: a Rust-era entry is EXACTLY `ctxloom hook <engine>
 // execute <Event>` (what `prepare` writes, as one command line or as
 // `command: ctxloom` with the words in `args`); every other `ctxloom hook ...`

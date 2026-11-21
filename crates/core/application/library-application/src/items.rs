@@ -2,6 +2,7 @@
 //! (list, show).
 
 use library::catalog::ContentInfo;
+use library::distill::DistilledState;
 use library::frontmatter::split_front_matter;
 use library::model::Skill;
 use library::refs::{self, ItemKind};
@@ -83,6 +84,21 @@ impl Library {
         self.run(flags, |p| p.operational_prompt(name, builtins))
     }
 
+    /// Every fragment and command whose distilled form is stale (T30, S51):
+    /// doctor's row. Each by its reference, `<bundle>#fragments/<name>` or
+    /// `<bundle>#commands/<name>`, in catalog order; one marked `no_distill`
+    /// is never served distilled and is not said.
+    pub fn stale_distilled(&self, flags: &Flags) -> Outcome<Vec<String>> {
+        self.run(flags, |p| Ok(p.stale_distilled()))
+    }
+
+    /// The bundles whose metadata is in the old layout (owner T27, D15),
+    /// each its refusal, naming the move that migrates it: doctor's
+    /// `SIDECARS-u4` row (step 10c U5).
+    pub fn old_layouts(&self, flags: &Flags) -> Outcome<Vec<library::BundleError>> {
+        self.run(flags, |p| Ok(p.old_layouts()))
+    }
+
     /// `fragment premises`.
     pub fn premises(&self, flags: &Flags) -> Outcome<Premises> {
         self.run(flags, |p| Ok(p.premises()))
@@ -100,10 +116,30 @@ impl Library {
 }
 
 impl Project {
-    fn operational_prompt(&self, name: &str, builtins: bool) -> Result<String, AppError> {
+    pub(crate) fn operational_prompt(
+        &mut self,
+        name: &str,
+        builtins: bool,
+    ) -> Result<String, AppError> {
         let bundle = library::builtin::BUNDLE;
+        // A project's own `ctxloom` bundle replaces the prompts ctxloom's
+        // own work runs on (ruling 128) only once the user trusts the
+        // project (step 8 U2, D4): until then it is passed over for the
+        // built-in, and said.
+        let overrides = builtins
+            && !self.no_project()
+            && !self.catalog.is_builtin(bundle)
+            && (self.catalog.lookup(bundle).is_ok() || self.unreadable.contains_key(bundle));
+        let passed_over = overrides
+            && !self.flags.trusted
+            && !self.trust.as_ref().is_some_and(|trusted| trusted());
+        if passed_over {
+            self.notices.push(Notice::PromptUntrusted {
+                prompt: name.to_string(),
+            });
+        }
         let shipped;
-        let entry = if self.no_project() && builtins {
+        let entry = if (self.no_project() || passed_over) && builtins {
             shipped = library::builtin::entries(&|_| false);
             shipped.iter().find(|e| e.name == bundle).ok_or_else(|| {
                 AppError::cause(CatalogError::BundleNotFound {
@@ -236,9 +272,13 @@ impl Project {
                 available: available.join(", "),
             });
         };
-        let use_distilled = distilled && !body.distilled.is_empty();
-        Ok(ItemShow {
+        // The distilled form is served only while it matches its source; a
+        // stale one asked for is said, and the original served (T30, S51).
+        let state = body.distilled_state();
+        let use_distilled = distilled && state == DistilledState::Fresh;
+        let shown = ItemShow {
             name,
+            bundle: entry.name.clone(),
             reference: reference.to_string(),
             content: if use_distilled {
                 body.distilled.clone()
@@ -246,7 +286,44 @@ impl Project {
                 body.content.clone()
             },
             distilled: use_distilled,
-        })
+            state,
+        };
+        if distilled && state == DistilledState::Stale {
+            self.notices.push(Notice::StaleDistilled {
+                kind: kind.word().to_string(),
+                reference: reference.to_string(),
+            });
+        }
+        Ok(shown)
+    }
+
+    fn old_layouts(&self) -> Vec<library::BundleError> {
+        self.unreadable
+            .values()
+            .filter(|cause| matches!(cause, library::BundleError::OldLayout { .. }))
+            .cloned()
+            .collect()
+    }
+
+    fn stale_distilled(&self) -> Vec<String> {
+        let stale = |body: &library::model::ItemBody| {
+            !body.no_distill && body.distilled_state() == DistilledState::Stale
+        };
+        let mut out = Vec::new();
+        for entry in self.catalog.entries() {
+            let bundle = &entry.bundle;
+            for (name, fragment) in &bundle.fragments {
+                if stale(&fragment.body) {
+                    out.push(format!("{}#fragments/{name}", entry.name));
+                }
+            }
+            for (name, command) in &bundle.commands {
+                if stale(&command.body) {
+                    out.push(format!("{}#commands/{name}", entry.name));
+                }
+            }
+        }
+        out
     }
 
     fn premises(&mut self) -> Premises {
@@ -294,6 +371,7 @@ impl Project {
             .into_iter()
             .map(|s| SkillRow {
                 name: format!("{}/{}", s.bundle, s.item),
+                display_name: s.display_name,
                 description: s.description,
                 tags: s.tags,
                 source: s.bundle,
@@ -361,6 +439,9 @@ struct LoadedSkill {
     bundle: String,
     item: String,
     name: String,
+    /// Its SKILL.md frontmatter's `name`, else its directory's (as the
+    /// package names it, which an engine reports it by).
+    display_name: String,
     description: String,
     license: String,
     compatibility: String,
@@ -411,6 +492,10 @@ fn load_skill(
         bundle: bundle.to_string(),
         item: name.to_string(),
         name: name.to_string(),
+        display_name: match field("name") {
+            declared if declared.is_empty() => name.to_string(),
+            declared => declared,
+        },
         description: field("description"),
         license: field("license"),
         compatibility: field("compatibility"),
@@ -420,7 +505,7 @@ fn load_skill(
         files: skill
             .files
             .iter()
-            // The sidecar's declaration, on every OS (owner ruling
+            // The skill's metadata's declaration, on every OS (owner ruling
             // 2026-11-12): no mode is read.
             .map(|f| (f.path.clone(), f.bytes.clone(), f.executable))
             .collect(),

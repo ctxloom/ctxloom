@@ -9,7 +9,7 @@
 use serde_json::{json, Value};
 use sessions::{CompactionPhase, SessionEvent, ToolCallStatus};
 
-use crate::transcript::{entry_line, rfc3339, Speaker};
+use crate::transcript::{entry_line, rfc3339, sorted, Speaker};
 
 /// The transcript of one session, folded page by page.
 pub struct Projection {
@@ -108,11 +108,11 @@ impl Projection {
                 "turn_end",
                 json!({"prompt_id": ended.prompt_id}),
             ),
-            SessionEvent::SessionEnded(ended) => self.line(
+            SessionEvent::ConversationCleared(cleared) => self.line(
                 seq,
                 recorded_at,
-                "session_end",
-                json!({"native_session": ended.native_session, "reason": ended.reason}),
+                "clear",
+                json!({"native_session": cleared.native_session, "trigger": cleared.trigger}),
             ),
             SessionEvent::Compacted(compacted) => self.line(
                 seq,
@@ -129,10 +129,30 @@ impl Projection {
                     "summary_sha256": compacted.summary_sha256,
                 }),
             ),
+            SessionEvent::CaptureGapped(gap) => self.gap_line(seq, recorded_at, gap),
             _ => return Vec::new(),
         };
         self.lines += 1;
         vec![line]
+    }
+
+    /// A fact a hook dropped (s4-Q14, H3; PROPOSAL, the owner's to word):
+    /// one gap is one fact missing here, dropped at the hook's clock, not
+    /// this line's `ts`.
+    fn gap_line(&self, seq: u64, recorded_at: i64, gap: &sessions::CaptureGapped) -> String {
+        self.line(
+            seq,
+            recorded_at,
+            "gap",
+            json!({
+                "gap": {
+                    "facts": 1,
+                    "dropped": gap.dropped,
+                    "why": gap.why,
+                    "dropped_at": rfc3339(gap.dropped_at.seconds),
+                },
+            }),
+        )
     }
 
     /// How many lines the transcript holds: the `seq` the next line takes.
@@ -154,7 +174,7 @@ impl Projection {
         if let (Some(line), Some(extra)) = (line.as_object_mut(), extra.as_object()) {
             line.extend(extra.clone());
         }
-        format!("{line}\n")
+        format!("{}\n", sorted(line))
     }
 }
 

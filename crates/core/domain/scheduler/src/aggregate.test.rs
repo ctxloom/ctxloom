@@ -8,8 +8,8 @@ use angzarr_embedded::v1::{command_page, CommandBook, CommandPage, Cover, Fact, 
 use angzarr_embedded::{Any, Failure, Handled, Payload, Registry, Timestamp};
 
 use crate::{
-    alarm_external_id, stream_for, AlarmArmed, AlarmCancelled, AlarmDue, AlarmFired, ArmAlarm,
-    CancelAlarm, SchedulerAggregate, SchedulerCommand, SchedulerEvent, Stream, SCHEDULER_DOMAIN,
+    alarm_external_id, stream_for, AlarmArmed, AlarmCancelled, AlarmFired, ArmAlarm, CancelAlarm,
+    RecordAlarmDue, SchedulerAggregate, SchedulerCommand, SchedulerEvent, Stream, SCHEDULER_DOMAIN,
 };
 
 fn target() -> Stream {
@@ -40,8 +40,8 @@ fn arm(alarm_id: &str, seconds: i64) -> ArmAlarm {
     }
 }
 
-fn due(alarm_id: &str, seconds: i64) -> AlarmDue {
-    AlarmDue {
+fn due(alarm_id: &str, seconds: i64) -> RecordAlarmDue {
+    RecordAlarmDue {
         alarm_id: alarm_id.to_string(),
         at: at(seconds),
     }
@@ -105,7 +105,7 @@ impl Scheduler {
         }
     }
 
-    fn fact(&mut self, fact: AlarmDue, external_id: &str) -> Handled {
+    fn fact(&mut self, fact: RecordAlarmDue, external_id: &str) -> Handled {
         self.harness
             .when_book(fact_book(self.harness.cover().clone(), fact, external_id))
             .handled()
@@ -117,7 +117,7 @@ impl Scheduler {
     }
 }
 
-fn fact_book(cover: Cover, fact: AlarmDue, external_id: &str) -> CommandBook {
+fn fact_book(cover: Cover, fact: RecordAlarmDue, external_id: &str) -> CommandBook {
     CommandBook {
         cover: Some(cover),
         page: Some(CommandPage {

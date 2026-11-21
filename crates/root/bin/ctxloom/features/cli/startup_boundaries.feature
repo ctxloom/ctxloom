@@ -1,5 +1,17 @@
 # Ported from cli/startup_boundaries.feature (rev f36e8dfb2)
-# NOT ported: any of it yet (the Feature is @pending).
+# NOT ported: any of it yet (the Feature is @pending). Step 11 found each
+#   scenario's behaviour differs from its text or is not built:
+#   - the dry-run start: the mock engine is a surface half alone and drives
+#     no run, so nothing delivers MOCK_CONTEXT.md into a session home, and a
+#     run says nothing like Go's "syncing remote bundles and profiles from
+#     config" (the comment above its step says so);
+#   - the home lockfile: ctxloom's own loadout carries none of its text, the
+#     `isolation-axes` fragment included (library::write::loadout, D24), so
+#     `-f isolation-axes` resolves nothing; and an unreadable lock is
+#     `deps-lock-unreadable`, never "failed to parse lockfile".
+#   Retired (owner, 2026-11-19, ruling 73g): the scenario "A run refused by a
+#   fatal startup finding records why its session ended": a refused run leaves
+#   no session, and run.feature covers it.
 
 @pending
 Feature: What a start writes, and whose pins it reads
@@ -119,7 +131,8 @@ Feature: What a start writes, and whose pins it reads
     # about nothing. (No CTXLOOM_NO_COMPANIONS here: the companion IS the
     # launch's source.)
     Scenario: A project-less start ignores a home lockfile that a project would abort on
-      Given an empty project directory
+      # changed: step 10, G1: the control's project is in git, so the startup gate is what judges it.
+      Given an empty project directory that is a git repository
       And the home config declares the agent "session-owner" bound to the mock engine
       And the home already has the file ".ctxloom/lock.yaml":
         """
@@ -146,27 +159,3 @@ Feature: What a start writes, and whose pins it reads
       When I run "ctxloom run --dry-run --agent session-owner -f isolation-axes hello"
       Then the startup aborts on a fatal bundle finding
       And the output contains "failed to parse lockfile"
-
-  # A run refused before its engine launches still leaves the session the
-  # resolver minted. The terminal output that said why is gone with the
-  # terminal, so the session's own record must carry the reason: without it the
-  # session is a directory and two timestamps. The assertion is on the
-  # RECORD's bytes (class, exit status and the printed finding), because a
-  # run that exited 21 and wrote nothing is this project's characteristic bug.
-  @end-reason
-  Scenario: A run refused by a fatal startup finding records why its session ended
-    # substitution: exit codes per rulings 149, 152, 153 (21 fatal findings; Go's 3).
-    Given an empty project directory
-    And the home config declares the agent "session-owner" bound to the mock engine
-    And the project already has the file ".ctxloom/lock.yaml":
-      """
-      schema_version: 2
-      bundles:
-        broken:
-          sha: "abc
-          pinned: true
-      """
-    When I run "ctxloom run --one-shot --agent session-owner -f isolation-axes hello"
-    Then the startup aborts on a fatal bundle finding
-    And the minted session's record says it ended before launch as "fatal-startup" with exit 21
-    And the session record's findings include "failed to parse lockfile"

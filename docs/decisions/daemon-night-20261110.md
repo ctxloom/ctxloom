@@ -1,0 +1,311 @@
+# Daemon night decisions, 2026-11-10
+
+Owner bypassed the unattended stop conditions on this branch for tonight (review after MVP). Every design call made without a ruling is recorded here: the decision, the alternatives, why.
+
+## diabolic-karate: the claude streaming child behind a child-engine port
+
+### N1. Pins: taskloom moves with the platform pin
+- **Decision:** ctxloom-lib to 1000f53 (run_piped) moves angzarr-platform to 1e83ece, and taskloom's crates to d233493 (taskloom's own re-pin onto 1e83ece, nothing else changed), so the lock keeps one `os`, `file-system` and `file-lock`. `arch_lint_rev` follows ctxloom-lib.
+- **Alternatives:** keep platform d543f5e (two `os` crates in the lock: breaks the one-of-each invariant); a ctxloom-lib rev on the old platform (none has run_piped).
+- **Why:** the only way to get run_piped with one of each crate.
+
+### N2. The port's shape: a control and an observation iterator
+- **Decision:** `run_ports::ChildEngine::start(&ChildSpec) -> StartedChild { control: Box<dyn ChildControl>, observations: Box<dyn Iterator<Item = ChildObservation> + Send> }`. `ChildControl` (`Send + Sync`, `&self`): `pid`, `send(ChildMessage{id, text}, Urgency) -> Queued`, `interrupt -> bool`, `clear -> Queued`, `end(grace) -> Ended{exit, undelivered}`. Observations: `Started{native_id}`, `TurnStarted{message_ids}`, `TurnEnded{message_ids, outcome: TurnOutcome}`, `InterruptAnswered{accepted}`, `Cleared{native_id}`, `Exited{exit, detail}`. Synchronous, std only (the core links no runtime).
+- **Alternatives:** one object with a blocking `next()` (a caller could not send while another thread waits); an async stream (the core has no runtime); callbacks (the core has no threads to own them).
+- **Why:** the daemon steers from one task and drains observations on another; an iterator over an mpsc receiver is the smallest std shape for that.
+- `ChildEngine` has no `name()`: `Engine::name` already names the engine, and the same struct implements both (two `name`s would make every call ambiguous).
+
+### N3. The adapter holds what cannot start now; one turn in claude at a time
+- **Decision:** engine-claude never writes a message mid-turn. A wake (or a clear) to a busy child is HELD in the adapter and written when the turn in flight ends (its `result`). A steer to a busy turn writes the interrupt control request and is held FIRST (after earlier steers); to an idle child it is a wake. An inform is held and rides on the next turn written (its text first, joined by a blank line; the turn names every message id).
+- **Alternatives:** write every message at once and let claude queue it (the probe: a mid-turn message queues as its own turn) — then a steer runs behind any wake already queued (review S2), and the stream's turns can only be matched to messages by guessing; refuse inform on claude (S-c) — but D15 says inform rides on the next message, and D20 holds on opencode, so the same urgency means the same outcome on both.
+- **Why:** with one turn in claude at a time, every line of the stream belongs to the turn in flight, so turns are keyed by message id exactly (D28), the steer overtakes, and nothing depends on claude's internal queue.
+- **Cost:** the adapter's held queue is in memory; a crash loses it (the daemon's pending projection, K3, is the durable owed list; `end` returns the held ids as `undelivered`). A steer that arrives after a turn is written but before claude has started it may find nothing to interrupt (untested).
+
+### N4. A turn starts at its echo; the native id is the stream's `session_id`
+- **Decision:** the command passes `--replay-user-messages`; the echo (`isReplay: true`) of the message given is `TurnStarted`. The native id is the latest `session_id` on any event; the first `system`/`init` is `Started`. A clear (`/clear` as a user message) ends at its `result`; `Cleared{native_id}` carries the session id after the `conversation_reset` (the probe: `new_conversation_id` is NOT the new `session_id`; the next `init` names it), or `None` when no reset was seen.
+- **Alternatives:** match the echo's text to the message (fragile, and the inform merge changes the text); take `new_conversation_id` as the rotation (wrong id for `--resume`).
+- **Why:** the D28 sheet confirms a turn by claude's echo, and D17 records the rotation as the session id a later `--resume` needs.
+
+### N5. Outcomes reuse `TurnOutcome`
+- **Decision:** a turn's end is `run_ports::TurnOutcome`: `result` with `terminal_reason: aborted_streaming` is `Failed{Interrupted}`; `is_error` is classed by `api_error_status` as the per-turn reader does (`stream::class_of`); an engine that exits mid-turn ends the turn `Failed{EngineError}` with stderr's start, then `Exited`. A `result` with no turn in flight ends a turn naming no message.
+- **Why:** the run application already records TurnCompleted/TurnFailed from it.
+
+### N6. The child's command
+- **Decision:** `claude -p --input-format stream-json --output-format stream-json --verbose --replay-user-messages --append-system-prompt-file <ctx> --settings <home>/settings.json [--model] [--effort] [--resume <id> | --session-id <id>]`, a CHILD's environment (`ENV_ALLOWLIST`, no `ANTHROPIC_AUTH_TOKEN`) exactly as a turn's. No `--include-partial-messages` (the deltas are the hooks' to record, ruling 51; the stream is read for the reply, the outcome and the rotation only). `--session-id` is D17a's restart-with-a-fresh-id; `resume` wins if both are set.
+- **Not changed:** the child home's hooks are still the per-turn set (ruling 51 left SessionStart out because `claude -p` fired it per process = per turn; a long-lived child fires it once, and `/clear` fires `SessionStart:clear`). Registering it again is a follow-up for the daemon wiring.
+
+### N7. Ending, dropping, draining
+- **Decision:** `end(grace)` interrupts a turn in flight, closes stdin (claude exits 0 on EOF), waits `grace`, then `terminate_tree(grace)` (SIGTERM to the group, then kill). Dropping the control closes stdin only (the child ends after its turn). The reader's stdout read is bounded after the exit by a 2 s drain grace, after which the tree is killed (a descendant holding the pipe), as run-within's own drain.
+- **Alternatives:** kill on drop (loses a turn's work silently); leave the child running on drop (orphans in tests and on a daemon bug).
+- **Why:** D15: the end is "close stdin or stop the process"; EOF is the clean one, the stop is the bound.
+
+### N8. `Json::compact` in surface-ports
+- **Decision:** add `Json::compact()` (serde_json's one-line writer) beside `pretty()`, for JSON-lines.
+- **Alternatives:** a serde_json dependency in engine-claude; hand-escaping strings.
+- **Why:** the one JSON value type the adapters already share.
+
+## smashing-embargo (part 1): the daemon's domain model (D28)
+
+### D-N9. The requester: a stamped `optional SessionRef`; absent is the user
+- **Decision:** every command the owner rule guards (`CloseSession`, `SendMessage`, `ClearChild`, `LaunchChild`, and `StopSession` now) carries `optional SessionRef requester {project_id, session}`, which the listener STAMPS from the credential (S-f). Absent means the USER: the human at the CLI, or a policy of the user's daemon acting with the user's authority (ruling 37: the user boundary is the trust boundary). A session requester is allowed only when it is the target's recorded `owner` (for `LaunchChild`: the owner session itself, its own stream root and project).
+- **Alternatives:** a separate principal enum (user, owner, policy) in each command (more surface; the listener knows only the credential's session); letting the target session act on itself (D25 names only the owner; a session closing itself is the human's or its owner's call).
+- **Why:** the domain rule is one comparison against the folded state, and a command that names no session cannot be forged by a model (the listener always stamps a session credential's session).
+
+### D-N10. `StopSession` reconciled with D25 (S-f)
+- **Decision:** `StopSession` gains the stamped `requester`. When it names a session, the owner rule decides (the owner stops its own child whatever the child's depth; any other session is `NotOwner`). When it names none, Go's I2 depth rule stands (`requester_depth > 0` is `ChildCannotStop`), so today's callers (the run application stamps `requester_depth` only) behave exactly as before.
+- **Alternatives:** drop `ChildCannotStop` (breaks the runs application's admission, which stamps depth from the run identity); refuse every child requester even when it is the owner (contradicts D25's orchestration scope for a grandchild owner).
+
+### D-N11. The close is `CloseSession` → `SessionClosed`, a refusal named `SessionIsClosed`
+- **Decision:** `CloseSession{cause, requester}` emits `SessionClosed{cause}` once; a second close records nothing. The state keeps `closed` and `closed_cause`. The refusal for "this session is closed" is the message `SessionIsClosed` (code `sessions-session-closed`) because the event already owns the name `SessionClosed`. `SendMessage` and `ClearChild` refuse it; `LaunchChild` on a closed owner refuses `OwnerClosed`. `BindEngineSession`, the capture facts, keep, rename and the incarnation end still record on a closed session (they report what already happened while it wound down). A close stops no run itself: a policy on `SessionClosed` ordering `RequestStop` on its runs is the daemon part's.
+- **Why:** K1's terminal state with the smallest change to what facts record.
+
+### D-N12. One message, `SendMessage` → `MessageSent`, its command id from `message_id`
+- **Decision:** `SendMessage{message_id, urgency, text, requester, supported}`. `supported` (the recipient engine's urgencies, asked by the sender's application) is the capability EVIDENCE; an urgency not in it (and so every urgency when it is empty) is `UrgencyUnsupported` (fail closed; S-c). `MessageSent` records `sender = requester`. The command id is `sessions::command_id(message_id)`: UUIDv5 in a fixed namespace, UUIDv5(URL, `ctxloom:command`), of the key text; `sessions::keyed_book` builds the book for any domain's command, and every policy key below goes through it.
+- **Urgency enum:** `URGENCY_UNSPECIFIED` is not a domain value (the markup drops it; a wire message carrying it does not decode), so there is no `unspecified` word.
+- **Why:** D28's sheet (command id = message_id) with angzarr's UUID command ids.
+
+### D-N13. A wake owes an incarnation through a continuation step
+- **Decision:** a wake to an open, unstopped session with no open incarnation emits `MessageSent` then `IncarnationOwed{incarnation + 1, reason: "wake"}` in ONE decision (M2), as an `Emit` whose continuation returns the owed event. A wake to a stopped session owes nothing (the stop flag's meaning is unchanged). An inform never owes one (D30). No relaunch budget, backoff or `RelaunchWithheld` yet (deferred: M2's budget needs the scheduler, the daemon part's).
+- **Alternatives:** a separate `OweIncarnation` command from a policy (two decisions: a crash between them leaves a wake with nothing to run it).
+
+### D-N14. The owner link lives on both streams; `Child` is hand-written state
+- **Decision:** `MintSession{owner}` / `SessionMinted{owner}` record the child's owner; the owner's stream records `ChildLaunched{child: SessionRef, child_root, harp, engine, depth = owner's + 1}` and folds `children` (launched minus `ChildEnded`, `ChildForgotten`, `ChildLaunchFailed`). `Child{session, root}` is hand-written in `state.rs` (the markup generates a type only for a message a command or event carries).
+- **LaunchChild's checks, in order:** `NoSession`, `NotOwner` (only the owner session itself or the user), `OwnerClosed`, `NoOpenIncarnation`, `DelegationLimit` (the command's `delegation_limit` is the config's evidence; fail closed: 0 allows none; open children counted from the fold), `UntrustedTarget` (another project, `trust.trusted` false). The child's stable id and harp are the caller's (minting is random; decide is deterministic).
+- **The owner's bookkeeping:** `EndChild{child, cause}` → `ChildEnded`, `ForgetChild{child}` → `ChildForgotten` (commands, refusing `NoSession` only; a child the owner does not hold records nothing, so two policies racing to forget and end the same child record one event between them), and the fact `RecordChildLaunchFailed{child, reason}` → `ChildLaunchFailed` (K2's compensation; `reason` is a refusal code, never a secret, M4).
+- **Status choices:** `NotOwner` PERMISSION_DENIED; `SessionIsClosed`, `OwnerClosed`, `NoOpenIncarnation`, `DelegationLimit`, `UntrustedTarget` and `UrgencyUnsupported` FAILED_PRECONDITION (state or capability forbids, not a malformed argument).
+
+### D-N15. `ClearChild` → `ClearRequested{clear_id}` on the child
+- **Decision:** the clear names a `clear_id` (the requester's), keyed `clear:<session>:<clear_id>`; refused `NoSession`, `SessionIsClosed`, `NotOwner`. The rotation itself stays `BindEngineSession` (the driver maps `conversation_reset`), unchanged.
+
+### D-N16. The run's turn gate keyed by message ids (S-b)
+- **Decision:** `QueueTurn{prompt_ref, resume, message_ids, urgency: TurnUrgency}`; `TurnQueued` carries the ids and urgency. The run folds `turns` (every turn queued and not ended, oldest first; `turn_in_flight` stays, the first of them). A steer while a turn is in flight emits `InterruptRequested{turn, message_ids}` (once per turn in flight) then `TurnQueued`, in one decision (an `Emit` continuation); a wake or an inform is refused `TurnInFlight` naming the turn in flight (it stays pending). A steer to an idle run is just queued.
+- **Ends:** `TurnStarted`/`TurnCompleted`/`TurnFailed` (and their events) gain `message_ids`. An end naming message ids frees the open turn holding the first of them; one naming none frees the open turn of its number (the M1 one-shot's turn 1, never queued, frees nothing and records as before). External ids: `turn:<run>:<first message id>:<phase>`, else `turn:<run>:<turn>:<phase>` as before (a numeric message id could collide with a turn number: message ids are UUIDs or policy keys, never bare numbers).
+- **`TurnUrgency`** is the runs proto's own enum (inform, wake, steer), mapped from the session's `Urgency` by the delivery policy, so `runs.proto` imports no sessions proto.
+- **`urgency` is required** (the markup has no unspecified value): every `QueueTurn` now names one. Nothing in production sent `QueueTurn` before (the one-shot launcher records turn facts without queueing), so no caller changed behaviour.
+
+### D-N17. The pending messages: a projection of MessageSent minus TurnQueued's ids (K3)
+- **Decision:** `crates/core/read-model/pending-messages` (`Pending`, `PendingMessages` on the projector port, `catch_up()` over the sessions and runs domains), shaped like `pending-launches`. Consumption is kept per RUN stream (its session from `RunEnqueued`, the ids its `TurnQueued`s carried), and a message is pending when no run of its session carried it, so the cross-stream order of a catch-up (S-d) cannot resurrect a consumed message. A book from 0 rebuilds a stream; a purged one leaves.
+- **A closed session has nothing pending** (no turn will carry it; the `MessageSent` stays in its stream as the record). `owed()` lists the sessions with something pending, what a driver acts on.
+
+### D-N18. The owner-to-children view is the session index's record
+- **Decision:** `SessionRecord` gains `owner`, `closed` and `children` (copied from the folded session, so the view per owner stream is the owner's own `ChildLaunched` minus ended, forgotten and failed). No separate crate: the index already folds every session stream with the aggregate. `View` gains `pending` (filled by `show` only, D30).
+
+### D-N19. The policies are pure functions in `session-policies` (application)
+- **Decision:** `crates/core/application/session-policies`: `Keyed<C>{project_id, cover, key, command}` (its `book()` is `sessions::keyed_book`, its command id `command_id(key)`) and `KeyedFact<F>{.., external_id, fact}`. A policy acts with the user's authority: no requester (D-N9).
+  - `deliver(RunGate{session, incarnation, live, in_flight}, pending)`: no live run, nothing; idle, every pending message in the order sent if any is a wake or steer (informs alone wait, D30), urgency steer if any steer else wake; in flight, the pending informs and steers (the steer's turn is the next turn), wakes wait. Key `send:<first wake or steer carried>`. `resume: true`. The gate is the run's own folded state, never a read model.
+  - `cascade(owner, children)` → `CloseSession{cause: "owner-closed"}` per child, `cascade:<owner>:<child>`; `child_ended(child, owner, closed)` → `EndChild` on the owner, `child-ended:<owner>:<child>` (added: without it the owner would hold a closed child until destroyed).
+  - `notice(child, harp, owner, ended, supported)`: on `notice_parent`, `SendMessage` to the owner, a wake when the owner's engine takes one, else an inform, else nothing; message id = key = `notice:<child>:<incarnation>`.
+  - `launch(owner, launched, output_dir)` → the child's `ClaimName` (`claim:<owner>:<child>`, on the target's claim stream) and `MintSession{owner, origin: agent, depth}` (`mint:<owner>:<child>`) in the TARGET store (D19); `launch_failed(owner, child, reason)` → the fact `RecordChildLaunchFailed`, `launch-failed:<owner>:<child>`.
+  - `destroy(target, owner, children)` → `CloseSession{cause: "owner-destroyed"}` per child (`owner-destroyed:<target>:<child>`) and `ForgetChild{target}` on its owner (`destroy:<target>`).
+- **Races:** two policies closing one child (cascade, destroy) record one `SessionClosed` (the second finds it closed); a redelivered key is DUPLICATE (tested through the aggregate).
+
+### D-N20. The destroy tells the links before it purges (rulings 94, 98; M3)
+- **Decision:** `session remove --yes` runs `session_policies::destroy` over the session's record (its `owner` and `children`, from the session index) after its refusals and before the purge: a keyed `CloseSession{cause: "owner-destroyed"}` to each child and `ForgetChild` to its owner, each in the store of the project it names (D19: the destroyed session's own, else one of `every_project()`; a project with no store here is passed over). A refusal (a child already destroyed: `NoSession`) is passed over; a kernel or store failure fails the remove before anything is purged. A remove that only reports sends nothing.
+- **Why:** K3: a purge emits no event, so nothing could tell the children or the owner afterwards.
+- **Not done:** the child's runs are not stopped by the close (a `RequestStop` policy on `SessionClosed` is the daemon's), and a cross-project child whose project is unknown to this user stays open (a "close abandoned owners" sweep, D29's accepted cost).
+
+### D-N21. `session show` lists the pending messages (D30)
+- **Decision:** `show` catches the pending messages up fresh from the session's store (the sessions and runs domains) and fills `View.pending`; `list` and `search` leave it empty (no catch-up cost on a listing). Text: after the record, `pending:  <n> message(s) no turn has carried yet`, then `  <id> (<urgency>): <first line>` per message; none, no line. JSON: `pending: [{message_id, urgency, text, sender?}]`, left out when empty (as the other optional keys are). The cli contract (`features/cli/session.feature`, @pending) gains the scenario; its step that sends a message needs a hidden `ctxloom test` command, which the daemon part builds with the transport.
+
+### D-N22. The stamping seam: `runs_application::stamped` and `Identity::requester`
+- **Decision:** `Identity::requester(project_id)` names the identity's session as a `SessionRef` (the listener knows the project from the store it serves); `stamped(command, &requester)` overwrites `requester` on `CloseSession`, `SendMessage`, `ClearChild`, `LaunchChild` and `StopSession` and leaves every other command as it was. The daemon's listener calls it on each command its ORCHESTRATION scope (D25) admits; that scope (which command types the hook or orchestrator credential may send) is the daemon part's: the gate's `Scope` lists only command types (S-f).
+
+## smashing-embargo (part 2): the daemon process and its wiring
+
+### D-N23. Discovery under the ctxloom HOME, a line codec in run-ports
+- **Decision:** the daemon's files live in `<home>/.ctxloom/daemon/`: `daemon.lock` (the single-instance lock, the platform file lock) and `daemon.endpoint` (0600), whose text is `ctxloom-daemon 1` then `version`, `pid`, `endpoint` (`https://127.0.0.1:<port>`) and `cert` (the PUBLIC certificate, base64 DER) lines. `run_ports::Discovery::{encode, decode}` is pure; `decode` answers `None` for anything unreadable (a hook then falls back to its spawn environment).
+- **Alternatives:** `$XDG_RUNTIME_DIR/ctxloom/` (review S7: tests reach the developer's daemon); JSON (a serde dependency in a port); a typed decode error (nothing acts on the reason: a reader falls back either way).
+- **Why:** S7, and the hook's rediscovery (B1, D27) needs only "a daemon is here, at this endpoint, with this cert".
+
+### D-N24. The daemon's certificate: a month, minted again at every start
+- **Decision:** `hook_tls::Minter::lasting(clock, run_ports::DAEMON_CERT_LIFETIME_SECONDS)` (30 days) mints the daemon's certificate at each daemon start; the key lives in memory only (never on disk), so a restart has a new port AND a new certificate, and the discovery file is how clients and hooks learn both (D27). `Minter::new` (a run's, 24 h) is unchanged.
+- **Alternatives:** persist the key across restarts (a secret on disk; D27 leaves it open); rotate while running (a daemon that lives a month is idle-exited long before).
+- **Why:** no secret at rest; an idle exit bounds a daemon's life far below a month.
+
+### D-N25. `LaunchChild` carries the child's first task
+- **Decision:** `LaunchChild.prompt` / `ChildLaunched.prompt` (new fields): once the launch policy has minted the child, the plan sends it `SendMessage{wake, message_id = key = "launch:<child>"}`; an empty prompt sends nothing and the child waits for its first message.
+- **Alternatives:** the orchestrator sends the task after the launch (it cannot: the child is minted asynchronously by the daemon, and a send before the mint is `NoSession`); a separate command (two steps for one intent).
+- **Why:** one command launches a child WITH its task; the key makes it once-only.
+
+### D-N26. The daemon's board: a read model of whole session and run folds
+- **Decision:** `crates/core/read-model/daemon-board`: every session stream folded by `SessionAggregate::apply` and every run stream by `runs::apply` (as the gate's `run_state` does), plus what their states forget: an owner's `ChildLaunched` events (harp, engine, prompt), a session's `MessageSent` texts (the turn handed to a child needs them after `TurnQueued` consumed the pending message), its `ClearRequested` ids, and a run's ENDED turns (for the notice). Held in memory, rebuilt from 0 by each daemon (S-d).
+- **Alternatives:** the session index (it projects transcripts too: wasted work per tick, and no run state); reading each stream through the edge per tick (O(streams) reads every poll).
+- **Why:** the plan decides from the aggregates' own folds, never from a second interpretation of the events.
+
+### D-N27. The policy runner is one pure `plan` over owed state; steps are keyed and done once per process
+- **Decision:** `session_policies::plan(Scene{project_id, board, pending, hosted, done}) -> Vec<Step>`: `Send` (a keyed command or fact), `Launch` (claim+mint, else the compensation fact), `Start`, `Feed`, `Clear`, `End`. It is RECONCILIATION over state, not reaction to an event's arrival: e.g. the cascade is "a closed session still holding a child", child-ended "a closed child its owner still holds", the launch "a held child whose session the store lacks". The daemon marks a step's key done when it took effect (applied, duplicate or refused for good), so a step is not retried in the process; a restart re-plans from 0 and the keyed commands are DUPLICATE (S-d).
+- **Turn notices (added):** each turn a child's run ENDED is told to its owner, `notice:<child>:<incarnation>:<turn>` (message id = key), "child <harp> finished|failed its turn for <ids>". The existing `notice` (on `IncarnationEnded`) is not used yet: a long-lived child's incarnation ends only when it is closed, which tells the owner nothing it did not do itself.
+- **Supported urgencies:** a daemon-hosted claude child takes inform, wake and steer; a primary takes only inform (no `Wake` port yet, D7), so its notices are PENDING informs, visible in `session show` (D30).
+- **Scope:** only the project's own sessions: a cross-project child or owner (D19) is a deferral.
+
+### D-N28. The orchestration scope is a second gate, `OrchestratorGate`, for the daemon's listener
+- **Decision:** `runs_application::OrchestratorGate` identifies a run's HOOK bearer exactly as `HookGate` does, then reads the bearer's session: the identity is `{hook, requester: SessionRef{project_id, session}, children}`; the allowlist is the capture facts plus the commands `SendMessage`, `CloseSession`, `ClearChild`, `LaunchChild`; `owns` is the bearer's own session stream or a child's it holds (its folded `children`, same project); `stamp` (angzarr's `Gate::stamp`) replaces the requester of those commands with the identity's (`runs_application::stamped`). `HookListener::serve_tcp_gated` serves any gate; the per-run listener keeps `HookGate` (capture only), unchanged.
+- **Alternatives:** widen `HookGate` itself (every run's own listener would take orchestration commands); a separate orchestrator bearer (a fourth credential; D25 says the orchestrator IS the owner agent, whose credential is its run's).
+- **Residual (accepted):** the owner's credential reaches its children's streams for capture facts too, so an owner agent can forge capture facts into its own child's transcript (same user, ruling 37).
+
+### D-N29. The daemon is a hidden `ctxloom daemon` noun in the wiring; the user's verbs write the store in process
+- **Decision:** `ctxloom daemon serve|status|stop|send|close|clear|launch` (hidden from `--help`). `send`, `close`, `clear` and `launch` are the orchestrator's commands AS THE USER (D25: the human acts through the CLI, ruling 37): sessions-application's new `Service::{send, close, clear, launch_child}` run one command each in THIS process against the project's store (no requester: the user's authority), then the client makes sure a daemon serves (spawning one if none does). The daemon hears them through the store (its plan reads owed state). No user credential crosses the wire: the listener admits run credentials only (review B2).
+- **Alternatives:** the CLI sends the commands to the daemon over gRPC with a per-user bearer in the discovery file (B2: readable by the model, so it would break ruling 37's runner-fact guarantee); verbs under `session` (the session-cli trait and its fakes grow four methods for a surface that is not reviewed yet; a hidden noun is cheaper to move later).
+- **Message ids:** `send --id` names the message (its command id is `command_id(id)`, so the same id again is DUPLICATE); none given mints one. A send's capability evidence is `session_policies::supported`: a daemon-hosted claude child takes all three urgencies, a primary only inform (so `send --urgency wake` to a primary is `sessions-urgency-unsupported`). A refusal exits 1, as every session command's refusal against state does (`AppError::exit_code`); a bad `--urgency` word is a usage error, exit 2.
+- **The launch:** the child's harp is minted by the CLI (`--name` overrides), its session id is a fresh UUID, its root is the owner's project dir, `trust` same-project, the delegation limit 4 (no config key yet), and the command id is `command_id("launch:<owner>:<child>")`.
+
+### D-N30. Single-instance lock, spawn on demand, idle exit and stop
+- **Decision:** `serve` takes the single-instance lock (`file_lock`, waiting 5 s) for its life; a second daemon that cannot win exits. A client that finds no holder withdraws a stale discovery file and spawns `<current_exe> daemon serve` with its own environment, stdio null, in a process group of its own (`os::process::spawn_tree`, dropped, not killed: it outlives the client), then waits up to 15 s for the discovery file. The daemon exits when its discovery file is gone (its home removed), when `daemon stop` has written the stop request and it hosts nothing (it starts no child meanwhile: the drain), or after `--idle-seconds` (default 600; a client passes `CTXLOOM_DAEMON_IDLE_SECONDS` on) with nothing hosted and nothing done. Its log is `<home>/.ctxloom/daemon/daemon.log` (0600; lines name harps, keys, codes and pids, never an environment value or a token).
+- **Not run-within:** the daemon is the composition root spawning ITSELF, detached, with no deadline and no pipes: run-within's modes (bounded, piped, terminal) are for programs an adapter waits on.
+- **Version handshake and drain (D3), minimal:** the discovery file carries the serving version and `daemon status` shows it; a client of another version does NOT yet ask the old daemon to drain (deferred). `daemon stop` is the drain itself.
+
+### D-N31. One daemon edge over every open project: the router
+- **Decision:** the daemon opens every project whose store exists under the home (`~/.ctxloom/projects/<id>/ctxloom.db`, `Stores::open_existing`: never made), each with an `InProcessCore`. Its listener serves ONE edge, `RoutingEdge`, that routes a request to the store that holds its stream (asking each open store once; the answer is kept). So `HookGate`/`OrchestratorGate` work unchanged: a bearer's run is found in whichever store holds it (B3's "the bearer does not name the store" answered by lookup).
+- **Alternatives:** a listener per project (a discovery entry per project, and a hook would have to know its project); the project in the bearer (a credential format change across every run).
+- **Cost:** a first request for a stream asks each open store; a user with many projects pays that once per stream per daemon life.
+
+### D-N32. The policy runner's loop: poll `change_token`, plan every tick, refusals retried on change
+- **Decision:** each tick (`--poll-ms`, default 100): drain the children's observations and record them; per project, `CatchUp::step_if_changed` the board and the pending messages (the poll; the angzarr Subscribe push replaces it inside `tick` when served: the seam is the two `step_if_changed` calls); plan; take the steps. A step's outcome: done (never again in this process), refused (again once any store changed: the refusal may have been against a board that was behind, e.g. `QueueTurn` refused `TurnInFlight`), or not taken (again next tick).
+- **Policy lock = the single-instance lock (S-e):** only the daemon holding it runs `plan` at all.
+
+### D-N33. A hosted child: enqueued, started, its observations recorded as the run's facts
+- **Decision:** `Start` takes the run's own lock (ruling 92, held for the run's life), enqueues the run (`RunMode::Structured`, `Evidence::passing(engine)`: the child's credential is NOT judged at enqueue yet), prepares the session home with `Engine::prepare` (empty context), and starts `engine_claude::Claude` as a `ChildEngine` with the child's environment: the daemon's own (S6: the client's resolved environment is not sent yet), `CTXLOOM_HOME`, the program dir first on `PATH`, and the hook variables naming the DAEMON's endpoint and certificate and the run's hook bearer. The engine settings are the child's project's engine block (`Library::engine_drive`, read as a process in that project would: D18). Then `RunnerStarted{runtime: host, pid}`.
+- **Observations → facts (runner principal):** `Started{native_id}` and `Cleared{Some(native_id)}` → `BindEngineSession` (the rotation, D17); `TurnStarted`/`TurnEnded` → `TurnStarted`/`TurnCompleted`/`TurnFailed` with the turn number the feed recorded for the message ids (D28 keys); `Exited` → `RunExited` and `incarnation_ended(.., "runner-exit")`, and the child is no longer hosted.
+- **Feed:** a turn's informs are sent first (the adapter holds them), then its trigger with the turn's urgency (a steer turn's every non-inform message as a steer).
+- **End:** `ChildControl::end(5 s)` on a hosted child whose session closed; the daemon's exit ends every child it still hosts.
+- **Only claude:** a child on another engine has its incarnation ended `launch-failed` (the opencode ACP child is another landing's).
+
+### D-N34. A hook rediscovers the daemon at each call (B1, D27)
+- **Decision:** `HookSink::rediscovered(discovery, bearer, spawned)`: when the daemon's discovery file names an endpoint AND a daemon holds the single-instance lock, the hook delivers to it (its endpoint and certificate from the file, its bearer from the environment); a delivery the daemon does not take (unavailable, timed out) goes the spawn environment's way. No file: the lock is not even probed (nothing is made in a home without a daemon).
+- **Consequence:** while a daemon serves, a primary session's hooks reach the daemon too (its router finds the run in its store). Both listeners write the same store; a redelivery is DUPLICATE.
+
+### D-N35. `session show` json names the owner link
+- **Decision:** `session show --format json` gains `owner` (the owner's stable id), `closed` (true only) and `children` (the stable ids held), each left out when empty, as `pending` is (additive; the text form is unchanged).
+
+
+## resolute-sleet: Subscribe with true push (D10, review S4)
+
+Built in angzarr core (`angzarr-ports`, `angzarr-reads`, `angzarr-coordinator`, `angzarr-coordinator-grpc`) and angzarr-embedded (`angzarr-store-sqlite`), then the family re-pinned. All of it is generic and ctxloom-free.
+
+### S-N1. The push is the store port's, signalled by the store adapter, not the kernel
+- **Decision:** `angzarr_ports::CommitNotify` (opt-in, like `Watch`), on a runtime-free `CommitSignal` / `CommitWait` (std `Mutex` and `Waker`; it builds for wasm32). `MemoryStore` and `SqliteStore` notify after every successful commit (a write, a snapshot, a purge, dead letters drained or removed, outbox entries cleared); a refused write pushes nothing. The embedded kernel writes through the store and has no wrapper of its own, so signalling in the store covers it, and covers writers outside the kernel too.
+
+### S-N2. A wait is armed before the read
+- **Decision:** `next_commit()`, then the read, then await the wait: a commit after the arming is either in the read or resolves the wait, so none is missed. Notifications coalesce (a counter); they never queue.
+
+### S-N3. SQLite handles on one file share one signal per process
+- **Decision:** a registry by the file's canonical path holds each file's signal weakly (`CommitSignal::downgrade`, `WeakCommitSignal`): a commit through any handle wakes the followers of every other; a file no handle holds is forgotten. A store in memory has a signal of its own.
+
+### S-N4. The change token is the required fallback
+- **Decision:** it is polled every `Follow::poll` (default 500 ms) beside the push, for commits the push cannot see (another process's: a draining daemon's, a CLI fallback's). The push only cuts latency; a quiet poll reads nothing.
+
+### S-N5. No gap, no duplicate: a watermark
+- **Decision:** the subscription keeps the next sequence it owes, reads `Range{from: next}` through the GetEvents read path, drops pages below it, and moves it past the last page sent. No empty book is sent.
+
+### S-N6. Resume after a cut is the subscriber's
+- **Decision:** as the spec has it: the connection-age cap (ruling 61) ends the stream, and the subscriber re-subscribes from its last sequence + 1. Tested end to end on a listener with a 300 ms age.
+
+### S-N7. `Gate::still_valid` at the call and every few wakes
+- **Decision:** every `Follow::revalidate_every` wakes (default 4; a wake is a push or a poll, so at least every 2 s); a revoked caller's stream ends UNAUTHENTICATED.
+
+### S-N8. A stream the caller may not follow answers as an absent one that never grows
+- **Decision:** no `ReadOp::Follow`, not owned, or beyond reach: the call is accepted, nothing is delivered, and the stream stays open until the caller leaves or is revoked; the real reason goes to the audit sink. The same no-oracle rule as GetEvents' empty book at 0.
+
+### S-N9. Back-pressure: bounded and lossless
+- **Decision:** each subscriber has a bounded channel of `Follow::buffer` books (default 16). When it is full the subscription reads no further until a book is taken. Nothing is dropped: the store is the buffer, and the watermark resumes from it. A subscriber that is gone (its channel closed, e.g. by keepalive) ends its task.
+
+### S-N10. Refusals at the call, keyed by the reads engine's codes
+- **Decision:** no target, no domain, no or short root, an empty edition: INVALID_ARGUMENT; an unknown edition: NOT_FOUND (the first catch-up read happens before the call is answered). A read that fails later is the stream's last item. `CorrelationFrom` is UNIMPLEMENTED (`subscribe_correlation`).
+
+### S-N11. Served behind a feature
+- **Decision:** `angzarr-coordinator-grpc`'s `subscribe` (off by default): `Server::add_event_stream(edge)` for a read half that implements `Follows` (`ServedReads<S>` does when `S: Watch + CommitNotify`), `Edge::with_follow(Follow)` for the policy, `Session::into_principal` to carry the identified caller onto the subscription's task.
+
+### S-N12. `SqliteStore::close(self)`
+- **Decision:** closes the handle's connection and waits for it, so the last close's WAL checkpoint (and the `-wal` file's removal) is done when it returns. Dropping a handle still works and leaves that to sqlx's thread.
+
+### S-N13. Pins
+- **Decision:** one line: angzarr core 6c3175b9, angzarr-router 58cfb1d2, angzarr-embedded 46267520, angzarr-platform f2ece88c, angzarr-build 11d249c6, ctxloom-lib 3fa0344b (and `arch_lint_rev`), taskloom 2c117e8b. ctxloom serves no `Subscribe` yet: `hook-listener` keeps `["commands", "tls"]`; the daemon turns `subscribe` on when it follows a session stream.
+- **Deferred:** `CorrelationFrom`; the spec's REST/SSE routes; taskloom calling `SqliteStore::close` (the drop-checkpoint flake); the grpc crate's mutation run was judged (22/23, 95%) before the test that kills its one survivor (a quiet poll reads nothing) was added, and was not re-run after it.
+
+### D-N36. The policy runner wakes on the in-process push, and still polls
+- **Decision:** after the re-pin onto Subscribe with true push (resolute-sleet), the daemon arms each open store's `CommitNotify::next_commit()` before a tick reads, and waits for the first of them OR the poll interval (`--poll-ms`), whichever is first. A commit through the daemon's own handles (its plan's commands, its children's facts, its listener's hooks) wakes the next tick at once; a commit by another PROCESS (the user's CLI verbs, a session process's own listener) signals nothing in the daemon, so the `change_token` poll stays (S-N4: the required fallback). The catch-up itself is unchanged (`step_if_changed`).
+- **Alternatives:** serve `EventStreamService.Subscribe` to the daemon's own runner (a gRPC hop to itself for what an in-process wait gives); drop the poll (misses every CLI write: the CLI writes the store in process, D-N29).
+- **Revisit when:** the CLI sends its commands through the daemon (then every write is the daemon's and the poll can lengthen to a safety net).
+
+## smashing-embargo (part 3): the opencode ACP child
+
+Numbered D-N23 to D-N30 in port/opencode-acp's commit messages; renumbered D-N37 to D-N44 when merged beside part 2.
+
+### D-N37. agent-client-protocol =5.2.0 is in; every JSON output it would reorder is made order-explicit (D21's gate)
+- **Finding:** the crate (default features off) turns on serde_json's `preserve_order` (and `raw_value`) in every build that links engine-opencode, the binary's included: a `serde_json::Map` then keeps insertion order instead of sorting. The whole workspace's tests under that build showed one failure (taskloom-cli-client: a passed-through envelope's args came in the envelope's order); a read of every `serde_json::Value`/`Map`/`json!` in non-test code found four outputs that would change bytes: the transcript's D27 lines (session-index: `json!` in source order, previously sorted), the config blocks shown as JSON (library-application `json::convert`, `config_show::json`: the document's order), doctor's settings rewrite (`hooks::strip`: the user's file order) and those envelope args. Structs, angzarr-presentation's envelope, `surface_ports::Json` and the YAML config writer (`library::write`'s sorted-key merge links no serde_json) are unaffected; forge-github's request bodies (to GitHub, not shown) are left in source order.
+- **Decision:** each of the four sorts its keys explicitly (a `BTreeMap` collect, or a recursive `sorted`), so the bytes are what they were under either serde_json map; a guard test per output asserts the exact sorted bytes (it fails under the unified build without the fix: shown for the transcript line). cargo-deny passes: `multiple-versions = "warn"` already admits the new duplicates (a second derive_more, darling, hashbrown, indexmap, schemars, foldhash), and every licence is allowed.
+- **Also noted:** agent-client-protocol itself turns on its schema crate's `unstable_proxy_chains` (not ours to turn off; nothing of it is used).
+- **Alternatives:** the schema crate alone (M3; still `preserve_order`, and a hand-written JSON-RPC client); STOP (the change was four small sites).
+
+### D-N38. The ACP connection runs on futures' executor, on a thread the child owns
+- **Decision:** engine-opencode's child runs the crate's own connection (`Client.v1()`, its `Lines` transport) under `futures::executor::block_on` on a thread of the child's. Std pipes are bridged by threads: a reader thread turns stdout into the transport's incoming `Stream` (an unbounded futures channel), and the outgoing `Sink` writes each line to stdin (blocking, small lines; stdout is always drained, so opencode never blocks the other way). The control (sync, any thread) and the connection decide under one lock and post every call to one channel, so calls are made in the order decided (an interrupt decided before a held prompt is written is sent before it).
+- **Alternatives:** a tokio runtime owned by the adapter (tokio is in the workspace, but the crate needs no runtime and the claude child is std threads); a runtime the caller provides (the port is synchronous: the daemon's caller has nothing to hand in); the crate's `process` feature (refused by D21).
+- **Why:** no runtime dependency, the claude child's shape (threads, one lock), and the crate's own JSON-RPC (ids, routing, the permission request's reply).
+
+### D-N39. The input's end is a notification of ctxloom's own, never written
+- **Decision:** `end` and the control's `Drop` send `_ctxloom/end_of_input` through the connection; the outgoing sink never writes it and closes stdin instead. A line the engine can no longer take is dropped, not an error, so the connection keeps reading.
+- **Why:** the crate queues what is sent; closing stdin from the control could beat the queued `session/cancel` to the pipe. Through the sink the end is ordered after every line before it, and the connection still reads opencode's `cancelled` reply and its exit (the spike: `dispose` runs on EOF, exit in 64 ms).
+
+### D-N40. Steer mid-turn is the native join; `interrupt` then steer is the hard stop (D20)
+- **Decision:** `send(steer)` to a turn in flight writes the prompt at once (`Queued::Written`; opencode takes it at the next step boundary); each prompt's reply ends ITS messages' turn, both answered with the joined turn's last agent message (the spike: both prompts reply `end_turn` together, "the first prompt never gets its own answer"). After `interrupt()` (`session/cancel`), a steer is held first (`Queued::Interrupting`) and written when the cancelled prompts have replied. Wake mid-turn and inform are held (an inform rides on the next prompt, D30). `InterruptAnswered{accepted}` is said at the first reply after a cancel: `cancelled` is accepted, a turn that outran it is not (ACP's cancel has no answer of its own). `TurnStarted` is said when the prompt is sent (ACP has no echo).
+- **Alternatives:** steer always cancel-then-prompt (claude's outcome exactly: the turn in flight would end `Interrupted`); the join only (no hard stop).
+- **Why:** D20 names both; the port's `interrupt` is the caller's hard stop, and per-prompt ends keep D-N16's run gate whole (the steer's queued turn is freed by its own end).
+
+### D-N41. The model is set by opencode's `session/set_model`, as a custom request
+- **Decision:** after `session/new` (and after each clear's), the child sends `session/set_model {sessionId, modelId}` (a `JsonRpcRequest` derived in engine-opencode); the opening (or clear) is done only when it answers. A failure to set it ends the child (its exit's detail says why) rather than running another model.
+- **Alternatives:** ACP v1's stable `session/set_config_option {configId: "model"}` (in the schema, unverified against opencode); `-m` on `opencode acp` (unverified).
+- **Why:** the spike verified `session/set_model` live on opencode 1.18.4; nothing else is.
+
+### D-N42. A child's permission requests are answered by a new `ChildSpec.permissions`
+- **Decision:** `run_ports::ChildPermissions { Refuse (default), Allow }` on the `ChildSpec`; opencode answers `session/request_permission` with the `reject_once` / `allow_once` option, else `cancelled`; never an "always" (nothing outlives the request). The daemon maps the agent's permission posture onto it (not built: no caller builds a `ChildSpec` yet).
+- **Why:** no posture reached the child port; a child has no human to ask, so the default fails closed.
+
+### D-N43. Resume is `session/load`; `ChildSpec.session_id` has no opencode meaning
+- **Decision:** a `resume` loads the session (`session/load`, advertised as `loadSession`); its replayed updates arrive before the load's answer and are ignored (no turn is in flight). `session_id` (claude's clear-by-restart id) is ignored: opencode names its own sessions, and its clear is `session/new` on the same process.
+
+### D-N44. Replies are ordered behind the updates before them; a reply never given is the exit's
+- **Decision:** every request is sent with `prepare_request(..).on_receiving_result(..)`, so its reply's handler holds the crate's dispatch order (an eager `send_request` may route a fast reply ahead of the `agent_message_chunk`s before it: seen in the tests, the answer came out empty). A reply the crate fails because the engine's output ended (`is_incoming_transport_closed`, `is_connection_terminated`) is dropped, so the turn in flight ends as the exit says ("the engine exited mid-turn: <stderr>"), as claude's does.
+- **Residual:** after the output ends, the main task drains what was already heard; a reply whose handler the crate had not yet run is lost to the exit's failure (a turn reported failed that opencode answered as it died).
+
+### Not done (opencode ACP child)
+- No caller: the daemon builds no `ChildSpec` yet, so nothing maps the agent's permission posture onto `ChildPermissions`, and the wiring registers no `ChildEngine` for opencode.
+- Not verified live: the whole driver runs against a fake `opencode acp` (the spike's lines); `session/load` resume, a `max_tokens`/`refusal` stop, and `request_permission` against real opencode are unprobed.
+- The effort level is not passed (no flag verified, as for a turn). `ChildSpec.session_id` is ignored (D-N43).
+- `end` still uses `terminate_tree` (SIGTERM then kill) after the grace: by then the turn was cancelled and the input closed, so a server still there is not busy; a tool that ran under `setsid` escapes the group either way (the spike's orphan hazard, unchanged).
+
+## smashing-embargo (part 4): daemon follow-ups (`port/daemon-followups`)
+
+Numbered D-N37 to D-N43 in port/daemon-followups' commit messages; renumbered D-N45 to D-N51 when merged beside part 3 (the opencode ACP child), which took D-N37 to D-N44.
+
+### D-N45. A child's environment is its LAUNCHER's, handed off in a 0600 file, never journaled (S6)
+- **Decision:** the client that launches a child (`ctxloom daemon launch`) resolves the environment a child may be given from its OWN environment, `engine_claude::launcher_environment`: the curated child allowlist, the engine block's `engines.<e>.env` names and the configured credential source's variables (the child project's plan, D-N46), plus every `CTXLOOM_PERMIT_*` (ruling 78); never `ANTHROPIC_AUTH_TOKEN` (the primary's), never the caller's own `CTXLOOM_*` hook variables, `CTXLOOM_HOME` or `HOME` (the daemon sets the child's). It mints the child's stable id itself (`LaunchRequest.session`, new; empty still mints one), writes that environment to `<home>/.ctxloom/daemon/launch/<child id>` (0600 in the 0700 daemon directory, atomic) BEFORE it records `LaunchChild`, and removes it if the launch is refused. The daemon TAKES the file at the child's first start (read, then removed at once), holds the environment in memory for the child's life (a relaunch after an exit reuses it), and drops it when the child is ended. A launcher's id is a UUID it mints (`now_v7`); the hand-off is only ever named by one, so no path is built from anything else. A child's environment is built from it alone (plus the daemon's own `CTXLOOM_HOME`, the program dir first on `PATH`, the hook variables and the harp): the daemon's own environment is never a child's. The value never enters an event, a command, a log line or a `Debug`.
+- **The daemon's own environment is now minimal:** a client spawns it with `HOME`, `CTXLOOM_HOME`, `PATH`, `TMPDIR`, `LANG`, `LC_ALL`, `USERPROFILE` and `SystemRoot` only (whichever are set), so the daemon process holds no credential of the spawner's at all.
+- **Alternatives:** the values in `LaunchChild`/`ChildLaunched` (journaled: forbidden); over the daemon's TLS listener in a launch request (the listener admits run credentials only, D-N29/B2; a user-to-daemon RPC would need a USER credential the CLI could present, which is a secret at rest in the home anyway, readable by the model as the same user, and a new service beside angzarr's coordinator — the file is that credential's boundary without the extra protocol); keep the daemon's inherited environment (S6: whichever process spawned the daemon would decide every child's credential).
+- **Why:** the user boundary is the trust boundary (ruling 37): a 0600 file under the user's home is readable by exactly who could have read the launcher's environment, it is at rest only between the launch and the daemon's next tick, and nothing else in ctxloom has to carry a secret.
+- **Cost (accepted):** a secret is briefly at rest (the take removes it right after reading it; a launch whose daemon never starts the child leaves the file until the home is removed: no sweep yet). A daemon RESTART forgets the environments it held: a relaunch of a child after a restart has none, and is refused `runs-no-credential` like any child without one (the user launches again).
+- **Deferred:** a child launched by its OWNER AGENT over the listener (`LaunchChild` through the `OrchestratorGate`) hands nothing off, so it is refused `runs-no-credential` until the orchestrator's client (the MCP, not built) writes the same hand-off; and `daemon send` does not refresh a hand-off (a woken child after a daemon restart).
+
+### D-N46. A hosted child is planned by its project's dry run, as a one-shot child is (D18)
+- **Decision:** at each start the daemon plans the child with ITS project's library dry run (`run --dry-run` for the project's default agent on the child's engine, read as a process in that project would, with the launcher's environment and ctxloom's home), and `run_application::hosted_child` reads it: the engine's settings (`settings_of`, the one-shot's), the assembled context (written to the session home's context file by `Engine::prepare`, so `--append-system-prompt-file` names the project's context), the agent's model and effort, and the enqueue's evidence (D-N47). A project the dry run refuses (no default agent, an unreadable config) fails the launch with that error's code, exactly as `run --one-shot` there would be refused.
+- **Alternatives:** keep the empty context (D18 says a child is initialised with its repository's context); assemble in the CLIENT and hand the context off (a relaunch could not re-plan, and a cross-repo child must be read in its own project anyway); a child agent named in `LaunchChild` (no field yet: a deferral, the default agent stands in).
+- **Scope:** same project only; a cross-repo child (its trust gate, S8) is out of scope.
+
+### D-N47. A hosted child's credential is judged at its enqueue (rulings 53, 69, 88)
+- **Decision:** the enqueue's evidence is `hosted_child`'s: `credential_evidence` on the engine's credentials and the plan's auth source over the HANDED-OFF environment (names and yes-or-no only), the plan's fatal findings and posture, the engines the daemon hosts; `prompt_given` is true (a hosted child's prompts are its messages, D-N25). So `EnqueueRun` refuses a child with no credential (`runs-no-credential`) or a file-only source (`runs-file-only-credential`) as it refuses any child. A refused enqueue (or a plan that fails) ends the child's incarnation (`launch-failed`) and, for its first incarnation (the launch itself), records K2's compensation on its owner, `RecordChildLaunchFailed{reason: <the refusal's code>}` (key `launch-failed:<owner>:<child>`, the launch policy's), so the owner no longer holds it; the daemon's log names the code. The step is done (not retried on every store change).
+- **Alternatives:** leave the step refused and retried (the incarnation would stay owed forever, and nothing tells the owner); close the child too (a refusal of its credential is not the owner's close; the open child stays wakeable once the user launches with a credential — accepted cost: an open, unowned child until closed by hand, as D29's).
+
+### D-N48. A hosted child follows its launcher's permits
+- **Decision:** engine-claude's child command applies `run_ports::apply_permits` from the spec's environment (the handed-off one), as the launcher does for a turn's command (ruling 78), the names ctxloom sets being the adapter's computed ones plus `HOME` and `PATH` (the daemon builds `PATH`), the one-shot's `owned`. A permit the command does not follow is dropped silently: `ChildEngine::start` has no notice channel (the one-shot says them; a deferral).
+
+### D-N49. ClearChild end to end; the child's home still registers no `SessionStart` (N6)
+- **Decision:** the e2e test now runs a clear: `daemon clear` → `ClearRequested` → the plan's `Clear` → engine-claude writes `/clear` → the stub's `conversation_reset` and next `init` → `Cleared{S2}` → `BindEngineSession` (the runner's fact), and the next wake runs on `S2`. The test found that the rotation was never recorded: D-N51.
+- **N6, decided:** the child home's hooks stay the per-turn set; `SessionStart` is NOT registered for a hosted child. The rotation is the RUNNER's to record, from the stream (`conversation_reset`), and capture after a clear needs no `SessionStart`: every capture fact is addressed by the run's `CTXLOOM_SESSION`/bearer in the engine's environment, which a `/clear` does not change. Registering it would record the same rotation twice (a hook bind beside the runner's) and would fire per TURN for the M1 per-turn child, which shares the home's settings.
+
+### D-N50. `session show` text names the owner link (D-N35)
+- **Decision:** after the record, `owner:    <owner id>`, `closed:   yes`, and `children: <n> held` with each child's stable id on its own line, each left out when unset, then the pending messages (D-N21) as before.
+
+### D-N51. The runner's bind names the transcript, so a clear's rotation displaces the binding
+- **Finding:** the session aggregate's bind (`engine_bound`) records a ROTATION only for an id that comes with a transcript path ("an id that comes with no transcript never displaces the binding", the hook's rule), and the daemon bound every native id with an empty path, so after a `/clear` the session stayed bound to the old id and a resume would have continued the cleared conversation.
+- **Decision:** engine-claude's `transcripts_of(&ChildSpec)` names where claude writes a child's transcripts (`<CLAUDE_CONFIG_DIR>/projects/<cwd, every character not an ASCII letter, digit or '-' made '-'>`), the daemon keeps it per hosted child, and each runner bind (`Started`, `Cleared`) names `<that>/<native id>.jsonl`, as claude's own hook payload would. The aggregate's rule is unchanged.
+- **Alternatives:** let a runner bind displace without a transcript (changes the domain rule a hook relies on, for one principal); carry the transcript in `ChildObservation` (the stream does not name it either: it would be the same computation inside the adapter, behind a port change).
+- **Unverified:** claude's slug for characters other than `/` (dots, underscores) was not checked live; a wrong guess names a missing file, and the rotation is still recorded.

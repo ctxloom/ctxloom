@@ -6,15 +6,21 @@
 //! `editor-process`, `companion-probe`) does, and hands the text and the bytes
 //! over.
 
+mod operation;
+mod scan;
+
 use std::collections::BTreeMap;
 
 use angzarr_diagnostic::Diagnostic;
+
+pub use operation::{Operated, Operation, Operations, Point, STAGING_DIR, STATE_DIR, TRASH_DIR};
+pub use scan::{LibraryScanner, LIBRARY_PATHS};
 
 /// Why an adapter could not do what it was asked: its own diagnostic.
 pub type Failure = Box<dyn Diagnostic>;
 
 /// A bundle's files by path relative to the bundle (`bundle.yaml`,
-/// `fragments/solid.md`, `skills/.code-reviewer.meta.yaml`), slash separated.
+/// `fragments/solid.md`, `skills/code-reviewer/.meta.yaml`), slash separated.
 pub type TreeFiles = BTreeMap<String, Vec<u8>>;
 
 /// A file to put somewhere: its path below the directory it lands in, slash
@@ -83,6 +89,16 @@ pub trait ContentRepo {
 
     /// Where the bundle's directory is, as the user is shown it.
     fn bundle_dir(&self, name: &str) -> String;
+
+    /// Where the bundle `name` is in ANOTHER tree, the one whose `.ctxloom`
+    /// is `app_dir` (the same place below it), as the user is shown it.
+    fn bundle_dir_in(&self, app_dir: &str, name: &str) -> String;
+
+    /// The bundle `name` renamed whole into ANOTHER tree (`app_dir`, its
+    /// `.ctxloom`), at the same place below it, in one rename and never
+    /// over what is there (step 10b, QUESTIONS 1(a)): false when something
+    /// is there, and nothing was moved.
+    fn move_into(&self, name: &str, app_dir: &str) -> Result<bool, Failure>;
 }
 
 /// The user's own files, outside the project's content: where a bundle is
@@ -108,7 +124,9 @@ pub trait UserFiles {
     /// a file is there.
     fn write_file(&self, path: &str, bytes: &[u8], overwrite: bool) -> Result<bool, Failure>;
 
-    /// The files written below `dir`, its directories made.
+    /// The files put in as the new directory `dir`, whole or not at all,
+    /// never over anything there (D2's EXCEPTION for a tree written outside
+    /// ctxloom's trees: staged beside it, renamed in NOREPLACE).
     fn write_tree(&self, dir: &str, files: &[Put]) -> Result<(), Failure>;
 }
 
@@ -129,6 +147,39 @@ pub trait GitIdentity {
     /// Whether git knows both `user.name` and `user.email` there; false
     /// when it knows either not, or cannot be asked.
     fn is_known(&self) -> bool;
+}
+
+/// A git worktree of the project that ctxloom did not create: neither the
+/// project's own checkout nor one under ctxloom's sessions' checkouts
+/// (`isolation_ports::worktrees_root`). Each state is what git answered this
+/// time; none when it could not be measured, never assumed.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct ForeignWorktree {
+    pub path: String,
+    /// Its branch, short (`stale-feature`); empty when detached.
+    pub branch: String,
+    /// Whether its branch is merged into the project's checked-out HEAD.
+    pub merged: Option<bool>,
+    /// Whether it holds uncommitted changes.
+    pub dirty: Option<bool>,
+}
+
+/// What listing the project's foreign worktrees came to.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum ForeignListing {
+    /// The project is not a git repository: nothing to list.
+    NotARepository,
+    /// git could not list them: its words.
+    Unlisted(String),
+    /// Every foreign worktree, sorted by path.
+    Listed(Vec<ForeignWorktree>),
+}
+
+/// The project's worktrees ctxloom did not create (j001300: doctor reports
+/// them, and nothing removes them). Read-only.
+pub trait ForeignWorktrees {
+    /// The foreign worktrees of the repository at `project_dir`.
+    fn foreign(&self, project_dir: &str) -> ForeignListing;
 }
 
 /// The environment ctxloom was launched in, as far as credentials go: whether
@@ -214,6 +265,25 @@ pub trait Scaffold {
     /// The files written below that directory, each atomically, its
     /// directories made (mode 0644 files, 0755 directories).
     fn write(&self, files: &[Put]) -> Result<(), Failure>;
+
+    /// Whether that directory itself is not there yet (step 10c U6: a first
+    /// init's tree, created whole). False by default: a scaffold that keeps
+    /// no directory is never new.
+    // Equivalent: its one mutant is this default body.
+    #[cfg_attr(test, mutants::skip)]
+    fn is_new(&self) -> Result<bool, Failure> {
+        Ok(false)
+    }
+
+    /// The bytes of the file at `rel` below that directory; none where it
+    /// is not there (step 10c U5: what a write compares itself with). None
+    /// by default: a scaffold that keeps no file to read reads as empty.
+    // Equivalent: its one mutant is this default body.
+    #[cfg_attr(test, mutants::skip)]
+    fn read(&self, rel: &str) -> Result<Option<Vec<u8>>, Failure> {
+        let _ = rel;
+        Ok(None)
+    }
 }
 
 /// An editor to run: a program and the arguments that come before the file.
@@ -238,58 +308,60 @@ pub trait Editor {
     fn open(&self, command: &EditorCommand, path: &str) -> Result<(), Failure>;
 }
 
-/// Why a program is no companion.
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub enum Unanswered {
-    /// It could not be run, failed, or took too long: what happened.
-    Failed(String),
-    /// The program does not exist: what the system said.
-    Missing(String),
-    /// It ran and exited with a status other than success: the program is
-    /// there and offers no loadout.
-    Exited(String),
-    /// It ran and printed no loadout.
-    Silent,
+/// Where a companion is probed (D1): the caller's environment and the
+/// directory it runs in, handed in with every call, never a snapshot the
+/// adapter holds, so the same probe serves whoever calls it from wherever
+/// the agent runs (OD-8). Its `Debug` names the variables and withholds every
+/// value (the environment may hold a secret).
+#[derive(Clone, PartialEq, Eq, Default)]
+pub struct ProbeSite {
+    /// The environment the program runs in, exactly; its `PATH` is where the
+    /// program is found.
+    pub env: Vec<(String, String)>,
+    /// The directory it runs in: the caller's project root (its working
+    /// directory where there is no project).
+    pub cwd: String,
 }
 
-/// Whether a command answers the companion probe.
-pub trait LoadoutProbe {
-    /// `<command...> loadout --format yaml`, bounded in time: it must
-    /// succeed and print something. `command` is the program, then its
-    /// arguments; nothing searches for it.
-    fn answers(&self, command: &[String]) -> Result<(), Unanswered>;
+impl std::fmt::Debug for ProbeSite {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let names: Vec<&str> = self.env.iter().map(|(name, _)| name.as_str()).collect();
+        f.debug_struct("ProbeSite")
+            .field("env", &names)
+            .field("cwd", &self.cwd)
+            .finish()
+    }
 }
 
-/// A companion as the configuration registers it.
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct RegisteredCompanion {
-    /// The name it is registered under.
-    pub name: String,
-    /// The program, then its arguments.
-    pub command: Vec<String>,
-}
-
-/// What asking a registered companion for its loadout came to.
+/// What asking a companion's program for its loadout came to.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum CompanionLoadout {
     /// It printed a loadout document: its text.
     Loaded(String),
-    /// Its program does not exist.
+    /// Its program is not on the site's `PATH`.
     Absent,
     /// It ran and exited with a status other than success: the program is
-    /// there and offers no loadout.
-    NoLoadout,
+    /// there and offers no loadout. The status, as shown.
+    NoLoadout(String),
+    /// It ran, succeeded and printed nothing.
+    Silent,
     /// It could not be run, was killed, or took too long: what happened.
     ProbeFailed(String),
 }
 
-/// The loadouts of the companions a project registers, fetched fresh each
-/// time they are asked for (Go's `Prober.ProbeCompanionLoadouts`): the one
-/// place a companion's program is run for its session-time contribution.
-pub trait CompanionLoadouts {
-    /// The loadout of `companion`. Never fatal: every way it can fail is an
-    /// outcome.
-    fn loadout(&self, companion: &RegisteredCompanion) -> CompanionLoadout;
+/// A companion's program, found and asked (Go's `companions.Verify` and
+/// `Prober.ProbeCompanionLoadouts`): the one place a companion is run, for
+/// every caller (OD-8). A program is named, never a path: it is found on the
+/// `PATH` of the site it is asked at (OD-10).
+pub trait CompanionProbe {
+    /// The path `program` resolves to on `site`'s `PATH`: looked for, never
+    /// run; none where it is not there.
+    fn find(&self, program: &str, site: &ProbeSite) -> Option<String>;
+
+    /// `<program> loadout --format yaml`, the program found on `site`'s
+    /// `PATH` and run in `site.cwd` with `site.env` exactly, bounded in time.
+    /// Never fatal: every way it can fail is an outcome.
+    fn loadout(&self, program: &str, site: &ProbeSite) -> CompanionLoadout;
 }
 
 /// The project's regenerable cache (`.ctxloom/cache`): measured and removed
@@ -311,15 +383,39 @@ pub trait ProjectCache {
 /// out of the directory it is joined to. The same on every host: a backslash
 /// (Windows' separator, so `a\..\b` would climb there) and a drive prefix
 /// (`C:`, rooted there) are refused on Linux too. An adapter adds what its
-/// own filesystem also refuses (a NUL).
+/// own filesystem also refuses (a NUL). Windows' own name rules are held on
+/// every host too: no `:` (NTFS reads `name:stream` as an alternate data
+/// stream), no reserved device name (`NUL`, `CON`, `PRN`, `AUX`, `COM1-9`,
+/// `LPT1-9`, with or without an extension), and no segment ending in a dot or
+/// a space (Windows drops it, so two names become one).
 pub fn is_plain_relative(name: &str) -> bool {
     !name.is_empty()
         && !name.starts_with('/')
         && !name.contains('\\')
+        && !name.contains(':')
         && !has_drive_prefix(name)
-        && !name
-            .split('/')
-            .any(|part| part.is_empty() || part == "." || part == "..")
+        && !name.split('/').any(|part| {
+            part.is_empty()
+                || part == "."
+                || part == ".."
+                || part.ends_with('.')
+                || part.ends_with(' ')
+                || is_reserved_device(part)
+        })
+}
+
+/// Whether a segment's stem (before its first dot) is a Windows device name.
+fn is_reserved_device(segment: &str) -> bool {
+    let stem = segment.split('.').next().unwrap_or(segment);
+    let upper = stem.to_ascii_uppercase();
+    match upper.as_str() {
+        "NUL" | "CON" | "PRN" | "AUX" => true,
+        _ => {
+            (upper.starts_with("COM") || upper.starts_with("LPT"))
+                && upper.len() == 4
+                && matches!(upper.as_bytes()[3], b'1'..=b'9')
+        }
+    }
 }
 
 /// Whether `name` starts with a Windows drive, a letter and a colon.

@@ -3,22 +3,24 @@
 //! [`RunnerLauncher`], and records what came of it as the run's facts.
 //!
 //! The order of a launch, and why:
-//! 1. the session home is written and the turn's command is built; a launch
-//!    that fails here has started nothing, and is a `LaunchFailed`;
-//! 2. `RunnerAttached` is recorded, then the command is SPAWNED
-//!    ([`RunnerLauncher::launch`]), and only then are `RunnerStarted` (with the
-//!    pid the spawn gave) and `TurnStarted` recorded, while the command runs:
-//!    the pending launches clear on `RunnerStarted` (not on a runner's first
+//! 1. the launch is made ([`crate::launch_of`], T10: the session home
+//!    written, the engine's command built, the permits applied, the program
+//!    found, the command checked); a launch that fails here has started
+//!    nothing, and is a `RecordLaunchFailed`;
+//! 2. `RecordRunnerAttached` is recorded, then the launch is SPAWNED
+//!    ([`RunnerLauncher::start`]), and only then are `RecordRunnerStarted` (with the
+//!    pid the spawn gave) and `RecordTurnStarted` recorded, while the command runs:
+//!    the pending launches clear on `RecordRunnerStarted` (not on a runner's first
 //!    word, which a spawned and silent turn never says), so a catch-up that
 //!    reads the streams while the command runs does not launch the run
-//!    again. A command that cannot be spawned is a `LaunchFailed`, which ends
-//!    the run, and never a `RunnerStarted`;
+//!    again. A command that cannot be spawned is a `RecordLaunchFailed`, which ends
+//!    the run, and never a `RecordRunnerStarted`;
 //! 3. the command runs to its end ([`Running::finish`]; a wait that breaks
-//!    after the spawn is a `LaunchFailed` too); one that ran is read by the engine
+//!    after the spawn is a `RecordLaunchFailed` too); one that ran is read by the engine
 //!    ([`Engine::finish_turn`]): the reply is the launch's answer, the
 //!    engine's own session id is bound to the session, and the turn is
-//!    `TurnCompleted` or `TurnFailed`;
-//! 4. `RunExited` ends the run.
+//!    `RecordTurnCompleted` or `RecordTurnFailed`;
+//! 4. `RecordRunExited` ends the run.
 //!
 //! The transcript is read from the capture facts on the session's stream (no
 //! file, owner ruling 87a). A child's turn's facts are its hooks' alone (owner
@@ -29,15 +31,15 @@
 //! its prompts. The events carry no file reference (`answer_ref` is empty).
 //!
 //! The run's own lock (rulings 86, 92), which its enqueuer holds through the
-//! [`Orders`], is let go once `RunnerStarted` is recorded (or the launch
+//! [`Orders`], is let go once `RecordRunnerStarted` is recorded (or the launch
 //! failed); from then on the session's lock is the run's evidence (ruling
 //! 93). A step also sweeps the runs other processes left: one still owed a
 //! runner whose own lock is free, and one started whose session's lock is
 //! free, have lost their owner. The sweep probes the lock, THEN re-reads the
 //! run's stream (an owner records its start or end before it lets its lock
 //! go), and records the run's end, keyed by the run so a second sweeper's is
-//! a DUPLICATE: `LaunchOrphaned` for one owed a runner (no launch failed,
-//! ruling 100), `RunnerLost` for one started (runner loss, ruling 95); then
+//! a DUPLICATE: `RecordLaunchOrphaned` for one owed a runner (no launch failed,
+//! ruling 100), `RecordRunnerLost` for one started (runner loss, ruling 95); then
 //! the end of the session's incarnation (`orphaned`).
 
 use std::sync::Arc;
@@ -46,14 +48,15 @@ use angzarr_embedded::v1::Uuid;
 use angzarr_embedded::{Catalog, CatchUp, Processed, ReadStore, Store};
 use pending_launches::{catch_up, PendingLaunch, PendingModel, StartedRun};
 use run_ports::{
-    Edge, Engine, FailureClass, Limits, PrepareRequest, RunnerLauncher, SessionRecords,
-    TurnCommand, TurnOutcome, TurnRequest,
+    Edge, Engine, FailureClass, Launch, LaunchAt, LaunchKind, Limits, RunnerLauncher,
+    SessionRecords, TurnOutcome,
 };
-use runs_application::{Facts, Identity, Observation, Principal, RunnerFact};
+use runs_application::{Facts, Identity, RunnerFact};
 
 use crate::error::LaunchError;
+use crate::launch::{LaunchEngines, LaunchRequest, NotLaunched, Unprepared};
 use crate::orders::{Order, Orders};
-use crate::workspace::{place_workspace, Axis, Placement};
+use crate::workspace::Placement;
 
 /// The cause the session's incarnation ends with when its run's owner was
 /// lost.
@@ -102,25 +105,6 @@ pub enum Outcome {
     ProgramNotFound(run_ports::ProgramNotFound),
 }
 
-/// Why a launch's preparation started nothing.
-enum Unprepared {
-    /// Its words: no engine, a home that could not be written, a command the
-    /// engine would not build.
-    Failed(String),
-    /// The command is too long for the platform (`run_ports::check_command_line`).
-    TooLong(run_ports::CommandTooLong),
-    /// A batch file's argument std will not pass (`run_ports::check_batch_arguments`).
-    BatchArguments(run_ports::BatchArguments),
-    /// The program is on no directory of the command's PATH.
-    ProgramNotFound(run_ports::ProgramNotFound),
-}
-
-impl From<String> for Unprepared {
-    fn from(detail: String) -> Unprepared {
-        Unprepared::Failed(detail)
-    }
-}
-
 /// A run launched, and its turn's outcome.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Launched {
@@ -166,6 +150,10 @@ pub struct Launcher<E: Edge, L: RunnerLauncher, R: SessionRecords> {
     /// Where a worktree is made; none: a run asking for one works in the
     /// project, and says so.
     workspaces: Option<Arc<dyn isolation_ports::Workspaces + Send + Sync>>,
+    /// Where a turn's end is waited for (owner, 2026-11-19: on a thread
+    /// parked for it, never an async worker); none: on the calling thread,
+    /// which only a test without a runtime of workers should do.
+    parks: Option<Arc<dyn run_ports::Parks>>,
 }
 
 impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
@@ -189,6 +177,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             pending: catch_up(),
             locks: None,
             workspaces: None,
+            parks: None,
         }
     }
 
@@ -202,11 +191,35 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         self
     }
 
+    /// The launcher, waiting for each command's end where `parks` says
+    /// ([`run_ports::Parks`]): the composition root's, a blocking thread.
+    pub fn with_parks(mut self, parks: Arc<dyn run_ports::Parks>) -> Self {
+        self.parks = Some(parks);
+        self
+    }
+
+    /// Whether a turn's end is waited for on a parked thread
+    /// ([`Self::with_parks`] was said).
+    pub fn parks_turns(&self) -> bool {
+        self.parks.is_some()
+    }
+
+    /// The command's end, waited for where [`Self::with_parks`] said.
+    async fn park(
+        &self,
+        running: Box<dyn run_ports::Running>,
+    ) -> Result<run_ports::TurnOutput, run_ports::LaunchFailure> {
+        match &self.parks {
+            Some(parks) => parks.park(running).await,
+            None => running.finish(),
+        }
+    }
+
     /// The launcher, probing `locks` for the owners of other processes' runs:
     /// a run still owed a runner whose own lock is free has lost its launcher
     /// (rulings 86, 92), and a started run whose session's lock is free has
     /// lost its owner (ruling 93). Whichever process catches up on it first
-    /// records it ended: `LaunchOrphaned` or `RunnerLost` (rulings 95, 100).
+    /// records it ended: `RecordLaunchOrphaned` or `RecordRunnerLost` (rulings 95, 100).
     pub fn with_locks(mut self, locks: Arc<dyn run_ports::RunLocks>) -> Self {
         self.locks = Some(locks);
         self
@@ -269,89 +282,19 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             (pending.launches(), pending.started())
         };
         let mut launched = Vec::new();
+        let mut others = Vec::new();
         for launch in owed {
-            if let Some(order) = self.orders.take(&launch.session, launch.incarnation) {
-                launched.push(self.launch(launch, order).await?);
-            } else if self.launcher_lost(&launch) {
-                self.orphaned(&launch.run, &launch.session, launch.incarnation, false)
-                    .await?;
+            match self.orders.take(&launch.session, launch.incarnation) {
+                Some(order) => launched.push(self.launch(launch, order).await?),
+                None => others.push(launch),
             }
         }
-        for run in started {
-            if self.owner_lost(&run) {
-                self.orphaned(&run.run, &run.session, run.incarnation, true)
-                    .await?;
-            }
+        if let Some(locks) = &self.locks {
+            Sweeper::new(Arc::clone(&self.edge), Arc::clone(locks))
+                .sweep(&others, &started)
+                .await?;
         }
         Ok(launched)
-    }
-
-    /// Whether the launcher of `launch` (another process's: this one holds no
-    /// order for it) has died: its run lock, journaled, is free.
-    fn launcher_lost(&self, launch: &PendingLaunch) -> bool {
-        let Some(locks) = &self.locks else {
-            return false;
-        };
-        !launch.launcher_lock.is_empty()
-            && locks.probe(&launch.launcher_lock) == run_ports::LockProbe::Free
-    }
-
-    /// Whether the owner of the started `run` has died: its session's lock is
-    /// free (ruling 93).
-    fn owner_lost(&self, run: &StartedRun) -> bool {
-        let Some(locks) = &self.locks else {
-            return false;
-        };
-        !run.harp.is_empty()
-            && locks.session(&run.project_dir, &run.harp) == run_ports::LockProbe::Free
-    }
-
-    /// End the run `run` of `session`'s `incarnation`, whose owner was found
-    /// gone, unless its stream, read again after the probe, shows its owner
-    /// got there first: its start (for a run owed a runner, unless `started`)
-    /// or its end.
-    async fn orphaned(
-        &self,
-        run: &Uuid,
-        session: &str,
-        incarnation: u32,
-        started: bool,
-    ) -> Result<(), LaunchError> {
-        let cover = angzarr_embedded::v1::Cover {
-            domain: runs::RUN_DOMAIN.to_string(),
-            root: Some(run.clone()),
-            edition: None,
-        };
-        let pages = self
-            .edge
-            .events(&cover, 0)
-            .await
-            .map_err(|e| LaunchError::Fact {
-                reason: e.to_string(),
-            })?;
-        let since = pages.iter().any(|page| match &page.body {
-            Some(angzarr_embedded::v1::event_page::Body::Event(any)) => {
-                any.type_url.ends_with(".RunEnded")
-                    || (!started && any.type_url.ends_with(".RunnerStartedRecorded"))
-            }
-            _ => false,
-        });
-        if since {
-            return Ok(());
-        }
-        let failed = |e: runs_application::AppError| LaunchError::Fact {
-            reason: e.to_string(),
-        };
-        let ended = match started {
-            true => self.facts.runner_lost(run).await,
-            false => self.facts.launch_orphaned(run).await,
-        };
-        ended.map_err(failed)?;
-        self.facts
-            .incarnation_ended(session, incarnation, ORPHANED)
-            .await
-            .map(drop)
-            .map_err(failed)
     }
 
     async fn launch(
@@ -369,12 +312,20 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             incarnation: launch.incarnation,
             harp: order.harp.clone(),
             depth: 0,
-            principal: Principal::Runner,
         };
         let mut ignored = Vec::new();
         let mut left_out = Vec::new();
         let mut placed = None;
-        let prepared = self.prepare(&order, &mut ignored, &mut left_out, &mut placed);
+        let at = LaunchAt {
+            project_id: String::new(),
+            session: launch.session.clone(),
+            harp: order.harp.clone(),
+            run: uuid::Uuid::from_slice(&launch.run.value)
+                .map(|id| id.hyphenated().to_string())
+                .unwrap_or_default(),
+            incarnation: launch.incarnation,
+        };
+        let prepared = self.prepare(at, &order, &mut ignored, &mut left_out, &mut placed);
         let checkout = placed.as_ref().and_then(|p: &Placement| p.checkout.clone());
         let workspace_warning = placed.as_ref().and_then(|p| p.warning.clone());
         let checkout_files = placed.as_ref().map(|p| p.files.clone()).unwrap_or_default();
@@ -391,7 +342,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             checkout_files: checkout_files.clone(),
             workspace_warning: workspace_warning.clone(),
         };
-        let (engine, command) = match prepared {
+        let (engine, made) = match prepared {
             Ok(prepared) => prepared,
             Err(unprepared) => {
                 let outcome = self.unprepared(&who, &launch, unprepared).await?;
@@ -404,13 +355,13 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             // is its hooks' to record (the engine submits it and its prompt
             // hook fires): the launcher records the run's own facts only.
             return self
-                .terminal(&who, &order, cwd.as_deref(), &command, done)
+                .terminal(&who, &order, cwd.as_deref(), &made, done)
                 .await;
         }
         // A child's turn is heard through its hooks alone (owner rulings 26
         // and 51): its prompt and its words are theirs to record, and the
         // stream is read below for the reply and the turn's outcome only.
-        let running = match self.runner.launch(&command, &self.limits) {
+        let running = match self.runner.start(&made, &self.limits) {
             Ok(running) => running,
             Err(failure) => return self.never_started(&who, failure, done).await,
         };
@@ -418,12 +369,8 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             .await?;
         // Started: the run's own lock has done its work (ruling 92).
         self.orders.release(&launch.session, launch.incarnation);
-        self.record(
-            &who,
-            RunnerFact::TurnStarted(runs::TurnStarted { turn: TURN }),
-        )
-        .await?;
-        let output = match running.finish() {
+        self.record(&who, turn_started()).await?;
+        let output = match self.park(running).await {
             Ok(output) => output,
             Err(failure) => return self.never_started(&who, failure, done).await,
         };
@@ -449,12 +396,13 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
                 }
                 self.record(
                     who,
-                    RunnerFact::TurnCompleted(runs::TurnCompleted {
+                    RunnerFact::TurnCompleted(runs::RecordTurnCompleted {
                         turn: TURN,
                         native_key: native_id.clone().unwrap_or_default(),
                         // No file holds the answer (ruling 87a).
                         answer_ref: String::new(),
                         exit_code: code,
+                        message_ids: Vec::new(),
                     }),
                 )
                 .await?;
@@ -467,10 +415,11 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             } => {
                 self.record(
                     who,
-                    RunnerFact::TurnFailed(runs::TurnFailed {
+                    RunnerFact::TurnFailed(runs::RecordTurnFailed {
                         turn: TURN,
                         class: failure_class(class),
                         detail: detail.clone(),
+                        message_ids: Vec::new(),
                     }),
                 )
                 .await?;
@@ -479,7 +428,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         };
         self.record(
             who,
-            RunnerFact::RunExited(runs::RunExited {
+            RunnerFact::RunExited(runs::RecordRunExited {
                 code,
                 signal: output.exit.signal.unwrap_or(0),
             }),
@@ -495,36 +444,27 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         who: &Identity,
         order: &Order,
         cwd: Option<&str>,
-        command: &TurnCommand,
+        made: &Launch,
         done: impl Fn(Outcome) -> Launched,
     ) -> Result<Launched, LaunchError> {
-        let running = match self.runner.launch_terminal(command) {
+        let running = match self.runner.start(made, &self.limits) {
             Ok(running) => running,
             Err(failure) => return self.never_started(who, failure, done).await,
         };
         self.record(who, runner_started(order, cwd, running.pid()))
             .await?;
         self.orders.release(&who_session(who), who.incarnation);
-        let output = match running.finish() {
+        let output = match self.park(running).await {
             Ok(output) => output,
             Err(failure) => return self.never_started(who, failure, done).await,
         };
-        // The engine's own session its hooks named at the session's end is
-        // bound, so `run --session` can resume it (owner ruling 115).
-        if let Some(native) = self.native_session_ended(who).await? {
-            self.record(who, bound(&native)).await?;
-        }
-        // An engine with no hook for its session's end (opencode, ruling 58):
-        // its exit is the end, and the launcher says so.
-        if self
-            .engine(&order.engine)
-            .is_some_and(|engine| engine.session_ends_with_exit())
-        {
-            self.observe(who, session_ended_at_exit()).await?;
-        }
+        // Nothing is bound or observed at the exit (owner 2026-11-15): the
+        // engine's own conversation is the one its SessionStart bound,
+        // delivered like any capture fact, and the session's end is its
+        // run's end.
         self.record(
             who,
-            RunnerFact::RunExited(runs::RunExited {
+            RunnerFact::RunExited(runs::RecordRunExited {
                 code: output.exit.code.unwrap_or(0),
                 signal: output.exit.signal.unwrap_or(0),
             }),
@@ -535,51 +475,21 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         }))
     }
 
-    /// The engine's own session the session's hooks last named at its end
-    /// (`SessionEnded.native_session`), if any.
-    async fn native_session_ended(&self, who: &Identity) -> Result<Option<String>, LaunchError> {
-        let cover = angzarr_embedded::v1::Cover {
-            domain: sessions::SESSION_DOMAIN.to_string(),
-            root: Some(who.session.clone()),
-            edition: None,
-        };
-        let pages = self
-            .edge
-            .events(&cover, 0)
-            .await
-            .map_err(|e| LaunchError::Fact {
-                reason: e.to_string(),
-            })?;
-        let mut native = None;
-        for page in &pages {
-            if let Some(angzarr_embedded::v1::event_page::Body::Event(any)) = &page.body {
-                if let Ok(sessions::SessionEvent::SessionEnded(ended)) =
-                    <sessions::SessionEvent as angzarr_embedded::Payload>::from_any(any)
-                {
-                    if !ended.native_session.is_empty() {
-                        native = Some(ended.native_session);
-                    }
-                }
-            }
-        }
-        Ok(native)
-    }
-
     /// The launch's preparation started nothing: record why (deterministic:
     /// the same order prepares the same way), end the launch, and say it.
     async fn unprepared(
         &self,
         who: &Identity,
         launch: &PendingLaunch,
-        unprepared: Unprepared,
+        unprepared: NotLaunched,
     ) -> Result<Outcome, LaunchError> {
         let (detail, outcome) = match unprepared {
-            Unprepared::Failed(detail) => (detail.clone(), Outcome::NotStarted { detail }),
-            Unprepared::TooLong(refusal) => (refusal.to_string(), Outcome::TooLong(refusal)),
-            Unprepared::BatchArguments(refusal) => {
+            NotLaunched::Failed(detail) => (detail.clone(), Outcome::NotStarted { detail }),
+            NotLaunched::TooLong(refusal) => (refusal.to_string(), Outcome::TooLong(refusal)),
+            NotLaunched::BatchArguments(refusal) => {
                 (refusal.to_string(), Outcome::BatchArguments(refusal))
             }
-            Unprepared::ProgramNotFound(missing) => {
+            NotLaunched::ProgramNotFound(missing) => {
                 (missing.to_string(), Outcome::ProgramNotFound(missing))
             }
         };
@@ -607,118 +517,89 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         self.engines.iter().find(|e| e.name() == name).cloned()
     }
 
-    /// Everything a launch does before it records a sign of life, for every
-    /// launch path alike (the one place a launch is set up): the engine, the
-    /// workspace it works in (`placed`), the session home, the user's line,
-    /// the command. Its error is why nothing was started.
+    /// Everything a launch does before it records a sign of life: the
+    /// engine, then the one launch ([`crate::launch_of`], the one place a
+    /// launch is made, every launch path alike). What its steps said is kept
+    /// (`ignored`, `left_out`, the workspace it `placed` the engine in),
+    /// whether it was made or not; its error is why nothing was started.
     fn prepare(
         &mut self,
+        at: LaunchAt,
         order: &Order,
         ignored: &mut Vec<run_ports::Ignored>,
         left_out: &mut Vec<run_ports::LeftOut>,
         placed: &mut Option<Placement>,
-    ) -> Result<(Arc<dyn Engine>, TurnCommand), Unprepared> {
+    ) -> Result<(Arc<dyn Engine>, Launch), NotLaunched> {
         let engine = self
             .engine(&order.engine)
-            .ok_or_else(|| format!("no engine named {}", order.engine))?;
-        *placed = self.place(
-            order,
-            &engine.workspace_patterns(order.settings.session_home),
-        )?;
-        let cwd = placed
-            .as_ref()
-            .map(|p| p.cwd.clone())
-            .or_else(|| order.cwd.clone());
-        let home = format!("{}/home", self.records.dir(&order.harp));
-        // What the home holds of the files the engine merges into (ruling
-        // 113): a resumed session's home has its engine's own state there.
-        let mut existing = std::collections::BTreeMap::new();
-        for rel in engine.merges() {
-            if let Some(bytes) = self
-                .records
-                .read(&order.harp, &format!("home/{rel}"))
-                .map_err(|e| e.to_string())?
-            {
-                existing.insert((*rel).to_string(), bytes);
-            }
-        }
-        let prepared = engine
-            .prepare(&PrepareRequest {
-                home: home.clone(),
-                context: order.context.clone(),
-                // Nothing of the user's own engine configuration is offered.
-                offered: Vec::new(),
-                interactive: order.interactive,
-                cwd: cwd.clone(),
-                existing,
-                permissions: order.permissions.clone(),
-                session_home: order.settings.session_home,
-                surfaces: order.surfaces.clone(),
-            })
-            .map_err(|e| e.to_string())?;
-        left_out.clone_from(&prepared.left_out);
-        self.place_files(placed.as_mut(), &prepared.workspace_files)?;
-        for file in &prepared.files {
-            self.records
-                .write(&order.harp, &format!("home/{}", file.rel), &file.bytes)
-                .map_err(|e| e.to_string())?;
-        }
-        for seed in &prepared.seeds {
-            self.seed(order, &format!("home/{}", seed.rel), &seed.bytes)?;
-        }
-        self.seed_git_user(order)?;
-        // The live project, named to the engine whatever its workspace, so its
-        // hook processes and the agent's own `ctxloom` calls resolve it from
-        // a checkout (whose `.ctxloom` is the project's tracked config
-        // alone); one the caller had is replaced, and no permit replaces it.
-        let mut env = order.env.clone();
-        let mut owned = order.owned.clone();
-        env.remove(run_ports::ROOT_VARIABLE);
-        if let Some(project) = &order.cwd {
-            env.insert(run_ports::ROOT_VARIABLE.to_string(), project.clone());
-            owned.push(run_ports::ROOT_VARIABLE.to_string());
-        }
-        let request = TurnRequest {
+            .ok_or_else(|| NotLaunched::Failed(format!("no engine named {}", order.engine)))?;
+        let request = LaunchRequest {
+            at,
+            kind: match order.interactive {
+                true => LaunchKind::Terminal,
+                false => LaunchKind::OneShot,
+            },
+            setup: crate::home::LaunchSetup {
+                home: crate::home::HomeSetup {
+                    harp: order.harp.clone(),
+                    context: order.context.clone(),
+                    interactive: order.interactive,
+                    cwd: order.cwd.clone(),
+                    permissions: order.permissions.clone(),
+                    session_home: order.settings.session_home,
+                    git_user: order.git_user.clone(),
+                    surfaces: order.surfaces.clone(),
+                },
+                workspace: order.workspace.clone(),
+                env: order.env.clone(),
+                owned: order.owned.clone(),
+            },
             prompt: order.prompt.clone(),
-            home,
-            context_path: prepared.context_path,
             resume: order.resume.clone(),
-            env,
+            session_id: None,
             user_home: order.user_home.clone(),
-            cwd,
             model: order.model.clone(),
             effort: order.effort.clone(),
             settings: order.settings.clone(),
+            child_permissions: run_ports::ChildPermissions::default(),
+            // The run's session lock is its caller's (run-application holds
+            // it); the launcher takes none.
+            session_lock: String::new(),
         };
-        let mut command = if order.interactive {
-            engine.drive_interactive(&request)
-        } else {
-            engine.drive_turn(&request)
+        let runner = &self.runner;
+        let made = crate::launch_of(
+            LaunchEngines {
+                engine: &*engine,
+                child: None,
+            },
+            &|command| runner.find_program(command),
+            &mut self.records,
+            self.workspaces
+                .as_deref()
+                .map(|w| w as &dyn isolation_ports::Workspaces),
+            &request,
+            &self.os,
+        );
+        match made {
+            Ok(made) => {
+                ignored.clone_from(&made.launch.ignored);
+                left_out.clone_from(&made.launch.left_out);
+                *placed = made.placed;
+                Ok((engine, made.launch))
+            }
+            Err(unprepared) => {
+                let Unprepared {
+                    why,
+                    placed: was,
+                    left_out: said,
+                    ignored: not_followed,
+                } = *unprepared;
+                *ignored = not_followed;
+                *left_out = said;
+                *placed = was;
+                Err(why)
+            }
         }
-        .map_err(|e| e.to_string())?;
-        // The caller's CTXLOOM_PERMIT_<NAME> reaches every engine's command as
-        // <NAME>, over what the engine chose (owner ruling 78): the one place
-        // every command, a child's turn and the terminal's, passes.
-        // Never over a name ctxloom set for the engine (ruling 78b): the
-        // adapter's computed names, derived from the command, and the run's.
-        *ignored = run_ports::apply_permits(&order.env, &mut command.env, &owned);
-        // The program is found on the command's own PATH, by the names the
-        // host looks it up by (PATHEXT's on Windows, which std's spawn does
-        // not try), and the file found is what is spawned: the one place a
-        // child's turn and the terminal's are both found. Found nowhere, it
-        // is not started, naming what was searched.
-        command.program = self
-            .runner
-            .find_program(&command)
-            .map_err(Unprepared::ProgramNotFound)?;
-        // A batch file (an npm `claude.cmd`) is run through cmd.exe, which
-        // std will not hand an argument of more than one line: refused in
-        // words before the spawn.
-        run_ports::check_batch_arguments(&self.os, &command).map_err(Unprepared::BatchArguments)?;
-        // The command is complete: measured against the platform's command
-        // line before it is spawned (the terminal's opening prompt is on it).
-        run_ports::check_command_line(&self.os, &command).map_err(Unprepared::TooLong)?;
-        Ok((engine, command))
     }
 
     /// Let go of the checkout a launch placed its engine in, once the engine
@@ -738,111 +619,6 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             }
             None => isolation_ports::Removal::Left(crate::workspace::NO_WORKSPACES.to_string()),
         }
-    }
-
-    /// Write what the launch carries that its engine reads only from where
-    /// it works into the checkout it was placed in (owner ruling 2026-11-12,
-    /// Q3), and keep their paths for the release; in the live project none
-    /// is written.
-    fn place_files(
-        &self,
-        placed: Option<&mut Placement>,
-        files: &[run_ports::HomeFile],
-    ) -> Result<(), Unprepared> {
-        let (Some(placed), Some(workspaces)) = (placed, &self.workspaces) else {
-            return Ok(());
-        };
-        let Some(checkout) = &placed.checkout else {
-            return Ok(());
-        };
-        if files.is_empty() {
-            return Ok(());
-        }
-        let pairs: Vec<(String, Vec<u8>)> = files
-            .iter()
-            .map(|f| (f.rel.clone(), f.bytes.clone()))
-            .collect();
-        workspaces
-            .place_files(&checkout.path, &pairs)
-            .map_err(|e| Unprepared::Failed(e.to_string()))?;
-        placed.files = files.iter().map(|f| f.rel.clone()).collect();
-        Ok(())
-    }
-
-    /// Where the order's engine works (the workspace axis): none for an
-    /// order with no project; the project where it asks for no worktree, or
-    /// this launcher makes none (with a warning); else what
-    /// [`place_workspace`] says. A worktree refused is why nothing started.
-    fn place(&self, order: &Order, patterns: &[String]) -> Result<Option<Placement>, Unprepared> {
-        let Some(project) = &order.cwd else {
-            return Ok(None);
-        };
-        let asked = &order.workspace;
-        let Some(workspaces) = &self.workspaces else {
-            return Ok(Some(Placement {
-                cwd: project.clone(),
-                checkout: None,
-                warning: (asked.axis == Axis::Worktree)
-                    .then(|| crate::workspace::NO_WORKSPACES.to_string()),
-                files: Vec::new(),
-            }));
-        };
-        place_workspace(
-            asked.axis,
-            project,
-            &asked.work_dir,
-            &asked.agent,
-            patterns,
-            workspaces.as_ref(),
-        )
-        .map(Some)
-        .map_err(|e| Unprepared::Failed(e.to_string()))
-    }
-
-    /// Seed the session home with the user's git identity (owner ruling
-    /// 112: the engine's HOME is the session home, so git reads its global
-    /// configuration there): once, when the home has no `.gitconfig`; one
-    /// already there, which a tool of an earlier run may have written, is
-    /// left as it is. Under `session_home: host` the engine's HOME is the
-    /// user's own, which holds her git identity already, so nothing is
-    /// seeded.
-    fn seed_git_user(&mut self, order: &Order) -> Result<(), String> {
-        if order.settings.session_home == run_ports::SessionHome::Host {
-            return Ok(());
-        }
-        let Some(text) = order.git_user.as_ref().and_then(run_ports::git_config) else {
-            return Ok(());
-        };
-        let rel = format!("home/{}", run_ports::GIT_CONFIG_FILE);
-        self.seed(order, &rel, text.as_bytes())
-    }
-
-    /// Write `bytes` at `rel` of the session's directory once: when nothing
-    /// is there. One already there is left as it is: the `.gitconfig` a
-    /// tool of an earlier run wrote, the engine's seed (opencode's recent
-    /// models, owner ruling 167) the engine has rewritten since.
-    fn seed(&mut self, order: &Order, rel: &str, bytes: &[u8]) -> Result<(), String> {
-        let there = self
-            .records
-            .read(&order.harp, rel)
-            .map_err(|e| e.to_string())?;
-        if there.is_none() {
-            self.records
-                .write(&order.harp, rel, bytes)
-                .map_err(|e| e.to_string())?;
-        }
-        Ok(())
-    }
-
-    /// Record `observation` on the session's stream.
-    async fn observe(&self, who: &Identity, observation: Observation) -> Result<(), LaunchError> {
-        self.facts
-            .observe(who, &observation)
-            .await
-            .map(drop)
-            .map_err(|e| LaunchError::Fact {
-                reason: e.to_string(),
-            })
     }
 
     async fn record(&self, who: &Identity, fact: RunnerFact) -> Result<(), LaunchError> {
@@ -874,15 +650,24 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
 /// The launcher's word that the runner is spawned: the engine it runs under,
 /// where (`cwd`, its placed workspace), and the pid the spawn gave.
 fn runner_started(order: &Order, cwd: Option<&str>, pid: u32) -> RunnerFact {
-    RunnerFact::RunnerStarted(runs::RunnerStarted {
+    RunnerFact::RunnerStarted(runs::RecordRunnerStarted {
         runtime: order.engine.clone(),
         workspace: cwd.unwrap_or_default().to_string(),
         pid,
     })
 }
 
+/// The one-shot's turn started: its turn 1, queued by no message (D28 S-b
+/// keys it by its number).
+fn turn_started() -> RunnerFact {
+    RunnerFact::TurnStarted(runs::RecordTurnStarted {
+        turn: TURN,
+        message_ids: Vec::new(),
+    })
+}
+
 fn attached() -> RunnerFact {
-    RunnerFact::RunnerAttached(runs::RunnerAttached {
+    RunnerFact::RunnerAttached(runs::RecordRunnerAttached {
         runner_id: RUNNER.to_string(),
         protocol: PROTOCOL.to_string(),
     })
@@ -905,15 +690,6 @@ fn who_session(who: &Identity) -> String {
         .unwrap_or_default()
 }
 
-/// The end of a terminal session whose engine has no hook for it: at its
-/// exit, of no native session the launcher knows.
-fn session_ended_at_exit() -> Observation {
-    Observation::SessionEnded(sessions::RecordSessionEnded {
-        native_session: String::new(),
-        reason: "exit".to_string(),
-    })
-}
-
 fn failure_class(class: FailureClass) -> runs::TurnFailureClass {
     match class {
         FailureClass::RateLimited => runs::TurnFailureClass::RateLimited,
@@ -921,6 +697,268 @@ fn failure_class(class: FailureClass) -> runs::TurnFailureClass {
         FailureClass::EngineError => runs::TurnFailureClass::EngineError,
         FailureClass::Interrupted => runs::TurnFailureClass::Interrupted,
     }
+}
+
+/// The sweep of the runs other processes left (rulings 86, 92, 93, 95, 100):
+/// what every launcher's step runs over the runs it holds no order for, and
+/// the daemon's FIRST step at its start (T18), before it hosts anything. A
+/// run still owed a runner whose own lock is free has lost its launcher; a
+/// started run whose session's lock is free, or whose own lock (held for its
+/// life by a host such as the daemon) is free, has lost its owner. Each is
+/// ended, keyed by the run, so a second sweeper's end is a DUPLICATE.
+pub struct Sweeper<E: Edge> {
+    edge: Arc<E>,
+    facts: Facts<E>,
+    locks: Arc<dyn run_ports::RunLocks>,
+    releases: Option<Arc<dyn Releases>>,
+}
+
+/// A run a sweep ended, and how.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Swept {
+    pub run: Uuid,
+    pub session: String,
+    pub incarnation: u32,
+    /// It had been started (`RecordRunnerLost`), not only owed a runner
+    /// (`RecordLaunchOrphaned`).
+    pub started: bool,
+    /// The project it ran for (its session's), empty until its mint is seen.
+    pub project_dir: String,
+    /// Where its runner worked, as its `RecordRunnerStarted` recorded it (its
+    /// checkout, or the project); empty when it never started.
+    pub workspace: String,
+    /// What became of what it held, once it was ended.
+    pub released: Released,
+}
+
+/// What a sweep let go of for a lost run (OD-19): its checkout, released
+/// WIP-safe (a clean one removed, one holding work left, never forced).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum Released {
+    /// It held nothing to let go (it worked in the project, or never
+    /// started), or nothing was asked to release it.
+    #[default]
+    Nothing,
+    /// Its checkout at the path is removed.
+    Removed(String),
+    /// Its checkout at `path` is left, and why.
+    Left { path: String, why: String },
+}
+
+/// What a sweep lets go of for each run it ended (OD-19): the lost run's
+/// checkout now, and in M10b its container (`<runtime> stop`/`rm`, hook 3).
+pub trait Releases: Send + Sync {
+    /// Let go of what the lost run `swept` held.
+    fn release(&self, swept: &Swept) -> Released;
+}
+
+impl<E: Edge> Sweeper<E> {
+    pub fn new(edge: Arc<E>, locks: Arc<dyn run_ports::RunLocks>) -> Sweeper<E> {
+        Sweeper {
+            facts: Facts::new(Arc::clone(&edge)),
+            edge,
+            locks,
+            releases: None,
+        }
+    }
+
+    /// The sweeper, letting go through `releases` of what each run it ends
+    /// held (OD-19: the daemon's start).
+    pub fn releasing(mut self, releases: Arc<dyn Releases>) -> Sweeper<E> {
+        self.releases = Some(releases);
+        self
+    }
+
+    /// Sweep `owed` (runs owed a runner that this process does not launch)
+    /// and `started` (runs started and not ended): the ones whose owner is
+    /// gone are ended, and answered.
+    pub async fn sweep(
+        &self,
+        owed: &[PendingLaunch],
+        started: &[StartedRun],
+    ) -> Result<Vec<Swept>, LaunchError> {
+        let mut swept = Vec::new();
+        for launch in owed.iter().filter(|launch| self.launcher_lost(launch)) {
+            let lost = Lost {
+                run: &launch.run,
+                session: &launch.session,
+                incarnation: launch.incarnation,
+                harp: "",
+                started: false,
+            };
+            if let Some(workspace) = self.orphaned(&lost).await? {
+                swept.push(self.released(Swept {
+                    run: launch.run.clone(),
+                    session: launch.session.clone(),
+                    incarnation: launch.incarnation,
+                    started: false,
+                    project_dir: String::new(),
+                    workspace,
+                    released: Released::Nothing,
+                }));
+            }
+        }
+        for run in started.iter().filter(|run| self.owner_lost(run)) {
+            let lost = Lost {
+                run: &run.run,
+                session: &run.session,
+                incarnation: run.incarnation,
+                harp: &run.harp,
+                started: true,
+            };
+            if let Some(workspace) = self.orphaned(&lost).await? {
+                swept.push(self.released(Swept {
+                    run: run.run.clone(),
+                    session: run.session.clone(),
+                    incarnation: run.incarnation,
+                    started: true,
+                    project_dir: run.project_dir.clone(),
+                    workspace,
+                    released: Released::Nothing,
+                }));
+            }
+        }
+        Ok(swept)
+    }
+
+    /// `swept`, with what its release came to.
+    fn released(&self, mut swept: Swept) -> Swept {
+        if let Some(releases) = &self.releases {
+            swept.released = releases.release(&swept);
+        }
+        swept
+    }
+
+    /// Whether the launcher of `launch` (another process's: this one holds no
+    /// order for it) has died: its run lock, journaled, is free.
+    fn launcher_lost(&self, launch: &PendingLaunch) -> bool {
+        !launch.launcher_lock.is_empty()
+            && self.locks.probe(&launch.launcher_lock) == run_ports::LockProbe::Free
+    }
+
+    /// Whether the owner of the started `run` has died: its session's lock is
+    /// free (ruling 93), or its own lock is (a host that held it for the
+    /// run's life is gone; a primary lets its own go, file and all, once its
+    /// runner started, which proves nothing).
+    fn owner_lost(&self, run: &StartedRun) -> bool {
+        let session = !run.harp.is_empty()
+            && self.locks.session(&run.project_dir, &run.harp) == run_ports::LockProbe::Free;
+        let host = !run.launcher_lock.is_empty()
+            && self.locks.probe(&run.launcher_lock) == run_ports::LockProbe::Free;
+        session || host
+    }
+
+    /// End the run `lost` names, whose owner was found gone, unless its
+    /// stream, read again after the probe, shows its owner got there first:
+    /// its start (for a run owed a runner, unless `started`) or its end. A
+    /// started run's turns still open (the one in flight, and any queued
+    /// behind it) are ended failed first, `runner-lost` (S18): the run's end
+    /// would leave them open for good, and its owner is told of each. Where
+    /// its runner worked (its `RecordRunnerStarted`'s workspace) when it was ended
+    /// here; none when it was not.
+    async fn orphaned(&self, lost: &Lost<'_>) -> Result<Option<String>, LaunchError> {
+        let cover = angzarr_embedded::v1::Cover {
+            domain: runs::RUN_DOMAIN.to_string(),
+            root: Some(lost.run.clone()),
+            edition: None,
+        };
+        let pages = self
+            .edge
+            .events(&cover, 0)
+            .await
+            .map_err(|e| LaunchError::Fact {
+                reason: e.to_string(),
+            })?;
+        let since = pages.iter().any(|page| match &page.body {
+            Some(angzarr_embedded::v1::event_page::Body::Event(any)) => {
+                any.type_url.ends_with(".RunEnded")
+                    || (!lost.started && any.type_url.ends_with(".RunnerStartedRecorded"))
+            }
+            _ => false,
+        });
+        if since {
+            return Ok(None);
+        }
+        let state = folded(&pages);
+        let failed = |e: runs_application::AppError| LaunchError::Fact {
+            reason: e.to_string(),
+        };
+        if lost.started {
+            self.turns_lost(lost, &state).await.map_err(failed)?;
+        }
+        let ended = match lost.started {
+            true => self.facts.runner_lost(lost.run).await,
+            false => self.facts.launch_orphaned(lost.run).await,
+        };
+        ended.map_err(failed)?;
+        self.facts
+            .incarnation_ended(lost.session, lost.incarnation, ORPHANED)
+            .await
+            .map_err(failed)?;
+        Ok(Some(
+            state
+                .runner_started
+                .map(|started| started.workspace)
+                .unwrap_or_default(),
+        ))
+    }
+
+    /// Each turn `state` holds open, ended failed for runner loss, keyed as
+    /// its runner would have failed it (`turn:<run>:<turn>:failed`).
+    async fn turns_lost(
+        &self,
+        lost: &Lost<'_>,
+        state: &runs::RunState,
+    ) -> Result<(), runs_application::AppError> {
+        let session = uuid::Uuid::parse_str(lost.session).unwrap_or_default();
+        let who = Identity {
+            run: lost.run.clone(),
+            session: Uuid::from_bytes(*session.as_bytes()),
+            incarnation: lost.incarnation,
+            harp: lost.harp.to_string(),
+            depth: 0,
+        };
+        for open in &state.turns {
+            self.facts
+                .record(
+                    &who,
+                    RunnerFact::TurnFailed(runs::RecordTurnFailed {
+                        turn: open.turn,
+                        class: runs::TurnFailureClass::RunnerLost,
+                        detail: LOST_TURN.to_string(),
+                        message_ids: open.message_ids.clone(),
+                    }),
+                )
+                .await?;
+        }
+        Ok(())
+    }
+}
+
+/// What a turn its run's host lost is failed with.
+const LOST_TURN: &str = "its host was lost while the turn was in flight";
+
+/// A run a sweep found its owner gone of.
+struct Lost<'a> {
+    run: &'a Uuid,
+    session: &'a str,
+    incarnation: u32,
+    harp: &'a str,
+    started: bool,
+}
+
+/// The run's state, folded from its `pages` as its aggregate folds them.
+fn folded(pages: &[angzarr_embedded::v1::EventPage]) -> runs::RunState {
+    use angzarr_embedded::Payload;
+    let mut state = runs::RunState::default();
+    for page in pages {
+        if let Some(angzarr_embedded::v1::event_page::Body::Event(any)) = &page.body {
+            if let Ok(event) = runs::RunEvent::from_any(any) {
+                runs::apply(&mut state, &event, page.sequence);
+            }
+        }
+    }
+    state
 }
 
 #[cfg(test)]

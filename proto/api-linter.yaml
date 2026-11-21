@@ -1,0 +1,10 @@
+# api-linter's configuration for the daemon's API (scripts/lint-api.sh,
+# `just lint-api`; owner rulings S36/S37/S57, D6). No rule is disabled here:
+# a departure from an AIP is a commented exception at its site
+# (`(-- api-linter: <rule>=disabled aip.dev/not-precedent: <why> --)`),
+# each naming the ruling it follows:
+#   - S38: a write request's `answers` to the needs its preview asked;
+#   - S44: `WatchTranscript` and `WatchRun`, daemon-folded streams.
+- included_paths:
+    - "ctxloom/v1/*.proto"
+  disabled_rules: []

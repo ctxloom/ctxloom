@@ -30,7 +30,13 @@ Feature: doctor — the deterministic diagnosis, and the one finding that fails 
   refuses (today, an agent credential no run can authenticate with), and it
   makes doctor exit 20, run's status for the refusal it guarantees, after the
   whole report is written. A USAGE error (a --format this build cannot render)
-  exits 10.
+  exits 20, a refusal like any other (DRAFT, rulings 152 and 153: a usage
+  error, an unknown format among them, is a decline, 20; was "exits 10").
+
+  THE LIBRARY IS GIT-FREE (DRAFT, owner 2026-11-18, superseding step 10's
+  G1 to G3). A library works in any directory, so doctor has no row for the
+  project's repository, the home's, or a git operation in progress. Doctor
+  is the daemon's, as every command is.
 
   EVERY CHECK NEEDS BOTH HALVES. A check that fired on every project would be
   indistinguishable from one that works and would teach a reader to skip the
@@ -41,11 +47,23 @@ Feature: doctor — the deterministic diagnosis, and the one finding that fails 
   Background:
     Given the environment variable "CLAUDE_CODE_OAUTH_TOKEN" is set to "sk-ant-oat01-acceptance-fixture-not-real"
 
-  Rule: A credential no run can authenticate with is a fail row, and fails doctor
+  Rule: A credential no run can authenticate with is a fail row, and fails doctor; one only a child needs is a warn
 
-    Scenario: A missing agent credential is a fail row with run's fix, and exit 3
+    # A source of variables alone shares no login with her primary session
+    # either, so with none of them set nothing can run.
+    Scenario: A missing agent credential nothing can run on is a fail row with its fix, and exit 20
+      # changed: DRAFT, rulings 152 and 153: the title said Go's "exit 3"; a fail row is run's refusal, 20, as the Then below already asserts.
+      # changed: DRAFT, owner ruling 2026-11-19: a fail only when nothing can run, so the source is a variable alone (the built-in one lets the primary sign in, the next scenario).
       # substitution: exit codes per rulings 149, 152, 153 (10 failed, 20 refused, 21 fatal findings; Go's 1, 2, 3); a fail row is run's refusal, 20.
       Given an initialized ctxloom project
+      And the home already has the file ".ctxloom/config.yaml":
+        """
+        schema_version: 9
+        engines:
+          claude-code:
+            auth:
+              env: [CLAUDE_CODE_OAUTH_TOKEN]
+        """
       And the environment variable "CLAUDE_CODE_OAUTH_TOKEN" is set to ""
       When Alice asks for the diagnosis in a form a script can parse:
         """
@@ -54,6 +72,24 @@ Feature: doctor — the deterministic diagnosis, and the one finding that fails 
       Then the command exits with code 20
       And the output is valid JSON
       And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-CREDENTIALS-m5" and whose "status" is "fail"
+      And the output contains "export CLAUDE_CODE_OAUTH_TOKEN"
+
+    # The built-in source shares claude's own login with her primary session,
+    # so a missing token refuses only a child: a warning that names what a
+    # child needs, in the words its run is refused with.
+    Scenario: A missing token only a child needs is a warn row naming what a child needs
+      # new: DRAFT, owner ruling 2026-11-19 (doctor credentials).
+      Given an initialized ctxloom project
+      And the environment variable "CLAUDE_CODE_OAUTH_TOKEN" is set to ""
+      When Alice asks for the diagnosis in a form a script can parse:
+        """
+        ctxloom --format json doctor
+        """
+      Then the command succeeds
+      And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-CREDENTIALS-m5" and whose "status" is "warn"
+      And the output contains "a child agent run of claude-code needs a credential in the environment"
+      And the output contains "the primary interactive session can still sign in with claude-code's own login"
+      And the output contains "engines.claude-code.auth.env"
       And the output contains "claude setup-token"
 
     # A file alone serves her own primary session, so the row is a warning,
@@ -100,6 +136,8 @@ Feature: doctor — the deterministic diagnosis, and the one finding that fails 
     # passed. Parse it, and assert the decoded structure the text form cannot
     # produce.
     Scenario: Doctor's machine-readable form carries the same structured checks
+      # changed: step 10 U5 and D17, the JSON is the daemon's `RunDoctorResponse`.
+      # DRAFT (the library is git-free, owner 2026-11-18): its git checks (GIT-REPO-u1, HOME-REPO-u2) are gone.
       Given an initialized ctxloom project
       When Alice asks for the diagnosis in a form a script can parse:
         """
@@ -268,6 +306,21 @@ Feature: doctor — the deterministic diagnosis, and the one finding that fails 
       When I run "ctxloom --format json doctor"
       Then the command succeeds
       And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-GITIGNORE-f6" and whose "status" is "ok"
+
+  Rule: A bundle's layout is a row
+
+    Scenario: A bundle in the old metadata layout is a warning naming the git mv
+      # new: step 10 D15 (T27): the bundle is refused until its metadata moves.
+      Given an initialized ctxloom project
+      And a bundle "demo" exists
+      And the project already has the file ".ctxloom/content/bundles/v2/demo/skills/.review.meta.yaml":
+        """
+        description: in the old place
+        """
+      When I run "ctxloom --format json doctor"
+      Then the command succeeds
+      And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-SIDECARS-u4" and whose "status" is "warn"
+      And the output contains "git mv .ctxloom/content/bundles/v2/demo/skills/.review.meta.yaml .ctxloom/content/bundles/v2/demo/skills/review/.meta.yaml"
 
   Rule: A config every run refuses is a fail row, and fails doctor
 

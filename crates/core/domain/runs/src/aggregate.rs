@@ -3,30 +3,36 @@
 //! Commands are refusable (enqueue, queue a turn, request a stop). Facts are
 //! what already happened and are never refused (owner ruling 2026-11-04, item
 //! 16, totality): a fact the run cannot use records nothing. A run ends exactly
-//! once; folding the end revokes every credential (D29).
+//! once. A run holds no credential (owner ruling s4-Q3: the hook bearer's
+//! digest went with the per-run listener).
+
+// The `#[aggregate]` macro generates the run's fact enum from its handlers, and
+// every fact is `Record*` (the naming rule, OD-53), so its variants share
+// the prefix by design.
+#![allow(clippy::enum_variant_names)]
 
 use angzarr_embedded::markup::{
-    pack_message, Bug, Context, DomainMessage, FactEmit, Failed, PageContext, Refuses, Snapshots,
+    pack_message, Bug, Context, DomainMessage, Emit, FactEmit, Failed, PageContext, Refuses,
+    Snapshots,
 };
 use angzarr_embedded_macros::{aggregate, applies, handles_cmd, handles_fact};
 
 use crate::refusal::refuse;
 use crate::{
-    apply, run_root, EndCause, EnqueueRun, FinalReported, FinalReportedRecorded, LaunchFailed,
-    LaunchOrphaned, QueueTurn, RequestStop, RunCommand, RunEnded, RunEnqueued, RunEvent, RunExited,
-    RunRejection, RunState, RunnerAttached, RunnerAttachedRecorded, RunnerLost, RunnerStarted,
-    RunnerStartedRecorded, StopRequested, SummaryReported, SummaryReportedRecorded, TurnCompleted,
-    TurnCompletedRecorded, TurnFailed, TurnFailedRecorded, TurnQueued, TurnStarted,
+    apply, run_root, EndCause, EnqueueRun, FinalReportedRecorded, QueueTurn, RecordFinalReported,
+    RecordLaunchFailed, RecordLaunchOrphaned, RecordRunExited, RecordRunnerAttached,
+    RecordRunnerLost, RecordRunnerStarted, RecordSummaryReported, RecordTurnCompleted,
+    RecordTurnFailed, RecordTurnStarted, RequestStop, RunCommand, RunEnded, RunEnqueued, RunEvent,
+    RunRejection, RunState, RunnerAttachedRecorded, RunnerStartedRecorded, StopRequested,
+    SummaryReportedRecorded, TurnCompletedRecorded, TurnFailedRecorded, TurnQueued,
     TurnStartedRecorded,
 };
+use crate::{AlreadyEnqueued, NoRun, NotItsStream, RunIsEnded, TurnInFlight};
 use crate::{
-    AlreadyEnqueued, CredentialHashInvalid, CredentialsNotDistinct, Ended, NoRun, NotItsStream,
-    TurnInFlight,
+    CredentialEvidence, FileOnlyCredential, LaunchRefusals, NoCredential, NoPrompt, Refusal,
+    RunMode, UnknownEngine, UntrustedProjectSettings,
 };
-use crate::{
-    CredentialEvidence, FileOnlyCredential, LaunchRefused, NoCredential, NoPrompt, Refusal,
-    RunMode, UnknownEngine,
-};
+use crate::{InterruptRequested, TurnUrgency};
 
 /// The run aggregate: one run, folded from its stream.
 #[derive(Clone, Debug, Default)]
@@ -41,9 +47,6 @@ impl RunAggregate {
     }
 }
 
-/// A SHA-256 digest's length.
-const DIGEST_LEN: usize = 32;
-
 impl RunAggregate {
     /// Whether an enqueue has been folded.
     fn enqueued(&self) -> bool {
@@ -55,21 +58,36 @@ impl RunAggregate {
         self.enqueued() && self.run.ended.is_none()
     }
 
-    /// The turn queue: one at a time, and none after the end.
-    fn decide_turn(&self, cmd: QueueTurn) -> Result<TurnQueued, RunRejection> {
+    /// The turn gate (S-b): none after the end; one turn in flight, behind
+    /// which only a steer is queued, asking the turn in flight to be
+    /// interrupted once; a wake or an inform waits.
+    fn decide_turn(
+        &self,
+        cmd: QueueTurn,
+    ) -> Result<(Option<InterruptRequested>, TurnQueued), RunRejection> {
         if !self.enqueued() {
             return Err(RunRejection::NoRun);
         }
         if self.run.ended.is_some() {
             return Err(RunRejection::Ended);
         }
-        if let Some(turn) = self.run.turn_in_flight {
-            return Err(RunRejection::TurnInFlight { turn });
-        }
-        Ok(TurnQueued {
+        let interrupt = match self.run.turns.first() {
+            None => None,
+            Some(head) if cmd.urgency == TurnUrgency::Steer => {
+                (!head.interrupt_requested).then(|| InterruptRequested {
+                    turn: head.turn,
+                    message_ids: head.message_ids.clone(),
+                })
+            }
+            Some(head) => return Err(RunRejection::TurnInFlight { turn: head.turn }),
+        };
+        let queued = TurnQueued {
             prompt_ref: cmd.prompt_ref,
             resume: cmd.resume,
-        })
+            message_ids: cmd.message_ids,
+            urgency: cmd.urgency,
+        };
+        Ok((interrupt, queued))
     }
 
     /// The stop request: recorded once; an ended run has nothing left to
@@ -92,22 +110,10 @@ impl RunAggregate {
     }
 }
 
-/// The enqueue: once, on its own derived stream, with a distinct digest for
-/// each principal's token.
+/// The enqueue: once, on its own derived stream.
 fn decide_enqueue(ctx: &Context, cmd: EnqueueRun) -> Result<RunEnqueued, RunRejection> {
     if ctx.command.had_prior_events {
         return Err(RunRejection::AlreadyEnqueued);
-    }
-    digest(&cmd.runner_credential_hash)?;
-    digest(&cmd.model_credential_hash)?;
-    digest(&cmd.hook_credential_hash)?;
-    let (runner, model, hook) = (
-        &cmd.runner_credential_hash,
-        &cmd.model_credential_hash,
-        &cmd.hook_credential_hash,
-    );
-    if runner == model || runner == hook || model == hook {
-        return Err(RunRejection::CredentialsNotDistinct);
     }
     if ctx.root() != Some(&run_root(&cmd.session, cmd.incarnation)) {
         return Err(RunRejection::NotItsStream);
@@ -117,10 +123,8 @@ fn decide_enqueue(ctx: &Context, cmd: EnqueueRun) -> Result<RunEnqueued, RunReje
         session: cmd.session,
         incarnation: cmd.incarnation,
         mode: cmd.mode,
-        runner_credential_hash: cmd.runner_credential_hash,
-        model_credential_hash: cmd.model_credential_hash,
-        hook_credential_hash: cmd.hook_credential_hash,
         launcher_lock: cmd.launcher_lock,
+        grant: cmd.grant,
     })
 }
 
@@ -130,7 +134,7 @@ fn decide_enqueue(ctx: &Context, cmd: EnqueueRun) -> Result<RunEnqueued, RunReje
 /// There is no posture check (owner ruling 134: ctxloom has no posture of its
 /// own; an engine's permissions are its own document).
 /// One failure is its own refusal; two or more, or one beside the plan's
-/// fatal findings, are one `LaunchRefused` holding each in that order, and
+/// fatal findings, are one `LaunchRefusals` holding each in that order, and
 /// the findings alone are an empty one (they are the library's to say).
 fn launchable(cmd: &EnqueueRun) -> Result<(), RunRejection> {
     let mut refusals = Vec::new();
@@ -147,6 +151,16 @@ fn launchable(cmd: &EnqueueRun) -> Result<(), RunRejection> {
     if driven {
         refusals.extend(credential(&cmd.engine, &cmd.credential));
     }
+    // The last check (owner Q9): the untrusted project-only settings this
+    // launch reads (step 8 U2, ruling 142).
+    if !cmd.untrusted_settings.is_empty() {
+        let mut paths = cmd.untrusted_settings.clone();
+        paths.sort();
+        paths.dedup();
+        refusals.push(RunRejection::UntrustedProjectSettings {
+            paths: paths.join(", "),
+        });
+    }
     match (refusals.len(), cmd.fatal_findings) {
         (0, 0) => Ok(()),
         (1, 0) => Err(refusals.remove(0)),
@@ -154,6 +168,24 @@ fn launchable(cmd: &EnqueueRun) -> Result<(), RunRejection> {
             refusals,
             fatal_findings,
         }),
+    }
+}
+
+/// The pre-launch checks of `cmd` as its enqueue decides them (rulings 73,
+/// 73a-73h), judged on its evidence alone and before anything is recorded:
+/// a child's launch is judged so when its hand-off is made (S10), so a
+/// refused launch leaves nothing. The typed refusal the enqueue would answer,
+/// and the status its message declares; none when every check passes.
+pub fn pre_launch_refusal(
+    cmd: &EnqueueRun,
+) -> Option<(
+    angzarr_embedded::markup::TypedRefusal,
+    angzarr_embedded::markup::BusinessStatus,
+)> {
+    match enqueue_refusal(launchable(cmd).err()?) {
+        Failed::Rejected { rejection, status } => Some((rejection.into(), status)),
+        // The checks raise refusals alone.
+        _ => None,
     }
 }
 
@@ -180,16 +212,6 @@ fn recorded<E: DomainMessage>(event: Option<E>) -> Result<FactEmit<RunAggregate>
     Ok(FactEmit::of(event.map(|event| pack_message(&event))))
 }
 
-/// A credential hash must be a SHA-256 digest.
-fn digest(hash: &[u8]) -> Result<(), RunRejection> {
-    match hash.len() == DIGEST_LEN {
-        true => Ok(()),
-        false => Err(RunRejection::CredentialHashInvalid {
-            length: hash.len() as u64,
-        }),
-    }
-}
-
 /// What the enqueue refuses with for `rejection`: its typed message, under
 /// the status the message declares.
 pub(crate) fn enqueue_refusal(
@@ -205,7 +227,7 @@ pub(crate) fn enqueue_refusal(
                 refusals,
                 fatal_findings,
             )),
-            status: <LaunchRefused as Refusal>::REFUSAL_STATUS,
+            status: <LaunchRefusals as Refusal>::REFUSAL_STATUS,
         };
     }
     refuse!(
@@ -214,11 +236,10 @@ pub(crate) fn enqueue_refusal(
         Refuses<RunAggregate, EnqueueRun>,
         [
             AlreadyEnqueued => AlreadyEnqueued,
-            CredentialHashInvalid{length} => CredentialHashInvalid,
-            CredentialsNotDistinct => CredentialsNotDistinct,
             NotItsStream => NotItsStream,
             NoCredential{engine, variables} => NoCredential,
             FileOnlyCredential{engine, variables} => FileOnlyCredential,
+            UntrustedProjectSettings{paths} => UntrustedProjectSettings,
             NoPrompt => NoPrompt,
             UnknownEngine{name, known} => UnknownEngine
         ]
@@ -227,13 +248,14 @@ pub(crate) fn enqueue_refusal(
 
 /// The aggregate's message: each refusal in the field of its kind, in check
 /// order (one field per kind, so the fields' order is the checks').
-fn launch_refused(refusals: Vec<RunRejection>, fatal_findings: u32) -> LaunchRefused {
-    let mut message = LaunchRefused {
+fn launch_refused(refusals: Vec<RunRejection>, fatal_findings: u32) -> LaunchRefusals {
+    let mut message = LaunchRefusals {
         no_prompt: Vec::new(),
         unknown_engine: Vec::new(),
         no_credential: Vec::new(),
         file_only_credential: Vec::new(),
         fatal_findings,
+        untrusted_project_settings: Vec::new(),
     };
     for refusal in refusals {
         match refusal {
@@ -249,6 +271,9 @@ fn launch_refused(refusals: Vec<RunRejection>, fatal_findings: u32) -> LaunchRef
             RunRejection::FileOnlyCredential { engine, variables } => message
                 .file_only_credential
                 .push(FileOnlyCredential { engine, variables }),
+            RunRejection::UntrustedProjectSettings { paths } => message
+                .untrusted_project_settings
+                .push(UntrustedProjectSettings { paths }),
             // The checks raise nothing else.
             _ => {}
         }
@@ -262,24 +287,22 @@ impl Snapshots for RunAggregate {
 
 #[aggregate(domain = "runs", command = RunCommand, event = RunEvent)]
 impl RunAggregate {
-    /// Enqueue the run: once, on its own derived stream, with a distinct
-    /// SHA-256 digest for each principal's token.
+    /// Enqueue the run: once, on its own derived stream.
     #[handles_cmd(
         EnqueueRun,
         refuses(
             AlreadyEnqueued,
-            CredentialHashInvalid,
-            CredentialsNotDistinct,
             NotItsStream,
             NoCredential,
             FileOnlyCredential,
             NoPrompt,
             UnknownEngine,
-            LaunchRefused
+            UntrustedProjectSettings,
+            LaunchRefusals
         )
     )]
     // The refusal is the generated `Refuses` choice, which holds
-    // `LaunchRefused` by value (four lists of refusals): the
+    // `LaunchRefusals` by value (four lists of refusals): the
     // markup's type, not one this crate can box.
     #[allow(clippy::result_large_err)]
     fn enqueue(
@@ -290,21 +313,28 @@ impl RunAggregate {
         decide_enqueue(ctx, cmd).map_err(enqueue_refusal)
     }
 
-    /// Queue a turn: one at a time, and none after the end.
-    #[handles_cmd(QueueTurn, refuses(NoRun, Ended, TurnInFlight))]
+    /// Queue a turn: one in flight, a steer behind it interrupting it, and
+    /// none after the end.
+    #[handles_cmd(QueueTurn, refuses(NoRun, RunIsEnded, TurnInFlight))]
     fn queue_turn(
         &self,
         cmd: QueueTurn,
         ctx: &Context,
-    ) -> Result<TurnQueued, Failed<Refuses<Self, QueueTurn>>> {
+    ) -> Result<Emit<Self>, Failed<Refuses<Self, QueueTurn>>> {
         let _ = ctx;
-        self.decide_turn(cmd).map_err(|rejection| {
+        let (interrupt, queued) = self.decide_turn(cmd).map_err(|rejection| {
             refuse!(
                 RunRejection,
                 rejection,
                 Refuses<Self, QueueTurn>,
-                [NoRun => NoRun, Ended => Ended, TurnInFlight{turn} => TurnInFlight]
+                [NoRun => NoRun, Ended => RunIsEnded, TurnInFlight{turn} => TurnInFlight]
             )
+        })?;
+        Ok(match interrupt {
+            Some(interrupt) => Emit::of(interrupt).then(move |_: &Self, _: &Context| {
+                Ok::<_, Failed<Refuses<Self, QueueTurn>>>(queued)
+            }),
+            None => Emit::of(queued),
         })
     }
 
@@ -326,8 +356,12 @@ impl RunAggregate {
         })
     }
 
-    #[handles_fact(RunnerAttached)]
-    fn runner_attached(&self, fact: RunnerAttached, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
+    #[handles_fact(RecordRunnerAttached)]
+    fn runner_attached(
+        &self,
+        fact: RecordRunnerAttached,
+        ctx: &Context,
+    ) -> Result<FactEmit<Self>, Bug> {
         let _ = ctx;
         recorded(self.live().then_some(RunnerAttachedRecorded {
             runner_id: fact.runner_id,
@@ -336,8 +370,12 @@ impl RunAggregate {
     }
 
     /// The launcher made the runner's process: recorded while the run is live.
-    #[handles_fact(RunnerStarted)]
-    fn runner_started(&self, fact: RunnerStarted, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
+    #[handles_fact(RecordRunnerStarted)]
+    fn runner_started(
+        &self,
+        fact: RecordRunnerStarted,
+        ctx: &Context,
+    ) -> Result<FactEmit<Self>, Bug> {
         let _ = ctx;
         recorded(self.live().then_some(RunnerStartedRecorded {
             runtime: fact.runtime,
@@ -346,70 +384,84 @@ impl RunAggregate {
         }))
     }
 
-    #[handles_fact(TurnStarted)]
-    fn turn_started(&self, fact: TurnStarted, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
+    #[handles_fact(RecordTurnStarted)]
+    fn turn_started(&self, fact: RecordTurnStarted, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
         let _ = ctx;
-        recorded(
-            self.live()
-                .then_some(TurnStartedRecorded { turn: fact.turn }),
-        )
+        recorded(self.live().then_some(TurnStartedRecorded {
+            turn: fact.turn,
+            message_ids: fact.message_ids,
+        }))
     }
 
-    #[handles_fact(TurnCompleted)]
-    fn turn_completed(&self, fact: TurnCompleted, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
+    #[handles_fact(RecordTurnCompleted)]
+    fn turn_completed(
+        &self,
+        fact: RecordTurnCompleted,
+        ctx: &Context,
+    ) -> Result<FactEmit<Self>, Bug> {
         let _ = ctx;
         recorded(self.live().then_some(TurnCompletedRecorded {
             turn: fact.turn,
             native_key: fact.native_key,
             answer_ref: fact.answer_ref,
             exit_code: fact.exit_code,
+            message_ids: fact.message_ids,
         }))
     }
 
-    #[handles_fact(TurnFailed)]
-    fn turn_failed(&self, fact: TurnFailed, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
+    #[handles_fact(RecordTurnFailed)]
+    fn turn_failed(&self, fact: RecordTurnFailed, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
         let _ = ctx;
         recorded(self.live().then_some(TurnFailedRecorded {
             turn: fact.turn,
             class: fact.class,
             detail: fact.detail,
+            message_ids: fact.message_ids,
         }))
     }
 
-    #[handles_fact(RunExited)]
-    fn run_exited(&self, fact: RunExited, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
+    #[handles_fact(RecordRunExited)]
+    fn run_exited(&self, fact: RecordRunExited, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
         let _ = ctx;
         recorded(self.end(EndCause::RunnerExit, Some(fact.code), String::new()))
     }
 
-    #[handles_fact(LaunchFailed)]
-    fn launch_failed(&self, fact: LaunchFailed, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
+    #[handles_fact(RecordLaunchFailed)]
+    fn launch_failed(
+        &self,
+        fact: RecordLaunchFailed,
+        ctx: &Context,
+    ) -> Result<FactEmit<Self>, Bug> {
         let _ = ctx;
         recorded(self.end(EndCause::LaunchFailed, None, fact.detail))
     }
 
     /// A started run whose owner is gone (rulings 93, 95): it ends for
     /// runner loss, once.
-    #[handles_fact(RunnerLost)]
-    fn runner_lost(&self, fact: RunnerLost, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
+    #[handles_fact(RecordRunnerLost)]
+    fn runner_lost(&self, fact: RecordRunnerLost, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
         let _ = (fact, ctx);
         recorded(self.end(EndCause::RunnerLoss, None, String::new()))
     }
 
     /// A run owed a runner whose launcher died before starting one (ruling
     /// 100): it ends orphaned, once, and claims no launch failure.
-    #[handles_fact(LaunchOrphaned)]
-    fn launch_orphaned(&self, fact: LaunchOrphaned, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
+    #[handles_fact(RecordLaunchOrphaned)]
+    fn launch_orphaned(
+        &self,
+        fact: RecordLaunchOrphaned,
+        ctx: &Context,
+    ) -> Result<FactEmit<Self>, Bug> {
         let _ = (fact, ctx);
         recorded(self.end(EndCause::LaunchOrphaned, None, String::new()))
     }
 
     /// A model's claim: advisory evidence, recorded and nothing else (owner
     /// ruling 2026-11-04, item 16). Total: it applies in every state.
-    #[handles_fact(SummaryReported)]
+    #[handles_fact(RecordSummaryReported)]
     fn summary_reported(
         &self,
-        fact: SummaryReported,
+        fact: RecordSummaryReported,
         ctx: &Context,
     ) -> Result<FactEmit<Self>, Bug> {
         let _ = ctx;
@@ -423,8 +475,12 @@ impl RunAggregate {
 
     /// A model's final claim: notifies, transitions nothing (it neither ends
     /// the run nor revokes a credential). Total.
-    #[handles_fact(FinalReported)]
-    fn final_reported(&self, fact: FinalReported, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
+    #[handles_fact(RecordFinalReported)]
+    fn final_reported(
+        &self,
+        fact: RecordFinalReported,
+        ctx: &Context,
+    ) -> Result<FactEmit<Self>, Bug> {
         let _ = ctx;
         recorded(self.enqueued().then_some(FinalReportedRecorded {
             turn: fact.turn,
@@ -455,6 +511,11 @@ impl RunAggregate {
     // A turn starting changes nothing the run decides on: its fold is empty, so
     // replacing it with nothing is the same function.
     #[cfg_attr(test, mutants::skip)]
+    #[applies(InterruptRequested)]
+    fn interrupt_requested(&mut self, event: InterruptRequested, page: &PageContext) {
+        apply(&mut self.run, &event.into(), page.sequence);
+    }
+
     #[applies(TurnStartedRecorded)]
     fn turn_started_recorded(&mut self, event: TurnStartedRecorded, page: &PageContext) {
         apply(&mut self.run, &event.into(), page.sequence);
@@ -493,4 +554,4 @@ impl RunAggregate {
 
 #[cfg(test)]
 #[path = "aggregate.test.rs"]
-mod tests;
+pub(crate) mod tests;

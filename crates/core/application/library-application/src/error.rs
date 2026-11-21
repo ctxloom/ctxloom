@@ -40,13 +40,6 @@ pub enum AppError {
         found: u64,
         oldest: u64,
     },
-    /// A config layer that registers companions by bare name, as the
-    /// generations before 9 wrote them; `found` is its generation.
-    ConfigCompanionsBare {
-        path: String,
-        found: u64,
-        names: String,
-    },
     /// A config layer whose `schema_version` is not an integer.
     ConfigVersionUnreadable { path: String },
     /// A config with a key the schema does not know: each violation.
@@ -130,6 +123,8 @@ pub enum AppError {
     NoFragments { detail: String },
     /// `--agent` with a flag it excludes.
     AgentExclusive { other: String },
+    /// `--no-context` beside a flag that selects context (OD-38).
+    NoContextExclusive { other: String },
     /// A saved command that cannot be loaded.
     SavedCommand { name: String },
     /// A `--workspace` that is neither none nor worktree.
@@ -138,6 +133,22 @@ pub enum AppError {
     RunNeedsDryRun,
     /// Fatal findings, after the plan was shown.
     StartupAborted { count: u64, findings: String },
+    /// A distiller that gave no answer (step 5): nothing was written.
+    DistillFailed {
+        reference: String,
+        cause: angzarr_diagnostic::Report,
+    },
+    /// A distiller's answer under 2% of its source (step 5): refused as
+    /// truncated, and nothing was written.
+    DistillTruncated {
+        reference: String,
+        answer: u64,
+        source: u64,
+    },
+    /// The item's source is no longer the one its distiller was sent (step
+    /// 10b: its digest moved while the model was asked): its answer is
+    /// stale, and nothing was written.
+    DistillSourceMoved { reference: String },
 }
 
 impl AppError {
@@ -175,7 +186,9 @@ impl ExitClass for AppError {
     /// config or bundle, a reference that is no reference).
     fn exit(&self) -> Exit {
         match self {
-            AppError::Cause(_) => Exit::FAILED,
+            AppError::Cause(_)
+            | AppError::DistillFailed { .. }
+            | AppError::DistillTruncated { .. } => Exit::FAILED,
             AppError::StartupAborted { .. } => Exit::FATAL_FINDINGS,
             _ => Exit::REFUSED,
         }
@@ -197,7 +210,6 @@ impl Diagnostic for AppError {
             AppError::ConfigUnparsable { .. } => code!("config-unparsable"),
             AppError::ConfigNewer { .. } => code!("config-newer"),
             AppError::ConfigOlder { .. } => code!("config-older"),
-            AppError::ConfigCompanionsBare { .. } => code!("config-companions-bare"),
             AppError::ConfigVersionUnreadable { .. } => code!("config-version-unreadable"),
             AppError::ConfigUnknownKey { .. } => code!("config-unknown-key"),
             AppError::ConfigBreaksSchema { .. } => code!("config-breaks-schema"),
@@ -229,6 +241,10 @@ impl Diagnostic for AppError {
             AppError::Compose { .. } => code!("compose"),
             AppError::NoFragments { .. } => code!("no-fragments"),
             AppError::AgentExclusive { .. } => code!("agent-exclusive"),
+            AppError::NoContextExclusive { .. } => code!("no-context-exclusive"),
+            AppError::DistillFailed { .. } => code!("distill-failed"),
+            AppError::DistillTruncated { .. } => code!("distill-truncated"),
+            AppError::DistillSourceMoved { .. } => code!("distill-source-moved"),
             AppError::SavedCommand { .. } => code!("saved-command"),
             AppError::Workspace { .. } => code!("workspace"),
             AppError::RunNeedsDryRun => code!("run-needs-dry-run"),
@@ -247,7 +263,6 @@ impl Diagnostic for AppError {
             ],
             AppError::ConfigNewer { .. }
             | AppError::ConfigOlder { .. }
-            | AppError::ConfigCompanionsBare { .. }
             | AppError::ConfigVersionUnreadable { .. } => version_args(self),
             AppError::ConfigUnknownKey { violations }
             | AppError::ConfigBreaksSchema { violations } => {
@@ -335,6 +350,23 @@ impl Diagnostic for AppError {
             ],
             AppError::NoFragments { detail } => vec![("detail", detail.as_str().into())],
             AppError::AgentExclusive { other } => vec![("other", other.as_str().into())],
+            AppError::NoContextExclusive { other } => vec![("other", other.as_str().into())],
+            AppError::DistillFailed { reference, cause } => vec![
+                ("reference", reference.as_str().into()),
+                ("cause", Arg::Nested(Box::new(cause.clone()))),
+            ],
+            AppError::DistillSourceMoved { reference } => {
+                vec![("reference", reference.as_str().into())]
+            }
+            AppError::DistillTruncated {
+                reference,
+                answer,
+                source,
+            } => vec![
+                ("reference", reference.as_str().into()),
+                ("answer", (*answer).into()),
+                ("source", (*source).into()),
+            ],
             AppError::SavedCommand { name } => vec![("name", name.as_str().into())],
             AppError::Workspace { value } => vec![("value", value.as_str().into())],
             AppError::StartupAborted { count, findings } => vec![
@@ -363,11 +395,6 @@ fn version_args(error: &AppError) -> Vec<(&str, Arg)> {
             ("path", path.as_str().into()),
             ("found", (*found).into()),
             ("current", (*current).into()),
-        ],
-        AppError::ConfigCompanionsBare { path, found, names } => vec![
-            ("path", path.as_str().into()),
-            ("found", (*found).into()),
-            ("names", names.as_str().into()),
         ],
         AppError::ConfigOlder {
             path,
@@ -404,8 +431,10 @@ pub enum Notice {
     RootIgnored { root: String },
     /// The dependencies installed from remotes could not be read.
     RemotesUnreadable { cause: angzarr_diagnostic::Report },
-    /// A registered companion whose binary is not on the `PATH`.
-    CompanionNotOnPath { name: String },
+    /// A registered, enabled companion whose program is not on the `PATH`
+    /// where the agent runs: what it would bring is left out, and nothing
+    /// fails (j000800).
+    CompanionNotOnPath { name: String, program: String },
     /// A registered companion that could not be asked for its loadout.
     LoadoutProbeFailed { name: String, detail: String },
     /// A registered companion whose loadout does not parse.
@@ -428,6 +457,31 @@ pub enum Notice {
     /// A worktree was asked for and none could be had, so the engine worked
     /// in the project instead: `reason` is the workspaces port's.
     WorkspaceUnavailable { reason: String },
+    /// A launch on `session_home: host` (the agent's, else the engine
+    /// block's): the engine runs on
+    /// the user's own home, with no session home of its own: it reads and
+    /// changes her own memory, MCP servers and history (j002200, step 6a: a
+    /// session home is a relocation, not confinement).
+    /// `place` is the config place that said `host`: `engines.<engine>`,
+    /// or the agent's own `agents.<agent>` (owner ruling of 2026-11-13).
+    SessionHomeHost { engine: String, place: String },
+    /// A server the launch carries is named `ctxloom`, the name every
+    /// session's engine registers ctxloom's own MCP server under: shadowed
+    /// by it (OD-6, owner 2026-11-13).
+    McpServerShadowed { name: String },
+    /// The project's own `ctxloom` bundle replaces the operational prompt
+    /// `prompt` (`setup-interview`, `distill`), and the user has not trusted
+    /// the project, so the built-in one was used (step 8 U2, D4).
+    PromptUntrusted { prompt: String },
+    /// A project-only setting (ruling 46's keys) the project's own config
+    /// `file` says, held back because the user has not trusted the project
+    /// (step 10a U7, D7): the read answers as if it were not set. Its fix
+    /// names `home_file`, where the user may set it herself.
+    UntrustedSetting {
+        path: String,
+        file: String,
+        home_file: String,
+    },
     /// A run's checkout was left in place at its end (work in it, or one
     /// that would not go): by path and branch, and why.
     CheckoutLeft {
@@ -435,6 +489,10 @@ pub enum Notice {
         branch: String,
         reason: String,
     },
+    /// A distilled form that no longer matches its source, or records no
+    /// digest of it (T30, S51): its original was used in its place.
+    /// `kind` is `fragment` or `command`.
+    StaleDistilled { kind: String, reference: String },
 }
 
 impl Notice {
@@ -476,7 +534,12 @@ impl Diagnostic for Notice {
             Notice::DefaultEngineBlock { .. } => code!("notice-default-engine-block"),
             Notice::UserSettingsLeftOut { .. } => code!("notice-user-settings-left-out"),
             Notice::WorkspaceUnavailable { .. } => code!("notice-workspace-unavailable"),
+            Notice::SessionHomeHost { .. } => code!("notice-session-home-host"),
+            Notice::McpServerShadowed { .. } => code!("notice-mcp-server-shadowed"),
+            Notice::PromptUntrusted { .. } => code!("notice-prompt-untrusted"),
+            Notice::UntrustedSetting { .. } => code!("notice-untrusted-setting"),
             Notice::CheckoutLeft { .. } => code!("notice-checkout-left"),
+            Notice::StaleDistilled { .. } => code!("stale-distilled"),
             Notice::RuntimeOverride { change, .. } => match change {
                 library::config::engines::Change::Weakens => code!("notice-runtime-weakens"),
                 library::config::engines::Change::Strengthens => {
@@ -512,7 +575,10 @@ impl Diagnostic for Notice {
             Notice::RemotesUnreadable { cause } => {
                 vec![("cause", Arg::Nested(Box::new(cause.clone())))]
             }
-            Notice::CompanionNotOnPath { name } => vec![("name", name.as_str().into())],
+            Notice::CompanionNotOnPath { name, program } => vec![
+                ("name", name.as_str().into()),
+                ("program", program.as_str().into()),
+            ],
             Notice::LoadoutProbeFailed { name, detail } => vec![
                 ("name", name.as_str().into()),
                 ("detail", detail.as_str().into()),
@@ -540,6 +606,21 @@ impl Diagnostic for Notice {
                 ("path", path.as_str().into()),
             ],
             Notice::WorkspaceUnavailable { reason } => vec![("reason", reason.as_str().into())],
+            Notice::SessionHomeHost { engine, place } => vec![
+                ("engine", engine.as_str().into()),
+                ("place", place.as_str().into()),
+            ],
+            Notice::McpServerShadowed { name } => vec![("name", name.as_str().into())],
+            Notice::PromptUntrusted { prompt } => vec![("prompt", prompt.as_str().into())],
+            Notice::UntrustedSetting {
+                path,
+                file,
+                home_file,
+            } => vec![
+                ("path", path.as_str().into()),
+                ("file", file.as_str().into()),
+                ("home_file", home_file.as_str().into()),
+            ],
             Notice::CheckoutLeft {
                 path,
                 branch,
@@ -548,6 +629,10 @@ impl Diagnostic for Notice {
                 ("path", path.as_str().into()),
                 ("branch", branch.as_str().into()),
                 ("reason", reason.as_str().into()),
+            ],
+            Notice::StaleDistilled { kind, reference } => vec![
+                ("kind", kind.as_str().into()),
+                ("reference", reference.as_str().into()),
             ],
         }
     }
@@ -571,11 +656,6 @@ fn version_samples() -> Vec<Box<dyn Diagnostic>> {
             path: path(),
             found: 9,
             current: 8,
-        }),
-        Box::new(AppError::ConfigCompanionsBare {
-            path: path(),
-            found: 8,
-            names: "acme, ltk".to_string(),
         }),
         Box::new(AppError::ConfigOlder {
             path: path(),
@@ -681,6 +761,21 @@ fn error_samples() -> Vec<Box<dyn Diagnostic>> {
             cause: Box::new(ProfileError::Circular { name: s("dev") }),
         }),
         Box::new(AppError::NoFragments { detail: s("none") }),
+        Box::new(AppError::DistillFailed {
+            reference: s("demo#fragments/rules"),
+            cause: angzarr_diagnostic::Report::of(&BundleError::NoManifest { bundle: s("demo") }),
+        }),
+        Box::new(AppError::DistillSourceMoved {
+            reference: s("demo#fragments/rules"),
+        }),
+        Box::new(AppError::DistillTruncated {
+            reference: s("demo#fragments/rules"),
+            answer: 4,
+            source: 900,
+        }),
+        Box::new(AppError::NoContextExclusive {
+            other: s("--profile"),
+        }),
         Box::new(AppError::AgentExclusive {
             other: s("profile"),
         }),
@@ -730,7 +825,10 @@ fn notice_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(Notice::RemotesUnreadable {
             cause: angzarr_diagnostic::Report::of(&BundleError::NoManifest { bundle: s("demo") }),
         }),
-        Box::new(Notice::CompanionNotOnPath { name: s("reprise") }),
+        Box::new(Notice::CompanionNotOnPath {
+            name: s("reprise"),
+            program: s("reprise"),
+        }),
         Box::new(Notice::DefaultEngineBlock {
             agent: s("p"),
             block: s("engines.claude-code"),
@@ -742,10 +840,27 @@ fn notice_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(Notice::WorkspaceUnavailable {
             reason: s("worktree isolation: /work/proj is not a git repository"),
         }),
+        Box::new(Notice::SessionHomeHost {
+            engine: s("claude-code"),
+            place: s("engines.claude-code"),
+        }),
+        Box::new(Notice::McpServerShadowed { name: s("ctxloom") }),
+        Box::new(Notice::PromptUntrusted {
+            prompt: s("setup-interview"),
+        }),
+        Box::new(Notice::UntrustedSetting {
+            path: s("engines.claude-code.command"),
+            file: s("/p/.ctxloom/config.yaml"),
+            home_file: s("/h/.ctxloom/config.yaml"),
+        }),
         Box::new(Notice::CheckoutLeft {
             path: s("/h/.ctxloom/worktrees/calm-otter/amber-swift-owl/reviewer"),
             branch: s("ctxloom/amber-swift-owl/reviewer"),
             reason: s("it has uncommitted changes; left in place to preserve WIP"),
+        }),
+        Box::new(Notice::StaleDistilled {
+            kind: s("fragment"),
+            reference: s("demo#fragments/rules"),
         }),
         Box::new(runtime_override(library::config::engines::Change::Weakens)),
         Box::new(runtime_override(

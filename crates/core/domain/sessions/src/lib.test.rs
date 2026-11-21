@@ -77,3 +77,85 @@ fn every_sample_displays_its_code_and_its_message_uses_exactly_its_args() {
         assert_eq!(names, used, "{}", sample.code());
     }
 }
+
+// Step 10c U13: a session's loadout and a redelivery are facts keyed by
+// what they are of, so a repeat is a DUPLICATE: the loadout by its session
+// and incarnation, a redelivery by its session and a hash of the change's
+// cause (the same cause, the same key; another, another).
+#[test]
+fn a_loadout_and_a_redelivery_are_keyed_by_what_they_are_of() {
+    let session = "0b0b0b0b-0b0b-4b0b-8b0b-0b0b0b0b0b0b";
+    assert_eq!(
+        crate::loadout_key(session, 2),
+        format!("loadout:{session}:2")
+    );
+    let one = crate::redelivery_key(session, "obs:tree:a");
+    assert!(one.starts_with(&format!("reinject:{session}:")), "{one}");
+    assert!(!one.contains("obs:tree:a"), "the cause hashed: {one}");
+    assert_eq!(one, crate::redelivery_key(session, "obs:tree:a"));
+    assert_ne!(one, crate::redelivery_key(session, "obs:tree:b"));
+    assert_ne!(one, crate::redelivery_key("other", "obs:tree:a"));
+}
+
+// A fact's book is a Fact body on its session's stream, keyed by the
+// external id it is given.
+#[test]
+fn a_facts_book_carries_it_under_its_key() {
+    use angzarr_embedded::v1::command_page;
+    let cover = angzarr_embedded::v1::Cover {
+        domain: SESSION_DOMAIN.to_string(),
+        root: None,
+        edition: None,
+    };
+    let fact = crate::RecordLoadout {
+        loadout: crate::SessionLoadout {
+            agent: String::new(),
+            profiles: Vec::new(),
+            bundles: Vec::new(),
+        },
+        incarnation: 1,
+        covered: Vec::new(),
+    };
+    let book = crate::fact_book(cover.clone(), &fact, "loadout:s:1");
+    assert_eq!(book.cover, Some(cover));
+    let Some(command_page::Body::Fact(body)) = book.page.and_then(|page| page.body) else {
+        panic!("a fact")
+    };
+    assert_eq!(body.origin.unwrap().external_id, "loadout:s:1");
+    assert!(body.payload.unwrap().type_url.ends_with("RecordLoadout"));
+}
+
+// Step 10c U13 rework: a redelivery is keyed by the positions it covers,
+// spelled one way whatever their order; the owed keys name the tree and the
+// sequence.
+#[test]
+fn positions_are_one_text_whatever_their_order_and_keys_name_them() {
+    let at = |tree: &str, sequence| crate::TreePosition {
+        tree: tree.to_string(),
+        sequence,
+    };
+    let text = crate::positions_text(&[
+        at("users/me/library", 2),
+        at("projects/p/checkouts/c/library", 9),
+    ]);
+    assert_eq!(text, "projects/p/checkouts/c/library@9,users/me/library@2");
+    assert_eq!(
+        crate::positions_text(&[
+            at("projects/p/checkouts/c/library", 9),
+            at("users/me/library", 2)
+        ]),
+        text
+    );
+    assert_ne!(
+        crate::redelivery_key("s", &text),
+        crate::redelivery_key("s", "projects/p/checkouts/c/library@9,users/me/library@3")
+    );
+    assert_eq!(
+        crate::owed_key("s", "users/me/library", 4),
+        "owed:s:users/me/library@4"
+    );
+    assert_eq!(
+        crate::owed_at_load_key("s", "users/me/library", 4),
+        "owed-at-load:s:users/me/library@4"
+    );
+}

@@ -13,9 +13,10 @@
 use angzarr_embedded::markup::TypedRefusal;
 
 use crate::{
-    ChildCannotStop, EngineMismatch, HarpInvalid, NamesTaken, NoClaim, NoNativeSession, NoSession,
-    NotHolder, SessionDestroyed, SessionExists, SessionRejection, SessionRunning, SessionUnknown,
-    WorkspaceMismatch,
+    DelegationLimit, EngineMismatch, HarpInvalid, NamesTaken, NoClaim, NoNativeSession,
+    NoOpenIncarnation, NoSession, NotHolder, NotOwner, OwnerIsClosed, RehostBudgetSpent,
+    SessionExists, SessionIsClosed, SessionIsDestroyed, SessionRejection, SessionRunning,
+    SessionUnknown, UntrustedTarget, UrgencyUnsupported, WakeOutstanding, WorkspaceMismatch,
 };
 
 /// What a command handler fails with for `rejection`: the typed refusal
@@ -62,19 +63,42 @@ impl TryFrom<&TypedRefusal> for SessionRejection {
         if let Some(NamesTaken { harp }) = refusal.object() {
             return Ok(SessionRejection::NamesTaken { harp });
         }
+        if let Some(crate::ProjectNameTaken { harp }) = refusal.object() {
+            return Ok(SessionRejection::ProjectNameTaken { harp });
+        }
+        if let Some(crate::UnnamedProject { project_id }) = refusal.object() {
+            return Ok(SessionRejection::ProjectNotNamed { project_id });
+        }
+        if let Some(crate::ProjectIdentityMismatch {
+            project,
+            root,
+            registered_commit,
+            found_commit,
+        }) = refusal.object()
+        {
+            return Ok(SessionRejection::ProjectIdentityChanged {
+                project,
+                root,
+                registered_commit,
+                found_commit,
+            });
+        }
+        if let Some(crate::ProjectHarpMismatch { project, expected }) = refusal.object() {
+            return Ok(SessionRejection::ProjectHarpMismatch { project, expected });
+        }
         if refusal.object::<NoClaim>().is_some() {
             return Ok(SessionRejection::NoClaim);
         }
         if let Some(NotHolder { harp }) = refusal.object() {
             return Ok(SessionRejection::NotHolder { harp });
         }
-        if let Some(ChildCannotStop { depth }) = refusal.object() {
-            return Ok(SessionRejection::ChildCannotStop { depth });
+        if let Some(removal) = removal_rejection(refusal) {
+            return Ok(removal);
         }
         if let Some(SessionUnknown { harp }) = refusal.object() {
             return Ok(SessionRejection::SessionUnknown { harp });
         }
-        if let Some(SessionDestroyed { harp }) = refusal.object() {
+        if let Some(SessionIsDestroyed { harp }) = refusal.object() {
             return Ok(SessionRejection::SessionDestroyed { harp });
         }
         if let Some(SessionRunning { harp }) = refusal.object() {
@@ -107,8 +131,78 @@ impl TryFrom<&TypedRefusal> for SessionRejection {
                 asked,
             });
         }
-        Err(NotOurs)
+        daemon_rejection(refusal).ok_or(NotOurs)
     }
+}
+
+/// The rejection a refusal of a session's removal (O2, D18) is, by its type.
+fn removal_rejection(refusal: &TypedRefusal) -> Option<SessionRejection> {
+    if let Some(crate::SessionLive { harp, reason }) = refusal.object() {
+        return Some(SessionRejection::SessionLive { harp, reason });
+    }
+    if let Some(crate::SessionLockHeld { harp, lock }) = refusal.object() {
+        return Some(SessionRejection::SessionLockHeld { harp, lock });
+    }
+    if let Some(crate::SessionKept { harp }) = refusal.object() {
+        return Some(SessionRejection::SessionKept { harp });
+    }
+    if let Some(crate::WithinRetention { harp, detail }) = refusal.object() {
+        return Some(SessionRejection::WithinRetention { harp, detail });
+    }
+    if let Some(crate::KeepsSession {
+        harp,
+        spared,
+        skipped,
+    }) = refusal.object()
+    {
+        return Some(SessionRejection::KeepsSession {
+            harp,
+            spared,
+            skipped,
+        });
+    }
+    None
+}
+
+/// The rejection a refusal of the daemon's commands (D28) is, by its type.
+fn daemon_rejection(refusal: &TypedRefusal) -> Option<SessionRejection> {
+    if let Some(NotOwner { requester }) = refusal.object() {
+        return Some(SessionRejection::NotOwner { requester });
+    }
+    if let Some(SessionIsClosed { harp }) = refusal.object() {
+        return Some(SessionRejection::SessionClosed { harp });
+    }
+    if let Some(OwnerIsClosed { harp }) = refusal.object() {
+        return Some(SessionRejection::OwnerClosed { harp });
+    }
+    if let Some(NoOpenIncarnation { harp }) = refusal.object() {
+        return Some(SessionRejection::NoOpenIncarnation { harp });
+    }
+    if let Some(DelegationLimit { limit, open }) = refusal.object() {
+        return Some(SessionRejection::DelegationLimit { limit, open });
+    }
+    if let Some(UntrustedTarget { root }) = refusal.object() {
+        return Some(SessionRejection::UntrustedTarget { root });
+    }
+    if let Some(UrgencyUnsupported { urgency }) = refusal.object() {
+        return Some(SessionRejection::UrgencyUnsupported { urgency });
+    }
+    if let Some(WakeOutstanding { nonce }) = refusal.object() {
+        return Some(SessionRejection::WakeOutstanding { nonce });
+    }
+    if let Some(RehostBudgetSpent {
+        harp,
+        limit,
+        recent,
+    }) = refusal.object()
+    {
+        return Some(SessionRejection::RehostBudgetSpent {
+            harp,
+            limit,
+            recent,
+        });
+    }
+    None
 }
 
 #[cfg(test)]

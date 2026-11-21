@@ -3,7 +3,8 @@
 //!
 //! - read them: list, search, show, and the transcripts' list and show;
 //! - keep one, or release it;
-//! - remove one: its transcript and its index entry, reporting first;
+//! - (a remove is the daemon's: daemon-api's `DeleteSession`, over the
+//!   types here and [`purge`]);
 //! - bind the engine's session to a harp (the SessionStart hook).
 //!
 //! Each reaches its project through the project identity port (taskloom's
@@ -22,6 +23,8 @@ mod bridge;
 mod error;
 mod go_sidecar;
 mod import;
+mod orchestrate;
+mod projects;
 mod read;
 mod service;
 mod typed;
@@ -38,21 +41,32 @@ pub use angzarr_embedded::{dead_letter_line, DeadLetter};
 
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
-pub use error::{AppError, DestroysAuthored, Refusal, RemovedNothing, CATALOGS, EN_US};
+pub use error::{
+    AppError, DestroysAuthored, DestroysHeld, Refusal, RemovedNothing, CATALOGS, EN_US,
+};
 pub use go_sidecar::{
     decode as decode_go_sidecar, GoEndReason, GoEntry, GoRotation, GoRunEnd, GoSidecarError,
 };
-pub use import::{
-    imported_id, ImportReport, ImportRequest, ImportService, Imported, Importer, Left, Why,
+pub use import::{ImportReport, ImportRequest, ImportService, Imported, Importer, Left, Why};
+pub use orchestrate::{
+    urgencies_of, ClearRequest, CloseRequest, LaunchRequest, Ordered, SendRequest,
 };
 pub use ports::{Project, Timestamp};
-pub use service::{registry, Service, SessionService};
-pub use session_index::{stamp, Captured, SessionRecord, State, View, NO_SUMMARY, STATES};
+pub use projects::{NameProjectRequest, ProjectHarp};
+pub use service::{registry, Service, SessionService, DEFAULT_RETENTION_DAYS};
+pub use session_index::{
+    stamp, Captured, PendingMessage, SessionRecord, State, View, NO_SUMMARY, STATES,
+};
+/// A pending message's urgency, and its word (D12), for a renderer.
+pub use sessions::{urgency_word, Urgency};
+/// A record's owner link and the children it holds (D26), for a renderer.
+pub use sessions::{Child, SessionRef};
 pub use types::{
     BindRequest, Bound, Class, FilePlan, KeepRequest, Kept, ListQuery, PlanItem, Removal,
     RemoveRequest, SearchQuery, ShowQuery, TitleRequest, Titled, TranscriptQuery, TranscriptRow,
     REMOVE_VERB,
 };
+pub use write::purge;
 
 /// A store's failure, as the use cases fail with it.
 pub(crate) fn failed(error: angzarr_embedded::StoreError) -> AppError {

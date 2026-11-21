@@ -61,8 +61,9 @@ pub const SIGN_IN: &str = "run `opencode auth login`, then start the session aga
 /// find programs, locale and temp space, the proxy and certificate settings a
 /// network needs, the optional provider keys of opencode's built-in source,
 /// and what the plugin's hook
-/// processes need (ctxloom's home by name, the session's harp, the run's
-/// listener), and on Windows what a program needs to start
+/// processes need (ctxloom's home by name, the run and its session, and the
+/// env-named arrival's variables, which no host run sets, slice 4 U7, kept
+/// for M10b's container arrival, OD-13), and on Windows what a program needs to start
 /// (`run_ports::WINDOWS_STARTUP_VARIABLES`) and the user's profile
 /// directories (`run_ports::WINDOWS_PROFILE_VARIABLES`, relocated into the
 /// session home as `HOME` is; none is set on unix). Never `HOME`, an XDG base
@@ -100,16 +101,16 @@ pub const ENV_ALLOWLIST: &[&str] = &[
     run_ports::RUN_VARIABLE,
     run_ports::TLS_CERT_VARIABLE,
     run_ports::SESSION_VARIABLE,
-    run_ports::HARP_VARIABLE,
 ];
 
 /// The variables of the caller's environment the human's session is given:
 /// a turn's (the TUI is heard through the same plugin), and the terminal's
 /// type and colour depth (`TERM`, `COLORTERM`), without which the TUI draws
-/// in no colour.
+/// in no colour, with her choice to have none (`NO_COLOR`, no-color.org).
 pub const INTERACTIVE_ENV_ALLOWLIST: &[&str] = &[
     "TERM",
     "COLORTERM",
+    "NO_COLOR",
     "PATH",
     "LANG",
     "LC_ALL",
@@ -142,7 +143,6 @@ pub const INTERACTIVE_ENV_ALLOWLIST: &[&str] = &[
     run_ports::RUN_VARIABLE,
     run_ports::TLS_CERT_VARIABLE,
     run_ports::SESSION_VARIABLE,
-    run_ports::HARP_VARIABLE,
 ];
 
 /// The variables a command is given whatever the config names: opencode's
@@ -177,6 +177,13 @@ impl Engine for Opencode {
         let carried = &request.surfaces.0;
         // The launch's MCP servers in the session's config (M6, j000400).
         let base = crate::carried::with_servers(base, &carried.mcp);
+        // And ctxloom's own, every session's (slice 3 step 3), but for a
+        // launch with no context, which is handed no server at all (OD-38).
+        let base = if carried.no_context {
+            base
+        } else {
+            crate::carried::with_ctxloom(base, &self.program)
+        };
         Ok(Prepared {
             files: {
                 let mut files = home::files(
@@ -187,6 +194,7 @@ impl Engine for Opencode {
                 // The bundles' authored hooks ride the launch, for the
                 // plugin to run (owner ruling 2026-11-12).
                 files.push(HomeFile {
+                    executable: false,
                     rel: crate::authored::AUTHORED_FILE.to_string(),
                     bytes: crate::authored::authored(&carried.hooks).into_bytes(),
                 });
@@ -202,6 +210,7 @@ impl Engine for Opencode {
             // home the state directory is her own.
             seeds: match (&self.model, request.session_home) {
                 (Some(bytes), SessionHome::Session) => vec![HomeFile {
+                    executable: false,
                     rel: home::MODEL_SEED.to_string(),
                     bytes: bytes.clone(),
                 }],
@@ -257,12 +266,6 @@ impl Engine for Opencode {
         crate::stream::read_turn(output)
     }
 
-    /// opencode has no native "session ended" event, and the plugin forwards
-    /// none: the launcher records the end at the exit (ruling 58).
-    fn session_ends_with_exit(&self) -> bool {
-        true
-    }
-
     /// An agent with no model is told opencode chooses its own (owner
     /// ruling 168).
     fn advise(&self, planned: &run_ports::Planned) -> Vec<run_ports::Advice> {
@@ -298,7 +301,7 @@ fn push_model(args: &mut Vec<String>, request: &TurnRequest) {
 }
 
 /// The program: the engine block's `command`, else `opencode` on the `PATH`.
-fn program(request: &TurnRequest) -> &str {
+pub(crate) fn program(request: &TurnRequest) -> &str {
     match request.settings.command.as_str() {
         "" => PROGRAM,
         configured => configured,
@@ -307,7 +310,7 @@ fn program(request: &TurnRequest) -> &str {
 
 /// The command's whole environment: the caller's variables on `curated`
 /// (a child's turn's list or the TUI's), the config's and the credential's.
-fn environment(
+pub(crate) fn environment(
     engine: &Opencode,
     curated: &[&str],
     request: &TurnRequest,

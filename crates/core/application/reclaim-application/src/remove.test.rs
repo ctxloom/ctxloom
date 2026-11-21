@@ -1,23 +1,19 @@
-//! `session remove`'s order over fakes of the sessions and worktree use
-//! cases: session_worktrees.feature's "Purging a session takes its worktrees
-//! only when it can prove that safe" (F2).
+//! `session remove`'s order over a fake of what a removal takes:
+//! session_worktrees.feature's "Purging a session takes its worktrees only
+//! when it can prove that safe" (F2), run by the daemon (owner, 2026-11-12).
 
 use std::future::Future;
 use std::pin::pin;
 use std::task::{Context, Poll, Waker};
 
-use isolation_application::{IsolationError, Report, Row, Verdict, WorktreeUse};
-use session_index::View;
-use sessions_application::{
-    AppError, BindRequest, Bound, FilePlan, KeepRequest, Kept, ListQuery, Refusal, Removal,
-    RemoveRequest, SearchQuery, SessionService, ShowQuery, TitleRequest, Titled, TranscriptQuery,
-    TranscriptRow,
-};
+use isolation_application::{IsolationError, Report, Row, Verdict};
+use sessions_application::{AppError, FilePlan, Refusal, Removal, RemoveRequest};
 
-use super::remove;
+use super::{remove, Removals};
 use crate::ReclaimError;
 
 const HARP: &str = "amber-swift-owl";
+const PROJECT: &str = "calm-otter-id";
 
 fn ready<T>(future: impl Future<Output = T>) -> T {
     let mut future = pin!(future);
@@ -66,9 +62,14 @@ fn report(verdicts: &[Verdict], applied: bool) -> Report {
     }
 }
 
-impl WorktreeUse for Fake {
-    fn worktrees(&mut self, harp: Option<&str>, apply: bool) -> Result<Report, IsolationError> {
-        assert_eq!(harp, Some(HARP));
+impl Removals for Fake {
+    fn worktrees(
+        &mut self,
+        project: Option<&str>,
+        harp: &str,
+        apply: bool,
+    ) -> Result<Report, IsolationError> {
+        assert_eq!((project, harp), (Some(PROJECT), HARP));
         self.log.push(if apply {
             "worktrees apply"
         } else {
@@ -92,27 +93,7 @@ impl WorktreeUse for Fake {
                 harp: HARP.to_string(),
             })
     }
-}
 
-fn nothing<T>() -> Result<T, AppError> {
-    Err(AppError::NoSession {
-        harp: String::new(),
-    })
-}
-
-impl SessionService for Fake {
-    async fn list(&mut self, _: ListQuery) -> Result<Vec<View>, AppError> {
-        nothing()
-    }
-    async fn search(&mut self, _: SearchQuery) -> Result<Vec<View>, AppError> {
-        nothing()
-    }
-    async fn show(&mut self, _: ShowQuery) -> Result<View, AppError> {
-        nothing()
-    }
-    async fn keep(&mut self, _: KeepRequest) -> Result<Kept, AppError> {
-        nothing()
-    }
     async fn remove(&mut self, request: RemoveRequest) -> Result<Removal, AppError> {
         self.log.push(if request.yes {
             "remove apply"
@@ -129,23 +110,11 @@ impl SessionService for Fake {
             dead_letters: Vec::new(),
         })
     }
-    async fn set_title(&mut self, _: TitleRequest) -> Result<Titled, AppError> {
-        nothing()
-    }
-    async fn transcripts(&mut self, _: TranscriptQuery) -> Result<Vec<TranscriptRow>, AppError> {
-        nothing()
-    }
-    async fn transcript(&mut self, _: &str) -> Result<String, AppError> {
-        nothing()
-    }
-    async fn bind(&mut self, _: BindRequest) -> Result<Bound, AppError> {
-        nothing()
-    }
 }
 
 fn ask(yes: bool, even_if_live: bool) -> RemoveRequest {
     RemoveRequest {
-        project: None,
+        project: Some(PROJECT.to_string()),
         harp: HARP.to_string(),
         yes,
         even_if_live,

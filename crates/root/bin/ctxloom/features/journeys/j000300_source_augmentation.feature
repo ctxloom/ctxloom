@@ -1,11 +1,11 @@
+# world: base
 # Ported from journeys/j000300_source_augmentation.feature (rev f36e8dfb2)
-# NOT ported: the scenarios tagged @pending: none has steps yet. Go's "An
-#   installed companion augments the setup interview" and its @live twin are
-#   the same flow as the first scenario and the @live outline here, and are
-#   merged into them.
+# NOT ported: the scenarios tagged @pending: the @live outline needs a real
+#   assistant (the live lane). Go's "An installed companion augments the setup
+#   interview" and its @live twin are the same flow as the first scenario and
+#   the @live outline here, and are merged into them.
 
 @doc
-@pending
 Feature: Companions shape how a project is set up
 
   Setting up a project is not one-size-fits-all. A company standardizes how its
@@ -47,7 +47,7 @@ Feature: Companions shape how a project is set up
     And it includes her personal setup preferences
 
   # With a real assistant: it acts on what the company's companion asked.
-  @live
+  @live @pending
   Scenario Outline: A real <engine> assistant follows the composed setup guidance
     # substitution: Alice names the company's companion when init offers, then takes the interview with her real assistant.
     Given her company ships a companion "acme" whose setup guidance asks her assistant to confirm a company codeword

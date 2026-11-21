@@ -38,11 +38,30 @@
 #                        the commit. It runs in the checkout, the staged index
 #                        and target/logs/test-staged.log in place. "" lets
 #                        every red commit through (whatever went red).
+#   staged_tests_filter  a program, relative to the checkout, that narrows
+#                        `test-staged`: given the staged paths, one per line
+#                        on stdin, in the staged tree, it prints a nextest
+#                        filterset (nothing: no narrowing) that the run of
+#                        the selected crates, or of the workspace, is held
+#                        to (`_tests --filter=<set>`). "" runs every test of
+#                        what is selected. `test` and the landing gates are
+#                        never narrowed.
+#   mutants_memory_max   the mutation run's memory cap (systemd's MemoryMax:
+#                        `16G`, ...), or `none` to run it uncapped, said in
+#                        its log (gates/memory-cap.sh).
+#   mutants_swap_max     its swap cap (systemd's MemorySwapMax).
+#   tests_memory_max     the test gates' memory cap (`_tests`: `test`,
+#                        `test-staged`, and every caller of `_tests`), or
+#                        `none` to run them uncapped, said in their log.
+#   tests_swap_max       its swap cap.
 #
 # and this recipe, which the hooks call: `lint` (clippy, through `_run`).
 #
-# Needs bash, git, jq, flock, setsid, ps and pkill (util-linux, procps),
-# cargo-nextest, cargo-deny, cargo-mutants, gitleaks and lefthook. A missing
+# Needs bash, git, jq, flock, setsid, ps and pkill (util-linux, procps; with
+# no flock the whole-workspace test lock alone is skipped, and said, so that
+# `test` runs on macOS and Windows),
+# systemd-run and journalctl with a reachable systemd user manager (the
+# mutation run's and the test gates' memory caps), cargo-nextest, cargo-deny, cargo-mutants, gitleaks and lefthook. A missing
 # tool fails its gate; nothing skips.
 
 # With forward slashes: on Windows just gives `D:\a\...`, whose backslashes
@@ -243,43 +262,65 @@ _extract-trailers log rc:
     cat "$1"
 
 # Every test in the workspace, by cargo-nextest (`_tests`), every feature of
-# `feature_rules` on.
+# `feature_rules` on, under the machine-wide test lock (`_test-workspace`).
 [no-exit-message]
 [group('check')]
 [doc("Every test in the workspace (nextest)")]
 test: (_require-nextest "test")
-    @just --justfile '{{gates_root}}/justfile' _run test workspace tests just --justfile '{{gates_root}}/justfile' _tests --workspace
+    @just --justfile '{{gates_root}}/justfile' _test-workspace test workspace
 
-# Test what the commit changes: lefthook's pre-commit step. Runs the tests of
-# every crate with a staged change and of the workspace crates depending on
-# them (a change can break a dependent's tests); a staged workspace-wide file
-# (`workspace_wide`), or crate source no crate owns, tests the whole
-# workspace. It judges the STAGED tree, built by `_staged-tree`, so unstaged
-# edits cannot pass or fail it.
+# Test what the commit changes: lefthook's pre-commit step. Runs the OWN
+# tests of every crate with a staged change, and no dependent's (owner ruling
+# of 2026-11-13, fast hooks: a library's change does not run the binary's
+# acceptance suite; the landing gate, `land-ratchet`, runs every test).
+# `scope` `dependents` adds the workspace crates depending on them, as
+# `test-commit` asks on the default branch, where no red may be committed. A
+# staged workspace-wide file (`workspace_wide`), or crate source no crate
+# owns, tests the whole workspace. It judges the STAGED tree, built by
+# `_staged-tree`, so unstaged edits cannot pass or fail it.
 [no-exit-message]
 [private]
 [group('hook')]
-[doc("Tests of the crates the staged change touches, and their dependents")]
-test-staged: (_require-nextest "test-staged")
+[doc("Tests of the crates the staged change touches (with `dependents`, theirs too)")]
+test-staged scope="own": (_require-nextest "test-staged")
     #!/usr/bin/env bash
     set -euo pipefail
     root='{{gates_root}}'
+    scope='{{scope}}'
+    case "$scope" in
+        own|dependents) ;;
+        *) echo "FAIL test-staged: scope is own or dependents, not $scope" >&2; exit 2 ;;
+    esac
     read -ra wide <<< "{{workspace_wide}}"
     mapfile -t dirs < <(cargo metadata --format-version 1 --no-deps --offline --manifest-path "$root/Cargo.toml" \
         | jq -r --arg root "$root/" '.packages[] | .manifest_path | ltrimstr($root) | rtrimstr("/Cargo.toml")')
     while IFS= read -r -d '' path; do
-        [[ $path == *.rs || $path == */Cargo.toml ]] && exec just --justfile "$root/justfile" _staged-tree _test-affected
+        [[ $path == *.rs || $path == */Cargo.toml ]] && exec just --justfile "$root/justfile" _staged-tree _test-affected "$scope"
         for dir in "${dirs[@]}"; do
-            [[ $path == "$dir"/* ]] && exec just --justfile "$root/justfile" _staged-tree _test-affected
+            [[ $path == "$dir"/* ]] && exec just --justfile "$root/justfile" _staged-tree _test-affected "$scope"
         done
         for pattern in "${wide[@]}"; do
-            [[ $path == $pattern ]] && exec just --justfile "$root/justfile" _staged-tree _test-affected
+            [[ $path == $pattern ]] && exec just --justfile "$root/justfile" _staged-tree _test-affected "$scope"
         done
     done < <(git -C "$root" diff --cached --name-only --no-renames -z HEAD)
     echo "ok   test-staged (nothing to test: no staged change is in a crate or a workspace-wide file)"
 
+# The pre-commit clippy: the repository's own `lint`, run over the STAGED
+# tree (owner ruling 2026-11-18, night), in the throwaway worktree that
+# `_staged-tree` makes for `test-staged`, with its target dir
+# (target/staged), so an unstaged edit can neither pass nor fail it, and
+# a staged change to `lint` is run by the `lint` it stages.
+[no-exit-message]
+[private]
+[group('hook')]
+[doc("pre-commit clippy: the repository's lint over the staged tree")]
+lint-staged:
+    @just --justfile '{{gates_root}}/justfile' _staged-tree lint
+
 # The tests of a commit: lefthook's pre-commit `tests` step, and its
-# pre-merge-commit one. `test-staged`, under the red-on-branches rule: red
+# pre-merge-commit one. `test-staged` (off the default branch the changed
+# crates' own tests; on it, and wherever the branch cannot be told, their
+# dependents' too), under the red-on-branches rule: red
 # tests (`_tests`' 100, a failing test, or 120, a failing doc test) are
 # committed on any branch but the default one (`_red-allowed`), with a
 # warning that the branch cannot merge until they pass, and refused on the
@@ -299,14 +340,19 @@ test-staged: (_require-nextest "test-staged")
 test-commit:
     #!/usr/bin/env bash
     set -euo pipefail
-    rc=0
-    just --justfile '{{gates_root}}/justfile' test-staged || rc=$?
+    rc=0 allowed=0
+    where=$(just --justfile '{{gates_root}}/justfile' _red-allowed) || allowed=$?
+    if [ "$allowed" -eq 0 ]; then
+        just --justfile '{{gates_root}}/justfile' test-staged || rc=$?
+    else
+        just --justfile '{{gates_root}}/justfile' test-staged dependents || rc=$?
+    fi
     case "$rc" in
         0) exit 0 ;;
         100|120) ;;
         *) exit "$rc" ;;
     esac
-    if where=$(just --justfile '{{gates_root}}/justfile' _red-allowed); then
+    if [ "$allowed" -eq 0 ]; then
         IFS=$'\t' read -r branch default <<< "$where"
         if [ -n "{{red_judge}}" ] && ! just --justfile '{{gates_root}}/justfile' {{red_judge}} "$rc"; then
             echo "FAIL tests: red tests cannot be committed: red_judge refused them, though $branch is off" \
@@ -321,9 +367,10 @@ test-commit:
     exit "$rc"
 
 # Inside the staged tree: map the staged paths to crates through cargo
-# metadata, close over workspace dependents, and test them.
+# metadata, close over workspace dependents when `scope` is `dependents`, and
+# test them.
 [no-exit-message]
-_test-affected:
+_test-affected scope:
     #!/usr/bin/env bash
     set -euo pipefail
     root='{{gates_root}}'
@@ -347,15 +394,28 @@ _test-affected:
             whole="$path"
         fi
     done < <(git diff --cached --name-only --no-renames -z HEAD)
+    # The narrowing `staged_tests_filter` gives, of the staged paths.
+    narrow=() narrowed=
+    if [ -n '{{staged_tests_filter}}' ]; then
+        expr=$(git diff --cached --name-only --no-renames HEAD | "$root/{{staged_tests_filter}}") \
+            || { echo "FAIL test-staged: {{staged_tests_filter}} did not say what to run" >&2; exit 121; }
+        if [ -n "$expr" ]; then narrow=("--filter=$expr") narrowed="; narrowed by {{staged_tests_filter}}"; fi
+    fi
     if [ -n "$whole" ]; then
-        exec just --justfile "$root/justfile" _run test-staged "workspace: $whole is staged" tests \
-            just --justfile "$root/justfile" _tests --workspace
+        exec just --justfile "$root/justfile" _test-workspace test-staged "workspace: $whole is staged$narrowed" \
+            ${narrow[@]+"${narrow[@]}"}
     fi
     if [ "${#selected[@]}" -eq 0 ]; then
         echo "ok   test-staged (nothing to test: the staged change is in no crate's sources or manifest)"
         exit 0
     fi
     changed=$(printf '%s ' "${!selected[@]}")
+    changed=$(printf '%s\n' $changed | sort | tr '\n' ' ')
+    if [ '{{scope}}' != dependents ]; then
+        mapfile -t packages < <(printf '%s\n' "${!selected[@]}" | sort)
+        exec just --justfile "$root/justfile" _run test-staged "changed: ${changed% }$narrowed" tests \
+            just --justfile "$root/justfile" _tests-checked ${narrow[@]+"${narrow[@]}"} "${packages[@]}"
+    fi
     # Dependents, transitively: every workspace crate depending (normal, dev or
     # build) on a selected one is selected too, until nothing changes.
     mapfile -t edges < <(jq -r '[.packages[].name] as $ws | .packages[] as $p
@@ -373,11 +433,13 @@ _test-affected:
         done
     done
     mapfile -t packages < <(printf '%s\n' "${!selected[@]}" | sort)
-    exec just --justfile "$root/justfile" _run test-staged "changed: ${changed% }; with dependents: ${packages[*]}" tests \
-        just --justfile "$root/justfile" _tests "${packages[@]}"
+    exec just --justfile "$root/justfile" _run test-staged "changed: ${changed% }; with dependents: ${packages[*]}$narrowed" tests \
+        just --justfile "$root/justfile" _tests-checked ${narrow[@]+"${narrow[@]}"} "${packages[@]}"
 
 # The test run of `test` and `test-staged`: cargo-nextest over the packages
-# named (or --workspace), each test in its own process, without stopping at
+# named (or --workspace), held to the filterset of a leading
+# `--filter=<set>` when one is given (`test-staged`'s, from
+# `staged_tests_filter`; doc tests are not narrowed), each test in its own process, without stopping at
 # the first failure; then the doc tests of those with a library, which nextest
 # cannot run, once the rest pass. `feature_rules` turns on the features of the
 # packages selected (all of them for --workspace), after `features_prepare`.
@@ -391,14 +453,75 @@ _test-affected:
 #   120  a doc test failed (once every other test passed);
 #   121  nextest failed some other way (any other code, a signal included),
 #        named in the log on a line `nextest exited <code>`.
+# (`test-staged` runs `_tests-checked`, which adds 122, gates/red-sanity.sh's
+# refusal of red tests that are an environment's failure.)
 # 100 and 120 are red tests, which `test-commit` allows off the default
 # branch; 101 and 121 are not. Its self-test is scripts/tests-exit.selftest.sh.
 # NEXTEST_PROFILE, when set, is the nextest profile (nextest reads it itself;
 # said here so the run's log names it): CI's `ci-platform` narrows the run by
 # its `default-filter` (.config/nextest.toml).
+#
+# The whole run, build and tests, is under the test gates' memory cap
+# (gates/memory-cap.sh, owner ruling of 2026-11-16: a systemd user scope,
+# MemoryMax=`tests_memory_max`, MemorySwapMax=`tests_swap_max`,
+# OOMPolicy=continue), so a test that grows without bound is killed by the
+# cap's OOM killer alone: nextest reports that test failed (100) and runs
+# the rest, and the machine keeps its memory. The log ends with the scope's
+# memory peak. With no user bus to reach the run FAILS before anything is
+# built (121, the cap's FAIL line and its fix said); `tests_memory_max`
+# `none` (TESTS_MEMORY_MAX=none) opts out, said in the log. Any exit of the
+# capped run outside the codes above (the cap not taking) is 121 too.
+#
+# A whole-workspace run (`--workspace`) runs under the machine-wide test lock
+# (gates/tests-lock.sh: one flock per user, so two agents' workspace runs on
+# one machine never overlap; a waiter says so once), taken after the cap is
+# had and around the capped run. Its callers through `_test-workspace`
+# already hold it, and inside their run it is not taken again. A run of
+# named packages takes no lock.
 [positional-arguments]
 [no-exit-message]
 _tests +packages:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    root='{{gates_root}}'
+    cap=(env MEMORY_CAP_OPT_OUT=TESTS_MEMORY_MAX "$root/gates/memory-cap.sh" tests '{{tests_memory_max}}' '{{tests_swap_max}}')
+    "${cap[@]}" --check || exit 121
+    lock=()
+    whole=$1
+    [[ $whole != --filter=* ]] || whole=${2:-}
+    [ "$whole" != --workspace ] || lock=("$root/gates/tests-lock.sh" tests)
+    rc=0
+    ${lock[@]+"${lock[@]}"} "${cap[@]}" just --justfile "$root/justfile" _tests-capped "$@" || rc=$?
+    case "$rc" in
+        0|100|101|120|121) exit "$rc" ;;
+        *) echo "the capped test run exited $rc: not a test failure"; exit 121 ;;
+    esac
+
+# `_tests`, then, when it exits 100 or 120 (red tests), gates/red-sanity.sh's
+# rule on its output, inside the tree it ran in: a run whose staged worktree,
+# target directory or test programs are gone (R0), or in which over 100 tests
+# of packages that had tests at HEAD failed, half or more of them (R1), is
+# not red tests but a broken environment, and exits 122, which `test-commit`
+# refuses on every branch. `test-staged` runs this, `test` runs `_tests`.
+[positional-arguments]
+[no-exit-message]
+_tests-checked +packages:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    root='{{gates_root}}'
+    tmp=$(mktemp)
+    trap 'rm -f "$tmp"' EXIT
+    just --justfile "$root/justfile" _tests "$@" 2>&1 | tee "$tmp"
+    rc=${PIPESTATUS[0]}
+    case "$rc" in
+        100|120) "$root/gates/red-sanity.sh" "$tmp" "$rc" || exit $? ;;
+    esac
+    exit "$rc"
+
+# `_tests`' run, inside its memory cap.
+[positional-arguments]
+[no-exit-message]
+_tests-capped +packages:
     #!/usr/bin/env bash
     set -euo pipefail
     root='{{gates_root}}'
@@ -409,7 +532,12 @@ _tests +packages:
     cargo_terse=(-q --message-format=short)
     if [ "${VERBOSE:-}" = 1 ]; then terse=(); cargo_terse=(); fi
     read -ra rules <<< "{{feature_rules}}"
-    features=()
+    features=() narrow=()
+    # `--filter=<set>` first: the nextest filterset the run is held to.
+    if [[ $1 == --filter=* ]]; then
+        narrow=(-E "${1#--filter=}")
+        shift
+    fi
     if [ "$1" = --workspace ]; then
         selection=(--workspace)
         doc=(--workspace)
@@ -435,7 +563,7 @@ _tests +packages:
     cargo test --manifest-path "$root/Cargo.toml" --no-run ${cargo_terse[@]+"${cargo_terse[@]}"} ${selection[@]+"${selection[@]}"} ${features[@]+"${features[@]}"}
     rc=0
     cargo nextest run --manifest-path "$root/Cargo.toml" --no-fail-fast --no-tests=pass ${terse[@]+"${terse[@]}"} \
-        ${selection[@]+"${selection[@]}"} ${features[@]+"${features[@]}"} || rc=$?
+        ${selection[@]+"${selection[@]}"} ${features[@]+"${features[@]}"} ${narrow[@]+"${narrow[@]}"} || rc=$?
     case "$rc" in
         0|100|101) ;;
         *)
@@ -495,6 +623,9 @@ mutants-staged: _mutants-no-features
         echo "ok   mutants-staged (no mutants: the staged change touches no Rust source)"
         exit 0
     fi
+    # The run's memory cap (gates/memory-cap.sh), before the staged tree is
+    # built: no user bus is a failure here, never an uncapped run.
+    '{{gates_root}}/gates/memory-cap.sh' mutants-staged '{{mutants_memory_max}}' '{{mutants_swap_max}}' --check
     exec just --justfile '{{gates_root}}/justfile' _staged-tree _mutants-affected
 
 # No feature rule reaches the mutation run (owner ruling 99): cargo mutants
@@ -532,6 +663,14 @@ _mutants-affected:
 # restarts. No such process can hold the staged tree's lock either: fd 9 is
 # closed for the run. Only the session's processes are touched; nothing
 # started outside the run is in it.
+#
+# cargo mutants runs under a memory cap (gates/memory-cap.sh: a systemd user
+# scope, MemoryMax=`mutants_memory_max`, MemorySwapMax=`mutants_swap_max`,
+# OOMPolicy=continue), so a mutant whose test grows without bound is killed
+# by the cap's OOM killer (its test fails: caught) and the run goes on,
+# rather than filling the machine (2026-11-15: twice, about 70 GB, and the
+# global OOM took the user scope that started it). The log ends with the
+# scope's memory peak. `mutants_memory_max` `none` opts out, and says so.
 [no-exit-message]
 _mutants-judge: _mutants-no-features
     #!/usr/bin/env bash
@@ -561,6 +700,7 @@ _mutants-judge: _mutants-no-features
     # In the background, so an interrupt is handled at once rather than once
     # the run ends: the trap's exit reaps the session, cargo mutants too.
     setsid --wait bash -c 'echo $$ > "$1"; shift; exec "$@"' mutants-session "$session" \
+        "$root/gates/memory-cap.sh" mutants-staged '{{mutants_memory_max}}' '{{mutants_swap_max}}' \
         cargo mutants --dir "$root" --in-place --workspace --in-diff "$work/staged.patch" \
         --output "$out" --colors never 9>&- &
     wait "$!" || rc=$?
@@ -718,7 +858,11 @@ _scratch-tree source +recipe:
         "${scrub[@]}" git -C "$tree" apply --index --binary --whitespace=nowarn "$scratch/staged.patch"
     fi
     cd "$tree"
-    "${scrub[@]}" "CARGO_TARGET_DIR=$top/target/staged" "GATE_LOG_DIR=$top/target/logs" just --justfile "$tree/justfile" "$@"
+    # The lock is this shell's alone (9>&-): bash opens it without
+    # close-on-exec, so a recipe given it would hand it to everything it
+    # starts, and a process that outlives the gate (a test's detached
+    # daemon) would hold the next commit's gate (2026-11-15).
+    "${scrub[@]}" "CARGO_TARGET_DIR=$top/target/staged" "GATE_LOG_DIR=$top/target/logs" just --justfile "$tree/justfile" "$@" 9>&-
 
 # The red-on-branches rule: red tests may be committed on any branch but the
 # default one, and never reach it. `test-commit` allows them off it;
@@ -820,12 +964,22 @@ push-check remote *lefthook:
     done
     [ "$tested" = 1 ] || echo "ok   push-check (no push to $remote/${default:-?}: nothing to test)"
 
-# Inside a commit's tree (`_commit-tree`): every test of the workspace, as
-# the gate named.
+# Every test of the workspace, as the gate named: `test`, `test-staged`'s
+# workspace leg, and inside a commit's tree (`_commit-tree`) `push-check`'s
+# and `merge-check`'s. Under the machine-wide test lock
+# (gates/tests-lock.sh), taken outside `_run` so that a run waiting on it
+# says so on the terminal, not in the gate's log, and so that the gate's
+# duration is the run's, not the wait's. `narrow`, `test-staged`'s alone,
+# is `--filter=<set>` (`staged_tests_filter`'s).
 [positional-arguments]
 [no-exit-message]
-_test-workspace gate scope:
-    @just --justfile '{{gates_root}}/justfile' _run "$1" "$2" tests just --justfile '{{gates_root}}/justfile' _tests --workspace
+_test-workspace gate scope *narrow:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    gate=$1 scope=$2
+    shift 2
+    exec '{{gates_root}}/gates/tests-lock.sh' "$gate" just --justfile '{{gates_root}}/justfile' _run "$gate" "$scope" tests \
+        just --justfile '{{gates_root}}/justfile' _tests"$([ "$gate" != test-staged ] || echo -checked)" "$@" --workspace
 
 # lefthook's post-merge step. A fast-forward runs no hook git has, so no
 # hook can refuse one; this checks the default branch just after one. When a
@@ -968,6 +1122,7 @@ _extract-tests log rc:
         101) echo "the tests did not build ($(grep -cE '^[^ ]+:[0-9]+:[0-9]+: error' "$1" || true) errors)" ;;
         120) echo "doc tests failed: $(grep -m1 -E '^test result: FAILED' "$1" || echo 'see the log')" ;;
         121) echo "the test runner failed, not a test: $(grep -m1 -oE '^nextest exited [0-9]+' "$1" || echo 'see the log')" ;;
+        122) echo "not red tests, the environment's failure: $(grep -m1 -E '^red-sanity: ' "$1" | sed 's/^red-sanity: //' || echo 'see the log')" ;;
         *) echo "the test run failed (exit $2)" ;;
     esac
     # The failing tests' names first (never a passing one), then their output;

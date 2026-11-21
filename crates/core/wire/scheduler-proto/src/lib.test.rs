@@ -9,8 +9,8 @@ fn every_message_is_in_the_final_package() {
     for url in [
         v1::ArmAlarm::type_url(),
         v1::CancelAlarm::type_url(),
-        v1::AlarmReached::type_url(),
-        v1::AlarmDue::type_url(),
+        v1::RecordAlarmReached::type_url(),
+        v1::RecordAlarmDue::type_url(),
         v1::AlarmArmed::type_url(),
         v1::AlarmCancelled::type_url(),
         v1::AlarmFired::type_url(),

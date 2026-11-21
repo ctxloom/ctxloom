@@ -28,6 +28,36 @@ once:
 lefthook install          # or: just hooks-install
 ```
 
+## The machine-wide test lock (2026-11-16)
+
+Every whole-workspace test run takes one flock per user,
+`${XDG_CACHE_HOME:-$HOME/.cache}/ctxloom/gates/workspace-tests.lock`
+(`gates/tests-lock.sh`), so two agents' runs on one machine never overlap.
+A repository copying it takes `gates/tests-lock.sh`, the `_tests` and
+`_test-workspace` changes in `gates/gates.just` (`test` and
+`test-staged`'s workspace leg now go through `_test-workspace`), its
+`scripts/ratchet-base.sh` re-run under the lock if it has that script,
+the copy of `tests-lock.sh` into each fixture self-test that copies
+`memory-cap.sh` (with `TESTS_LOCK_FILE` set to a file of the fixture's), and
+`scripts/tests-lock.selftest.sh` into its `just selftest`. Keep the lock's
+path as it is: the memory the lock guards is the machine's, so taskloom's
+and annals' runs must take the same file as ctxloom's.
+
+## No sccache; the worktree pool is not a gate (2026-11-16)
+
+The sccache export block of `gates/gates.just` (with `CARGO_INCREMENTAL=0`,
+`gates/sccache.sh` and the `sccache_*` parameters) is gone again (owner
+ruling of 2026-11-16: released sccache cannot share a workspace crate's
+compile between worktree paths). A repository that copied it drops the
+block, the script, the parameters (its fixture justfiles' too), its
+self-test and CI's `CTXLOOM_SCCACHE` opt-out. ctxloom's worktree pool
+(`just slot`, `scripts/slot.sh`) and its age sweep (`just trim-targets`,
+`scripts/trim-targets.sh`, over the pinned cargo-sweep) are the
+repository's own, not gates: nothing in `gates/` calls them. A repository
+that wants them copies the two scripts and their self-tests, the
+`slot_*` and `cargo_sweep_version` parameters and the two recipes, and
+changes `slot_prefix`.
+
 ## The commit-msg hook (owner ruling 170)
 
 `gates/lefthook.yml` names a `commit-msg` hook: `just commit-msg-check
@@ -92,7 +122,45 @@ with the feature on (`<crate> = { path = ".", features = ["<feature>"] }`).
 code, before it lets red tests be committed off the default branch, and its
 failure refuses the commit. Every justfile importing these gates defines it
 (`red_judge := ""` for none, which lets every red commit through as before).
-ctxloom's is `_red-judge` (`scripts/red-commit-judge.sh`): no scenario of a
-feature file the commit does not touch may turn red. A repository copying
-the change takes the `test-commit` hunk, the parameter's line in the header,
-and `scripts/tests-exit.selftest.sh`'s judge cases.
+ctxloom's is `""` (owner ruling of 2026-11-13): its `_red-judge`
+(`scripts/red-commit-judge.sh`, no scenario of a feature file the commit
+does not touch may turn red) is gone, and the landing gate's ratchet
+(`just land-ratchet <base>`) judges red scenarios instead.
+
+## `test-staged` tests the changed crates alone (owner ruling of 2026-11-13)
+
+`test-staged` runs the changed crates' OWN tests, no dependent's, so a
+library's change no longer runs the binary's acceptance suite at commit.
+`test-staged dependents` adds the workspace dependents, and `test-commit`
+asks it on the default branch (and wherever the branch cannot be told), so
+red still cannot be committed there. `_test-affected` takes the scope. A
+staged `workspace_wide` file tests the whole workspace as before. No hook
+is added or removed, so no `hooks-install` is needed. A repository copying
+the change takes the `test-staged`, `test-commit` and `_test-affected`
+hunks, `scripts/test-staged.selftest.sh` and `scripts/tests-exit.selftest.sh`.
+
+## The plain-binary gate (2026-11-18)
+
+pre-commit gains `plain-binary` after clippy (owner ruling 2026-11-18,
+evening): `just plain-binary` builds the workspace as `just build` does and
+runs the repository's plain-build checks over the binary it made, under
+`_run` (one `ok plain-binary` line; a failure's first line is the failing
+check's summary, its log `target/logs/plain-binary.log`). The recipe and its
+checks are ctxloom's own (its justfile, `scripts/plain-engines-check.sh` and
+`scripts/plain-destroy-check.sh`), not the gates': a repository copying
+`gates/lefthook.yml` drops the `plain-binary` command or gives its justfile
+a recipe of that name. It is a command of the existing pre-commit hook, so
+no `lefthook install` is needed.
+
+## The pre-commit clippy lints the staged tree (owner ruling 2026-11-18, night)
+
+pre-commit's `clippy` runs `just lint-staged`, which runs the repository's
+`lint` inside the throwaway staged worktree `_staged-tree` makes (HEAD plus
+`git diff --cached`), with test-staged's target dir (`target/staged`), so
+an unstaged edit can neither pass nor fail it. Its output is `lint`'s own
+terse line (logs in this checkout's `target/logs`, `GATE_LOG_DIR`). It is
+the same command of the existing pre-commit hook, so no `lefthook install`
+is needed. A repository copying the change takes the `lint-staged` recipe
+and the `clippy` command's `run:`; its `lint` recipe must work in a
+checkout of its own tree (it is run there).
+

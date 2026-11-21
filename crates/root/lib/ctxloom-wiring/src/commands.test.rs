@@ -224,79 +224,41 @@ fn test_every_engine_the_build_names_is_registered() {
 #[test]
 fn test_a_library_command_is_run_over_the_home() {
     let world = World::new("library");
-    let (code, out, err) = run_line(&mut world.commands(), &["bundle", "list"]);
-    assert_eq!((code, out.as_str(), err.as_str()), (0, "[]\n", ""));
-}
-
-#[test]
-fn test_a_setup_command_is_run_over_the_home() {
-    let world = World::new("setup");
-    let (code, out, _) = run_line(&mut world.commands(), &["clean"]);
-    assert_eq!(code, 0);
-    assert!(out.contains("\"applied\": false"), "{out}");
-    // The target below the home's app dir, joined as the platform joins it
-    // (owner ruling 2026-11-12); in JSON, where a Windows path's `\` is
-    // escaped.
-    let path = world
-        .dir
-        .join("home")
-        .join(".ctxloom")
-        .join("cache")
-        .join("bundles")
-        .display()
-        .to_string()
-        .replace('\\', "\\\\");
-    assert!(out.contains(&format!("\"path\": \"{path}\"")), "{out}");
-}
-
-// The sweep's purge age is read from the configuration of the project the
-// process is in (`session_purge_age`), through the wired sessions.
-#[test]
-fn test_the_wired_sessions_read_the_purge_age_from_the_project_config() {
-    use reclaim_application::SweepConfig;
-    let world = World::new("purge-age");
-    let mut sessions = world.wiring().sessions();
-    assert_eq!(sessions.purge_age().unwrap(), None);
-    crate::fixtures::mkdirs(world.dir.join("work/.ctxloom"));
-    crate::fixtures::put_mode(
-        world.dir.join("work/.ctxloom/config.yaml"),
-        "schema_version: 8\nsession_purge_age: 45d\n",
-        0o644,
+    // A verb still in process (the library's reads are the daemon's since
+    // step 10a U2, and a unit test starts no daemon; `agent default` is a
+    // write's verb, its bare form the default it would change).
+    let (code, out, err) =
+        try_line(&mut world.commands(), Format::Text, &["agent", "default"]).unwrap();
+    assert_eq!(
+        (code, out.as_str(), err.as_str()),
+        (0, "No default agent set.\n", "")
     );
-    let mut sessions = world.wiring().sessions();
-    assert_eq!(sessions.purge_age().unwrap(), Some("45d".to_string()));
 }
 
-// auth.feature, over the process's own environment.
 #[test]
-fn test_auth_status_reads_the_launch_environment_and_never_its_values() {
-    let mut world = World::new("auth");
-    let (code, out, _) = run_line(&mut world.commands(), &["auth", "status"]);
-    assert_eq!(code, 0);
-    assert!(out.contains("\"present\": false"), "{out}");
-    world.set("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-fixture-not-real"); // gitleaks:allow
-    let (code, out, err) = run_line(&mut world.commands(), &["auth", "status"]);
-    assert_eq!(code, 0);
-    assert!(out.contains("\"present\": true"), "{out}");
-    assert!(!out.contains("fixture-not-real") && !err.contains("fixture-not-real"));
-}
-
-// doctor.feature: the credentials row is read from the same environment.
-#[test]
-fn test_doctor_fails_without_the_token_and_passes_with_it() {
-    let mut world = World::new("doctor-credentials");
-    let (code, out, _) = run_line(&mut world.commands(), &["doctor"]);
-    assert_eq!(code, 20);
-    assert!(out.contains("DOCTOR-CHECK-CREDENTIALS-m5"), "{out}");
-    world.set("CLAUDE_CODE_OAUTH_TOKEN", "x");
-    let (code, _, _) = run_line(&mut world.commands(), &["doctor"]);
-    assert_eq!(code, 0);
+// Step 10b U9: `clean` is a daemon write (`Clean`), never run in process:
+// with no daemon to be had (this world has none), it fails and takes
+// nothing. Its targets' paths are reclaim-application's to join.
+fn test_clean_asks_the_daemon_and_takes_nothing_without_one() {
+    let world = World::new("setup");
+    let cached = world.dir.join("home/.ctxloom/cache/bundles/kept.txt");
+    crate::fixtures::mkdirs(cached.parent().expect("a directory"));
+    crate::fixtures::put_mode(&cached, "cached", 0o644);
+    let failed = try_line(&mut world.commands(), Format::Json, &["clean", "--yes"]);
+    let Err(failure) = failed else {
+        panic!("clean ran in process")
+    };
+    let code = angzarr_diagnostic::Diagnostic::code(failure.cause.as_ref()).to_string();
+    assert!(code.starts_with("daemon-"), "{code}");
+    assert!(crate::fixtures::exists(&cached), "nothing taken");
 }
 
 #[test]
 fn test_a_dependency_command_is_run_over_the_home() {
     let world = World::new("deps");
-    let (code, out, _) = run_line(&mut world.commands(), &["remote", "list"]);
+    // A verb still in process (`remote list` and `deps list` are the
+    // daemon's since step 10a U2, and a unit test starts no daemon).
+    let (code, out, _) = run_line(&mut world.commands(), &["deps", "check"]);
     assert_eq!(code, 0);
     assert!(!out.is_empty());
 }
@@ -309,7 +271,7 @@ fn test_the_hooks_answer_through_the_engines_codec() {
     let hooks = commands.hooks().ok().unwrap();
     for native in ["SessionStart", "PostToolUse", "Stop"] {
         let answer = hooks.execute("claude-code", native, "{}", "").ok().unwrap();
-        assert_eq!(answer.bind, None, "{native}");
+        assert!(answer.event.is_some() || answer.harp_missing, "{native}");
     }
     assert_eq!(
         hooks
@@ -515,60 +477,142 @@ pub(crate) fn world_without_programs(name: &str) -> World {
     world
 }
 
-// `run --one-shot` is the run use case's: an engine nobody drives is refused
-// by it (exit 20), before anything is launched.
+// `run --one-shot` is the daemon's (U4, T7): its refusals (an engine nobody
+// drives, no prompt beside no credential, rulings 73, 73b) are held by the
+// binary's acceptance tests (run.feature), as a dry run's are: the command
+// reaches the daemon, which an in-process test cannot spawn (its program is
+// the test harness).
+
+// Without `--one-shot` it is the human's session, prepared by the daemon
+// and started by the command as its frontend (U5): its refusals (an engine
+// nobody drives) are held by the binary's acceptance tests, for the same
+// reason.
+
+// `--dry-run` stays the library's (the plan printed, nothing run, its
+// detailed code 1) is held by the binary's `library_cli_run.test.rs`: every
+// dry run reaches the daemon (owner ruling 2026-11-14), which an in-process
+// test cannot spawn (its program is the test harness).
+
+// T17, S48: a command in a project that still has a store of its own is
+// refused, exit 20, before it runs; the store is named for its removal.
 #[test]
-fn test_a_one_shot_is_run_by_the_run_use_case() {
-    let world = world_without_programs("one-shot");
-    let failure = try_line(
-        &mut world.commands(),
-        Format::Json,
-        &["run", "--one-shot", "--engine", "nope", "hello"],
-    )
-    .unwrap_err();
-    assert_eq!(failure.cause.code(), "runs-unknown-engine");
-    assert_eq!(failure.exit, Exit::REFUSED);
-    assert!(
-        failure.refusals.is_empty(),
-        "one refusal is its own envelope"
+fn a_command_in_a_project_with_a_store_of_its_own_is_refused() {
+    let world = World::new("per-project-store");
+    let work = world.dir().join("work");
+    crate::fixtures::mkdirs(work.join(".ctxloom"));
+    crate::fixtures::mkdirs(world.dir().join("home/.ctxloom/projects/old-proj"));
+    crate::fixtures::put_mode(work.join(".ctxloom/project-id"), "old-proj\n", 0o644);
+    crate::fixtures::put_mode(
+        world
+            .dir()
+            .join("home/.ctxloom/projects/old-proj/ctxloom.db"),
+        "an old store",
+        0o644,
     );
+    let failed =
+        try_line(&mut world.commands(), Format::Json, &["session", "list"]).expect_err("refused");
+    assert_eq!(failed.exit.code(true), 20);
+    assert_eq!(
+        failed.cause.code(),
+        "ctxloom-store-sqlite-per-project-store"
+    );
+    assert!(!crate::fixtures::exists(
+        world.dir().join("home/.ctxloom/ctxloom.db")
+    ));
 }
 
-// A one-shot with no prompt, argued or piped, is refused as that, not
-// started as a session; with no credential exported either, it is refused
-// for both at once, in check order, and the command line is handed both
-// (rulings 73, 73b).
+// T18: the daemon hosts a child on claude or opencode, each by its name;
+// OD-58: they are the engines granted every urgency, so a child adapter
+// added here is granted there too.
 #[test]
-fn test_a_one_shot_with_no_prompt_is_not_a_session() {
-    let world = world_without_programs("one-shot-bare");
-    let failure =
-        try_line(&mut world.commands(), Format::Json, &["run", "--one-shot"]).unwrap_err();
-    assert_eq!(failure.cause.code(), "runs-launch-refused");
-    assert_eq!(failure.exit, Exit::REFUSED);
-    let codes: Vec<&str> = failure.refusals.iter().map(|r| r.code()).collect();
-    assert_eq!(codes, ["runs-no-prompt", "runs-no-credential"]);
+fn the_daemon_hosts_children_on_claude_and_opencode() {
+    let env = EnvSnapshot::of([(crate::fixtures::home_var(), "/nowhere")]);
+    let wiring = Wiring::new(std::sync::Arc::new(env)).unwrap();
+    let names: Vec<String> = super::hosted_engines(&wiring, "ctxloom")
+        .iter()
+        .map(|engine| engine.name().to_string())
+        .collect();
+    assert_eq!(names, ["claude-code", "opencode"]);
+    assert_eq!(names, session_policies::CHILD_ENGINES);
 }
 
-// Without `--one-shot` it is the human's session, which is started on the
-// engine asked for, prompt or none.
-#[test]
-fn test_run_without_one_shot_is_the_session() {
-    let world = world_without_programs("session");
-    let failure = try_line(
-        &mut world.commands(),
-        Format::Json,
-        &["run", "--engine", "nope"],
-    )
-    .unwrap_err();
-    assert_eq!(failure.cause.code(), "runs-unknown-engine");
+/// What `engine` prepares for a child's home at `/h` (no context, no
+/// permissions): its files and seeds, by path, as text.
+fn prepared(engine: &dyn run_ports::Engine) -> Vec<(String, String)> {
+    let prepared = engine
+        .prepare(&run_ports::PrepareRequest {
+            home: "/h".to_string(),
+            context: String::new(),
+            offered: Vec::new(),
+            interactive: false,
+            cwd: Some("/work".to_string()),
+            existing: std::collections::BTreeMap::new(),
+            permissions: None,
+            session_home: run_ports::SessionHome::Session,
+            surfaces: run_ports::LaunchSurfaces::default(),
+        })
+        .unwrap();
+    prepared
+        .files
+        .iter()
+        .chain(&prepared.seeds)
+        .map(|file| {
+            (
+                file.rel.clone(),
+                String::from_utf8_lossy(&file.bytes).into_owned(),
+            )
+        })
+        .collect()
 }
 
-// `--dry-run` stays the library's: the plan is printed, nothing is run; it
-// would launch, so its detailed code is 1 (ruling 153).
+// One session-setup path (owner, 2026-11-12): the hosted engines are
+// composed as every launch's are: their callbacks run the running program
+// (`calling`, ruling 163), claude's settings start from hers (ruling 169)
+// and opencode seeds her recent models (ruling 167).
 #[test]
-fn test_a_dry_run_is_the_librarys_plan_and_runs_nothing() {
-    let world = world_without_programs("dry-run");
-    let (code, out, _) = run_line(&mut world.commands(), &["run", "--dry-run", "hello"]);
-    assert_eq!(code, 1);
-    assert!(out.contains("hello"), "{out}");
+fn the_hosted_engines_are_composed_as_every_launchs_are() {
+    let dir = crate::fixtures::root();
+    let home = dir.root().join("home");
+    let state = dir.root().join("state");
+    crate::fixtures::mkdirs(home.join(".claude"));
+    crate::fixtures::mkdirs(state.join("opencode"));
+    crate::fixtures::put_mode(
+        home.join(".claude/settings.json"),
+        r#"{"theme": "hers-alone"}"#,
+        0o644,
+    );
+    crate::fixtures::put_mode(
+        state.join("opencode/model.json"),
+        r#"{"recent":["hers"]}"#,
+        0o644,
+    );
+    let env = EnvSnapshot::of([
+        (crate::fixtures::home_var(), home.to_str().unwrap()),
+        ("XDG_STATE_HOME", state.to_str().unwrap()),
+    ]);
+    let wiring = Wiring::new(std::sync::Arc::new(env)).unwrap();
+    let hosted = super::hosted_engines(&wiring, "ctxloom-elsewhere");
+    let claude = prepared(&*hosted[0].engine);
+    let settings = claude
+        .iter()
+        .find(|(rel, _)| rel == "settings.json")
+        .map(|(_, text)| text.clone())
+        .expect("claude's settings");
+    assert!(settings.contains("hers-alone"), "{settings}");
+    assert!(
+        claude.iter().any(|(rel, text)| rel == "ctxloom-hooks.json"
+            && text.contains(r#""command": "ctxloom-elsewhere""#)),
+        "{claude:?}"
+    );
+    let opencode = prepared(&*hosted[1].engine);
+    assert!(
+        opencode.iter().any(|(_, text)| text.contains("\"hers\"")),
+        "her recent models seeded: {opencode:?}"
+    );
+    assert!(
+        opencode
+            .iter()
+            .any(|(_, text)| text.contains("ctxloom-elsewhere")),
+        "{opencode:?}"
+    );
 }

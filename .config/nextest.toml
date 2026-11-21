@@ -34,6 +34,34 @@ leak-timeout = { period = "1s", result = "fail" }
 capture-stdout = true
 capture-stderr = true
 
+# Every test runs with no home of the shell it was started in (OD-34): the
+# owner's and every agent's shell carries CTXLOOM_HOME (which ctxloom reads
+# before HOME) and an engine's relocated CLAUDE_CONFIG_DIR, OPENCODE_CONFIG_DIR
+# and XDG bases, and a test that kept one once registered 85 temporary
+# projects in the owner's real ctxloom home. The script names each as a file
+# under which nothing can be created, so such a test fails instead. Here and
+# not in the justfile: every test gate (test, test-pkg, test-staged) and the
+# mutation run go through nextest and this file.
+[scripts.setup.guard-homes]
+command = 'scripts/nextest-guard-homes.sh'
+capture-stdout = true
+capture-stderr = true
+
+[scripts.setup.guard-homes-windows]
+command = ['sh', 'scripts/nextest-guard-homes.sh']
+capture-stdout = true
+capture-stderr = true
+
+[[profile.default.scripts]]
+platform = 'cfg(unix)'
+filter = 'all()'
+setup = 'guard-homes'
+
+[[profile.default.scripts]]
+platform = 'cfg(windows)'
+filter = 'all()'
+setup = 'guard-homes-windows'
+
 [[profile.default.scripts]]
 platform = 'cfg(unix)'
 filter = 'package(ctxloom)'
@@ -45,6 +73,9 @@ filter = 'package(ctxloom)'
 setup = 'build-binaries-windows'
 
 [profile.default]
+# 12 tests at once, not one a core (20): measured 2026-11-18, 12 threads with 2 scenarios at once matched 20x3 on a quiet host (85 s vs 84-92 s) and beat it under the other slots' load (142 s vs 163-187 s) at ~60% of its load average; 8 or 6 were slower.
+test-threads = 12
+
 # Retries stay OFF (ruling 144): a retry passes a flaky test ("treated as
 # ultimately successful", https://nexte.st/docs/features/retries/), which
 # would have hidden the port race of ad31aa071. A flake is a finding.
@@ -52,9 +83,10 @@ retries = 0
 
 # A test is SLOW after 30 s and terminated after 4 periods, 120 s
 # (https://nexte.st/docs/features/slow-tests/). Measured on 2026-11-11 (the
-# whole workspace, 3,853 tests, 20 cores): the longest test takes 5.0 s
-# (`gherkin_features::every_feature_runs`), then 3.1 s (companion_assembly,
-# hook-listener's held connection); every other under 2.3 s. 30 s is six
+# whole workspace, 3,853 tests, 20 cores): the longest test took 5.0 s
+# (the feature runner, then one test; its features now have limits of their
+# own, below), then 3.1 s (companion_assembly, hook-listener's held
+# connection); every other under 2.3 s. 30 s is six
 # times the longest, room for a loaded machine or a mutant; a test past 120 s
 # is hung, and once hung the pre-commit hook until a person intervened. Its
 # process group is sent SIGTERM, then SIGKILL after the grace.
@@ -69,19 +101,257 @@ leak-timeout = { period = "200ms", result = "fail" }
 # and dial it expecting nobody there (`closed_url`, `closed_endpoint`), run
 # one at a time across every test binary: ports are system-wide, and another
 # test's port-0 bind taking the freed port was the race of ad31aa071
-# (https://nexte.st/docs/configuration/test-groups/).
+# (https://nexte.st/docs/configuration/test-groups/). The feature runner's
+# tests are not among them: the daemons and listeners their scenarios
+# start bind port 0 in ctxloom's own processes and are told the port, and no
+# scenario dials a port it freed, so they share no port and run at once.
 [test-groups]
 ports = { max-threads = 1 }
+deps-windows = { max-threads = 1 }
 
 [[profile.default.overrides]]
 filter = '''
     package(hook-listener)
     | package(hook-sink-grpc)
+    | package(daemon-client)
+    | package(daemon-api-grpc)
     | package(forge-github)
-    | (package(ctxloom-wiring) & test(/^(oneshot::tests::hooks::|capture::tests::)/))
+    | (package(ctxloom-wiring) & test(/^capture::tests::/))
     | (package(ctxloom) & test(/^tests::hook::/))
 '''
 test-group = 'ports'
+
+# The feature runner: ONE TEST PER FEATURE FILE (2026-11-18, superseding
+# the clusters of the owner's ruling of 2026-11-14), named by its path,
+# `tests::gherkin_features::features::<dir>::<file>` (gherkin_features.test.rs),
+# which nextest runs at once, as many as it runs tests; within a feature its
+# scenarios run 2 at once (gherkin_common's SCENARIOS_AT_ONCE; the limits
+# below were measured at 3, and 2 at once ran within them), each a
+# cucumber run of its own. A feature whose measured time would not fit the
+# 120 s above has a limit of its own, an override naming it; every other
+# keeps the 120 s. Not a gate tuned until it passes: measured on 2026-11-18
+# (20 cores, the host shared with other agents' builds and tests), the
+# whole workspace twice (`VERBOSE=1 just test`, every feature limited to
+# 600 s for the measurement alone) with the scenarios one at a time (load
+# 43 to 50, then 22 to 39) and twice with them 3 at once (load 18 to 28).
+# One at a time, cli/daemon.feature took 3.5 times as long at load 50 as at
+# 20, so a limit is 4 times (not the clusters' 2.4) the longer of the two
+# runs 3 at once, rounded up to whole 30 s periods. A host of fewer cores
+# was not measured. Seconds:
+#
+#                                   one at a time   3 at once
+#   feature                         run 1   run 2   run 3   run 4   limit
+#   cli/daemon                      153.2    74.1    43.4    40.1   180 (30 s x 6)
+#   cli/run                         125.9    83.9    43.2    41.3   180 (30 s x 6)
+#   cli/agent                       112.9    45.2    32.8    29.2   150 (30 s x 5)
+#   cli/session_approvals           106.9    51.3    32.1    29.3   150 (30 s x 5)
+#   cli/library_changes             102.8    42.5    31.3    28.0   150 (30 s x 5)
+#   cli/atomic_writes                84.0    35.3    28.7    26.0   120 (the default)
+#   cli/session_children             56.5    31.8    24.9    24.1   120
+#   journeys/j000700_...             81.4    33.5    20.9    19.1   120
+#
+# and every other feature under 19 s in runs 3 and 4. The whole run's wall
+# time is at least its slowest feature's.
+#
+# Windows (owner ruling of 2026-11-17: measure, the same rule) keeps the
+# limits measured for the clusters, given to each feature that was in one,
+# the overrides with `platform = 'cfg(windows)'` just below, ahead of the
+# ones above them in effect (nextest takes the first override that
+# matches). A feature never took longer than its cluster, whose features
+# ran at once (2 at a time on 4 cores), so the cluster's limit bounds it;
+# no feature was measured on Windows alone. Measured on 2026-11-17 on
+# GitHub's `windows-latest` (4 cores, MSVC, Git Bash), the whole
+# `ci-platform` run of the branch push and two dispatches of one commit
+# (CI runs 44109460343, 44109525569, 44109533175), every cluster limited to
+# 600 s for the measurement alone; each limit about 2.4 times the longest
+# of the three, rounded up to whole slow periods, at least 60 s:
+#
+#   cluster    run 1   run 2   run 3   longest   x Linux   limit
+#   daemon     188.5   197.1   194.8   197.1     1.6       480 (60 s x 8)
+#   journeys    89.6    83.7    92.8    92.8     1.8       240 (30 s x 8)
+#   library    161.2   174.9   175.4   175.4     5.7       450 (30 s x 15)
+#   remotes    138.0   145.5   138.7   145.5     7.3       360 (30 s x 12)
+#   setup       52.9    65.2    57.5    65.2     4.0       180 (30 s x 6)
+#   sessions    62.3    86.7    67.6    86.7     5.9       210 (30 s x 7)
+#   other        5.1     4.4     5.1     5.1     1.0        60 (now 120)
+#
+# The clusters: daemon (cli/ daemon, shutdown, session_children, mcp_serve,
+# run, trust, session_approvals, atomic_writes), journeys (journeys/),
+# library (cli/ bundle, fragment, fragment_draft_premise, command, profile,
+# skill, mcp, mcp_tools, search, materialize, read_extras,
+# context_status, content_distill, companion, agent, library_changes),
+# remotes (cli/ remote, deps, deps_pins, deps_trees, deps_upstream), setup (cli/ init, doctor, manage, auth,
+# config, engine, clean, version, completion), sessions (cli/ session,
+# session_hooks, session_remove, session_worktrees, post_tool_hooks), other
+# (the rest). Windows is slow, not hung: each scenario spawns ctxloom and
+# git many times, and Windows spawns are slow; `remotes`, the git-heaviest
+# (clones and fetches), is over 6 times its Linux time and was reported to
+# the owner as such. macOS (`macos-15`, the same three runs; no feature
+# measured alone there) passed within the clusters' Linux limits: daemon
+# 207.7 216.6 224.2, journeys 96.1 104.4 108.3, library 52.2 55.4 67.5,
+# remotes 22.5 26.5 27.1, setup 12.0 12.7 13.1, sessions 16.0 13.7 11.7,
+# other 3.4 5.6 3.7. Every cluster but daemon is within the 120 s; the
+# daemon cluster's features keep that cluster's Linux limit there, 300 s
+# (60 s x 5), the override with `platform = 'cfg(target_os = "macos")'`.
+[[profile.default.overrides]]
+platform = 'cfg(windows)'
+filter = '''
+    package(ctxloom) & (
+        test(=tests::gherkin_features::features::cli::daemon)
+        | test(=tests::gherkin_features::features::cli::shutdown)
+        | test(=tests::gherkin_features::features::cli::session_children)
+        | test(=tests::gherkin_features::features::cli::mcp_serve)
+        | test(=tests::gherkin_features::features::cli::run)
+        | test(=tests::gherkin_features::features::cli::trust)
+        | test(=tests::gherkin_features::features::cli::session_approvals)
+        | test(=tests::gherkin_features::features::cli::atomic_writes)
+    )
+'''
+slow-timeout = { period = "60s", terminate-after = 8, grace-period = "10s" }
+
+[[profile.default.overrides]]
+platform = 'cfg(target_os = "macos")'
+filter = '''
+    package(ctxloom) & (
+        test(=tests::gherkin_features::features::cli::daemon)
+        | test(=tests::gherkin_features::features::cli::shutdown)
+        | test(=tests::gherkin_features::features::cli::session_children)
+        | test(=tests::gherkin_features::features::cli::mcp_serve)
+        | test(=tests::gherkin_features::features::cli::run)
+        | test(=tests::gherkin_features::features::cli::trust)
+        | test(=tests::gherkin_features::features::cli::session_approvals)
+        | test(=tests::gherkin_features::features::cli::atomic_writes)
+    )
+'''
+slow-timeout = { period = "60s", terminate-after = 5, grace-period = "10s" }
+
+[[profile.default.overrides]]
+platform = 'cfg(windows)'
+filter = 'package(ctxloom) & test(/^tests::gherkin_features::features::journeys::/)'
+slow-timeout = { period = "30s", terminate-after = 8, grace-period = "10s" }
+
+[[profile.default.overrides]]
+platform = 'cfg(windows)'
+filter = '''
+    package(ctxloom) & (
+        test(=tests::gherkin_features::features::cli::bundle)
+        | test(=tests::gherkin_features::features::cli::fragment)
+        | test(=tests::gherkin_features::features::cli::fragment_draft_premise)
+        | test(=tests::gherkin_features::features::cli::command)
+        | test(=tests::gherkin_features::features::cli::profile)
+        | test(=tests::gherkin_features::features::cli::skill)
+        | test(=tests::gherkin_features::features::cli::mcp)
+        | test(=tests::gherkin_features::features::cli::mcp_tools)
+        | test(=tests::gherkin_features::features::cli::search)
+        | test(=tests::gherkin_features::features::cli::materialize)
+        | test(=tests::gherkin_features::features::cli::read_extras)
+        | test(=tests::gherkin_features::features::cli::context_status)
+        | test(=tests::gherkin_features::features::cli::content_distill)
+        | test(=tests::gherkin_features::features::cli::companion)
+        | test(=tests::gherkin_features::features::cli::agent)
+        | test(=tests::gherkin_features::features::cli::library_changes)
+    )
+'''
+slow-timeout = { period = "30s", terminate-after = 15, grace-period = "10s" }
+
+# The split features run one at a time on Windows (`deps-windows`), as the one
+# file did: run at once (the first branch run after the split, CI run
+# 44622601022) their daemons and git starved the 4 cores, deps_upstream took
+# 161 s against about 94 s sequential, and cli/doctor, at its 180 s, timed
+# out, having passed before.
+[[profile.default.overrides]]
+platform = 'cfg(windows)'
+filter = '''
+    package(ctxloom) & (
+        test(=tests::gherkin_features::features::cli::deps)
+        | test(=tests::gherkin_features::features::cli::deps_pins)
+        | test(=tests::gherkin_features::features::cli::deps_trees)
+        | test(=tests::gherkin_features::features::cli::deps_upstream)
+    )
+'''
+test-group = 'deps-windows'
+
+# cli/deps timed out at this 360 s on Windows (CI run 44595606753). Measured
+# 2026-11-19 on windows-latest (CI run 44612264008, GHERKIN_TIMINGS, the
+# scenarios one at a time): the 55 scenario rows took 455 s, 8.3 s a row
+# against 0.7 s on Linux, no row over 21 s and nearly all between 5 and 20 s
+# (a pull's fixtures and daemon, every one), so no step or scenario to fix:
+# the time is spread. The feature is split by Rule into deps, deps_pins,
+# deps_trees and deps_upstream (the owner's way, as daemon's), sequential
+# times about 130, 142, 103 and 94 s (two at once is about half), each
+# within the cluster's unchanged limit below, which is not raised.
+[[profile.default.overrides]]
+platform = 'cfg(windows)'
+filter = '''
+    package(ctxloom) & (
+        test(=tests::gherkin_features::features::cli::remote)
+        | test(=tests::gherkin_features::features::cli::deps)
+        | test(=tests::gherkin_features::features::cli::deps_pins)
+        | test(=tests::gherkin_features::features::cli::deps_trees)
+        | test(=tests::gherkin_features::features::cli::deps_upstream)
+    )
+'''
+slow-timeout = { period = "30s", terminate-after = 12, grace-period = "10s" }
+
+# cli/doctor timed out at the setup cluster's 180 s on Windows (CI runs
+# 44622601022 and 44634219864, the full ci-platform run). Measured 2026-11-19
+# on windows-latest (CI run 44641431002, GHERKIN_TIMINGS, the scenarios one at
+# a time, nothing else running): the 33 rows took 122 s, 3.7 s a row, none
+# over 8 s; the feature has grown since the cluster's 65 s was measured. Its
+# limit is about 2.4 times that (the rule above), 300 s (30 s x 10), a limit
+# of its own, the rest of the setup cluster keeping its 180 s.
+[[profile.default.overrides]]
+platform = 'cfg(windows)'
+filter = 'package(ctxloom) & test(=tests::gherkin_features::features::cli::doctor)'
+slow-timeout = { period = "30s", terminate-after = 10, grace-period = "10s" }
+
+[[profile.default.overrides]]
+platform = 'cfg(windows)'
+filter = '''
+    package(ctxloom) & (
+        test(=tests::gherkin_features::features::cli::init)
+        | test(=tests::gherkin_features::features::cli::manage)
+        | test(=tests::gherkin_features::features::cli::auth)
+        | test(=tests::gherkin_features::features::cli::config)
+        | test(=tests::gherkin_features::features::cli::engine)
+        | test(=tests::gherkin_features::features::cli::clean)
+        | test(=tests::gherkin_features::features::cli::version)
+        | test(=tests::gherkin_features::features::cli::completion)
+    )
+'''
+slow-timeout = { period = "30s", terminate-after = 6, grace-period = "10s" }
+
+[[profile.default.overrides]]
+platform = 'cfg(windows)'
+filter = '''
+    package(ctxloom) & (
+        test(=tests::gherkin_features::features::cli::session)
+        | test(=tests::gherkin_features::features::cli::session_hooks)
+        | test(=tests::gherkin_features::features::cli::session_remove)
+        | test(=tests::gherkin_features::features::cli::session_worktrees)
+        | test(=tests::gherkin_features::features::cli::post_tool_hooks)
+    )
+'''
+slow-timeout = { period = "30s", terminate-after = 7, grace-period = "10s" }
+
+[[profile.default.overrides]]
+filter = '''
+    package(ctxloom) & (
+        test(=tests::gherkin_features::features::cli::daemon)
+        | test(=tests::gherkin_features::features::cli::run)
+    )
+'''
+slow-timeout = { period = "30s", terminate-after = 6, grace-period = "10s" }
+
+[[profile.default.overrides]]
+filter = '''
+    package(ctxloom) & (
+        test(=tests::gherkin_features::features::cli::agent)
+        | test(=tests::gherkin_features::features::cli::session_approvals)
+        | test(=tests::gherkin_features::features::cli::library_changes)
+    )
+'''
+slow-timeout = { period = "30s", terminate-after = 5, grace-period = "10s" }
 
 # The Windows and macOS subset CI runs on a branch push (owner ruling
 # 2026-11-12; ci.yml sets NEXTEST_PROFILE=ci-platform there, `default` on
@@ -109,7 +379,10 @@ default-filter = '''
     | rdeps(ctxloom-wiring)
     | rdeps(deps-files)
     | rdeps(editor-process)
+    | rdeps(engine-claude)
     | rdeps(engine-opencode)
+    | rdeps(fact-spool)
+    | rdeps(git-cli)
     | rdeps(host-launcher)
     | rdeps(liveness)
     | rdeps(remote-git)

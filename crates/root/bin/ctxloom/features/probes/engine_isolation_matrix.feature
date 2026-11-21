@@ -1,6 +1,7 @@
 # Ported from probes/engine_isolation_matrix.feature (rev f36e8dfb2)
-# NOT ported: any of it yet (the Feature is @pending).
+# NOT ported: any of it yet (the Feature is @pending, its reason below).
 
+# Pending (OD-48, live-only): it needs a real engine or model, and there is no Rust live lane yet.
 @live
 @pending
 Feature: Claude × runtime × workspace matrix — the simplest round trip, on every axis pairing

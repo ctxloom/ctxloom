@@ -30,8 +30,19 @@
 //! | a plaintext (`http://`) endpoint, never dialed           | `Unavailable` |
 //! | any other status (unauthenticated, permission denied, not found, ...) | `Refused` |
 //!
+//! Each status is read back through `run_ports::Infrastructure`, the
+//! infrastructure tree's one root, which names them; the sink names none.
+//!
 //! The bearer is a secret: the sink's `Debug` withholds it, and every detail
 //! it produces has the bearer's text scrubbed out.
+//!
+//! [`serving`] is the liveness of a listener (T16): the standard
+//! `grpc.health.v1.Health` Check (tonic-health's messages and client, at
+//! the version the lock holds for angzarr's server), over the same pinned
+//! certificate, presenting no bearer (angzarr's server answers it outside
+//! its gate). A listener
+//! whose certificate is not the pinned one never hears a call, so a stale
+//! port another process took is never handed anything.
 
 use std::fmt;
 use std::time::Duration;
@@ -40,13 +51,13 @@ use angzarr_embedded::v1::{CommandBook, DeliveryOutcome};
 use angzarr_proto_transport_distributed::v1::command_handler_coordinator_service_client::CommandHandlerCoordinatorServiceClient;
 use angzarr_proto_transport_distributed::v1::CommandResult;
 use prost::Message;
-use run_ports::{parse_endpoint, Bearer, Delivery, FactSink, PublicCert};
+use run_ports::{parse_endpoint, Bearer, Delivery, FactSink, Infrastructure, PublicCert};
 use tonic::metadata::MetadataValue;
-use tonic::transport::{Certificate, ClientTlsConfig, Endpoint};
+use tonic::transport::{Certificate, Channel, ClientTlsConfig, Endpoint};
 use tonic::{Code, Request, Status};
-
-/// The reason key of a fact the kernel dead-lettered.
-const DEAD_LETTERED: &str = "ANGZARR_REASON_FACT_DEAD_LETTERED";
+use tonic_health::pb::health_check_response::ServingStatus;
+use tonic_health::pb::health_client::HealthClient;
+use tonic_health::pb::HealthCheckRequest;
 
 /// `google.rpc.Status`, the message a status's details travel in.
 #[derive(Clone, PartialEq, Message)]
@@ -93,17 +104,7 @@ impl GrpcSink {
     }
 
     async fn call(&self, book: CommandBook) -> Result<CommandResult, Failed> {
-        let dial = parse_endpoint(&self.endpoint)
-            .map_err(|e| Failed::Transport(format!("the endpoint is not usable: {e}")))?;
-        let channel = Endpoint::from_shared(dial.url())
-            .map_err(|e| Failed::Transport(format!("the endpoint is not usable: {e}")))?
-            .tls_config(tls_for(&dial.host, &self.cert))
-            .map_err(|e| {
-                Failed::Transport(format!("the certificate is not usable: {}", chain(&e)))
-            })?
-            .connect()
-            .await
-            .map_err(|e| Failed::Transport(format!("cannot reach the listener: {}", chain(&e))))?;
+        let channel = connect(&self.endpoint, &self.cert).await?;
         let mut request = Request::new(book);
         let mut value = MetadataValue::try_from(format!("Bearer {}", self.bearer.expose()))
             .map_err(|_| Failed::Transport("the bearer is not valid header text".to_string()))?;
@@ -187,6 +188,29 @@ impl FactSink for GrpcSink {
     }
 }
 
+/// A channel to the listener at the URL `endpoint`, over TLS pinning `cert`.
+async fn connect(endpoint: &str, cert: &PublicCert) -> Result<Channel, Failed> {
+    let dial = parse_endpoint(endpoint)
+        .map_err(|e| Failed::Transport(format!("the endpoint is not usable: {e}")))?;
+    Endpoint::from_shared(dial.url())
+        .map_err(|e| Failed::Transport(format!("the endpoint is not usable: {e}")))?
+        .tls_config(tls_for(&dial.host, cert))
+        .map_err(|e| Failed::Transport(format!("the certificate is not usable: {}", chain(&e))))?
+        .connect()
+        .await
+        .map_err(|e| Failed::Transport(format!("cannot reach the listener: {}", chain(&e))))
+}
+
+/// The health check's answer over `channel`: the server's overall status
+/// (the empty service).
+async fn check(channel: Channel) -> Result<ServingStatus, Failed> {
+    HealthClient::new(channel)
+        .check(Request::new(HealthCheckRequest::default()))
+        .await
+        .map(|response| response.into_inner().status())
+        .map_err(Failed::Status)
+}
+
 /// The channel's TLS: `cert` is the ONLY root (no system roots, no webpki
 /// roots), and the server's name is the URL's host (an IP literal or a runtime's
 /// host alias), which the certificate must name.
@@ -207,19 +231,34 @@ fn delivery_of_result(result: &CommandResult) -> Delivery {
     }
 }
 
-/// What a failed call's status means to its sender.
+/// What a failed call's status means to its sender: the infrastructure
+/// error it names, read back through the tree's one root
+/// ([`Infrastructure::read`], its key the message or the reason), as a
+/// delivery; anything else (a business refusal's status) is refused.
 fn delivery_of_code(code: Code, message: &str, reason: &str) -> Delivery {
     let detail = format!("{code:?}: {message}");
-    match code {
-        Code::DeadlineExceeded => Delivery::TimedOut,
-        Code::Internal if message == DEAD_LETTERED || reason == DEAD_LETTERED => Delivery::Parked,
-        Code::Unavailable
-        | Code::Aborted
-        | Code::ResourceExhausted
-        | Code::Unknown
-        | Code::Internal
-        | Code::DataLoss => Delivery::Unavailable { detail },
-        _ => Delivery::Refused { detail },
+    match Infrastructure::read(code as i32, &[message, reason]) {
+        Some(Infrastructure::TimedOut) => Delivery::TimedOut,
+        Some(Infrastructure::Parked) => Delivery::Parked,
+        // The daemon has no record of the fact's session (s4-Q14, H3).
+        Some(Infrastructure::SessionUnknown) => Delivery::NoSuchSession,
+        Some(
+            Infrastructure::Unavailable
+            | Infrastructure::Conflict
+            | Infrastructure::Exhausted
+            | Infrastructure::Unknown
+            | Infrastructure::Failed
+            | Infrastructure::DataLoss,
+        ) => Delivery::Unavailable { detail },
+        // A host precondition unmet (the daemon's diagnosed failure) does
+        // not heal on a resend: refused, as a request that cannot be read.
+        Some(
+            Infrastructure::Malformed
+            | Infrastructure::Unimplemented
+            | Infrastructure::Unauthenticated
+            | Infrastructure::Unmet,
+        )
+        | None => Delivery::Refused { detail },
     }
 }
 
@@ -246,6 +285,37 @@ fn chain(error: &dyn std::error::Error) -> String {
         source = cause.source();
     }
     text
+}
+
+/// Whether the listener at the URL `endpoint` answers the standard health
+/// check SERVING within `within`, over TLS pinning `cert` as its sole root.
+/// No bearer is presented. Anything else (no connection, another
+/// certificate, no health service, NOT_SERVING, the deadline passing) is
+/// not serving.
+pub fn serving(endpoint: &str, cert: &PublicCert, within: Duration) -> bool {
+    // A thread of its own, as a delivery's: the caller may be inside a
+    // runtime's thread, which cannot block on another.
+    std::thread::scope(|scope| {
+        scope
+            .spawn(|| {
+                let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+                    .enable_time()
+                    .enable_io()
+                    .build()
+                else {
+                    return false;
+                };
+                runtime.block_on(async {
+                    let answered = tokio::time::timeout(within, async {
+                        check(connect(endpoint, cert).await?).await
+                    })
+                    .await;
+                    matches!(answered, Ok(Ok(ServingStatus::Serving)))
+                })
+            })
+            .join()
+            .unwrap_or(false)
+    })
 }
 
 #[cfg(test)]

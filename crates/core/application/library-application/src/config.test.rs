@@ -11,6 +11,7 @@ fn config(text: &str) -> Config {
         raw: value.clone(),
         value,
         source: Source::Project,
+        held_back: Vec::new(),
     }
 }
 
@@ -81,6 +82,26 @@ fn test_go_ctxloom_is_present_unless_legacy_go_says_retired() {
     assert_eq!(
         config("legacy:\n  go: retired\n").legacy_go(),
         LegacyGo::Retired
+    );
+}
+
+// daemon.drain_timeout (owner, 2026-11-15): the span it says, `now` none
+// at all; unsaid, none (the daemon's own default stands).
+#[test]
+fn test_the_drain_timeout_is_the_span_the_config_says() {
+    use std::time::Duration;
+    assert_eq!(config("editor:\n  command: vim\n").drain_timeout(), None);
+    assert_eq!(
+        config("daemon:\n  drain_timeout: 2m\n").drain_timeout(),
+        Some(Duration::from_secs(120))
+    );
+    assert_eq!(
+        config("daemon:\n  drain_timeout: now\n").drain_timeout(),
+        Some(Duration::ZERO)
+    );
+    assert_eq!(
+        config("daemon:\n  drain_timeout: soon\n").drain_timeout(),
+        None
     );
 }
 
@@ -178,7 +199,7 @@ mod loading {
                 other => panic!("unexpected {other:?}"),
             })
             .collect();
-        (config.raw, said)
+        (config.value, said)
     }
 
     fn flags_with(sets: &[&str]) -> Flags {
@@ -186,6 +207,44 @@ mod loading {
             config_set: sets.iter().map(ToString::to_string).collect(),
             ..Flags::default()
         }
+    }
+
+    /// The configuration `layers` load to under `flags`, whatever was said.
+    fn config_of(layers: &[&str], flags: &Flags) -> super::super::Config {
+        let (_, mem) = Setup {
+            layers,
+            ..Setup::default()
+        }
+        .fixture();
+        let files: &dyn ConfigFiles = mem.as_ref();
+        load(files, &[], flags, &mut Vec::new()).expect("loaded")
+    }
+
+    // owner ruling 2026-11-17: `--raw` (GetConfig's SET) is what the layers
+    // set, home and project merged: no override, nothing filled in.
+    #[test]
+    fn test_raw_is_the_layers_merged_with_nothing_filled_in() {
+        let config = config_of(
+            &[
+                "schema_version: 9\neditor:\n  command: vim\n",
+                "schema_version: 9\noutput:\n  dir: notes/\n",
+            ],
+            &flags_with(&["sync.on_run=none"]),
+        );
+        let angzarr_yaml::Value::Map(set) = &config.raw else {
+            panic!("not a mapping: {:?}", config.raw);
+        };
+        let keys: Vec<&str> = set.iter().map(|(k, _)| k.as_str()).collect();
+        assert_eq!(keys, ["schema_version", "editor", "output"]);
+        assert_eq!(
+            config
+                .raw
+                .get("output")
+                .and_then(|o| o.get("dir"))
+                .and_then(angzarr_yaml::Value::as_str),
+            Some("notes/")
+        );
+        assert!(config.value.get("sync").is_some());
     }
 
     #[test]
@@ -403,34 +462,38 @@ mod loading {
     }
 }
 
-// generation 9: a companion is registered with the command that runs it.
+// generation 9: a companion is registered by name, with its state (OD-9,
+// OD-10); a generation 8 list is migrated, each name enabled.
 #[test]
-fn test_companions_are_read_by_name_with_their_commands() {
-    let c = config(
-        "companions:\n  zed:\n    command: [zed-bin]\n  acme:\n    command: [acme-bin, --as, acme]\n  bare: {}\n",
-    );
-    let all: Vec<(String, Vec<String>)> = c
+fn test_companions_are_read_by_name_with_their_states() {
+    use library::companion::State;
+    let c = config("companions:\n  zed: {state: disabled}\n  acme: {state: enabled}\n  bare: {}\n");
+    let all: Vec<(String, State, String)> = c
         .companions()
         .into_iter()
-        .map(|r| (r.name, r.command))
+        .map(|r| (r.program(), r.state, r.name))
         .collect();
     assert_eq!(
         all,
         [
             (
-                "acme".to_string(),
-                vec![
-                    "acme-bin".to_string(),
-                    "--as".to_string(),
-                    "acme".to_string()
-                ]
+                "ctxloom-companion-acme".to_string(),
+                State::Enabled,
+                "acme".to_string()
             ),
-            ("bare".to_string(), Vec::new()),
-            ("zed".to_string(), vec!["zed-bin".to_string()]),
+            (
+                "ctxloom-companion-bare".to_string(),
+                State::Enabled,
+                "bare".to_string()
+            ),
+            (
+                "ctxloom-companion-zed".to_string(),
+                State::Disabled,
+                "zed".to_string()
+            ),
         ]
     );
     assert!(config("editor:\n  command: vim\n").companions().is_empty());
-    assert!(config("companions: [acme]\n").companions().is_empty());
 }
 
 // Ruling 67, 139: each engine block is one line in flow form, and says

@@ -67,10 +67,10 @@ pub fn meta_path(path: &str) -> String {
     }
 }
 
-/// The sidecar of an item named `name` in the kind directory `dir` that has
-/// no single content file (a skill package): `skills`, `code-reviewer` is
-/// `skills/.code-reviewer.meta.yaml`. The dot goes on the last segment of the
-/// name.
+/// The sidecar of an item named `name` in the kind directory `dir`: `hooks`,
+/// `pre_tool/guard` is `hooks/pre_tool/.guard.meta.yaml`. The dot goes on the
+/// last segment of the name. (A skill keeps no sidecar: its metadata is
+/// inside its directory, owner T27.)
 pub fn meta_path_for_name(dir: &str, name: &str) -> String {
     let (parent, base) = name.rsplit_once('/').map_or(("", name), |(p, b)| (p, b));
     if parent.is_empty() {

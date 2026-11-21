@@ -19,8 +19,8 @@
 use std::collections::BTreeMap;
 
 use run_ports::{
-    copy_in, Credentials, Engine, EngineError, HomeFile, LeftOut, PrepareRequest, Prepared,
-    SessionHome, TurnCommand, TurnOutcome, TurnOutput, TurnRequest,
+    copy_in, ContextDelivery, Credentials, Engine, EngineError, HomeFile, LeftOut, PrepareRequest,
+    Prepared, SessionHome, TurnCommand, TurnOutcome, TurnOutput, TurnRequest,
 };
 
 use surface_ports::Json;
@@ -49,6 +49,40 @@ pub const USER_SETTINGS_FILE: &str = "settings.json";
 /// keeps of its onboarding and of each project it ran in.
 pub const STATE_FILE: &str = ".claude.json";
 
+/// ctxloom's approval prompt as claude names it: the `approval_prompt` tool
+/// of ctxloom's own MCP server (`ctxloom`), which `--permission-prompt-tool`
+/// names for a child and a one-shot (step 8, U6, D7), so every ask its
+/// permissions make waits on the user's answer through the daemon. It needs
+/// no allow entry, and no PermissionRequest hook of ctxloom's decides beside
+/// it (probe P0: the hook races the tool). The terminal session asks at its
+/// own terminal (S28) and is given none.
+pub const APPROVAL_PROMPT_TOOL: &str = "mcp__ctxloom__approval_prompt";
+
+/// The variable claude reads its MCP tool calls' time limit from, in
+/// milliseconds (owner ruling Q12, step 8).
+pub const MCP_TOOL_TIMEOUT: &str = "MCP_TOOL_TIMEOUT";
+
+/// The longest ask a child's approval prompt call is known to outlast
+/// without [`MCP_TOOL_TIMEOUT`] (probe P0: a 310 s wait survived): at or
+/// under it, the variable is not set (Q12).
+pub const MCP_TOOL_TIMEOUT_FLOOR: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// How far past the ask's own time [`MCP_TOOL_TIMEOUT`] is set, so the ask
+/// expires, and its call is answered, before claude gives up on the call.
+pub const MCP_TOOL_TIMEOUT_MARGIN: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// The [`MCP_TOOL_TIMEOUT`] a child (a hosted child's or a one-shot's turn)
+/// is given for asks that wait `approval_timeout` (Q12): over
+/// [`MCP_TOOL_TIMEOUT_FLOOR`], the timeout plus [`MCP_TOOL_TIMEOUT_MARGIN`],
+/// in milliseconds; otherwise none, and claude's own limit stands.
+pub fn mcp_tool_timeout(approval_timeout: std::time::Duration) -> Option<String> {
+    (approval_timeout > MCP_TOOL_TIMEOUT_FLOOR).then(|| {
+        (approval_timeout + MCP_TOOL_TIMEOUT_MARGIN)
+            .as_millis()
+            .to_string()
+    })
+}
+
 /// The context file's name in the session home.
 pub const CONTEXT_PROMPT_FILE: &str = "ctxloom-context.md";
 
@@ -60,9 +94,10 @@ const PROGRAM: &str = "claude";
 /// network needs, the two ways claude is handed a credential, and what the
 /// turn's hook processes need (owner ruling 51): ctxloom's home by name (their
 /// `HOME` is the session home, ruling 112), the live project's root
-/// (`CTXLOOM_ROOT`: the engine may work in a checkout), the session's harp, and the run's
-/// listener (the endpoint, the bearer, the hook principal's secret, the run
-/// and the listener's public certificate). On Windows,
+/// (`CTXLOOM_ROOT`: the engine may work in a checkout), the run and its
+/// session, and the env-named arrival's endpoint, bearer and certificate,
+/// which no host run sets (slice 4 U7) and which are kept for M10b's
+/// container arrival (OD-13). On Windows,
 /// what a program needs to start (`run_ports::WINDOWS_STARTUP_VARIABLES`) and
 /// the user's profile directories (`run_ports::WINDOWS_PROFILE_VARIABLES`),
 /// relocated into the session home as `HOME` is; none of them is set on
@@ -100,17 +135,17 @@ pub const ENV_ALLOWLIST: &[&str] = &[
     run_ports::RUN_VARIABLE,
     run_ports::TLS_CERT_VARIABLE,
     run_ports::SESSION_VARIABLE,
-    run_ports::HARP_VARIABLE,
 ];
 
 /// The variables of the caller's environment the human's terminal session is
 /// given: a turn's, the primary's own token, and the terminal's type and
 /// colour depth (`TERM`, `COLORTERM`), without which claude draws in no
-/// colour.
+/// colour, with her choice to have none (`NO_COLOR`, no-color.org).
 pub const INTERACTIVE_ENV_ALLOWLIST: &[&str] = &[
     "PATH",
     "TERM",
     "COLORTERM",
+    "NO_COLOR",
     "LANG",
     "LC_ALL",
     "TMPDIR",
@@ -143,7 +178,6 @@ pub const INTERACTIVE_ENV_ALLOWLIST: &[&str] = &[
     run_ports::RUN_VARIABLE,
     run_ports::TLS_CERT_VARIABLE,
     run_ports::SESSION_VARIABLE,
-    run_ports::HARP_VARIABLE,
 ];
 
 /// The variables any one of which authenticates a child agent's run: the
@@ -186,16 +220,19 @@ impl Engine for Claude {
         // alike (owner ruling 51); a child registers the per-turn events only.
         let mut files = vec![
             HomeFile {
+                executable: false,
                 rel: CONTEXT_PROMPT_FILE.to_string(),
                 bytes: request.context.clone().into_bytes(),
             },
             HomeFile {
+                executable: false,
                 rel: HOOKS_FILE.to_string(),
                 bytes: hooks_settings(request, &self.program)?.into_bytes(),
             },
             HomeFile {
+                executable: false,
                 rel: MCP_CONFIG_FILE.to_string(),
-                bytes: mcp_config(&request.surfaces.0).into_bytes(),
+                bytes: mcp_config(&request.surfaces.0, &self.program).into_bytes(),
             },
         ];
         // The commands and skills: the session home's own (its
@@ -207,6 +244,7 @@ impl Engine for Claude {
             SessionHome::Session => {
                 files.extend(items.into_iter().map(|file| {
                     HomeFile {
+                        executable: file.executable,
                         rel: file
                             .rel
                             .strip_prefix(".claude/")
@@ -224,6 +262,7 @@ impl Engine for Claude {
             let (base, skipped) = user_base(self.user_settings.as_ref());
             left_out.extend(skipped);
             files.push(HomeFile {
+                executable: false,
                 rel: USER_SETTINGS_FILE.to_string(),
                 bytes: user_settings(request, base)?.into_bytes(),
             });
@@ -231,6 +270,7 @@ impl Engine for Claude {
         let existing = request.existing.get(STATE_FILE).map(Vec::as_slice);
         if let Some(bytes) = seeded_state(existing, request.cwd.as_deref()) {
             files.push(HomeFile {
+                executable: false,
                 rel: STATE_FILE.to_string(),
                 bytes,
             });
@@ -269,6 +309,11 @@ impl Engine for Claude {
         push_mcp_config(&mut command.args, request);
         // The turn's hooks: the session dir's settings, as the terminal's.
         push_settings(&mut command.args, request);
+        // Its asks wait on the user through ctxloom's prompt (D7), where
+        // ctxloom's server rides the launch.
+        if request.approval_prompt {
+            push_approval_prompt(&mut command.args);
+        }
         push_model_and_effort(&mut command.args, request)?;
         if let Some(native_id) = &request.resume {
             command.args.push("--resume".to_string());
@@ -309,6 +354,18 @@ impl Engine for Claude {
     /// The human's terminal run: no print mode, no stream, the context in
     /// the system prompt, and the prompt (when she gave one) as the
     /// conversation's opening. The command is given her terminal.
+    /// At the next prompt submitted or tool result (step 10c U13; QUESTIONS
+    /// 3(a)): the hook's context, which claude 2.1.325's hook schema takes
+    /// as `hookSpecificOutput.additionalContext` on both. It caps one
+    /// hook's additionalContext at 10,000 characters and shows the model a
+    /// preview of a longer one, which this hands over whole all the same.
+    fn deliver_context(&self, hook: &str, context: &str) -> ContextDelivery {
+        match hook {
+            "UserPromptSubmit" | "PostToolUse" => ContextDelivery::HookContext(context.to_string()),
+            _ => ContextDelivery::NotHere,
+        }
+    }
+
     fn drive_interactive(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError> {
         let mut command = TurnCommand::new(program(request));
         command.args.push("--append-system-prompt-file".to_string());
@@ -365,11 +422,12 @@ fn document(request: &PrepareRequest) -> Result<Option<Json>, EngineError> {
 /// the lists of every scope merge (claude's settings docs, "Settings
 /// precedence", "Lists merge instead of overriding"). It is also the scope
 /// whose `defaultMode` may be `auto` or `bypassPermissions` (those "don't take
-/// effect from project or local settings"). A profile's `deny_tools` stays the
-/// project file's `permissions.deny` (surface apply), merged by claude.
+/// effect from project or local settings"). A profile's `deny_tools` and
+/// ctxloom's allowance of its own tools are laid into the document here
+/// ([`laid`]).
 fn user_settings(request: &PrepareRequest, base: Json) -> Result<String, EngineError> {
     let mut doc = base;
-    match with_deny(document(request)?, &request.surfaces.0.deny_tools) {
+    match laid(request)? {
         Some(permissions) => {
             doc.set("permissions", permissions);
         }
@@ -378,6 +436,46 @@ fn user_settings(request: &PrepareRequest, base: Json) -> Result<String, EngineE
         }
     }
     Ok(format!("{}\n", doc.pretty()))
+}
+
+/// The tools of ctxloom's own MCP server, as claude names them: allowed by
+/// ctxloom itself (OD-4, owner 2026-11-13, amended 2026-11-14: a stated
+/// exception to rulings 133-139's "verbatim"), so a session can call its
+/// daemon whatever its agent's document says. The allowance is laid INTO the
+/// agent's document, as `deny_tools` is, where the document lives (the
+/// session home's `settings.json`, or the hooks file under `host`).
+pub const OUR_TOOLS: &str = "mcp__ctxloom__*";
+
+/// The agent's permissions document as the launch writes it: the selection's
+/// `deny_tools` laid into its `deny`, and, where ctxloom's server is offered
+/// (any launch with context; none without, OD-38), [`OUR_TOOLS`] into its
+/// `allow`. None only for no document, no deny list and no server.
+fn laid(request: &PrepareRequest) -> Result<Option<Json>, EngineError> {
+    let surfaces = &request.surfaces.0;
+    let permissions = with_deny(document(request)?, &surfaces.deny_tools);
+    if surfaces.no_context {
+        return Ok(permissions);
+    }
+    Ok(Some(with_ours(permissions)))
+}
+
+/// `permissions` (the agent's document, its deny list laid over it) with
+/// [`OUR_TOOLS`] in its `allow` once, after the document's own.
+fn with_ours(permissions: Option<Json>) -> Json {
+    let mut permissions = match permissions {
+        Some(doc @ Json::Object(_)) => doc,
+        _ => Json::Object(Vec::new()),
+    };
+    let mut allow = match permissions.get("allow") {
+        Some(Json::Array(items)) => items.clone(),
+        _ => Vec::new(),
+    };
+    let ours = Json::text(OUR_TOOLS);
+    if !allow.contains(&ours) {
+        allow.push(ours);
+    }
+    permissions.set("allow", Json::Array(allow));
+    permissions
 }
 
 /// The agent's permissions document with the selection's `deny_tools` laid
@@ -408,20 +506,38 @@ fn with_deny(document: Option<Json>, deny: &[String]) -> Option<Json> {
 }
 
 /// The servers the launch carries, as claude's MCP config (`--mcp-config`):
-/// `{"mcpServers": {...}}`, empty with none.
-fn mcp_config(surfaces: &surface_ports::Inputs) -> String {
-    let servers = surfaces
+/// `{"mcpServers": {...}}`, and ctxloom's own (slice 3 step 3, T20):
+/// `program`'s `mcp serve`, with no identity in the entry (the engine's
+/// environment carries the session's name, `CTXLOOM_SESSION`). A carried
+/// server named `ctxloom` is shadowed by it (OD-6; the plan names it). A
+/// launch with no context (OD-38) lists no server at all, ctxloom's own
+/// included.
+fn mcp_config(surfaces: &surface_ports::Inputs, program: &str) -> String {
+    if surfaces.no_context {
+        let doc = Json::object([("mcpServers", Json::Object(Vec::new()))]);
+        return format!("{}\n", doc.pretty());
+    }
+    let mut servers = surfaces
         .mcp
         .iter()
+        .filter(|server| server.name != surface_ports::CTXLOOM_SERVER)
         .map(|server| (server.name.clone(), crate::mcp_entry(server)))
         .collect::<Vec<_>>();
+    servers.push((
+        surface_ports::CTXLOOM_SERVER.to_string(),
+        Json::object([
+            ("command", Json::text(program)),
+            ("args", Json::strings(surface_ports::ctxloom_server_args())),
+        ]),
+    ));
     let doc = Json::object([("mcpServers", Json::Object(servers))]);
     format!("{}\n", doc.pretty())
 }
 
 /// The commands and skills the launch carries, as the files a project's
 /// `.claude/commands/` and `.claude/skills/` hold: the session home's
-/// `commands/` and `skills/` take them without the `.claude/`.
+/// `commands/` and `skills/` take them without the `.claude/`. A skill rides
+/// whole, its sidecar-declared scripts executable (step 3).
 fn items(surfaces: &surface_ports::Inputs) -> Vec<HomeFile> {
     let mut planned = surface_ports::Planned::default();
     crate::commands::plan(&surfaces.commands, &mut planned);
@@ -430,7 +546,15 @@ fn items(surfaces: &surface_ports::Inputs) -> Vec<HomeFile> {
         .claims
         .into_iter()
         .filter_map(|claim| match claim {
-            surface_ports::Claim::Whole { path, bytes, .. } => Some(HomeFile { rel: path, bytes }),
+            surface_ports::Claim::Whole {
+                path,
+                bytes,
+                executable,
+            } => Some(HomeFile {
+                executable,
+                rel: path,
+                bytes,
+            }),
             _ => None,
         })
         .collect()
@@ -461,12 +585,13 @@ fn user_base(user: Option<&run_ports::UserSettings>) -> (Json, Option<LeftOut>) 
 }
 
 /// ctxloom's hooks file, which the command names with `--settings`: the
-/// hooks (the terminal's events or a child's turn's) and, in the session
-/// home, nothing else. Under `session_home: host` the config dir is the
-/// user's own `~/.claude`, whose `settings.json` ctxloom never writes, so the
-/// agent's permissions are this file's `permissions` there (the one key, so
-/// it never overwrites the hooks), with the cost ruling 145 avoids in the
-/// session home: one invalid value in them disables the hooks too.
+/// hooks (the terminal's events or a child's turn's) and the statusline, and
+/// in the session home no permissions. Under `session_home: host` the config
+/// dir is the user's own `~/.claude`, whose `settings.json` ctxloom never
+/// writes, so the agent's permissions, as the launch lays them ([`laid`]),
+/// are this file's `permissions` there (the one key, so it never overwrites
+/// the hooks), with the cost ruling 145 avoids in the session home: one
+/// invalid value in them disables the hooks too.
 fn hooks_settings(request: &PrepareRequest, program: &str) -> Result<String, EngineError> {
     let hooks = crate::hooks::home_settings(request.interactive, program);
     let mut settings = Json::parse(&hooks).map_err(|ext_err_txt| EngineError::BadPermissions {
@@ -496,7 +621,7 @@ fn hooks_settings(request: &PrepareRequest, program: &str) -> Result<String, Eng
         );
     }
     if request.session_home == SessionHome::Host {
-        if let Some(permissions) = with_deny(document(request)?, &surfaces.deny_tools) {
+        if let Some(permissions) = laid(request)? {
             settings.set("permissions", permissions);
         }
     }
@@ -540,7 +665,7 @@ fn object_at<'a>(parent: &'a mut Json, key: &str) -> &'a mut Json {
 /// dir serves both home modes and both kinds of run; nothing is written into
 /// the user's own directory. (In a container this path must be the in-container one: a
 /// follow-up.)
-fn push_settings(args: &mut Vec<String>, request: &TurnRequest) {
+pub(crate) fn push_settings(args: &mut Vec<String>, request: &TurnRequest) {
     args.push("--settings".to_string());
     args.push(format!("{}/{HOOKS_FILE}", request.home));
 }
@@ -549,9 +674,17 @@ fn push_settings(args: &mut Vec<String>, request: &TurnRequest) {
 /// carries (`source: dynamic`, connected, probed on 2.1.322; one named as a
 /// project `.mcp.json` server replaces it). It takes many files, so it is
 /// always followed by another option, never by the prompt.
-fn push_mcp_config(args: &mut Vec<String>, request: &TurnRequest) {
+pub(crate) fn push_mcp_config(args: &mut Vec<String>, request: &TurnRequest) {
     args.push("--mcp-config".to_string());
     args.push(format!("{}/{MCP_CONFIG_FILE}", request.home));
+}
+
+/// `--permission-prompt-tool mcp__ctxloom__approval_prompt`: an ask of the
+/// engine's permissions is put to ctxloom's [`APPROVAL_PROMPT_TOOL`], which
+/// waits on the user's answer (a child's and a one-shot's; probe P0).
+pub(crate) fn push_approval_prompt(args: &mut Vec<String>) {
+    args.push("--permission-prompt-tool".to_string());
+    args.push(APPROVAL_PROMPT_TOOL.to_string());
 }
 
 /// The effort levels `claude --effort` takes (`claude --help`, 2.1.321).
@@ -560,7 +693,10 @@ pub const EFFORT_LEVELS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 /// `--model <model>` and `--effort <level>` when the agent names them; none
 /// named is no flag (the engine's own default). A level claude does not take
 /// is refused here, before it is launched.
-fn push_model_and_effort(args: &mut Vec<String>, request: &TurnRequest) -> Result<(), EngineError> {
+pub(crate) fn push_model_and_effort(
+    args: &mut Vec<String>,
+    request: &TurnRequest,
+) -> Result<(), EngineError> {
     if !request.model.is_empty() {
         args.push("--model".to_string());
         args.push(request.model.clone());
@@ -580,7 +716,7 @@ fn push_model_and_effort(args: &mut Vec<String>, request: &TurnRequest) -> Resul
 }
 
 /// The program: the engine block's `command`, else `claude` on the `PATH`.
-fn program(request: &TurnRequest) -> &str {
+pub(crate) fn program(request: &TurnRequest) -> &str {
     match request.settings.command.as_str() {
         "" => PROGRAM,
         configured => configured,
@@ -595,6 +731,32 @@ fn grantable(name: &str, interactive: bool) -> bool {
     interactive || name != PRIMARY_ONLY
 }
 
+/// Whether the caller's variable `name` passes to a command: grantable, and
+/// on `curated`, the engine block's `env` or the credential's variables.
+fn passes(
+    name: &str,
+    interactive: bool,
+    curated: &[&str],
+    settings: &run_ports::EngineSettings,
+    credential: &[String],
+) -> bool {
+    grantable(name, interactive)
+        && (curated.contains(&name)
+            || settings.env.iter().any(|n| n == name)
+            || credential.iter().any(|n| n == name))
+}
+
+/// Whether a CHILD's command under `settings` may be given the caller's
+/// variable `name` (what a launching client sends the daemon, D-N45).
+pub(crate) fn child_may_have(
+    engine: &Claude,
+    settings: &run_ports::EngineSettings,
+    name: &str,
+) -> bool {
+    let policy = settings.credentials(engine.credentials());
+    passes(name, false, ENV_ALLOWLIST, settings, &policy.child_env)
+}
+
 /// The command's whole environment: `caller`'s variables on the curated
 /// allowlist, on the engine block's `env` and on the configured credential
 /// source: a bounded, enumerable set (the container runtime reads it), never
@@ -602,7 +764,7 @@ fn grantable(name: &str, interactive: bool) -> bool {
 /// `CLAUDE_CONFIG_DIR` and `HOME` set to the session's home, or to the user's
 /// own directory and home when the engine block says `session_home: host`. A
 /// child is never given the primary's token.
-fn environment(
+pub(crate) fn environment(
     engine: &Claude,
     interactive: bool,
     request: &TurnRequest,
@@ -619,12 +781,7 @@ fn environment(
     } else {
         ENV_ALLOWLIST
     };
-    let passes = |name: &str| {
-        grantable(name, interactive)
-            && (curated.contains(&name)
-                || settings.env.iter().any(|n| n == name)
-                || credential.iter().any(|n| n == name))
-    };
+    let passes = |name: &str| passes(name, interactive, curated, settings, credential);
     let mut env: BTreeMap<String, String> = request
         .env
         .iter()
@@ -655,6 +812,15 @@ fn environment(
     };
     env.insert("HOME".to_string(), home);
     env.insert("CLAUDE_CONFIG_DIR".to_string(), config_dir);
+    // A child's asks wait on ctxloom's approval prompt tool (step 8): one
+    // that may wait past claude's own MCP call limit is given a limit past
+    // it (Q12). Set here, so it is owned: no permit replaces it (ruling
+    // 78b). The terminal session asks at its own terminal, and is given none.
+    if !interactive {
+        if let Some(limit) = mcp_tool_timeout(settings.approval_timeout) {
+            env.insert(MCP_TOOL_TIMEOUT.to_string(), limit);
+        }
+    }
     Ok(env)
 }
 

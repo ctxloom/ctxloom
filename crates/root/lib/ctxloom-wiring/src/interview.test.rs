@@ -35,25 +35,32 @@ fn a_closed_input_is_a_no_though_a_bare_enter_is_a_yes() {
 }
 
 // A session init launches is the run's own: one the run refuses (a config of a
-// newer generation) is a launch failure with the run's exit, 2, never a
-// session that ended.
+// newer generation, as the daemon's plan refuses it) is a launch failure with
+// the run's exit, 20, never a session that ended; one that ended is its code
+// and what it noticed.
 #[test]
 fn a_session_the_run_refuses_is_a_launch_failure_with_its_exit() {
-    use init_application::Sessions;
-
-    let world = crate::commands::tests::world_without_programs("interview-refused");
-    crate::fixtures::put_mode(
-        world.dir().join("work/.ctxloom/config.yaml"),
-        "schema_version: 99\n",
-        0o644,
-    );
-    let env = world.env();
-    let flags = library_application::Flags::default();
-    let sessions = super::SetupSessions {
-        env: &env,
-        flags: &flags,
+    let refused = run_application::Done::<run_application::Ended> {
+        result: Err(run_application::RunError::Resume(
+            sessions::SessionRejection::SessionRunning {
+                harp: "amber-quiet-heron".to_string(),
+            },
+        )),
+        notices: Vec::new(),
     };
-    let failure = sessions.configured().expect_err("refused");
+    let failure = super::ended_of(refused).expect_err("refused");
     assert_eq!(failure.exit, Exit::REFUSED);
-    assert_eq!(failure.cause.code(), "library-application-config-newer");
+    assert_eq!(failure.cause.code(), "sessions-session-running");
+    let ended = super::ended_of(run_application::Done {
+        result: Ok(run_application::Ended {
+            harp: "h".to_string(),
+            session: "s".to_string(),
+            engine: "claude-code".to_string(),
+            code: Some(3),
+        }),
+        notices: vec![library_application::Notice::text("noticed")],
+    })
+    .unwrap_or_else(|_| panic!("ended"));
+    assert_eq!(ended.code, Some(3));
+    assert_eq!(ended.notices.len(), 1);
 }

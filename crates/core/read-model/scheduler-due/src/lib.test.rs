@@ -16,11 +16,11 @@ use angzarr_embedded::{
     Timestamp,
 };
 use scheduler::{
-    alarm_external_id, stream_for, AlarmArmed, AlarmDue, AlarmFired, ArmAlarm, CancelAlarm,
+    alarm_external_id, stream_for, AlarmArmed, AlarmFired, ArmAlarm, CancelAlarm, RecordAlarmDue,
     SchedulerAggregate, SchedulerEvent, Stream, SCHEDULER_DOMAIN,
 };
 
-use crate::{catch_up, Due, DueAlarm, DueModel};
+use crate::{catch_up, Due, DueAlarm, DueModel, ReadsDue};
 
 type Model = CatchUp<DueModel>;
 
@@ -100,7 +100,7 @@ impl Project {
 
     fn fire(&mut self, model: &mut Model, target_id: u8, alarm_id: &str, seconds: i64) {
         let target = target(target_id);
-        let due = AlarmDue {
+        let due = RecordAlarmDue {
             alarm_id: alarm_id.to_string(),
             at: at(seconds),
         };
@@ -418,4 +418,23 @@ fn an_unreadable_event_fails_the_projector_with_a_code_and_the_type_url() {
         "{:?}",
         error.extras
     );
+}
+
+// A loop reads the model through `ReadsDue`: what it is given is the model
+// as it stands, what the projector folded.
+#[test]
+fn the_model_reads_as_what_it_folded() {
+    use angzarr_embedded::ProjectorHandler;
+    let model = DueModel::default();
+    ready(model.dispatch(&ProjectRequest {
+        events: Some(book(vec![page(0, armed("a", 100), 1)], 1)),
+    }))
+    .unwrap();
+    let ids = model.read_due(|due| {
+        due.due_at_or_before(&at(100))
+            .into_iter()
+            .map(|alarm| alarm.alarm_id)
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(ids, vec!["a".to_string()]);
 }

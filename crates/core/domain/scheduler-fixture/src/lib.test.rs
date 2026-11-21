@@ -25,7 +25,7 @@ mod dummy {
         command_page, CommandBook, CommandPage, Cover, Fact, FactOrigin, Uuid,
     };
     use angzarr_embedded::{Any, Registry, Timestamp};
-    use scheduler::AlarmReached;
+    use scheduler::RecordAlarmReached;
 
     use crate::{Close, DummyAggregate, DummyEvent, SetDeadline, DEADLINE_ALARM, DUMMY_DOMAIN};
 
@@ -47,7 +47,7 @@ mod dummy {
     }
 
     fn reach(h: &mut Harness<DummyAggregate>, alarm_id: &str, seconds: i64, id: &str) -> usize {
-        let fact = AlarmReached {
+        let fact = RecordAlarmReached {
             alarm_id: alarm_id.to_string(),
             at: at(seconds),
         };

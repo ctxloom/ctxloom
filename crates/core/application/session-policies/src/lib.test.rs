@@ -1,0 +1,437 @@
+//! The daemon's policies as pure functions (D28). NEW-DESIGN. The races (two
+//! policies on one stream, a redelivery) are forced by sending what the
+//! policies answer through the session aggregate in the race's order.
+
+use angzarr_embedded::testing::{Harness, Samples};
+use angzarr_embedded::{Handled, Payload, Registry};
+use pending_messages::PendingMessage;
+use runs::{QueueTurn, TurnUrgency};
+use sessions::{
+    Child, ChildLaunched, CloseSession, IncarnationEnded, MintSession, Origin, SessionAggregate,
+    SessionClosed, SessionCommand, SessionEvent, SessionRef, Urgency,
+};
+
+use crate::{
+    cascade, child_ended, deliver, destroy, drain_guidance, is_daemon_message, launch,
+    launch_failed, notice, run_cover, session_cover, RunGate, DRAIN_GUIDANCE,
+};
+
+const OWNER: &str = "0a0a0a0a-0a0a-0a0a-0a0a-0a0a0a0a0a0a";
+const CHILD: &str = "0c0c0c0c-0c0c-0c0c-0c0c-0c0c0c0c0c0c";
+const OTHER: &str = "0d0d0d0d-0d0d-0d0d-0d0d-0d0d0d0d0d0d";
+
+fn at(session: &str) -> SessionRef {
+    SessionRef {
+        project_id: "calm-otter".to_string(),
+        session: session.to_string(),
+    }
+}
+
+fn message(id: &str, urgency: Urgency) -> PendingMessage {
+    PendingMessage {
+        message_id: id.to_string(),
+        urgency,
+        text: String::new(),
+        sender: None,
+    }
+}
+
+fn gate(live: bool, in_flight: bool) -> RunGate {
+    RunGate {
+        session: at(CHILD),
+        incarnation: 2,
+        live,
+        in_flight,
+    }
+}
+
+fn carried(turn: &QueueTurn) -> Vec<&str> {
+    turn.message_ids.iter().map(String::as_str).collect()
+}
+
+fn children(of: &[&str]) -> Vec<Child> {
+    of.iter()
+        .map(|session| Child {
+            session: Some(at(session)),
+            root: format!("/w/{session}"),
+        })
+        .collect()
+}
+
+// -------------------------------------------------------------- delivery
+
+// S-a: an idle run takes every pending message in one turn, keyed by the
+// message that starts it.
+#[test]
+fn an_idle_run_is_given_every_pending_message_keyed_by_the_first_wake() {
+    let pending = [
+        message("i1", Urgency::Inform),
+        message("w1", Urgency::Wake),
+        message("w2", Urgency::Wake),
+    ];
+    let turn = deliver(&gate(true, false), &pending).unwrap();
+    assert_eq!(turn.key, "send:w1");
+    assert_eq!(turn.cover, run_cover(CHILD, 2));
+    assert_eq!(turn.project_id, "calm-otter");
+    assert_eq!(carried(&turn.command), ["i1", "w1", "w2"]);
+    assert_eq!(turn.command.urgency, TurnUrgency::Wake);
+    assert_eq!(turn.command_id(), sessions::command_id("send:w1"));
+}
+
+// D30: informs alone start no turn; they wait for the next one.
+#[test]
+fn informs_alone_start_no_turn() {
+    let pending = [
+        message("i1", Urgency::Inform),
+        message("i2", Urgency::Inform),
+    ];
+    assert_eq!(deliver(&gate(true, false), &pending), None);
+    assert_eq!(deliver(&gate(true, true), &pending), None);
+}
+
+// S-b: a turn in flight takes a steer (with the informs before it) and no
+// wake; the steer is the turn's urgency.
+#[test]
+fn a_turn_in_flight_is_given_the_steers_and_the_informs_not_the_wakes() {
+    let pending = [
+        message("w1", Urgency::Wake),
+        message("i1", Urgency::Inform),
+        message("s1", Urgency::Steer),
+    ];
+    let turn = deliver(&gate(true, true), &pending).unwrap();
+    assert_eq!(turn.key, "send:s1");
+    assert_eq!(carried(&turn.command), ["i1", "s1"]);
+    assert_eq!(turn.command.urgency, TurnUrgency::Steer);
+    let waiting = [message("w1", Urgency::Wake)];
+    assert_eq!(deliver(&gate(true, true), &waiting), None);
+}
+
+// S-a: no live run, no turn (the wake owed an incarnation; its start runs the
+// policy again).
+#[test]
+fn no_turn_is_queued_without_a_live_run() {
+    let pending = [message("w1", Urgency::Wake)];
+    assert_eq!(deliver(&gate(false, false), &pending), None);
+}
+
+// S-d: re-run from 0 on the same state, the policy answers the same key, so
+// the run answers it DUPLICATE.
+#[test]
+fn the_same_state_gives_the_same_keyed_turn() {
+    let pending = [message("w1", Urgency::Wake), message("s1", Urgency::Steer)];
+    assert_eq!(
+        deliver(&gate(true, false), &pending),
+        deliver(&gate(true, false), &pending)
+    );
+    assert_eq!(
+        deliver(&gate(true, false), &pending)
+            .unwrap()
+            .command
+            .urgency,
+        TurnUrgency::Steer
+    );
+}
+
+// --------------------------------------------------------------- cascade
+
+// D29: the owner's close closes every child it holds, keyed by both.
+#[test]
+fn an_owners_close_closes_each_child_it_holds() {
+    let closes = cascade(&at(OWNER), &children(&[CHILD, OTHER]));
+    let keys: Vec<&str> = closes.iter().map(|c| c.key.as_str()).collect();
+    assert_eq!(
+        keys,
+        [
+            format!("cascade:{OWNER}:{CHILD}"),
+            format!("cascade:{OWNER}:{OTHER}")
+        ]
+    );
+    assert_eq!(closes[0].cover, session_cover(CHILD).unwrap());
+    assert_eq!(
+        closes[0].command,
+        CloseSession {
+            cause: "owner-closed".to_string(),
+            requester: None,
+        }
+    );
+}
+
+#[test]
+fn a_childs_close_ends_it_on_its_owner() {
+    let end = child_ended(
+        &at(CHILD),
+        &at(OWNER),
+        &SessionClosed {
+            cause: "owner-closed".to_string(),
+        },
+    )
+    .unwrap();
+    assert_eq!(end.key, format!("child-ended:{OWNER}:{CHILD}"));
+    assert_eq!(end.cover, session_cover(OWNER).unwrap());
+    assert_eq!(end.command.child, Some(at(CHILD)));
+    assert_eq!(end.command.cause, "owner-closed");
+}
+
+// ---------------------------------------------------------------- notice
+
+fn ended(notice_parent: bool) -> IncarnationEnded {
+    IncarnationEnded {
+        incarnation: 3,
+        cause: "runner-exit".to_string(),
+        notice_parent,
+    }
+}
+
+// The notice: a child's end that notices its parent mails the owner a wake,
+// its message id its key.
+#[test]
+fn a_childs_end_wakes_its_owner_keyed_by_the_child_and_incarnation() {
+    let every = [Urgency::Inform, Urgency::Wake, Urgency::Steer];
+    let sent = notice(&at(CHILD), "kid", &at(OWNER), &ended(true), &every).unwrap();
+    assert_eq!(sent.key, format!("notice:{CHILD}:3"));
+    assert_eq!(sent.command.message_id, sent.key);
+    assert_eq!(sent.command.urgency, Urgency::Wake);
+    assert_eq!(sent.command.requester, None);
+    assert_eq!(sent.cover, session_cover(OWNER).unwrap());
+    assert!(sent.command.text.contains("kid"));
+    let inform_only = notice(
+        &at(CHILD),
+        "kid",
+        &at(OWNER),
+        &ended(true),
+        &[Urgency::Inform],
+    )
+    .unwrap();
+    assert_eq!(inform_only.command.urgency, Urgency::Inform);
+    assert_eq!(
+        notice(&at(CHILD), "kid", &at(OWNER), &ended(true), &[]),
+        None
+    );
+    assert_eq!(
+        notice(&at(CHILD), "kid", &at(OWNER), &ended(false), &every),
+        None
+    );
+}
+
+// ------------------------------------------------------------- the drain
+
+// OD-54: a draining daemon steers a busy child with the approved guidance,
+// the session's own steer (the one delivery path), keyed by the child and
+// its run, so a redelivery records it once.
+#[test]
+fn the_drains_guidance_is_a_steer_to_the_child_keyed_by_its_run() {
+    let every = [Urgency::Inform, Urgency::Wake, Urgency::Steer];
+    let sent = drain_guidance(&at(CHILD), 2, &every).unwrap();
+    assert_eq!(sent.key, format!("drain:{CHILD}:2"));
+    assert_eq!(sent.command.message_id, sent.key);
+    assert_eq!(sent.command.urgency, Urgency::Steer);
+    assert_eq!(sent.command.text, DRAIN_GUIDANCE);
+    assert_eq!(
+        DRAIN_GUIDANCE,
+        "ctxloom is being upgraded: finish the step you are on and end your turn; \
+         you will be resumed in this conversation."
+    );
+    assert_eq!(sent.command.requester, None);
+    assert_eq!(sent.command.supported, every.to_vec());
+    assert_eq!(sent.cover, session_cover(CHILD).unwrap());
+    assert_eq!(sent.project_id, "calm-otter");
+    assert_eq!(
+        drain_guidance(&at(CHILD), 2, &[Urgency::Inform, Urgency::Wake]),
+        None,
+        "an engine that takes no steer is given none"
+    );
+}
+
+// ---------------------------------------------------------------- launch
+
+fn launched() -> ChildLaunched {
+    ChildLaunched {
+        child: Some(SessionRef {
+            project_id: "far-heron".to_string(),
+            session: CHILD.to_string(),
+        }),
+        child_root: "/work/far".to_string(),
+        harp: "kid".to_string(),
+        engine: "opencode".to_string(),
+        depth: 1,
+        prompt: String::new(),
+    }
+}
+
+// K2, D19: the child is claimed and minted in the TARGET store, for its owner.
+#[test]
+fn a_launch_mints_the_child_in_the_target_store_for_its_owner() {
+    let mint = launch(&at(OWNER), &launched()).unwrap();
+    assert_eq!(mint.claim.project_id, "far-heron");
+    assert_eq!(mint.claim.key, format!("claim:{OWNER}:{CHILD}"));
+    // Slice 2 B3: the name's claim is rooted where its session is, on the
+    // UUIDv5 of the name.
+    assert_eq!(mint.claim.cover.root, mint.mint.cover.root);
+    assert_eq!(mint.claim.cover.domain, sessions::NAMES_DOMAIN);
+    assert_eq!(mint.claim.command.session, CHILD);
+    assert_eq!(mint.mint.key, format!("mint:{OWNER}:{CHILD}"));
+    assert_eq!(mint.mint.cover, session_cover(CHILD).unwrap());
+    assert_eq!(
+        mint.mint.command,
+        MintSession {
+            harp: "kid".to_string(),
+            project_id: "far-heron".to_string(),
+            project_dir: "/work/far".to_string(),
+            // Left to its project's config, read by the daemon.
+            output_dir: String::new(),
+            engine: "opencode".to_string(),
+            origin: Origin::Agent,
+            started_at: None,
+            depth: 1,
+            owner: Some(at(OWNER)),
+            workspace: None,
+        }
+    );
+}
+
+#[test]
+fn a_refused_launch_is_recorded_on_the_owner_keyed_by_both() {
+    let failed = launch_failed(&at(OWNER), &at(CHILD), "sessions-names-taken").unwrap();
+    assert_eq!(failed.external_id, format!("launch-failed:{OWNER}:{CHILD}"));
+    assert_eq!(failed.cover, session_cover(OWNER).unwrap());
+    assert_eq!(failed.fact.child, Some(at(CHILD)));
+    assert_eq!(failed.fact.reason, "sessions-names-taken");
+}
+
+// --------------------------------------------------------------- destroy
+
+// M3: before the purge, each child is closed and the owner forgets the
+// destroyed session.
+#[test]
+fn a_destroy_closes_the_children_and_tells_the_owner_to_forget() {
+    let plan = destroy(&at(CHILD), Some(&at(OWNER)), &children(&[OTHER]));
+    assert_eq!(plan.close.len(), 1);
+    assert_eq!(
+        plan.close[0].key,
+        format!("owner-destroyed:{CHILD}:{OTHER}")
+    );
+    assert_eq!(plan.close[0].command.cause, "owner-destroyed");
+    let forget = plan.forget.unwrap();
+    assert_eq!(forget.key, format!("destroy:{CHILD}"));
+    assert_eq!(forget.cover, session_cover(OWNER).unwrap());
+    assert_eq!(forget.command.child, Some(at(CHILD)));
+    assert_eq!(destroy(&at(OWNER), None, &[]).forget, None);
+}
+
+// ------------------------------------------------------------- the races
+
+/// A child session's stream, minted for `OWNER`.
+fn child_stream() -> Harness<SessionAggregate> {
+    let mut registry = Registry::new();
+    registry
+        .aggregate::<SessionAggregate>(SessionAggregate::default)
+        .unwrap();
+    let mut harness = Harness::new(registry, session_cover(CHILD).unwrap())
+        .with_samples(Samples::starting_at(100));
+    let mint: SessionCommand = MintSession {
+        harp: "kid".to_string(),
+        project_id: "calm-otter".to_string(),
+        project_dir: "/w".to_string(),
+        output_dir: String::new(),
+        engine: "claude-code".to_string(),
+        origin: Origin::Agent,
+        started_at: None,
+        depth: 1,
+        owner: Some(at(OWNER)),
+        workspace: None,
+    }
+    .into();
+    harness.when(mint).result().unwrap();
+    harness
+}
+
+/// What `book` recorded on the stream: its events, or `None` for a
+/// DUPLICATE.
+fn sent(
+    harness: &mut Harness<SessionAggregate>,
+    book: angzarr_embedded::v1::CommandBook,
+) -> Option<Vec<SessionEvent>> {
+    match harness.when_book(book).handled().expect("not refused") {
+        Handled::Applied(recorded) => Some(
+            recorded
+                .books()
+                .iter()
+                .flat_map(|book| &book.pages)
+                .filter_map(|page| match &page.body {
+                    Some(angzarr_embedded::v1::event_page::Body::Event(any)) => {
+                        Some(SessionEvent::from_any(any).unwrap())
+                    }
+                    _ => None,
+                })
+                .collect(),
+        ),
+        Handled::Duplicate(..) => None,
+    }
+}
+
+// Two policies race to close one child (the owner's cascade and its
+// destroy), and the cascade is redelivered: the child is closed once, the
+// second policy records nothing, the redelivery is a DUPLICATE.
+#[test]
+fn a_cascade_racing_a_destroy_and_its_redelivery_close_the_child_once() {
+    let mut child = child_stream();
+    let held = children(&[CHILD]);
+    let by_cascade = cascade(&at(OWNER), &held).remove(0);
+    let by_destroy = destroy(&at(OWNER), None, &held).close.remove(0);
+    let first = sent(&mut child, by_cascade.book()).unwrap();
+    assert!(
+        matches!(first.as_slice(), [SessionEvent::SessionClosed(c)] if c.cause == "owner-closed")
+    );
+    assert_eq!(sent(&mut child, by_destroy.book()), Some(Vec::new()));
+    assert_eq!(sent(&mut child, by_cascade.book()), None, "a duplicate");
+}
+
+// A notice redelivered (the daemon restarted and re-ran the policy from 0)
+// is one message.
+#[test]
+fn a_notice_redelivered_is_one_message() {
+    let mut owner = child_stream();
+    let every = [Urgency::Inform, Urgency::Wake, Urgency::Steer];
+    // The notice goes to the harness's stream (the child's own here: the
+    // stream does not matter to the key; its sender is the user).
+    let mut sent_notice = notice(&at(OTHER), "kid", &at(OWNER), &ended(true), &every).unwrap();
+    sent_notice.cover = session_cover(CHILD).unwrap();
+    let first = sent(&mut owner, sent_notice.book()).unwrap();
+    assert!(
+        matches!(first.as_slice(), [SessionEvent::MessageSent(m)] if m.message_id == sent_notice.key)
+    );
+    assert_eq!(sent(&mut owner, sent_notice.book()), None);
+}
+
+// ------------------------------------------------- who a message is from
+
+// A message the daemon minted (a notice, the drain's guidance) is told
+// apart from one the user sent by its id; the ids the policies mint are
+// always told, and no other id is.
+#[test]
+fn a_message_the_daemon_minted_is_told_by_its_id() {
+    let every = [Urgency::Inform, Urgency::Wake, Urgency::Steer];
+    let ended_run = ended(true);
+    let notice_id = notice(&at(CHILD), "kid", &at(OWNER), &ended_run, &every)
+        .unwrap()
+        .command
+        .message_id;
+    let drain_id = drain_guidance(&at(CHILD), 2, &every)
+        .unwrap()
+        .command
+        .message_id;
+    assert!(is_daemon_message(&notice_id), "{notice_id}");
+    assert!(is_daemon_message(&drain_id), "{drain_id}");
+    assert!(is_daemon_message("notice:a:1:rehost-budget"));
+    for user in [
+        "",
+        "m1",
+        "notices",
+        "xnotice:a",
+        "NOTICE:a",
+        "drains:a",
+        " drain:a",
+    ] {
+        assert!(!is_daemon_message(user), "{user:?}");
+    }
+}

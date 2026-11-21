@@ -1,8 +1,7 @@
 # world: surfaces
 # Ported from cli/mcp.feature (rev f36e8dfb2)
-# NOT ported: the Rules tagged @pending: server show, edit and set, the
-#   config-level store's absence, the retired native mcp: block, ctxloom's own
-#   server in its companion loadout, and the bare noun's refusal.
+# NOT ported: the Rules tagged @pending, each with its reason: ctxloom's own
+#   server in its companion loadout, and showing it.
 @doc
 Feature: mcp — the MCP servers ctxloom hands to every engine
 
@@ -30,8 +29,12 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
       And I run "ctxloom agent default dev"
       When I run "ctxloom mcp server list"
       Then the command succeeds
-      And the output reports "servers[name=toolserver].command" as "j000400-mcp-tool-9e1b52"
+      And the output reports "mcp_servers[name$=/mcpServers/toolserver].command" as "j000400-mcp-tool-9e1b52"
 
+  # Still pending (step 11): not built. ctxloom's own loadout declares its
+  # server (library::write::loadout, `served_by: session-endpoint`), but no
+  # catalog joins it where no companion is configured: `mcp server list` is
+  # `{}` and `mcp server show ctxloom` is `library-application-mcp-not-found`.
   @pending
   Rule: ctxloom's own MCP server ships in ctxloom's own companion loadout, so it needs no configuration
 
@@ -48,6 +51,8 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
       And the output contains "ctxloom"
       And the output contains "ctxloom+companion:ctxloom"
 
+  # Still pending (step 11): not built, as the Rule above: `mcp server show
+  # ctxloom` is `library-application-mcp-not-found` (exit 20).
   @pending
   Rule: Showing a server surfaces how it is reached, not just its name
 
@@ -62,8 +67,10 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
     # `show` DESCRIBES that — there is no command to print, and printing one
     # would be describing a server that does not exist.
     # Tabled by format: `mcp server show` is wired to emit(), so off a
-    # terminal (which this harness always is) the no-flag row gets the JSON
-    # GetMCPServerResult, not the text lines.
+    # terminal (which this harness always is) the no-flag row gets the JSON,
+    # not the text lines. OD-40: the JSON is `ListMcpServersResponse` filtered
+    # by the ID (design §3.5), each server named below its bundle, so the
+    # bundle identity is the name's parent.
     Scenario Outline: Showing an MCP server's configuration
       Given an initialized ctxloom project
       When Alice inspects the server's configuration:
@@ -71,18 +78,17 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
         ctxloom <flags> mcp server show ctxloom
         """
       Then the command succeeds
-      And the output reports "entries.0.source" as "<names the bundle>"
-      And the output reports "entries.0.served_by" as "<names the endpoint>"
+      And the output reports "mcp_servers.0.name" as "<names the bundle>"
+      And the output reports "mcp_servers.0.served_by" as "<names the endpoint>"
       And the output does not contain "mcp serve"
 
       @json-default
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | names the bundle            | names the endpoint                        |
-        |               | ctxloom+companion:ctxloom   | session-endpoint                          |
-        | --format json | ctxloom+companion:ctxloom   | session-endpoint                          |
+        |               | projects/{project}/companions/ctxloom/bundles/loadout/mcpServers/ctxloom | session-endpoint |
+        | --format json | projects/{project}/companions/ctxloom/bundles/loadout/mcpServers/ctxloom | session-endpoint |
         | --format text | ctxloom+companion:ctxloom   | Served by: the running session's endpoint |
 
-  @pending
   Rule: There is no config-level MCP store to create in or remove from
 
     # The ruling this noun is shaped by: an MCP server lives in a bundle and
@@ -113,7 +119,6 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
         | register   |
         | unregister |
 
-  @pending
   Rule: A config carrying the retired native mcp: block is refused, not ignored
 
     # A setting that looks applied and is not is the worse outcome, so a
@@ -136,7 +141,6 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
       Then the command fails
       And the output contains "unknown key `mcp`"
 
-  @pending
   Rule: Editing a bundle's server is a round trip through the user's editor
 
     # `mcp server edit` is the only leaf here that hands control to an
@@ -179,7 +183,6 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
       Then the command fails
       And the output contains "not found"
 
-  @pending
   Rule: Setting a bundle's server from flags changes exactly the fields passed
 
     # `mcp server set` is a PATCH: a typed flag reaches the entry, an untyped
@@ -188,9 +191,11 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
     # bundle file on disk, and a field nobody passed survived — because an
     # implementation that rewrote the whole entry from the flags would satisfy
     # the first half alone. A server's tags, notes and installation live in
-    # its `.<name>.meta.yaml` sidecar beside the runtime file. The output is
-    # SetBundleMCPResult (JSON off a terminal), whose status separates a new
-    # entry from a changed one.
+    # its one `mcp/<name>.yaml` beside its runtime fields (owner T27: no
+    # sidecar, so a server is one file, one write). The output is
+    # `UpdateMcpServerResponse` (JSON off a terminal; OD-40, AIP-134
+    # `allow_missing`), whose `created` separates a new entry from a changed
+    # one.
     Background:
       Given an initialized ctxloom project
       And the project already has the bundle "demo":
@@ -207,14 +212,16 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
 
     @json-default
     Scenario: A name the bundle lacks is created as a remote server
-      When I run "ctxloom mcp server set demo#mcp/search --url https://mcp.example.com/v1 --header X-Team=core --tag search-index --notes 'Team search index' --installation 'Ask core for a seat'"
+      # changed: owner ruling 2026-11-18 (the dropped --header and --tag): the flags that remain.
+      When I run "ctxloom mcp server set demo#mcp/search --url https://mcp.example.com/v1 --notes 'Team search index' --installation 'Ask core for a seat'"
       Then the command succeeds
-      And the output reports "status" as "created"
+      And the output reports "applied" as "true"
+      And the output reports "created" as "true"
+      And the output reports "mcp_server.name" as "projects/{project}/bundles/demo/mcpServers/search"
       And the file ".ctxloom/content/bundles/v2/demo/mcp/search.yaml" contains "url: https://mcp.example.com/v1"
-      And the file ".ctxloom/content/bundles/v2/demo/mcp/search.yaml" contains "X-Team: core"
-      And the file ".ctxloom/content/bundles/v2/demo/mcp/.search.meta.yaml" contains "search-index"
-      And the file ".ctxloom/content/bundles/v2/demo/mcp/.search.meta.yaml" contains "Team search index"
-      And the file ".ctxloom/content/bundles/v2/demo/mcp/.search.meta.yaml" contains "Ask core for a seat"
+      And the file ".ctxloom/content/bundles/v2/demo/mcp/search.yaml" contains "Team search index"
+      And the file ".ctxloom/content/bundles/v2/demo/mcp/search.yaml" contains "Ask core for a seat"
+      And the file ".ctxloom/content/bundles/v2/demo/mcp/.search.meta.yaml" does not exist
       And the file ".ctxloom/content/bundles/v2/demo/mcp/tools.yaml" contains "KEEP-THIS-ARGUMENT"
 
     # A repeatable flag REPLACES the stored list or map: the fixture's
@@ -223,19 +230,22 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
     Scenario: Updating an existing server replaces its arguments and keeps what was not passed
       When I run "ctxloom mcp server set demo#mcp/tools --command search-mcp --arg=--stdio --env LOG_LEVEL=debug"
       Then the command succeeds
-      And the output reports "status" as "updated"
+      And the output reports "applied" as "true"
+      And the output reports "created" as "false"
       And the file ".ctxloom/content/bundles/v2/demo/mcp/tools.yaml" contains "command: search-mcp"
       And the file ".ctxloom/content/bundles/v2/demo/mcp/tools.yaml" contains "--stdio"
       And the file ".ctxloom/content/bundles/v2/demo/mcp/tools.yaml" contains "LOG_LEVEL: debug"
       And the file ".ctxloom/content/bundles/v2/demo/mcp/tools.yaml" does not contain "KEEP-THIS-ARGUMENT"
-      And the file ".ctxloom/content/bundles/v2/demo/mcp/.tools.meta.yaml" contains "KEEP-THESE-NOTES"
+      And the file ".ctxloom/content/bundles/v2/demo/mcp/tools.yaml" contains "KEEP-THESE-NOTES"
+      And the file ".ctxloom/content/bundles/v2/demo/mcp/.tools.meta.yaml" does not exist
 
     # Moving to another target means clearing the old one in the same call:
     # an empty value is a clear, not an absence.
-    Scenario: Clearing the old target in the same call moves a server to the session endpoint
-      When I run "ctxloom mcp server set demo#mcp/tools --command= --arg= --served-by session-endpoint"
+    Scenario: Clearing the old target in the same call moves a server to a remote endpoint
+      # changed: owner ruling 2026-11-18 (the dropped --served-by): the server moves to the target that remains.
+      When I run "ctxloom mcp server set demo#mcp/tools --command= --arg= --url https://mcp.example.com/v1"
       Then the command succeeds
-      And the file ".ctxloom/content/bundles/v2/demo/mcp/tools.yaml" contains "served_by: session-endpoint"
+      And the file ".ctxloom/content/bundles/v2/demo/mcp/tools.yaml" contains "url: https://mcp.example.com/v1"
       And the file ".ctxloom/content/bundles/v2/demo/mcp/tools.yaml" does not contain "echo"
       And the file ".ctxloom/content/bundles/v2/demo/mcp/tools.yaml" does not contain "KEEP-THIS-ARGUMENT"
 
@@ -271,7 +281,6 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
         | engine      |
         | claude-code |
 
-  @pending
   Rule: The bare noun answers a person and refuses a protocol client
 
     `ctxloom mcp` on its own lists the MCP servers this project registers, the

@@ -20,6 +20,12 @@
 # is read run by run. A tier below its threshold fails `score` (the verdict's
 # own exit), after the scores are kept.
 #
+# On a branch that carries red spec on purpose (an integration branch, owner
+# ruling 165), the shard holding the binary's mutants judges its feature
+# runner against the tree's own scenario list (`mutants-shard`'s ratchet,
+# GHERKIN_RATCHET_BASE), so its baseline is not red for the carried red and
+# a new red still fails; the suites job runs the runner straight.
+#
 # A dispatch may choose: `suites` (run the test suites too), `shards` (n),
 # and `only-shard` (run that one shard k of n alone, to measure a shard's
 # time; the score is then of that shard only).
@@ -49,6 +55,17 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: never
+  # The test gates' memory cap (gates/memory-cap.sh, a systemd user scope;
+  # owner ruling of 2026-11-16) is opted out of, deliberately: a hosted
+  # runner's VM is the job's alone, so a runaway test fails that job and
+  # nothing else, and the Windows and macOS runners have no systemd at all
+  # (whether the Linux one can make a user scope is not relied on). Each
+  # test step says so in its output.
+  TESTS_MEMORY_MAX: none
+  # nextest's threads stay one a core on a hosted runner (its own default):
+  # the default profile's `test-threads` (.config/nextest.toml) was measured
+  # on a 20-core host shared with other agents, not on a runner's cores.
+  NEXTEST_TEST_THREADS: num-cpus
 
 jobs:
   plan:
@@ -115,7 +132,10 @@ jobs:
         with:
           node-version: "22"
       - run: just build
-      - run: just test
+      - name: just test (uncapped, TESTS_MEMORY_MAX=none)
+        run: |
+          echo "test gates: memory cap: none (TESTS_MEMORY_MAX=none): this runner's VM is the job's alone"
+          just test
       - if: failure()
         uses: ctxloom/ci/.github/actions/gate-logs@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
         with:
@@ -151,6 +171,15 @@ jobs:
         env:
           SHARD: ${{ matrix.shard }}/${{ needs.plan.outputs.n }}
         run: |
+          # The mutation run's memory cap (gates/memory-cap.sh) is a systemd
+          # user scope. A hosted runner may have no user manager to make one;
+          # this runner's VM is the job's alone (no one's sessions to take
+          # down: a runaway mutant fails this shard), so there the run is
+          # deliberately UNCAPPED, said in the summary, rather than failed.
+          if ! gates/memory-cap.sh mutants-shard "$(just --evaluate mutants_memory_max)" "$(just --evaluate mutants_swap_max)" --check; then
+              export MUTANTS_MEMORY_MAX=none
+              echo "shard $SHARD: no systemd user scope on this runner: mutation run UNCAPPED (MUTANTS_MEMORY_MAX=none)" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
           start=$(date +%s)
           rc=0
           just mutants-shard "$SHARD" target/logs/mutants-shard || rc=$?

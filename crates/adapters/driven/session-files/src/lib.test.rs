@@ -101,16 +101,32 @@ fn at(seconds: i64) -> Option<Timestamp> {
 
 // ------------------------------------------------------------------- places
 
-// The lock is beside the session directory, never inside it.
+// Step 10 U9 (T28): the lock is inside the session directory.
 #[test]
-fn the_lock_is_beside_the_session_directory() {
+fn the_lock_is_inside_the_session_directory() {
     let (_, dirs) = dirs();
     assert_eq!(
         dirs.lock_path(HARP),
         Path::new(&host_path(
-            "/work/proj/.ctxloom/sessions/amber-swift-owl.lock"
+            "/work/proj/.ctxloom/sessions/amber-swift-owl/session.lock"
         ))
     );
+}
+
+// The lock inside the directory is the run's, never a file a person wrote:
+// the survey does not name it.
+#[test]
+fn the_survey_does_not_name_the_lock() {
+    let (fs, mut dirs) = dirs();
+    write(&fs, &dirs, "native/history.jsonl", "abc");
+    write(&fs, &dirs, "session.lock", "");
+    let rels: Vec<String> = dirs
+        .survey(HARP)
+        .unwrap()
+        .into_iter()
+        .map(|item| item.rel)
+        .collect();
+    assert_eq!(rels, vec!["native/history.jsonl".to_string()]);
 }
 
 // ----------------------------------------------------------- last activity
@@ -385,6 +401,23 @@ fn a_records_write_makes_the_directories_above_it() {
     );
 }
 
+// A session home's file is its owner's alone (0600); one written executable
+// (a skill's declared script, step 3) is 0700, and written over plainly it
+// is 0600 again.
+#[test]
+fn a_records_executable_write_is_its_owners_to_run_alone() {
+    use run_ports::SessionRecords;
+    let (fs, mut dirs) = dirs();
+    let rel = "home/skills/reviewer/scripts/run.sh";
+    let path = dirs.dir(HARP).join(rel);
+    let mode = |fs: &Rooted| fs.metadata(&path).unwrap().mode.map(|m| m.bits() & 0o777);
+    SessionRecords::write_executable(&mut dirs, HARP, rel, b"#!/bin/sh\n").unwrap();
+    assert_eq!(fs.read(&path).unwrap(), b"#!/bin/sh\n");
+    assert_eq!(mode(&fs), kept(0o700));
+    SessionRecords::write(&mut dirs, HARP, rel, b"plain").unwrap();
+    assert_eq!(mode(&fs), kept(0o600));
+}
+
 #[test]
 fn a_records_write_replaces_what_was_there() {
     use run_ports::SessionRecords;
@@ -606,8 +639,8 @@ fn removing_a_session_whose_home_holds_the_link_leaves_the_login_intact() {
         surveyed.iter().all(|item| !item.rel.starts_with("home")),
         "{surveyed:?}"
     );
-    dirs.destroy_session(HARP).unwrap();
-    assert!(!fs.exists(&dirs.dir(HARP)).unwrap());
+    // Measured, the link is not followed out: only the session's own bytes.
+    assert_eq!(dirs.size(HARP).unwrap(), 5);
     assert_eq!(fs.read_to_string(Path::new(&login_file())).unwrap(), SECRET);
 }
 
@@ -645,10 +678,11 @@ fn a_records_harp_exists_once_its_directory_does() {
     assert!(!SessionRecords::exists(&mut dirs, "brisk-copper-moth"));
 }
 
-// Ruling 94b: a destroy removes the session's directory whole (the home too)
-// and its lock, and counts what it freed; a session with none is no failure.
+// Step 10b O2: what a removal frees is its directory's every file (the
+// home and the lock too), measured before it is taken into the trash; the
+// measure removes nothing, and a session with no directory is 0.
 #[test]
-fn a_destroy_removes_the_whole_directory_and_its_lock() {
+fn a_sessions_size_is_every_file_of_its_directory_and_removes_nothing() {
     let (fs, mut dirs) = dirs();
     write(&fs, &dirs, "home/settings.json", "{}");
     write(&fs, &dirs, "native/history.jsonl", "abc");
@@ -658,23 +692,7 @@ fn a_destroy_removes_the_whole_directory_and_its_lock() {
         file_system::Perms::Exact(Mode::from_bits(0o600)),
     )
     .unwrap();
-    assert_eq!(dirs.destroy_session(HARP).unwrap(), 5);
-    assert!(!fs.exists(&dirs.dir(HARP)).unwrap());
-    assert!(!fs.exists(&dirs.lock_path(HARP)).unwrap());
-    assert_eq!(
-        dirs.destroy_session(HARP).unwrap(),
-        0,
-        "again: nothing there"
-    );
-}
-
-// Ruling 94b: a lock that is not there is no failure of a destroy; one that
-// cannot be removed (a directory in its place) is.
-#[test]
-fn a_lock_that_cannot_be_removed_is_the_destroys_error() {
-    let (fs, mut dirs) = dirs();
-    write(&fs, &dirs, "home/settings.json", "{}");
-    fs.create_dir_all(&dirs.lock_path(HARP).join("inside"), Mode::from_bits(0o755))
-        .unwrap();
-    assert!(dirs.destroy_session(HARP).is_err());
+    assert_eq!(dirs.size(HARP).unwrap(), 5);
+    assert!(fs.exists(&dirs.lock_path(HARP)).unwrap(), "nothing removed");
+    assert_eq!(dirs.size("brisk-copper-moth").unwrap(), 0);
 }

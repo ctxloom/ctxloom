@@ -18,9 +18,8 @@ fn map(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
 }
 
 #[test]
-fn test_the_files_are_beside_each_other_in_the_kind_directory() {
+fn test_a_server_is_its_one_file_in_the_kind_directory() {
     assert_eq!(content_path("tools"), "mcp/tools.yaml");
-    assert_eq!(meta_path("tools"), "mcp/.tools.meta.yaml");
 }
 
 // captured from a Go run: bundle edit --add-mcp tree-sitter
@@ -30,7 +29,6 @@ fn test_the_placeholder_launches_its_own_name() {
         content_file(&placeholder("tree-sitter")),
         "command: tree-sitter\n"
     );
-    assert_eq!(meta_file(&placeholder("tree-sitter")), None);
 }
 
 // operations.BundleMCPInput.patch
@@ -168,8 +166,10 @@ fn test_the_content_file_lists_how_the_server_is_reached() {
     assert_eq!(content_file(&McpServer::default()), "{}\n");
 }
 
+// owner T27: what is said about a server is in its one file, after how it
+// is reached; no sidecar.
 #[test]
-fn test_the_sidecar_says_what_is_said_about_the_server() {
+fn test_the_servers_file_says_what_is_said_about_it_after_how_it_is_reached() {
     let said = McpServer {
         tags: vec!["search-index".to_string()],
         notes: "Team search index".to_string(),
@@ -177,18 +177,23 @@ fn test_the_sidecar_says_what_is_said_about_the_server() {
         ..server("echo", &[])
     };
     assert_eq!(
-        meta_file(&said).as_deref(),
-        Some("tags:\n  - search-index\nnotes: Team search index\ninstallation: Ask core for a seat\n")
+        content_file(&said),
+        "command: echo\ntags:\n  - search-index\nnotes: Team search index\ninstallation: Ask core for a seat\n"
     );
-    assert_eq!(meta_file(&server("echo", &[])), None);
     assert_eq!(
-        meta_file(&McpServer {
+        content_file(&McpServer {
             notes: "only notes".to_string(),
             ..McpServer::default()
-        })
-        .as_deref(),
-        Some("notes: only notes\n")
+        }),
+        "notes: only notes\n"
     );
+    // The file reads back as the server written.
+    let read = crate::document::mcp_server(
+        &angzarr_yaml::parse(&content_file(&said)).unwrap(),
+        "mcp/said",
+    )
+    .unwrap();
+    assert_eq!(read, said);
 }
 
 #[test]

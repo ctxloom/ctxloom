@@ -27,7 +27,9 @@ Feature: Adopting ctxloom without regret — the first hour, and the exit verifi
 
   Background:
     # substitution: Alice's setting.
-    Given an empty project directory
+    # changed: step 10, G1: her live repo is a git repository, so init runs no
+    # git init and writes nothing outside .ctxloom.
+    Given an empty project directory that is a git repository
     And Alice's assistant is Claude Code
     And Alice has exported her assistant's token
 

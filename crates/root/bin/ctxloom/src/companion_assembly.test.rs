@@ -23,6 +23,7 @@ fn world(loadout: &str) -> (Project, Stub, file_system::Rooted) {
     project.profile("dev", "demo");
     let dir = files::root();
     let stub = Stub::install(dir.root(), "acme", loadout);
+    project.put_on_path(stub.bin());
     let args = stub.add_args("acme");
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     let ran = project.run(&args);
@@ -38,6 +39,9 @@ fn assembled(project: &Project, env: &[(&str, &str)], flags: &[&str]) -> super::
 
 #[test]
 fn a_registered_companions_fragment_reaches_context_assemble() {
+    if !files::runs_scripts() {
+        return;
+    }
     let (project, _stub, _dir) = world(LOADOUT);
     let ran = assembled(&project, &[], &[]);
     ran.succeeds();
@@ -55,12 +59,17 @@ fn a_registered_companions_fragment_reaches_context_assemble() {
         !context.contains(LATER),
         "a premise holds it back: {context}"
     );
+    // OD-40 (design §1.2): a companion's fragment is named under its
+    // loadout, `projects/{project}/companions/acme/bundles/loadout`.
     assert!(
-        doc["fragments_loaded"]
+        doc["fragments"]
             .as_array()
             .unwrap()
             .iter()
-            .any(|f| f == "ctxloom+companion:acme#fragments/guidance"),
+            .any(|f| f["fragment"]
+                .as_str()
+                .is_some_and(|name| name.starts_with("projects/")
+                    && name.ends_with("/companions/acme/bundles/loadout/fragments/guidance"))),
         "{doc}"
     );
     assert_eq!(ran.stderr, "", "nothing to warn of");
@@ -68,6 +77,9 @@ fn a_registered_companions_fragment_reaches_context_assemble() {
 
 #[test]
 fn a_registered_companions_fragment_reaches_materialize_and_run() {
+    if !files::runs_scripts() {
+        return;
+    }
     let (project, _stub, _dir) = world(LOADOUT);
     project
         .run(&[
@@ -104,6 +116,9 @@ fn materialized(project: &Project, flags: &[&str]) {
 
 #[test]
 fn a_registered_companions_hooks_commands_and_servers_reach_materialize() {
+    if !files::runs_scripts() {
+        return;
+    }
     let (project, _stub, _dir) = world(ITEMS);
     materialized(&project, &[]);
     project.file_contains("out/.claude/settings.json", "acme-guard");
@@ -114,6 +129,9 @@ fn a_registered_companions_hooks_commands_and_servers_reach_materialize() {
 
 #[test]
 fn no_companions_delivers_none_of_their_hooks_commands_or_servers() {
+    if !files::runs_scripts() {
+        return;
+    }
     let (project, _stub, _dir) = world(ITEMS);
     materialized(&project, &["--no-companions"]);
     project.file_lacks("out/.claude/settings.json", "acme-guard");
@@ -123,11 +141,16 @@ fn no_companions_delivers_none_of_their_hooks_commands_or_servers() {
 
 #[test]
 fn a_premised_companion_fragment_is_offered_in_the_premise_index_and_delivered_when_named() {
+    if !files::runs_scripts() {
+        return;
+    }
     let (project, _stub, _dir) = world(LOADOUT);
     let premises = project.run(&["fragment", "premises", "--format", "json"]);
     premises.succeeds();
+    // OD-40: the `PremiseIndex` names the companion's fragment by its
+    // resource name, below the companion's loadout.
     premises
-        .contains("ctxloom+companion:acme#fragments/later")
+        .contains("/companions/acme/bundles/loadout/fragments/later\"")
         .contains("you are about to do the later thing");
     let named = project.run(&[
         "context",
@@ -143,6 +166,9 @@ fn a_premised_companion_fragment_is_offered_in_the_premise_index_and_delivered_w
 
 #[test]
 fn no_companions_runs_none_by_flag_or_by_environment() {
+    if !files::runs_scripts() {
+        return;
+    }
     let (project, stub, _dir) = world(LOADOUT);
     // The companion would hang now: were it run, the command would wait out
     // the probe's limit and warn. Neither happens.
@@ -173,6 +199,9 @@ fn no_companions_runs_none_by_flag_or_by_environment() {
 
 #[test]
 fn a_companion_that_exits_with_a_status_offers_no_loadout_quietly() {
+    if !files::runs_scripts() {
+        return;
+    }
     let (project, stub, _dir) = world(LOADOUT);
     let _ = stub.misbehaving(Misbehaving::Exits(3));
     let ran = assembled(&project, &[], &[]);
@@ -184,6 +213,9 @@ fn a_companion_that_exits_with_a_status_offers_no_loadout_quietly() {
 
 #[test]
 fn a_companion_that_hangs_costs_its_limit_and_a_warning_never_the_command() {
+    if !files::runs_scripts() {
+        return;
+    }
     let (project, stub, _dir) = world(LOADOUT);
     let _ = stub.misbehaving(Misbehaving::Hangs);
     let ran = assembled(&project, &[], &[]);
@@ -198,6 +230,9 @@ fn a_companion_that_hangs_costs_its_limit_and_a_warning_never_the_command() {
 
 #[test]
 fn a_loadout_that_will_not_parse_is_a_warning_never_the_command() {
+    if !files::runs_scripts() {
+        return;
+    }
     // `companion add` asks only that something be printed; what it prints is
     // judged where it is used.
     for bad in ["not: a loadout\n", "run: [\n", "init:\n  toling: x\n"] {
@@ -213,21 +248,24 @@ fn a_loadout_that_will_not_parse_is_a_warning_never_the_command() {
 
 #[test]
 fn a_companion_whose_program_is_gone_is_a_warning_never_the_command() {
+    if !files::runs_scripts() {
+        return;
+    }
     let (project, _stub, _dir) = world(LOADOUT);
     let home = project.read_home(".ctxloom/config.yaml").unwrap();
-    project.write_home(
-        ".ctxloom/config.yaml",
-        &format!("{home}  gone:\n    command: [/no/such/program]\n"),
-    );
+    project.write_home(".ctxloom/config.yaml", &format!("{home}  gone: {{}}\n"));
     let ran = assembled(&project, &[], &[]);
     ran.succeeds()
-        .contains("registered but its binary is not on PATH");
+        .contains("registered but its program ctxloom-companion-gone is not on PATH here");
     let context = ran.json()["context"].as_str().unwrap().to_string();
     assert!(context.contains(MARKER), "the others still contribute");
 }
 
 #[test]
 fn companions_are_not_run_for_a_command_that_assembles_nothing() {
+    if !files::runs_scripts() {
+        return;
+    }
     let (project, stub, _dir) = world(LOADOUT);
     let _ = stub.misbehaving(Misbehaving::Hangs);
     let started = std::time::Instant::now();

@@ -540,3 +540,138 @@ fn test_a_delivery_names_only_the_files_it_claims_not_those_it_let_go() {
     assert_eq!(again.files, vec!["s.json".to_string()]);
     assert!(f.get("t.json").is_none());
 }
+
+// region recording (step 10c U10): what a delivery would write, planned
+
+/// Every file under `/`, with its bytes, sorted.
+fn on_disk(fs: &Rooted) -> Vec<(String, Vec<u8>)> {
+    fn walk(fs: &Rooted, dir: &Path, out: &mut Vec<(String, Vec<u8>)>) {
+        for entry in fs.read_dir(dir).unwrap_or_default() {
+            let path = dir.join(&entry.name);
+            match entry.kind {
+                file_system::Kind::Dir => walk(fs, &path, out),
+                _ => out.push((path.display().to_string(), fs.read(&path).unwrap())),
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(fs, Path::new("/"), &mut out);
+    out.sort();
+    out
+}
+
+#[test]
+fn a_recording_store_writes_nothing_and_plans_what_the_writing_store_would_leave() {
+    let planned = Fixture::new();
+    let written = Fixture::new();
+    for f in [&planned, &written] {
+        f.put("CLAUDE.md", "# mine\n");
+        f.put("gone.md", "x");
+        f.deliver("mock", Kind::Commands, &[section("gone.md", "old")]);
+    }
+    let before = on_disk(&planned.fs);
+    let recording = SurfaceFiles::recording(planned.fs.clone(), "/home/records");
+    let run = |store: &SurfaceFiles, f: &Fixture| {
+        // Two kinds on one file, and one file given back: each read sees
+        // what the run before it would have written.
+        store
+            .deliver(
+                &f.target,
+                "mock",
+                Kind::Context,
+                &[section("CLAUDE.md", "ctx")],
+                false,
+            )
+            .unwrap();
+        store
+            .deliver(
+                &f.target,
+                "mock",
+                Kind::Settings,
+                &[set("CLAUDE.md.json", "a", "1")],
+                false,
+            )
+            .unwrap();
+        store
+            .deliver(
+                &f.target,
+                "mock",
+                Kind::Hooks,
+                &[section("CLAUDE.md", "hooks")],
+                false,
+            )
+            .unwrap();
+        store
+            .release(&f.target, "mock", Kind::Commands, false)
+            .unwrap();
+    };
+    run(&recording, &planned);
+    run(&written.store, &written);
+    assert_eq!(on_disk(&planned.fs), before, "a recording store wrote");
+    let recorded = recording.take_recorded();
+    // The record first, then each file once, as it would be left.
+    assert!(recorded[0].record, "{recorded:?}");
+    assert_eq!(
+        recorded[0].path,
+        joined("/home/records", "_project.claims.yaml")
+    );
+    assert_eq!(recorded[0].keep, "/home/records");
+    assert!(recorded[1..].iter().all(|r| !r.record));
+    let paths: Vec<&str> = recorded.iter().map(|r| r.path.as_str()).collect();
+    assert_eq!(
+        paths,
+        [
+            joined("/home/records", "_project.claims.yaml"),
+            joined("/project", "CLAUDE.md"),
+            joined("/project", "CLAUDE.md.json"),
+            joined("/project", "gone.md"),
+        ]
+    );
+    for r in &recorded {
+        let now = written.fs.read(Path::new(&r.path)).ok();
+        assert_eq!(r.bytes, now, "{}", r.path);
+    }
+    assert_eq!(
+        recorded[3].bytes,
+        Some(b"x".to_vec()),
+        "given back as it was"
+    );
+    assert!(recording.take_recorded().is_empty(), "taken once");
+}
+
+#[test]
+fn a_recorded_removal_keeps_the_target_and_the_records_directory() {
+    let f = Fixture::new();
+    f.deliver("mock", Kind::Commands, &[section("made/by/us.md", "ours")]);
+    let recording = SurfaceFiles::recording(f.fs.clone(), "/home/records");
+    recording
+        .release(&f.target, "mock", Kind::Commands, false)
+        .unwrap();
+    let recorded = recording.take_recorded();
+    let gone: Vec<(&str, &str)> = recorded
+        .iter()
+        .filter(|r| r.bytes.is_none())
+        .map(|r| (r.path.as_str(), r.keep.as_str()))
+        .collect();
+    let (claims, ours) = (
+        joined("/home/records", "_project.claims.yaml"),
+        joined("/project", "made/by/us.md"),
+    );
+    assert_eq!(
+        gone,
+        [
+            (claims.as_str(), "/home/records"),
+            (ours.as_str(), "/project"),
+        ]
+    );
+    assert!(
+        f.get("made/by/us.md").is_some(),
+        "a recording store removed"
+    );
+}
+
+/// `rel` under `dir` as the platform joins them (`\` on Windows), as the
+/// store names the file it writes (CI on Windows, 2026-11-19).
+fn joined(dir: &str, rel: &str) -> String {
+    Path::new(dir).join(rel).display().to_string()
+}

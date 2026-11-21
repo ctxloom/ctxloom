@@ -1,0 +1,26 @@
+[package]
+name = "pending-approvals"
+version = "0.1.0"
+description = "The permission asks: folded from the approvals streams, held in memory, what `session approvals` lists, the approval tool waits on, and an answer's HandleSync is answered by"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+angzarr-embedded.workspace = true
+approvals.workspace = true
+# The resource message the model answers as its view (S32), and its fold on
+# the projector port.
+daemon-proto.workspace = true
+held-projection.workspace = true
+# An ask stream's root, said as its `uid`.
+uuid.workspace = true
+
+[dev-dependencies]
+angzarr-embedded = { workspace = true, features = ["test-support"] }
+mutants.workspace = true
+prost.workspace = true
+
+[lints]
+workspace = true

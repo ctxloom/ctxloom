@@ -30,6 +30,43 @@ pub enum ContentError {
     RemovePath { path: String, detail: String },
     /// A directory could not be made.
     MakeDir { path: String, detail: String },
+    /// A path could not be renamed (an atomic operation's one step).
+    Rename {
+        from: String,
+        to: String,
+        detail: String,
+    },
+    /// A directory a rename changed could not be made durable.
+    SyncDir { path: String, detail: String },
+    /// A request id that is not one plain name (its staging and its trash
+    /// slot are named by it).
+    BadRequest { request_id: String },
+    /// A link where the tree's private working state lives (`state/`,
+    /// `state/staging`, `state/trash`, or the `<tree>.staging` beside it):
+    /// a write would create and remove files wherever it points.
+    StateLink { path: String },
+}
+
+impl ContentError {
+    pub(crate) fn list_dir(path: String, detail: String) -> ContentError {
+        ContentError::ListDir { path, detail }
+    }
+
+    pub(crate) fn make_dir(path: String, detail: String) -> ContentError {
+        ContentError::MakeDir { path, detail }
+    }
+
+    pub(crate) fn remove_path(path: String, detail: String) -> ContentError {
+        ContentError::RemovePath { path, detail }
+    }
+
+    pub(crate) fn sync_dir(path: String, detail: String) -> ContentError {
+        ContentError::SyncDir { path, detail }
+    }
+
+    pub(crate) fn write_file(path: String, detail: String) -> ContentError {
+        ContentError::WriteFile { path, detail }
+    }
 }
 
 impl fmt::Display for ContentError {
@@ -51,6 +88,10 @@ impl Diagnostic for ContentError {
             ContentError::WriteFile { .. } => code!("write-file"),
             ContentError::RemovePath { .. } => code!("remove-path"),
             ContentError::MakeDir { .. } => code!("make-dir"),
+            ContentError::Rename { .. } => code!("rename"),
+            ContentError::SyncDir { .. } => code!("sync-dir"),
+            ContentError::BadRequest { .. } => code!("bad-request"),
+            ContentError::StateLink { .. } => code!("state-link"),
         }
     }
 
@@ -61,12 +102,23 @@ impl Diagnostic for ContentError {
             | ContentError::ReadFile { path, detail }
             | ContentError::WriteFile { path, detail }
             | ContentError::RemovePath { path, detail }
-            | ContentError::MakeDir { path, detail } => vec![
+            | ContentError::MakeDir { path, detail }
+            | ContentError::SyncDir { path, detail } => vec![
                 ("path", path.as_str().into()),
                 ("ext_err_txt", detail.as_str().into()),
             ],
             ContentError::BadName { name } => vec![("name", name.as_str().into())],
-            ContentError::BadPath { path } => vec![("path", path.as_str().into())],
+            ContentError::BadPath { path } | ContentError::StateLink { path } => {
+                vec![("path", path.as_str().into())]
+            }
+            ContentError::Rename { from, to, detail } => vec![
+                ("from", from.as_str().into()),
+                ("to", to.as_str().into()),
+                ("ext_err_txt", detail.as_str().into()),
+            ],
+            ContentError::BadRequest { request_id } => {
+                vec![("request_id", request_id.as_str().into())]
+            }
         }
     }
 }
@@ -105,6 +157,21 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
             path: path.clone(),
             detail: detail.clone(),
         }),
-        Box::new(ContentError::MakeDir { path, detail }),
+        Box::new(ContentError::MakeDir {
+            path: path.clone(),
+            detail: detail.clone(),
+        }),
+        Box::new(ContentError::Rename {
+            from: format!("{path}/.ctxloom/state/staging/r/notes"),
+            to: path.clone(),
+            detail: detail.clone(),
+        }),
+        Box::new(ContentError::SyncDir { path, detail }),
+        Box::new(ContentError::BadRequest {
+            request_id: "../x".to_string(),
+        }),
+        Box::new(ContentError::StateLink {
+            path: "/p/.ctxloom/state".to_string(),
+        }),
     ]
 }

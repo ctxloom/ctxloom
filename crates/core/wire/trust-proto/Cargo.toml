@@ -1,0 +1,18 @@
+[package]
+name = "trust-proto"
+version = "0.1.0"
+description = "Wire types of the trust domain, generated from proto/ctxloom/trust"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+prost.workspace = true
+prost-types.workspace = true
+
+[build-dependencies]
+angzarr-build.workspace = true
+
+[lints]
+workspace = true

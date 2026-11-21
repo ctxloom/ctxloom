@@ -7,7 +7,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use deps_ports::{CopyOutcome, Endpoint, PullRequest};
+use deps_ports::{Endpoint, PullRequest};
 
 use crate::cache::ByAddress;
 use crate::views::{Moved, Pushed};
@@ -25,6 +25,15 @@ pub struct PushRequest {
     pub message: String,
     /// `--pr`, which needs a forge's API.
     pub pr: bool,
+}
+
+/// What `bundle move --to` names ([`Deps::move_target`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MoveTarget {
+    /// A configured remote: the bundle is published there.
+    Remote,
+    /// An existing directory: another project the bundle moves into.
+    Directory,
 }
 
 /// What `bundle move` is asked.
@@ -165,7 +174,23 @@ impl Deps {
         Ok((path, files))
     }
 
-    /// `bundle move`.
+    /// Where `bundle move --to <to>` goes: a configured remote (published
+    /// here), an existing directory (another project: the daemon's local
+    /// move, step 10b U9), else refused, naming the remotes there are.
+    pub fn move_target(&self, to: &str) -> Result<MoveTarget, AppError> {
+        let registry = self.registry()?;
+        if registry.get(to).is_some() {
+            return Ok(MoveTarget::Remote);
+        }
+        if self.files.is_directory(to) {
+            return Ok(MoveTarget::Directory);
+        }
+        Err(self.bad_destination(to, &registry))
+    }
+
+    /// `bundle move` to a remote (a move into another project's directory
+    /// is the daemon's `MoveBundle`, step 10b U9; any other destination is
+    /// refused here).
     pub fn move_bundle(&self, request: &MoveRequest) -> Outcome<Moved> {
         Outcome {
             result: self.moving(request),
@@ -175,7 +200,7 @@ impl Deps {
 
     fn moving(&self, request: &MoveRequest) -> Result<Moved, AppError> {
         let registry = self.registry()?;
-        let (source, files) = self.authored(&request.name)?;
+        let (source, _) = self.authored(&request.name)?;
         let moved = if registry.get(&request.to).is_some() {
             let pushed = self.pushing(&PushRequest {
                 bundle: request.name.clone(),
@@ -191,28 +216,6 @@ impl Deps {
                 dest: pushed.target_path,
                 remote: pushed.remote,
                 commit_sha: pushed.commit_sha,
-            }
-        } else if self.files.is_directory(&request.to) {
-            let landed = self
-                .files
-                .copy_bundle(&request.to, &request.name, &files, request.force)
-                .map_err(|detail| AppError::File {
-                    what: request.to.clone(),
-                    detail,
-                })?;
-            let dest = match landed {
-                CopyOutcome::Copied(dest) => dest,
-                CopyOutcome::Exists(dest) => return Err(AppError::DestinationExists { dest }),
-                CopyOutcome::Itself(dest) => return Err(AppError::DestinationItself { dest }),
-            };
-            Moved {
-                status: "moved",
-                name: request.name.clone(),
-                source,
-                dest_kind: "path",
-                dest,
-                remote: String::new(),
-                commit_sha: String::new(),
             }
         } else {
             return Err(self.bad_destination(&request.to, &registry));

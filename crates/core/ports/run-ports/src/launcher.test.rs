@@ -1,7 +1,7 @@
 use super::*;
 
-fn over(code: Option<i32>, signal: Option<i32>, timed_out: bool) -> Launch {
-    Launch::Over(TurnOutput {
+fn over(code: Option<i32>, signal: Option<i32>, timed_out: bool) -> TurnLaunch {
+    TurnLaunch::Over(TurnOutput {
         exit: Exit { code, signal },
         stdout: b"out".to_vec(),
         stderr: Vec::new(),
@@ -55,7 +55,7 @@ fn a_command_killed_at_its_deadline_exits_by_the_kill() {
 
 #[test]
 fn a_command_that_never_started_reports_only_the_failure() {
-    let launch = Launch::NotStarted(LaunchFailure {
+    let launch = TurnLaunch::NotStarted(LaunchFailure {
         deterministic: true,
         detail: "no such program".to_string(),
     });

@@ -174,7 +174,7 @@ impl Project {
             }
             .into());
         }
-        Ok(())
+        super::require_id("profile", name)
     }
 
     fn profile_create(&self, request: &ProfileCreateRequest) -> Result<ProfileCreated, AppError> {
@@ -203,6 +203,7 @@ impl Project {
             description: request.description.clone(),
             parents: request.parents.clone(),
             bundles: request.bundles.clone(),
+            skills: request.skills.clone(),
         });
         plan.write(&profile_path(&request.name), text);
         self.commit_profile(&target, plan, claim)?;

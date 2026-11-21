@@ -3,6 +3,7 @@
 //! 860336c4e, on the corpus of `internal/core/composite/corpus_test.go`.
 
 use super::*;
+use crate::distill::{distilled_file, source_digest, DistilledState};
 
 angzarr_presentation::english_for!(&[crate::EN_US.1]);
 
@@ -170,18 +171,74 @@ fn test_a_bare_fragment_ask_resolves_to_its_qualified_reference() {
     );
 }
 
-// pipeline: the distilled form is delivered when preferred and present.
+// T30: an inline document's distilled form records no source digest, so it
+// is stale and never delivered (hard migrate); its original is.
 #[test]
-fn test_the_distilled_form_is_delivered_when_preferred_and_present() {
+fn test_an_inline_distilled_form_records_no_digest_and_is_never_delivered() {
     let cat = catalog_of(&[(
         "kit",
         "version: \"1.0\"\nfragments:\n  both:\n    content: long\n    distilled: short\n  raw:\n    content: only\n",
     )]);
     let both = &cat.read_fragment("kit#fragments/both").unwrap()[0];
-    assert_eq!(both.resolve(true), ("short", true));
+    assert_eq!(both.distilled_state, DistilledState::Stale);
+    assert_eq!(both.resolve(true), ("long", false));
     assert_eq!(both.resolve(false), ("long", false));
+    assert!(both.stale_for(true));
+    assert!(!both.stale_for(false));
     let raw = &cat.read_fragment("kit#fragments/raw").unwrap()[0];
+    assert_eq!(raw.distilled_state, DistilledState::None);
     assert_eq!(raw.resolve(true), ("only", false));
+    assert!(!raw.stale_for(true));
+}
+
+/// A catalog of the one tree `kit`, of `files`.
+fn tree_catalog(files: &[(&str, &str)]) -> Catalog {
+    let mut all = vec![("bundle.yaml", "version: 1.0.0\n")];
+    all.extend_from_slice(files);
+    let bundle = crate::tree::read_tree("kit", &crate::testdata::files(&all))
+        .unwrap_or_else(|e| panic!("{}", e.english()));
+    Catalog::new(vec![Entry {
+        name: "kit".to_string(),
+        manifest_path: "/app/.ctxloom/content/bundles/v2/kit/bundle.yaml".to_string(),
+        bundle,
+    }])
+}
+
+// T30: a tree's distilled form is delivered, when preferred, only while the
+// digest it records is its source's now; a mismatch or none is stale, and
+// the original is served.
+#[test]
+fn test_a_distilled_form_is_delivered_only_while_it_matches_its_source() {
+    let fresh = distilled_file(&source_digest(b"long a\n"), "short a");
+    let other = distilled_file(&source_digest(b"what it was\n"), "short b");
+    let cat = tree_catalog(&[
+        ("fragments/a.md", "long a\n"),
+        ("fragments/a.distilled.md", &fresh),
+        ("fragments/b.md", "long b\n"),
+        ("fragments/b.distilled.md", &other),
+        ("fragments/c.md", "long c\n"),
+        ("fragments/c.distilled.md", "short c\n"),
+        ("fragments/d.md", "---\nno_distill: true\n---\nlong d\n"),
+        ("fragments/d.distilled.md", "short d\n"),
+    ]);
+    let read = |name: &str| cat.read_fragment(&format!("kit#fragments/{name}")).unwrap()[0].clone();
+    let a = read("a");
+    assert_eq!(a.distilled_state, DistilledState::Fresh);
+    assert_eq!(a.resolve(true), ("short a\n", true));
+    assert_eq!(a.resolve(false), ("long a\n", false));
+    assert!(!a.stale_for(true));
+    for stale in ["b", "c"] {
+        let item = read(stale);
+        assert_eq!(item.distilled_state, DistilledState::Stale, "{stale}");
+        assert!(!item.resolve(true).1, "{stale}");
+        assert!(item.resolve(true).0.starts_with("long"), "{stale}");
+        assert!(item.stale_for(true), "{stale}");
+        assert!(!item.stale_for(false), "{stale}");
+    }
+    // An item marked no_distill is served raw and is never stale.
+    let d = read("d");
+    assert!(!d.resolve(true).1);
+    assert!(!d.stale_for(true));
 }
 
 // catalog.go Lookup: a name the listing shows wins, then the name a bundle

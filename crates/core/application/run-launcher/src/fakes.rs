@@ -16,8 +16,8 @@ use angzarr_embedded::{
     StoreError, StreamRef,
 };
 use run_ports::{
-    check_rel, Edge, Engine, EngineError, Exit, HomeFile, Launch, LaunchFailure, Limits,
-    PrepareRequest, Prepared, RecordsError, RunnerLauncher, Running, SessionRecords, TurnCommand,
+    check_rel, Edge, Engine, EngineError, Exit, HomeFile, LaunchFailure, Limits, PrepareRequest,
+    Prepared, RecordsError, RunnerLauncher, Running, SessionRecords, TurnCommand, TurnLaunch,
     TurnOutcome, TurnOutput, TurnRequest, Unserved,
 };
 use runs::{RunEvent, RunMode};
@@ -52,6 +52,18 @@ impl TestEdge {
             .unwrap();
         registry
             .aggregate::<runs::RunAggregate>(runs::RunAggregate::default)
+            .unwrap();
+        // A project's harp, which a session's resource name is built on.
+        registry
+            .aggregate::<sessions::ProjectAggregate>(sessions::ProjectAggregate::default)
+            .unwrap();
+        // A project's trust (step 8 U1), which the daemon's trust index folds.
+        registry
+            .aggregate::<trust::TrustAggregate>(trust::TrustAggregate::default)
+            .unwrap();
+        // A library tree (step 10a U0), which the daemon's checkouts fold.
+        registry
+            .aggregate::<library_tree::LibraryAggregate>(library_tree::LibraryAggregate::default)
             .unwrap();
         TestEdge {
             registry,
@@ -138,32 +150,6 @@ fn command_book(cover: Cover, payload: angzarr_embedded::Any) -> CommandBook {
     }
 }
 
-/// The session's end as its engine's hook reports it (claude's SessionEnd),
-/// naming the engine's own session `native`: a fact on the session stream.
-// A test double shipped for tests only; its tests are the callers', not its own.
-#[cfg_attr(test, mutants::skip)]
-pub async fn hook_session_ended(edge: &TestEdge, session: &str, native: &str) {
-    use angzarr_embedded::markup::DomainMessage;
-    let fact = sessions::RecordSessionEnded {
-        native_session: native.to_string(),
-        reason: "prompt_input_exit".to_string(),
-    };
-    let book = CommandBook {
-        cover: Some(session_cover(session)),
-        page: Some(CommandPage {
-            body: Some(command_page::Body::Fact(angzarr_embedded::v1::Fact {
-                payload: Some(angzarr_embedded::Any::from_msg(&fact.to_wire()).unwrap()),
-                origin: Some(angzarr_embedded::v1::FactOrigin {
-                    external_id: format!("hook:end:{session}:{native}"),
-                    description: String::new(),
-                }),
-            })),
-            ..CommandPage::default()
-        }),
-    };
-    edge.handle(book).await.unwrap();
-}
-
 /// Mint `session` as `harp` and enqueue its first run, as a one-shot is.
 pub async fn enqueued(edge: &TestEdge, session: &str, harp: &str) {
     enqueued_by(edge, session, harp, "").await;
@@ -181,6 +167,7 @@ pub async fn enqueued_by(edge: &TestEdge, session: &str, harp: &str, launcher_lo
         origin: Origin::Oneshot,
         started_at: None,
         depth: 0,
+        owner: None,
         workspace: None,
     }
     .into();
@@ -191,9 +178,6 @@ pub async fn enqueued_by(edge: &TestEdge, session: &str, harp: &str, launcher_lo
         session: session.to_string(),
         incarnation: 1,
         mode: RunMode::OneShot,
-        runner_credential_hash: vec![1; 32],
-        model_credential_hash: vec![2; 32],
-        hook_credential_hash: vec![3; 32],
         prompt_given: true,
         engine: "claude-code".to_string(),
         drivable_engines: vec!["claude-code".to_string()],
@@ -205,6 +189,8 @@ pub async fn enqueued_by(edge: &TestEdge, session: &str, harp: &str, launcher_lo
         },
         fatal_findings: 0,
         launcher_lock: launcher_lock.to_string(),
+        grant: None,
+        untrusted_settings: Vec::new(),
     }
     .into();
     edge.handle(command_book(run_cover(session), enqueue.to_any()))
@@ -268,7 +254,7 @@ pub type Window = Arc<dyn Fn() + Send + Sync>;
 /// A command run that answers as scripted, and remembers what it was given.
 #[derive(Clone)]
 pub struct ScriptedRunner {
-    pub answer: Launch,
+    pub answer: TurnLaunch,
     pub seen: Arc<Mutex<Vec<TurnCommand>>>,
     /// The commands given a terminal.
     pub seen_terminal: Arc<Mutex<Vec<TurnCommand>>>,
@@ -290,7 +276,7 @@ pub const SCRIPTED_PID: u32 = 4242;
 /// A scripted command, spawned and running.
 struct ScriptedRunning {
     pid: u32,
-    answer: Launch,
+    answer: TurnLaunch,
     during: Option<Window>,
 }
 
@@ -304,15 +290,15 @@ impl Running for ScriptedRunning {
             during();
         }
         match self.answer {
-            Launch::Over(output) => Ok(output),
-            Launch::NotStarted(failure) => Err(failure),
+            TurnLaunch::Over(output) => Ok(output),
+            TurnLaunch::NotStarted(failure) => Err(failure),
         }
     }
 }
 
 impl ScriptedRunner {
     pub fn exits(code: i32) -> ScriptedRunner {
-        ScriptedRunner::answering(Launch::Over(TurnOutput {
+        ScriptedRunner::answering(TurnLaunch::Over(TurnOutput {
             exit: Exit {
                 code: Some(code),
                 signal: None,
@@ -325,7 +311,7 @@ impl ScriptedRunner {
         }))
     }
 
-    pub fn answering(answer: Launch) -> ScriptedRunner {
+    pub fn answering(answer: TurnLaunch) -> ScriptedRunner {
         ScriptedRunner {
             answer,
             seen: Arc::default(),
@@ -351,7 +337,7 @@ impl ScriptedRunner {
         if let Some(at_spawn) = at_spawn {
             at_spawn();
         }
-        if let Launch::NotStarted(failure) = &self.answer {
+        if let TurnLaunch::NotStarted(failure) = &self.answer {
             return Err(failure.clone());
         }
         Ok(Box::new(ScriptedRunning {
@@ -444,12 +430,14 @@ impl Engine for ScriptedEngine {
     fn prepare(&self, request: &PrepareRequest) -> Result<Prepared, EngineError> {
         self.prepared.lock().unwrap().push(request.clone());
         let mut files = vec![HomeFile {
+            executable: false,
             rel: "ctx.md".to_string(),
             bytes: request.context.clone().into_bytes(),
         }];
         // The permissions document, where this engine reads it: as given.
         if let Some(document) = &request.permissions {
             files.push(HomeFile {
+                executable: false,
                 rel: "permissions.json".to_string(),
                 bytes: document.clone().into_bytes(),
             });
@@ -485,6 +473,11 @@ impl Engine for ScriptedEngine {
         }
         if !request.effort.is_empty() {
             command.args.push(format!("--effort={}", request.effort));
+        }
+        // A turn offered no approval prompt says so (step 8: a launch with
+        // no context carries no ctxloom server).
+        if !request.approval_prompt {
+            command.args.push("--no-approval-prompt".to_string());
         }
         command.env = request.env.clone();
         command.stdin = request.prompt.clone().into_bytes();
@@ -582,33 +575,6 @@ impl Engine for Credentialed {
     }
 }
 
-/// An engine whose terminal session ends with its exit (as opencode's does),
-/// and is otherwise `0`.
-pub struct EndsByExit(pub ScriptedEngine);
-
-// A test double shipped for tests only; its tests are the callers' own.
-#[cfg_attr(test, mutants::skip)]
-impl Engine for EndsByExit {
-    fn name(&self) -> &str {
-        self.0.name()
-    }
-    fn prepare(&self, request: &PrepareRequest) -> Result<Prepared, EngineError> {
-        self.0.prepare(request)
-    }
-    fn drive_turn(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError> {
-        self.0.drive_turn(request)
-    }
-    fn finish_turn(&self, output: &TurnOutput) -> TurnOutcome {
-        self.0.finish_turn(output)
-    }
-    fn drive_interactive(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError> {
-        self.0.drive_interactive(request)
-    }
-    fn session_ends_with_exit(&self) -> bool {
-        true
-    }
-}
-
 /// An engine that merges into its home's `state.json` (as claude does into
 /// `.claude.json`): it writes what it was handed of it, then `+` and the
 /// directory it runs in, and is otherwise `0`.
@@ -629,6 +595,7 @@ impl Engine for Merging {
             .unwrap_or_default();
         bytes.extend_from_slice(format!("+{}", request.cwd.clone().unwrap_or_default()).as_bytes());
         prepared.files.push(HomeFile {
+            executable: false,
             rel: "state.json".to_string(),
             bytes,
         });
@@ -656,6 +623,10 @@ pub struct Placing(pub ScriptedEngine);
 /// What [`Placing`] carries into the directory it works in.
 pub const PLACED: &str = ".placed/command.md";
 
+/// The script [`Placing`] carries, executable, into the directory it works
+/// in and into its home (as a skill's declared script).
+pub const PLACED_SCRIPT: &str = ".placed/run.sh";
+
 // A test double shipped for tests only; its tests are the callers' own.
 #[cfg_attr(test, mutants::skip)]
 impl Engine for Placing {
@@ -665,9 +636,17 @@ impl Engine for Placing {
     fn prepare(&self, request: &PrepareRequest) -> Result<Prepared, EngineError> {
         let mut prepared = self.0.prepare(request)?;
         prepared.workspace_files.push(HomeFile {
+            executable: false,
             rel: PLACED.to_string(),
             bytes: b"PLACED".to_vec(),
         });
+        let script = HomeFile {
+            executable: true,
+            rel: PLACED_SCRIPT.to_string(),
+            bytes: b"#!/bin/sh\n".to_vec(),
+        };
+        prepared.workspace_files.push(script.clone());
+        prepared.files.push(script);
         Ok(prepared)
     }
     fn drive_turn(&self, request: &TurnRequest) -> Result<TurnCommand, EngineError> {
@@ -700,6 +679,7 @@ impl Engine for Seeding {
     fn prepare(&self, request: &PrepareRequest) -> Result<Prepared, EngineError> {
         let mut prepared = self.0.prepare(request)?;
         prepared.seeds.push(HomeFile {
+            executable: false,
             rel: "seed.json".to_string(),
             bytes: SEED.to_vec(),
         });
@@ -727,11 +707,21 @@ type Files = BTreeMap<(String, String), Vec<u8>>;
 #[derive(Clone, Default)]
 pub struct MemoryRecords {
     files: Arc<Mutex<Files>>,
+    /// The files written executable, by harp and path.
+    executable: Arc<Mutex<std::collections::BTreeSet<(String, String)>>>,
     /// A path prefix whose writes the system refuses.
     pub refuses: Arc<Mutex<Option<String>>>,
 }
 
 impl MemoryRecords {
+    /// Whether `rel` of `harp` was ever written executable.
+    pub fn is_executable(&self, harp: &str, rel: &str) -> bool {
+        self.executable
+            .lock()
+            .unwrap()
+            .contains(&(harp.to_string(), rel.to_string()))
+    }
+
     pub fn text(&self, harp: &str, rel: &str) -> Option<String> {
         self.files
             .lock()
@@ -785,6 +775,20 @@ impl SessionRecords for MemoryRecords {
             .lock()
             .unwrap()
             .insert((harp.to_string(), rel.to_string()), bytes.to_vec());
+        Ok(())
+    }
+
+    fn write_executable(
+        &mut self,
+        harp: &str,
+        rel: &str,
+        bytes: &[u8],
+    ) -> Result<(), RecordsError> {
+        self.write(harp, rel, bytes)?;
+        self.executable
+            .lock()
+            .unwrap()
+            .insert((harp.to_string(), rel.to_string()));
         Ok(())
     }
 
@@ -907,10 +911,13 @@ impl isolation_ports::Workspaces for ScriptedWorkspaces {
     fn place_files(
         &self,
         checkout: &str,
-        files: &[(String, Vec<u8>)],
+        files: &[isolation_ports::PlacedFile],
     ) -> Result<(), isolation_ports::Failure> {
         let mut placed = self.files.lock().unwrap();
-        placed.extend(files.iter().map(|(rel, _)| format!("{checkout}/{rel}")));
+        placed.extend(files.iter().map(|f| {
+            let mark = if f.executable { " (executable)" } else { "" };
+            format!("{checkout}/{}{mark}", f.rel)
+        }));
         Ok(())
     }
     fn remove_files(&self, checkout: &str, rels: &[String]) {

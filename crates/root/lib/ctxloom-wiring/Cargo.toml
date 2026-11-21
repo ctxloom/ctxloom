@@ -28,6 +28,8 @@ setup-cli.workspace = true
 ctxloom-ports.workspace = true
 library.workspace = true
 library-application.workspace = true
+# The library reads' observation (step 10a U2), served by the daemon.
+library-api.workspace = true
 deps.workspace = true
 deps-application.workspace = true
 deps-cli.workspace = true
@@ -43,6 +45,7 @@ surface-ports.workspace = true
 engine-claude.workspace = true
 engine-opencode.workspace = true
 hook-cli.workspace = true
+mcp-server.workspace = true
 hook-listener.workspace = true
 hook-tls.workspace = true
 session-cli.workspace = true
@@ -69,13 +72,29 @@ process-env.workspace = true
 duration-text.workspace = true
 project-dir.workspace = true
 ports.workspace = true
-tokio = { workspace = true, features = ["rt-multi-thread", "net"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "net", "sync"] }
 uuid.workspace = true
 sessions.workspace = true
 runs.workspace = true
 scheduler.workspace = true
 scheduler-loop.workspace = true
+# The daemon runs the scheduler (step 8 U5a): its due model, registered in
+# the kernel and shared with the loop, and the clock and wait it runs on.
+scheduler-due.workspace = true
+scheduler-ports.workspace = true
 trees.workspace = true
+# A project's trust (step 8 U1): its aggregate and the index the daemon
+# registers and keeps warm.
+trust.workspace = true
+trust-index.workspace = true
+# A library tree (step 10a U0): its aggregate, its wire types (the
+# checkout's view) and the model the daemon registers and keeps warm.
+library-tree.workspace = true
+library-domain-proto.workspace = true
+library-checkout.workspace = true
+# The permission asks (step 8 U4): registered in the kernel, read by the API.
+approvals.workspace = true
+pending-approvals.workspace = true
 runs-application.workspace = true
 run-ports.workspace = true
 run-application.workspace = true
@@ -84,15 +103,38 @@ run-cli.workspace = true
 host-launcher.workspace = true
 credentials.workspace = true
 pending-launches.workspace = true
+pending-messages.workspace = true
+daemon-board.workspace = true
+# The read models the daemon registers in its kernel (S32), sharing one fold
+# with its catch-ups, their gaps filled from the store.
+session-index.workspace = true
+held-projection.workspace = true
+session-policies.workspace = true
+# The daemon's one launcher (T18), which the root only composes.
+daemon-application.workspace = true
+daemon-api.workspace = true
+daemon-api-grpc.workspace = true
+daemon-client.workspace = true
+daemon-ports.workspace = true
 embedded-edge.workspace = true
 hook-sink-grpc.workspace = true
 angzarr-embedded-host.workspace = true
-# Only the seed uses the session-ports directly.
-session-ports = { workspace = true, optional = true }
-# Only the test-only commands render a sample list.
-serde = { workspace = true, optional = true }
+# The seed, and the daemon's API (a session's lock state).
+session-ports.workspace = true
+daemon-proto.workspace = true
+# Each session's hold of capture facts (s4-Q14, H2): a hook holds there.
+fact-spool.workspace = true
+# The test-only commands' sample list and the daemon's answers.
+serde.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
+# A domain that consumes the scheduler, so the daemon's scheduler is proven
+# end to end without an application domain; and a clock a test moves.
+scheduler-fixture.workspace = true
+scheduler-ports = { workspace = true, features = ["test-support"] }
+# A projection's view, decoded (S32).
+prost.workspace = true
 fixture-program.workspace = true
 # Builds this crate's own `test-support` feature for its tests (the seed, bind
 # and session tests need it) without turning it on for the `ctxloom` binary:
@@ -114,12 +156,10 @@ os = { workspace = true, features = ["test-support"] }
 # changes what another crate must implement.
 # `session remove` (and `sweep`), the destroy of a whole session (owner
 # rulings 94, 94b, 98).
-session-destroy = ["session-cli/session-destroy"]
+session-destroy = ["session-cli/session-destroy", "daemon-api-grpc/session-destroy"]
 test-support = [
     "ctxloom-store-sqlite/test-support",
     "ctxloom-cli/test-support",
-    "dep:session-ports",
-    "dep:serde",
     "dep:engine-mock",
     "library-application/test-support",
     "engine-claude/test-support",

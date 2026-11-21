@@ -1,0 +1,26 @@
+[package]
+name = "pending-messages"
+version = "0.1.0"
+description = "The messages sent a session and not yet carried by a turn: folded from the session and run streams, held in memory"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+angzarr-embedded.workspace = true
+runs.workspace = true
+sessions.workspace = true
+uuid.workspace = true
+# The resource message the model answers as its view (S32), and its fold on
+# the projector port.
+daemon-proto.workspace = true
+held-projection.workspace = true
+
+[dev-dependencies]
+angzarr-embedded = { workspace = true, features = ["test-support"] }
+mutants.workspace = true
+prost.workspace = true
+
+[lints]
+workspace = true

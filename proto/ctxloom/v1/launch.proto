@@ -1,0 +1,140 @@
+syntax = "proto3";
+
+// Compiled by daemon-proto's build.rs with the rest of `ctxloom.v1`. Its
+// domain value is run-ports' `Launch`, made by run-launcher's `launch_of`
+// (the one launch: set up, the engine's command, the permits, the program
+// found, the batch and length checks) and converted to and from this
+// message by daemon-api's `launch`.
+//
+// THE LAUNCH (T10): everything needed to start one engine process, computed
+// by the daemon alone, as ONE message. Both consumers take this same type:
+// the daemon, for the one-shots and children it hosts (T7), and the frontend
+// (the `ctxloom run` on the user's terminal), for the interactive TUI it
+// starts (T9). Nothing about a launch is computed on the frontend: it takes
+// the lock the launch names, starts `program` with `args`, exactly `env`, in
+// `cwd`, with the stdio the launch says, and reports the start and the exit.
+//
+// A launch CARRIES SECRETS (an engine credential in its environment):
+// it is never journaled, logged or written to a file, and the Debug of every
+// type built from it withholds every environment value (run-ports'
+// `RedactedEnv`). It crosses the wire only on the TLS stream of the client
+// that asked for it.
+package ctxloom.v1;
+
+import "google/api/field_behavior.proto";
+
+// One variable of the engine's environment.
+message EnvVar {
+  // The variable's name.
+  string name = 1 [(google.api.field_behavior) = REQUIRED];
+  // Its value. A launch's values can be credentials: never logged.
+  string value = 2 [(google.api.field_behavior) = OPTIONAL];
+}
+
+// How the launch's holder stops it (ruling 114), when asked to.
+message StopPolicy {
+  // The signal the engine is asked to stop with (SIGTERM, 15), sent to the
+  // whole process group for a hosted launch, and for a TERMINAL launch the
+  // direct child alone is killed (today's `run_terminal`).
+  uint32 signal = 1;
+  // The grace before it is killed (five seconds today).
+  uint32 grace_ms = 2;
+  // A hosted child is ended by closing its stdin first (claude exits on EOF;
+  // opencode's `dispose` runs on it), then the signal after the grace.
+  bool close_stdin_first = 3;
+}
+
+// Which run the launch starts: the streams the frontend's facts and its
+// `WatchRun` name (owner ruling s4-Q2). One store holds them all (T14): nothing routes by the
+// project id, which names the project the session belongs to.
+message LaunchAt {
+  // The project the session belongs to (names, never routes).
+  string project_id = 1;
+  // The session's stable id (its stream root, UUID text).
+  string session = 2;
+  // The session's harp.
+  string harp = 3;
+  // The run's id, and the incarnation of the session it is.
+  string run = 4;
+  // The incarnation of the session this run is.
+  uint32 incarnation = 5;
+}
+
+// One engine process to start, computed by the daemon alone.
+message Launch {
+  // The protocol on a hosted launch's stdin and stdout.
+  enum Stdio {
+    // Also a one-shot's turn command's own pipes (its input fed, its output
+    // captured), which have no value of their own: that launch never
+    // crosses the wire.
+    STDIO_UNSPECIFIED = 0;
+    // The user's terminal (TERMINAL, EDITOR).
+    INHERIT = 1;
+    // claude's stream-json lines (D15).
+    STREAM_JSON = 2;
+    // opencode's ACP over JSON-RPC lines (D21, D23).
+    ACP = 3;
+  }
+
+  // Which consumer starts it, and how.
+  enum Kind {
+    // Unset (proto3's zero value).
+    KIND_UNSPECIFIED = 0;
+    // The interactive TUI: started by the frontend on the user's terminal,
+    // inherited stdio, in the frontend's process group (a Ctrl-C reaches it),
+    // no deadline. The frontend waits for it (owner, S3: spawn and wait).
+    TERMINAL = 1;
+    // A long-lived child (D15, D23), hosted by the daemon: piped stdio in the
+    // engine's own protocol (claude's stream-json, opencode's ACP), its own
+    // process group, no deadline. Ended by its close (T6).
+    CHILD = 2;
+    // A one-shot (T7): hosted by the daemon as the engine's TURN command
+    // (`claude -p`, `opencode run`; owner ruling s4-Q8), its prompt on its
+    // stdin (which this message does not carry: a one-shot's launch never
+    // leaves the daemon), its reply streamed back to the CLI that asked.
+    ONE_SHOT = 3;
+    // `$EDITOR` on a file, for a command's editor round trip, started by the
+    // frontend on the user's terminal as a TERMINAL launch is (owner, S9).
+    EDITOR = 4;
+  }
+
+  // Which run it starts.
+  LaunchAt at = 1;
+  // Which consumer starts it, and how.
+  Kind kind = 2;
+  // The engine's name (claude-code, opencode; under test-support, mock).
+  string engine = 3;
+
+  // The program, as the launch found it (the configured
+  // `engines.<e>.command` looked up on the PATH the launch gives, by the
+  // file names the host looks a command up by: PATHEXT's on Windows).
+  string program = 4;
+  // Its arguments, after the program.
+  repeated string args = 5;
+  // Its WHOLE environment, sorted by name: nothing is inherited from the
+  // process that starts it. The daemon built it from the environment the
+  // launching client sent (an interactive run's, a one-shot's) or a child's
+  // hand-off file (T6), through the engine's allowlists, the engine block,
+  // the permits (ruling 78) and what ctxloom sets (HOME, CTXLOOM_HOME, PATH,
+  // CTXLOOM_ROOT, and the run's CTXLOOM_SESSION and CTXLOOM_RUN). No
+  // endpoint, bearer or certificate rides it (slice 4 U7, owner ruling
+  // s4-Q3): a hook delivers to the daemon with the user's own bearer.
+  repeated EnvVar env = 6;
+  // Where it runs (the project, or the session's worktree).
+  string cwd = 7;
+  // The session home, already written by the daemon (its settings, hooks,
+  // context file, login links): the frontend writes nothing.
+  string session_home = 8;
+
+  // The session's lock (`<project>/.ctxloom/sessions/<harp>/session.lock`), which
+  // the process that starts the engine TAKES before it starts it and holds
+  // until the engine has exited and the exit is reported (rulings 85, 92):
+  // the frontend for a TERMINAL launch, the daemon for a hosted one. An
+  // EDITOR launch names none.
+  string session_lock = 9;
+
+  // The protocol on a hosted launch's stdin and stdout.
+  Stdio stdio = 10;
+  // How its holder stops it when asked.
+  StopPolicy stop = 11;
+}

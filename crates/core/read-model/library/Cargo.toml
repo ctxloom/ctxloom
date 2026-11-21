@@ -23,6 +23,9 @@ zip = { version = "9.0.5", default-features = false, features = ["deflate-flate2
 sha2 = "0.10"
 # The nearest known key to a misspelt one (already in the lock).
 strsim = "0.11"
+# The one span grammar (rust-support's, S9), which `daemon.drain_timeout`
+# and `ctxloom shutdown <duration>` read, with `now` beside it (`span`).
+duration-text.workspace = true
 
 [dev-dependencies]
 # The tests hold an error's English to Go's words (english_for!).

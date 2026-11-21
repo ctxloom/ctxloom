@@ -300,6 +300,10 @@ pub(crate) fn item_body(item: &Value, path: &str) -> Result<ItemBody, BundleErro
         content_hash: field(item, "content_hash", path)?,
         distilled: field(item, "distilled", path)?,
         distilled_by: field(item, "distilled_by", path)?,
+        // An inline document's distilled form records no source digest, so
+        // it is stale (T30's hard migrate).
+        distilled_digest: String::new(),
+        source_digest: String::new(),
         no_distill: flag(item, "no_distill", path)?,
     })
 }

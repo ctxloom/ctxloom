@@ -1,0 +1,129 @@
+syntax = "proto3";
+
+// The owner approved this shape with the step 8 red spec (2026-11-16;
+// rulings 132, 142). Compiled by `trust-proto` (the wire types) and the
+// `trust` domain (step 8 U1).
+//
+// TRUST: the user's verdict on a PROJECT's own settings (separation §5.3).
+// What it covers:
+//   - the project layer's project-only keys (ruling 46): `engines.<e>.command`,
+//     `engines.<e>.auth.file`, `engines.<e>.session_home: host` and
+//     `agents.<a>.session_home: host`;
+//   - a project `ctxloom` bundle overriding the operational prompts, init's
+//     and distill's (ruling 128, D4).
+// The wider set (bundles' hooks and MCP servers, companions,
+// `editor.command`, env names) is not covered, an accepted cost (D3).
+//
+// It is an angzarr aggregate, one stream per project, in the one per-user
+// store (T14). The daemon CHECKS it as policy:
+//   - a launch's untrusted project-only keys are its evidence, and the launch
+//     is refused (`runs-untrusted-project-settings`);
+//   - an untrusted project `ctxloom` bundle is passed over, with a notice;
+//   - a child launched to work in an untrusted project is refused
+//     (`sessions-untrusted-target`, D8).
+//
+// A trust covers the project UNTIL IT IS REVOKED (S23), not a digest: a later
+// upstream change applies without asking again (an accepted cost). The
+// preview (`Ctxloom.GetTrust`) carries an etag of what it showed, and the
+// grant names it, so what is applied is what was shown (API Q5).
+//
+// ctxloom gives agents no trust tool. There is one principal, the user, and
+// the CLI asks the human at her terminal. Nothing is stamped yet (S21's
+// stamping is deferred with containers): the client sets the actor and both
+// etags, and the time is the event's own recorded instant.
+//
+// Through angzarr's coordinator: `HandleSync`, projector `trust-index`.
+package ctxloom.trust.v1;
+
+import "io/angzarr/v1/options.proto";
+
+// Who acted.
+message Actor {
+  // The user's login on this machine, as the client read it.
+  string user = 1;
+}
+
+message TrustState {
+  option (io.angzarr.v1.component) = {
+    component_name: "trust"
+    aggregate: {domain: "trust"}
+  };
+
+  // `projects/{harp}/trust`; the stream root is the UUIDv5 of the name in
+  // ctxloom's one namespace, as every ctxloom root is (`trust::trust_root`).
+  string name = 1;
+  // The project's id (a worktree shares its primary's), what a launch's
+  // check looks the trust up by.
+  string project_id = 2;
+  bool trusted = 3;
+  Actor actor = 4;
+}
+
+// region commands
+
+// Trust the project until revoked. Refused `PlanStale` when what the preview
+// showed has changed. Trusting what is already trusted records nothing.
+message GrantTrust {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.trust.v1.TrustState"
+    emits: ["ctxloom.trust.v1.TrustGranted"]
+    refuses: "ctxloom.trust.v1.PlanStale"
+  };
+
+  string name = 1;
+  string project_id = 2;
+  // The etag the preview showed.
+  string etag = 3;
+  // The etag of the project's trust-relevant settings now, computed by the
+  // client just before it sends (nothing stamps yet).
+  string current_etag = 4;
+  // The user (one principal).
+  Actor actor = 5;
+}
+
+// Take trust back (`ctxloom trust --undo`). Revoking what is not trusted
+// records nothing.
+message RevokeTrust {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.trust.v1.TrustState"
+    emits: ["ctxloom.trust.v1.TrustRevoked"]
+  };
+
+  string name = 1;
+  string project_id = 2;
+  Actor actor = 3;
+}
+
+// endregion
+
+// region events
+
+message TrustGranted {
+  option (io.angzarr.v1.event) = {component: "ctxloom.trust.v1.TrustState"};
+
+  string name = 1;
+  string project_id = 2;
+  Actor actor = 3;
+}
+
+message TrustRevoked {
+  option (io.angzarr.v1.event) = {component: "ctxloom.trust.v1.TrustState"};
+
+  string name = 1;
+  string project_id = 2;
+  Actor actor = 3;
+}
+
+// endregion
+
+// region refusals
+
+// What the preview showed has changed: preview it again (`trust-plan-stale`).
+message PlanStale {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  string seen = 1;
+  string now = 2;
+}
+
+// endregion

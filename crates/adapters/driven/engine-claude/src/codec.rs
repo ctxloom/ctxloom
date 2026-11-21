@@ -227,7 +227,7 @@ impl HookCodec for Codec {
 }
 
 /// The document on one line.
-fn compact(doc: &Json) -> String {
+pub(crate) fn compact(doc: &Json) -> String {
     match doc {
         Json::Array(items) => {
             let parts: Vec<String> = items.iter().map(compact).collect();

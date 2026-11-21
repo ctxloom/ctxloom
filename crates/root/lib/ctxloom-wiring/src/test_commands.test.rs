@@ -42,7 +42,15 @@ fn the_noun_is_hidden_and_has_a_verb_for_each_test_command() {
             "session-id",
             "run-id",
             "open-store",
-            "seed-session"
+            "seed-session",
+            "project-name",
+            "session-name",
+            "session-events",
+            "library-events",
+            "watch-library",
+            "record",
+            "seed-rehosts",
+            "hold-lock"
         ]
     );
 }
@@ -106,6 +114,7 @@ fn an_answer_that_cannot_be_written_is_a_failure_with_exit_10() {
     let catalog = Catalog::en_us(&[crate::EN_US, ctxloom_cli::EN_US]).unwrap();
     let failed = run(
         || unreachable!("a session id needs no home"),
+        "v0.0.0-test",
         Vec::new,
         &call,
         &catalog,
@@ -247,6 +256,9 @@ fn every_seed_flag_lands_in_the_seed() {
         "a.md",
         "--other-file",
         "b.md",
+        "--resumable",
+        "--profile",
+        "dev",
     ]);
     assert_eq!(
         format!("{seed:?}"),
@@ -263,6 +275,10 @@ fn every_seed_flag_lands_in_the_seed() {
                 oneshot: true,
                 native: Some(("n1".to_string(), "/t/n1.jsonl".to_string())),
                 other_files: vec!["a.md".to_string(), "b.md".to_string()],
+                resumable: true,
+                // A profile's loadout is the daemon's assembly of it, which
+                // the command asks for (step 10c U13), not the arguments'.
+                loadout: None,
             }
         )
     );

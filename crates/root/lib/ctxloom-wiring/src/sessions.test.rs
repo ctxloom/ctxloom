@@ -70,6 +70,57 @@ fn test_the_nouns_include_session_and_a_hidden_hook() {
     );
 }
 
+// Step 8 U1: `trust` is a noun of its own, shown.
+#[test]
+fn test_the_nouns_include_trust_with_its_list_verb() {
+    let nouns = commands().nouns();
+    let trust = nouns
+        .iter()
+        .find(|n| n.get_name() == super::TRUST_NOUN)
+        .expect("trust");
+    assert!(!trust.is_hide_set());
+    assert!(trust.get_subcommands().any(|v| v.get_name() == "list"));
+}
+
+// A trust is given only on an explicit yes: a bare Enter is a no.
+#[test]
+fn test_only_y_or_yes_is_a_yes_to_trust() {
+    for yes in ["y\n", "Y", " yes \n", "YES"] {
+        assert!(super::said_yes(yes), "{yes:?}");
+    }
+    for no in ["", "\n", "n", "no", "yess", "sure"] {
+        assert!(!super::said_yes(no), "{no:?}");
+    }
+}
+
+/// An environment of `vars` alone.
+fn env_of(vars: &[(&str, &str)]) -> process_env::EnvSnapshot {
+    let base = crate::tests::host_snapshot();
+    process_env::EnvSnapshot::from_parts(
+        base.flavor(),
+        Ok(base.temp_dir().to_path_buf()),
+        base.temp_dir().to_path_buf(),
+        vars.iter()
+            .map(|(n, v)| (std::ffi::OsString::from(n), std::ffi::OsString::from(v)))
+            .collect::<Vec<_>>(),
+    )
+}
+
+// A trust's actor is the login the environment says: USER, else LOGNAME,
+// else Windows' USERNAME; none said, empty.
+#[test]
+fn test_the_users_login_is_read_from_user_then_logname_then_username() {
+    let login = |vars: &[(&str, &str)]| super::user_login(&env_of(vars));
+    assert_eq!(
+        login(&[("USER", "alice"), ("LOGNAME", "bob"), ("USERNAME", "carol")]),
+        "alice"
+    );
+    assert_eq!(login(&[("LOGNAME", "bob"), ("USERNAME", "carol")]), "bob");
+    assert_eq!(login(&[("USERNAME", "carol")]), "carol");
+    assert_eq!(login(&[("USER", ""), ("LOGNAME", "bob")]), "bob");
+    assert_eq!(login(&[]), "");
+}
+
 #[test]
 fn test_a_bare_session_is_its_default_verb_not_its_usage() {
     let noun = commands()
@@ -132,7 +183,7 @@ fn test_each_session_hook_answers_through_the_engines_codec() {
 #[test]
 fn test_a_session_start_with_no_harp_is_silent() {
     let mut world = World::new("session-start-no-harp");
-    world.set("CTXLOOM_SESSION_HARP", "");
+    world.set("CTXLOOM_SESSION", "");
     let (code, out, _) = run_with(
         &mut world.commands(),
         "{}",
@@ -151,12 +202,14 @@ fn test_a_hook_for_an_engine_nobody_knows_is_refused_with_exit_20() {
     assert_eq!(failure.exit, Exit::REFUSED);
 }
 
-// `session list` runs on the sessions use cases over the world's home: no
-// session is recorded there, so it answers an empty list and exits 0.
+// `session transcript list` runs on the sessions use cases over the world's
+// home (`list`, `search` and `show` are the daemon's, and its client's
+// acceptance tests are the binary's): no session is recorded there, so it
+// answers an empty list and exits 0.
 #[test]
 fn test_a_session_command_is_run_on_the_sessions_use_cases() {
     let world = World::new("session-list");
-    let (code, out, err) = run(&mut world.commands(), &["session", "list"])
+    let (code, out, err) = run(&mut world.commands(), &["session", "transcript", "list"])
         .ok()
         .unwrap();
     assert_eq!(code, 0, "{err}");
@@ -164,13 +217,15 @@ fn test_a_session_command_is_run_on_the_sessions_use_cases() {
     assert_eq!(out, "(no sessions)\n");
 }
 
-// The hook that binds a session answers the engine with the harp the process
-// names (`CTXLOOM_SESSION_HARP`) on stdout, and nothing on stderr.
+// The session-start hook answers the engine with the harp the process names
+// (`CTXLOOM_SESSION`, the session's resource name: s3-Q3) on stdout, and
+// nothing on stderr. (A start that names a conversation also binds it,
+// delivered as capture is: `capture.test.rs`.)
 #[test]
-fn test_the_bind_hook_answers_with_the_harp_the_environment_names() {
+fn test_the_session_start_hook_answers_with_the_harp_the_environment_names() {
     let mut world = World::new("session-bind");
-    world.set("CTXLOOM_SESSION_HARP", "jolly-mute-magma");
-    let payload = r#"{"session_id":"s1","transcript_path":"/tmp/t.jsonl"}"#;
+    world.set("CTXLOOM_SESSION", NAMED);
+    let payload = "{}";
     let (code, out, err) = run_with(
         &mut world.commands(),
         payload,
@@ -183,11 +238,14 @@ fn test_the_bind_hook_answers_with_the_harp_the_environment_names() {
     assert!(err.is_empty(), "{err}");
 }
 
-// The statusline hook shows the harp the environment names.
+/// A session's resource name, as `CTXLOOM_SESSION` carries it (s3-Q3).
+const NAMED: &str = "projects/amber-quiet-heron/sessions/jolly-mute-magma";
+
+// The statusline hook shows the harp of the session the environment names.
 #[test]
 fn test_the_hud_hook_shows_the_harp_the_environment_names() {
     let mut world = World::new("hud-harp");
-    world.set("CTXLOOM_SESSION_HARP", "jolly-mute-magma");
+    world.set("CTXLOOM_SESSION", NAMED);
     let (_, out, _) = run_with(
         &mut world.commands(),
         r#"{"model":{"display_name":"M"}}"#,
@@ -198,13 +256,14 @@ fn test_the_hud_hook_shows_the_harp_the_environment_names() {
     assert!(out.contains("jolly-mute-magma"), "{out}");
 }
 
-// Hook capture, fail open: a hook that observes something it cannot deliver
-// (no listener yet) answers the engine exactly as before, exits 0, and says
-// on stderr, once per observation, what it did not record.
+// Hook capture: a hook that observes something it cannot deliver (no
+// daemon serves, and none could be started) answers the engine exactly as
+// before, exits 0, holds what it observed (s4-Q14, H-Q2) and says so on
+// stderr, once per observation.
 #[test]
 fn test_a_hook_that_cannot_record_still_answers_and_says_so_on_stderr() {
     let mut world = World::new("hook-not-recorded");
-    world.set("CTXLOOM_SESSION_HARP", "jolly-mute-magma");
+    world.set("CTXLOOM_SESSION", NAMED);
     let payload = r#"{"session_id":"s1","prompt_id":"p1","prompt":"echo hi"}"#;
     let (code, out, err) = run_with(
         &mut world.commands(),
@@ -214,9 +273,9 @@ fn test_a_hook_that_cannot_record_still_answers_and_says_so_on_stderr() {
     .ok()
     .unwrap();
     assert_eq!((code, out.as_str()), (0, "{}\n"));
-    assert_eq!(err.matches("hook-cli-not-recorded").count(), 1, "{err}");
+    assert_eq!(err.matches("hook-cli-held").count(), 1, "{err}");
     assert!(
-        err.contains("no session for jolly-mute-magma: CTXLOOM_SESSION names none"),
+        err.contains("jolly-mute-magma") && err.contains("hook:prompt:"),
         "{err}"
     );
 }
@@ -225,7 +284,7 @@ fn test_a_hook_that_cannot_record_still_answers_and_says_so_on_stderr() {
 #[test]
 fn test_a_hook_that_observes_nothing_says_nothing_on_stderr() {
     let mut world = World::new("hook-observes-nothing");
-    world.set("CTXLOOM_SESSION_HARP", "jolly-mute-magma");
+    world.set("CTXLOOM_SESSION", NAMED);
     let (code, out, err) = run_with(
         &mut world.commands(),
         r#"{"skill":"x"}"#,
@@ -252,9 +311,11 @@ fn project(id: &str) -> ports::Project {
     }
 }
 
-/// What is beside project `id`'s database under `home`.
+/// What is beside the one database under `home` (T14: every project's
+/// streams are in it; `id` names whose use case opened it).
 fn beside(home: &std::path::Path, id: &str) -> Vec<&'static str> {
-    let dir = home.join(".ctxloom/projects").join(id);
+    let _ = id;
+    let dir = home.join(".ctxloom");
     ["ctxloom.db-wal", "ctxloom.db-shm"]
         .into_iter()
         .filter(|name| crate::fixtures::exists(dir.join(name)))

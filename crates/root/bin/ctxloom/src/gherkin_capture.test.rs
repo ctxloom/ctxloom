@@ -19,7 +19,7 @@ use std::path::PathBuf;
 
 use std::process::{Command, Stdio};
 
-use cucumber::then;
+use cucumber::{given, then, when};
 use serde_json::{json, Value};
 
 use super::World;
@@ -33,8 +33,8 @@ const MESSAGE_DISPLAY: &str =
 const POST_TOOL_BATCH: &str =
     include_str!("../../../../adapters/driven/engine-claude/src/fixtures/post_tool_batch.json");
 const STOP: &str = include_str!("../../../../adapters/driven/engine-claude/src/fixtures/stop.json");
-const SESSION_END: &str =
-    include_str!("../../../../adapters/driven/engine-claude/src/fixtures/session_end.json");
+const SESSION_START: &str =
+    include_str!("../../../../adapters/driven/engine-claude/src/fixtures/session_start.json");
 
 /// What the prompt says.
 const PROMPT: &str = "Run the shell command: echo hi";
@@ -43,6 +43,23 @@ const DELTAS: [&str; 3] = ["The command `echo hi` ", "ran and ", "printed `hi`."
 /// The tool's response: a body no record may keep.
 const TOOL_BODY: &str = "TOOL-RESPONSE-BODY-THAT-MUST-NOT-BE-KEPT";
 
+/// The summary a compaction writes: text no record may keep.
+const SUMMARY: &str = "SUMMARY-TEXT-THAT-MUST-NOT-BE-KEPT";
+
+/// The digest of [`SUMMARY`] (`sha256sum`).
+const SUMMARY_DIGEST: &str = "cef013b74ea1e85fb9c2ea4637fdba548c47af461e939b7c7e72ceef0ab9cb22";
+
+/// The prompt a compaction is under: claude gives each its own (the live
+/// probe: the same on PreCompact, PostCompact and its SessionStart).
+const COMPACT_PROMPT: &str = "c0c0c0c0-0000-4000-8000-00000000c0c0";
+
+/// The conversation before a clear, and the one after it.
+const BEFORE_CLEAR: &str = "1111aaaa-0000-4000-8000-000000000001";
+const AFTER_CLEAR: &str = "2222bbbb-0000-4000-8000-000000000002";
+
+/// The prompt a late hook's turn's end names: one no hook had reported.
+const LATE_PROMPT: &str = "1a7e1a7e-0000-4000-8000-0000001a7e00";
+
 /// The digest of [`TOOL_BODY`] (`sha256sum`).
 const TOOL_DIGEST: &str = "71ca0ef886ae43a96de885a15d913cc2cbe0553f553638a28601890879ed97e3";
 
@@ -50,8 +67,11 @@ const TOOL_DIGEST: &str = "71ca0ef886ae43a96de885a15d913cc2cbe0553f553638a286018
 const STUB: &str = r#"here="$(dirname "$0")"
 fired="$here/fired"
 mkdir -p "$fired"
-for v in CTXLOOM_ENDPOINT CTXLOOM_BEARER CTXLOOM_RUN CTXLOOM_HOME CLAUDE_CONFIG_DIR; do
+for v in CTXLOOM_RUN CTXLOOM_HOME CTXLOOM_SESSION CLAUDE_CONFIG_DIR; do
   eval "[ -n \"\${$v:-}\" ]" || echo "$v" >> "$here/engine-missing"
+done
+for v in CTXLOOM_ENDPOINT CTXLOOM_BEARER CTXLOOM_TLS_CERT; do
+  eval "[ -z \"\${$v:-}\" ]" || echo "$v" >> "$here/engine-had"
 done
 [ "${HOME:-}" = "$CLAUDE_CONFIG_DIR" ] || echo "HOME" >> "$here/engine-had"
 env | grep -E '^(CTXLOOM_|CLAUDE_CONFIG_DIR=|PATH=)' > "$here/engine-env"
@@ -77,7 +97,7 @@ for payload in "$here"/payloads/*.json; do
     echo "$?" > "$fired/$id.code"
   done
 done
-ctxloom session transcript show "$CTXLOOM_SESSION_HARP" --format json > "$here/live-transcript" 2> "$here/live-transcript.err" || true
+ctxloom session transcript show "${CTXLOOM_SESSION##*/}" --format json > "$here/live-transcript" 2> "$here/live-transcript.err" || true
 "#;
 
 /// The stub child: a `claude -p` turn. It reads the ONE `--settings` file its
@@ -97,8 +117,11 @@ done
 echo "$seen" > "$here/settings-flags"
 jq -r '.hooks | keys[]' "$settings" > "$here/registered"
 prompt="$(cat)"
-for v in CTXLOOM_ENDPOINT CTXLOOM_BEARER CTXLOOM_RUN CTXLOOM_HOME CTXLOOM_SESSION_HARP CTXLOOM_TLS_CERT CLAUDE_CONFIG_DIR; do
+for v in CTXLOOM_RUN CTXLOOM_HOME CTXLOOM_SESSION CLAUDE_CONFIG_DIR; do
   eval "[ -n \"\${$v:-}\" ]" || echo "$v" >> "$here/engine-missing"
+done
+for v in CTXLOOM_ENDPOINT CTXLOOM_BEARER CTXLOOM_TLS_CERT; do
+  eval "[ -z \"\${$v:-}\" ]" || echo "$v" >> "$here/engine-had"
 done
 [ "${HOME:-}" = "$CLAUDE_CONFIG_DIR" ] || echo "HOME" >> "$here/engine-had"
 [ -z "${ANTHROPIC_AUTH_TOKEN:-}" ] || echo "ANTHROPIC_AUTH_TOKEN" >> "$here/engine-had"
@@ -132,6 +155,8 @@ pub(super) struct State {
     ended: Vec<Value>,
     /// How many hook processes the stub was to fire.
     firings: usize,
+    /// What a hook fired after the run said.
+    late: Option<Ran>,
 }
 
 impl World {
@@ -139,7 +164,7 @@ impl World {
         self.adopt_scratch().join("bin")
     }
 
-    fn harp(&self) -> String {
+    pub(super) fn harp(&self) -> String {
         let sessions = self.common.project.dir().join(".ctxloom/sessions");
         let names: Vec<String> = files::children(&sessions)
             .iter()
@@ -187,8 +212,8 @@ impl World {
 }
 
 /// `harp`'s transcript, read by `ctxloom session transcript show --format
-/// json` in the project (owner ruling 87a): its lines; none when the session
-/// captured nothing.
+/// json` in the project (owner ruling 87a; a daemon read): its lines; none
+/// when the session captured nothing.
 pub(super) fn read_transcript(w: &World, harp: &str) -> Vec<Value> {
     let env: Vec<(&str, &str)> = w
         .common
@@ -201,8 +226,10 @@ pub(super) fn read_transcript(w: &World, harp: &str) -> Vec<Value> {
         &["session", "transcript", "show", harp, "--format", "json"],
     );
     if ran.code != 0 {
+        // The daemon's read (owner, H3 follow-up): a session with none is
+        // refused `daemon-api-transcript-empty`.
         assert!(
-            ran.stderr.contains("no-captured-transcript"),
+            ran.stderr.contains("daemon-api-transcript-empty"),
             "the transcript could not be read: {}",
             ran.said()
         );
@@ -267,6 +294,13 @@ pub(super) fn fires(w: &mut World, step: &cucumber::gherkin::Step) -> bool {
         run_watched(w, step);
     } else if step.value.contains("stops ctxloom with a SIGTERM") {
         run_stopped(w, step);
+    } else if step.value.contains("compacts its context once by hand") {
+        run_compacting(w, step);
+    } else if step
+        .value
+        .contains("clears its conversation between two prompts")
+    {
+        run_clearing(w, step);
     } else {
         return false;
     }
@@ -337,11 +371,10 @@ fn child_environment(w: &mut World) {
         "",
         "the turn's environment held what it must not"
     );
+    // Slice 4 U7: what its hooks need is its run and session (they find the
+    // user's daemon themselves); no endpoint, bearer or certificate, which
+    // `engine-had` would name.
     let engine_env = files::read(dir.join("engine-env")).expect("the turn ran");
-    assert!(
-        engine_env.contains("CTXLOOM_ENDPOINT=https://127.0.0.1:"),
-        "{engine_env}"
-    );
     assert!(
         !engine_env.contains("PRIVATE KEY"),
         "no key in the environment"
@@ -400,8 +433,21 @@ fn child_transcript(w: &mut World) {
     assert_eq!(lines[0]["entry"]["type"], "user");
     assert_eq!(lines[0]["entry"]["content"], PROMPT);
     for (n, delta) in DELTAS.iter().enumerate() {
-        assert_eq!(lines[1 + n]["delta"]["text"], *delta, "{n}");
+        let line = &lines[1 + n]["delta"];
+        assert_eq!(line["text"], *delta, "{n}");
+        assert_eq!(line["index"], n);
+        assert_eq!(line["final"], n == DELTAS.len() - 1);
+        assert!(!line["message_id"].as_str().unwrap_or_default().is_empty());
     }
+    let tool = &lines[4]["tool"];
+    assert_eq!(tool["name"], "Bash");
+    assert_eq!(tool["response_bytes"], TOOL_BODY.len());
+    assert_eq!(tool["response_sha256"], TOOL_DIGEST);
+    let turn_end = lines[5].as_object().unwrap();
+    assert!(
+        !turn_end.contains_key("text") && !turn_end.contains_key("delta"),
+        "the turn's end carries no text: {turn_end:?}"
+    );
     let whole = serde_json::to_string(&lines).unwrap();
     assert!(
         !whole.contains(TOOL_BODY),
@@ -414,6 +460,7 @@ fn child_transcript(w: &mut World) {
     for (n, line) in lines.iter().enumerate() {
         assert_eq!(line["seq"], n, "{line}");
     }
+    w.capture.ended = lines;
 }
 
 #[then("the session's transcript holds no prompt and no words of the assistant's")]
@@ -445,7 +492,6 @@ fn run_firing_hooks(w: &mut World, step: &cucumber::gherkin::Step) {
     payloads.push(payload(STOP, |v| {
         v["last_assistant_message"] = json!(DELTAS.concat());
     }));
-    payloads.push(payload(SESSION_END, |_| {}));
     let events = [
         "UserPromptSubmit",
         "MessageDisplay",
@@ -453,7 +499,6 @@ fn run_firing_hooks(w: &mut World, step: &cucumber::gherkin::Step) {
         "MessageDisplay",
         "PostToolBatch",
         "Stop",
-        "SessionEnd",
     ];
     for (n, (text, event)) in payloads.iter().zip(events).enumerate() {
         files::put(bin.join(format!("payloads/{n:02}-{event}.json")), text);
@@ -478,13 +523,19 @@ fn environment_reached(w: &mut World) {
         files::exists(dir.join("engine-env")),
         "the engine never ran"
     );
+    // Slice 4 U7: no listener of the run's own is named to it.
+    assert_eq!(
+        files::read(dir.join("engine-had")).unwrap_or_default(),
+        "",
+        "the engine's environment held what it must not"
+    );
 }
 
 #[then("every hook it fired answered, said nothing was left unrecorded, and exited 0")]
 fn hooks_delivered(w: &mut World) {
     let fired = w.fired();
     let firings = match w.capture.firings {
-        0 => 14,
+        0 => 12,
         n => n,
     };
     assert_eq!(fired.len(), firings, "each hook twice: {fired:?}");
@@ -499,52 +550,6 @@ fn hooks_delivered(w: &mut World) {
             "{event} was not recorded: {err} (answered {out})"
         );
     }
-}
-
-#[then("the session's transcript holds her prompt, the assistant's words in order, the tool call as a digest, the turn's end and the session's end, each once")]
-fn transcript_holds(w: &mut World) {
-    let lines = w.transcript();
-    let kinds: Vec<&str> = lines.iter().map(|l| l["kind"].as_str().unwrap()).collect();
-    assert_eq!(
-        kinds,
-        [
-            "entry",
-            "assistant_delta",
-            "assistant_delta",
-            "assistant_delta",
-            "tool",
-            "turn_end",
-            "session_end"
-        ],
-        "each observation once, though every hook fired twice: {lines:#?}"
-    );
-    assert_eq!(lines[0]["entry"]["type"], "user");
-    assert_eq!(lines[0]["entry"]["content"], PROMPT);
-    for (n, delta) in DELTAS.iter().enumerate() {
-        let line = &lines[1 + n]["delta"];
-        assert_eq!(line["text"], *delta, "{n}");
-        assert_eq!(line["index"], n);
-        assert_eq!(line["final"], n == DELTAS.len() - 1);
-        assert!(!line["message_id"].as_str().unwrap_or_default().is_empty());
-    }
-    let tool = &lines[4]["tool"];
-    assert_eq!(tool["name"], "Bash");
-    assert_eq!(tool["response_bytes"], TOOL_BODY.len());
-    assert_eq!(tool["response_sha256"], TOOL_DIGEST);
-    let turn_end = lines[5].as_object().unwrap();
-    assert!(
-        !turn_end.contains_key("text") && !turn_end.contains_key("delta"),
-        "the turn's end carries no text: {turn_end:?}"
-    );
-    let whole = serde_json::to_string(&lines).unwrap();
-    assert!(
-        !whole.contains(TOOL_BODY),
-        "the tool's response body was kept"
-    );
-    for (n, line) in lines.iter().enumerate() {
-        assert_eq!(line["seq"], n, "{line}");
-    }
-    w.capture.ended = lines;
 }
 
 // Ruling 87a: the store is live (each hook's fact is an event when it is
@@ -568,31 +573,28 @@ fn readable_while_running(w: &mut World) {
     );
 }
 
-#[then("a hook fired after the run has ended is refused without failing, and adds nothing to the transcript")]
+#[then(
+    "a hook fired again after the run has ended is answered without failing, and adds nothing a second time"
+)]
 fn late_hook(w: &mut World) {
-    // The environment the engine had, the run's bearer included, as a hook
-    // that outlived its engine would still have it.
+    let ran = fire_late(w, "Stop", STOP);
+    assert_eq!(ran.code, 0, "{}", ran.said());
+    assert_eq!(ran.stdout.trim(), "{}", "the engine is answered as usual");
+    // Slice 4 U7 (s4-Q3): no run credential dies with the run, so nothing
+    // refuses the hook; it reaches the user's daemon, and the session holds
+    // what it repeats already.
+    assert_eq!(w.transcript(), w.capture.ended, "nothing was appended");
+}
+
+/// Run `ctxloom hook claude-code execute <event>` on `payload` with the
+/// environment the engine had, as a hook that outlived its engine would
+/// still have it: its run and session, no listener of the run's own (slice
+/// 4 U7), and nothing of a key.
+fn fire_late(w: &World, event: &str, payload: &str) -> Ran {
     let engine_env = files::read(w.engine_dir().join("engine-env")).expect("the engine's env");
-    let endpoint = engine_env
-        .lines()
-        .find_map(|l| l.strip_prefix("CTXLOOM_ENDPOINT="))
-        .expect("the engine was told an endpoint");
     assert!(
-        endpoint.starts_with("https://127.0.0.1:")
-            && endpoint["https://127.0.0.1:".len()..]
-                .parse::<u16>()
-                .is_ok(),
-        "the endpoint is the loopback https URL of the listener's port: {endpoint}"
-    );
-    // The engine was told the listener's certificate (public, one line of
-    // base64 of a DER SEQUENCE) and nothing of its key.
-    let cert = engine_env
-        .lines()
-        .find_map(|l| l.strip_prefix("CTXLOOM_TLS_CERT="))
-        .expect("the engine was told the listener's certificate");
-    assert!(
-        cert.len() > 100 && cert.starts_with("MI") && !cert.contains(char::is_whitespace),
-        "a base64 DER certificate: {cert}"
+        !engine_env.contains("CTXLOOM_ENDPOINT="),
+        "no endpoint: {engine_env}"
     );
     assert!(
         !engine_env.contains("PRIVATE KEY"),
@@ -600,9 +602,10 @@ fn late_hook(w: &mut World) {
     );
     let mut command = Command::new(crate::tests::binary());
     command
-        .args(["hook", "claude-code", "execute", "Stop"])
+        .args(["hook", "claude-code", "execute", event])
         .env_clear()
         .env("TMPDIR", crate::tests::temp_root())
+        .env(crate::tests::LIFELINE, crate::tests::lifeline())
         .current_dir(w.common.project.dir())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -612,16 +615,215 @@ fn late_hook(w: &mut World) {
         command.env(name, value);
     }
     let mut child = command.spawn().expect("ctxloom runs");
-    crate::tests::feed(child.stdin.take().expect("stdin"), STOP);
-    let ran = Ran::of(child.wait_with_output().expect("ctxloom finishes"));
+    crate::tests::feed(child.stdin.take().expect("stdin"), payload);
+    Ran::of(child.wait_with_output().expect("ctxloom finishes"))
+}
+
+// Owner 2026-11-15: a late hook with something new is recorded.
+#[when("after the run has ended, a hook of her session reports a turn's end it had not reported")]
+fn late_new_turn_end(w: &mut World) {
+    w.ran().succeeds();
+    let stop = payload(STOP, |v| v["prompt_id"] = json!(LATE_PROMPT));
+    w.capture.late = Some(fire_late(w, "Stop", &stop));
+}
+
+#[then("that hook answered, said nothing was left unrecorded, and exited 0")]
+fn late_answered(w: &mut World) {
+    let ran = w.capture.late.as_ref().expect("a late hook was fired");
     assert_eq!(ran.code, 0, "{}", ran.said());
     assert_eq!(ran.stdout.trim(), "{}", "the engine is answered as usual");
-    assert!(
-        ran.stderr.contains("hook-cli-not-recorded"),
-        "the hook says it recorded nothing: {}",
-        ran.said()
+    for warning in ["hook-cli-not-recorded", "hook-cli-held"] {
+        assert!(!ran.stderr.contains(warning), "{}", ran.said());
+    }
+}
+
+#[then("the session's transcript ends with that turn's end, once")]
+fn transcript_ends_late(w: &mut World) {
+    let lines = w.transcript();
+    let late: Vec<&Value> = lines
+        .iter()
+        .filter(|l| l["prompt_id"] == LATE_PROMPT)
+        .collect();
+    assert_eq!(late.len(), 1, "the late turn's end once: {lines:#?}");
+    let last = lines.last().expect("a transcript");
+    assert_eq!(last["kind"], "turn_end", "{lines:#?}");
+    assert_eq!(last["prompt_id"], LATE_PROMPT, "{lines:#?}");
+}
+
+#[then("the session is listed as ended under its own name")]
+fn listed_ended_by_harp(w: &mut World) {
+    let harp = w.harp();
+    let ran = w.run_now(&["session", "list", "--format", "json"]);
+    assert_eq!(ran.code, 0, "{}", ran.said());
+    assert_eq!(
+        listed_state(&ran.stdout, &harp).as_deref(),
+        Some("ended"),
+        "{}",
+        ran.stdout
     );
-    assert_eq!(w.transcript(), w.capture.ended, "nothing was appended");
+}
+
+/// An interactive run whose stub engine compacts its context once by hand
+/// (`/compact`): a prompt, then PreCompact and PostCompact under the
+/// compaction's own prompt, the summary's text in PostCompact's payload.
+fn run_compacting(w: &mut World, step: &cucumber::gherkin::Step) {
+    let compact = |event: &str, summary: Option<&str>| {
+        let mut value = json!({
+            "session_id": "9d764b45-a56a-48d7-ac9d-c2a16c5669f1",
+            "prompt_id": COMPACT_PROMPT,
+            "hook_event_name": event,
+            "trigger": "manual",
+        });
+        if let Some(summary) = summary {
+            value["compact_summary"] = json!(summary);
+        }
+        value.to_string()
+    };
+    let payloads = [
+        (
+            payload(USER_PROMPT_SUBMIT, |v| v["prompt"] = json!(PROMPT)),
+            "UserPromptSubmit",
+        ),
+        (compact("PreCompact", None), "PreCompact"),
+        (compact("PostCompact", Some(SUMMARY)), "PostCompact"),
+    ];
+    let lines = crate::tests::gherkin_common::doc(step);
+    run_interactive_firing(w, &payloads, &lines);
+}
+
+#[then(
+    expr = "the session's transcript holds the compaction before and after it, with its trigger {string} and the summary's size and digest, and not its text"
+)]
+fn compaction_recorded(w: &mut World, trigger: String) {
+    let lines = w.transcript();
+    let compactions: Vec<&Value> = lines.iter().filter(|l| l["kind"] == "compaction").collect();
+    assert_eq!(
+        compactions.len(),
+        2,
+        "before and after, once each: {lines:#?}"
+    );
+    let (before, after) = (compactions[0], compactions[1]);
+    for (line, phase) in [(before, "before"), (after, "after")] {
+        assert_eq!(line["phase"], phase, "{line}");
+        assert_eq!(line["trigger"], trigger.as_str(), "{line}");
+        assert_eq!(line["prompt_id"], COMPACT_PROMPT, "{line}");
+    }
+    assert_eq!(after["summary_bytes"], SUMMARY.len(), "{after}");
+    assert_eq!(after["summary_sha256"], SUMMARY_DIGEST, "{after}");
+    let whole = serde_json::to_string(&lines).unwrap();
+    assert!(!whole.contains(SUMMARY), "the summary's text was kept");
+}
+
+/// An interactive run whose stub engine fires `payloads` (each its text and
+/// its native event, in order) as its hooks, twice each, running `lines`.
+fn run_interactive_firing(w: &mut World, payloads: &[(String, &str)], lines: &str) {
+    let bin = w.engine_dir();
+    let ctxloom = crate::tests::binary().display().to_string();
+    files::put_program(bin.join("ctxloom"), &format!("exec '{ctxloom}' \"$@\"\n"));
+    for (n, (text, event)) in payloads.iter().enumerate() {
+        files::put(bin.join(format!("payloads/{n:02}-{event}.json")), text);
+    }
+    w.capture.firings = 2 * payloads.len();
+    files::put_program(bin.join("claude"), STUB);
+    w.common.set_env("CTXLOOM_TEST_TERMINAL", "1".to_string());
+    w.before_run();
+    w.common_mut().run_lines(lines, "");
+}
+
+/// Once the interactive run is over, the session a later turn is taken on
+/// is its own, and the engine a later turn runs records its launch as
+/// j000100's does.
+fn interactive_run_over(w: &mut World) {
+    w.ran().succeeds();
+    w.adopt.harp = Some(w.harp());
+    files::put_program(w.engine_dir().join("claude"), super::adopt::CLAUDE_STUB);
+}
+
+/// A SessionStart of `source` naming the conversation `native`.
+fn session_start(source: &str, native: &str) -> String {
+    payload(SESSION_START, |v| {
+        v["source"] = json!(source);
+        v["session_id"] = json!(native);
+        v["transcript_path"] = json!(format!("/claude/projects/p/{native}.jsonl"));
+    })
+}
+
+/// A prompt `n` and its turn's end, each under the prompt's own id.
+fn prompt_and_end(n: u32) -> [(String, &'static str); 2] {
+    let id = format!("00000000-0000-4000-8000-00000000000{n}");
+    [
+        (
+            payload(USER_PROMPT_SUBMIT, |v| {
+                v["prompt"] = json!(format!("prompt {n}"));
+                v["prompt_id"] = json!(id);
+            }),
+            "UserPromptSubmit",
+        ),
+        (payload(STOP, |v| v["prompt_id"] = json!(id)), "Stop"),
+    ]
+}
+
+/// An interactive run whose engine starts a conversation, takes a prompt,
+/// clears it (`/clear`: SessionStart `clear`, naming the new one), and takes
+/// a second.
+fn run_clearing(w: &mut World, step: &cucumber::gherkin::Step) {
+    let mut payloads = vec![(session_start("startup", BEFORE_CLEAR), "SessionStart")];
+    payloads.extend(prompt_and_end(1));
+    payloads.push((session_start("clear", AFTER_CLEAR), "SessionStart"));
+    payloads.extend(prompt_and_end(2));
+    let lines = crate::tests::gherkin_common::doc(step);
+    run_interactive_firing(w, &payloads, &lines);
+    interactive_run_over(w);
+}
+
+#[given(
+    expr = "Alice has run her assistant interactively, and its engine named its conversation {string} when it started"
+)]
+fn ran_naming_conversation(w: &mut World, native: String) {
+    run_interactive_firing(
+        w,
+        &[(session_start("startup", &native), "SessionStart")],
+        "ctxloom run",
+    );
+    interactive_run_over(w);
+}
+
+#[then("the session's transcript holds her first prompt, its turn's end, the clear, her second prompt and its turn's end, each once")]
+fn transcript_holds_the_clear(w: &mut World) {
+    let lines = w.transcript();
+    let kinds: Vec<&str> = lines.iter().map(|l| l["kind"].as_str().unwrap()).collect();
+    assert_eq!(
+        kinds,
+        ["entry", "turn_end", "clear", "entry", "turn_end"],
+        "{lines:#?}"
+    );
+    assert_eq!(lines[0]["entry"]["content"], "prompt 1");
+    assert_eq!(lines[2]["native_session"], AFTER_CLEAR);
+    assert_eq!(lines[2]["trigger"], "clear");
+    assert_eq!(lines[3]["entry"]["content"], "prompt 2");
+}
+
+#[then("the session's record keeps the conversation before the clear in its lineage")]
+fn clear_kept_in_lineage(w: &mut World) {
+    let harp = w.harp();
+    let shown = w.run_now(&["session", "show", &harp, "--format", "json"]);
+    assert_eq!(shown.code, 0, "{}", shown.said());
+    let shown: Value = serde_json::from_str(&shown.stdout).expect("json");
+    assert_eq!(shown["native_session"], AFTER_CLEAR, "{shown}");
+    let lineage: Vec<&str> = shown["rotations"]
+        .as_array()
+        .map(|r| r.iter().filter_map(|r| r["native_id"].as_str()).collect())
+        .unwrap_or_default();
+    assert_eq!(lineage, [BEFORE_CLEAR], "{shown}");
+}
+
+#[then("the assistant was resumed on the conversation after the clear")]
+fn resumed_after_clear(w: &mut World) {
+    let record = w.launch_record();
+    assert!(
+        record.contains(&format!("--resume\n{AFTER_CLEAR}\n")),
+        "no resume of {AFTER_CLEAR}: {record}"
+    );
 }
 
 // ------------------------------------------- a live session (defects 1, 2)
@@ -630,7 +832,7 @@ fn late_hook(w: &mut World) {
 /// terminal's commands itself, while it runs (so no wait is needed: the
 /// order is the stub's own), and records what each said.
 const WATCHED_STUB: &str = r#"here="$(dirname "$0")"
-harp="$CTXLOOM_SESSION_HARP"
+harp="${CTXLOOM_SESSION##*/}"
 echo "$harp" > "$here/watched-harp"
 ctxloom session list --format json > "$here/live-list" 2> "$here/live-list.err"
 ctxloom session rename "$harp" "titled while live" --format json > "$here/live-rename" 2>&1
@@ -676,11 +878,19 @@ impl World {
 /// The state a listing (JSON) gives the session `harp`, wherever in the
 /// document its row is.
 fn listed_state(listing: &str, harp: &str) -> Option<String> {
+    // A listing's proto3 JSON (ruling 146): each session by its resource
+    // name, its state the API's enum, said here as the word.
     fn find(value: &Value, harp: &str) -> Option<String> {
+        let named = |map: &serde_json::Map<String, Value>| {
+            map.get("name")
+                .and_then(Value::as_str)
+                .is_some_and(|name| name.ends_with(&format!("/sessions/{harp}")))
+        };
         match value {
-            Value::Object(map) if map.get("harp").and_then(Value::as_str) == Some(harp) => {
-                map.get("state").and_then(Value::as_str).map(str::to_string)
-            }
+            Value::Object(map) if named(map) => map
+                .get("state")
+                .and_then(Value::as_str)
+                .map(str::to_lowercase),
             Value::Object(map) => map.values().find_map(|v| find(v, harp)),
             Value::Array(items) => items.iter().find_map(|v| find(v, harp)),
             _ => None,
@@ -755,7 +965,7 @@ fn still_under_its_harp(w: &mut World) {
     let doc: Value = serde_json::from_str(&shown.stdout).expect("json");
     assert_eq!(doc["title"], "titled while live", "{}", shown.stdout);
     assert_eq!(
-        doc["state"], "ended",
+        doc["state"], "ENDED",
         "its lock is where it was: {}",
         shown.stdout
     );
@@ -768,7 +978,7 @@ fn still_under_its_harp(w: &mut World) {
 /// was asked.
 const STOPPED_STUB: &str = r#"here="$(dirname "$0")"
 trap 'echo asked > "$here/asked"; exit 0' TERM
-echo "$CTXLOOM_SESSION_HARP" > "$here/watched-harp"
+echo "${CTXLOOM_SESSION##*/}" > "$here/watched-harp"
 echo "$$" > "$here/pid.tmp" && mv "$here/pid.tmp" "$here/pid"
 sleep 30 &
 wait

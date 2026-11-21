@@ -208,6 +208,19 @@ pub enum BundleError {
         item: String,
         path: String,
     },
+    /// Metadata still in the old layout (owner T27, D15): beside the item
+    /// (`skills/.<n>.meta.yaml`, `mcp/.<n>.meta.yaml`), where it is no longer
+    /// read; it belongs at `new` (`skills/<n>/.meta.yaml`, `mcp/<n>.yaml`).
+    /// The bundle is refused whole. `old` and `new` are below the bundle
+    /// until [`BundleError::located`] places them; `remote` is the
+    /// repository an installed bundle is from, empty for a project's own.
+    OldLayout {
+        bundle: String,
+        kind: String,
+        old: String,
+        new: String,
+        remote: String,
+    },
     /// A hook narrowed by an engine's own matcher.
     HookMatcher { hook: String, matcher: String },
     /// A skill package with no files.
@@ -239,6 +252,7 @@ impl Diagnostic for BundleError {
             BundleError::Item { .. } => code!("bundle-item"),
             BundleError::Unclaimed { .. } => code!("bundle-unclaimed"),
             BundleError::UnexplainedMeta { .. } => code!("bundle-unexplained-meta"),
+            BundleError::OldLayout { .. } => code!("sidecar-old-layout"),
             BundleError::HookMatcher { .. } => code!("bundle-hook-matcher"),
             BundleError::SkillEmpty { .. } => code!("bundle-skill-empty"),
             BundleError::Profile { .. } => code!("bundle-profile"),
@@ -300,6 +314,20 @@ impl Diagnostic for BundleError {
                 ("item", item.as_str().into()),
                 ("path", path.as_str().into()),
             ],
+            BundleError::OldLayout {
+                bundle,
+                kind,
+                old,
+                new,
+                remote,
+            } => vec![
+                ("bundle", bundle.as_str().into()),
+                ("kind", kind.as_str().into()),
+                ("old", old.as_str().into()),
+                ("new", new.as_str().into()),
+                ("remote", remote.as_str().into()),
+                ("installed", Arg::Uint(u64::from(!remote.is_empty()))),
+            ],
             BundleError::HookMatcher { hook, matcher } => vec![
                 ("hook", hook.as_str().into()),
                 ("matcher", matcher.as_str().into()),
@@ -312,6 +340,50 @@ impl Diagnostic for BundleError {
                 ("name", name.as_str().into()),
                 ("cause", Arg::Nested(Box::new(cause.clone()))),
             ],
+        }
+    }
+}
+
+impl BundleError {
+    /// This error with an old-layout refusal's paths placed below the
+    /// bundle's directory `dir` as the person reaches it (spelled as `dir`
+    /// is), and the repository `remote` an installed bundle is from (empty
+    /// for a project's own). Any other error is as it was.
+    #[must_use]
+    pub fn located(self, dir: &str, remote: &str) -> BundleError {
+        match self {
+            BundleError::OldLayout {
+                bundle,
+                kind,
+                old,
+                new,
+                ..
+            } => {
+                let absolute_windows =
+                    dir.starts_with(r"\\") || dir.as_bytes().get(1) == Some(&b':');
+                let separator = if absolute_windows { '\\' } else { '/' };
+                // A relative directory as it is typed from the project's root:
+                // `/` throughout, however the host joined it.
+                let dir = if absolute_windows {
+                    dir.to_string()
+                } else {
+                    dir.replace('\\', "/")
+                };
+                let below = |rel: &str| {
+                    format!(
+                        "{dir}{separator}{}",
+                        rel.replace('/', &separator.to_string())
+                    )
+                };
+                BundleError::OldLayout {
+                    bundle,
+                    kind,
+                    old: below(&old),
+                    new: below(&new),
+                    remote: remote.to_string(),
+                }
+            }
+            other => other,
         }
     }
 }
@@ -554,6 +626,13 @@ fn bundle_samples() -> Vec<Box<dyn Diagnostic>> {
             kind: "fragments".to_string(),
             item: "solid".to_string(),
             path: "fragments/.solid.meta.yaml".to_string(),
+        }),
+        Box::new(BundleError::OldLayout {
+            bundle: "demo".to_string(),
+            kind: "skill".to_string(),
+            old: "skills/.r.meta.yaml".to_string(),
+            new: "skills/r/.meta.yaml".to_string(),
+            remote: String::new(),
         }),
         Box::new(BundleError::HookMatcher {
             hook: "pre_tool/h".to_string(),

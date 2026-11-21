@@ -27,6 +27,7 @@ impl Project {
             .env("HOME", self.home())
             .env("USERPROFILE", self.home())
             .env("TMPDIR", crate::tests::temp_root())
+            .env(crate::tests::LIFELINE, crate::tests::lifeline())
             .env("CTXLOOM_ROOT", self.dir())
             .current_dir(self.dir())
             .stdin(Stdio::piped())

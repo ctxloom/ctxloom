@@ -97,7 +97,7 @@ pub fn run<S: RunService>(
     let done = service.one_shot(&call.globals, &request);
     say_notices(&done.notices, PROG, format, catalog, err);
     let answer = done.result.map_err(failed)?;
-    write_answer(format, &answer, out).map_err(|e| {
+    write_answer(format, call.stdout_is_terminal, &answer, out).map_err(|e| {
         Failure::new(
             OutputFailure {
                 ext_err_txt: e.to_string(),
@@ -158,7 +158,12 @@ pub fn session<S: RunService>(
     Ok(Exit::from_child_status(ended.code, None))
 }
 
-fn write_answer(format: Format, answer: &Answer, out: &mut dyn Write) -> io::Result<()> {
+fn write_answer(
+    format: Format,
+    terminal: bool,
+    answer: &Answer,
+    out: &mut dyn Write,
+) -> io::Result<()> {
     let reply = Reply {
         harp: &answer.harp,
         session: &answer.session,
@@ -166,7 +171,15 @@ fn write_answer(format: Format, answer: &Answer, out: &mut dyn Write) -> io::Res
         answer: &answer.answer,
     };
     cli_support::emit(format, out, &reply, |out| {
-        writeln!(out, "{}", answer.answer.trim_end())
+        let reply = answer.answer.trim_end();
+        // Text where no human reads it (a primary's Bash tool) holds another
+        // model's words: contained, like a hook-delivered message (owner
+        // ruling 2026-11-20). A terminal is a person; json names its parts.
+        if terminal {
+            writeln!(out, "{reply}")
+        } else {
+            writeln!(out, "{}", answer.contained())
+        }
     })
 }
 

@@ -127,7 +127,11 @@ fn session_has_no_mcp(w: &mut World) {
         .to_string();
     let shown = run_now(w, &["session", "show", &harp, "--format", "json"]);
     assert_eq!(shown.code, 0, "{}", shown.said());
-    let text = shown.stdout.to_lowercase();
+    // The grant record (ruling 2026-11-20) names the servers the run was
+    // given, `ctxloom`'s among them: what was permitted, not an endpoint.
+    let mut record: serde_json::Value = serde_json::from_str(&shown.stdout).unwrap();
+    record.as_object_mut().unwrap().remove("grant");
+    let text = record.to_string().to_lowercase();
     assert!(
         !text.contains("mcp"),
         "the session names an MCP endpoint: {text}"

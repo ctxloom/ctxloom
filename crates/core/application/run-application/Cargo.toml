@@ -24,6 +24,8 @@ runs.workspace = true
 runs-application.workspace = true
 session-ports.workspace = true
 sessions.workspace = true
+# A one-shot's reply, contained like a delivered message (ruling 2026-11-20).
+setup-application.workspace = true
 surface-ports.workspace = true
 uuid.workspace = true
 

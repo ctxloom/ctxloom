@@ -760,6 +760,18 @@ would not find, and its asks are claude's headless default (denied). The
 terminal session (claude's TUI) is given none: its human answers at her own
 terminal (S28).
 Crates:
+A one-shot's reply is another model's words, so where no human reads it they
+are contained (owner ruling 2026-11-20): in TEXT format with stdout NOT a
+terminal (`--format text` asked off a terminal; json is the off-terminal
+default, and `Call::stdout_is_terminal` is the one terminal test) `run-cli`
+prints `run_application::Answer::contained` (setup-application's `contained_reply`; the CLI may not see that crate): a DRAFT note line, then one
+`<message id="<session id>" from="<harp>" urgency="reply">` element whose
+body is escaped by the same `escaped` a hook-delivered message uses, so a
+forged closing element is data. At a terminal the reply is bare, and json is
+unchanged. A one-shot's run also journals the grant record a hosted child's
+does (`RunEnqueued.grant`, `run_application::hosted::grant_of`: the MCP
+servers carried and the permissions document), which `session show` prints;
+the human's terminal session journals none.
 
 - `core/ports/run-ports` (`RunnerLauncher`, `Engine`, `SessionRecords`,
   `RunLocks`) and `core/read-model/pending-launches` (the runs still owed a

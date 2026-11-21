@@ -69,6 +69,15 @@ pub struct Answer {
     pub answer: String,
 }
 
+impl Answer {
+    /// The reply as a primary may hold it where no human reads it: one
+    /// escaped `<message>` element (owner ruling 2026-11-20), the same
+    /// containment a hook-delivered message has. The reply is trimmed.
+    pub fn contained(&self) -> String {
+        setup_application::contained_reply(&self.session, &self.harp, self.answer.trim_end())
+    }
+}
+
 /// What a human's session came to: it was hers, and it is over.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Ended {
@@ -875,9 +884,15 @@ where
             mode,
             evidence,
             launcher_lock,
-            // A one-shot journals no grant record yet (step 9 records a
-            // hosted child's).
-            grant: None,
+            // What a one-shot is given, as a hosted child's launch journals
+            // it (owner ruling 2026-11-20); the human's terminal session is
+            // her own, and records none.
+            grant: (!interactive).then(|| {
+                crate::hosted::grant_of(
+                    &previewed.plan.surfaces,
+                    previewed.plan.permissions.as_deref(),
+                )
+            }),
         };
         let enqueued = self.enqueuer.enqueue(request).await;
         if let (true, Some(lock)) = (enqueued.is_ok(), own) {

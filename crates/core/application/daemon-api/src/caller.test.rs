@@ -801,6 +801,28 @@ async fn a_restart_of_a_primary_is_refused_and_writes_nothing() {
     assert!(world.commands().is_empty());
 }
 
+// `session stop` (MVP, owner 2026-11-20): a stop is a child's run's; a
+// terminal session (a primary, no owner) is stopped from its terminal or
+// closed, so the stop is refused before any command is sent, in the
+// stopper's words.
+#[tokio::test]
+async fn a_stop_of_a_terminal_session_is_refused_before_anything_is_sent() {
+    let world = World::new();
+    let refused = world
+        .user(true)
+        .stop("lone-asleep-heron")
+        .await
+        .unwrap_err();
+    let CallError::Refused(crate::refusal::Rejection::Api(
+        crate::refusal::ApiRejection::PrimaryNotHosted { harp },
+    )) = &refused
+    else {
+        panic!("{refused:?}");
+    };
+    assert_eq!(harp, "lone-asleep-heron");
+    assert!(world.commands().is_empty(), "nothing sent");
+}
+
 // A refused name says why: the harp grammar's reason, or its shape.
 #[test]
 fn a_refused_names_reason_is_the_one_it_was_refused_for() {

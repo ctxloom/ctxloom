@@ -4250,7 +4250,7 @@ user bearer (`capture::daemon_sink`), the same `runs_application::Flush`
 as a hook's (`Flush::every`, sessions in the order `HeldFacts::sessions`
 lists them): only when the command is not older than the daemon
 (`runs_application::command_flushes`), each hold taken at once or skipped
-(`Left::Taken`, never waited for), within `FLUSH_BOUND` (2 s) for the whole
+(`Left::Taken`, never waited for), within `FLUSH_BOUND` (5 s: a full hold of ten facts, one TLS handshake each, fits a slow host; owner ruling 2026-11-21) for the whole
 flush, a hold the bound did not reach left untouched (`Left::OutOfTime`);
 what it could not deliver stays held. Nothing a flush meets is dropped
 silently (owner, H3 follow-up): a held record the daemon finally refuses or

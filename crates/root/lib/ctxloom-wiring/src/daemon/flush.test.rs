@@ -283,6 +283,53 @@ fn a_spent_bound_delivers_nothing() {
     assert_eq!(held_ids(&held, ONE), vec![id(ONE, &prompt("p1"))]);
 }
 
+/// A clock that only the sink's deliveries move: `remaining` starts at the
+/// bound and each delivery spends its cost, as a slow host's would.
+struct Spent(Arc<Mutex<Duration>>);
+
+impl runs_application::HookClock for Spent {
+    fn remaining(&self) -> Duration {
+        *self.0.lock().unwrap()
+    }
+
+    fn now(&self) -> Option<daemon_proto::google::protobuf::Timestamp> {
+        None
+    }
+}
+
+struct Costing(Arc<Mutex<Duration>>, Duration);
+
+impl FactSink for Costing {
+    fn deliver(&self, _: CommandBook, _: Duration) -> Delivery {
+        let mut left = self.0.lock().unwrap();
+        *left = left.saturating_sub(self.1);
+        Delivery::Applied
+    }
+}
+
+// The bound a command's flush gets is wide enough for a full hold of ten
+// facts on a slow host: each delivery paying 450 ms (a thread and a TLS
+// handshake each; Linux pays about 55 ms) is 4.5 s, so every fact is
+// delivered and nothing stays held. A bound of 2 s leaves facts held.
+#[test]
+fn the_flush_bound_holds_ten_facts_at_a_slow_hosts_cost() {
+    let held = spool();
+    for n in 0..10 {
+        hold(&held, ONE, &prompt(&format!("p{n}")));
+    }
+    let left = Arc::new(Mutex::new(FLUSH_BOUND));
+    let sink = Costing(Arc::clone(&left), Duration::from_millis(450));
+    let flushed = flush_with(&held, &Spent(left), OWN, OWN, &sink);
+    assert_eq!(lefts(&flushed), vec![(root_of(ONE), Left::Nothing)]);
+    assert_eq!(held_ids(&held, ONE), Vec::<String>::new());
+}
+
+// The documented figure: a change to the bound is a change to this.
+#[test]
+fn the_flush_bound_is_five_seconds() {
+    assert_eq!(FLUSH_BOUND, Duration::from_secs(5));
+}
+
 // Two commands at once over the real hold and its flock, forced: the
 // second runs INSIDE the first one's first delivery. It cannot take the
 // hold the first is delivering (its flush lock), so it skips it and never

@@ -36,7 +36,16 @@ use crate::capture::{daemon_sink, Deadline, EdgeSink};
 use crate::Wiring;
 
 /// The most a command's flush of its home's holds may take, in all.
-pub(crate) const FLUSH_BOUND: Duration = Duration::from_secs(2);
+///
+/// INVARIANT: a command never waits unboundedly on a slow or wedged daemon;
+/// what the bound does not reach stays held for the next command. Five
+/// seconds because a flush of a FULL hold (ten facts) pays one thread and
+/// one TLS handshake per fact (`GrpcSink::deliver`) and must fit on a slow
+/// host with margin: ten take about 550 ms on Linux, and a Windows runner
+/// is several times slower (measured, not assumed). Owner
+/// ruling 2026-11-21. Pinned by `the_flush_bound_is_five_seconds` and
+/// `the_flush_bound_holds_ten_facts_at_a_slow_hosts_cost`.
+pub(crate) const FLUSH_BOUND: Duration = Duration::from_secs(5);
 
 /// What a command's flush did.
 #[derive(Debug, PartialEq, Eq)]

@@ -159,3 +159,21 @@ fn positions_are_one_text_whatever_their_order_and_keys_name_them() {
         "owed-at-load:s:users/me/library@4"
     );
 }
+
+// Step 10e Stage 2a: the owed restart is part of the session's wire state
+// (the daemon's board and `GetSession` read it), both ways.
+#[test]
+fn the_owed_restart_crosses_the_wire_with_the_state() {
+    let state = crate::SessionState {
+        started_at: angzarr_embedded::Timestamp::default(),
+        restart_owed: Some(crate::RestartOwed {
+            reason: crate::RestartReason::Context,
+            incarnation: 3,
+            note: "n".to_string(),
+        }),
+        ..crate::SessionState::default()
+    };
+    let wire = sessions_proto::v1::SessionState::from(state.clone());
+    assert_eq!(wire.restart_owed.as_ref().map(|o| o.incarnation), Some(3));
+    assert_eq!(crate::SessionState::try_from(wire).unwrap(), state);
+}

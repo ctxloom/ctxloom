@@ -2512,6 +2512,18 @@ impl daemon_api::ChildWrites for Writes {
         self.asked.lock().unwrap().push(format!("stop {target}"));
         Ok(self.written(target, "uid"))
     }
+
+    async fn restart(
+        &self,
+        target: &str,
+        note: &str,
+    ) -> Result<daemon_api::Written, daemon_api::CallError> {
+        self.asked
+            .lock()
+            .unwrap()
+            .push(format!("restart {target} {note:?}"));
+        Ok(self.written(target, "uid"))
+    }
 }
 
 fn child_go(writes: &Writes, format: Format, words: &[&str]) -> Ran {
@@ -2685,6 +2697,13 @@ fn a_refused_child_verb_fails_as_its_refusal_says() {
         async fn stop(&self, _: &str) -> Result<daemon_api::Written, daemon_api::CallError> {
             unreachable!()
         }
+        async fn restart(
+            &self,
+            _: &str,
+            _: &str,
+        ) -> Result<daemon_api::Written, daemon_api::CallError> {
+            unreachable!()
+        }
     }
     let command = parsed(&["send", "brisk-copper-moth", "wake", "one more thing"]);
     let mut out = Vec::new();
@@ -2708,6 +2727,45 @@ fn a_stop_stops_the_childs_run_and_says_so() {
     let ran = child_go(&again, Format::Text, &["stop", "quiet-silver-fern"]);
     assert_eq!(ran.out, "quiet-silver-fern: no run of it to stop\n");
     let ran = child_go(&writes, Format::Json, &["stop", "quiet-silver-fern"]);
+    assert!(
+        ran.out.contains("projects/"),
+        "the session as json: {}",
+        ran.out
+    );
+}
+
+// Step 10e Stage 2a, `session restart`: the session is asked to restart its
+// engine with resume (the daemon waits for its turn in flight); asked again
+// while one is owed, it says so.
+#[test]
+fn a_restart_asks_the_session_and_says_so() {
+    let writes = Writes::default();
+    let ran = child_go(&writes, Format::Text, &["restart", "quiet-silver-fern"]);
+    assert_eq!(
+        ran.out,
+        "quiet-silver-fern: a restart asked: its engine is restarted, resuming its conversation, once its turn ends\n"
+    );
+    assert_eq!(
+        *writes.asked.lock().unwrap(),
+        ["restart quiet-silver-fern \"\""]
+    );
+    let noted = child_go(
+        &writes,
+        Format::Text,
+        &["restart", "quiet-silver-fern", "--note", "new context"],
+    );
+    assert!(noted.result.is_ok());
+    assert_eq!(
+        writes.asked.lock().unwrap()[1],
+        "restart quiet-silver-fern \"new context\""
+    );
+    let again = Writes {
+        duplicate: true,
+        ..Writes::default()
+    };
+    let ran = child_go(&again, Format::Text, &["restart", "quiet-silver-fern"]);
+    assert_eq!(ran.out, "quiet-silver-fern: a restart is asked already\n");
+    let ran = child_go(&writes, Format::Json, &["restart", "quiet-silver-fern"]);
     assert!(
         ran.out.contains("projects/"),
         "the session as json: {}",

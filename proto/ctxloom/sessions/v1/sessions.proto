@@ -88,6 +88,10 @@ message SessionState {
   // `DeliverMessages` records each id once whatever asks again (two hooks
   // within one round deliver a message once). Additive.
   repeated string pending_messages = 30;
+  // Step 10e Stage 2a: the restart the session owes (`RestartOwed`), until
+  // the next incarnation is owed (which closes it); absent when none is.
+  // Additive.
+  optional RestartOwed restart_owed = 31;
 }
 
 // Who a session was minted for (Go's Origin): an empty origin reads as a
@@ -375,8 +379,61 @@ message RehostSession {
   // this re-host answers.
   uint32 recent_rehosts = 1;
   // Why it is re-hosted: `rehost` (empty: the same), after its host was
-  // lost; `drain`, handed over by a draining daemon (not counted).
+  // lost; `drain`, handed over by a draining daemon (not counted);
+  // `restart`, a restart owed (`RestartOwed`, Stage 2a; not counted).
   string cause = 2;
+}
+
+// Step 10e Stage 2a (owner rulings 2026-11-20): why a session's engine is
+// restarted with resume. Operator is the only reason decided and emitted so
+// far (`session restart`); context and config are shaped here so the
+// aggregate's `RestartOwed` carries all three, and are decided in Stage 2b.
+// Additive.
+enum RestartReason {
+  RESTART_REASON_UNSPECIFIED = 0;
+  // A person asked (`ctxloom session restart`).
+  RESTART_REASON_OPERATOR = 1;
+  // The context the session runs with changed (Stage 2b).
+  RESTART_REASON_CONTEXT = 2;
+  // A configuration only a new engine process can take changed (Stage 2b).
+  RESTART_REASON_CONFIG = 3;
+}
+
+// Ask the session's engine to be restarted with resume (Stage 2a). The
+// SESSION decides whether a restart is owed: it records `RestartOwed` for
+// its open incarnation, once (a request while one is owed records nothing,
+// an operator's too), and the daemon that hosts the engine acts on the
+// event: it waits for the turn in flight to end, ends the engine, and the
+// session's next incarnation (`IncarnationOwed{reason: restart}`, never
+// counted against the re-host budget) is started resuming the engine's own
+// conversation. Keyed `restart:<session>:<incarnation>:<reason>`, so a
+// replay of one request is a DUPLICATE. Refused for a stream holding no
+// session, a closed one, one with no incarnation open (nothing runs to
+// restart, `NoRunToRestart`) and one whose engine bound no native session (nothing to
+// resume). Additive.
+message RequestRestart {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.sessions.v1.SessionState"
+    emits: ["ctxloom.sessions.v1.RestartOwed"]
+    refuses: "ctxloom.sessions.v1.NoSession"
+    refuses: "ctxloom.sessions.v1.SessionIsClosed"
+    refuses: "ctxloom.sessions.v1.NoRunToRestart"
+    refuses: "ctxloom.sessions.v1.NoNativeSession"
+  };
+
+  RestartReason reason = 1;
+  // The operator's note, optional free text.
+  string note = 2;
+}
+
+// A restart is owed for the session's open incarnation `incarnation`, until
+// the next incarnation is owed. Additive.
+message RestartOwed {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
+
+  RestartReason reason = 1;
+  uint32 incarnation = 2;
+  string note = 3;
 }
 
 message IncarnationOwed {
@@ -489,6 +546,14 @@ message WorkspaceMismatch {
   string harp = 1;
   string workspace = 2;
   string asked = 3;
+}
+
+// A restart of a session with no incarnation open: no engine runs that could
+// be restarted (Stage 2a).
+message NoRunToRestart {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  string harp = 1;
 }
 
 // A re-host of a child re-hosted `limit` times or more in the last hour

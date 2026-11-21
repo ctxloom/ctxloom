@@ -16,13 +16,13 @@ use sessions::{
 
 use crate::{catch_up, run_text, Board, Boards, EndedTurn, Message, TurnFailure};
 
-const ID: &str = "0b0b0b0b-0b0b-0b0b-0b0b-0b0b0b0b0b0b";
+pub(crate) const ID: &str = "0b0b0b0b-0b0b-0b0b-0b0b-0b0b0b0b0b0b";
 
-fn root() -> Uuid {
+pub(crate) fn root() -> Uuid {
     Uuid::from_bytes([0x0b; 16])
 }
 
-fn page(sequence: u64, any: Any) -> EventPage {
+pub(crate) fn page(sequence: u64, any: Any) -> EventPage {
     EventPage {
         sequence,
         body: Some(event_page::Body::Event(any)),
@@ -30,7 +30,7 @@ fn page(sequence: u64, any: Any) -> EventPage {
     }
 }
 
-fn book(domain: &str, root: Uuid, first: u64, events: Vec<Any>) -> EventBook {
+pub(crate) fn book(domain: &str, root: Uuid, first: u64, events: Vec<Any>) -> EventBook {
     let pages: Vec<EventPage> = (first..)
         .zip(events)
         .map(|(sequence, any)| page(sequence, any))
@@ -48,7 +48,7 @@ fn book(domain: &str, root: Uuid, first: u64, events: Vec<Any>) -> EventBook {
     }
 }
 
-fn minted(owner: Option<&str>) -> Vec<Any> {
+pub(crate) fn minted(owner: Option<&str>) -> Vec<Any> {
     vec![
         SessionEvent::SessionMinted(SessionMinted {
             harp: "kid-harp".to_string(),

@@ -29,6 +29,7 @@ fn the_samples_hold_every_diagnostic_of_the_crate() {
             "daemon-api-config-unreadable",
             "daemon-api-launch-in-progress",
             "daemon-api-wake-inform-only",
+            "daemon-api-primary-not-hosted",
             "daemon-api-session-not-hosted",
             "daemon-api-approval-ambiguous",
             "daemon-api-approval-none-waiting",

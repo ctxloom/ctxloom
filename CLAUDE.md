@@ -2016,6 +2016,49 @@ while its discovery file is written. `ctxloom test record` prints every
 stream of the one store, and `ctxloom test seed-rehosts <harp> <n>` plants
 a child's past re-hosts.
 
+RESTART WITH RESUME (step 10e Stage 2a; owner rulings 2026-11-20). The
+SESSION AGGREGATE decides when a restart is owed; nothing else does. The
+command `RequestRestart{reason, note}` (reason `operator | context |
+config`, the additive `RestartReason`; only `operator` is emitted so far,
+by `ctxloom session restart <harp> [--note]`, `Caller::restart`, a command
+through the coordinator like `session stop`, keyed
+`restart:<session>:<incarnation>:operator`; a terminal session is refused
+client-side, `daemon-api-primary-not-hosted`: its engine is its `ctxloom
+run`'s) records `RestartOwed{reason, incarnation, note}` for the OPEN
+incarnation, once: a request while one is owed records nothing, whatever
+its reason; refused `sessions-no-session`, `sessions-session-closed`,
+`sessions-no-run-to-restart` (`NoRunToRestart`) and
+`sessions-no-native-session`. `SessionState.restart_owed` (field 31) folds
+it and the next `IncarnationOwed` closes it, so a restart owed is
+recognisable from the stream alone, after any crash (an owed restart with no
+later incarnation), never from memory. Context and config DECIDING, the
+deletion of the hook re-injection and primaries are not built (S2b, S2c).
+The HOSTING STATE is `daemon-board`'s `hosting.rs`, the board itself (its
+session and run fold, an ephemeral projector subscription's: folded from 0
+by every process, proved on the Bus in `bus.test.rs`), not a second
+projector: per agent `Agent::Idle | Active{turn} | Parked{turn, reason} |
+Restarting{reason}`, DERIVED, never stored. Active is a turn queued on the
+open incarnation's run and not ended (`RunState.turns`, the run stream's
+`TurnStarted/Completed/Failed` facts); the engine's end (`RunEnded`) forces
+Idle, so a turn end a dropped hook never delivered cannot park a restart
+for ever. PARK is that state (a restart owed while a turn is in flight), a
+deferral: no handler blocks, and another agent's launch or message is
+never held up. While parked the plan lets a steer through to the turn in
+flight and holds a wake and an inform (`session_policies::plan`'s `runs`):
+they are delivered into the resumed incarnation. At the Active to Idle edge
+`Daemon::restart_the_due` (each tick, `Board::restarts_due`: restarting,
+its incarnation open, its run live; only an engine this daemon hosts) ends
+the engine once (`ChildControl::end`); its exit ends the incarnation
+`restarted` (`ENDED_RESTARTED`, no notice to the owner) and the plan's
+re-host owes the next incarnation for the cause `restart`
+(`sessions::RESTARTED`, `RehostSession`, never counted against the
+re-host budget), however the incarnation ended: an engine that exited on
+its own with a restart owed is restarted all the same. The tick-driven
+`plan()` is kept for every start (smallest change: the hosting state is a
+read of the board it already catches up, and the effect is the hand-over's
+`ChildControl::end` path). A draining daemon restarts nothing: it hands the
+child over, and the restart owed is still in the stream for the next daemon.
+
 The daemon has ONE principal, the user (slice 2). At each start it mints
 the user bearer (T12: 256 bits, `credentials`' `OsTokenSource`) and a new
 certificate, and serves its listener behind `runs-application`'s

@@ -362,7 +362,7 @@ fn notices(scene: &Scene<'_>, steps: &mut Vec<Step>) {
         // Each incarnation its run ended, but one a re-host continues.
         let me = here(scene.project_id, id);
         for ended in scene.board.ends(id) {
-            if [ORPHANED, ENDED_DRAINED].contains(&ended.cause.as_str()) {
+            if [ORPHANED, ENDED_DRAINED, ENDED_RESTARTED].contains(&ended.cause.as_str()) {
                 continue;
             }
             if let Some(told) = crate::notice(&me, &child.harp, owner_ref, ended, &owner_takes) {
@@ -407,6 +407,11 @@ const ORPHANED: &str = "orphaned";
 /// hand it over to the next daemon (OD-54).
 pub const ENDED_DRAINED: &str = "drained";
 
+/// Why a hosted child's incarnation ends when the daemon ended its engine to
+/// restart it with resume (step 10e Stage 2a): the session owes the next
+/// incarnation, cause `restart`.
+pub const ENDED_RESTARTED: &str = "restarted";
+
 /// Each child of this project whose last incarnation was lost (cause
 /// `rehost`) or handed over by a draining daemon (cause `drain`, s4-Q5), and
 /// is neither closed nor owed another: its re-host. A child with
@@ -416,7 +421,11 @@ fn rehosts(scene: &Scene<'_>, steps: &mut Vec<Step>) {
         let Some(owner) = session.owner.clone() else {
             continue;
         };
+        // A restart owed proceeds however the incarnation ended: the daemon
+        // ended it for the restart, or the engine exited first (an engine
+        // exit forces Idle, step 10e Stage 2a).
         let cause = match scene.board.last_end(id) {
+            _ if session.restart_owed.is_some() => sessions::RESTARTED,
             Some((n, ORPHANED)) if n == session.incarnation => sessions::REHOSTED,
             Some((n, ENDED_DRAINED)) if n == session.incarnation => sessions::DRAINED,
             _ => continue,
@@ -494,7 +503,11 @@ fn runs(scene: &Scene<'_>, steps: &mut Vec<Step>) {
             live: true,
             in_flight: !run.state.turns.is_empty(),
         };
-        if let Some(keyed) = deliver(&gate, &scene.pending.pending(id)) {
+        // A restart owed waits for the turn in flight, and a delivery that
+        // would start a turn waits for the resumed session (a steer still
+        // reaches the turn in flight, step 10e Stage 2a).
+        let parked = session.restart_owed.is_some() && !gate.in_flight;
+        if let Some(keyed) = deliver(&gate, &scene.pending.pending(id)).filter(|_| !parked) {
             steps.push(Step::Send(keyed.into()));
         }
         for turn in &run.state.turns {

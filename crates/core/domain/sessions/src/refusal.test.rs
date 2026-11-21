@@ -76,6 +76,10 @@ fn table() -> Vec<(TypedRefusal, SessionRejection)> {
             SessionRejection::NoOpenIncarnation { harp: harp() },
         ),
         (
+            TypedRefusal::of(&NoRunToRestart { harp: harp() }),
+            SessionRejection::NoRunToRestart { harp: harp() },
+        ),
+        (
             TypedRefusal::of(&DelegationLimit { limit: 1, open: 1 }),
             SessionRejection::DelegationLimit { limit: 1, open: 1 },
         ),

@@ -518,6 +518,7 @@ mod features {
             session_children,
             session_hooks,
             session_remove,
+            session_restart,
             session_worktrees,
             shutdown,
             skill,

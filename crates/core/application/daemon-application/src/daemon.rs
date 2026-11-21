@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use angzarr_embedded::v1::{Cover, Uuid};
 use angzarr_embedded::{Catalog, CatchUp, Failure, Processed, ReadStore, Store, Watch};
-use daemon_board::Boards;
+use daemon_board::{run_text, Boards};
 use pending_launches::{PendingLaunch, PendingModel, StartedRun};
 use pending_messages::PendingMessages;
 use run_ports::{
@@ -296,6 +296,11 @@ pub struct Daemon<E: Edge> {
     /// The runs whose stop was asked (S19's `session stop`) and whose
     /// engine this daemon ended for it: their exit ends them `stopped`.
     stopping: BTreeSet<String>,
+    /// The runs whose engine this daemon ended to restart it (step 10e
+    /// Stage 2a): their exit ends them `restarted`. In memory only: a daemon
+    /// that dies between the end and the exit finds the restart still owed
+    /// in the session's stream, which is what it acts on.
+    restarting: BTreeSet<String>,
     /// Its clock (OD-54), which times a hand-over's period; none, a busy
     /// child is waited for until its turn ends.
     clock: Option<Arc<dyn Monotonic>>,
@@ -426,6 +431,7 @@ impl<E: Edge> Daemon<E> {
             handing_over: false,
             drained: BTreeSet::new(),
             stopping: BTreeSet::new(),
+            restarting: BTreeSet::new(),
             clock: None,
             hand_over_period: HAND_OVER_PERIOD,
             hand_over_began: None,
@@ -979,6 +985,39 @@ impl<E: Edge> Daemon<E> {
         !overdue.is_empty() || stopped
     }
 
+    /// The restarts owed whose agent is Idle (step 10e Stage 2a): the
+    /// session decided each is owed (`RestartOwed`); the hosting state says
+    /// its turn has ended, or its engine has nothing in flight. Its engine is
+    /// ended, once; its exit ends its incarnation `restarted`, and the plan
+    /// re-hosts it for the cause `restart`, resuming its conversation. An
+    /// agent parked behind its turn is passed over, and no other is held up.
+    /// Whether it ended any (`caught_up`: the board was caught up this round).
+    fn restart_the_due(&mut self, caught_up: bool) -> bool {
+        // Only on a board that caught up, and never while handing over: a
+        // draining daemon hands the child over, the restart still owed.
+        if !caught_up || self.handing_over {
+            return false;
+        }
+        let due = self.board.projector().board().restarts_due();
+        let mut ended = false;
+        for restart in due {
+            let run = run_text(&restart.session, restart.incarnation);
+            let Some(hosted) = self.hosted.get(&run) else {
+                continue;
+            };
+            if !self.restarting.insert(run) {
+                continue;
+            }
+            (self.say)(&format!(
+                "{}: a restart owed ({:?}): ended, to be resumed",
+                hosted.who.harp, restart.reason
+            ));
+            let _ = hosted.control.end(END_GRACE);
+            ended = true;
+        }
+        ended
+    }
+
     /// Each one-shot still running once the hand-over's period has passed
     /// stopped, once, and said. Whether it stopped any.
     fn stop_the_overdue_one_shots(&mut self) -> bool {
@@ -1039,6 +1078,10 @@ impl<E: Edge> Daemon<E> {
         if board.is_ok() {
             self.sweep_hand_offs();
         }
+        // The Active to Idle edge of an agent owed a restart (step 10e Stage
+        // 2a): its engine is ended, and its next incarnation resumed by the
+        // plan's re-host once it has exited.
+        busy |= self.restart_the_due(board.is_ok());
         if self.handing_over {
             busy |= self.guide_the_busy().await;
             busy |= self.end_the_idle();
@@ -1976,12 +2019,7 @@ impl<E: Edge> Daemon<E> {
                     )
                     .await;
                 // Ended to be handed over (s4-Q4): the next daemon re-hosts it.
-                let stopped = self.stopping.remove(run);
-                let cause = match (self.drained.remove(run), stopped) {
-                    (true, _) => session_policies::ENDED_DRAINED,
-                    (false, true) => STOPPED,
-                    (false, false) => "runner-exit",
-                };
+                let cause = self.end_cause(run);
                 let _ = facts
                     .incarnation_ended(&at.session, at.incarnation, cause)
                     .await;
@@ -1997,6 +2035,20 @@ impl<E: Edge> Daemon<E> {
             if let Err(error) = facts.record(&who, fact).await {
                 (self.say)(&format!("{}: not recorded: {error:?}", who.harp));
             }
+        }
+    }
+
+    /// Why the incarnation of the run `run`, whose engine exited, ends: the
+    /// reason this daemon ended its engine (handed over, stopped, restarted),
+    /// else its own exit. Each reason is let go of.
+    fn end_cause(&mut self, run: &str) -> &'static str {
+        let stopped = self.stopping.remove(run);
+        let restarted = self.restarting.remove(run);
+        match (self.drained.remove(run), stopped, restarted) {
+            (true, _, _) => session_policies::ENDED_DRAINED,
+            (false, true, _) => STOPPED,
+            (false, false, true) => session_policies::ENDED_RESTARTED,
+            (false, false, false) => "runner-exit",
         }
     }
 

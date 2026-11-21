@@ -149,6 +149,11 @@ pub enum SessionVerb {
     /// Stop a child's run: its engine exits, and the child stays open for its next message
     #[command(after_help = "Examples:\n  ctxloom session stop brisk-copper-moth")]
     Stop(HarpArgs),
+    /// Restart a child's engine, resuming its conversation, once the turn in flight ends
+    #[command(
+        after_help = "Examples:\n  ctxloom session restart brisk-copper-moth\n  ctxloom session restart brisk-copper-moth --note \"the context changed\""
+    )]
+    Restart(RestartArgs),
     /// The permission asks waiting for you, from the sessions your daemon runs: list them, answer one
     #[command(
         after_help = "Examples:\n  ctxloom session approvals\n  ctxloom session approvals amber-quiet-heron\n  ctxloom session approvals answer ask-tidy-wren allow-once\n  ctxloom session approvals answer brisk-copper-moth deny \"not yet\""
@@ -269,6 +274,16 @@ pub struct HarpArgs {
     /// The session's name
     #[arg(value_name = "SESSION-NAME")]
     pub harp: String,
+}
+
+#[derive(Args, Debug)]
+pub struct RestartArgs {
+    /// The session's name
+    #[arg(value_name = "SESSION-NAME")]
+    pub harp: String,
+    /// Why, in your words (recorded with the restart)
+    #[arg(long, value_name = "TEXT", default_value = "")]
+    pub note: String,
 }
 
 #[derive(Args, Debug)]

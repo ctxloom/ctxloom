@@ -17,6 +17,8 @@
 //! answering a session stream's state (`ctxloom.sessions.v1.SessionState`)
 //! as its view.
 
+mod hosting;
+
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -32,6 +34,8 @@ use sessions::{
     ChildLaunched, IncarnationEnded, SessionAggregate, SessionEvent, SessionState, Urgency,
     SESSION_DOMAIN,
 };
+
+pub use hosting::{Agent, RestartDue};
 
 /// A turn a run ended: its number, the messages it carried, and whether it
 /// failed.

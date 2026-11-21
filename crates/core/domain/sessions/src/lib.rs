@@ -58,7 +58,7 @@ pub use aggregate::SessionAggregate;
 pub use daemon::{command_id, keyed_book, urgency_word};
 pub use generated::*;
 pub use harp::{validate, validate_session_name, RESERVED_PREFIX, RESERVED_REASON};
-pub use lifeline::{DRAINED, REHOSTED, REHOST_BUDGET};
+pub use lifeline::{DRAINED, REHOSTED, REHOST_BUDGET, RESTARTED};
 pub use name::{project_id_root, root_of, ProjectName, SessionName, NAMESPACE};
 pub use names::NameClaimAggregate;
 pub use projects::{
@@ -147,7 +147,9 @@ pub fn apply(state: &mut SessionState, event: &SessionEvent, recorded_at: Timest
             state.ended_at = Some(recorded_at);
             lifeline::apply(state, event);
         }
-        SessionEvent::IncarnationOwed(_) => lifeline::apply(state, event),
+        SessionEvent::IncarnationOwed(_) | SessionEvent::RestartOwed(_) => {
+            lifeline::apply(state, event);
+        }
         // Retired (owner 2026-11-15: no stop latch): it folds to nothing.
         SessionEvent::StopOrdered(_) => {}
         // A clear is the read side's (the clear policy): no state of the

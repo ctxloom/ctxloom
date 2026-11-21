@@ -18,9 +18,12 @@ sessions-proto.workspace = true
 held-projection.workspace = true
 
 [dev-dependencies]
+# The Bus proof (`src/bus.test.rs`): the board served as an ephemeral projector
+# subscription over the in-memory store; tests only.
 angzarr-embedded = { workspace = true, features = ["test-support"] }
 mutants.workspace = true
 prost.workspace = true
+tokio = { workspace = true, features = ["macros"] }
 
 [lints]
 workspace = true

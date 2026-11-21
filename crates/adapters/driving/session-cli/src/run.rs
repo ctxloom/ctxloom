@@ -179,6 +179,7 @@ pub fn is_child(session: &Session) -> bool {
                 | SessionVerb::Clear(_)
                 | SessionVerb::Close(_)
                 | SessionVerb::Stop(_)
+                | SessionVerb::Restart(_)
         )
     )
 }
@@ -250,6 +251,17 @@ pub fn child<W: ChildWrites>(
                 let said = match written.applied {
                     true => "its run asked to stop".to_string(),
                     false => "no run of it to stop".to_string(),
+                };
+                Ok((written, said))
+            }
+            Some(SessionVerb::Restart(args)) => {
+                let written = writes
+                    .restart(&args.harp, &args.note)
+                    .await
+                    .map_err(call_failure)?;
+                let said = match written.applied {
+                    true => "a restart asked: its engine is restarted, resuming its conversation, once its turn ends".to_string(),
+                    false => "a restart is asked already".to_string(),
                 };
                 Ok((written, said))
             }
@@ -521,7 +533,8 @@ async fn execute<S: SessionService + ImportService + WorktreeUse>(
             | SessionVerb::Send(_)
             | SessionVerb::Clear(_)
             | SessionVerb::Close(_)
-            | SessionVerb::Stop(_),
+            | SessionVerb::Stop(_)
+            | SessionVerb::Restart(_),
         ) => unreachable!("a child verb is the daemon's: session_cli::child"),
         Some(SessionVerb::Approvals(_)) => {
             unreachable!("the asks are the daemon's: session_cli::approvals")

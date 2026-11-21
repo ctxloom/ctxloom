@@ -2,7 +2,8 @@
 //! writes (B1), each json answer its AIP resource or method response
 //! (OD-40, design §5.2).
 
-use library_application::{ItemDistilled, ItemShow};
+use cli_support::say_notices;
+use library_application::{ItemDistilled, ItemShow, Notice};
 
 use crate::prelude::*;
 use crate::read_back;
@@ -225,20 +226,47 @@ fn bundle_and_item(name: &str) -> (String, String) {
     (bundle, item)
 }
 
+/// The notice for `verb` (an item verb) that needed an editor and had none:
+/// the content comes with `--body` instead; a create (`template`) stored its
+/// template as it is.
+fn no_editor(verb: &str, template: bool) -> Notice {
+    Notice::NoEditor {
+        verb: verb.to_string(),
+        instead: "give the content with --body".to_string(),
+        template,
+    }
+}
+
 /// The answer to `needs`' Edit need, the editor launched on its document
 /// (step 10b U3: the preview's Edit need, presented by the CLI); none
 /// when it asks none, and none for an Edit with no launch (the caller was
 /// not at a terminal): no editor is run, the apply goes unanswered and
 /// the daemon answers the preview again, nothing applied (needs.proto: a CLI
 /// off a terminal shows the preview and applies nothing).
+///
+/// An Edit with no launch is SAID, once, as `unlaunched` (a typed notice
+/// on `err`: no editor was run, and how to give the content without one),
+/// so the user is never left to guess why nothing was edited.
 pub(crate) fn edit_answers(
     cx: &Context<'_>,
     needs: &[v1::Need],
+    unlaunched: Notice,
+    err: &mut dyn Write,
 ) -> Result<Vec<v1::Answer>, Failure> {
     let mut answers = Vec::new();
+    let mut said = false;
     for need in needs {
         if let Some(v1::need::Kind::Edit(edit)) = &need.kind {
             if edit.launch.is_none() {
+                if !std::mem::replace(&mut said, true) {
+                    say_notices(
+                        std::slice::from_ref(&unlaunched),
+                        PROG,
+                        cx.format,
+                        cx.catalog,
+                        err,
+                    );
+                }
                 continue;
             }
             let edited = cx.served.edit_document(edit)?;
@@ -293,7 +321,7 @@ fn create_served(
         let mut answers = Vec::new();
         if previewed {
             let preview = cx.served.create_command(&under, ask(true, Vec::new()))?;
-            answers = edit_answers(cx, &preview.needs)?;
+            answers = edit_answers(cx, &preview.needs, no_editor("command create", true), err)?;
         }
         let made = cx.served.create_command(&under, ask(false, answers));
         return crate::answer_written(
@@ -324,7 +352,7 @@ fn create_served(
     let mut answers = Vec::new();
     if previewed {
         let preview = cx.served.create_fragment(&under, ask(true, Vec::new()))?;
-        answers = edit_answers(cx, &preview.needs)?;
+        answers = edit_answers(cx, &preview.needs, no_editor("fragment create", true), err)?;
     }
     let made = cx.served.create_fragment(&under, ask(false, answers));
     crate::answer_written(
@@ -407,7 +435,7 @@ fn edit_served(
             let preview = cx
                 .served
                 .update_command(&under, ask(true, Vec::new(), String::new()))?;
-            answers = edit_answers(cx, &preview.needs)?;
+            answers = edit_answers(cx, &preview.needs, no_editor("command edit", false), err)?;
             etag = preview.etag;
         }
         let edited = cx.served.update_command(&under, ask(false, answers, etag));
@@ -446,7 +474,7 @@ fn edit_served(
             let preview = cx
                 .served
                 .update_fragment(&under, ask(true, Vec::new(), String::new()))?;
-            answers = edit_answers(cx, &preview.needs)?;
+            answers = edit_answers(cx, &preview.needs, no_editor("fragment edit", false), err)?;
             etag = preview.etag;
         }
         let edited = cx.served.update_fragment(&under, ask(false, answers, etag));

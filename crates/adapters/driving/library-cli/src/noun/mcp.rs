@@ -149,7 +149,16 @@ fn edit_served(
     let preview = cx
         .served
         .update_mcp_server(&under, ask(true, Vec::new(), String::new()))?;
-    let answers = crate::noun::item::edit_answers(cx, &preview.needs)?;
+    let answers = crate::noun::item::edit_answers(
+        cx,
+        &preview.needs,
+        library_application::Notice::NoEditor {
+            verb: "mcp edit".to_string(),
+            instead: "change it with `ctxloom mcp set`".to_string(),
+            template: false,
+        },
+        err,
+    )?;
     let edited = cx
         .served
         .update_mcp_server(&under, ask(false, answers, preview.etag));

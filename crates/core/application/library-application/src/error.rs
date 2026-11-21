@@ -454,6 +454,15 @@ pub enum Notice {
     /// (or could not be read), so a session home started without them
     /// (owner ruling 169): by path, never their content.
     UserSettingsLeftOut { engine: String, path: String },
+    /// An edit or create verb needed an editor and none could be launched
+    /// (the caller is not at a terminal): no editor was run. `verb` is the
+    /// command, `instead` how to give the content without one; `template`
+    /// is true for a create, which then stored its template as it is.
+    NoEditor {
+        verb: String,
+        instead: String,
+        template: bool,
+    },
     /// A worktree was asked for and none could be had, so the engine worked
     /// in the project instead: `reason` is the workspaces port's.
     WorkspaceUnavailable { reason: String },
@@ -536,6 +545,13 @@ impl Diagnostic for Notice {
             Notice::LoadoutUnparseable { .. } => code!("loadout-unparseable"),
             Notice::DefaultEngineBlock { .. } => code!("notice-default-engine-block"),
             Notice::UserSettingsLeftOut { .. } => code!("notice-user-settings-left-out"),
+            Notice::NoEditor { template, .. } => {
+                if *template {
+                    code!("notice-no-editor-template")
+                } else {
+                    code!("notice-no-editor")
+                }
+            }
             Notice::WorkspaceUnavailable { .. } => code!("notice-workspace-unavailable"),
             Notice::SessionHomeHost { .. } => code!("notice-session-home-host"),
             Notice::McpServerShadowed { .. } => code!("notice-mcp-server-shadowed"),
@@ -608,6 +624,10 @@ impl Diagnostic for Notice {
             Notice::UserSettingsLeftOut { engine, path } => vec![
                 ("engine", engine.as_str().into()),
                 ("path", path.as_str().into()),
+            ],
+            Notice::NoEditor { verb, instead, .. } => vec![
+                ("verb", verb.as_str().into()),
+                ("instead", instead.as_str().into()),
             ],
             Notice::WorkspaceUnavailable { reason } => vec![("reason", reason.as_str().into())],
             Notice::SessionHomeHost { engine, place } => vec![
@@ -841,6 +861,16 @@ fn notice_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(Notice::UserSettingsLeftOut {
             engine: s("claude-code"),
             path: s("/home/u/.claude/settings.json"),
+        }),
+        Box::new(Notice::NoEditor {
+            verb: s("fragment edit"),
+            instead: s("give the content with --body"),
+            template: false,
+        }),
+        Box::new(Notice::NoEditor {
+            verb: s("fragment create"),
+            instead: s("give the content with --body"),
+            template: true,
         }),
         Box::new(Notice::WorkspaceUnavailable {
             reason: s("worktree isolation: /work/proj is not a git repository"),

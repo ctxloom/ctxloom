@@ -83,7 +83,16 @@ pub(crate) fn write(
             let preview = cx
                 .served
                 .edit_config("/config", ask(true, Vec::new(), String::new()))?;
-            let answers = crate::noun::item::edit_answers(cx, &preview.needs)?;
+            let answers = crate::noun::item::edit_answers(
+                cx,
+                &preview.needs,
+                library_application::Notice::NoEditor {
+                    verb: "config edit".to_string(),
+                    instead: "change a value with `ctxloom config set`".to_string(),
+                    template: false,
+                },
+                err,
+            )?;
             let edited = cx
                 .served
                 .edit_config("/config", ask(false, answers, preview.etag));

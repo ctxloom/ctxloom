@@ -455,6 +455,61 @@ mod asks {
         assert!(!command.validate_only);
     }
 
+    /// A preview whose Edit need carries no launch (off a terminal).
+    fn unlaunched() -> Vec<v1::Need> {
+        vec![v1::Need {
+            optional: false,
+            id: "edit".to_string(),
+            kind: Some(v1::need::Kind::Edit(v1::Edit {
+                file_name: "f.md".to_string(),
+                text: "Add content here.\n".to_string(),
+                launch: None,
+            })),
+        }]
+    }
+
+    // Dogfood fix 1: an edit or create that needs an editor off a terminal
+    // runs none and SAYS so, a typed notice with its fix (and a create says
+    // it stored its template); nothing is said when the content was given.
+    #[test]
+    fn test_an_item_verb_with_no_editor_says_so() {
+        use crate::tests::*;
+        let run = |line: &[&str], preview: Box<dyn std::any::Any>| {
+            let asks = Asks::answering(vec![preview], None).off_terminal();
+            go_served(line, TEXT, BARE, &Project, Some(&asks))
+        };
+        let edit = run(
+            &["fragment", "edit", "demo#fragments/example"],
+            Box::new(v1::UpdateFragmentResponse {
+                needs: unlaunched(),
+                ..v1::UpdateFragmentResponse::default()
+            }),
+        );
+        assert!(
+            edit.err.contains("no editor could be opened")
+                && edit.err.contains("`ctxloom fragment edit`")
+                && edit.err.contains("nothing was edited")
+                && edit
+                    .err
+                    .contains("fix: run it in a terminal, or give the content with --body"),
+            "{}",
+            edit.err
+        );
+        let create = run(
+            &["fragment", "create", "demo#fragments/new"],
+            Box::new(v1::CreateFragmentResponse {
+                needs: unlaunched(),
+                ..v1::CreateFragmentResponse::default()
+            }),
+        );
+        assert!(
+            create.err.contains("`ctxloom fragment create`")
+                && create.err.contains("the template was stored as it is"),
+            "{}",
+            create.err
+        );
+    }
+
     #[test]
     fn test_item_reads_carry_distilled_and_the_globals() {
         let (_, command) = asked_once::<v1::GetCommandRequest>(&[

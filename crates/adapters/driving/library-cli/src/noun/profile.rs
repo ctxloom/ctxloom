@@ -201,7 +201,17 @@ fn edit_in_editor(
     let preview = cx
         .served
         .update_profile(&under, ask(true, Vec::new(), String::new()))?;
-    let answers = crate::noun::item::edit_answers(cx, &preview.needs)?;
+    let answers = crate::noun::item::edit_answers(
+        cx,
+        &preview.needs,
+        library_application::Notice::NoEditor {
+            verb: "profile edit".to_string(),
+            instead: "change it with the profile's own flags, see `ctxloom profile edit --help`"
+                .to_string(),
+            template: false,
+        },
+        err,
+    )?;
     let edited = cx
         .served
         .update_profile(&under, ask(false, answers, preview.etag));

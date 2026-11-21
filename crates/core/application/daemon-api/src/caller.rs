@@ -659,7 +659,14 @@ impl<D: Daemons> Caller<D> {
     /// stop, keyed by that run; the session stays open.
     pub async fn stop(&self, target: &str) -> Result<Written, CallError> {
         let name = self.target(target)?;
-        let (session, applied) = on_daemon!(self, |api| self.stopped(api, &name).await)?;
+        let stopped = on_daemon!(self, |api| self.stopped(api, &name).await)?;
+        let Some((session, applied)) = stopped else {
+            return Err(CallError::Refused(Rejection::Api(
+                ApiRejection::StopTerminal {
+                    harp: name.harp().to_string(),
+                },
+            )));
+        };
         Ok(Written {
             id: name.uid(),
             session,
@@ -668,13 +675,18 @@ impl<D: Daemons> Caller<D> {
     }
 
     /// One stop of `target`'s current run on `api`: its run as that daemon
-    /// has it, keyed `stop:<session>:<incarnation>`.
+    /// has it, keyed `stop:<session>:<incarnation>`; none for a terminal
+    /// session (no owner), which the daemon stops no run of.
     async fn stopped(
         &self,
         api: &D::Api,
         target: &SessionName,
-    ) -> Result<(v1::Session, bool), Called> {
-        let incarnation = self.read(api, target).await?.incarnation;
+    ) -> Result<Option<(v1::Session, bool)>, Called> {
+        let held = self.read(api, target).await?;
+        if held.owner.is_empty() {
+            return Ok(None);
+        }
+        let incarnation = held.incarnation;
         let cover = angzarr_embedded::v1::Cover {
             domain: runs::RUN_DOMAIN.to_string(),
             root: Some(runs::run_root(&target.uid(), incarnation)),
@@ -688,7 +700,7 @@ impl<D: Daemons> Caller<D> {
         let applied = api
             .handle(sessions::keyed_book(cover, &command, &key))
             .await?;
-        Ok((self.read(api, target).await?, applied))
+        Ok(Some((self.read(api, target).await?, applied)))
     }
 
     async fn cleared(

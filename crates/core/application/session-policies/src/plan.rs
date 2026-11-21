@@ -425,6 +425,15 @@ fn rehosts(scene: &Scene<'_>, steps: &mut Vec<Step>) {
         if open || session.native_id.is_empty() {
             continue;
         }
+        // `session stop` (owner 2026-11-20): a run asked to stop was meant to
+        // end; losing its host after the request does not bring it back.
+        let stopped = scene
+            .board
+            .run(id, session.incarnation)
+            .is_some_and(|run| run.state.stop_requested);
+        if stopped {
+            continue;
+        }
         let at = RunAt {
             session: id.to_string(),
             incarnation: session.incarnation + 1,

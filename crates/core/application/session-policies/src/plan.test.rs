@@ -922,6 +922,30 @@ fn a_child_that_exited_closed_or_owes_its_next_is_not_rehosted() {
     assert!(!rehosted(primary), "a primary is never re-hosted");
 }
 
+// `session stop` (MVP, owner 2026-11-20): a run asked to stop stays stopped.
+// A host lost after the request (the sweep ends the incarnation `orphaned`)
+// loses the child no more of its stop than the engine's exit does: it is
+// left ended, not re-hosted.
+#[test]
+fn a_child_whose_run_was_asked_to_stop_is_not_rehosted_when_its_host_is_lost() {
+    let mut stopped = ended_child("orphaned");
+    stopped.run.insert(
+        1,
+        RunEvent::StopRequested(runs::StopRequested {
+            reason: "stop".to_string(),
+        }),
+    );
+    let steps = stopped.plan();
+    assert!(
+        !keys(&steps).iter().any(|k| k.starts_with("rehost:")),
+        "{steps:?}"
+    );
+    assert!(
+        !keys(&steps).iter().any(|k| k.starts_with("start:")),
+        "{steps:?}"
+    );
+}
+
 // T19: the re-hosted incarnation is started resuming its own conversation;
 // a first start resumes nothing.
 #[test]

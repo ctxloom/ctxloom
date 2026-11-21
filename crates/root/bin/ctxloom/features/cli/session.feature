@@ -102,9 +102,6 @@ Feature: session — the record of what your assistant did, and the tools to pru
     # D30: a message sent a session waits until a turn carries it (an inform
     # to an idle session stays there, visibly), and `show` lists what waits,
     # each with its urgency and the first line of its text; none, no line.
-    # @pending: the daemon line's, never run there (its feature was pending);
-    # no World has its message steps yet.
-    @pending
     Scenario: Showing a session lists the messages no turn has carried yet
       # new: the daemon's one message type (D12, D28) and its pending list (D30); Go had an inbox instead
       Given an initialized ctxloom project
@@ -263,11 +260,10 @@ Feature: session — the record of what your assistant did, and the tools to pru
       And the output contains "unknown command"
 
   @pending
-  Rule: A running session is controlled by its harp: pause, resume, stop and send
+  Rule: Pending (not built): session pause/resume
 
-    An agent is a definition; a running session is the thing Alice steers.
-    `session pause`, `resume`, `stop` and `send` each name a running session
-    by its harp, such as a child her orchestrator delegated to.
+    The daemon has no pause (OD-45 dropped holds; a run is stopped or it is
+    not): `session pause` and `session resume` are no verb of the CLI yet.
 
     Scenario: Pausing a running session holds it until she resumes it
       # new: session pause.
@@ -291,16 +287,61 @@ Feature: session — the record of what your assistant did, and the tools to pru
       Then the command succeeds
       And the session "amber-swift-owl" is shown running
 
+  Rule: A running session is stopped by its harp
+
+    An agent is a definition; a running session is the thing Alice steers.
+    `session stop` names a running session by its harp, such as a child her
+    orchestrator delegated to: its engine exits and its run ends, and
+    nothing starts it again. `session send` is cli/session_children.feature's.
+
+    # DRAFT (the Givens and the Then name the child the harness hosts, in the
+    # words of cli/session_children.feature; the scenarios after this one are
+    # new, owner decision 2026-11-20, `session stop` before main).
     Scenario: Stopping a running session ends it
       # new: session stop.
       Given an initialized ctxloom project
-      And a session "amber-swift-owl" that is running
+      And a child "brisk-copper-moth" that is in the middle of a turn
       When Alice stops it:
         """
-        ctxloom session stop amber-swift-owl
+        ctxloom session stop brisk-copper-moth
         """
       Then the command succeeds
-      And the session "amber-swift-owl" is shown ended
+      And "brisk-copper-moth"'s assistant was asked to stop, and has exited
+      And the session "brisk-copper-moth" is shown ended
+
+    Scenario: Stopping a session twice stops it once
+      # new: a stop is keyed by the run it stops.
+      Given an initialized ctxloom project
+      And a child "brisk-copper-moth" that is in the middle of a turn
+      When I run "ctxloom session stop brisk-copper-moth --format text"
+      And I run "ctxloom session stop brisk-copper-moth --format text"
+      Then the command succeeds
+      And the output contains "no run of it to stop"
+
+    Scenario: Stopping a session nobody recorded is refused
+      # new: a name nobody has.
+      Given an initialized ctxloom project
+      When I run "ctxloom session stop brisk-copper-moth"
+      Then the command exits with code 20
+      And the output contains "no session is named"
+
+    Scenario: Stopping a session the daemon does not run is refused, and says what to do
+      # new: a terminal session is stopped from its own terminal.
+      Given an initialized ctxloom project
+      And a session "amber-swift-owl" that is still running
+      When I run "ctxloom session stop amber-swift-owl --format text"
+      Then the command exits with code 20
+      And the output contains "amber-swift-owl is a terminal session, which the daemon does not run"
+      And the output contains "fix: end it from its own terminal, or close it: ctxloom session close amber-swift-owl"
+
+  @pending
+  Rule: Pending (not built): the answer to a send
+
+    The daemon's `session send` is built and covered, with every urgency, by
+    cli/session_children.feature. What is not built is the answer coming
+    back as a message that quotes the question: a child's reply is in its
+    transcript (what its hooks heard) and its owner is told only that its
+    turn finished, never the reply's text.
 
     Scenario: Sending a running session a question returns at once, and its answer arrives later
       # new: session send.

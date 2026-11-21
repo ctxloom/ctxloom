@@ -8397,6 +8397,23 @@ fn asked_to_stop_and_exited(w: &mut World, child: String) {
     });
 }
 
+/// `cli/session.feature`: a message sent a session, as Alice sends it.
+#[given(expr = "the session {string} was sent an inform {string} saying {string}")]
+fn session_sent_an_inform(w: &mut World, harp: String, id: String, text: String) {
+    w.seed();
+    let ran = run_now(w, &["session", "send", &harp, "inform", &text, "--id", &id]);
+    assert_eq!(ran.code, 0, "{}", ran.said());
+}
+
+/// `cli/session.feature`, `session stop`: once the run is over the session
+/// reads ENDED, as `session show` has it (the lock's verdict: nothing holds it).
+#[then(expr = "the session {string} is shown ended")]
+fn session_shown_ended(w: &mut World, harp: String) {
+    until(w, &format!("{harp} shown ended"), DAEMON_WAIT, |w| {
+        (shown(w, &harp)["state"] == "ENDED").then_some(())
+    });
+}
+
 #[then(regex = r#"^the record of what "([^"]+)" was launched with names the MCP servers (.*)$"#)]
 fn record_names(w: &mut World, child: String, names: String) {
     let (named, not) = names

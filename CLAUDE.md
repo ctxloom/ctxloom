@@ -381,7 +381,8 @@ A preview's etag is the path's last sequence; the apply sends it back
 (`etag`) and the daemon puts it in the step's command as `seen_sequence`
 (`daemon_api::library_writes::seen_sequence`; empty, a `--yes`, is the
 path's token now), so `decide` refuses a path moved since the preview
-`library-tree-plan-stale`, whose status is ABORTED (OQ-10; angzarr core
+(`library_tree::judge(seen, now)`, the one definition of stale: `Judged::Fresh`
+or `Stale {seen, now}`; every step of every write asks it) `library-tree-plan-stale`, whose status is ABORTED (OQ-10; angzarr core
 b1445adf). An edit's preview with no text given probes (the daemon's
 `AnsweredEditor::probing`): it plans the file its apply would write, for
 that file's etag, and still asks the Edit need; the CLI's `fragment|command
@@ -1702,7 +1703,7 @@ with its root:
   reason (it already happened: its handler records it, or records nothing,
   and its one failure is a bug). The status is the refusal message's
   `(refusal_status)` alone (below). Roots: each domain's `refuse!` macro
-  (`sessions`, `runs`, `trees` and `scheduler`'s `src/refusal.rs`), reading
+  (`sessions`, `runs` and `scheduler`'s `src/refusal.rs`), reading
   the generated `Refusal::REFUSAL_STATUS`; at the edge `daemon_api::
   ApiRefusal::of` (a daemon proto refusal's `REFUSAL_STATUS`) and
   `ApiRefusal::rejected` (a domain's, as the kernel coded it), answered by

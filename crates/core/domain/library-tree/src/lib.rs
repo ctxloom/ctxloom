@@ -26,6 +26,7 @@ mod key;
 mod name;
 mod refusal;
 mod rejection;
+mod staleness;
 mod state;
 
 /// The library aggregate's commands, one variant per command type.
@@ -41,6 +42,7 @@ pub use refusal::NotOurs;
 #[cfg(any(test, feature = "test-support"))]
 pub use rejection::diagnostic_samples;
 pub use rejection::{LibraryTreeRejection, EN_US};
+pub use staleness::{judge, Judged};
 pub use state::{cause_of, Library, Resource, Slot, KEEP_DAYS, LIBRARY_DOMAIN};
 
 #[cfg(test)]

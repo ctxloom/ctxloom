@@ -276,7 +276,6 @@ pub fn catalog_sources() -> Vec<angzarr_presentation::Source> {
         runs::EN_US,
         runs_application::EN_US,
         run_ports::EN_US,
-        trees::EN_US,
         trust::EN_US,
         run_application::EN_US,
         run_launcher::EN_US,

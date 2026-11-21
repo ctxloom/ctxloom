@@ -14,7 +14,6 @@ fn the_wire_messages_are_named_by_their_full_names() {
         v1::RecordTurnStarted::type_url(),
         "/ctxloom.runs.v1.RecordTurnStarted"
     );
-    assert_eq!(v1::FoundTree::type_url(), "/ctxloom.runs.v1.FoundTree");
 }
 
 // NEW-DESIGN (plan S5 red test "nothing on any message is a cross-stream
@@ -23,10 +22,9 @@ fn the_wire_messages_are_named_by_their_full_names() {
 // the proto source, so a new message is held to it at once.
 #[test]
 fn no_message_carries_a_cross_stream_position() {
-    const SOURCES: [&str; 2] = [
-        include_str!("../../../../../proto/ctxloom/runs/v1/runs.proto"),
-        include_str!("../../../../../proto/ctxloom/runs/v1/trees.proto"),
-    ];
+    const SOURCES: [&str; 1] = [include_str!(
+        "../../../../../proto/ctxloom/runs/v1/runs.proto"
+    )];
     // `concat!` keeps the workspace scan's own banned names out of this file.
     const BANNED: [&str; 4] = [
         "global_sequence",

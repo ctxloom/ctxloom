@@ -91,7 +91,6 @@ pending-launches = { path = "crates/core/read-model/pending-launches" }
 pending-messages = { path = "crates/core/read-model/pending-messages" }
 held-projection = { path = "crates/core/read-model/held-projection" }
 daemon-board = { path = "crates/core/read-model/daemon-board" }
-trees = { path = "crates/core/domain/trees" }
 trust-proto = { path = "crates/core/wire/trust-proto" }
 trust = { path = "crates/core/domain/trust" }
 trust-index = { path = "crates/core/read-model/trust-index" }

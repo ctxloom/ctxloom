@@ -82,7 +82,6 @@ scheduler-loop.workspace = true
 # the kernel and shared with the loop, and the clock and wait it runs on.
 scheduler-due.workspace = true
 scheduler-ports.workspace = true
-trees.workspace = true
 # A project's trust (step 8 U1): its aggregate and the index the daemon
 # registers and keeps warm.
 trust.workspace = true

@@ -26,7 +26,6 @@ approvals.workspace = true
 library-tree.workspace = true
 sha2.workspace = true
 surface-ports.workspace = true
-trees.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]

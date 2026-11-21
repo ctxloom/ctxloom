@@ -215,7 +215,6 @@ async fn only_the_session_run_trust_approvals_and_library_domains_are_reached_an
         commands.reach(library_tree::LIBRARY_DOMAIN),
         Reach::Loopback
     );
-    assert_eq!(commands.reach(trees::TREE_DOMAIN), Reach::None);
 }
 
 #[test]

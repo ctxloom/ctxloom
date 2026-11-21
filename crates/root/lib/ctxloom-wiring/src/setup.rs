@@ -68,7 +68,7 @@ impl SetupUseCases {
         )))
         // What each agent's engine cannot carry, as the library reports it.
         .reporting_losses({
-            let library = crate::library::build(wiring, None)?;
+            let library = run_library(wiring)?;
             Box::new(move || {
                 library
                     .agents_losses(&library_application::Flags::default())
@@ -79,7 +79,7 @@ impl SetupUseCases {
         // The agents whose run would be refused as planned (smoke
         // 2026-11-19: a profile including a bundle that is gone).
         .reporting_unresolved({
-            let library = crate::library::build(wiring, None)?;
+            let library = run_library(wiring)?;
             Box::new(move || {
                 library
                     .agents_unresolved(&library_application::Flags::default())
@@ -89,7 +89,7 @@ impl SetupUseCases {
         })
         // The distilled forms that no longer match their sources (S51).
         .reporting_stale_distilled({
-            let library = crate::library::build(wiring, None)?;
+            let library = run_library(wiring)?;
             Box::new(move || {
                 library
                     .stale_distilled(&library_application::Flags::default())
@@ -100,7 +100,7 @@ impl SetupUseCases {
         // The bundles whose metadata is in the old layout (step 10c U5,
         // D15), each said in the library's words with the move.
         .reporting_old_layouts({
-            let library = crate::library::build(wiring, None)?;
+            let library = run_library(wiring)?;
             Box::new(move || {
                 let found = library
                     .old_layouts(&library_application::Flags::default())
@@ -112,7 +112,7 @@ impl SetupUseCases {
         // The enabled registered companions, each asked through the
         // library's one probe (OD-8), as a session's assembly asks them.
         .reporting_companions({
-            let library = crate::library::build(wiring, None)?;
+            let library = run_library(wiring)?;
             Box::new(move || library.companion_inits(&library_application::Flags::default()))
         })
         // This home's holds (s4-Q14, H4), judged as this binary's commands
@@ -151,6 +151,15 @@ pub(crate) fn said_old_layouts(found: &[library::BundleError]) -> Vec<(String, S
             )
         })
         .collect()
+}
+
+/// The library as a run reads it: with the remotes, so a bundle installed from
+/// one resolves here as it does in a launch (doctor evaluates with the run's
+/// machinery).
+fn run_library(wiring: &Wiring) -> Result<library_application::Library, LibError> {
+    let deps: std::rc::Rc<dyn deps_ports::RemoteLibrary> =
+        std::rc::Rc::new(crate::commands::build_deps(wiring)?);
+    crate::library::build(wiring, Some(deps))
 }
 
 #[cfg(test)]

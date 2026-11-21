@@ -1,6 +1,7 @@
 # world: base
 # NOT ported: nothing; ctxloom's own MCP server is new (Go had one; this one is
-#   a client of the daemon).
+#   a client of the daemon). The Rule "A containerized engine reaches the daemon
+#   through its MCP server" is pending for step 7 (OD-48, containers).
 
 @doc
 Feature: ctxloom's own MCP server — an engine's way to the daemon, through the same API as the CLI
@@ -160,6 +161,8 @@ Feature: ctxloom's own MCP server — an engine's way to the daemon, through the
       Then no ask is waiting under "amber-quiet-heron"
       And the server sent no answer for the cancelled call, and still serves the engine's next call
 
+  # Pending (OD-48, containers): no run launches into a container yet (step 7).
+  @pending
   Rule: A containerized engine reaches the daemon through its MCP server
 
     Scenario: An engine in a container reaches ctxloom only through its MCP server and the hook endpoint

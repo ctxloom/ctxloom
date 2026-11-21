@@ -303,12 +303,8 @@ fn exit_of(report: &doctor_checks::Report) -> Exit {
 /// What init says when no token is exported, from claude's own docs:
 /// `claude setup-token` makes a one-year token for a Pro, Max, Team or
 /// Enterprise plan.
-fn token_guide() -> Notice {
-    Notice::with_fix(
-        "delegated agents need a token, and none is exported (CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY)",
-        "run `claude setup-token` (it needs a Pro, Max, Team or Enterprise plan, and the token lasts a year), \
-         then export CLAUDE_CODE_OAUTH_TOKEN with it, or store it in your secret manager",
-    )
+fn token_guide() -> CliFault {
+    CliFault::TokenNotExported
 }
 
 /// The names the `--remote` repositories are registered under.

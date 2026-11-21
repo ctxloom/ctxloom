@@ -735,3 +735,62 @@ fn test_a_scaffold_is_new_until_its_directory_is_there() {
         .unwrap();
     assert!(!scaffold.is_new().unwrap());
 }
+
+// Owner ruling 2026-11-20: the walk up stops at the first git root. A
+// directory in a nested repository never adopts an enclosing `.ctxloom`.
+#[test]
+fn test_a_nested_repository_never_adopts_an_enclosing_project() {
+    let fs = rooted();
+    dir(&fs, "/work/outer/.ctxloom");
+    dir(&fs, "/work/outer/.git");
+    dir(&fs, "/work/outer/inner/.git");
+    dir(&fs, "/work/outer/inner/src");
+    let found = find_app_dir(&*fs, &around(None, "/work/outer/inner/src"));
+    assert_eq!(found.source, Source::Home);
+    assert_eq!(found.path, Path::new(&at("/home/u/.ctxloom")));
+    // The inner repository's own project is its.
+    dir(&fs, "/work/outer/inner/.ctxloom");
+    let found = find_app_dir(&*fs, &around(None, "/work/outer/inner/src"));
+    assert_eq!(found.path, Path::new("/work/outer/inner/.ctxloom"));
+    assert_eq!(found.source, Source::Project);
+}
+
+#[test]
+fn test_a_git_file_marks_a_root_as_a_worktrees_does() {
+    let fs = rooted();
+    dir(&fs, "/work/outer/.ctxloom");
+    file(&fs, "/work/outer/wt/.git", "gitdir: /elsewhere");
+    dir(&fs, "/work/outer/wt/sub");
+    let found = find_app_dir(&*fs, &around(None, "/work/outer/wt/sub"));
+    assert_eq!(found.source, Source::Home);
+    // A scratch checkout holding the tracked `.ctxloom` resolves to its own.
+    dir(&fs, "/work/outer/wt/.ctxloom");
+    let found = find_app_dir(&*fs, &around(None, "/work/outer/wt/sub"));
+    assert_eq!(found.path, Path::new("/work/outer/wt/.ctxloom"));
+    assert_eq!(found.source, Source::Project);
+}
+
+#[test]
+fn test_a_repository_root_holding_the_project_is_the_project() {
+    let fs = rooted();
+    dir(&fs, "/work/proj/.ctxloom");
+    dir(&fs, "/work/proj/.git");
+    dir(&fs, "/work/proj/sub");
+    let found = find_app_dir(&*fs, &around(None, "/work/proj/sub"));
+    assert_eq!(found.path, Path::new("/work/proj/.ctxloom"));
+    // Outside any repository the walk is as before.
+    let fs = rooted();
+    dir(&fs, "/work/plain/.ctxloom");
+    dir(&fs, "/work/plain/a/b");
+    let found = find_app_dir(&*fs, &around(None, "/work/plain/a/b"));
+    assert_eq!(found.path, Path::new("/work/plain/.ctxloom"));
+}
+
+#[test]
+fn test_ctxloom_root_still_wins_inside_a_nested_repository() {
+    let fs = rooted();
+    dir(&fs, "/work/outer/inner/.git");
+    dir(&fs, "/named");
+    let found = find_app_dir(&*fs, &around(Some("/named"), "/work/outer/inner"));
+    assert_eq!(found.path, Path::new("/named/.ctxloom"));
+}

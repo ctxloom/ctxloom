@@ -49,6 +49,9 @@ daemon-api-handing-over = the daemon, ctxloom { $daemon }, is shutting down: { $
 # DRAFT (step 10e Stage 2a, `session restart`).
 daemon-api-primary-not-hosted = { $harp } is a terminal session run by its own ctxloom process: the daemon does not host its engine, so it can neither restart nor stop it
 daemon-api-primary-not-hosted-fix = end the session and resume it with `ctxloom run --session { $harp }`
+# DRAFT (dogfood fix 2, 2026-11-21): a stop or restart of a session whose run has ended.
+daemon-api-run-ended = { $harp } has no run open: its last run has ended, so there is nothing to stop or restart
+daemon-api-run-ended-fix = resume it with `ctxloom run --session { $harp }`
 daemon-api-session-not-hosted = { $name } is no session this daemon runs, so its ask was not recorded
 daemon-api-approval-ambiguous = { $harp } has { $count } asks waiting ({ $asks }), so its name does not say which you mean; nothing was answered.
 daemon-api-approval-ambiguous-fix = Name the ask itself: `ctxloom session approvals answer <ask> <option>`, with one of { $asks }.

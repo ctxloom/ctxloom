@@ -120,6 +120,12 @@ impl DaemonApi for Fake {
             _ => Vec::new(),
         };
         let shut = r.name.contains("/sessions/shut-");
+        // A `lone-over-` primary's run has ended (a one-shot's).
+        let state = if r.name.contains("/sessions/lone-over-") {
+            v1::session::State::Ended
+        } else {
+            v1::session::State::Live
+        } as i32;
         Ok(v1::Session {
             children,
             owner: if primary {
@@ -128,6 +134,7 @@ impl DaemonApi for Fake {
                 ME.to_string()
             },
             wakeable,
+            state,
             name: r.name,
             engine: "claude-code".to_string(),
             summary: "read".to_string(),
@@ -821,6 +828,28 @@ async fn a_stop_of_a_terminal_session_is_refused_before_anything_is_sent() {
     };
     assert_eq!(harp, "lone-asleep-heron");
     assert!(world.commands().is_empty(), "nothing sent");
+}
+
+// An ended one-shot is no terminal session: stop and restart say its run has
+// ended, and that it resumes, before anything is sent.
+#[tokio::test]
+async fn a_stop_or_restart_of_an_ended_primary_says_its_run_ended() {
+    let world = World::new();
+    let caller = world.user(true);
+    for refused in [
+        caller.stop("lone-over-heron").await.unwrap_err(),
+        caller.restart("lone-over-heron", "").await.unwrap_err(),
+    ] {
+        assert!(
+            matches!(
+                &refused,
+                CallError::Refused(Rejection::Api(ApiRejection::RunEnded { harp }))
+                    if harp == "lone-over-heron"
+            ),
+            "{refused:?}"
+        );
+    }
+    assert!(world.commands().is_empty());
 }
 
 // A refused name says why: the harp grammar's reason, or its shape.

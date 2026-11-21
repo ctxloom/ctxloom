@@ -660,13 +660,7 @@ impl<D: Daemons> Caller<D> {
     pub async fn stop(&self, target: &str) -> Result<Written, CallError> {
         let name = self.target(target)?;
         let stopped = on_daemon!(self, |api| self.stopped(api, &name).await)?;
-        let Some((session, applied)) = stopped else {
-            return Err(CallError::Refused(Rejection::Api(
-                ApiRejection::PrimaryNotHosted {
-                    harp: name.harp().to_string(),
-                },
-            )));
-        };
+        let (session, applied) = stopped.map_err(|why| unhosted(&name, why))?;
         Ok(Written {
             id: name.uid(),
             session,
@@ -675,16 +669,16 @@ impl<D: Daemons> Caller<D> {
     }
 
     /// One stop of `target`'s current run on `api`: its run as that daemon
-    /// has it, keyed `stop:<session>:<incarnation>`; none for a terminal
-    /// session (no owner), which the daemon stops no run of.
+    /// has it, keyed `stop:<session>:<incarnation>`; the reason for a session
+    /// with no owner, which the daemon stops no run of.
     async fn stopped(
         &self,
         api: &D::Api,
         target: &SessionName,
-    ) -> Result<Option<(v1::Session, bool)>, Called> {
+    ) -> Result<Result<(v1::Session, bool), NotHosted>, Called> {
         let held = self.read(api, target).await?;
         if held.owner.is_empty() {
-            return Ok(None);
+            return Ok(Err(NotHosted::of(&held)));
         }
         let incarnation = held.incarnation;
         let cover = angzarr_embedded::v1::Cover {
@@ -700,7 +694,7 @@ impl<D: Daemons> Caller<D> {
         let applied = api
             .handle(sessions::keyed_book(cover, &command, &key))
             .await?;
-        Ok(Some((self.read(api, target).await?, applied)))
+        Ok(Ok((self.read(api, target).await?, applied)))
     }
 
     /// `session restart` (step 10e Stage 2a): the session `target` asked to
@@ -712,13 +706,7 @@ impl<D: Daemons> Caller<D> {
     pub async fn restart(&self, target: &str, note: &str) -> Result<Written, CallError> {
         let name = self.target(target)?;
         let asked = on_daemon!(self, |api| self.restarted(api, &name, note).await)?;
-        let Some((session, applied)) = asked else {
-            return Err(CallError::Refused(Rejection::Api(
-                ApiRejection::PrimaryNotHosted {
-                    harp: name.harp().to_string(),
-                },
-            )));
-        };
+        let (session, applied) = asked.map_err(|why| unhosted(&name, why))?;
         Ok(Written {
             id: name.uid(),
             session,
@@ -731,17 +719,17 @@ impl<D: Daemons> Caller<D> {
         api: &D::Api,
         target: &SessionName,
         note: &str,
-    ) -> Result<Option<(v1::Session, bool)>, Called> {
+    ) -> Result<Result<(v1::Session, bool), NotHosted>, Called> {
         let held = self.read(api, target).await?;
         if held.owner.is_empty() {
-            return Ok(None);
+            return Ok(Err(NotHosted::of(&held)));
         }
         let command = RequestRestart {
             reason: RestartReason::Operator,
             note: note.to_string(),
         };
         let key = format!("restart:{}:{}:operator", target.uid(), held.incarnation);
-        self.write(api, target, &command, &key).await.map(Some)
+        self.write(api, target, &command, &key).await.map(Ok)
     }
 
     async fn cleared(
@@ -1077,3 +1065,31 @@ pub fn missing_notices(assembled: &v1::AssembledContext) -> Vec<v1::Notice> {
 #[cfg(test)]
 #[path = "caller.test.rs"]
 mod tests;
+
+/// Why the daemon hosts no run of a session to stop or restart.
+#[derive(Clone, Copy)]
+enum NotHosted {
+    /// Its run has ended (a one-shot's, or a terminal session's): nothing
+    /// runs to stop or restart.
+    Ended,
+    /// A terminal session still running, held by its own `ctxloom run`.
+    Primary,
+}
+
+impl NotHosted {
+    fn of(held: &v1::Session) -> Self {
+        if held.state == v1::session::State::Ended as i32 {
+            Self::Ended
+        } else {
+            Self::Primary
+        }
+    }
+}
+
+fn unhosted(name: &SessionName, why: NotHosted) -> CallError {
+    let harp = name.harp().to_string();
+    CallError::Refused(Rejection::Api(match why {
+        NotHosted::Ended => ApiRejection::RunEnded { harp },
+        NotHosted::Primary => ApiRejection::PrimaryNotHosted { harp },
+    }))
+}

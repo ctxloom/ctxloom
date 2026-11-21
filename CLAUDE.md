@@ -869,7 +869,9 @@ allowlists pass it on). The live project reaches them as `CTXLOOM_ROOT`
 launch's project, over any the caller had, owned so no permit replaces it, on both
 engines' allowlists), so a hook or the agent's own `ctxloom` call from a
 checkout resolves the project (`find_app_dir` honours it before the walk;
-the checkout's `.ctxloom` is the tracked config alone). The session home is seeded, once (one there is left
+the checkout's `.ctxloom` is the tracked config alone; without it a scratch
+checkout is a git root and the walk ends there, never at an enclosing
+project). The session home is seeded, once (one there is left
 as it is), with a `.gitconfig` of the user's `[user] name/email` alone, as git
 resolves them in the project (`worktree-git`'s `Git::user`,
 `run_ports::git_config`, written by the launcher): a file, not
@@ -3664,7 +3666,11 @@ serves, step 10a U2, reaches it text or json): the wiring's is the daemon's
 `users/me` outside a project, where no daemon is asked (OQ-3). ONE
 project resolver serves every command (owner ruling 2026-11-13): runs,
 sessions and library reads belong to the project `CTXLOOM_ROOT` names,
-else to the nearest `.ctxloom` up (not ctxloom's home's), as every library
+else to the nearest `.ctxloom` up (not ctxloom's home's) that no git root
+lies between (owner ruling 2026-11-20: the walk stops at the first git root,
+a `.git` directory or file, so a worktree's too, unless that root holds the
+`.ctxloom`; a directory in a nested repository never adopts an enclosing
+project, and resolves to its own or to none), as every library
 read finds it (`Wiring::ctxloom_project`, through `find_app_dir`); only
 where there is neither is the root the registry's own (the git top, else
 the working directory). It is the registry's `Environment.root`
@@ -4640,6 +4646,7 @@ An agent's references are resource names (design §2, B2's references): its
 text, OQ-16), and `resolved.engine` the engine's. So are the dry run's
 `Run`'s agent (`<parent>/agents/<a>`), engine and profiles, their
 configured text where the project has no name yet.
+init's no-token notice is `setup-cli-token-not-exported` (`CliFault::TokenNotExported`, args `variables`, `export`, `command`; `-fix` in the same catalog), a code a script can key on: the json warning line carries `code`, `warning` and `remedy` as every notice.
 `auth status` and doctor read the effective source (`auth-application`; any
 one variable authenticates, `via` names it). A source that is a FILE alone
 (owner ruling 53) authenticates no child: a child launch (`claude -p`,

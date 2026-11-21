@@ -8,8 +8,11 @@
 //!    root, and `<root>/.ctxloom` its app dir whether it exists yet or not.
 //!    One that does not is ignored (and said by the caller).
 //! 2. Otherwise the nearest `.ctxloom` directory up from the working
-//!    directory, stopping at the temporary directory: that is shared scratch
-//!    space, never a project.
+//!    directory, stopping at the temporary directory (shared scratch space,
+//!    never a project) and at the first git root that holds none: a
+//!    directory in a nested repository never adopts an enclosing `.ctxloom`
+//!    (owner ruling 2026-11-20). A `.git` directory or file marks a root (a
+//!    worktree's is a file).
 //! 3. Otherwise the home's `~/.ctxloom` (no project).
 //!
 //! Finding is a read: nothing is created.
@@ -30,6 +33,9 @@ pub use error::{ConfigFileError, EN_US};
 
 /// The name of the app directory.
 pub const APP_DIR_NAME: &str = ".ctxloom";
+
+/// What marks a git root: a directory, or a file in a worktree.
+const GIT_MARKER: &str = ".git";
 
 /// The name of the config file in it.
 pub const CONFIG_FILE_NAME: &str = "config.yaml";
@@ -75,9 +81,15 @@ pub fn find_app_dir(fs: &dyn Fs, around: &Surroundings) -> AppDir {
     // each is compared as the host resolves it.
     let resolved = |dir: &Path| fs.canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
     let temp_root = resolved(&around.temp_root);
+    // A git root without a `.ctxloom` ends the walk: `stop` is asked before
+    // `is_root`, so a root that holds the project is still found.
     let nearest = project_dir::nearest_ancestor(
         &around.cwd,
-        |dir| resolved(dir) == temp_root,
+        |dir| {
+            resolved(dir) == temp_root
+                || (project_dir::holds_entry(fs, dir, GIT_MARKER)
+                    && !project_dir::holds_dir(fs, dir, APP_DIR_NAME))
+        },
         |dir| project_dir::holds_dir(fs, dir, APP_DIR_NAME),
     );
     if let Some(root) = nearest {

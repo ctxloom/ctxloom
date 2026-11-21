@@ -96,10 +96,10 @@ fn seen(project: &Project, bin: &Path) -> Seen {
     let status = project
         .run(&["daemon", "status", "--format", "json"])
         .json();
-    let daemon_pid = status["pid"]
+    let daemon_pid = status["daemons"][0]["pid"]
         .as_u64()
         .unwrap_or_else(|| panic!("the daemon's pid: {status}"));
-    let endpoint = status["endpoint"]
+    let endpoint = status["daemons"][0]["endpoint"]
         .as_str()
         .unwrap_or_else(|| panic!("the daemon's endpoint: {status}"));
     let daemon_port = endpoint

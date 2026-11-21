@@ -466,6 +466,44 @@ fn daemon_stop_says_what_it_stopped_and_when_nothing_served() {
     );
 }
 
+/// What `render` says of `value` in json.
+fn said_json(value: &impl angzarr_presentation::Render) -> serde_json::Value {
+    let mut out = Vec::new();
+    angzarr_presentation::render(&mut out, angzarr_presentation::Format::Json, value)
+        .expect("rendered");
+    serde_json::from_slice(&out).expect("json")
+}
+
+// Dogfood fix 3 (owner): ONE json schema for `daemon status` and `daemon
+// stop`: `{"daemons": [...]}`, the daemon records as the proto3 JSON, an
+// empty list when none served (the text carries the message).
+#[test]
+fn daemon_status_and_stop_json_are_a_list_of_daemons() {
+    use super::{Status, Stopped};
+    assert_eq!(
+        said_json(&Status(None, Vec::new())),
+        serde_json::json!({"daemons": []})
+    );
+    assert_eq!(
+        said_json(&Stopped(None, false)),
+        serde_json::json!({"daemons": []})
+    );
+    let daemon = daemon_proto::v1::Daemon {
+        pid: 4242,
+        version: "v0.1.0-abc1234".to_string(),
+        ..daemon_proto::v1::Daemon::default()
+    };
+    for json in [
+        said_json(&Status(Some(daemon.clone()), Vec::new())),
+        said_json(&Stopped(Some(daemon.clone()), true)),
+    ] {
+        let listed = json["daemons"].as_array().expect("a list");
+        assert_eq!(listed.len(), 1, "{json}");
+        assert_eq!(listed[0]["pid"], 4242, "{json}");
+        assert_eq!(json.as_object().unwrap().len(), 1, "only `daemons`: {json}");
+    }
+}
+
 /// `pairs` as a snapshot's variables.
 fn vars_of(pairs: &[(&str, &str)]) -> Vec<(std::ffi::OsString, std::ffi::OsString)> {
     pairs

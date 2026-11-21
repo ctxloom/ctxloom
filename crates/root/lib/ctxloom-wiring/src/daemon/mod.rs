@@ -229,15 +229,30 @@ pub(crate) fn noun() -> Command {
     ))
 }
 
+/// The one json schema of `daemon status` and `daemon stop` (owner, dogfood
+/// 2026-11-21): `{"daemons": [...]}`, each the `Daemon`'s proto3 JSON
+/// (ruling 146), the list empty when none served; the text carries the
+/// message. A count is the list's length: there is no second shape.
+#[derive(Serialize)]
+struct DaemonList<'a> {
+    daemons: Vec<&'a daemon_proto::v1::Daemon>,
+}
+
+impl<'a> DaemonList<'a> {
+    fn of(daemon: Option<&'a daemon_proto::v1::Daemon>) -> Self {
+        Self {
+            daemons: daemon.into_iter().collect(),
+        }
+    }
+}
+
 /// What `status` answers: the daemon as it says itself (`GetDaemon`), or
-/// none serving. Its json is the `Daemon`'s proto3 JSON (ruling 146), the
-/// empty message when none serves.
+/// none serving. Its json is [`DaemonList`].
 struct Status(Option<daemon_proto::v1::Daemon>, Vec<String>);
 
 impl Render for Status {
     fn json(&self) -> impl Serialize + '_ {
-        // None serving: the empty message, `{}`.
-        self.0.clone().unwrap_or_default()
+        DaemonList::of(self.0.as_ref())
     }
 
     fn text(&self, out: &mut dyn Write) -> std::io::Result<()> {
@@ -274,12 +289,12 @@ impl Render for Status {
 
 /// What `stop` answers (smoke 2026-11-19): the daemon it stopped, as the
 /// stop's answer says it, or none serving; whether it drained first. Its
-/// json is the `Daemon`'s proto3 JSON (ruling 146), `{}` for none.
+/// json is [`DaemonList`].
 struct Stopped(Option<daemon_proto::v1::Daemon>, bool);
 
 impl Render for Stopped {
     fn json(&self) -> impl Serialize + '_ {
-        self.0.clone().unwrap_or_default()
+        DaemonList::of(self.0.as_ref())
     }
 
     // DRAFT text (smoke 2026-11-19): `daemon stop` said nothing.

@@ -160,9 +160,11 @@ impl Rig {
     /// The daemon serving now: its pid.
     fn daemon_pid(&self) -> Option<u64> {
         let status = self.run(&["daemon", "status", "--format", "json"]).json();
-        status["pid"]
-            .as_u64()
-            .or_else(|| status["pid"].as_str().and_then(|pid| pid.parse().ok()))
+        status["daemons"][0]["pid"].as_u64().or_else(|| {
+            status["daemons"][0]["pid"]
+                .as_str()
+                .and_then(|pid| pid.parse().ok())
+        })
     }
 
     /// Kill the serving daemon outright, and wait it gone.

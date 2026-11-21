@@ -272,11 +272,10 @@ impl World {
     }
 
     fn serving(&self) -> bool {
-        // The daemon as it says itself (its proto3 JSON has a pid), or the
-        // empty message when none serves.
-        self.ok(&["daemon", "status", "--format", "json"])
-            .get("pid")
-            .is_some()
+        // The daemons it lists (one at most), each as it says itself.
+        !self.ok(&["daemon", "status", "--format", "json"])["daemons"]
+            .as_array()
+            .is_none_or(Vec::is_empty)
     }
 }
 
@@ -783,7 +782,12 @@ fn a_daemon_that_holds_the_instance_lock_but_does_not_answer_is_not_serving() {
     let status = world.run(&["daemon", "status", "--format", "json"]);
     signal(daemon.id(), "-CONT");
     assert_eq!(status.code, 0, "{}", status.said());
-    assert_eq!(status.json(), serde_json::json!({}), "{}", status.said());
+    assert_eq!(
+        status.json(),
+        serde_json::json!({"daemons": []}),
+        "{}",
+        status.said()
+    );
     let _ = world.run(&["daemon", "stop"]);
     let _ = daemon.wait();
 }
@@ -1072,7 +1076,11 @@ fn a_client_on_another_ctxloom_home_is_refused_naming_both_and_starts_no_daemon(
     let status = world
         .project
         .run_with(&env, &["daemon", "status", "--format", "json"]);
-    assert!(status.json().get("pid").is_some(), "{}", status.said());
+    assert!(
+        status.json()["daemons"][0].get("pid").is_some(),
+        "{}",
+        status.said()
+    );
     let _ = world.project.run_with(&env, &["daemon", "stop"]);
     assert_eq!(
         exited_within(&mut daemon.0, Duration::from_secs(20)),
@@ -1705,7 +1713,10 @@ fn a_daemon_whose_start_up_catch_up_fails_serves_and_says_so_until_one_succeeds(
         listed.said()
     );
     let status = world.ok(&["daemon", "status", "--format", "json"]);
-    let warnings = status["warnings"].as_array().cloned().unwrap_or_default();
+    let warnings = status["daemons"][0]["warnings"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
     assert_eq!(warnings.len(), 1, "{status}");
     assert_eq!(warnings[0]["code"], "daemon-api-start-up-incomplete");
     assert!(
@@ -1726,7 +1737,7 @@ fn a_daemon_whose_start_up_catch_up_fails_serves_and_says_so_until_one_succeeds(
     files::remove(&switch);
     world.until("the warning cleared", |w| {
         let status = w.ok(&["daemon", "status", "--format", "json"]);
-        status["warnings"]
+        status["daemons"][0]["warnings"]
             .as_array()
             .is_none_or(|warnings| warnings.is_empty())
             .then_some(())
@@ -1976,7 +1987,7 @@ impl World {
 /// The daemon serving now: its pid, as `daemon status` says it.
 fn daemon_pid(world: &World) -> Option<u32> {
     let status = world.ok(&["daemon", "status", "--format", "json"]);
-    status["pid"]
+    status["daemons"][0]["pid"]
         .as_u64()
         .and_then(|pid| u32::try_from(pid).ok())
 }
@@ -2141,7 +2152,7 @@ fn a_sigterm_drains_the_daemon_and_a_changed_timeout_is_the_drains() {
     signal(pid, "-TERM");
     world.until("the daemon draining", |w| {
         let status = w.ok(&["daemon", "status", "--format", "json"]);
-        (status["draining"] == Value::Bool(true)).then_some(())
+        (status["daemons"][0]["draining"] == Value::Bool(true)).then_some(())
     });
     let refused = world.run(&["session", "list", "--format", "json"]);
     assert_eq!(refused.code, 48, "{}", refused.said());

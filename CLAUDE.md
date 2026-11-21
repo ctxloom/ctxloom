@@ -4195,6 +4195,21 @@ on 2.1.325 a non-descendant's post is NOT refused. The post is the platform's
 `os::socket::post_local` (a unix socket, each write within 5 s); on Windows,
 whose endpoint is unmeasured, it is `Unsupported`, and the wake fails, said.
 
+`daemon status` and `daemon stop` answer ONE json schema (owner, dogfood
+2026-11-21; `ctxloom-wiring`'s `DaemonList`): `{"daemons": [ <Daemon's proto3
+JSON>... ]}`, the list empty when none serves (status) or none was stopped
+(stop), a success (exit 0) with the text message ("no ctxloom daemon is
+serving", "... nothing to stop"); a count is the list's length, there is no
+second shape. A verb that needs an editor and has none to launch (the caller
+is not at a terminal) says so as a notice, `library-application-notice-no-
+editor` (an edit: nothing was edited) or `-no-editor-template` (a create: its
+template was stored as it is), each with a `-fix` (run it in a terminal, or
+the verb's non-interactive form: `--body` for a fragment or command); the
+exit and `applied` are as before. A `session stop` or `restart` of a session
+with no owner whose state is ENDED is `daemon-api-run-ended` (resume it with
+`ctxloom run --session`); `daemon-api-primary-not-hosted` is the live terminal
+session's alone.
+
 ## What an engine cannot carry (M6, j002000)
 
 An engine's word on what it cannot carry is its surface half's

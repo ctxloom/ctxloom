@@ -46,7 +46,7 @@ fn run_now(w: &World, args: &[&str]) -> crate::tests::Ran {
 fn rounds(w: &World) -> Option<u64> {
     let status = run_now(w, &["daemon", "status", "--format", "json"]);
     assert_eq!(status.code, 0, "{}", status.said());
-    status.json()["rounds"].as_u64()
+    status.json()["daemons"][0]["rounds"].as_u64()
 }
 
 /// The serving daemon has run a whole round since the step began: its

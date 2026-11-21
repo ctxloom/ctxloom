@@ -171,7 +171,7 @@ fn daemon_serving(w: &mut World) {
             .project
             .run_with(&env, &["daemon", "status", "--format", "json"]);
         assert_eq!(status.code, 0, "{}", status.said());
-        if status.json().get("pid").is_some() {
+        if status.json()["daemons"][0].get("pid").is_some() {
             return;
         }
         assert!(

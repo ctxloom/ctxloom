@@ -271,7 +271,7 @@ fn run_now(w: &World, args: &[&str]) -> crate::tests::Ran {
 fn serving_now(w: &World) -> bool {
     let status = run_now(w, &["daemon", "status", "--format", "json"]);
     assert_eq!(status.code, 0, "{}", status.said());
-    status.json().get("pid").is_some()
+    status.json()["daemons"][0].get("pid").is_some()
 }
 
 /// Start `ctxloom daemon serve` with the scenario's short idle time, and
@@ -2631,7 +2631,7 @@ pub(super) fn hook_run(
 fn rounds_done(w: &World) -> Option<u64> {
     let ran = run_now(w, &["daemon", "status", "--format", "json"]);
     (ran.code == 0)
-        .then(|| ran.json()["rounds"].as_u64())
+        .then(|| ran.json()["daemons"][0]["rounds"].as_u64())
         .flatten()
 }
 
@@ -3225,7 +3225,7 @@ fn replaced(w: &mut World) {
     assert_ne!(new.pid, old.pid, "another daemon advertises itself");
     let status = run_now(w, &["daemon", "status", "--format", "json"]);
     assert_eq!(
-        status.json()["pid"],
+        status.json()["daemons"][0]["pid"],
         Value::from(new.pid),
         "{}",
         status.said()
@@ -6597,7 +6597,7 @@ fn cut_after(w: &mut World, seconds: &str) {
     let status = run_now(w, &["daemon", "status", "--format", "json"]);
     assert_eq!(status.code, 0, "{}", status.said());
     assert_ne!(
-        status.json()["pid"].as_u64(),
+        status.json()["daemons"][0]["pid"].as_u64(),
         Some(u64::from(drained)),
         "nothing says the drained daemon serves"
     );
@@ -6615,7 +6615,7 @@ fn next_daemon_hosts_again(w: &mut World) {
 fn status_warnings(w: &World) -> Vec<Value> {
     let status = run_now(w, &["daemon", "status", "--format", "json"]);
     assert_eq!(status.code, 0, "{}", status.said());
-    status.json()["warnings"]
+    status.json()["daemons"][0]["warnings"]
         .as_array()
         .cloned()
         .unwrap_or_default()
@@ -6743,7 +6743,7 @@ fn reports_draining(w: &mut World, line: String) {
     until(w, "the daemon to say it drains", DAEMON_WAIT, |w| {
         let status = run_now(w, &["daemon", "status", "--format", "json"]);
         assert_eq!(status.code, 0, "{}", status.said());
-        (status.json()["draining"] == true).then_some(())
+        (status.json()["daemons"][0]["draining"] == true).then_some(())
     });
 }
 

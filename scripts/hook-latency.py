@@ -68,7 +68,7 @@ def run(binary, env, cwd, *args, stdin=None, check=True):
 def serving(binary, env, cwd):
     status = run(binary, env, cwd, "daemon", "status", "--format", "json", check=False)
     try:
-        return "pid" in json.loads(status.stdout or "{}")
+        return bool(json.loads(status.stdout or "{}").get("daemons"))
     except json.JSONDecodeError:
         return False
 

@@ -43,7 +43,9 @@ fn run_now(w: &World, args: &[&str]) -> crate::tests::Ran {
 fn answering(w: &World) -> Option<u64> {
     let status = run_now(w, &["daemon", "status", "--format", "json"]);
     assert_eq!(status.code, 0, "{}", status.said());
-    status.json().get("pid").and_then(serde_json::Value::as_u64)
+    status.json()["daemons"][0]
+        .get("pid")
+        .and_then(serde_json::Value::as_u64)
 }
 
 /// The witnesses in `dir`: one file per daemon, named by its pid.

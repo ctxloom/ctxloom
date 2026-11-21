@@ -257,8 +257,8 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
       And a ctxloom daemon is serving for this home
       When I run "ctxloom daemon status --format json"
       Then the command succeeds
-      And the output reports "pid" as the daemon's pid
-      And the output reports "endpoint" as the discovery file's endpoint
+      And the output reports "daemons[0].pid" as the daemon's pid
+      And the output reports "daemons[0].endpoint" as the discovery file's endpoint
       And neither the output, the daemon's log nor the project's store holds the user bearer
 
     Scenario: A call presenting a bearer the daemon did not mint is refused, saying nothing of why
@@ -287,15 +287,27 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
       And the output contains "no ctxloom daemon is serving"
       And no ctxloom daemon was started
 
+    Scenario: Status and stop with no daemon serving answer a list of none, and succeed
+      # new: DRAFT (dogfood fix 3, owner 2026-11-21): one json schema, `daemons`.
+      Given an initialized ctxloom project
+      And no ctxloom daemon is serving for this home
+      When I run "ctxloom daemon status --format json"
+      Then the command succeeds
+      And the output contains "daemons"
+      When I run "ctxloom daemon stop --format text"
+      Then the command succeeds
+      And the output contains "nothing to stop"
+      And no ctxloom daemon was started
+
     Scenario: Status names what the daemon hosts and how long it has been idle
       # new: daemon status.
       Given an initialized ctxloom project
       And a ctxloom daemon is serving for this home, hosting a child "brisk-copper-moth"
       When I run "ctxloom daemon status --format json"
       Then the command succeeds
-      And the output reports "runs[0].harp" as "brisk-copper-moth"
-      And the output reports "runs[0].kind" as "CHILD"
-      And the output reports "idle_limit_seconds" as "600"
+      And the output reports "daemons[0].runs[0].harp" as "brisk-copper-moth"
+      And the output reports "daemons[0].runs[0].kind" as "CHILD"
+      And the output reports "daemons[0].idle_limit_seconds" as "600"
 
     Scenario: Stopping a daemon that hosts nothing ends it, and the next command starts another
       # new: daemon stop.

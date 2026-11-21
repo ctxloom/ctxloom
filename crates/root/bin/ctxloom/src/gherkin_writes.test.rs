@@ -496,7 +496,7 @@ fn none_serving(w: &World) {
     loop {
         let status = run_now(w, &[], &["daemon", "status", "--format", "json"]);
         assert_eq!(status.code, 0, "{}", status.said());
-        if status.json().get("pid").is_none() {
+        if status.json()["daemons"][0].get("pid").is_none() {
             return;
         }
         assert!(Instant::now() < deadline, "the daemon never stopped");

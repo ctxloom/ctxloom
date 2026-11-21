@@ -674,7 +674,7 @@ macro_rules! common_steps {
                     .project
                     .run_with(&env, &["daemon", "status", "--format", "json"]);
                 assert_eq!(status.code, 0, "{}", status.said());
-                let pid = status.json()["pid"].as_u64();
+                let pid = status.json()["daemons"][0]["pid"].as_u64();
                 assert!(
                     calls
                         .iter()

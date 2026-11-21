@@ -47,7 +47,7 @@ daemon-api-start-up-incomplete-fix = the daemon tries the catch-up again each ro
 daemon-api-handing-over = the daemon, ctxloom { $daemon }, is shutting down: { $harps } will be handed over to the next daemon; a child busy in a turn has been steered to end it, and is handed over within { $seconds } seconds at the latest, its turn in flight cut; the next daemon resumes each in its own conversation
 # Step 8 U4 (texts.md §5, D14): accepted verbatim (owner, 2026-11-16; reviewed before release).
 # DRAFT (step 10e Stage 2a, `session restart`).
-daemon-api-primary-not-hosted = { $harp } is a terminal session run by its own ctxloom process: the daemon does not host its engine, so it cannot restart it
+daemon-api-primary-not-hosted = { $harp } is a terminal session run by its own ctxloom process: the daemon does not host its engine, so it can neither restart nor stop it
 daemon-api-primary-not-hosted-fix = end the session and resume it with `ctxloom run --session { $harp }`
 daemon-api-session-not-hosted = { $name } is no session this daemon runs, so its ask was not recorded
 daemon-api-approval-ambiguous = { $harp } has { $count } asks waiting ({ $asks }), so its name does not say which you mean; nothing was answered.

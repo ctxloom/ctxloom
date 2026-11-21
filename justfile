@@ -102,7 +102,7 @@ workspace_wide := "Cargo.toml Cargo.lock rust-toolchain.toml proto/* .cargo/conf
 # The cargo arguments `check-windows` (gates/os-gates.just) compiles for a
 # Windows target: driven adapters that use the platform seams, without C
 # dependencies (those need a mingw C compiler).
-windows_packages := "-p content-fs -p config-files -p cache-files -p surface-files -p remote-git -p library-git -p liveness -p session-files -p deps-files -p editor-process"
+windows_packages := "-p content-fs -p config-files -p cache-files -p surface-files -p remote-git -p liveness -p session-files -p deps-files -p editor-process"
 
 # Where this machine's checkout of rust-support's templates/clippy-disallowed.toml
 # is, the canonical OS and filesystem list `lint-clippy-sync` compares

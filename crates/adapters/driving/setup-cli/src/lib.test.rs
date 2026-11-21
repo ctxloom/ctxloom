@@ -897,6 +897,30 @@ fn init_with_no_token_guides_to_claude_setup_token_and_still_exits_zero() {
     }
 }
 
+// The token notice has a code of its own, so a script can key on it.
+#[test]
+fn the_token_notice_carries_its_own_code_in_json_and_text() {
+    let json = go(&["init"], Format::Json, none);
+    let line = json
+        .err
+        .lines()
+        .find(|l| l.contains("delegated agents need a token"))
+        .expect("the notice line");
+    let said: serde_json::Value = serde_json::from_str(line).expect("a json line");
+    assert_eq!(said["code"], "setup-cli-token-not-exported");
+    assert!(said["remedy"]
+        .as_str()
+        .unwrap()
+        .contains("claude setup-token"));
+    let text = go(&["init"], Format::Text, none);
+    assert!(
+        text.err
+            .contains("ctxloom: warning: delegated agents need a token"),
+        "{}",
+        text.err
+    );
+}
+
 #[test]
 fn init_with_an_api_key_exported_needs_no_guide() {
     let r = go(&["init"], Format::Text, |world, _| {

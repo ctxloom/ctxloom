@@ -45,5 +45,25 @@ fn the_samples_cover_every_fault_with_distinct_codes() {
         .iter()
         .map(|d| d.code().to_string())
         .collect();
-    assert_eq!(codes, vec!["setup-cli-output", "setup-cli-no-such-command"]);
+    assert_eq!(
+        codes,
+        vec![
+            "setup-cli-output",
+            "setup-cli-no-such-command",
+            "setup-cli-token-not-exported"
+        ]
+    );
+}
+
+#[test]
+fn the_token_notice_has_its_code_args_and_words_and_fix() {
+    let notice = CliFault::TokenNotExported;
+    assert_eq!(notice.code(), "setup-cli-token-not-exported");
+    let args: Vec<&str> = notice.args().iter().map(|(k, _)| *k).collect();
+    assert_eq!(args, vec!["variables", "export", "command"]);
+    let catalog = angzarr_presentation::Catalog::en_us(&[EN_US]).expect("a catalog");
+    assert_eq!(
+        catalog.message(&notice),
+        "delegated agents need a token, and none is exported (CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY)"
+    );
 }

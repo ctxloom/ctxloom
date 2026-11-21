@@ -37,10 +37,9 @@ const RACE_RUNS: std::num::NonZeroU32 = match std::num::NonZeroU32::new(3) {
     None => std::num::NonZeroU32::MIN,
 };
 
-/// How far a domain is exposed (the host's `Expose`); absent is none.
+/// How far a domain is exposed (the host's `Expose`); absent is none. Only the network is faked: every domain the fake serves is on it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Reach {
-    Loopback,
     Ip,
 }
 
@@ -54,7 +53,7 @@ pub(crate) struct KernelEdge {
 
 impl KernelEdge {
     /// `runs` and `sessions` exposed to the network (the container bridge
-    /// reaches what the agent needs), `trees` to loopback only.
+    /// reaches what the agent needs).
     pub(crate) fn new() -> KernelEdge {
         let mut registry = Registry::new();
         registry
@@ -63,9 +62,6 @@ impl KernelEdge {
         registry
             .aggregate::<runs::RunAggregate>(runs::RunAggregate::default)
             .unwrap();
-        registry
-            .aggregate::<trees::TreeAggregate>(trees::TreeAggregate::default)
-            .unwrap();
         KernelEdge {
             registry,
             store: FaultyStore::default(),
@@ -73,8 +69,6 @@ impl KernelEdge {
             reach: BTreeMap::from([
                 (runs::RUN_DOMAIN, Reach::Ip),
                 (sessions::SESSION_DOMAIN, Reach::Ip),
-                // Reached on this machine only, and by nothing an agent holds.
-                (trees::TREE_DOMAIN, Reach::Loopback),
             ]),
             served: AtomicU32::new(0),
         }

@@ -3364,7 +3364,37 @@ fn prompt_held(w: &mut World, harp: String) {
 #[then(expr = "nothing is held for {string}")]
 fn nothing_held(w: &mut World, harp: String) {
     assert_eq!(fired(w).harp, harp);
-    assert!(holds(w).is_empty(), "{:?}", holds(w));
+    let left = holds(w);
+    // A flush is bounded, and what it could not deliver stays held, unsaid;
+    // so a hold left behind is judged with what settles why: how much of it
+    // is left, how much the store took, and the command's own words.
+    assert!(left.is_empty(), "{}", why_held(w, &harp, &left));
+}
+
+/// What a hold left after a command says of itself: each file's size and
+/// the facts it still holds, the session's events recorded since the hook,
+/// the last command's words and the daemon's log.
+fn why_held(w: &World, harp: &str, left: &[PathBuf]) -> String {
+    let files: Vec<String> = left
+        .iter()
+        .map(|p| {
+            let text = files::read_bytes(p)
+                .map(|b| String::from_utf8_lossy(&b).to_string())
+                .unwrap_or_default();
+            format!(
+                "{}: {} bytes, {} facts",
+                p.display(),
+                text.len(),
+                text.matches("hook:").count()
+            )
+        })
+        .collect();
+    format!(
+        "held: {files:?}; events recorded since the hooks: {}; the command said: {}; the daemon logged: {}",
+        session_events(w, harp).len().saturating_sub(fired(w).events_before),
+        w.common.ran().said(),
+        daemon_log_text(w)
+    )
 }
 
 #[then(expr = "nothing was recorded for {string}")]

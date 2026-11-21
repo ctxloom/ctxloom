@@ -17,6 +17,7 @@ use angzarr_embedded::markup::{
 use angzarr_embedded_macros::{aggregate, applies, handles_cmd, handles_fact};
 
 use crate::refusal::refuse;
+use crate::staleness::{judge as judge_token, Judged};
 use crate::{
     BuiltinReadOnly, NoSuchResource, NoSuchSlot, OneChangePerCall, PlanRejected, PlanStale,
     ResourceExists, SlotNotDue,
@@ -118,15 +119,14 @@ fn judge(evidence: &Evidence, path: &str, checks: Checks) -> Result<(), LibraryT
 impl LibraryAggregate {
     /// `path`'s token now, refused stale when the caller saw another.
     fn fresh(&self, path: &str, seen: u64) -> Result<(), LibraryTreeRejection> {
-        let now = self.library.token(path);
-        if seen == now {
-            return Ok(());
+        match judge_token(seen, self.library.token(path)) {
+            Judged::Fresh => Ok(()),
+            Judged::Stale { seen, now } => Err(LibraryTreeRejection::PlanStale {
+                path: path.to_string(),
+                seen,
+                now,
+            }),
         }
-        Err(LibraryTreeRejection::PlanStale {
-            path: path.to_string(),
-            seen,
-            now,
-        })
     }
 
     /// `path` as ONE file (T29): refused when the record knows several

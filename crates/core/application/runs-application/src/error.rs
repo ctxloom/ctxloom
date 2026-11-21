@@ -9,7 +9,6 @@ use angzarr_embedded::{Failure, Rejected};
 use run_ports::Unserved;
 use runs::RunRejection;
 use sessions::SessionRejection;
-use trees::TreeRejection;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum AppError {
@@ -59,7 +58,7 @@ impl AppError {
 
 /// What the domain refused with, as its stable code and args: the refusal's
 /// TYPE read back as the rejection of the domain that raised it (the runs',
-/// the sessions' or the trees'), and never its business status. A refusal of
+/// or the sessions'), and never its business status. A refusal of
 /// none of them (the coordinator's own) is reported as the runtime made it.
 fn domain_report(rejected: &Rejected) -> Report {
     let report = |rejection: &dyn Diagnostic| Report::of(rejection);
@@ -70,7 +69,6 @@ fn domain_report(rejected: &Rejected) -> Report {
                 .ok()
                 .map(|r| report(&r))
                 .or_else(|| SessionRejection::try_from(typed).ok().map(|r| report(&r)))
-                .or_else(|| TreeRejection::try_from(typed).ok().map(|r| report(&r)))
         })
         .unwrap_or_else(|| rejected.report().clone())
 }

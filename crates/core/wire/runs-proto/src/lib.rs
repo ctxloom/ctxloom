@@ -1,4 +1,4 @@
-//! The runs and trees domains' wire types: prost messages generated from
+//! The runs domain's wire types: prost messages generated from
 //! `proto/ctxloom/runs/v1`. The wire form only; domain code works on domain
 //! types converted from these at the boundary.
 

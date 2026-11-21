@@ -137,7 +137,7 @@ async fn an_unknown_domain_is_hidden_and_answered_like_a_missing_one() {
             &sessions::SessionCommand::from(sessions::SetKept { kept: true }),
         )
     };
-    let hidden = edge.serve(book("trees"), Arrival::Ip).await.unwrap_err();
+    let hidden = edge.serve(book("trust"), Arrival::Ip).await.unwrap_err();
     let missing = edge.serve(book("nowhere"), Arrival::Ip).await.unwrap_err();
     assert!(matches!(hidden, Unserved::Hidden { .. }));
     let unknown = |domain: &str| {
@@ -145,7 +145,7 @@ async fn an_unknown_domain_is_hidden_and_answered_like_a_missing_one() {
             domain: domain.to_string(),
         }))
     };
-    assert_eq!(hidden.answer(), unknown("trees"));
+    assert_eq!(hidden.answer(), unknown("trust"));
     assert_eq!(missing.answer(), unknown("nowhere"));
 }
 
@@ -181,15 +181,15 @@ async fn a_fact_at_the_race_cap_is_parked_over_app_serve_in() {
     );
 }
 
-// The edge's own behaviours over the real App and a ctxloom domain (trees,
+// The edge's own behaviours over the real App and a ctxloom domain (trust,
 // exposed to loopback only). `embedded-edge` tests the same wrappers with a
 // toy aggregate, since a driven adapter links no domain; here, the real ones.
-mod the_edge_over_trees {
+mod the_edge_over_trust {
     use super::*;
 
     fn tree() -> Cover {
         Cover {
-            domain: trees::TREE_DOMAIN.to_string(),
+            domain: trust::TRUST_DOMAIN.to_string(),
             root: Some(Uuid::from_bytes([9; 16])),
             edition: None,
         }
@@ -198,20 +198,27 @@ mod the_edge_over_trees {
     fn found() -> CommandBook {
         CommandBook::command_of(
             tree(),
-            &trees::TreeCommand::from(trees::FoundTree {
-                owner_session: "s".to_string(),
-                ephemeral: false,
-                concurrency: 1,
-                depth: 1,
+            &trust::TrustCommand::from(trust::GrantTrust {
+                name: "p".to_string(),
+                project_id: "id".to_string(),
+                etag: "e".to_string(),
+                current_etag: "e".to_string(),
+                actor: trust::Actor {
+                    user: "u".to_string(),
+                },
             }),
         )
     }
 
-    fn occupy(session: &str) -> CommandBook {
+    fn revoke() -> CommandBook {
         CommandBook::command_of(
             tree(),
-            &trees::TreeCommand::from(trees::OccupyTree {
-                session: session.to_string(),
+            &trust::TrustCommand::from(trust::RevokeTrust {
+                name: "p".to_string(),
+                project_id: "id".to_string(),
+                actor: trust::Actor {
+                    user: "u".to_string(),
+                },
             }),
         )
     }
@@ -235,12 +242,7 @@ mod the_edge_over_trees {
             answered.delivery,
             angzarr_embedded::v1::DeliveryOutcome::Applied
         );
-        let book = edge
-            .handle(occupy("s"))
-            .await
-            .unwrap()
-            .events
-            .expect("events");
+        let book = edge.handle(found()).await.unwrap().events.expect("events");
         assert_eq!(book.cover, Some(tree()));
         assert!(book.pages.is_empty());
     }
@@ -253,7 +255,7 @@ mod the_edge_over_trees {
         assert_eq!(
             edge.serve(found(), Arrival::Ip).await.unwrap_err(),
             Unserved::Hidden {
-                domain: trees::TREE_DOMAIN.to_string()
+                domain: trust::TRUST_DOMAIN.to_string()
             }
         );
         assert!(edge.events(&tree(), 0).await.unwrap().is_empty());
@@ -268,7 +270,7 @@ mod the_edge_over_trees {
         let edge = edge().await;
         assert!(edge.events(&tree(), 0).await.unwrap().is_empty());
         edge.handle(found()).await.unwrap();
-        edge.handle(occupy("next")).await.unwrap();
+        edge.handle(revoke()).await.unwrap();
         let sequences = |pages: Vec<angzarr_embedded::v1::EventPage>| {
             pages.into_iter().map(|p| p.sequence).collect::<Vec<_>>()
         };

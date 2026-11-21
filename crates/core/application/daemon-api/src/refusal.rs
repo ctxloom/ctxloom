@@ -215,10 +215,10 @@ pub enum ApiRejection {
     WakeInformOnly {
         harp: String,
     },
-    /// A stop of a terminal session (a primary, no owner): the daemon stops
-    /// the runs it hosts for a child alone, so it is stopped from its terminal
-    /// or closed (client-side: the stop is never sent).
-    StopTerminal {
+    /// A restart of a terminal session (a primary): its own `ctxloom run`
+    /// process holds its engine, not the daemon (step 10e Stage 2a,
+    /// client-side).
+    PrimaryNotHosted {
         harp: String,
     },
     /// An ask asked by a session the daemon hosts no run of (step 8 U4).
@@ -265,7 +265,7 @@ impl Diagnostic for ApiRejection {
             ApiRejection::ConfigUnreadable { .. } => code!("config-unreadable"),
             ApiRejection::LaunchInProgress { .. } => code!("launch-in-progress"),
             ApiRejection::WakeInformOnly { .. } => code!("wake-inform-only"),
-            ApiRejection::StopTerminal { .. } => code!("stop-terminal"),
+            ApiRejection::PrimaryNotHosted { .. } => code!("primary-not-hosted"),
             ApiRejection::SessionNotHosted { .. } => code!("session-not-hosted"),
             ApiRejection::ApprovalAmbiguous { .. } => code!("approval-ambiguous"),
             ApiRejection::ApprovalNoneWaiting { .. } => code!("approval-none-waiting"),
@@ -306,7 +306,7 @@ impl Diagnostic for ApiRejection {
             ApiRejection::ProjectUnknown { cwd } => vec![("cwd", cwd.as_str().into())],
             ApiRejection::LaunchInProgress { harp }
             | ApiRejection::WakeInformOnly { harp }
-            | ApiRejection::StopTerminal { harp } => {
+            | ApiRejection::PrimaryNotHosted { harp } => {
                 vec![("harp", harp.as_str().into())]
             }
             ApiRejection::DaemonHosting { runs, harps } => {
@@ -847,7 +847,7 @@ pub(crate) fn samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(ApiRejection::WakeInformOnly {
             harp: "amber-quiet-heron".to_string(),
         }),
-        Box::new(ApiRejection::StopTerminal {
+        Box::new(ApiRejection::PrimaryNotHosted {
             harp: "amber-quiet-heron".to_string(),
         }),
         Box::new(ApiRejection::SessionNotHosted {

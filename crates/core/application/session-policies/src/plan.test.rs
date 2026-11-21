@@ -871,7 +871,7 @@ fn each_incarnation_a_child_ended_is_told_to_its_owner() {
         };
         assert_eq!(sent.book.cover.as_ref().unwrap().root, Some(root(OWNER)));
     }
-    for cause in ["orphaned", "drained"] {
+    for cause in ["orphaned", "drained", "restarted"] {
         let steps = ended_child(cause).plan();
         assert!(
             !keys(&steps).contains(&format!("notice:{CHILD}:1").as_str()),
@@ -1051,4 +1051,124 @@ fn a_child_in_another_project_is_minted_with_its_output_folder_left_to_its_proje
     };
     assert_eq!(mint.mint.command.project_id, FAR);
     assert_eq!(mint.mint.command.output_dir, "");
+}
+
+// ------------------------------------------ a restart owed (step 10e 2a)
+//
+// The session decided a restart is owed (`RestartOwed`); the plan holds the
+// agent's deliveries while it waits for the Active to Idle edge, and owes the
+// resume once the incarnation has ended, however it ended.
+
+/// The child's open incarnation 1 owes a restart, the operator's.
+fn restart_owed() -> SessionEvent {
+    SessionEvent::RestartOwed(sessions::RestartOwed {
+        reason: sessions::RestartReason::Operator,
+        incarnation: 1,
+        note: String::new(),
+    })
+}
+
+// An incarnation the daemon ended for a restart is re-hosted for the cause
+// `restart`, which the re-host budget never counts, as a drain's is not.
+#[test]
+fn a_child_ended_for_a_restart_is_rehosted_for_the_cause_restart() {
+    let mut world = ended_child(crate::ENDED_RESTARTED);
+    world.child.insert(world.child.len() - 1, restart_owed());
+    let steps = world.plan();
+    let [Step::Rehost { cause, at, .. }] = &steps[..] else {
+        panic!("{:?}", keys(&steps));
+    };
+    assert_eq!((cause.as_str(), at.incarnation), (sessions::RESTARTED, 2));
+    assert_eq!(crate::ENDED_RESTARTED, "restarted");
+}
+
+// The engine exiting on its own with a restart owed does not cancel it: the
+// restart proceeds (an engine exit forces Idle).
+#[test]
+fn a_restart_owed_proceeds_when_the_engine_exited_on_its_own() {
+    for cause in ["runner-exit", "orphaned", "stopped"] {
+        let mut world = ended_child(cause);
+        world.child.insert(world.child.len() - 1, restart_owed());
+        // The engine's own exit is told to the owner as any exit is; the
+        // restart proceeds beside it.
+        let steps = world.plan();
+        let rehosts: Vec<&Step> = steps
+            .iter()
+            .filter(|s| matches!(s, Step::Rehost { .. }))
+            .collect();
+        assert!(
+            matches!(&rehosts[..], [Step::Rehost { cause, .. }] if cause == sessions::RESTARTED),
+            "{cause}: {:?}",
+            keys(&steps)
+        );
+    }
+}
+
+// What an incarnation's end for a restart is told is nothing: it continues.
+#[test]
+fn a_restart_is_no_end_to_tell_the_owner() {
+    let mut world = ended_child(crate::ENDED_RESTARTED);
+    world.child.insert(world.child.len() - 1, restart_owed());
+    assert!(
+        !keys(&world.plan()).contains(&format!("notice:{CHILD}:1").as_str()),
+        "{:?}",
+        keys(&world.plan())
+    );
+}
+
+// A restart closed by the next incarnation owed re-hosts nothing more.
+#[test]
+fn a_restart_closed_by_the_next_incarnation_is_not_rehosted_again() {
+    let mut world = ended_child(crate::ENDED_RESTARTED);
+    world.child.insert(world.child.len() - 1, restart_owed());
+    world
+        .child
+        .push(SessionEvent::IncarnationOwed(IncarnationOwed {
+            incarnation: 2,
+            reason: "restart".to_string(),
+        }));
+    world.run.clear();
+    let steps = world.plan();
+    assert!(
+        !keys(&steps).iter().any(|k| k.starts_with("rehost:")),
+        "{:?}",
+        keys(&steps)
+    );
+    assert!(steps.iter().any(|s| matches!(
+        s,
+        Step::Start {
+            resume: Some(_),
+            ..
+        }
+    )));
+}
+
+// While a restart waits for the turn in flight: a steer still reaches the
+// turn, a wake and an inform stay pending (they are delivered into the
+// resumed session).
+#[test]
+fn a_restart_waiting_for_the_turn_lets_a_steer_through_and_holds_the_rest() {
+    let mut world =
+        World::with_child().hosting(vec![enqueued(), queued(&["m1"], TurnUrgency::Wake)]);
+    world.child.push(bound());
+    world.child.push(sent("m1", Urgency::Wake, "one"));
+    world.child.push(restart_owed());
+    world.done.insert(format!("feed:{}:1", run_text(CHILD, 1)));
+    world.child.push(sent("m2", Urgency::Wake, "two"));
+    world.child.push(sent("m3", Urgency::Inform, "fyi"));
+    assert!(world.plan().is_empty(), "{:?}", keys(&world.plan()));
+    world.child.push(sent("m4", Urgency::Steer, "stop"));
+    assert_eq!(keys(&world.plan()), ["send:m4"]);
+}
+
+// Idle with a restart owed, a wake is not given a turn: the restart is at
+// hand, and the wake goes to the resumed session. Without the restart it is.
+#[test]
+fn an_idle_agent_with_a_restart_owed_is_given_no_turn() {
+    let mut world = World::with_child().hosting(vec![enqueued()]);
+    world.child.push(bound());
+    world.child.push(sent("m1", Urgency::Wake, "go"));
+    assert_eq!(keys(&world.plan()), ["send:m1"]);
+    world.child.push(restart_owed());
+    assert!(world.plan().is_empty(), "{:?}", keys(&world.plan()));
 }

@@ -66,6 +66,9 @@ pub struct SessionState {
     /// The ids of the messages sent and not yet delivered, in the order
     /// sent: what a `DeliverMessages` may still record (the lean hook RPC).
     pub pending_messages: Vec<String>,
+    /// The restart owed for its open incarnation (step 10e Stage 2a), until
+    /// the next incarnation is owed; none when none is.
+    pub restart_owed: Option<crate::RestartOwed>,
 }
 
 impl From<SessionState> for sessions_proto::v1::SessionState {
@@ -104,6 +107,9 @@ impl From<SessionState> for sessions_proto::v1::SessionState {
             wake_outstanding: value.wake_outstanding,
             wake_unanswered: value.wake_unanswered,
             pending_messages: value.pending_messages,
+            restart_owed: value
+                .restart_owed
+                .map(sessions_proto::v1::RestartOwed::from),
         }
     }
 }
@@ -159,6 +165,10 @@ impl TryFrom<sessions_proto::v1::SessionState> for SessionState {
             wake_outstanding: value.wake_outstanding,
             wake_unanswered: value.wake_unanswered,
             pending_messages: value.pending_messages,
+            restart_owed: value
+                .restart_owed
+                .map(crate::RestartOwed::try_from)
+                .transpose()?,
         })
     }
 }

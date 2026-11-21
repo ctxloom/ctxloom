@@ -462,3 +462,162 @@ fn a_stream_holding_a_retired_stop_order_folds_as_before() {
     })]);
     assert_eq!(session.state(), before);
 }
+
+// -------------------------------------------- a restart (step 10e Stage 2a)
+//
+// Owner rulings 2026-11-20: the SESSION decides when a restart is owed. A
+// request records `RestartOwed` for the open incarnation, once; the next
+// incarnation owed closes it; it is checkable from the stream alone.
+
+fn restart(reason: crate::RestartReason) -> crate::RequestRestart {
+    crate::RequestRestart {
+        reason,
+        note: "the operator's note".to_string(),
+    }
+}
+
+/// A child whose first run is open and bound to its native session.
+fn running_child() -> Session {
+    let mut session = Session::minted();
+    session
+        .bound(crate::BindEngineSession {
+            native_id: "native-1".to_string(),
+            transcript_path: String::new(),
+            engine_version: None,
+        })
+        .unwrap();
+    session
+}
+
+#[test]
+fn a_restart_request_owes_a_restart_of_the_open_incarnation() {
+    let mut session = running_child();
+    let events = session
+        .run(restart(crate::RestartReason::Operator))
+        .unwrap();
+    assert_eq!(
+        events,
+        vec![SessionEvent::RestartOwed(crate::RestartOwed {
+            reason: crate::RestartReason::Operator,
+            incarnation: 1,
+            note: "the operator's note".to_string(),
+        })]
+    );
+    let owed = session.state().restart_owed.expect("the fold holds it");
+    assert_eq!(
+        (owed.incarnation, owed.reason),
+        (1, crate::RestartReason::Operator)
+    );
+}
+
+// A request while one is owed records nothing, whatever its reason: an
+// operator's too.
+#[test]
+fn a_request_while_a_restart_is_owed_records_nothing() {
+    let mut session = running_child();
+    session
+        .run(restart(crate::RestartReason::Operator))
+        .unwrap();
+    let pages = session.pages().len();
+    for reason in [
+        crate::RestartReason::Operator,
+        crate::RestartReason::Context,
+        crate::RestartReason::Config,
+    ] {
+        assert_eq!(session.run(restart(reason)).unwrap(), vec![], "{reason:?}");
+    }
+    assert_eq!(session.pages().len(), pages);
+    // The first reason stands.
+    let owed = session.state().restart_owed.unwrap();
+    assert_eq!(owed.reason, crate::RestartReason::Operator);
+}
+
+// The same request replayed under its key is a DUPLICATE, not a second
+// event.
+#[test]
+fn a_replayed_request_is_one_restart() {
+    let mut session = running_child();
+    let request = restart(crate::RestartReason::Operator);
+    let first = session.keyed(&request, "restart:s:1:operator").unwrap();
+    assert!(matches!(
+        first.as_deref(),
+        Some([SessionEvent::RestartOwed(_)])
+    ));
+    assert_eq!(
+        session.keyed(&request, "restart:s:1:operator").unwrap(),
+        None
+    );
+}
+
+// The owed restart is in the stream, not in a process: it outlives the
+// incarnation's end, and the next incarnation owed closes it.
+#[test]
+fn an_owed_restart_survives_the_end_and_the_next_incarnation_closes_it() {
+    let mut session = running_child();
+    session
+        .run(restart(crate::RestartReason::Operator))
+        .unwrap();
+    session.fact(ended(1, "restarted"), "end:s:1");
+    assert!(
+        session.state().restart_owed.is_some(),
+        "owed until it is hosted again"
+    );
+    let events = session.run(rehost(600, "restart")).unwrap();
+    assert!(
+        matches!(&events[..],
+        [SessionEvent::IncarnationOwed(o)] if o.reason == "restart" && o.incarnation == 2),
+        "a restart is never refused for the re-host budget: {events:?}"
+    );
+    let state = session.state();
+    assert_eq!(state.restart_owed, None, "the next incarnation closed it");
+    // A new request in the new incarnation is a new restart.
+    let again = session
+        .run(restart(crate::RestartReason::Operator))
+        .unwrap();
+    assert!(matches!(&again[..], [SessionEvent::RestartOwed(o)] if o.incarnation == 2));
+}
+
+#[test]
+fn a_restart_of_no_session_is_refused() {
+    let mut session = Session::new();
+    let (code, _) = session
+        .run(restart(crate::RestartReason::Operator))
+        .unwrap_err();
+    assert_eq!(code, "sessions-no-session");
+}
+
+#[test]
+fn a_restart_of_a_closed_session_is_refused() {
+    let mut session = running_child();
+    session
+        .run(crate::CloseSession {
+            requester: None,
+            cause: "closed".to_string(),
+        })
+        .unwrap();
+    let (code, args) = session
+        .run(restart(crate::RestartReason::Operator))
+        .unwrap_err();
+    assert_eq!(code, "sessions-session-closed");
+    assert_eq!(args["harp"], crate::aggregate::tests::HARP);
+}
+
+#[test]
+fn a_restart_of_a_session_with_no_run_open_is_refused() {
+    let mut session = bound_and_ended();
+    let (code, args) = session
+        .run(restart(crate::RestartReason::Operator))
+        .unwrap_err();
+    assert_eq!(code, "sessions-no-run-to-restart");
+    assert_eq!(args["harp"], crate::aggregate::tests::HARP);
+    assert_eq!(session.state().restart_owed, None);
+}
+
+#[test]
+fn a_restart_before_the_engine_bound_a_session_is_refused() {
+    let mut session = Session::minted();
+    let (code, _) = session
+        .run(restart(crate::RestartReason::Operator))
+        .unwrap_err();
+    assert_eq!(code, "sessions-no-native-session");
+}

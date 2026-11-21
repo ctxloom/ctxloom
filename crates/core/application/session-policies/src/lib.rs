@@ -26,6 +26,7 @@ mod plan;
 
 pub use plan::{
     plan, supported, Fed, RunAt, Scene, Sent, Step, CHILD_ENGINE, CHILD_ENGINES, ENDED_DRAINED,
+    ENDED_RESTARTED,
 };
 
 use angzarr_embedded::markup::DomainMessage;

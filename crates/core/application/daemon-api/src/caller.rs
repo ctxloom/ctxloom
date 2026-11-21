@@ -31,8 +31,8 @@ use daemon_ports::{Called, DaemonApi, Daemons};
 use daemon_proto::v1;
 use run_ports::RunLocks;
 use sessions::{
-    ClearChild, CloseSession, LaunchChild, ProjectName, SendMessage, SessionName, SessionRef,
-    TargetTrust, Urgency,
+    ClearChild, CloseSession, LaunchChild, ProjectName, RequestRestart, RestartReason, SendMessage,
+    SessionName, SessionRef, TargetTrust, Urgency,
 };
 
 use crate::client::CallError;
@@ -662,7 +662,7 @@ impl<D: Daemons> Caller<D> {
         let stopped = on_daemon!(self, |api| self.stopped(api, &name).await)?;
         let Some((session, applied)) = stopped else {
             return Err(CallError::Refused(Rejection::Api(
-                ApiRejection::StopTerminal {
+                ApiRejection::PrimaryNotHosted {
                     harp: name.harp().to_string(),
                 },
             )));
@@ -701,6 +701,47 @@ impl<D: Daemons> Caller<D> {
             .handle(sessions::keyed_book(cover, &command, &key))
             .await?;
         Ok(Some((self.read(api, target).await?, applied)))
+    }
+
+    /// `session restart` (step 10e Stage 2a): the session `target` asked to
+    /// restart its engine with resume. The SESSION decides whether one is
+    /// owed (`RequestRestart`); the daemon that hosts the engine acts on what
+    /// it records. Keyed `restart:<session>:<incarnation>:operator`, so a
+    /// replay is the first's duplicate. A terminal session is refused: its
+    /// engine is its own `ctxloom run` process's, not the daemon's.
+    pub async fn restart(&self, target: &str, note: &str) -> Result<Written, CallError> {
+        let name = self.target(target)?;
+        let asked = on_daemon!(self, |api| self.restarted(api, &name, note).await)?;
+        let Some((session, applied)) = asked else {
+            return Err(CallError::Refused(Rejection::Api(
+                ApiRejection::PrimaryNotHosted {
+                    harp: name.harp().to_string(),
+                },
+            )));
+        };
+        Ok(Written {
+            id: name.uid(),
+            session,
+            applied,
+        })
+    }
+
+    async fn restarted(
+        &self,
+        api: &D::Api,
+        target: &SessionName,
+        note: &str,
+    ) -> Result<Option<(v1::Session, bool)>, Called> {
+        let held = self.read(api, target).await?;
+        if held.owner.is_empty() {
+            return Ok(None);
+        }
+        let command = RequestRestart {
+            reason: RestartReason::Operator,
+            note: note.to_string(),
+        };
+        let key = format!("restart:{}:{}:operator", target.uid(), held.incarnation);
+        self.write(api, target, &command, &key).await.map(Some)
     }
 
     async fn cleared(
@@ -966,6 +1007,10 @@ pub trait ChildWrites {
 
     /// `session stop`: `target`'s current run stopped, `target` left open.
     async fn stop(&self, target: &str) -> Result<Written, CallError>;
+
+    /// `session restart`: `target`'s engine restarted with resume, at the end
+    /// of its turn in flight.
+    async fn restart(&self, target: &str, note: &str) -> Result<Written, CallError>;
 }
 
 impl<D: Daemons> ChildWrites for Caller<D> {
@@ -993,6 +1038,10 @@ impl<D: Daemons> ChildWrites for Caller<D> {
 
     async fn stop(&self, target: &str) -> Result<Written, CallError> {
         Caller::stop(self, target).await
+    }
+
+    async fn restart(&self, target: &str, note: &str) -> Result<Written, CallError> {
+        Caller::restart(self, target, note).await
     }
 }
 

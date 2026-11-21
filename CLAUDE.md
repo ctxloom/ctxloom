@@ -1,7 +1,7 @@
 # Introduction
 
-ctxloom is the Rust ctxloom: a port of the Go ctxloom onto angzarr-embedded,
-one user journey at a time, with architect review of each milestone. The plan
+ctxloom is the Rust ctxloom, built on angzarr-embedded (it began as a port of
+the Go ctxloom), one user journey at a time, with architect review of each milestone. The plan
 (`ctxloom.plan.md`'s roadmap, §3, the one integrated plan, owner 2026-11-13)
 orders the milestones by journey
 (`crates/root/bin/ctxloom/features/journeys/`), with work on
@@ -9,10 +9,13 @@ orders the milestones by journey
 scenarios pass, with the cli contracts it touches. A milestone starts as red
 tests, committed red on `port/<milestone>`, reviewed, then implemented green.
 All work is cut from and landed on `daemon/integration` (owner 2026-11-13:
-"One line: all work on integration"); it carries everything `main` had.
+"One line: all work on integration") until step 11 lands it on `main`; from
+then on work lands on `main`.
 
-The repository is `ctxloom` (github.com/ctxloom/ctxloom); the Go ctxloom is
-preserved on its `go-final` branch. The primary checkout's leaf is `ctxloom`.
+The repository is `ctxloom` (github.com/ctxloom/ctxloom), re-created with
+fresh history on 2026-11-20 (`main` is one commit). The Go-era and
+daemon-era history is in github.com/ctxloom/ctxloom-legacy (archived,
+read-only reference, never merged; the Go ctxloom is its `go-final` branch).
 
 The features are the spec, and are written first: a journey tells a user's
 story with the commands they type; a command's contract lives in its
@@ -2015,6 +2018,49 @@ hosted child's turn is in flight (`Daemon::in_flight`), and `discovery`
 while its discovery file is written. `ctxloom test record` prints every
 stream of the one store, and `ctxloom test seed-rehosts <harp> <n>` plants
 a child's past re-hosts.
+
+RESTART WITH RESUME (step 10e Stage 2a; owner rulings 2026-11-20). The
+SESSION AGGREGATE decides when a restart is owed; nothing else does. The
+command `RequestRestart{reason, note}` (reason `operator | context |
+config`, the additive `RestartReason`; only `operator` is emitted so far,
+by `ctxloom session restart <harp> [--note]`, `Caller::restart`, a command
+through the coordinator like `session stop`, keyed
+`restart:<session>:<incarnation>:operator`; a terminal session is refused
+client-side, `daemon-api-primary-not-hosted`: its engine is its `ctxloom
+run`'s) records `RestartOwed{reason, incarnation, note}` for the OPEN
+incarnation, once: a request while one is owed records nothing, whatever
+its reason; refused `sessions-no-session`, `sessions-session-closed`,
+`sessions-no-run-to-restart` (`NoRunToRestart`) and
+`sessions-no-native-session`. `SessionState.restart_owed` (field 31) folds
+it and the next `IncarnationOwed` closes it, so a restart owed is
+recognisable from the stream alone, after any crash (an owed restart with no
+later incarnation), never from memory. Context and config DECIDING, the
+deletion of the hook re-injection and primaries are not built (S2b, S2c).
+The HOSTING STATE is `daemon-board`'s `hosting.rs`, the board itself (its
+session and run fold, an ephemeral projector subscription's: folded from 0
+by every process, proved on the Bus in `bus.test.rs`), not a second
+projector: per agent `Agent::Idle | Active{turn} | Parked{turn, reason} |
+Restarting{reason}`, DERIVED, never stored. Active is a turn queued on the
+open incarnation's run and not ended (`RunState.turns`, the run stream's
+`TurnStarted/Completed/Failed` facts); the engine's end (`RunEnded`) forces
+Idle, so a turn end a dropped hook never delivered cannot park a restart
+for ever. PARK is that state (a restart owed while a turn is in flight), a
+deferral: no handler blocks, and another agent's launch or message is
+never held up. While parked the plan lets a steer through to the turn in
+flight and holds a wake and an inform (`session_policies::plan`'s `runs`):
+they are delivered into the resumed incarnation. At the Active to Idle edge
+`Daemon::restart_the_due` (each tick, `Board::restarts_due`: restarting,
+its incarnation open, its run live; only an engine this daemon hosts) ends
+the engine once (`ChildControl::end`); its exit ends the incarnation
+`restarted` (`ENDED_RESTARTED`, no notice to the owner) and the plan's
+re-host owes the next incarnation for the cause `restart`
+(`sessions::RESTARTED`, `RehostSession`, never counted against the
+re-host budget), however the incarnation ended: an engine that exited on
+its own with a restart owed is restarted all the same. The tick-driven
+`plan()` is kept for every start (smallest change: the hosting state is a
+read of the board it already catches up, and the effect is the hand-over's
+`ChildControl::end` path). A draining daemon restarts nothing: it hands the
+child over, and the restart owed is still in the stream for the next daemon.
 
 The daemon has ONE principal, the user (slice 2). At each start it mints
 the user bearer (T12: 256 bits, `credentials`' `OsTokenSource`) and a new
@@ -4936,8 +4982,8 @@ github.com/ctxloom/ci (owner rulings 2026-11-12): its composite actions
 `setup-rust` (rust-toolchain.toml, made the default; pinned tools by
 taiki-e/install-action; rust-cache, saved on main only), `setup-protoc`
 (3.21.12 by checksum), `setup-versionator` (v0.3.0's release binary by
-checksum, so no job sets up Go for it), `setup-ltk` (ltk from the Go
-ctxloom's go-final, go-installed on a cache miss only, for
+checksum, so no job sets up Go for it), `setup-ltk` (ltk, `go install`ed on a cache miss only from the Go
+ctxloom's `cmd/ltk` at the commit f36e8df, now in ctxloom-legacy's `go-final`, for
 `ltk-rules-check.sh`), `gate-logs` (the logs dumped and uploaded on a
 failure) and `package-binary`, and its reusable workflows `binaries.yml` and
 `release.yml`, all pinned at ONE commit of its main (bump them together).
@@ -4996,7 +5042,8 @@ one crate (`0/1` for all of it), how one crate's mutants are run whole.
 A shard holding mutants of the binary runs its feature runner, so on a tree
 that carries red spec on purpose (an integration branch, ruling 165) its
 unmutated baseline was red (cargo-mutants' exit 4, the score judging
-nothing: run 43870047304 on daemon/integration). Such a shard first makes
+nothing: run 43870047304 on daemon/integration, historical, before the
+fresh-history reset). Such a shard first makes
 the tree's own list (`just ratchet-base HEAD`, below), and when it has red
 runs cargo-mutants with `GHERKIN_RATCHET_BASE` naming it: every run of the
 runner, the baseline's and each mutant's, is judged against that list in
@@ -5259,7 +5306,8 @@ hook with `just hooks-install` once more (`gates/MIGRATING.md`).
    `scripts/mutants-verdict.selftest.sh` (`just selftest`).
 
 A slice landing on an integration branch that carries a red spec on purpose
-(daemon/integration, its daemon scenarios red) lands through `just
+(daemon/integration, its daemon scenarios red; the landing branch until
+step 11, `main` is the base afterwards, with no red scenario) lands through `just
 land-ratchet <base>` (owner ruling of 2026-11-13; `scripts/closeout-ratchet.sh
 --no-mutation`): `closeout-ratchet`'s gates (build, lint, lint-deps, the full
 test, lint-os) and its ratchet, without mutation (no mutants-batch, even

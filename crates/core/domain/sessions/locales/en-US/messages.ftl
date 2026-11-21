@@ -18,6 +18,9 @@ sessions-session-closed = session { $harp } is closed: it takes no message, clea
 sessions-owner-closed = session { $harp } is closed, and a closed session launches no child
 sessions-no-open-incarnation = session { $harp } has no run open to orchestrate a child
 sessions-no-open-incarnation-fix = launch the child from the session's running agent
+# DRAFT (step 10e Stage 2a, `session restart`).
+sessions-no-run-to-restart = session { $harp } has no run open: there is no engine to restart
+sessions-no-run-to-restart-fix = start it with `ctxloom run --session { $harp }`
 sessions-delegation-limit = this session holds { $open } open children, and its limit is { $limit }
 sessions-delegation-limit-fix = close a child first, or raise the limit
 sessions-untrusted-target = { $root } is another repository that has not passed the trust check

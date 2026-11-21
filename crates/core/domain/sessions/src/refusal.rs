@@ -14,9 +14,10 @@ use angzarr_embedded::markup::TypedRefusal;
 
 use crate::{
     DelegationLimit, EngineMismatch, HarpInvalid, NamesTaken, NoClaim, NoNativeSession,
-    NoOpenIncarnation, NoSession, NotHolder, NotOwner, OwnerIsClosed, RehostBudgetSpent,
-    SessionExists, SessionIsClosed, SessionIsDestroyed, SessionRejection, SessionRunning,
-    SessionUnknown, UntrustedTarget, UrgencyUnsupported, WakeOutstanding, WorkspaceMismatch,
+    NoOpenIncarnation, NoRunToRestart, NoSession, NotHolder, NotOwner, OwnerIsClosed,
+    RehostBudgetSpent, SessionExists, SessionIsClosed, SessionIsDestroyed, SessionRejection,
+    SessionRunning, SessionUnknown, UntrustedTarget, UrgencyUnsupported, WakeOutstanding,
+    WorkspaceMismatch,
 };
 
 /// What a command handler fails with for `rejection`: the typed refusal
@@ -174,6 +175,9 @@ fn daemon_rejection(refusal: &TypedRefusal) -> Option<SessionRejection> {
     }
     if let Some(OwnerIsClosed { harp }) = refusal.object() {
         return Some(SessionRejection::OwnerClosed { harp });
+    }
+    if let Some(NoRunToRestart { harp }) = refusal.object() {
+        return Some(SessionRejection::NoRunToRestart { harp });
     }
     if let Some(NoOpenIncarnation { harp }) = refusal.object() {
         return Some(SessionRejection::NoOpenIncarnation { harp });

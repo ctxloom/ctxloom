@@ -23,10 +23,11 @@ use crate::{
     adopted, end_recorded, engine_bound, kept_changed, lifeline, live, record, session_minted,
     title_set, AdoptRotations, BindEngineSession, EndRecorded, EngineMismatch, EngineSessionBound,
     HarpInvalid, IncarnationEnded, IncarnationOwed, KeptChanged, MintSession, NoNativeSession,
-    NoSession, RecordEnd, RecordIncarnationEnded, RehostBudgetSpent, RehostSession, ResumeSession,
-    SessionAdopted, SessionCommand, SessionEvent, SessionExists, SessionIsDestroyed, SessionMinted,
-    SessionRejection, SessionRunning, SessionState, SessionUnknown, SetKept, SetSessionTitle,
-    StopOrdered, TitleSet, WorkspaceMismatch,
+    NoRunToRestart, NoSession, RecordEnd, RecordIncarnationEnded, RehostBudgetSpent, RehostSession,
+    RequestRestart, RestartOwed, ResumeSession, SessionAdopted, SessionCommand, SessionEvent,
+    SessionExists, SessionIsDestroyed, SessionMinted, SessionRejection, SessionRunning,
+    SessionState, SessionUnknown, SetKept, SetSessionTitle, StopOrdered, TitleSet,
+    WorkspaceMismatch,
 };
 use crate::{
     daemon, ChildEnded, ChildForgotten, ChildLaunchFailed, ChildLaunched, ClearChild,
@@ -393,6 +394,28 @@ impl SessionAggregate {
         })
     }
 
+    /// Restart the session's engine with resume (step 10e Stage 2a): owe a
+    /// restart of its open incarnation, once.
+    #[handles_cmd(
+        RequestRestart,
+        refuses(NoSession, SessionIsClosed, NoRunToRestart, NoNativeSession)
+    )]
+    fn request_restart(
+        &self,
+        cmd: RequestRestart,
+        ctx: &Context,
+    ) -> Result<Option<RestartOwed>, Failed<Refuses<Self, RequestRestart>>> {
+        let _ = ctx;
+        lifeline::restart_requested(&self.session, &cmd).map_err(|rejection| {
+            refuse!(
+                SessionRejection,
+                rejection,
+                Refuses<Self, RequestRestart>,
+                [NoSession => NoSession, SessionClosed{harp} => SessionIsClosed, NoRunToRestart{harp} => NoRunToRestart, NoNativeSession{harp} => NoNativeSession]
+            )
+        })
+    }
+
     /// The owner's child ended; nothing for a child it does not hold.
     #[handles_cmd(EndChild, refuses(NoSession))]
     fn end_child(
@@ -735,6 +758,11 @@ impl SessionAggregate {
 
     #[applies(IncarnationOwed)]
     fn incarnation_owed(&mut self, event: IncarnationOwed, page: &PageContext) {
+        fold(&mut self.session, event.into(), page);
+    }
+
+    #[applies(RestartOwed)]
+    fn restart_owed(&mut self, event: RestartOwed, page: &PageContext) {
         fold(&mut self.session, event.into(), page);
     }
 

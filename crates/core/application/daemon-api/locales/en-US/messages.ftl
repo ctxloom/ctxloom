@@ -40,15 +40,15 @@ daemon-api-launch-in-progress-fix = wait for it to finish, then look at the chil
 # The terminal wake: DRAFT wording (2026-11-18), the owner's to approve.
 daemon-api-wake-inform-only = { $harp } cannot be woken: no ctxloom MCP server is connected to its engine (a session run with --no-context has none), so it takes an inform alone, delivered at its next prompt
 daemon-api-wake-inform-only-fix = send it as an inform: ctxloom session send { $harp } inform <text>
-# `session stop` of a terminal session: DRAFT wording (2026-11-20), the owner's to approve.
-daemon-api-stop-terminal = { $harp } is a terminal session, which the daemon does not run, so there is no run of its to stop
-daemon-api-stop-terminal-fix = end it from its own terminal, or close it: ctxloom session close { $harp }
 daemon-api-launch-lock = a child's launch lock could not be taken: { $ext_err_txt }
 # OD-52: DRAFT wording, the owner's to approve.
 daemon-api-start-up-incomplete = the daemon's start-up catch-up failed: { $why }; what it shows (sessions, transcripts, what it hosts) may be missing events until a later catch-up succeeds
 daemon-api-start-up-incomplete-fix = the daemon tries the catch-up again each round, and this warning clears once one succeeds; the daemon's log (daemon/daemon.log under ctxloom's home) says why it failed
 daemon-api-handing-over = the daemon, ctxloom { $daemon }, is shutting down: { $harps } will be handed over to the next daemon; a child busy in a turn has been steered to end it, and is handed over within { $seconds } seconds at the latest, its turn in flight cut; the next daemon resumes each in its own conversation
 # Step 8 U4 (texts.md §5, D14): accepted verbatim (owner, 2026-11-16; reviewed before release).
+# DRAFT (step 10e Stage 2a, `session restart`).
+daemon-api-primary-not-hosted = { $harp } is a terminal session run by its own ctxloom process: the daemon does not host its engine, so it can neither restart nor stop it
+daemon-api-primary-not-hosted-fix = end the session and resume it with `ctxloom run --session { $harp }`
 daemon-api-session-not-hosted = { $name } is no session this daemon runs, so its ask was not recorded
 daemon-api-approval-ambiguous = { $harp } has { $count } asks waiting ({ $asks }), so its name does not say which you mean; nothing was answered.
 daemon-api-approval-ambiguous-fix = Name the ask itself: `ctxloom session approvals answer <ask> <option>`, with one of { $asks }.

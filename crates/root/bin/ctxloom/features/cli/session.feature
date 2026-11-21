@@ -331,8 +331,8 @@ Feature: session — the record of what your assistant did, and the tools to pru
       And a session "amber-swift-owl" that is still running
       When I run "ctxloom session stop amber-swift-owl --format text"
       Then the command exits with code 20
-      And the output contains "amber-swift-owl is a terminal session, which the daemon does not run"
-      And the output contains "fix: end it from its own terminal, or close it: ctxloom session close amber-swift-owl"
+      And the output contains "amber-swift-owl is a terminal session run by its own ctxloom process"
+      And the output contains "fix: end the session and resume it with `ctxloom run --session amber-swift-owl`"
 
   @pending
   Rule: Pending (not built): the answer to a send

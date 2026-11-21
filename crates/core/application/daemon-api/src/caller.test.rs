@@ -11,7 +11,7 @@ use prost::Message;
 use sessions_proto::v1 as wire;
 
 use super::{reason_of, urgency_of, Caller};
-use crate::CallError;
+use crate::{ApiRejection, CallError, Rejection};
 
 const ME: &str = "projects/calm-quiet-heron/sessions/amber-quiet-heron";
 const CHILD: &str = "projects/calm-quiet-heron/sessions/brisk-copper-moth";
@@ -744,6 +744,63 @@ async fn a_stop_asks_the_targets_current_run_to_stop_keyed_by_that_run() {
     );
 }
 
+// Step 10e Stage 2a, `session restart`: the operator asks the session, which
+// decides (the domain's `RequestRestart`, reason operator, the note), keyed by
+// the incarnation it asks of, so a replay is the first's duplicate and a
+// restart of the next incarnation is a new one.
+#[tokio::test]
+async fn a_restart_asks_the_session_keyed_by_the_incarnation_it_asks_of() {
+    let world = World::new();
+    let caller = world.user(true);
+    let written = caller
+        .restart("brisk-copper-moth", "context is stale")
+        .await
+        .unwrap();
+    assert!(written.applied);
+    let child = sessions::SessionName::parse(CHILD).unwrap();
+    assert_eq!(written.id, child.uid());
+    let commands = world.commands();
+    let [packed] = commands.as_slice() else {
+        panic!("one restart: {commands:?}");
+    };
+    assert!(
+        packed
+            .type_url
+            .ends_with("/ctxloom.sessions.v1.RequestRestart"),
+        "{packed:?}"
+    );
+    let asked = wire::RequestRestart::decode(packed.value.as_slice()).unwrap();
+    assert_eq!(asked.reason, wire::RestartReason::Operator as i32);
+    assert_eq!(asked.note, "context is stale");
+    let cover = world.seen.lock().unwrap().books[0].cover.clone().unwrap();
+    assert_eq!(cover.domain, sessions::SESSION_DOMAIN);
+    assert_eq!(
+        world.command_ids(),
+        [sessions::command_id(&format!(
+            "restart:{}:2:operator",
+            child.uid()
+        ))]
+    );
+}
+
+// A terminal session's engine is held by its own `ctxloom run`, not the
+// daemon: refused before anything is written.
+#[tokio::test]
+async fn a_restart_of_a_primary_is_refused_and_writes_nothing() {
+    let world = World::new();
+    let caller = world.user(true);
+    let refused = caller.restart("lone-awake-heron", "").await.unwrap_err();
+    assert!(
+        matches!(
+            &refused,
+            CallError::Refused(Rejection::Api(ApiRejection::PrimaryNotHosted { harp }))
+                if harp == "lone-awake-heron"
+        ),
+        "{refused:?}"
+    );
+    assert!(world.commands().is_empty());
+}
+
 // `session stop` (MVP, owner 2026-11-20): a stop is a child's run's; a
 // terminal session (a primary, no owner) is stopped from its terminal or
 // closed, so the stop is refused before any command is sent, in the
@@ -757,7 +814,7 @@ async fn a_stop_of_a_terminal_session_is_refused_before_anything_is_sent() {
         .await
         .unwrap_err();
     let CallError::Refused(crate::refusal::Rejection::Api(
-        crate::refusal::ApiRejection::StopTerminal { harp },
+        crate::refusal::ApiRejection::PrimaryNotHosted { harp },
     )) = &refused
     else {
         panic!("{refused:?}");

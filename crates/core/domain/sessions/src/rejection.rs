@@ -64,6 +64,8 @@ pub enum SessionRejection {
     SessionRunning { harp: String },
     /// A resume of a session whose engine bound no native session.
     NoNativeSession { harp: String },
+    /// A restart of a session with no incarnation open (Stage 2a).
+    NoRunToRestart { harp: String },
     /// A resume on another engine than the session's.
     EngineMismatch {
         harp: String,
@@ -135,6 +137,7 @@ impl Diagnostic for SessionRejection {
             SessionRejection::SessionDestroyed { .. } => code!("session-destroyed"),
             SessionRejection::SessionRunning { .. } => code!("session-running"),
             SessionRejection::NoNativeSession { .. } => code!("no-native-session"),
+            SessionRejection::NoRunToRestart { .. } => code!("no-run-to-restart"),
             SessionRejection::EngineMismatch { .. } => code!("engine-mismatch"),
             SessionRejection::WorkspaceMismatch { .. } => code!("workspace-mismatch"),
             SessionRejection::RehostBudgetSpent { .. } => code!("rehost-budget-spent"),
@@ -159,8 +162,10 @@ impl Diagnostic for SessionRejection {
             | SessionRejection::SessionDestroyed { harp }
             | SessionRejection::SessionRunning { harp }
             | SessionRejection::SessionKept { harp }
+            | SessionRejection::NoRunToRestart { harp }
             | SessionRejection::NoNativeSession { harp } => vec![("harp", harp.as_str().into())],
-            SessionRejection::SessionLive { harp, reason } => vec![
+            SessionRejection::SessionLive { harp, reason }
+            | SessionRejection::HarpInvalid { harp, reason } => vec![
                 ("harp", harp.as_str().into()),
                 ("reason", reason.as_str().into()),
             ],
@@ -218,10 +223,6 @@ impl Diagnostic for SessionRejection {
                 ("harp", harp.as_str().into()),
                 ("limit", u64::from(*limit).into()),
                 ("recent", u64::from(*recent).into()),
-            ],
-            SessionRejection::HarpInvalid { harp, reason } => vec![
-                ("harp", harp.as_str().into()),
-                ("reason", reason.as_str().into()),
             ],
             SessionRejection::NameMalformed { name, reason } => vec![
                 ("name", name.as_str().into()),
@@ -309,6 +310,7 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(SessionRejection::SessionDestroyed { harp: harp() }),
         Box::new(SessionRejection::SessionRunning { harp: harp() }),
         Box::new(SessionRejection::NoNativeSession { harp: harp() }),
+        Box::new(SessionRejection::NoRunToRestart { harp: harp() }),
         Box::new(SessionRejection::EngineMismatch {
             harp: harp(),
             engine: "claude-code".to_string(),

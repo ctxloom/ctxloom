@@ -14,8 +14,9 @@
 use angzarr_embedded::markup::{pack_message, Bug, FactEmit};
 
 use crate::{
-    live, IncarnationEnded, IncarnationOwed, RecordIncarnationEnded, RehostSession, ResumeSession,
-    SessionAggregate, SessionEvent, SessionRejection, SessionReopened, SessionState,
+    live, IncarnationEnded, IncarnationOwed, RecordIncarnationEnded, RehostSession, RequestRestart,
+    RestartOwed, ResumeSession, SessionAggregate, SessionEvent, SessionRejection, SessionReopened,
+    SessionState,
 };
 
 /// The incarnation a mint owes: the first (owner ruling 2026-11-04, S5
@@ -87,6 +88,11 @@ pub const REHOSTED: &str = "rehost";
 /// never counted, never refused for the budget.
 pub const DRAINED: &str = "drain";
 
+/// Why an incarnation a restart owes is owed (step 10e Stage 2a): never
+/// counted, never refused for the budget, as a drain's is not. The cause
+/// the daemon ends the incarnation with (`restarted`) is the plan's.
+pub const RESTARTED: &str = "restart";
+
 /// How many re-hosts a child may have in the hour before a loss (S47).
 pub const REHOST_BUDGET: u32 = 60;
 
@@ -114,7 +120,7 @@ pub(crate) fn rehosted(
         "" => REHOSTED,
         cause => cause,
     };
-    if cause != DRAINED && rehost.recent_rehosts >= REHOST_BUDGET {
+    if ![DRAINED, RESTARTED].contains(&cause) && rehost.recent_rehosts >= REHOST_BUDGET {
         return Err(SessionRejection::RehostBudgetSpent {
             harp: harp(),
             limit: REHOST_BUDGET,
@@ -125,6 +131,35 @@ pub(crate) fn rehosted(
         incarnation: held.incarnation + 1,
         reason: cause.to_string(),
     })
+}
+
+/// What a restart request records (step 10e Stage 2a): the restart owed for
+/// the open incarnation, none when one is owed already (a request while one
+/// is owed records nothing, whatever its reason). Refused for a stream holding no session, a closed one, one
+/// with no incarnation open and one whose engine bound no native session.
+pub(crate) fn restart_requested(
+    held: &SessionState,
+    request: &RequestRestart,
+) -> Result<Option<RestartOwed>, SessionRejection> {
+    let held = live(held)?;
+    let harp = || held.harp.clone();
+    if held.closed {
+        return Err(SessionRejection::SessionClosed { harp: harp() });
+    }
+    let Some(incarnation) = held.open_incarnation else {
+        return Err(SessionRejection::NoRunToRestart { harp: harp() });
+    };
+    if held.native_id.is_empty() {
+        return Err(SessionRejection::NoNativeSession { harp: harp() });
+    }
+    if held.restart_owed.is_some() {
+        return Ok(None);
+    }
+    Ok(Some(RestartOwed {
+        reason: request.reason,
+        incarnation,
+        note: request.note.clone(),
+    }))
 }
 
 /// Go's idle reaper's terminal (`CauseIdleReaped`): an expected end that
@@ -152,10 +187,13 @@ pub(crate) fn ended(
 /// Fold a lifeline event: the incarnation owed, and its end.
 pub(crate) fn apply(state: &mut SessionState, event: &SessionEvent) {
     match event {
+        // The next incarnation owed closes a restart owed.
         SessionEvent::IncarnationOwed(owed) => {
             state.incarnation = owed.incarnation;
             state.open_incarnation = Some(owed.incarnation);
+            state.restart_owed = None;
         }
+        SessionEvent::RestartOwed(owed) => state.restart_owed = Some(owed.clone()),
         SessionEvent::IncarnationEnded(_) => state.open_incarnation = None,
         _ => {}
     }

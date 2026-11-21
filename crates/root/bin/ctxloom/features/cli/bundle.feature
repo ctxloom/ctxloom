@@ -1,6 +1,6 @@
 # world: base
 # Ported from cli/bundle.feature (rev f36e8dfb2)
-# NOT ported: the scenarios tagged @pending, each with its reason.
+# NOT ported: nothing; no scenario remains @pending.
 # OD-23 (owner, 2026-11-16, "amend the count"): the listing holds the created
 #   bundle AND the built-in `ctxloom` (origin `ctxloom/builtin`, ruling 127).
 # OD-40 (aip/catalog and aip/remotes, 2026-11-13; OQ-19): the JSON steps read

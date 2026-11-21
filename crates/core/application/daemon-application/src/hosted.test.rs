@@ -84,7 +84,9 @@ impl Iterator for Said {
 #[derive(Default)]
 struct Scripted {
     asked: Arc<Mutex<Asked>>,
-    said: Arc<Mutex<VecDeque<ChildObservation>>>,
+    /// What the latest child started will say: each start has a queue of its
+    /// own (a restart's second incarnation hears none of the first's).
+    said: Mutex<Arc<Mutex<VecDeque<ChildObservation>>>>,
     started: Mutex<Vec<ChildSpec>>,
     /// The launch each start was handed (T10).
     launches: Mutex<Vec<run_ports::Launch>>,
@@ -183,9 +185,11 @@ impl ChildEngine for Scripted {
     ) -> Result<StartedChild, ChildError> {
         self.started.lock().unwrap().push(spec.clone());
         self.launches.lock().unwrap().push(launch.clone());
+        let queue = Arc::new(Mutex::new(VecDeque::new()));
+        *self.said.lock().unwrap() = Arc::clone(&queue);
         Ok(StartedChild {
             control: Box::new(Control(Arc::clone(&self.asked))),
-            observations: Box::new(Said(Arc::clone(&self.said))),
+            observations: Box::new(Said(queue)),
         })
     }
 }
@@ -641,7 +645,13 @@ impl World {
     }
 
     fn say(&self, observation: ChildObservation) {
-        self.engine.said.lock().unwrap().push_back(observation);
+        self.engine
+            .said
+            .lock()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .push_back(observation);
     }
 
     async fn session_events(&self, session: &str) -> Vec<SessionEvent> {
@@ -653,9 +663,14 @@ impl World {
     }
 
     async fn run_events(&self) -> Vec<RunEvent> {
+        self.events_of_run(1).await
+    }
+
+    /// The events of the run of the child's `incarnation`.
+    async fn events_of_run(&self, incarnation: u32) -> Vec<RunEvent> {
         let cover = Cover {
             domain: runs::RUN_DOMAIN.to_string(),
-            root: Some(runs::run_root(CHILD, 1)),
+            root: Some(runs::run_root(CHILD, incarnation)),
             edition: None,
         };
         events(&self.edge, &cover)
@@ -3136,4 +3151,406 @@ async fn a_hosted_child_with_no_handed_agent_asks_as_its_plans() {
     let askers = world.daemon.askers();
     assert_eq!(askers.len(), 1, "{askers:?}");
     assert_eq!(askers[0].agent, "dev");
+}
+
+// ------------------------------------------- a restart (step 10e Stage 2a)
+//
+// The session decided a restart is owed (`RestartOwed`, from an operator's
+// `RequestRestart`); the daemon that hosts the engine waits for the Active to
+// Idle edge, ends the engine, and the session's next incarnation (reason
+// `restart`) is hosted again resuming the engine's own conversation.
+
+const CHILD_TWO: &str = "5f0c7a52-3333-5333-8333-000000000003";
+
+fn restart_request() -> sessions::RequestRestart {
+    sessions::RequestRestart {
+        reason: sessions::RestartReason::Operator,
+        note: String::new(),
+    }
+}
+
+/// The `RestartOwed` events `session` holds.
+async fn restarts_owed(world: &World, session: &str) -> usize {
+    world
+        .session_events(session)
+        .await
+        .iter()
+        .filter(|event| matches!(event, SessionEvent::RestartOwed(_)))
+        .count()
+}
+
+/// Rounds until the daemon has nothing more to do about what it was told.
+async fn settle(world: &mut World) {
+    for _ in 0..4 {
+        world.tick().await;
+    }
+}
+
+/// The messages the child's control was handed, by id and urgency.
+fn handed_to_child(world: &World) -> Vec<(String, ChildUrgency)> {
+    world.engine.asked.lock().unwrap().sent.clone()
+}
+
+// Idle, a restart is carried out at once: the engine ended, its incarnation
+// ended `restarted`, the next owed for `restart` and started resuming `n1`.
+#[tokio::test]
+async fn a_restart_asked_of_an_idle_child_is_carried_out_at_once() {
+    let files = Files::default();
+    let mut world = idle_bound_child(&files).await;
+    world.handle(CHILD, restart_request()).await;
+    world.tick().await;
+    assert_eq!(world.engine.asked.lock().unwrap().ends, 1, "ended at once");
+    world.tick().await;
+    assert_eq!(world.engine.asked.lock().unwrap().ends, 1, "ended once");
+    world.say(exited());
+    settle(&mut world).await;
+    assert_eq!(ended(&world, CHILD).await, [(1, "restarted".to_string())]);
+    assert_eq!(
+        owed(&world).await,
+        [(1, "first".to_string()), (2, "restart".to_string())]
+    );
+    let started = world.engine.started.lock().unwrap().clone();
+    assert_eq!(started.len(), 2, "started again");
+    assert_eq!(started[1].resume.as_deref(), Some("n1"), "its conversation");
+    assert_eq!(world.daemon.hosting(), 1);
+    assert!(
+        files.deleted.lock().unwrap().is_empty(),
+        "its hand-off kept"
+    );
+}
+
+// Active, it is PARKED: the turn in flight is never cut; the restart is
+// carried out at the turn's end.
+#[tokio::test]
+async fn a_restart_asked_of_a_busy_child_waits_for_its_turn_to_end() {
+    let files = Files::default();
+    let mut world = hosting_from(&files, &ForAgent::default()).await;
+    busy_child(&mut world).await;
+    world.handle(CHILD, restart_request()).await;
+    settle(&mut world).await;
+    assert_eq!(
+        world.engine.asked.lock().unwrap().ends,
+        0,
+        "parked, not cut"
+    );
+    assert_eq!(restarts_owed(&world, CHILD).await, 1);
+    world.say(answered(&["m-1"]));
+    settle(&mut world).await;
+    assert_eq!(
+        world.engine.asked.lock().unwrap().ends,
+        1,
+        "at the turn's end"
+    );
+    world.say(exited());
+    settle(&mut world).await;
+    assert_eq!(ended(&world, CHILD).await, [(1, "restarted".to_string())]);
+    let started = world.engine.started.lock().unwrap().clone();
+    assert_eq!(started.len(), 2);
+    assert_eq!(started[1].resume.as_deref(), Some("n1"));
+}
+
+// Asked twice, or replayed after it was carried out, it restarts once.
+#[tokio::test]
+async fn a_request_asked_twice_or_replayed_restarts_once() {
+    let files = Files::default();
+    let mut world = idle_bound_child(&files).await;
+    let key = format!("restart:{CHILD}:1:operator");
+    let keyed = || sessions::keyed_book(session_cover(CHILD), &restart_request(), &key);
+    world.edge.handle(keyed()).await.unwrap();
+    world.handle(CHILD, restart_request()).await;
+    world.tick().await;
+    world.say(exited());
+    settle(&mut world).await;
+    // Replayed once the new incarnation runs.
+    world.edge.handle(keyed()).await.unwrap();
+    settle(&mut world).await;
+    assert_eq!(restarts_owed(&world, CHILD).await, 1, "recorded once");
+    assert_eq!(world.engine.asked.lock().unwrap().ends, 1, "ended once");
+    assert_eq!(
+        world.engine.started.lock().unwrap().len(),
+        2,
+        "restarted once"
+    );
+}
+
+// The engine exiting with no turn end (a dropped hook, a crash) forces Idle:
+// the restart owed proceeds.
+#[tokio::test]
+async fn an_engine_exit_without_a_turn_end_lets_a_parked_restart_proceed() {
+    let files = Files::default();
+    let mut world = hosting_from(&files, &ForAgent::default()).await;
+    busy_child(&mut world).await;
+    world.handle(CHILD, restart_request()).await;
+    settle(&mut world).await;
+    assert_eq!(world.engine.asked.lock().unwrap().ends, 0, "parked");
+    world.say(exited());
+    settle(&mut world).await;
+    assert_eq!(ended(&world, CHILD).await, [(1, "runner-exit".to_string())]);
+    assert_eq!(
+        owed(&world).await,
+        [(1, "first".to_string()), (2, "restart".to_string())]
+    );
+    let started = world.engine.started.lock().unwrap().clone();
+    assert_eq!(started.len(), 2, "started again");
+    assert_eq!(started[1].resume.as_deref(), Some("n1"));
+}
+
+// A parked agent does not block another's launch.
+#[tokio::test]
+async fn a_second_agents_launch_is_not_blocked_while_the_first_is_parked() {
+    let files = Files::default();
+    let mut world = hosting_from(&files, &ForAgent::default()).await;
+    busy_child(&mut world).await;
+    world.handle(CHILD, restart_request()).await;
+    settle(&mut world).await;
+    assert_eq!(world.daemon.hosting(), 1);
+    world.mint(CHILD_TWO, "kid-two", Some(OWNER)).await;
+    settle(&mut world).await;
+    assert_eq!(world.daemon.hosting(), 2, "the second is hosted");
+    assert_eq!(
+        world.engine.asked.lock().unwrap().ends,
+        0,
+        "the first is parked still"
+    );
+}
+
+// While parked: a steer still reaches the turn in flight; an inform waits
+// and is delivered into the resumed session with the wake that starts its
+// turn.
+#[tokio::test]
+async fn a_parked_child_takes_a_steer_and_holds_an_inform_for_the_resumed_session() {
+    let files = Files::default();
+    let mut world = hosting_from(&files, &ForAgent::default()).await;
+    busy_child(&mut world).await;
+    world.handle(CHILD, restart_request()).await;
+    world
+        .handle(
+            CHILD,
+            sessions::SendMessage {
+                message_id: "i-1".to_string(),
+                urgency: Urgency::Inform,
+                text: "fyi".to_string(),
+                requester: None,
+                supported: vec![Urgency::Inform, Urgency::Wake, Urgency::Steer],
+            },
+        )
+        .await;
+    settle(&mut world).await;
+    assert!(
+        !handed_to_child(&world).iter().any(|(id, _)| id == "i-1"),
+        "the inform waits"
+    );
+    world
+        .handle(
+            CHILD,
+            sessions::SendMessage {
+                message_id: "s-1".to_string(),
+                urgency: Urgency::Steer,
+                text: "stop".to_string(),
+                requester: None,
+                supported: vec![Urgency::Inform, Urgency::Wake, Urgency::Steer],
+            },
+        )
+        .await;
+    settle(&mut world).await;
+    assert!(
+        handed_to_child(&world).contains(&("s-1".to_string(), ChildUrgency::Steer)),
+        "the steer reaches the turn in flight"
+    );
+    assert_eq!(world.engine.asked.lock().unwrap().ends, 0, "still parked");
+    // The turns end; the restart is carried out; the inform is still owed.
+    world.say(ChildObservation::TurnEnded {
+        message_ids: vec!["m-1".to_string()],
+        outcome: TurnOutcome::Failed {
+            class: run_ports::FailureClass::Interrupted,
+            detail: "interrupted".to_string(),
+            native_id: Some("n1".to_string()),
+        },
+    });
+    world.say(answered(&["s-1", "i-1"]));
+    settle(&mut world).await;
+    world.say(exited());
+    settle(&mut world).await;
+    assert_eq!(world.daemon.hosting(), 1, "resumed");
+    assert!(world.daemon.in_flight() || owed(&world).await.len() == 2);
+    world.handle(CHILD, wake("w-1")).await;
+    settle(&mut world).await;
+    let queued: Vec<Vec<String>> = world
+        .events_of_run(2)
+        .await
+        .into_iter()
+        .filter_map(|event| match event {
+            RunEvent::TurnQueued(queued) => Some(queued.message_ids),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(queued.len(), 1, "{queued:?}");
+    assert!(queued[0].contains(&"w-1".to_string()));
+}
+
+// A daemon restarted mid-park (its folds start from 0, its hosting lost):
+// the restart owed is in the stream and is honoured exactly once.
+#[tokio::test]
+async fn a_restart_owed_survives_the_daemon_and_is_honoured_once() {
+    let mut world = killed_with_a_bound_child().await;
+    world.handle(CHILD, restart_request()).await;
+    world.daemon = restarted(&world, LockProbe::Free);
+    world
+        .daemon
+        .start_up(&world.edge.store, world.edge.catalog())
+        .await
+        .unwrap();
+    for _ in 0..4 {
+        world.tick().await;
+    }
+    assert_eq!(
+        owed(&world).await,
+        [(1, "first".to_string()), (2, "restart".to_string())]
+    );
+    let started = world.engine.started.lock().unwrap().clone();
+    assert_eq!(started.len(), 2, "started again, once");
+    assert_eq!(started[1].resume.as_deref(), Some("n1"));
+    // A fresh fold of the same stream asks for nothing more.
+    world.daemon = restarted(&world, LockProbe::Unproven);
+    for _ in 0..3 {
+        world.tick().await;
+    }
+    assert_eq!(world.engine.started.lock().unwrap().len(), 2, "not again");
+}
+
+// The projector is the daemon's: it outlives the engine's exit, and a second
+// restart of the new incarnation is a second restart.
+#[tokio::test]
+async fn a_restarted_child_can_be_restarted_again() {
+    let files = Files::default();
+    let mut world = idle_bound_child(&files).await;
+    world.handle(CHILD, restart_request()).await;
+    settle(&mut world).await;
+    world.say(exited());
+    settle(&mut world).await;
+    assert_eq!(world.engine.started.lock().unwrap().len(), 2);
+    world.say(ChildObservation::Started {
+        native_id: "n1".to_string(),
+    });
+    world.tick().await;
+    world.handle(CHILD, restart_request()).await;
+    settle(&mut world).await;
+    world.say(exited());
+    settle(&mut world).await;
+    assert_eq!(world.engine.started.lock().unwrap().len(), 3);
+    assert_eq!(
+        ended(&world, CHILD).await,
+        [(1, "restarted".to_string()), (2, "restarted".to_string())]
+    );
+    assert_eq!(
+        owed(&world).await,
+        [
+            (1, "first".to_string()),
+            (2, "restart".to_string()),
+            (3, "restart".to_string())
+        ]
+    );
+}
+
+// A daemon handing over restarts nothing: it ends the idle child to hand it
+// over (`drained`), the restart still owed in its stream for the daemon that
+// re-hosts it, which resumes it for the cause `restart`.
+#[tokio::test]
+async fn a_draining_daemon_hands_a_child_owed_a_restart_over_and_restarts_none() {
+    let files = Files::default();
+    let mut world = idle_bound_child(&files).await;
+    world.handle(CHILD, restart_request()).await;
+    world.daemon.hand_over();
+    settle(&mut world).await;
+    assert_eq!(
+        world.engine.asked.lock().unwrap().ends,
+        1,
+        "ended once, to hand over"
+    );
+    world.say(exited());
+    settle(&mut world).await;
+    assert_eq!(ended(&world, CHILD).await, [(1, "drained".to_string())]);
+    assert_eq!(
+        world.engine.started.lock().unwrap().len(),
+        1,
+        "not started again"
+    );
+    world.daemon = restarted(&world, LockProbe::Free);
+    world
+        .daemon
+        .start_up(&world.edge.store, world.edge.catalog())
+        .await
+        .unwrap();
+    settle(&mut world).await;
+    assert_eq!(
+        owed(&world).await,
+        [(1, "first".to_string()), (2, "restart".to_string())]
+    );
+}
+
+const PRIMARY: &str = "5f0c7a52-4444-5444-8444-000000000004";
+
+// Only an engine this daemon hosts is ended: a primary (its own terminal
+// session, run by its `ctxloom run` process) owed a restart is not, and no
+// child hosted here is ended in its stead.
+#[tokio::test]
+async fn a_restart_owed_to_an_engine_this_daemon_does_not_host_ends_no_other() {
+    let files = Files::default();
+    let mut world = idle_bound_child(&files).await;
+    world.mint(PRIMARY, "prim", None).await;
+    world
+        .edge
+        .handle(sessions::bind_book(
+            session_cover(PRIMARY),
+            &sessions::BindEngineSession {
+                native_id: "p1".to_string(),
+                transcript_path: String::new(),
+                engine_version: None,
+            },
+        ))
+        .await
+        .unwrap();
+    runs_application::Enqueuer::new(Arc::clone(&world.edge))
+        .enqueue(runs_application::EnqueueRequest {
+            session: PRIMARY.to_string(),
+            incarnation: 1,
+            mode: runs::RunMode::Interactive,
+            evidence: runs_application::Evidence::passing(ENGINE),
+            launcher_lock: "/h/.ctxloom/runs/p.lock".to_string(),
+            grant: None,
+        })
+        .await
+        .unwrap();
+    runs_application::Facts::new(Arc::clone(&world.edge))
+        .record(
+            &runs_application::Identity {
+                run: runs::run_root(PRIMARY, 1),
+                session: angzarr_embedded::v1::Uuid::from_bytes(
+                    *uuid::Uuid::parse_str(PRIMARY).unwrap().as_bytes(),
+                ),
+                incarnation: 1,
+                harp: "prim".to_string(),
+                depth: 0,
+            },
+            runs_application::RunnerFact::RunnerStarted(runs::RecordRunnerStarted {
+                runtime: "host".to_string(),
+                workspace: "/work".to_string(),
+                pid: 7,
+            }),
+        )
+        .await
+        .unwrap();
+    world.handle(PRIMARY, restart_request()).await;
+    assert_eq!(
+        restarts_owed(&world, PRIMARY).await,
+        1,
+        "the session owes it"
+    );
+    settle(&mut world).await;
+    assert_eq!(
+        world.engine.asked.lock().unwrap().ends,
+        0,
+        "nothing ended here"
+    );
+    assert_eq!(world.daemon.hosting(), 1);
 }

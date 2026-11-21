@@ -103,3 +103,53 @@ pub(crate) fn entries(path: impl AsRef<Path>) -> Vec<(String, bool)> {
         .map(|e| (e.name.to_string_lossy().into_owned(), e.kind == Kind::Dir))
         .collect()
 }
+
+/// A project whose agent `orch` runs a profile that includes a bundle INSTALLED
+/// from a remote (`hub/demo`), as `ctxloom deps pull` leaves it: the registry,
+/// the lock and the installed tree. Returns the root and the project directory.
+pub(crate) fn project_with_a_remote_bundle() -> (file_system::Rooted, String) {
+    const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+    let root = crate::fixtures::root();
+    let project = root.root().join("work");
+    let app = project.join(".ctxloom");
+    crate::fixtures::mkdirs(root.root().join("home"));
+    let installed = app.join(format!("cache/bundles/example.test/o/r/demo/{SHA}"));
+    for (path, text) in [
+        (
+            app.join("config.yaml"),
+            "schema_version: 9\nagents:\n  orch:\n    engine: claude-code\n    profiles: [orch]\n    runtime: host\ndefault_agent: orch\n".to_string(),
+        ),
+        (
+            app.join("remotes.yaml"),
+            "schema_version: 1\nremotes:\n  hub:\n    url: https://example.test/o/r\n".to_string(),
+        ),
+        (
+            app.join("lock.yaml"),
+            format!(
+                "schema_version: 3\nbundles:\n  ctxloom+git://example.test/o/r//bundles/demo:\n    sha: {SHA}\n    url: https://example.test/o/r\n"
+            ),
+        ),
+        (
+            app.join("content/bundles/v2/project/bundle.yaml"),
+            "schema_version: 4\nversion: 1.0.0\n".to_string(),
+        ),
+        (
+            app.join("content/bundles/v2/project/profiles/orch.yaml"),
+            "bundles: [hub/demo]\n".to_string(),
+        ),
+        (
+            installed.join("bundle.yaml"),
+            "schema_version: 4\nversion: 1.0.0\n".to_string(),
+        ),
+        (installed.join("fragments/rules.md"), "RULES".to_string()),
+        (
+            installed.join(".identity"),
+            "ctxloom+git://example.test/o/r//bundles/demo".to_string(),
+        ),
+    ] {
+        crate::fixtures::mkdirs(path.parent().unwrap());
+        crate::fixtures::put_mode(path, text.as_str(), 0o644);
+    }
+    let dir = project.display().to_string();
+    (root, dir)
+}

@@ -521,56 +521,6 @@ fn a_died_daemon_is_told_by_its_logs_last_lines() {
     assert_eq!(tail_of("", 3), "");
 }
 
-/// A project whose agent `orch` runs a profile that includes a bundle INSTALLED
-/// from a remote (`hub/demo`), as `ctxloom deps pull` leaves it: the registry,
-/// the lock and the installed tree. Returns the root and the project directory.
-fn project_with_a_remote_bundle() -> (file_system::Rooted, String) {
-    const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
-    let root = crate::fixtures::root();
-    let project = root.root().join("work");
-    let app = project.join(".ctxloom");
-    crate::fixtures::mkdirs(root.root().join("home"));
-    let installed = app.join(format!("cache/bundles/example.test/o/r/demo/{SHA}"));
-    for (path, text) in [
-        (
-            app.join("config.yaml"),
-            "schema_version: 9\nagents:\n  orch:\n    engine: claude-code\n    profiles: [orch]\n    runtime: host\ndefault_agent: orch\n".to_string(),
-        ),
-        (
-            app.join("remotes.yaml"),
-            "schema_version: 1\nremotes:\n  hub:\n    url: https://example.test/o/r\n".to_string(),
-        ),
-        (
-            app.join("lock.yaml"),
-            format!(
-                "schema_version: 3\nbundles:\n  ctxloom+git://example.test/o/r//bundles/demo:\n    sha: {SHA}\n    url: https://example.test/o/r\n"
-            ),
-        ),
-        (
-            app.join("content/bundles/v2/project/bundle.yaml"),
-            "schema_version: 4\nversion: 1.0.0\n".to_string(),
-        ),
-        (
-            app.join("content/bundles/v2/project/profiles/orch.yaml"),
-            "bundles: [hub/demo]\n".to_string(),
-        ),
-        (
-            installed.join("bundle.yaml"),
-            "schema_version: 4\nversion: 1.0.0\n".to_string(),
-        ),
-        (installed.join("fragments/rules.md"), "RULES".to_string()),
-        (
-            installed.join(".identity"),
-            "ctxloom+git://example.test/o/r//bundles/demo".to_string(),
-        ),
-    ] {
-        crate::fixtures::mkdirs(path.parent().unwrap());
-        crate::fixtures::put_mode(path, text.as_str(), 0o644);
-    }
-    let dir = project.display().to_string();
-    (root, dir)
-}
-
 // Claim B: the daemon plans a child of a project as a process there would,
 // which reads the bundles installed from its remotes. A profile naming one
 // must resolve, as `ctxloom run --dry-run` resolves it; with no remotes in the
@@ -578,7 +528,7 @@ fn project_with_a_remote_bundle() -> (file_system::Rooted, String) {
 // finding, which the enqueue then counts as `runs-launch-refused`.
 #[test]
 fn a_childs_plan_reads_the_bundles_installed_from_remotes() {
-    let (root, dir) = project_with_a_remote_bundle();
+    let (root, dir) = crate::fixtures::project_with_a_remote_bundle();
     let home = root.root().join("home");
     let env = BTreeMap::from([(
         crate::fixtures::home_var().to_string(),

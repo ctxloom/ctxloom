@@ -7,7 +7,8 @@
 # TESTS_MEMORY_MAX); usage is refused. Where a systemd user bus is
 # reachable, also: the command runs inside a scope whose memory.max is the
 # cap, its exit code is the wrapper's, and a process of it that outgrows the
-# cap is OOM-killed while the run itself goes on (OOMPolicy=continue), the
+# cap is OOM-killed while the run itself goes on (OOMPolicy=continue; a lone
+# runaway, as the kernel may take a second process of the scope), the
 # peak and the kill said; and, with cargo-nextest installed, a nextest run
 # of a fixture crate under the cap whose one test runs away: that test alone
 # is killed and reported failed, the tests beside it pass, and the run ends
@@ -78,15 +79,22 @@ rc=0
 [ "$rc" -eq 5 ] || fail "scope: exit $rc, not the command's 5: $(cat "$tmp/out")"
 grep -qx "$((64 * 1024 * 1024))" "$tmp/out" || fail "scope: memory.max is not the 64M cap: $(cat "$tmp/out")"
 grep -q "^probe: memory peak .* (cap MemoryMax=64M MemorySwapMax=0)" "$tmp/out" || fail "scope: no peak line: $(cat "$tmp/out")"
-# A child outgrows the cap: it alone is killed, and the run goes on to its
-# own exit.
+# A process of the run outgrows the cap: the cap's OOM killer kills it, the
+# machine is untouched and the wrapper (the run) goes on to say so and to
+# exit with the command's own status, 137. The runaway is ONE process, no
+# shell or pipe beside it: the kernel's cgroup OOM may take a SECOND process
+# of the scope when one charges memory in the instant before the first
+# victim's is released (measured on GitHub's ubuntu-24.04 runner, kernel
+# 7.0: `head -c 256M /dev/zero | tail` under the cap took the wrapper
+# too, 21 runs in 60; on 6.12 none in 40). That race is the kernel's and is
+# not asserted away here; a lone runaway leaves it nothing to race with, so
+# a scope stopped by the manager (OOMPolicy=stop) or an OOM kill of the
+# wrapper shows as no kill line.
 rc=0
-"$cap" probe 64M 0 bash -c 'head -c 256M /dev/zero | tail > /dev/null; echo "child $?"; echo after; exit 3' \
-    > "$tmp/out" 2>&1 || rc=$?
-[ "$rc" -eq 3 ] || fail "OOM: exit $rc, not the run's own 3 (the scope was stopped?): $(cat "$tmp/out")"
-grep -qx "child 137" "$tmp/out" || fail "OOM: the child was not killed: $(cat "$tmp/out")"
-grep -qx "after" "$tmp/out" || fail "OOM: the run did not go on: $(cat "$tmp/out")"
-grep -q "the cap's OOM killer killed 1 process(es) of the run" "$tmp/out" || fail "OOM: the kill not said: $(cat "$tmp/out")"
+"$cap" probe 64M 0 tail < /dev/zero > "$tmp/out" 2>&1 || rc=$?
+[ "$rc" -eq 137 ] || fail "OOM: exit $rc, not the runaway's own 137: $(cat "$tmp/out")"
+grep -q "^probe: memory peak .*; the cap's OOM killer killed 1 process(es) of the run" "$tmp/out" \
+    || fail "OOM: the wrapper did not go on to say the kill (the scope was stopped?): $(cat "$tmp/out")"
 
 # A test suite, as the test gates run one: nextest, each test a process of
 # its own, under the cap. One test runs away; the cap's OOM killer kills it

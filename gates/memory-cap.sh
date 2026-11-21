@@ -22,6 +22,11 @@
 # continue only the process the kernel picks (the runaway test) is killed,
 # its test fails, cargo-mutants counts the mutant caught and goes on (and
 # a nextest run reports that test failed and runs the rest).
+# Not guaranteed: that ONLY the runaway dies. The kernel's cgroup OOM can take
+# a second process of the scope if one charges memory before the first
+# victim's is released (GitHub's ubuntu-24.04 runner, kernel 7.0: a
+# `head | tail` runaway took the wrapper too, 21 runs in 60; none in 40 on
+# 6.12). The run then ends 137, a failure and never a silent pass.
 # `--collect` lets a scope that ended failed (an OOM kill) go, so its name
 # is free again. Inside the scope the command is started only once the
 # scope's memory.max is seen set (a manager without the memory controller

@@ -175,3 +175,27 @@ fn a_permit_never_replaces_what_ctxloom_set_for_the_engine() {
             .collect::<Vec<_>>()
     );
 }
+
+// A primary's own child-credential variables are offered to the processes it
+// starts (its MCP server) as permits, so a child it launches can be judged
+// and given the same credential.
+#[test]
+fn permits_for_spells_each_held_name_as_a_permit() {
+    let caller = env(&[
+        ("CLAUDE_CODE_OAUTH_TOKEN", "tok"),
+        ("ANTHROPIC_API_KEY", ""),
+        ("ANTHROPIC_AUTH_TOKEN", "primary-only"),
+        ("PATH", "/usr/bin"),
+    ]);
+    let got = permits_for(&caller, &["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"]);
+    assert_eq!(
+        got,
+        env(&[("CTXLOOM_PERMIT_CLAUDE_CODE_OAUTH_TOKEN", "tok")])
+    );
+}
+
+#[test]
+fn permits_for_names_only_what_it_is_asked_for() {
+    let caller = env(&[("ANTHROPIC_AUTH_TOKEN", "primary-only")]);
+    assert!(permits_for(&caller, &["CLAUDE_CODE_OAUTH_TOKEN"]).is_empty());
+}

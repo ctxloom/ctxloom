@@ -75,7 +75,7 @@ pub use launcher::{
 };
 pub use locks::{HeldLock, LockError, LockProbe, RunLocks};
 pub use login::{LinkState, LoginLinks};
-pub use permit::{apply_permits, permits, Ignored, Permits, PERMIT_PREFIX};
+pub use permit::{apply_permits, permits, permits_for, Ignored, Permits, PERMIT_PREFIX};
 pub use program::{check_batch_arguments, is_batch_file, BatchArguments, ProgramNotFound};
 pub use records::{check_rel, RecordsError, SessionRecords};
 pub use settings::{

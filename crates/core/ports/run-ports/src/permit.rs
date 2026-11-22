@@ -126,6 +126,23 @@ pub fn apply_permits(
     got.ignored
 }
 
+/// The permits that offer `names` of `env` to a process the engine starts
+/// (its MCP server): `CTXLOOM_PERMIT_<NAME>=v` for each `name` `env` holds
+/// non-empty. A primary session's claude is given them for the engine's
+/// child-credential names, so a child it launches is judged and handed the
+/// credential its own environment would not show. The caller picks `names`
+/// (never the primary-only token); a value is only copied, never shown.
+pub fn permits_for(env: &BTreeMap<String, String>, names: &[&str]) -> BTreeMap<String, String> {
+    names
+        .iter()
+        .filter_map(|name| {
+            env.get(*name)
+                .filter(|value| !value.is_empty())
+                .map(|value| (format!("{PERMIT_PREFIX}{name}"), value.clone()))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 #[path = "permit.test.rs"]
 mod tests;

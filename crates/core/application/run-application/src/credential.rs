@@ -63,11 +63,15 @@ pub fn ignored_permit(ignored: &Ignored) -> Notice {
     }
 }
 
-/// Whether the environment holds any of `names`, non-empty.
+/// Whether the environment holds any of `names`, non-empty, as the name
+/// itself or as its permit (`CTXLOOM_PERMIT_<name>`, which the launch applies
+/// as the name: an MCP server's environment, where claude withholds its own
+/// token, carries the permit).
 pub(crate) fn holds(env: &BTreeMap<String, String>, names: &[String]) -> bool {
+    let set = |name: &str| env.get(name).is_some_and(|value| !value.is_empty());
     names
         .iter()
-        .any(|name| env.get(name).is_some_and(|value| !value.is_empty()))
+        .any(|name| set(name) || set(&format!("{}{name}", run_ports::PERMIT_PREFIX)))
 }
 
 /// What a child agent's run authenticates with, as the run's enqueue judges

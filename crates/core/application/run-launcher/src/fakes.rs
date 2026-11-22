@@ -381,6 +381,8 @@ pub struct ScriptedEngine {
     /// is asked of, the plans it was asked of kept in `advised`.
     pub advises: bool,
     pub advised: Arc<Mutex<Vec<run_ports::Planned>>>,
+    /// How it is handed a credential (its `credentials`).
+    pub credentials: run_ports::Credentials,
 }
 
 impl ScriptedEngine {
@@ -395,6 +397,7 @@ impl ScriptedEngine {
             prepared: Arc::default(),
             advises: false,
             advised: Arc::default(),
+            credentials: run_ports::Credentials::default(),
         }
     }
 
@@ -415,6 +418,10 @@ impl ScriptedEngine {
 impl Engine for ScriptedEngine {
     fn name(&self) -> &str {
         "fake"
+    }
+
+    fn credentials(&self) -> run_ports::Credentials {
+        self.credentials
     }
 
     fn advise(&self, planned: &run_ports::Planned) -> Vec<run_ports::Advice> {

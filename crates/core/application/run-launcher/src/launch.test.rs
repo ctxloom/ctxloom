@@ -463,3 +463,67 @@ fn a_launch_names_its_run_home_lock_and_checkout() {
     assert_eq!(launch.left_out.len(), 1);
     assert!(!launch.stop.close_stdin_first);
 }
+
+// A primary's own child-credential variables ride its environment as permits,
+// so the MCP server it starts holds them and a child it launches is judged
+// and given the credential (owner-approved fix of `child_launch`'s
+// `runs-no-credential`). Only the terminal's launch, only the engine's
+// child-credential names, never `ANTHROPIC_AUTH_TOKEN`.
+fn credentialed() -> ScriptedEngine {
+    ScriptedEngine {
+        credentials: run_ports::Credentials {
+            child_env: &["CHILD_TOKEN"],
+            primary_env: &["CHILD_TOKEN", "PRIMARY_ONLY"],
+            ..Default::default()
+        },
+        ..ScriptedEngine::answering("", None)
+    }
+}
+
+fn launched_with(kind: LaunchKind, env: &[(&str, &str)]) -> BTreeMap<String, String> {
+    let engine = credentialed();
+    let finder = Finder::finding("/found/fake");
+    let mut asked = request(kind);
+    asked
+        .setup
+        .env
+        .extend(env.iter().map(|(k, v)| (k.to_string(), v.to_string())));
+    launch_of(
+        engines(&engine),
+        &|c| finder.find(c),
+        &mut MemoryRecords::default(),
+        None,
+        &asked,
+        "linux",
+    )
+    .unwrap()
+    .launch
+    .env
+}
+
+#[test]
+fn a_terminal_session_carries_its_child_credential_as_a_permit() {
+    let env = launched_with(
+        LaunchKind::Terminal,
+        &[("CHILD_TOKEN", "tok"), ("PRIMARY_ONLY", "primary")],
+    );
+    assert_eq!(
+        env.get("CTXLOOM_PERMIT_CHILD_TOKEN").map(String::as_str),
+        Some("tok")
+    );
+    assert!(!env.contains_key("CTXLOOM_PERMIT_PRIMARY_ONLY"));
+}
+
+#[test]
+fn a_childs_turn_and_a_one_shot_carry_no_such_permit() {
+    for kind in [LaunchKind::OneShot, LaunchKind::Child] {
+        let env = launched_with(kind, &[("CHILD_TOKEN", "tok")]);
+        assert!(!env.contains_key("CTXLOOM_PERMIT_CHILD_TOKEN"), "{kind:?}");
+    }
+}
+
+#[test]
+fn a_terminal_without_the_credential_carries_no_permit() {
+    let env = launched_with(LaunchKind::Terminal, &[]);
+    assert!(!env.contains_key("CTXLOOM_PERMIT_CHILD_TOKEN"));
+}

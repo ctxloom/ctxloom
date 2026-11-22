@@ -1532,7 +1532,18 @@ name is ignored and the run says so as a notice (by the permit's name, never
 its value); no value renders in a `Debug` (every environment value is
 withheld, see the credentials paragraph). An explicit `CTXLOOM_PERMIT_ANTHROPIC_AUTH_TOKEN` does give a
 child the primary's token (78a): the cost is that such a child holds the
-primary's own token, no distinct per-child credential. A permit never
+primary's own token, no distinct per-child credential. A terminal session's
+launch (`LaunchKind::Terminal` alone, `run_launcher::launch_of`, after the
+permits above are applied) also puts `CTXLOOM_PERMIT_<N>=v` in the engine's
+environment for each of the engine's child-credential names `N`
+(`CredentialPolicy::child_env`, so never `ANTHROPIC_AUTH_TOKEN`) the user's
+environment holds non-empty (`run_ports::permits_for`; a permit the caller
+already set stays): claude withholds its own token from the `ctxloom mcp
+serve` it starts, which inherits the permit, so a `child_launch` call's
+environment carries it into the hand-off, and the child's credential evidence
+counts the permit spelling (`run_application::credential::holds`). A child's
+turn, a one-shot and a hook carry none.
+A permit never
 replaces what ctxloom itself sets for the engine (ruling 78b: a DENYLIST
 DERIVED from what was set, never an allowlist): `run_ports::owned_names` is
 every name in the engine's command whose value is not the caller's as passed

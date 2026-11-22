@@ -646,3 +646,17 @@ fn on_windows_a_data_home_with_a_drive_moves_the_login() {
     assert_eq!(links.made.len(), 1, "{:?}", links.made);
     assert_eq!(links.made[0].2, r"D:\data/opencode/auth.json");
 }
+
+// The permit spelling counts: the launch applies it as the real name, so the
+// evidence of a call whose environment holds only the permit (an MCP server's,
+// claude withholding its own token from it) says one is set.
+#[test]
+fn a_permit_of_either_variable_serves_a_child_too() {
+    for name in BOTH {
+        let permit = format!("CTXLOOM_PERMIT_{name}");
+        assert!(claude_child(&[(&permit, "x")]).accepted_set, "{name}");
+        assert!(!claude_child(&[(&permit, "")]).accepted_set, "{name} empty");
+    }
+    // The primary's alone is not a child's, permitted or not.
+    assert!(!claude_child(&[("CTXLOOM_PERMIT_ANTHROPIC_AUTH_TOKEN", "x")]).accepted_set);
+}

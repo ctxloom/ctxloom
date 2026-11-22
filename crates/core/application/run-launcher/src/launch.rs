@@ -181,6 +181,18 @@ pub fn launch_of(
     // ctxloom set for it (ruling 78b): the adapter's computed names, derived
     // from the command, and the run's own.
     said.ignored = run_ports::apply_permits(&request.setup.env, &mut command.env, &set_up.owned);
+    // 3b. The human's terminal session offers its child-credential variables
+    // to what it starts as permits (after the permits above, which strip
+    // them): its MCP server, which claude hands no token of its own, then
+    // holds them, and a child the session launches is judged and given the
+    // credential. Never a child's turn, a one-shot's or the primary-only token.
+    if request.kind == LaunchKind::Terminal {
+        let policy = request.settings.credentials(engines.engine.credentials());
+        let names: Vec<&str> = policy.child_env.iter().map(String::as_str).collect();
+        for (permit, value) in run_ports::permits_for(&request.setup.env, &names) {
+            command.env.entry(permit).or_insert(value);
+        }
+    }
     // 4. The program is found on the command's own PATH, by the names the
     // host looks it up by (PATHEXT's on Windows, which std's spawn does not
     // try), and the file found is what is spawned.

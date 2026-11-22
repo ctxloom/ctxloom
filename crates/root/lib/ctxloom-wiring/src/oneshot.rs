@@ -776,7 +776,7 @@ pub(crate) async fn hosted_setup(
         Err(e) => return Err((RunError::Project(Report::of(&e)), Vec::new())),
     };
     let remotes: std::rc::Rc<dyn deps_ports::RemoteLibrary> = deps.clone();
-    let library = match crate::library::build(&wiring, Some(remotes)) {
+    let library = match crate::library::build_over(&wiring, remotes) {
         Ok(library) => library,
         Err(e) => return Err((RunError::Project(Report::of(&e)), Vec::new())),
     };

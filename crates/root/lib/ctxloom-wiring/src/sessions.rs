@@ -77,7 +77,7 @@ impl session_cli::AlwaysRules for LibraryRules<'_> {
         rule: &str,
         apply: bool,
     ) -> Result<session_cli::AlwaysPlan, session_cli::Failure> {
-        let library = crate::library::build(self.wiring, None).map_err(session_cli::Failure::of)?;
+        let library = crate::library::build(self.wiring).map_err(session_cli::Failure::of)?;
         let written = library
             .allow_always(&self.flags, agent, engine, rule, apply)
             .result

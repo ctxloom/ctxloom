@@ -242,8 +242,7 @@ impl daemon_api::Libraries for ProjectLibraries {
             dir.to_string()
         };
         let wiring = self.at(&at, env);
-        let deps = std::rc::Rc::new(crate::commands::build_deps(&wiring).map_err(|e| failed(&e))?);
-        let library = crate::library::build(&wiring, Some(deps)).map_err(|e| failed(&e))?;
+        let library = crate::library::build(&wiring).map_err(|e| failed(&e))?;
         read(&library);
         Ok(())
     }
@@ -285,7 +284,7 @@ impl daemon_api::Trusts for ProjectTrusts {
         let failed = |e: &dyn angzarr_diagnostic::Diagnostic| ApiError::Failed {
             detail: e.code().to_string(),
         };
-        let library = crate::library::build(&wiring, None).map_err(|e| failed(&e))?;
+        let library = crate::library::build(&wiring).map_err(|e| failed(&e))?;
         let held = library.trust_settings().map_err(|e| failed(&e))?;
         Ok(held
             .into_iter()

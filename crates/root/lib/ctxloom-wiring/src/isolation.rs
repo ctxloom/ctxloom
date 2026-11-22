@@ -74,7 +74,7 @@ pub(crate) fn container(
 ) -> Result<Exit, Failure> {
     let wired = |e: LibError| Failure::boxed(Box::new(e), Exit::FAILED);
     let wiring = Wiring::new(Arc::clone(env)).map_err(wired)?;
-    let library = Rc::new(crate::library::build(&wiring, None).map_err(wired)?);
+    let library = Rc::new(crate::library::build(&wiring).map_err(wired)?);
     let flags = call.globals.clone();
     let containers = Containers::new(
         HostRuntimes::from_env(wiring.fs(), Arc::clone(env)),

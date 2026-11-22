@@ -93,12 +93,15 @@ impl LibraryCommands {
     fn wired(&mut self) -> Result<&Library, LibError> {
         if self.library.is_none() {
             let wiring = Wiring::new(Arc::clone(&self.env))?;
-            let library = build(&wiring, self.remotes.clone())?
-                // A project `ctxloom` bundle replaces init's prompt only
-                // once the user trusts the project: her daemon is asked,
-                // once, where it decides (step 8 U2, D4). Distill's is the
-                // daemon's to read (step 10b).
-                .with_trust(crate::daemon::trust_ask(&wiring, &self.version));
+            let library = match self.remotes.clone() {
+                Some(remotes) => build_over(&wiring, remotes)?,
+                None => build(&wiring)?,
+            }
+            // A project `ctxloom` bundle replaces init's prompt only
+            // once the user trusts the project: her daemon is asked,
+            // once, where it decides (step 8 U2, D4). Distill's is the
+            // daemon's to read (step 10b).
+            .with_trust(crate::daemon::trust_ask(&wiring, &self.version));
             self.library = Some(library);
         }
         Ok(self
@@ -133,9 +136,19 @@ fn words() -> library_application::Words {
     })
 }
 
-pub(crate) fn build(
+/// The library as a run reads it: over the dependency use cases of `wiring`'s
+/// project, so a bundle installed from a remote resolves (owner ruling
+/// 2026-11-21: a library without the remotes is unrepresentable).
+pub(crate) fn build(wiring: &Wiring) -> Result<Library, LibError> {
+    let deps: Rc<dyn RemoteLibrary> = Rc::new(crate::commands::build_deps(wiring)?);
+    build_over(wiring, deps)
+}
+
+/// The same library over `remotes`, for a caller that shares its dependency
+/// use cases with the library (a command, a hosted run).
+pub(crate) fn build_over(
     wiring: &Wiring,
-    remotes: Option<Rc<dyn RemoteLibrary>>,
+    remotes: Rc<dyn RemoteLibrary>,
 ) -> Result<Library, LibError> {
     let fs = wiring.fs();
     let home = wiring.home().to_path_buf();
@@ -175,10 +188,7 @@ pub(crate) fn build(
     } else {
         library.with_builtins()
     };
-    Ok(match remotes {
-        Some(remotes) => library.with_remotes(remotes),
-        None => library,
-    })
+    Ok(library.with_remotes(remotes))
 }
 
 /// The engines whose word on a run's plan is said (`Engine::advise`): those

@@ -264,10 +264,8 @@ fn from_process() -> Result<Wiring, LibError> {
 }
 
 /// The library over the process's environment as it is now.
-fn wired_library(
-    remotes: Option<std::rc::Rc<dyn deps_ports::RemoteLibrary>>,
-) -> Result<library_application::Library, LibError> {
-    crate::library::build(&from_process()?, remotes)
+fn wired_library() -> Result<library_application::Library, LibError> {
+    crate::library::build(&from_process()?)
 }
 
 #[test]
@@ -654,16 +652,16 @@ fn test_the_root_variable_makes_the_work_root_and_the_project_is_marked_there() 
 #[test]
 fn test_the_libraries_environment_is_the_whole_process_environment_at_the_time_of_wiring() {
     let mut env = Env::new("library-env");
-    let library = wired_library(None).ok().unwrap();
+    let library = wired_library().ok().unwrap();
     assert!(!library.degraded_by_environment());
     env.set("CTXLOOM_DEGRADED", "1");
-    assert!(wired_library(None).ok().unwrap().degraded_by_environment());
+    assert!(wired_library().ok().unwrap().degraded_by_environment());
     // a snapshot: the one built before does not see it
     assert!(!library.degraded_by_environment());
     for other in ["0", "true", "", "yes"] {
         env.set("CTXLOOM_DEGRADED", other);
         assert!(
-            !wired_library(None).ok().unwrap().degraded_by_environment(),
+            !wired_library().ok().unwrap().degraded_by_environment(),
             "{other:?}"
         );
     }
@@ -673,7 +671,7 @@ fn test_the_libraries_environment_is_the_whole_process_environment_at_the_time_o
 fn test_a_config_override_in_the_environment_reaches_the_library() {
     let mut env = Env::new("library-override");
     env.set("CTXLOOM_CONFIG_NON_TTY_FORMAT", "text");
-    let library = wired_library(None).ok().unwrap();
+    let library = wired_library().ok().unwrap();
     assert_eq!(
         library
             .preferred_format(&library_application::Flags::default())
@@ -681,7 +679,7 @@ fn test_a_config_override_in_the_environment_reaches_the_library() {
         Some("text")
     );
     env.unset("CTXLOOM_CONFIG_NON_TTY_FORMAT");
-    let library = wired_library(None).ok().unwrap();
+    let library = wired_library().ok().unwrap();
     assert_eq!(
         library.preferred_format(&library_application::Flags::default()),
         None
@@ -700,7 +698,7 @@ fn test_a_variable_that_is_not_utf_8_does_not_stop_the_library_being_wired() {
     env.set("A0_NOT_UTF8", os::not_unicode(""));
     env.set("CTXLOOM_DEGRADED", "1");
     env.set("CTXLOOM_CONFIG_NON_TTY_FORMAT", "text");
-    let library = wired_library(None).expect("wired, though one variable is bytes");
+    let library = wired_library().expect("wired, though one variable is bytes");
     assert!(library.degraded_by_environment(), "the others are read");
     assert_eq!(
         library

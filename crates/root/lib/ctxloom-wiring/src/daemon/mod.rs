@@ -1792,11 +1792,7 @@ fn child_library(
             .map(|(name, value)| (name.as_str(), value.as_str())),
     );
     let code = |e: &dyn angzarr_diagnostic::Diagnostic| e.code().to_string();
-    // The remotes too, as every run's library has them (a hosted run's,
-    // `places`' reads): a profile naming an installed remote bundle resolves.
-    let deps: std::rc::Rc<dyn deps_ports::RemoteLibrary> =
-        std::rc::Rc::new(crate::commands::build_deps(&wiring).map_err(|e| code(&e))?);
-    crate::library::build(&wiring, Some(deps)).map_err(|e| code(&e))
+    crate::library::build(&wiring).map_err(|e| code(&e))
 }
 
 #[cfg(test)]

@@ -46,7 +46,7 @@ fn registered(names: &[&str], register: &[&str]) -> (file_system::Rooted, Regist
         ],
     ));
     let wiring = crate::Wiring::new(env).unwrap();
-    let library = Rc::new(crate::library::build(&wiring, None).unwrap());
+    let library = Rc::new(crate::library::build(&wiring).unwrap());
     for name in register {
         library
             .companion_add(&Flags::default(), name)
@@ -119,7 +119,7 @@ fn engines_of(names: &[&str], config: Option<&str>) -> (file_system::Rooted, Eng
         vec![(crate::fixtures::home_var().into(), home.into_os_string())],
     ));
     let wiring = crate::Wiring::new(env).unwrap();
-    let library = Rc::new(crate::library::build(&wiring, None).unwrap());
+    let library = Rc::new(crate::library::build(&wiring).unwrap());
     let engines = Engines {
         names: names.iter().map(ToString::to_string).collect(),
         library,

@@ -368,7 +368,7 @@ impl Wiring {
     /// Where a seeded session's output goes: where a run's would
     /// (`<project>/<output.dir>/<harp>`, owner rulings 89, 106).
     fn seed_output_dir(&self, harp: &str) -> Result<std::path::PathBuf, TestError> {
-        let library = crate::library::build(self, None).map_err(seed_error)?;
+        let library = crate::library::build(self).map_err(seed_error)?;
         let written = library
             .run_settings(&library_application::Flags::default())
             .map_or_else(

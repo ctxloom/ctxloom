@@ -306,7 +306,7 @@ pub(crate) fn build_setup_over(
         }
         ctxloom_ports::Source::Home => cwd.clone(),
     };
-    let library = crate::library::build(wiring, Some(deps.clone()))?;
+    let library = crate::library::build_over(wiring, deps.clone())?;
     Ok(Setup::new(
         library,
         engines(),

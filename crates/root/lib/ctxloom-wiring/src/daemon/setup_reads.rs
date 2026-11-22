@@ -91,7 +91,7 @@ fn init_prompt(
     flags: &library_application::Flags,
 ) -> Result<SetupAnswer, ApiError> {
     use cli_support::ExitClass;
-    let library = crate::library::build(wiring, None).map_err(|e| ApiError::diagnosed(&e))?;
+    let library = crate::library::build(wiring).map_err(|e| ApiError::diagnosed(&e))?;
     let read = library.operational_prompt(flags, library::builtin::SETUP_INTERVIEW_NAME);
     let text = read.result.map_err(|e| {
         let exit = e.exit();

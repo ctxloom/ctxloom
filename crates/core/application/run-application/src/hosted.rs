@@ -62,6 +62,15 @@ pub fn hosted_child(
             env,
         )),
         fatal_findings: u32::try_from(previewed.fatal.len()).unwrap_or(u32::MAX),
+        // A child's launch has nobody to say its findings but the refusal.
+        fatal: previewed
+            .fatal
+            .iter()
+            .map(|row| runs::LaunchFinding {
+                text: row.text.clone(),
+                remedy: row.remedy.clone(),
+            })
+            .collect(),
         untrusted_settings: previewed.plan.untrusted.clone(),
     };
     HostedChild {

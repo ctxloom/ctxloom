@@ -26,7 +26,7 @@ pub use generated::*;
 pub use refusal::NotOurs;
 #[cfg(any(test, feature = "test-support"))]
 pub use rejection::diagnostic_samples;
-pub use rejection::{RunRejection, EN_US};
+pub use rejection::{LaunchFinding, RunRejection, EN_US};
 pub use state::{apply, OpenTurn, RunState, RUN_DOMAIN};
 
 /// The root of the run stream for `session`'s `incarnation`: UUIDv5 of the

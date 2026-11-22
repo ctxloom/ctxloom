@@ -559,6 +559,15 @@ impl daemon_api::HandOffs for ApiHandOffs {
                 accepted_set: credential.accepted_set,
             },
             fatal_findings: child.evidence.fatal_findings,
+            fatal: child
+                .evidence
+                .fatal
+                .iter()
+                .map(|finding| daemon_api::FatalFinding {
+                    text: finding.text.clone(),
+                    remedy: finding.remedy.clone(),
+                })
+                .collect(),
             untrusted_settings: child.evidence.untrusted_settings.clone(),
             content: daemon_api::HandOffContent {
                 env: engine_claude::launcher_environment(&child.settings, &caller),

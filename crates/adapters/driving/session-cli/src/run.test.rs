@@ -2800,3 +2800,33 @@ fn show_in_text_says_a_wake_sent_and_not_answered() {
     let out = shown("");
     assert!(!out.contains("wake:"), "{out}");
 }
+
+// Owner ruling 2026-11-21: a launch refused for the plan's fatal findings
+// lists each of them, its remedy as the fix, beside the summary.
+#[test]
+fn a_launch_refused_for_fatal_findings_lists_them() {
+    let error = daemon_api::CallError::Refused(daemon_api::Rejection::Runs(
+        daemon_api::RunRejection::LaunchRefused {
+            refusals: Vec::new(),
+            fatal_findings: 2,
+            findings: vec![
+                daemon_api::LaunchFinding {
+                    text: "failed to load bundle \"hub/demo\"".to_string(),
+                    remedy: "run `ctxloom deps pull`".to_string(),
+                },
+                daemon_api::LaunchFinding {
+                    text: "second".to_string(),
+                    remedy: String::new(),
+                },
+            ],
+        },
+    ));
+    let failure = crate::run::call_failure(error);
+    let said: Vec<String> = failure
+        .failure
+        .refusals
+        .iter()
+        .map(|r| r.code().to_string())
+        .collect();
+    assert_eq!(said, ["runs-fatal-finding", "runs-fatal-finding-said"]);
+}

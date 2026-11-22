@@ -50,6 +50,9 @@ pub struct Evidence {
     /// How many fatal startup findings the plan refused the run for (ruling
     /// 73h: a count; the findings themselves stay the library's).
     pub fatal_findings: u32,
+    /// The findings themselves, for a launch with nobody to say them (a
+    /// child's: owner ruling 2026-11-21); empty where the library says them.
+    pub fatal: Vec<runs::LaunchFinding>,
     /// The project-only settings this launch reads that its project's own
     /// config says and the user has not trusted (step 8 U2, ruling 142):
     /// their dotted paths. Empty when the project is trusted.
@@ -79,6 +82,7 @@ impl Evidence {
             drivable_engines: vec![engine.to_string()],
             credential: None,
             fatal_findings: 0,
+            fatal: Vec::new(),
             untrusted_settings: Vec::new(),
         }
     }
@@ -123,6 +127,12 @@ impl<E: Edge> Enqueuer<E> {
             drivable_engines: request.evidence.drivable_engines,
             credential: credential(request.evidence.credential.unwrap_or_default()),
             fatal_findings: request.evidence.fatal_findings,
+            fatal: request
+                .evidence
+                .fatal
+                .into_iter()
+                .map(|runs::LaunchFinding { text, remedy }| runs::FatalFinding { text, remedy })
+                .collect(),
             launcher_lock: request.launcher_lock,
             untrusted_settings: request.evidence.untrusted_settings,
             grant: request.grant,

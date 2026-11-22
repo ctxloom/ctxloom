@@ -190,6 +190,7 @@ fn an_aggregate_is_exit_21_with_fatal_findings_and_says_each_refusal_in_order() 
                 },
             ],
             fatal_findings,
+            findings: Vec::new(),
         })
     };
     assert_eq!(aggregate(0).exit(), Exit::REFUSED);

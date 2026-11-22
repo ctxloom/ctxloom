@@ -279,6 +279,7 @@ impl World {
                     accepted_set: false,
                 },
                 fatal_findings: 0,
+                fatal: Vec::new(),
                 launcher_lock: String::new(),
                 grant: None,
                 untrusted_settings: Vec::new(),

@@ -92,6 +92,26 @@ impl std::fmt::Debug for HandOffContent {
     }
 }
 
+/// One fatal finding of the child's plan, as the library said it: its text
+/// and its remedy (empty: none said). A launch refused for it says it, for
+/// nothing else will.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FatalFinding {
+    pub text: String,
+    pub remedy: String,
+}
+
+/// The plan's fatal findings as the enqueue command carries them.
+fn wire_findings(findings: &[FatalFinding]) -> Vec<runs::FatalFinding> {
+    findings
+        .iter()
+        .map(|finding| runs::FatalFinding {
+            text: finding.text.clone(),
+            remedy: finding.remedy.clone(),
+        })
+        .collect()
+}
+
 /// What the child's plan says, as its start's enqueue is judged on it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Planned {
@@ -103,6 +123,8 @@ pub struct Planned {
     pub credential: runs::CredentialEvidence,
     /// How many fatal findings its plan has.
     pub fatal_findings: u32,
+    /// Those findings themselves, in the plan's order.
+    pub fatal: Vec<FatalFinding>,
     /// The untrusted project-only settings its launch reads (step 8 U2).
     pub untrusted_settings: Vec<String>,
     /// What it is to be handed.
@@ -248,6 +270,7 @@ impl<E: run_ports::Edge> Api<E> {
             drivable_engines: planned.drivable_engines,
             credential: planned.credential,
             fatal_findings: planned.fatal_findings,
+            fatal: wire_findings(&planned.fatal),
             launcher_lock: String::new(),
             grant: None,
             untrusted_settings: planned.untrusted_settings,

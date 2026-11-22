@@ -902,7 +902,12 @@ const DAEMON_LIBRARY_OPENS: &[(&str, usize, &str)] = &[
 ];
 
 /// What opens a library tree in the root's sources.
-const LIBRARY_OPENERS: &[&str] = &["library::build(", "build_setup(", "build_setup_over("];
+const LIBRARY_OPENERS: &[&str] = &[
+    "library::build(",
+    "library::build_over(",
+    "build_setup(",
+    "build_setup_over(",
+];
 
 /// How many library opens `text` holds (a definition, `fn build(` or `fn
 /// build_setup(`, is none).
@@ -968,6 +973,6 @@ fn test_nothing_in_the_daemon_opens_a_library_tree_outside_the_observation() {
 
 #[test]
 fn test_a_library_open_is_counted_and_its_definition_is_not() {
-    let text = "fn build(w) {}\nlet a = crate::library::build(&w, None);\nfn build_setup(x) {}\nbuild_setup_over(&w, d, f);\n";
-    assert_eq!(library_opens(text), 2);
+    let text = "fn build(w) {}\nlet a = crate::library::build(&w);\nlet c = crate::library::build_over(&w, d);\nfn build_setup(x) {}\nbuild_setup_over(&w, d, f);\n";
+    assert_eq!(library_opens(text), 3);
 }

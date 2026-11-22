@@ -4,6 +4,44 @@ use std::fmt;
 
 use angzarr_diagnostic::{code, Arg, Diagnostic};
 
+/// One fatal finding of a launch's plan, as the library said it, carried by
+/// the refusal for a caller with nobody else to say it (owner ruling
+/// 2026-11-21). It is a diagnostic of its own, so a command lists it beside
+/// the checks that failed: its text, and its remedy as the fix line.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct LaunchFinding {
+    pub text: String,
+    pub remedy: String,
+}
+
+impl fmt::Display for LaunchFinding {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        angzarr_diagnostic::display(self, f)
+    }
+}
+
+impl std::error::Error for LaunchFinding {}
+
+impl Diagnostic for LaunchFinding {
+    fn code(&self) -> &str {
+        // Two codes, so a finding with no remedy has no `-fix` line to print.
+        match self.remedy.is_empty() {
+            true => code!("fatal-finding-said"),
+            false => code!("fatal-finding"),
+        }
+    }
+
+    fn args(&self) -> Vec<(&str, Arg)> {
+        match self.remedy.is_empty() {
+            true => vec![("text", self.text.as_str().into())],
+            false => vec![
+                ("text", self.text.as_str().into()),
+                ("remedy", self.remedy.as_str().into()),
+            ],
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum RunRejection {
     /// An enqueue on a stream that already holds a run.
@@ -38,9 +76,13 @@ pub enum RunRejection {
     /// fatal findings (rulings 73, 73b, 73c): each refusal, in check order;
     /// `fatal_findings`, how many fatal findings the plan had too (the library says
     /// them). Its `count` is how many checks failed, the findings one of them.
+    ///
+    /// `findings` are those findings themselves where the refusing side had
+    /// them to give (a child's launch); empty where the library says them.
     LaunchRefused {
         refusals: Vec<RunRejection>,
         fatal_findings: u32,
+        findings: Vec<LaunchFinding>,
     },
 }
 
@@ -51,6 +93,14 @@ impl RunRejection {
         match self {
             RunRejection::LaunchRefused { refusals, .. } => refusals.clone(),
             other => vec![other.clone()],
+        }
+    }
+
+    /// The fatal findings an aggregate carries, in the order the plan gave.
+    pub fn findings(&self) -> Vec<LaunchFinding> {
+        match self {
+            RunRejection::LaunchRefused { findings, .. } => findings.clone(),
+            _ => Vec::new(),
         }
     }
 }
@@ -98,6 +148,7 @@ impl Diagnostic for RunRejection {
             RunRejection::LaunchRefused {
                 refusals,
                 fatal_findings,
+                ..
             } => vec![(
                 "count",
                 (refusals.len() as u64 + u64::from(*fatal_findings > 0)).into(),
@@ -145,6 +196,15 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(RunRejection::LaunchRefused {
             refusals: vec![RunRejection::NoPrompt],
             fatal_findings: 1,
+            findings: Vec::new(),
+        }),
+        Box::new(LaunchFinding {
+            text: "failed to load bundle \"hub/demo\"".to_string(),
+            remedy: "run `ctxloom deps pull`".to_string(),
+        }),
+        Box::new(LaunchFinding {
+            text: "a finding with no remedy".to_string(),
+            remedy: String::new(),
         }),
     ]
 }

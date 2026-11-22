@@ -144,6 +144,7 @@ fn enqueue() -> EnqueueRun {
         drivable_engines: vec!["claude-code".to_string(), "opencode".to_string()],
         credential: not_asked(),
         fatal_findings: 0,
+        fatal: Vec::new(),
         launcher_lock: launcher_lock(),
         untrusted_settings: Vec::new(),
         grant: None,
@@ -971,6 +972,7 @@ fn two_failing_checks_are_one_launch_refused_holding_both_in_check_order() {
         RunRejection::LaunchRefused {
             refusals: vec![RunRejection::NoPrompt, no_credential()],
             fatal_findings: 0,
+            findings: Vec::new(),
         }
     );
     let (code, args) = said(&rejection);
@@ -1034,6 +1036,7 @@ fn untrusted_settings_are_the_last_refusal_of_a_launch_refused() {
                 },
             ],
             fatal_findings: 0,
+            findings: Vec::new(),
         }
     );
 }
@@ -1056,6 +1059,7 @@ fn an_undriven_engines_credential_is_not_judged() {
         RunRejection::LaunchRefused {
             refusals: vec![RunRejection::NoPrompt, unknown("bogus-engine")],
             fatal_findings: 1,
+            findings: Vec::new(),
         }
     );
 }
@@ -1076,6 +1080,7 @@ fn fatal_findings_refuse_the_launch_beside_or_without_the_typed_refusals() {
         RunRejection::LaunchRefused {
             refusals: Vec::new(),
             fatal_findings: 1,
+            findings: Vec::new(),
         }
     );
     assert_eq!(run.event_count(), 0);
@@ -1091,6 +1096,7 @@ fn fatal_findings_refuse_the_launch_beside_or_without_the_typed_refusals() {
         RunRejection::LaunchRefused {
             refusals: vec![no_credential()],
             fatal_findings: 3,
+            findings: Vec::new(),
         }
     );
     // Ruling 73h: the findings are counted, not said; as checks they are one.
@@ -1138,6 +1144,7 @@ fn the_enqueue_judges_no_posture() {
         RunRejection::LaunchRefused {
             refusals: vec![RunRejection::NoPrompt, no_credential()],
             fatal_findings: 0,
+            findings: Vec::new(),
         }
     );
     assert_eq!(said(&rejection).1["count"], "2");
@@ -1190,4 +1197,63 @@ fn a_child_on_a_file_only_source_is_refused_as_its_enqueue_would_be() {
         RunRejection::try_from(&refusal),
         Ok(RunRejection::FileOnlyCredential { .. })
     ));
+}
+
+// Owner ruling 2026-11-21: the findings the command carries are the refusal's,
+// beside their count, so a launch that has nobody to say them still tells.
+#[test]
+fn the_fatal_findings_a_command_carries_are_the_refusals() {
+    let mut run = Run::new();
+    let cmd = EnqueueRun {
+        fatal_findings: 2,
+        fatal: vec![
+            crate::FatalFinding {
+                text: "failed to load bundle \"hub/demo\"".to_string(),
+                remedy: "run `ctxloom deps pull`".to_string(),
+            },
+            crate::FatalFinding {
+                text: "second".to_string(),
+                remedy: String::new(),
+            },
+        ],
+        ..one_shot()
+    };
+    let RunRejection::LaunchRefused { findings, .. } = run.rejection(cmd) else {
+        panic!("not an aggregate");
+    };
+    assert_eq!(
+        findings,
+        [
+            crate::LaunchFinding {
+                text: "failed to load bundle \"hub/demo\"".to_string(),
+                remedy: "run `ctxloom deps pull`".to_string(),
+            },
+            crate::LaunchFinding {
+                text: "second".to_string(),
+                remedy: String::new(),
+            },
+        ]
+    );
+}
+
+// The pre-check of a child's hand-off asks the same checks of the same
+// evidence, so its typed refusal holds the findings too.
+#[test]
+fn the_pre_launch_refusal_holds_the_findings() {
+    let cmd = EnqueueRun {
+        fatal_findings: 1,
+        fatal: vec![crate::FatalFinding {
+            text: "t".to_string(),
+            remedy: "r".to_string(),
+        }],
+        ..one_shot()
+    };
+    let (typed, _) = crate::pre_launch_refusal(&cmd).expect("refused");
+    let RunRejection::LaunchRefused { findings, .. } =
+        RunRejection::try_from(&typed).expect("ours")
+    else {
+        panic!("not an aggregate");
+    };
+    assert_eq!(findings.len(), 1);
+    assert_eq!(findings[0].text, "t");
 }

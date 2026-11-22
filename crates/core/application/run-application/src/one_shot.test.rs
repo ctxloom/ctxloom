@@ -2341,7 +2341,7 @@ async fn two_failing_checks_are_refused_together_in_check_order() {
         .result
         .unwrap_err();
     assert!(
-        matches!(&error, RunError::Refused(runs::RunRejection::LaunchRefused { refusals, fatal_findings: 0 })
+        matches!(&error, RunError::Refused(runs::RunRejection::LaunchRefused { refusals, fatal_findings: 0, .. })
             if *refusals == [runs::RunRejection::NoPrompt, no_credential_of_fake()]),
         "{error:?}"
     );
@@ -2361,7 +2361,7 @@ async fn fatal_findings_beside_a_refusal_are_exit_21_and_the_refusal_is_kept() {
     let done = rig.runs.one_shot(&Flags::default(), &ask()).await;
     let error = done.result.unwrap_err();
     assert!(
-        matches!(&error, RunError::Refused(runs::RunRejection::LaunchRefused { refusals, fatal_findings: 1 })
+        matches!(&error, RunError::Refused(runs::RunRejection::LaunchRefused { refusals, fatal_findings: 1, .. })
             if *refusals == [no_credential_of_fake()]),
         "{error:?}"
     );

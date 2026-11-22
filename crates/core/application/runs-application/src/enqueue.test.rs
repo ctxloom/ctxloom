@@ -111,6 +111,7 @@ async fn the_evidence_reaches_the_runs_decision_and_its_refusal_comes_back_whole
                 },
             ],
             fatal_findings: 0,
+            findings: Vec::new(),
         })
     );
     let cover = angzarr_embedded::v1::Cover {
@@ -221,4 +222,35 @@ async fn the_enqueue_journals_what_the_run_was_given() {
         _ => None,
     });
     assert_eq!(journaled, Some(Some(grant)));
+}
+
+// Owner ruling 2026-11-21: the findings of the evidence are the enqueue's
+// refusal's, beside their count, as the hand-off's pre-check holds them.
+#[tokio::test]
+async fn the_fatal_findings_of_the_evidence_come_back_in_the_refusal() {
+    let edge = Arc::new(KernelEdge::new());
+    let enqueuer = Enqueuer::new(Arc::clone(&edge));
+    let request = EnqueueRequest {
+        evidence: Evidence {
+            fatal_findings: 1,
+            fatal: vec![runs::LaunchFinding {
+                text: "failed to load bundle".to_string(),
+                remedy: "run `ctxloom deps pull`".to_string(),
+            }],
+            ..Evidence::passing("claude-code")
+        },
+        ..request()
+    };
+    let refused = enqueuer.enqueue(request).await.unwrap_err();
+    assert_eq!(
+        refused,
+        EnqueueError::Refused(runs::RunRejection::LaunchRefused {
+            refusals: Vec::new(),
+            fatal_findings: 1,
+            findings: vec![runs::LaunchFinding {
+                text: "failed to load bundle".to_string(),
+                remedy: "run `ctxloom deps pull`".to_string(),
+            }],
+        })
+    );
 }

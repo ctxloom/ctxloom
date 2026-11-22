@@ -25,6 +25,8 @@ struct Kept {
     unplanned: bool,
     /// The untrusted settings the plan says its launch reads.
     untrusted: Vec<String>,
+    /// The fatal findings the plan has.
+    fatal: Vec<crate::FatalFinding>,
     /// The observation's scans, counted; how many there had been at each
     /// plan.
     scans: Option<Arc<std::sync::atomic::AtomicU32>>,
@@ -55,7 +57,8 @@ impl HandOffs for Kept {
                 accepted_variables: vec!["CLAUDE_CODE_OAUTH_TOKEN".to_string()],
                 accepted_set: self.credential_set,
             },
-            fatal_findings: 0,
+            fatal_findings: u32::try_from(self.fatal.len()).unwrap(),
+            fatal: self.fatal.clone(),
             untrusted_settings: self.untrusted.clone(),
             content: HandOffContent {
                 env: request.env.clone(),
@@ -577,4 +580,39 @@ fn test_a_hand_off_s_debug_names_its_variables_and_shows_no_value() {
     }
     assert!(format!("{handing:?}").contains("/work/demo"));
     assert!(format!("{content:?}").contains("SETTINGS"));
+}
+
+// Owner ruling 2026-11-21: a hand-off refused for the plan's fatal findings
+// says them, in the plan's order, in its refusal, and writes nothing: a
+// child's launch has nobody else to say them.
+#[tokio::test]
+async fn a_hand_off_refused_for_fatal_findings_carries_them_and_writes_nothing() {
+    let kept = Arc::new(Kept {
+        credential_set: true,
+        fatal: vec![
+            crate::FatalFinding {
+                text: "failed to load bundle \"hub/demo\"".to_string(),
+                remedy: "run `ctxloom deps pull`".to_string(),
+            },
+            crate::FatalFinding {
+                text: "no remedy".to_string(),
+                remedy: String::new(),
+            },
+        ],
+        ..Kept::default()
+    });
+    let (_f, api) = two_projects(&kept, &[]).await;
+    let refused = api.create_hand_off(create("amber-quiet-heron")).await;
+    let Err(crate::ApiError::Refused(refusal)) = refused else {
+        panic!("refused: {refused:?}");
+    };
+    let Some(crate::Rejection::Runs(rejection)) = crate::rejection_of(&refusal.refusal) else {
+        panic!("not a runs refusal");
+    };
+    let findings = rejection.findings();
+    assert_eq!(findings.len(), 2, "{rejection:?}");
+    assert_eq!(findings[0].text, "failed to load bundle \"hub/demo\"");
+    assert_eq!(findings[0].remedy, "run `ctxloom deps pull`");
+    assert_eq!(findings[1].remedy, "");
+    assert!(kept.written.lock().unwrap().is_empty());
 }

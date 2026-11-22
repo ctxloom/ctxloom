@@ -166,6 +166,31 @@ pub enum CallError {
     },
 }
 
+impl CallError {
+    /// What an aggregate launch refusal holds, each said as it would be alone,
+    /// in check order and then the plan's fatal findings (owner ruling
+    /// 2026-11-21): for the command line to list beside the summary. None for
+    /// any other error.
+    pub fn refusals(&self) -> Vec<Box<dyn Diagnostic>> {
+        match self {
+            CallError::Refused(crate::refusal::Rejection::Runs(
+                aggregate @ runs::RunRejection::LaunchRefused { .. },
+            )) => aggregate
+                .refusals()
+                .into_iter()
+                .map(|refusal| Box::new(refusal) as Box<dyn Diagnostic>)
+                .chain(
+                    aggregate
+                        .findings()
+                        .into_iter()
+                        .map(|finding| Box::new(finding) as Box<dyn Diagnostic>),
+                )
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+}
+
 impl From<Called> for CallError {
     fn from(called: Called) -> CallError {
         let rejection = match &called {

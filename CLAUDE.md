@@ -1469,7 +1469,9 @@ gathers from its ports and puts in the command: `prompt_given` (the plan's),
 `engine` and `drivable_engines` (the launcher's), `credential`
 (`CredentialEvidence`: a file-only source, the built-in and the accepted
 variables by NAME, whether one is set; never a value) and `fatal_findings`
-(the plan's count; their text never enters the proto). `RunEnqueued` carries
+(the plan's count) and `fatal` (the findings themselves, `FatalFinding` text and
+remedy, additive, owner 2026-11-21: a child's launch has nobody else to say
+them; a one-shot's are the library's and are left empty). `RunEnqueued` carries
 none of it. The checks, in order: a one-shot's prompt (`runs-no-prompt`), the
 engine (`runs-unknown-engine`, both INVALID_ARGUMENT), then a child's
 credential (`runs-file-only-credential`, `runs-no-credential`), which an engine
@@ -1483,7 +1485,15 @@ each refusal's `ctxloom:` and `  fix:` lines (cli-support's `Failure::refusals`
 and `say_failure`). Fatal findings alone are the library's
 `library-application-startup-aborted`, as before; beside a refusal they are the
 plan's warnings, said beside it, and the exit is 21 (the most severe wins),
-else 20. The run is enqueued FIRST (73g): plan, evidence, `EnqueueRun`, the
+else 20. A launch that carries them (a child's: `CreateHandOff`'s pre-check,
+`daemon_api::Planned::fatal`, filled by `ApiHandOffs::plan` from the plan's
+`previewed.fatal`, and `LaunchChild`'s enqueue, `Evidence::fatal`) refuses with
+them in `LaunchRefusals.findings` (field 8; `RunRejection::LaunchRefused.findings`,
+the `LaunchFinding` diagnostic: `runs-fatal-finding` with its remedy as the
+`-fix`, `runs-fatal-finding-said` with none; the wording a DRAFT), and
+`daemon_api::CallError::refusals` lists them after the checks, so `session
+launch` prints each as a refusal line (text) and under `refusals` (json); the
+`count` is unchanged. The run is enqueued FIRST (73g): plan, evidence, `EnqueueRun`, the
 project told, a name claimed, `MintSession`, the session's lock, the order.
 So a REFUSED run leaves nothing: no name, no session, no directory, no event,
 no open incarnation. A failure after the enqueue (the project, the names, the
@@ -1651,8 +1661,8 @@ is used for, because step 10a U2's deletion of them is not done; a new edge
 or a stale entry fails) and
 `test_nothing_in_the_daemon_opens_a_library_tree_outside_the_observation`
 (the daemon's root sources, `ctxloom-wiring`'s `daemon/`, `oneshot.rs` and
-`frontend.rs`, open a library, `library::build(`, `build_setup(`,
-`build_setup_over(`, only at `DAEMON_LIBRARY_OPENS`' files and counts, each
+`frontend.rs`, open a library, `library::build(`, `library::build_over(`,
+`build_setup(`, `build_setup_over(`, only at `DAEMON_LIBRARY_OPENS`' files and counts, each
 reached through the observation or a stated departure; daemon-api and
 daemon-application open none). A hosted one-shot and a terminal run observe
 their trees first (`Api::observe_for`), as a setup read does, and so do the
@@ -3316,7 +3326,14 @@ built:
   its own; `root`, when given, its `CTXLOOM_ROOT` over the caller's. The
   library reads' `ProjectLibraries`, the trust read's `ProjectTrusts`, the
   sweep's settings, a child's plan (`child_library`) and a hosted run
-  (`oneshot::hosted_wiring`) are all made over it; `per_call_env` (which
+  (`oneshot::hosted_wiring`) are all made over it;
+  and every library is built as a run's is (owner 2026-11-21):
+  `library::build(wiring)` makes the dependency use cases itself and
+  `library::build_over(wiring, remotes)` takes a caller's, neither optional,
+  so a library without the remotes (a profile naming an installed remote
+  bundle unresolvable) is unrepresentable: the daemon's child plan, doctor,
+  the setup reads, the seed and the container verbs all read remote bundles
+  as a launch does; `per_call_env` (which
   set ctxloom's home as the caller's HOME) is gone.
 - Served: `ListBundles` (`bundle list`), `GetBundle` (`bundle show`, FULL;
   `bundle view <bundle>`, CONTENT: its files; a path no item kind serves,

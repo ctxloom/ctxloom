@@ -124,8 +124,9 @@ message EnqueueRun {
   // (its policy is its launcher's, 73d).
   CredentialEvidence credential = 10;
   // How many fatal startup findings the plan refused the run for (ruling 73h:
-  // a count; the findings' text never enters the proto: it is the library's,
-  // said beside the refusal, 73c).
+  // a count). The findings themselves are `fatal`, below, for a caller that
+  // has nobody to say them (a child's launch: owner 2026-11-21); a one-shot's
+  // are the library's, said beside the refusal, 73c.
   uint32 fatal_findings = 11;
   // The run's own lock file, which the process that enqueues it holds from
   // before the enqueue until its runner is started (owner rulings 86, 92): a
@@ -149,6 +150,17 @@ message EnqueueRun {
   // `RunEnqueued`, so `session show` says what a child was launched with
   // after its agent is edited. Names and the permissions document only.
   optional Grant grant = 15;
+  // The fatal findings themselves (owner ruling 2026-11-21, additive),
+  // evidence like `fatal_findings`: carried into the refusal's `findings`,
+  // never into `RunEnqueued`. May be empty where only the count is known.
+  repeated FatalFinding fatal = 16;
+}
+
+// One fatal finding of a launch's plan, as the library said it: its text and
+// what to do about it (empty: nothing said). DRAFT wording is the library's.
+message FatalFinding {
+  string text = 1;
+  string remedy = 2;
 }
 
 // What a run was launched with (owner ruling 2026-11-17): the MCP servers'
@@ -581,8 +593,9 @@ message UnknownEngine {
 // most one, and at most one of the two credential fields is set: they are
 // `repeated` because the generated domain layer keeps no presence for a
 // singular message field, and an empty refusal (NoPrompt) must still be seen.
-// The fatal findings are not here: `fatal_findings` says only how many there
-// were, and the library says them.
+// `fatal_findings` says how many fatal findings the plan had; `findings` (owner
+// ruling 2026-11-21) holds them where the refusing side had them to give (a
+// child's launch), empty where the library says them beside the refusal.
 message LaunchRefusals {
   option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
 
@@ -596,6 +609,7 @@ message LaunchRefusals {
   reserved 6;
   reserved "unenforced_posture";
   repeated UntrustedProjectSettings untrusted_project_settings = 7;
+  repeated FatalFinding findings = 8;
 }
 
 // endregion refusals

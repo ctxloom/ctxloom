@@ -860,6 +860,8 @@ where
             drivable_engines: self.launcher.engines(),
             credential: self.credential(engine, settings, interactive),
             fatal_findings: u32::try_from(previewed.fatal.len()).unwrap_or(u32::MAX),
+            // The library says a one-shot's findings beside the refusal.
+            fatal: Vec::new(),
             untrusted_settings: previewed.plan.untrusted.clone(),
         };
         // The run's own lock, taken before its enqueue is visible (ruling 92):

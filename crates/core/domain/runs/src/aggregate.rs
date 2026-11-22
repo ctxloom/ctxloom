@@ -32,7 +32,7 @@ use crate::{
     CredentialEvidence, FileOnlyCredential, LaunchRefusals, NoCredential, NoPrompt, Refusal,
     RunMode, UnknownEngine, UntrustedProjectSettings,
 };
-use crate::{InterruptRequested, TurnUrgency};
+use crate::{InterruptRequested, LaunchFinding, TurnUrgency};
 
 /// The run aggregate: one run, folded from its stream.
 #[derive(Clone, Debug, Default)]
@@ -167,6 +167,14 @@ fn launchable(cmd: &EnqueueRun) -> Result<(), RunRejection> {
         (_, fatal_findings) => Err(RunRejection::LaunchRefused {
             refusals,
             fatal_findings,
+            findings: cmd
+                .fatal
+                .iter()
+                .map(|finding| LaunchFinding {
+                    text: finding.text.clone(),
+                    remedy: finding.remedy.clone(),
+                })
+                .collect(),
         }),
     }
 }
@@ -220,12 +228,14 @@ pub(crate) fn enqueue_refusal(
     if let RunRejection::LaunchRefused {
         refusals,
         fatal_findings,
+        findings,
     } = rejection
     {
         return Failed::Rejected {
             rejection: Refuses::<RunAggregate, EnqueueRun>::from(launch_refused(
                 refusals,
                 fatal_findings,
+                findings,
             )),
             status: <LaunchRefusals as Refusal>::REFUSAL_STATUS,
         };
@@ -248,7 +258,11 @@ pub(crate) fn enqueue_refusal(
 
 /// The aggregate's message: each refusal in the field of its kind, in check
 /// order (one field per kind, so the fields' order is the checks').
-fn launch_refused(refusals: Vec<RunRejection>, fatal_findings: u32) -> LaunchRefusals {
+fn launch_refused(
+    refusals: Vec<RunRejection>,
+    fatal_findings: u32,
+    findings: Vec<LaunchFinding>,
+) -> LaunchRefusals {
     let mut message = LaunchRefusals {
         no_prompt: Vec::new(),
         unknown_engine: Vec::new(),
@@ -256,6 +270,10 @@ fn launch_refused(refusals: Vec<RunRejection>, fatal_findings: u32) -> LaunchRef
         file_only_credential: Vec::new(),
         fatal_findings,
         untrusted_project_settings: Vec::new(),
+        findings: findings
+            .into_iter()
+            .map(|LaunchFinding { text, remedy }| crate::FatalFinding { text, remedy })
+            .collect(),
     };
     for refusal in refusals {
         match refusal {

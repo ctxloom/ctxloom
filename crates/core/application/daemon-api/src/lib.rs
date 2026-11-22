@@ -84,6 +84,7 @@ mod trust;
 mod waker;
 mod watch;
 
+pub use ::runs::{LaunchFinding, RunRejection};
 pub use admit::{admit, program_of};
 pub use approvals::{
     ask_of, settled_how, settled_of, settled_refusal, Answered, ApprovalAnswers, Approving,
@@ -100,7 +101,7 @@ pub use client::{
 pub use deps_writes::{DepsAnswer, DepsAsk, DepsPlanned, DepsPlans, DepsTree};
 pub use destroy::{Places, Purges};
 pub use foreign::{ForeignAnswer, ForeignAsk, ForeignPlanned, ForeignPlans, ForeignPut};
-pub use hand_off::{HandOffContent, HandOffs, HandingOff, Planned};
+pub use hand_off::{FatalFinding, HandOffContent, HandOffs, HandingOff, Planned};
 pub use hand_over::HandingOver;
 pub use library_api::premise::{render_premise_index, Shown};
 pub use library_reads::{Libraries, LibraryRequest};

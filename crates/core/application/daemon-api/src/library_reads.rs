@@ -328,6 +328,7 @@ impl<E: Edge> Api<E> {
                     accepted_set: false,
                 },
                 fatal_findings: u32::try_from(previewed.fatal.len()).unwrap_or(u32::MAX),
+                fatal: Vec::new(),
                 launcher_lock: String::new(),
                 grant: None,
                 untrusted_settings: plan.untrusted.clone(),

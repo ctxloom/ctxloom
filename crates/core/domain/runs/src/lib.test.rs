@@ -47,9 +47,14 @@ fn every_diagnostic_has_a_message_that_uses_exactly_its_args() {
             .unwrap_or_else(|| panic!("{code} has no message"));
         let mut args: Vec<&str> = sample.args().into_iter().map(|(n, _)| n).collect();
         args.sort_unstable();
-        let mut used: Vec<&str> = line
-            .split('$')
-            .skip(1)
+        // The remedy is the code's `-fix` line, over the same args.
+        let fix = catalog
+            .lines()
+            .find(|l| l.starts_with(&format!("{code}-fix =")))
+            .unwrap_or("");
+        let mut used: Vec<&str> = [line, fix]
+            .into_iter()
+            .flat_map(|text| text.split('$').skip(1))
             .map(|rest| {
                 rest.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-'))
                     .next()
@@ -71,7 +76,7 @@ fn rejections_display_their_code_and_the_samples_are_not_empty() {
         RunRejection::TurnInFlight { turn: 4 }.to_string(),
         "runs-turn-in-flight turn=4"
     );
-    assert_eq!(diagnostic_samples().len(), 11);
+    assert_eq!(diagnostic_samples().len(), 13);
 }
 
 // Closeout survivor on main f5e9f713f (`RunRejection::refusals` answered with
@@ -88,6 +93,7 @@ fn a_refusal_stands_for_itself_and_an_aggregate_for_its_refusals_in_order() {
     let aggregate = RunRejection::LaunchRefused {
         refusals: vec![RunRejection::NoPrompt, unknown.clone()],
         fatal_findings: 0,
+        findings: Vec::new(),
     };
     assert_eq!(aggregate.refusals(), [RunRejection::NoPrompt, unknown]);
 }

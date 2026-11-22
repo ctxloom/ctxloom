@@ -17,3 +17,8 @@ runs-unknown-engine-fix = name one of them with --engine, or leave --engine off 
 runs-launch-refused = the run was not started: { $count } of its checks failed
 runs-untrusted-project-settings = This project's own config sets { $paths }, which reach past the project, and you have not trusted it, so nothing was launched.
 runs-untrusted-project-settings-fix = Look at what trusting the project allows with `ctxloom trust`, then say yes (off a terminal, `ctxloom trust --yes`); or take those settings out of the project's config.
+# DRAFT (owner ruling 2026-11-21): a fatal finding of a launch's plan, said as
+# the library said it, its remedy the fix line.
+runs-fatal-finding = { $text }
+runs-fatal-finding-fix = { $remedy }
+runs-fatal-finding-said = { $text }

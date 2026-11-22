@@ -75,6 +75,7 @@ fn table() -> Vec<(TypedRefusal, RunRejection)> {
                 no_credential: Vec::new(),
                 file_only_credential: Vec::new(),
                 fatal_findings: 1,
+                findings: Vec::new(),
                 untrusted_project_settings: Vec::new(),
             }),
             RunRejection::LaunchRefused {
@@ -86,6 +87,7 @@ fn table() -> Vec<(TypedRefusal, RunRejection)> {
                     },
                 ],
                 fatal_findings: 1,
+                findings: Vec::new(),
             },
         ),
     ]
@@ -110,6 +112,7 @@ fn credential_table() -> Vec<(TypedRefusal, RunRejection)> {
                 variables: "C".to_string(),
             }],
             fatal_findings: 0,
+            findings: Vec::new(),
             untrusted_project_settings: vec![UntrustedProjectSettings {
                 paths: "engines.opencode.command".to_string(),
             }],
@@ -129,6 +132,7 @@ fn credential_table() -> Vec<(TypedRefusal, RunRejection)> {
                 },
             ],
             fatal_findings: 0,
+            findings: Vec::new(),
         },
     )]
 }
@@ -222,6 +226,7 @@ fn the_enqueue_refuses_each_pre_launch_check_with_its_message_under_its_status()
             },
         ],
         fatal_findings: 0,
+        findings: Vec::new(),
     };
     let cases = [
         (RunRejection::NoPrompt, invalid),
@@ -262,4 +267,35 @@ fn the_enqueue_refuses_each_pre_launch_check_with_its_message_under_its_status()
             Ok(rejection)
         );
     }
+}
+
+// Owner ruling 2026-11-21: the aggregate's findings cross as `findings`, in
+// order, and read back as they were.
+#[test]
+fn the_findings_of_an_aggregate_cross_the_wire_both_ways() {
+    let rejection = RunRejection::LaunchRefused {
+        refusals: Vec::new(),
+        fatal_findings: 2,
+        findings: vec![
+            crate::LaunchFinding {
+                text: "a".to_string(),
+                remedy: "fix a".to_string(),
+            },
+            crate::LaunchFinding {
+                text: "b".to_string(),
+                remedy: String::new(),
+            },
+        ],
+    };
+    let Failed::Rejected {
+        rejection: sent, ..
+    } = enqueue_refuses(rejection.clone())
+    else {
+        panic!("not rejected");
+    };
+    let typed: TypedRefusal = sent.into();
+    let message = typed.object::<LaunchRefusals>().expect("the aggregate");
+    assert_eq!(message.findings.len(), 2);
+    assert_eq!(message.findings[0].remedy, "fix a");
+    assert_eq!(RunRejection::try_from(&typed), Ok(rejection));
 }

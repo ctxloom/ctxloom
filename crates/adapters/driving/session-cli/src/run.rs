@@ -388,7 +388,10 @@ pub fn run<S: SessionService + ImportService + WorktreeUse>(
 /// A call to the daemon that came to nothing: its diagnostic and its exit.
 pub(crate) fn call_failure(error: CallError) -> Failure {
     let exit = error.exit();
-    Failure::new(error, exit, Vec::new())
+    let refusals = error.refusals();
+    let mut failure = Failure::new(error, exit, Vec::new());
+    failure.failure = failure.failure.with_refusals(refusals);
+    failure
 }
 
 /// A `--state` word as the state the daemon's API names (none: any).

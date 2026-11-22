@@ -97,3 +97,37 @@ fn the_library_builder_has_no_way_to_leave_the_remotes_out() {
         "library::build must take its remotes unconditionally"
     );
 }
+
+// Owner ruling 2026-11-21 (DRAFT wording): a fatal finding is said as the
+// library said it, its remedy as the fix line, and one with no remedy has none.
+#[test]
+fn a_fatal_finding_renders_its_text_and_its_remedy_as_the_fix() {
+    let catalog = angzarr_presentation::Catalog::en_us(&crate::catalog_sources()).expect("builds");
+    let with = runs::LaunchFinding {
+        text: "failed to load bundle \"hub/demo\"".to_string(),
+        remedy: "run `ctxloom deps pull`".to_string(),
+    };
+    assert_eq!(catalog.message(&with), "failed to load bundle \"hub/demo\"");
+    // The fix line is the `-fix` id of the same code, over the same args.
+    #[derive(Debug)]
+    struct Fix(runs::LaunchFinding);
+    impl std::fmt::Display for Fix {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            angzarr_diagnostic::display(self, f)
+        }
+    }
+    impl angzarr_diagnostic::Diagnostic for Fix {
+        fn code(&self) -> &str {
+            "runs-fatal-finding-fix"
+        }
+        fn args(&self) -> Vec<(&str, angzarr_diagnostic::Arg)> {
+            angzarr_diagnostic::Diagnostic::args(&self.0)
+        }
+    }
+    assert_eq!(catalog.message(&Fix(with)), "run `ctxloom deps pull`");
+    let bare = runs::LaunchFinding {
+        text: "second".to_string(),
+        remedy: String::new(),
+    };
+    assert_eq!(catalog.message(&bare), "second");
+}

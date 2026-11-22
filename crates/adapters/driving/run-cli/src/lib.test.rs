@@ -335,6 +335,7 @@ fn an_aggregate_refusal_hands_on_each_refusal_in_check_order() {
                 },
             ],
             fatal_findings,
+            findings: Vec::new(),
         }));
         let ran = go(&["--one-shot"], Some(Format::Json), None, &mut service);
         assert_eq!(ran.exit, Err(("runs-launch-refused".to_string(), exit)));

@@ -157,6 +157,7 @@ fn test_an_error_crosses_as_its_code_args_exit_and_refusals() {
             },
         ],
         fatal_findings: 1,
+        findings: Vec::new(),
     });
     let end = end_of(&error);
     assert_eq!(end.exit, 21);

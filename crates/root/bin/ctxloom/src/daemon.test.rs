@@ -563,9 +563,9 @@ fn an_owners_child_runs_its_turns_tells_its_owner_and_ends_with_the_owners_close
     let refused = world.run(&[
         "session", "send", CHILD, "wake", "too late", "--format", "json",
     ]);
-    // A refusal against state exits 20, as every session command's does
+    // A refusal against state exits 48, as every session command's does
     // (ruling 152).
-    assert_eq!(refused.code, 20, "{}", refused.said());
+    assert_eq!(refused.code, 48, "{}", refused.said());
     assert!(
         refused.stderr.contains("sessions-session-closed"),
         "{}",
@@ -579,7 +579,7 @@ fn an_owners_child_runs_its_turns_tells_its_owner_and_ends_with_the_owners_close
 
 // Rulings 53, 69, 88; S10: a child is judged on the credential its
 // launcher sent, as its enqueue will judge it, when its hand-off is made:
-// with none, the launch is refused (`runs-no-credential`, exit 20) before
+// with none, the launch is refused (`runs-no-credential`, exit 48) before
 // anything is written: no hand-off, no child, nothing started.
 #[test]
 fn a_child_launched_with_no_credential_is_refused_and_leaves_nothing() {
@@ -592,7 +592,7 @@ fn a_child_launched_with_no_credential_is_refused_and_leaves_nothing() {
     let refused = world.run(&[
         "session", "launch", OWNER, "--name", CHILD, "a task", "--format", "json",
     ]);
-    assert_eq!(refused.code, 20, "{}\n{}", refused.said(), world.log());
+    assert_eq!(refused.code, 48, "{}\n{}", refused.said(), world.log());
     assert!(
         refused.stderr.contains("runs-no-credential"),
         "{}",
@@ -619,12 +619,12 @@ fn the_daemon_noun_is_hidden_and_a_stop_with_no_daemon_does_nothing() {
     assert_eq!(status.stdout.trim(), "no ctxloom daemon is serving");
     let bad = world.run(&["session", "send", OWNER, "shout", "x"]);
     // A usage error is refused, 20 (ruling 152), and starts no daemon.
-    assert_eq!(bad.code, 20, "{}", bad.said());
+    assert_eq!(bad.code, 48, "{}", bad.said());
     assert!(!world.serving());
     // s4-Q13: the hidden orchestration verbs are gone; `resolve` stays.
     for verb in ["launch", "send", "close", "clear"] {
         let gone = world.run(&["daemon", verb, OWNER]);
-        assert_eq!(gone.code, 20, "daemon {verb}: {}", gone.said());
+        assert_eq!(gone.code, 48, "daemon {verb}: {}", gone.said());
     }
 }
 
@@ -797,7 +797,7 @@ fn a_command_whose_daemon_cannot_start_fails_without_waiting_out_its_spawn_wait(
     let began = Instant::now();
     let ran = world.run(&["bundle", "list"]);
     let took = began.elapsed();
-    assert_eq!(ran.code, 10, "{}", ran.said());
+    assert_eq!(ran.code, 32, "{}", ran.said());
     assert!(
         ran.said().contains("no ctxloom daemon could be started"),
         "{}",
@@ -886,7 +886,7 @@ fn a_daemon_that_dies_at_its_start_says_why_in_its_log_and_to_its_command() {
         &[("CTXLOOM_TEST_DAEMON_START", "stack:256")],
         &["bundle", "list"],
     );
-    assert_eq!(ran.code, 10, "{}", ran.said());
+    assert_eq!(ran.code, 32, "{}", ran.said());
     let said = ran.said();
     assert!(
         said.contains("no ctxloom daemon could be started"),
@@ -923,7 +923,7 @@ fn a_daemon_that_panics_leaves_its_panic_in_its_log() {
 }
 
 // The same ruling: `daemon serve` that finds another daemon holding the
-// single-instance lock declines (20), which its spawner reads as another
+// single-instance lock declines (48), which its spawner reads as another
 // daemon to wait for; the one that serves goes on serving.
 #[test]
 fn a_daemon_that_finds_another_holding_the_lock_declines() {
@@ -936,7 +936,7 @@ fn a_daemon_that_finds_another_holding_the_lock_declines() {
         .project
         .start_with(&ENV, &["daemon", "serve", "--idle-seconds", "30"]);
     let code = exited_within(&mut second, Duration::from_secs(30));
-    assert_eq!(code, Some(20), "{}", world.log());
+    assert_eq!(code, Some(48), "{}", world.log());
     assert!(world.serving(), "the first still serves");
     let _ = world.run(&["daemon", "stop"]);
     let _ = daemon.wait();
@@ -1017,7 +1017,7 @@ const INSTANCE_DIR: &str = "CTXLOOM_TEST_INSTANCE_DIR";
 
 // One daemon per OS user: a client whose ctxloom home is not the serving
 // daemon's (two homes on one account, the account's lock shared) is refused,
-// exit 20, naming both homes, and starts no second daemon; the daemon serves
+// exit 48, naming both homes, and starts no second daemon; the daemon serves
 // on.
 #[test]
 fn a_client_on_another_ctxloom_home_is_refused_naming_both_and_starts_no_daemon() {
@@ -1049,7 +1049,7 @@ fn a_client_on_another_ctxloom_home_is_refused_naming_both_and_starts_no_daemon(
         let ran = world
             .project
             .run_with(&elsewhere, &["daemon", verb, "--format", "json"]);
-        assert_eq!(ran.code, 20, "{verb}: {}", ran.said());
+        assert_eq!(ran.code, 48, "{verb}: {}", ran.said());
         assert!(
             ran.stderr.contains(&home) && ran.stderr.contains(other_text),
             "{verb} names both homes: {}",
@@ -1302,7 +1302,7 @@ fn a_daemon_whose_start_fails_closes_its_store() {
 
 // Project registration (owner, 2026-11-12): the first `daemon resolve` names
 // and registers the project with its repository's root commit; again, it
-// answers the same; another repository at its place is refused (exit 20),
+// answers the same; another repository at its place is refused (exit 48),
 // naming the registered project.
 #[test]
 fn a_project_is_registered_then_rechecked_by_its_root_commit() {
@@ -1331,7 +1331,7 @@ fn a_project_is_registered_then_rechecked_by_its_root_commit() {
     let other = repository(&world, "another");
     assert_ne!(other, root);
     let refused = world.run(&["daemon", "resolve"]);
-    assert_eq!(refused.code, 20, "{}", refused.said());
+    assert_eq!(refused.code, 48, "{}", refused.said());
     assert!(refused.said().contains(&name), "{}", refused.said());
     assert!(
         refused.said().contains("not the repository"),
@@ -1570,7 +1570,7 @@ const OLDER_STAMP: &str = "v0.0.1-abc0";
 // OD-61/OD-62 (owner, 2026-11-15: one ctxloom version runs at a time),
 // end to end: a daemon of an older version hosting an idle child is met by
 // a command of this (newer) version. Nothing drains it: the command is
-// refused, `daemon-api-version-skew` (exit 20), naming both stamps and
+// refused, `daemon-api-version-skew` (exit 48), naming both stamps and
 // the child, its fix the plain stop; the older daemon still serves, and
 // its child is not ended.
 #[test]
@@ -1616,7 +1616,7 @@ fn a_newer_command_meeting_a_busy_older_daemon_is_refused_and_drains_nothing() {
     });
 
     let refused = world.run(&["session", "show", CHILD, "--format", "json"]);
-    assert_eq!(refused.code, 20, "{}\n{}", refused.said(), world.log());
+    assert_eq!(refused.code, 48, "{}\n{}", refused.said(), world.log());
     for part in ["daemon-api-version-skew", OLDER_STAMP, CHILD] {
         assert!(refused.stderr.contains(part), "{part}: {}", refused.said());
     }
@@ -1871,7 +1871,7 @@ fn a_child_still_busy_after_the_period_is_handed_over_automatically() {
 }
 
 // OD-54 (3): `--drain` and `--even-if-live` are two ways of stopping, and
-// asked together the command is refused as a usage error (exit 20),
+// asked together the command is refused as a usage error (exit 48),
 // stopping nothing.
 #[test]
 fn a_stop_both_draining_and_even_if_live_is_refused() {
@@ -1880,7 +1880,7 @@ fn a_stop_both_draining_and_even_if_live_is_refused() {
     }
     let world = World::new();
     let refused = world.run(&["daemon", "stop", "--drain", "--even-if-live"]);
-    assert_eq!(refused.code, 20, "{}", refused.said());
+    assert_eq!(refused.code, 48, "{}", refused.said());
 }
 
 /// A one-shot's turn that works until it is stopped (bounded, so a lost
@@ -2026,7 +2026,7 @@ fn a_shutdown_now_stops_the_daemon_at_once() {
 }
 
 // A time that is no span (nor `now`) is refused before anything is asked
-// (exit 20), naming what was given; the daemon serves on.
+// (exit 48), naming what was given; the daemon serves on.
 #[test]
 fn a_shutdown_time_that_is_no_span_is_refused() {
     if !files::runs_scripts() {
@@ -2034,7 +2034,7 @@ fn a_shutdown_time_that_is_no_span_is_refused() {
     }
     let world = World::new();
     let refused = world.run(&["shutdown", "soon", "--format", "json"]);
-    assert_eq!(refused.code, 20, "{}", refused.said());
+    assert_eq!(refused.code, 48, "{}", refused.said());
     assert!(
         refused.stderr.contains("ctxloom-wiring-shutdown-bad-time")
             && refused.stderr.contains("soon"),
@@ -2116,7 +2116,7 @@ fn a_bare_shutdown_drains_within_the_configured_timeout() {
 
 // Owner, 2026-11-15: a SIGTERM to the daemon is a drain within its
 // configured timeout. From then on it refuses new invocations
-// (`daemon-api-draining`, exit 20) while `daemon status` still answers; a
+// (`daemon-api-draining`, exit 48) while `daemon status` still answers; a
 // change to `daemon.drain_timeout` written meanwhile lands (the config is
 // no client of the daemon), and the drain in progress honours it.
 #[test]
@@ -2135,7 +2135,7 @@ fn a_sigterm_drains_the_daemon_and_a_changed_timeout_is_the_drains() {
         (status["draining"] == Value::Bool(true)).then_some(())
     });
     let refused = world.run(&["session", "list", "--format", "json"]);
-    assert_eq!(refused.code, 20, "{}", refused.said());
+    assert_eq!(refused.code, 48, "{}", refused.said());
     assert!(
         refused.stderr.contains("daemon-api-draining"),
         "{}",
@@ -2317,7 +2317,7 @@ fn two_sigterms_stop_a_busy_daemon_whose_home_was_removed() {
 // `ctxloom shutdown` never kills: a daemon that does not exit when asked
 // (test-support's `test-deaf-to-stop`, its stop wait two seconds by
 // `test-shutdown-stop-wait`) is named, by its pid, and the command fails
-// (exit 10, `ctxloom-wiring-shutdown-incomplete`); the daemon still runs.
+// (exit 32, `ctxloom-wiring-shutdown-incomplete`); the daemon still runs.
 #[test]
 fn a_shutdown_names_a_daemon_that_does_not_exit_and_fails() {
     if !files::runs_scripts() {
@@ -2334,7 +2334,7 @@ fn a_shutdown_names_a_daemon_that_does_not_exit_and_fails() {
     files::put(dir.join("test-deaf-to-stop"), "");
     files::put(dir.join("test-shutdown-stop-wait"), "2");
     let shut = world.run(&["shutdown", "now"]);
-    assert_eq!(shut.code, 10, "{}\n{}", shut.said(), world.log());
+    assert_eq!(shut.code, 32, "{}\n{}", shut.said(), world.log());
     let pid = daemon.0.id();
     assert!(
         shut.stderr.contains("ctxloom-wiring-shutdown-incomplete")
@@ -2355,7 +2355,7 @@ fn a_shutdown_names_a_daemon_that_does_not_exit_and_fails() {
 // `ctxloom shutdown` delivers the home's holds through the daemon before it
 // stops it, or confirms they are empty, before it reports done: a hold an
 // older binary wrote carries type URLs a newer daemon may not know. A hold
-// left undelivered is named, by session and count, and is a decline (20),
+// left undelivered is named, by session and count, and is a decline (48),
 // so an installer does not replace the binary. A hold's set-aside part is
 // never delivered again, and does not block.
 
@@ -2495,7 +2495,7 @@ fn a_shutdown_delivers_what_is_held_before_it_stops_the_daemon() {
 
 // Records no daemon can take (none serves to deliver them to, and shutdown
 // starts none) are named, with their session and count, and the shutdown
-// is declined (exit 20): the hold is kept.
+// is declined (exit 48): the hold is kept.
 #[test]
 fn a_shutdown_names_what_it_could_not_deliver_and_declines() {
     if !files::runs_scripts() {
@@ -2505,7 +2505,7 @@ fn a_shutdown_names_what_it_could_not_deliver_and_declines() {
     let name = world.seeded(OWNER);
     world.prompt_held(&name);
     let shut = world.run(&["shutdown", "now", "--format", "json"]);
-    assert_eq!(shut.code, 20, "{}\n{}", shut.said(), world.log());
+    assert_eq!(shut.code, 48, "{}\n{}", shut.said(), world.log());
     assert!(
         shut.stderr.contains("ctxloom-wiring-shutdown-held"),
         "{}",

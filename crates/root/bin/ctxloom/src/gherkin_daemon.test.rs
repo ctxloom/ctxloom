@@ -3971,7 +3971,7 @@ fn still_held(w: &World, harp: &str) -> bool {
     let ran = run_now(w, &["session", "show", harp, "--format", "json"]);
     match ran.code {
         0 => true,
-        20 => false,
+        48 => false,
         _ => panic!("session show {harp}: {}", ran.said()),
     }
 }
@@ -4232,7 +4232,7 @@ fn cloned_project(w: &mut World) {
 )]
 fn told_untrusted(w: &mut World, path: String) {
     let ran = w.ran().clone();
-    assert_eq!(ran.code, 20, "{}", ran.said());
+    assert_eq!(ran.code, 48, "{}", ran.said());
     let envelope = super::adopt::envelope_of(w);
     assert_eq!(
         envelope["code"],
@@ -5199,7 +5199,7 @@ fn bundle_changes_mid(w: &mut World, bundle: String) {
 #[then("the apply was refused as stale, and the CLI previewed the removal again")]
 fn refused_stale(w: &mut World) {
     let ran = w.common.ran();
-    assert_eq!(ran.code, 20, "{}", ran.said());
+    assert_eq!(ran.code, 48, "{}", ran.said());
     assert!(
         ran.stderr.contains("library-tree-plan-stale") || ran.stderr.contains("look again"),
         "refused as stale: {}",
@@ -5986,7 +5986,7 @@ fn preview_only(w: &mut World) {
     // session nobody holds; the session and the bundle are as they were.
     let ran = w.common.ran();
     match ran.code {
-        20 => {
+        48 => {
             let refused: Value = serde_json::from_str(ran.stderr.trim())
                 .unwrap_or_else(|e| panic!("a refusal's envelope: {e}: {}", ran.said()));
             let code = refused["code"].as_str().unwrap_or_default();

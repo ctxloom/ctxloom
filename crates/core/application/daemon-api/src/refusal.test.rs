@@ -415,7 +415,7 @@ fn a_deps_decline_rides_as_its_cause_and_a_failure_keeps_its_words() {
     assert!(matches!(failed, ApiError::Diagnosed { .. }), "{failed:?}");
 }
 
-// An etag that is not a number is told in the daemon's own words, exit 20
+// An etag that is not a number is told in the daemon's own words, exit 48
 // (a decline), never a failure.
 #[test]
 fn an_etag_that_is_not_a_number_is_the_daemons_refusal() {

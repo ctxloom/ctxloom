@@ -11,7 +11,7 @@
 //!
 //! The FRONTEND's half ([`client_terminal`], the command `ctxloom run`, and
 //! init's interview): its project resolved and named by the daemon, the
-//! daemon reached (started if none serves, S16; none, exit 10 before
+//! daemon reached (started if none serves, S16; none, exit 32 before
 //! anything is planned), `CreateRun{TERMINAL}` answered with the launch,
 //! then `run_application::frontend` over this host: the run's own lock
 //! taken BEFORE the daemon is asked (U5's start-report race: a daemon

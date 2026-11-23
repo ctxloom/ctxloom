@@ -25,7 +25,7 @@ pub(crate) fn is_serve(noun: &str, verb: &str) -> bool {
 }
 
 /// `mcp serve`: this process serves the session `CTXLOOM_SESSION` names
-/// until its input ends. With none named it is refused (exit 20), never
+/// until its input ends. With none named it is refused (exit 48), never
 /// served as the user.
 pub(crate) fn serve(
     env: &Arc<EnvSnapshot>,

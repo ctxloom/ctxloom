@@ -19,14 +19,14 @@ struct Ran {
 
 impl Ran {
     fn ok(&self) -> &Ran {
-        assert_eq!(self.exit, Ok(0), "out {:?} err {:?}", self.out, self.err);
+        assert_eq!(self.exit, Ok(16), "out {:?} err {:?}", self.out, self.err);
         self
     }
 
     /// A preview that would change something (ruling 153): the
-    /// distinguishing success 1.
+    /// distinguishing success 17.
     fn would_change(&self) -> &Ran {
-        assert_eq!(self.exit, Ok(1), "out {:?} err {:?}", self.out, self.err);
+        assert_eq!(self.exit, Ok(17), "out {:?} err {:?}", self.out, self.err);
         self
     }
 
@@ -416,7 +416,7 @@ fn test_remote_create_says_what_was_added_and_warns_of_a_clone_that_failed() {
     );
     assert_eq!(bound.ok().json()["remote"]["forge"], "git");
     let refused = go(&fx, &["remote", "create", "again", URL], TEXT);
-    assert_eq!(refused.refused(), ("deps-same-repository", 20));
+    assert_eq!(refused.refused(), ("deps-same-repository", 48));
 }
 
 #[test]
@@ -441,7 +441,7 @@ fn test_remote_edit_reads_a_flag_given_even_when_it_is_empty() {
     let fx = Fixture::new();
     fx.register("origin", URL);
     let nothing = go(&fx, &["remote", "edit", "origin"], TEXT);
-    assert_eq!(nothing.refused(), ("deps-nothing-to-edit", 20));
+    assert_eq!(nothing.refused(), ("deps-nothing-to-edit", 48));
     let same = go(&fx, &["remote", "edit", "origin", "--name", "origin"], TEXT);
     assert_eq!(same.ok().out, "remote \"origin\" unchanged\n");
     let rebound = go(
@@ -532,11 +532,11 @@ fn test_remote_remove_previews_and_then_removes() {
     );
     assert_eq!(
         go(&fx, &["remote", "remove", "origin"], TEXT).refused(),
-        ("deps-application-no-remote-named", 20)
+        ("deps-application-no-remote-named", 48)
     );
     assert_eq!(
         go(&fx, &["remote", "remove", "origin", "-y"], JSON).refused(),
-        ("deps-remote-not-found", 20)
+        ("deps-remote-not-found", 48)
     );
 }
 
@@ -562,7 +562,7 @@ fn test_remote_default_sets_clears_and_wants_a_name() {
     );
     assert_eq!(
         go(&fx, &["remote", "default"], TEXT).refused(),
-        ("deps-application-default-needs-name", 20)
+        ("deps-application-default-needs-name", 48)
     );
 }
 
@@ -599,7 +599,7 @@ fn test_remote_show_lists_what_is_published_and_what_is_not() {
     );
     assert_eq!(
         go(&fx, &["remote", "show", "nope"], TEXT).refused(),
-        ("deps-application-browse", 10)
+        ("deps-application-browse", 32)
     );
 }
 
@@ -746,7 +746,7 @@ fn test_remote_discover_hands_its_words_flags_and_source_to_the_search() {
     assert_eq!((query.as_str(), limit), ("golang tools", 5));
     assert_eq!(
         go(&fx, &["remote", "discover", "-s", "gitlab"], TEXT).refused(),
-        ("deps-application-discover-source", 20)
+        ("deps-application-discover-source", 48)
     );
 }
 
@@ -757,7 +757,7 @@ fn test_a_remote_discover_that_failed_closes_the_progress_line_and_warns_why() {
     fx.forge
         .fail_search("search failed: HTTP 403: rate limit exceeded");
     let ran = go(&fx, &["remote", "discover"], TEXT);
-    assert_eq!(ran.refused(), ("deps-application-discover-failed", 10));
+    assert_eq!(ran.refused(), ("deps-application-discover-failed", 32));
     assert_eq!(
         ran.err,
         "Searching repositories...\nctxloom: warning: github: search failed: HTTP 403: rate limit exceeded\n"
@@ -1035,7 +1035,7 @@ fn test_a_pull_that_failed_prints_its_answer_first_then_exits_failed() {
     fx.register("origin", URL);
     fx.profile("dev", &[&demo_ref()]);
     let json = go(&fx, &["deps", "pull"], JSON);
-    assert_eq!(json.refused(), ("deps-application-pull-failed", 10));
+    assert_eq!(json.refused(), ("deps-application-pull-failed", 32));
     let failed = &json.json()["results"][0];
     assert_eq!(failed["state"], "FAILED", "{failed}");
     assert!(failed["error"].as_str().is_some_and(|e| !e.is_empty()));
@@ -1044,7 +1044,7 @@ fn test_a_pull_that_failed_prints_its_answer_first_then_exits_failed() {
         "check network/auth and retry (ctxloom deps pull), or drop the reference from its profile"
     );
     let ran = go(&fx, &["deps", "pull"], TEXT);
-    assert_eq!(ran.refused(), ("deps-application-pull-failed", 10));
+    assert_eq!(ran.refused(), ("deps-application-pull-failed", 32));
     assert!(ran.out.contains("  Failed: 1\n"), "{}", ran.out);
     assert!(
         ran.out.contains(&format!("    - {}: ", demo_ref())),
@@ -1246,7 +1246,7 @@ fn test_deps_check_of_one_reference() {
     assert!(unpinned["checks"][0].get("commit").is_none(), "{unpinned}");
     assert_eq!(
         go(&fx, &["deps", "check", "demo"], TEXT).refused(),
-        ("deps-application-not-remote-reference", 20)
+        ("deps-application-not-remote-reference", 48)
     );
 }
 
@@ -1389,7 +1389,7 @@ fn test_deps_upgrade_of_one_reference_moves_that_pin() {
     );
     assert_eq!(
         go(&fx, &["deps", "upgrade", "origin/typo", "--yes"], TEXT).refused(),
-        ("deps-application-nothing-to-hold", 20)
+        ("deps-application-nothing-to-hold", 48)
     );
 }
 
@@ -1425,7 +1425,7 @@ fn test_hold_and_unhold_say_what_they_did() {
     assert_eq!(local.ok().json(), serde_json::json!({"name": null}));
     assert_eq!(
         go(&fx, &["deps", "hold", "typo"], TEXT).refused(),
-        ("deps-application-nothing-to-hold", 20)
+        ("deps-application-nothing-to-hold", 48)
     );
 }
 
@@ -1470,7 +1470,7 @@ fn test_bundle_push_and_move_say_where_the_bundle_went() {
     assert!(json["size_bytes"].is_string(), "uint64 is a string: {json}");
     assert_eq!(
         go(&fx, &["bundle", "push", "authored", "team", "--pr"], TEXT).refused(),
-        ("deps-application-pull-request-needs-forge", 20)
+        ("deps-application-pull-request-needs-forge", 48)
     );
     fx.register_on("hub", "https://github.com/acme/hub", "github");
     let opened = go(&fx, &["bundle", "push", "authored", "hub", "--pr"], TEXT);
@@ -1513,7 +1513,7 @@ fn test_bundle_push_and_move_say_where_the_bundle_went() {
     );
     assert_eq!(
         go(&fx, &["bundle", "move", "ghost", "--to", "team"], JSON).refused(),
-        ("deps-application-bundle-not-found", 20)
+        ("deps-application-bundle-not-found", 48)
     );
 }
 
@@ -1789,7 +1789,7 @@ fn test_a_pull_with_yes_asks_for_the_write_and_carries_no_note() {
     assert!(json.json().get("apply_command").is_none());
 }
 
-// behaviour-changes-0.7.0: a refused consented refresh exits 20, the pull
+// behaviour-changes-0.7.0: a refused consented refresh exits 48, the pull
 // having landed.
 #[test]
 fn test_a_pull_with_yes_whose_refresh_is_refused_exits_20_after_the_pull() {
@@ -1801,6 +1801,6 @@ fn test_a_pull_with_yes_whose_refresh_is_refused_exits_20_after_the_pull() {
         ..FakeRefresh::default()
     };
     let ran = go_refreshing(&fx, &refresh, &["deps", "pull", "--yes"], JSON);
-    assert_eq!(ran.refused(), ("deps-application-refresh-aborted", 20));
+    assert_eq!(ran.refused(), ("deps-application-refresh-aborted", 48));
     assert_eq!(ran.json()["results"][0]["state"], "INSTALLED");
 }

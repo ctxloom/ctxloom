@@ -344,7 +344,7 @@ fn podman() -> Machine {
     }
 }
 
-// Build with no runtime is refused as prune is: exit 20, not a clean build.
+// Build with no runtime is refused as prune is: exit 48, not a clean build.
 #[test]
 fn build_with_no_runtime_is_refused() {
     let files = Files::default();

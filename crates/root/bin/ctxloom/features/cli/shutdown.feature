@@ -59,7 +59,7 @@ Feature: shutdown — stop every running ctxloom of this user, as an installer m
       # new: OD-62/OD-63, `ctxloom shutdown` and the SIGTERM drain (owner, 2026-11-15).
       Given a ctxloom daemon is serving for this home
       When I run "ctxloom shutdown soon"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the error names "soon"
       And the daemon still serves
 
@@ -67,7 +67,7 @@ Feature: shutdown — stop every running ctxloom of this user, as an installer m
       # new: OD-62/OD-63, `ctxloom shutdown` and the SIGTERM drain (owner, 2026-11-15).
       Given a ctxloom daemon is serving for this home that does not exit when asked
       When I run "ctxloom shutdown now"
-      Then the command exits with code 10
+      Then the command exits with code 32
       And the error names the daemon's pid
 
   Rule: A SIGTERM to the daemon is a drain within the configured time, and a draining daemon takes no new work
@@ -78,7 +78,7 @@ Feature: shutdown — stop every running ctxloom of this user, as an installer m
       And a ctxloom daemon is serving for this home, hosting a child "brisk-copper-moth" that does not end its turn
       When the daemon is sent SIGTERM
       Then "ctxloom daemon status --format json" reports it draining
-      And "ctxloom session list" exits with code 20, naming "daemon-api-draining"
+      And "ctxloom session list" exits with code 48, naming "daemon-api-draining"
 
     Scenario: A changed drain timeout lands while the daemon drains, and the drain honours it
       # new: OD-62/OD-63, `ctxloom shutdown` and the SIGTERM drain (owner, 2026-11-15).
@@ -114,7 +114,7 @@ Feature: shutdown — stop every running ctxloom of this user, as an installer m
       And a session "amber-swift-owl" whose prompt is held
       And no ctxloom daemon is serving for this home
       When I run "ctxloom shutdown now"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And it warns "ctxloom-wiring-shutdown-held", naming "amber-swift-owl (1 fact)"
       And no daemon was started
 

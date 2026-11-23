@@ -168,7 +168,7 @@ fn test_the_retired_turn_changed_hook_is_not_a_command() {
         r#"{"hook_event_name":"Stop"}"#,
         &[],
     );
-    assert_eq!(ran.code, 20, "{}", ran.said());
+    assert_eq!(ran.code, 48, "{}", ran.said());
 }
 
 // Go: the hook namespace is hidden ("Machine callback ... not for direct
@@ -240,7 +240,7 @@ fn test_execute_under_an_unknown_engine_is_refused_listing_the_known_ones() {
         "{}",
         &[],
     );
-    assert_eq!(ran.code, 20, "{}", ran.said());
+    assert_eq!(ran.code, 48, "{}", ran.said());
     assert_eq!(ran.stdout, "");
     let err = ran.err_json();
     assert_eq!(err["code"], "setup-application-unknown-hook-engine");
@@ -547,7 +547,7 @@ fn test_the_old_hook_verbs_are_not_commands() {
         vec!["hook", "skill-mates", "--engine", "claude-code"],
     ] {
         let ran = env.run_hook(&line, "{}", &[]);
-        assert_eq!(ran.code, 20, "{line:?}: {}", ran.said());
+        assert_eq!(ran.code, 48, "{line:?}: {}", ran.said());
     }
 }
 
@@ -605,7 +605,7 @@ fn test_a_hook_process_with_no_home_at_all_is_refused_naming_both_variables() {
         "{}",
         &[],
     );
-    assert_eq!(ran.code, 10, "{}", ran.said());
+    assert_eq!(ran.code, 32, "{}", ran.said());
     let err = ran.err_json();
     assert_eq!(err["code"], "ctxloom-wiring-no-home");
     assert!(

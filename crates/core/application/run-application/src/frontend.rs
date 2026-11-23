@@ -5,7 +5,7 @@
 //! as the launch says, and tells the daemon what became of it:
 //!
 //! 1. it takes the session's lock (at once or refused, `sessions-session-
-//!    running`, exit 20) and holds it for the TUI's whole life (rulings 85,
+//!    running`, exit 48) and holds it for the TUI's whole life (rulings 85,
 //!    92), so the session reads live;
 //! 2. it starts the launch on the terminal (its program, arguments, WHOLE
 //!    environment and directory, nothing inherited);

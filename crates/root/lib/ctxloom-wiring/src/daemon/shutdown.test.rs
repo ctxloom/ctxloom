@@ -292,7 +292,7 @@ fn running(daemon: Option<u32>) -> Running {
 }
 
 // The verdict: done when nothing runs and nothing is held; what still runs
-// is a failure (10); a hold left undelivered a decline (20), the more
+// is a failure (32); a hold left undelivered a decline (48), the more
 // severe, which wins beside what still runs.
 #[test]
 fn an_undelivered_hold_is_a_decline_that_outranks_what_still_runs() {

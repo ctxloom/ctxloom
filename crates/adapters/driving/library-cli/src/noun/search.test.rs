@@ -38,7 +38,7 @@ mod read {
             .is_none());
         assert_eq!(
             go(&["search", "--remote", "x"], JSON, BARE).refused(),
-            "library-application-search-remote:20"
+            "library-application-search-remote:48"
         );
         assert!(text_of(&["search", "golang"]).starts_with("Results (1):\n"));
     }
@@ -98,11 +98,11 @@ mod read {
         // The daemon's read (step 10a U2): with none, text fails as json does.
         assert_eq!(
             go_in(&["search", "golang"], TEXT, BARE, &Unreachable).refused(),
-            "daemon-api-unreached:10"
+            "daemon-api-unreached:32"
         );
         assert_eq!(
             go_in(&["search", "golang"], JSON, BARE, &Unreachable).refused(),
-            "daemon-api-unreached:10"
+            "daemon-api-unreached:32"
         );
     }
 }

@@ -10,10 +10,10 @@
 //! `allow-always` of a claude ask also writes its rule into the asking
 //! agent's permissions in the config ([`AlwaysRules`], owner Q3): the ask is
 //! checked waiting, the rule written, then the ask answered; off a terminal
-//! without `--yes` it previews and changes nothing (exit 1 under
+//! without `--yes` it previews and changes nothing (exit 17 under
 //! `--detailed-exitcode`), at a terminal it asks first. A rule written for
 //! an ask that was settled before its answer reached it stays, and is said
-//! (`daemon-api-approval-rule-kept`, exit 20).
+//! (`daemon-api-approval-rule-kept`, exit 48).
 
 use std::io::Write;
 

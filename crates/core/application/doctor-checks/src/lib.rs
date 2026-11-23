@@ -26,7 +26,7 @@
 //! lockstep check against the installed taskloom (unruled: D15/D3b).
 //!
 //! A row is `ok`, `warn`, `fail` or `info`. A warning is advisory; a `fail`
-//! guarantees `ctxloom run` refuses, and makes doctor exit 20.
+//! guarantees `ctxloom run` refuses, and makes doctor exit 48.
 
 mod checks;
 mod doctor;

@@ -37,14 +37,15 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
   has changed, the apply is refused as stale and the person previews again.
   `--yes` is one call that plans and applies. Off a terminal without
   `--yes`, the preview is printed and nothing is applied: it exits 0, or,
-  with `--detailed-exitcode`, 1 when the change would do something. Nothing
+  with `--detailed-exitcode`, 17 when the change would do something (16 when
+  it would not). Nothing
   pauses a call.
 
-  EXIT CODES. 0 succeeded (an apply, or a preview); 1 a preview that would
-  change something, only with `--detailed-exitcode`; 10 failed (something
-  broke: the store, an engine, the daemon could not be started); 20
-  refused (the request or the state forbids it, a usage error included); 21
-  fatal findings; 128 plus n, stopped by signal n.
+  EXIT CODES. 0 succeeded (an apply, or a preview; 16 with
+  `--detailed-exitcode`); 17 a preview that would change something, only
+  with `--detailed-exitcode`; 32 failed (something broke: the store, an
+  engine, the daemon could not be started); 48 refused (the request or the
+  state forbids it, a usage error included); 49 fatal findings; 128 plus n, stopped by signal n.
 
   HARPS ARE PERMANENT. A session is named by its project's harp and its
   own, `projects/{project}/sessions/{session}`, both minted once and never
@@ -153,7 +154,7 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
       Given an initialized ctxloom project
       And no ctxloom daemon can be started for this home
       When I run '<command>'
-      Then the command exits with code 10
+      Then the command exits with code 32
       And the output contains "no ctxloom daemon could be started"
       And the output contains "~/.ctxloom/daemon/daemon.log"
       And no project store was opened, and no engine was started
@@ -182,7 +183,7 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
       Examples:
         | command                       | code |
         | ctxloom --help                | 0    |
-        | ctxloom session --frobnicate  | 20   |
+        | ctxloom session --frobnicate  | 48   |
         | ctxloom daemon status         | 0    |
         | ctxloom daemon stop           | 0    |
 
@@ -194,7 +195,7 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
       And the project's changes are committed
       And no ctxloom daemon can be started for this home
       When I run '<write>'
-      Then the command exits with code 10
+      Then the command exits with code 32
       And the output contains "no ctxloom daemon could be started"
       And git sees nothing changed in the project
       And no project store was opened, and no engine was started
@@ -227,7 +228,7 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
       Given an initialized ctxloom project
       And no ctxloom daemon can be started for this home
       When I run '<command>'
-      Then the command exits with code 10
+      Then the command exits with code 32
       And the output contains "no ctxloom daemon could be started"
       And no project store was opened, and no engine was started
 
@@ -309,7 +310,7 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
       Given an initialized ctxloom project
       And a ctxloom daemon is serving for this home, hosting a child "brisk-copper-moth"
       When I run "ctxloom daemon stop"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the output contains "brisk-copper-moth"
       When I run "ctxloom daemon stop --even-if-live"
       Then the command succeeds
@@ -353,7 +354,7 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
     Scenario: Stopping with both --drain and --even-if-live is refused
       # new: U8b (OD-54 (3)): two ways of stopping, not both.
       When I run "ctxloom daemon stop --drain --even-if-live"
-      Then the command exits with code 20
+      Then the command exits with code 48
 
   Rule: An idle daemon exits by itself
 
@@ -618,9 +619,9 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
       Examples:
         | command                                                 | code |
         | ctxloom session remove amber-swift-owl                  | 0    |
-        | ctxloom session remove amber-swift-owl --detailed-exitcode | 1 |
-        | ctxloom bundle remove notes --detailed-exitcode         | 1    |
-        | ctxloom session remove nobody-ever-ran --detailed-exitcode | 20 |
+        | ctxloom session remove amber-swift-owl --detailed-exitcode | 17 |
+        | ctxloom bundle remove notes --detailed-exitcode         | 17   |
+        | ctxloom session remove nobody-ever-ran --detailed-exitcode | 48 |
 
     Scenario: At her terminal, the CLI asks Alice the preview's confirmation, and applies her answer
       # new: a client with no elicitation presents the needs itself.
@@ -689,7 +690,7 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
       Given an initialized ctxloom project
       And the project has a store of its own from before the one store
       When I run "ctxloom session list"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the output contains "projects/"
       And the output contains "remove"
       And nothing was imported from it

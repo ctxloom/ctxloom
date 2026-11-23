@@ -108,7 +108,7 @@ pub struct Trees {
 /// Why a read was not answered.
 #[derive(Debug)]
 pub enum ReadError {
-    /// The scan or the record failed (exit 10).
+    /// The scan or the record failed (exit 32).
     Failed(Failure),
 }
 

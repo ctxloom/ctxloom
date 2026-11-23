@@ -199,7 +199,7 @@ fn created(
 /// did is that preview, whose Confirm need is asked at a terminal (owner
 /// ruling 2026-11-18, evening, as a removal's is) and on a yes applied with
 /// the answer and the preview's etag; off a terminal, or on a no, the
-/// preview is printed and nothing applied (exit 1 under
+/// preview is printed and nothing applied (exit 17 under
 /// `--detailed-exitcode`, ruling 153). Any other edit is applied with the
 /// preview's etag. An apply refused stale is previewed again and ends in
 /// the refusal. `--yes` is one call.

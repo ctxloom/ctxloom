@@ -852,7 +852,7 @@ fn registers_hook(w: &mut World, rel: String, text: String) {
 // The sweep (j001300).
 
 /// The report names each (its exit is the scenario's to say: a preview
-/// that would change something is 1 under `--detailed-exitcode`).
+/// that would change something is 17 under `--detailed-exitcode`).
 #[then(expr = "the sweep report names {string} and {string}")]
 fn sweep_names(w: &mut World, a: String, b: String) {
     w.ran().contains(&a).contains(&b);

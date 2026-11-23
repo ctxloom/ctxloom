@@ -175,8 +175,8 @@ fn the_applications_own_refusals_have_samples() {
     );
 }
 
-// Ruling 152: an adapter's error broke (10); a refusal of the read model or a
-// write, and every other error but the plan's fatal findings, declines (20);
+// Ruling 152: an adapter's error broke (32); a refusal of the read model or a
+// write, and every other error but the plan's fatal findings, declines (48);
 // the plan's fatal findings are 21. A write whose ports were not wired broke.
 #[test]
 fn test_an_error_is_failed_declined_or_fatal_by_its_kind() {

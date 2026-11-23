@@ -21,7 +21,7 @@ pub enum AppError {
     /// An adapter's error, as itself: something broke (I/O, a store).
     Cause(Box<dyn Diagnostic>),
     /// A refusal of the read model or of a write, as itself: the request or
-    /// the content forbids it (ruling 152: a decline, exit 20).
+    /// the content forbids it (ruling 152: a decline, exit 48).
     Declined(Box<dyn Diagnostic>),
     /// A config layer that is not YAML.
     ConfigUnparsable {
@@ -179,9 +179,9 @@ impl AppError {
 }
 
 impl ExitClass for AppError {
-    /// How a command this ends exits (rulings 149, 152, 153): failed (10)
-    /// when an adapter broke, fatal findings (21) for the run plan's, and
-    /// refused (20) for every other: each declines the request against the
+    /// How a command this ends exits (rulings 149, 152, 153): failed (32)
+    /// when an adapter broke, fatal findings (49) for the run plan's, and
+    /// refused (48) for every other: each declines the request against the
     /// line, the config or the content (a name nobody has, an unreadable
     /// config or bundle, a reference that is no reference).
     fn exit(&self) -> Exit {

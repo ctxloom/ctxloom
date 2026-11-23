@@ -172,7 +172,7 @@ Feature: session approvals — a child's permission ask, answered by the user
       And I note the ask named by "approvals[0].name" as "the first ask"
       And I note the ask named by "approvals[1].name" as "the second ask"
       When I run "ctxloom session approvals answer brisk-copper-moth allow-once"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the refusal is "daemon-api-approval-ambiguous"
       And the output contains "{the first ask}"
       And the output contains "{the second ask}"
@@ -186,7 +186,7 @@ Feature: session approvals — a child's permission ask, answered by the user
       Given an initialized ctxloom project
       And a child "brisk-copper-moth" of "amber-quiet-heron" that is open and idle
       When I run "ctxloom session approvals answer brisk-copper-moth allow-once"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the refusal is "daemon-api-approval-none-waiting"
       And the output contains "brisk-copper-moth"
 
@@ -195,7 +195,7 @@ Feature: session approvals — a child's permission ask, answered by the user
       Given an initialized ctxloom project
       And a child "brisk-copper-moth" of "amber-quiet-heron" whose engine has asked to run "Bash" with "rm -rf build/"
       When I run "ctxloom session approvals answer brisk-copper-moth deny-always"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the refusal is "approvals-option-not-offered"
       And the output contains "allow-once, allow-session, allow-always, deny"
       And an ask is still waiting under "amber-quiet-heron"
@@ -208,7 +208,7 @@ Feature: session approvals — a child's permission ask, answered by the user
       And I note the ask named by "approvals[0].name" as "the ask"
       And I run "ctxloom session approvals answer {the ask} allow-once"
       When I run "ctxloom session approvals answer {the ask} deny"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the refusal is "approvals-approval-settled"
       And the output contains "answered"
 
@@ -224,7 +224,7 @@ Feature: session approvals — a child's permission ask, answered by the user
       Then the child's engine was told not to run it, because no answer came in time
       And no ask is waiting under "amber-quiet-heron"
       When I run "ctxloom session approvals answer {the ask} allow-once"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the refusal is "approvals-approval-settled"
       And the output contains "expired"
 
@@ -255,7 +255,7 @@ Feature: session approvals — a child's permission ask, answered by the user
       And the child's engine cancelled its approval prompt call
       And no ask is waiting under "amber-quiet-heron"
       When I run "ctxloom session approvals answer {the ask} allow-once"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the refusal is "approvals-approval-settled"
       And the output contains "withdrawn"
 
@@ -270,7 +270,7 @@ Feature: session approvals — a child's permission ask, answered by the user
       When the ask's time runs out
       Then no ask is waiting under "amber-quiet-heron"
       When I run "ctxloom session approvals answer {the ask} allow-once"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the refusal is "approvals-approval-settled"
       And the output contains "expired"
 
@@ -281,7 +281,7 @@ Feature: session approvals — a child's permission ask, answered by the user
       Given an initialized ctxloom project
       And a child "brisk-copper-moth" of "amber-quiet-heron" whose engine has asked to run "Bash" with "rm -rf build/"
       When I run "ctxloom session approvals answer brisk-copper-moth allow-always --format json --detailed-exitcode"
-      Then the command exits with code 1
+      Then the command exits with code 17
       And the output reports "applied" as "false"
       And the output reports "apply" containing "--yes"
       And the output contains ".ctxloom/config.yaml"

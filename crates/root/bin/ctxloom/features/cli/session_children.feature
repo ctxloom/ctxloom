@@ -49,7 +49,7 @@ Feature: session launch, send, clear and close — a child of a session, run by 
   the command chose (a message's id is `--id`, or one the command mints),
   and rendered from the read models the coordinator waited for. A launch
   first hands the daemon the environment the child is launched with. Every
-  refusal exits 20.
+  refusal exits 48.
 
   Rule: A launch starts a child of the owner, with its task
 
@@ -88,7 +88,7 @@ Feature: session launch, send, clear and close — a child of a session, run by 
       And a session "amber-quiet-heron" that is still running
       And an empty directory "nowhere" beside this project
       When I run 'ctxloom session launch amber-quiet-heron --name brisk-copper-moth --project ../nowhere "review"'
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the output contains "is in no ctxloom project"
       And no hand-off file was left behind
 
@@ -98,7 +98,7 @@ Feature: session launch, send, clear and close — a child of a session, run by 
       And Alice has exported her assistant's token
       And a session "amber-quiet-heron" that is still running
       When I run 'ctxloom session launch amber-quiet-heron --name ask-tidy-wren "review"'
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the refusal is "sessions-harp-invalid"
       And the output contains "ask-"
       And no hand-off file was left behind
@@ -107,7 +107,7 @@ Feature: session launch, send, clear and close — a child of a session, run by 
       # new: session launch.
       Given an initialized ctxloom project
       When I run 'ctxloom session launch nobody-ever-ran "review"'
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the output contains "there is no session named nobody-ever-ran"
       And no hand-off file was left behind
 
@@ -116,7 +116,7 @@ Feature: session launch, send, clear and close — a child of a session, run by 
       Given an initialized ctxloom project
       And a session "amber-quiet-heron" that is still running
       When I run 'ctxloom session launch amber-quiet-heron --name brisk-copper-moth "review"'
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the output contains "needs a credential in the environment"
       And no hand-off file was left behind
 
@@ -161,7 +161,7 @@ Feature: session launch, send, clear and close — a child of a session, run by 
       Given an initialized ctxloom project
       And no ctxloom daemon is serving for this home
       When I run 'ctxloom session send brisk-copper-moth "check the tests"'
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the output contains "inform, wake, steer"
       And no ctxloom daemon was started
 
@@ -201,7 +201,7 @@ Feature: session launch, send, clear and close — a child of a session, run by 
       Given an initialized ctxloom project
       And a child "brisk-copper-moth" that has been closed
       When I run 'ctxloom session send brisk-copper-moth wake "one more thing"'
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the output contains "session brisk-copper-moth is closed"
 
   Rule: A clear starts the child's conversation again, in the same session

@@ -59,9 +59,9 @@ fn a_commands_failure_is_its_diagnostic_and_its_exit_code() {
     };
     let error = CliError::Command {
         error: Box::new(inner),
-        exit: Exit::failed(17),
+        exit: Exit::failed(40),
     };
-    assert_eq!(error.exit(), Exit::failed(17));
+    assert_eq!(error.exit(), Exit::failed(40));
     assert_eq!(error.code(), "ctxloom-cli-unknown-format");
     assert_eq!(error.args().len(), 1);
 }

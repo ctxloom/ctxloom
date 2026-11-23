@@ -303,7 +303,7 @@ Feature: init — the setup interview, and what it does to a project that alread
       Given an empty project directory
       And no ctxloom daemon can be started for this home
       When I run "ctxloom init"
-      Then the command exits with code 10
+      Then the command exits with code 32
       And the output contains "no ctxloom daemon could be started"
       And the file ".ctxloom" does not exist
       And the file ".git" does not exist
@@ -460,7 +460,7 @@ Feature: init — the setup interview, and what it does to a project that alread
         """
         ctxloom init prompt
         """
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the output contains "overrides ctxloom's built-in one whole, and has no prompt \"setup-interview\""
       And the output contains "add prompts/setup-interview.md to it, or rename that bundle to use ctxloom's own"
       And the output does not contain "Phase 1 — Open, orient, scan"

@@ -69,7 +69,7 @@ fn test_a_profile_referencing_a_missing_bundle_is_refused_like_a_run() {
         &token,
         &["run", "--dry-run", "--profile", "broken", "hello"],
     );
-    assert_eq!(refused.code, 21, "{}", refused.said());
+    assert_eq!(refused.code, 49, "{}", refused.said());
     refused
         .contains("failed to load bundle")
         .contains("does-not-exist");

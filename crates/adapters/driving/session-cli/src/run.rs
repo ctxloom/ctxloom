@@ -48,7 +48,7 @@ pub struct Done {
     /// certainly marks a bug.
     pub lines: Vec<String>,
     /// A preview that would change something on `--yes` (ruling 153: the
-    /// command's exit is the distinguishing success 1, said only under
+    /// command's exit is the distinguishing success 17, said only under
     /// `--detailed-exitcode`).
     pub would_change: bool,
 }
@@ -552,7 +552,7 @@ fn isolation_failure(error: IsolationError) -> Failure {
 }
 
 /// `session worktrees ...`: the scratch checkouts, listed or purged. A purge
-/// reports first, and an action that changed nothing refuses (exit 20) after
+/// reports first, and an action that changed nothing refuses (exit 48) after
 /// the report is out, so an unattended run that found nothing safe cannot be
 /// mistaken for one that cleaned up.
 fn worktree_verb<S: WorktreeUse>(
@@ -827,7 +827,7 @@ async fn sweep<R: SessionRemovals>(
     Ok(done)
 }
 
-/// A hold this process could not read or discard: a failure (10), never a
+/// A hold this process could not read or discard: a failure (32), never a
 /// quiet leftover.
 #[cfg(feature = "session-destroy")]
 fn hold_failure(error: reclaim_application::HoldError) -> Failure {

@@ -224,6 +224,7 @@ fn is(got: &Value, want: &str) -> bool {
 }
 
 #[then(expr = "within {int} seconds a line has {string} as {string}")]
+#[then(expr = "within {int} seconds a line reports {string} as {string}")]
 fn line_has_as(w: &mut World, seconds: u64, path: String, want: String) {
     let want = w.common.expanded(&want);
     let line = until_line(w, seconds, |line| {

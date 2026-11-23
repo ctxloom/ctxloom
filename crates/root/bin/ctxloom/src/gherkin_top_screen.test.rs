@@ -259,20 +259,24 @@ fn pressed(w: &mut World, key: String) {
 #[when(expr = "I press {string} until {string} is marked")]
 fn pressed_until(w: &mut World, key: String, harp: String) {
     for _ in 0..20 {
-        let seen = screen(w).seen.len();
         let frame = until(w, "with a row marked", |p| !marked(p).is_empty());
         if marked(&frame) == [harp.clone()] {
             return;
         }
+        let seen = screen(w).seen.len();
         press_key(w, &key);
         let deadline = Instant::now() + WAIT;
         while screen(w).seen.len() <= seen {
             let left = deadline.saturating_duration_since(Instant::now());
-            let next = screen(w)
-                .frames
-                .recv_timeout(left)
-                .expect("the key changed the frame");
-            screen(w).seen.push(next);
+            let next = screen(w).frames.recv_timeout(left);
+            match next {
+                Ok(next) => screen(w).seen.push(next),
+                Err(e) => {
+                    let log = daemon_spec::daemon_log_text(w);
+                    let frames = screen(w).seen.clone();
+                    panic!("the key {key} changed no frame ({e}); the frames so far: {frames:#?}\n{log}")
+                }
+            }
         }
     }
     panic!("{harp} was never marked");

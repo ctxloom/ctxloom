@@ -4013,9 +4013,15 @@ fn elicited(w: &mut World) {
 
 #[given(expr = "an interactive session {string} whose assistant is running on its terminal")]
 fn primary_running(w: &mut World, harp: String) {
+    primary_running_on(w, harp, &tui_stub());
+}
+
+/// [`primary_running`] over the stub `stub` (the claude of the TUI, and of
+/// any child it launches).
+fn primary_running_on(w: &mut World, harp: String, stub: &str) {
     // Its session recorded, its engine's own session bound, and resumed on
     // this terminal (`run --session`), the TUI stub left running.
-    let dir = stub_claude(w, &tui_stub());
+    let dir = stub_claude(w, stub);
     w.daemon_spec.tui_dir = Some(dir.clone());
     let seeded = run_now(
         w,
@@ -8481,4 +8487,115 @@ fn records_hold_no_command(w: &mut World) {
         }
         assert!(!shown.contains("START-COMMAND"), "{child}: {shown}");
     }
+}
+
+// ------------------------------------- the frontend tells its human of an ask
+
+/// What a terminal session's frontend records of its watch for asks under
+/// test-support (`test-frontend-asks` in ctxloom's home): a line `look`
+/// after each look at the waiting asks, and `told <ask>` after each ask
+/// it showed. The scenarios wait on it: the interleavings they are about
+/// are forced, never waited for by the clock.
+fn frontend_asks_record(w: &World) -> String {
+    files::read(w.common.project.home().join(".ctxloom/test-frontend-asks")).unwrap_or_default()
+}
+
+fn frontend_lines_starting(w: &World, word: &str) -> usize {
+    frontend_asks_record(w)
+        .lines()
+        .filter(|line| line.split(' ').next() == Some(word))
+        .count()
+}
+
+/// The claude stub of both the TUI and the children it launches: a call
+/// that streams (`claude -p --output-format stream-json`) is the child's
+/// turn, any other the TUI.
+fn tui_and_child_stub() -> String {
+    format!(
+        "case \"$*\" in\n  *stream-json*)\n    (\n{child}\n    )\n    exit $? ;;\nesac\n{tui}",
+        child = child_stub(),
+        tui = tui_stub()
+    )
+}
+
+#[given(
+    expr = "an interactive session {string} is running in a terminal, with a child {string} of it"
+)]
+fn session_with_a_child(w: &mut World, harp: String, child: String) {
+    primary_running_on(w, harp.clone(), &tui_and_child_stub());
+    let mut env = env_of(w);
+    env.push(("ANTHROPIC_API_KEY".to_string(), "a-key".to_string())); // gitleaks:allow
+    let launched = w.common.project.run_with(
+        &env_pairs(&env),
+        &["session", "launch", &harp, "--name", &child, "a task"],
+    );
+    assert_eq!(launched.code, 0, "{}", launched.said());
+    let stub = w.daemon_spec.tui_dir.clone().expect("the stub's directory");
+    until(w, "the child's first turn", DAEMON_WAIT, |_| {
+        files::exists(stub.join("child-turn")).then_some(())
+    });
+}
+
+#[then(regex = r"^the session's frontend has told its human of (\d+) asks?$")]
+fn frontend_told(w: &mut World, count: usize) {
+    until(w, "the frontend's notice of the ask", DAEMON_WAIT, |w| {
+        (frontend_lines_starting(w, "told") >= count).then_some(())
+    });
+    assert_eq!(frontend_lines_starting(w, "told"), count);
+}
+
+#[then(regex = r"^the session's frontend has looked for asks (\d+) more times$")]
+fn frontend_looked(w: &mut World, more: usize) {
+    let before = frontend_lines_starting(w, "look");
+    until(w, "the frontend's looks", DAEMON_WAIT, |w| {
+        (frontend_lines_starting(w, "look") >= before + more).then_some(())
+    });
+}
+
+#[when("the session's terminal is released and the session ends")]
+fn terminal_released(w: &mut World) {
+    let stub = w.daemon_spec.tui_dir.clone().expect("the stub's directory");
+    files::put(stub.join("release"), "go");
+    session_ran(w);
+}
+
+#[then(regex = r"^the session's terminal rang the bell (\d+) times?$")]
+fn terminal_rang(w: &mut World, times: usize) {
+    let session = session_ran(w);
+    assert_eq!(
+        session.stderr.matches('\u{7}').count(),
+        times,
+        "{}",
+        session.said()
+    );
+}
+
+#[then(
+    regex = r#"^the session's terminal was told once of "([^"]+)"'s ask to run "([^"]+)" with "([^"]*)", with the command that answers it$"#
+)]
+fn terminal_told_of(w: &mut World, child: String, tool: String, text: String) {
+    let session = session_ran(w);
+    let told: Vec<&str> = session
+        .stderr
+        .lines()
+        .filter(|line| line.contains("ctxloom:") && line.contains(&format!("{tool}({text})")))
+        .collect();
+    assert_eq!(told.len(), 1, "{}", session.said());
+    let line = told[0];
+    assert!(line.contains(&child), "{line}");
+    assert!(
+        line.contains("ctxloom session approvals answer ask-"),
+        "{line}"
+    );
+}
+
+#[then("the session's terminal was told of no ask")]
+fn terminal_told_of_none(w: &mut World) {
+    let session = session_ran(w);
+    assert!(
+        !session.stderr.contains("session approvals answer"),
+        "{}",
+        session.said()
+    );
+    assert_eq!(frontend_lines_starting(w, "told"), 0);
 }

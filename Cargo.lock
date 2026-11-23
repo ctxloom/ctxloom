@@ -4676,6 +4676,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "session-timeline"
+version = "0.1.0"
+dependencies = [
+ "angzarr-embedded",
+ "approvals",
+ "held-projection",
+ "mutants",
+ "session-index",
+ "sessions",
+ "uuid",
+]
+
+[[package]]
 name = "sessions"
 version = "0.1.0"
 dependencies = [

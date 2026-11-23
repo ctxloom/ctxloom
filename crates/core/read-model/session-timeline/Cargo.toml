@@ -1,0 +1,24 @@
+[package]
+name = "session-timeline"
+version = "0.1.0"
+description = "A session's timeline: its lifecycle events, its asks and its transcript lines in the order they happened, folded from the session and approvals streams"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+angzarr-embedded.workspace = true
+approvals.workspace = true
+held-projection.workspace = true
+# The transcript's lines are the index's fold of the capture events.
+session-index.workspace = true
+sessions.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+angzarr-embedded = { workspace = true, features = ["test-support"] }
+mutants.workspace = true
+
+[lints]
+workspace = true

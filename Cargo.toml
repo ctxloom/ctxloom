@@ -101,6 +101,7 @@ library-api = { path = "crates/core/application/library-api" }
 approvals-proto = { path = "crates/core/wire/approvals-proto" }
 approvals = { path = "crates/core/domain/approvals" }
 pending-approvals = { path = "crates/core/read-model/pending-approvals" }
+session-timeline = { path = "crates/core/read-model/session-timeline" }
 run-ports = { path = "crates/core/ports/run-ports" }
 runs-application = { path = "crates/core/application/runs-application" }
 run-launcher = { path = "crates/core/application/run-launcher" }

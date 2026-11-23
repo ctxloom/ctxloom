@@ -374,7 +374,7 @@ async fn every_projects_listing_is_the_wildcard_parent() {
     assert_eq!(outside_daemons.names(), ["projects/-"]);
 }
 
-// Outside a project, a read of this project's is refused (exit 20) before
+// Outside a project, a read of this project's is refused (exit 48) before
 // it asks the daemon anything but where it is.
 #[tokio::test]
 async fn outside_a_project_its_own_listing_is_refused() {
@@ -499,8 +499,8 @@ async fn a_call_whose_daemon_dies_is_made_once_more_on_a_new_one() {
     assert_eq!(twice.reaches(), 2, "retried once, not again");
 }
 
-// A daemon that could not be started is a failure (10); one that serves
-// and declines this client is a decline (20).
+// A daemon that could not be started is a failure (32); one that serves
+// and declines this client is a decline (48).
 #[tokio::test]
 async fn an_unreached_daemon_is_a_failure_or_a_decline() {
     let mut daemons = Fakes::new();

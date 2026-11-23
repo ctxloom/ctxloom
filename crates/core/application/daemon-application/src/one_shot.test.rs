@@ -201,7 +201,7 @@ fn test_a_one_shot_refused_before_it_was_placed_answers_its_notices_and_end() {
         panic!("an end");
     };
     assert_eq!(end.code, "runs-no-prompt");
-    assert_eq!(end.exit, 20);
+    assert_eq!(end.exit, 48);
     assert_eq!(one_shots.hosting(), 0, "nothing hosted");
     assert!(one_shots.live().is_empty());
 }

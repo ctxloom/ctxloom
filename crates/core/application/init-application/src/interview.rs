@@ -64,7 +64,7 @@ pub struct LaunchFailure {
 }
 
 impl LaunchFailure {
-    /// A launch that failed in the ordinary way: failed (10).
+    /// A launch that failed in the ordinary way: failed (32).
     pub fn failed(cause: Failure) -> LaunchFailure {
         LaunchFailure {
             cause,

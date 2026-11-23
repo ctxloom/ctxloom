@@ -61,7 +61,7 @@ pub(crate) fn read(
     }
     .map_err(output_failure)?;
     // A dry run that found nothing fatal would launch (ruling 153): the
-    // distinguishing success 1, said only under `--detailed-exitcode`.
+    // distinguishing success 17, said only under `--detailed-exitcode`.
     if fatal.is_empty() {
         return Ok(Exit::WOULD_CHANGE);
     }

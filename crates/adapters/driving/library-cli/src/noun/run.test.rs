@@ -4,12 +4,12 @@ mod read {
     use crate::tests::*;
 
     // Ruling 153: a dry run whose plan found nothing fatal would launch, the
-    // distinguishing success 1 (said only under `--detailed-exitcode`).
+    // distinguishing success 17 (said only under `--detailed-exitcode`).
     #[test]
     fn test_a_dry_run_that_would_launch_would_change() {
-        assert_eq!(go(&["run", "--dry-run", "hello"], JSON, BARE).code(), 1);
-        assert_eq!(go(&["run", "--dry-run", "hello"], TEXT, BARE).code(), 1);
-        assert_eq!(go(&["context"], JSON, BARE).code(), 0, "a read is ok");
+        assert_eq!(go(&["run", "--dry-run", "hello"], JSON, BARE).code(), 17);
+        assert_eq!(go(&["run", "--dry-run", "hello"], TEXT, BARE).code(), 17);
+        assert_eq!(go(&["context"], JSON, BARE).code(), 16, "a read is ok");
     }
 
     // run.feature: `run --dry-run` previews; without it this build refuses.
@@ -61,7 +61,7 @@ mod read {
         );
         assert_eq!(
             go(&["run"], JSON, BARE).refused(),
-            "library-application-run-needs-dry-run:20"
+            "library-application-run-needs-dry-run:48"
         );
     }
 
@@ -110,16 +110,16 @@ mod read {
                 BARE
             )
             .refused(),
-            "library-application-no-context-exclusive:20"
+            "library-application-no-context-exclusive:48"
         );
     }
 
-    // fault_tolerance.feature: fatal findings abort a preview (exit 21) after the
+    // fault_tolerance.feature: fatal findings abort a preview (exit 49) after the
     // plan is printed; --degraded previews past them.
     #[test]
     fn test_fatal_findings_print_the_plan_and_abort() {
         let ran = go(&["run", "--dry-run", "-p", "broken"], JSON, BARE);
-        assert_eq!(ran.refused(), "library-application-startup-aborted:21");
+        assert_eq!(ran.refused(), "library-application-startup-aborted:49");
         assert_eq!(ran.json()["findings"][0]["fatal"], true);
         // hand-test 2 2026-11-11: the refusal alone names the fatal finding; no
         // warning says it first.
@@ -129,7 +129,7 @@ mod read {
             ..JSON
         };
         let past = go(&["run", "--dry-run", "-p", "broken"], degraded, BARE);
-        assert_eq!(past.code(), 1, "past its findings it would launch");
+        assert_eq!(past.code(), 17, "past its findings it would launch");
         // OD-40: proto3 JSON leaves a finding's false `fatal` out (OQ-7).
         let finding = &past.json()["findings"][0];
         assert!(finding.get("kind").is_some(), "{finding}");
@@ -151,7 +151,7 @@ mod read {
             JSON,
             &[ENGINE_HOME, ENGINE_PROJECT],
         );
-        assert_eq!(plan.code(), 1, "{}", plan.err);
+        assert_eq!(plan.code(), 17, "{}", plan.err);
         let run = plan.json();
         assert_eq!(run["name"], "projects/calm-otter/runs/-", "{run}");
         assert_eq!(run["agent"], "projects/calm-otter/agents/dev");
@@ -193,7 +193,7 @@ mod read {
             JSON,
             &["schema_version: 9\n"],
         );
-        assert_eq!(bare.code(), 1, "{}", bare.err);
+        assert_eq!(bare.code(), 17, "{}", bare.err);
         let run = bare.json();
         assert!(run.get("settings").is_none(), "{run}");
         assert!(run.get("profiles").is_none(), "{run}");
@@ -211,7 +211,7 @@ mod read {
             &[ENGINE_HOME, ENGINE_PROJECT],
             &Unnamed,
         );
-        assert_eq!(plan.code(), 1, "{}", plan.err);
+        assert_eq!(plan.code(), 17, "{}", plan.err);
         let run = plan.json();
         let name = run.as_object().and_then(|run| run.get("name"));
         assert_eq!(name, Some(&serde_json::Value::Null), "{run}");
@@ -230,17 +230,17 @@ mod read {
         for how in [JSON, TEXT] {
             assert_eq!(
                 go_in(&line, how, &layers, &Unreachable).refused(),
-                "daemon-api-unreached:10"
+                "daemon-api-unreached:32"
             );
         }
         // Asked first: a plan the library refuses reaches it all the same.
         let refused = ["run", "--dry-run", "--agent", "nobody", "hello"];
         assert_eq!(
             go_in(&refused, TEXT, &layers, &Unreachable).refused(),
-            "daemon-api-unreached:10"
+            "daemon-api-unreached:32"
         );
         let text = go_in(&line, TEXT, &layers, &Unnamed);
-        assert_eq!(text.code(), 1, "{}", text.err);
+        assert_eq!(text.code(), 17, "{}", text.err);
     }
 }
 
@@ -253,7 +253,7 @@ mod unset {
     #[test]
     fn test_a_dry_run_asking_no_agent_names_no_agent() {
         let plan = go(&["run", "--dry-run", "hello"], JSON, BARE);
-        assert_eq!(plan.code(), 1, "{}", plan.err);
+        assert_eq!(plan.code(), 17, "{}", plan.err);
         let run = plan.json();
         assert_eq!(run["name"], "projects/calm-otter/runs/-", "{run}");
         assert!(run.get("agent").is_none(), "{run}");

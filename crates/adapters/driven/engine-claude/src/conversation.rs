@@ -38,8 +38,10 @@ const CLEAR: &str = "/clear";
 /// The text between messages that ride on one turn.
 const JOIN: &str = "\n\n";
 
-/// The `terminal_reason` of a turn the interrupt stopped.
-const ABORTED: &str = "aborted_streaming";
+/// The prefix of the `terminal_reason` of a turn an interrupt stopped; the
+/// suffix says what it was doing (`aborted_streaming` while the model wrote,
+/// `aborted_tools` while a tool ran).
+const ABORTED: &str = "aborted_";
 
 /// What reading a line said, and what to write for it.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -307,12 +309,25 @@ impl Conversation {
         }
     }
 
+    /// A turn is interrupted when claude says it aborted it, or when it ended
+    /// in an execution error with no API status after ctxloom asked it to
+    /// stop: the reason's spelling follows what the turn was doing and is
+    /// claude's to extend, the request is ours. An API failure keeps its class.
     fn outcome(&self, result: &Json) -> TurnOutcome {
         let native_id = self.native_id.clone();
-        if result.get("terminal_reason").and_then(Json::as_str) == Some(ABORTED) {
+        let reason = result.get("terminal_reason").and_then(Json::as_str);
+        let aborted = reason.is_some_and(|r| r.starts_with(ABORTED));
+        let failed_while_asked_to_stop = self.interrupting
+            && matches!(result.get("is_error"), Some(Json::Bool(true)))
+            && result.get("subtype").and_then(Json::as_str) == Some("error_during_execution")
+            && crate::stream::class_of(result) == FailureClass::EngineError;
+        if aborted || failed_while_asked_to_stop {
             return TurnOutcome::Failed {
                 class: FailureClass::Interrupted,
-                detail: format!("the turn was interrupted ({ABORTED})"),
+                detail: format!(
+                    "the turn was interrupted ({})",
+                    reason.unwrap_or("no reason")
+                ),
                 native_id,
             };
         }

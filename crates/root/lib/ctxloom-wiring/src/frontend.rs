@@ -11,7 +11,7 @@
 //!
 //! The FRONTEND's half ([`client_terminal`], the command `ctxloom run`, and
 //! init's interview): its project resolved and named by the daemon, the
-//! daemon reached (started if none serves, S16; none, exit 10 before
+//! daemon reached (started if none serves, S16; none, exit 32 before
 //! anything is planned), `CreateRun{TERMINAL}` answered with the launch,
 //! then `run_application::frontend` over this host: the run's own lock
 //! taken BEFORE the daemon is asked (U5's start-report race: a daemon
@@ -69,6 +69,14 @@ const WATCH_AGAIN: Duration = Duration::from_millis(250);
 /// How often a frontend looks for a stop `ctxloom shutdown` asked of it,
 /// and for a notice it was told.
 const STOP_LOOK: Duration = Duration::from_millis(200);
+
+/// How often a frontend asks the daemon for the permission asks waiting
+/// under its session. An ask waits minutes (`approval_timeout`, five by
+/// default) for a human who is in another program, so a second's lateness
+/// costs nothing, and the daemon answers from its in-memory index; no
+/// stream of asks exists, and a look at every `STOP_LOOK` would be five
+/// calls a second for the length of a session.
+const ASK_LOOK: Duration = Duration::from_secs(1);
 
 /// The stack of the thread a prepared session is driven on, as a main
 /// thread's is.
@@ -524,6 +532,19 @@ impl Watch {
     }
 }
 
+/// `text` as a line of ctxloom's on this terminal's standard error (which
+/// its human sees above the TUI), the bell rung first when `bell`. Written
+/// by the command's main thread alone (see `client_terminal`).
+fn show_on_stderr(text: &str, bell: bool) {
+    use std::io::Write;
+    let mut err = std::io::stderr();
+    if bell {
+        let _ = err.write_all(b"\x07");
+    }
+    let _ = writeln!(err, "\r\nctxloom: {text}\r");
+    let _ = err.flush();
+}
+
 /// Watch for what `ctxloom shutdown` (or a daemon's SIGTERM drain) tells
 /// or asks of the frontend `pid`: each notice told is shown at once on its
 /// terminal (its standard error, which its human sees above the TUI); once
@@ -545,10 +566,7 @@ async fn watch_for_stop(
             crate::daemon::shutdown::epoch_seconds(),
         );
         if let Some(text) = show {
-            use std::io::Write;
-            let mut err = std::io::stderr();
-            let _ = writeln!(err, "\r\nctxloom: {text}\r");
-            let _ = err.flush();
+            show_on_stderr(&text, false);
         }
         if let Some(cause) = cause {
             *stopped
@@ -643,8 +661,11 @@ async fn terminal(
         over.set();
         done
     };
-    let watched = follow(&reach, &run.name, stop, &over, &followed);
-    let (mut done, ()) = both(session, watched).await;
+    let watched = both(
+        follow(&reach, &run.name, stop, &over, &followed),
+        tell_of_asks(&reach, &run.session, &over, wiring),
+    );
+    let (mut done, _) = both(session, watched).await;
     // H3: once the exit is reported, what the session's hooks held is
     // delivered too; what it set aside is said as the command ends.
     let flushed = crate::daemon::flush::flush_holds(wiring, stamp);
@@ -926,8 +947,8 @@ impl Over {
         self.0.load(std::sync::atomic::Ordering::SeqCst)
     }
 
-    /// Once the TUI is over, and [`LAST_WORD`] after.
-    async fn and_last_word(&self) {
+    /// Once the TUI is over.
+    async fn ended(&self) {
         while !self.is_set() {
             let notified = self.1.notified();
             if self.is_set() {
@@ -935,6 +956,11 @@ impl Over {
             }
             notified.await;
         }
+    }
+
+    /// Once the TUI is over, and [`LAST_WORD`] after.
+    async fn and_last_word(&self) {
+        self.ended().await;
         tokio::time::sleep(LAST_WORD).await;
     }
 }
@@ -1022,6 +1048,62 @@ async fn heard_out(
         }
     }
 }
+
+/// For the TUI's life, look every [`ASK_LOOK`] at the permission asks
+/// waiting under `session` (the root of its tree: a child's or a one-shot's
+/// ask arrives there), and tell the human of each new one, once: the bell
+/// and one line on standard error ([`frontend_asks`]). It runs in the
+/// command's main-thread future beside the TUI, never spawned, as the stop
+/// watch does: it writes to stderr, whose std lock that thread holds. It
+/// asks the daemon serving and starts none (a daemon that is not there has
+/// no asks to tell of), and says nothing of a look that failed: the next is
+/// a second away.
+async fn tell_of_asks(reach: &Reach<'_>, session: &str, over: &Over, wiring: &Wiring) {
+    let Some(listing) = crate::frontend_asks::listing_under(session) else {
+        return;
+    };
+    let mut ended: Pin<Box<dyn Future<Output = ()> + Send + '_>> = Box::pin(over.ended());
+    let mut told = crate::frontend_asks::AsksTold::default();
+    loop {
+        if let First::Right(()) = first(Box::pin(tokio::time::sleep(ASK_LOOK)), &mut ended).await {
+            return;
+        }
+        let look = async {
+            let api = reach.serving().await.ok()??;
+            api.list_approvals(listing.clone()).await.ok()
+        };
+        let listed = match first(Box::pin(look), &mut ended).await {
+            First::Right(()) => return,
+            First::Left(listed) => listed,
+        };
+        let Some(listed) = listed else { continue };
+        for (ask, line) in told.news(&listed.approvals) {
+            show_on_stderr(&line, true);
+            record_ask(wiring, &format!("told {ask}"));
+        }
+        record_ask(wiring, "look");
+    }
+}
+
+/// Under `test-support`, a line of the frontend's watch for asks appended to
+/// `<ctxloom home>/.ctxloom/test-frontend-asks` (`look` after each look,
+/// `told <ask>` after each ask shown), which the acceptance tests wait on.
+/// Compiled out of the shipped binary.
+#[cfg(feature = "test-support")]
+fn record_ask(wiring: &Wiring, line: &str) {
+    let path = wiring.home().join(".ctxloom/test-frontend-asks");
+    let mut held = wiring.fs().read_to_string(&path).unwrap_or_default();
+    held.push_str(line);
+    held.push('\n');
+    let _ = wiring.fs().write_atomic(
+        &path,
+        held.as_bytes(),
+        file_system::Perms::Exact(os::Mode::from_bits(0o600)),
+    );
+}
+
+#[cfg(not(feature = "test-support"))]
+fn record_ask(_wiring: &Wiring, _line: &str) {}
 
 /// Which of two futures was ready first.
 enum First<A, B> {

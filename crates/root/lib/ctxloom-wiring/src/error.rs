@@ -49,8 +49,8 @@ pub enum LibError {
 
 impl cli_support::ExitClass for LibError {
     /// A read in a project nothing has named, and a daemon that found
-    /// another holding the lock, are declines (20); every other wiring error
-    /// failed (10).
+    /// another holding the lock, are declines (48); every other wiring error
+    /// failed (32).
     fn exit(&self) -> cli_support::Exit {
         match self {
             LibError::ProjectUnnamed { .. }

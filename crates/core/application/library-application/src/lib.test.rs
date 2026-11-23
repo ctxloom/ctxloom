@@ -247,7 +247,7 @@ fn test_an_unknown_config_key_is_refused_and_degraded_drops_it_with_a_warning() 
 
 // config_version_refusal_test.go: owner override of Go, D15, 2026-11-03: a
 // layer of another generation (newer, older, unstamped, not a number) is
-// refused, naming it, with exit 20.
+// refused, naming it, with exit 48.
 #[test]
 fn test_a_config_of_another_generation_is_refused() {
     for layer in [

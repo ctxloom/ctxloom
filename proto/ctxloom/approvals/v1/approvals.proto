@@ -302,7 +302,7 @@ message OptionNotOffered {
 
 // A message given with an answer to an ask whose engine cannot carry one
 // (ACP: an answer is its selected option alone) (`approvals-message-not-relayed`;
-// owner, Q6: a usage error, exit 20). Nothing is answered.
+// owner, Q6: a usage error, exit 48). Nothing is answered.
 message MessageNotRelayed {
   option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
 

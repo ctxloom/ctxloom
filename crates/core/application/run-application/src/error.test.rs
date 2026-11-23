@@ -36,8 +36,8 @@ fn every_diagnostic_has_a_message_using_exactly_its_args() {
     }
 }
 
-// The conflict of flags is the library's, with its own code and its exit 20;
-// the startup abort its exit 21.
+// The conflict of flags is the library's, with its own code and its exit 48;
+// the startup abort its exit 49.
 #[test]
 fn a_plan_error_keeps_its_own_code_and_exit() {
     let conflict = RunError::Plan(Box::new(PlanError::AgentExclusive {
@@ -176,7 +176,7 @@ fn no_prompt_and_an_unknown_engine_are_no_codes_of_this_crate() {
 }
 
 // Ruling 73a: most severe wins. An aggregate with the plan's fatal findings
-// among its failures is exit 21, without them exit 20; every refusal it holds
+// among its failures is exit 49, without them exit 48; every refusal it holds
 // is said, in check order. A single refusal holds no list (ruling 73b).
 #[test]
 fn an_aggregate_is_exit_21_with_fatal_findings_and_says_each_refusal_in_order() {
@@ -222,7 +222,7 @@ fn a_resume_refused_is_the_session_domains_own_refusal() {
 }
 
 // Ruling 152: a lock another process holds declines the run (the session or
-// run is live: 20); a lock file that cannot be made is a failure (10).
+// run is live: 20); a lock file that cannot be made is a failure (32).
 #[test]
 fn a_lock_held_elsewhere_is_refused_and_one_that_cannot_be_made_failed() {
     use angzarr_diagnostic::Report;

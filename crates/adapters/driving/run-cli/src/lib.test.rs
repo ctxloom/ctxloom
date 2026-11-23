@@ -182,7 +182,7 @@ fn the_prompt_words_are_the_prompt_and_the_reply_is_written_as_text() {
         None,
         &mut service,
     );
-    assert_eq!(ran.exit, Ok(0));
+    assert_eq!(ran.exit, Ok(16));
     assert_eq!(ran.out, contained("THE-REPLY") + "\n");
     assert_eq!(service.asked[0].1.run.prompt, "what does this expect?");
     assert!(service.asked[0].0.degraded, "the global flags ride along");
@@ -315,7 +315,7 @@ fn no_context_reaches_the_request() {
 fn a_refusal_ends_the_command_with_its_code_and_exit_and_writes_no_reply() {
     let mut service = Double::failing(RunError::Refused(RunRejection::NoPrompt));
     let ran = go(&["--one-shot"], Some(Format::Text), None, &mut service);
-    assert_eq!(ran.exit, Err(("runs-no-prompt".to_string(), 20)));
+    assert_eq!(ran.exit, Err(("runs-no-prompt".to_string(), 48)));
     assert_eq!(ran.out, "");
     assert!(ran.refusals.is_empty(), "a single refusal lists nothing");
 }
@@ -325,7 +325,7 @@ fn a_refusal_ends_the_command_with_its_code_and_exit_and_writes_no_reply() {
 // command line to list.
 #[test]
 fn an_aggregate_refusal_hands_on_each_refusal_in_check_order() {
-    for (fatal_findings, exit) in [(0, 20), (2, 21)] {
+    for (fatal_findings, exit) in [(0, 48), (2, 49)] {
         let mut service = Double::failing(RunError::Refused(RunRejection::LaunchRefused {
             refusals: vec![
                 RunRejection::NoPrompt,
@@ -356,7 +356,7 @@ fn a_plan_the_library_refused_keeps_its_exit() {
     );
     assert_eq!(
         ran.exit,
-        Err(("library-application-agent-exclusive".to_string(), 20))
+        Err(("library-application-agent-exclusive".to_string(), 48))
     );
 }
 
@@ -433,7 +433,7 @@ fn a_session_asks_with_the_line_prints_nothing_and_exits_as_the_engine_did() {
     double.ended = Some(Ok(ended(Some(3))));
     let (exit, out, err) = go_session(&["--profile", "dev", "hello", "there"], &mut double);
     // The engine's 3 is not one of ctxloom's codes (rulings 152, 153): failed.
-    assert_eq!(exit, Ok(10));
+    assert_eq!(exit, Ok(32));
     assert_eq!(out, "", "the engine had the terminal; nothing more is said");
     assert!(err.contains("a notice"));
     let (_, asked) = &double.asked[0];
@@ -445,7 +445,7 @@ fn a_session_asks_with_the_line_prints_nothing_and_exits_as_the_engine_did() {
 fn a_session_ended_by_a_signal_unreported_exits_failed() {
     let mut double = Double::failing(RunError::EmptyAnswer);
     double.ended = Some(Ok(ended(None)));
-    assert_eq!(go_session(&[], &mut double).0, Ok(10));
+    assert_eq!(go_session(&[], &mut double).0, Ok(32));
 }
 
 // Rulings 152, 153: an engine's status is said in ctxloom's classes: 0 ok, a
@@ -453,15 +453,15 @@ fn a_session_ended_by_a_signal_unreported_exits_failed() {
 #[test]
 fn a_sessions_engine_status_is_said_in_ctxlooms_classes() {
     for (status, exit) in [
-        (0, 0),
-        (1, 10),
-        (2, 10),
-        (128, 10),
+        (0, 16),
+        (1, 32),
+        (2, 32),
+        (128, 32),
         (129, 129),
         (143, 143),
         (255, 255),
-        (256, 10),
-        (-1, 10),
+        (256, 32),
+        (-1, 32),
     ] {
         let mut double = Double::failing(RunError::EmptyAnswer);
         double.ended = Some(Ok(ended(Some(status))));
@@ -477,7 +477,7 @@ fn a_session_that_could_not_start_fails_with_the_errors_exit() {
     }));
     assert_eq!(
         go_session(&[], &mut double).0,
-        Err(("run-application-not-started".to_string(), 10))
+        Err(("run-application-not-started".to_string(), 32))
     );
 }
 
@@ -493,7 +493,7 @@ impl std::io::Write for Broken {
     }
 }
 
-// A reply that cannot be written ends the command: exit 10, the code, and the
+// A reply that cannot be written ends the command: exit 32, the code, and the
 // system's words as `ext_err_txt`.
 #[test]
 fn a_reply_that_cannot_be_written_is_that_failure() {
@@ -549,7 +549,7 @@ fn the_session_to_resume_is_read_from_the_line() {
         None,
         &mut service,
     );
-    assert_eq!(ran.exit, Ok(0));
+    assert_eq!(ran.exit, Ok(16));
     assert_eq!(service.asked[0].1.session, "amber-swift-owl");
     let mut fresh = Double::answering("THE-REPLY");
     go(&["--one-shot", "hi"], Some(Format::Text), None, &mut fresh);

@@ -28,9 +28,9 @@ pub enum ReclaimError {
 }
 
 impl ExitClass for ReclaimError {
-    /// How a command this ends exits: refused (20) for a flag that is
+    /// How a command this ends exits: refused (48) for a flag that is
     /// invalid on its own content, else what the sessions or isolation use
-    /// case says, else failed (10).
+    /// case says, else failed (32).
     fn exit(&self) -> Exit {
         match self {
             ReclaimError::BadAge { .. } => Exit::REFUSED,

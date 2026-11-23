@@ -141,7 +141,7 @@ impl Diagnostic for SkewError {
     }
 }
 
-/// A daemon of another version is a decline (exit 20); a call that failed
+/// A daemon of another version is a decline (exit 48); a call that failed
 /// is a failure.
 impl ExitClass for SkewError {
     fn exit(&self) -> Exit {
@@ -252,8 +252,8 @@ impl Diagnostic for CallError {
     }
 }
 
-/// A refusal is a decline (20), as is a daemon this client may not use; a
-/// call that failed, or a daemon that could not be started, a failure (10).
+/// A refusal is a decline (48), as is a daemon this client may not use; a
+/// call that failed, or a daemon that could not be started, a failure (32).
 impl ExitClass for CallError {
     fn exit(&self) -> Exit {
         match self {

@@ -19,6 +19,9 @@ fi
 here=$(cd "$(dirname "$0")" && pwd)
 gates=${GATES_JUST:-$here/../gates/gates.just}
 tmp=$(mktemp -d)
+# The shared staged target and its lock live under this cache, never the
+# user's real one (gates/gates.just `_scratch-tree`'s GATES_STAGED_CACHE).
+export GATES_STAGED_CACHE=$tmp/cache
 sleeper=
 trap '[ -z "$sleeper" ] || kill "$sleeper" 2>/dev/null || true; rm -rf "$tmp"' EXIT
 fail() { echo "FAIL scratch-tree-lock.selftest: $*" >&2; exit 1; }
@@ -57,8 +60,18 @@ probe out:
     #!/usr/bin/env bash
     set -euo pipefail
     for fd in /proc/$$/fd/*; do readlink "$fd" || true; done > "$1.fds"
+    echo "$CARGO_TARGET_DIR" > "$1.target"
     setsid sleep 30 > /dev/null 2>&1 < /dev/null &
     echo $! > "$1.sleeper"
+
+# Holds the gate until the file $1 exists (at most 60 s).
+[positional-arguments]
+hold file:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    touch "$1.entered"
+    for _ in $(seq 600); do [ -e "$1" ] && exit 0; sleep 0.1; done
+    exit 1
 J
 git -C "$fx" init -q -b main
 printf 'target/\n' > "$fx/.gitignore"
@@ -68,13 +81,40 @@ git -C "$fx" -c user.email=t@e -c user.name=t commit -q -m init
 (cd "$fx" && just _staged-tree probe "$tmp/probe" > "$tmp/out" 2>&1) \
     || fail "the gate's recipe failed: $(tail -n 20 "$tmp/out")"
 sleeper=$(cat "$tmp/probe.sleeper")
-lock=$fx/target/.staged-tree.lock
+lock=$GATES_STAGED_CACHE/staged-tree.lock
 [ -e "$lock" ] || fail "the gate made no lock at $lock"
-if grep -qF '.staged-tree.lock' "$tmp/probe.fds"; then
-    fail "the recipe inherited the gate's lock: $(grep -F '.staged-tree.lock' "$tmp/probe.fds")"
+[ ! -e "$fx/target/.staged-tree.lock" ] || fail "a per-checkout lock is still made: $fx/target/.staged-tree.lock"
+if grep -qF 'staged-tree.lock' "$tmp/probe.fds"; then
+    fail "the recipe inherited the gate's lock: $(grep -F 'staged-tree.lock' "$tmp/probe.fds")"
 fi
+# One staged target for every checkout, outside the repository.
+[ "$(cat "$tmp/probe.target")" = "$GATES_STAGED_CACHE/staged-target" ] \
+    || fail "the staged target is $(cat "$tmp/probe.target"), not $GATES_STAGED_CACHE/staged-target"
+[ ! -e "$fx/target/staged" ] || fail "a per-checkout target/staged was made"
 kill -0 "$sleeper" 2>/dev/null || fail "the sleeper did not outlive the recipe"
 flock -n "$lock" true || fail "what the recipe left running holds the gate's lock"
+
+# A second checkout shares the target and the lock; its gate waits, says so,
+# and does not fail. The first holds the lock until released.
+fx2=$tmp/fx2
+git clone -q "$fx" "$fx2"
+(cd "$fx" && just _staged-tree hold "$tmp/release" > "$tmp/out1" 2>&1) &
+first=$!
+for _ in $(seq 300); do [ -e "$tmp/release.entered" ] && break; sleep 0.1; done
+[ -e "$tmp/release.entered" ] || fail "the first gate never started: $(cat "$tmp/out1")"
+(cd "$fx2" && just _staged-tree probe "$tmp/probe2" > "$tmp/out2" 2>&1) &
+second=$!
+for _ in $(seq 100); do grep -q '^wait ' "$tmp/out2" 2>/dev/null && break; sleep 0.1; done
+grep -q "^wait .*$GATES_STAGED_CACHE/staged-tree.lock" "$tmp/out2" \
+    || fail "the waiting gate did not say it waits: $(cat "$tmp/out2")"
+[ ! -e "$tmp/probe2.target" ] || fail "the second checkout's gate ran while the first held the lock"
+kill -0 "$second" 2>/dev/null || fail "the waiting gate gave up instead of waiting: $(cat "$tmp/out2")"
+touch "$tmp/release"
+wait "$first" || fail "the first gate failed: $(cat "$tmp/out1")"
+wait "$second" || fail "the waiting gate failed: $(cat "$tmp/out2")"
+[ "$(cat "$tmp/probe2.target")" = "$GATES_STAGED_CACHE/staged-target" ] \
+    || fail "the second checkout's staged target is $(cat "$tmp/probe2.target")"
+kill "$(cat "$tmp/probe2.sleeper")" 2>/dev/null || true
 
 # ratchet-base runs its runner without its lock's descriptor.
 grep -q '7>&-' "$here/ratchet-base.sh" \

@@ -540,7 +540,7 @@ fn test_there_is_no_session_purge() {
     let home = Home::new();
     home.finished(HARP);
     let ran = home.run(&["session", "purge", HARP, "--yes"]);
-    assert_eq!(ran.code, 20, "{}", ran.said());
+    assert_eq!(ran.code, 48, "{}", ran.said());
     assert!(files::exists(home.native_file(HARP)));
     let help = home.run(&["session", "--help"]);
     assert!(
@@ -707,7 +707,7 @@ fn test_a_rename_sets_the_title_and_moves_nothing() {
 fn test_renaming_a_session_nobody_recorded_fails_naming_it() {
     let home = Home::new();
     let ran = home.run(&["session", "rename", "no-such-harp", "a title"]);
-    assert_eq!(ran.code, 20, "{}", ran.said());
+    assert_eq!(ran.code, 48, "{}", ran.said());
     assert!(said(&ran).contains("no-such-harp"), "{}", ran.said());
 }
 
@@ -717,7 +717,7 @@ fn test_the_harp_changing_edit_is_gone() {
     let home = Home::new();
     home.seed(HARP, &[]);
     let ran = home.run(&["session", "edit", HARP, "--name", "bright-keen-hawk"]);
-    assert_eq!(ran.code, 20, "{}", ran.said());
+    assert_eq!(ran.code, 48, "{}", ran.said());
     assert!(said(&ran).contains("unknown command"), "{}", ran.said());
 }
 

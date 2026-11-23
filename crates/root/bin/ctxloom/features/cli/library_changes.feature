@@ -736,7 +736,7 @@ Feature: library changes — the daemon records what changed in a library, once,
         changed by hand meanwhile
         """
       When I run 'ctxloom fragment edit demo#fragments/example --body "be kinder"'
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the refusal is "library-tree-plan-stale"
       And the file ".ctxloom/content/bundles/v2/demo/fragments/example.md" contains "changed by hand meanwhile"
       When I run "ctxloom test library-events --format json"

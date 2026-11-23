@@ -3972,7 +3972,7 @@ message PullDependenciesResponse {
   ProjectRefresh skipped_refresh = 14;
   // A consented refresh (`--yes`) the project refused after the pull
   // applied (`deps-application-refresh-aborted`, step 10c U4): the pull's
-  // trees and lock are written, and the command ends refused (exit 20)
+  // trees and lock are written, and the command ends refused (exit 48)
   // after the report, as in process. Additive proto extension.
   Notice refresh_refusal = 15;
   // On a preview, the needs a person must answer before the apply
@@ -5461,7 +5461,7 @@ message LibraryDeclined {
 
 // A setup use case's decline (`materialize`, `manage uninstall`, step 10c
 // U10): the request or the state forbids it, as that use case's own
-// diagnostic (exit 20).
+// diagnostic (exit 48).
 message SetupDeclined {
   option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
   // The diagnostic that declined.
@@ -5469,7 +5469,7 @@ message SetupDeclined {
 }
 
 // A setup use case refused over the plan's fatal findings (a strict
-// `materialize`), as its own diagnostic (exit 21).
+// `materialize`), as its own diagnostic (exit 49).
 message SetupFatalFindings {
   option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
   // The diagnostic that refused.

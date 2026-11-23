@@ -24,29 +24,29 @@ fn test_an_agent_and_a_profile_cannot_both_decide_the_context() {
     ]);
     assert_eq!(
         ran.code,
-        20,
-        "a usage refusal is exit 20 (D28, ruling 152): {}",
+        48,
+        "a usage refusal is exit 48 (D28, ruling 152): {}",
         ran.said()
     );
     ran.contains("none of the others can be");
 }
 
 // Ruling 153: a distinguishing success is returned only under
-// `--detailed-exitcode`: a dry run that would launch is 1 with it and 0
-// without; a read is 0 either way, and a refusal is 20 either way.
+// `--detailed-exitcode`: a dry run that would launch is 17 with it and 0
+// without; a read is 16 with it and 0 without, and a refusal is 48 either way.
 #[test]
-fn test_a_dry_run_that_would_launch_is_one_only_under_detailed_exitcode() {
+fn test_a_dry_run_that_would_launch_is_17_only_under_detailed_exitcode() {
     let project = demo_with_testing();
     project.profile("dev", "demo");
     let dry = ["run", "--dry-run", "--profile", "dev", "hello"];
     let plain = project.run(&dry);
     assert_eq!(plain.code, 0, "{}", plain.said());
     let detailed = project.run(&[&dry[..], &["--detailed-exitcode"]].concat());
-    assert_eq!(detailed.code, 1, "{}", detailed.said());
+    assert_eq!(detailed.code, 17, "{}", detailed.said());
     let read = project.run(&["--detailed-exitcode", "bundle", "list"]);
-    assert_eq!(read.code, 0, "{}", read.said());
+    assert_eq!(read.code, 16, "{}", read.said());
     let refused = project.run(&["--detailed-exitcode", "test", "refuse"]);
-    assert_eq!(refused.code, 20, "{}", refused.said());
+    assert_eq!(refused.code, 48, "{}", refused.said());
 }
 
 // run.feature: Scenario: A dry run shows the composed context without

@@ -51,7 +51,7 @@ ends them first; `--drain` hands them to the next daemon.
 One ctxloom version serves at a time. A command of a newer version replaces
 an idle daemon of an older one. In every other mismatch (a daemon that hosts
 live runs, a daemon newer than the command, and always `ctxloom mcp serve`
-and the hooks, which never stop a daemon) the command is refused, exit 20:
+and the hooks, which never stop a daemon) the command is refused, exit 48:
 `the serving daemon is ctxloom X, and this mcp client is ctxloom Y: one
 ctxloom version serves at a time`. The fix is `ctxloom daemon stop`; the next
 command starts the daemon of the version you are running. (Pinned by tests;

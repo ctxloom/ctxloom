@@ -22,7 +22,7 @@ mod read {
         );
         assert_eq!(
             go(&["fragment", "list", "--bundle", "nosuch"], JSON, BARE).refused(),
-            "library-application-no-bundle-named:20"
+            "library-application-no-bundle-named:48"
         );
         assert!(text_of(&["fragment", "list"]).starts_with("Fragments (4):\n"));
         let commands = json_of(&["command", "list"]);
@@ -83,7 +83,7 @@ mod read {
             by_default,
             BARE,
         );
-        assert_eq!(ran.code(), 0);
+        assert_eq!(ran.code(), 16);
         assert_eq!(ran.out, "golang\n\nGO-RULES\n");
         let command = go(&["command", "show", "demo#commands/review"], JSON, BARE).json();
         assert_eq!(
@@ -144,7 +144,7 @@ mod distill {
             &Project,
             Some(&asks),
         );
-        assert_eq!(ran.code(), 0, "{}", ran.err);
+        assert_eq!(ran.code(), 16, "{}", ran.err);
         let asked = asks.requests::<v1::DistillFragmentRequest>();
         assert_eq!(asked.len(), 1);
         assert!(asked[0].force, "-f asks again");
@@ -189,7 +189,7 @@ mod distill {
             &Project,
             Some(&asks),
         );
-        assert_eq!(ran.code(), 0, "{}", ran.err);
+        assert_eq!(ran.code(), 16, "{}", ran.err);
         let order: Vec<&str> = asks
             .asked
             .borrow()
@@ -221,7 +221,7 @@ mod distill {
             &Project,
             Some(&asks),
         );
-        assert_eq!(ran.exit, Err("daemon-api-unreached:10".to_string()));
+        assert_eq!(ran.exit, Err("daemon-api-unreached:32".to_string()));
         assert!(ran.out.is_empty(), "{}", ran.out);
         assert!(ran.err.contains("stale-distilled"), "{}", ran.err);
     }
@@ -237,7 +237,7 @@ mod distill {
             &Project,
             Some(&asks),
         );
-        assert_eq!(ran.code(), 0, "{}", ran.err);
+        assert_eq!(ran.code(), 16, "{}", ran.err);
         assert!(asks.requests::<v1::WatchRunRequest>().is_empty());
         assert_eq!(ran.json()["applied"], false);
     }
@@ -265,15 +265,15 @@ mod distill {
                 BARE
             )
             .refused(),
-            "library-catalog-bundle-not-found:20"
+            "library-catalog-bundle-not-found:48"
         );
         assert_eq!(
             go(&["command", "distill", "demo#commands/review"], JSON, BARE).refused(),
-            "library-catalog-bundle-not-found:20"
+            "library-catalog-bundle-not-found:48"
         );
         assert_eq!(
             go(&["bundle", "distill", "demo", "-f"], JSON, BARE).refused(),
-            "library-catalog-bundle-not-found:20"
+            "library-catalog-bundle-not-found:48"
         );
     }
 }
@@ -371,7 +371,7 @@ mod write {
             &["command", "edit", "demo#commands/review", "--no-distill"],
             TEXT,
         );
-        assert_eq!(ran.code(), 0);
+        assert_eq!(ran.code(), 16);
         assert!(
             ran.err
                 .contains("distilled form not refreshed (--no-distill)"),

@@ -308,7 +308,7 @@ test-staged scope="own": (_require-nextest "test-staged")
 # The pre-commit clippy: the repository's own `lint`, run over the STAGED
 # tree (owner ruling 2026-11-18, night), in the throwaway worktree that
 # `_staged-tree` makes for `test-staged`, with its target dir
-# (target/staged), so an unstaged edit can neither pass nor fail it, and
+# (the shared staged target), so an unstaged edit can neither pass nor fail it, and
 # a staged change to `lint` is run by the `lint` it stages.
 [no-exit-message]
 [private]
@@ -807,10 +807,18 @@ _commit-tree commit +recipe:
 
 # The throwaway worktree of `_staged-tree` (`source` is `staged`) and
 # `_commit-tree` (`source` is the commit). It is at `staged_tree`. Its name is
-# fixed per checkout and the run holds a lock, so builds reuse one target dir
-# (target/staged) across commits. Its recipes are its own tree's, so a staged
-# change to these gates is run by the gates it stages. Gate logs go to this
-# checkout's target/logs (GATE_LOG_DIR), not the throwaway tree's.
+# fixed per checkout, and every build of it, in every checkout and worktree of
+# the user, goes into ONE target dir, `<cache>/staged-target`, under ONE lock,
+# `<cache>/staged-tree.lock`, so a second committer waits (and says so) and
+# the disk holds one staged build, not one per worktree (a staged target is
+# 13-66 GB). `<cache>` is `$GATES_STAGED_CACHE` (the self-tests' seam), else
+# `${XDG_CACHE_HOME:-<the account's home>/.cache}/ctxloom/gates`, the account's
+# home from the passwd database and never from `$HOME`, which a session may
+# have relocated (tests-lock.sh keys on `$HOME`; the two directories agree for
+# a normal login). Worktrees' trees differ, so cargo rebuilds what changed.
+# Its recipes are its own tree's, so a staged change to these gates is run by
+# the gates it stages. Gate logs go to this checkout's target/logs
+# (GATE_LOG_DIR), not the throwaway tree's.
 [positional-arguments]
 [no-exit-message]
 _scratch-tree source +recipe:
@@ -826,9 +834,26 @@ _scratch-tree source +recipe:
     # real index. git names its own repository-locating variables.
     scrub=(env)
     while IFS= read -r var; do scrub+=(-u "$var"); done < <(git rev-parse --local-env-vars)
-    mkdir -p "$top/target"
-    exec 9> "$top/target/.staged-tree.lock"
-    flock 9
+    cache=${GATES_STAGED_CACHE:-}
+    if [ -z "$cache" ]; then
+        cache=${XDG_CACHE_HOME:-}
+        if [ -z "$cache" ]; then
+            account=$(getent passwd "$(id -u)" 2> /dev/null | cut -d: -f6 || true)
+            [ -n "$account" ] || account=$(eval echo "~$(id -un)")
+            cache=${account:-$HOME}/.cache
+        fi
+        cache=$cache/ctxloom/gates
+    fi
+    mkdir -p "$top/target" "$cache"
+    lock=$cache/staged-tree.lock
+    # `>>`, never `>`: opening must not truncate the holder's note away.
+    exec 9>> "$lock"
+    if ! flock -n 9; then
+        holder=$(head -c 512 "$lock" 2> /dev/null | tr -d '\n' || true)
+        echo "wait staged-tree: another commit gate holds the staged-tree lock shared by every checkout $lock (${holder:-pid unknown}); waiting for it" >&2
+        flock 9
+    fi
+    printf 'pid %s: %s in %s\n' "$$" "$source" "$top" > "$lock"
     relative='{{staged_tree}}'
     tree=$(realpath -m "$top/${relative//\{name\}/$(basename "$top")}")
     scratch=$(mktemp -d)
@@ -836,7 +861,8 @@ _scratch-tree source +recipe:
     # in a container that mounts only this checkout deletes every other
     # worktree's record (gates/drop-worktree.sh).
     remove_tree() { "${scrub[@]}" "$top/gates/drop-worktree.sh" "$top" "$tree"; }
-    trap 'remove_tree; rm -rf "$scratch"' EXIT
+    # Still holding the lock: the next holder writes its own note.
+    trap 'remove_tree; rm -rf "$scratch"; : > "$lock"' EXIT
     remove_tree
     base=HEAD
     if [ "$source" = staged ]; then
@@ -862,7 +888,7 @@ _scratch-tree source +recipe:
     # close-on-exec, so a recipe given it would hand it to everything it
     # starts, and a process that outlives the gate (a test's detached
     # daemon) would hold the next commit's gate (2026-11-15).
-    "${scrub[@]}" "CARGO_TARGET_DIR=$top/target/staged" "GATE_LOG_DIR=$top/target/logs" just --justfile "$tree/justfile" "$@" 9>&-
+    "${scrub[@]}" "CARGO_TARGET_DIR=$cache/staged-target" "GATE_LOG_DIR=$top/target/logs" just --justfile "$tree/justfile" "$@" 9>&-
 
 # The red-on-branches rule: red tests may be committed on any branch but the
 # default one, and never reach it. `test-commit` allows them off it;

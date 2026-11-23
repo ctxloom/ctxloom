@@ -222,9 +222,10 @@ fn integer_or_text(value: &str) -> Arg {
 /// over a signal; anything else a failure.
 pub fn exit_of(code: i32) -> Exit {
     match u8::try_from(code) {
-        Ok(n) if n < 10 => Exit::success(n),
-        Ok(n) if (10..20).contains(&n) => Exit::failed(n),
-        Ok(n) if (20..30).contains(&n) => Exit::declined(n),
+        Ok(0 | 16) => Exit::OK,
+        Ok(n @ 17..=31) => Exit::success(n),
+        Ok(n @ 32..=47) => Exit::failed(n),
+        Ok(n @ 48..=63) => Exit::declined(n),
         Ok(n) if n > 128 => Exit::signal(n - 128),
         _ => Exit::FAILED,
     }

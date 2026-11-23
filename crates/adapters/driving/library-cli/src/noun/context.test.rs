@@ -37,7 +37,7 @@ mod read {
             JSON,
             BARE,
         );
-        assert_eq!(by_tag.refused(), "library-application-no-fragments:20");
+        assert_eq!(by_tag.refused(), "library-application-no-fragments:48");
         assert_eq!(json_of(&["context"]), by_profile);
         // On demand (config.premised) the held-back `golang` is offered in the
         // premise index, which ends the context.
@@ -115,7 +115,7 @@ mod read {
             BARE,
             &Unreachable,
         );
-        assert_eq!(text.refused(), "daemon-api-unreached:10");
+        assert_eq!(text.refused(), "daemon-api-unreached:32");
     }
 }
 

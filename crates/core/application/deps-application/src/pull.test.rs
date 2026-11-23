@@ -800,7 +800,7 @@ fn test_the_disclosure_takes_executability_from_the_sidecar_alone() {
 // fault_tolerance.feature: An unreachable remote fails the pull cleanly. A
 // bundle reference whose remote cannot be read and that the lock has no pin
 // for cannot be had: it is one failed item, naming the reference and the git
-// cause, and the pull fails (exit 10), never "No remote dependencies".
+// cause, and the pull fails (exit 32), never "No remote dependencies".
 #[test]
 fn test_a_first_pin_from_a_remote_that_cannot_be_read_fails_the_pull() {
     const BROKEN: &str = "file:///nonexistent/ctxloom-repo.git";

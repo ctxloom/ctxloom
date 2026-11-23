@@ -352,7 +352,7 @@ impl Drop for World {
 fn test_mcp_serve_without_a_session_name_is_refused() {
     let project = Project::initialized();
     let ran = project.run(&["mcp", "serve", "--format", "json"]);
-    assert_eq!(ran.code, 20, "{}", ran.said());
+    assert_eq!(ran.code, 48, "{}", ran.said());
     assert_eq!(
         ran.err_json()["code"],
         "mcp-server-no-session",

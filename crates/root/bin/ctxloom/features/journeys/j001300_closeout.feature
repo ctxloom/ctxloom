@@ -33,7 +33,7 @@ Feature: The close-out — the end of a workstream
     And a finished session "brisk-copper-moth" whose transcript retention has passed
     And every session has been idle for 120 days
     When I run "ctxloom session remove --older-than 90d --detailed-exitcode"
-    Then the command exits with code 1
+    Then the command exits with code 17
     And the sweep report names "amber-quiet-heron" and "brisk-copper-moth"
     And every byte of every session is still on disk
 

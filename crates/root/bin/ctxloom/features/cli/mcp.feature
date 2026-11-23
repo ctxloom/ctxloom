@@ -52,7 +52,7 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
       And the output contains "ctxloom+companion:ctxloom"
 
   # Still pending (step 11): not built, as the Rule above: `mcp server show
-  # ctxloom` is `library-application-mcp-not-found` (exit 20).
+  # ctxloom` is `library-application-mcp-not-found` (exit 48).
   @pending
   Rule: Showing a server surfaces how it is reached, not just its name
 

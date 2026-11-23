@@ -107,23 +107,19 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
   project of its directory, and receives what is pushed as that project's
   sessions are added, change or are removed.
 
-  PUSHED, NEVER POLLED (the general flow, CLAUDE.md). The watch is served
-  from a read model a PROJECTOR keeps (DRAFT: `top-view`, a read-model
-  crate beside `session-index` and `pending-approvals`, registered in the
-  daemon's kernel and caught up like them): it folds the sessions' streams
-  (mint with its agent, profiles and loadout bundles; incarnations and
-  their ends; close; owner and children), the approvals' streams (asked,
-  answered, expired, withdrawn) and the capture facts (the transcript
-  lines) into each session's row, its waiting asks and its log, and keeps a
-  change feed that every open watch is woken by from the fold itself, as
-  `WatchLibrary` is. The events the log and the rows need come from the
-  policies that already run (the approvals' expiry through the scheduler;
-  the re-host, restart and drain policies; the removal sequence's recorded
-  steps), so a session leaving, a state change and an expiry are events the
-  projector folds, not states anything polls. A watch whose scope names no
-  project yet (a directory outside any) is woken when the project it
-  resolves to is named. The only thing that is looked for on a timer is a
-  daemon to wait for, since nothing can push before one exists.
+  PUSHED, NEVER POLLED (the general flow, CLAUDE.md). The rows and asks are
+  served from the read models the daemon already keeps, `session-index` and
+  `pending-approvals`, with no projector of `top`'s own (owner ruling
+  2026-11-23): each watch registers a wake with them (`Held::watch_into`),
+  is woken by the fold itself when either changes, reads them and says what
+  differs from what it last said. The log is served from one more read
+  model, a per-session TIMELINE projector (`session-timeline`) that folds the
+  session stream's lifecycle and capture events and the approvals' events
+  into one time-ordered list per session, and wakes the same way; nothing
+  new is persisted. A watch whose scope names no project yet (a directory
+  outside any) is woken when the project it resolves to is named. The only
+  thing that is looked for on a timer is a daemon to wait for, since nothing
+  can push before one exists.
 
   WHAT THE SESSION MESSAGE NEEDS (DRAFT): `Session` has no `agent`,
   `profiles` or `tags` today, and the table, the filters and the sort need
@@ -473,7 +469,8 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
       And a child "brisk-copper-moth" of "amber-quiet-heron" whose engine has asked to run "Bash" with "rm -rf build/"
       And I start "ctxloom top --format json" and read its output as it streams
       When I run 'ctxloom session send brisk-copper-moth steer "stop and look at main.rs"'
-      Then within 10 seconds a line has "approval_settled.approval.state" as "withdrawn"
+      Then the child's engine cancelled its approval prompt call
+      And within 10 seconds a line has "approval_settled.approval.state" as "withdrawn"
 
     Scenario: The stream is read-only: it has no way to answer, and an answer is the session verb's
       # new: DRAFT; the plugin answers by running the verb, which any process of the user can.

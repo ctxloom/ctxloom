@@ -3,7 +3,7 @@
 # run inherits no home of the shell it was started in.
 #
 # The owner's shell and every agent's (a ctxloom session's) carry
-# CTXLOOM_HOME, which ctxloom reads BEFORE HOME, and an engine's relocated
+# CTXLOOM_DAEMON_ROOT, which ctxloom reads BEFORE HOME, and an engine's relocated
 # CLAUDE_CONFIG_DIR, OPENCODE_CONFIG_DIR and XDG bases. A test that started
 # from the process's environment and kept one of them wrote into the
 # caller's real home: the wiring's fixtures, before 6911bd804, registered 85
@@ -31,7 +31,7 @@ fi
 if command -v cygpath >/dev/null 2>&1; then
     guard=$(cygpath -m "$guard")
 fi
-for name in CTXLOOM_HOME CLAUDE_CONFIG_DIR OPENCODE_CONFIG_DIR \
+for name in CTXLOOM_DAEMON_ROOT CLAUDE_CONFIG_DIR OPENCODE_CONFIG_DIR \
     XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME; do
     echo "$name=$guard"
 done >> "$NEXTEST_ENV"

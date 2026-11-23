@@ -402,7 +402,10 @@ fn with_no_daemon_serving_nothing_is_flushed() {
                 crate::fixtures::home_var().into(),
                 home.clone().into_os_string(),
             ),
-            (run_ports::HOME_VARIABLE.into(), home.into_os_string()),
+            (
+                run_ports::DAEMON_ROOT_VARIABLE.into(),
+                home.into_os_string(),
+            ),
         ],
     );
     let wiring = crate::Wiring::new(Arc::new(env)).unwrap();

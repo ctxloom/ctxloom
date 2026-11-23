@@ -1706,7 +1706,7 @@ async fn an_interactive_run_names_its_run_and_session_and_no_listener() {
     script.env = vec![
         ("PATH", "/bin"),
         ("HOME", "/home/u"),
-        ("CTXLOOM_HOME", "/home/u"),
+        ("CTXLOOM_DAEMON_ROOT", "/home/u"),
     ];
     script.env.extend(INHERITED);
     let mut rig = rig(script);

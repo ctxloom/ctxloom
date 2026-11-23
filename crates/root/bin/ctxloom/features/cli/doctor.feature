@@ -198,9 +198,9 @@ Feature: doctor — the deterministic diagnosis, and the one finding that fails 
     # The identity is the one git commits with in the project, asked of git in
     # her own environment (owner ruling 112's, which a session home is seeded
     # with): her HOME's configuration, not ctxloom's home's, which
-    # CTXLOOM_HOME may put elsewhere.
+    # CTXLOOM_DAEMON_ROOT may put elsewhere.
     Scenario: The git identity is hers, read where git reads it, wherever ctxloom's home is
-      # new: the owner's first use, under CTXLOOM_HOME, was told git had no
+      # new: the owner's first use, under CTXLOOM_DAEMON_ROOT, was told git had no
       # identity because doctor read <ctxloom home>/.gitconfig
       Given an initialized ctxloom project
       And the home already has the file ".gitconfig":
@@ -396,10 +396,10 @@ Feature: doctor — the deterministic diagnosis, and the one finding that fails 
       And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-MCP-INVOCATION-g7" and whose "status" is "ok"
 
     # The user's ~/.claude.json is hers: read in her HOME, never in ctxloom's
-    # home, which CTXLOOM_HOME may put elsewhere.
+    # home, which CTXLOOM_DAEMON_ROOT may put elsewhere.
     Scenario: The user's own ~/.claude.json is read in her HOME, wherever ctxloom's home is
       # new: the two-homes defect of the owner's first use (doctor read the
-      # user's files under CTXLOOM_HOME)
+      # user's files under CTXLOOM_DAEMON_ROOT)
       Given an initialized ctxloom project
       And ctxloom's home is "ctxloom-home" in her home
       And the home already has the file ".claude.json":
@@ -513,7 +513,7 @@ Feature: doctor — the deterministic diagnosis, and the one finding that fails 
 
     Scenario: The user's own ~/.claude/settings.json is read and fixed in her HOME, wherever ctxloom's home is
       # new: the two-homes defect of the owner's first use (doctor read and
-      # fixed the user's files under CTXLOOM_HOME)
+      # fixed the user's files under CTXLOOM_DAEMON_ROOT)
       Given an initialized ctxloom project
       And ctxloom's home is "ctxloom-home" in her home
       And the home already has the file "ctxloom-home/.ctxloom/config.yaml":

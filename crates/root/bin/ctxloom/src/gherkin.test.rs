@@ -506,14 +506,14 @@ fn home_file(w: &mut World, step: &Step, rel: String) {
         .write_home(&rel, &format!("{}\n", doc(step)));
 }
 
-/// `CTXLOOM_HOME` set to `rel` in her home (made): ctxloom's home is not her
+/// `CTXLOOM_DAEMON_ROOT` set to `rel` in her home (made): ctxloom's home is not her
 /// `HOME`.
 #[given(expr = "ctxloom's home is {string} in her home")]
 fn ctxloom_home(w: &mut World, rel: String) {
     let dir = w.common.project.home().join(rel);
     files::mkdirs(&dir);
     let dir = dir.to_str().expect("utf-8").to_string();
-    w.common.set_env("CTXLOOM_HOME", dir);
+    w.common.set_env("CTXLOOM_DAEMON_ROOT", dir);
 }
 
 #[given("a malformed ctxloom config")]

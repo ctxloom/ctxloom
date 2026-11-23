@@ -612,7 +612,16 @@ fn the_daemon_noun_is_hidden_and_a_stop_with_no_daemon_does_nothing() {
     }
     let world = World::new();
     let help = world.run(&["--help"]);
-    assert!(!help.stdout.contains("daemon"), "{}", help.stdout);
+    // The noun is not listed; the global `--daemon-root` names the word in
+    // its own line.
+    assert!(
+        !help
+            .stdout
+            .lines()
+            .any(|line| line.trim_start().starts_with("daemon ")),
+        "{}",
+        help.stdout
+    );
     assert_eq!(world.run(&["daemon", "stop"]).code, 0);
     assert!(!world.serving());
     let status = world.run(&["daemon", "status", "--format", "text"]);
@@ -819,7 +828,7 @@ fn a_ctxloom_home_not_made_yet_gets_a_daemon() {
     let fresh = world.project.home().join("not-made-yet");
     assert!(!files::exists(&fresh), "a home not made yet");
     let mut env = ENV.to_vec();
-    env.push(("CTXLOOM_HOME", fresh.to_str().unwrap()));
+    env.push(("CTXLOOM_DAEMON_ROOT", fresh.to_str().unwrap()));
     let listed = world
         .project
         .run_with(&env, &["bundle", "list", "--format", "json"]);
@@ -1044,7 +1053,7 @@ fn a_client_on_another_ctxloom_home_is_refused_naming_both_and_starts_no_daemon(
     });
     let home = world.project.home().to_str().unwrap().to_string();
     let mut elsewhere = env.clone();
-    elsewhere.push(("CTXLOOM_HOME", other_text));
+    elsewhere.push(("CTXLOOM_DAEMON_ROOT", other_text));
     for verb in ["status", "stop"] {
         let ran = world
             .project
@@ -1135,7 +1144,7 @@ fn a_daemon_whose_home_is_removed_exits_and_writes_nothing_there_again() {
 }
 
 // OD-60: a daemon whose home is deleted exits even when its single-instance
-// lock is elsewhere (the account's, while `CTXLOOM_HOME` names another home:
+// lock is elsewhere (the account's, while `CTXLOOM_DAEMON_ROOT` names another home:
 // `just install`'s `~/.ctxloom-rs`), so nothing but the home says it is
 // gone; a test's daemon so never outlives its temporary home.
 #[test]

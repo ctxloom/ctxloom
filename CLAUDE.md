@@ -875,7 +875,7 @@ platform's home variable (`HOME`, `USERPROFILE` on Windows; the wiring's
 and opencode settings read from it, and a `session_home: host` engine given
 it; nothing reads the environment's `HOME` for it (Git Bash sets its own).
 ctxloom's home reaches its hook processes as
-`CTXLOOM_HOME` (`run_ports::HOME_VARIABLE`; the wiring takes it as the home
+`CTXLOOM_DAEMON_ROOT` (`run_ports::DAEMON_ROOT_VARIABLE`; the wiring takes it as the home
 FIRST, before `HOME`, and names the resolved home in a run's env; both
 allowlists pass it on). The live project reaches them as `CTXLOOM_ROOT`
 (`run_ports::ROOT_VARIABLE`, set by `run_launcher::set_up_launch` to the
@@ -1211,7 +1211,7 @@ angzarr's unrestricted allowlist is its own, the runs domain's
 `RequestStop`, U4, and the frontend's `RecordRunnerStarted`, `RecordRunExited` and
 `RecordLaunchFailed` facts, U5; the coordinator's command half reaches the session
 and run domains alone, `EdgeCommands::reach`). What a hook process
-receives, through the engine env (like `CTXLOOM_HOME`; both of
+receives, through the engine env (like `CTXLOOM_DAEMON_ROOT`; both of
 `engine-claude`'s allowlists, `ENV_ALLOWLIST` for a child's turn since ruling
 51 and `INTERACTIVE_ENV_ALLOWLIST`; always the run's own values, set by
 `run_ports::name_the_run` for a terminal, a one-shot turn and a hosted child
@@ -1221,7 +1221,7 @@ alike, every inherited hook variable taken out first, never passed on), is
 hard migrate), whose last segment is the harp a statusline shows and whose
 UUIDv5 (`sessions::SessionName::id`) is the stable id a hook addresses its
 facts to (review finding 6: the wiring's `RunIds`), and `CTXLOOM_RUN`, the run
-id. With `CTXLOOM_HOME` a hook finds the user's daemon by its discovery file
+id. With `CTXLOOM_DAEMON_ROOT` a hook finds the user's daemon by its discovery file
 and presents the user bearer it names (U2). No host run tells its engine
 `CTXLOOM_ENDPOINT`, `CTXLOOM_BEARER` or `CTXLOOM_TLS_CERT`
 (`run_ports::LISTENER_VARIABLES`; `no_listener.test.rs` runs a one-shot and a
@@ -1291,7 +1291,7 @@ use case's `serve` (with `run_ports`' `HookServer` and `Serving`, and
 `ctxloom-wiring`'s `Hooks` are gone; the hooks of every run, a hosted
 one-shot's, a terminal session's and a hosted child's, deliver to the user
 daemon's one listener. Under `test-support` a hook process (its `HOME` the
-session home) finds that daemon through its `CTXLOOM_HOME`, which
+session home) finds that daemon through its `CTXLOOM_DAEMON_ROOT`, which
 `daemon::account_home` takes for the account's home after the test's own
 override, as a shipped binary finds the account's real home. `run --session <harp>` (owner ruling 115,
 a one-shot or the terminal) resumes a session: the run application reads the
@@ -2124,16 +2124,16 @@ bare UNAUTHENTICATED that says nothing of why (S11); an admitted caller is
 the user, with `user_allowlist` (every session command and fact, and a
 run's `RequestStop`) on every stream the daemon reaches. There is ONE daemon per OS USER, ever (owner,
 after step 3/4: no clustering): its single-instance lock, `daemon.lock`,
-is keyed to the account, never to `CTXLOOM_HOME` or `HOME`, at the place
+is keyed to the account, never to `CTXLOOM_DAEMON_ROOT` or `HOME`, at the place
 ONE function says (`daemon::files::instance_lock_path`):
 `<account home>/.ctxloom/daemon/daemon.lock`, the account's home being the
 system's (`daemon::account_home`, angzarr-platform's `Os::user_home`: the
 account database's, never a variable). That is the daemon directory of the
-account's DEFAULT ctxloom home, so with no `CTXLOOM_HOME` the lock, the
+account's DEFAULT ctxloom home, so with no `CTXLOOM_DAEMON_ROOT` the lock, the
 discovery file and the daemon's files are one directory, and two ctxloom
 homes on one account share the lock (no runtime directory: `XDG_RUNTIME_DIR`
 is a variable, absent on macOS and Windows). THE DAEMON'S HOME is its
-`CTXLOOM_HOME` when it was given one, else the ACCOUNT's home, never its
+`CTXLOOM_DAEMON_ROOT` when it was given one, else the ACCOUNT's home, never its
 `HOME` (M4, `daemon::daemon_home`; `daemon serve` is wired with it,
 `Wiring::at`), and the user's own home it tells a hosted child is the
 account's too. Under `test-support` the account's home is
@@ -2316,7 +2316,7 @@ file is published once; so a daemon whose home was deleted exits and leaves
 nothing there. It also exits, each tick, once its home's ctxloom
 directory (`<home>/.ctxloom`, its store's) is gone (`DaemonFiles::home_gone`,
 OD-60), because the lock may be elsewhere: the account's, while
-`CTXLOOM_HOME` names another home (`just install`'s `~/.ctxloom-rs`), or a
+`CTXLOOM_DAEMON_ROOT` names another home (`just install`'s `~/.ctxloom-rs`), or a
 test's own place. A call that would create files under its home
 (`CreateRun`, `CreateHandOff`: hand-offs and their `.launching` marks, run
 locks, a session's directory and checkout) passes one gate first,
@@ -2343,7 +2343,7 @@ cluster's cap). A stale file is left for the new daemon
 to publish over. The spawned daemon's environment is `daemon_env`'s:
 `PATH`, `TMPDIR`, `LANG`, `LC_ALL` and `run_ports::WINDOWS_STARTUP_VARIABLES`,
 matched as the platform compares names (`os::Flavor::env_key`, so Windows'
-`Path` passes), and the spawner's `CTXLOOM_HOME` only when it set one;
+`Path` passes), and the spawner's `CTXLOOM_DAEMON_ROOT` only when it set one;
 NEVER the spawner's `HOME`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA` or XDG
 bases (its confinement: the daemon's home is the account's), nor anything
 else of the spawner's. It is started DETACHED (`os::process::spawn_detached` of an
@@ -3085,7 +3085,7 @@ stream per library TREE (L1): a project checkout's `.ctxloom/`,
 `projects/{p}/checkouts/{c}/library`, rooted on the UUIDv5 of that name
 (`sessions::root_of`), or the home's, named `users/me/library` whatever
 home it is and rooted on `users/me/checkouts/{c}/library` (QUESTIONS B(a):
-each `CTXLOOM_HOME` a stream of its own; `library_tree::TreeName`). `{c}` is
+each `CTXLOOM_DAEMON_ROOT` a stream of its own; `library_tree::TreeName`). `{c}` is
 the checkout's harp in its `.ctxloom/state/checkout` (out of git, so a git
 worktree is a checkout of its own; L2): the wiring's `checkout_harp` reads
 it and mints nothing, `mint_checkout_harp` mints it once (`O_EXCL`, a file
@@ -3524,7 +3524,7 @@ built:
 ctxloom's store is ONE per user (owner T14): angzarr-store-sqlite's
 `SqliteStore` (through angzarr-embedded's `sqlite` feature), opened at
 `<ctxloom home>/.ctxloom/ctxloom.db` (the home resolved as everywhere:
-`CTXLOOM_HOME` first) by `ctxloom-store-sqlite` (the file name, the placement
+`CTXLOOM_DAEMON_ROOT` first) by `ctxloom-store-sqlite` (the file name, the placement
 and the `ProjectStores` port, over rust-support's `sqlite-store-opener`, which
 refuses a store from before the embedded store, `ctxloom.db.pre-embedded`
 naming its backup). Every project's streams are in it, each rooted on its
@@ -3761,8 +3761,13 @@ makes the user's home directory the project root; the flag wins over the
 variable; `ctxloom_wiring::root_flag::applied` puts it in the environment
 snapshot as `CTXLOOM_ROOT` before anything is wired, so the daemon, which
 reads the caller's whole environment, sees it); the daemon root is
-`CTXLOOM_HOME` (the store, the daemon's directory, the `users/me` library;
-to be renamed `CTXLOOM_DAEMON_ROOT` / `--daemon-root` apart). The walk never
+`CTXLOOM_DAEMON_ROOT` (the store, the daemon's directory, the `users/me` library),
+or its flag form, the global `--daemon-root=<dir>` (a value is required; relative
+to the working directory; the flag wins over the variable;
+`ctxloom_wiring::root_flag::daemon_root_applied`, as `applied` does for the
+project root). The variable named `CTXLOOM` plus `_HOME` before it is retired, a hard migrate with no alias, and a
+workspace test holds the sources free of it (the per-verb `--home`, the home
+CONFIG layer, and the account's home keep their words). The walk never
 adopts the user's home's `.ctxloom` nor the daemon root's as a project
 (`Surroundings::user_home`, `home`); only an explicit root does. A run
 (`client_one_shot`, `client_terminal`) where no project is found, no root is
@@ -4512,7 +4517,7 @@ the session `CTXLOOM_SESSION` names in the environment it inherits from its
 engine (OD-7's live probe, `scripts/mcp-env-probe.sh`, run by the owner
 2026-11-14 on claude 2.1.322: claude passes its environment, withholding
 its own `CLAUDE_CODE_OAUTH_TOKEN`; the probe gives claude, the server and
-the daemon its call starts a temporary `CTXLOOM_HOME`, `HOME` and project
+the daemon its call starts a temporary `CTXLOOM_DAEMON_ROOT`, `HOME` and project
 of its own and stops that daemon before removing them, held by
 `scripts/mcp-env-probe.selftest.sh` in `just selftest`), and with none it is
 refused, `mcp-server-no-session` (exit 48). `initialize` and `tools/list`
@@ -4575,7 +4580,7 @@ under `ctxloom` (the prompt a step message answers, a compaction's trigger and
 summary text). Its queue and dedupe live on `globalThis` (opencode may
 instantiate a plugin twice in one process), it drops sub-agent sessions (a
 `parentID`) and reasoning, runs each hook without opencode's `HOME` (so
-`CTXLOOM_HOME` is the home) and with stderr to `<home>/ctxloom-hooks.log`
+`CTXLOOM_DAEMON_ROOT` is the home) and with stderr to `<home>/ctxloom-hooks.log`
 (never the TUI's terminal), and drains in `dispose` (5 s cap; `run` and the TUI
 await it, probe P4/P5). The codec maps: prompt = `chat.message` by
 `output.message.id`; words = a text part WHOLE at `time.end` (one fact per part,
@@ -4893,10 +4898,10 @@ binary refuses to start with one not of the shape (`ctxloom-unstamped`, exit
 `just --list` shows the public recipes by group; `just install` (group
 `install`) builds the plain binary and installs it as
 `~/.local/lib/ctxloom/ctxloom` with the wrapper `~/.local/bin/ctxloom` (ahead of a Go ctxloom in `~/go/bin` on PATH)
-(`CTXLOOM_HOME="$HOME/.ctxloom-rs"`), idempotently, one line per action. On
+(`CTXLOOM_DAEMON_ROOT="$HOME/.ctxloom-rs"`), idempotently, one line per action. On
 Windows, under Git Bash, `just install-windows` builds the plain binary and
 installs it as `%LOCALAPPDATA%\Programs\ctxloom\ctxloom.exe`, sets the user
-variable `CTXLOOM_HOME` to `%USERPROFILE%\.ctxloom-rs` with `setx` (only when
+variable `CTXLOOM_DAEMON_ROOT` to `%USERPROFILE%\.ctxloom-rs` with `setx` (only when
 the registry's value differs), and says how to add the directory to the user
 `Path` when it is not on PATH (no registry edit for it); unverified on
 Windows. The checks are `just build`,
@@ -4988,9 +4993,9 @@ one and dial it, one at a time across binaries (hook-listener,
 hook-sink-grpc, daemon-client, daemon-api-grpc, forge-github, the wiring's
 `capture`, the binary's `tests::hook`); and the setup script above. A
 second setup script, `guard-homes` (`scripts/nextest-guard-homes.sh`, every
-test on every platform; OD-34: a test once kept the shell's CTXLOOM_HOME and
+test on every platform; OD-34: a test once kept the shell's CTXLOOM_DAEMON_ROOT and
 registered 85 temporary projects in the owner's real home), names
-CTXLOOM_HOME, CLAUDE_CONFIG_DIR, OPENCODE_CONFIG_DIR and the four XDG bases
+CTXLOOM_DAEMON_ROOT, CLAUDE_CONFIG_DIR, OPENCODE_CONFIG_DIR and the four XDG bases
 as one FILE, `target/test-guard/inherited-home`, so a test that keeps one
 from the process and writes under it fails (ENOTDIR) instead of writing
 into the caller's; the wiring's
@@ -5188,7 +5193,7 @@ Windows), `SHA256SUMS` over all of them, and attaches them to a GitHub
 release for the tag (`gh` with the default token; `contents: write` for that
 job alone; a pre-release when the version has one). Its `workflow_dispatch`
 builds them as the run's artifacts and creates no release. The released
-wrapper sets no `CTXLOOM_HOME` (the release workflow's `wrapper-env`, an
+wrapper sets no `CTXLOOM_DAEMON_ROOT` (the release workflow's `wrapper-env`, an
 owner decision).
 
 A test that needs a fake program (an `sh` script through

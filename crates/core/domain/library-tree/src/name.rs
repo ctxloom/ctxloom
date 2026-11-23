@@ -8,7 +8,7 @@
 //!
 //! The home's tree is named `users/me/library` whatever home it is, and is
 //! rooted on the home's OWN checkout harp (`<home>/.ctxloom/state/checkout`):
-//! the UUIDv5 of `users/me/checkouts/{c}/library`. So each `CTXLOOM_HOME` a
+//! the UUIDv5 of `users/me/checkouts/{c}/library`. So each `CTXLOOM_DAEMON_ROOT` a
 //! command names is a stream of its own, while the API's name stays one.
 
 use std::fmt;

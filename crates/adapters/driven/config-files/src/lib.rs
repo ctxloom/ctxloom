@@ -14,7 +14,7 @@
 //!    (owner ruling 2026-11-20). A `.git` directory or file marks a root (a
 //!    worktree's is a file).
 //!    The walk never adopts the user's own home's `.ctxloom` nor the daemon
-//!    root's (`CTXLOOM_HOME`'s): those are theirs, a project root only when
+//!    root's (`CTXLOOM_DAEMON_ROOT`'s): those are theirs, a project root only when
 //!    `CTXLOOM_ROOT` (or `--root`) names it.
 //! 3. Otherwise the daemon root's `.ctxloom` (no project).
 //!
@@ -49,11 +49,11 @@ pub struct Surroundings {
     /// `CTXLOOM_ROOT`, as given (empty counts as unset).
     pub root_env: Option<String>,
     pub cwd: PathBuf,
-    /// The daemon root (`CTXLOOM_HOME`, else the account's home): its
+    /// The daemon root (`CTXLOOM_DAEMON_ROOT`, else the account's home): its
     /// `.ctxloom` is the store's, the home config layer's.
     pub home: PathBuf,
     /// The user's own home directory (the account's, which is the daemon
-    /// root only when `CTXLOOM_HOME` names none): the walk never adopts its
+    /// root only when `CTXLOOM_DAEMON_ROOT` names none): the walk never adopts its
     /// `.ctxloom` as a project. `CTXLOOM_ROOT` (or `--root`) naming it does.
     pub user_home: Option<PathBuf>,
     /// The OS temporary directory.

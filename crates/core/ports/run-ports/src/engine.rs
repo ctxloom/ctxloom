@@ -24,7 +24,7 @@ use crate::launcher::{TurnCommand, TurnOutput};
 /// one-shot child's). The engine's own
 /// children, hook processes among them, run without `HOME`, so they find
 /// ctxloom's home through this one explicit variable.
-pub const HOME_VARIABLE: &str = "CTXLOOM_HOME";
+pub const DAEMON_ROOT_VARIABLE: &str = "CTXLOOM_DAEMON_ROOT";
 
 /// The variable that names the live project's root in an engine's
 /// environment (the terminal session's and a one-shot child's), set by the

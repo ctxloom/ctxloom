@@ -719,7 +719,9 @@ async fn a_child_is_started_with_its_launchers_environment_and_the_runs_hooks() 
         Some("/opt/ctx:/usr/bin")
     );
     assert_eq!(
-        spec.env.get(run_ports::HOME_VARIABLE).map(String::as_str),
+        spec.env
+            .get(run_ports::DAEMON_ROOT_VARIABLE)
+            .map(String::as_str),
         Some("/home/u")
     );
     // s3-Q3: the one variable is the child's resource name; no harp

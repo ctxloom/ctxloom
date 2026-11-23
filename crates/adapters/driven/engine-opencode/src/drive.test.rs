@@ -225,7 +225,7 @@ fn test_only_the_curated_variables_pass_and_opencode_pure_never_does() {
         for hook in run_ports::HOOK_VARIABLES {
             assert!(list.contains(&hook), "{hook}");
         }
-        assert!(list.contains(&run_ports::HOME_VARIABLE));
+        assert!(list.contains(&run_ports::DAEMON_ROOT_VARIABLE));
         assert!(list.contains(&run_ports::ROOT_VARIABLE));
     }
 }

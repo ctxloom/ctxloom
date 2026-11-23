@@ -343,7 +343,7 @@ fn the_environment_a_launcher_sends_is_what_a_child_may_be_given() {
         ("ANTHROPIC_AUTH_TOKEN", "primary"),
         ("SECRET_ELSE", "x"),
         ("HOME", "/home/u"),
-        ("CTXLOOM_HOME", "/home/u"),
+        ("CTXLOOM_DAEMON_ROOT", "/home/u"),
         ("CTXLOOM_ENDPOINT", "https://127.0.0.1:1"),
         ("CTXLOOM_BEARER", "b"),
         ("CTXLOOM_RUN", "r"),

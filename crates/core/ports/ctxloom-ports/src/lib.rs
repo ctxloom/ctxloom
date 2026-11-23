@@ -141,7 +141,7 @@ pub trait Executables {
 /// The identity git commits with where ctxloom was run: `user.name` and
 /// `user.email` as git resolves them there, in the user's own environment (her
 /// `HOME`, the repository's configuration, includes followed), never in
-/// ctxloom's home, which `CTXLOOM_HOME` may put elsewhere. The identity a
+/// ctxloom's home, which `CTXLOOM_DAEMON_ROOT` may put elsewhere. The identity a
 /// session home is seeded with (owner ruling 112).
 pub trait GitIdentity {
     /// Whether git knows both `user.name` and `user.email` there; false

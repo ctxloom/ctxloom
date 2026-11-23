@@ -55,11 +55,11 @@ const FILE_MODE: u32 = 0o600;
 pub(crate) const INSTANCE_DIR_VARIABLE: &str = "CTXLOOM_TEST_INSTANCE_DIR";
 
 /// Where the single-instance lock is: ONE per OS account, the discovery file
-/// beside it, keyed to the account, never to `CTXLOOM_HOME` or `HOME`:
+/// beside it, keyed to the account, never to `CTXLOOM_DAEMON_ROOT` or `HOME`:
 /// `account` is the ACCOUNT's home (`Os::user_home`, the daemon module's
 /// `account_home`) and the lock `<account>/.ctxloom/daemon/daemon.lock`, the
 /// daemon directory of the account's default ctxloom home. So with no
-/// `CTXLOOM_HOME` the lock, the discovery file and the daemon's own files are
+/// `CTXLOOM_DAEMON_ROOT` the lock, the discovery file and the daemon's own files are
 /// one directory; two ctxloom homes on one account share the lock, and a
 /// client on the other is refused. It is no runtime directory: those are
 /// variables (`XDG_RUNTIME_DIR`), absent on macOS and Windows, or shared
@@ -194,7 +194,7 @@ impl DaemonFiles {
     /// Whether the daemon's ctxloom directory (`<home>/.ctxloom`, its
     /// store's) is gone: its home deleted (j000100's exit, a test's
     /// temporary home), which the single-instance lock does not always say,
-    /// as it may be elsewhere (the account's, while `CTXLOOM_HOME` names
+    /// as it may be elsewhere (the account's, while `CTXLOOM_DAEMON_ROOT` names
     /// another home; a test's own place). What cannot be told is there.
     pub(crate) fn home_gone(&self) -> bool {
         matches!(self.fs.exists(self.ctxloom_dir()), Ok(false))

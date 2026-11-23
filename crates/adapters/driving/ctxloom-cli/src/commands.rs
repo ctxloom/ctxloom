@@ -48,6 +48,17 @@ pub struct Globals {
         default_missing_value = ""
     )]
     pub root: Option<String>,
+    /// The daemon root (the store, the daemon's directory, the user
+    /// library): `--daemon-root=<dir>` names it; omitted,
+    /// `CTXLOOM_DAEMON_ROOT`, else the account's home. Not `--root` (the
+    /// project) and not `--home` (the home CONFIG layer)
+    #[arg(
+        long,
+        global = true,
+        value_name = "DIR",
+        value_parser = clap::builder::NonEmptyStringValueParser::new()
+    )]
+    pub daemon_root: Option<String>,
     /// Exit 1 for a success that would change something (a dry run or a
     /// preview that would act); without it every success exits 0
     #[arg(id = cli_support::DETAILED_EXITCODE, long = cli_support::DETAILED_EXITCODE, global = true)]

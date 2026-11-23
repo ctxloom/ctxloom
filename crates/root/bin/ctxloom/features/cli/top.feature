@@ -1,5 +1,5 @@
 # world: base
-# NOT ported: nothing; the noun is new (owner, task impolite-graph), and Go had no daemon.
+# NOT ported: nothing; the noun is new, and Go had no daemon.
 
 Feature: top — what the user's daemon hosts, live: a table of sessions, and the asks and log of the one selected
 
@@ -15,7 +15,7 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
   approvals answer` does. It sends, stops, restarts and closes nothing:
   session controls are not v1.
 
-    ctxloom top [<harp> [--tree]] [--all] [--format json|text]
+    ctxloom top [<harp>|<session name> [--tree]] [--all] [--format json|text]
                 [--state <state>]... [--agent <agent>]... [--profile <profile>]...
                 [--tag <tag>]... [--engine <engine>]... [--owner <harp>]...
                 [--sort <column>[:asc|desc]] [--log <harp>]
@@ -53,8 +53,11 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
   fields set per line, printed as the message's generated proto3 JSON (proto
   field names, a default left out, an enum by its name, a Timestamp RFC 3339):
 
-    snapshot          the first line, always: every session that matches, and
-                      every ask waiting under them
+    waiting           (only when no daemon is serving) said once, then again
+                      whenever the connection is lost: `reason`; no daemon
+                      has been reached, so no snapshot is possible
+    snapshot          the first line once a daemon is reached: every session
+                      that matches, and every ask waiting under them
     session_changed   a session now matching, whole (new, or any field changed)
     session_removed   a session no longer in view: `name`, `reason`
                       (`LEFT_FILTER`, `DESTROYED`)
@@ -66,7 +69,7 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
                       transcript entry its `line` as the transcript has it,
                       for a daemon entry its `event` (a word) and `text`
 
-  A connection always begins with a snapshot; there is no resuming. A client
+  A connection to a daemon always begins with a snapshot; there is no resuming. A client
   that reconnects takes a new snapshot as the truth.
 
   WHERE EACH THING IS DECIDED (DRAFT; the owner's to rule):
@@ -88,14 +91,47 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
   session's direct children (a subtree is a SCOPE, not a filter, above). SORT COLUMNS: `name`, `state`, `agent`, `profile`, `engine`,
   `owner`, `started` (default `started:desc`).
 
-  SCOPE is the project the command runs in; `--all` is every project's. The
-  daemon must be serving: `top` never starts one.
+  SCOPE is the project the command runs in; `--all` is every project's.
+  `<harp>` may also be spelled as the session's full name,
+  `projects/{p}/sessions/{s}`, which names its project, so a session of
+  another project is watched without `--all`.
+
+  NO DAEMON, NO PROJECT (owner rulings, DRAFT texts). `top` never starts a
+  daemon, and does not refuse when none is serving: it WAITS for one. While
+  it waits, the JSON stream says it once, as a `waiting` line, and prints
+  nothing more; the screen shows an empty inbox and a status line `waiting
+  for a ctxloom daemon`. When a daemon is reached it streams as usual: the
+  snapshot, then changes. A daemon lost under the stream puts it back to
+  waiting; the next daemon's snapshot is the truth. Outside a project `top`
+  lists nothing, as `session list` does, and stays open: it is a watch on the
+  project of its directory, and receives what is pushed as that project's
+  sessions are added, change or are removed.
+
+  PUSHED, NEVER POLLED (the general flow, CLAUDE.md). The watch is served
+  from a read model a PROJECTOR keeps (DRAFT: `top-view`, a read-model
+  crate beside `session-index` and `pending-approvals`, registered in the
+  daemon's kernel and caught up like them): it folds the sessions' streams
+  (mint with its agent, profiles and loadout bundles; incarnations and
+  their ends; close; owner and children), the approvals' streams (asked,
+  answered, expired, withdrawn) and the capture facts (the transcript
+  lines) into each session's row, its waiting asks and its log, and keeps a
+  change feed that every open watch is woken by from the fold itself, as
+  `WatchLibrary` is. The events the log and the rows need come from the
+  policies that already run (the approvals' expiry through the scheduler;
+  the re-host, restart and drain policies; the removal sequence's recorded
+  steps), so a session leaving, a state change and an expiry are events the
+  projector folds, not states anything polls. A watch whose scope names no
+  project yet (a directory outside any) is woken when the project it
+  resolves to is named. The only thing that is looked for on a timer is a
+  daemon to wait for, since nothing can push before one exists.
 
   WHAT THE SESSION MESSAGE NEEDS (DRAFT): `Session` has no `agent`,
   `profiles` or `tags` today, and the table, the filters and the sort need
   them. This spec requires `Session.agent`, `Session.profiles` (the profile
-  names the launch planned with) and `Session.tags` (the `--tag`s the launch
-  was given), recorded at its mint and carried on every read of it.
+  names the launch planned with) and `Session.tags` (owner ruling: the NAMES
+  OF THE BUNDLES ITS PROFILES' LOADOUT LOADED; neither the launch's `--tag`s
+  nor a profile's `select_tags`), recorded at its mint and carried on every
+  read of it. `--tag <bundle>` and the TAGS column are those names.
 
   WHAT THE LOG NEEDS THAT THE DAEMON DOES NOT SERVE TODAY (DRAFT):
   `WatchTranscript` serves a session's transcript lines, but whole from its
@@ -112,14 +148,14 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
     Scenario: The first line is a snapshot of this project's live sessions, with their agent, profiles, tags, engine and owner
       # new: `ctxloom top --format json`, the snapshot; DRAFT.
       Given an initialized ctxloom project
-      And a child "brisk-copper-moth" of "amber-quiet-heron" launched on agent "reviewer" with profile "review" and tag "nightly"
+      And a child "brisk-copper-moth" of "amber-quiet-heron" launched on agent "reviewer" with profile "review", whose loadout loaded the bundle "team-rules"
       When I start "ctxloom top --format json" and read its output as it streams
       Then its first line has "snapshot" set, and no other field
       And the first line reports "snapshot.sessions[name$=/sessions/brisk-copper-moth].state" as "LIVE"
       And the first line reports "snapshot.sessions[name$=/sessions/brisk-copper-moth].owner" containing "/sessions/amber-quiet-heron"
       And the first line reports "snapshot.sessions[name$=/sessions/brisk-copper-moth].agent" as "reviewer"
       And the first line reports "snapshot.sessions[name$=/sessions/brisk-copper-moth].profiles[0]" as "review"
-      And the first line reports "snapshot.sessions[name$=/sessions/brisk-copper-moth].tags[0]" as "nightly"
+      And the first line reports "snapshot.sessions[name$=/sessions/brisk-copper-moth].tags[0]" as "team-rules"
       And the first line reports "snapshot.sessions[name$=/sessions/brisk-copper-moth].engine" as "claude-code"
 
     Scenario: With nothing hosted the snapshot is empty, and the stream stays open
@@ -137,7 +173,7 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
       When I start "ctxloom top --format json" and read its output as it streams
       And a child "quiet-silver-fern" of "amber-quiet-heron" is launched
       Then every line read is one JSON object on one line
-      And each line has exactly one of "snapshot", "session_changed", "session_removed", "approval_asked", "approval_settled", "log" set
+      And each line has exactly one of "snapshot", "session_changed", "session_removed", "approval_asked", "approval_settled", "log", "waiting" set
 
     Scenario: Off a terminal the format is json without being asked
       # new: the default format rule of the vocabulary (§4, `--format`); DRAFT.
@@ -278,8 +314,8 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
     Scenario Outline: A filter keeps only the sessions that match it
       # new: one filter per field, as the daemon decides it; DRAFT.
       Given an initialized ctxloom project
-      And a child "brisk-copper-moth" of "amber-quiet-heron" launched on agent "reviewer" with profile "review" and tag "nightly" on engine "claude-code"
-      And a child "quiet-silver-fern" of "amber-quiet-heron" launched on agent "fixer" with profile "fix" and tag "adhoc" on engine "opencode"
+      And a child "brisk-copper-moth" of "amber-quiet-heron" launched on agent "reviewer" with profile "review", whose loadout loaded the bundle "team-rules", on engine "claude-code"
+      And a child "quiet-silver-fern" of "amber-quiet-heron" launched on agent "fixer" with profile "fix", whose loadout loaded the bundle "fix-kit", on engine "opencode"
       When I start "ctxloom top --format json <flag>" and read its output as it streams
       Then its first line reports "snapshot.sessions[name$=/sessions/<kept>]" as present
       And its first line reports no "snapshot.sessions[name$=/sessions/<dropped>]"
@@ -288,15 +324,15 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
         | flag                        | kept              | dropped           |
         | --agent reviewer            | brisk-copper-moth | quiet-silver-fern |
         | --profile fix               | quiet-silver-fern | brisk-copper-moth |
-        | --tag nightly               | brisk-copper-moth | quiet-silver-fern |
+        | --tag team-rules            | brisk-copper-moth | quiet-silver-fern |
         | --engine opencode           | quiet-silver-fern | brisk-copper-moth |
         | --owner amber-quiet-heron   | quiet-silver-fern | amber-quiet-heron |
 
     Scenario: Flags of different kinds are an AND, and a flag given twice is an OR
       # new: the combination rule; DRAFT.
       Given an initialized ctxloom project
-      And a child "brisk-copper-moth" of "amber-quiet-heron" launched on agent "reviewer" with profile "review" and tag "nightly" on engine "claude-code"
-      And a child "quiet-silver-fern" of "amber-quiet-heron" launched on agent "fixer" with profile "fix" and tag "adhoc" on engine "opencode"
+      And a child "brisk-copper-moth" of "amber-quiet-heron" launched on agent "reviewer" with profile "review", whose loadout loaded the bundle "team-rules", on engine "claude-code"
+      And a child "quiet-silver-fern" of "amber-quiet-heron" launched on agent "fixer" with profile "fix", whose loadout loaded the bundle "fix-kit", on engine "opencode"
       When I start "ctxloom top --format json --agent reviewer --agent fixer --engine opencode" and read its output as it streams
       Then its first line has "snapshot.sessions" holding 1 entry
       And its first line reports "snapshot.sessions[0].name" containing "/sessions/quiet-silver-fern"
@@ -523,42 +559,104 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
       When I start "ctxloom top --format json" and read its output as it streams
       Then its first line reports no "snapshot.sessions[name$=/sessions/steady-lunar-pike]"
 
-    Scenario: Outside a ctxloom project, top without --all is refused, and with --all it runs
-      # new: DRAFT. A deliberate difference from `session list`, which lists nothing there: a stream that stays empty hides the mistake.
+    Scenario: Outside a ctxloom project top lists nothing and stays open, and what is pushed afterwards arrives
+      # new: DRAFT; as `session list` lists nothing there, and the watch is pushed from the projection.
       Given a directory that is in no ctxloom project
-      When I run "ctxloom top --format json"
+      And a ctxloom daemon is serving for this home, hosting nothing
+      When I start "ctxloom top --format json" and read its output as it streams
+      Then its first line is exactly '{"snapshot":{}}'
+      And the command is still running a second later
+      When Alice sets ctxloom up in that directory and a session "amber-quiet-heron" starts there
+      Then within 10 seconds a line has "session_changed.session.name" containing "/sessions/amber-quiet-heron"
+
+    Scenario: Outside a ctxloom project, --all runs as anywhere
+      # new: DRAFT.
+      Given a directory that is in no ctxloom project
+      And a second project "api" with a session "steady-lunar-pike" running
+      When I start "ctxloom top --format json --all" and read its output as it streams
+      Then its first line reports "snapshot.sessions[name$=/sessions/steady-lunar-pike]" as present
+
+    Scenario: Outside a ctxloom project a session named by its harp alone is refused, as `session show` refuses it
+      # new: DRAFT.
+      Given a directory that is in no ctxloom project
+      When I run "ctxloom top brisk-copper-moth --format json"
       Then the command exits with code 20
       And the refusal is "daemon-api-project-unknown"
-      When I start "ctxloom top --format json --all" and read its output as it streams
-      Then its first line has "snapshot" set, and no other field
 
-  Rule: The daemon is the user's, serving, and top never starts one
+    Scenario: A session of another project is watched by its full name
+      # new: DRAFT; `projects/{p}/sessions/{s}` is a spelling of the scope.
+      Given an initialized ctxloom project
+      And a second project "api" with a session "steady-lunar-pike" running
+      When I start "ctxloom top projects/{api}/sessions/steady-lunar-pike --format json" and read its output as it streams
+      Then its first line has "snapshot.sessions" holding 1 entry
+      And its first line reports "snapshot.sessions[0].name" containing "/sessions/steady-lunar-pike"
 
-    Scenario: With no daemon serving, top is refused and starts none
-      # new: DRAFT code `session-cli-top-daemon-not-serving`; a stream with nothing behind it would only wait.
+  Rule: The daemon is the user's; top waits for one, never starts one, and is pushed from its projection
+
+    Scenario: With no daemon serving, top waits and starts none, saying so once
+      # new: DRAFT; owner ruling: it waits.
       Given an initialized ctxloom project
       And no ctxloom daemon is serving for this home
-      When I run "ctxloom top --format json"
-      Then the command exits with code 20
-      And the refusal is "session-cli-top-daemon-not-serving"
-      And the output says no ctxloom daemon is serving
+      When I start "ctxloom top --format json" and read its output as it streams
+      Then its first line has "waiting" set, and no other field
+      And that line reports "waiting.reason" as "no ctxloom daemon is serving"
       And no ctxloom daemon was started
+      And the command is still running two seconds later, and has printed no other line
 
-    Scenario: A draining daemon refuses a new top, as it refuses every new call
-      # new: DRAFT; `Api::open` refuses new calls while draining (OD-62).
+    Scenario: When a daemon is reached, the stream goes on as usual with its snapshot
+      # new: DRAFT.
+      Given an initialized ctxloom project
+      And no ctxloom daemon is serving for this home
+      And I start "ctxloom top --format json" and read its output as it streams
+      When a ctxloom daemon starts serving for this home, hosting a child "brisk-copper-moth" of "amber-quiet-heron"
+      Then within 10 seconds a line has "snapshot" set
+      And that line reports "snapshot.sessions[name$=/sessions/brisk-copper-moth].state" as "LIVE"
+
+    Scenario: On the screen, waiting is an empty inbox and a status line, then the inbox
+      # new: DRAFT texts.
+      Given an initialized ctxloom project
+      And no ctxloom daemon is serving for this home
+      When I start "ctxloom top --format text" in a terminal and read its frames
+      Then the first frame has no row, and a line "waiting for a ctxloom daemon"
+      When a ctxloom daemon starts serving for this home, hosting a child "brisk-copper-moth" of "amber-quiet-heron"
+      Then a later frame has a row for "brisk-copper-moth" and no line "waiting for a ctxloom daemon"
+
+    Scenario: A draining daemon is not top's to use: it waits for the next one
+      # new: DRAFT; a draining daemon refuses every new call, so top waits as if none served.
       Given a ctxloom daemon is serving for this home, draining, and hosting a child "brisk-copper-moth" that does not end its turn
-      When I run "ctxloom top --format json"
-      Then the command exits with code 20
-      And the refusal is "daemon-api-draining"
+      When I start "ctxloom top --format json" and read its output as it streams
+      Then its first line has "waiting" set, and no other field
 
-    Scenario: A daemon that dies under the stream ends it as failed, after whole lines
-      # new: DRAFT; as a one-shot's client when the stream breaks (exit 10).
+    Scenario: A daemon that dies under the stream puts it back to waiting, and the next daemon's snapshot is the truth
+      # new: DRAFT; replaces the stream's failure, exit 10.
       Given an initialized ctxloom project
       And a child "brisk-copper-moth" of "amber-quiet-heron" that is open and idle
       And I start "ctxloom top --format json" and read its output as it streams
       When the daemon is killed outright
-      Then the command exits with code 10
+      Then within 10 seconds a line has "waiting" set
       And every line it printed is one whole JSON object
+      When a ctxloom daemon starts serving for this home
+      Then within 10 seconds a line has "snapshot" set
+
+    Scenario: A change is pushed to the stream, not found by a round
+      # new: DRAFT; the watch is woken by the projector's fold. Under test-support the daemon's round period is set to an hour (DRAFT step), so only a push can deliver it.
+      Given an initialized ctxloom project
+      And the daemon's round period is an hour
+      And a child "brisk-copper-moth" of "amber-quiet-heron" that is open and idle
+      And I start "ctxloom top --format json" and read its output as it streams
+      When a child "quiet-silver-fern" of "amber-quiet-heron" is launched
+      Then within 5 seconds a line has "session_changed.session.name" containing "/sessions/quiet-silver-fern"
+
+    Scenario: An ask, its answer and a session's removal are pushed the same way
+      # new: DRAFT.
+      Given an initialized ctxloom project
+      And the daemon's round period is an hour
+      And a child "brisk-copper-moth" of "amber-quiet-heron" that is open and idle
+      And I start "ctxloom top --format json" and read its output as it streams
+      When the engine of "brisk-copper-moth" asks to run "Bash" with "rm -rf build/"
+      Then within 5 seconds a line has "approval_asked.approval.child" containing "/sessions/brisk-copper-moth"
+      When I run "ctxloom session approvals answer brisk-copper-moth allow-once"
+      Then within 5 seconds a line has "approval_settled.approval.state" as "answered"
 
     Scenario: Stopping the stream with SIGINT ends it, exit 128 plus the signal
       # new: DRAFT; ruling 114's signal exit.
@@ -743,3 +841,21 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
       Then the command exits with code 20
       And the refusal is "session-cli-top-needs-terminal"
       And the output contains "--format json"
+
+  Rule: One test of the real binary under a pseudo-terminal
+
+    The text-frame scenarios above stand a terminal in; this one does not.
+    It runs the real binary on a pty (unix only; DRAFT: ruled by the owner as
+    a smoke test beside the seam).
+
+    Scenario: On a real pseudo-terminal, top opens, draws, quits on q, and leaves the terminal as it found it
+      # new: DRAFT; the pty smoke test.
+      Given an initialized ctxloom project
+      And a child "brisk-copper-moth" of "amber-quiet-heron" that is open and idle
+      And a unix host with a pseudo-terminal
+      When I start "ctxloom top" on a pseudo-terminal of 100 columns and 30 rows
+      Then within 10 seconds the terminal shows the row "brisk-copper-moth" and the line "--- asks of"
+      And the terminal is on its alternate screen
+      When I type "q" on it
+      Then the command exits with code 0
+      And the terminal is back on its main screen, its modes as they were before

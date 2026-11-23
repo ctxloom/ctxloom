@@ -1,9 +1,8 @@
 # world: base
 # NOT ported: nothing; the journey is new, and Go had no daemon to watch.
 #
-# DRAFT: the whole journey is a draft for the owner's review (task
-# impolite-graph: `ctxloom top`). Its steps are new and undefined, so every
-# scenario is red until `ctxloom top` is built.
+# DRAFT: the whole journey is a draft for the owner's review. Its steps are
+# new and undefined, so every scenario is red until `ctxloom top` is built.
 
 @doc
 Feature: Alice watches what her daemon hosts, and answers a child's ask from another terminal
@@ -117,15 +116,12 @@ Feature: Alice watches what her daemon hosts, and answers a child's ask from ano
       """
     Then the next line says the ask was answered "allow-once"
 
-  # With nothing hosted there is nothing to watch; top says so and starts no
-  # daemon for the purpose.
-  Scenario: With no daemon serving, top says so and starts none
-    # new: top reads what is hosted; it never starts a daemon.
+  # Alice opens it before her daemon is running. It waits instead of
+  # refusing, and fills in the moment her work starts one.
+  Scenario: With no daemon serving, top waits for one and shows her sessions when it comes
+    # new: top waits; it never starts a daemon.
     Given no ctxloom daemon is serving for Alice
-    When Alice runs `ctxloom top`:
-      """
-      ctxloom top
-      """
-    Then the command exits with code 20
-    And she is told that no ctxloom daemon is serving
-    And no ctxloom daemon was started
+    When Alice opens `ctxloom top` at her terminal
+    Then it says it is waiting for a ctxloom daemon, and no ctxloom daemon was started
+    When Alice's orchestrator "amber-quiet-heron" has launched "brisk-copper-moth" on "reviewer"
+    Then her screen shows "amber-quiet-heron" and "brisk-copper-moth", and no longer says it is waiting

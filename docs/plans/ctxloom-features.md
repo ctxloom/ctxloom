@@ -136,6 +136,14 @@ feature file; it belongs in git history.
   - `session purge`, `transcript purge` and `worktrees purge` are retired (`sweep` is
     still built, behind the same feature).
     `session worktrees` stays as a listing.
+- **`ctxloom top` is the management view of the daemon (DRAFT).** A client of the daemon's
+  `ctxloom.v1` service, read-only apart from answering permission asks as the user (as
+  `session approvals answer` does); session controls are not in it. At a terminal it is
+  an inbox of sessions above a reading pane (the selected session's waiting asks and its
+  log); with `--format json`, or off a terminal, it is a stream of proto3 JSON lines
+  (`TopEvent`), scoped to the whole list, one session or a subtree. It is served from a
+  projection and pushed, never polled; it waits for a daemon rather than starting one.
+  Contract: `features/cli/top.feature`; story: `features/journeys/j002900_watching_children.feature`.
 - **Dropped:**
   - `session adopt`;
   - the `bundle distill <path>` form;

@@ -407,12 +407,14 @@ Feature: session approvals — a child's permission ask, answered by the user
       Then the command succeeds
       And the child's engine was told to run the tool
 
-  Rule: The terminal session's own frontend tells its human of an ask that arrives under it
+  Rule: The terminal session's own frontend tells its human of an ask that arrives in its project
 
-    A session whose TUI the human is in has no screen of ours: its child's
-    ask would wait unseen, and be denied when its time ran out. So while
-    the TUI runs, its frontend looks at the waiting asks under its session
-    (once a second), and for each one it has not told of rings the terminal
+    A session whose TUI the human is in has no screen of ours: an ask of
+    its child's, of a one-shot's or of another session's would wait unseen,
+    and be denied when its time ran out. So while the TUI runs, its
+    frontend looks at the waiting asks of its whole project, whatever their
+    root (once a second; several TUIs on one project each tell of every
+    ask), and for each one it has not told of rings the terminal
     bell once and writes one line to the terminal's standard error: who
     asks, what it asks to run, and the command that answers it. An ask
     answered, expired or withdrawn is told no more. Answering stays in

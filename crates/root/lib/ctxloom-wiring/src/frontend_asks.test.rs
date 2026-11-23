@@ -24,16 +24,16 @@ fn ask(name: &str, child: &str, rule: &str, state: &str) -> v1::Approval {
 }
 
 #[test]
-fn test_listing_under_a_session_is_its_whole_projects_waiting_asks_whatever_their_root() {
-    let listing = listing_under("projects/calm-quiet-heron/sessions/amber-swift-owl").unwrap();
+fn test_project_listing_a_session_is_its_whole_projects_waiting_asks_whatever_their_root() {
+    let listing = project_listing("projects/calm-quiet-heron/sessions/amber-swift-owl").unwrap();
     assert_eq!(listing.parent, "projects/calm-quiet-heron");
     assert_eq!(listing.root, "", "no root: every ask of the project");
     assert!(listing.waiting);
 }
 
 #[test]
-fn test_listing_under_a_name_that_is_no_session_is_none() {
-    assert!(listing_under("amber-swift-owl").is_none());
+fn test_project_listing_a_name_that_is_no_session_is_none() {
+    assert!(project_listing("amber-swift-owl").is_none());
 }
 
 #[test]

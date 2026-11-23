@@ -1791,7 +1791,7 @@ router, the platform crates, `angzarr-build` and `angzarr-codegen` were five
 repositories and are crates of that workspace now; `angzarr-coordinator-grpc`'s
 `tls` feature, which `hook-listener` enables, is `Listener::tls`). taskloom's
 crates (`d43fb683`) and
-rust-support's (`fcad01b0`) are built on the same commit, so moving one moves
+rust-support's (`5bc1d60f`) are built on the same commit, so moving one moves
 all. The lock holds one of every angzarr crate. The platform crates (`os`,
 `file-system`, `file-lock`) are `Apache-2.0 OR BSD-3-Clause`; the shared runtime
 crates (`angzarr-diagnostic`, `angzarr-presentation`, `angzarr-yaml`,
@@ -3565,7 +3565,7 @@ and changes no output.
 Exit codes (owner rulings 149, 152, 153; a hard migrate from Go's 0, 1, 2,
 3) follow rust-support's convention, `docs/exit-codes.md` in that repository
 (blocks: 0 every success without `--detailed-exitcode`, 16-31 successes
-under it, 32-47 failures, 48-63 declines, 128+n signals; 1-15, 64-78, 101,
+under it, 32-47 failures (47 is rust-support's `Exit::BROKEN`, which ctxloom returns nowhere), 48-63 declines, 128+n signals; 1-15, 64-78, 101,
 126-127 and 255 are used by no code of ours; the more severe of two
 outcomes, the higher detailed code, wins), encoded as
 rust-support's `exit-code` crate's `Exit` (re-exported by `cli-support`). An

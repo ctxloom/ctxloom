@@ -5167,7 +5167,22 @@ directory it cannot see, so a gate run in the dev container, which mounts only
 the checkout, cut every other worktree on the host off from the repository
 (2026-11-12).
 
-Each throwaway's lock (`target/.staged-tree.lock`, `.ratchet-base.lock`,
+ONE STAGED TARGET FOR EVERY CHECKOUT (owner, 2026-11-23: three slots'
+`target/staged` of 13-66 GB each filled /home twice): the staged tree
+(`_staged-tree`, and `_commit-tree`) builds into `<cache>/staged-target`
+under ONE lock, `<cache>/staged-tree.lock`, whichever worktree runs it, with
+`<cache>` = `$GATES_STAGED_CACHE` (the self-tests' seam), else
+`${XDG_CACHE_HOME:-<account home>/.cache}/ctxloom/gates`; the account's home
+is the passwd database's, never `$HOME` (an agent session may relocate it).
+A committer that finds the lock held says `wait staged-tree: ...` once,
+naming the lock and the holder's pid, source and checkout, and waits with no
+timeout (the kernel frees it with its holder), never fails. The trees differ
+by worktree, so cargo rebuilds what changed (accepted). The age sweep
+(`just trim-targets`) does not reach it; `rm -rf` the directory to reclaim
+it. `scripts/scratch-tree-lock.selftest.sh` and
+`scripts/test-staged.selftest.sh` hold the path and the serialization.
+
+Each throwaway's lock (`.staged-tree.lock` in the cache, `.ratchet-base.lock`,
 `.mutants-batch.lock`) is a descriptor bash opens without close-on-exec and
 `flock`s; the gate holds it, and what it runs is started without it (`9>&-`,
 `7>&-`, `8>&-`), so nothing that outlives the gate (a test's detached
@@ -5246,7 +5261,7 @@ hook with `just hooks-install` once more (`gates/MIGRATING.md`).
    secret in a test ends its line with `gitleaks:allow`.
 3. **clippy**: `just lint-staged`: `just lint` run over the STAGED tree (owner
    ruling 2026-11-18, night), in `_staged-tree`'s throwaway worktree with
-   test-staged's target (`target/staged`), including the core's purity rules
+   test-staged's shared staged target, including the core's purity rules
    (`crates/core/clippy.toml`).
 4. **plain binary**: `just plain-binary` (owner ruling 2026-11-18,
    evening) builds the workspace without its dev-dependencies, as `just
@@ -5417,7 +5432,7 @@ before those), on the
 base's tip, in a throwaway worktree `.<checkout>.ratchet-base` beside the
 checkout (target dir `target/ratchet-base`, built with
 `CARGO_INCREMENTAL=0`: each base is a new tree, so its incremental cache
-was written and never read; `target/debug` and `target/staged` keep
+was written and never read; `target/debug` keeps
 theirs), cached by sha at
 `target/ratchet/<sha>.list`; a base from before the list gets the runner
 commit that taught it applied, and says so (that commit is the first line of

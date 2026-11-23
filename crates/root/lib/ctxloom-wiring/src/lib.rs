@@ -15,6 +15,7 @@ mod core_link;
 mod daemon;
 mod error;
 mod frontend;
+mod frontend_asks;
 mod hook_library;
 mod hook_messages;
 mod interview;

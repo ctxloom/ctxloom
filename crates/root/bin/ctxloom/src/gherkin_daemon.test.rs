@@ -8578,12 +8578,11 @@ fn terminal_told_of(w: &mut World, child: String, tool: String, text: String) {
     let told: Vec<&str> = session
         .stderr
         .lines()
-        .filter(|line| line.contains("ctxloom:") && line.contains(&format!(" {text}")))
+        .filter(|line| line.contains("ctxloom:") && line.contains(&format!("{tool}({text})")))
         .collect();
     assert_eq!(told.len(), 1, "{}", session.said());
     let line = told[0];
     assert!(line.contains(&child), "{line}");
-    assert!(line.contains(&tool), "{line}");
     assert!(
         line.contains("ctxloom session approvals answer ask-"),
         "{line}"

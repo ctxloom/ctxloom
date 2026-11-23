@@ -147,7 +147,7 @@ pub(crate) fn agent_given(sub: &ArgMatches) -> Result<(v1::Agent, Vec<String>), 
         agent.surfaces = surfaces.into_iter().collect();
         mask.push("surfaces".to_string());
     }
-    if let Some(roots) = given_pairs(sub, "root")? {
+    if let Some(roots) = given_pairs(sub, "surface-root")? {
         agent.roots = roots.into_iter().collect();
         mask.push("roots".to_string());
     }

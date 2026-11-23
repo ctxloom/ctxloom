@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
+use std::time::Duration;
 
 use daemon_proto::v1;
 use pending_approvals::{PendingApprovals, State as AskState};
@@ -20,6 +21,13 @@ use sessions::{ProjectName, SessionName};
 
 use crate::refusal::{ApiError, ApiRefusal};
 use crate::server::{invalid, state_resource, Api, SessionStates, EVERY_PROJECT};
+
+/// How long after a wake the watch waits before each look again.
+const SETTLE: [Duration; 3] = [
+    Duration::from_millis(100),
+    Duration::from_millis(400),
+    Duration::from_millis(1500),
+];
 
 /// A watch's events, as `WatchTop` streams them: the snapshot, then each
 /// change as it is pushed; waited for (the edge runs it on a blocking
@@ -115,6 +123,7 @@ impl<E: Edge> Api<E> {
                 .map(|approving| approving.index.clone()),
             timelines: self.timelines.clone(),
             log,
+            all_logs: request.all_logs,
             project,
             scope,
             request,
@@ -131,7 +140,7 @@ impl<E: Edge> Api<E> {
         if let Some(approvals) = &scene.approvals {
             approvals.watch_into(wake.clone());
         }
-        if scene.log.is_some() {
+        if scene.log.is_some() || scene.all_logs {
             if let Some(timelines) = &scene.timelines {
                 timelines.watch_into(wake);
             }
@@ -175,6 +184,8 @@ struct Scene {
     timelines: Option<SessionTimelines>,
     /// The stable id of the session whose log the watch carries.
     log: Option<String>,
+    /// Every session in view carries its log.
+    all_logs: bool,
     /// The project's harp; none, every project's.
     project: Option<String>,
     /// The session scoped to, by its stable id, and whether its subtree.
@@ -296,23 +307,42 @@ impl Scene {
             .collect()
     }
 
-    /// The log entries of the session `log` names, received after `after`,
-    /// and the newest entry number among them (`after` when none).
-    fn log_after(&self, after: u64) -> (Vec<v1::TopLog>, u64) {
-        let (Some(id), Some(timelines)) = (&self.log, &self.timelines) else {
-            return (Vec::new(), after);
+    /// The log entries received since `said` (each session's newest told),
+    /// of the sessions whose logs the watch carries, oldest first by session.
+    fn log_after(
+        &self,
+        said: &mut BTreeMap<String, u64>,
+        in_view: &BTreeMap<String, v1::Session>,
+    ) -> Vec<v1::TopLog> {
+        let Some(timelines) = &self.timelines else {
+            return Vec::new();
         };
-        let name = {
-            let index = self.index.index();
-            index
-                .find_by_id(id)
-                .map(|record| index.name_of(&record))
-                .unwrap_or_default()
+        let ids: Vec<String> = match (self.all_logs, &self.log) {
+            (true, _) => in_view
+                .keys()
+                .filter_map(|name| SessionName::parse(name).ok())
+                .map(|name| name.uid())
+                .collect(),
+            (false, Some(id)) => vec![id.clone()],
+            (false, None) => Vec::new(),
         };
-        let entries = timelines.index().after(id, after);
-        let newest = entries.iter().map(|entry| entry.n).max().unwrap_or(after);
-        let logs = entries.iter().map(|entry| log_of(&name, entry)).collect();
-        (logs, newest)
+        let mut told = Vec::new();
+        for id in ids {
+            let name = {
+                let index = self.index.index();
+                index
+                    .find_by_id(&id)
+                    .map(|record| index.name_of(&record))
+                    .unwrap_or_default()
+            };
+            let after = said.get(&id).copied().unwrap_or(0);
+            let entries = timelines.index().after(&id, after);
+            if let Some(newest) = entries.iter().map(|entry| entry.n).max() {
+                said.insert(id, newest);
+            }
+            told.extend(entries.iter().map(|entry| log_of(&name, entry)));
+        }
+        told
     }
 
     /// The ask `name` as the index has it now, settled or not.
@@ -332,7 +362,9 @@ struct TopWatch {
     said_asks: BTreeMap<String, v1::Approval>,
     owed: VecDeque<v1::TopEvent>,
     /// The newest log entry told.
-    said_log: u64,
+    said_log: BTreeMap<String, u64>,
+    /// When it looks again after a wake, soonest first.
+    settle: VecDeque<Duration>,
     /// The one session scoped to was destroyed: the watch ends once its
     /// last event is read.
     ended: bool,
@@ -375,7 +407,8 @@ impl TopWatch {
             approvals: view.asks.values().cloned().collect(),
         };
         let mut owed = VecDeque::from([event(v1::top_event::Event::Snapshot(snapshot))]);
-        let (told, said_log) = scene.log_after(0);
+        let mut said_log = BTreeMap::new();
+        let told = scene.log_after(&mut said_log, &view.sessions);
         owed.extend(
             told.into_iter()
                 .map(|log| event(v1::top_event::Event::Log(log))),
@@ -388,6 +421,7 @@ impl TopWatch {
             said_asks: view.asks,
             owed,
             said_log,
+            settle: VecDeque::new(),
             ended: false,
         }
     }
@@ -439,8 +473,7 @@ impl TopWatch {
                     })));
             }
         }
-        let (entries, newest) = self.scene.log_after(self.said_log);
-        self.said_log = newest;
+        let entries = self.scene.log_after(&mut self.said_log, &view.sessions);
         self.owed.extend(
             entries
                 .into_iter()
@@ -463,8 +496,26 @@ impl Iterator for TopWatch {
                 return None;
             }
             // Parked until a model's fold wakes it; a wake is all it is told.
-            self.woken.recv().ok()?;
-            while self.woken.try_recv().is_ok() {}
+            // A session's lock is let go just after the fold that says its
+            // run ended, and nothing folds that: after a wake the watch
+            // looks again a few times at set instants, then parks.
+            let woken = match self.settle.front().copied() {
+                Some(wait) => self.woken.recv_timeout(wait),
+                None => self
+                    .woken
+                    .recv()
+                    .map_err(|_| std::sync::mpsc::RecvTimeoutError::Disconnected),
+            };
+            match woken {
+                Ok(()) => {
+                    while self.woken.try_recv().is_ok() {}
+                    self.settle = SETTLE.into_iter().collect();
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    self.settle.pop_front();
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return None,
+            }
             self.refresh();
         }
     }

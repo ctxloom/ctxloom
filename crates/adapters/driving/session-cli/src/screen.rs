@@ -70,8 +70,6 @@ pub enum Effect {
         ask: v1::Approval,
         option: String,
     },
-    /// The selected session changed: the watch should carry its log.
-    Follow,
     Quit,
 }
 
@@ -391,8 +389,8 @@ impl Screen {
             };
         }
         let before = self.selected_name();
-        let effect = match key {
-            Key::Char('q') => return Some(Effect::Quit),
+        match key {
+            Key::Char('q') => Some(Effect::Quit),
             Key::Tab => {
                 self.focus = match self.focus {
                     Focus::Table => Focus::Asks,
@@ -434,11 +432,7 @@ impl Screen {
                 None
             }
             _ => None,
-        };
-        effect.or_else(|| {
-            let after = self.selected_name();
-            (after != before).then_some(Effect::Follow)
-        })
+        }
     }
 
     fn chosen(&mut self, session: Option<&str>, nth: usize) -> Option<Effect> {
@@ -493,7 +487,6 @@ impl Screen {
     }
 
     fn filter(&mut self, line: &str) -> Option<Effect> {
-        let before = self.selected_name();
         match line.split_once('=') {
             Some((field, value)) if !value.is_empty() => {
                 self.filters
@@ -501,7 +494,7 @@ impl Screen {
             }
             _ => self.filters.clear(),
         }
-        (self.selected_name() != before).then_some(Effect::Follow)
+        None
     }
 
     fn header(&self) -> String {

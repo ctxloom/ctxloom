@@ -85,11 +85,9 @@ pub fn drive(
     };
     let mut screen = Screen::new(&scope_of(command), sort);
     let mut feed: Option<Box<dyn TopFeed>> = None;
-    let mut following: Option<String> = None;
     let mut looked: Option<Instant> = None;
     let mut drawn = String::new();
     loop {
-        let mut reopen = false;
         while let Ok(input) = keys.try_recv() {
             let key = match input {
                 Input::Key(key) => key,
@@ -101,7 +99,6 @@ pub fn drive(
             };
             match screen.key(key) {
                 Some(Effect::Quit) => return Ok(Done::default()),
-                Some(Effect::Follow) => reopen = true,
                 Some(Effect::Choose { ask, option }) => match answers.preview(&ask, &option) {
                     Ok(Some(plan)) => screen.confirm(ask, &option, plan),
                     Ok(None) => said(&mut screen, answers.answer(&ask, &option, false)),
@@ -112,10 +109,6 @@ pub fn drive(
                 }
                 None => {}
             }
-        }
-        if reopen {
-            feed = None;
-            looked = None;
         }
         match feed.as_mut() {
             Some(open) => match open.within(TICK) {
@@ -130,14 +123,12 @@ pub fn drive(
             None => {
                 if looked.is_none_or(|at| at.elapsed() >= LOOK) {
                     looked = Some(Instant::now());
-                    following = screen.selected_name();
-                    let log = following.clone().or_else(|| command.log.clone());
+                    // One watch carries every session's log, so the person
+                    // moves between sessions without it being opened again.
                     let make = |parent: &str| {
-                        Top {
-                            log: log.clone(),
-                            ..command.clone()
-                        }
-                        .request(parent)
+                        let mut request = command.request(parent)?;
+                        request.all_logs = true;
+                        Ok(request)
                     };
                     match source.open(command.all, &make)? {
                         Some(open) => feed = Some(open),
@@ -147,12 +138,6 @@ pub fn drive(
                     std::thread::sleep(TICK);
                 }
             }
-        }
-        // The selection moved with the data (a first row, a removed one):
-        // the watch should carry the log of the one it is on now.
-        if feed.is_some() && screen.selected_name() != following {
-            feed = None;
-            looked = None;
         }
         let frame = screen.frame();
         let text = frame.text();

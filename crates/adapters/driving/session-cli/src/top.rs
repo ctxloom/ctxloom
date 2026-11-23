@@ -194,6 +194,7 @@ impl Top {
             engines: self.engine.clone(),
             owners: self.owner.clone(),
             log_session,
+            all_logs: false,
         })
     }
 }

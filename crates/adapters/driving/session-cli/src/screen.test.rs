@@ -131,7 +131,7 @@ fn a_row_counts_the_asks_waiting_on_it() {
 #[test]
 fn moving_down_selects_the_next_row_and_the_asks_section_follows() {
     let mut screen = tree();
-    assert_eq!(screen.key(Key::Down), Some(Effect::Follow));
+    assert_eq!(screen.key(Key::Down), None);
     let text = screen.frame().text();
     assert!(text.contains("--- asks of brisk-copper-moth"), "{text}");
     assert!(text.contains("ask-a Bash rm -rf build/"), "{text}");

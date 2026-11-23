@@ -82,7 +82,7 @@ impl TopFeed for Feed {
 /// A daemon that serves every time, and remembers the logs asked for.
 #[derive(Default)]
 struct Source {
-    logs: RefCell<Vec<String>>,
+    logs: RefCell<Vec<bool>>,
 }
 
 impl TopSource for Source {
@@ -91,7 +91,7 @@ impl TopSource for Source {
         _: bool,
         make: &dyn Fn(&str) -> Result<v1::WatchTopRequest, Failure>,
     ) -> Result<Option<Box<dyn TopFeed>>, Failure> {
-        self.logs.borrow_mut().push(make("projects/p")?.log_session);
+        self.logs.borrow_mut().push(make("projects/p")?.all_logs);
         Ok(Some(Box::new(Feed(Some(snapshot())))))
     }
 
@@ -184,15 +184,10 @@ fn it_draws_nothing_until_the_watch_has_spoken_and_then_the_rows() {
 }
 
 #[test]
-fn the_watch_is_asked_for_the_log_of_the_session_selected() {
+fn moving_the_selection_keeps_the_one_watch_that_carries_every_log() {
     let (_, source, _) = run(&[], vec![vec![key(Key::Down)], vec![quit()]]);
-    let logs = source.logs.borrow();
-    assert_eq!(logs.first().map(String::as_str), Some(""), "{logs:?}");
-    assert!(
-        logs.iter()
-            .any(|log| log.ends_with("/sessions/brisk-copper-moth")),
-        "{logs:?}"
-    );
+    let asked = source.logs.borrow();
+    assert_eq!(*asked, [true], "the watch was opened again");
 }
 
 #[test]

@@ -1671,6 +1671,9 @@ message WatchTopRequest {
   // A session in scope whose log is carried (a one-session scope carries its
   // own log without this); none, no log.
   string log_session = 10 [(google.api.field_behavior) = OPTIONAL];
+  // Carry the log of every session in view, not of one: a screen that moves
+  // between sessions keeps one watch. Additive.
+  bool all_logs = 11 [(google.api.field_behavior) = OPTIONAL];
 }
 
 // DRAFT: one line of `ctxloom top`'s stream, exactly one field set.

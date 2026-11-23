@@ -270,21 +270,21 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
       Given an initialized ctxloom project
       And a ctxloom daemon is serving for this home, hosting nothing
       When I run "ctxloom top nobody-here-today --format json"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the refusal is "session-cli-top-session-unknown"
 
     Scenario: --all with a session to watch is a usage error
       # new: DRAFT code `session-cli-top-all-with-session`; a harp names one project's session.
       Given an initialized ctxloom project
       When I run "ctxloom top brisk-copper-moth --all --format json"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the refusal is "session-cli-top-all-with-session"
 
     Scenario: --tree without a session to root it is a usage error
       # new: DRAFT code `session-cli-top-tree-without-session`.
       Given an initialized ctxloom project
       When I run "ctxloom top --tree --format json"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the refusal is "session-cli-top-tree-without-session"
 
     Scenario: A one-session watch ends when its session is destroyed
@@ -372,7 +372,7 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
       Given an initialized ctxloom project
       And no ctxloom daemon is serving for this home
       When I run "ctxloom top --format json --state running"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the output contains "live, ended, unknown"
       And no ctxloom daemon was started
 
@@ -381,7 +381,7 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
       Given an initialized ctxloom project
       And a ctxloom daemon is serving for this home, hosting nothing
       When I run "ctxloom top --format json --owner nobody-here-today"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the refusal is "session-cli-top-session-unknown"
       And the output contains "nobody-here-today"
 
@@ -416,7 +416,7 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
       # new: DRAFT code `session-cli-top-unknown-sort-column`.
       Given an initialized ctxloom project
       When I run "ctxloom top --format json --sort mood"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the refusal is "session-cli-top-unknown-sort-column"
       And the output contains "name, state, agent, profile, engine, owner, started"
 
@@ -527,7 +527,7 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
       Given an initialized ctxloom project
       And a ctxloom daemon is serving for this home, hosting nothing
       When I run "ctxloom top --format json --log nobody-here-today"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the refusal is "session-cli-top-session-unknown"
 
     Scenario: Without --log the stream carries no log entries
@@ -577,7 +577,7 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
       # new: DRAFT.
       Given a directory that is in no ctxloom project
       When I run "ctxloom top brisk-copper-moth --format json"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the refusal is "daemon-api-project-unknown"
 
     Scenario: A session of another project is watched by its full name
@@ -835,7 +835,7 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
       # new: DRAFT code `session-cli-top-needs-terminal`; its fix names `--format json`.
       Given an initialized ctxloom project
       When I run "ctxloom top --format text" with its output not a terminal
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the refusal is "session-cli-top-needs-terminal"
       And the output contains "--format json"
 

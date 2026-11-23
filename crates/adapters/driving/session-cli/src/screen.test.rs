@@ -85,7 +85,11 @@ fn names(screen: &Screen) -> Vec<String> {
 
 #[test]
 fn before_a_daemon_serves_the_frame_has_no_row_and_says_it_waits() {
-    let frame = Screen::new("this project", None).frame();
+    let mut screen = Screen::new("this project", None);
+    assert!(!screen.ready());
+    screen.wait();
+    assert!(screen.ready());
+    let frame = screen.frame();
     assert!(frame.rows.is_empty());
     assert!(frame.status.iter().any(|line| line == WAITING));
 }
@@ -159,6 +163,26 @@ fn a_digit_in_the_asks_chooses_that_option_of_the_ask() {
             option: "deny".to_string()
         })
     );
+}
+
+#[test]
+fn a_digit_for_an_ask_settled_meanwhile_says_how_it_was_settled() {
+    let mut screen = tree();
+    screen.apply(v1::TopEvent {
+        event: Some(v1::top_event::Event::ApprovalSettled(
+            v1::TopApprovalSettled {
+                approval: Some(v1::Approval {
+                    state: "answered".to_string(),
+                    option: "deny".to_string(),
+                    ..ask("ask-a", "brisk-copper-moth")
+                }),
+            },
+        )),
+    });
+    screen.key(Key::Down);
+    assert_eq!(screen.key(Key::Digit(1)), None);
+    let text = screen.frame().text();
+    assert!(text.contains("already settled, answered (deny)"), "{text}");
 }
 
 #[test]

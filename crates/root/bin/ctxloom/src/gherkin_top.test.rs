@@ -50,6 +50,7 @@ fn started(w: &mut World, line: String) {
     let args: Vec<&str> = words[1..].iter().map(String::as_str).collect();
     let env = daemon_spec::env_of(w);
     let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    daemon_spec::hold_owner_live(w, "amber-quiet-heron");
     let mut child = w.common.project.start_with(&env, &args);
     let stdout = child.stdout.take().expect("stdout is piped");
     let (tx, lines) = channel();
@@ -318,4 +319,224 @@ fn note_first_ask(w: &mut World, path: String, label: String) {
         .to_string();
     w.common
         .note(&label, name.rsplit('/').next().unwrap_or(&name));
+}
+
+/// SIGINT to the stream, and what it ends with as the scenario's last
+/// command.
+#[when("I send it SIGINT")]
+fn sent_sigint(w: &mut World) {
+    let mut stream = w.top.stream.take().expect("a stream was started");
+    let pid = stream.child.id().to_string();
+    let sent = std::process::Command::new("kill")
+        .args(["-INT", &pid])
+        .status()
+        .expect("kill runs");
+    assert!(sent.success());
+    let status = stream.child.wait().expect("ctxloom finishes");
+    let mut stderr = String::new();
+    if let Some(mut pipe) = stream.child.stderr.take() {
+        let _ = std::io::Read::read_to_string(&mut pipe, &mut stderr);
+    }
+    w.common.ran = Some(crate::tests::Ran {
+        code: status.code().unwrap_or(-1),
+        stdout: String::new(),
+        stderr,
+    });
+}
+
+#[then("the daemon is still serving")]
+fn daemon_still_serving(w: &mut World) {
+    let env = daemon_spec::env_of(w);
+    let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    let ran = w
+        .common
+        .project
+        .run_with(&env, &["daemon", "status", "--format", "json"]);
+    assert_eq!(ran.code, 0, "{}", ran.said());
+    assert!(
+        ran.stdout.contains("\"pid\""),
+        "no daemon serves: {}",
+        ran.stdout
+    );
+}
+
+// ------------------------------------------------------------ fixtures
+
+#[given(expr = "a child {string} of {string} launched on agent {string}")]
+fn child_on_agent(w: &mut World, child: String, owner: String, agent: String) {
+    daemon_spec::child_on_agent(w, &child, &owner, &agent);
+}
+
+/// The session's hook `native`, as its engine fires it, on `payload` with
+/// `edit` applied.
+fn hook_of(w: &mut World, harp: &str, native: &str, payload: &str, edit: impl FnOnce(&mut Value)) {
+    let mut body: Value = serde_json::from_str(payload).expect("a fixture");
+    edit(&mut body);
+    let name = daemon_spec::session_name(w, harp);
+    let (ran, _) = daemon_spec::hook_run(w, native, &body.to_string(), Some(&name));
+    assert_eq!(ran.code, 0, "{}", ran.said());
+}
+
+#[given(expr = "a child {string} of {string} whose hooks delivered the prompt {string}")]
+fn child_prompted(w: &mut World, child: String, owner: String, prompt: String) {
+    daemon_spec::child_of_idle(w, child.clone(), owner);
+    hook_of(
+        w,
+        &child,
+        "UserPromptSubmit",
+        daemon_spec::USER_PROMPT_SUBMIT,
+        |body| body["prompt"] = Value::String(prompt),
+    );
+}
+
+/// `harp` says `text`: its words shown, and its turn ended.
+fn says(w: &mut World, harp: &str, text: &str) {
+    // The turn's end fires first and its words after, as claude's hooks do:
+    // the words are the log's last entry.
+    hook_of(w, harp, "Stop", daemon_spec::STOP, |body| {
+        body["last_assistant_message"] = Value::String(text.to_string());
+    });
+    hook_of(
+        w,
+        harp,
+        "MessageDisplay",
+        daemon_spec::MESSAGE_DISPLAY,
+        |body| {
+            body["delta"] = Value::String(text.to_string());
+        },
+    );
+}
+
+#[given(expr = "{string} says {string}")]
+#[when(expr = "{string} says {string}")]
+fn says_step(w: &mut World, harp: String, text: String) {
+    says(w, &harp, &text);
+}
+
+#[when(expr = "{string} says {string} and its run then ends")]
+fn says_then_ends(w: &mut World, harp: String, text: String) {
+    says(w, &harp, &text);
+    run_ends_of(w, &harp);
+}
+
+/// `harp`'s run ended, as the user stops it.
+fn run_ends_of(w: &mut World, harp: &str) {
+    let env = daemon_spec::env_of(w);
+    let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    let ran = w.common.project.run_with(&env, &["session", "stop", harp]);
+    assert_eq!(ran.code, 0, "{}", ran.said());
+}
+
+#[when(regex = r#"^"([^"]+)"'s run ends$"#)]
+fn run_ends(w: &mut World, harp: String) {
+    run_ends_of(w, &harp);
+}
+
+#[when(regex = r#"^the daemon is stopped and the next daemon re-hosts "([^"]+)"$"#)]
+fn rehosted(w: &mut World, _harp: String) {
+    let env = daemon_spec::env_of(w);
+    let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    let stopped = w
+        .common
+        .project
+        .run_with(&env, &["daemon", "stop", "--drain"]);
+    assert_eq!(stopped.code, 0, "{}", stopped.said());
+    let next = w.common.project.run_with(&env, &["daemon", "resolve"]);
+    assert_eq!(next.code, 0, "{}", next.said());
+}
+
+#[when(expr = "the ask is answered {string}")]
+fn ask_answered(w: &mut World, option: String) {
+    let env = daemon_spec::env_of(w);
+    let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    let ran = w.common.project.run_with(
+        &env,
+        &[
+            "session",
+            "approvals",
+            "answer",
+            "brisk-copper-moth",
+            &option,
+        ],
+    );
+    assert_eq!(ran.code, 0, "{}", ran.said());
+}
+
+/// The log entries read so far, in the order they came.
+fn log_lines(w: &World) -> Vec<Value> {
+    w.top
+        .read
+        .iter()
+        .filter_map(|line| line.get("log").cloned())
+        .collect()
+}
+
+#[then(
+    regex = r#"^within (\d+) seconds the log lines read are, in order, a transcript line holding "([^"]*)", then a daemon entry "([^"]*)"$"#
+)]
+fn log_in_order(w: &mut World, seconds: u64, text: String, event: String) {
+    let deadline = Instant::now() + Duration::from_secs(seconds);
+    loop {
+        let logs = log_lines(w);
+        let said = logs.iter().position(|l| {
+            l["kind"] == "TRANSCRIPT" && l["line"].as_str().is_some_and(|x| x.contains(&text))
+        });
+        let ended = logs
+            .iter()
+            .position(|l| l["kind"] == "DAEMON" && l["event"] == event.as_str());
+        if let (Some(said), Some(ended)) = (said, ended) {
+            assert!(said < ended, "the entries came out of order: {logs:#?}");
+            return;
+        }
+        let left = deadline.saturating_duration_since(Instant::now());
+        assert!(!left.is_zero(), "the log never read so: {logs:#?}");
+        next_line(w, left.min(Duration::from_secs(1)));
+    }
+}
+
+/// An RFC 3339 instant as a pair that orders: the second, then its fraction
+/// padded to nanoseconds.
+fn instant(text: &str) -> (String, String) {
+    let bare = text.trim_end_matches('Z');
+    match bare.split_once('.') {
+        Some((second, fraction)) => (second.to_string(), format!("{fraction:0<9}")),
+        None => (bare.to_string(), "0".repeat(9)),
+    }
+}
+
+#[then("the log lines' \"time\" never go back")]
+fn log_times_ordered(w: &mut World) {
+    let times: Vec<(String, String)> = log_lines(w)
+        .iter()
+        .filter_map(|l| l["time"].as_str().map(instant))
+        .collect();
+    assert!(!times.is_empty(), "no log line was read");
+    assert!(times.windows(2).all(|pair| pair[0] <= pair[1]), "{times:?}");
+}
+
+#[then(expr = "its first line has {string} set")]
+fn first_has(w: &mut World, field: String) {
+    let line = first_line(w);
+    assert!(line.get(&field).is_some(), "no {field} in {line}");
+}
+
+#[then(expr = "within {int} seconds no line has {string} set")]
+fn no_line_has(w: &mut World, seconds: u64, field: String) {
+    let deadline = Instant::now() + Duration::from_secs(seconds);
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return;
+        }
+        if let Some(line) = next_line(w, left.min(Duration::from_secs(1))) {
+            assert!(line.get(&field).is_none(), "a line has {field}: {line}");
+        }
+    }
+}
+
+#[when(expr = "I run {string} with its output not a terminal")]
+fn run_not_a_terminal(w: &mut World, line: String) {
+    // The harness's commands write to pipes: never a terminal.
+    daemon_spec::before_line(w, &line);
+    w.common.run_lines(&line, "");
 }

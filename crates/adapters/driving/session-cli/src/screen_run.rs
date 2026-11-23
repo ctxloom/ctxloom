@@ -156,7 +156,7 @@ pub fn drive(
         }
         let frame = screen.frame();
         let text = frame.text();
-        if text != drawn {
+        if screen.ready() && text != drawn {
             display.draw(&frame)?;
             drawn = text;
         }

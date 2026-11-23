@@ -159,13 +159,14 @@ fn the_end_of_a_run_is_exited_with_its_cause_and_a_rehost_is_rehosted() {
                 (110, ended("runner-exit")),
                 (120, owed("rehost")),
                 (130, owed("restart")),
+                (140, owed("drain")),
             ],
         ))
         .unwrap();
     let said = daemon(&timeline.entries(&session_id(1)));
     assert_eq!(
         said.iter().map(|e| e.0.as_str()).collect::<Vec<_>>(),
-        ["started", "exited", "rehosted", "restarted"]
+        ["started", "exited", "rehosted", "restarted", "rehosted"]
     );
     assert!(said[1].1.contains("runner-exit"), "{said:?}");
 }

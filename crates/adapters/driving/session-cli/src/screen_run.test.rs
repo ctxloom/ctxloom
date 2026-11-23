@@ -176,14 +176,11 @@ fn quit() -> Input {
 }
 
 #[test]
-fn it_draws_waiting_until_the_snapshot_and_then_the_rows() {
+fn it_draws_nothing_until_the_watch_has_spoken_and_then_the_rows() {
     let (frames, ..) = run(&[], vec![vec![quit()]]);
-    assert!(frames[0].rows.is_empty());
-    assert!(
-        frames.iter().any(|f| f.rows.len() == 2),
-        "{} frames",
-        frames.len()
-    );
+    // The first frame is the snapshot's: no empty inbox is drawn before it.
+    assert_eq!(frames[0].rows.len(), 2, "{} frames", frames.len());
+    assert!(frames[0].status.is_empty(), "{:?}", frames[0].status);
 }
 
 #[test]

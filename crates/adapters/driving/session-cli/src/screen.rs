@@ -99,6 +99,9 @@ pub struct Screen {
     /// The log of the session the watch carries one for, oldest first.
     logs: BTreeMap<String, Vec<v1::TopLog>>,
     waiting: bool,
+    /// Whether the watch has said anything, or been found absent: until
+    /// then there is nothing true to draw.
+    heard: bool,
     selected: Option<String>,
     focus: Focus,
     ask_cursor: usize,
@@ -170,7 +173,8 @@ impl Screen {
             asks: BTreeMap::new(),
             settled: BTreeMap::new(),
             logs: BTreeMap::new(),
-            waiting: true,
+            waiting: false,
+            heard: false,
             selected: None,
             focus: Focus::Table,
             ask_cursor: 0,
@@ -185,6 +189,12 @@ impl Screen {
     /// No daemon serves (again).
     pub fn wait(&mut self) {
         self.waiting = true;
+        self.heard = true;
+    }
+
+    /// Whether the screen has something to draw.
+    pub fn ready(&self) -> bool {
+        self.heard
     }
 
     /// Say `text` on the status line.
@@ -206,9 +216,10 @@ impl Screen {
         use v1::top_event::Event;
         let Some(event) = event.event else { return };
         match event {
-            Event::Waiting(_) => self.waiting = true,
+            Event::Waiting(_) => self.wait(),
             Event::Snapshot(snapshot) => {
                 self.waiting = false;
+                self.heard = true;
                 self.sessions = snapshot
                     .sessions
                     .into_iter()
@@ -419,7 +430,22 @@ impl Screen {
     }
 
     fn chosen(&mut self, session: Option<&str>, nth: usize) -> Option<Effect> {
-        let ask = self.ask_in_focus(session?)?.clone();
+        let session = session?;
+        let Some(ask) = self.ask_in_focus(session).cloned() else {
+            // Nothing waits: if an ask was settled meanwhile (elsewhere), say
+            // how, rather than leaving the key unanswered.
+            if let Some(settled) = self.shown_asks(session).first() {
+                let how = match settled.option.is_empty() {
+                    true => settled.state.clone(),
+                    false => format!("{} ({})", settled.state, settled.option),
+                };
+                self.notice = Some(format!(
+                    "{} was already settled, {how}",
+                    last(&settled.name)
+                ));
+            }
+            return None;
+        };
         let option = ask.options.get(nth - 1)?.id.clone();
         Some(Effect::Choose { ask, option })
     }

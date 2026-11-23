@@ -99,6 +99,8 @@ struct World {
     reactions: reactions::State,
     /// What `ctxloom top`'s steps keep.
     top: top::State,
+    /// What `ctxloom top`'s screen steps keep.
+    top_screen: top_screen::State,
     /// What the CLI contract features' steps keep.
     cli: cli::State,
 }
@@ -178,6 +180,7 @@ impl World {
             writes: writes::State::default(),
             reactions: reactions::State::default(),
             top: top::State::default(),
+            top_screen: top_screen::State::default(),
             cli: cli::State::default(),
         }
     }
@@ -474,6 +477,8 @@ mod cli;
 mod reactions;
 #[path = "gherkin_top.test.rs"]
 mod top;
+#[path = "gherkin_top_screen.test.rs"]
+mod top_screen;
 
 // ------------------------------------------------------------------ given
 

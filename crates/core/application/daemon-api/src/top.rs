@@ -56,11 +56,19 @@ impl<E: Edge> Api<E> {
         let log = match (request.log_session.as_str(), &scope) {
             ("", Some((id, false))) => Some(id.clone()),
             ("", _) => None,
-            (named, _) => Some(
-                SessionName::parse(named)
+            (named, _) => {
+                let uid = SessionName::parse(named)
                     .map_err(|rejection| invalid(named, &rejection))?
-                    .uid(),
-            ),
+                    .uid();
+                // A log is of a session there is: asked for one nobody has,
+                // the watch is refused, not left waiting for it.
+                if self.parts.index.index().find_by_id(&uid).is_none() {
+                    return Err(ApiError::from(ApiRefusal::of(&v1::SessionNotFound {
+                        name: named.to_string(),
+                    })));
+                }
+                Some(uid)
+            }
         };
         let scene = Scene {
             states: Arc::clone(&self.parts.states),

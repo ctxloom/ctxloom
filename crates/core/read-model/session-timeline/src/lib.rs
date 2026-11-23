@@ -23,7 +23,7 @@ use angzarr_embedded::{Any, CatchUp, Payload, PayloadError, ProjectorHandler, Ti
 use approvals::{ApprovalEvent, APPROVALS_DOMAIN};
 use held_projection::{Fill, Held, Lock, Model};
 use session_index::Projection;
-use sessions::{SessionEvent, REHOSTED, RESTARTED, SESSION_DOMAIN};
+use sessions::{SessionEvent, DRAINED, REHOSTED, RESTARTED, SESSION_DOMAIN};
 
 /// The projector's name.
 pub const SESSION_TIMELINE: &str = "session-timeline";
@@ -119,7 +119,7 @@ fn lifecycle(event: &SessionEvent) -> Option<Content> {
             said("started", format!("started on {}", minted.engine))
         }
         SessionEvent::IncarnationOwed(owed) => match owed.reason.as_str() {
-            REHOSTED => said("rehosted", format!("re-hosted, run {}", owed.incarnation)),
+            REHOSTED | DRAINED => said("rehosted", format!("re-hosted, run {}", owed.incarnation)),
             RESTARTED => said("restarted", format!("restarted, run {}", owed.incarnation)),
             "resume" => said("resumed", format!("resumed, run {}", owed.incarnation)),
             _ => return None,

@@ -551,6 +551,62 @@ impl Project {
             .expect("ctxloom starts")
     }
 
+    /// As [`start_with`](Project::start_with), its stdin a pipe the test
+    /// writes keys to.
+    pub(crate) fn start_with_input(
+        &self,
+        env: &[(&str, &str)],
+        args: &[&str],
+    ) -> std::process::Child {
+        let mut all = vec![("CTXLOOM_ROOT", self.project.to_str().expect("utf-8"))];
+        all.extend_from_slice(env);
+        self.process(&self.project, &all, args)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .map(|child| self.started(child))
+            .expect("ctxloom starts")
+    }
+
+    /// `ctxloom args` on a pseudo-terminal of `(columns, rows)`, run by the
+    /// python `helper` (which writes the terminal's output to `out` and its
+    /// end to `status`); the child's stdin is the terminal's keys.
+    pub(crate) fn start_on_pty(
+        &self,
+        env: &[(&str, &str)],
+        args: &[&str],
+        [helper, out, status]: [&Path; 3],
+        (columns, rows): (&str, &str),
+    ) -> std::process::Child {
+        let mut all = vec![("CTXLOOM_ROOT", self.project.to_str().expect("utf-8"))];
+        all.extend_from_slice(env);
+        let inner = self.process(&self.project, &all, args);
+        let mut command = Command::new("python3");
+        command
+            .args(["-I"])
+            .arg(helper)
+            .arg(out)
+            .arg(status)
+            .args([columns, rows])
+            .arg(inner.get_program())
+            .args(inner.get_args())
+            .env_clear()
+            .current_dir(&self.project);
+        for (name, value) in inner.get_envs() {
+            if let Some(value) = value {
+                command.env(name, value);
+            }
+        }
+        command
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map(|child| self.started(child))
+            .expect("the pty helper starts")
+    }
+
     /// As [`start_with`](Project::start_with), from `dir` with no
     /// `CTXLOOM_ROOT` (the project found by walking up from it).
     pub(crate) fn start_in_with(

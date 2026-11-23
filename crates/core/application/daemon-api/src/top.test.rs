@@ -139,6 +139,21 @@ async fn a_scope_naming_a_session_nobody_has_is_refused() {
 }
 
 #[tokio::test]
+async fn a_log_asked_for_a_session_nobody_has_is_refused_and_not_waited_for() {
+    let f = opened(&["amber-swift-owl"]).await;
+    let (_, missing): (_, v1::SessionNotFound) = refused(
+        f.api
+            .watch_top(v1::WatchTopRequest {
+                log_session: session_name("far-heron"),
+                ..request()
+            })
+            .await
+            .map(|_| ()),
+    );
+    assert_eq!(missing.name, session_name("far-heron"));
+}
+
+#[tokio::test]
 async fn a_filter_on_an_agent_keeps_only_sessions_whose_loadout_names_it() {
     let f = opened(&["amber-swift-owl"]).await;
     let mut stream = f

@@ -326,6 +326,16 @@ fn project_config_over(said: Option<String>) -> String {
 fn stub_claude(w: &mut World, body: &str) -> PathBuf {
     let dir = w.common.project.home().join("fake-claude");
     files::put_program(dir.join("claude"), body);
+    write_project_config(w);
+    w.daemon_spec.stub = Some(dir.join("claude"));
+    w.daemon_spec.stub_on_path = false;
+    write_home_config(w);
+    dir
+}
+
+/// The project's config as the stub's agent and what the project says make
+/// it (not written when the project defines its own agents).
+fn write_project_config(w: &mut World) {
     let mut entries = vec![
         "agents.default.engine: claude-code".to_string(),
         "default_agent: default".to_string(),
@@ -344,10 +354,59 @@ fn stub_claude(w: &mut World, body: &str) -> PathBuf {
     if !w.daemon_spec.own_agents {
         w.common.project.write(".ctxloom/config.yaml", &config);
     }
-    w.daemon_spec.stub = Some(dir.join("claude"));
-    w.daemon_spec.stub_on_path = false;
-    write_home_config(w);
-    dir
+}
+
+/// The session `owner`, seeded, is live: a process holds its lock until the
+/// scenario ends, as her assistant on her terminal does. Done once; nothing
+/// when no such session was made.
+pub(super) fn hold_owner_live(w: &mut World, owner: &str) {
+    let session_dir = w
+        .common
+        .project
+        .dir()
+        .join(format!(".ctxloom/sessions/{owner}"));
+    if w.daemon_spec.run.is_some() || !files::exists(&session_dir) {
+        return;
+    }
+    let dir = w.common.project.home().join("owner-lock");
+    let lock = session_dir.join("session.lock");
+    let release = dir.join("release");
+    let holder = dir.join("holds-lock");
+    files::put_program(&holder, &holds_lock());
+    let assistant = std::process::Command::new(&holder)
+        .args([lock.as_os_str(), release.as_os_str()])
+        .spawn()
+        .expect("her assistant starts");
+    w.daemon_spec.run = Some(assistant);
+    w.daemon_spec.release = Some(release);
+    until(w, "her session's lock held", DAEMON_WAIT, |w| {
+        listed_state(w, owner).filter(|s| s == "LIVE")
+    });
+}
+
+/// A child of `owner` launched on `agent`, which the project says is on
+/// claude-code; its first turn ended and told. The project's config is made
+/// again, so a later child names an agent the daemon reads at its launch.
+pub(super) fn child_on_agent(w: &mut World, child: &str, owner: &str, agent: &str) {
+    let said = format!("agents.{agent}.engine: claude-code");
+    if !w.daemon_spec.project_says.contains(&said) {
+        w.daemon_spec.project_says.push(said);
+    }
+    // The harness's own child, before any daemon is started, is hosted on
+    // the project's default agent: so the agent asked for is the default.
+    if w.daemon_spec.daemon.is_none()
+        && (child, owner) == ("brisk-copper-moth", "amber-quiet-heron")
+    {
+        w.daemon_spec
+            .project_says
+            .push(format!("default_agent: {agent}"));
+        return idle_child(w);
+    }
+    if w.daemon_spec.stub.is_some() {
+        write_project_config(w);
+    }
+    user_launches(w, owner, child, Some(agent));
+    first_turn_told(w, owner, child);
 }
 
 /// The home config the steps write: the stub claude's (when one is set),
@@ -1998,6 +2057,11 @@ pub(super) fn child_of_idle(w: &mut World, child: String, owner: String) {
         grandchild_idle(w);
         return;
     }
+    // A child of a hosted child: launched by it, as its engine would.
+    if owner != "amber-quiet-heron" {
+        grandchild_of(w, &owner, &child);
+        return;
+    }
     if (child.as_str(), owner.as_str()) == ("brisk-copper-moth", "amber-quiet-heron") {
         return idle_child(w);
     }
@@ -2027,25 +2091,23 @@ fn claude_child_on(w: &mut World, child: String, owner: String, profile: String)
 /// The hosted child's own child (step 10c D16): launched by the child,
 /// `olive-quiet-finch`, its first turn ended and told to it.
 fn grandchild_idle(w: &mut World) {
+    grandchild_of(w, "brisk-copper-moth", "olive-quiet-finch");
+}
+
+/// `child`, launched under the hosted child `owner`, its first turn ended.
+fn grandchild_of(w: &mut World, owner: &str, child: &str) {
     let mut env = env_of(w);
     env.push(("ANTHROPIC_API_KEY".to_string(), "a-key".to_string())); // gitleaks:allow
     let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
     let launched = w.common.project.run_with(
         &env,
-        &[
-            "session",
-            "launch",
-            "brisk-copper-moth",
-            "--name",
-            "olive-quiet-finch",
-            "a task",
-        ],
+        &["session", "launch", owner, "--name", child, "a task"],
     );
     assert_eq!(launched.code, 0, "{}", launched.said());
     // Its first turn's end is its run's record (its owner, itself a
     // hosted child, is told it through its own conversation).
     until(w, "the grandchild's first turn to end", DAEMON_WAIT, |w| {
-        run_events(w, "olive-quiet-finch")
+        run_events(w, child)
             .iter()
             .any(|kind| kind == "TurnCompletedRecorded")
             .then_some(())
@@ -2261,10 +2323,11 @@ fn restarted(w: &mut World) {
     w.daemon_spec.old = Some(old);
 }
 
-const USER_PROMPT_SUBMIT: &str =
+pub(super) const USER_PROMPT_SUBMIT: &str =
     include_str!("../../../../adapters/driven/engine-claude/src/fixtures/user_prompt_submit.json");
-const STOP: &str = include_str!("../../../../adapters/driven/engine-claude/src/fixtures/stop.json");
-const MESSAGE_DISPLAY: &str =
+pub(super) const STOP: &str =
+    include_str!("../../../../adapters/driven/engine-claude/src/fixtures/stop.json");
+pub(super) const MESSAGE_DISPLAY: &str =
     include_str!("../../../../adapters/driven/engine-claude/src/fixtures/message_display.json");
 
 /// What the fixture's prompt says.
@@ -2284,7 +2347,7 @@ const PROCESS_SLACK: Duration = Duration::from_secs(1);
 /// `ctxloom hook claude-code execute <native>` as the session's engine runs
 /// it: the scenario's environment, the session's name when there is one
 /// (none: a hook with no session records nothing), `payload` on stdin.
-fn hook_run(
+pub(super) fn hook_run(
     w: &World,
     native: &str,
     payload: &str,
@@ -5583,7 +5646,7 @@ fn registers_mcp(w: &mut World, command: String, name: String) {
 }
 
 /// The resource name of the session `harp` of the scenario's project.
-fn session_name(w: &World, harp: &str) -> String {
+pub(super) fn session_name(w: &World, harp: &str) -> String {
     w.common
         .named(&format!("projects/{{project}}/sessions/{harp}"))
 }
@@ -7002,6 +7065,13 @@ fn engine_told(w: &mut World, what: String) {
     } else {
         panic!("no such answer to tell: {what}");
     }
+}
+
+/// The last ask was answered, and not to run the tool: another answer
+/// reached its engine.
+pub(super) fn engine_not_told_to_run(w: &mut World) {
+    let answer = prompt_answer(the_ask(w, None));
+    assert_eq!(answer["behavior"], "deny", "{answer}");
 }
 
 #[then(expr = "no ask is waiting under {string}")]

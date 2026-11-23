@@ -47,6 +47,10 @@ pub struct Surroundings {
     pub root_env: Option<String>,
     pub cwd: PathBuf,
     pub home: PathBuf,
+    /// The user's own home directory (the account's, which is ctxloom's home
+    /// only when `CTXLOOM_HOME` names none): the walk never adopts its
+    /// `.ctxloom` as a project. `CTXLOOM_ROOT` (or `--root`) naming it does.
+    pub user_home: Option<PathBuf>,
     /// The OS temporary directory.
     pub temp_root: PathBuf,
 }

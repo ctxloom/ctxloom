@@ -511,6 +511,7 @@ mod features {
             profile,
             read_extras,
             remote,
+            root,
             run,
             search,
             session,

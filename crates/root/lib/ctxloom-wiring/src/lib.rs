@@ -389,6 +389,7 @@ impl Wiring {
             root_env: self.env.utf8("CTXLOOM_ROOT").map(String::from),
             cwd: self.env.cwd().unwrap_or_else(|_| PathBuf::from(".")),
             home: self.home.clone(),
+            user_home: self.user_home.clone(),
             temp_root: self.env.temp_dir().to_path_buf(),
         }
     }

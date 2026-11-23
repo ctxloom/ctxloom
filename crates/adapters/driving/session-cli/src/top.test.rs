@@ -183,6 +183,18 @@ fn the_snapshot_is_ordered_by_the_sort_and_defaults_to_the_latest_started() {
 
 /// A source whose daemon is not there for the first `absent` opens, then
 /// serves each feed in turn.
+struct NoAnswers;
+
+impl crate::TopAnswers for NoAnswers {
+    fn preview(&self, _: &v1::Approval, _: &str) -> Result<Option<crate::AlwaysPlan>, String> {
+        Ok(None)
+    }
+
+    fn answer(&self, _: &v1::Approval, _: &str, _: bool) -> Result<String, String> {
+        Ok(String::new())
+    }
+}
+
 struct Source {
     absent: RefCell<usize>,
     feeds: RefCell<VecDeque<Vec<Result<v1::TopEvent, ()>>>>,
@@ -251,7 +263,15 @@ fn with_no_daemon_it_says_waiting_once_and_waits_until_one_serves() {
         waits: RefCell::new(0),
     };
     let mut out = Vec::new();
-    top(&args(&["top"]), &source, Format::Json, true, &mut out).unwrap();
+    top(
+        &args(&["top"]),
+        &source,
+        &NoAnswers,
+        Format::Json,
+        (true, false),
+        &mut out,
+    )
+    .unwrap();
     let said = lines(&out);
     assert_eq!(said.len(), 2, "waiting once, then the snapshot: {said:?}");
     assert!(said[0].get("waiting").is_some(), "{:?}", said[0]);
@@ -270,7 +290,15 @@ fn a_daemon_lost_under_the_stream_puts_it_back_to_waiting_and_the_next_snapshot_
         waits: RefCell::new(0),
     };
     let mut out = Vec::new();
-    top(&args(&["top"]), &source, Format::Json, true, &mut out).unwrap();
+    top(
+        &args(&["top"]),
+        &source,
+        &NoAnswers,
+        Format::Json,
+        (true, false),
+        &mut out,
+    )
+    .unwrap();
     let said = lines(&out);
     let kinds: Vec<&str> = said
         .iter()
@@ -290,8 +318,9 @@ fn a_watch_that_ends_ends_the_command() {
     top(
         &args(&["top", "calm-dusty-wren"]),
         &source,
+        &NoAnswers,
         Format::Json,
-        true,
+        (true, false),
         &mut out,
     )
     .unwrap();
@@ -312,8 +341,9 @@ fn the_snapshot_is_printed_in_the_sorted_order() {
     top(
         &args(&["top", "--sort", "started:asc"]),
         &source,
+        &NoAnswers,
         Format::Json,
-        true,
+        (true, false),
         &mut out,
     )
     .unwrap();
@@ -334,8 +364,9 @@ fn text_off_a_terminal_is_refused_naming_json() {
     let refused = top(
         &args(&["top"]),
         &source,
+        &NoAnswers,
         Format::Text,
-        false,
+        (false, false),
         &mut Vec::new(),
     )
     .unwrap_err();

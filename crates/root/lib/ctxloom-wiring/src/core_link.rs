@@ -149,6 +149,8 @@ pub struct Projectors {
     pub trusts: Option<trust_index::TrustIndexes>,
     /// The permission asks (step 8 U4).
     pub approvals: Option<pending_approvals::PendingApprovals>,
+    /// Each session's timeline, `ctxloom top`'s log.
+    pub timelines: Option<session_timeline::SessionTimelines>,
     /// The alarms armed, which the daemon's scheduler reads (step 8 U5a).
     pub due: Option<crate::scheduling::SchedulerDues>,
     /// The library trees as last observed (step 10a U0).
@@ -169,6 +171,7 @@ impl Projectors {
             index: Some(session_index::SessionIndexes::filled(fill())),
             trusts: Some(trust_index::TrustIndexes::filled(fill())),
             approvals: Some(pending_approvals::PendingApprovals::filled(fill())),
+            timelines: Some(session_timeline::SessionTimelines::filled(fill())),
             due: Some(crate::scheduling::SchedulerDues::filled(fill())),
             checkouts: Some(library_checkout::LibraryCheckouts::filled(fill())),
         }
@@ -202,6 +205,11 @@ impl Projectors {
             registry
                 .projector_handler(&pending_approvals::SOURCES, approvals)
                 .expect("the pending approvals register");
+        }
+        if let Some(timelines) = self.timelines {
+            registry
+                .projector_handler(&session_timeline::SOURCES, timelines)
+                .expect("the session timelines register");
         }
         if let Some(due) = self.due {
             registry

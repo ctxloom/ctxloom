@@ -105,6 +105,20 @@ impl session_cli::TopFeed for Watching {
             .block_on(self.events.next())
             .map(|event| event.map_err(failure))
     }
+
+    // The screen's tick: a wait for the push, not a look at the daemon.
+    #[cfg_attr(test, mutants::skip)]
+    fn within(&mut self, wait: Duration) -> session_cli::Within {
+        let waited = self
+            .runtime
+            .block_on(async { tokio::time::timeout(wait, self.events.next()).await });
+        match waited {
+            Err(_) => session_cli::Within::Idle,
+            Ok(Some(Ok(event))) => session_cli::Within::Event(Box::new(event)),
+            Ok(Some(Err(called))) => session_cli::Within::Broke(Box::new(failure(called))),
+            Ok(None) => session_cli::Within::Ended,
+        }
+    }
 }
 
 /// What a project that is none has: an empty snapshot, and then silence.
@@ -113,6 +127,19 @@ struct Nothing {
 }
 
 impl session_cli::TopFeed for Nothing {
+    // A watch with nothing to push is idle for the wait.
+    #[cfg_attr(test, mutants::skip)]
+    fn within(&mut self, wait: Duration) -> session_cli::Within {
+        if !self.said {
+            return match self.next() {
+                Some(Ok(event)) => session_cli::Within::Event(Box::new(event)),
+                _ => session_cli::Within::Ended,
+            };
+        }
+        std::thread::sleep(wait);
+        session_cli::Within::Idle
+    }
+
     // Blocks for the life of the command, as a watch with nothing to push does.
     #[cfg_attr(test, mutants::skip)]
     fn next(&mut self) -> Option<Result<v1::TopEvent, session_cli::Failure>> {

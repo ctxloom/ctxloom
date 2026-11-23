@@ -40,7 +40,7 @@ pub fn top_noun() -> Command {
 }
 
 /// The `top` command.
-#[derive(Args, Debug)]
+#[derive(Args, Clone, Debug)]
 pub struct Top {
     /// A session to watch, by its harp or its full name; none, every session of the project
     #[arg(value_name = "SESSION")]
@@ -77,11 +77,35 @@ pub struct Top {
     pub log: Option<String>,
 }
 
+/// What a watch gave within a wait.
+pub enum Within {
+    /// Nothing came in the time.
+    Idle,
+    /// An event came.
+    Event(Box<v1::TopEvent>),
+    /// The watch broke: the daemon is gone.
+    Broke(Box<Failure>),
+    /// The watch ended.
+    Ended,
+}
+
 /// An open watch's events, as the daemon pushes them.
 pub trait TopFeed {
     /// The next event; `None` once the watch ended, an error once it broke
     /// (the daemon gone).
     fn next(&mut self) -> Option<Result<v1::TopEvent, Failure>>;
+
+    /// The next event, if it comes within `wait`. The screen waits on the
+    /// watch a tick at a time so a key is never kept waiting. The default
+    /// waits for it.
+    fn within(&mut self, wait: std::time::Duration) -> Within {
+        let _ = wait;
+        match self.next() {
+            Some(Ok(event)) => Within::Event(Box::new(event)),
+            Some(Err(failure)) => Within::Broke(Box::new(failure)),
+            None => Within::Ended,
+        }
+    }
 }
 
 /// Where a watch is opened.
@@ -113,7 +137,7 @@ impl Top {
     }
 
     /// The request, for the project `parent` names.
-    fn request(&self, parent: &str) -> Result<v1::WatchTopRequest, Failure> {
+    pub(crate) fn request(&self, parent: &str) -> Result<v1::WatchTopRequest, Failure> {
         let states = self
             .state
             .iter()
@@ -169,15 +193,50 @@ impl Top {
     }
 }
 
+/// The screen: the seam's frames on `out`, or the person's terminal.
+fn screen(
+    command: &Top,
+    source: &dyn TopSource,
+    answers: &dyn crate::screen_run::TopAnswers,
+    stood_in: bool,
+    out: &mut dyn Write,
+) -> Result<Done, Failure> {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{mpsc::channel, Arc};
+
+    use crate::screen_run::{drive, Frames, Input};
+
+    if stood_in {
+        let (send, keys) = channel();
+        // Keys are named one a line; a thread of its own, since the loop
+        // never waits on them.
+        std::thread::spawn(move || {
+            for line in std::io::stdin().lines().map_while(Result::ok) {
+                if send.send(Input::Line(line)).is_err() {
+                    return;
+                }
+            }
+        });
+        return drive(command, source, answers, &keys, &mut Frames(out));
+    }
+    let stop = Arc::new(AtomicBool::new(false));
+    let keys = crate::tui::keys(&stop);
+    let mut terminal = crate::tui::Tui::take()?;
+    let done = drive(command, source, answers, &keys, &mut terminal);
+    stop.store(true, Ordering::Relaxed);
+    done
+}
+
 /// The order of a snapshot's sessions: a column and a direction.
-pub(crate) struct Sort {
+#[derive(Clone, Debug)]
+pub struct Sort {
     column: &'static str,
     descending: bool,
 }
 
 impl Sort {
     /// `word`, `<column>[:asc|desc]`; none, the latest started first.
-    pub(crate) fn of(word: Option<&str>) -> Result<Sort, Failure> {
+    pub fn of(word: Option<&str>) -> Result<Sort, Failure> {
         let Some(word) = word else {
             return Ok(Sort {
                 column: "started",
@@ -203,8 +262,39 @@ impl Sort {
         }
     }
 
+    /// The first column, ascending: where the screen's `s` starts.
+    pub fn first() -> Sort {
+        Sort {
+            column: COLUMNS[0],
+            descending: false,
+        }
+    }
+
+    /// The next column in turn, ascending.
+    pub fn next(&self) -> Sort {
+        let at = COLUMNS.iter().position(|c| *c == self.column).unwrap_or(0);
+        Sort {
+            column: COLUMNS[(at + 1) % COLUMNS.len()],
+            descending: false,
+        }
+    }
+
+    /// The same column the other way.
+    pub fn reversed(&self) -> Sort {
+        Sort {
+            column: self.column,
+            descending: !self.descending,
+        }
+    }
+
+    /// `column:direction`, as the header names it.
+    pub fn word(&self) -> String {
+        let direction = if self.descending { "desc" } else { "asc" };
+        format!("{}:{direction}", self.column)
+    }
+
     /// `sessions`, ordered; ties by name.
-    pub(crate) fn order(&self, sessions: &mut [v1::Session]) {
+    pub fn order(&self, sessions: &mut [v1::Session]) {
         let last = |name: &str| name.rsplit('/').next().unwrap_or_default().to_string();
         let key = |session: &v1::Session| -> (String, String) {
             let text = match self.column {
@@ -246,19 +336,24 @@ fn emit(event: &v1::TopEvent, out: &mut dyn Write) -> Result<(), Failure> {
     wrote(writeln!(out, "{line}").and_then(|()| out.flush()))
 }
 
-/// Run `top` on `source`: its lines to `out`, until the watch ends.
+/// Run `top` on `source`: its lines to `out`, until the watch ends; at a
+/// terminal, the screen. A person at the screen answers asks through
+/// `answers`; `stood_in` is a terminal a test stands in (frames as plain
+/// text, keys named a line each on stdin).
 pub fn top(
     command: &Top,
     source: &dyn TopSource,
+    answers: &dyn crate::screen_run::TopAnswers,
     format: Format,
-    terminal: bool,
+    (terminal, stood_in): (bool, bool),
     out: &mut dyn Write,
 ) -> Result<Done, Failure> {
     if format == Format::Text {
-        return Err(fault(match terminal {
-            false => CliFault::TopNeedsTerminal,
-            true => CliFault::TopScreenNotBuilt,
-        }));
+        if !terminal {
+            return Err(fault(CliFault::TopNeedsTerminal));
+        }
+        command.usage()?;
+        return screen(command, source, answers, stood_in, out);
     }
     command.usage()?;
     let sort = Sort::of(command.sort.as_deref())?;

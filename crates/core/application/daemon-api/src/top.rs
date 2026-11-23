@@ -14,6 +14,7 @@ use daemon_proto::v1;
 use pending_approvals::{PendingApprovals, State as AskState};
 use run_ports::Edge;
 use session_index::{SessionIndexes, SessionRecord};
+use session_timeline::{Content, Entry, SessionTimelines};
 use sessions::{ProjectName, SessionName};
 
 use crate::refusal::{ApiError, ApiRefusal};
@@ -52,6 +53,15 @@ impl<E: Edge> Api<E> {
                 Some((record.id, request.subtree))
             }
         };
+        let log = match (request.log_session.as_str(), &scope) {
+            ("", Some((id, false))) => Some(id.clone()),
+            ("", _) => None,
+            (named, _) => Some(
+                SessionName::parse(named)
+                    .map_err(|rejection| invalid(named, &rejection))?
+                    .uid(),
+            ),
+        };
         let scene = Scene {
             states: Arc::clone(&self.parts.states),
             index: self.parts.index.clone(),
@@ -59,6 +69,8 @@ impl<E: Edge> Api<E> {
                 .approving
                 .as_ref()
                 .map(|approving| approving.index.clone()),
+            timelines: self.timelines.clone(),
+            log,
             project,
             scope,
             request,
@@ -68,7 +80,12 @@ impl<E: Edge> Api<E> {
         let (wake, woken) = channel();
         scene.index.watch_into(wake.clone());
         if let Some(approvals) = &scene.approvals {
-            approvals.watch_into(wake);
+            approvals.watch_into(wake.clone());
+        }
+        if scene.log.is_some() {
+            if let Some(timelines) = &scene.timelines {
+                timelines.watch_into(wake);
+            }
         }
         Ok(Box::new(TopWatch::open(scene, woken)))
     }
@@ -79,6 +96,9 @@ struct Scene {
     states: Arc<dyn SessionStates>,
     index: SessionIndexes,
     approvals: Option<PendingApprovals>,
+    timelines: Option<SessionTimelines>,
+    /// The stable id of the session whose log the watch carries.
+    log: Option<String>,
     /// The project's harp; none, every project's.
     project: Option<String>,
     /// The session scoped to, by its stable id, and whether its subtree.
@@ -200,6 +220,25 @@ impl Scene {
             .collect()
     }
 
+    /// The log entries of the session `log` names, received after `after`,
+    /// and the newest entry number among them (`after` when none).
+    fn log_after(&self, after: u64) -> (Vec<v1::TopLog>, u64) {
+        let (Some(id), Some(timelines)) = (&self.log, &self.timelines) else {
+            return (Vec::new(), after);
+        };
+        let name = {
+            let index = self.index.index();
+            index
+                .find_by_id(id)
+                .map(|record| index.name_of(&record))
+                .unwrap_or_default()
+        };
+        let entries = timelines.index().after(id, after);
+        let newest = entries.iter().map(|entry| entry.n).max().unwrap_or(after);
+        let logs = entries.iter().map(|entry| log_of(&name, entry)).collect();
+        (logs, newest)
+    }
+
     /// The ask `name` as the index has it now, settled or not.
     fn ask(&self, name: &str) -> Option<v1::Approval> {
         let row = self.approvals.as_ref()?.index().named(name)?;
@@ -214,9 +253,36 @@ struct TopWatch {
     said_sessions: BTreeMap<String, v1::Session>,
     said_asks: BTreeMap<String, v1::Approval>,
     owed: VecDeque<v1::TopEvent>,
+    /// The newest log entry told.
+    said_log: u64,
     /// The one session scoped to was destroyed: the watch ends once its
     /// last event is read.
     ended: bool,
+}
+
+fn log_of(session: &str, entry: &Entry) -> v1::TopLog {
+    let (kind, line, event, text) = match &entry.content {
+        Content::Transcript { line } => (
+            v1::top_log::Kind::Transcript,
+            line.clone(),
+            String::new(),
+            String::new(),
+        ),
+        Content::Daemon { event, text } => (
+            v1::top_log::Kind::Daemon,
+            String::new(),
+            event.clone(),
+            text.clone(),
+        ),
+    };
+    v1::TopLog {
+        session: session.to_string(),
+        time: Some(entry.time.into()),
+        kind: kind as i32,
+        line,
+        event,
+        text,
+    }
 }
 
 fn event(event: v1::top_event::Event) -> v1::TopEvent {
@@ -230,12 +296,19 @@ impl TopWatch {
             sessions: view.sessions.values().cloned().collect(),
             approvals: view.asks.values().cloned().collect(),
         };
+        let mut owed = VecDeque::from([event(v1::top_event::Event::Snapshot(snapshot))]);
+        let (told, said_log) = scene.log_after(0);
+        owed.extend(
+            told.into_iter()
+                .map(|log| event(v1::top_event::Event::Log(log))),
+        );
         TopWatch {
             scene,
             woken,
             said_sessions: view.sessions,
             said_asks: view.asks,
-            owed: VecDeque::from([event(v1::top_event::Event::Snapshot(snapshot))]),
+            owed,
+            said_log,
             ended: false,
         }
     }
@@ -287,6 +360,13 @@ impl TopWatch {
                     })));
             }
         }
+        let (entries, newest) = self.scene.log_after(self.said_log);
+        self.said_log = newest;
+        self.owed.extend(
+            entries
+                .into_iter()
+                .map(|log| event(v1::top_event::Event::Log(log))),
+        );
         self.said_sessions = view.sessions;
         self.said_asks = view.asks;
     }

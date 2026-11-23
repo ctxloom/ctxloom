@@ -94,6 +94,7 @@ library-checkout.workspace = true
 # The permission asks (step 8 U4): registered in the kernel, read by the API.
 approvals.workspace = true
 pending-approvals.workspace = true
+session-timeline.workspace = true
 runs-application.workspace = true
 run-ports.workspace = true
 run-application.workspace = true

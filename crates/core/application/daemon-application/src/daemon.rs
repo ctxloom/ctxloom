@@ -62,6 +62,8 @@ pub struct Folds {
     pub trusts: trust_index::TrustIndexes,
     /// The permission asks (step 8 U4): what the approvals calls read.
     pub approvals: pending_approvals::PendingApprovals,
+    /// Each session's timeline: what `ctxloom top`'s log reads.
+    pub timelines: session_timeline::SessionTimelines,
     /// The library trees as last observed (step 10a U0): what a read
     /// reconciles against and answers each resource's etag from (U2).
     pub checkouts: library_checkout::LibraryCheckouts,
@@ -259,6 +261,7 @@ pub struct Daemon<E: Edge> {
     index: CatchUp<SessionIndexes>,
     trusts: CatchUp<trust_index::TrustIndexes>,
     approvals: CatchUp<pending_approvals::PendingApprovals>,
+    timelines: CatchUp<session_timeline::SessionTimelines>,
     checkouts: CatchUp<library_checkout::LibraryCheckouts>,
     /// What each live session is owed (step 10c U13 rework), its
     /// positions in the store; none until [`Daemon::owing`].
@@ -417,6 +420,7 @@ impl<E: Edge> Daemon<E> {
             index: session_index::SessionIndex::caught_up(folds.index),
             trusts: trust_index::caught_up(folds.trusts),
             approvals: pending_approvals::caught_up(folds.approvals),
+            timelines: session_timeline::caught_up(folds.timelines),
             checkouts: library_checkout::caught_up(folds.checkouts),
             owed: None,
             launches: pending_launches::catch_up(),
@@ -684,6 +688,10 @@ impl<E: Edge> Daemon<E> {
             .step(store, catalog)
             .await
             .map_err(|e| format!("the pending approvals' catch-up: {e:?}"))?;
+        self.timelines
+            .step(store, catalog)
+            .await
+            .map_err(|e| format!("the session timelines' catch-up: {e:?}"))?;
         self.checkouts
             .step(store, catalog)
             .await
@@ -1038,6 +1046,20 @@ impl<E: Edge> Daemon<E> {
         stopped
     }
 
+    /// Catch up the read models a round's plan does not read: the index,
+    /// the trusts, the asks, the timelines and the checkouts.
+    async fn step_the_other_models<S: ReadStore + Store + Processed + Watch>(
+        &mut self,
+        store: &S,
+        catalog: &Catalog,
+    ) {
+        let _ = self.index.step_if_changed(store, catalog).await;
+        let _ = self.trusts.step_if_changed(store, catalog).await;
+        let _ = self.approvals.step_if_changed(store, catalog).await;
+        let _ = self.timelines.step_if_changed(store, catalog).await;
+        let _ = self.checkouts.step_if_changed(store, catalog).await;
+    }
+
     /// One round: hear the children, catch up, plan, act. Whether it did
     /// anything. While `draining` (or handing over), no child is started
     /// and no message delivered.
@@ -1053,10 +1075,7 @@ impl<E: Edge> Daemon<E> {
         busy |= self.end_the_adopted(store, catalog).await;
         let board = self.board.step_if_changed(store, catalog).await;
         let pending = self.pending.step_if_changed(store, catalog).await;
-        let _ = self.index.step_if_changed(store, catalog).await;
-        let _ = self.trusts.step_if_changed(store, catalog).await;
-        let _ = self.approvals.step_if_changed(store, catalog).await;
-        let _ = self.checkouts.step_if_changed(store, catalog).await;
+        self.step_the_other_models(store, catalog).await;
         // Once the index and the checkouts are caught up: what each live
         // session is owed, recorded on it, and the index caught up with it.
         if let Some(owed) = self.owed.as_mut() {

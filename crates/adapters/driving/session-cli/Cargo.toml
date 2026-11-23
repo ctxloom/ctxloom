@@ -8,6 +8,8 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+ratatui.workspace = true
+crossterm.workspace = true
 angzarr-diagnostic.workspace = true
 angzarr-presentation.workspace = true
 cli-support.workspace = true

@@ -24,8 +24,6 @@ pub enum CliFault {
     TopAllWithSession,
     /// `top --format text` off a terminal: a screen needs one (DRAFT).
     TopNeedsTerminal,
-    /// `top` at a terminal: the full-screen UI is not built yet (DRAFT).
-    TopScreenNotBuilt,
     /// `top` was asked to watch a session the project does not have (DRAFT).
     TopSessionUnknown { name: String },
 }
@@ -41,10 +39,9 @@ impl ExitClass for CliFault {
             | CliFault::TopAllWithSession
             | CliFault::TopNeedsTerminal
             | CliFault::TopSessionUnknown { .. } => Exit::REFUSED,
-            CliFault::Runtime { .. }
-            | CliFault::Output { .. }
-            | CliFault::SweepFailed { .. }
-            | CliFault::TopScreenNotBuilt => Exit::FAILED,
+            CliFault::Runtime { .. } | CliFault::Output { .. } | CliFault::SweepFailed { .. } => {
+                Exit::FAILED
+            }
         }
     }
 }
@@ -66,7 +63,6 @@ impl Diagnostic for CliFault {
             CliFault::TopTreeWithoutSession => code!("top-tree-without-session"),
             CliFault::TopAllWithSession => code!("top-all-with-session"),
             CliFault::TopNeedsTerminal => code!("top-needs-terminal"),
-            CliFault::TopScreenNotBuilt => code!("top-screen-not-built"),
             CliFault::TopSessionUnknown { .. } => code!("top-session-unknown"),
         }
     }
@@ -88,8 +84,7 @@ impl Diagnostic for CliFault {
             CliFault::TopSessionUnknown { name } => vec![("name", name.as_str().into())],
             CliFault::TopTreeWithoutSession
             | CliFault::TopAllWithSession
-            | CliFault::TopNeedsTerminal
-            | CliFault::TopScreenNotBuilt => Vec::new(),
+            | CliFault::TopNeedsTerminal => Vec::new(),
         }
     }
 }
@@ -145,7 +140,6 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(CliFault::TopTreeWithoutSession),
         Box::new(CliFault::TopAllWithSession),
         Box::new(CliFault::TopNeedsTerminal),
-        Box::new(CliFault::TopScreenNotBuilt),
         Box::new(CliFault::TopSessionUnknown {
             name: "projects/p/sessions/amber-swift-owl".to_string(),
         }),

@@ -895,6 +895,8 @@ fn served(
                 index: kept.approvals.clone().unwrap_or_default(),
                 names: Arc::new(FreshAskNames),
             })
+            // The log `top` follows, one timeline a session.
+            .timelining(kept.timelines.clone().unwrap_or_default())
             // Each library read observes its trees first (step 10a U2),
             // reconciled against the checkouts its kernel projects.
             .observing(daemon_api::Observing {
@@ -1128,6 +1130,7 @@ fn launcher(
             index: kept.index.clone().unwrap_or_default(),
             trusts: kept.trusts.clone().unwrap_or_default(),
             approvals: kept.approvals.clone().unwrap_or_default(),
+            timelines: kept.timelines.clone().unwrap_or_default(),
             checkouts: kept.checkouts.clone().unwrap_or_default(),
         },
         say: Box::new(move |line: &str| said(&say, line)),

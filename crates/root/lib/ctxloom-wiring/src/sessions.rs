@@ -95,6 +95,73 @@ impl session_cli::AlwaysRules for LibraryRules<'_> {
     }
 }
 
+/// The person at `ctxloom top`'s screen answering an ask: what `session
+/// approvals answer` does, an `allow-always`'s rule written first and
+/// shown before it is.
+struct TopAnswering<'a, A> {
+    answers: A,
+    rules: LibraryRules<'a>,
+    catalog: &'a Catalog,
+    runtime: tokio::runtime::Runtime,
+}
+
+impl<A: daemon_api::ApprovalAnswers> session_cli::TopAnswers for TopAnswering<'_, A> {
+    fn preview(
+        &self,
+        ask: &daemon_proto::v1::Approval,
+        option: &str,
+    ) -> Result<Option<session_cli::AlwaysPlan>, String> {
+        let Some(rule) = ask
+            .options
+            .iter()
+            .find(|o| o.id == option && o.kind == "allow_always" && !o.rule.is_empty())
+        else {
+            return Ok(None);
+        };
+        session_cli::AlwaysRules::allow_always(
+            &self.rules,
+            &ask.agent,
+            &ask.engine,
+            &rule.rule,
+            false,
+        )
+        .map(Some)
+        .map_err(|failure| self.catalog.message(&*failure.failure.cause))
+    }
+
+    fn answer(
+        &self,
+        ask: &daemon_proto::v1::Approval,
+        option: &str,
+        write_rule: bool,
+    ) -> Result<String, String> {
+        let ask_id = daemon_api::ask_of(ask).to_string();
+        if write_rule {
+            let rule = ask
+                .options
+                .iter()
+                .find(|o| o.id == option)
+                .map(|o| o.rule.clone())
+                .unwrap_or_default();
+            session_cli::AlwaysRules::allow_always(
+                &self.rules,
+                &ask.agent,
+                &ask.engine,
+                &rule,
+                true,
+            )
+            .map_err(|failure| self.catalog.message(&*failure.failure.cause))?;
+        }
+        match self.runtime.block_on(self.answers.answer(ask, option, "")) {
+            Ok(_) => Ok(format!("{ask_id}: answered {option}")),
+            Err(error) => Err(match daemon_api::settled_of(&error) {
+                Some((ask_id, how)) => format!("{ask_id} was already settled, {how}"),
+                None => self.catalog.message(&error),
+            }),
+        }
+    }
+}
+
 /// Whether `line`, what she typed at a `[y/N]` question, is a yes: `y` or
 /// `yes`, in any case; anything else, a bare Enter too, is a no.
 fn said_yes(line: &str) -> bool {
@@ -240,11 +307,32 @@ impl Commands {
             stood_in: crate::interview::stood_in(&self.env),
         };
         let source = crate::top::DaemonTop::new(&wiring, &self.version).map_err(failed)?;
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| {
+                failed(Box::new(CliError::Output {
+                    detail: e.to_string(),
+                }))
+            })?;
+        let answering = TopAnswering {
+            answers: crate::daemon::child_caller(&wiring, &self.version)?,
+            rules: LibraryRules {
+                wiring: &wiring,
+                flags: call.globals.clone(),
+            },
+            catalog,
+            runtime,
+        };
         let ran = session_cli::top(
             &command,
             &source,
+            &answering,
             format,
-            session_cli::Asking::is_terminal(&terminal),
+            (
+                session_cli::Asking::is_terminal(&terminal),
+                terminal.stood_in,
+            ),
             out,
         );
         said(ran, format, catalog, err)

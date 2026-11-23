@@ -972,6 +972,9 @@ pub struct Api<E> {
     /// Where an ask is recorded and read (step 8 U4); none, the approvals
     /// calls fail.
     pub(crate) approving: Option<crate::Approving>,
+    /// Each session's timeline (`ctxloom top`'s log); none, a watch carries
+    /// no log.
+    pub(crate) timelines: Option<session_timeline::SessionTimelines>,
     /// Where a library read is answered from (step 10a U2); none, every
     /// library read fails.
     pub(crate) libraries: Option<Arc<dyn crate::Libraries>>,
@@ -1022,6 +1025,7 @@ impl<E: Edge> Api<E> {
             terminals: None,
             trusting: None,
             approving: None,
+            timelines: None,
             libraries: None,
             observing: None,
             write_dies_at: None,
@@ -1139,6 +1143,15 @@ impl<E: Edge> Api<E> {
                 text: notice.to_string(),
             })
             .collect())
+    }
+
+    /// The API, its watches' logs read from `timelines`.
+    #[must_use]
+    pub fn timelining(self, timelines: session_timeline::SessionTimelines) -> Api<E> {
+        Api {
+            timelines: Some(timelines),
+            ..self
+        }
     }
 
     /// The API, its asks recorded and read through `approving` (step 8 U4).

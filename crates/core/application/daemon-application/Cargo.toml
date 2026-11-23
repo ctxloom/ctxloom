@@ -29,6 +29,7 @@ session-index.workspace = true
 trust-index.workspace = true
 # The permission asks the loop keeps caught up (step 8 U4).
 pending-approvals.workspace = true
+session-timeline.workspace = true
 # The library trees as last observed, caught up at the start and each round
 # (step 10a U0): what a read reconciles against (U2).
 library-checkout.workspace = true

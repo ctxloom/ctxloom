@@ -11,8 +11,6 @@ session-cli-top-tree-without-session = --tree needs a session to root it: ctxloo
 session-cli-top-all-with-session = --all cannot be given with a session to watch: a session names one project's
 session-cli-top-needs-terminal = --format text draws a full screen, and this output is not a terminal
 session-cli-top-needs-terminal-fix = Use --format json for a stream of JSON lines.
-session-cli-top-screen-not-built = the full-screen top is not built yet
-session-cli-top-screen-not-built-fix = Use --format json for a stream of JSON lines.
 session-cli-top-session-unknown = { $name }: this project has no such session
 session-cli-already-closed = { $harp } was already closed: the close changed nothing
 

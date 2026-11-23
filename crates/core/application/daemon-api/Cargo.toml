@@ -59,6 +59,7 @@ trust-index.workspace = true
 # and the warm read model the approvals calls read.
 approvals.workspace = true
 pending-approvals.workspace = true
+session-timeline.workspace = true
 sessions.workspace = true
 sessions-application.workspace = true
 sessions-proto.workspace = true

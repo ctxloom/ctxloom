@@ -224,6 +224,8 @@ hex = "0.4"
 # .feature text with new Rust steps.
 cucumber = "0.21"
 time = { version = "0.3", features = ["formatting", "parsing"] }
+ratatui = { version = "0.30.2", default-features = false, features = ["crossterm"] }
+crossterm = { version = "0.29.0", default-features = false, features = ["events"] }
 # The run's listener certificate (owner, 2026-11-09, ruling 35): rcgen with the
 # ring backend, which tonic's `tls-ring` already makes the one crypto provider.
 rcgen = { version = "0.13", default-features = false, features = ["crypto", "pem", "ring"] }

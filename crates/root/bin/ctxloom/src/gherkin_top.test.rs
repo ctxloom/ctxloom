@@ -40,6 +40,9 @@ pub(super) struct State {
     read: Vec<Value>,
     /// The line the last "a line has" step found.
     that: Option<Value>,
+    /// How many lines had been read when an action was taken: a step that
+    /// names a line "within N seconds" after it looks past them.
+    mark: usize,
 }
 
 #[given(expr = "I start {string} and read its output as it streams")]
@@ -63,6 +66,7 @@ fn started(w: &mut World, line: String) {
         }
     });
     w.top.read.clear();
+    w.top.mark = 0;
     w.top.that = None;
     w.top.stream = Some(Stream { child, lines });
 }
@@ -182,8 +186,10 @@ fn still_running_and_quiet(w: &mut World) {
 fn until_line(w: &mut World, seconds: u64, found: impl Fn(&Value) -> bool) -> Value {
     let deadline = Instant::now() + Duration::from_secs(seconds);
     let mut seen: Vec<Value> = w.top.read.clone();
-    // Lines already read count: a step may name a line that came earlier.
-    if let Some(line) = seen.iter().skip(1).find(|line| found(line)) {
+    // Lines already read count: a step may name a line that came earlier,
+    // unless an action since marked where the news begins.
+    let from = w.top.mark.max(1);
+    if let Some(line) = seen.iter().skip(from).find(|line| found(line)) {
         return line.clone();
     }
     loop {
@@ -392,11 +398,8 @@ fn child_prompted(w: &mut World, child: String, owner: String, prompt: String) {
 
 /// `harp` says `text`: its words shown, and its turn ended.
 fn says(w: &mut World, harp: &str, text: &str) {
-    // The turn's end fires first and its words after, as claude's hooks do:
-    // the words are the log's last entry.
-    hook_of(w, harp, "Stop", daemon_spec::STOP, |body| {
-        body["last_assistant_message"] = Value::String(text.to_string());
-    });
+    // Its words, as the engine shows them: the first transcript entry after
+    // the action, and the log's last until something else happens.
     hook_of(
         w,
         harp,
@@ -411,11 +414,13 @@ fn says(w: &mut World, harp: &str, text: &str) {
 #[given(expr = "{string} says {string}")]
 #[when(expr = "{string} says {string}")]
 fn says_step(w: &mut World, harp: String, text: String) {
+    w.top.mark = w.top.read.len();
     says(w, &harp, &text);
 }
 
 #[when(expr = "{string} says {string} and its run then ends")]
 fn says_then_ends(w: &mut World, harp: String, text: String) {
+    w.top.mark = w.top.read.len();
     says(w, &harp, &text);
     run_ends_of(w, &harp);
 }

@@ -168,7 +168,7 @@ fn test_an_answer_is_written_with_its_digest_and_used() {
 }
 
 // content_distill.feature: an implausibly short answer is refused, the
-// good distillation surviving (a failure, exit 10).
+// good distillation surviving (a failure, exit 32).
 #[test]
 fn test_a_short_answer_is_refused_and_writes_nothing() {
     let good = "---\nsource_sha256: x\n---\nGOOD\n";
@@ -198,7 +198,7 @@ fn test_a_short_answer_is_refused_and_writes_nothing() {
 
 // The digest rule (atomic_writes.feature's distilled Rule; step 10b): an
 // answer asked of a source that moved while the model was asked is stale,
-// refused (a decline, exit 20), and writes nothing.
+// refused (a decline, exit 48), and writes nothing.
 #[test]
 fn test_an_answer_whose_source_moved_since_it_was_asked_is_refused_stale() {
     let (library, mem) = world(&[]);

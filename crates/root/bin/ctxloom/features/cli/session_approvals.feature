@@ -172,7 +172,7 @@ Feature: session approvals — a child's permission ask, answered by the user
       And I note the ask named by "approvals[0].name" as "the first ask"
       And I note the ask named by "approvals[1].name" as "the second ask"
       When I run "ctxloom session approvals answer brisk-copper-moth allow-once"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the refusal is "daemon-api-approval-ambiguous"
       And the output contains "{the first ask}"
       And the output contains "{the second ask}"
@@ -186,7 +186,7 @@ Feature: session approvals — a child's permission ask, answered by the user
       Given an initialized ctxloom project
       And a child "brisk-copper-moth" of "amber-quiet-heron" that is open and idle
       When I run "ctxloom session approvals answer brisk-copper-moth allow-once"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the refusal is "daemon-api-approval-none-waiting"
       And the output contains "brisk-copper-moth"
 
@@ -195,7 +195,7 @@ Feature: session approvals — a child's permission ask, answered by the user
       Given an initialized ctxloom project
       And a child "brisk-copper-moth" of "amber-quiet-heron" whose engine has asked to run "Bash" with "rm -rf build/"
       When I run "ctxloom session approvals answer brisk-copper-moth deny-always"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the refusal is "approvals-option-not-offered"
       And the output contains "allow-once, allow-session, allow-always, deny"
       And an ask is still waiting under "amber-quiet-heron"
@@ -208,7 +208,7 @@ Feature: session approvals — a child's permission ask, answered by the user
       And I note the ask named by "approvals[0].name" as "the ask"
       And I run "ctxloom session approvals answer {the ask} allow-once"
       When I run "ctxloom session approvals answer {the ask} deny"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the refusal is "approvals-approval-settled"
       And the output contains "answered"
 
@@ -224,7 +224,7 @@ Feature: session approvals — a child's permission ask, answered by the user
       Then the child's engine was told not to run it, because no answer came in time
       And no ask is waiting under "amber-quiet-heron"
       When I run "ctxloom session approvals answer {the ask} allow-once"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the refusal is "approvals-approval-settled"
       And the output contains "expired"
 
@@ -255,7 +255,7 @@ Feature: session approvals — a child's permission ask, answered by the user
       And the child's engine cancelled its approval prompt call
       And no ask is waiting under "amber-quiet-heron"
       When I run "ctxloom session approvals answer {the ask} allow-once"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the refusal is "approvals-approval-settled"
       And the output contains "withdrawn"
 
@@ -270,7 +270,7 @@ Feature: session approvals — a child's permission ask, answered by the user
       When the ask's time runs out
       Then no ask is waiting under "amber-quiet-heron"
       When I run "ctxloom session approvals answer {the ask} allow-once"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the refusal is "approvals-approval-settled"
       And the output contains "expired"
 
@@ -281,7 +281,7 @@ Feature: session approvals — a child's permission ask, answered by the user
       Given an initialized ctxloom project
       And a child "brisk-copper-moth" of "amber-quiet-heron" whose engine has asked to run "Bash" with "rm -rf build/"
       When I run "ctxloom session approvals answer brisk-copper-moth allow-always --format json --detailed-exitcode"
-      Then the command exits with code 1
+      Then the command exits with code 17
       And the output reports "applied" as "false"
       And the output reports "apply" containing "--yes"
       And the output contains ".ctxloom/config.yaml"
@@ -406,3 +406,61 @@ Feature: session approvals — a child's permission ask, answered by the user
       When I run "ctxloom session approvals answer brisk-copper-moth allow-once"
       Then the command succeeds
       And the child's engine was told to run the tool
+
+  Rule: The terminal session's own frontend tells its human of an ask that arrives under it
+
+    A session whose TUI the human is in has no screen of ours: its child's
+    ask would wait unseen, and be denied when its time ran out. So while
+    the TUI runs, its frontend looks at the waiting asks under its session
+    (once a second), and for each one it has not told of rings the terminal
+    bell once and writes one line to the terminal's standard error: who
+    asks, what it asks to run, and the command that answers it. An ask
+    answered, expired or withdrawn is told no more. Answering stays in
+    `ctxloom session approvals answer`. The line's words are a draft.
+
+    Scenario: An ask arriving under a running session rings the bell once and says one line
+      # new: owner ruling 2026-11-22 (uncanny-earpiece): the root's frontend rings and says one line.
+      Given an initialized ctxloom project
+      And an interactive session "amber-swift-owl" is running in a terminal, with a child "brisk-copper-moth" of it
+      When "brisk-copper-moth"'s engine asks to run "Bash" with "rm -rf build/"
+      Then the session's frontend has told its human of 1 ask
+      When the session's terminal is released and the session ends
+      Then the session's terminal rang the bell 1 time
+      And the session's terminal was told once of "brisk-copper-moth"'s ask to run "Bash" with "rm -rf build/", with the command that answers it
+
+    Scenario: A second ask is told as well, with a bell of its own
+      # new: once per ask, not once per session.
+      Given an initialized ctxloom project
+      And an interactive session "amber-swift-owl" is running in a terminal, with a child "brisk-copper-moth" of it
+      When "brisk-copper-moth"'s engine asks to run "Bash" with "rm -rf build/"
+      Then the session's frontend has told its human of 1 ask
+      When "brisk-copper-moth"'s engine asks to run "Bash" with "make release"
+      Then the session's frontend has told its human of 2 asks
+      When the session's terminal is released and the session ends
+      Then the session's terminal rang the bell 2 times
+      And the session's terminal was told once of "brisk-copper-moth"'s ask to run "Bash" with "rm -rf build/", with the command that answers it
+      And the session's terminal was told once of "brisk-copper-moth"'s ask to run "Bash" with "make release", with the command that answers it
+
+    Scenario: An answered ask is told no more, and the next one is told
+      # new: an answered ask says nothing more.
+      Given an initialized ctxloom project
+      And an interactive session "amber-swift-owl" is running in a terminal, with a child "brisk-copper-moth" of it
+      When "brisk-copper-moth"'s engine asks to run "Bash" with "rm -rf build/"
+      Then the session's frontend has told its human of 1 ask
+      When I run "ctxloom session approvals answer brisk-copper-moth allow-once"
+      Then the command succeeds
+      When "brisk-copper-moth"'s engine asks to run "Bash" with "make release"
+      Then the session's frontend has told its human of 2 asks
+      When the session's terminal is released and the session ends
+      Then the session's terminal rang the bell 2 times
+      And the session's terminal was told once of "brisk-copper-moth"'s ask to run "Bash" with "rm -rf build/", with the command that answers it
+      And the session's terminal was told once of "brisk-copper-moth"'s ask to run "Bash" with "make release", with the command that answers it
+
+    Scenario: A session that is asked nothing says nothing
+      # new: no ask, no bell and no line.
+      Given an initialized ctxloom project
+      And an interactive session "amber-swift-owl" is running in a terminal, with a child "brisk-copper-moth" of it
+      Then the session's frontend has looked for asks 2 more times
+      When the session's terminal is released and the session ends
+      Then the session's terminal rang the bell 0 times
+      And the session's terminal was told of no ask

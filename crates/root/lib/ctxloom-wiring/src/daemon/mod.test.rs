@@ -41,7 +41,7 @@ fn a_spawn_wait_leaves_a_delivery_room_within_a_hooks_bound() {
 
 // The daemon cluster's cap (owner ruling, 2026-11-18): `daemon serve` that
 // lost the single-instance lock to another daemon is a decline (20, a lock
-// another process holds); one that could not serve failed (10).
+// another process holds); one that could not serve failed (32).
 #[test]
 fn a_daemon_that_lost_the_lock_declines_and_one_that_could_not_serve_failed() {
     use super::serve::Unserved;

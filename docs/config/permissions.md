@@ -140,11 +140,11 @@ the agent, and into the home's otherwise. It starts from that definition's
 own permissions document for the engine, and one with none starts from the
 engine's default (`{defaultMode: acceptEdits}` on claude-code), so nothing
 of that is lost. It is a config write like any other: it previews first,
-naming the file (off a terminal without `--yes`; exit 1 under
+naming the file (off a terminal without `--yes`; exit 17 under
 `--detailed-exitcode`), asks `[y/N]` at a terminal, and applies with
 `--yes`. The config is written before the ask is answered; if the ask was
 settled meanwhile (it expired, say), the written rule stays and the command
-says so (exit 20).
+says so (exit 48).
 
 **An ask that is withdrawn.** When the asking turn is interrupted (a steer),
 claude cancels its call and the ask is withdrawn at once: it is listed no
@@ -237,7 +237,7 @@ flag for it yet.
 ## Migrating an older config
 
 These are hard migrations: the old keys are unknown keys and the config is
-refused (exit 20) until they are moved.
+refused (exit 48) until they are moved.
 
 - `agents.<n>.engines.claude-code.permissions.mode: X` becomes
   `agents.<n>.engines.claude-code.permissions.defaultMode: X`. A block that

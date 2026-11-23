@@ -188,7 +188,7 @@ fn test_an_operation_that_made_nothing_is_the_domain_s_refusal() {
 
 // An etag that is not a number (none a preview answered) is the request's
 // own bad argument (protos.md §1.1): the typed `EtagInvalid`, naming the
-// etag as sent, never a failure (exit 10).
+// etag as sent, never a failure (exit 32).
 #[test]
 fn test_an_etag_that_is_not_a_number_is_refused_as_an_invalid_argument() {
     use super::seen_sequence;
@@ -385,7 +385,7 @@ async fn test_an_export_made_before_is_answered_from_its_record() {
 }
 
 // Step 10c U13 (protos.md §1.3): a retry of a write whose intent an outside
-// change superseded is refused stale (`PlanStale`, ABORTED, exit 20),
+// change superseded is refused stale (`PlanStale`, ABORTED, exit 48),
 // naming its first step's path, the token the intent was decided on and
 // the path's token now; a write still pending is planned again.
 #[tokio::test]

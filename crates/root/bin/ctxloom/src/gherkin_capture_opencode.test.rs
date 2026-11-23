@@ -277,6 +277,28 @@ fn opencode_env_relocated(w: &mut World) {
 }
 
 #[cucumber::then(
+    "opencode's RUSTUP_HOME was hers, its CARGO_HOME and npm_config_cache were the defaults under her home, and neither was its session home's"
+)]
+fn opencode_env_tool_homes(w: &mut World) {
+    w.ran().succeeds();
+    let env = opencode_env(w);
+    let hers = w.common.project.home().to_string_lossy().to_string();
+    assert_eq!(
+        env.get("RUSTUP_HOME").map(String::as_str),
+        Some("/fixture/rustup-not-real"),
+        "{:?}",
+        env.keys()
+    );
+    assert_eq!(env.get("CARGO_HOME"), Some(&format!("{hers}/.cargo")));
+    assert_eq!(env.get("npm_config_cache"), Some(&format!("{hers}/.npm")));
+    let session = w.opencode_session_dir().to_string_lossy().to_string();
+    assert!(env
+        .iter()
+        .filter(|(k, _)| ["RUSTUP_HOME", "CARGO_HOME", "npm_config_cache"].contains(&k.as_str()))
+        .all(|(_, v)| !v.starts_with(&session)));
+}
+
+#[cucumber::then(
     "opencode ran in its session home, with what its plugin's hooks need to reach ctxloom and without OPENCODE_PURE"
 )]
 fn opencode_environment(w: &mut World) {

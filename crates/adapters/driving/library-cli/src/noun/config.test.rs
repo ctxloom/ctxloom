@@ -42,7 +42,7 @@ mod read {
         assert!(text_of(&["config"]).contains("default_agent: dev\n"));
         assert_eq!(
             go(&["config", "show", "nosuch"], JSON, BARE).refused(),
-            "library-application-unknown-section:20"
+            "library-application-unknown-section:48"
         );
     }
 }

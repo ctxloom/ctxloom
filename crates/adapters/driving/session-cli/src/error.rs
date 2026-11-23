@@ -31,8 +31,8 @@ pub enum CliFault {
 }
 
 impl ExitClass for CliFault {
-    /// How the command exits: refused (20), a request invalid on its own
-    /// content, or failed (10).
+    /// How the command exits: refused (48), a request invalid on its own
+    /// content, or failed (32).
     fn exit(&self) -> Exit {
         match self {
             CliFault::BadState { .. }

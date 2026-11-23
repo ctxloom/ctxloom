@@ -59,7 +59,7 @@ pub const CLOSE_NEED: &str = "confirm";
 
 /// How many open children an owner may hold when nothing says (the
 /// delegation limit's evidence, D-N14; no config key yet).
-pub const DELEGATION_LIMIT: u32 = 4;
+pub const DELEGATION_LIMIT: u32 = 16;
 
 /// `$body` (an `async` expression of `$api`, a daemon's API) on a reached
 /// daemon, once more on the daemon reached again if this one could not be

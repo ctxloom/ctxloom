@@ -39,7 +39,7 @@ pub enum CliError {
 
 impl ExitClass for CliError {
     /// How the command exits: a usage error is refused (20, never clap's 2),
-    /// an answer that could not be written failed (10).
+    /// an answer that could not be written failed (32).
     fn exit(&self) -> Exit {
         match self {
             CliError::Usage { .. } | CliError::UnknownVerb { .. } | CliError::Format { .. } => {

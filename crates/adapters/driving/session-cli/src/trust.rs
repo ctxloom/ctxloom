@@ -11,7 +11,7 @@
 //! preview is `GetTrust`: what trusting the project would allow, and the
 //! etag of it. At a terminal the human is asked, `[y/N]`, and her yes sends
 //! the grant naming that etag; off one the preview is printed and nothing
-//! changes (exit 0, 1 under `--detailed-exitcode` when the apply would
+//! changes (exit 0, 17 under `--detailed-exitcode` when the apply would
 //! change something); `--yes` applies at once. The grant is refused
 //! `trust-plan-stale` when what the preview showed changed before the yes.
 

@@ -1864,7 +1864,7 @@ message Finding {
   string text = 2;
   // What to do about it.
   string remedy = 3;
-  // It aborts the launch (exit 21).
+  // It aborts the launch (exit 49).
   bool fatal = 4;
 }
 

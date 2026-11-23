@@ -45,7 +45,7 @@ Feature: trust — the user's verdict on a project's own settings
   CONFIRMATION. Trust is previewed first (the project's trust resource,
   naming what it would allow, and a tag of what it showed): at a terminal
   the CLI asks, off one it prints the preview, changes nothing and exits 0
-  without `--yes` (1 with `--detailed-exitcode`). The grant names the tag,
+  without `--yes` (17 with `--detailed-exitcode`). The grant names the tag,
   so a change between the preview and the answer is refused as stale.
 
   UNTIL REVOKED. A trust covers the project until the user takes it back,
@@ -59,7 +59,7 @@ Feature: trust — the user's verdict on a project's own settings
       Given an initialized ctxloom project whose project config says "<setting>"
       And Alice has exported her assistant's token
       When I run 'ctxloom run --one-shot "hello"'
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the refusal is "runs-untrusted-project-settings"
       And the output contains "<path>"
       And the output contains "ctxloom trust"
@@ -77,7 +77,7 @@ Feature: trust — the user's verdict on a project's own settings
       And Alice has exported her assistant's token
       And a session "amber-quiet-heron" that is still running
       When I run '<command>'
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the refusal is "runs-untrusted-project-settings"
       And the output contains "engines.claude-code.command"
 
@@ -120,7 +120,7 @@ Feature: trust — the user's verdict on a project's own settings
       Given an initialized ctxloom project whose project config says "engines.claude-code.command: /opt/their-claude"
       And Alice has exported her assistant's token
       When I run 'ctxloom run --one-shot ""'
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the refusal is "runs-launch-refused"
       And the output contains "runs-no-prompt"
       And the output contains "runs-untrusted-project-settings"
@@ -170,7 +170,7 @@ Feature: trust — the user's verdict on a project's own settings
       # new: trust confirms.
       Given an initialized ctxloom project whose project config says "engines.claude-code.command: /opt/their-claude"
       When I run "ctxloom trust --format json --detailed-exitcode"
-      Then the command exits with code 1
+      Then the command exits with code 17
       And the output reports "settings[0].path" as "engines.claude-code.command"
       And the output reports "name" as the project's harp under "projects/", then "/trust"
       When I run "ctxloom trust list --format json"
@@ -191,7 +191,7 @@ Feature: trust — the user's verdict on a project's own settings
       # new: what was seen is what is trusted.
       Given an initialized ctxloom project whose project config says "engines.claude-code.command: /opt/their-claude"
       When I run "ctxloom trust" at a terminal, and before I answer the project config is changed to say "engines.claude-code.command: /opt/another-claude", then I answer "yes"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the refusal is "trust-plan-stale"
       When I run "ctxloom trust list --format json"
       Then the command succeeds
@@ -216,7 +216,7 @@ Feature: trust — the user's verdict on a project's own settings
       And a session "amber-quiet-heron" that is still running
       And a second project "api" beside this one, initialized with ctxloom
       When I run 'ctxloom session launch amber-quiet-heron --name brisk-copper-moth --project ../api "review the change"'
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the refusal is "sessions-untrusted-target"
       And the output contains "api"
       And no hand-off file was left behind

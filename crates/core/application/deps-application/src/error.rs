@@ -75,9 +75,9 @@ impl AppError {
 }
 
 impl ExitClass for AppError {
-    /// How a command this ends exits (rulings 152, 153): failed (10) when
+    /// How a command this ends exits (rulings 152, 153): failed (32) when
     /// something broke (an adapter, a file, a clone, a fetch, a publish, a
-    /// pull); refused (20) when the request or the state declines it (a name
+    /// pull); refused (48) when the request or the state declines it (a name
     /// nobody has, a conflict, a destination taken, a refused refresh).
     fn exit(&self) -> Exit {
         match self {

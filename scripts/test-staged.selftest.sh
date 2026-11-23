@@ -38,6 +38,9 @@ cp "$(dirname "$gates")/red-sanity.sh" "$fx/gates/red-sanity.sh"
 # The fixture's workspace runs take a test lock of their own, never the
 # machine's (gates/tests-lock.sh), and are inside no other run's.
 export TESTS_LOCK_FILE=$tmp/workspace-tests.lock
+# The staged tree builds into ONE target shared by every checkout, under the
+# cache (gates/gates.just `_scratch-tree`); the fixture's is its own.
+export GATES_STAGED_CACHE=$tmp/cache
 unset GATES_TESTS_LOCK_HELD
 cat > "$fx/Cargo.toml" <<'T'
 [workspace]
@@ -126,6 +129,9 @@ staged_rc() { # name expected [scope]
 a '1 + 0'
 git -C "$fx" add crates/a/src/lib.rs
 staged_rc "a change to a" 0
+[ -d "$GATES_STAGED_CACHE/staged-target/debug" ] \
+    || fail "the staged run built nothing into the shared target $GATES_STAGED_CACHE/staged-target"
+[ ! -e "$fx/target/staged" ] || fail "the staged run built into the checkout's own target/staged"
 grep -q '^ok   test-staged (changed: a; narrowed by filter.sh) ' "$tmp/out" \
     || fail "a change to a selects more than a: $(cat "$tmp/out")"
 

@@ -1,4 +1,4 @@
-//! The fatal findings (KindIsolation): exit 21, in both modes.
+//! The fatal findings (KindIsolation): exit 49, in both modes.
 
 use std::fmt;
 
@@ -23,7 +23,7 @@ pub enum Finding {
 }
 
 impl Finding {
-    /// How a command a finding ends exits: fatal findings (21).
+    /// How a command a finding ends exits: fatal findings (49).
     pub fn exit(&self) -> exit_code::Exit {
         exit_code::Exit::FATAL_FINDINGS
     }

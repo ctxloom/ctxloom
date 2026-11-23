@@ -333,7 +333,7 @@ Feature: engine — the programs ctxloom drives, and the settings they share
               env: [sk-ant-oat01-acceptance-fixture-not-real]
         """
       When I run "ctxloom engine list"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the output contains "engines.claude-code.auth.env"
       And the output does not contain "sk-ant-oat01-acceptance-fixture-not-real"
 
@@ -367,7 +367,7 @@ Feature: engine — the programs ctxloom drives, and the settings they share
 
     A prerelease breaks without migrating: no schema_version moves, nothing is
     rewritten, and no fallback reader reads the old key. `llm:` is simply a key
-    the strict decode does not know (exit 20), with the ordinary unknown-key
+    the strict decode does not know (exit 48), with the ordinary unknown-key
     diagnostic and no message of its own.
 
     Scenario: A config still carrying the llm block is refused as an unknown key
@@ -385,7 +385,7 @@ Feature: engine — the programs ctxloom drives, and the settings they share
             primary: big
         """
       When I run "ctxloom agent list --format text"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the output contains "unknown key `llm`"
       And the file ".ctxloom/config.yaml" contains "llm:"
       And the file ".ctxloom/config.yaml" contains "schema_version: 9"
@@ -402,7 +402,7 @@ Feature: engine — the programs ctxloom drives, and the settings they share
             profiles: [dev]
         """
       When I run "ctxloom agent list --format text"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the output contains "unknown key `agents.developer.llm`"
 
     Scenario: An agent still carrying engine_home is refused as an unknown key
@@ -417,7 +417,7 @@ Feature: engine — the programs ctxloom drives, and the settings they share
             engine_home: session
         """
       When I run "ctxloom agent list --format text"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the output contains "unknown key `agents.developer.engine_home`"
 
     Scenario Outline: A model, effort or permissions in the engine block is refused as an unknown key
@@ -431,7 +431,7 @@ Feature: engine — the programs ctxloom drives, and the settings they share
             <key>: <value>
         """
       When I run "ctxloom engine list --format text"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the output contains "unknown key `engines.claude-code.<key>`"
 
       Examples:

@@ -53,10 +53,10 @@ impl AppError {
 }
 
 impl ExitClass for AppError {
-    /// How a command this ends exits (ruling 152): refused (20) when the
+    /// How a command this ends exits (ruling 152): refused (48) when the
     /// request declines against the line or the state (a name no session may
     /// have, a taken name, a live session, a session nobody has, any refusal
-    /// of the domain); failed (10) when something broke (the store, the
+    /// of the domain); failed (32) when something broke (the store, the
     /// kernel, the project's identity, a session's files, the retry budget).
     fn exit(&self) -> Exit {
         match self {
@@ -135,7 +135,7 @@ impl From<angzarr_embedded_runner::Unrun> for AppError {
 }
 
 /// Why `session remove` refused, after printing its plan: the answer ends with
-/// what was NOT done (Go: `harpPurgeRefusal`), and exits 20.
+/// what was NOT done (Go: `harpPurgeRefusal`), and exits 48.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Refusal {
     /// The session's lock does not prove its owner dead: held, or no lock at

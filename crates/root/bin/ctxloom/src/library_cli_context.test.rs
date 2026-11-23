@@ -131,7 +131,7 @@ fn test_a_premised_word_nobody_knows_is_refused() {
         "-p",
         "dev",
     ]);
-    assert_eq!(ran.code, 20, "{}", ran.said());
+    assert_eq!(ran.code, 48, "{}", ran.said());
     ran.contains("config.premised");
 }
 

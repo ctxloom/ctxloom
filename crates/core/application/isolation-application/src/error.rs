@@ -32,7 +32,7 @@ pub enum IsolationError {
     /// A `--runtime` that is none of the runtimes ctxloom knows.
     UnknownRuntime { runtime: String, known: String },
     /// `container prune` on a machine with no container runtime: its own
-    /// exit status (20, a decline), distinct from a removal that failed (10).
+    /// exit status (48, a decline), distinct from a removal that failed (32).
     NoPruneRuntime,
     /// `container build` on a machine with no container runtime.
     NoBuildRuntime,
@@ -46,11 +46,11 @@ pub enum IsolationError {
 }
 
 impl ExitClass for IsolationError {
-    /// How a command this ends exits (ruling 152): refused (20) when the
+    /// How a command this ends exits (ruling 152): refused (48) when the
     /// request declines against the line or the machine's state (an unknown
     /// backend or runtime, no runtime to prune or build with, nothing
     /// removed, a session nobody has, a devcontainer already there, a verb not
-    /// built); failed (10) when an adapter broke. Fatal findings (21) are the
+    /// built); failed (32) when an adapter broke. Fatal findings (49) are the
     /// run plan's alone.
     fn exit(&self) -> Exit {
         match self {

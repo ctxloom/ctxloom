@@ -249,9 +249,9 @@ fn recorded_input_lacks(w: &mut World, text: String) {
 
 #[then("ctxloom refuses, naming the harp it could not find and the command that lists the sessions there are")]
 fn refuses_unknown(w: &mut World) {
-    assert_eq!(w.ran().code, 20, "{}", w.ran().said());
+    assert_eq!(w.ran().code, 48, "{}", w.ran().said());
     w.in_both_formats(|ran, format| {
-        assert_eq!(ran.code, 20, "{format}: {}", ran.said());
+        assert_eq!(ran.code, 48, "{format}: {}", ran.said());
         assert!(
             ran.stderr.contains("no-such-harp-anywhere"),
             "{format}: {}",

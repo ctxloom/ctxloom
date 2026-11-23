@@ -164,3 +164,23 @@ is needed. A repository copying the change takes the `lint-staged` recipe
 and the `clippy` command's `run:`; its `lint` recipe must work in a
 checkout of its own tree (it is run there).
 
+
+## One staged target for every checkout (ctxloom, 2026-11-23)
+
+`_scratch-tree` (so `_staged-tree` and `_commit-tree`) no longer builds into
+the checkout's `target/staged` under the checkout's `target/.staged-tree.lock`.
+Every checkout and worktree of the user builds into ONE target,
+`<cache>/staged-target`, under ONE lock, `<cache>/staged-tree.lock`, where
+`<cache>` is `$GATES_STAGED_CACHE` (a seam for self-tests), else
+`${XDG_CACHE_HOME:-<account home>/.cache}/ctxloom/gates` (account home from
+`getent passwd`, not `$HOME`, which a session may relocate). A gate that finds
+the lock held prints `wait staged-tree: ...` (lock path, holder's pid, source,
+checkout) once and waits; the holder writes that note into the lock file
+(opened `>>`, cleared on exit). Change: the `_scratch-tree` hunk of
+`gates/gates.just` (header comment, cache resolution, lock, `CARGO_TARGET_DIR`)
+and the doc comment of `lint-staged`. Self-tests: `scripts/scratch-tree-lock.selftest.sh`
+(path, no per-checkout lock, a second checkout waits and says so) and
+`scripts/test-staged.selftest.sh` (both export `GATES_STAGED_CACHE`; any
+self-test that runs a staged recipe must). Replace `<cache>/ctxloom/gates`
+with the repository's own directory name when porting, if it should not share
+ctxloom's.

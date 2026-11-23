@@ -15,6 +15,11 @@ use crate::conversation::Conversation;
 
 const TWO_TURNS: &str = include_str!("fixtures/child_two_turns.jsonl");
 const INTERRUPT: &str = include_str!("fixtures/child_interrupt.jsonl");
+/// The `result` lines real claude 2.1.330 printed for a steer's interrupt, in
+/// a probe: one while the model streamed, one while a Bash tool ran.
+const INTERRUPT_WHILE_STREAMING: &str =
+    include_str!("fixtures/interrupt_while_streaming.result.json");
+const INTERRUPT_DURING_TOOL: &str = include_str!("fixtures/interrupt_during_tool.result.json");
 const CLEAR: &str = include_str!("fixtures/child_clear.jsonl");
 
 fn message(id: &str, text: &str) -> ChildMessage {
@@ -458,6 +463,66 @@ fn an_error_result_is_classed_by_its_status() {
                 native_id: Some("n".to_string()),
             },
         }]
+    );
+}
+
+/// A conversation with a turn in flight, optionally already interrupted.
+fn in_flight(interrupted: bool) -> Conversation {
+    let mut conversation = Conversation::default();
+    conversation
+        .send(message("m-1", "go"), Urgency::Wake)
+        .unwrap();
+    if interrupted {
+        conversation
+            .send(message("m-2", "stop"), Urgency::Steer)
+            .unwrap();
+    }
+    conversation
+}
+
+fn failure_class(conversation: &mut Conversation, result: &str) -> FailureClass {
+    let step = conversation.read(result.trim());
+    let [ChildObservation::TurnEnded {
+        outcome: TurnOutcome::Failed { class, .. },
+        ..
+    }] = step.observations.as_slice()
+    else {
+        panic!("{:?}", step.observations)
+    };
+    *class
+}
+
+#[test]
+fn a_steer_is_interrupted_whatever_the_turn_was_doing_when_claude_stopped_it() {
+    for result in [INTERRUPT_WHILE_STREAMING, INTERRUPT_DURING_TOOL] {
+        assert_eq!(
+            failure_class(&mut in_flight(true), result),
+            FailureClass::Interrupted,
+            "{result}"
+        );
+    }
+}
+
+#[test]
+fn an_error_result_after_our_interrupt_is_interrupted_even_for_an_unknown_reason() {
+    let result = r#"{"type":"result","subtype":"error_during_execution","is_error":true,"api_error_status":null,"terminal_reason":"some_future_reason","session_id":"n"}"#;
+    assert_eq!(
+        failure_class(&mut in_flight(true), result),
+        FailureClass::Interrupted
+    );
+    // Not asked to stop: the same line is an engine error.
+    assert_eq!(
+        failure_class(&mut in_flight(false), result),
+        FailureClass::EngineError
+    );
+}
+
+#[test]
+fn an_api_failure_during_an_interrupt_keeps_its_own_class() {
+    let result = r#"{"type":"result","subtype":"success","is_error":true,"api_error_status":429,"terminal_reason":"api_error","result":"API Error: 429","session_id":"n"}"#;
+    assert_eq!(
+        failure_class(&mut in_flight(true), result),
+        FailureClass::RateLimited
     );
 }
 

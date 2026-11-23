@@ -409,9 +409,9 @@ Feature: container — the images isolated agents run in, and the questions you 
       And the output contains "docker"
 
     Scenario: With no container runtime on this machine, prune exits 3 rather than reporting a clean sweep
-      # substitution: exit codes per rulings 149, 152, 153 (10 failed, 20 refused, 21 fatal findings; Go's 1, 2, 3); no runtime declines the request against the machine (20, Go's 3).
+      # substitution: exit codes per rulings 149, 152, 153 (32 failed, 48 refused, 49 fatal findings; Go's 1, 2, 3); no runtime declines the request against the machine (48, Go's 3).
       Given an initialized ctxloom project
       And no container runtime is installed
       When I run "ctxloom container prune"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the output contains "no container runtime is available to prune"

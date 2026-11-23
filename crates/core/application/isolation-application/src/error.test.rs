@@ -37,7 +37,7 @@ fn every_sample_displays_its_code_and_its_message_uses_exactly_its_args() {
     }
 }
 
-// A session a worktree keeps is a decline (20): nothing was removed, and the
+// A session a worktree keeps is a decline (48): nothing was removed, and the
 // state, not ctxloom, forbade it.
 #[test]
 fn a_session_its_worktrees_keep_is_refused() {

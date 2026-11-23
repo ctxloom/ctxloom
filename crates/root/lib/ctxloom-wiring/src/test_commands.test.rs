@@ -60,11 +60,11 @@ fn refuse_is_a_refusal_with_a_remedy_and_findings_are_fatal() {
     let world = World::new("test-ladder");
     assert_eq!(
         failure(&world, &["test", "refuse"]),
-        (20, "ctxloom-wiring-test-refused".to_string())
+        (48, "ctxloom-wiring-test-refused".to_string())
     );
     assert_eq!(
         failure(&world, &["test", "findings"]),
-        (21, "ctxloom-wiring-test-findings".to_string())
+        (49, "ctxloom-wiring-test-findings".to_string())
     );
 }
 
@@ -75,7 +75,7 @@ fn the_sample_list_is_two_rows_or_none_in_json_and_in_text() {
     // Whatever the layout, the document is these rows.
     let compact = |text: String| text.split_whitespace().collect::<String>();
     let (code, out, err) = json(&["test", "sample"]);
-    assert_eq!((code, err.as_str()), (0, ""));
+    assert_eq!((code, err.as_str()), (16, ""));
     assert_eq!(
         compact(out),
         "[{\"name\":\"alpha\",\"count\":1},{\"name\":\"beta\",\"count\":2}]"
@@ -138,7 +138,7 @@ fn diagnostics_are_the_envelopes_of_the_lines_wiring_and_the_roots_samples() {
     let world = World::new("test-diagnostics");
     let mut commands = world.commands().with_diagnostic_samples(extra);
     let (code, out, _) = run_line(&mut commands, &["test", "diagnostics"]);
-    assert_eq!(code, 0);
+    assert_eq!(code, 16);
     assert!(out.starts_with('[') && out.ends_with("]\n"), "{out}");
     for code in [
         "ctxloom-cli-usage",
@@ -161,7 +161,7 @@ fn diagnostics_are_the_envelopes_of_the_lines_wiring_and_the_roots_samples() {
 fn a_session_id_is_a_minted_harp_on_a_line() {
     let world = World::new("test-session-id");
     let (code, out, _) = run_line(&mut world.commands(), &["test", "session-id"]);
-    assert_eq!(code, 0);
+    assert_eq!(code, 16);
     let line = out.strip_suffix('\n').unwrap();
     assert_eq!(line.split('-').count(), 3, "{line}");
 }
@@ -175,7 +175,7 @@ fn a_run_id_is_the_runs_uuid_and_a_bad_session_is_refused() {
     assert_ne!(out, format!("{}\n", crate::run_id(session, 4).unwrap()));
     assert_eq!(
         failure(&world, &["test", "run-id", "not-a-uuid", "1"]),
-        (10, "ctxloom-wiring-bad-session".to_string())
+        (32, "ctxloom-wiring-bad-session".to_string())
     );
 }
 
@@ -188,7 +188,7 @@ fn open_store_prints_the_path_of_the_projects_database() {
     assert!(path.starts_with(world.home()), "{path:?}");
     assert_eq!(
         failure(&world, &["test", "open-store", "../escape"]),
-        (10, "ctxloom-wiring-store".to_string())
+        (32, "ctxloom-wiring-store".to_string())
     );
 }
 
@@ -216,7 +216,7 @@ fn a_seed_that_cannot_plant_ends_in_a_failure() {
     run_line(&mut world.commands(), &line);
     assert_eq!(
         failure(&world, &line),
-        (10, "ctxloom-wiring-seed".to_string())
+        (32, "ctxloom-wiring-seed".to_string())
     );
 }
 

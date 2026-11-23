@@ -49,20 +49,20 @@ fn both(config: &str) -> [(i32, Value); 2] {
 }
 
 #[test]
-fn test_a_refused_launch_exits_20_from_run_and_from_init_at_a_terminal() {
+fn test_a_refused_launch_exits_48_from_run_and_from_init_at_a_terminal() {
     let [(run_exit, run), (init_exit, init)] = both("schema_version: 99\n");
-    assert_eq!((run_exit, init_exit), (20, 20), "{run} {init}");
+    assert_eq!((run_exit, init_exit), (48, 48), "{run} {init}");
     assert_eq!(run["code"], "library-application-config-newer");
     assert_eq!(init["code"], run["code"], "the same refusal");
 }
 
-// Ruling 152: a profile nobody has declines the launch (20), from run and
+// Ruling 152: a profile nobody has declines the launch (48), from run and
 // from init alike.
 #[test]
-fn test_a_launch_of_a_profile_nobody_has_exits_20_from_run_and_from_init_at_a_terminal() {
+fn test_a_launch_of_a_profile_nobody_has_exits_48_from_run_and_from_init_at_a_terminal() {
     let [(run_exit, run), (init_exit, init)] = both(
         "schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n    profiles: [ghost]\n    runtime: host\ndefault_agent: dev\n",
     );
-    assert_eq!((run_exit, init_exit), (20, 20), "{run} {init}");
+    assert_eq!((run_exit, init_exit), (48, 48), "{run} {init}");
     assert_eq!(init["code"], run["code"], "the same refusal");
 }

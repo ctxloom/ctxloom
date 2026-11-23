@@ -340,6 +340,12 @@ pub(crate) fn client_terminal(
         result: Err(error),
         notices: Vec::new(),
     };
+    if let Err(e) = wiring.require_project_root() {
+        return refused(crate::oneshot::failed(cli_support::Failure::new(
+            e,
+            cli_support::Exit::REFUSED,
+        )));
+    }
     // Resolved before the run's runtime starts: the resolution blocks on a
     // runtime of its own.
     let parent = match crate::daemon::library_parent(wiring, stamp, crate::Minting::AtRoot) {

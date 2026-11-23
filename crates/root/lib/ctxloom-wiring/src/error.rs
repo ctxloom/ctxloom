@@ -33,6 +33,9 @@ pub enum LibError {
     /// refused and writes nothing. (A command that must name its project
     /// mints the id at its root instead.)
     ProjectUnnamed { root: String },
+    /// No project root: no `.ctxloom` of its own, no git root, and no
+    /// `--root` or `CTXLOOM_ROOT` (the user's home is never taken for one).
+    ProjectRootNeeded { cwd: String },
     /// `daemon serve` found another daemon holding the account's
     /// single-instance lock: that one serves, and this one does not.
     DaemonInstanceHeld { lock: String },
@@ -50,9 +53,9 @@ impl cli_support::ExitClass for LibError {
     /// failed (10).
     fn exit(&self) -> cli_support::Exit {
         match self {
-            LibError::ProjectUnnamed { .. } | LibError::DaemonInstanceHeld { .. } => {
-                cli_support::Exit::REFUSED
-            }
+            LibError::ProjectUnnamed { .. }
+            | LibError::ProjectRootNeeded { .. }
+            | LibError::DaemonInstanceHeld { .. } => cli_support::Exit::REFUSED,
             _ => cli_support::Exit::FAILED,
         }
     }
@@ -76,6 +79,7 @@ impl Diagnostic for LibError {
             LibError::Project(cause) => cause.code(),
             LibError::DaemonOtherHome { .. } => code!("daemon-other-home"),
             LibError::ProjectUnnamed { .. } => code!("project-unnamed"),
+            LibError::ProjectRootNeeded { .. } => code!("project-root-needed"),
             LibError::Checkout { .. } => code!("checkout"),
             LibError::Scan { .. } => code!("scan"),
             LibError::DaemonInstanceHeld { .. } => code!("daemon-instance-held"),
@@ -97,6 +101,7 @@ impl Diagnostic for LibError {
                 ("daemon_home", daemon_home.as_str().into()),
             ],
             LibError::ProjectUnnamed { root } => vec![("root", root.as_str().into())],
+            LibError::ProjectRootNeeded { cwd } => vec![("cwd", cwd.as_str().into())],
             LibError::Checkout { path, detail } | LibError::Scan { path, detail } => vec![
                 ("path", path.as_str().into()),
                 ("ext_err_txt", detail.as_str().into()),
@@ -123,6 +128,9 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(LibError::DaemonOtherHome {
             home: "/home/u/.ctxloom-other".to_string(),
             daemon_home: "/home/u".to_string(),
+        }),
+        Box::new(LibError::ProjectRootNeeded {
+            cwd: "/home/u/newproj".to_string(),
         }),
         Box::new(LibError::ProjectUnnamed {
             root: "/work/app".to_string(),

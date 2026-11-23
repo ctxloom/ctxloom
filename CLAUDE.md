@@ -3714,7 +3714,23 @@ a `.git` directory or file, so a worktree's too, unless that root holds the
 project, and resolves to its own or to none), as every library
 read finds it (`Wiring::ctxloom_project`, through `find_app_dir`); only
 where there is neither is the root the registry's own (the git top, else
-the working directory). It is the registry's `Environment.root`
+the working directory). THE PROJECT ROOT AND THE DAEMON ROOT ARE TWO THINGS
+(owner ruling 2026-11-22): the project root is `CTXLOOM_ROOT`, or its flag
+form, the global `--root[=<dir>]` (`--root=<dir>` names it, a bare `--root`
+makes the user's home directory the project root; the flag wins over the
+variable; `ctxloom_wiring::root_flag::applied` puts it in the environment
+snapshot as `CTXLOOM_ROOT` before anything is wired, so the daemon, which
+reads the caller's whole environment, sees it); the daemon root is
+`CTXLOOM_HOME` (the store, the daemon's directory, the `users/me` library;
+to be renamed `CTXLOOM_DAEMON_ROOT` / `--daemon-root` apart). The walk never
+adopts the user's home's `.ctxloom` nor the daemon root's as a project
+(`Surroundings::user_home`, `home`); only an explicit root does. A run
+(`client_one_shot`, `client_terminal`) where no project is found, no root is
+named and no git root is above the working directory is refused
+`ctxloom-wiring-project-root-needed` (exit 20, its fix naming `--root`, the
+wording a DRAFT); `init` there makes the project in the working directory.
+The per-verb `--home` of `config set` and `agent create|edit` is the home
+CONFIG layer, unrelated. It is the registry's `Environment.root`
 (`Wiring::environment`), which the run, the sessions use cases, the
 daemon client's `registration()` and the names' `library_registration()`
 (the same, but `users/me` outside a ctxloom project) all use, so a

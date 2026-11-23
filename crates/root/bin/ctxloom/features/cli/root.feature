@@ -1,4 +1,5 @@
 # world: base
+# NOT ported: nothing; the root flag is new.
 @doc
 Feature: the project root — `--root`, `CTXLOOM_ROOT`, and where a project is looked for
 
@@ -34,6 +35,7 @@ Feature: the project root — `--root`, `CTXLOOM_ROOT`, and where a project is l
   Rule: With no `--root` and no git, the walk never lands on her home's or the daemon root's `.ctxloom`
 
     Scenario: init in a fresh directory below her home makes the project there
+      # new: the project root flag, owner ruling 2026-11-22.
       Given an empty project directory
       And her daemon root is elsewhere, and her home holds a ctxloom directory of her own
       And a directory "newproj" in her home
@@ -44,6 +46,7 @@ Feature: the project root — `--root`, `CTXLOOM_ROOT`, and where a project is l
       And the home's file ".ctxloom/remotes.yaml" does not exist
 
     Scenario: a command that needs a project is refused there, naming `--root`
+      # new: the project root flag, owner ruling 2026-11-22.
       Given an empty project directory
       And her daemon root is elsewhere, and her home holds a ctxloom directory of her own
       And a directory "newproj" in her home
@@ -56,6 +59,7 @@ Feature: the project root — `--root`, `CTXLOOM_ROOT`, and where a project is l
   Rule: `--root` names the project
 
     Scenario: a bare `--root` makes her home the project root
+      # new: the project root flag, owner ruling 2026-11-22.
       Given an empty project directory
       And her daemon root is elsewhere, and her home holds a ctxloom directory of her own
       And a directory "newproj" in her home
@@ -65,6 +69,7 @@ Feature: the project root — `--root`, `CTXLOOM_ROOT`, and where a project is l
       And the home's file "newproj/.ctxloom/remotes.yaml" does not exist
 
     Scenario: `--root=<dir>` names the project directory, wherever she stands
+      # new: the project root flag, owner ruling 2026-11-22.
       Given an empty project directory
       And her daemon root is elsewhere, and her home holds a ctxloom directory of her own
       And a directory "newproj" in her home
@@ -75,6 +80,7 @@ Feature: the project root — `--root`, `CTXLOOM_ROOT`, and where a project is l
       And the home's file ".ctxloom/remotes.yaml" does not exist
 
     Scenario: `CTXLOOM_ROOT` names the project when the flag is omitted
+      # new: the project root flag, owner ruling 2026-11-22.
       Given an empty project directory
       And her daemon root is elsewhere, and her home holds a ctxloom directory of her own
       And a directory "newproj" in her home
@@ -85,6 +91,7 @@ Feature: the project root — `--root`, `CTXLOOM_ROOT`, and where a project is l
       And the home's file "newproj/.ctxloom/remotes.yaml" does not exist
 
     Scenario: the flag wins over `CTXLOOM_ROOT`
+      # new: the project root flag, owner ruling 2026-11-22.
       Given an empty project directory
       And her daemon root is elsewhere, and her home holds a ctxloom directory of her own
       And a directory "newproj" in her home
@@ -97,6 +104,7 @@ Feature: the project root — `--root`, `CTXLOOM_ROOT`, and where a project is l
   Rule: inside git nothing changes
 
     Scenario: init at a git root makes the project there
+      # new: the project root flag, owner ruling 2026-11-22.
       Given an empty project directory that is a git repository
       When I run "ctxloom init --format text"
       Then the command succeeds

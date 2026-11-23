@@ -29,6 +29,7 @@ mod program;
 mod rebind;
 #[cfg(feature = "test-support")]
 mod record;
+mod root_flag;
 mod scheduling;
 #[cfg(feature = "test-support")]
 mod seed;
@@ -475,6 +476,24 @@ impl Wiring {
         }
         let at = app.path.parent()?.to_path_buf();
         (at != self.home).then_some(at)
+    }
+
+    /// Refused where there is no project root to work in (a run's need):
+    /// no `CTXLOOM_ROOT` or `--root`, no `.ctxloom` of a project found by
+    /// the walk, and no git root above the working directory. The user's
+    /// home, and the daemon root, are never taken for one.
+    pub(crate) fn require_project_root(&self) -> Result<(), LibError> {
+        let cwd = self.env.cwd().unwrap_or_else(|_| PathBuf::from("."));
+        let named = self.env.non_empty("CTXLOOM_ROOT").is_some();
+        if named
+            || self.ctxloom_project().is_some()
+            || config_files::git_root_above(self.fs.as_ref(), &cwd)
+        {
+            return Ok(());
+        }
+        Err(LibError::ProjectRootNeeded {
+            cwd: cwd.display().to_string(),
+        })
     }
 
     /// The registry's environment, the ONE project resolution every command

@@ -510,6 +510,18 @@ impl Extension for Commands {
         out: &mut dyn Write,
         err: &mut dyn Write,
     ) -> Result<Exit, Failure> {
+        // The project root the flag names, as `CTXLOOM_ROOT` for everything
+        // wired after this (and the daemon, which reads the caller's whole
+        // environment).
+        self.env = crate::root_flag::applied(
+            &self.env,
+            call.matches
+                .try_get_one::<String>("root")
+                .ok()
+                .flatten()
+                .map(String::as_str),
+        )
+        .map_err(|e| Failure::new(e, cli_support::Exit::REFUSED))?;
         let ran = self.run_noun(noun, call, catalog, out, err);
         // What the flush on the way in set aside (s4-Q14, H3), said once
         // a session as the command ends.

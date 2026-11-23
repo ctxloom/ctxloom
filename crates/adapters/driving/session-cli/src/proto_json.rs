@@ -133,6 +133,23 @@ pub fn session(session: &v1::Session) -> Value {
         .message("last_failure", session.last_failure.as_ref().map(failure))
         .flag("wakeable", session.wakeable)
         .text("wake", &session.wake)
+        .text("agent", &session.agent)
+        .list(
+            "profiles",
+            session
+                .profiles
+                .iter()
+                .map(|name| Value::from(name.as_str()))
+                .collect(),
+        )
+        .list(
+            "tags",
+            session
+                .tags
+                .iter()
+                .map(|name| Value::from(name.as_str()))
+                .collect(),
+        )
         .done()
 }
 

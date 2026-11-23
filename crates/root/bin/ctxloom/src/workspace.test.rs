@@ -589,6 +589,7 @@ const CALLERLESS_RPCS: &[&str] = &[
     "GetTranscript",
     "WatchTranscript",
     "WatchSession",
+    "WatchTop",
     "ListWorktrees",
     "DeleteHandOff",
     "GetRun",

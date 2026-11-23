@@ -210,6 +210,9 @@ fn every_field_of_a_session() -> v1::Session {
         }),
         wakeable: true,
         wake: "not answered".to_string(),
+        agent: "reviewer".to_string(),
+        profiles: vec!["review".to_string()],
+        tags: vec!["team-rules".to_string()],
     }
 }
 

@@ -226,6 +226,13 @@ service Ctxloom {
   // (-- api-linter: core::0136::response-message-name=disabled
   //     aip.dev/not-precedent: a daemon-folded stream of the resource's lines or events (S44). --)
   rpc WatchSession(WatchSessionRequest) returns (stream SessionSignal);
+  // DRAFT (`ctxloom top`): what the daemon hosts, live, scoped to a project's
+  // sessions, one session or a subtree. The first message is a snapshot; each
+  // after it is a change, pushed from the daemon's projection when it folds
+  // (never polled). Filtering is the daemon's; sorting the client's.
+  // (-- api-linter: core::0136::response-message-name=disabled
+  //     aip.dev/not-precedent: a daemon-folded stream of the resource's lines or events (S44). --)
+  rpc WatchTop(WatchTopRequest) returns (stream TopEvent);
   // `session worktrees`: a session's scratch checkouts.
   rpc ListWorktrees(ListWorktreesRequest) returns (ListWorktreesResponse) {
     option (google.api.method_signature) = "parent";
@@ -1150,6 +1157,15 @@ message Session {
   // `GetSession` only: its terminal wake, `outstanding` (posted, its turn
   // not yet started), `not answered` (disarmed unanswered), or empty.
   string wake = 23 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // DRAFT (`ctxloom top`): the agent the session was planned on, from its
+  // recorded loadout; empty for a session with none (the default agent, or
+  // one whose loadout is not recorded).
+  string agent = 24 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // DRAFT: the profile names its loadout composed.
+  repeated string profiles = 25 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // DRAFT: `tags`, as the owner rules: the names of the bundles its
+  // profiles' loadout loaded (neither `--tag`s nor select_tags).
+  repeated string tags = 26 [(google.api.field_behavior) = OUTPUT_ONLY];
 }
 
 // What a run was launched with: its MCP servers' NAMES and its engine's
@@ -1631,6 +1647,96 @@ message SessionSignal {
   repeated string wakes = 1;
   // Its outstanding wake's nonce; empty when none is.
   string outstanding_wake = 2;
+}
+
+// DRAFT (`ctxloom top`): the scope and filters of a watch. The scope is the
+// whole list (`session` empty), one session (`session` set), or its subtree
+// (`session` set and `subtree`); filters apply within it.
+message WatchTopRequest {
+  // `projects/{project}`, or `projects/-` for every project.
+  string parent = 1 [(google.api.field_behavior) = REQUIRED];
+  // The session scoped to, `projects/{project}/sessions/{session}`; empty,
+  // every session of `parent`.
+  string session = 2 [(google.api.field_behavior) = OPTIONAL];
+  // With `session`: it and every descendant, not it alone.
+  bool subtree = 3 [(google.api.field_behavior) = OPTIONAL];
+  // Only sessions in these states; none, `LIVE` alone.
+  repeated Session.State states = 4 [(google.api.field_behavior) = OPTIONAL];
+  repeated string agents = 5 [(google.api.field_behavior) = OPTIONAL];
+  repeated string profiles = 6 [(google.api.field_behavior) = OPTIONAL];
+  repeated string tags = 7 [(google.api.field_behavior) = OPTIONAL];
+  repeated string engines = 8 [(google.api.field_behavior) = OPTIONAL];
+  // Only the direct children of these sessions (their harps).
+  repeated string owners = 9 [(google.api.field_behavior) = OPTIONAL];
+  // A session in scope whose log is carried (a one-session scope carries its
+  // own log without this); none, no log.
+  string log_session = 10 [(google.api.field_behavior) = OPTIONAL];
+}
+
+// DRAFT: one line of `ctxloom top`'s stream, exactly one field set.
+message TopEvent {
+  oneof event {
+    TopWaiting waiting = 1;
+    TopSnapshot snapshot = 2;
+    TopSessionChanged session_changed = 3;
+    TopSessionRemoved session_removed = 4;
+    TopApprovalAsked approval_asked = 5;
+    TopApprovalSettled approval_settled = 6;
+    TopLog log = 7;
+  }
+}
+
+// Said by the client while no daemon is reached; the daemon never sends it.
+message TopWaiting {
+  string reason = 1;
+}
+
+// Every session in scope that matches, and every ask waiting under them.
+message TopSnapshot {
+  repeated Session sessions = 1;
+  repeated Approval approvals = 2;
+}
+
+message TopSessionChanged {
+  Session session = 1;
+}
+
+message TopSessionRemoved {
+  enum Reason {
+    REASON_UNSPECIFIED = 0;
+    // It no longer matches the filter (it ended, say).
+    LEFT_FILTER = 1;
+    // The session was destroyed.
+    DESTROYED = 2;
+  }
+  string name = 1;
+  Reason reason = 2;
+}
+
+message TopApprovalAsked {
+  Approval approval = 1;
+}
+
+// The approval with its `state` (`answered`, `expired`, `withdrawn`) and `option`.
+message TopApprovalSettled {
+  Approval approval = 1;
+}
+
+message TopLog {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    TRANSCRIPT = 1;
+    DAEMON = 2;
+  }
+  string session = 1;
+  google.protobuf.Timestamp time = 2;
+  Kind kind = 3;
+  // A transcript entry: the line's JSON envelope as the transcript has it.
+  string line = 4;
+  // A daemon entry: the event's word (`started`, `exited`, `rehosted`,
+  // `approval_asked`, `approval_settled`) and its text.
+  string event = 5;
+  string text = 6;
 }
 
 // `session transcript watch <harp>`.

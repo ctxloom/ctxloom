@@ -133,7 +133,7 @@ fn test_flattened_args_are_rebuilt_whole_integers_and_causes_included() {
 #[test]
 fn test_an_end_names_the_exit_by_its_block() {
     assert_eq!(exit_of(0), Exit::OK);
-    assert_eq!(exit_of(16), Exit::OK);
+    assert_eq!(exit_of(16), Exit::DETAILED_OK);
     assert_eq!(exit_of(17), Exit::WOULD_CHANGE);
     assert_eq!(exit_of(31), Exit::success(31));
     assert_eq!(exit_of(32), Exit::FAILED);

@@ -47,13 +47,16 @@ pub fn run(
     let command = command(&context.version, nouns);
     let matches = match command.clone().try_get_matches_from(&args) {
         Ok(matches) => matches,
-        Err(e) => return refused(e, &command, &args, context, catalog, out, err).code(false),
+        Err(e) => {
+            let exit = refused(e, &command, &args, context, catalog, out, err);
+            return cli_support::ExitStatuses::new(false).code(exit);
+        }
     };
-    let detailed = cli_support::detailed_exitcode(&matches);
-    answer(
+    let statuses = cli_support::exit_statuses(&matches);
+    let exit = answer(
         &matches, &names, &command, &args, context, catalog, services, out, err,
-    )
-    .code(detailed)
+    );
+    statuses.code(exit)
 }
 
 /// Answer the parsed line: how the command ended.

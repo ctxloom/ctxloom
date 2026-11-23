@@ -1791,7 +1791,7 @@ router, the platform crates, `angzarr-build` and `angzarr-codegen` were five
 repositories and are crates of that workspace now; `angzarr-coordinator-grpc`'s
 `tls` feature, which `hook-listener` enables, is `Listener::tls`). taskloom's
 crates (`d43fb683`) and
-rust-support's (`fea46b99`) are built on the same commit, so moving one moves
+rust-support's (`fcad01b0`) are built on the same commit, so moving one moves
 all. The lock holds one of every angzarr crate. The platform crates (`os`,
 `file-system`, `file-lock`) are `Apache-2.0 OR BSD-3-Clause`; the shared runtime
 crates (`angzarr-diagnostic`, `angzarr-presentation`, `angzarr-yaml`,
@@ -3571,7 +3571,7 @@ outcomes, the higher detailed code, wins), encoded as
 rust-support's `exit-code` crate's `Exit` (re-exported by `cli-support`). An
 application error says its class by implementing `ExitClass`; a `Failure`
 carries an `Exit`; `ctxloom_cli::run` turns it into the status with
-`Exit::code(detailed)`, the one place the collapse lives. ctxloom's codes:
+`ExitStatuses` (bound once from the line's flag by `cli_support::exit_statuses`; `Exit::code(detailed)` is the one place the collapse lives). ctxloom's codes:
 
 - **0** ok (an apply, a read, or a plan or preview that succeeded): every
   success without `--detailed-exitcode`; under it a plain success is **16**,
@@ -3614,7 +3614,7 @@ session's, init's interview) is said in these classes by
 any other failed (32). The one status read by its blocks
 (`Exit::from_convention_child_status`, opt-in, for a child known to follow
 the convention) is the daemon's: a hosted run's `RunEnd.exit` is ctxloom's own
-`Exit::code(true)`, read by `run_application::client::exit_of`.
+`Exit::code(true)` (ok is 16 there), read by `run_application::client::exit_of`.
 
 ## The library as AIP resources (OD-40, the spine `aip/spine`)
 

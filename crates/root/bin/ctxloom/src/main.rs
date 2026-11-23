@@ -135,7 +135,7 @@ fn main() -> ExitCode {
                 &catalog,
                 &mut io::stderr(),
             );
-            return ExitCode::from(Exit::FAILED.code(false));
+            return Exit::FAILED.process(false);
         }
     };
     // The process's environment, read once: everything below is handed it.

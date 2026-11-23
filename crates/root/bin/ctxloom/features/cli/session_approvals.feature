@@ -406,3 +406,61 @@ Feature: session approvals — a child's permission ask, answered by the user
       When I run "ctxloom session approvals answer brisk-copper-moth allow-once"
       Then the command succeeds
       And the child's engine was told to run the tool
+
+  Rule: The terminal session's own frontend tells its human of an ask that arrives under it
+
+    A session whose TUI the human is in has no screen of ours: its child's
+    ask would wait unseen, and be denied when its time ran out. So while
+    the TUI runs, its frontend looks at the waiting asks under its session
+    (once a second), and for each one it has not told of rings the terminal
+    bell once and writes one line to the terminal's standard error: who
+    asks, what it asks to run, and the command that answers it. An ask
+    answered, expired or withdrawn is told no more. Answering stays in
+    `ctxloom session approvals answer`. The line's words are a draft.
+
+    Scenario: An ask arriving under a running session rings the bell once and says one line
+      # new: owner ruling 2026-11-22 (uncanny-earpiece): the root's frontend rings and says one line.
+      Given an initialized ctxloom project
+      And an interactive session "amber-swift-owl" is running in a terminal, with a child "brisk-copper-moth" of it
+      When "brisk-copper-moth"'s engine asks to run "Bash" with "rm -rf build/"
+      Then the session's frontend has told its human of 1 ask
+      When the session's terminal is released and the session ends
+      Then the session's terminal rang the bell 1 time
+      And the session's terminal was told once of "brisk-copper-moth"'s ask to run "Bash" with "rm -rf build/", with the command that answers it
+
+    Scenario: A second ask is told as well, with a bell of its own
+      # new: once per ask, not once per session.
+      Given an initialized ctxloom project
+      And an interactive session "amber-swift-owl" is running in a terminal, with a child "brisk-copper-moth" of it
+      When "brisk-copper-moth"'s engine asks to run "Bash" with "rm -rf build/"
+      Then the session's frontend has told its human of 1 ask
+      When "brisk-copper-moth"'s engine asks to run "Bash" with "make release"
+      Then the session's frontend has told its human of 2 asks
+      When the session's terminal is released and the session ends
+      Then the session's terminal rang the bell 2 times
+      And the session's terminal was told once of "brisk-copper-moth"'s ask to run "Bash" with "rm -rf build/", with the command that answers it
+      And the session's terminal was told once of "brisk-copper-moth"'s ask to run "Bash" with "make release", with the command that answers it
+
+    Scenario: An answered ask is told no more, and the next one is told
+      # new: an answered ask says nothing more.
+      Given an initialized ctxloom project
+      And an interactive session "amber-swift-owl" is running in a terminal, with a child "brisk-copper-moth" of it
+      When "brisk-copper-moth"'s engine asks to run "Bash" with "rm -rf build/"
+      Then the session's frontend has told its human of 1 ask
+      When I run "ctxloom session approvals answer brisk-copper-moth allow-once"
+      Then the command succeeds
+      When "brisk-copper-moth"'s engine asks to run "Bash" with "make release"
+      Then the session's frontend has told its human of 2 asks
+      When the session's terminal is released and the session ends
+      Then the session's terminal rang the bell 2 times
+      And the session's terminal was told once of "brisk-copper-moth"'s ask to run "Bash" with "rm -rf build/", with the command that answers it
+      And the session's terminal was told once of "brisk-copper-moth"'s ask to run "Bash" with "make release", with the command that answers it
+
+    Scenario: A session that is asked nothing says nothing
+      # new: no ask, no bell and no line.
+      Given an initialized ctxloom project
+      And an interactive session "amber-swift-owl" is running in a terminal, with a child "brisk-copper-moth" of it
+      Then the session's frontend has looked for asks 2 more times
+      When the session's terminal is released and the session ends
+      Then the session's terminal rang the bell 0 times
+      And the session's terminal was told of no ask

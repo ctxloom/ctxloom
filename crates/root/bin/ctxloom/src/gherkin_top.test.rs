@@ -23,6 +23,8 @@ const WAIT: Duration = Duration::from_secs(30);
 struct Stream {
     child: Child,
     lines: Receiver<String>,
+    /// What the scenario writes to its input.
+    input: Option<std::process::ChildStdin>,
 }
 
 impl Drop for Stream {
@@ -43,19 +45,39 @@ pub(super) struct State {
     /// How many lines had been read when an action was taken: a step that
     /// names a line "within N seconds" after it looks past them.
     mark: usize,
+    /// Streams started beside the first, by the name the scenario gave
+    /// them, each with the lines read from it.
+    named: std::collections::BTreeMap<String, (Stream, Vec<Value>)>,
 }
 
 #[given(expr = "I start {string} and read its output as it streams")]
 #[when(expr = "I start {string} and read its output as it streams")]
 fn started(w: &mut World, line: String) {
-    let words = split(&line);
+    let stream = spawn_stream(w, &line);
+    w.top.read.clear();
+    w.top.mark = 0;
+    w.top.that = None;
+    w.top.stream = Some(stream);
+}
+
+#[given(expr = "I start {string} and read its output as it streams, calling it {string}")]
+#[when(expr = "I start {string} and read its output as it streams, calling it {string}")]
+fn started_named(w: &mut World, line: String, name: String) {
+    let stream = spawn_stream(w, &line);
+    w.top.named.insert(name, (stream, Vec::new()));
+}
+
+/// `line`'s command started, its stdout read on a thread of its own.
+fn spawn_stream(w: &mut World, line: &str) -> Stream {
+    let words = split(line);
     assert_eq!(words.first().map(String::as_str), Some("ctxloom"), "{line}");
     let args: Vec<&str> = words[1..].iter().map(String::as_str).collect();
     let env = daemon_spec::env_of(w);
     let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
     daemon_spec::hold_owner_live(w, "amber-quiet-heron");
-    let mut child = w.common.project.start_with(&env, &args);
+    let mut child = w.common.project.start_with_input(&env, &args);
     let stdout = child.stdout.take().expect("stdout is piped");
+    let input = child.stdin.take();
     let (tx, lines) = channel();
     std::thread::spawn(move || {
         for line in BufReader::new(stdout).lines() {
@@ -65,10 +87,11 @@ fn started(w: &mut World, line: String) {
             }
         }
     });
-    w.top.read.clear();
-    w.top.mark = 0;
-    w.top.that = None;
-    w.top.stream = Some(Stream { child, lines });
+    Stream {
+        child,
+        lines,
+        input,
+    }
 }
 
 #[given(expr = "I start {string} with its output not a terminal and read it as it streams")]
@@ -568,4 +591,114 @@ fn that_holds(w: &mut World, path: String, text: String) {
     let line = w.top.that.clone().expect("a step found a line");
     let got = at(&line, &path).unwrap_or_else(|| panic!("no {path} in {line}"));
     assert!(said(got).contains(&text), "{path} is {got}: {line}");
+}
+
+/// The next line of the stream called `name`, within `within`.
+fn next_named(w: &mut World, name: &str, within: Duration) -> Option<Value> {
+    let (stream, read) = w.top.named.get_mut(name).expect("a stream of that name");
+    let line = stream.lines.recv_timeout(within).ok()?;
+    let parsed: Value = serde_json::from_str(&line)
+        .unwrap_or_else(|e| panic!("a line that is no JSON object ({e}): {line:?}"));
+    read.push(parsed.clone());
+    Some(parsed)
+}
+
+#[then(expr = "within {int} seconds a line of {string} has {string} containing {string}")]
+fn named_line_has(w: &mut World, seconds: u64, name: String, path: String, text: String) {
+    let deadline = Instant::now() + Duration::from_secs(seconds);
+    loop {
+        let read = w
+            .top
+            .named
+            .get(&name)
+            .expect("a stream of that name")
+            .1
+            .clone();
+        if let Some(found) = read
+            .iter()
+            .find(|line| at(line, &path).is_some_and(|got| said(got).contains(&text)))
+        {
+            w.top.that = Some(found.clone());
+            return;
+        }
+        let left = deadline.saturating_duration_since(Instant::now());
+        assert!(
+            !left.is_zero(),
+            "no line of {name} had {path} containing {text}: {read:?}"
+        );
+        next_named(w, &name, left.min(Duration::from_secs(1)));
+    }
+}
+
+#[then(expr = "no line read names {string}")]
+fn no_line_names(w: &mut World, text: String) {
+    for line in &w.top.read {
+        assert!(
+            !line.to_string().contains(&text),
+            "a line names {text}: {line}"
+        );
+    }
+}
+
+#[then(expr = "within {int} seconds no line names {string}")]
+fn within_no_line_names(w: &mut World, seconds: u64, text: String) {
+    let deadline = Instant::now() + Duration::from_secs(seconds);
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            break;
+        }
+        next_line(w, left.min(Duration::from_secs(1)));
+    }
+    no_line_names(w, text);
+}
+
+#[then(expr = "no line read has {string} containing {string}")]
+fn no_line_has_containing(w: &mut World, path: String, text: String) {
+    for line in &w.top.read {
+        if let Some(got) = at(line, &path) {
+            assert!(!said(got).contains(&text), "{path} is {got}: {line}");
+        }
+    }
+}
+
+#[when(expr = "I write {string} to its input")]
+fn wrote_to_input(w: &mut World, text: String) {
+    use std::io::Write;
+    let stream = w.top.stream.as_mut().expect("a stream was started");
+    let input = stream.input.as_mut().expect("its input is open");
+    // The stream ignores what it is told; a broken pipe is the same.
+    let _ = writeln!(input, "{text}").and_then(|()| input.flush());
+}
+
+#[given(expr = "the daemon's round period is an hour")]
+fn round_period_an_hour(w: &mut World) {
+    daemon_spec::set_round_period(w, 3_600_000);
+}
+
+#[given(expr = "an ended session {string} that nothing keeps")]
+fn ended_session(w: &mut World, harp: String) {
+    daemon_spec::ended_session(w, &harp);
+}
+
+#[given(expr = "a second project {string} with a session {string} running")]
+fn second_project(w: &mut World, name: String, harp: String) {
+    daemon_spec::second_project_running(w, &name, &harp);
+}
+
+#[given(
+    expr = "a ctxloom daemon is serving for this home, draining, and hosting a child {string} that does not end its turn"
+)]
+fn serving_draining(w: &mut World, child: String) {
+    daemon_spec::serving_draining(w, child);
+}
+
+#[when("the daemon is killed outright")]
+fn daemon_killed(w: &mut World) {
+    daemon_spec::kill_daemon(w);
+}
+
+#[when("a ctxloom daemon starts serving for this home")]
+fn daemon_starts_serving(w: &mut World) {
+    daemon_spec::serve_again(w);
 }

@@ -93,6 +93,10 @@ pub(super) struct State {
     before_kill: Option<run_ports::Discovery>,
     /// A second project's directory (U5: two sessions, two projects).
     second: Option<PathBuf>,
+    /// The daemon's round period, in milliseconds, when a step set one.
+    poll_ms: Option<u64>,
+    /// Processes that hold sessions' locks until the scenario ends.
+    holders: Vec<Child>,
     /// The daemon a step killed outright, by its pid.
     killed_pid: Option<u32>,
     /// Where the TUI stub records itself, when not on the scenario's PATH.
@@ -283,7 +287,11 @@ fn start_daemon_serving(w: &mut World, idle: u64, more: &[&str]) {
     let env = env_of(w);
     let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
     let idle = idle.to_string();
+    let poll = w.daemon_spec.poll_ms.map(|ms| ms.to_string());
     let mut args = vec!["daemon", "serve", "--idle-seconds", &idle];
+    if let Some(poll) = &poll {
+        args.extend(["--poll-ms", poll]);
+    }
     args.extend_from_slice(more);
     let daemon = w.common.project.start_with(&env, &args);
     w.daemon_spec.daemon = Some(daemon);
@@ -354,6 +362,80 @@ fn write_project_config(w: &mut World) {
     if !w.daemon_spec.own_agents {
         w.common.project.write(".ctxloom/config.yaml", &config);
     }
+}
+
+/// The daemon the scenario starts looks at the store every `ms`: a change
+/// reaches a watch only by being pushed.
+pub(super) fn set_round_period(w: &mut World, ms: u64) {
+    w.daemon_spec.poll_ms = Some(ms);
+}
+
+/// A session `harp`, ended long ago and kept by nothing, in this project.
+pub(super) fn ended_session(w: &mut World, harp: &str) {
+    hosting_daemon(w);
+    let seeded = run_now(
+        w,
+        &[
+            "test",
+            "seed-session",
+            harp,
+            "--lock",
+            "free",
+            "--transcript",
+            "--started-ago",
+            "6048000",
+            "--ended-ago",
+            "5184000",
+        ],
+    );
+    assert_eq!(seeded.code, 0, "{}", seeded.said());
+}
+
+/// The project `name` beside this one, with a session `harp` that is
+/// running there: its lock held until the scenario ends.
+pub(super) fn second_project_running(w: &mut World, name: &str, harp: &str) {
+    second_project_beside(w, name.to_string());
+    hosting_daemon(w);
+    let seeded = run_in_beside(w, name, &["test", "seed-session", harp, "--lock", "free"]);
+    assert_eq!(seeded.code, 0, "{}", seeded.said());
+    let dir = w.common.project.home().join(format!("lock-{harp}"));
+    let lock = beside(w, name).join(format!(".ctxloom/sessions/{harp}/session.lock"));
+    let holder = dir.join("holds-lock");
+    files::put_program(&holder, &holds_lock());
+    let release = dir.join("release");
+    let assistant = std::process::Command::new(&holder)
+        .args([lock.as_os_str(), release.as_os_str()])
+        .spawn()
+        .expect("her assistant starts");
+    let _ = release;
+    w.daemon_spec.holders.push(assistant);
+}
+
+/// A daemon serving, draining, and hosting `child`, which does not end its
+/// turn.
+pub(super) fn serving_draining(w: &mut World, child: String) {
+    serving_hosting_deaf(w, child);
+    let drained = run_now(w, &["daemon", "stop", "--drain"]);
+    assert_eq!(drained.code, 0, "{}", drained.said());
+    until(w, "the daemon draining", DAEMON_WAIT, |w| {
+        let status = run_now(w, &["daemon", "status", "--format", "json"]);
+        (status.json()["draining"] == true).then_some(())
+    });
+}
+
+/// The daemon the scenario started is killed outright.
+pub(super) fn kill_daemon(w: &mut World) {
+    if let Some(daemon) = w.daemon_spec.daemon.as_mut() {
+        let _ = daemon.kill();
+    }
+    daemon_gone(w);
+}
+
+/// A daemon serves for this home, hosting nothing.
+pub(super) fn serve_again(w: &mut World) {
+    w.common
+        .set_env(IDLE_VARIABLE, SPAWNED_IDLE_SECONDS.to_string());
+    start_daemon_idling(w, DEFAULT_IDLE_SECONDS);
 }
 
 /// The session `owner`, seeded, is live: a process holds its lock until the

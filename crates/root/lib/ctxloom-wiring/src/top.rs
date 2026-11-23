@@ -42,6 +42,12 @@ impl<'a> DaemonTop<'a> {
     }
 }
 
+/// A draining daemon refuses every new call: it is none to watch through,
+/// and `top` waits for the next.
+fn is_draining(called: &daemon_ports::Called) -> bool {
+    called.refusal::<v1::DaemonDraining>().is_some()
+}
+
 /// A call that came to nothing as the command's failure.
 fn failure(called: daemon_ports::Called) -> session_cli::Failure {
     // A session the project does not have is `top`'s own refusal, said so.
@@ -69,6 +75,7 @@ impl session_cli::TopSource for DaemonTop<'_> {
                 match self.runtime.block_on(api.resolve_project(registration)) {
                     Ok(project) => project.name,
                     Err(daemon_ports::Called::Unreachable { .. }) => return Ok(None),
+                    Err(draining) if is_draining(&draining) => return Ok(None),
                     Err(refused) => return Err(failure(refused)),
                 }
             }
@@ -82,6 +89,7 @@ impl session_cli::TopSource for DaemonTop<'_> {
                 runtime: Arc::clone(&self.runtime),
             }))),
             Err(daemon_ports::Called::Unreachable { .. }) => Ok(None),
+            Err(draining) if is_draining(&draining) => Ok(None),
             Err(refused) => Err(failure(refused)),
         }
     }

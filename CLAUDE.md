@@ -1705,7 +1705,11 @@ Dependencies point inward; a review refuses a change that breaks these, and
 crates to `arch-rules.toml`: a table of which role (`crates/<ring>/<role>`)
 may depend on which, with the known departures listed as exceptions, each with
 its reason and a fix (debt; a stale one fails). The lint is rust-support's
-`arch-lint`, installed at the pinned commit into `~/.cache/ctxloom-arch-lint`.
+`arch-lint`, installed at the pinned commit into `${CARGO_HOME:-~/.cargo}/ctxloom-arch-lint/<rev>`
+(under CARGO_HOME because a launch gives every engine the user's own, while its HOME is a
+per-session one; `scripts/arch-lint-install.sh` never prompts for credentials and gives up
+after `ARCH_LINT_TIMEOUT`, 900 s, saying `FAIL lint-arch` with its log
+`target/logs/arch-lint-install.log`; self-test in `just selftest`).
 A dev-dependency finding is a warning.
 
 The rules:

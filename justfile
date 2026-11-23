@@ -24,9 +24,10 @@ mod? dev '.dev'
 # What gates/arch-gates.just takes from this justfile: the arch-lint binary, built
 # from the same rust-support commit the workspace pins (arch_lint_rev, kept
 # equal to Cargo.toml's by `_arch-lint-ready`'s check) and installed once per
-# commit into the user's cache, shared by every worktree.
+# commit under CARGO_HOME (which every engine launch gives its children as the
+# user's own, while their HOME is a per-session one), shared by every worktree.
 arch_lint_rev := "5bc1d60f1a10d4902b2daad36c348e9bc39c15fa"
-arch_lint_root := env_var_or_default("XDG_CACHE_HOME", env_var("HOME") / ".cache") / "ctxloom-arch-lint" / arch_lint_rev
+arch_lint_root := env_var_or_default("CARGO_HOME", env_var("HOME") / ".cargo") / "ctxloom-arch-lint" / arch_lint_rev
 arch_lint := arch_lint_root / "bin/arch-lint"
 
 # The staged tree is a sibling of the checkout, not under target/: cargo
@@ -371,9 +372,7 @@ _arch-lint-ready:
         echo "FAIL lint-arch: arch_lint_rev in the justfile is not the rust-support rev Cargo.toml pins" >&2
         exit 1
     fi
-    [ -x '{{arch_lint}}' ] && exit 0
-    cargo install --quiet --git https://github.com/benjaminabbitt/rust-support --rev {{arch_lint_rev}} \
-        arch-lint --locked --root '{{arch_lint_root}}' 2>&1 | tail -n 20
+    {{TOP}}/scripts/arch-lint-install.sh '{{arch_lint_root}}' {{arch_lint_rev}} {{TOP}}/target/logs/arch-lint-install.log
 
 # Clippy, warnings denied, including the core's purity rules
 # (crates/core/clippy.toml), after `lint-os` and `lint-arch`: lefthook's `clippy` step. Clippy
@@ -702,6 +701,7 @@ selftest:
     @{{TOP}}/scripts/mcp-env-probe.selftest.sh
     @{{TOP}}/scripts/install-shutdown.selftest.sh
     @{{TOP}}/scripts/slot.selftest.sh
+    @{{TOP}}/scripts/arch-lint-install.selftest.sh
     @TRIM_SWEEP_VERSION='{{cargo_sweep_version}}' {{TOP}}/scripts/trim-targets.selftest.sh
 
 # The terminal wake's live probe against the installed claude (owner ruling

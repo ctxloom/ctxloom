@@ -1,6 +1,7 @@
 /target
-# The local-deps override (.cargo/local-deps.toml, copied here): one
-# developer's sibling checkouts, never CI's or a fresh clone's.
+# `cargo local-pins`: its patch file (one developer's sibling checkouts, never
+# CI's or a fresh clone's) and the cargo config holding the include of it.
+/.cargo/local-pins.toml
 /.cargo/config.toml
 # The link to the shared dev module (rust-support's tools/dev).
 /.dev

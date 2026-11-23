@@ -353,6 +353,13 @@ filter = '''
 '''
 slow-timeout = { period = "30s", terminate-after = 5, grace-period = "10s" }
 
+# `ctxloom top`'s feature has the most scenarios of any, most of which wait on
+# a daemon's push; 300 s (30 s x 10) on Linux (not measured elsewhere).
+[[profile.default.overrides]]
+platform = 'cfg(target_os = "linux")'
+filter = 'package(ctxloom) & test(=tests::gherkin_features::features::cli::top)'
+slow-timeout = { period = "30s", terminate-after = 10, grace-period = "10s" }
+
 # The Windows and macOS subset CI runs on a branch push (owner ruling
 # 2026-11-12; ci.yml sets NEXTEST_PROFILE=ci-platform there, `default` on
 # main, pull requests, tags and the nightly). It inherits everything above

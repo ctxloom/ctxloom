@@ -5,6 +5,15 @@ session-cli-bad-state = --state { $value }: a session's state is one of { $state
 session-cli-runtime = could not start the runtime: { $ext_err_txt }
 session-cli-output = could not write the answer: { $ext_err_txt }
 session-cli-sweep-failed = { $count } sweep action(s) failed; the report says which
+# `ctxloom top` (DRAFT: every text of it is a draft for the owner).
+session-cli-top-unknown-sort-column = --sort { $value }: top sorts by one of { $columns }
+session-cli-top-tree-without-session = --tree needs a session to root it: ctxloom top <session> --tree
+session-cli-top-all-with-session = --all cannot be given with a session to watch: a session names one project's
+session-cli-top-needs-terminal = --format text draws a full screen, and this output is not a terminal
+session-cli-top-needs-terminal-fix = Use --format json for a stream of JSON lines.
+session-cli-top-screen-not-built = the full-screen top is not built yet
+session-cli-top-screen-not-built-fix = Use --format json for a stream of JSON lines.
+session-cli-top-session-unknown = { $name }: this project has no such session
 session-cli-already-closed = { $harp } was already closed: the close changed nothing
 
 # What `session approvals` and `trust` say in text (step 8, texts.md §6):

@@ -583,6 +583,9 @@ impl Commands {
         if noun == sessions::TRUST_NOUN {
             return self.trust(call, catalog, out, err);
         }
+        if noun == sessions::TOP_NOUN {
+            return self.top(call, catalog, out, err);
+        }
         if SESSION_NOUNS.contains(&noun) {
             if noun == "session" {
                 return self.session(call, catalog, out, err);

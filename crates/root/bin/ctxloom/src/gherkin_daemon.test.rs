@@ -44,7 +44,7 @@ const BUSY_IDLE_SECONDS: u64 = 8;
 
 /// The idle time of a daemon a scenario's command starts: long enough to
 /// outlive the scenario's steps, short enough to leave nothing for long.
-const SPAWNED_IDLE_SECONDS: u64 = 15;
+pub(super) const SPAWNED_IDLE_SECONDS: u64 = 15;
 
 /// What a scenario started: the daemon, and the run that keeps it busy. A
 /// World drops this FIRST (its first field), before its home is removed:
@@ -241,12 +241,12 @@ fn discovery_path(w: &World) -> PathBuf {
         .join(".ctxloom/daemon/daemon.discovery")
 }
 
-fn daemon_log_text(w: &World) -> String {
+pub(super) fn daemon_log_text(w: &World) -> String {
     files::read(w.common.project.home().join(".ctxloom/daemon/daemon.log")).unwrap_or_default()
 }
 
 /// The scenario's environment, as `(name, value)` pairs.
-fn env_of(w: &World) -> Vec<(String, String)> {
+pub(super) fn env_of(w: &World) -> Vec<(String, String)> {
     w.common.env.clone()
 }
 
@@ -273,7 +273,7 @@ fn start_daemon(w: &mut World) {
 
 /// Start `ctxloom daemon serve` with the idle time `idle` (seconds), and
 /// wait for it to answer.
-fn start_daemon_idling(w: &mut World, idle: u64) {
+pub(super) fn start_daemon_idling(w: &mut World, idle: u64) {
     start_daemon_serving(w, idle, &[]);
 }
 
@@ -743,7 +743,7 @@ fn conversation_bound(w: &World) {
 }
 
 /// A hosted child whose first turn has ended: its owner was told so.
-fn idle_child(w: &mut World) {
+pub(super) fn idle_child(w: &mut World) {
     w.common
         .set_env(IDLE_VARIABLE, SPAWNED_IDLE_SECONDS.to_string());
     start_daemon_idling(w, DEFAULT_IDLE_SECONDS);
@@ -1993,7 +1993,7 @@ fn child_closed(w: &mut World, child: String) {
 }
 
 #[given(expr = "a child {string} of {string} that is open and idle")]
-fn child_of_idle(w: &mut World, child: String, owner: String) {
+pub(super) fn child_of_idle(w: &mut World, child: String, owner: String) {
     if (child.as_str(), owner.as_str()) == ("olive-quiet-finch", "brisk-copper-moth") {
         grandchild_idle(w);
         return;
@@ -7784,7 +7784,7 @@ fn child_told(w: &World, owner: &str, child: &str, text: &str) {
 
 /// Alice launches `child` of `owner` herself (`session launch`), on
 /// `agent` (none: the project's), with a first task.
-fn user_launches(w: &mut World, owner: &str, child: &str, agent: Option<&str>) {
+pub(super) fn user_launches(w: &mut World, owner: &str, child: &str, agent: Option<&str>) {
     hosting_daemon(w);
     let mut args = vec!["session", "launch", owner, "--name", child];
     if let Some(agent) = agent {

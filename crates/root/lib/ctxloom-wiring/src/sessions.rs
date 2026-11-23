@@ -22,12 +22,16 @@ pub(crate) const NOUNS: [&str; 2] = ["session", "hook"];
 /// daemon, as the child verbs are.
 pub(crate) const TRUST_NOUN: &str = "trust";
 
+/// The top noun (DRAFT): a client of the daemon's `WatchTop`.
+pub(crate) const TOP_NOUN: &str = "top";
+
 /// The nouns, shaped like the command line's own.
 pub(crate) fn nouns() -> Vec<Command> {
     vec![
         shaped(session_cli::noun()),
         shaped(hook_cli::noun()),
         shaped(session_cli::trust_noun()),
+        shaped(session_cli::top_noun()),
     ]
 }
 
@@ -216,6 +220,33 @@ impl Commands {
         };
         let user = user_login(&self.env);
         let ran = session_cli::trust(&command, &caller, &user, &asking, format, out);
+        said(ran, format, catalog, err)
+    }
+
+    /// `top ...` (DRAFT): what the daemon hosts, live, through her daemon's
+    /// `WatchTop`; it starts no daemon and waits for one.
+    pub(crate) fn top(
+        &mut self,
+        call: &Call<'_>,
+        catalog: &Catalog,
+        out: &mut dyn Write,
+        err: &mut dyn Write,
+    ) -> Result<Exit, Failure> {
+        let command = session_cli::Top::from_arg_matches(matches_of(call, TOP_NOUN))
+            .unwrap_or_else(|e| unreachable!("clap parsed it: {e}"));
+        let format = call.format();
+        let wiring = Wiring::new(Arc::clone(&self.env)).map_err(|e| failed(Box::new(e)))?;
+        let terminal = TrustTerminal {
+            stood_in: crate::interview::stood_in(&self.env),
+        };
+        let source = crate::top::DaemonTop::new(&wiring, &self.version).map_err(failed)?;
+        let ran = session_cli::top(
+            &command,
+            &source,
+            format,
+            session_cli::Asking::is_terminal(&terminal),
+            out,
+        );
         said(ran, format, catalog, err)
     }
 

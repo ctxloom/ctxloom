@@ -40,6 +40,7 @@ mod sweep_config;
 mod test_commands;
 #[cfg(feature = "test-support")]
 mod test_error;
+mod top;
 
 use std::io;
 use std::path::PathBuf;

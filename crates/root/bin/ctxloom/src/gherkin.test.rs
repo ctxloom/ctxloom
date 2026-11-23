@@ -97,6 +97,8 @@ struct World {
     writes: writes::State,
     /// What step 10c's reaction steps keep.
     reactions: reactions::State,
+    /// What `ctxloom top`'s steps keep.
+    top: top::State,
     /// What the CLI contract features' steps keep.
     cli: cli::State,
 }
@@ -175,6 +177,7 @@ impl World {
             init_companions: init_companions::State::default(),
             writes: writes::State::default(),
             reactions: reactions::State::default(),
+            top: top::State::default(),
             cli: cli::State::default(),
         }
     }
@@ -469,6 +472,8 @@ mod writes;
 mod cli;
 #[path = "gherkin_reactions.test.rs"]
 mod reactions;
+#[path = "gherkin_top.test.rs"]
+mod top;
 
 // ------------------------------------------------------------------ given
 

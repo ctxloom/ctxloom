@@ -59,6 +59,7 @@ mod proto_json;
 mod render;
 mod run;
 mod text;
+mod top;
 mod trust;
 
 use clap::{Args, Command, Subcommand};
@@ -70,6 +71,7 @@ pub use error::{CliFault, EN_US};
 #[cfg(feature = "session-destroy")]
 pub use run::destroy;
 pub use run::{child, is_child, is_destroy, is_read, read, run, Done, Failure};
+pub use top::{top, top_noun, Top, TopFeed, TopSource};
 pub use trust::{trust, trust_noun, Asking, Trust, TrustVerb};
 
 /// The `session` noun, shaped for mounting on the command line.

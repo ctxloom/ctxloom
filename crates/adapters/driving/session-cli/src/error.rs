@@ -16,6 +16,18 @@ pub enum CliFault {
     Output { ext_err_txt: String },
     /// A sweep that acted had actions that failed; its report says which.
     SweepFailed { count: u64 },
+    /// `top --sort` named a column it has none of (DRAFT).
+    TopSortColumn { value: String, columns: String },
+    /// `top --tree` with no session to root it (DRAFT).
+    TopTreeWithoutSession,
+    /// `top --all` with a session to watch, which names one project's (DRAFT).
+    TopAllWithSession,
+    /// `top --format text` off a terminal: a screen needs one (DRAFT).
+    TopNeedsTerminal,
+    /// `top` at a terminal: the full-screen UI is not built yet (DRAFT).
+    TopScreenNotBuilt,
+    /// `top` was asked to watch a session the project does not have (DRAFT).
+    TopSessionUnknown { name: String },
 }
 
 impl ExitClass for CliFault {
@@ -23,10 +35,16 @@ impl ExitClass for CliFault {
     /// content, or failed (10).
     fn exit(&self) -> Exit {
         match self {
-            CliFault::BadState { .. } => Exit::REFUSED,
-            CliFault::Runtime { .. } | CliFault::Output { .. } | CliFault::SweepFailed { .. } => {
-                Exit::FAILED
-            }
+            CliFault::BadState { .. }
+            | CliFault::TopSortColumn { .. }
+            | CliFault::TopTreeWithoutSession
+            | CliFault::TopAllWithSession
+            | CliFault::TopNeedsTerminal
+            | CliFault::TopSessionUnknown { .. } => Exit::REFUSED,
+            CliFault::Runtime { .. }
+            | CliFault::Output { .. }
+            | CliFault::SweepFailed { .. }
+            | CliFault::TopScreenNotBuilt => Exit::FAILED,
         }
     }
 }
@@ -44,6 +62,12 @@ impl Diagnostic for CliFault {
             CliFault::Runtime { .. } => code!("runtime"),
             CliFault::Output { .. } => code!("output"),
             CliFault::SweepFailed { .. } => code!("sweep-failed"),
+            CliFault::TopSortColumn { .. } => code!("top-unknown-sort-column"),
+            CliFault::TopTreeWithoutSession => code!("top-tree-without-session"),
+            CliFault::TopAllWithSession => code!("top-all-with-session"),
+            CliFault::TopNeedsTerminal => code!("top-needs-terminal"),
+            CliFault::TopScreenNotBuilt => code!("top-screen-not-built"),
+            CliFault::TopSessionUnknown { .. } => code!("top-session-unknown"),
         }
     }
 
@@ -57,6 +81,15 @@ impl Diagnostic for CliFault {
                 vec![("ext_err_txt", ext_err_txt.as_str().into())]
             }
             CliFault::SweepFailed { count } => vec![("count", (*count).into())],
+            CliFault::TopSortColumn { value, columns } => vec![
+                ("value", value.as_str().into()),
+                ("columns", columns.as_str().into()),
+            ],
+            CliFault::TopSessionUnknown { name } => vec![("name", name.as_str().into())],
+            CliFault::TopTreeWithoutSession
+            | CliFault::TopAllWithSession
+            | CliFault::TopNeedsTerminal
+            | CliFault::TopScreenNotBuilt => Vec::new(),
         }
     }
 }
@@ -105,6 +138,17 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
             ext_err_txt: "broken pipe".to_string(),
         }),
         Box::new(CliFault::SweepFailed { count: 2 }),
+        Box::new(CliFault::TopSortColumn {
+            value: "mood".to_string(),
+            columns: "name, state, agent, profile, engine, owner, started".to_string(),
+        }),
+        Box::new(CliFault::TopTreeWithoutSession),
+        Box::new(CliFault::TopAllWithSession),
+        Box::new(CliFault::TopNeedsTerminal),
+        Box::new(CliFault::TopScreenNotBuilt),
+        Box::new(CliFault::TopSessionUnknown {
+            name: "projects/p/sessions/amber-swift-owl".to_string(),
+        }),
         Box::new(AlreadyClosed {
             harp: "brisk-copper-moth".to_string(),
         }),

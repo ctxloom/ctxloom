@@ -15,7 +15,7 @@ import 'gates/gates.just'
 import 'gates/os-gates.just'
 import 'gates/fixture-gates.just'
 import 'gates/arch-gates.just'
-# Cross-project dependency automation (dev-local, repin, land, pins-check): the
+# Cross-project dependency automation (repin, land, pins-check): the
 # shared dev module of rust-support's tools/dev, linked as .dev (gitignored;
 # `tools/dev/install.sh` in a rust-support checkout). Optional: absent in a clone
 # or CI without the sibling.
@@ -31,8 +31,8 @@ arch_lint := arch_lint_root / "bin/arch-lint"
 
 # The staged tree is a sibling of the checkout, not under target/: cargo
 # reads .cargo/config.toml from every parent directory, so under the checkout
-# it would pick up a local-deps override (.cargo/local-deps.toml) and gate the
-# sibling checkouts instead of the commit's pinned dependencies.
+# it would pick up the `cargo local-pins` patch (.cargo/local-pins.toml) and gate
+# the sibling checkouts instead of the commit's pinned dependencies.
 staged_tree := "../.{name}.staged"
 
 # No feature is turned on by what a commit changes, and the mutation run
@@ -408,7 +408,7 @@ lint: lint-arch lint-path-deps
 # No dependency, [patch] or [replace] entry reaches outside the repository by
 # path, and no .cargo/config.toml is tracked (scripts/path-deps-check.sh): it
 # judges the staged index. Local sibling checkouts go in the gitignored
-# .cargo/config.toml. Lefthook's pre-commit `path-deps` runs this.
+# .cargo/local-pins.toml (`cargo local-pins`). Lefthook's pre-commit `path-deps` runs this.
 [group('check')]
 [doc("No dependency path reaches outside the repository")]
 [no-exit-message]

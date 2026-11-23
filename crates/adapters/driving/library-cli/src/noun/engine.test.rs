@@ -10,7 +10,7 @@ mod read {
             TEXT,
             &[ENGINE_HOME, ENGINE_PROJECT],
         );
-        assert_eq!(ran.code(), 0);
+        assert_eq!(ran.code(), 16);
         assert_eq!(
             ran.out,
             "claude-code\n  command: /opt/claude (engine)\n  session_home: session (default)\n  runtime: container-rootless (project)\n  env: HTTPS_PROXY (engine)\n  approval_timeout: 5m (default)\n  auth: not-needed (engine)\n  agents:\n    dev\n      model: haiku (agent)\n      effort: engine default, no flag passed (default)\n      permissions: {defaultMode: acceptEdits} (default)\n        passed to claude-code verbatim; ctxloom does not check it\n      runtime: host (agent; replaces project container-rootless: weakens isolation)\n      env: HTTPS_PROXY (engine)\n      session_home: session (default)\n    same\n      model: engine default, no flag passed (default)\n      effort: engine default, no flag passed (default)\n      permissions: {defaultMode: acceptEdits} (default)\n        passed to claude-code verbatim; ctxloom does not check it\n      runtime: container-rootless (agent)\n      env: HTTPS_PROXY (engine)\n      session_home: session (default)\n    strict\n      model: engine default, no flag passed (default)\n      effort: engine default, no flag passed (default)\n      permissions: {defaultMode: acceptEdits} (default)\n        passed to claude-code verbatim; ctxloom does not check it\n      runtime: container-rootful (agent; replaces project container-rootless: ownership differs, not interchangeable)\n      env: HTTPS_PROXY (engine)\n      session_home: session (default)\n"
@@ -20,7 +20,7 @@ mod read {
     #[test]
     fn test_engine_list_prints_every_engine_and_only_the_agents_it_has() {
         let ran = go(&["engine", "list"], TEXT, &[ENGINE_HOME, ENGINE_PROJECT]);
-        assert_eq!(ran.code(), 0);
+        assert_eq!(ran.code(), 16);
         assert_eq!(
             ran.out,
             "claude-code\n  command: /opt/claude (engine)\n  session_home: session (default)\n  runtime: container-rootless (project)\n  env: HTTPS_PROXY (engine)\n  approval_timeout: 5m (default)\n  auth: not-needed (engine)\n  agents: dev, same, strict\nmock\n  command: mock (default)\n  session_home: session (default)\n  runtime: container-rootless (project)\n  env: none (default)\n  approval_timeout: 5m (default)\n  auth: not-needed (default)\nmock-launch\n  command: mock-launch (default)\n  session_home: session (default)\n  runtime: container-rootless (project)\n  env: none (default)\n  approval_timeout: 5m (default)\n  auth: not-needed (default)\nmock-lossy\n  command: mock-lossy (default)\n  session_home: session (default)\n  runtime: container-rootless (project)\n  env: none (default)\n  approval_timeout: 5m (default)\n  auth: not-needed (default)\nmock-noskills\n  command: mock-noskills (default)\n  session_home: session (default)\n  runtime: container-rootless (project)\n  env: none (default)\n  approval_timeout: 5m (default)\n  auth: not-needed (default)\nopencode\n  command: opencode (default)\n  session_home: host (engine)\n  runtime: container-rootless (project)\n  env: none (default)\n  approval_timeout: 5m (default)\n  auth: not-needed (default)\n  agents: plain\n"
@@ -103,9 +103,9 @@ mod read {
         let home = go_named(&["engine", "show", "opencode"], JSON, &Home);
         assert_eq!(home.json()["name"], "users/me/engines/opencode");
         let text = go_named(&["engine", "list"], TEXT, &Unreachable);
-        assert_eq!(text.exit, Err("daemon-api-unreached:10".to_string()));
+        assert_eq!(text.exit, Err("daemon-api-unreached:32".to_string()));
         let json = go_named(&["engine", "list"], JSON, &Unreachable);
-        assert_eq!(json.exit, Err("daemon-api-unreached:10".to_string()));
+        assert_eq!(json.exit, Err("daemon-api-unreached:32".to_string()));
     }
 
     // An agent that makes a launch more contained than the layers below says so; an

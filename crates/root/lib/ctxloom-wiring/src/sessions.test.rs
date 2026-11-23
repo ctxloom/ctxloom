@@ -163,7 +163,7 @@ fn test_the_hud_hook_writes_its_statusline_to_stdout_only() {
     )
     .ok()
     .unwrap();
-    assert_eq!(code, 0);
+    assert_eq!(code, 16);
     assert!(out.contains("ctxloom"), "{out}");
     assert!(err.is_empty());
 }
@@ -175,7 +175,7 @@ fn test_each_session_hook_answers_through_the_engines_codec() {
         let (code, out, _) = run_with(&mut commands(), r#"{"skill":"x"}"#, &line)
             .ok()
             .unwrap();
-        assert_eq!((code, out.as_str()), (0, "{}\n"), "{native}");
+        assert_eq!((code, out.as_str()), (16, "{}\n"), "{native}");
     }
 }
 
@@ -191,7 +191,7 @@ fn test_a_session_start_with_no_harp_is_silent() {
     )
     .ok()
     .unwrap();
-    assert_eq!((code, out.as_str()), (0, ""));
+    assert_eq!((code, out.as_str()), (16, ""));
 }
 
 #[test]
@@ -212,7 +212,7 @@ fn test_a_session_command_is_run_on_the_sessions_use_cases() {
     let (code, out, err) = run(&mut world.commands(), &["session", "transcript", "list"])
         .ok()
         .unwrap();
-    assert_eq!(code, 0, "{err}");
+    assert_eq!(code, 16, "{err}");
     assert!(err.is_empty(), "{err}");
     assert_eq!(out, "(no sessions)\n");
 }
@@ -233,7 +233,7 @@ fn test_the_session_start_hook_answers_with_the_harp_the_environment_names() {
     )
     .ok()
     .unwrap();
-    assert_eq!(code, 0);
+    assert_eq!(code, 16);
     assert!(out.contains("jolly-mute-magma"), "{out}");
     assert!(err.is_empty(), "{err}");
 }
@@ -272,7 +272,7 @@ fn test_a_hook_that_cannot_record_still_answers_and_says_so_on_stderr() {
     )
     .ok()
     .unwrap();
-    assert_eq!((code, out.as_str()), (0, "{}\n"));
+    assert_eq!((code, out.as_str()), (16, "{}\n"));
     assert_eq!(err.matches("hook-cli-held").count(), 1, "{err}");
     assert!(
         err.contains("jolly-mute-magma") && err.contains("hook:prompt:"),
@@ -292,7 +292,7 @@ fn test_a_hook_that_observes_nothing_says_nothing_on_stderr() {
     )
     .ok()
     .unwrap();
-    assert_eq!((code, out.as_str()), (0, "{}\n"));
+    assert_eq!((code, out.as_str()), (16, "{}\n"));
     assert!(err.is_empty(), "{err}");
 }
 

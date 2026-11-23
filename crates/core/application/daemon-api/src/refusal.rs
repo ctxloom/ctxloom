@@ -385,7 +385,7 @@ pub enum Rejection {
     LibraryRead(Report),
     /// A use case's refusal over the plan's fatal findings (a strict
     /// `materialize`, step 10c U10: `SetupFatalFindings`): its own
-    /// diagnostic, the command's exit 21.
+    /// diagnostic, the command's exit 49.
     FatalFindings(Report),
 }
 
@@ -912,7 +912,7 @@ pub fn deps_error(error: &deps_application::AppError) -> ApiError {
         _ if error.exit() == exit_code::Exit::REFUSED => declined(error),
         // A failure (a clone that cannot be browsed, a file that does not
         // read) said in its own words (step 10a U2: `remote show`'s
-        // `deps-application-browse`), exit 10 as in process.
+        // `deps-application-browse`), exit 32 as in process.
         _ => ApiError::diagnosed(error),
     }
 }

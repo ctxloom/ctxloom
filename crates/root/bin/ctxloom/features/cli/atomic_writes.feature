@@ -134,7 +134,7 @@ Feature: writes — every change to ctxloom's own trees is whole or absent, and 
       Given an initialized ctxloom project
       And another process creates the bundle "notes" while its creation is staged
       When I run 'ctxloom bundle create notes --description "my notes"'
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the refusal is "library-tree-resource-exists"
       And the other process's "notes" is untouched, and nothing staged is left behind
 
@@ -155,7 +155,7 @@ Feature: writes — every change to ctxloom's own trees is whole or absent, and 
         description: in the old place
         """
       When I run "ctxloom bundle show demo"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the refusal is "library-sidecar-old-layout"
       And the output contains "git mv .ctxloom/content/bundles/v2/demo/<old> .ctxloom/content/bundles/v2/demo/<new>"
       And the file ".ctxloom/content/bundles/v2/demo/<old>" exists
@@ -178,7 +178,7 @@ Feature: writes — every change to ctxloom's own trees is whole or absent, and 
         changed by hand meanwhile
         """
       When I run "ctxloom fragment edit demo#fragments/example"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the refusal is "library-tree-plan-stale"
       And the output contains "fragments/example.md"
       And the output contains "look again"
@@ -206,7 +206,7 @@ Feature: writes — every change to ctxloom's own trees is whole or absent, and 
         changed by hand meanwhile
         """
       When I run "ctxloom fragment edit demo#fragments/example"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the refusal is "library-tree-plan-stale"
       And the output contains "fragments/example.md"
       And the file ".ctxloom/content/bundles/v2/demo/fragments/example.md" does not contain "EDITED-BY-TEST"
@@ -219,7 +219,7 @@ Feature: writes — every change to ctxloom's own trees is whole or absent, and 
       Given an initialized ctxloom project
       And a bundle "demo" exists
       When I run "ctxloom bundle edit demo --add-fragment a --add-fragment b"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the refusal is "library-tree-one-change-per-call"
       And the output contains "one change per call"
       And the file ".ctxloom/content/bundles/v2/demo/fragments/a.md" does not exist
@@ -414,7 +414,7 @@ Feature: writes — every change to ctxloom's own trees is whole or absent, and 
       And the daemon will be killed outright after every tree is installed, before the lock is written
       And the command's retry is turned off
       When I run "ctxloom deps pull"
-      Then the command exits with code 10
+      Then the command exits with code 32
       And the file ".ctxloom/lock.yaml" does not exist
       When I run "ctxloom deps pull"
       Then the command succeeds

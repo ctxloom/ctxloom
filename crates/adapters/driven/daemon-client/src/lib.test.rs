@@ -987,7 +987,7 @@ fn each_infrastructure_error_the_daemon_answers_is_read_back() {
 
 // Step 10a U2: a failure the daemon said in a diagnostic of its own (its
 // ErrorInfo's reason the code, its metadata the args) is that diagnostic,
-// so a command says `library-application-bundle-unreadable` and exits 10. It travels
+// so a command says `library-application-bundle-unreadable` and exits 32. It travels
 // failed-precondition (owner ruling 2026-11-17), and is never read as a
 // typed refusal of that status.
 #[test]

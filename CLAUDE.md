@@ -100,7 +100,7 @@ The whole command line is parsed by `ctxloom-cli`; a crate that owns more
 nouns joins it through its `Extension` seam (`ctxloom-wiring` wires `library-cli`
 in).
 
-Divergence from Go: a config whose `schema_version` is newer, older or unreadable is refused (exit 20, D15 strict decode); Go warns and continues. A `non_tty_format` of yaml, toml or markdown is refused (D28).
+Divergence from Go: a config whose `schema_version` is newer, older or unreadable is refused (exit 48, D15 strict decode); Go warns and continues. A `non_tty_format` of yaml, toml or markdown is refused (D28).
 
 Slice S2 (library write side) adds, in the S1 crates, a write half: `library::write`
 (pure planning: the config section merge with sorted keys, item/envelope/mcp/
@@ -146,7 +146,7 @@ runtime fields (`library::write::mcp::content_file`), so `mcp server set
 --url X --notes Y` on a new server is one file. A bundle still in the old
 layout (`skills/.<n>.meta.yaml` or `mcp/.<n>.meta.yaml` beside the item)
 is refused per bundle (owner, QUESTIONS 2(a); D15): the tree reader's
-`BundleError::OldLayout`, `library-sidecar-old-layout`, exit 20, which
+`BundleError::OldLayout`, `library-sidecar-old-layout`, exit 48, which
 `bundle show` (and every read through `Project::bundle`) answers with, and
 a listing names with the skipped-bundle notice while listing the rest; its
 paths are named from the project's root (`BundleError::located`), its fix
@@ -388,7 +388,7 @@ b1445adf). An edit's preview with no text given probes (the daemon's
 that file's etag, and still asks the Edit need; the CLI's `fragment|command
 edit` sends that etag with its apply. An etag that is not a number is
 refused `daemon-api-etag-invalid` (`ctxloom.v1.EtagInvalid`,
-INVALID_ARGUMENT, exit 20; its text a draft the owner delegated).
+INVALID_ARGUMENT, exit 48; its text a draft the owner delegated).
 `--body` (fragment|command create and edit) and `config set <key> <value>
 [--home]` (one key, coerced as an override and judged by the schema at
 its path) are the spec's new surfaces. Test-support's `test-die-at`
@@ -425,10 +425,10 @@ token of one, and folds its `StepApplied` into `LibraryState.foreign`,
 never `resources` or the dirty set. The kill point after the `n`th step
 is `step-<n>`. A use case's own error is the call's, never in band
 (`daemon_api::setup_error`, by the class it says of itself): a decline
-(20) the typed refusal `SetupDeclined`, fatal findings (21)
+(48) the typed refusal `SetupDeclined`, fatal findings (49)
 `SetupFatalFindings`, each its diagnostic's code and args as its `Cause`
 (the client's `Rejection::LibraryRead`, and `Rejection::FatalFindings`,
-which `CallError` classes 21), a failure (10) said in its own words
+which `CallError` classes 49), a failure (32) said in its own words
 (`ApiError::Diagnosed`); nothing is written. `materialize --diff` and
 `manage install`'s refresh still deliver in process.
 
@@ -443,7 +443,7 @@ plumbing (`write_requests!`: cwd, env, globals), through setup-cli's
 `caller_wiring`), the project's trust its own (`init prompt`'s
 `Flags.trusted`, never asked back), and the CLI reads the answer back
 into the report it always printed (setup-cli's and surface-cli's
-`wire`), so with no daemon each fails, exit 10, diagnosing nothing in
+`wire`), so with no daemon each fails, exit 32, diagnosing nothing in
 process (QUESTIONS 8). doctor's rows hold owned text
 (`doctor_checks::Check`'s `marker` and `name`, auth's `Row` `mode` and
 `usable_by` are `String`s) so the client rebuilds them. `manage gitignore
@@ -505,7 +505,7 @@ and the lock never names a tree that is not installed. The kill points
 are `tree-installed` (after the first tree), `trees-installed` (after
 the last), `done`. A consented refresh the project refuses once the pull
 applied is the answer's `refresh_refusal`, and the command ends refused
-(20) after the report, as in process. `remote list` gives each remote's
+(48) after the report, as in process. `remote list` gives each remote's
 forge. Not served yet: `deps check`, `hold|unhold`, `bundle push|move
 --to <remote>` and `manage install`'s pull.
 
@@ -713,7 +713,7 @@ does not read `ConfigUnreadable`, a sweep's too, the flag or not). A refused rem
 carrying its PLAN (the files, their classes and bytes, the authored ones,
 the worktrees), so it prints exactly the plan it printed in process, then
 the refusal in the refusing use case's words (`daemon_api::
-RemovalRejection`), exit 20. A removal whose session holds files a person wrote
+RemovalRejection`), exit 48. A removal whose session holds files a person wrote
 (anything but `transcripts/` and `native/`) warns first, naming each, as the
 notice `sessions-application-destroys-authored`, never a refusal: on
 `--yes`, in the report and with `--even-if-live` alike, and `session sweep`
@@ -835,7 +835,7 @@ preferred to a batch file wherever each is on the PATH; the file found is
 spawned. std's spawn would try `<name>.exe` alone, so an npm `claude.cmd` was
 "program not found" (owner, 2026-11-12). Found nowhere, the run is not
 started: `run-ports-program-not-found` (or `-no-path`), naming the names and
-directories searched, exit 10. A batch file is run by std through cmd.exe
+directories searched, exit 32. A batch file is run by std through cmd.exe
 with its own quoting (Go's `batchcmdline.go` rules, usable-epileptic), and
 std refuses it an argument with a line break or NUL; `run_ports::
 check_batch_arguments` refuses that before the spawn (on Windows: a
@@ -933,7 +933,7 @@ Linux, 131072 bytes per argument or environment string, its NUL included
 (MAX_ARG_STRLEN). Linux's total (ARG_MAX, a quarter of the stack rlimit) and
 macOS's (`kern.argmax`, a sysctl) are not constants and the platform crates
 read neither, so no total is checked: such a command fails at the spawn as
-before. A command over a limit is `run-ports-command-too-long` (exit 20,
+before. A command over a limit is `run-ports-command-too-long` (exit 48,
 `RunError::TooLong`, the launch's `Outcome::TooLong`; the run ends
 launch-failed, nothing is spawned), its fix: start the session without the
 prompt and paste it, or `run --one-shot`, which reads the prompt from
@@ -1030,7 +1030,7 @@ A ONE-SHOT IS HOSTED BY THE USER'S DAEMON (U4, T7; owner s4-Q8): `run
 --one-shot` is its client (`run_application::client`, wired by
 `oneshot::client_one_shot`). The command resolves its project through the
 daemon (its id minted at its root where nothing has), reaches the daemon
-(started if none serves; none can be: `daemon-ports-not-started`, exit 10,
+(started if none serves; none can be: `daemon-ports-not-started`, exit 32,
 nothing minted or started), and calls `CreateRun{ONE_SHOT}` with the line's
 whole request (`CreateRunRequest`'s prompt, agent, engine, profile,
 fragments, tags, command, workspace, `no_context`, session), its whole
@@ -1068,7 +1068,7 @@ the same frontend). `run` (and init's interview, `interview::SetupSessions`)
 is the session's FRONTEND (`run_application::frontend`, wired by
 `frontend::client_terminal`; the in-process interactive path is gone): its
 project resolved by the daemon, the daemon reached (none can be:
-`daemon-ports-not-started`, exit 10, nothing planned or minted), and
+`daemon-ports-not-started`, exit 32, nothing planned or minted), and
 `CreateRun{TERMINAL}` sent as a one-shot's is. The daemon prepares it
 (`daemon_application::Terminals`, its root's `frontend::HostedTerminals`):
 on a thread of its own (a 16 MiB stack: the whole run is driven on it),
@@ -1484,8 +1484,8 @@ with `refusals: [{code, args, message, fix?}]`, or in text the summary line then
 each refusal's `ctxloom:` and `  fix:` lines (cli-support's `Failure::refusals`
 and `say_failure`). Fatal findings alone are the library's
 `library-application-startup-aborted`, as before; beside a refusal they are the
-plan's warnings, said beside it, and the exit is 21 (the most severe wins),
-else 20. A launch that carries them (a child's: `CreateHandOff`'s pre-check,
+plan's warnings, said beside it, and the exit is 49 (the most severe wins),
+else 48. A launch that carries them (a child's: `CreateHandOff`'s pre-check,
 `daemon_api::Planned::fatal`, filled by `ApiHandOffs::plan` from the plan's
 `previewed.fatal`, and `LaunchChild`'s enqueue, `Evidence::fatal`) refuses with
 them in `LaunchRefusals.findings` (field 8; `RunRejection::LaunchRefused.findings`,
@@ -1812,7 +1812,7 @@ router, the platform crates, `angzarr-build` and `angzarr-codegen` were five
 repositories and are crates of that workspace now; `angzarr-coordinator-grpc`'s
 `tls` feature, which `hook-listener` enables, is `Listener::tls`). taskloom's
 crates (`d43fb683`) and
-rust-support's (`d543b4e9`) are built on the same commit, so moving one moves
+rust-support's (`5bc1d60f`) are built on the same commit, so moving one moves
 all. The lock holds one of every angzarr crate. The platform crates (`os`,
 `file-system`, `file-lock`) are `Apache-2.0 OR BSD-3-Clause`; the shared runtime
 crates (`angzarr-diagnostic`, `angzarr-presentation`, `angzarr-yaml`,
@@ -2138,7 +2138,7 @@ versionator stamp (M3; the stamp `ctxloom version` says, threaded from the
 binary, never `CARGO_PKG_VERSION`) and the ctxloom home it serves (field 8;
 a file naming none is unreadable). A client whose ctxloom home is not the
 serving daemon's is refused before it does anything, `ctxloom-wiring-daemon-
-other-home` (exit 20, naming both homes, its fix the daemon's home or a
+other-home` (exit 48, naming both homes, its fix the daemon's home or a
 `daemon stop` from it), and never served by a second daemon (`daemon
 status`, `daemon stop`, `daemon resolve` and the child verbs; a hook's rediscovery passes
 such a daemon over and holds its facts). The file is 0600
@@ -2200,7 +2200,7 @@ rulings s4-Q1, s4-Q13). The user's `session launch <owner> [--name]
 (`session-cli`'s `is_child`/`child`) are clients of the daemon, as the
 USER: `daemon_api::Caller::user` over the project the command resolved
 (`daemon::child_caller`; outside a project `daemon-api-project-unknown`,
-exit 20), each the session domain's command through `HandleSync`,
+exit 48), each the session domain's command through `HandleSync`,
 `requester` none, keyed by an id minted once per call (`--id` is a
 message's), so its retry on a new daemon is a DUPLICATE; parsed before any
 daemon is reached (S14: a usage error starts none; the urgency is a
@@ -2210,7 +2210,7 @@ recorded` (`already recorded` for a duplicate), `closed` (`already
 closed`), `launched, a child of <owner>`. Their refusals are the domain's
 words (`daemon_api::rejection_of` maps the sessions and runs domains'
 typed refusals: `sessions-session-closed`, `sessions-session-unknown`,
-`runs-no-credential`, ...), exit 20. A send's urgency is judged on the
+`runs-no-credential`, ...), exit 48. A send's urgency is judged on the
 target's engine (`session_policies::supported`, OD-58): a hosted child on
 an engine with a child adapter, `session_policies::CHILD_ENGINES`
 (claude-code and opencode; the wiring's `hosted_engines` is held to it by
@@ -2319,7 +2319,7 @@ itself (the one spawned or another client's, whichever took the single-instance 
 within `SPAWN_WAIT`, eight seconds: S16's ten (`HOOK_BOUND`) less a
 delivery's two (`DELIVERY_MARGIN`). It watches the daemon it spawned: once
 that one has exited, the wait goes on only when it declined because another
-daemon holds the single-instance lock (`daemon serve` exits 20,
+daemon holds the single-instance lock (`daemon serve` exits 48,
 `ctxloom-wiring-daemon-instance-held`, `spawn_waits_on`), and any other exit
 (it could not start) ends the wait at once; it used to wait out the eight
 seconds for a daemon that had died (owner ruling 2026-11-18, the daemon
@@ -2452,7 +2452,7 @@ tonic, pinning the discovery file's certificate as its sole root and
 presenting the user bearer, each call within a deadline; a detail that is a
 `google.rpc.ErrorInfo` is no typed refusal. The application's client use
 cases are `daemon-api`'s `stop`, `resolve` and `reconcile` (`CallError`:
-a refusal 20, a failed call 10), and its `Client` (slice 2 step 6), what
+a refusal 48, a failed call 32), and its `Client` (slice 2 step 6), what
 the commands that are the daemon's clients call: `daemon status` and
 `daemon stop` and the session reads (`SessionReads`: `session list`, the
 bare noun, `search`, `show`; `session_cli::read`, which opens no store).
@@ -2465,7 +2465,7 @@ another stamp first (M3), else spawns one and waits (S16's bound), and with
 none started is `Unreached::NotStarted`, `daemon-ports-not-started` (exit
 10, naming its log as `~/.ctxloom/daemon/daemon.log` under the home), or,
 when the one it spawned exited first, `Unreached::Exited`,
-`daemon-ports-exited` (10: its exit status and the last lines of that log,
+`daemon-ports-exited` (32: its exit status and the last lines of that log,
 where the spawned daemon's stderr goes, so a stack overflow says itself;
 CI on Windows, 2026-11-19). `daemon serve` serves on a thread of its own
 with a 16 MiB stack (the wiring's `DAEMON_STACK`; Windows gives the main
@@ -2474,7 +2474,7 @@ has it: `daemon::runtime::build`, with at least four workers and one per
 CPU), and logs every panic of its process as `the daemon
 panicked: ...`; under test-support `CTXLOOM_TEST_DAEMON_START=panic|
 stack:<MiB>` makes its start panic or use that much stack;
-another home's or a busy other version's is `Unreached::Declined` (20).
+another home's or a busy other version's is `Unreached::Declined` (48).
 Each call resolves its project first (`ResolveProject`, S6; outside a
 project a read of its own is `ProjectUnknown`; `--all` lists `projects/-`),
 sends its `Caller` (below) in every request made on the user's behalf
@@ -2493,7 +2493,7 @@ rotations and (GetSession) its pending messages; a live one's end is
 blank. `session remove` and `session sweep` are clients too (owner,
 2026-11-12; `SessionRemovals`, `session_cli::destroy`): a removal answers
 `Removed::Done` or `Removed::Refused` with the plan its refusal carried,
-their previews and `--detailed-exitcode` 1 as before, their json the
+their previews and `--detailed-exitcode` 17 as before, their json the
 answers' proto3 JSON (`DeleteSessionResponse`'s, `SweepSessionsResponse`'s), an
 age (`--purge-older-than`, or `session remove --older-than`) that is none
 refused before the daemon is asked, naming the flag given;
@@ -2506,7 +2506,7 @@ at a time, and nothing drains a daemon for its version): a client whose
 stamp is not the serving daemon's asks it (`GetDaemon`); hosting nothing,
 it is stopped (a plain `StopDaemon`), waited out and the client starts its
 own; hosting live runs, the command is refused, `daemon-api-version-skew`
-(`SkewError::Mismatch`, exit 20, naming both stamps and the harps, fix
+(`SkewError::Mismatch`, exit 48, naming both stamps and the harps, fix
 `ctxloom daemon stop`, `--even-if-live` ending what it hosts), whatever the
 two versions. Nothing passes one version's work to another's: a newer
 client's automatic drain, H-Q6's hook nudge, the successor version
@@ -2547,7 +2547,7 @@ the frontends asked to stop then, by `ctxloom shutdown` or by their
 notice's `stop_at`, stop their TUI and report) have passed, said `after
 the drain's <n>s and 30s more, the frontends ... still run: exiting`. A
 plain stop (`--even-if-live`, the second SIGTERM) stays for none. `--drain` with `--even-if-live` is a usage error (clap's
-`conflicts_with`, exit 20); nothing new under `--detailed-exitcode`. The
+`conflicts_with`, exit 48); nothing new under `--detailed-exitcode`. The
 drain WARNS AT ONCE (OD-54 (2)): while a daemon drains and hosts
 anything, its `Daemon.warnings` (StopDaemon's answer and GetDaemon's)
 carry `daemon-api-handing-over` (`daemon_api::HandingOver`: its stamp, the
@@ -2569,7 +2569,7 @@ transcript and the assembly; the hooks' facts and the frontends' reports
 (the coordinator, not the service) still land, and so do the calls on work
 a client already started, which start none (OD-62 refuses NEW
 invocations): `WatchRun` (a one-shot's client watches its run only once
-`CreateRun` answered, so a drain asked in between refused it, exit 20, where
+`CreateRun` answered, so a drain asked in between refused it, exit 48, where
 the period's stop is 143; a frontend's watch of its run likewise; an
 unknown run is `RunNotFound`), `DeleteHandOff` (the withdrawal of a
 hand-off whose launch the drain refused), and a one-shot's `RequestStop`
@@ -2617,7 +2617,7 @@ span of the one grammar (rust-support's `duration-text`, read directly:
 `15m`, `1h30m`, `90s`, `0s`, and its word `now`, zero);
 none given, `daemon.drain_timeout`, else five minutes; one that is no span
 is refused before anything is asked, `ctxloom-wiring-shutdown-bad-time`
-(exit 20). A time that is not zero DRAINS the daemon serving within it
+(exit 48). A time that is not zero DRAINS the daemon serving within it
 (the drain's request, its timeout this one), then waits, at most that long,
 for the daemon to exit AND the live frontends to end (a TUI is left to its
 human for the whole time), and for the daemon a grace longer
@@ -2629,7 +2629,7 @@ serving then (a frontend's report may have started one) the plain stop
 (`--even-if-live`) and waited for (`STOP_WAIT`, 30 s). Each step is said
 as it happens (text; json: `{drain_seconds, steps, held}` at the end). Nothing is
 killed: what still runs is said, `ctxloom-wiring-shutdown-incomplete`
-(exit 10, the daemon's and the frontends' pids); all stopped, exit 0.
+(exit 32, the daemon's and the frontends' pids); all stopped, exit 0.
 FLUSH BEFORE INSTALL (owner ruling 2026-11-16; N1 renames run facts' types,
 and a hold stores each fact by type URL): shutdown delivers the home's
 holds through the daemon serving (`daemon::flush::flush_within`,
@@ -2644,7 +2644,7 @@ set-aside part is never delivered again, holds nothing a daemon will
 decode, and does not count (doctor reports it). Not empty is said, each
 session's harp and count (`held, undelivered: <harp> (3 facts); ...`;
 else `held: nothing undelivered`), and declines the command,
-`ctxloom-wiring-shutdown-held` (exit 20: the state forbids reporting
+`ctxloom-wiring-shutdown-held` (exit 48: the state forbids reporting
 done; it outranks what still runs, 10), its fix running the old binary's
 `ctxloom session list` (its daemon takes them on its way in) and
 `ctxloom doctor`; the wording is a DRAFT. No alias table; the accepted
@@ -2671,7 +2671,7 @@ this session will be stopped in <span>; finish and exit") and both stop
 sentences are DRAFTS (OD-63). Under `test-support`, the daemon directory's
 `test-deaf-to-stop` makes a daemon take a stop and a drain and ignore them,
 and `test-shutdown-stop-wait` (seconds) shortens `STOP_WAIT`, so a test
-sees the exit 10. Its `test-hold-alarms` (one line, seconds since the
+sees the exit 32. Its `test-hold-alarms` (one line, seconds since the
 epoch) holds the scheduler's clock at that instant while it is there
 (`DaemonFiles::alarms_held_at`, serve's `HeldAlarms`), so no alarm armed
 since comes due until the test removes it: session_approvals.feature's
@@ -2733,7 +2733,7 @@ wiring's `bind_project` takes the home index's old binding of the root out
 first (`rebind::unbind_stale`, under the registry's own `index.yaml.lock`)
 and binds the root to the new id: no refusal, no hand edit. Accepted cost:
 the old project's sessions and store rows stay under the old id, orphaned,
-until cleaned. Still refused (`sessions-project-identity-changed`, exit 20):
+until cleaned. Still refused (`sessions-project-identity-changed`, exit 48):
 any command run where the root HAS a `.ctxloom` (its `project-id`, else the
 index's binding) naming a project whose registered root commit is not the
 repository's, init's own preview included.
@@ -2790,13 +2790,13 @@ coordinator reaches it (runs-application's `EdgeCommands::reach`), with
 refuses a command naming its refusal's TYPE alone (its ErrorInfo's
 `refusal_type`): daemon-client reads that back as a typed refusal of that
 type with no fields, so `trust-plan-stale` reaches the CLI as a refusal
-(exit 20).
+(exit 48).
 
 `ctxloom trust [--yes] [--undo]` and `trust list` are session-cli's second
 noun (`session_cli::trust`, a bare-runs group): it previews (`GetTrust`); at
 a terminal (or the stood-in `CTXLOOM_TEST_TERMINAL`) it asks `[y/N]` on
 stderr and only `y`/`yes` grants; off one it prints the preview and changes
-nothing (exit 1 under `--detailed-exitcode` when the apply would change
+nothing (exit 17 under `--detailed-exitcode` when the apply would change
 something); `--yes` applies. The grant and revoke are `HandleSync` on
 projector `trust-index`, keyed once per call. `trust-plan-stale`'s text is
 accepted as drafted (owner, 2026-11-16: every text step 8 drafted is
@@ -2840,7 +2840,7 @@ A child may work in ANOTHER project (step 8 Q1, D8): `session launch <owner>
 `project` (relative to the session's `CTXLOOM_ROOT`, Q-C). The caller resolves
 the directory (`Caller::resolving`, the wiring's `daemon::project_resolver`: a
 command run there, its `CTXLOOM_ROOT` dropped; a directory in no ctxloom
-project is `daemon-api-project-unknown`, exit 20) and registers it
+project is `daemon-api-project-unknown`, exit 48) and registers it
 (`ResolveProject`); the child is named in that project,
 `CreateHandOffRequest.project` names it, and the daemon refuses an untrusted
 one, `sessions-untrusted-target`, before anything is planned or written, else
@@ -2961,9 +2961,9 @@ project's); from that definition's own document for the engine, else the
 effective one, which is then its engine's default (so `defaultMode` is
 kept); the preview names the file. Q3's order: the ask checked
 waiting, the rule written, then the ask answered; off a terminal without
-`--yes` it previews (exit 1 under `--detailed-exitcode`), at one it asks
+`--yes` it previews (exit 17 under `--detailed-exitcode`), at one it asks
 `[y/N]`; a rule written for an ask settled meanwhile stays,
-`daemon-api-approval-rule-kept` (exit 20). A new session's chosen name may not begin `ask-`
+`daemon-api-approval-rule-kept` (exit 48). A new session's chosen name may not begin `ask-`
 (`sessions::validate_session_name`, `sessions-harp-invalid` reason
 `reserved`, refused by the caller before anything is written); an existing
 one keeps its name (Q-B).
@@ -3181,7 +3181,7 @@ read it serves (`Api::library_read`, `AssembleContext` among them) observe
 first: the library domain's refusals travel as its own typed refusals
 under their messages' status (`daemon_api::library_refusal`;
 `rejection_of` maps `PlanRejected` and the write refusals back to
-`Rejection::Library`, exit 20). A failure an adapter diagnoses (once git
+`Rejection::Library`, exit 48). A failure an adapter diagnoses (once git
 missing or too old, now e.g. a deps read's) is a DIAGNOSED failure (step
 10a U2, owner ruling 2026-11-17): `ApiError::Diagnosed {code, args}` (the
 adapter's diagnostic's), answered FAILED_PRECONDITION
@@ -3234,7 +3234,7 @@ leave its client out. The daemon REFUSES a client whose stamp is not its
 own, whatever its kind (`Calls::admit`, `daemon_api::admit`, asked by the
 gRPC edge's `answer` for every request whose type carries a `Caller`,
 before its use case): the typed `ClientVersionMismatch`
-(failed-precondition), `daemon-api-client-version`, exit 20, its fix
+(failed-precondition), `daemon-api-client-version`, exit 48, its fix
 `ctxloom daemon stop`; a request with no client names no version and is
 refused alike. Under test-support a spawned daemon is given its client's
 `CTXLOOM_TEST_STAMP`. A launch runs the CLIENT's program, not the daemon's
@@ -3370,7 +3370,7 @@ built:
   bad-shape, forge-type, unknown-forge, no-repository, lock-empty,
   lock-key, lock-unreadable; E5, `read_model_declines!` beside the
   library's), and its failure (a remote that cannot be browsed) is said
-  in its own diagnostic (`ApiError::diagnosed`, exit 10; daemon-api's
+  in its own diagnostic (`ApiError::diagnosed`, exit 32; daemon-api's
   `refusal::deps_error`), `ListFragments`,
   `ListCommands`, `GetFragment`, `GetCommand` (`fragment|command
   list|show`), `GetPremiseIndex` (`fragment premises`), `ListSkills`,
@@ -3394,7 +3394,7 @@ built:
   prints); a one-bundle listing that holds none asks the whole catalog
   too, for its "exist in other bundles" line. The view-to-message mappings
   are `library_api::resources`, the one mapping. With no daemon, a served
-  read fails (`daemon-api-unreached`, exit 10), text or json alike: a text
+  read fails (`daemon-api-unreached`, exit 32), text or json alike: a text
   answer no longer reaches no daemon (so `scripts/plain-engines-check.sh`
   proves the plain engine list by an agent written on a mock, refused in
   process naming the list). There is no home step (git-free), in the
@@ -3421,8 +3421,8 @@ built:
   environment, under the project's trust as the daemon reads it, then
   judged on the untrusted project settings it reads as the runs aggregate
   judges an enqueue (`runs::pre_launch_refusal`, owner answer H:
-  `runs-untrusted-project-settings`, exit 20, with the plan's fatal findings
-  beside it one `runs-launch-refused`, exit 21); nothing is enqueued,
+  `runs-untrusted-project-settings`, exit 48, with the plan's fatal findings
+  beside it one `runs-launch-refused`, exit 49); nothing is enqueued,
   minted or started. Its `Run` (`library_api::resources::planned`) carries
   the workspace axis and runtime the launch SETTLES on
   (`Run.settled_workspace`, `Run.settled_runtime`, fields 19 and 20: the
@@ -3430,7 +3430,7 @@ built:
   stay what was asked and what the agent declares, Go's top-level keys) and
   `Run.settings_agent` (field 18, the agent the settings are of), its
   notices in `Run.notices`, so its text (agent, axes, Settings section) is
-  drawn from the message; a plan with fatal findings prints and exits 21.
+  drawn from the message; a plan with fatal findings prints and exits 49.
   A dry run never mints: a project nothing has named is asked under
   `users/me` from inside it (`daemon::preview_client`), and the daemon
   leaves its names unresolved.
@@ -3500,7 +3500,7 @@ resource name (slice 2 re-root, above), so nothing routes by file: there is no `
 write for a project still makes its `~/.ctxloom/projects/<id>/` directory,
 which taskloom's registry lists projects by; ctxloom keeps nothing in it. A
 project that still has a store of its OWN there (`projects/<id>/ctxloom.db`,
-from before) is refused per command (T17, S48): exit 20,
+from before) is refused per command (T17, S48): exit 48,
 `ctxloom-store-sqlite-per-project-store`, its fix naming the file to remove;
 nothing is imported (accepted cost: that history is lost), and the file is
 left as it is. Hooks are not refused (a hook never fails its engine); the
@@ -3579,7 +3579,7 @@ binary's `catalog()` lists every crate's `EN_US`.
 ## The command line
 
 `--format` is `json` or `text` (json off a terminal); yaml, toml and markdown
-are refused like any unknown format, exit 20. Errors are `ctxloom: <message>`
+are refused like any unknown format, exit 48. Errors are `ctxloom: <message>`
 with an optional `  fix:` line in text, and the envelope `{code, args,
 message}` on stderr in json, plus `fix` (the same text as the `  fix:` line)
 when the catalog has the error's `<code>-fix` id, the key omitted otherwise,
@@ -3592,15 +3592,19 @@ and changes no output.
 
 Exit codes (owner rulings 149, 152, 153; a hard migrate from Go's 0, 1, 2,
 3) follow rust-support's convention, `docs/exit-codes.md` in that repository
-(blocks: 0-9 successes, 10-19 failures, 20-29 declines, 128+n signals; the
-more severe of two outcomes, the higher detailed code, wins), encoded as
+(blocks: 0 and 16-31 successes, 32-47 failures, 48-63 declines, 128+n signals,
+the class being `status >> 4` under `--detailed-exitcode`; the more severe of
+two outcomes, the higher detailed code, wins), encoded as
 rust-support's `exit-code` crate's `Exit` (re-exported by `cli-support`). An
 application error says its class by implementing `ExitClass`; a `Failure`
 carries an `Exit`; `ctxloom_cli::run` turns it into the status with
-`Exit::code(detailed)`, the one place the collapse lives. ctxloom's codes:
+`Exit::code(detailed)`, the one place the collapse lives: without
+`--detailed-exitcode` every success is 0, with it ok is 16 and a distinguishing
+success 17-31; failures and declines are their codes either way. ctxloom's codes:
 
-- **0** ok (an apply, a read, or a plan or preview that succeeded);
-- **1** would change: a plan or preview that succeeded and would act,
+- **0** ok (an apply, a read, or a plan or preview that succeeded), and every
+  success without `--detailed-exitcode`; **16** is ok under it;
+- **17** would change: a plan or preview that succeeded and would act,
   returned ONLY under the global `--detailed-exitcode` (without it, 0):
   `run --dry-run` whose plan has no fatal finding (it would launch);
   a removal's preview without `--yes` (`bundle|fragment|command|skill|
@@ -3610,32 +3614,35 @@ carries an `Exit`; `ctxloom_cli::run` turns it into the status with
   without `--yes` that is not refused; `session sweep` without `--yes`
   with a planned destroy; `agent edit --engine` without `--yes` whose
   new engine cannot carry what the old one did (the swap preview);
-- **10** failed: ctxloom tried and something broke (an adapter's error,
+- **32** failed: ctxloom tried and something broke (an adapter's error,
   I/O, the store or the kernel, an engine, git, a clone, a fetch, a
-  publish, a pull, the retry budget);
-- **20** refused, a decline: the request or the state forbids it, by kind,
+  publish, a pull, the retry budget); the convention's **47** broken
+  (a failure no retry fixes) is not used: nothing in ctxloom classes an
+  error so;
+- **48** refused, a decline: the request or the state forbids it, by kind,
   whatever Go said (owner ruling 152): a usage error (clap's own 2
   mapped), an unknown format or verb, a config the strict decode refuses
   or that does not read, a name nobody has (a session, a bundle, an item,
   a profile, an agent, a remote), a taken name, a live session (a run's
   or session's lock another process holds; a lock file that cannot be
-  made is 10: the lock ports answer `LockError::Held` or `Failed`), any
+  made is 32: the lock ports answer `LockError::Held` or `Failed`), any
   refusal of a domain or the read model or a write, a container verb with
   no runtime, a refused consented refresh, a refused delivery, a hook its
   service refused, and doctor's `fail` row (the refusal it guarantees);
-- **21** fatal findings: ONLY the run plan's (a dry run's or a launch's
+- **49** fatal findings: ONLY the run plan's (a dry run's or a launch's
   startup abort, materialize's strict refusal, a fatal isolation finding);
-  a launch both refused and with fatal findings is 21;
+  a launch both refused and with fatal findings is 49;
 - **128+n** stopped by signal n (ruling 114).
 
 Each application error says its class in its `ExitClass` impl. An error
 wrapping another crate's says which it is: `AppError::Cause` (an adapter's:
-10) and `AppError::Declined` (`AppError::cause`, a read-model or write
-refusal: 20) in library- and deps-application; `SetupError::Classed` keeps
+32) and `AppError::Declined` (`AppError::cause`, a read-model or write
+refusal: 48) in library- and deps-application; `SetupError::Classed` keeps
 a library error's own class. An engine's own status (an interactive
 session's, init's interview) is said in these classes by
 `Exit::from_child_status`, never passed through: 0 ok, 128+n the signal,
-any other failed (10).
+any other failed (32). A hosted run's `exit` crosses the wire as its code under
+the flag (`client::exit_of` reads it back by its blocks).
 
 ## The library as AIP resources (OD-40, the spine `aip/spine`)
 
@@ -3654,7 +3661,7 @@ and import, fragment and command create (either form, and the bare bundle
 the reference form makes), `bundle edit --add-fragment|--add-prompt|
 --add-mcp` of a name not already there, skill create and import, profile
 create and import, and `mcp server set` of a server the bundle lacks;
-`library-application-write-bad-id`, exit 20, with a `-fix`; a name already
+`library-application-write-bad-id`, exit 48, with a `-fix`; a name already
 on disk is read as before, its refusal B1's) and the conventions: a
 default left out, presence (`optional`) on `applied`, `held`, `default`,
 `resolves` and `no_distill` alone (OQ-7; the session's too:
@@ -3733,7 +3740,7 @@ names); outside a ctxloom project the parent is `users/me` and nothing is
 written. A DRY RUN NEVER MINTS (owner: "dry run should *not* mint"): its
 names source is `Minting::Never` (`library::minting`: the library's `run`
 noun is the dry run alone), which in a project nothing has named is
-refused, `ctxloom-wiring-project-unnamed` (exit 20, its fix `ctxloom
+refused, `ctxloom-wiring-project-unnamed` (exit 48, its fix `ctxloom
 init`), though the dry run asks `Names::named_parent`, which answers none
 there. A
 session listing or search in a project with no id (or wherever no id is
@@ -3868,7 +3875,7 @@ plans: `daemon_api::Client::named_parent` resolves a project's parent, and
 where there is nothing to resolve (outside a project, or one nothing has
 named) reaches the daemon and asks `GetDaemon`, so a daemon not running is
 started, and one that cannot be is the client's `daemon-ports-not-started`
-(exit 10, naming the log), as for every daemon client's command; a text
+(exit 32, naming the log), as for every daemon client's command; a text
 dry run prints no name. Its json is `<parent>/runs/-` (no
 run ID is given, nothing being created), its agent, engine and profiles
 resource names. It never mints the project's id (`Minting::Never`; library-
@@ -3982,7 +3989,7 @@ the need is asked (owner ruling 2026-11-18, evening, as a removal's is;
 its question `library-api::served_writes::swap_confirm`, a draft in the
 10b spec's texts.md §3b) and a yes applies it with the answer and the
 preview's etag; off a terminal or on a no it is the preview, printed
-(exit 1 under `--detailed-exitcode`); an apply refused stale
+(exit 17 under `--detailed-exitcode`); an apply refused stale
 (`library-tree-plan-stale`) is previewed again and ends in the refusal.
 An edit that changes no engine, or loses nothing,
 writes as ever, and `agent create` never previews. Only hooks are judged:
@@ -4090,7 +4097,7 @@ not) overrides it whole, and init reads its interview THROUGH the catalog
 (ruling 128: `Library::operational_prompt`, behind init-application's
 `Prompts` port, and outside a project the built-in one): the project's
 `prompts/setup-interview.md` is what init opens with, and one that lacks it
-is refused, `library-application-operational-prompt-missing` (exit 20),
+is refused, `library-application-operational-prompt-missing` (exit 48),
 never answered from the embedded text. Trust cost, accepted by the owner:
 a project's content can rewrite the prompt ctxloom's own setup runs on. The
 deps closure counts the bundle as the project's own, so nothing is fetched,
@@ -4154,9 +4161,9 @@ one write, a DUPLICATE, and against the etag the ask's preview answered
 for the form's file, so a form edited meanwhile is refused stale
 (`PlanStale`). Its plan reads the item again: a source whose digest moved
 since the ask is `library-application-distill-source-moved` (typed
-`LibraryDistillSourceMoved`, ABORTED, exit 20; its text a DRAFT), and an
+`LibraryDistillSourceMoved`, ABORTED, exit 48; its text a DRAFT), and an
 answer under 2% of the source `library-application-distill-truncated`
-(exit 10): nothing is written, so the form there before is kept. What the
+(exit 32): nothing is written, so the form there before is kept. What the
 write came to is the run's end, which the CLI says as the command's. The
 reaction is in memory as the one-shot is: a daemon that dies during the
 run loses it (the sweep's), and nothing follows. The write is made while
@@ -4186,7 +4193,7 @@ for a server offered), and opencode's `opencode.json` has no `mcp.ctxloom`. The 
 the agent is `--agent`, else the default agent where there is one, else
 none (the default engine), and keeps its engine, model and permissions; the
 statusline stays as configured. Beside `--profile`, `--fragment` or `--tag`
-it is `library-application-no-context-exclusive` (exit 20).
+it is `library-application-no-context-exclusive` (exit 48).
 
 ## Hook capture: the transcript is the session's events
 
@@ -4416,7 +4423,7 @@ plans to that holds anything warns first, the notice
 `sessions-application-destroys-held` (its facts and set-aside parts; never
 a refusal), and an applied destroy then discards the hold and its
 set-aside parts; a refused removal touches no hold; a hold that cannot be
-read or discarded fails the command (10) after the daemon's answer is
+read or discarded fails the command (32) after the daemon's answer is
 printed. A downgrade's facts (of a newer ctxloom) stay held until a
 reinstall or the destroy. Doctor reports every hold,
 `DOCTOR-CHECK-HELD-FACTS-h1` (doctor-checks' `held.rs`, wired by
@@ -4457,7 +4464,7 @@ its own `CLAUDE_CODE_OAUTH_TOKEN`; the probe gives claude, the server and
 the daemon its call starts a temporary `CTXLOOM_HOME`, `HOME` and project
 of its own and stops that daemon before removing them, held by
 `scripts/mcp-env-probe.selftest.sh` in `just selftest`), and with none it is
-refused, `mcp-server-no-session` (exit 20). `initialize` and `tools/list`
+refused, `mcp-server-no-session` (exit 48). `initialize` and `tools/list`
 reach no daemon. The command line holds stdout locked, so the server's
 lines reach it through a channel and are written on the command's thread
 (`mcp_server::serve(server, out)`). Its tools (`mcp_server::TOOL_NAMES`)
@@ -4608,7 +4615,7 @@ project config unless `--home` (vocabulary §4's spelling) sends them to the
 home config, and each layer takes the values valid for it (owner ruling of
 2026-11-14): `session` anywhere, `host` only on a home write, where it
 takes effect; a project write of `host` is refused,
-`library-application-write-session-home-host-in-project` (exit 20, its fix
+`library-application-write-session-home-host-in-project` (exit 48, its fix
 the same write with `--home`), and writes nothing. A binding replaces a
 lower layer's whole, so an agent the project also binds says `host` only
 once the project's binding is gone. `approval_timeout` (OD-41, D16, step 8
@@ -4710,7 +4717,7 @@ through auth-application's `FileOnly`), exit 0 as ever.
 No key a person writes is a boolean (`schema.rs` has no `Bool` node; a
 free-form engine permission document may still read `true`). Hard migrate,
 prerelease, no `schema_version` bump: each old key is an ordinary unknown key
-(refused, exit 20), with no alias, reader, migration or warning.
+(refused, exit 48), with no alias, reader, migration or warning.
 
 | old | new | default |
 |---|---|---|
@@ -4780,7 +4787,7 @@ machine beside this one; both write hook entries into the user's shared
 `~/.claude/settings.json`. It is the HOME config's alone: a project layer that
 says it is refused (`library::config::schema::HOME_ONLY` and
 `take_home_only`, a `breaks the schema` violation naming the home config,
-exit 20; under `--degraded` it is said and dropped, never read). Doctor's
+exit 48; under `--degraded` it is said and dropped, never read). Doctor's
 stale-hooks check (`DOCTOR-CHECK-STALE-HOOKS-n5`, doctor-checks' `hooks.rs`)
 calls a hook entry Rust-era when it is EXACTLY `<name> hook <engine> execute
 <Event>`, `<name>` the running binary's file name (ruling 163) or bare

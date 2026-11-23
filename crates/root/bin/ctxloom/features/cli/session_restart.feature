@@ -47,11 +47,11 @@ Feature: session restart — the daemon restarts a child's engine and resumes it
       Given an initialized ctxloom project
       And a session "amber-quiet-heron" that is still running
       When I run "ctxloom session restart amber-quiet-heron"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the refusal is "daemon-api-primary-not-hosted"
 
     Scenario: A session nobody recorded is refused
       # new: session restart.
       Given an initialized ctxloom project
       When I run "ctxloom session restart nobody-ever-ran"
-      Then the command exits with code 20
+      Then the command exits with code 48

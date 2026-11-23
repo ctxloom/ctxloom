@@ -46,7 +46,7 @@ mod read {
             JSON,
             &[ENGINE_HOME, ENGINE_PROJECT],
         );
-        assert_eq!(show.code(), 0, "{}", show.err);
+        assert_eq!(show.code(), 16, "{}", show.err);
         let agent = show.json();
         assert_eq!(agent["name"], "projects/calm-otter/agents/dev");
         assert_eq!(
@@ -371,7 +371,7 @@ mod write {
             &["agent", "edit", "dev", "--engine", "opencode"],
             crate::tests::JSON,
         );
-        assert_eq!(ran.code(), 1, "a preview would change: {}", ran.err);
+        assert_eq!(ran.code(), 17, "a preview would change: {}", ran.err);
         assert_eq!(
             ran.json(),
             serde_json::json!({
@@ -638,7 +638,7 @@ mod writes_asked {
             &Project,
             Some(&asks),
         );
-        assert_eq!(ran.exit, Ok(1), "{}", ran.err);
+        assert_eq!(ran.exit, Ok(17), "{}", ran.err);
         assert!(
             ran.out
                 .starts_with("Moving agent \"dev\" from claude-code to opencode"),
@@ -710,7 +710,7 @@ mod writes_asked {
             vec![Box::new(swap_asking()), Box::new(applied())],
             Some(true),
         );
-        assert_eq!(ran.exit, Ok(0), "{}", ran.err);
+        assert_eq!(ran.exit, Ok(16), "{}", ran.err);
         assert!(ran.out.contains("Updated agent \"dev\""), "{}", ran.out);
         assert_eq!(sent.len(), 2);
         assert!(sent[0].validate_only && !sent[1].validate_only);
@@ -728,7 +728,7 @@ mod writes_asked {
     #[test]
     fn test_a_swap_declined_at_the_terminal_is_its_preview_and_applies_nothing() {
         let (ran, sent) = swap_at_terminal(vec![Box::new(swap_asking())], Some(false));
-        assert_eq!(ran.exit, Ok(1), "{}", ran.err);
+        assert_eq!(ran.exit, Ok(17), "{}", ran.err);
         assert!(
             ran.out
                 .starts_with("Moving agent \"dev\" from claude-code to opencode"),
@@ -751,7 +751,7 @@ mod writes_asked {
             Some(true),
         );
         assert!(
-            matches!(&ran.exit, Err(why) if why.starts_with("library-tree-plan-stale:20")),
+            matches!(&ran.exit, Err(why) if why.starts_with("library-tree-plan-stale:48")),
             "{:?}",
             ran.exit
         );

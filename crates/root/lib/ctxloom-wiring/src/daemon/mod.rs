@@ -682,7 +682,7 @@ fn use_stack(base: usize, bytes: usize) -> u8 {
 /// `daemon serve`'s exit: a daemon that lost the single-instance lock to
 /// another declines (20: a lock another process holds), which its spawner
 /// reads as another daemon to wait for ([`spawn_waits_on`]); one that could
-/// not serve failed (10).
+/// not serve failed (32).
 fn served_exit(served: Result<(), serve::Unserved>) -> Result<Exit, Failure> {
     match served {
         Ok(()) => Ok(Exit::OK),
@@ -1222,7 +1222,7 @@ fn resolved_parent(
 /// launch|send|clear|close`, slice 4 U3): her project as the daemon names it
 /// (registered or rechecked, a daemon reached or started), each write's id
 /// minted per call, a launch that names no child minting its harp. Outside a
-/// project it is refused (exit 20).
+/// project it is refused (exit 48).
 pub(crate) fn child_caller<'a>(
     wiring: &'a Wiring,
     stamp: &str,

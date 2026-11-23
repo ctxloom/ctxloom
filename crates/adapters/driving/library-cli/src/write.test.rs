@@ -83,13 +83,13 @@ pub(crate) fn run_on(library: &Library, line: &[&str], how: How) -> Ran {
 /// own tests hold to its code.
 pub(crate) fn text(library: &Library, line: &[&str]) -> String {
     let ran = run_on(library, line, TEXT);
-    assert!(ran.code() < 10, "{line:?}: a success: {}", ran.err);
+    assert!(ran.code() < 32, "{line:?}: a success: {}", ran.err);
     ran.out
 }
 
 pub(crate) fn json(library: &Library, line: &[&str]) -> serde_json::Value {
     let ran = run_on(library, line, JSON);
-    assert!(ran.code() < 10, "{line:?}: a success: {}", ran.err);
+    assert!(ran.code() < 32, "{line:?}: a success: {}", ran.err);
     ran.json()
 }
 
@@ -135,7 +135,7 @@ fn test_profile_create_and_agent_default_answer_json_off_a_terminal() {
         &["profile", "create", "base", "-i", "demo"],
         DERIVED,
     );
-    assert_eq!(created.code(), 0, "{}", created.err);
+    assert_eq!(created.code(), 16, "{}", created.err);
     let name = created.json()["profile"]["name"].clone();
     assert!(
         name.as_str().is_some_and(|n| n.ends_with("/profiles/base")),
@@ -143,7 +143,7 @@ fn test_profile_create_and_agent_default_answer_json_off_a_terminal() {
         created.out
     );
     let set = run_on(&library, &["agent", "default", "dev"], DERIVED);
-    assert_eq!(set.code(), 0, "{}", set.err);
+    assert_eq!(set.code(), 16, "{}", set.err);
     assert_eq!(set.json()["agent"], "dev", "{}", set.out);
     assert_eq!(json(&library, &["agent", "default", "dev"])["agent"], "dev");
 }

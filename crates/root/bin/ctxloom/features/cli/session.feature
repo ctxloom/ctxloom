@@ -322,7 +322,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
       # new: a name nobody has.
       Given an initialized ctxloom project
       When I run "ctxloom session stop brisk-copper-moth"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the output contains "no session is named"
 
     Scenario: Stopping a session the daemon does not run is refused, and says what to do
@@ -330,7 +330,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
       Given an initialized ctxloom project
       And a session "amber-swift-owl" that is still running
       When I run "ctxloom session stop amber-swift-owl --format text"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the output contains "amber-swift-owl is a terminal session run by its own ctxloom process"
       And the output contains "fix: end the session and resume it with `ctxloom run --session amber-swift-owl`"
 

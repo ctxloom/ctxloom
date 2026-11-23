@@ -8,7 +8,7 @@ ctxloom-wiring-store = cannot open the project store: { $error }
 ctxloom-wiring-daemon-other-home = the user's daemon serves the ctxloom home { $daemon_home }, not this command's { $home }: there is one daemon per OS user
 ctxloom-wiring-project-unnamed = the project at { $root } has no project id yet, and a dry run never makes one
 ctxloom-wiring-project-unnamed-fix = run `ctxloom init` in { $root } to give the project its id
-# Step 10a U0: not drafted in the red spec (a failure of the machine, exit 10).
+# Step 10a U0: not drafted in the red spec (a failure of the machine, exit 32).
 ctxloom-wiring-checkout = the library checkout's name at { $path } could not be read or written: { $ext_err_txt }
 # Step 10c U13 rework (a DRAFT): the scanner could not walk a library tree.
 ctxloom-wiring-scan = the library at { $path } could not be read: { $ext_err_txt }

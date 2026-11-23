@@ -82,11 +82,11 @@ pub struct HostedEnd {
 
 impl ExitClass for RunError {
     /// How a command this ends exits: what `PlanError` says for its own,
-    /// fatal findings (21) for a refusal with the plan's fatal findings among
-    /// its failures (rulings 73a, 152: the most severe wins), refused (20) for
+    /// fatal findings (49) for a refusal with the plan's fatal findings among
+    /// its failures (rulings 73a, 152: the most severe wins), refused (48) for
     /// a refusal before anything ran (an ask that cannot be run, a refusal of
     /// the kernel, a lock another process holds), the signal for a run a signal stopped (128 plus its
-    /// number), failed (10) otherwise.
+    /// number), failed (32) otherwise.
     fn exit(&self) -> Exit {
         match self {
             RunError::Plan(error) => error.exit(),

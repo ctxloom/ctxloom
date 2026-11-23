@@ -289,7 +289,7 @@ fn doctor(
     Ok(exit_of(&report))
 }
 
-/// The exit a report ends the run with: refused (20) when a row failed, the
+/// The exit a report ends the run with: refused (48) when a row failed, the
 /// status of the run's refusal that row guarantees (ruling 152: 21 is the run
 /// plan's fatal findings alone).
 fn exit_of(report: &doctor_checks::Report) -> Exit {

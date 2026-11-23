@@ -117,13 +117,13 @@ fn matches_of<'a>(call: &Call<'a>, noun: &str) -> &'a ArgMatches {
         .unwrap_or_else(|| unreachable!("the line named {noun}"))
 }
 
-/// A failure of the command line itself: exit 10.
+/// A failure of the command line itself: exit 32.
 fn failed(cause: Box<dyn Diagnostic>) -> Failure {
     Failure::boxed(cause, Exit::FAILED)
 }
 
 /// A hook the service refused (an engine the registry does not know, a
-/// payload its codec cannot read): a decline, exit 20 (ruling 152).
+/// payload its codec cannot read): a decline, exit 48 (ruling 152).
 fn declined(cause: Box<dyn Diagnostic>) -> Failure {
     Failure::boxed(cause, Exit::REFUSED)
 }
@@ -165,7 +165,7 @@ impl Commands {
     }
 
     /// `answer`, once the sessions' stores are closed: a close that fails is
-    /// said, and fails a command that had not (exit 1); beside a failure of
+    /// said, and fails a command that had not (exit 17); beside a failure of
     /// the command's own, which is answered, it is said as a warning.
     fn closing(
         &mut self,
@@ -368,7 +368,7 @@ impl Commands {
 
 /// What a `session` or `trust` command came to, said: its dead letters and
 /// notices on `err`, and its exit (a preview that would change something,
-/// 1 under `--detailed-exitcode`).
+/// 17 under `--detailed-exitcode`).
 fn said(
     ran: Result<session_cli::Done, session_cli::Failure>,
     format: Format,

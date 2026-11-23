@@ -382,12 +382,12 @@ Feature: bundle — the container authored content lives in, and everything that
     # THE REFUSAL IS PROVEN BY WHAT DID NOT HAPPEN: an edit that wrote the
     # first file and refused the second would pass an exit-code check.
     Scenario Outline: An edit that would change more than one file is refused, and changes none
-      # new: T29, S52 (owner): OneChangePerCall, exit 20.
+      # new: T29, S52 (owner): OneChangePerCall, exit 48.
       Given an initialized ctxloom project
       And a bundle "demo" exists
       And the project's changes are committed
       When I run "ctxloom bundle edit demo <flags>"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the refusal is "library-tree-one-change-per-call"
       And the output contains "<first>"
       And the output contains "<second>"

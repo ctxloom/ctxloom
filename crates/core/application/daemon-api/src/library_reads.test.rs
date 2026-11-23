@@ -404,7 +404,7 @@ async fn an_unnamed_projects_preview_names_nothing() {
 
 // Step 10a U2: the deps reads are answered as the library's, observed
 // first, at the caller's directory; a lock that does not read is a decline
-// (exit 20), its cause the read model's own diagnostic.
+// (exit 48), its cause the read model's own diagnostic.
 #[tokio::test]
 async fn a_deps_read_is_observed_then_answered_and_a_decline_carries_its_cause() {
     let f = fixture(vec!["calm-quiet-heron"]);

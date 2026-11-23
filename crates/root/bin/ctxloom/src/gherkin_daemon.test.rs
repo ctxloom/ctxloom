@@ -365,9 +365,10 @@ pub(super) fn hold_owner_live(w: &mut World, owner: &str) {
         .project
         .dir()
         .join(format!(".ctxloom/sessions/{owner}"));
-    if w.daemon_spec.run.is_some() || !files::exists(&session_dir) {
+    if w.daemon_spec.run.is_some() || listed_state(w, owner).is_none() {
         return;
     }
+    files::mkdirs(&session_dir);
     let dir = w.common.project.home().join("owner-lock");
     let lock = session_dir.join("session.lock");
     let release = dir.join("release");

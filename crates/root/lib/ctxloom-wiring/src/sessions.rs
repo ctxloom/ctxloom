@@ -335,7 +335,16 @@ impl Commands {
             ),
             out,
         );
-        said(ran, format, catalog, err)
+        // A screen asked for where none can be drawn is refused in the
+        // envelope a program reads, whatever format was asked: the format
+        // that was asked for is what could not be served.
+        let said_as = match &ran {
+            Err(failure) if failure.failure.cause.code() == "session-cli-top-needs-terminal" => {
+                Format::Json
+            }
+            _ => format,
+        };
+        said(ran, said_as, catalog, err)
     }
 
     /// `session ...` on the sessions use cases, which [`Commands::session`]

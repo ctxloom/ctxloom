@@ -540,3 +540,26 @@ fn run_not_a_terminal(w: &mut World, line: String) {
     daemon_spec::before_line(w, &line);
     w.common.run_lines(&line, "");
 }
+
+#[then(expr = "the next line reports {string} containing {string}")]
+fn next_reports_containing(w: &mut World, path: String, text: String) {
+    let line = next_line(w, WAIT).unwrap_or_else(|| panic!("no next line came"));
+    let got = at(&line, &path).unwrap_or_else(|| panic!("no {path} in {line}"));
+    assert!(said(got).contains(&text), "{path} is {got}: {line}");
+    w.top.that = Some(line);
+}
+
+#[then(expr = "a later line reports {string} as {string}")]
+fn later_reports(w: &mut World, path: String, want: String) {
+    let found = until_line(w, 30, |line| {
+        at(line, &path).is_some_and(|got| is(got, &want))
+    });
+    w.top.that = Some(found);
+}
+
+#[then(expr = "that line's {string} holds {string}")]
+fn that_holds(w: &mut World, path: String, text: String) {
+    let line = w.top.that.clone().expect("a step found a line");
+    let got = at(&line, &path).unwrap_or_else(|| panic!("no {path} in {line}"));
+    assert!(said(got).contains(&text), "{path} is {got}: {line}");
+}

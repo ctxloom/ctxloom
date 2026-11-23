@@ -19,6 +19,9 @@ pub(crate) struct DaemonTop<'a> {
     wiring: &'a Wiring,
     stamp: String,
     runtime: Arc<tokio::runtime::Runtime>,
+    /// The signals heard for the command's whole life (ruling 114): none
+    /// ends it by its default, and the first stops it.
+    stops: crate::signals::CommandStops,
 }
 
 impl<'a> DaemonTop<'a> {
@@ -34,10 +37,14 @@ impl<'a> DaemonTop<'a> {
                     detail: e.to_string(),
                 })
             })?;
+        let fs = wiring.fs();
+        let stops =
+            crate::signals::CommandStops::hearing(move || fs.os().signals(&crate::signals::HEARD));
         Ok(DaemonTop {
             wiring,
             stamp: stamp.to_string(),
             runtime: Arc::new(runtime),
+            stops,
         })
     }
 }
@@ -92,6 +99,15 @@ impl session_cli::TopSource for DaemonTop<'_> {
             Err(draining) if is_draining(&draining) => Ok(None),
             Err(refused) => Err(failure(refused)),
         }
+    }
+
+    fn stopped(&self) -> Option<session_cli::Failure> {
+        self.stops.signal().map(|signal| {
+            session_cli::Failure::of(run_application::RunError::Stopped {
+                signal: signal.name().to_string(),
+                status: signal.exit_status(),
+            })
+        })
     }
 
     // A timer: the only thing `top` looks for rather than is told.

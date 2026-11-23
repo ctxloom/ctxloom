@@ -375,3 +375,59 @@ fn text_off_a_terminal_is_refused_naming_json() {
         "session-cli-top-needs-terminal"
     );
 }
+
+/// A daemon that serves a watch which never speaks, and a command asked to
+/// stop once it is open.
+struct Silent {
+    asked: RefCell<bool>,
+}
+
+struct Quiet;
+
+impl TopFeed for Quiet {
+    fn next(&mut self) -> Option<Result<v1::TopEvent, Failure>> {
+        None
+    }
+
+    fn within(&mut self, _: std::time::Duration) -> crate::Within {
+        crate::Within::Idle
+    }
+}
+
+impl TopSource for Silent {
+    fn open(
+        &self,
+        _all: bool,
+        _make: &dyn Fn(&str) -> Result<v1::WatchTopRequest, Failure>,
+    ) -> Result<Option<Box<dyn TopFeed>>, Failure> {
+        *self.asked.borrow_mut() = true;
+        Ok(Some(Box::new(Quiet)))
+    }
+
+    fn wait(&self) {}
+
+    fn stopped(&self) -> Option<Failure> {
+        self.asked.borrow().then(|| {
+            fault(CliFault::Output {
+                ext_err_txt: "stopped".into(),
+            })
+        })
+    }
+}
+
+#[test]
+fn a_command_asked_to_stop_ends_though_its_watch_says_nothing() {
+    let source = Silent {
+        asked: RefCell::new(false),
+    };
+    let ended = top(
+        &args(&["top"]),
+        &source,
+        &NoAnswers,
+        Format::Json,
+        (true, false),
+        &mut Vec::new(),
+    )
+    .unwrap_err();
+    assert_eq!(ended.failure.cause.code(), "session-cli-output");
+}

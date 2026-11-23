@@ -21,7 +21,7 @@ use crate::screen::{Effect, Frame, Key, Screen};
 use crate::top::{Sort, Top, TopFeed, TopSource, Within};
 
 /// How long the loop waits on the watch before it looks at the keys again.
-const TICK: Duration = Duration::from_millis(50);
+pub(crate) const TICK: Duration = Duration::from_millis(50);
 /// How long between looks for a daemon to serve.
 const LOOK: Duration = Duration::from_millis(500);
 
@@ -88,6 +88,9 @@ pub fn drive(
     let mut looked: Option<Instant> = None;
     let mut drawn = String::new();
     loop {
+        if let Some(stop) = source.stopped() {
+            return Err(stop);
+        }
         while let Ok(input) = keys.try_recv() {
             let key = match input {
                 Input::Key(key) => key,

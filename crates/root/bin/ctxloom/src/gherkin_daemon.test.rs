@@ -447,7 +447,13 @@ pub(super) fn hold_owner_live(w: &mut World, owner: &str) {
         .project
         .dir()
         .join(format!(".ctxloom/sessions/{owner}"));
-    if w.daemon_spec.run.is_some() || listed_state(w, owner).is_none() {
+    // Only where a daemon the scenario started serves: asking another one
+    // would start it (and a draining or killed one answers nothing).
+    if w.daemon_spec.run.is_some() || w.daemon_spec.daemon.is_none() || w.daemon_spec.killed {
+        return;
+    }
+    let ran = run_now(w, &["session", "list", "--format", "json"]);
+    if ran.code != 0 || listed_state(w, owner).is_none() {
         return;
     }
     files::mkdirs(&session_dir);

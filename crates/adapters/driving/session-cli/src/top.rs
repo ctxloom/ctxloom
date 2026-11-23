@@ -121,6 +121,11 @@ pub trait TopSource {
 
     /// Wait a little for a daemon to serve.
     fn wait(&self);
+
+    /// The command was asked to stop (a signal heard): how it ends.
+    fn stopped(&self) -> Option<Failure> {
+        None
+    }
 }
 
 impl Top {
@@ -373,6 +378,9 @@ pub fn top(
     let make = |parent: &str| command.request(parent);
     let mut said_waiting = false;
     loop {
+        if let Some(stop) = source.stopped() {
+            return Err(stop);
+        }
         let Some(mut feed) = source.open(command.all, &make)? else {
             if !said_waiting {
                 emit(&waiting(), out)?;
@@ -382,20 +390,24 @@ pub fn top(
             continue;
         };
         loop {
-            match feed.next() {
-                Some(Ok(mut event)) => {
+            if let Some(stop) = source.stopped() {
+                return Err(stop);
+            }
+            match feed.within(crate::screen_run::TICK) {
+                Within::Idle => {}
+                Within::Event(mut event) => {
                     if let Some(v1::top_event::Event::Snapshot(snapshot)) = event.event.as_mut() {
                         sort.order(&mut snapshot.sessions);
                     }
                     emit(&event, out)?;
                 }
                 // The daemon is gone: waiting again, said once.
-                Some(Err(_)) => {
+                Within::Broke(_) => {
                     emit(&waiting(), out)?;
                     said_waiting = true;
                     break;
                 }
-                None => return Ok(Done::default()),
+                Within::Ended => return Ok(Done::default()),
             }
         }
     }

@@ -285,6 +285,7 @@ fn read_what_comes(w: &mut World, seconds: u64) {
 }
 
 #[then("every line read is one JSON object on one line")]
+#[then("every line it printed is one whole JSON object")]
 fn every_line_is_an_object(w: &mut World) {
     read_what_comes(w, 4);
     assert!(!w.top.read.is_empty(), "no line was read");
@@ -355,6 +356,9 @@ fn note_first_ask(w: &mut World, path: String, label: String) {
 /// command.
 #[when("I send it SIGINT")]
 fn sent_sigint(w: &mut World) {
+    // Its first line says it listens: a signal sent while it starts is still
+    // taken by the default, as any command's is.
+    first_line(w);
     let mut stream = w.top.stream.take().expect("a stream was started");
     let pid = stream.child.id().to_string();
     let sent = std::process::Command::new("kill")

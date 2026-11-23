@@ -527,3 +527,96 @@ fn a_terminal_without_the_credential_carries_no_permit() {
     let env = launched_with(LaunchKind::Terminal, &[]);
     assert!(!env.contains_key("CTXLOOM_PERMIT_CHILD_TOKEN"));
 }
+
+// The tool homes (owner, 2026-11-22): the engine's HOME is its session home,
+// so the launch names rustup's, cargo's and npm's real locations, owned so
+// no permit replaces them.
+fn with_user_home(kind: LaunchKind, home: Option<&str>, env: &[(&str, &str)]) -> LaunchRequest {
+    let mut asked = request(kind);
+    asked.user_home = home.map(str::to_string);
+    asked
+        .setup
+        .env
+        .extend(env.iter().map(|(k, v)| (k.to_string(), v.to_string())));
+    asked
+}
+
+fn made(asked: &LaunchRequest) -> run_ports::Launch {
+    let engine = ScriptedEngine::answering("", None);
+    let finder = Finder::finding("/found/fake");
+    launch_of(
+        engines(&engine),
+        &|c| finder.find(c),
+        &mut MemoryRecords::default(),
+        None,
+        asked,
+        "linux",
+    )
+    .unwrap()
+    .launch
+}
+
+#[test]
+fn test_every_kind_of_launch_carries_the_tool_homes_of_the_user() {
+    for kind in [LaunchKind::Terminal, LaunchKind::OneShot, LaunchKind::Child] {
+        let launch = made(&with_user_home(kind, Some("/home/alice"), &[]));
+        let var = |n: &str| launch.env.get(n).map(String::as_str);
+        assert_eq!(var("RUSTUP_HOME"), Some("/home/alice/.rustup"), "{kind:?}");
+        assert_eq!(var("CARGO_HOME"), Some("/home/alice/.cargo"), "{kind:?}");
+        assert_eq!(
+            var("npm_config_cache"),
+            Some("/home/alice/.npm"),
+            "{kind:?}"
+        );
+    }
+}
+
+#[test]
+fn test_the_tool_homes_the_user_set_are_the_launchs() {
+    let launch = made(&with_user_home(
+        LaunchKind::OneShot,
+        Some("/home/alice"),
+        &[("CARGO_HOME", "/opt/cargo")],
+    ));
+    assert_eq!(
+        launch.env.get("CARGO_HOME").map(String::as_str),
+        Some("/opt/cargo")
+    );
+}
+
+#[test]
+fn test_a_permit_never_replaces_a_tool_home_and_the_launch_says_so() {
+    let launch = made(&with_user_home(
+        LaunchKind::OneShot,
+        Some("/home/alice"),
+        &[
+            ("CTXLOOM_PERMIT_CARGO_HOME", "/evil/cargo"),
+            ("CTXLOOM_PERMIT_RUSTUP_HOME", "/evil/rustup"),
+            ("CTXLOOM_PERMIT_npm_config_cache", "/evil/npm"),
+        ],
+    ));
+    assert_eq!(
+        launch.env.get("CARGO_HOME").map(String::as_str),
+        Some("/home/alice/.cargo")
+    );
+    assert_eq!(
+        launch.env.get("RUSTUP_HOME").map(String::as_str),
+        Some("/home/alice/.rustup")
+    );
+    assert_eq!(
+        launch.env.get("npm_config_cache").map(String::as_str),
+        Some("/home/alice/.npm")
+    );
+    assert!(launch.env.values().all(|v| !v.starts_with("/evil")));
+    assert!(launch.ignored.len() >= 3, "{:?}", launch.ignored);
+}
+
+#[test]
+fn test_under_session_home_host_the_launch_adds_no_tool_home() {
+    let mut asked = with_user_home(LaunchKind::OneShot, Some("/home/alice"), &[]);
+    asked.setup.home.session_home = run_ports::SessionHome::Host;
+    let launch = made(&asked);
+    for name in ["RUSTUP_HOME", "CARGO_HOME", "npm_config_cache"] {
+        assert!(!launch.env.contains_key(name), "{name}");
+    }
+}

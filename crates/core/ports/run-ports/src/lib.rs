@@ -32,6 +32,7 @@ mod settings;
 mod sink;
 mod tls;
 mod token;
+mod tool_homes;
 mod version;
 mod wake;
 
@@ -84,6 +85,7 @@ pub use settings::{
 pub use sink::{Delivery, FactSink, NO_SUCH_SESSION};
 pub use tls::{CertError, CertMint, CertNames, HookCertificate, PublicCert};
 pub use token::{Token, TokenError, TokenHash, TokenSource, EN_US};
+pub use tool_homes::{tool_homes, CARGO_HOME, NPM_CACHE, RUSTUP_HOME, TOOL_HOME_VARIABLES};
 pub use version::newer;
 pub use wake::{wake_line, wake_nonce, WakePost, NONCE_DIGITS};
 

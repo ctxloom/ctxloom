@@ -847,6 +847,24 @@ Feature: run — assembling a project's context and handing it to an engine
       And the output contains "CTXLOOM_PERMIT_OPENCODE_CONFIG_DIR was not passed on"
       And the output contains "CTXLOOM_PERMIT_PATH was not passed on"
 
+    # HOME is the session home (owner ruling 112), so a tool that finds its
+    # data through HOME would start from nothing in every session: the launch
+    # names rustup's, cargo's and npm's real locations, and owns the names.
+    Scenario: Her interactive opencode session is given her toolchain and cache homes, which no permit replaces
+      # new: owner, 2026-11-22.
+      Given Alice has a project that has never used ctxloom
+      And Alice has set ctxloom up in her project
+      And the environment variable "RUSTUP_HOME" is set to "/fixture/rustup-not-real"
+      And the environment variable "CTXLOOM_PERMIT_CARGO_HOME" is set to "/evil-cargo"
+      And the environment variable "CTXLOOM_PERMIT_RUSTUP_HOME" is set to "/evil-rustup"
+      When Alice runs her assistant on opencode interactively, and it reports its environment:
+        """
+        ctxloom run --engine opencode
+        """
+      Then opencode's RUSTUP_HOME was hers, its CARGO_HOME and npm_config_cache were the defaults under her home, and neither was its session home's
+      And the output contains "CTXLOOM_PERMIT_CARGO_HOME was not passed on"
+      And the output contains "CTXLOOM_PERMIT_RUSTUP_HOME was not passed on"
+
     Scenario: A permit for a name ctxloom sets for claude is ignored in a child's turn
       # new: owner ruling 78b (2026-11-10).
       Given Alice has a project that has never used ctxloom

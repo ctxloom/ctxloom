@@ -159,8 +159,9 @@ pub fn launch_of(
     os: &str,
 ) -> Result<LaunchMade, Box<Unprepared>> {
     // 1. Set up: the one session-setup path (owner, 2026-11-12).
-    let set_up = set_up_launch(engines.engine, records, workspaces, &request.setup)
+    let mut set_up = set_up_launch(engines.engine, records, workspaces, &request.setup)
         .map_err(Unprepared::at_setup)?;
+    give_tool_homes(&mut set_up, request);
     let mut said = Unprepared {
         why: NotLaunched::Failed(String::new()),
         placed: set_up.placed.clone(),
@@ -226,6 +227,23 @@ pub fn launch_of(
         placed: set_up.placed,
         child,
     })
+}
+
+/// The engine's HOME is its session home (owner ruling 112), so a tool that
+/// finds its data through HOME (rustup, cargo, npm) would start from nothing
+/// in every session. The launch names their real locations to the engine
+/// (`run_ports::tool_homes`: the user's own variable, else the tool's default
+/// under her home) and owns the names, so no permit replaces them. Under
+/// `session_home: host` the engine's HOME is hers and nothing is added.
+fn give_tool_homes(set_up: &mut LaunchSetUp, request: &LaunchRequest) {
+    if request.setup.home.session_home == run_ports::SessionHome::Host {
+        return;
+    }
+    let homes = run_ports::tool_homes(&request.setup.env, request.user_home.as_deref());
+    for (name, value) in homes {
+        set_up.owned.push(name.clone());
+        set_up.env.insert(name, value);
+    }
 }
 
 /// Step 2: the engine's command for `request`'s kind, the protocol it

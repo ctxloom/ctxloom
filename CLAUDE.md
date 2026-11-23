@@ -884,7 +884,19 @@ engines' allowlists), so a hook or the agent's own `ctxloom` call from a
 checkout resolves the project (`find_app_dir` honours it before the walk;
 the checkout's `.ctxloom` is the tracked config alone; without it a scratch
 checkout is a git root and the walk ends there, never at an enclosing
-project). The session home is seeded, once (one there is left
+project). The tools that find their data through `HOME` keep the USER's data
+(owner, 2026-11-22): the launch names `RUSTUP_HOME`, `CARGO_HOME` and
+`npm_config_cache` to the engine (`run_ports::tool_homes`, set by
+`run_launcher::launch::give_tool_homes` in `launch_of`, so every launch kind
+and both engines alike), each the value the user's own environment sets when
+non-empty (npm's `NPM_CONFIG_CACHE` spelling counts), else the tool's default
+under `Place::user_home` (`<user home>/.rustup`, `/.cargo`, `/.npm`), none
+where neither exists. The names are owned (the order's `owned`, so no permit
+replaces one, ruling 78b) and on all four engine allowlists. Under
+`session_home: host` the launch adds none (HOME is hers). Accepted cost: a
+session can change her shared toolchain and caches. taskloom's home is not
+part of this.
+The session home is seeded, once (one there is left
 as it is), with a `.gitconfig` of the user's `[user] name/email` alone, as git
 resolves them in the project (`worktree-git`'s `Git::user`,
 `run_ports::git_config`, written by the launcher): a file, not

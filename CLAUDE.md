@@ -3761,10 +3761,11 @@ adopts the user's home's `.ctxloom` nor the daemon root's as a project
 (`Surroundings::user_home`, `home`); only an explicit root does. A run
 (`client_one_shot`, `client_terminal`) where no project is found, no root is
 named and no git root is above the working directory is refused
-`ctxloom-wiring-project-root-needed` (exit 20, its fix naming `--root`, the
+`ctxloom-wiring-project-root-needed` (exit 48, its fix naming `--root`, the
 wording a DRAFT); `init` there makes the project in the working directory.
 The per-verb `--home` of `config set` and `agent create|edit` is the home
-CONFIG layer, unrelated. It is the registry's `Environment.root`
+CONFIG layer, unrelated. `agent create|edit`'s root selection per surface kind is `--surface-root
+kind=root` (it was `--root`, which the global took; hard migrate, no alias). It is the registry's `Environment.root`
 (`Wiring::environment`), which the run, the sessions use cases, the
 daemon client's `registration()` and the names' `library_registration()`
 (the same, but `users/me` outside a ctxloom project) all use, so a

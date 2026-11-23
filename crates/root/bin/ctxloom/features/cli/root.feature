@@ -51,7 +51,7 @@ Feature: the project root — `--root`, `CTXLOOM_ROOT`, and where a project is l
       And her daemon root is elsewhere, and her home holds a ctxloom directory of her own
       And a directory "newproj" in her home
       When I run "ctxloom run --one-shot hello" in her home's directory "newproj"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the output contains "ctxloom-wiring-project-root-needed"
       And the output contains "--root"
       And the home's file ".ctxloom/sessions" does not exist

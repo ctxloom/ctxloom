@@ -1,5 +1,6 @@
 //! What a terminal session's frontend tells its human of the permission asks
-//! that arrive under its session (owner, 2026-11-22): the pure half. Each
+//! that arrive in its project (owner, 2026-11-22, widened 2026-11-23): the
+//! pure half. Each
 //! waiting ask is told once, as one line (its bell is the caller's), and an
 //! ask settled since says nothing more. The watch itself is `frontend`'s.
 
@@ -11,14 +12,15 @@ use daemon_proto::v1;
 /// reads a line, and the full ask is `ctxloom session approvals`.
 const SHOWN_CHARS: usize = 160;
 
-/// The listing of the waiting asks under the session `session`
-/// (`projects/{project}/sessions/{harp}`): the ones `session approvals
-/// <harp>` lists. None for a name of another shape.
-pub(crate) fn listing_under(session: &str) -> Option<v1::ListApprovalsRequest> {
+/// The listing of every waiting ask of the project of the session `session`
+/// (`projects/{project}/sessions/{harp}`), whatever its root: the ones a
+/// bare `session approvals` lists. A one-shot is its own root and a
+/// sibling session's children have another, and a TUI's human answers
+/// them all. None for a name of another shape.
+pub(crate) fn project_listing(session: &str) -> Option<v1::ListApprovalsRequest> {
     let (project, _) = session.split_once("/sessions/")?;
     Some(v1::ListApprovalsRequest {
         parent: project.to_string(),
-        root: session.to_string(),
         waiting: true,
         ..v1::ListApprovalsRequest::default()
     })

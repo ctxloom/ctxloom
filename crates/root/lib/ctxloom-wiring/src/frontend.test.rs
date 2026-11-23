@@ -334,3 +334,48 @@ fn what_runs_beside_the_session_is_dropped_when_it_ends() {
     let none: Option<std::future::Ready<()>> = None;
     assert_eq!(runtime.block_on(beside(async { 4 }, none)), 4);
 }
+
+fn waiting_ask(name: &str) -> v1::Approval {
+    v1::Approval {
+        name: format!("projects/calm-quiet-heron/approvals/{name}"),
+        child: "projects/calm-quiet-heron/sessions/brisk-copper-moth".to_string(),
+        tool_name: "Bash".to_string(),
+        state: "waiting".to_string(),
+        ..v1::Approval::default()
+    }
+}
+
+fn asks_record(wiring: &crate::Wiring) -> String {
+    wiring
+        .fs()
+        .read_to_string(&wiring.home().join(".ctxloom/test-frontend-asks"))
+        .unwrap_or_default()
+}
+
+#[test]
+fn test_a_look_shows_each_new_ask_with_a_bell_and_records_it_then_the_look() {
+    let world = crate::commands::tests::World::new("asks");
+    let wiring = world.wiring();
+    crate::fixtures::mkdirs(wiring.home().join(".ctxloom"));
+    let mut told = crate::frontend_asks::AsksTold::default();
+    let mut shown: Vec<(String, bool)> = Vec::new();
+    let asks = [waiting_ask("ask-a-b"), waiting_ask("ask-c-d")];
+
+    super::tell_news(&mut told, &asks, &wiring, |line, bell| {
+        shown.push((line.to_string(), bell));
+    });
+    assert_eq!(shown.len(), 2);
+    assert!(shown.iter().all(|(_, bell)| *bell));
+    assert!(shown[0].0.contains("ask-a-b") && shown[1].0.contains("ask-c-d"));
+    assert_eq!(asks_record(&wiring), "told ask-a-b\ntold ask-c-d\nlook\n");
+
+    // The same asks again: nothing shown, the look recorded after the rest.
+    super::tell_news(&mut told, &asks, &wiring, |line, bell| {
+        shown.push((line.to_string(), bell));
+    });
+    assert_eq!(shown.len(), 2);
+    assert_eq!(
+        asks_record(&wiring),
+        "told ask-a-b\ntold ask-c-d\nlook\nlook\n"
+    );
+}

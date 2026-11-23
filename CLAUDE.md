@@ -2709,12 +2709,14 @@ session in the main thread's future (`frontend::beside`), never spawned:
 that thread holds std's stderr lock for the whole command (the binary's
 `main`), so a notice written from the runtime's one worker hung it, and
 the signals and the stop with it.
-A frontend also tells its human of the permission asks that arrive under
-its session (owner ruling 2026-11-22; `frontend::tell_of_asks`, the pure half
-in `frontend_asks`): every `ASK_LOOK` (1 s) it asks the daemon serving, never
-starting one, for the waiting asks under its session (`ListApprovals`, root
-its session, the same listing as `session approvals <harp>`, polled because
-no stream of asks exists), and for each it has not told of rings the bell and
+A frontend also tells its human of the permission asks that arrive in its
+project (owner ruling 2026-11-22, project-wide 2026-11-23;
+`frontend::tell_of_asks`, the pure half in `frontend_asks`): every `ASK_LOOK`
+(1 s) it asks the daemon serving, never starting one, for the waiting asks of
+its whole project (`ListApprovals` with no root, the bare `session approvals`
+listing: a one-shot's and any other session's asks too; each TUI of the project
+tells every ask, the accepted cost; polled because no stream of asks exists),
+and for each it has not told of rings the bell and
 writes one stderr line through the same path as a drain's notice, in the same
 main-thread future: who asks, what it asks to run (an option's rule, else
 tool and input) and `ctxloom session approvals answer <ask> <options>`. Once

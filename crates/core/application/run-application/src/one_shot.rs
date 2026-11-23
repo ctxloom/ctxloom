@@ -1088,7 +1088,7 @@ where
         let mut env = self.env.clone();
         // What the run itself sets for the engine, which no permit replaces
         // (ruling 78b): HOME, which the engine's adapter makes the session
-        // home (ruling 112; ctxloom's own is CTXLOOM_HOME, which its hook
+        // home (ruling 112; ctxloom's own is CTXLOOM_DAEMON_ROOT, which its hook
         // processes' wiring reads first), and the PATH below; the CTXLOOM_*
         // names are the run's whatever this says.
         let mut owned = vec!["HOME".to_string()];

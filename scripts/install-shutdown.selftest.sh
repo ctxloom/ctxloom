@@ -16,7 +16,7 @@ fail() { echo "FAIL install-shutdown.selftest: $*" >&2; exit 1; }
 fake=$tmp/ctxloom
 cat > "$fake" <<'S'
 #!/usr/bin/env bash
-echo "home $CTXLOOM_HOME args $*"
+echo "home $CTXLOOM_DAEMON_ROOT args $*"
 echo "a step"
 echo "ctxloom: what shutdown said" >&2
 exit "${FAKE_RC:-0}"

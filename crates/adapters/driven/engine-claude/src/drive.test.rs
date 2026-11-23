@@ -219,14 +219,14 @@ fn the_run_engine_is_named_claude_code() {
 // what its tools write under `~` lands in the session's own directory and
 // never in the project (the hand test found gh's `.local/state` there, made
 // relative to the working directory with no HOME). ctxloom's own home still
-// reaches the hook processes by name, as CTXLOOM_HOME.
+// reaches the hook processes by name, as CTXLOOM_DAEMON_ROOT.
 #[test]
 fn the_engines_home_is_the_session_home_and_ctxlooms_home_is_named() {
     let mut asked = request();
     asked.env = env(&[
         ("PATH", "/usr/bin"),
         ("HOME", "/home/alice"),
-        ("CTXLOOM_HOME", "/home/alice"),
+        ("CTXLOOM_DAEMON_ROOT", "/home/alice"),
     ]);
     for command in [
         Claude::new().drive_interactive(&asked).unwrap(),
@@ -235,10 +235,10 @@ fn the_engines_home_is_the_session_home_and_ctxlooms_home_is_named() {
         let names: Vec<&str> = command.env.keys().map(String::as_str).collect();
         assert_eq!(
             names,
-            vec!["CLAUDE_CONFIG_DIR", "CTXLOOM_HOME", "HOME", "PATH"]
+            vec!["CLAUDE_CONFIG_DIR", "CTXLOOM_DAEMON_ROOT", "HOME", "PATH"]
         );
         assert_eq!(command.env["HOME"], "/p/.ctxloom/sessions/h/home");
-        assert_eq!(command.env["CTXLOOM_HOME"], "/home/alice");
+        assert_eq!(command.env["CTXLOOM_DAEMON_ROOT"], "/home/alice");
     }
 }
 
@@ -472,7 +472,7 @@ fn the_terminal_and_a_childs_turn_are_both_passed_the_listener_variables() {
     }
     for name in run_ports::HOOK_VARIABLES
         .into_iter()
-        .chain([run_ports::HOME_VARIABLE, run_ports::ROOT_VARIABLE])
+        .chain([run_ports::DAEMON_ROOT_VARIABLE, run_ports::ROOT_VARIABLE])
     {
         assert!(INTERACTIVE_ENV_ALLOWLIST.contains(&name), "{name}");
         assert!(ENV_ALLOWLIST.contains(&name), "{name} reaches a turn");
@@ -834,7 +834,7 @@ fn the_primarys_token_is_never_a_childs_whatever_the_config_says() {
         ("CTXLOOM_BEARER", "run.secret"),
         ("CTXLOOM_ENDPOINT", "e"),
         ("CTXLOOM_RUN", "r"),
-        ("CTXLOOM_HOME", "/h"),
+        ("CTXLOOM_DAEMON_ROOT", "/h"),
         (
             "CTXLOOM_SESSION",
             "projects/amber-quiet-heron/sessions/brisk-copper-moth",

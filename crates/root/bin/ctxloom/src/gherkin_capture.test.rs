@@ -67,7 +67,7 @@ const TOOL_DIGEST: &str = "71ca0ef886ae43a96de885a15d913cc2cbe0553f553638a286018
 const STUB: &str = r#"here="$(dirname "$0")"
 fired="$here/fired"
 mkdir -p "$fired"
-for v in CTXLOOM_RUN CTXLOOM_HOME CTXLOOM_SESSION CLAUDE_CONFIG_DIR; do
+for v in CTXLOOM_RUN CTXLOOM_DAEMON_ROOT CTXLOOM_SESSION CLAUDE_CONFIG_DIR; do
   eval "[ -n \"\${$v:-}\" ]" || echo "$v" >> "$here/engine-missing"
 done
 for v in CTXLOOM_ENDPOINT CTXLOOM_BEARER CTXLOOM_TLS_CERT; do
@@ -117,7 +117,7 @@ done
 echo "$seen" > "$here/settings-flags"
 jq -r '.hooks | keys[]' "$settings" > "$here/registered"
 prompt="$(cat)"
-for v in CTXLOOM_RUN CTXLOOM_HOME CTXLOOM_SESSION CLAUDE_CONFIG_DIR; do
+for v in CTXLOOM_RUN CTXLOOM_DAEMON_ROOT CTXLOOM_SESSION CLAUDE_CONFIG_DIR; do
   eval "[ -n \"\${$v:-}\" ]" || echo "$v" >> "$here/engine-missing"
 done
 for v in CTXLOOM_ENDPOINT CTXLOOM_BEARER CTXLOOM_TLS_CERT; do

@@ -976,3 +976,38 @@ fn test_a_library_open_is_counted_and_its_definition_is_not() {
     let text = "fn build(w) {}\nlet a = crate::library::build(&w);\nlet c = crate::library::build_over(&w, d);\nfn build_setup(x) {}\nbuild_setup_over(&w, d, f);\n";
     assert_eq!(library_opens(text), 3);
 }
+
+/// The daemon root's variable is `CTXLOOM_DAEMON_ROOT`; the name it replaced
+/// is read and passed on nowhere (a hard migrate, no alias). The old name is
+/// spelled in two pieces so this file is not its own hit; the dated
+/// decision logs under `docs/decisions/` are history and are not judged.
+#[test]
+fn test_no_tracked_file_names_the_retired_daemon_root_variable() {
+    let retired = format!("CTXLOOM_{}", "HOME");
+    let root = super::repo_root();
+    let listing = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&root)
+        .args(["ls-files", "-z"])
+        .output()
+        .expect("git ls-files");
+    assert!(listing.status.success(), "git ls-files failed");
+    let mut scanned = 0;
+    let mut hits = Vec::new();
+    for rel in String::from_utf8_lossy(&listing.stdout).split('\0') {
+        if rel.is_empty() || rel.starts_with("docs/decisions/") {
+            continue;
+        }
+        let Ok(text) = files::read(root.join(rel)) else {
+            continue;
+        };
+        scanned += 1;
+        for (n, line) in text.lines().enumerate() {
+            if line.contains(&retired) {
+                hits.push(format!("{rel}:{}", n + 1));
+            }
+        }
+    }
+    assert!(scanned > 500, "scanned only {scanned} files");
+    assert!(hits.is_empty(), "the retired variable is named: {hits:#?}");
+}

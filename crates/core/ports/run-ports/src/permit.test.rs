@@ -28,7 +28,7 @@ fn a_permit_forwards_its_value_under_the_name_it_names() {
 fn a_permit_of_a_ctxloom_name_is_ignored() {
     let caller = env(&[
         ("CTXLOOM_PERMIT_CTXLOOM_BEARER", "forged"),
-        ("CTXLOOM_PERMIT_CTXLOOM_HOME", "/elsewhere"),
+        ("CTXLOOM_PERMIT_CTXLOOM_DAEMON_ROOT", "/elsewhere"),
         ("CTXLOOM_PERMIT_CTXLOOM_PERMIT_X", "y"),
     ]);
     let got = permits(&caller, &BTreeSet::new());
@@ -40,7 +40,7 @@ fn a_permit_of_a_ctxloom_name_is_ignored() {
                 permit: "CTXLOOM_PERMIT_CTXLOOM_BEARER".to_string()
             },
             Ignored::RunsOwn {
-                permit: "CTXLOOM_PERMIT_CTXLOOM_HOME".to_string()
+                permit: "CTXLOOM_PERMIT_CTXLOOM_DAEMON_ROOT".to_string()
             },
             Ignored::RunsOwn {
                 permit: "CTXLOOM_PERMIT_CTXLOOM_PERMIT_X".to_string()

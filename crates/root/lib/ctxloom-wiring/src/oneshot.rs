@@ -356,7 +356,7 @@ pub(crate) fn opencode_recent_models(wiring: &Wiring) -> Option<Vec<u8>> {
 }
 
 /// The environment a run is given: the caller's, and ctxloom's home named by
-/// [`run_ports::HOME_VARIABLE`], so an engine that is given it (the
+/// [`run_ports::DAEMON_ROOT_VARIABLE`], so an engine that is given it (the
 /// interactive one) can pass it on to its hook processes, which run without
 /// `HOME`. Each name is keyed as the platform compares names
 /// (`os::Flavor::env_key`: as it is on unix, uppercase on Windows, where
@@ -373,7 +373,7 @@ fn run_env(env: &EnvSnapshot, home: &Path) -> BTreeMap<String, String> {
         .map(|(name, value)| (flavor.env_key(&name), value))
         .collect();
     vars.insert(
-        run_ports::HOME_VARIABLE.to_string(),
+        run_ports::DAEMON_ROOT_VARIABLE.to_string(),
         home.to_string_lossy().into_owned(),
     );
     vars

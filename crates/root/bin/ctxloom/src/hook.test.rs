@@ -561,7 +561,7 @@ fn test_hook_help_names_execute() {
 }
 
 // Owner ruling 2026-11-08: the interactive engine's env carries no HOME, so a
-// hook process finds ctxloom's home through CTXLOOM_HOME, and answers as it
+// hook process finds ctxloom's home through CTXLOOM_DAEMON_ROOT, and answers as it
 // does with a HOME.
 #[test]
 fn test_a_hook_process_without_home_finds_the_home_through_ctxloom_home() {
@@ -573,7 +573,7 @@ fn test_a_hook_process_without_home_finds_the_home_through_ctxloom_home() {
         &["hook", "claude-code", "execute", "Stop"],
         payload,
         &[
-            ("CTXLOOM_HOME", &home),
+            ("CTXLOOM_DAEMON_ROOT", &home),
             ("CTXLOOM_SESSION", RECORDED_SESSION),
         ],
     );
@@ -589,7 +589,7 @@ fn test_a_hook_process_without_home_finds_the_home_through_ctxloom_home() {
     let start = env.run_hook_without_home(
         &["hook", "claude-code", "execute", "SessionStart"],
         "{}",
-        &[("CTXLOOM_HOME", &home)],
+        &[("CTXLOOM_DAEMON_ROOT", &home)],
     );
     assert_eq!(start.code, 0, "{}", start.said());
     assert!(!start.stderr.contains("no home"), "{}", start.said());
@@ -609,7 +609,10 @@ fn test_a_hook_process_with_no_home_at_all_is_refused_naming_both_variables() {
     let err = ran.err_json();
     assert_eq!(err["code"], "ctxloom-wiring-no-home");
     assert!(
-        err["message"].as_str().unwrap().contains("CTXLOOM_HOME"),
+        err["message"]
+            .as_str()
+            .unwrap()
+            .contains("CTXLOOM_DAEMON_ROOT"),
         "{err}"
     );
 }

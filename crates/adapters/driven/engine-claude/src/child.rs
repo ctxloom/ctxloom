@@ -144,7 +144,7 @@ pub fn launcher_environment(
     let theirs: Vec<&str> = run_ports::HOOK_VARIABLES
         .iter()
         .copied()
-        .chain([run_ports::HOME_VARIABLE])
+        .chain([run_ports::DAEMON_ROOT_VARIABLE])
         .collect();
     caller
         .iter()

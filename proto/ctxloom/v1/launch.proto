@@ -115,7 +115,7 @@ message Launch {
   // process that starts it. The daemon built it from the environment the
   // launching client sent (an interactive run's, a one-shot's) or a child's
   // hand-off file (T6), through the engine's allowlists, the engine block,
-  // the permits (ruling 78) and what ctxloom sets (HOME, CTXLOOM_HOME, PATH,
+  // the permits (ruling 78) and what ctxloom sets (HOME, CTXLOOM_DAEMON_ROOT, PATH,
   // CTXLOOM_ROOT, and the run's CTXLOOM_SESSION and CTXLOOM_RUN). No
   // endpoint, bearer or certificate rides it (slice 4 U7, owner ruling
   // s4-Q3): a hook delivers to the daemon with the user's own bearer.

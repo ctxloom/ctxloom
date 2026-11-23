@@ -311,14 +311,14 @@ pub(crate) enum Minting {
 
 impl Wiring {
     /// The wiring over the environment the process was launched in, read
-    /// once by the composition root: its home (CTXLOOM_HOME, the variable a
+    /// once by the composition root: its home (CTXLOOM_DAEMON_ROOT, the variable a
     /// run names ctxloom's home by for its engine, whose own HOME is the
     /// session home (owner ruling 112); failing that HOME, or USERPROFILE on
     /// Windows), and the real filesystem over its working directory (with
     /// none when it cannot be read: only what needs it fails).
     pub fn new(env: Arc<EnvSnapshot>) -> Result<Wiring, LibError> {
         let home = env
-            .non_empty(run_ports::HOME_VARIABLE)
+            .non_empty(run_ports::DAEMON_ROOT_VARIABLE)
             .or_else(|| env.home())
             .map(PathBuf::from)
             .ok_or_else(|| LibError::NoHome {

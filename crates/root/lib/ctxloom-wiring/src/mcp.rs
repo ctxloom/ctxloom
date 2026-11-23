@@ -1,7 +1,7 @@
 //! `ctxloom mcp serve` composed (slice 3, T20): ctxloom's MCP server over
 //! the session the engine's environment names (`CTXLOOM_SESSION`, s3-Q3),
 //! reaching the user's daemon as every client does (its discovery file
-//! under ctxloom's home, `CTXLOOM_HOME`; one spawned and waited for when
+//! under ctxloom's home, `CTXLOOM_DAEMON_ROOT`; one spawned and waited for when
 //! none serves, S16), but NEVER stopping one (OD-3: a daemon of another
 //! version is a typed refusal of the call, never stopped under the
 //! sessions it hosts).

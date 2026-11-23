@@ -111,7 +111,7 @@ fn without_enclosing_session(process: &EnvSnapshot) -> EnvSnapshot {
 #[test]
 fn test_a_test_starts_from_none_of_an_enclosing_session_s_variables() {
     let caller = EnvSnapshot::of([
-        ("CTXLOOM_HOME", "/caller/.ctxloom-rs"),
+        ("CTXLOOM_DAEMON_ROOT", "/caller/.ctxloom-rs"),
         ("CTXLOOM_ENDPOINT", "https://127.0.0.1:4000"),
         ("CTXLOOM_BEARER", "run.secret"),
         ("CLAUDE_CONFIG_DIR", "/caller/session/home"),
@@ -131,7 +131,7 @@ fn test_a_test_starts_from_none_of_an_enclosing_session_s_variables() {
 /// The variables that place ctxloom's home or an engine's state, which a
 /// test run never inherits from the shell it was started in (OD-34).
 const GUARDED_HOMES: [&str; 7] = [
-    "CTXLOOM_HOME",
+    "CTXLOOM_DAEMON_ROOT",
     "CLAUDE_CONFIG_DIR",
     "OPENCODE_CONFIG_DIR",
     "XDG_CONFIG_HOME",
@@ -141,7 +141,7 @@ const GUARDED_HOMES: [&str; 7] = [
 ];
 
 // OD-34: the wiring's fixtures once started from the process's environment
-// with CTXLOOM_HOME in it (it outranks HOME), so a test run from the owner's
+// with CTXLOOM_DAEMON_ROOT in it (it outranks HOME), so a test run from the owner's
 // shell registered 85 temporary projects in the owner's real ctxloom home.
 // The run itself holds no such home now: nextest's setup script
 // `guard-homes` names each of these variables as a FILE, under which nothing
@@ -206,7 +206,7 @@ impl Env {
             .filter_map(|(name, _)| name.into_string().ok())
             .collect();
         for var in enclosing.iter().map(String::as_str).chain([
-            "CTXLOOM_HOME",
+            "CTXLOOM_DAEMON_ROOT",
             "CTXLOOM_ROOT",
             "CTXLOOM_PROJECT_ID",
             "CTXLOOM_DEGRADED",
@@ -276,33 +276,33 @@ fn test_the_home_is_the_home_variable_as_given() {
 }
 
 // Owner ruling 2026-11-08: an interactive engine's hook processes run without
-// HOME, and find the home through CTXLOOM_HOME.
+// HOME, and find the home through CTXLOOM_DAEMON_ROOT.
 #[test]
 fn test_without_home_the_home_is_the_ctxloom_home_variable() {
     let mut env = Env::new("ctxloomhome");
     let variable = os::host().flavor().home_var().to_string();
     env.unset(&variable);
-    env.set("CTXLOOM_HOME", env.dir.join("elsewhere"));
+    env.set("CTXLOOM_DAEMON_ROOT", env.dir.join("elsewhere"));
     let wiring = from_process().ok().unwrap();
     assert_eq!(wiring.home(), env.dir.join("elsewhere"));
 }
 
 // Owner ruling 112: an engine's HOME is its session home, so a hook process
 // (and any ctxloom its tools run) sees HOME set to the session's directory;
-// ctxloom's own home is CTXLOOM_HOME, which the run names, and it wins.
+// ctxloom's own home is CTXLOOM_DAEMON_ROOT, which the run names, and it wins.
 #[test]
 fn test_the_ctxloom_home_variable_wins_over_home() {
     let mut env = Env::new("ctxloomwins");
-    env.set("CTXLOOM_HOME", env.dir.join("elsewhere"));
+    env.set("CTXLOOM_DAEMON_ROOT", env.dir.join("elsewhere"));
     let wiring = from_process().ok().unwrap();
     assert_eq!(wiring.home(), env.dir.join("elsewhere"));
 }
 
-// An empty CTXLOOM_HOME names nothing: HOME is the home.
+// An empty CTXLOOM_DAEMON_ROOT names nothing: HOME is the home.
 #[test]
 fn test_an_empty_ctxloom_home_falls_back_to_home() {
     let mut env = Env::new("emptyfallsback");
-    env.set("CTXLOOM_HOME", "");
+    env.set("CTXLOOM_DAEMON_ROOT", "");
     let wiring = from_process().ok().unwrap();
     assert_eq!(wiring.home(), env.home());
 }
@@ -312,7 +312,7 @@ fn test_an_empty_ctxloom_home_is_none() {
     let mut env = Env::new("emptyctxloomhome");
     let variable = os::host().flavor().home_var().to_string();
     env.unset(&variable);
-    env.set("CTXLOOM_HOME", "");
+    env.set("CTXLOOM_DAEMON_ROOT", "");
     assert_eq!(from_process().err(), Some(LibError::NoHome { variable }));
 }
 

@@ -374,7 +374,7 @@ fn a_binary_named_ctxloom_rs_leaves_gos_stamp_plan_alone_while_go_is_present() {
 
 // The identity is git's answer where ctxloom runs, in her own environment
 // (handtest D2): a `.gitconfig` in the doctor's home, which is ctxloom's home
-// (`CTXLOOM_HOME`), is not read for it, either way.
+// (`CTXLOOM_DAEMON_ROOT`), is not read for it, either way.
 #[test]
 fn the_git_identity_is_gits_answer_and_never_the_homes_gitconfig() {
     let mem = project();
@@ -629,7 +629,7 @@ fn a_private_state_pattern_left_out_is_named() {
 }
 
 // With no HOME of hers known, none of her files is read: never a fallback to
-// another home (CTXLOOM_HOME's), which is the two-homes defect.
+// another home (CTXLOOM_DAEMON_ROOT's), which is the two-homes defect.
 #[test]
 fn without_her_home_none_of_her_files_is_read() {
     let mem = retired(project());

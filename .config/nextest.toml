@@ -35,7 +35,7 @@ capture-stdout = true
 capture-stderr = true
 
 # Every test runs with no home of the shell it was started in (OD-34): the
-# owner's and every agent's shell carries CTXLOOM_HOME (which ctxloom reads
+# owner's and every agent's shell carries CTXLOOM_DAEMON_ROOT (which ctxloom reads
 # before HOME) and an engine's relocated CLAUDE_CONFIG_DIR, OPENCODE_CONFIG_DIR
 # and XDG bases, and a test that kept one once registered 85 temporary
 # projects in the owner's real ctxloom home. The script names each as a file

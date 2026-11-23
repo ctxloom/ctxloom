@@ -143,7 +143,7 @@ fn test_the_walk_up_stops_at_the_temporary_directory() {
     assert_eq!(found.path, Path::new(&at("/home/u/.ctxloom")));
 }
 
-/// The daemon root elsewhere (`CTXLOOM_HOME`), the user's own home `/home/u`.
+/// The daemon root elsewhere (`CTXLOOM_DAEMON_ROOT`), the user's own home `/home/u`.
 fn around_user_home(root_env: Option<&str>, cwd: &str) -> Surroundings {
     Surroundings {
         home: PathBuf::from(at("/home/u/.ctxloom-rs")),
@@ -176,7 +176,7 @@ fn test_ctxloom_root_naming_the_users_home_makes_it_the_project() {
     assert_eq!(found.path, Path::new(&at("/home/u")).join(".ctxloom"));
 }
 
-// Nor the daemon root's: `CTXLOOM_HOME` names a directory whose `.ctxloom`
+// Nor the daemon root's: `CTXLOOM_DAEMON_ROOT` names a directory whose `.ctxloom`
 // holds the store, never a project's.
 #[test]
 fn test_the_walk_never_adopts_the_daemon_roots_ctxloom_as_a_project() {
@@ -732,7 +732,7 @@ fn test_the_walk_stops_at_the_temporary_directory_itself_and_below_it_only() {
 fn test_the_walk_never_adopts_the_daemon_roots_ctxloom_when_it_is_the_users_home() {
     // Owner ruling 2026-11-22 (reversing Go's walk, which stopped only at the
     // temp directory): the home's `.ctxloom` is the daemon root's here (no
-    // `CTXLOOM_HOME`), the store's and the home config layer's, never a
+    // `CTXLOOM_DAEMON_ROOT`), the store's and the home config layer's, never a
     // project's. Only `CTXLOOM_ROOT` / `--root` makes it one.
     // (The tests use an in-memory fs, and the wiring's real-fs tests give
     // themselves a HOME and walk no further than the temp directory.)

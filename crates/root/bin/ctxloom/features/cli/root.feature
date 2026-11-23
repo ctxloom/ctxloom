@@ -27,7 +27,7 @@ Feature: the project root — `--root`, `CTXLOOM_ROOT`, and where a project is l
   The `--home` of `config set` and `agent create|edit` is another thing, the
   home CONFIG layer, and is not this flag.
 
-  Her daemon root (`CTXLOOM_HOME`: the store, the daemon's directory) is
+  Her daemon root (`CTXLOOM_DAEMON_ROOT`: the store, the daemon's directory) is
   another directory than her home in these scenarios (as `just install`'s
   makes it) and her home holds a `.ctxloom`. The project root and the daemon
   root are two things; neither is taken for the other.
@@ -109,3 +109,23 @@ Feature: the project root — `--root`, `CTXLOOM_ROOT`, and where a project is l
       When I run "ctxloom init --format text"
       Then the command succeeds
       And the file ".ctxloom/remotes.yaml" exists
+
+  Rule: `--daemon-root` names the daemon root, never the project
+
+    Scenario: `--daemon-root=<dir>` puts the store there, whatever her home holds
+      # new: the daemon root flag, owner ruling 2026-11-23.
+      Given an empty project directory that is a git repository
+      When I run "ctxloom init --daemon-root=elsewhere --format text"
+      Then the command succeeds
+      And the file ".ctxloom/remotes.yaml" exists
+      And the file "elsewhere/.ctxloom/ctxloom.db" exists
+      And the home's file ".ctxloom/ctxloom.db" does not exist
+
+    Scenario: the flag wins over `CTXLOOM_DAEMON_ROOT`
+      # new: the daemon root flag, owner ruling 2026-11-23.
+      Given an empty project directory that is a git repository
+      And her daemon root is elsewhere, and her home holds a ctxloom directory of her own
+      When I run "ctxloom init --daemon-root=flagged --format text"
+      Then the command succeeds
+      And the file "flagged/.ctxloom/ctxloom.db" exists
+      And the home's file "../daemon-root/.ctxloom/ctxloom.db" does not exist

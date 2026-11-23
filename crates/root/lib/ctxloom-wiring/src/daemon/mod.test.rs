@@ -141,30 +141,36 @@ fn a_unix_daemon_is_given_what_it_needs_and_no_credential() {
     assert_eq!(names(&given), expected);
 }
 
-// The daemon's ctxloom home is its spawner's CTXLOOM_HOME when it set one
+// The daemon's ctxloom home is its spawner's CTXLOOM_DAEMON_ROOT when it set one
 // (once, whatever the spawner's own variable said), and else none: the
 // daemon then serves the account's home.
 #[test]
 fn a_daemons_ctxloom_home_is_its_spawners_ctxloom_home_alone() {
     let given = daemon_env(
         os::Flavor::Unix,
-        vars(&[(run_ports::HOME_VARIABLE, "/stale"), ("HOME", "/home/u")]),
+        vars(&[
+            (run_ports::DAEMON_ROOT_VARIABLE, "/stale"),
+            ("HOME", "/home/u"),
+        ]),
         Some(Path::new("/home/u/.ctxloom-rs")),
     );
     assert_eq!(
-        value(&given, run_ports::HOME_VARIABLE),
+        value(&given, run_ports::DAEMON_ROOT_VARIABLE),
         Some(&OsString::from("/home/u/.ctxloom-rs"))
     );
     assert_eq!(
         given
             .iter()
-            .filter(|(n, _)| n == run_ports::HOME_VARIABLE)
+            .filter(|(n, _)| n == run_ports::DAEMON_ROOT_VARIABLE)
             .count(),
         1
     );
     let given = daemon_env(
         os::Flavor::Unix,
-        vars(&[(run_ports::HOME_VARIABLE, "/stale"), ("HOME", "/home/u")]),
+        vars(&[
+            (run_ports::DAEMON_ROOT_VARIABLE, "/stale"),
+            ("HOME", "/home/u"),
+        ]),
         None,
     );
     assert!(names(&given).is_empty(), "{given:?}");
@@ -196,7 +202,7 @@ fn the_accounts_home_is_the_tests_override_first() {
     // the test's (slice 4 U7).
     let env = snapshot(&[
         ("HOME", "/session-home"),
-        (run_ports::HOME_VARIABLE, "/ctxloom-rs"),
+        (run_ports::DAEMON_ROOT_VARIABLE, "/ctxloom-rs"),
     ]);
     assert_eq!(
         account_home(&env),
@@ -204,7 +210,7 @@ fn the_accounts_home_is_the_tests_override_first() {
     );
     let env = snapshot(&[
         (ACCOUNT_HOME_VARIABLE, "/account"),
-        (run_ports::HOME_VARIABLE, "/ctxloom-rs"),
+        (run_ports::DAEMON_ROOT_VARIABLE, "/ctxloom-rs"),
     ]);
     assert_eq!(
         account_home(&env),
@@ -212,7 +218,7 @@ fn the_accounts_home_is_the_tests_override_first() {
     );
 }
 
-// The daemon's home (M4) is its CTXLOOM_HOME when it was given one, else the
+// The daemon's home (M4) is its CTXLOOM_DAEMON_ROOT when it was given one, else the
 // account's, never its HOME.
 #[test]
 fn the_daemons_home_is_its_ctxloom_home_else_the_accounts_never_its_home() {
@@ -224,7 +230,7 @@ fn the_daemons_home_is_its_ctxloom_home_else_the_accounts_never_its_home() {
     let env = snapshot(&[
         (ACCOUNT_HOME_VARIABLE, "/account"),
         ("HOME", "/moved"),
-        (run_ports::HOME_VARIABLE, "/ctxloom-rs"),
+        (run_ports::DAEMON_ROOT_VARIABLE, "/ctxloom-rs"),
     ]);
     assert_eq!(
         daemon_home(&env),
@@ -239,7 +245,7 @@ fn the_instance_lock_is_under_the_accounts_home_whatever_the_ctxloom_home() {
     let env = snapshot(&[
         (ACCOUNT_HOME_VARIABLE, "/account"),
         ("HOME", "/moved"),
-        (run_ports::HOME_VARIABLE, "/ctxloom-rs"),
+        (run_ports::DAEMON_ROOT_VARIABLE, "/ctxloom-rs"),
     ]);
     let wiring = crate::Wiring::new(std::sync::Arc::new(env)).unwrap();
     assert_eq!(

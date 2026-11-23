@@ -194,10 +194,13 @@ fn the_run_environment_names_the_resolved_home() {
     let caller = EnvSnapshot::of([
         ("HOME", "/home/u"),
         ("PATH", "/bin"),
-        ("CTXLOOM_HOME", "/old"),
+        ("CTXLOOM_DAEMON_ROOT", "/old"),
     ]);
     let env = run_env(&caller, Path::new("/home/u"));
-    assert_eq!(env.get("CTXLOOM_HOME").map(String::as_str), Some("/home/u"));
+    assert_eq!(
+        env.get("CTXLOOM_DAEMON_ROOT").map(String::as_str),
+        Some("/home/u")
+    );
     assert_eq!(env.get("HOME").map(String::as_str), Some("/home/u"));
     assert_eq!(env.get("PATH").map(String::as_str), Some("/bin"));
 }
@@ -220,7 +223,7 @@ fn on_windows_the_run_environment_keys_each_name_as_the_platform_compares_it() {
     assert_eq!(
         names,
         [
-            "CTXLOOM_HOME",
+            "CTXLOOM_DAEMON_ROOT",
             "CTXLOOM_PERMIT_ACME_TOKEN",
             "PATH",
             "SYSTEMROOT",

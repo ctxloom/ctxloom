@@ -366,7 +366,7 @@ fn error_is(w: &mut World, code: String) {
 
 // ------------------------------------------------------------ the root flag
 
-/// root.feature: the daemon root (`CTXLOOM_HOME`, as `just install`'s) is
+/// root.feature: the daemon root (`CTXLOOM_DAEMON_ROOT`, as `just install`'s) is
 /// another directory than her home, and her home holds a `.ctxloom` of
 /// her own: the walk up from a directory below her home, outside git, finds
 /// it.
@@ -376,7 +376,7 @@ fn daemon_root_elsewhere(w: &mut World) {
     let elsewhere = home.parent().expect("a parent").join("daemon-root");
     files::mkdirs(&elsewhere);
     w.common
-        .set_env("CTXLOOM_HOME", elsewhere.display().to_string());
+        .set_env("CTXLOOM_DAEMON_ROOT", elsewhere.display().to_string());
     files::put(
         home.join(".ctxloom/config.yaml"),
         "schema_version: 9\neditor:\n  command: \"true\"\n",

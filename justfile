@@ -212,7 +212,7 @@ install when="":
         echo "ok   installed $program"
     fi
     text='#!/bin/sh
-    export CTXLOOM_HOME="$HOME/.ctxloom-rs"
+    export CTXLOOM_DAEMON_ROOT="$HOME/.ctxloom-rs"
     exec "$HOME/.local/lib/ctxloom/ctxloom" "$@"'
     text=$(sed 's/^    //' <<< "$text")
     if [ -f "$wrapper" ] && [ "$(cat "$wrapper")" = "$text" ] && [ "$(stat -c %a "$wrapper")" = 755 ]; then
@@ -228,12 +228,12 @@ install when="":
     fi
 
 # Install the Rust ctxloom on Windows (owner ruling: the exe on PATH and a
-# user CTXLOOM_HOME), under Git Bash: the PLAIN binary (`cargo build` of the
+# user CTXLOOM_DAEMON_ROOT), under Git Bash: the PLAIN binary (`cargo build` of the
 # package, no feature named), as %LOCALAPPDATA%\Programs\ctxloom\ctxloom.exe,
-# and the USER variable CTXLOOM_HOME set to %USERPROFILE%\.ctxloom-rs with
+# and the USER variable CTXLOOM_DAEMON_ROOT set to %USERPROFILE%\.ctxloom-rs with
 # `setx`, only when the user's own value (HKCU\Environment) is not that
 # already. There is no wrapper: the home is the variable, which every new
-# terminal and every engine's hook process (ruling 112's CTXLOOM_HOME) sees.
+# terminal and every engine's hook process (ruling 112's CTXLOOM_DAEMON_ROOT) sees.
 # The directory is put on nobody's PATH: when the current PATH lacks it, the
 # recipe says how to add it to the user's Path, and edits no registry key for
 # it. A running ctxloom.exe cannot be overwritten but can be renamed, so the
@@ -243,7 +243,7 @@ install when="":
 # no USERPROFILE (`just install` and `just build` hold the same build to them
 # on unix). Unverified: written without a Windows machine to run it on.
 [group('install')]
-[doc("On Windows (Git Bash): install ctxloom.exe in %LOCALAPPDATA%\\Programs\\ctxloom, CTXLOOM_HOME a user variable: install-windows [when]")]
+[doc("On Windows (Git Bash): install ctxloom.exe in %LOCALAPPDATA%\\Programs\\ctxloom, CTXLOOM_DAEMON_ROOT a user variable: install-windows [when]")]
 [no-exit-message]
 install-windows when="":
     #!/usr/bin/env bash
@@ -287,11 +287,11 @@ install-windows when="":
             awk -v name="$1" 'toupper($1) == toupper(name) { $1 = ""; $2 = ""; sub(/^ +/, ""); print }'
     }
     home="$USERPROFILE\\.ctxloom-rs"
-    if [ "$(user_var CTXLOOM_HOME)" = "$home" ]; then
-        echo "ok   unchanged CTXLOOM_HOME=$home (user)"
+    if [ "$(user_var CTXLOOM_DAEMON_ROOT)" = "$home" ]; then
+        echo "ok   unchanged CTXLOOM_DAEMON_ROOT=$home (user)"
     else
-        MSYS2_ARG_CONV_EXCL='*' setx CTXLOOM_HOME "$home" >/dev/null
-        echo "ok   set CTXLOOM_HOME=$home (user; a new terminal sees it)"
+        MSYS2_ARG_CONV_EXCL='*' setx CTXLOOM_DAEMON_ROOT "$home" >/dev/null
+        echo "ok   set CTXLOOM_DAEMON_ROOT=$home (user; a new terminal sees it)"
     fi
     case ":$PATH:" in
         *":$dir:"*) echo "ok   on PATH $win_dir" ;;

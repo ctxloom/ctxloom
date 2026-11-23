@@ -522,6 +522,14 @@ impl Extension for Commands {
                 .map(String::as_str),
         )
         .map_err(|e| Failure::new(e, cli_support::Exit::REFUSED))?;
+        self.env = crate::root_flag::daemon_root_applied(
+            &self.env,
+            call.matches
+                .try_get_one::<String>("daemon_root")
+                .ok()
+                .flatten()
+                .map(String::as_str),
+        );
         let ran = self.run_noun(noun, call, catalog, out, err);
         // What the flush on the way in set aside (s4-Q14, H3), said once
         // a session as the command ends.

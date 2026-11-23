@@ -44,7 +44,7 @@ pub struct Doctor {
     identity: Arc<dyn GitIdentity>,
     auth: Auth,
     /// The user's own `HOME`, where her engine files are (never ctxloom's
-    /// home, which `CTXLOOM_HOME` may put elsewhere); none when unset, and
+    /// home, which `CTXLOOM_DAEMON_ROOT` may put elsewhere); none when unset, and
     /// then none of her files is read.
     user_home: Option<String>,
     version: String,

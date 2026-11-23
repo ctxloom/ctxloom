@@ -1697,7 +1697,7 @@ fn why_it_exits(files: &DaemonFiles, own: &Discovery, held: &Instance) -> Option
         return Some("the single-instance lock file was replaced or removed: exiting");
     }
     // Its home deleted (OD-60): the lock may be elsewhere (the account's,
-    // while `CTXLOOM_HOME` names another home), so the home says it itself.
+    // while `CTXLOOM_DAEMON_ROOT` names another home), so the home says it itself.
     if files.home_gone() {
         return Some("the daemon's home was removed: exiting");
     }

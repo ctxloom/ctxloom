@@ -2226,7 +2226,7 @@ lock `launch-<child>`, `daemon_api::launch_lock_name`, under
 all, so a second launch of one child meanwhile is refused
 `daemon-api-launch-in-progress`) from before its `CreateHandOff` to after
 its `LaunchChild`; its `LaunchChild` (keyed `launch:<owner>:<child>`, the delegation limit
-`daemon_api::DELEGATION_LIMIT`, 4), and a refused `LaunchChild` is followed
+`daemon_api::DELEGATION_LIMIT`, 16), and a refused `LaunchChild` is followed
 by `DeleteHandOff` (kept while an open session holds it). The child's
 engine is the one asked, else its AGENT's configured engine (an agent naming
 none, the config's default-engine rule): the daemon's plan resolves it, and

@@ -108,6 +108,50 @@ async fn a_lock_let_go_just_after_the_fold_that_woke_the_watch_is_still_seen() {
 }
 
 #[tokio::test]
+async fn a_lock_let_go_long_after_every_fold_is_seen_when_the_index_is_told() {
+    let f = opened(&["amber-swift-owl"]).await;
+    let mut stream = f.api.watch_top(request()).await.unwrap();
+    let stop = stream.stopper();
+    snapshot_of(stream.next().unwrap());
+    let (told, events) = std::sync::mpsc::channel();
+    let reading = tokio::task::spawn_blocking(move || {
+        for event in stream {
+            if told.send(event).is_err() {
+                return;
+            }
+        }
+    });
+    // Past the looks the watch takes after a wake: only a notice can tell it.
+    tokio::time::sleep(std::time::Duration::from_millis(2300)).await;
+    f.locks
+        .0
+        .lock()
+        .unwrap()
+        .insert("amber-swift-owl".to_string(), State::Ended);
+    assert!(
+        events
+            .recv_timeout(std::time::Duration::from_millis(300))
+            .is_err(),
+        "nothing told it yet"
+    );
+    f.index.notify();
+    let event = events
+        .recv_timeout(std::time::Duration::from_secs(3))
+        .expect("the notice woke the watch");
+    assert!(
+        matches!(
+            event.event,
+            Some(v1::top_event::Event::SessionRemoved(ref gone))
+                if gone.name == session_name("amber-swift-owl")
+        ),
+        "{event:?}"
+    );
+    drop(events);
+    stop.stop();
+    reading.await.unwrap();
+}
+
+#[tokio::test]
 async fn a_session_that_stops_matching_is_removed_with_the_reason_left_filter() {
     let f = opened(&["amber-swift-owl"]).await;
     let mut stream = f.api.watch_top(request()).await.unwrap();

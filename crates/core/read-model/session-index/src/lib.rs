@@ -628,6 +628,12 @@ impl SessionIndexes {
     pub fn watch_into(&self, wake: std::sync::mpsc::Sender<()>) {
         self.0.watch_into(wake);
     }
+
+    /// Wake the watchers with nothing folded: a session's state is its
+    /// lock's verdict, and a lock let go is no event.
+    pub fn notify(&self) {
+        self.0.notify();
+    }
 }
 
 impl ProjectorHandler for SessionIndexes {

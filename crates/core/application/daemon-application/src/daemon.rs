@@ -1714,7 +1714,10 @@ impl<E: Edge> Daemon<E> {
                 )),
             }
         }
+        // Its locks go with it, and a state is a lock's verdict: the watches
+        // of the session list are woken as a fold wakes them.
         drop(gone);
+        self.index.projector().notify();
     }
 
     /// The environment the child `session` is started with: its hand-off,

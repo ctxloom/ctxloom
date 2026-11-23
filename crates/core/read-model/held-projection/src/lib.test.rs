@@ -311,6 +311,15 @@ fn a_watcher_is_woken_when_a_book_is_folded_and_not_before() {
 }
 
 #[test]
+fn a_notice_wakes_the_watchers_with_nothing_folded() {
+    let held = Held::<Pages>::default();
+    let woken = held.watch();
+    held.notify();
+    assert!(woken.try_recv().is_ok(), "a lock let go wakes the watcher");
+    assert!(woken.try_recv().is_err(), "one notice, one wake");
+}
+
+#[test]
 fn every_watcher_is_woken_and_one_gone_is_let_go() {
     let held = Held::<Pages>::default();
     let first = held.watch();

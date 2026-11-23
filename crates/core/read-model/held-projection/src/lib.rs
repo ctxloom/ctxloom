@@ -283,6 +283,12 @@ impl<M: Model> Held<M> {
             .unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// Wake each watcher without a fold: what the model reads from beyond its
+    /// events (a lock let go) has changed.
+    pub fn notify(&self) {
+        self.wake();
+    }
+
     /// Wake each watcher, letting go one whose receiver is gone.
     fn wake(&self) {
         self.watchers_locked()

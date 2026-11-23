@@ -32,7 +32,7 @@ Feature: Fault tolerance
     And a profile "broken" referencing a missing bundle
     And the environment variable "CLAUDE_CODE_OAUTH_TOKEN" is set to "sk-ant-oat01-fixture"
     When I run "ctxloom run --dry-run --profile broken hello"
-    Then the command exits with code 21
+    Then the command exits with code 49
     And the output contains "failed to load bundle"
     And the output contains "does-not-exist"
     When I run "ctxloom --degraded run --dry-run --profile broken hello"

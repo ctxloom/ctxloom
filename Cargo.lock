@@ -718,8 +718,8 @@ checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
 
 [[package]]
 name = "cli-support"
-version = "0.1.0"
-source = "git+https://github.com/benjaminabbitt/rust-support?rev=d543b4e903371d89e87e504d9ebb8ea212330673#d543b4e903371d89e87e504d9ebb8ea212330673"
+version = "0.2.0"
+source = "git+https://github.com/benjaminabbitt/rust-support?rev=fea46b99ab2b44beeb3d76c05a9f0d4239844451#fea46b99ab2b44beeb3d76c05a9f0d4239844451"
 dependencies = [
  "angzarr-diagnostic",
  "angzarr-presentation",
@@ -1637,7 +1637,7 @@ checksum = "669a445ee724c5c69b1b06fe0b63e70a1c84bc9bb7d9696cd4f4e3ec45050408"
 [[package]]
 name = "duration-text"
 version = "0.1.0"
-source = "git+https://github.com/benjaminabbitt/rust-support?rev=d543b4e903371d89e87e504d9ebb8ea212330673#d543b4e903371d89e87e504d9ebb8ea212330673"
+source = "git+https://github.com/benjaminabbitt/rust-support?rev=fea46b99ab2b44beeb3d76c05a9f0d4239844451#fea46b99ab2b44beeb3d76c05a9f0d4239844451"
 dependencies = [
  "angzarr-diagnostic",
 ]
@@ -1743,7 +1743,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1769,8 +1769,8 @@ dependencies = [
 
 [[package]]
 name = "exit-code"
-version = "0.1.0"
-source = "git+https://github.com/benjaminabbitt/rust-support?rev=d543b4e903371d89e87e504d9ebb8ea212330673#d543b4e903371d89e87e504d9ebb8ea212330673"
+version = "0.2.0"
+source = "git+https://github.com/benjaminabbitt/rust-support?rev=fea46b99ab2b44beeb3d76c05a9f0d4239844451#fea46b99ab2b44beeb3d76c05a9f0d4239844451"
 
 [[package]]
 name = "fact-spool"
@@ -1828,7 +1828,7 @@ checksum = "1d674e81391d1e1ab681a28d99df07927c6d4aa5b027d7da16ba32d1d21ecd99"
 [[package]]
 name = "fixture-program"
 version = "0.1.0"
-source = "git+https://github.com/benjaminabbitt/rust-support?rev=d543b4e903371d89e87e504d9ebb8ea212330673#d543b4e903371d89e87e504d9ebb8ea212330673"
+source = "git+https://github.com/benjaminabbitt/rust-support?rev=fea46b99ab2b44beeb3d76c05a9f0d4239844451#fea46b99ab2b44beeb3d76c05a9f0d4239844451"
 dependencies = [
  "file-system",
  "os",
@@ -1925,9 +1925,9 @@ dependencies = [
 
 [[package]]
 name = "form_urlencoded"
-version = "1.2.2"
+version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
+checksum = "afa489199eaffb1211795df1c6236ce1ad0d41a6fa45250add73e3b02420f06e"
 dependencies = [
  "percent-encoding",
 ]
@@ -2910,7 +2910,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cde48f36530cbd91b65f050101e6c056d6eb743cea2a8f0f19beef69c6742ff8"
 dependencies = [
  "scopeguard",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3651,7 +3651,7 @@ dependencies = [
 [[package]]
 name = "process-env"
 version = "0.1.0"
-source = "git+https://github.com/benjaminabbitt/rust-support?rev=d543b4e903371d89e87e504d9ebb8ea212330673#d543b4e903371d89e87e504d9ebb8ea212330673"
+source = "git+https://github.com/benjaminabbitt/rust-support?rev=fea46b99ab2b44beeb3d76c05a9f0d4239844451#fea46b99ab2b44beeb3d76c05a9f0d4239844451"
 dependencies = [
  "os",
 ]
@@ -3670,7 +3670,7 @@ dependencies = [
 [[package]]
 name = "project-dir"
 version = "0.1.0"
-source = "git+https://github.com/benjaminabbitt/rust-support?rev=d543b4e903371d89e87e504d9ebb8ea212330673#d543b4e903371d89e87e504d9ebb8ea212330673"
+source = "git+https://github.com/benjaminabbitt/rust-support?rev=fea46b99ab2b44beeb3d76c05a9f0d4239844451#fea46b99ab2b44beeb3d76c05a9f0d4239844451"
 dependencies = [
  "angzarr-diagnostic",
  "file-system",
@@ -3708,7 +3708,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03da047801ff44bb6a4d407d4860c05fd70bb81714e6b2f3812603d5b145b042"
 dependencies = [
  "heck 0.5.0",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "log",
  "multimap",
  "petgraph",
@@ -3727,7 +3727,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
 dependencies = [
  "anyhow",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -4130,7 +4130,7 @@ dependencies = [
 [[package]]
 name = "run-within"
 version = "0.1.0"
-source = "git+https://github.com/benjaminabbitt/rust-support?rev=d543b4e903371d89e87e504d9ebb8ea212330673#d543b4e903371d89e87e504d9ebb8ea212330673"
+source = "git+https://github.com/benjaminabbitt/rust-support?rev=fea46b99ab2b44beeb3d76c05a9f0d4239844451#fea46b99ab2b44beeb3d76c05a9f0d4239844451"
 dependencies = [
  "angzarr-diagnostic",
  "file-system",
@@ -4213,7 +4213,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4896,7 +4896,7 @@ dependencies = [
 [[package]]
 name = "sqlite-store-opener"
 version = "0.1.0"
-source = "git+https://github.com/benjaminabbitt/rust-support?rev=d543b4e903371d89e87e504d9ebb8ea212330673#d543b4e903371d89e87e504d9ebb8ea212330673"
+source = "git+https://github.com/benjaminabbitt/rust-support?rev=fea46b99ab2b44beeb3d76c05a9f0d4239844451#fea46b99ab2b44beeb3d76c05a9f0d4239844451"
 dependencies = [
  "angzarr-diagnostic",
  "angzarr-embedded",
@@ -5307,10 +5307,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5320,7 +5320,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "230a1b821ccbd75b185820a1f1ff7b14d21da1e442e22c0863ea5f08771a8874"
 dependencies = [
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5851,9 +5851,9 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
 name = "url"
-version = "2.5.8"
+version = "2.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff67a8a4397373c3ef660812acab3268222035010ab8680ec4215f38ba3d0eed"
+checksum = "f00cd2407bb42c0ef17be88d4cf020f5cceffd121665bac9b8b9493a369b3b1a"
 dependencies = [
  "form_urlencoded",
  "idna",
@@ -6019,7 +6019,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

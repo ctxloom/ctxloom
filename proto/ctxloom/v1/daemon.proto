@@ -123,8 +123,8 @@ syntax = "proto3";
 // session's stream root are fields (`uid`).
 //
 // EXIT CODES (rulings 149, 152, 153): 0 ok (an apply or a preview); 1 a
-// preview that would change something, only with `--detailed-exitcode`; 10
-// failed; 20 refused (usage errors included); 21 fatal findings; 128+n a
+// preview that would change something, only with `--detailed-exitcode`; 32
+// failed; 48 refused (usage errors included); 49 fatal findings; 128+n a
 // signal.
 //
 // REFUSALS (S11): a refused method is answered with the gRPC status its
@@ -1758,7 +1758,7 @@ message Finding {
   string text = 2;
   // What to do about it.
   string remedy = 3;
-  // It aborts the launch (exit 21).
+  // It aborts the launch (exit 49).
   bool fatal = 4;
 }
 

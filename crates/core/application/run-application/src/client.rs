@@ -217,17 +217,13 @@ fn integer_or_text(value: &str) -> Arg {
     Arg::Str(value.to_string())
 }
 
-/// The exit a hosted run's `exit` says, by its block (rust-support's
-/// convention): 0-9 a success, 10-19 a failure, 20-29 a decline, 128 and
-/// over a signal; anything else a failure.
+/// The exit a hosted run's `exit` says, by its block. The daemon that ended
+/// the run is ctxloom's own and follows the convention (its `exit` is
+/// [`Exit::code`] with the detailed block), so it is read by its blocks
+/// ([`Exit::from_convention_child_status`]): 0 and 16-31 a success, 32-47 a
+/// failure, 48-63 a decline, 128 and over a signal; anything else a failure.
 pub fn exit_of(code: i32) -> Exit {
-    match u8::try_from(code) {
-        Ok(n) if n < 10 => Exit::success(n),
-        Ok(n) if (10..20).contains(&n) => Exit::failed(n),
-        Ok(n) if (20..30).contains(&n) => Exit::declined(n),
-        Ok(n) if n > 128 => Exit::signal(n - 128),
-        _ => Exit::FAILED,
-    }
+    Exit::from_convention_child_status(Some(code), None)
 }
 
 /// The wire's end of a run that ended in `error`: its exit, its code and

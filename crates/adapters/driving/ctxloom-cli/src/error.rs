@@ -1,5 +1,5 @@
 //! Why a command did not complete, and how it exits (rulings 149, 152, 153:
-//! 10 failed, 20 refused, 21 fatal findings; cli-support's `Exit`).
+//! 32 failed, 48 refused, 49 fatal findings; cli-support's `Exit`).
 
 use std::fmt;
 
@@ -38,8 +38,8 @@ pub enum CliError {
 }
 
 impl ExitClass for CliError {
-    /// How the command exits: a usage error is refused (20, never clap's 2),
-    /// an answer that could not be written failed (10).
+    /// How the command exits: a usage error is refused (48, never clap's 2),
+    /// an answer that could not be written failed (32).
     fn exit(&self) -> Exit {
         match self {
             CliError::Usage { .. } | CliError::UnknownVerb { .. } | CliError::Format { .. } => {

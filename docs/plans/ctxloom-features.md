@@ -80,16 +80,16 @@ feature file; it belongs in git history.
 - **Every destructive command confirms.**
   - On a TTY it previews and prompts.
   - Off a TTY without `--yes` it previews (`applied:false`, `apply:<exact command>`), changes
-    nothing and exits **0**, or **1** (would change) under `--detailed-exitcode` (rulings 149,
+    nothing and exits **0**, or **17** (would change) under `--detailed-exitcode` (rulings 149,
     152, 153; this replaced the planned 4).
   - The engine-swap preview is `agent edit --engine`'s confirmation.
 - **Exit codes** (owner rulings 149, 152, 153, superseding D28's ladder; the convention is
-  rust-support's `docs/exit-codes.md`): 0-9 successes, where 1-9 are returned only under
-  `--detailed-exitcode` (1 a plan or preview would change something); 10 failed; 20 refused
-  (usage errors included); 21 fatal findings; 128+n stopped by signal n. The planned 5
+  rust-support's `docs/exit-codes.md`): 0 every success, and 16-31 under
+  `--detailed-exitcode` (16 ok, 17 a plan or preview would change something); 32 failed; 48
+  refused (usage errors included); 49 fatal findings; 128+n stopped by signal n. The planned 5
   (succeeded but a side effect degraded) and 6 (a check found something: `doctor --strict`,
-  `deps check --strict`) are not assigned: each needs a block and a subcode (a success 2-9
-  under the flag, or a decline 22-29) from the owner.
+  `deps check --strict`) are not assigned: each needs a block and a subcode (a success 18-31
+  under the flag, or a decline 50-63) from the owner.
 - **A name that does not resolve is refused.** Recall no longer warns and runs anyway.
 - **Nothing to do is refused**, naming the fields.
 

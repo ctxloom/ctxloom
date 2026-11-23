@@ -171,7 +171,7 @@ fn the_mint_and_rename_refusals_are_told_by_their_type() {
         },
         "sessions-session-exists",
         &[("harp", "owl")],
-        20,
+        48,
     );
 
     expect(
@@ -186,7 +186,7 @@ fn the_mint_and_rename_refusals_are_told_by_their_type() {
         },
         "sessions-harp-invalid",
         &[("harp", "a/b"), ("reason", "separator")],
-        20,
+        48,
     );
 
     expect(
@@ -198,7 +198,7 @@ fn the_mint_and_rename_refusals_are_told_by_their_type() {
         SessionRejection::NoSession,
         "sessions-no-session",
         &[],
-        20,
+        48,
     );
 }
 
@@ -225,7 +225,7 @@ fn the_name_claim_refusals_are_told_by_their_type() {
         },
         "sessions-names-taken",
         &[("harp", "owl")],
-        20,
+        48,
     );
     expect(
         told(
@@ -243,7 +243,7 @@ fn the_name_claim_refusals_are_told_by_their_type() {
         },
         "sessions-not-holder",
         &[("harp", "owl")],
-        20,
+        48,
     );
     expect(
         told(
@@ -259,7 +259,7 @@ fn the_name_claim_refusals_are_told_by_their_type() {
         SessionRejection::NoClaim,
         "sessions-no-claim",
         &[],
-        20,
+        48,
     );
 }
 

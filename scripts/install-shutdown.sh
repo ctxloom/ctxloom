@@ -12,8 +12,8 @@
 # accepted cost, a stuck hold blocks an install).
 #
 #   exit 0: install. Everything stopped (shutdown's 0), or something still
-#           runs (any other code, say 10): said, and the install goes on;
-#   exit 1: do not install. Shutdown declined (20-29): held facts no daemon
+#           runs (any other code, say 32): said, and the install goes on;
+#   exit 1: do not install. Shutdown declined (48-63): held facts no daemon
 #           took, or a time that is no span; said with a FAIL line.
 #
 # Usage: install-shutdown.sh <built binary> <ctxloom home> [when]
@@ -23,7 +23,7 @@ CTXLOOM_HOME="$home" "$built" shutdown ${when:+"$when"} --format text | sed 's/^
 rc=${PIPESTATUS[0]}
 case "$rc" in
     0) echo "ok   nothing of ctxloom runs" ;;
-    2[0-9])
+    4[89]|5[0-9]|6[0-3])
         echo "FAIL install: \`ctxloom shutdown\` declined (said above, with its fix); the installed binary is not replaced" >&2
         echo "  fix: deliver what is held (\`ctxloom doctor\` names it), or give a time that is a span, then install again" >&2
         exit 1

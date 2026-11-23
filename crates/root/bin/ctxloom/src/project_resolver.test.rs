@@ -296,7 +296,7 @@ fn test_a_dry_run_in_a_fresh_project_writes_nothing() {
                 "hello",
             ],
         );
-        assert!(ran.code <= 1, "{format}: {}", ran.said());
+        assert_eq!(ran.code, 0, "{format}: {}", ran.said());
         assert_eq!(project.tree(""), before, "a {format} dry run wrote");
         assert!(!project.exists(".ctxloom/project-id"), "{format}");
     }
@@ -381,7 +381,7 @@ fn test_a_text_dry_run_with_no_daemon_starts_one() {
             "hello",
         ],
     );
-    assert!(ran.code <= 1, "{}", ran.said());
+    assert_eq!(ran.code, 0, "{}", ran.said());
     assert!(
         files::exists(daemon_discovery(&project)),
         "a text dry run started no daemon: {}",
@@ -411,7 +411,7 @@ fn test_an_unnamed_projects_dry_run_starts_a_daemon_and_writes_nothing() {
                 "hello",
             ],
         );
-        assert!(ran.code <= 1, "{format}: {}", ran.said());
+        assert_eq!(ran.code, 0, "{format}: {}", ran.said());
         assert!(
             files::exists(daemon_discovery(&project)),
             "a {format} dry run started no daemon: {}",
@@ -423,7 +423,7 @@ fn test_an_unnamed_projects_dry_run_starts_a_daemon_and_writes_nothing() {
 }
 
 // A dry run whose daemon cannot be started fails as every daemon client's
-// command does: exit 10, the client's error naming the daemon's log. A
+// command does: exit 32, the client's error naming the daemon's log. A
 // file where the daemon's directory goes: no daemon can start there.
 #[test]
 fn test_a_dry_run_whose_daemon_cannot_start_fails_with_the_clients_error() {
@@ -445,7 +445,7 @@ fn test_a_dry_run_whose_daemon_cannot_start_fails_with_the_clients_error() {
                     "hello",
                 ],
             );
-            assert_eq!(ran.code, 10, "named {named}, {format}: {}", ran.said());
+            assert_eq!(ran.code, 32, "named {named}, {format}: {}", ran.said());
             assert!(
                 ran.said().contains("no ctxloom daemon could be started"),
                 "named {named}, {format}: {}",
@@ -566,7 +566,7 @@ fn test_an_init_remote_on_an_unnamed_ctxloom_names_the_project_and_registers_it(
 
 // A root that HAS a `.ctxloom` of its own naming a project that another
 // repository's root commit registered is a genuine identity conflict: still
-// refused, exit 20, nothing changed.
+// refused, exit 48, nothing changed.
 #[test]
 fn test_a_command_where_the_roots_ctxloom_names_another_repositorys_project_is_refused() {
     let project = Project::bare_in_git();
@@ -579,6 +579,6 @@ fn test_a_command_where_the_roots_ctxloom_names_another_repositorys_project_is_r
     project.git(&["init", "-q"]);
     project.git(&["commit", "-q", "--allow-empty", "-m", "another repository"]);
     let again = project.run_in(project.dir(), &["session", "list", "--format", "json"]);
-    assert_eq!(again.code, 20, "refused: {}", again.said());
+    assert_eq!(again.code, 48, "refused: {}", again.said());
     again.contains("sessions-project-identity-changed");
 }

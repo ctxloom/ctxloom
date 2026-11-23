@@ -415,7 +415,7 @@ fn a_deps_decline_rides_as_its_cause_and_a_failure_keeps_its_words() {
     assert!(matches!(failed, ApiError::Diagnosed { .. }), "{failed:?}");
 }
 
-// An etag that is not a number is told in the daemon's own words, exit 20
+// An etag that is not a number is told in the daemon's own words, exit 48
 // (a decline), never a failure.
 #[test]
 fn an_etag_that_is_not_a_number_is_the_daemons_refusal() {
@@ -442,7 +442,7 @@ fn an_etag_that_is_not_a_number_is_the_daemons_refusal() {
 // decline its typed refusal `SetupDeclined`, fatal findings
 // `SetupFatalFindings`, each its cause's own code and args; a failure said
 // in its own words. Back at the client each is its own diagnostic again,
-// at the exit its class says: 20, 21, 10.
+// at the exit its class says: 48, 49, 32.
 #[test]
 fn a_setup_error_is_the_calls_typed_refusal_or_failure_at_its_own_exit() {
     use exit_code::{Exit, ExitClass};

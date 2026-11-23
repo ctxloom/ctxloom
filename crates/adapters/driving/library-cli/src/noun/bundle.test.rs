@@ -112,11 +112,11 @@ mod read {
         // A path no item kind serves is the view's own refusal.
         assert_eq!(
             go(&["bundle", "view", "demo#widgets/x"], JSON, BARE).refused(),
-            "library-application-view-path:20"
+            "library-application-view-path:48"
         );
         assert_eq!(
             go(&["bundle", "show", "nosuch"], JSON, BARE).refused(),
-            "library-catalog-bundle-not-found:20"
+            "library-catalog-bundle-not-found:48"
         );
     }
 }
@@ -264,22 +264,22 @@ mod write {
     }
 
     // Ruling 153: a removal's preview would change something, the
-    // distinguishing success 1 (said only under `--detailed-exitcode`); the
-    // removal done is ok, 0.
+    // distinguishing success 17 (said only under `--detailed-exitcode`); the
+    // removal done is ok, 16 under it.
     #[test]
     fn test_a_removals_preview_would_change_and_the_removal_done_is_ok() {
         let (library, _) = world();
         assert_eq!(
             run_on(&library, &["bundle", "remove", "demo"], TEXT).code(),
-            1
+            17
         );
         assert_eq!(
             run_on(&library, &["bundle", "remove", "demo"], JSON).code(),
-            1
+            17
         );
         assert_eq!(
             run_on(&library, &["bundle", "remove", "demo", "--yes"], TEXT).code(),
-            0
+            16
         );
     }
 

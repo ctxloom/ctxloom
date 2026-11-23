@@ -803,13 +803,13 @@ pub(crate) const BARE: &[&str] = &[AGENTS];
 /// own test holds to its code.
 pub(crate) fn json_of(line: &[&str]) -> serde_json::Value {
     let ran = go(line, JSON, BARE);
-    assert!(ran.code() < 10, "{line:?}: a success");
+    assert!((16..32).contains(&ran.code()), "{line:?}: a success");
     ran.json()
 }
 
 pub(crate) fn text_of(line: &[&str]) -> String {
     let ran = go(line, TEXT, BARE);
-    assert!(ran.code() < 10, "{line:?}: a success");
+    assert!((16..32).contains(&ran.code()), "{line:?}: a success");
     ran.out
 }
 
@@ -819,7 +819,7 @@ pub(crate) fn text_of(line: &[&str]) -> String {
 fn test_notices_are_said_as_a_json_line_or_as_words_with_their_fix() {
     let ghost = ["schema_version: 9\nagents:\n  ghost: {}\n  real:\n    engine: claude-code\n"];
     let json = go(&["agent", "list"], JSON, &ghost);
-    assert_eq!(json.code(), 0);
+    assert_eq!(json.code(), 16);
     let line: serde_json::Value = serde_json::from_str(json.err.trim_end()).unwrap();
     assert_eq!(line["prog"], "ctxloom");
     // The line names the notice's own code (rust-support d7e783a).
@@ -946,7 +946,7 @@ impl Write for Broken {
     }
 }
 
-// An answer that cannot be written is a failure with its own code and exit 10.
+// An answer that cannot be written is a failure with its own code and exit 32.
 #[test]
 fn test_an_answer_that_cannot_be_written_fails_with_its_cause() {
     let program = Command::new("ctxloom").subcommands(nouns());
@@ -1042,7 +1042,7 @@ fn test_a_removal_confirmed_at_the_terminal_is_applied_with_the_answer_and_the_e
         Some(&asks),
     );
     assert_eq!(ran.out, "Removed bundle: /work/bundles/notes\n");
-    assert_eq!(ran.code(), 0);
+    assert_eq!(ran.code(), 16);
     let sent = asks.requests::<v1::DeleteBundleRequest>();
     assert_eq!(sent.len(), 2);
     assert!(sent[0].validate_only);
@@ -1079,7 +1079,7 @@ fn test_a_removal_declined_or_off_a_terminal_is_its_preview_alone() {
             "Would remove bundle \"notes\":\n  1 fragment(s)\n\nNothing was removed. Re-run with --yes to apply:\n  ctxloom bundle remove notes --yes\n",
             "{confirms:?}"
         );
-        assert_eq!(ran.exit, Ok(1), "{confirms:?}");
+        assert_eq!(ran.exit, Ok(17), "{confirms:?}");
         assert_eq!(asks.requests::<v1::DeleteBundleRequest>().len(), 1);
     }
 }
@@ -1227,7 +1227,7 @@ fn test_a_confirmed_removal_refused_stale_is_previewed_again() {
         Some(&asks),
     );
     assert!(
-        matches!(&ran.exit, Err(why) if why.starts_with("library-tree-plan-stale:20")),
+        matches!(&ran.exit, Err(why) if why.starts_with("library-tree-plan-stale:48")),
         "{:?}",
         ran.exit
     );

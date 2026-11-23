@@ -69,9 +69,9 @@ impl SetupError {
 
 impl ExitClass for SetupError {
     /// How a command this ends exits (ruling 152): a library error's own
-    /// class; fatal findings (21) for the plan's that a strict run refuses
-    /// over; failed (10) when an adapter broke or a file could not be read;
-    /// refused (20) for every other, each a decline of the request.
+    /// class; fatal findings (49) for the plan's that a strict run refuses
+    /// over; failed (32) when an adapter broke or a file could not be read;
+    /// refused (48) for every other, each a decline of the request.
     fn exit(&self) -> Exit {
         match self {
             SetupError::Classed { exit, .. } => *exit,

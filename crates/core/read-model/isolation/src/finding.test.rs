@@ -38,7 +38,7 @@ fn every_sample_displays_its_code_and_its_message_uses_exactly_its_args() {
     }
 }
 
-// Every finding is fatal: exit 21, whatever the mode.
+// Every finding is fatal: exit 49, whatever the mode.
 #[test]
 fn every_finding_exits_fatal_findings() {
     for sample in diagnostic_samples() {

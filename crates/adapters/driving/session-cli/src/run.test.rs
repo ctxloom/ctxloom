@@ -1282,7 +1282,7 @@ fn a_refused_removal_leaves_its_hold_alone() {
     assert!(daemon.discarded.borrow().is_empty());
 }
 
-// A hold that cannot be read or discarded fails the command (10), after the
+// A hold that cannot be read or discarded fails the command (32), after the
 // daemon's answer is printed: never a quiet leftover.
 #[test]
 fn a_removal_whose_hold_cannot_be_reached_fails() {
@@ -1316,7 +1316,7 @@ fn even_if_live_reaches_the_daemon_and_the_applying_command_repeats_it() {
 }
 
 // Go: a refusal prints the plan (the refusal carries it, owner 2026-11-12),
-// then exits refused (20), in the refusing use case's words.
+// then exits refused (48), in the refusing use case's words.
 #[test]
 fn a_refusal_prints_the_plan_then_fails_refused() {
     let daemon = refused_with(Refusal::Retained {
@@ -1869,7 +1869,7 @@ fn purge_with_yes_applies_and_tallies() {
 }
 
 // j001300 "Purging a session that is still running removes nothing": an
-// action that changed nothing refuses (exit 20), after the report is out.
+// action that changed nothing refuses (exit 48), after the report is out.
 #[test]
 fn purge_with_yes_that_removed_nothing_refuses_after_reporting() {
     use isolation_application::Verdict;
@@ -2178,7 +2178,7 @@ fn a_sweep_that_failed_while_acting_exits_nonzero_but_a_report_of_a_failure_does
     assert_eq!(failure.failure.exit, Exit::FAILED);
 }
 
-// A --purge-older-than that is no age is refused here (exit 20), naming the
+// A --purge-older-than that is no age is refused here (exit 48), naming the
 // flag, before the daemon is asked.
 #[test]
 fn a_purge_age_that_is_none_is_refused_before_the_daemon_is_asked() {

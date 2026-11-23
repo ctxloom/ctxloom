@@ -413,5 +413,5 @@ Feature: container — the images isolated agents run in, and the questions you 
       Given an initialized ctxloom project
       And no container runtime is installed
       When I run "ctxloom container prune"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the output contains "no container runtime is available to prune"

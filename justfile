@@ -25,7 +25,7 @@ mod? dev '.dev'
 # from the same rust-support commit the workspace pins (arch_lint_rev, kept
 # equal to Cargo.toml's by `_arch-lint-ready`'s check) and installed once per
 # commit into the user's cache, shared by every worktree.
-arch_lint_rev := "d543b4e903371d89e87e504d9ebb8ea212330673"
+arch_lint_rev := "fea46b99ab2b44beeb3d76c05a9f0d4239844451"
 arch_lint_root := env_var_or_default("XDG_CACHE_HOME", env_var("HOME") / ".cache") / "ctxloom-arch-lint" / arch_lint_rev
 arch_lint := arch_lint_root / "bin/arch-lint"
 

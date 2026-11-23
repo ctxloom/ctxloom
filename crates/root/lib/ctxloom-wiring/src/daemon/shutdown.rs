@@ -18,7 +18,7 @@
 //! its engine as a SIGTERM would, ruling 114, and reports its end), waited
 //! for, and the daemon serving then is asked the plain stop
 //! (`--even-if-live`: its engines stopped, ruling 114), waited for. Nothing
-//! is killed. What still runs is said, and the command fails (10).
+//! is killed. What still runs is said, and the command fails (32).
 //!
 //! Flush before install (owner ruling, 2026-11-16): a hold an older binary
 //! wrote carries type URLs a newer daemon may not know, so the home's holds
@@ -30,7 +30,7 @@
 //! so it holds nothing a daemon will decode, and does not count. A hold
 //! left undelivered is named, by session and count, and declines the
 //! shutdown (20, `shutdown-held`: the state forbids reporting done), which
-//! outranks what still runs (10); the installers refuse to replace the
+//! outranks what still runs (32); the installers refuse to replace the
 //! binary on a decline.
 
 use std::io::Write;

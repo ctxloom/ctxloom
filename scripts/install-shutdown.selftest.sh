@@ -2,8 +2,8 @@
 # scripts/install-shutdown.sh, as `just install` and `install-windows` run
 # it before they replace the installed binary (OD-62; owner ruling
 # 2026-11-16, "flush before install"), over a fake `ctxloom` that exits as
-# FAKE_RC says: 0 goes on (nothing runs); a failure (10) goes on, said; a
-# decline (20-29: held facts no daemon took, or a time that is no span)
+# FAKE_RC says: 0 goes on (nothing runs); a failure (32) goes on, said; a
+# decline (48-63: held facts no daemon took, or a time that is no span)
 # refuses, exit 1, so the binary is not replaced. The fake's stdout is
 # prefixed `ok   shutdown: `, its stderr passed through as it is.
 set -euo pipefail
@@ -42,11 +42,11 @@ grep -q "^ok" "$tmp/err" && fail "an error line said ok: $(cat "$tmp/err")"
 run 0 "now"
 grep -qx "ok   shutdown: home $tmp/home args shutdown now --format text" "$tmp/out" || fail "the time passed: $(cat "$tmp/out")"
 
-run 10 "now"
-[ "$got" = 0 ] || fail "a failure (10) goes on: got $got"
+run 32 "now"
+[ "$got" = 0 ] || fail "a failure (32) goes on: got $got"
 grep -q "^note some of ctxloom still runs" "$tmp/out" || fail "a failure said: $(cat "$tmp/out")"
 
-for rc in 20 21 29; do
+for rc in 48 49 63; do
     run "$rc" "now"
     [ "$got" = 1 ] || fail "a decline ($rc) refuses: got $got"
     grep -q "^FAIL install: " "$tmp/err" || fail "a decline ($rc) said FAIL: $(cat "$tmp/err")"

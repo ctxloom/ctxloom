@@ -151,13 +151,13 @@ fn test_the_help_names_ctxloom_whatever_the_program_file_is_called() {
 #[test]
 fn test_a_usage_error_is_refused_with_its_envelope_or_words() {
     let json = go(&["--bogus", "--format", "json"]);
-    assert_eq!(json.code, 20);
+    assert_eq!(json.code, 48);
     assert!(json.out.is_empty());
     let envelope: serde_json::Value = serde_json::from_str(&json.err).unwrap();
     assert_eq!(envelope["code"], "ctxloom-cli-usage");
     assert!(envelope["message"].as_str().unwrap().contains("--bogus"));
     let text = go(&["--bogus", "--format", "text"]);
-    assert_eq!(text.code, 20);
+    assert_eq!(text.code, 48);
     assert!(text
         .err
         .starts_with("ctxloom: error: unexpected argument '--bogus'"));
@@ -169,7 +169,7 @@ fn test_a_usage_error_is_refused_with_its_envelope_or_words() {
 #[test]
 fn test_an_unknown_verb_says_did_you_mean_and_lists_the_verbs() {
     let ran = go(&["versoin", "--format=text"]);
-    assert_eq!(ran.code, 20);
+    assert_eq!(ran.code, 48);
     assert!(ran
         .err
         .starts_with("ctxloom: unknown command versoin for ctxloom: Did you mean one of "));
@@ -181,7 +181,7 @@ fn test_an_unknown_verb_says_did_you_mean_and_lists_the_verbs() {
         .err
         .ends_with("  fix: run ctxloom -h for its commands\n"));
     let nested = go(&["demo", "lisst", "--format", "json"]);
-    assert_eq!(nested.code, 20);
+    assert_eq!(nested.code, 48);
     let envelope: serde_json::Value = serde_json::from_str(&nested.err).unwrap();
     assert_eq!(envelope["code"], "ctxloom-cli-unknown-verb");
     assert_eq!(envelope["args"]["command"], "ctxloom demo");
@@ -196,7 +196,7 @@ fn test_an_unknown_verb_says_did_you_mean_and_lists_the_verbs() {
 #[test]
 fn test_a_format_that_is_neither_json_nor_text_is_refused() {
     let ran = go(&["version", "--format", "yaml"]);
-    assert_eq!(ran.code, 20);
+    assert_eq!(ran.code, 48);
     assert!(ran.out.is_empty());
     let envelope = go_in(true, Ok(Exit::OK), &["version", "--format=yaml"]);
     assert!(envelope
@@ -205,7 +205,7 @@ fn test_a_format_that_is_neither_json_nor_text_is_refused() {
     let json = go(&["version", "--format", "yaml", "--format", "json"]);
     assert_eq!(json.code, 0);
     let shown = go(&["demo", "--format", "yaml"]);
-    assert_eq!(shown.code, 20);
+    assert_eq!(shown.code, 48);
     assert!(shown.out.is_empty());
 }
 
@@ -242,24 +242,24 @@ fn test_an_extension_is_handed_its_noun_and_the_global_flags() {
 // is reported in the format asked for (the codes: rulings 149, 152, 153).
 #[test]
 fn test_an_extensions_exit_code_and_failure_pass_through() {
-    assert_eq!(go_in(false, Ok(Exit::FATAL_FINDINGS), &["demo"]).code, 21);
+    assert_eq!(go_in(false, Ok(Exit::FATAL_FINDINGS), &["demo"]).code, 49);
     assert_eq!(go_in(false, Ok(Exit::signal(15)), &["demo"]).code, 143);
     let failed = go_in(false, Err(Exit::FAILED), &["demo"]);
-    assert_eq!(failed.code, 10);
+    assert_eq!(failed.code, 32);
     let envelope: serde_json::Value = serde_json::from_str(&failed.err).unwrap();
     assert_eq!(envelope["code"], "ctxloom-cli-unknown-format");
     assert_eq!(envelope["args"]["value"], "odd");
     let refused = go_in(false, Err(Exit::REFUSED), &["demo", "--format", "text"]);
-    assert_eq!(refused.code, 20);
+    assert_eq!(refused.code, 48);
     assert!(refused.err.starts_with(
         "ctxloom: the format odd is not one of text or json\n  fix: use --format json"
     ));
-    assert_eq!(go_in(true, Err(Exit::FATAL_FINDINGS), &["demo"]).code, 21);
+    assert_eq!(go_in(true, Err(Exit::FATAL_FINDINGS), &["demo"]).code, 49);
 }
 
-// Ruling 153: a distinguishing success (1-9) is the process's code only under
+// Ruling 153: a distinguishing success (17-31) is the process's code only under
 // `--detailed-exitcode`, given anywhere on the line; without it every success
-// is 0. A failure is its code either way.
+// is 0, and with it a plain success is 16. A failure is its code either way.
 #[test]
 fn test_a_distinguishing_success_is_its_code_only_under_detailed_exitcode() {
     assert_eq!(go_in(false, Ok(Exit::WOULD_CHANGE), &["demo"]).code, 0);
@@ -268,38 +268,38 @@ fn test_a_distinguishing_success_is_its_code_only_under_detailed_exitcode() {
         Ok(Exit::WOULD_CHANGE),
         &["demo", "--detailed-exitcode"],
     );
-    assert_eq!(detailed.code, 1);
+    assert_eq!(detailed.code, 17);
     assert_eq!(
         go_in(
             false,
-            Ok(Exit::success(9)),
+            Ok(Exit::success(31)),
             &["--detailed-exitcode", "demo"]
         )
         .code,
-        9
+        31
     );
     assert_eq!(
         go_in(false, Ok(Exit::OK), &["demo", "--detailed-exitcode"]).code,
-        0
+        16
     );
     assert_eq!(
         go_in(false, Err(Exit::FAILED), &["demo", "--detailed-exitcode"]).code,
-        10
+        32
     );
-    assert_eq!(go(&["version", "--detailed-exitcode"]).code, 0);
+    assert_eq!(go(&["version", "--detailed-exitcode"]).code, 16);
 }
 
-// A usage error is refused, 20, never clap's own 2 (ruling 152).
+// A usage error is refused, 48, never clap's own 2 (ruling 152).
 #[test]
-fn test_a_usage_error_exits_twenty() {
-    assert_eq!(go(&["version", "--no-such-flag"]).code, 20);
-    assert_eq!(go(&["--detailed-exitcode", "nonesuch"]).code, 20);
+fn test_a_usage_error_exits_forty_eight() {
+    assert_eq!(go(&["version", "--no-such-flag"]).code, 48);
+    assert_eq!(go(&["--detailed-exitcode", "nonesuch"]).code, 48);
 }
 
 // The builtin commands are not the extension's.
 #[test]
 fn test_a_builtin_command_never_reaches_the_extension() {
-    let ran = go_in(false, Err(Exit::declined(29)), &["version"]);
+    let ran = go_in(false, Err(Exit::declined(63)), &["version"]);
     assert_eq!(ran.code, 0);
     assert!(!ran.out.contains("explicit="));
 }
@@ -310,7 +310,7 @@ fn test_verbose_changes_no_output() {
     assert_eq!(go(&["-v", "version", "--format", "text"]).out, "1.2.3\n");
 }
 
-// An answer that cannot be written failed: exit 10.
+// An answer that cannot be written failed: exit 32.
 #[test]
 fn test_an_unwritable_answer_is_a_failure() {
     struct Broken;
@@ -339,7 +339,7 @@ fn test_an_unwritable_answer_is_a_failure() {
         &mut Broken,
         &mut err,
     );
-    assert_eq!(code, 10);
+    assert_eq!(code, 32);
     let envelope: serde_json::Value = serde_json::from_slice(&err).unwrap();
     assert_eq!(envelope["code"], "ctxloom-cli-output");
     assert_eq!(envelope["args"]["ext_err_txt"], "closed");

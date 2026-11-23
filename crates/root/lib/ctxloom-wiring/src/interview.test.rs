@@ -36,7 +36,7 @@ fn a_closed_input_is_a_no_though_a_bare_enter_is_a_yes() {
 
 // A session init launches is the run's own: one the run refuses (a config of a
 // newer generation, as the daemon's plan refuses it) is a launch failure with
-// the run's exit, 20, never a session that ended; one that ended is its code
+// the run's exit, 48, never a session that ended; one that ended is its code
 // and what it noticed.
 #[test]
 fn a_session_the_run_refuses_is_a_launch_failure_with_its_exit() {

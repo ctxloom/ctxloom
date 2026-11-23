@@ -2098,7 +2098,7 @@ async fn the_settings_of_the_planned_engine_are_not_applied_to_another() {
 // Owner, 2026-11-12 (Windows): claude found as an npm `claude.cmd` cannot be
 // handed a multi-line opening prompt (std: "batch file arguments are
 // invalid"), so the session is refused before the spawn, typed and
-// crate-prefixed, exit 20, its fix naming claude's native build.
+// crate-prefixed, exit 48, its fix naming claude's native build.
 #[tokio::test]
 async fn a_batch_file_session_with_a_multi_line_opening_prompt_is_refused() {
     let mut script = Script::answering();
@@ -2123,7 +2123,7 @@ async fn a_batch_file_session_with_a_multi_line_opening_prompt_is_refused() {
 
 // Owner, 2026-11-12 (Windows: "the engine was not started: program not
 // found"): a program on no directory of the engine's PATH is not started,
-// typed, naming what was looked for and where; a failure (10), as before.
+// typed, naming what was looked for and where; a failure (32), as before.
 #[tokio::test]
 async fn a_program_found_nowhere_is_not_started_naming_what_was_searched() {
     for interactive in [false, true] {
@@ -2161,7 +2161,7 @@ async fn a_program_found_nowhere_is_not_started_naming_what_was_searched() {
 
 // Owner ruling 2026-11-12: a terminal session whose opening prompt is too long
 // for the platform's command line is refused before the spawn, typed and
-// crate-prefixed, exit 20, its fix naming the ways around it.
+// crate-prefixed, exit 48, its fix naming the ways around it.
 #[tokio::test]
 async fn a_session_whose_opening_prompt_is_too_long_is_refused() {
     let mut script = Script::answering();
@@ -2328,7 +2328,7 @@ fn no_credential_of_fake() -> runs::RunRejection {
 }
 
 // Rulings 73, 73b: a one-shot with no prompt and no credential is refused for
-// both at once, in check order, as one refusal: exit 20.
+// both at once, in check order, as one refusal: exit 48.
 #[tokio::test]
 async fn two_failing_checks_are_refused_together_in_check_order() {
     let mut script = needing_a_token();
@@ -2350,7 +2350,7 @@ async fn two_failing_checks_are_refused_together_in_check_order() {
     assert_eq!(codes_of(&error), ["runs-no-prompt", "runs-no-credential"]);
 }
 
-// Ruling 73a: fatal findings beside a refusal make the exit 21; the findings
+// Ruling 73a: fatal findings beside a refusal make the exit 49; the findings
 // are said as warnings beside it (the plan leaves a fatal finding to the
 // refusal that lists it, and this one does not), the refusal is the run's.
 #[tokio::test]
@@ -2377,7 +2377,7 @@ async fn fatal_findings_beside_a_refusal_are_exit_21_and_the_refusal_is_kept() {
 }
 
 // A single failing check is the plain refusal it always was (rulings 73a,
-// 73c): its own code, exit 20, standing for itself alone.
+// 73c): its own code, exit 48, standing for itself alone.
 #[tokio::test]
 async fn one_failing_check_is_its_own_refusal_standing_for_itself() {
     let mut rig = rig(needing_a_token());
@@ -2428,7 +2428,7 @@ async fn an_undriven_engine_is_planned_and_the_prompt_still_judged() {
 }
 
 // Ruling 73d: at most three failures in one run, the fatal findings, the
-// prompt and the engine; with the findings among them, exit 21.
+// prompt and the engine; with the findings among them, exit 49.
 #[tokio::test]
 async fn the_findings_the_prompt_and_the_engine_fail_together() {
     let mut script = needing_a_token();
@@ -2943,7 +2943,7 @@ async fn incarnation_events(
 }
 
 /// The refusal code of a run's error, when it is a resume's refusal: the
-/// session domain's own, exit 20.
+/// session domain's own, exit 48.
 fn refused_code(error: &RunError) -> String {
     match error {
         RunError::Resume(rejection) => {

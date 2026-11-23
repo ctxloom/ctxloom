@@ -9,7 +9,7 @@
 //!   under text it is `ctxloom: <message>`, then `  fix: <remedy>` where its
 //!   catalog has one. Stdout holds answers only.
 //! - Exit codes (rulings 149, 152, 153): 0 ok, 1 would change (only under
-//!   `--detailed-exitcode`), 10 failed, 20 refused, 21 fatal findings, 128+n
+//!   `--detailed-exitcode`), 32 failed, 48 refused, 49 fatal findings, 128+n
 //!   a signal.
 //! - `-v` is accepted everywhere and changes no output.
 //! - With the `test-support` feature, `diagnostic_samples` (the hidden `test`

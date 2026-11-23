@@ -14,7 +14,7 @@ publish = false
 # The runtime pair: the lock holds ONE angzarr-embedded, angzarr-proto,
 # angzarr-ports and angzarr-diagnostic (and one of every angzarr crate). The
 # pins agree: angzarr (core, embedded, router, platform, build: one repository now)
-# 71b453a, taskloom's crates (d43fb68) and rust-support's (d543b4e) are built on the
+# 71b453a, taskloom's crates (d43fb68) and rust-support's (fea46b9) are built on the
 # same ones, and moving any of them moves the others with it.
 #
 # angzarr-proto, angzarr-ports and angzarr-store-sqlite are reached through
@@ -174,26 +174,26 @@ container-cli = { path = "crates/adapters/driving/container-cli" }
 # rust-support, the shared substrate (S2): the driving edge's call, failure, notices
 # and argument shims. Pinned by full commit over https, as taskloom pins it;
 # its angzarr pins are the ones above.
-cli-support = { git = "https://github.com/benjaminabbitt/rust-support", rev = "d543b4e903371d89e87e504d9ebb8ea212330673" }
+cli-support = { git = "https://github.com/benjaminabbitt/rust-support", rev = "fea46b99ab2b44beeb3d76c05a9f0d4239844451" }
 # process-env (S3): the environment read once into a snapshot the composition root hands down.
-process-env = { git = "https://github.com/benjaminabbitt/rust-support", rev = "d543b4e903371d89e87e504d9ebb8ea212330673" }
+process-env = { git = "https://github.com/benjaminabbitt/rust-support", rev = "fea46b99ab2b44beeb3d76c05a9f0d4239844451" }
 # project-dir (S4): the ancestor walk with injected rules, and the checked project id.
-project-dir = { git = "https://github.com/benjaminabbitt/rust-support", rev = "d543b4e903371d89e87e504d9ebb8ea212330673" }
+project-dir = { git = "https://github.com/benjaminabbitt/rust-support", rev = "fea46b99ab2b44beeb3d76c05a9f0d4239844451" }
 # run-within (S6): a program run under a deadline, its tree killed, its output bounded.
-run-within = { git = "https://github.com/benjaminabbitt/rust-support", rev = "d543b4e903371d89e87e504d9ebb8ea212330673" }
+run-within = { git = "https://github.com/benjaminabbitt/rust-support", rev = "fea46b99ab2b44beeb3d76c05a9f0d4239844451" }
 # duration-text (S9): a span or date as an age, and the cutoff it makes.
-duration-text = { git = "https://github.com/benjaminabbitt/rust-support", rev = "d543b4e903371d89e87e504d9ebb8ea212330673" }
+duration-text = { git = "https://github.com/benjaminabbitt/rust-support", rev = "fea46b99ab2b44beeb3d76c05a9f0d4239844451" }
 # sqlite-store-opener (S5): places and opens a project's SQLite store under a file name the caller
 # names, refusing a store from before the embedded store; ctxloom-store-sqlite is its adapter.
-sqlite-store-opener = { git = "https://github.com/benjaminabbitt/rust-support", rev = "d543b4e903371d89e87e504d9ebb8ea212330673" }
+sqlite-store-opener = { git = "https://github.com/benjaminabbitt/rust-support", rev = "fea46b99ab2b44beeb3d76c05a9f0d4239844451" }
 
 # exit-code: the exit-code convention as a pure type (rulings 149, 152, 153), so the
 # core's errors say their class; cli-support re-exports it for the edge.
-exit-code = { git = "https://github.com/benjaminabbitt/rust-support", rev = "d543b4e903371d89e87e504d9ebb8ea212330673" }
+exit-code = { git = "https://github.com/benjaminabbitt/rust-support", rev = "fea46b99ab2b44beeb3d76c05a9f0d4239844451" }
 
 # fixture-program: a test's fake program, linked to a committed shim that sh runs the
 # script through, so no file a test wrote is exec'd (ETXTBSY). A dev-dependency only.
-fixture-program = { git = "https://github.com/benjaminabbitt/rust-support", rev = "d543b4e903371d89e87e504d9ebb8ea212330673" }
+fixture-program = { git = "https://github.com/benjaminabbitt/rust-support", rev = "fea46b99ab2b44beeb3d76c05a9f0d4239844451" }
 
 # HTTP for forge-github (owner, 2026-11-04): the blocking client, so the
 # synchronous CLI holds no runtime of its own. Its TLS is rustls on ring

@@ -46,7 +46,7 @@
 //!   (`printed`).
 //! - Error texts. A failing command's stdout is empty in both and its exit
 //!   code is compared; the words are asserted in `library_cli.test.rs` from
-//!   the Gherkin. A usage error is exit 20 here (D28, ruled), where Go's
+//!   the Gherkin. A usage error is exit 48 here (D28, ruled), where Go's
 //!   cobra gave 1: `USAGE_REFUSALS`.
 
 use std::collections::BTreeMap;
@@ -58,23 +58,23 @@ use crate::tests::files;
 
 /// Whether `code` is this build's for Go's `go_exit` (rulings 149, 152,
 /// 153): Go's 1 was every error, and this build says which it is, failed
-/// (10) or declined (20); Go's 2 refused is 20, its 3 fatal findings 21, its
+/// (32) or declined (48); Go's 2 refused is 48, its 3 fatal findings 49, its
 /// 0 is 0.
 fn agrees(go_exit: i32, code: i32) -> bool {
     match go_exit {
-        1 => code == 10 || code == 20,
-        2 => code == 20,
-        3 => code == 21,
+        1 => code == 32 || code == 48,
+        2 => code == 48,
+        3 => code == 49,
         other => code == other,
     }
 }
 
 /// Rows where Go's exit 1 is clap's usage refusal in this binary: D28 maps
-/// those to 20.
+/// those to 48.
 const USAGE_REFUSALS: [&str; 2] = ["config-misspelled-subcommand", "run-dry-agent-and-profile"];
 
 /// Rows where Go's exit 1 is the strict decode's refusal of a config (an
-/// unknown key, a value the schema breaks): D15 makes it 2 here, with no
+/// unknown key, a value the schema breaks): D15 makes it 48 here, with no
 /// answer on stdout (engines schema, track 1).
 const CONFIG_REFUSALS: [&str; 14] = [
     "cfg-unknownkey-show-json",
@@ -95,7 +95,7 @@ const CONFIG_REFUSALS: [&str; 14] = [
 
 /// Rows where the owner overrides Go (D15, 2026-11-03): a config whose
 /// `schema_version` is newer, older, unstamped or not a number is refused with
-/// exit 20, where Go warned and read on (`config_version_refusal_test.go`);
+/// exit 48, where Go warned and read on (`config_version_refusal_test.go`);
 /// and a value the schema breaks where Go took it.
 const OWNER_REFUSALS: [&str; 9] = [
     // `--config-set companions=zzz`: a registration is a mapping of names
@@ -111,7 +111,7 @@ const OWNER_REFUSALS: [&str; 9] = [
     "cfg-notint-bundle-list",
 ];
 
-/// Fixtures every row of which is a refusal (exit 20, no answer) where Go
+/// Fixtures every row of which is a refusal (exit 48, no answer) where Go
 /// answered: `cfg/v8` holds keys a hard migrate made unknown (the top-level
 /// `auth`, engines track 1; an agent's `permissions`, owner ruling 134).
 const REFUSED_FIXTURES: [&str; 1] = ["cfg/v8"];
@@ -551,13 +551,13 @@ fn mismatch(row: &Row, project: &Project) -> Option<String> {
     if OWNER_REFUSALS.contains(&row.id.as_str()) || REFUSED_FIXTURES.contains(&row.fixture.as_str())
     {
         // owner override of Go, D15, 2026-11-03
-        return (ran.code != 20 || !ran.stdout.trim().is_empty())
-            .then(|| format!("want a refusal (exit 20, no answer): {}", ran.said()));
+        return (ran.code != 48 || !ran.stdout.trim().is_empty())
+            .then(|| format!("want a refusal (exit 48, no answer): {}", ran.said()));
     }
     let refusal =
         USAGE_REFUSALS.contains(&row.id.as_str()) || CONFIG_REFUSALS.contains(&row.id.as_str());
     let agreed = if refusal {
-        ran.code == 20
+        ran.code == 48
     } else {
         agrees(go_exit, ran.code)
     };

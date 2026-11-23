@@ -26,9 +26,9 @@ pub type Samples = fn() -> Vec<Box<dyn Diagnostic>>;
 
 #[derive(Subcommand, Debug)]
 enum TestVerb {
-    /// Refuse (exit 20)
+    /// Refuse (exit 48)
     Refuse,
-    /// Report fatal findings (exit 21)
+    /// Report fatal findings (exit 49)
     Findings,
     /// Print a sample list
     Sample {
@@ -220,7 +220,7 @@ impl Render for Sample {
     }
 }
 
-/// A failure of the command line itself: exit 10.
+/// A failure of the command line itself: exit 32.
 fn failed(cause: impl Diagnostic + 'static) -> Failure {
     Failure::new(cause, Exit::FAILED)
 }

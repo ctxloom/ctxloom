@@ -117,7 +117,7 @@ impl ForeignWriters {
             wiring.fs(),
         ))));
         let doctor = uses.doctor.writing_through(files.clone());
-        // A fix that fails is a failure (10), as in process.
+        // A fix that fails is a failure (32), as in process.
         let removed = doctor.fix().map_err(|failure| {
             daemon_api::setup_error(failure.as_ref(), cli_support::Exit::FAILED)
         })?;

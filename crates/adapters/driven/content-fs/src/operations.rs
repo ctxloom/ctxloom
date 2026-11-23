@@ -19,7 +19,7 @@
 //! A path that is not plain (absolute, climbing, empty) or that goes
 //! through a link inside the tree is refused before anything is touched.
 //! A filesystem with no NOREPLACE rename fails
-//! the operation (D4), exit 10.
+//! the operation (D4), exit 32.
 
 use std::io;
 use std::path::{Path, PathBuf};

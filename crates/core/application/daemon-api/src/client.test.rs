@@ -125,7 +125,7 @@ async fn another_stamp_stops_an_idle_daemon() {
     assert!(!stopped.even_if_live);
 }
 
-// Another stamp, hosting live runs: refused (exit 20), naming them, and the
+// Another stamp, hosting live runs: refused (exit 48), naming them, and the
 // daemon is not stopped.
 #[tokio::test]
 async fn another_stamp_is_refused_by_a_busy_daemon() {
@@ -215,7 +215,7 @@ async fn a_newer_client_stops_an_idle_daemon_plainly() {
     assert!(!stops[0].drain && !stops[0].even_if_live, "{stops:?}");
 }
 
-// A daemon that cannot be asked is a failure (exit 10).
+// A daemon that cannot be asked is a failure (exit 32).
 #[tokio::test]
 async fn a_daemon_that_cannot_be_asked_fails() {
     let daemon = Daemon {
@@ -392,7 +392,7 @@ async fn a_newer_sessions_call_stops_an_idle_older_daemon() {
 }
 
 // OD-62: a session's call of a newer version, meeting an older daemon that
-// hosts runs, is refused, naming both stamps (exit 20), and asks it nothing.
+// hosts runs, is refused, naming both stamps (exit 48), and asks it nothing.
 #[tokio::test]
 async fn a_newer_sessions_call_is_refused_by_a_busy_older_daemon() {
     let daemon = Daemon {

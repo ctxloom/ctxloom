@@ -164,7 +164,7 @@ async fn a_one_shot_that_ended_before_it_was_hosted_is_answered_with_its_end() {
     assert_eq!(run.notices.len(), 1);
     let end = run.end.expect("its end");
     assert_eq!(end.code, "runs-no-prompt");
-    assert_eq!(end.exit, 20);
+    assert_eq!(end.exit, 48);
 }
 
 #[tokio::test]
@@ -268,7 +268,7 @@ impl OneShotHost for Placing {
 }
 
 // The drain/`WatchRun` race (2026-11-15's flake of
-// `a_one_shot_still_running_after_the_period_is_stopped`, exit 20 not
+// `a_one_shot_still_running_after_the_period_is_stopped`, exit 48 not
 // 143): the one-shot's client watches its run only once `CreateRun` has
 // answered, so a drain asked in between came first. A watch of a run the
 // daemon already hosts starts no work (OD-62 refuses NEW invocations), so

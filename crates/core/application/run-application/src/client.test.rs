@@ -133,15 +133,18 @@ fn test_flattened_args_are_rebuilt_whole_integers_and_causes_included() {
 #[test]
 fn test_an_end_names_the_exit_by_its_block() {
     assert_eq!(exit_of(0), Exit::OK);
-    assert_eq!(exit_of(1), Exit::WOULD_CHANGE);
-    assert_eq!(exit_of(10), Exit::FAILED);
-    assert_eq!(exit_of(19), Exit::failed(19));
-    assert_eq!(exit_of(20), Exit::REFUSED);
-    assert_eq!(exit_of(21), Exit::FATAL_FINDINGS);
-    assert_eq!(exit_of(29), Exit::declined(29));
+    assert_eq!(exit_of(16), Exit::OK);
+    assert_eq!(exit_of(17), Exit::WOULD_CHANGE);
+    assert_eq!(exit_of(31), Exit::success(31));
+    assert_eq!(exit_of(32), Exit::FAILED);
+    assert_eq!(exit_of(47), Exit::failed(47));
+    assert_eq!(exit_of(48), Exit::REFUSED);
+    assert_eq!(exit_of(49), Exit::FATAL_FINDINGS);
+    assert_eq!(exit_of(63), Exit::declined(63));
     assert_eq!(exit_of(130), Exit::signal(2));
     assert_eq!(exit_of(129), Exit::signal(1));
-    for odd in [30, 128, -1, 1000] {
+    // Outside the blocks, the old layout's codes among them: a failure.
+    for odd in [1, 2, 10, 15, 64, 128, -1, 1000] {
         assert_eq!(exit_of(odd), Exit::FAILED, "{odd}");
     }
 }
@@ -159,7 +162,7 @@ fn test_an_error_crosses_as_its_code_args_exit_and_refusals() {
         fatal_findings: 1,
     });
     let end = end_of(&error);
-    assert_eq!(end.exit, 21);
+    assert_eq!(end.exit, 49);
     assert_eq!(end.code, error.code());
     assert_eq!(end.text, error.to_string());
     assert_eq!(end.refusals.len(), 2);
@@ -190,7 +193,7 @@ fn test_an_error_crosses_as_its_code_args_exit_and_refusals() {
 fn test_an_answered_end_is_no_error() {
     assert!(error_of(&answered()).is_none());
     assert!(error_of(&v1::RunEnd {
-        exit: 10,
+        exit: 32,
         ..v1::RunEnd::default()
     })
     .is_some());

@@ -28,12 +28,12 @@ Feature: The close-out — the end of a workstream
   # She looks before anything is destroyed.
   Scenario: The sweep reports every session's fate before it changes anything
     # substitution: the verb is `session remove --older-than` (owner ruling 98); without --yes off a terminal it exits 4.
-    #   and Go's 4 is, by rulings 149, 152, 153, a preview that would change something: the success 1, said only under --detailed-exitcode.
+    #   and Go's 4 is, by rulings 149, 152, 153, a preview that would change something: the success 17, said only under --detailed-exitcode.
     Given a finished session "amber-quiet-heron" whose transcript retention has passed
     And a finished session "brisk-copper-moth" whose transcript retention has passed
     And every session has been idle for 120 days
     When I run "ctxloom session remove --older-than 90d --detailed-exitcode"
-    Then the command exits with code 1
+    Then the command exits with code 17
     And the sweep report names "amber-quiet-heron" and "brisk-copper-moth"
     And every byte of every session is still on disk
 

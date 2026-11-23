@@ -231,7 +231,7 @@ fn test_a_library_command_is_run_over_the_home() {
         try_line(&mut world.commands(), Format::Text, &["agent", "default"]).unwrap();
     assert_eq!(
         (code, out.as_str(), err.as_str()),
-        (0, "No default agent set.\n", "")
+        (16, "No default agent set.\n", "")
     );
 }
 
@@ -259,7 +259,7 @@ fn test_a_dependency_command_is_run_over_the_home() {
     // A verb still in process (`remote list` and `deps list` are the
     // daemon's since step 10a U2, and a unit test starts no daemon).
     let (code, out, _) = run_line(&mut world.commands(), &["deps", "check"]);
-    assert_eq!(code, 0);
+    assert_eq!(code, 16);
     assert!(!out.is_empty());
 }
 
@@ -416,7 +416,7 @@ fn test_a_pull_that_is_refused_answers_the_refusal_code() {
 fn test_a_container_command_is_run_and_reports_what_it_found() {
     let world = World::new("container");
     let (code, out, _) = run_line(&mut world.commands(), &["container", "check"]);
-    assert_eq!(code, 0);
+    assert_eq!(code, 16);
     assert!(!out.trim().is_empty(), "container check wrote nothing");
 }
 
@@ -489,12 +489,12 @@ pub(crate) fn world_without_programs(name: &str) -> World {
 // reason.
 
 // `--dry-run` stays the library's (the plan printed, nothing run, its
-// detailed code 1) is held by the binary's `library_cli_run.test.rs`: every
+// detailed code 17) is held by the binary's `library_cli_run.test.rs`: every
 // dry run reaches the daemon (owner ruling 2026-11-14), which an in-process
 // test cannot spawn (its program is the test harness).
 
 // T17, S48: a command in a project that still has a store of its own is
-// refused, exit 20, before it runs; the store is named for its removal.
+// refused, exit 48, before it runs; the store is named for its removal.
 #[test]
 fn a_command_in_a_project_with_a_store_of_its_own_is_refused() {
     let world = World::new("per-project-store");
@@ -511,7 +511,7 @@ fn a_command_in_a_project_with_a_store_of_its_own_is_refused() {
     );
     let failed =
         try_line(&mut world.commands(), Format::Json, &["session", "list"]).expect_err("refused");
-    assert_eq!(failed.exit.code(true), 20);
+    assert_eq!(failed.exit.code(true), 48);
     assert_eq!(
         failed.cause.code(),
         "ctxloom-store-sqlite-per-project-store"

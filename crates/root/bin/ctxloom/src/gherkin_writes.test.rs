@@ -516,7 +516,7 @@ fn days_pass(w: &mut World, days: u32, more: String) {
     };
     let stopped = run_now(w, &[], &["daemon", "stop"]);
     assert!(
-        matches!(stopped.code, 0 | 20),
+        matches!(stopped.code, 0 | 48),
         "daemon stop: {}",
         stopped.said()
     );

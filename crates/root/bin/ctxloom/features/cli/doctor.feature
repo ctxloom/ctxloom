@@ -28,10 +28,10 @@ Feature: doctor — the deterministic diagnosis, and the one finding that fails 
   a genuinely broken project assert `the command succeeds` deliberately. A
   `fail` row is different: it is a finding that guarantees `ctxloom run`
   refuses (today, an agent credential no run can authenticate with), and it
-  makes doctor exit 20, run's status for the refusal it guarantees, after the
+  makes doctor exit 48, run's status for the refusal it guarantees, after the
   whole report is written. A USAGE error (a --format this build cannot render)
-  exits 20, a refusal like any other (DRAFT, rulings 152 and 153: a usage
-  error, an unknown format among them, is a decline, 20; was "exits 10").
+  exits 48, a refusal like any other (DRAFT, rulings 152 and 153: a usage
+  error, an unknown format among them, is a decline, 48; was "exits 32").
 
   THE LIBRARY IS GIT-FREE (DRAFT, owner 2026-11-18, superseding step 10's
   G1 to G3). A library works in any directory, so doctor has no row for the
@@ -51,7 +51,7 @@ Feature: doctor — the deterministic diagnosis, and the one finding that fails 
 
     # A source of variables alone shares no login with her primary session
     # either, so with none of them set nothing can run.
-    Scenario: A missing agent credential nothing can run on is a fail row with its fix, and exit 20
+    Scenario: A missing agent credential nothing can run on is a fail row with its fix, and exit 48
       # changed: DRAFT, rulings 152 and 153: the title said Go's "exit 3"; a fail row is run's refusal, 20, as the Then below already asserts.
       # changed: DRAFT, owner ruling 2026-11-19: a fail only when nothing can run, so the source is a variable alone (the built-in one lets the primary sign in, the next scenario).
       # substitution: exit codes per rulings 149, 152, 153 (10 failed, 20 refused, 21 fatal findings; Go's 1, 2, 3); a fail row is run's refusal, 20.
@@ -69,7 +69,7 @@ Feature: doctor — the deterministic diagnosis, and the one finding that fails 
         """
         ctxloom --format json doctor
         """
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the output is valid JSON
       And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-CREDENTIALS-m5" and whose "status" is "fail"
       And the output contains "export CLAUDE_CODE_OAUTH_TOKEN"
@@ -326,9 +326,9 @@ Feature: doctor — the deterministic diagnosis, and the one finding that fails 
 
     Doctor reads the config as a run does. A key the schema does not know is
     refused by every run, so doctor says so in the run's own words, as a
-    `fail` row, and exits 20.
+    `fail` row, and exits 48.
 
-    Scenario: An unknown config key is a fail row in the run's words, and exit 20
+    Scenario: An unknown config key is a fail row in the run's words, and exit 48
       # new: hand-test 2026-11-10 (doctor said ".ctxloom and its config.yaml read" of a config every run refused).
       Given an initialized ctxloom project
       And the project already has the file ".ctxloom/config.yaml":
@@ -338,7 +338,7 @@ Feature: doctor — the deterministic diagnosis, and the one finding that fails 
           auto_sync: true
         """
       When I run "ctxloom --format json doctor"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-SETUP-MARKER-e5" and whose "status" is "fail"
       And the output contains "unknown key `sync.auto_sync`"
       And the output contains "remove or rename the key in config.yaml"
@@ -660,7 +660,7 @@ Feature: doctor — the deterministic diagnosis, and the one finding that fails 
           go: retired
         """
       When I run "ctxloom engine list"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the output contains "legacy.go"
       And the output contains "home config"
 
@@ -673,7 +673,7 @@ Feature: doctor — the deterministic diagnosis, and the one finding that fails 
           go: <value>
         """
       When I run "ctxloom engine list"
-      Then the command exits with code 20
+      Then the command exits with code 48
       And the output contains "legacy.go"
       And the output contains '"present", "retired"'
 

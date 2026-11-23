@@ -6767,7 +6767,7 @@ fn waiting_asks(w: &World, root: Option<&str>) -> Vec<Value> {
 /// approval prompt called through `ctxloom mcp serve`, started as the
 /// engine starts it (the child's session in its environment), and waited
 /// for until the ask is listed or, settled at once, answered.
-fn ask(w: &mut World, child: &str, tool: &str, text: &str) {
+pub(super) fn ask(w: &mut World, child: &str, tool: &str, text: &str) {
     let me = session_name(w, child);
     let env = env_of(w);
     let mut mcp =

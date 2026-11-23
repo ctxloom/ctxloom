@@ -143,7 +143,7 @@ fn first_reports_none(w: &mut World, path: String) {
     assert!(at(&line, &path).is_none(), "{path} is in {line}");
 }
 
-#[then(regex = r#"^its first line has "([^"]+)" holding (\d+) entr(?:y|ies)$"#)]
+#[then(regex = r#"^its first line (?:has|reports) "([^"]+)" holding (\d+) entr(?:y|ies)$"#)]
 fn first_holds(w: &mut World, path: String, count: usize) {
     let line = first_line(w);
     let held = at(&line, &path)
@@ -215,10 +215,18 @@ fn line_has_containing(w: &mut World, seconds: u64, path: String, text: String) 
     w.top.that = Some(line);
 }
 
+/// Whether `got`, a resource name or a word, is `want`: whole, or its last
+/// segment (an ask is noted by it).
+fn is(got: &Value, want: &str) -> bool {
+    let got = said(got);
+    got == want || got.ends_with(&format!("/{want}"))
+}
+
 #[then(expr = "within {int} seconds a line has {string} as {string}")]
 fn line_has_as(w: &mut World, seconds: u64, path: String, want: String) {
+    let want = w.common.expanded(&want);
     let line = until_line(w, seconds, |line| {
-        at(line, &path).is_some_and(|got| said(got) == want)
+        at(line, &path).is_some_and(|got| is(got, &want))
     });
     w.top.that = Some(line);
 }
@@ -294,4 +302,20 @@ fn child_launched(w: &mut World, child: String, owner: String) {
 #[given(expr = "a child {string} of {string}")]
 fn child_of(w: &mut World, child: String, owner: String) {
     daemon_spec::child_of_idle(w, child, owner);
+}
+
+#[when(regex = r#"^the engine of "([^"]+)" asks to run "([^"]+)" with "([^"]*)"$"#)]
+fn engine_of_asks(w: &mut World, child: String, tool: String, input: String) {
+    daemon_spec::ask(w, &child, &tool, &input);
+}
+
+#[given(expr = "I note the ask named by the first line's {string} as {string}")]
+fn note_first_ask(w: &mut World, path: String, label: String) {
+    let line = first_line(w);
+    let name = at(&line, &path)
+        .and_then(Value::as_str)
+        .unwrap_or_else(|| panic!("no name at {path} in {line}"))
+        .to_string();
+    w.common
+        .note(&label, name.rsplit('/').next().unwrap_or(&name));
 }

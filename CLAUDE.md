@@ -2757,6 +2757,31 @@ is on its stream is passed over; a book from 0 with another first event is
 folded afresh; a book past where it is is a gap, read from the store first,
 else left for the catch-up).
 
+## `ctxloom top` (DRAFT: built as far as the JSON stream)
+
+`ctxloom top` is session-cli's third noun (`session_cli::top`, a client of the
+daemon's `WatchTop`; spec `features/cli/top.feature`,
+`features/journeys/j002900_watching_children.feature`). `--format json` (the
+default off a terminal) prints one `ctxloom.v1.TopEvent` per line: a
+`snapshot`, then `session_changed`, `session_removed`, `approval_asked` and
+`approval_settled`; `waiting` is the CLIENT's, said once while no daemon
+serves (`top` never starts one and polls only for a daemon, every 500 ms,
+`ctxloom-wiring`'s `top::DAEMON_LOOK`) and again when a daemon is lost. A
+request carries a scope (the project's list, one session, or its subtree:
+`WatchTopRequest.session`, `subtree`) and filters (states, default LIVE
+alone; agents, profiles, tags, engines, owners), which are the DAEMON's;
+sorting (`--sort`, `session_cli::top::Sort`) orders the snapshot and is the
+client's. The watch is PUSHED, never polled: `daemon_api::top`'s `TopWatch`
+waits on the wake `held_projection::Held::watch_into` sends when a fold
+changes `SessionIndexes` or `PendingApprovals` (also the kernel's inline
+fold), reads both and says what differs from what it last said. A session's
+`agent`, `profiles` and `tags` (the bundles its loadout loaded) are
+`Session` fields 24-26, from its recorded loadout. Not built: the full-screen
+UI, the log (`log_session` is carried and unserved), daemon events, a
+projector of its own (the watch reads the session index and the approvals'
+index), and `top` outside a project pushing (it lists nothing and stays
+open).
+
 ## Trust (step 8 U1, ruling 142; plan `approvals-trust-step8.plan.md` §0)
 
 Step 8 U1 adds three crates: `core/wire/trust-proto` (from

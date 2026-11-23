@@ -24,13 +24,10 @@ fn ask(name: &str, child: &str, rule: &str, state: &str) -> v1::Approval {
 }
 
 #[test]
-fn test_listing_under_a_session_is_its_projects_waiting_asks_under_that_root() {
+fn test_listing_under_a_session_is_its_whole_projects_waiting_asks_whatever_their_root() {
     let listing = listing_under("projects/calm-quiet-heron/sessions/amber-swift-owl").unwrap();
     assert_eq!(listing.parent, "projects/calm-quiet-heron");
-    assert_eq!(
-        listing.root,
-        "projects/calm-quiet-heron/sessions/amber-swift-owl"
-    );
+    assert_eq!(listing.root, "", "no root: every ask of the project");
     assert!(listing.waiting);
 }
 

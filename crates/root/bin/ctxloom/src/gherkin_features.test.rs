@@ -523,6 +523,7 @@ mod features {
             shutdown,
             skill,
             startup_boundaries,
+            top,
             trust,
             util,
             version,
@@ -550,6 +551,7 @@ mod features {
             j002400_container,
             j002700_user_daemon,
             j002800_trusting_a_project,
+            j002900_watching_children,
         );
     }
 

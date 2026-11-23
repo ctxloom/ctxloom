@@ -538,6 +538,16 @@ impl DaemonApi for DaemonClient {
         Ok(Box::new(Signals(streaming)))
     }
 
+    async fn watch_top(
+        &self,
+        request: v1::WatchTopRequest,
+    ) -> Result<Box<dyn daemon_ports::TopEvents>, Called> {
+        // Answered within the read's deadline; its events come for as long
+        // as the watch is held, unbounded.
+        let streaming = call!(self, watch_top, "WatchTop", request)?;
+        Ok(Box::new(TopWatching(streaming)))
+    }
+
     async fn handle(&self, book: CommandBook) -> Result<bool, Called> {
         let result: angzarr_proto_transport_distributed::v1::CommandResult =
             call!(self, coordinator, handle, "Handle", book, self.within)?;
@@ -730,6 +740,22 @@ impl SessionSignals for Signals {
                 Ok(Some(signal)) => Some(Ok(signal)),
                 Ok(None) => None,
                 Err(status) => Some(Err(came_to("WatchSession", &status))),
+            }
+        })
+    }
+}
+
+/// A `ctxloom top` watch's events as `WatchTop` streams them: a status that
+/// ends the stream (the daemon gone) is what it came to.
+struct TopWatching(tonic::codec::Streaming<v1::TopEvent>);
+
+impl daemon_ports::TopEvents for TopWatching {
+    fn next(&mut self) -> daemon_ports::NextTopEvent<'_> {
+        Box::pin(async move {
+            match self.0.message().await {
+                Ok(Some(event)) => Some(Ok(event)),
+                Ok(None) => None,
+                Err(status) => Some(Err(came_to("WatchTop", &status))),
             }
         })
     }

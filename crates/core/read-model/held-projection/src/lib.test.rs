@@ -296,3 +296,39 @@ fn counted(held: &Held<Counted>) -> usize {
     let model: &Counted = &lock;
     model.0
 }
+
+#[test]
+fn a_watcher_is_woken_when_a_book_is_folded_and_not_before() {
+    let held = Held::<Pages>::default();
+    let woken = held.watch();
+    assert!(
+        woken.try_recv().is_err(),
+        "nothing folded yet, nothing told"
+    );
+    hand(&held, book(1, 0..1, "a"));
+    assert!(woken.try_recv().is_ok(), "a folded book wakes the watcher");
+    assert!(woken.try_recv().is_err(), "one fold, one wake");
+}
+
+#[test]
+fn every_watcher_is_woken_and_one_gone_is_let_go() {
+    let held = Held::<Pages>::default();
+    let first = held.watch();
+    let second = held.watch();
+    drop(second);
+    hand(&held, book(1, 0..1, "a"));
+    assert!(first.try_recv().is_ok());
+    assert_eq!(held.watching(), 1, "the dropped watcher is let go");
+}
+
+#[test]
+fn a_book_the_model_already_has_wakes_nobody() {
+    let held = Held::<Pages>::default();
+    hand(&held, book(1, 0..2, "a"));
+    let woken = held.watch();
+    hand(&held, book(1, 0..2, "a"));
+    assert!(
+        woken.try_recv().is_err(),
+        "a page folded already changes nothing"
+    );
+}

@@ -564,6 +564,22 @@ impl SessionIndex {
                     rotated_at: rotation.rotated_at.map(Into::into),
                 })
                 .collect(),
+            agent: record
+                .loadout
+                .as_ref()
+                .map(|loadout| loadout.agent.clone())
+                .unwrap_or_default(),
+            profiles: record
+                .loadout
+                .as_ref()
+                .map(|loadout| loadout.profiles.clone())
+                .unwrap_or_default(),
+            // The tags of a session are the bundles its loadout loaded.
+            tags: record
+                .loadout
+                .as_ref()
+                .map(|loadout| loadout.bundles.clone())
+                .unwrap_or_default(),
             ..daemon_proto::v1::Session::default()
         }
     }
@@ -601,6 +617,16 @@ impl SessionIndexes {
     /// The index as projected so far.
     pub fn index(&self) -> Lock<'_, SessionIndex> {
         self.0.lock()
+    }
+
+    /// A watcher of the index: woken each time a fold changes it (a push).
+    pub fn watch(&self) -> std::sync::mpsc::Receiver<()> {
+        self.0.watch()
+    }
+
+    /// As [`Self::watch`], woken through `wake`.
+    pub fn watch_into(&self, wake: std::sync::mpsc::Sender<()>) {
+        self.0.watch_into(wake);
     }
 }
 

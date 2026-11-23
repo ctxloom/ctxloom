@@ -124,6 +124,9 @@ enum Admitted {
 struct Guarded<M> {
     model: M,
     seen: BTreeMap<Key, Seen>,
+    /// How many times the model has been handed a book: what a watcher is
+    /// woken by, so a book the fold passed over wakes nobody.
+    folds: u64,
 }
 
 impl<M: Model> Guarded<M> {
@@ -135,6 +138,7 @@ impl<M: Model> Guarded<M> {
             if book.next_sequence == 0 {
                 self.seen.remove(&key);
                 self.model.project(book)?;
+                self.folds += 1;
             }
             return Ok(Admitted::Folded);
         };
@@ -171,6 +175,7 @@ impl<M: Model> Guarded<M> {
             next_sequence: book.next_sequence,
         };
         self.model.project(&trimmed)?;
+        self.folds += 1;
         let fingerprint = match afresh {
             true => Fingerprint::of(first),
             false => self
@@ -197,6 +202,8 @@ pub struct Held<M> {
 struct Inner<M> {
     guarded: Mutex<Guarded<M>>,
     fill: Option<Arc<dyn Fill>>,
+    /// Who is woken when the fold changes the model: each watcher's channel.
+    watchers: Mutex<Vec<std::sync::mpsc::Sender<()>>>,
 }
 
 impl<M> Clone for Held<M> {
@@ -231,6 +238,7 @@ impl<M: Model> Held<M> {
             inner: Arc::new(Inner {
                 guarded: Mutex::new(Guarded::default()),
                 fill,
+                watchers: Mutex::new(Vec::new()),
             }),
         }
     }
@@ -246,6 +254,40 @@ impl<M: Model> Held<M> {
     pub fn lock(&self) -> Lock<'_, M> {
         Lock(self.guarded())
     }
+
+    /// A watcher of the model: woken (one unit sent) each time a book the
+    /// fold takes changes it, whichever driver handed it. It is told nothing
+    /// of what changed: it reads the model, which is the truth. Dropping the
+    /// receiver lets it go. A push, never a poll.
+    pub fn watch(&self) -> std::sync::mpsc::Receiver<()> {
+        let (wake, woken) = std::sync::mpsc::channel();
+        self.watch_into(wake);
+        woken
+    }
+
+    /// As [`Held::watch`], woken through `wake`, so one receiver can wait on
+    /// several models at once.
+    pub fn watch_into(&self, wake: std::sync::mpsc::Sender<()>) {
+        self.watchers_locked().push(wake);
+    }
+
+    /// How many watchers are woken.
+    pub fn watching(&self) -> usize {
+        self.watchers_locked().len()
+    }
+
+    fn watchers_locked(&self) -> MutexGuard<'_, Vec<std::sync::mpsc::Sender<()>>> {
+        self.inner
+            .watchers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Wake each watcher, letting go one whose receiver is gone.
+    fn wake(&self) {
+        self.watchers_locked()
+            .retain(|watcher| watcher.send(()).is_ok());
+    }
 }
 
 impl<M: Model> ProjectorHandler for Held<M> {
@@ -256,6 +298,7 @@ impl<M: Model> ProjectorHandler for Held<M> {
     async fn dispatch(&self, request: &ProjectRequest) -> Result<ProjectResponse, CodedError> {
         let book = request.events.clone().unwrap_or_default();
         let cover = book.cover.clone().unwrap_or_default();
+        let before = self.guarded().folds;
         let admitted = self.guarded().admit(&book).map_err(|e| bug(&e))?;
         if let (Admitted::Gap { from, to }, Some(fill)) = (admitted, &self.inner.fill) {
             // A gap the store cannot fill now waits for the catch-up, which
@@ -266,9 +309,14 @@ impl<M: Model> ProjectorHandler for Held<M> {
                 self.guarded().admit(&whole).map_err(|e| bug(&e))?;
             }
         }
-        Ok(ProjectResponse {
-            projection: self.guarded().model.view(&cover),
-        })
+        let (folded, projection) = {
+            let guarded = self.guarded();
+            (guarded.folds != before, guarded.model.view(&cover))
+        };
+        if folded {
+            self.wake();
+        }
+        Ok(ProjectResponse { projection })
     }
 }
 

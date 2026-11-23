@@ -258,6 +258,17 @@ pub trait DaemonApi: Send + Sync {
         async { Err(unserved("WatchSession")) }
     }
 
+    /// `WatchTop` (`ctxloom top`, DRAFT): the watch's snapshot, then each
+    /// change as the daemon pushes it, until the caller drops it, the watch
+    /// ends or the daemon goes. The default is a daemon that does not serve it.
+    fn watch_top(
+        &self,
+        request: v1::WatchTopRequest,
+    ) -> impl Future<Output = Result<Box<dyn TopEvents>, Called>> + Send {
+        let _ = request;
+        async { Err(unserved("WatchTop")) }
+    }
+
     /// The coordinator's `Handle` (T16, API Q11): `book`, a domain command
     /// under the id its page names, applied (or found applied: a
     /// DUPLICATE); whether this delivery applied it. Nothing waits for a
@@ -413,6 +424,16 @@ pub trait SessionSignals: Send {
 /// A watched session's next signal, as [`SessionSignals::next`] answers it.
 pub type NextSignal<'a> =
     std::pin::Pin<Box<dyn Future<Output = Option<Result<v1::SessionSignal, Called>>> + Send + 'a>>;
+
+/// A `ctxloom top` watch's events as `WatchTop` streams them: each as it
+/// comes, none once the watch ended, or what broke it (the daemon gone).
+pub trait TopEvents: Send {
+    fn next(&mut self) -> NextTopEvent<'_>;
+}
+
+/// A watch's next event, as [`TopEvents::next`] answers it.
+pub type NextTopEvent<'a> =
+    std::pin::Pin<Box<dyn Future<Output = Option<Result<v1::TopEvent, Called>>> + Send + 'a>>;
 
 /// The coordinator's `Handle`, as a status names it.
 pub const HANDLE: &str =

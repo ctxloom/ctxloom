@@ -1275,3 +1275,34 @@ fn test_a_context_owes_past_its_position_else_after_its_loadout() {
     assert!(!handed.owes("t", 4, at(i64::MAX)));
     assert!(handed.owes("t", 5, at(0)));
 }
+
+// `ctxloom top`'s columns: a session's agent, its profiles and the bundles
+// its loadout loaded (its tags, owner ruling) are on its resource, from the
+// loadout its run recorded.
+#[test]
+fn test_a_session_resource_carries_the_agent_profiles_and_bundles_of_its_loadout() {
+    let mut project = Project::new();
+    let mut index = SessionIndex::catch_up();
+    project.run(&mut index, FIRST, mint("amber-swift-owl"));
+    let bare = |index: &Index| {
+        let projector = index.projector().index();
+        let record = projector.find("amber-swift-owl").expect("the session");
+        projector.resource(&record)
+    };
+    let before = bare(&index);
+    assert!(before.agent.is_empty() && before.profiles.is_empty() && before.tags.is_empty());
+    let loadout = wire(&sessions::RecordLoadout {
+        loadout: sessions::SessionLoadout {
+            agent: "reviewer".to_string(),
+            profiles: vec!["review".to_string()],
+            bundles: vec!["team-rules".to_string(), "review-kit".to_string()],
+        },
+        incarnation: 1,
+        covered: Vec::new(),
+    });
+    project.run_book(&mut index, fact(FIRST, loadout, "loadout:1:1"));
+    let after = bare(&index);
+    assert_eq!(after.agent, "reviewer");
+    assert_eq!(after.profiles, vec!["review"]);
+    assert_eq!(after.tags, vec!["team-rules", "review-kit"]);
+}

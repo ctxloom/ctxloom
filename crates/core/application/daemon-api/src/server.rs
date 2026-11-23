@@ -294,6 +294,11 @@ pub trait Calls: Send + Sync {
         let _ = request;
         Box::pin(async { Err(not_served("WatchSession")) })
     }
+    /// `WatchTop` (`ctxloom top`, DRAFT); as `GetTranscript`.
+    fn watch_top(&self, request: v1::WatchTopRequest) -> Answer<'_, crate::TopStream> {
+        let _ = request;
+        Box::pin(async { Err(not_served("WatchTop")) })
+    }
     /// The daemon's standing warnings (OD-52's start-up, OD-54's
     /// hand-over), as they stand now: what its edge attaches to every
     /// answer it gives (owner ruling OD-55), so no command asks for them.
@@ -418,6 +423,13 @@ impl<E: Edge + 'static> Calls for Api<E> {
         Box::pin(async move {
             self.open()?;
             Api::watch_session(self, request).await
+        })
+    }
+
+    fn watch_top(&self, request: v1::WatchTopRequest) -> Answer<'_, crate::TopStream> {
+        Box::pin(async move {
+            self.open()?;
+            Api::watch_top(self, request).await
         })
     }
 
@@ -1607,14 +1619,7 @@ impl<E: Edge> Api<E> {
     /// The session `record` as its resource, with its state, and as the
     /// view a search matches.
     fn resource(&self, index: &SessionIndex, record: &SessionRecord) -> (v1::Session, View) {
-        let state = self.parts.states.state(&record.project_dir, &record.harp);
-        let mut session = index.resource(record);
-        session.state = state_of(state) as i32;
-        // A live session's end is blank: a resumed one keeps its last
-        // run's stamp, which is no end of the run in progress.
-        if state == State::Live {
-            session.end_time = None;
-        }
+        let (session, state) = state_resource(self.parts.states.as_ref(), index, record);
         let transcript = index.transcript(&record.id);
         let title = match record.title.is_empty() {
             false => Some(record.title.clone()),
@@ -1696,6 +1701,23 @@ impl<E: Edge> Api<E> {
             next_page_token: String::new(),
         })
     }
+}
+
+/// The session `record` as its resource with its state, which is its lock's
+/// (the index knows none); a live session's end is blank: a resumed one keeps
+/// its last run's stamp, which is no end of the run in progress.
+pub(crate) fn state_resource(
+    states: &dyn SessionStates,
+    index: &SessionIndex,
+    record: &SessionRecord,
+) -> (v1::Session, State) {
+    let state = states.state(&record.project_dir, &record.harp);
+    let mut session = index.resource(record);
+    session.state = state_of(state) as i32;
+    if state == State::Live {
+        session.end_time = None;
+    }
+    (session, state)
 }
 
 /// A project's own stream, rooted on its id (S54).

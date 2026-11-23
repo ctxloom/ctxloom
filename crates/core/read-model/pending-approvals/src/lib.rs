@@ -287,6 +287,16 @@ impl PendingApprovals {
     pub fn index(&self) -> Lock<'_, ApprovalIndex> {
         self.0.lock()
     }
+
+    /// A watcher of the index: woken each time a fold changes it (a push).
+    pub fn watch(&self) -> std::sync::mpsc::Receiver<()> {
+        self.0.watch()
+    }
+
+    /// As [`Self::watch`], woken through `wake`.
+    pub fn watch_into(&self, wake: std::sync::mpsc::Sender<()>) {
+        self.0.watch_into(wake);
+    }
 }
 
 impl ProjectorHandler for PendingApprovals {

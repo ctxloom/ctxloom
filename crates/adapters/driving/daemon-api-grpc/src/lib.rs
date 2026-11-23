@@ -641,6 +641,30 @@ impl Ctxloom for Served {
         Ok(Response::new(Box::pin(ReceiverStream::new(heard))))
     }
 
+    /// `ctxloom top`'s watch (DRAFT): the snapshot, then each change as the
+    /// daemon's models push it, pumped from a blocking thread until the
+    /// caller is gone or the watch ends (its one session destroyed).
+    async fn watch_top(
+        &self,
+        request: Request<v1::WatchTopRequest>,
+    ) -> Result<Response<BoxStream<v1::TopEvent>>, Status> {
+        let events = self
+            .answer(request, |calls, message| async move {
+                calls.watch_top(message).await
+            })
+            .await?
+            .into_inner();
+        let (tell, heard) = tokio::sync::mpsc::channel(WATCH_BUFFER);
+        tokio::task::spawn_blocking(move || {
+            for event in events {
+                if tell.blocking_send(Ok(event)).is_err() {
+                    return;
+                }
+            }
+        });
+        Ok(Response::new(Box::pin(ReceiverStream::new(heard))))
+    }
+
     #[cfg(feature = "session-destroy")]
     async fn delete_session(
         &self,

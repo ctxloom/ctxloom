@@ -655,6 +655,13 @@ impl Ctxloom for Served {
             .await?
             .into_inner();
         let (tell, heard) = tokio::sync::mpsc::channel(WATCH_BUFFER);
+        // A watch with nothing to say never fails a send: it is ended when
+        // the client's stream is dropped, not left parked on its models.
+        let (stop, closed) = (events.stopper(), tell.clone());
+        tokio::spawn(async move {
+            closed.closed().await;
+            stop.stop();
+        });
         tokio::task::spawn_blocking(move || {
             for event in events {
                 if tell.blocking_send(Ok(event)).is_err() {

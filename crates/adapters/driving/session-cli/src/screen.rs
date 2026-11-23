@@ -247,6 +247,18 @@ impl Screen {
             }
             Event::ApprovalSettled(settled) => {
                 if let Some(ask) = settled.approval {
+                    if self
+                        .pending
+                        .as_ref()
+                        .is_some_and(|pending| pending.ask.name == ask.name)
+                    {
+                        self.pending = None;
+                        self.notice = Some(format!(
+                            "{} was settled meanwhile: {}",
+                            last(&ask.name),
+                            ask.state
+                        ));
+                    }
                     self.asks.remove(&ask.name);
                     self.settled.insert(ask.name.clone(), ask);
                 }

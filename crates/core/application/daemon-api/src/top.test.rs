@@ -124,6 +124,43 @@ async fn a_one_session_scope_holds_that_session_alone() {
 }
 
 #[tokio::test]
+async fn a_watch_whose_client_is_gone_ends_though_nothing_changes() {
+    let f = opened(&["amber-swift-owl"]).await;
+    let mut stream = f.api.watch_top(request()).await.unwrap();
+    let stop = stream.stopper();
+    let _snapshot = stream.next().unwrap();
+    // It parks on the models, which say nothing more.
+    let parked = tokio::task::spawn_blocking(move || stream.next());
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    assert!(!parked.is_finished(), "it ended with nothing said");
+    stop.stop();
+    let ended = tokio::time::timeout(std::time::Duration::from_secs(5), parked)
+        .await
+        .expect("the stopped watch ends")
+        .unwrap();
+    assert!(ended.is_none());
+}
+
+#[tokio::test]
+async fn an_owner_filter_naming_a_session_nobody_has_is_refused() {
+    let f = opened(&["amber-swift-owl"]).await;
+    let (_, missing): (_, v1::SessionNotFound) = refused(
+        f.api
+            .watch_top(v1::WatchTopRequest {
+                owners: vec!["far-heron".to_string()],
+                ..request()
+            })
+            .await
+            .map(|_| ()),
+    );
+    assert!(
+        missing.name.ends_with("/sessions/far-heron"),
+        "{}",
+        missing.name
+    );
+}
+
+#[tokio::test]
 async fn a_scope_naming_a_session_nobody_has_is_refused() {
     let f = opened(&["amber-swift-owl"]).await;
     let (_, missing): (_, v1::SessionNotFound) = refused(

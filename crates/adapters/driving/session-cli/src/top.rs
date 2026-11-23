@@ -133,30 +133,35 @@ impl Top {
         if self.all && self.session.is_some() {
             return Err(fault(CliFault::TopAllWithSession));
         }
+        self.states()?;
         Sort::of(self.sort.as_deref()).map(|_| ())
+    }
+
+    /// The `--state` words as the API's states: a word that is no state is
+    /// refused here, before any daemon is reached.
+    fn states(&self) -> Result<Vec<i32>, Failure> {
+        self.state
+            .iter()
+            .map(|word| {
+                State::parse(word)
+                    .ok_or_else(|| {
+                        fault(CliFault::BadState {
+                            value: word.clone(),
+                            states: STATES.join(", "),
+                        })
+                    })
+                    .map(|state| match state {
+                        State::Live => v1::session::State::Live,
+                        State::Ended => v1::session::State::Ended,
+                        State::Unknown => v1::session::State::Unknown,
+                    } as i32)
+            })
+            .collect()
     }
 
     /// The request, for the project `parent` names.
     pub(crate) fn request(&self, parent: &str) -> Result<v1::WatchTopRequest, Failure> {
-        let states = self
-            .state
-            .iter()
-            .map(|word| {
-                State::parse(word).ok_or_else(|| {
-                    fault(CliFault::BadState {
-                        value: word.clone(),
-                        states: STATES.join(", "),
-                    })
-                })
-            })
-            .map(|state| {
-                state.map(|state| match state {
-                    State::Live => v1::session::State::Live,
-                    State::Ended => v1::session::State::Ended,
-                    State::Unknown => v1::session::State::Unknown,
-                } as i32)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let states = self.states()?;
         let named = |word: &str, parent: &str| match word.starts_with("projects/") {
             true => word.to_string(),
             false => format!("{parent}/sessions/{word}"),
@@ -336,6 +341,15 @@ fn emit(event: &v1::TopEvent, out: &mut dyn Write) -> Result<(), Failure> {
     wrote(writeln!(out, "{line}").and_then(|()| out.flush()))
 }
 
+/// Whether a screen can be drawn where `top` is run: `--format text` is a
+/// screen, and wants a terminal.
+pub fn needs_terminal(format: Format, terminal: bool) -> Result<(), CliFault> {
+    match (format, terminal) {
+        (Format::Text, false) => Err(CliFault::TopNeedsTerminal),
+        _ => Ok(()),
+    }
+}
+
 /// Run `top` on `source`: its lines to `out`, until the watch ends; at a
 /// terminal, the screen. A person at the screen answers asks through
 /// `answers`; `stood_in` is a terminal a test stands in (frames as plain
@@ -349,9 +363,7 @@ pub fn top(
     out: &mut dyn Write,
 ) -> Result<Done, Failure> {
     if format == Format::Text {
-        if !terminal {
-            return Err(fault(CliFault::TopNeedsTerminal));
-        }
+        needs_terminal(format, terminal).map_err(fault)?;
         command.usage()?;
         return screen(command, source, answers, stood_in, out);
     }

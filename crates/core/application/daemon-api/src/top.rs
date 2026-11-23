@@ -7,7 +7,8 @@
 //! Filtering and scope are the daemon's, here; sorting is the client's.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::sync::mpsc::{channel, Receiver};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 
 use daemon_proto::v1;
@@ -24,7 +25,41 @@ use crate::server::{invalid, state_resource, Api, SessionStates, EVERY_PROJECT};
 /// change as it is pushed; waited for (the edge runs it on a blocking
 /// thread). The watch ends when it is dropped, or when the one session it
 /// is scoped to is destroyed.
-pub type TopStream = Box<dyn Iterator<Item = v1::TopEvent> + Send>;
+pub struct TopStream {
+    events: Box<dyn Iterator<Item = v1::TopEvent> + Send>,
+    stop: TopStop,
+}
+
+impl Iterator for TopStream {
+    type Item = v1::TopEvent;
+
+    fn next(&mut self) -> Option<v1::TopEvent> {
+        self.events.next()
+    }
+}
+
+impl TopStream {
+    /// What ends the watch from another thread: the edge uses it when the
+    /// client has gone, so a watch with nothing to say is not parked for ever.
+    pub fn stopper(&self) -> TopStop {
+        self.stop.clone()
+    }
+}
+
+/// Ends a watch, wherever it is waiting.
+#[derive(Clone)]
+pub struct TopStop {
+    gone: Arc<AtomicBool>,
+    wake: Sender<()>,
+}
+
+impl TopStop {
+    /// The watch ends at its next look, which is woken now.
+    pub fn stop(&self) {
+        self.gone.store(true, Ordering::SeqCst);
+        let _ = self.wake.send(());
+    }
+}
 
 impl<E: Edge> Api<E> {
     /// `WatchTop`: the scope `request` names, filtered, watched from now.
@@ -39,6 +74,7 @@ impl<E: Edge> Api<E> {
             ),
         };
         self.parts.hosting.fresh().await;
+        self.owners_exist(&request, project.as_deref())?;
         let scope = match request.session.as_str() {
             "" => None,
             named => {
@@ -86,6 +122,11 @@ impl<E: Edge> Api<E> {
         // Registered before the snapshot is read, so a change in between
         // wakes the watch rather than being lost.
         let (wake, woken) = channel();
+        let gone = Arc::new(AtomicBool::new(false));
+        let stop = TopStop {
+            gone: Arc::clone(&gone),
+            wake: wake.clone(),
+        };
         scene.index.watch_into(wake.clone());
         if let Some(approvals) = &scene.approvals {
             approvals.watch_into(wake.clone());
@@ -95,7 +136,34 @@ impl<E: Edge> Api<E> {
                 timelines.watch_into(wake);
             }
         }
-        Ok(Box::new(TopWatch::open(scene, woken)))
+        Ok(TopStream {
+            events: Box::new(TopWatch::open(scene, woken, gone)),
+            stop,
+        })
+    }
+}
+
+impl<E: Edge> Api<E> {
+    /// Every session `--owner` names is one the project has.
+    fn owners_exist(
+        &self,
+        request: &v1::WatchTopRequest,
+        project: Option<&str>,
+    ) -> Result<(), ApiError> {
+        let index = self.parts.index.index();
+        for owner in &request.owners {
+            let known = index.records().iter().any(|record| {
+                index.name_of(record).rsplit('/').next() == Some(owner.as_str())
+                    && project
+                        .is_none_or(|harp| index.project_harp(&record.project_id) == Some(harp))
+            });
+            if !known {
+                return Err(ApiError::from(ApiRefusal::of(&v1::SessionNotFound {
+                    name: format!("{}/sessions/{owner}", request.parent),
+                })));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -258,6 +326,8 @@ impl Scene {
 struct TopWatch {
     scene: Scene,
     woken: Receiver<()>,
+    /// The client is gone: the watch ends.
+    gone: Arc<AtomicBool>,
     said_sessions: BTreeMap<String, v1::Session>,
     said_asks: BTreeMap<String, v1::Approval>,
     owed: VecDeque<v1::TopEvent>,
@@ -298,7 +368,7 @@ fn event(event: v1::top_event::Event) -> v1::TopEvent {
 }
 
 impl TopWatch {
-    fn open(scene: Scene, woken: Receiver<()>) -> TopWatch {
+    fn open(scene: Scene, woken: Receiver<()>, gone: Arc<AtomicBool>) -> TopWatch {
         let view = scene.view();
         let snapshot = v1::TopSnapshot {
             sessions: view.sessions.values().cloned().collect(),
@@ -313,6 +383,7 @@ impl TopWatch {
         TopWatch {
             scene,
             woken,
+            gone,
             said_sessions: view.sessions,
             said_asks: view.asks,
             owed,
@@ -388,7 +459,7 @@ impl Iterator for TopWatch {
             if let Some(next) = self.owed.pop_front() {
                 return Some(next);
             }
-            if self.ended {
+            if self.ended || self.gone.load(Ordering::SeqCst) {
                 return None;
             }
             // Parked until a model's fold wakes it; a wake is all it is told.

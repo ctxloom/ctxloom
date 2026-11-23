@@ -99,7 +99,10 @@ impl session_cli::AlwaysRules for LibraryRules<'_> {
 /// approvals answer` does, an `allow-always`'s rule written first and
 /// shown before it is.
 struct TopAnswering<'a, A> {
-    answers: A,
+    /// The daemon's caller, made when the first answer is given: `top`
+    /// starts no daemon and makes no project, so nothing reaches one before.
+    answers: std::cell::OnceCell<Result<A, String>>,
+    make: &'a dyn Fn() -> Result<A, String>,
     rules: LibraryRules<'a>,
     catalog: &'a Catalog,
     runtime: tokio::runtime::Runtime,
@@ -136,27 +139,54 @@ impl<A: daemon_api::ApprovalAnswers> session_cli::TopAnswers for TopAnswering<'_
         write_rule: bool,
     ) -> Result<String, String> {
         let ask_id = daemon_api::ask_of(ask).to_string();
+        let answers = match self.answers.get_or_init(|| (self.make)()) {
+            Ok(answers) => answers,
+            Err(why) => return Err(why.clone()),
+        };
+        // The order of `session approvals answer` (Q3): the ask is checked
+        // waiting, the rule written, then the ask answered.
+        let mut kept = None;
         if write_rule {
+            let current = self
+                .runtime
+                .block_on(answers.approval(&ask.name))
+                .map_err(|error| self.catalog.message(&error))?;
+            if let Some(settled) = daemon_api::settled_refusal(&current) {
+                return Err(self.catalog.message(&settled));
+            }
             let rule = ask
                 .options
                 .iter()
                 .find(|o| o.id == option)
                 .map(|o| o.rule.clone())
                 .unwrap_or_default();
-            session_cli::AlwaysRules::allow_always(
-                &self.rules,
-                &ask.agent,
-                &ask.engine,
-                &rule,
-                true,
-            )
-            .map_err(|failure| self.catalog.message(&*failure.failure.cause))?;
+            kept = Some(
+                session_cli::AlwaysRules::allow_always(
+                    &self.rules,
+                    &ask.agent,
+                    &ask.engine,
+                    &rule,
+                    true,
+                )
+                .map_err(|failure| self.catalog.message(&*failure.failure.cause))?,
+            );
         }
-        match self.runtime.block_on(self.answers.answer(ask, option, "")) {
+        match self.runtime.block_on(answers.answer(ask, option, "")) {
             Ok(_) => Ok(format!("{ask_id}: answered {option}")),
-            Err(error) => Err(match daemon_api::settled_of(&error) {
-                Some((ask_id, how)) => format!("{ask_id} was already settled, {how}"),
-                None => self.catalog.message(&error),
+            Err(error) => Err(match (daemon_api::settled_of(&error), kept) {
+                // The rule written for an ask settled meanwhile stays, and is said.
+                (Some((ask_id, how)), Some(plan)) => {
+                    self.catalog.message(&daemon_api::CallError::Refused(
+                        daemon_api::Rejection::Api(daemon_api::ApiRejection::ApprovalRuleKept {
+                            ask_id,
+                            how,
+                            rule: plan.rule,
+                            path: plan.path,
+                        }),
+                    ))
+                }
+                (Some((ask_id, how)), None) => format!("{ask_id} was already settled, {how}"),
+                _ => self.catalog.message(&error),
             }),
         }
     }
@@ -315,8 +345,13 @@ impl Commands {
                     detail: e.to_string(),
                 }))
             })?;
+        let make = || {
+            crate::daemon::child_caller(&wiring, &self.version)
+                .map_err(|failure| catalog.message(&*failure.cause))
+        };
         let answering = TopAnswering {
-            answers: crate::daemon::child_caller(&wiring, &self.version)?,
+            answers: std::cell::OnceCell::new(),
+            make: &make,
             rules: LibraryRules {
                 wiring: &wiring,
                 flags: call.globals.clone(),
@@ -324,6 +359,20 @@ impl Commands {
             catalog,
             runtime,
         };
+        // A screen asked for where none can be drawn is refused in the
+        // envelope a program reads, whatever format was asked: the format
+        // that was asked for is what could not be served.
+        let on_terminal = session_cli::Asking::is_terminal(&terminal);
+        if let Err(refusal) = session_cli::needs_terminal(format, on_terminal) {
+            cli_support::say_failure(PROG, Format::Json, catalog, &refusal, &[], err).map_err(
+                |e| {
+                    failed(Box::new(CliError::Output {
+                        detail: e.to_string(),
+                    }))
+                },
+            )?;
+            return Ok(Exit::REFUSED);
+        }
         let ran = session_cli::top(
             &command,
             &source,
@@ -335,22 +384,6 @@ impl Commands {
             ),
             out,
         );
-        // A screen asked for where none can be drawn is refused in the
-        // envelope a program reads, whatever format was asked: the format
-        // that was asked for is what could not be served.
-        if let Err(failure) = &ran {
-            if failure.failure.cause.code() == "session-cli-top-needs-terminal" {
-                let _ = cli_support::say_failure(
-                    PROG,
-                    Format::Json,
-                    catalog,
-                    &*failure.failure.cause,
-                    &[],
-                    err,
-                );
-                return Ok(Exit::REFUSED);
-            }
-        }
         said(ran, format, catalog, err)
     }
 

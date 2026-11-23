@@ -214,6 +214,30 @@ fn a_confirmation_shows_the_rule_and_its_file_and_n_leaves_the_ask_alone() {
 }
 
 #[test]
+fn a_confirmation_is_dropped_when_its_ask_settles_elsewhere() {
+    let mut screen = tree();
+    screen.confirm(
+        ask("ask-a", "brisk-copper-moth"),
+        "allow-always",
+        AlwaysPlan::default(),
+    );
+    screen.apply(v1::TopEvent {
+        event: Some(v1::top_event::Event::ApprovalSettled(
+            v1::TopApprovalSettled {
+                approval: Some(v1::Approval {
+                    state: "answered".to_string(),
+                    ..ask("ask-a", "brisk-copper-moth")
+                }),
+            },
+        )),
+    });
+    let text = screen.frame().text();
+    assert!(!text.contains("[y/N]"), "{text}");
+    assert!(text.contains("settled meanwhile"), "{text}");
+    assert_eq!(screen.key(Key::Char('y')), None);
+}
+
+#[test]
 fn y_confirms_the_pending_answer() {
     let mut screen = tree();
     screen.confirm(ask("ask-a", "x"), "allow-always", AlwaysPlan::default());

@@ -122,7 +122,7 @@ pub use session_client::{
 };
 pub use setup_reads::{SetupAnswer, SetupRead, SetupReads};
 pub use start_up::StartUpIncomplete;
-pub use top::TopStream;
+pub use top::{TopStop, TopStream};
 pub use trust::{etag_of, TrustWrites, Trusted, Trusting, Trusts, TRUST_INDEX};
 pub use waker::{WakeAct, Waker, DISARM_AFTER};
 pub use watch::SessionStream;

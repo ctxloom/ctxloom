@@ -76,7 +76,7 @@ pub use run::destroy;
 pub use run::{child, is_child, is_destroy, is_read, read, run, Done, Failure};
 pub use screen::{Effect, Frame, Key, Screen};
 pub use screen_run::{drive, Display, Frames, Input, TopAnswers};
-pub use top::{top, top_noun, Sort, Top, TopFeed, TopSource, Within};
+pub use top::{needs_terminal, top, top_noun, Sort, Top, TopFeed, TopSource, Within};
 pub use trust::{trust, trust_noun, Asking, Trust, TrustVerb};
 
 /// The `session` noun, shaped for mounting on the command line.

@@ -696,7 +696,9 @@ Feature: bundle — the container authored content lives in, and everything that
       And a bundle "demo" exists
       And a bundle "other" exists
       And a profile "dev" with bundle "demo"
-      And a profile "unrelated" with bundle "other"
+      # "unrelated2", not a bare word: a harp is lowercase words alone, so a
+      # name with a digit can never appear inside the project's random harp.
+      And a profile "unrelated2" with bundle "other"
       And the project already has the file ".ctxloom/content/bundles/v2/project/profiles/child.yaml":
         """
         description: inherits demo through its parent
@@ -712,7 +714,7 @@ Feature: bundle — the container authored content lives in, and everything that
       And the output reports "dependents.0" as "projects/{project}/bundles/project/profiles/child"
       And the output reports "dependents.1" as "projects/{project}/bundles/project/profiles/dev"
       And the output reports "dependents.2" as "projects/{project}/agents/reviewer"
-      And the output does not contain "unrelated"
+      And the output does not contain "unrelated2"
       When I run "ctxloom bundle remove demo --format text"
       Then the command succeeds
       And the output contains "profile child includes it"

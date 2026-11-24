@@ -72,6 +72,23 @@ impl session_cli::TopSource for DaemonTop<'_> {
         all: bool,
         make: &dyn Fn(&str) -> Result<v1::WatchTopRequest, session_cli::Failure>,
     ) -> Result<Option<Box<dyn session_cli::TopFeed>>, session_cli::Failure> {
+        // A session named by its harp alone is a session of the project the
+        // command is in: where there is none, it is refused (as `session
+        // show` refuses it), before any daemon is looked for.
+        if !all && !matches!(self.wiring.registration(), Ok(Some(_))) {
+            let request = make("")?;
+            if !request.session.is_empty() && !request.session.starts_with("projects/") {
+                let cwd = self
+                    .wiring
+                    .env()
+                    .cwd()
+                    .map(|cwd| cwd.display().to_string())
+                    .unwrap_or_default();
+                return Err(session_cli::Failure::of(daemon_api::CallError::Refused(
+                    daemon_api::Rejection::Api(daemon_api::ApiRejection::ProjectUnknown { cwd }),
+                )));
+            }
+        }
         let reach = Reach::new(self.wiring, &self.stamp);
         let Ok(Some(api)) = self.runtime.block_on(reach.serving()) else {
             return Ok(None);

@@ -424,6 +424,9 @@ pub(super) fn second_project_running(w: &mut World, name: &str, harp: &str) {
     let release = dir.join("release");
     let assistant = std::process::Command::new(&holder)
         .args([lock.as_os_str(), release.as_os_str()])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .spawn()
         .expect("her assistant starts");
     let _ = release;
@@ -459,6 +462,9 @@ pub(super) fn set_up_and_running(w: &mut World, dir: &Path, harp: &str) {
     files::put_program(&holder, &holds_lock());
     let assistant = std::process::Command::new(&holder)
         .args([lock.as_os_str(), held.join("release").as_os_str()])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .spawn()
         .expect("her assistant starts");
     w.daemon_spec.holders.push(assistant);
@@ -546,6 +552,9 @@ pub(super) fn hold_owner_live(w: &mut World, owner: &str) {
     files::put_program(&holder, &holds_lock());
     let assistant = std::process::Command::new(&holder)
         .args([lock.as_os_str(), release.as_os_str()])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .spawn()
         .expect("her assistant starts");
     w.daemon_spec.run = Some(assistant);

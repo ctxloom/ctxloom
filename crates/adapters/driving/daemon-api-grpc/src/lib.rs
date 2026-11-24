@@ -658,15 +658,19 @@ impl Ctxloom for Served {
         // A watch with nothing to say never fails a send: it is ended when
         // the client's stream is dropped, not left parked on its models.
         let (stop, closed) = (events.stopper(), tell.clone());
-        tokio::spawn(async move {
-            closed.closed().await;
-            stop.stop();
-        });
-        tokio::task::spawn_blocking(move || {
+        let pump = tokio::task::spawn_blocking(move || {
             for event in events {
                 if tell.blocking_send(Ok(event)).is_err() {
                     return;
                 }
+            }
+        });
+        // The watch is ended when the client's stream is dropped; and the
+        // stream is ended when the watch is, the sender here let go with it.
+        tokio::spawn(async move {
+            tokio::select! {
+                () = closed.closed() => stop.stop(),
+                _ = pump => {}
             }
         });
         Ok(Response::new(Box::pin(ReceiverStream::new(heard))))

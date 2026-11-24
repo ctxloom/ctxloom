@@ -236,10 +236,25 @@ fn until_line(w: &mut World, seconds: u64, found: impl Fn(&Value) -> bool) -> Va
                 return line;
             }
             Some(line) => seen.push(line),
-            None => panic!(
-                "no such line came within {seconds}s; read: {seen:?}; {}",
-                daemon_spec::daemon_log_text(w)
-            ),
+            None => {
+                // Why it said nothing, when it has ended.
+                let said = w.top.stream.as_mut().map_or(String::new(), |stream| {
+                    match stream.child.try_wait() {
+                        Ok(Some(status)) => {
+                            let mut err = String::new();
+                            if let Some(mut pipe) = stream.child.stderr.take() {
+                                let _ = std::io::Read::read_to_string(&mut pipe, &mut err);
+                            }
+                            format!("it ended with {status:?}: {err}")
+                        }
+                        _ => "it still runs".to_string(),
+                    }
+                });
+                panic!(
+                    "no such line came within {seconds}s; read: {seen:?}; {said}; {}",
+                    daemon_spec::daemon_log_text(w)
+                )
+            }
         }
     }
 }
@@ -964,6 +979,7 @@ fn expanded_projects(w: &World, line: &str) -> String {
 fn directory_in_no_project(w: &mut World) {
     let dir = w.adopt_scratch().join("elsewhere");
     crate::tests::files::mkdirs(&dir);
+    w.common.elsewhere = Some(dir.clone());
     w.top.elsewhere = Some(dir);
 }
 

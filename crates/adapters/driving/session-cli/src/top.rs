@@ -367,6 +367,33 @@ pub fn needs_terminal(format: Format, terminal: bool) -> Result<(), CliFault> {
     }
 }
 
+/// A snapshot said as what it holds, each session changed and each ask asked.
+fn said_as_changes(snapshot: v1::TopSnapshot, out: &mut dyn Write) -> Result<(), Failure> {
+    for session in snapshot.sessions {
+        emit(
+            &v1::TopEvent {
+                event: Some(v1::top_event::Event::SessionChanged(
+                    v1::TopSessionChanged {
+                        session: Some(session),
+                    },
+                )),
+            },
+            out,
+        )?;
+    }
+    for approval in snapshot.approvals {
+        emit(
+            &v1::TopEvent {
+                event: Some(v1::top_event::Event::ApprovalAsked(v1::TopApprovalAsked {
+                    approval: Some(approval),
+                })),
+            },
+            out,
+        )?;
+    }
+    Ok(())
+}
+
 /// Run `top` on `source`: its lines to `out`, until the watch ends; at a
 /// terminal, the screen. A person at the screen answers asks through
 /// `answers`; `stood_in` is a terminal a test stands in (frames as plain
@@ -389,6 +416,9 @@ pub fn top(
     let make = |parent: &str| command.request(parent);
     let mut said_waiting = false;
     let mut said_nothing = false;
+    // The watch was opened again where a project may have been made: what it
+    // lists first is what was pushed since, not a new picture.
+    let mut reopened = false;
     loop {
         if let Some(stop) = source.stopped() {
             return Err(stop);
@@ -410,6 +440,7 @@ pub fn top(
                 Within::Idle => {
                     idle += 1;
                     if feed.reopened_when_idle() && idle >= REOPEN_AFTER_TICKS {
+                        reopened = true;
                         break;
                     }
                 }
@@ -422,6 +453,10 @@ pub fn top(
                             continue;
                         }
                         said_nothing = empty;
+                        if std::mem::take(&mut reopened) && !empty {
+                            said_as_changes(std::mem::take(snapshot), out)?;
+                            continue;
+                        }
                     }
                     emit(&event, out)?;
                 }

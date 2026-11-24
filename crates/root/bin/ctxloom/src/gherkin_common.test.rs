@@ -40,6 +40,9 @@ pub(crate) struct Common {
     /// What the next step's commands alone run with, over [`Common::env`]
     /// (`... of the next command alone`): taken by [`Common::run_lines_at`].
     pub(crate) next_env: Vec<(String, String)>,
+    /// Where every command runs when it is not the project: a directory that
+    /// is in no ctxloom project (no `CTXLOOM_ROOT`).
+    pub(crate) elsewhere: Option<PathBuf>,
 }
 
 impl Common {
@@ -52,6 +55,7 @@ impl Common {
             aliases: Vec::new(),
             notes: Vec::new(),
             next_env: Vec::new(),
+            elsewhere: None,
         }
     }
 
@@ -60,7 +64,8 @@ impl Common {
     /// JSON, as JSON writes it, so a Windows path's `\` is escaped); the first
     /// to fail is the one the next step sees.
     pub(crate) fn run_lines(&mut self, lines: &str, input: &str) {
-        self.run_lines_at(None, lines, input);
+        let elsewhere = self.elsewhere.clone();
+        self.run_lines_at(elsewhere.as_deref(), lines, input);
     }
 
     /// `text` with each noted `{<label>}` as the value noted under it

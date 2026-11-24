@@ -214,13 +214,13 @@ fn squeezed(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// The seconds the screen's own clock runs ahead under test-support
-/// (`CTXLOOM_TEST_TOP_CLOCK_AHEAD`), so a timer reads hours with no waiting.
-const CLOCK_AHEAD: &str = "CTXLOOM_TEST_TOP_CLOCK_AHEAD";
+/// The span every ctxloom clock is moved on by under test-support
+/// (`CTXLOOM_TEST_CLOCK_OFFSET`), so a timer reads hours with no waiting.
+const CLOCK_OFFSET: &str = "CTXLOOM_TEST_CLOCK_OFFSET";
 
-#[given(expr = "the top screen's clock runs {int} hours ahead")]
-fn clock_ahead(w: &mut World, hours: u32) {
-    w.common.set_env(CLOCK_AHEAD, (hours * 3600).to_string());
+#[given(expr = "the clock is moved on by {string}")]
+fn clock_moved_on(w: &mut World, span: String) {
+    w.common.set_env(CLOCK_OFFSET, span);
 }
 
 #[given(expr = "I start {string} in a terminal and read its frames")]

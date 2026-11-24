@@ -326,9 +326,13 @@ tree's directory is known): the domain's `PurgeTrash` (its age the
 evidence, refused `library-tree-slot-not-due` under 7 and
 `library-tree-no-such-slot` once purged; its command id UUIDv5 of
 `purge:{tree}:{request id}`), the slot removed whole, its `PurgeSlot` step
-recorded done, which drops it from the state. Under test-support the
-daemon's clock is moved on by `CTXLOOM_TEST_CLOCK_OFFSET` whole days,
-passed on to a daemon a command starts. Each rename's directories are
+recorded done, which drops it from the state. Under test-support every
+ctxloom clock is moved on by `CTXLOOM_TEST_CLOCK_OFFSET`, a span of the
+duration grammar (`3h`, `2d`, `90m`, `1h30m`, `0s`; `daemon::clock_offset`,
+the one reader): the daemon's, passed on to a daemon a command starts, and
+the `top` screen's. A bare integer, a negative span or anything that is no
+span is refused (the daemon's start, a `top` command: exit 48); a clock only
+moves on, never back (owner ruling 2026-11-24, one variable for all). Each rename's directories are
 synced after it, the target's then the source's when it is another, and
 a purged slot's trash directory after the purge (owner ruling
 2026-11-18, evening; angzarr-platform's `Fs::sync_dir`: fsync on unix,
@@ -2874,8 +2878,8 @@ its start time (`daemon_api::top::state_change_time`); `--format json` carries
 it as any field. The model never reads the system clock: `Screen::tick` is told
 the time on every pass of the loop from `Display::now` (the system's; the seam's
 `Frames` adds `Look::ahead`, which a test-support build takes from
-`CTXLOOM_TEST_TOP_CLOCK_AHEAD` seconds so a scenario reads hours with no
-waiting), and a row the daemon gave no change time shows no timer.
+`CTXLOOM_TEST_CLOCK_OFFSET`, the variable every ctxloom clock reads, so a
+scenario reads hours with no waiting), and a row the daemon gave no change time shows no timer.
 Columns are measured in terminal columns, not characters. Colour is the DISPLAY's alone: the model's `Frame` carries facts
 (`Frame.alerts`, the rows an ask waits on; `bell`) and plain words, never a
 colour or escape, and the seam names those rows in a line `highlighted: <harp>,

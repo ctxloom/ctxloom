@@ -321,25 +321,20 @@ impl Commands {
     }
 
     /// How `top` draws: the caller's environment decides colour and glyphs;
-    /// under `test-support` `CTXLOOM_TEST_TOP_CLOCK_AHEAD` (whole seconds)
-    /// also sets the seam screen's clock ahead of the system's, so a
-    /// scenario reads a timer of hours with no waiting.
-    fn look(&self) -> session_cli::Look {
-        #[cfg_attr(not(feature = "test-support"), expect(unused_mut))]
+    /// the screen's clock is ahead of the system's by the span
+    /// `CTXLOOM_TEST_CLOCK_OFFSET` names (under `test-support`, as every
+    /// ctxloom clock is), so a scenario reads a timer of hours with no
+    /// waiting. A value that is no span is refused.
+    fn look(&self) -> Result<session_cli::Look, Failure> {
         let mut look = session_cli::Look::of(|name| {
             self.env
                 .non_empty(name)
                 .map(|value| value.to_string_lossy().into_owned())
         });
-        #[cfg(feature = "test-support")]
-        {
-            look.ahead = self
-                .env
-                .non_empty("CTXLOOM_TEST_TOP_CLOCK_AHEAD")
-                .and_then(|seconds| seconds.to_string_lossy().parse().ok())
-                .unwrap_or(0);
-        }
-        look
+        let offset = crate::daemon::clock_offset(&self.env)
+            .map_err(|cause| Failure::new(cause, Exit::REFUSED))?;
+        look.ahead = i64::try_from(offset.as_secs()).unwrap_or(i64::MAX);
+        Ok(look)
     }
 
     /// `top ...` (DRAFT): what the daemon hosts, live, through her daemon's
@@ -403,7 +398,7 @@ impl Commands {
             (
                 session_cli::Asking::is_terminal(&terminal),
                 terminal.stood_in,
-                self.look(),
+                self.look()?,
             ),
             out,
         );

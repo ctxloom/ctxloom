@@ -527,29 +527,17 @@ fn timed<E: run_ports::Edge>(launcher: Daemon<E>, pace: Pace) -> Daemon<E> {
         .handing_over_within(pace.hand_over)
 }
 
-/// The clock's seconds since the epoch, as the daemon's start says it.
 /// The clock a kept trash slot's age is told by (G12): now; under
-/// test-support, moved on by the whole days the daemon's own environment
-/// names in `CTXLOOM_TEST_CLOCK_OFFSET` (step 10b's harness, QUESTIONS 5:
-/// the step stops the daemon and starts the next with the offset).
-fn trash_clock(env: &process_env::EnvSnapshot) -> library_api::Clock {
-    let offset = clock_offset_days(env).saturating_mul(86_400);
-    Arc::new(move || seconds_now().saturating_add(offset))
-}
-
-/// The test-support clock offset, in whole days (none, or not a number: 0).
-#[cfg(feature = "test-support")]
-fn clock_offset_days(env: &process_env::EnvSnapshot) -> i64 {
-    env.non_empty(super::CLOCK_OFFSET_VARIABLE)
-        .and_then(|days| days.to_str())
-        .and_then(|days| days.trim().parse::<i64>().ok())
-        .unwrap_or(0)
-}
-
-/// The shipped daemon's clock is the system's.
-#[cfg(not(feature = "test-support"))]
-fn clock_offset_days(_: &process_env::EnvSnapshot) -> i64 {
-    0
+/// test-support, moved on by the span the daemon's own environment names in
+/// `CTXLOOM_TEST_CLOCK_OFFSET` (the harness stops the daemon and starts the
+/// next with the offset). A value that is no span refuses the start.
+fn trash_clock(env: &process_env::EnvSnapshot) -> Result<library_api::Clock, String> {
+    let offset = super::clock_offset(env)
+        .map_err(|cause| format!("CTXLOOM_TEST_CLOCK_OFFSET: {cause}"))?
+        .as_secs()
+        .try_into()
+        .unwrap_or(i64::MAX);
+    Ok(Arc::new(move || seconds_now().saturating_add(offset)))
 }
 
 fn seconds_now() -> i64 {
@@ -663,7 +651,7 @@ async fn start(
         )))
         .watching(Arc::clone(&watches))
         .on_os(&os),
-        (fs, files, trash_clock(env)),
+        (fs, files, trash_clock(env)?),
         (home, temp, &stamp),
         (&engines, terminals, kept),
         &handed,

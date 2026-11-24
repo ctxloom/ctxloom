@@ -743,11 +743,11 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
     Scenario: A row's state carries the time since its last status change
       # new: the state cell is the state word and the time since the session's last lifecycle or
       # ask entry, rounded down to its largest whole unit (`12s`, `3m`, `5h`, `2d`); owner
-      # 2026-11-24; DRAFT. The clock is the screen's own, set ahead under test-support, so
+      # 2026-11-24; DRAFT. The clock is `CTXLOOM_TEST_CLOCK_OFFSET`, the one every ctxloom clock reads under test-support, so
       # no scenario waits.
       Given an initialized ctxloom project
       And a child "brisk-copper-moth" of "amber-quiet-heron" that is open and idle
-      And the top screen's clock runs 3 hours ahead
+      And the clock is moved on by "3h"
       When I start "ctxloom top --format text" in a terminal and read its frames
       Then the frame's row for "brisk-copper-moth" shows the state "live 3h"
 
@@ -755,7 +755,7 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
       # new: DRAFT.
       Given an initialized ctxloom project
       And a child "brisk-copper-moth" of "amber-quiet-heron" whose engine has asked to run "Bash" with "rm -rf build/"
-      And the top screen's clock runs 3 hours ahead
+      And the clock is moved on by "3h"
       When I start "ctxloom top --format text" in a terminal and read its frames
       Then the frame's row for "brisk-copper-moth" shows the state "! ASK 3h"
 

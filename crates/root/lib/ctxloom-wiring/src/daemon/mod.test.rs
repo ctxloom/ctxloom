@@ -5,9 +5,10 @@ use std::ffi::OsString;
 use std::path::Path;
 
 use super::{
-    account_home, caller_env, caller_temp, caller_wiring, daemon_env, daemon_home, instance_lock,
-    logger, request_id, served_exit, spawn_waits_on, tail_of, under_home, ACCOUNT_HOME_VARIABLE,
-    CALL_WAIT, DELIVERY_MARGIN, DESTROY_WAIT, HOOK_BOUND, SPAWN_WAIT,
+    account_home, caller_env, caller_temp, caller_wiring, clock_offset, daemon_env, daemon_home,
+    instance_lock, logger, request_id, served_exit, spawn_waits_on, tail_of, under_home,
+    ACCOUNT_HOME_VARIABLE, CALL_WAIT, CLOCK_OFFSET_VARIABLE, DELIVERY_MARGIN, DESTROY_WAIT,
+    HOOK_BOUND, SPAWN_WAIT,
 };
 
 fn vars(pairs: &[(&str, &str)]) -> Vec<(OsString, OsString)> {
@@ -552,4 +553,44 @@ fn a_childs_plan_reads_the_bundles_installed_from_remotes() {
     .expect("planned");
     let said: Vec<String> = previewed.fatal.iter().map(|f| f.text.clone()).collect();
     assert!(said.is_empty(), "fatal findings: {said:?}");
+}
+
+fn offset_of(value: Option<&str>) -> Result<std::time::Duration, duration_text::DurationError> {
+    let env = match value {
+        Some(text) => process_env::EnvSnapshot::of([(CLOCK_OFFSET_VARIABLE, text)]),
+        None => process_env::EnvSnapshot::of(Vec::<(&str, &str)>::new()),
+    };
+    clock_offset(&env)
+}
+
+#[test]
+fn test_the_clock_offset_is_zero_when_unset() {
+    assert_eq!(offset_of(None).unwrap(), std::time::Duration::ZERO);
+    assert_eq!(offset_of(Some("")).unwrap(), std::time::Duration::ZERO);
+}
+
+#[test]
+fn test_the_clock_offset_reads_any_span_of_the_grammar() {
+    let secs = std::time::Duration::from_secs;
+    assert_eq!(offset_of(Some("3h")).unwrap(), secs(3 * 3600));
+    assert_eq!(offset_of(Some("2d")).unwrap(), secs(2 * 86_400));
+    assert_eq!(offset_of(Some("90m")).unwrap(), secs(5400));
+    assert_eq!(offset_of(Some("1h30m")).unwrap(), secs(5400));
+    assert_eq!(offset_of(Some("0s")).unwrap(), secs(0));
+}
+
+#[test]
+fn test_a_bare_integer_offset_is_refused() {
+    assert!(offset_of(Some("6")).is_err());
+    assert!(offset_of(Some("0")).is_err());
+}
+
+#[test]
+fn test_a_negative_offset_is_refused() {
+    assert!(offset_of(Some("-3h")).is_err());
+}
+
+#[test]
+fn test_an_offset_that_is_no_span_is_refused() {
+    assert!(offset_of(Some("soon")).is_err());
 }

@@ -105,11 +105,34 @@ fn daemon_env<N: AsRef<OsStr>, V: AsRef<OsStr>>(
     env
 }
 
-/// The test-support variable moving the daemon's clock on by whole days
-/// (step 10b's harness, QUESTIONS 5): passed on to a daemon a command
-/// starts, read by its trash clock.
+/// The test-support variable moving every ctxloom clock on by a span of the
+/// duration grammar (`3h`, `2d`, `90m`, `0s`): the daemon's (a kept trash
+/// slot's age, G12), and the screen of `top`. Passed on to a daemon a
+/// command starts. A bare integer or a negative span is refused, so a clock
+/// only ever moves on ([`clock_offset`]).
 #[cfg(feature = "test-support")]
 pub(crate) const CLOCK_OFFSET_VARIABLE: &str = "CTXLOOM_TEST_CLOCK_OFFSET";
+
+/// How far `env` moves the clocks on: nothing when unset, else the span it
+/// names. The ONE reader of [`CLOCK_OFFSET_VARIABLE`]; the shipped binary
+/// has no offset and never reads it.
+#[cfg(feature = "test-support")]
+pub(crate) fn clock_offset(
+    env: &process_env::EnvSnapshot,
+) -> Result<std::time::Duration, duration_text::DurationError> {
+    match env.non_empty(CLOCK_OFFSET_VARIABLE) {
+        None => Ok(std::time::Duration::ZERO),
+        Some(text) => duration_text::parse(&text.to_string_lossy()),
+    }
+}
+
+/// The shipped binary's clocks are the system's.
+#[cfg(not(feature = "test-support"))]
+pub(crate) fn clock_offset(
+    _: &process_env::EnvSnapshot,
+) -> Result<std::time::Duration, duration_text::DurationError> {
+    Ok(std::time::Duration::ZERO)
+}
 
 /// The test-support variable naming a test's LIFELINE: a lock file the
 /// test process holds for its life (the harness's `tests::lifeline`). A
@@ -1476,11 +1499,10 @@ fn ensure_within(wiring: &Wiring, env: &EnvSnapshot, wait: Duration) -> Option<D
     if let Some(account) = account_home(env) {
         kept.push((ACCOUNT_HOME_VARIABLE.into(), account.into_os_string()));
     }
-    // A test's clock offset (step 10b, the trash's 7 days) is the daemon's
-    // clock's.
+    // A test's clock offset is the daemon's clock's.
     #[cfg(feature = "test-support")]
-    if let Some(days) = env.non_empty(CLOCK_OFFSET_VARIABLE) {
-        kept.push((CLOCK_OFFSET_VARIABLE.into(), days.to_os_string()));
+    if let Some(span) = env.non_empty(CLOCK_OFFSET_VARIABLE) {
+        kept.push((CLOCK_OFFSET_VARIABLE.into(), span.to_os_string()));
     }
     // A test's stamp is the daemon its client starts (M3's skew on demand):
     // the daemon admits only a client of its own version (owner,

@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# Sweep stale build artifacts out of the worktree pool's target/ directories
-# by age (owner ruling of 2026-11-16): `trim-targets.sh [--dry-run] [--days
+# Sweep stale build artifacts out of checkouts' target/ directories by age: `trim-targets.sh [--dry-run] [--days
 # <n>] [<checkout>...]` (`just trim-targets [--dry-run] [--days <n>]
-# [<checkout>...]`; no checkout: every slot of the pool, scripts/slot.sh).
-# Each branch a slot is switched to leaves the units it alone built (its test
+# [<checkout>...]`; no checkout: the one holding the working directory).
+# Each branch a checkout is switched to leaves the units it alone built (its test
 # executables, about 8G a switch); this removes, in each checkout's target/
 # (the gates' own trees under it, target/staged and target/ratchet-base,
 # included), what no build has used for <n> days (default 2):
@@ -40,8 +39,7 @@
 # the sweep and CARGO_TARGET_DIR pointing at that directory.
 #
 # Exit: 0; 1 when it cannot sweep (the tool, a noatime mount, a failed sweep);
-# 2 on usage. Environment: TRIM_SWEEP_VERSION (required), and for the pool
-# SLOT_ROOT, SLOT_PREFIX and SLOT_COUNT (the justfile gives them).
+# 2 on usage. Environment: TRIM_SWEEP_VERSION (required).
 # Self-test: scripts/trim-targets.selftest.sh (`just selftest`).
 set -euo pipefail
 dry= days=2 checkouts=()
@@ -63,8 +61,8 @@ have=$(cargo-sweep --version 2>/dev/null || true)
     || fail "cargo-sweep $want is needed, found '${have:-none}' (fix: cargo install --locked cargo-sweep@$want)"
 
 if [ ${#checkouts[@]} -eq 0 ]; then
-    : "${SLOT_ROOT:?SLOT_ROOT is the directory of the pool}" "${SLOT_PREFIX:?}"
-    for n in $(seq "${SLOT_COUNT:-3}"); do checkouts+=("$SLOT_ROOT/$SLOT_PREFIX$n"); done
+    top=$(git rev-parse --show-toplevel 2>/dev/null) || fail "no checkout given and the working directory is in none"
+    checkouts+=("$top")
 fi
 
 human() { numfmt --to=iec-i --suffix=B "$1"; }

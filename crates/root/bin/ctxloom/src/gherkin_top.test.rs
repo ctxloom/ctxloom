@@ -201,6 +201,28 @@ fn started_named(w: &mut World, line: String, name: String) {
 
 /// `line`'s command started, its stdout read on a thread of its own.
 fn spawn_stream(w: &mut World, line: &str) -> Stream {
+    let watches_before = watches_served(w);
+    let stream = spawn_command(w, line);
+    // The stream is the daemon's once its watch is called: an action the
+    // scenario takes next (a removal, an ask) is then news to it, not
+    // something that happened before it looked.
+    if w.top.elsewhere.is_none() && daemon_spec::daemon_log_text(w).contains("serving at") {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while watches_served(w) <= watches_before && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+    stream
+}
+
+/// How many `WatchTop` calls the daemon's log says it served.
+fn watches_served(w: &World) -> usize {
+    daemon_spec::daemon_log_text(w)
+        .matches("served /ctxloom.v1.Ctxloom/WatchTop")
+        .count()
+}
+
+fn spawn_command(w: &mut World, line: &str) -> Stream {
     let line = &expanded_projects(w, line);
     let words = split(line);
     assert_eq!(words.first().map(String::as_str), Some("ctxloom"), "{line}");

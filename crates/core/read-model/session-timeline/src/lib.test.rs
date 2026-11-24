@@ -335,3 +335,90 @@ fn only_the_newest_entries_of_a_session_are_kept() {
         10 + crate::KEPT as i64 + 9
     );
 }
+
+#[test]
+fn test_state_changed_at_is_the_latest_lifecycle_entry() {
+    let mut timeline = TimelineIndex::default();
+    timeline
+        .project(&book(
+            SESSION_DOMAIN,
+            1,
+            0,
+            vec![
+                (100, minted()),
+                (150, prompt("hello")),
+                (200, ended("runner-exit")),
+            ],
+        ))
+        .unwrap();
+    // The prompt at 150 is no status change; the exit at 200 is.
+    assert_eq!(timeline.state_changed_at(&session_id(1)), Some(at(200)));
+}
+
+#[test]
+fn test_state_changed_at_ignores_transcript_lines_after_the_last_change() {
+    let mut timeline = TimelineIndex::default();
+    timeline
+        .project(&book(
+            SESSION_DOMAIN,
+            1,
+            0,
+            vec![(100, minted()), (300, prompt("later"))],
+        ))
+        .unwrap();
+    assert_eq!(timeline.state_changed_at(&session_id(1)), Some(at(100)));
+}
+
+#[test]
+fn test_state_changed_at_follows_an_ask_asked_and_settled() {
+    let mut timeline = TimelineIndex::default();
+    timeline
+        .project(&book(SESSION_DOMAIN, 1, 0, vec![(100, minted())]))
+        .unwrap();
+    timeline
+        .project(&book(APPROVALS_DOMAIN, 9, 0, vec![(120, ask(1))]))
+        .unwrap();
+    assert_eq!(timeline.state_changed_at(&session_id(1)), Some(at(120)));
+    timeline
+        .project(&book(
+            APPROVALS_DOMAIN,
+            9,
+            1,
+            vec![(
+                130,
+                ApprovalEvent::ApprovalExpired(approvals::ApprovalExpired::default()),
+            )],
+        ))
+        .unwrap();
+    assert_eq!(timeline.state_changed_at(&session_id(1)), Some(at(130)));
+}
+
+#[test]
+fn test_state_changed_at_is_none_for_a_session_with_no_entry() {
+    let timeline = TimelineIndex::default();
+    assert_eq!(timeline.state_changed_at(&session_id(7)), None);
+}
+
+#[test]
+fn test_state_changed_at_counts_a_restart_a_rehost_and_a_close() {
+    let mut timeline = TimelineIndex::default();
+    timeline
+        .project(&book(
+            SESSION_DOMAIN,
+            1,
+            0,
+            vec![
+                (100, minted()),
+                (110, owed("restart")),
+                (120, owed("rehost")),
+                (
+                    130,
+                    SessionEvent::SessionClosed(SessionClosed {
+                        cause: "user".to_string(),
+                    }),
+                ),
+            ],
+        ))
+        .unwrap();
+    assert_eq!(timeline.state_changed_at(&session_id(1)), Some(at(130)));
+}

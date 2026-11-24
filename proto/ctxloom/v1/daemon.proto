@@ -1166,6 +1166,12 @@ message Session {
   // DRAFT: `tags`, as the owner rules: the names of the bundles its
   // profiles' loadout loaded (neither `--tag`s nor select_tags).
   repeated string tags = 26 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // DRAFT (`ctxloom top`): when the session's status last changed, the time
+  // of its latest lifecycle entry (started, exited, re-hosted, restarted,
+  // closed, reopened) or ask entry (asked, settled) in its timeline, else
+  // its end time when it has ended, else its start time. Only the top watch
+  // fills it.
+  google.protobuf.Timestamp state_change_time = 27 [(google.api.field_behavior) = OUTPUT_ONLY];
 }
 
 // What a run was launched with: its MCP servers' NAMES and its engine's

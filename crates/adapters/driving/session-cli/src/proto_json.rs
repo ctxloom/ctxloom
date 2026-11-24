@@ -150,6 +150,7 @@ pub fn session(session: &v1::Session) -> Value {
                 .map(|name| Value::from(name.as_str()))
                 .collect(),
         )
+        .time("state_change_time", session.state_change_time)
         .done()
 }
 

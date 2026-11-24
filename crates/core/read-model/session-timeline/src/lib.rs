@@ -34,6 +34,20 @@ pub const SOURCES: [&str; 2] = [SESSION_DOMAIN, APPROVALS_DOMAIN];
 /// The most entries kept for one session; the oldest go first.
 pub const KEPT: usize = 2000;
 
+/// The words of the entries that change a session's status: its lifecycle
+/// (started, exited, re-hosted, restarted, closed, reopened) and its asks
+/// (asked, settled).
+pub const STATUS_EVENTS: [&str; 8] = [
+    "started",
+    "exited",
+    "rehosted",
+    "restarted",
+    "closed",
+    "reopened",
+    "approval_asked",
+    "approval_settled",
+];
+
 /// What an entry says.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Content {
@@ -256,6 +270,24 @@ impl TimelineIndex {
             .get(session)
             .map(|timeline| timeline.entries.clone())
             .unwrap_or_default()
+    }
+
+    /// When the session with the stable id `session` last changed status: the
+    /// time of its latest lifecycle or ask entry ([`STATUS_EVENTS`]), a
+    /// transcript line or any other word being no change. None when it has
+    /// no such entry.
+    pub fn state_changed_at(&self, session: &str) -> Option<Timestamp> {
+        self.sessions
+            .get(session)?
+            .entries
+            .iter()
+            .rev()
+            .find_map(|entry| match &entry.content {
+                Content::Daemon { event, .. } if STATUS_EVENTS.contains(&event.as_str()) => {
+                    Some(entry.time)
+                }
+                _ => None,
+            })
     }
 
     /// The entries of `session` received after `n`, oldest first.

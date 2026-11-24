@@ -489,6 +489,10 @@ while IFS= read -r line; do
       printf '{"type":"result","subtype":"success","is_error":false,"result":"","session_id":"%s"}\n' "$sid"
       continue ;;
   esac
+  # The prompt submitted, echoed as claude echoes every user message it
+  # submits (`--replay-user-messages`: the recorded streams in
+  # engine-claude's fixtures, a first turn's too), before its turn's work.
+  printf '%s\n' "$line" | sed 's/}[[:space:]]*$/,"session_id":"'"$sid"'","isReplay":true}/'
   printf '%s %s\n' "$sid" "$line" >> "$here/turns"
   printf '%s %s\n' "$sid" "$line" >> "$rec/turns"
   : > "$here/child-turn"

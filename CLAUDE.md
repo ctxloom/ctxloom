@@ -2831,7 +2831,7 @@ a watch looks again at 100 ms, 400 ms and 1.5 s after each wake (a frontend's
 lock is let go in its own process). A watch is ended when the client's stream
 is dropped (`TopStream::stopper`, fired by daemon-api-grpc) and its stream
 ends with it. A session's `agent`, `profiles` and `tags` (the bundles its
-loadout loaded) are `Session` fields 24-26, from its recorded loadout.
+loadout loaded) are `Session` fields 24-26, from its recorded loadout. `state_change_time` is field 27.
 
 The log is `core/read-model/session-timeline`: one time-ordered list per
 session of its lifecycle (started, exited with its cause, rehosted, restarted,
@@ -2861,6 +2861,21 @@ with a waiting ask says `ASK` after an icon (`ASK x2` when two wait; the raised
 hand `screen::ICON_UTF8`, two columns wide, where the locale is UTF-8, else
 `!`, `ICON_ASCII`; the display chooses it, `Screen::with_icon`, and the text seam
 always says `!`), in place of its own state word, and there is no ASKS column.
+The state cell also says how long ago the session's status last changed
+(owner ruling 2026-11-24): `live 3m`, `ended 2h`, `! ASK x2 12s`, the age
+rounded down to its largest whole unit (`s`, `m`, `h`, `d`; days the largest,
+`session-cli`'s `age::age`, a temporary formatter until `duration-text`'s is
+adopted, no new dependency). The daemon fills the OPTIONAL `Session.state_change_time`
+(field 27, additive) in the top watch from the session timeline's latest
+lifecycle or ask entry (`session_timeline::STATUS_EVENTS`: started, exited,
+rehosted, restarted, closed, reopened, approval asked, approval settled;
+`TimelineIndex::state_changed_at`), else the end time of an ended session, else
+its start time (`daemon_api::top::state_change_time`); `--format json` carries
+it as any field. The model never reads the system clock: `Screen::tick` is told
+the time on every pass of the loop from `Display::now` (the system's; the seam's
+`Frames` adds `Look::ahead`, which a test-support build takes from
+`CTXLOOM_TEST_TOP_CLOCK_AHEAD` seconds so a scenario reads hours with no
+waiting), and a row the daemon gave no change time shows no timer.
 Columns are measured in terminal columns, not characters. Colour is the DISPLAY's alone: the model's `Frame` carries facts
 (`Frame.alerts`, the rows an ask waits on; `bell`) and plain words, never a
 colour or escape, and the seam names those rows in a line `highlighted: <harp>,

@@ -33,11 +33,28 @@ pub enum Input {
     Line(String),
 }
 
+/// The system's clock, whole seconds since the epoch.
+// Reads the system clock; the loop's tests give a display its own.
+#[cfg_attr(test, mutants::skip)]
+fn system_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| {
+            i64::try_from(since.as_secs()).unwrap_or(i64::MAX)
+        })
+}
+
 /// Where a frame is drawn.
 pub trait Display {
     /// The icon of the ask state this display can draw.
     fn icon(&self) -> &'static str {
         crate::screen::ICON_ASCII
+    }
+
+    /// The time now, whole seconds since the epoch: the clock each row's
+    /// timer counts to. The system's, unless a display stands one in.
+    fn now(&self) -> i64 {
+        system_now()
     }
 
     fn draw(&mut self, frame: &Frame) -> Result<(), Failure>;
@@ -55,10 +72,17 @@ pub trait TopAnswers {
     fn answer(&self, ask: &v1::Approval, option: &str, write_rule: bool) -> Result<String, String>;
 }
 
-/// Text frames, one after the other, each ended by a line `---`.
-pub struct Frames<'a>(pub &'a mut dyn Write);
+/// Text frames, one after the other, each ended by a line `---`. The seam's
+/// own clock runs `.1` seconds ahead of the system's (zero unless a
+/// test-support build says otherwise), so a scenario reads a timer of hours
+/// with no waiting.
+pub struct Frames<'a>(pub &'a mut dyn Write, pub i64);
 
 impl Display for Frames<'_> {
+    fn now(&self) -> i64 {
+        system_now().saturating_add(self.1)
+    }
+
     fn draw(&mut self, frame: &Frame) -> Result<(), Failure> {
         wrote(
             self.0
@@ -97,6 +121,7 @@ pub fn drive(
         if let Some(stop) = source.stopped() {
             return Err(stop);
         }
+        screen.tick(display.now());
         while let Ok(input) = keys.try_recv() {
             let key = match input {
                 Input::Key(key) => key,

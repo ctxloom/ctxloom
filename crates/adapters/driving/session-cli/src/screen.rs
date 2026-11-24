@@ -126,6 +126,10 @@ pub struct Screen {
     prompt: Option<String>,
     pending: Option<Pending>,
     notice: Option<String>,
+    /// The screen's clock, whole seconds since the epoch, as the loop last
+    /// told it ([`Screen::tick`]); none until told, and no timer before.
+    /// The model never reads the system clock.
+    now: Option<i64>,
 }
 
 /// A screen's drawing: its lines in sections.
@@ -222,7 +226,14 @@ impl Screen {
             prompt: None,
             pending: None,
             notice: None,
+            now: None,
         }
+    }
+
+    /// The time now, whole seconds since the epoch: what each row's timer
+    /// counts up to. The loop tells it on every pass; a test drives it.
+    pub fn tick(&mut self, now: i64) {
+        self.now = Some(now);
     }
 
     /// The screen with `icon` before `ASK`: the display says which its
@@ -629,11 +640,25 @@ impl Screen {
     /// while an ask waits on it. Plain words and a glyph: the colour is the
     /// display's.
     fn state_cell(&self, session: &v1::Session) -> String {
-        match self.asking(session) {
+        let state = match self.asking(session) {
             0 => state_word(session),
             1 => format!("{} ASK", self.icon),
             waiting => format!("{} ASK x{waiting}", self.icon),
+        };
+        match self.since(session) {
+            Some(elapsed) => format!("{state} {}", crate::age::age(elapsed)),
+            None => state,
         }
+    }
+
+    /// The time since the session's last status change, by the screen's
+    /// clock; none before the clock is told or when the daemon gave no
+    /// change time. A change time after the clock reads zero.
+    fn since(&self, session: &v1::Session) -> Option<std::time::Duration> {
+        let (now, changed) = (self.now?, session.state_change_time?);
+        Some(std::time::Duration::from_secs(
+            u64::try_from(now.saturating_sub(changed.seconds)).unwrap_or(0),
+        ))
     }
 
     /// The frame of the screen as it stands.

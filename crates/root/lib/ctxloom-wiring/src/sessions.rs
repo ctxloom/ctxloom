@@ -320,6 +320,28 @@ impl Commands {
         said(ran, format, catalog, err)
     }
 
+    /// How `top` draws: the caller's environment decides colour and glyphs;
+    /// under `test-support` `CTXLOOM_TEST_TOP_CLOCK_AHEAD` (whole seconds)
+    /// also sets the seam screen's clock ahead of the system's, so a
+    /// scenario reads a timer of hours with no waiting.
+    fn look(&self) -> session_cli::Look {
+        #[cfg_attr(not(feature = "test-support"), expect(unused_mut))]
+        let mut look = session_cli::Look::of(|name| {
+            self.env
+                .non_empty(name)
+                .map(|value| value.to_string_lossy().into_owned())
+        });
+        #[cfg(feature = "test-support")]
+        {
+            look.ahead = self
+                .env
+                .non_empty("CTXLOOM_TEST_TOP_CLOCK_AHEAD")
+                .and_then(|seconds| seconds.to_string_lossy().parse().ok())
+                .unwrap_or(0);
+        }
+        look
+    }
+
     /// `top ...` (DRAFT): what the daemon hosts, live, through her daemon's
     /// `WatchTop`; it starts no daemon and waits for one.
     pub(crate) fn top(
@@ -381,11 +403,7 @@ impl Commands {
             (
                 session_cli::Asking::is_terminal(&terminal),
                 terminal.stood_in,
-                session_cli::Look::of(|name| {
-                    self.env
-                        .non_empty(name)
-                        .map(|value| value.to_string_lossy().into_owned())
-                }),
+                self.look(),
             ),
             out,
         );

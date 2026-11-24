@@ -452,6 +452,7 @@ fn test_the_json_stream_is_colour_free_even_where_the_terminal_has_colour() {
             Look {
                 colour: true,
                 utf8: true,
+                ahead: 0,
             },
         ),
         &mut out,

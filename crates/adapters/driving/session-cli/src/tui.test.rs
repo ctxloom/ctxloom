@@ -190,14 +190,16 @@ fn test_the_look_is_each_part_judged_alone() {
         look,
         Look {
             colour: false,
-            utf8: true
+            utf8: true,
+            ahead: 0
         }
     );
     assert_eq!(
         Look::default(),
         Look {
             colour: false,
-            utf8: false
+            utf8: false,
+            ahead: 0
         }
     );
 }

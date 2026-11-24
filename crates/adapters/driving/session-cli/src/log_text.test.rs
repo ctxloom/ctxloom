@@ -3,7 +3,11 @@
 
 use daemon_proto::v1::{self, log_entry::Entry as Arm};
 
-use super::text_of;
+use super::{text_of as words_of, Of};
+
+fn text_of(entry: &v1::LogEntry) -> String {
+    words_of(entry, &Of::default())
+}
 
 fn entry(arm: Arm) -> v1::LogEntry {
     v1::LogEntry {
@@ -45,7 +49,7 @@ fn the_transcripts_entries_read_as_who_said_what() {
             response_bytes: 2100,
             ..v1::LogTool::default()
         })),
-        "tool Bash, input 120 bytes, result 2100 bytes"
+        "tool Bash, input 120 B, result 2.1 KB"
     );
     assert_eq!(
         said(Arm::Tool(v1::LogTool {
@@ -55,7 +59,7 @@ fn the_transcripts_entries_read_as_who_said_what() {
             status: Some(v1::log_tool::Status::Error as i32),
             ..v1::LogTool::default()
         })),
-        "tool bash, input 20 bytes, result 3 bytes, error"
+        "tool bash, input 20 B, result 3 B, error"
     );
     assert_eq!(said(Arm::TurnEnd(v1::LogTurnEnd::default())), "turn ended");
     assert_eq!(
@@ -84,10 +88,7 @@ fn the_transcripts_entries_read_as_who_said_what() {
 fn the_daemons_entries_read_as_what_it_did() {
     use v1::log_lifecycle::Kind;
     let said = |kind, run, cause, engine| text_of(&lifecycle(kind, run, cause, engine));
-    assert_eq!(
-        said(Kind::Started, 0, "", "claude-code"),
-        "started on claude-code"
-    );
+    assert_eq!(said(Kind::Started, 0, "", "claude-code"), "started");
     assert_eq!(
         said(Kind::Exited, 1, "runner-exit", ""),
         "run 1 ended: runner-exit"
@@ -144,4 +145,107 @@ fn an_engines_extra_is_not_in_the_words() {
     with.extra
         .insert("opencode.part_id".to_string(), "prt_1".to_string());
     assert_eq!(text_of(&with), "turn ended");
+}
+
+/// A tool entry of `tool` with the path its engine's adapter attached.
+fn tool_with_path(tool: &str, key: &str, path: &str, input: u64, result: u64) -> v1::LogEntry {
+    let mut with = entry(Arm::Tool(v1::LogTool {
+        name: tool.to_string(),
+        input_bytes: input,
+        response_bytes: result,
+        ..v1::LogTool::default()
+    }));
+    with.extra.insert(key.to_string(), path.to_string());
+    with
+}
+
+// The owner's ruling of 2026-11-24: a file tool's entry shows the path its
+// adapter attached (`<engine>.path`), relative to the session's project root
+// when it is under it, else as given; sizes are said as people read them.
+#[test]
+fn a_file_tools_path_is_shown_relative_to_the_project_root() {
+    let of = Of {
+        project_root: "/work/proj",
+        engine: "claude-code",
+    };
+    let said = |path: &str| {
+        words_of(
+            &tool_with_path("Edit", "claude-code.path", path, 4200, 12),
+            &of,
+        )
+    };
+    assert_eq!(
+        said("/work/proj/src/lib.rs"),
+        "tool Edit, src/lib.rs, input 4.1 KB, result 12 B"
+    );
+    assert_eq!(
+        said("/etc/hosts"),
+        "tool Edit, /etc/hosts, input 4.1 KB, result 12 B",
+        "outside the root, as given"
+    );
+    // A sibling that merely shares the root's prefix is not under it.
+    assert_eq!(
+        said("/work/proj-other/a.rs"),
+        "tool Edit, /work/proj-other/a.rs, input 4.1 KB, result 12 B"
+    );
+    assert_eq!(
+        said("src/a.rs"),
+        "tool Edit, src/a.rs, input 4.1 KB, result 12 B",
+        "a relative path is as given"
+    );
+}
+
+// Only the session's own engine's key is read; another's, or none, shows no
+// path, and the tool is still named.
+#[test]
+fn only_the_sessions_engines_path_is_shown() {
+    let of = Of {
+        project_root: "/work/proj",
+        engine: "opencode",
+    };
+    assert_eq!(
+        words_of(
+            &tool_with_path("read", "opencode.path", "/work/proj/a.rs", 20, 3),
+            &of
+        ),
+        "tool read, a.rs, input 20 B, result 3 B"
+    );
+    assert_eq!(
+        words_of(
+            &tool_with_path("read", "claude-code.path", "/work/proj/a.rs", 20, 3),
+            &of
+        ),
+        "tool read, input 20 B, result 3 B"
+    );
+}
+
+#[test]
+fn sizes_are_said_in_bytes_kilobytes_and_megabytes() {
+    let of = Of::default();
+    let said = |bytes| {
+        words_of(
+            &entry(Arm::Tool(v1::LogTool {
+                name: "Bash".to_string(),
+                response_bytes: bytes,
+                ..v1::LogTool::default()
+            })),
+            &of,
+        )
+    };
+    assert_eq!(said(0), "tool Bash, input 0 B, result 0 B");
+    assert_eq!(said(1023), "tool Bash, input 0 B, result 1023 B");
+    assert_eq!(said(1024), "tool Bash, input 0 B, result 1.0 KB");
+    assert_eq!(said(1_572_864), "tool Bash, input 0 B, result 1.5 MB");
+}
+
+// Data yes, display no: the started entry carries its engine, and the words
+// do not say it.
+#[test]
+fn a_started_entry_keeps_its_engine_in_the_data_and_not_in_the_words() {
+    let started = lifecycle(v1::log_lifecycle::Kind::Started, 0, "", "claude-code");
+    assert_eq!(text_of(&started), "started");
+    let Some(Arm::Lifecycle(data)) = &started.entry else {
+        panic!("lifecycle")
+    };
+    assert_eq!(data.engine, "claude-code");
 }

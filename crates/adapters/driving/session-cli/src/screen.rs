@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use daemon_proto::v1;
 
 use crate::approvals::AlwaysPlan;
-use crate::log_text::text_of;
+use crate::log_text::{text_of, Of};
 use crate::top::Sort;
 
 /// What the status line says while no daemon serves.
@@ -700,7 +700,14 @@ impl Screen {
         let log = selected_name
             .as_deref()
             .and_then(|name| self.logs.get(name))
-            .map(|entries| entries.iter().map(log_line).collect())
+            .map(|entries| {
+                let session = selected_name.as_deref().and_then(|n| self.sessions.get(n));
+                let of = Of {
+                    project_root: session.map_or("", |s| s.project_root.as_str()),
+                    engine: session.map_or("", |s| s.engine.as_str()),
+                };
+                entries.iter().map(|entry| log_line(entry, &of)).collect()
+            })
             .unwrap_or_default();
         Frame {
             header: self.header(),
@@ -753,7 +760,7 @@ impl Screen {
 }
 
 /// A log entry as a line: its time, then what it says (plain words).
-fn log_line(log: &v1::TopLog) -> String {
+fn log_line(log: &v1::TopLog, of: &Of<'_>) -> String {
     let seconds = log
         .time
         .as_ref()
@@ -765,7 +772,10 @@ fn log_line(log: &v1::TopLog) -> String {
         seconds % 3600 / 60,
         seconds % 60
     );
-    let said = log.entry.as_ref().map_or_else(String::new, text_of);
+    let said = log
+        .entry
+        .as_ref()
+        .map_or_else(String::new, |entry| text_of(entry, of));
     format!("  {clock} {said}")
 }
 

@@ -45,6 +45,11 @@ const PROMPT_ID: &str = "msg_1c39b7ca0001Vu5HlXKcT90BCg";
 /// The tool step's assistant message.
 const TOOL_STEP: &str = "msg_1c39f7419001Rd3mT0pQk8SnLy";
 /// The tool part's id: the call's id.
+/// The file the file tool edited, a word of its input that must never be
+/// recorded, and the part that called it.
+const EDITED: &str = "/work/src/lib.rs";
+const EDIT_SECRET: &str = "OLD-TEXT-THAT-MUST-NOT-BE-KEPT";
+const EDIT_PART: &str = "prt_edit0000000000000000001";
 const TOOL_PART: &str = "prt_1c39f745b001c5IdBJ9I7M5n07";
 /// The reply's text part's id: the words' message id.
 const TEXT_PART: &str = "prt_1c39b7d0e001Ls1aH8dEy6GbZm";
@@ -133,6 +138,13 @@ fn steps() -> Value {
         }),
         event(TOOL_COMPLETED, |v| {
             v["properties"]["part"]["state"]["output"] = json!(TOOL_BODY);
+        }),
+        // A file tool beside it: its path is said through the engine's data.
+        event(TOOL_COMPLETED, |v| {
+            v["properties"]["part"]["id"] = json!(EDIT_PART);
+            v["properties"]["part"]["tool"] = json!("edit");
+            v["properties"]["part"]["state"]["input"] =
+                json!({"filePath": EDITED, "oldString": EDIT_SECRET});
         }),
         event(TOOL_STEP_COMPLETED, |v| {
             v["properties"]["info"]["parentID"] = json!(PROMPT_ID);
@@ -362,6 +374,20 @@ fn hooks_recorded(w: &mut World) {
     );
 }
 
+/// The file tool's entry: its path is the engine's data and the entry's
+/// `extra`; the bash call before it has none.
+fn file_tool_is_said_by_its_path(bash: &Value, edit: &Value) {
+    assert_eq!(edit["tool"]["tool_use_id"], EDIT_PART);
+    assert_eq!(edit["tool"]["name"], "edit");
+    assert_eq!(edit["extra"]["opencode.path"], EDITED, "{edit}");
+    assert_eq!(
+        edit["extra"].as_object().map(|e| e.len()),
+        Some(1),
+        "{edit}"
+    );
+    assert!(bash.get("extra").is_none(), "no path for bash: {bash}");
+}
+
 #[cucumber::then(
     "the session's transcript holds her prompt, the tool call with its status, the assistant's words and the turn's end, each once"
 )]
@@ -374,7 +400,7 @@ fn transcript_holds(w: &mut World) {
     assert_eq!(
         kinds,
         // No `session_end` at the exit (owner 2026-11-15).
-        ["prompt", "tool", "words", "turn_end"],
+        ["prompt", "tool", "tool", "words", "turn_end"],
         "each once, the turn ended twice (its completion and its idle): {lines:#?}"
     );
     for line in &lines {
@@ -396,14 +422,16 @@ fn transcript_holds(w: &mut World) {
     );
     assert_eq!(count(&tool["response_bytes"]), TOOL_BODY.len() as u64);
     assert_eq!(tool["response_sha256"], TOOL_DIGEST);
-    let words = &lines[2]["words"];
+    file_tool_is_said_by_its_path(&lines[1], &lines[2]);
+    let words = &lines[3]["words"];
     assert_eq!(words["prompt_id"], PROMPT_ID);
     assert_eq!(words["message_id"], TEXT_PART);
     assert_eq!(words["text"], WORDS);
     assert_eq!(words["is_final"], true);
-    assert_eq!(lines[3]["turn_end"]["prompt_id"], PROMPT_ID);
+    assert_eq!(lines[4]["turn_end"]["prompt_id"], PROMPT_ID);
     let whole = serde_json::to_string(&lines).unwrap();
     assert!(!whole.contains(TOOL_BODY), "the tool's output was kept");
+    assert!(!whole.contains(EDIT_SECRET), "the edit's text was kept");
     assert!(
         !whole.contains("The user wants ok."),
         "the reasoning was kept"

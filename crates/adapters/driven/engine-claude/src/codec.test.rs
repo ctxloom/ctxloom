@@ -288,3 +288,55 @@ fn test_a_compaction_names_its_trigger_and_post_compact_carries_the_summary() {
     assert_eq!(post.trigger, "auto");
     assert_eq!(post.compact_summary, "The user asked.");
 }
+
+fn batch_of(tool: &str, input: &str) -> HookEvent {
+    let payload = format!(
+        r#"{{"session_id":"s","prompt_id":"p","hook_event_name":"PostToolBatch","tool_calls":[{{"tool_name":"{tool}","tool_input":{input},"tool_use_id":"toolu_1","tool_response":"ok"}}]}}"#
+    );
+    decode(&payload)
+}
+
+// The owner's ruling of 2026-11-24: a file tool's call says the path it
+// touched, through the engine extension (`claude-code.path`), and nothing
+// else of its input.
+#[test]
+fn test_a_file_tools_path_is_the_calls_engine_data() {
+    for (tool, input) in [
+        ("Read", r#"{"file_path":"/work/a.rs"}"#),
+        (
+            "Write",
+            r#"{"file_path":"/work/a.rs","content":"SECRET-CONTENT"}"#,
+        ),
+        (
+            "Edit",
+            r#"{"file_path":"/work/a.rs","old_string":"SECRET-OLD","new_string":"y"}"#,
+        ),
+        ("MultiEdit", r#"{"file_path":"/work/a.rs","edits":[]}"#),
+        (
+            "NotebookEdit",
+            r#"{"notebook_path":"/work/a.rs","new_source":"SECRET"}"#,
+        ),
+    ] {
+        let call = &batch_of(tool, input).tool_calls[0];
+        assert_eq!(
+            call.extra,
+            [("claude-code.path".to_string(), "/work/a.rs".to_string())].into(),
+            "{tool}"
+        );
+        assert!(!format!("{:?}", call.extra).contains("SECRET"), "{tool}");
+    }
+}
+
+#[test]
+fn test_a_tool_that_is_no_file_tool_says_no_path() {
+    for (tool, input) in [
+        ("Bash", r#"{"command":"cat /etc/passwd"}"#),
+        ("Glob", r#"{"pattern":"*.rs","path":"/work"}"#),
+        ("Read", r#"{}"#),
+    ] {
+        assert!(
+            batch_of(tool, input).tool_calls[0].extra.is_empty(),
+            "{tool}"
+        );
+    }
+}

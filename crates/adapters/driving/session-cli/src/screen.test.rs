@@ -376,7 +376,7 @@ fn the_log_section_lists_the_selected_sessions_entries_oldest_first() {
         screen.apply(lifecycle_log("brisk-copper-moth", kind));
     }
     let text = screen.frame().text();
-    let started = text.find("started on claude-code").expect("started");
+    let started = text.find("started").expect("started");
     let exited = text.find("run 1 ended").expect("exited");
     assert!(started < exited, "{text}");
 }

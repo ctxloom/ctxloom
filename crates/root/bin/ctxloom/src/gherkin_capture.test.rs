@@ -60,6 +60,11 @@ const AFTER_CLEAR: &str = "2222bbbb-0000-4000-8000-000000000002";
 /// The prompt a late hook's turn's end names: one no hook had reported.
 const LATE_PROMPT: &str = "1a7e1a7e-0000-4000-8000-0000001a7e00";
 
+/// The file a file tool edited, and a word of its input that must never be
+/// recorded (only the path is, through the engine's data: `claude-code.path`).
+const EDITED: &str = "/work/src/lib.rs";
+const EDIT_SECRET: &str = "OLD-TEXT-THAT-MUST-NOT-BE-KEPT";
+
 /// The tool call's input as the codec compacts it, its size and its digest
 /// (`sha256sum`): the input's text is never recorded.
 const TOOL_INPUT: &str = r#"{"command":"echo hi","description":"Print hi via echo"}"#;
@@ -372,6 +377,14 @@ fn run_child(w: &mut World, step: &cucumber::gherkin::Step, fire: bool) {
         payloads.push((
             payload(POST_TOOL_BATCH, |v| {
                 v["tool_calls"][0]["tool_response"] = json!(TOOL_BODY);
+                // A file tool beside it: its path is said through the engine's
+                // data, nothing else of its input.
+                v["tool_calls"][1] = json!({
+                    "tool_name": "Edit",
+                    "tool_use_id": "toolu_edit",
+                    "tool_input": {"file_path": EDITED, "old_string": EDIT_SECRET},
+                    "tool_response": "ok",
+                });
             }),
             "PostToolBatch",
         ));
@@ -464,7 +477,7 @@ fn child_transcript(w: &mut World) {
     let kinds: Vec<&str> = lines.iter().map(kind_of).collect();
     assert_eq!(
         kinds,
-        ["prompt", "words", "words", "words", "tool", "turn_end"],
+        ["prompt", "words", "words", "words", "tool", "tool", "turn_end"],
         "each observation once, from the hooks alone: {lines:#?}"
     );
     assert_eq!(lines[0]["prompt"]["text"], PROMPT);
@@ -486,7 +499,21 @@ fn child_transcript(w: &mut World) {
     assert_eq!(count(&tool["input_bytes"]), TOOL_INPUT.len() as u64);
     assert_eq!(tool["input_sha256"], TOOL_INPUT_DIGEST);
     assert!(tool.get("input").is_none(), "{tool}");
-    let turn_end = lines[5]["turn_end"].as_object().unwrap();
+    // The file tool: its path is the engine's data and the entry's `extra`.
+    let edit = &lines[5];
+    assert_eq!(edit["tool"]["name"], "Edit");
+    assert_eq!(edit["extra"]["claude-code.path"], EDITED, "{edit}");
+    assert_eq!(
+        edit["extra"].as_object().map(|e| e.len()),
+        Some(1),
+        "{edit}"
+    );
+    assert!(
+        lines[4].get("extra").is_none(),
+        "no path for Bash: {}",
+        lines[4]
+    );
+    let turn_end = lines[6]["turn_end"].as_object().unwrap();
     assert!(
         !turn_end.contains_key("text") && !turn_end.contains_key("delta"),
         "the turn's end carries no text: {turn_end:?}"
@@ -496,6 +523,7 @@ fn child_transcript(w: &mut World) {
         !whole.contains(TOOL_BODY),
         "the tool's response body was kept"
     );
+    assert!(!whole.contains(EDIT_SECRET), "the edit's text was kept");
     assert!(
         !whole.contains("Print hi via echo") && !whole.contains("description"),
         "the tool's input was kept"

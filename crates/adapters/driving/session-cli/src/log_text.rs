@@ -6,8 +6,18 @@ use daemon_proto::v1::{
     self, log_ask, log_compaction, log_entry::Entry as Arm, log_lifecycle, log_tool,
 };
 
+/// What a log is the log of, as an entry's text needs it: the session's
+/// project root (a path under it is said relative to it) and its engine (the
+/// key its engine data is kept under, `<engine>.path`).
+#[derive(Clone, Copy, Default)]
+pub(crate) struct Of<'a> {
+    pub project_root: &'a str,
+    pub engine: &'a str,
+}
+
 /// What `entry` says, as one line of plain text.
-pub(crate) fn text_of(entry: &v1::LogEntry) -> String {
+pub(crate) fn text_of(entry: &v1::LogEntry, of: &Of<'_>) -> String {
+    let _ = (of.project_root, of.engine);
     match &entry.entry {
         Some(Arm::Prompt(prompt)) => format!("user: {}", prompt.text),
         Some(Arm::Words(words)) => format!("assistant: {}", words.text),

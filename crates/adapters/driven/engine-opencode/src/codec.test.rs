@@ -165,7 +165,11 @@ fn test_a_failed_tool_part_is_one_call_whose_response_is_its_error() {
             input: r#"{"filePath":"/nonexistent_xyz/a.txt"}"#.to_string(),
             response: "The user rejected permission to use this specific tool call.".to_string(),
             status: ToolStatus::Error,
-            ..Default::default()
+            extra: [(
+                "opencode.path".to_string(),
+                "/nonexistent_xyz/a.txt".to_string()
+            )]
+            .into(),
         }]
     );
 }
@@ -315,4 +319,50 @@ fn test_the_session_is_found_where_the_event_keeps_it() {
     );
     let direct = r#"{"type":"session.idle","properties":{"sessionID":"ses_direct","info":{"sessionID":"ses_other"}},"ctxloom":{}}"#;
     assert_eq!(decode("session.idle", direct).native_session, "ses_direct");
+}
+
+/// A completed tool part of `tool` with `input`, from the bash fixture.
+fn tool_event(tool: &str, input: &str) -> HookEvent {
+    let payload = fixture("tool_completed")
+        .replace(r#""tool":"bash""#, &format!(r#""tool":"{tool}""#))
+        .replace(r#"{"command":"echo hi"}"#, input);
+    Codec.decode("message.part.updated", &payload).unwrap()
+}
+
+// The owner's ruling of 2026-11-24: a file tool's call says the path it
+// touched, through the engine extension (`opencode.path`), and nothing else
+// of its input.
+#[test]
+fn test_a_file_tools_path_is_the_calls_engine_data() {
+    for tool in ["read", "write", "edit"] {
+        let event = tool_event(
+            tool,
+            r#"{"filePath":"/work/src/lib.rs","oldString":"SECRET-OLD","newString":"x"}"#,
+        );
+        let [call] = &event.tool_calls[..] else {
+            panic!("one call: {event:?}")
+        };
+        assert_eq!(
+            call.extra,
+            [("opencode.path".to_string(), "/work/src/lib.rs".to_string())].into(),
+            "{tool}"
+        );
+        assert!(
+            !format!("{:?}", call.extra).contains("SECRET"),
+            "nothing else of the input"
+        );
+    }
+}
+
+#[test]
+fn test_a_tool_that_is_no_file_tool_says_no_path() {
+    for (tool, input) in [
+        ("bash", r#"{"command":"cat /etc/passwd"}"#),
+        ("glob", r#"{"pattern":"*.txt","path":"/work"}"#),
+        // A file tool whose input names no path.
+        ("read", r#"{}"#),
+    ] {
+        let event = tool_event(tool, input);
+        assert!(event.tool_calls[0].extra.is_empty(), "{tool}");
+    }
 }

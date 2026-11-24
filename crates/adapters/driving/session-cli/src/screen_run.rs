@@ -86,6 +86,7 @@ pub fn drive(
     let mut screen = Screen::new(&scope_of(command), sort);
     let mut feed: Option<Box<dyn TopFeed>> = None;
     let mut looked: Option<Instant> = None;
+    let mut idle = 0;
     let mut drawn = String::new();
     loop {
         if let Some(stop) = source.stopped() {
@@ -115,8 +116,18 @@ pub fn drive(
         }
         match feed.as_mut() {
             Some(open) => match open.within(TICK) {
-                Within::Idle => {}
-                Within::Event(event) => screen.apply(*event),
+                Within::Idle => {
+                    idle += 1;
+                    if open.reopened_when_idle() && idle >= 10 {
+                        feed = None;
+                        looked = None;
+                        idle = 0;
+                    }
+                }
+                Within::Event(event) => {
+                    idle = 0;
+                    screen.apply(*event);
+                }
                 Within::Broke(_) => {
                     feed = None;
                     screen.wait();

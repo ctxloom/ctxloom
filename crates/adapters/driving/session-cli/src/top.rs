@@ -30,6 +30,10 @@ const COLUMNS: [&str; 7] = [
     "name", "state", "agent", "profile", "engine", "owner", "started",
 ];
 
+/// How many ticks a watch with nothing to say waits before one opened where
+/// no project is yet is opened again.
+const REOPEN_AFTER_TICKS: usize = 10;
+
 /// The `top` noun, shaped for mounting on the command line.
 pub fn top_noun() -> Command {
     Top::augment_args(Command::new("top"))
@@ -98,6 +102,13 @@ pub trait TopFeed {
     /// The next event, if it comes within `wait`. The screen waits on the
     /// watch a tick at a time so a key is never kept waiting. The default
     /// waits for it.
+    /// Whether a watch that says nothing is to be opened again after a
+    /// while: one opened where no project is yet, which a project made
+    /// there later is the daemon's to list.
+    fn reopened_when_idle(&self) -> bool {
+        false
+    }
+
     fn within(&mut self, wait: std::time::Duration) -> Within {
         let _ = wait;
         match self.next() {
@@ -377,6 +388,7 @@ pub fn top(
     let sort = Sort::of(command.sort.as_deref())?;
     let make = |parent: &str| command.request(parent);
     let mut said_waiting = false;
+    let mut said_nothing = false;
     loop {
         if let Some(stop) = source.stopped() {
             return Err(stop);
@@ -389,15 +401,27 @@ pub fn top(
             source.wait();
             continue;
         };
+        let mut idle = 0;
         loop {
             if let Some(stop) = source.stopped() {
                 return Err(stop);
             }
             match feed.within(crate::screen_run::TICK) {
-                Within::Idle => {}
+                Within::Idle => {
+                    idle += 1;
+                    if feed.reopened_when_idle() && idle >= REOPEN_AFTER_TICKS {
+                        break;
+                    }
+                }
                 Within::Event(mut event) => {
                     if let Some(v1::top_event::Event::Snapshot(snapshot)) = event.event.as_mut() {
                         sort.order(&mut snapshot.sessions);
+                        // Nothing again, where nothing was said: not said twice.
+                        let empty = snapshot.sessions.is_empty() && snapshot.approvals.is_empty();
+                        if empty && said_nothing {
+                            continue;
+                        }
+                        said_nothing = empty;
                     }
                     emit(&event, out)?;
                 }

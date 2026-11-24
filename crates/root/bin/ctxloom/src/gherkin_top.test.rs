@@ -42,6 +42,10 @@ pub(super) struct State {
     read: Vec<Value>,
     /// The line the last "a line has" step found.
     that: Option<Value>,
+    /// What the line found by the last "a line has" step, and each "that
+    /// line reports" after it, must satisfy together: path, text, whether
+    /// the whole value is that text (else it holds it).
+    wanted: Vec<(String, String, bool)>,
     /// How many lines had been read when an action was taken: a step that
     /// names a line "within N seconds" after it looks past them.
     mark: usize,
@@ -243,6 +247,7 @@ fn until_line(w: &mut World, seconds: u64, found: impl Fn(&Value) -> bool) -> Va
 #[then(expr = "within {int} seconds a line has {string} set")]
 fn line_has(w: &mut World, seconds: u64, field: String) {
     let line = until_line(w, seconds, |line| line.get(&field).is_some());
+    w.top.wanted.clear();
     w.top.that = Some(line);
 }
 
@@ -251,6 +256,7 @@ fn line_has_containing(w: &mut World, seconds: u64, path: String, text: String) 
     let line = until_line(w, seconds, |line| {
         at(line, &path).is_some_and(|got| said(got).contains(&text))
     });
+    w.top.wanted = vec![(path, text, false)];
     w.top.that = Some(line);
 }
 
@@ -268,21 +274,88 @@ fn line_has_as(w: &mut World, seconds: u64, path: String, want: String) {
     let line = until_line(w, seconds, |line| {
         at(line, &path).is_some_and(|got| is(got, &want))
     });
+    w.top.wanted = vec![(path, want, true)];
     w.top.that = Some(line);
+}
+
+/// Whether `line` satisfies every check.
+fn satisfies(line: &Value, checks: &[(String, String, bool)]) -> bool {
+    checks.iter().all(|(path, text, exact)| {
+        at(line, path).is_some_and(|got| match exact {
+            true => is(got, text),
+            false => said(got).contains(text),
+        })
+    })
+}
+
+/// "That line" also says this: the line found, or another read after the
+/// action that is what the steps before and this one say together (a
+/// step's "a line" is no one line when the log holds several of its kind).
+fn that_line_is(w: &mut World, check: (String, String, bool)) {
+    w.top.wanted.push(check);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let from = w.top.mark.max(1);
+        let found = w
+            .top
+            .read
+            .iter()
+            .skip(from)
+            .find(|line| satisfies(line, &w.top.wanted))
+            .cloned();
+        if let Some(line) = found {
+            w.top.that = Some(line);
+            return;
+        }
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            let that = w.top.that.clone().expect("a step found a line");
+            panic!(
+                "no line is {:?}: the line found was {that}; read: {:?}",
+                w.top.wanted, w.top.read
+            );
+        }
+        next_line(w, left.min(Duration::from_secs(1)));
+    }
 }
 
 #[then(expr = "that line reports {string} as {string}")]
 fn that_reports(w: &mut World, path: String, want: String) {
-    let line = w.top.that.clone().expect("a step found a line");
-    let got = at(&line, &path).unwrap_or_else(|| panic!("no {path} in {line}"));
-    assert_eq!(said(got), want, "{path}: {line}");
+    that_line_is(w, (path, want, true));
 }
 
 #[then(expr = "that line reports {string} containing {string}")]
 fn that_reports_containing(w: &mut World, path: String, text: String) {
-    let line = w.top.that.clone().expect("a step found a line");
-    let got = at(&line, &path).unwrap_or_else(|| panic!("no {path} in {line}"));
-    assert!(said(got).contains(&text), "{path} is {got}: {line}");
+    that_line_is(w, (path, text, false));
+}
+
+#[then(expr = "a later line reports {string} containing {string}")]
+fn later_reports_containing(w: &mut World, path: String, text: String) {
+    let line = until_line(w, 30, |line| {
+        at(line, &path).is_some_and(|got| said(got).contains(&text))
+    });
+    w.top.wanted = vec![(path, text, false)];
+    w.top.that = Some(line);
+}
+
+#[then("the stream then ends and the command exits with code 0")]
+fn stream_ends(w: &mut World) {
+    let mut stream = w.top.stream.take().expect("a stream was started");
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let status = loop {
+        match stream.child.try_wait().expect("the stream is waited for") {
+            Some(status) => break status,
+            None => {
+                assert!(
+                    Instant::now() < deadline,
+                    "the stream never ended: {}",
+                    daemon_spec::daemon_log_text(w)
+                );
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        }
+    };
+    assert_eq!(status.code(), Some(0), "the stream ended with {status:?}");
 }
 
 /// The lines that come within `seconds` are read too (what a step after a
@@ -728,6 +801,7 @@ fn later_reports(w: &mut World, path: String, want: String) {
     let found = until_line(w, 30, |line| {
         at(line, &path).is_some_and(|got| is(got, &want))
     });
+    w.top.wanted = vec![(path, want, true)];
     w.top.that = Some(found);
 }
 
@@ -891,4 +965,10 @@ fn directory_in_no_project(w: &mut World) {
     let dir = w.adopt_scratch().join("elsewhere");
     crate::tests::files::mkdirs(&dir);
     w.top.elsewhere = Some(dir);
+}
+
+#[when(regex = r#"^Alice sets ctxloom up in that directory and a session "([^"]+)" starts there$"#)]
+fn alice_sets_up_there(w: &mut World, harp: String) {
+    let dir = w.top.elsewhere.clone().expect("a directory in no project");
+    daemon_spec::set_up_and_running(w, &dir, &harp);
 }

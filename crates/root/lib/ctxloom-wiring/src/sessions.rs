@@ -149,7 +149,7 @@ impl<A: daemon_api::ApprovalAnswers> session_cli::TopAnswers for TopAnswering<'_
         if write_rule {
             let current = self
                 .runtime
-                .block_on(answers.approval(&ask.name))
+                .block_on(answers.approval(&ask_id))
                 .map_err(|error| self.catalog.message(&error))?;
             if let Some(settled) = daemon_api::settled_refusal(&current) {
                 return Err(self.catalog.message(&settled));

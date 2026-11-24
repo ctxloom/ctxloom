@@ -391,6 +391,15 @@ pub(super) fn ended_session(w: &mut World, harp: &str) {
         ],
     );
     assert_eq!(seeded.code, 0, "{}", seeded.said());
+    let listed = run_now(
+        w,
+        &["session", "list", "--state", "ended", "--format", "json"],
+    );
+    assert!(
+        listed.stdout.contains(harp),
+        "the ended session is not listed as ended: {}",
+        listed.said()
+    );
 }
 
 /// The harp of the project `name` beside this one, as `projects/<harp>`
@@ -418,6 +427,40 @@ pub(super) fn second_project_running(w: &mut World, name: &str, harp: &str) {
         .spawn()
         .expect("her assistant starts");
     let _ = release;
+    w.daemon_spec.holders.push(assistant);
+    // Live to her daemon's reads before a scenario asks.
+    until(w, "the second project's session live", DAEMON_WAIT, |w| {
+        let ran = run_in_beside(w, name, &["session", "list", "--format", "json"]);
+        (ran.code == 0 && ran.stdout.contains(harp) && ran.stdout.contains("LIVE")).then_some(())
+    });
+}
+
+/// Alice sets ctxloom up in `dir` and a session `harp` of hers is running
+/// there: its lock held until the scenario ends.
+pub(super) fn set_up_and_running(w: &mut World, dir: &Path, harp: &str) {
+    let git = std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(dir)
+        .status()
+        .expect("git runs");
+    assert!(git.success(), "the directory is a repository");
+    let env = env_of(w);
+    let env = env_pairs(&env);
+    let made = w.common.project.run_in_with(dir, &env, &["init"]);
+    assert_eq!(made.code, 0, "{}", made.said());
+    let seeded =
+        w.common
+            .project
+            .run_in_with(dir, &env, &["test", "seed-session", harp, "--lock", "free"]);
+    assert_eq!(seeded.code, 0, "{}", seeded.said());
+    let held = w.common.project.home().join(format!("lock-{harp}"));
+    let lock = dir.join(format!(".ctxloom/sessions/{harp}/session.lock"));
+    let holder = held.join("holds-lock");
+    files::put_program(&holder, &holds_lock());
+    let assistant = std::process::Command::new(&holder)
+        .args([lock.as_os_str(), held.join("release").as_os_str()])
+        .spawn()
+        .expect("her assistant starts");
     w.daemon_spec.holders.push(assistant);
 }
 

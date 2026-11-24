@@ -151,6 +151,11 @@ struct Nothing {
 }
 
 impl session_cli::TopFeed for Nothing {
+    // A project made here later is found by opening the watch again.
+    fn reopened_when_idle(&self) -> bool {
+        true
+    }
+
     // A watch with nothing to push is idle for the wait.
     #[cfg_attr(test, mutants::skip)]
     fn within(&mut self, wait: Duration) -> session_cli::Within {

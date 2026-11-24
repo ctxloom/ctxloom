@@ -547,6 +547,58 @@ impl Extension for Commands {
 }
 
 impl Commands {
+    /// The nouns about ctxloom's own process (the test commands, the daemon,
+    /// shutdown, the MCP server), answered before any project is looked at;
+    /// `None` for every other noun.
+    fn run_host_noun(
+        &self,
+        noun: &str,
+        call: &Call<'_>,
+        catalog: &Catalog,
+        out: &mut dyn Write,
+    ) -> Option<Result<Exit, Failure>> {
+        #[cfg(feature = "test-support")]
+        if noun == crate::test_commands::NOUN {
+            let env = Arc::clone(&self.env);
+            return Some(crate::test_commands::run(
+                || Wiring::new(env),
+                &self.version,
+                self.samples,
+                call,
+                catalog,
+                out,
+            ));
+        }
+        if noun == crate::daemon::NOUN {
+            return Some(crate::daemon::run(
+                &self.env,
+                &self.version,
+                call,
+                catalog,
+                out,
+            ));
+        }
+        if noun == crate::daemon::shutdown::NOUN {
+            let ran = Wiring::new(Arc::clone(&self.env))
+                .map_err(|e| Failure::new(e, cli_support::Exit::FAILED))
+                .and_then(|wiring| crate::daemon::shutdown::run(&wiring, &self.version, call, out));
+            return Some(ran);
+        }
+        let serve = call
+            .matches
+            .subcommand_matches(noun)
+            .and_then(|m| m.subcommand_name());
+        if crate::mcp::is_serve(noun, serve.unwrap_or_default()) {
+            let wakes = call
+                .matches
+                .subcommand_matches(noun)
+                .and_then(|m| m.subcommand_matches(mcp_server::VERB))
+                .is_none_or(mcp_server::posts_wakes);
+            return Some(crate::mcp::serve(&self.env, &self.version, wakes, out));
+        }
+        None
+    }
+
     /// [`Extension::run`]'s command, before what its flush set aside is said.
     fn run_noun(
         &mut self,
@@ -556,40 +608,8 @@ impl Commands {
         out: &mut dyn Write,
         err: &mut dyn Write,
     ) -> Result<Exit, Failure> {
-        #[cfg(feature = "test-support")]
-        if noun == crate::test_commands::NOUN {
-            let env = Arc::clone(&self.env);
-            return crate::test_commands::run(
-                || Wiring::new(env),
-                &self.version,
-                self.samples,
-                call,
-                catalog,
-                out,
-            );
-        }
-        if noun == crate::daemon::NOUN {
-            return crate::daemon::run(&self.env, &self.version, call, catalog, out);
-        }
-        if noun == crate::daemon::shutdown::NOUN {
-            let wiring = Wiring::new(Arc::clone(&self.env))
-                .map_err(|e| Failure::new(e, cli_support::Exit::FAILED))?;
-            return crate::daemon::shutdown::run(&wiring, &self.version, call, out);
-        }
-        let verb_of = |noun: &str| {
-            call.matches
-                .subcommand_matches(noun)
-                .and_then(|m| m.subcommand_name())
-                .unwrap_or_default()
-                .to_string()
-        };
-        if crate::mcp::is_serve(noun, &verb_of(noun)) {
-            let wakes = call
-                .matches
-                .subcommand_matches(noun)
-                .and_then(|m| m.subcommand_matches(mcp_server::VERB))
-                .is_none_or(mcp_server::posts_wakes);
-            return crate::mcp::serve(&self.env, &self.version, wakes, out);
+        if let Some(ran) = self.run_host_noun(noun, call, catalog, out) {
+            return ran;
         }
         // A hook answers its engine whatever the store (it never fails the
         // engine); every other command in a project that still has a store

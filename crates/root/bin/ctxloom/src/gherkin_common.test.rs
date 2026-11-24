@@ -323,6 +323,23 @@ impl Common {
     /// what the daemon's `ResolveProject` names this project (OQ-2), asked
     /// through the hidden `ctxloom test project-name`, which answers
     /// `projects/<harp>`. Text without it is as written, and nothing is asked.
+    /// `text` with every project resource name (`projects/<harp>`, a harp
+    /// being lowercase words joined by `-`) cut to `projects/`.
+    pub(crate) fn without_project_names(text: &str) -> String {
+        let mut out = String::with_capacity(text.len());
+        let mut rest = text;
+        while let Some(at) = rest.find("projects/") {
+            let (before, after) = rest.split_at(at + "projects/".len());
+            out.push_str(before);
+            let end = after
+                .find(|c: char| !(c.is_ascii_lowercase() || c == '-'))
+                .unwrap_or(after.len());
+            rest = &after[end..];
+        }
+        out.push_str(rest);
+        out
+    }
+
     pub(crate) fn named(&self, text: &str) -> String {
         if !text.contains("{project}") {
             return text.to_string();
@@ -579,8 +596,20 @@ macro_rules! common_steps {
 
             #[then(expr = "the output does not contain {string}")]
             fn output_lacks(w: &mut World, text: String) {
-                let text = w.common().expanded(&text);
-                w.ran().lacks(&Common::clap_wording(&text));
+                let text = Common::clap_wording(&w.common().expanded(&text));
+                // A project's harp is minted at random from harp's word
+                // lists, so it may hold any word a scenario says is absent
+                // ("projects/unholy-unrelated-petticoat"): the output is
+                // judged with every project name taken out, never by the
+                // luck of the draw. Taken out by its shape, so judging asks
+                // nothing (asking the name could mint one or start a daemon).
+                let ran = w.ran();
+                let output = Common::without_project_names(&ran.output());
+                assert!(
+                    !output.contains(&text),
+                    "expected the output not to contain {text:?}: {}",
+                    ran.said()
+                );
             }
 
             #[then("the output is valid JSON")]
@@ -1363,4 +1392,19 @@ fn host_spelled(value: &str) -> String {
         os::Flavor::Windows => value.replace('/', "\\"),
         os::Flavor::Unix => value.to_string(),
     }
+}
+
+#[test]
+fn a_project_name_holding_the_word_is_not_taken_for_it() {
+    let output =
+        r#"{"name": "projects/unholy-unrelated-petticoat/bundles/demo", "x": "unrelated"}"#;
+    let judged = Common::without_project_names(output);
+    assert_eq!(
+        judged,
+        r#"{"name": "projects//bundles/demo", "x": "unrelated"}"#
+    );
+    assert!(
+        !Common::without_project_names(r#"projects/unholy-unrelated-petticoat"#)
+            .contains("unrelated")
+    );
 }

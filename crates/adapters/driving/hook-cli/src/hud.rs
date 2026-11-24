@@ -88,10 +88,19 @@ pub fn context_bar(pct: f64) -> String {
     "\u{2588}".repeat(filled) + &"\u{2591}".repeat(BAR_WIDTH - filled)
 }
 
+/// What the statusline says of `asks` waiting permission asks (a DRAFT for
+/// the owner): nothing when none wait. The count is the project's, so it is
+/// the one place a person at a TUI learns an ask is waiting.
+pub fn asks_waiting(asks: u32) -> Option<String> {
+    let noun = if asks == 1 { "ask" } else { "asks" };
+    (asks > 0).then(|| format!("{YELLOW}\u{26a0} {asks} {noun} waiting: ctxloom top{RESET}"))
+}
+
 /// The statusline for `payload`: the model, the context bar, the cost, the
-/// session's `harp`, the `unread` mail, the worktree; `ctxloom` when there is
-/// nothing to show, so a sparse payload never formats to zero bytes.
-pub fn render(payload: &StatusPayload, harp: &str, unread: u32) -> String {
+/// session's `harp`, the `unread` mail, the worktree, then the `asks`
+/// waiting; `ctxloom` when there is nothing to show, so a sparse payload
+/// never formats to zero bytes.
+pub fn render(payload: &StatusPayload, harp: &str, unread: u32, asks: u32) -> String {
     let mut parts: Vec<String> = Vec::new();
     let model = payload.model_name();
     if !model.is_empty() {
@@ -121,6 +130,7 @@ pub fn render(payload: &StatusPayload, harp: &str, unread: u32) -> String {
         };
         parts.push(format!("{DIM}\u{2387} {branch}{RESET}"));
     }
+    parts.extend(asks_waiting(asks));
     if parts.is_empty() {
         return "ctxloom".to_string();
     }
@@ -130,10 +140,10 @@ pub fn render(payload: &StatusPayload, harp: &str, unread: u32) -> String {
 /// The hook: `input` is whatever was read from stdin. A payload that is not
 /// the statusline JSON still gets the `ctxloom` sentinel, never an error: the
 /// statusline must not break the engine's screen.
-pub fn hud(input: &str, harp: &str, unread: u32) -> String {
+pub fn hud(input: &str, harp: &str, unread: u32, asks: u32) -> String {
     match serde_json::from_str::<StatusPayload>(input) {
-        Ok(payload) => render(&payload, harp, unread),
-        Err(_) => "ctxloom".to_string(),
+        Ok(payload) => render(&payload, harp, unread, asks),
+        Err(_) => asks_waiting(asks).unwrap_or_else(|| "ctxloom".to_string()),
     }
 }
 

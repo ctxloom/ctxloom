@@ -3,8 +3,8 @@
 //! ctxloom's own").
 
 use super::{
-    bar_color, context_bar, hud, render, ContextWindow, Cost, StatusPayload, Worktree, CYAN, DIM,
-    GREEN, RED, RESET, YELLOW,
+    asks_waiting, bar_color, context_bar, hud, render, ContextWindow, Cost, StatusPayload,
+    Worktree, CYAN, DIM, GREEN, RED, RESET, YELLOW,
 };
 
 fn model(raw: &str) -> StatusPayload {
@@ -37,13 +37,13 @@ fn the_model_name_is_resolved_from_an_object_or_a_bare_string() {
 // its glyph; none when unset or empty.
 #[test]
 fn the_harp_is_shown_with_its_glyph_when_there_is_one() {
-    let out = render(&StatusPayload::default(), "swift-amber-falcon", 0);
+    let out = render(&StatusPayload::default(), "swift-amber-falcon", 0, 0);
     assert!(out.contains("swift-amber-falcon"), "{out}");
     assert!(
         out.contains('\u{2301}'),
         "the harp section is prefixed with the glyph: {out}"
     );
-    let out = render(&StatusPayload::default(), "", 0);
+    let out = render(&StatusPayload::default(), "", 0, 0);
     assert!(!out.contains('\u{2301}'), "no harp, no section: {out}");
 }
 
@@ -59,7 +59,7 @@ fn the_sections_compose() {
         },
         worktree: Worktree::default(),
     };
-    let out = render(&payload, "bold-crimson-thunder", 2);
+    let out = render(&payload, "bold-crimson-thunder", 2, 0);
     for want in [
         "Claude Sonnet",
         "42%",
@@ -98,7 +98,7 @@ fn the_line_is_gos_byte_for_byte() {
         format!("{DIM}\u{2387} feature{RESET}"),
     ]
     .join(" \u{2502} ");
-    assert_eq!(render(&payload, "brisk-copper-moth", 3), want);
+    assert_eq!(render(&payload, "brisk-copper-moth", 3, 0), want);
 }
 
 // Go: a worktree with no branch shows its name.
@@ -111,7 +111,10 @@ fn a_worktree_without_a_branch_shows_its_name() {
         },
         ..StatusPayload::default()
     };
-    assert_eq!(render(&payload, "", 0), format!("{DIM}\u{2387} wt{RESET}"));
+    assert_eq!(
+        render(&payload, "", 0, 0),
+        format!("{DIM}\u{2387} wt{RESET}")
+    );
 }
 
 // Go: TestFormatHud_NeverEmptyOnSuccess: "a sparse session JSON plus no
@@ -119,7 +122,7 @@ fn a_worktree_without_a_branch_shows_its_name() {
 // identical to a broken install".
 #[test]
 fn a_sparse_payload_still_says_ctxloom() {
-    assert_eq!(render(&StatusPayload::default(), "", 0), "ctxloom");
+    assert_eq!(render(&StatusPayload::default(), "", 0, 0), "ctxloom");
 }
 
 // Go: a null used_percentage (a session with no usage yet) renders nothing,
@@ -127,11 +130,11 @@ fn a_sparse_payload_still_says_ctxloom() {
 #[test]
 fn a_null_or_zero_usage_renders_no_bar() {
     assert_eq!(
-        hud(r#"{"context_window":{"used_percentage":null}}"#, "", 0),
+        hud(r#"{"context_window":{"used_percentage":null}}"#, "", 0, 0),
         "ctxloom"
     );
     assert_eq!(
-        hud(r#"{"context_window":{"used_percentage":0}}"#, "", 0),
+        hud(r#"{"context_window":{"used_percentage":0}}"#, "", 0, 0),
         "ctxloom"
     );
 }
@@ -140,8 +143,8 @@ fn a_null_or_zero_usage_renders_no_bar() {
 // error."
 #[test]
 fn a_payload_that_is_not_json_is_the_sentinel() {
-    assert_eq!(hud("not json", "amber-swift-owl", 0), "ctxloom");
-    assert_eq!(hud("", "amber-swift-owl", 0), "ctxloom");
+    assert_eq!(hud("not json", "amber-swift-owl", 0, 0), "ctxloom");
+    assert_eq!(hud("", "amber-swift-owl", 0, 0), "ctxloom");
 }
 
 // session_hooks.feature: model and context from the engine, the harp from
@@ -151,6 +154,7 @@ fn the_engine_s_half_and_ctxloom_s_are_both_there() {
     let out = hud(
         r#"{"model":{"display_name":"Opus 5"},"context_window":{"used_percentage":42}}"#,
         "brisk-copper-moth",
+        0,
         0,
     );
     for want in ["Opus 5", "42%", "brisk-copper-moth"] {
@@ -185,4 +189,44 @@ fn the_color_follows_the_thresholds() {
     assert_eq!(bar_color(79.0), YELLOW);
     assert_eq!(bar_color(80.0), RED);
     assert_eq!(bar_color(99.0), RED);
+}
+
+// Owner ruling 2026-11-24: the count of the project's waiting asks closes
+// the line, singular for one, and is absent when none wait.
+#[test]
+fn one_waiting_ask_is_said_in_the_singular_after_the_rest() {
+    let out = hud(r#"{"model":{"display_name":"Opus 5"}}"#, "", 0, 1);
+    assert!(
+        out.starts_with(&format!("{CYAN}Opus 5{RESET} \u{2502} ")),
+        "{out:?}"
+    );
+    assert!(
+        out.ends_with(&format!(
+            "{YELLOW}\u{26a0} 1 ask waiting: ctxloom top{RESET}"
+        )),
+        "{out:?}"
+    );
+}
+
+#[test]
+fn several_waiting_asks_are_said_in_the_plural() {
+    let out = hud("{}", "", 0, 3);
+    assert_eq!(
+        out,
+        format!("{YELLOW}\u{26a0} 3 asks waiting: ctxloom top{RESET}")
+    );
+}
+
+#[test]
+fn no_waiting_ask_adds_nothing() {
+    assert_eq!(asks_waiting(0), None);
+    assert!(!hud(r#"{"model":{"display_name":"Opus 5"}}"#, "", 0, 0).contains("waiting"));
+}
+
+#[test]
+fn a_payload_that_is_not_json_still_says_the_waiting_asks() {
+    assert_eq!(
+        hud("not json", "", 0, 2),
+        format!("{YELLOW}\u{26a0} 2 asks waiting: ctxloom top{RESET}")
+    );
 }

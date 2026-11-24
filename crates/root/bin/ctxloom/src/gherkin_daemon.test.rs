@@ -126,6 +126,8 @@ pub(super) struct State {
     stub_on_path: bool,
     /// What the interactive session's command came to, once it ended.
     session_ran: Option<crate::tests::Ran>,
+    /// What the claude statusline printed when it was run by a step.
+    statusline: Option<String>,
     /// A foreign writer killed after one of its steps (step 10c U10): its
     /// command, and the file its run must leave as it says.
     foreign_run: Option<(String, Leaves)>,
@@ -8947,32 +8949,76 @@ fn terminal_rang(w: &mut World, times: usize) {
     );
 }
 
-#[then(
-    regex = r#"^the session's terminal was told once of "([^"]+)"'s ask to run "([^"]+)" with "([^"]*)", with the command that answers it$"#
-)]
-fn terminal_told_of(w: &mut World, child: String, tool: String, text: String) {
-    let session = session_ran(w);
-    let told: Vec<&str> = session
-        .stderr
-        .lines()
-        .filter(|line| line.contains("ctxloom:") && line.contains(&format!("{tool}({text})")))
-        .collect();
-    assert_eq!(told.len(), 1, "{}", session.said());
-    let line = told[0];
-    assert!(line.contains(&child), "{line}");
-    assert!(
-        line.contains("ctxloom session approvals answer ask-"),
-        "{line}"
+/// The claude statusline as the session `amber-swift-owl`'s engine runs it
+/// (a payload on stdin), what it printed.
+fn statusline_of(w: &World) -> String {
+    let session = session_name(w, "amber-swift-owl");
+    let (ran, _) = hook_run(
+        w,
+        "statusline",
+        r#"{"model":{"display_name":"Opus 5"}}"#,
+        Some(&session),
     );
+    assert_eq!(ran.code, 0, "{}", ran.said());
+    assert_eq!(ran.stderr, "", "a diagnostic would corrupt the bar");
+    ran.stdout
 }
 
-#[then("the session's terminal was told of no ask")]
-fn terminal_told_of_none(w: &mut World) {
+#[then(expr = "the session's statusline says {string}")]
+fn statusline_says(w: &mut World, text: String) {
+    let mut last = String::new();
+    until(w, "the statusline's count of asks", DAEMON_WAIT, |w| {
+        last = statusline_of(w);
+        last.contains(&text).then_some(())
+    });
+    assert!(last.contains(&format!("\u{26a0} {text}")), "{last:?}");
+}
+
+#[then("the session's statusline says nothing of asks")]
+fn statusline_says_nothing(w: &mut World) {
+    until(w, "the statusline's count to clear", DAEMON_WAIT, |w| {
+        (!statusline_of(w).contains("waiting")).then_some(())
+    });
+}
+
+#[when("the claude statusline runs for a session of the project, with no daemon serving")]
+fn statusline_without_daemon(w: &mut World) {
+    // The project's name is the daemon's to give (init asked it), so the
+    // session's name is taken before the daemon is stopped.
+    let session = session_name(w, "amber-swift-owl");
+    let stopped = run_now(w, &["daemon", "stop"]);
+    assert_eq!(stopped.code, 0, "{}", stopped.said());
+    until(w, "the daemon to be gone", DAEMON_WAIT, |w| {
+        (!serving_now(w)).then_some(())
+    });
+    let (ran, _) = hook_run(
+        w,
+        "statusline",
+        r#"{"model":{"display_name":"Opus 5"}}"#,
+        Some(&session),
+    );
+    assert_eq!(ran.code, 0, "{}", ran.said());
+    w.daemon_spec.statusline = Some(ran.stdout);
+}
+
+#[then("the statusline shows nothing of asks")]
+fn statusline_shows_nothing(w: &mut World) {
+    let shown = w.daemon_spec.statusline.clone().expect("it ran");
+    assert!(!shown.contains("waiting"), "{shown:?}");
+}
+
+#[then("no daemon is serving")]
+fn no_daemon_serving(w: &mut World) {
+    assert!(!serving_now(w), "{}", daemon_log_text(w));
+}
+
+#[then("the session's terminal was shown no line about an ask")]
+fn terminal_shown_no_line(w: &mut World) {
     let session = session_ran(w);
     assert!(
-        !session.stderr.contains("session approvals answer"),
+        !session.stderr.contains("session approvals answer")
+            && !session.stderr.contains("asks to run"),
         "{}",
         session.said()
     );
-    assert_eq!(frontend_lines_starting(w, "told"), 0);
 }

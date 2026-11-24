@@ -132,7 +132,24 @@ use serde_json::Value;
 /// (https://nexte.st/docs/configuration/setup-scripts/).
 pub(crate) fn prebuilt(name: &str, profile_dir: &Path) -> Option<PathBuf> {
     let path = PathBuf::from(host_var(name)?);
-    (path.parent() == Some(profile_dir)).then_some(path)
+    let own = path.parent() == Some(profile_dir)
+        || path.parent() == Some(profile_dir.join(TEST_BINARIES).as_path());
+    own.then_some(path)
+}
+
+/// The directory below a profile's, where the test-support `ctxloom` is
+/// kept: a copy, because `<profile>/ctxloom` is where any cargo build of the
+/// package, a plain one included, writes its binary.
+pub(crate) const TEST_BINARIES: &str = "test-binaries";
+
+/// `built` copied into [`TEST_BINARIES`] (`files::copy` writes whole and
+/// renames in, so a process running an older copy keeps it).
+fn kept_apart(built: &Path, profile_dir: &Path) -> PathBuf {
+    let kept = profile_dir
+        .join(TEST_BINARIES)
+        .join(built.file_name().expect("a file name"));
+    files::copy(built, &kept);
+    kept
 }
 
 /// The `ctxloom` binary with its test-only commands: the one nextest's setup
@@ -170,7 +187,10 @@ pub(crate) fn binary() -> &'static Path {
         }
         let status = build.status().expect("cargo runs");
         assert!(status.success(), "building ctxloom failed");
-        profile_dir.join(format!("ctxloom{}", std::env::consts::EXE_SUFFIX))
+        kept_apart(
+            &profile_dir.join(format!("ctxloom{}", std::env::consts::EXE_SUFFIX)),
+            profile_dir,
+        )
     })
 }
 
@@ -504,3 +524,17 @@ mod gherkin_isolation;
 
 #[path = "gherkin_lint.test.rs"]
 mod gherkin_lint;
+
+/// A plain `cargo build` (`just build`'s `plain-binary`, run in the same
+/// checkout while a test run goes on) writes `<target>/<profile>/ctxloom`
+/// over the test-support build. The tests then ran a plain binary, whose
+/// account home is the passwd database's, and found the owner's real daemon
+/// (`ctxloom-wiring-daemon-other-home`, 14 tests, 2026-11-23). The binary
+/// the tests run is therefore never that path.
+#[test]
+fn test_the_binary_tests_run_is_not_the_path_a_plain_build_overwrites() {
+    let exe = std::env::current_exe().expect("the test executable");
+    let profile_dir = exe.parent().and_then(Path::parent).expect("profile dir");
+    let uplifted = profile_dir.join(format!("ctxloom{}", std::env::consts::EXE_SUFFIX));
+    assert_ne!(binary(), uplifted.as_path());
+}

@@ -2727,13 +2727,20 @@ project (owner ruling 2026-11-22, project-wide 2026-11-23;
 its whole project (`ListApprovals` with no root, the bare `session approvals`
 listing: a one-shot's and any other session's asks too; each TUI of the project
 tells every ask, the accepted cost; polled because no stream of asks exists),
-and for each it has not told of rings the bell and
-writes one stderr line through the same path as a drain's notice, in the same
-main-thread future: who asks, what it asks to run (an option's rule, else
-tool and input) and `ctxloom session approvals answer <ask> <options>`. Once
-per ask; an ask no longer waiting is never told. The ask's words are another
-agent's, so control characters in them are spaces. The line's words are a
-DRAFT. No statusline count; answering stays in the CLI. Under `test-support`
+and for each it has not told of rings the bell, once per ask, and
+writes NO line: the TUI owns the terminal, and a line written under it lands in
+the human's input box (owner ruling 2026-11-24, reversing 2026-11-22's "no
+statusline count"). An ask no longer waiting is never told. The count is the
+statusline's: ctxloom's claude statusline (`hook claude-code execute
+statusline`, `hook_cli::statusline`) appends `⚠ <n> ask(s) waiting: ctxloom
+top` after the rest of its line, nothing when none wait (a DRAFT wording).
+`ctxloom_wiring::hook_asks::waiting` asks the project's waiting asks of
+`CTXLOOM_SESSION`'s project (`ListApprovals` with no root) of a daemon already
+serving (`daemon::hook_daemon_serving`; the statusline never starts one),
+within `ASK_WITHIN` (2 s, under the hook's bound: the engine redraws often and
+drops a slow line), and counts none when no daemon serves, the session names
+no project or the answer is late. Answering stays in `ctxloom top` and the
+CLI. Under `test-support`
 the watch appends `look` and `told <ask>` lines to
 `<home>/.ctxloom/test-frontend-asks`, which session_approvals.feature waits
 on.
@@ -5352,6 +5359,24 @@ by worktree, so cargo rebuilds what changed (accepted). The age sweep
 (`just trim-targets`) does not reach it; `rm -rf` the directory to reclaim
 it. `scripts/scratch-tree-lock.selftest.sh` and
 `scripts/test-staged.selftest.sh` hold the path and the serialization.
+
+A LANDING SWEEPS WHAT IT GREW (owner ruling 2026-11-24, after /home filled
+twice in two days): at its end, pass or fail, `closeout-ratchet.sh` (so `just
+land-ratchet` and `closeout-ratchet`) runs `scripts/land-sweep.sh` on its
+checkout, by its own path (no slot pool). It removes `target/ratchet-base`
+(the base's build, a new sha each landing, never reused; skipped while
+`ratchet-base.sh` holds `target/.ratchet-base.lock`) and every rustc
+incremental directory of `target/`, never touching `target/ratchet/` (the
+cached lists and re-confirmations, reused by sha); it sweeps the shared
+staged target BY AGE (`trim-targets.sh` with `TRIM_TARGET_DIR`, `LAND_SWEEP_DAYS`,
+default 2) and only while it holds `staged-tree.lock` (`flock -n`; a commit
+gate holding it skips the sweep, said). Age, not whole removal: every commit
+gate builds there, and removing it whole would rebuild every dependency at the
+next commit (not measured: building the workspace is outside this change's
+gates); a sweep that cannot run is said and never changes the landing's
+verdict. Each is one line, `ok   sweep (<what>) freed <size>`. A cargo's
+`.cargo-lock` held keeps its target. Self-tests: `scripts/land-sweep.selftest.sh`
+and `closeout-ratchet.selftest.sh`.
 
 Each throwaway's lock (`.staged-tree.lock` in the cache, `.ratchet-base.lock`,
 `.mutants-batch.lock`) is a descriptor bash opens without close-on-exec and

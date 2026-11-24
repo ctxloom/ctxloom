@@ -34,6 +34,11 @@
 #
 # then a summary line. `--dry-run` judges the same and removes nothing.
 #
+# TRIM_TARGET_DIR names the target directory to sweep instead of
+# <checkout>/target (one checkout then); the shared staged target
+# (scripts/land-sweep.sh) is swept so, with the checkout's Cargo.toml read for
+# the sweep and CARGO_TARGET_DIR pointing at that directory.
+#
 # Exit: 0; 1 when it cannot sweep (the tool, a noatime mount, a failed sweep);
 # 2 on usage. Environment: TRIM_SWEEP_VERSION (required), and for the pool
 # SLOT_ROOT, SLOT_PREFIX and SLOT_COUNT (the justfile gives them).
@@ -66,7 +71,7 @@ human() { numfmt --to=iec-i --suffix=B "$1"; }
 size_of() { du -sb "$1" 2>/dev/null | cut -f1; }
 swept=0 kept=0
 for c in "${checkouts[@]}"; do
-    t=$c/target
+    t=${TRIM_TARGET_DIR:-$c/target}
     if [ ! -d "$t" ]; then
         echo "skip    $c: no target/"
         continue
@@ -91,7 +96,7 @@ for c in "${checkouts[@]}"; do
     fi
     before=$(size_of "$t")
     log=$(mktemp)
-    if ! (cd "$c" && CARGO_NET_OFFLINE=true cargo-sweep sweep ${dry:+--dry-run} --time "$days" "$c") > "$log" 2>&1; then
+    if ! (cd "$c" && CARGO_TARGET_DIR="$t" CARGO_NET_OFFLINE=true cargo-sweep sweep ${dry:+--dry-run} --time "$days" "$c") > "$log" 2>&1; then
         for fd in "${fds[@]}"; do exec {fd}<&-; done
         tail -n 5 "$log" >&2; rm -f "$log"
         fail "cargo-sweep failed in $c"

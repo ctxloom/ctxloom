@@ -423,54 +423,70 @@ Feature: session approvals — a child's permission ask, answered by the user
     frontend looks at the waiting asks of its whole project, whatever their
     root (once a second; several TUIs on one project each tell of every
     ask), and for each one it has not told of rings the terminal
-    bell once and writes one line to the terminal's standard error: who
-    asks, what it asks to run, and the command that answers it. An ask
-    answered, expired or withdrawn is told no more. Answering stays in
-    `ctxloom session approvals answer`. The line's words are a draft.
+    bell once. It writes NO line: the TUI owns the terminal and a line
+    written under it lands in its input box. The count of the project's
+    waiting asks is in ctxloom's statusline instead (`ctxloom hook claude-code
+    execute statusline`), `⚠ <n> ask(s) waiting: ctxloom top`, after
+    the rest of it and absent when none wait; the statusline asks a daemon
+    that is already serving and never starts one, and shows nothing of
+    asks when it cannot ask in time. An ask answered, expired or withdrawn
+    is told no more and no longer counted. Answering stays in `ctxloom top`
+    and `ctxloom session approvals answer`. The statusline's words are a draft.
 
-    Scenario: An ask arriving under a running session rings the bell once and says one line
-      # new: owner ruling 2026-11-22 (uncanny-earpiece): the root's frontend rings and says one line.
+    Scenario: An ask arriving under a running session rings the bell once and is counted in the statusline
+      # changed: owner ruling 2026-11-24 (reversing 2026-11-22): no line on the terminal; the bell, and the statusline's count.
       Given an initialized ctxloom project
       And an interactive session "amber-swift-owl" is running in a terminal, with a child "brisk-copper-moth" of it
       When "brisk-copper-moth"'s engine asks to run "Bash" with "rm -rf build/"
       Then the session's frontend has told its human of 1 ask
+      And the session's statusline says "1 ask waiting: ctxloom top"
       When the session's terminal is released and the session ends
       Then the session's terminal rang the bell 1 time
-      And the session's terminal was told once of "brisk-copper-moth"'s ask to run "Bash" with "rm -rf build/", with the command that answers it
+      And the session's terminal was shown no line about an ask
 
-    Scenario: A second ask is told as well, with a bell of its own
-      # new: once per ask, not once per session.
+    Scenario: A second ask rings a bell of its own and the statusline counts both
+      # changed: once per ask, not once per session; the count replaces the line.
       Given an initialized ctxloom project
       And an interactive session "amber-swift-owl" is running in a terminal, with a child "brisk-copper-moth" of it
       When "brisk-copper-moth"'s engine asks to run "Bash" with "rm -rf build/"
       Then the session's frontend has told its human of 1 ask
       When "brisk-copper-moth"'s engine asks to run "Bash" with "make release"
       Then the session's frontend has told its human of 2 asks
+      And the session's statusline says "2 asks waiting: ctxloom top"
       When the session's terminal is released and the session ends
       Then the session's terminal rang the bell 2 times
-      And the session's terminal was told once of "brisk-copper-moth"'s ask to run "Bash" with "rm -rf build/", with the command that answers it
-      And the session's terminal was told once of "brisk-copper-moth"'s ask to run "Bash" with "make release", with the command that answers it
+      And the session's terminal was shown no line about an ask
 
-    Scenario: An answered ask is told no more, and the next one is told
-      # new: an answered ask says nothing more.
+    Scenario: An answered ask leaves the statusline, and the next one is counted
+      # changed: an answered ask says nothing more and is no longer counted.
       Given an initialized ctxloom project
       And an interactive session "amber-swift-owl" is running in a terminal, with a child "brisk-copper-moth" of it
       When "brisk-copper-moth"'s engine asks to run "Bash" with "rm -rf build/"
       Then the session's frontend has told its human of 1 ask
+      And the session's statusline says "1 ask waiting: ctxloom top"
       When I run "ctxloom session approvals answer brisk-copper-moth allow-once"
       Then the command succeeds
+      And the session's statusline says nothing of asks
       When "brisk-copper-moth"'s engine asks to run "Bash" with "make release"
       Then the session's frontend has told its human of 2 asks
+      And the session's statusline says "1 ask waiting: ctxloom top"
       When the session's terminal is released and the session ends
       Then the session's terminal rang the bell 2 times
-      And the session's terminal was told once of "brisk-copper-moth"'s ask to run "Bash" with "rm -rf build/", with the command that answers it
-      And the session's terminal was told once of "brisk-copper-moth"'s ask to run "Bash" with "make release", with the command that answers it
+      And the session's terminal was shown no line about an ask
 
     Scenario: A session that is asked nothing says nothing
-      # new: no ask, no bell and no line.
+      # changed: no ask, no bell, no line and no count.
       Given an initialized ctxloom project
       And an interactive session "amber-swift-owl" is running in a terminal, with a child "brisk-copper-moth" of it
       Then the session's frontend has looked for asks 2 more times
+      And the session's statusline says nothing of asks
       When the session's terminal is released and the session ends
       Then the session's terminal rang the bell 0 times
-      And the session's terminal was told of no ask
+      And the session's terminal was shown no line about an ask
+
+    Scenario: A statusline with no daemon serving shows no count and starts no daemon
+      # new: the statusline asks a daemon already serving; it never starts one.
+      Given an initialized ctxloom project
+      When the claude statusline runs for a session of the project, with no daemon serving
+      Then the statusline shows nothing of asks
+      And no daemon is serving

@@ -675,7 +675,7 @@ trim-targets *args:
 
 # The self-tests of this repository's scripts against fixture trees.
 [group('check')]
-[doc("Self-tests of the scripts: drop-worktree, mutants-batch, mutants-verdict, memory cap, closeout, closeout-ratchet, ratchet-base, ltk rules, output budget, tests exit, test-staged, scratch-tree lock, machine-wide test lock, exec-mode check, path deps, vendored googleapis, mcp-env probe, install shutdown, slot pool, trim-targets")]
+[doc("Self-tests of the scripts: drop-worktree, mutants-batch, mutants-verdict, memory cap, closeout, closeout-ratchet, ratchet-base, ltk rules, output budget, tests exit, test-staged, scratch-tree lock, machine-wide test lock, exec-mode check, path deps, vendored googleapis, mcp-env probe, install shutdown, slot pool, trim-targets, land-sweep")]
 [no-exit-message]
 selftest:
     @{{TOP}}/scripts/drop-worktree.selftest.sh
@@ -703,6 +703,7 @@ selftest:
     @{{TOP}}/scripts/slot.selftest.sh
     @{{TOP}}/scripts/arch-lint-install.selftest.sh
     @TRIM_SWEEP_VERSION='{{cargo_sweep_version}}' {{TOP}}/scripts/trim-targets.selftest.sh
+    @TRIM_SWEEP_VERSION='{{cargo_sweep_version}}' {{TOP}}/scripts/land-sweep.selftest.sh
 
 # The terminal wake's live probe against the installed claude (owner ruling
 # 2026-11-18): re-run on each claude bump. Not a gate. One model call (haiku);

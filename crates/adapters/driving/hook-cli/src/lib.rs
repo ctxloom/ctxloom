@@ -28,9 +28,10 @@ pub use capture::{execute_recording, NotRecorded, Recording, Unrecorded};
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{HookError, HookWarning, EN_US};
-pub use execute::{acknowledge, deliver, execute, Outcome, STATUSLINE};
+pub use execute::{acknowledge, deliver, execute, statusline, Outcome, STATUSLINE};
 pub use hud::{
-    bar_color, context_bar, hud, render, StatusPayload, CYAN, DIM, GREEN, RED, RESET, YELLOW,
+    asks_waiting, bar_color, context_bar, hud, render, StatusPayload, CYAN, DIM, GREEN, RED, RESET,
+    YELLOW,
 };
 
 /// The `hook` noun, shaped for mounting on the command line: hidden.

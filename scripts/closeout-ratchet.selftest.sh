@@ -162,6 +162,7 @@ git -C "$r" branch integration
 echo x > "$r/x"
 git -C "$r" add x
 git -C "$r" -c user.name=t -c user.email=t@t commit -qm slice
+export GATES_STAGED_CACHE=$tmp/gates-cache
 closeout() { (cd "$r" && env RATCHET_GATES="build lint test mutants-batch" RATCHET_BASE_LIST="$tmp/base.list" \
     STUB_LIST="$tmp/slice.list" "$@" "$here/closeout-ratchet.sh" integration 2>&1); }
 
@@ -298,4 +299,31 @@ grep -q '^FAIL land-ratchet: 1 failed: ratchet ' <<< "$out" || fail "land-ratche
 rc=0; out=$( (cd "$r" && "$here/closeout-ratchet.sh" --no-mutation 2>&1) ) || rc=$?
 [ "$rc" -eq 2 ] || fail "land-ratchet with no base exited $rc: $out"
 grep -q '^FAIL land-ratchet: usage: land-ratchet <base>' <<< "$out" || fail "land-ratchet usage: $out"
+# The end of a landing sweeps what it grew, pass or fail, and keeps the
+# cached lists (the sweep's own cases: land-sweep.selftest.sh).
+grow() {
+    mkdir -p "$r/target/ratchet-base/debug" "$r/target/debug/incremental/c-1" "$r/target/ratchet"
+    echo x > "$r/target/ratchet-base/debug/f"; echo x > "$r/target/debug/incremental/c-1/f"
+    echo red > "$r/target/ratchet/keep.list"
+}
+grow
+list "$tmp/slice.list" "red:f/a.feature :: one" "green:f/a.feature :: two" "green:f/b.feature :: three"
+rc=0; out=$(land) || rc=$?
+[ "$rc" -eq 0 ] || fail "a swept landing exited $rc: $out"
+grep -q '^ok   sweep (ratchet-base) freed ' <<< "$out" || fail "no ratchet-base sweep line: $out"
+grep -q '^ok   sweep (incremental, 1 dirs) freed ' <<< "$out" || fail "no incremental sweep line: $out"
+[ ! -e "$r/target/ratchet-base" ] || fail "target/ratchet-base is still there after a landing"
+[ ! -e "$r/target/debug/incremental" ] || fail "the incremental directory is still there after a landing"
+[ -s "$r/target/ratchet/keep.list" ] || fail "the landing swept target/ratchet's cached list"
+grow
+list "$tmp/slice.list" "red:f/a.feature :: one" "red:f/b.feature :: three"
+rc=0; out=$(land) || rc=$?
+[ "$rc" -eq 1 ] || fail "a failed swept landing exited $rc, not its verdict 1: $out"
+[ ! -e "$r/target/ratchet-base" ] || fail "target/ratchet-base is still there after a failed landing"
+# A sweep that fails is said, and the verdict is the landing's.
+list "$tmp/slice.list" "red:f/a.feature :: one" "green:f/a.feature :: two" "green:f/b.feature :: three"
+printf '#!/bin/sh\necho "FAIL sweep (stub): broke"; exit 7\n' > "$tmp/bad-sweep"; chmod +x "$tmp/bad-sweep"
+rc=0; out=$(land RATCHET_SWEEP="$tmp/bad-sweep") || rc=$?
+[ "$rc" -eq 0 ] || fail "a failing sweep changed the verdict to $rc: $out"
+grep -q '^FAIL sweep (stub): broke' <<< "$out" || fail "a failing sweep was not said: $out"
 echo "ok   closeout-ratchet.selftest"

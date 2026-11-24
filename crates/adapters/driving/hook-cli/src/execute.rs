@@ -48,6 +48,16 @@ pub fn acknowledge(outcome: &Outcome, service: &dyn HookService) -> bool {
     outcome.offered.is_empty() || service.acknowledge(&outcome.offered)
 }
 
+/// The statusline command's answer with `asks` permission asks waiting in
+/// the session's project (the caller asked a daemon already serving, within
+/// its own bound; 0 when it could not): rendering only, nothing recorded.
+pub fn statusline(input: &str, harp: &str, asks: u32) -> Outcome {
+    Outcome {
+        stdout: hud(input, harp, 0, asks),
+        ..Outcome::default()
+    }
+}
+
 /// Run the callback. `input` is stdin, `harp` the session the hook runs in
 /// (may be empty).
 ///
@@ -79,7 +89,7 @@ pub(crate) fn answer(
     if hook_name == STATUSLINE {
         return Ok((
             Outcome {
-                stdout: hud(input, harp, 0),
+                stdout: hud(input, harp, 0, 0),
                 ..Outcome::default()
             },
             None,

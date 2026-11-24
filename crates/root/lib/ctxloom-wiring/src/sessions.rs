@@ -473,8 +473,14 @@ impl Commands {
         // The service the answer's ack goes through, once it is printed.
         let mut acknowledging: Option<crate::commands::Hooks<'_>> = None;
         let outcome = if hook_name == hook_cli::STATUSLINE {
-            // Rendering only: it needs neither the application nor a home.
-            hook_cli::execute(&hook.engine, hook_name, input, &harp, &NoService)
+            // Rendering only, with the project's waiting asks counted by a
+            // daemon already serving (never started for it, and 0 when it
+            // cannot answer in time): no application and no home.
+            Ok(hook_cli::statusline(
+                input,
+                &harp,
+                crate::hook_asks::waiting(&self.env),
+            ))
         } else {
             // A hook is a process of its own. One whose environment names an
             // endpoint (M10b's container arrival, OD-13) delivers there alone,
@@ -600,23 +606,6 @@ fn destroy<R>(
     _: &mut dyn Write,
 ) -> Result<session_cli::Done, session_cli::Failure> {
     unreachable!("a plain build has no destroying verb")
-}
-
-/// The hook service of a callback that never asks the application.
-struct NoService;
-
-impl hook_cli::HookService for NoService {
-    // Unreachable by design (the body is `unreachable!`): no test can call it.
-    #[cfg_attr(test, mutants::skip)]
-    fn execute(
-        &self,
-        _: &str,
-        _: &str,
-        _: &str,
-        _: &str,
-    ) -> Result<setup_application::HookAnswer, Box<dyn Diagnostic>> {
-        unreachable!("the statusline renders in hook-cli and asks nothing")
-    }
 }
 
 #[cfg(test)]

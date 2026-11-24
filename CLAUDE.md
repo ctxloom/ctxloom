@@ -5027,7 +5027,7 @@ ruling 144; required: a missing nextest fails the gate),
 yet a gate: see "The pins"); `just test-pkg <crate>...` is the quick loop, `just fmt` and
 `just fmt-check` cover this workspace's crates only, `just run` runs the
 binary, `just clean-target` is the only way to drop this checkout's
-`target/` (`just trim-targets`, below, sweeps the pool's by age), and `just
+`target/` (`just trim-targets`, below, sweeps by age), and `just
 selftest` checks the scripts. Raw `cargo build|test|clippy|fmt|deny|clean|
 run|mutants`, `nextest`, `rustc`, `lefthook run`, `gitleaks`, and any
 `--no-verify` or `LEFTHOOK=`/`SKIP=` skip of the hooks are blocked by ltk
@@ -5040,42 +5040,14 @@ the first 20 diagnostics, survivors capped, each with a `+K more` tail).
 `scripts/output-budget.selftest.sh` holds that budget. Read the log for the
 rest; `VERBOSE=1 just <gate>` shows the full output.
 
-Agents work in a POOL of three long-lived worktrees, each with a warm
-`target/` (owner ruling of 2026-11-16): `~/workspace/worktrees/ctxloom--slot-1`
-to `-3` of the user's own home (the justfile's `slot_root`, `slot_prefix`,
-`slot_count`; `CTXLOOM_SLOT_ROOT` replaces the root). Departure from the
-worktree layout rule (`~/workspace/worktrees/<project>--<branch-slug>`): a
-slot holds many branches in turn, so it is named by its number, not a
-branch. `just slot lease <branch> [--from <base>] [--wait <secs>] [--by
-<who>]` (`scripts/slot.sh`) takes the first free, clean slot (one already
-made before one not yet made, which `git worktree add` makes), switches it
-to the branch (made from `<base>` when neither it nor `origin/<branch>`
-exists) and prints its path alone on stdout; with every slot leased it says
-each one's holder and refuses, or with `--wait` retries until the time is
-up. A free slot holding uncommitted work (a crashed holder's) or a detached
-HEAD no ref holds is passed over, and said. The lease is an advisory
-`flock` on `<git common dir>/ctxloom-slots/slot-<n>.lock` held by a holder
-process of its own session that lives exactly as long as the lease's OWNER
-(the first ancestor not a shell or `just`: an agent's Claude Code process;
-`--holder <pid>` names another), checked by pid and start time, so a
-crashed agent's slot frees itself; `slot-<n>.lease` beside it says who,
-which branch and since when. Limit: subagents of one Claude Code process
-share its pid, so one of them that crashes keeps its lease until the
-process ends or it is released. `just slot release [<slot>]` (default: the
-slot `just` was run from) refuses a slot holding a tracked change or an
-untracked file, or whose HEAD is in no remote-tracking ref (unless
-`--allow-unpushed`), then detaches its HEAD (the branch is free for any
-checkout; files and `target/` stay warm), lets the lease go and sweeps the
-slot's `target/` (`--no-sweep` skips it). `just slot list` says each slot:
-leased (by whom, branch, since), free (where, clean or DIRTY, the last
-lease) or absent. A switch rebuilds only the crates the branch changed (measured
+A branch switch in a long-lived checkout rebuilds only the crates the branch changed (measured
 2026-11-16, `just build` plus `test-pkg run-launcher sessions
 ctxloom-wiring`: 133 s cold, 102 s on a switch to a 32-commit branch, 35 s
 back; `target/` 8.4G, +5.6G, +1G; a sweep of the 15G after aging took 2 s
 and left 4.7G, the next build still fresh). The
 gates' own trees (the staged tree, the ratchet base, the mutants batch)
 keep their own target directories. `just trim-targets [--dry-run] [--days
-<n>] [<checkout>...]` (`scripts/trim-targets.sh`; no checkout: the slots)
+<n>] [<checkout>...]` (`scripts/trim-targets.sh`; no checkout: the one it runs in)
 sweeps BY AGE what no build has used for `<n>` days (default 2): every unit
 whose fingerprint no build has read for that long, with its artifacts, by
 the released cargo-sweep pinned at `cargo_sweep_version` (0.8.0, `cargo
@@ -5085,8 +5057,7 @@ long. A unit goes with its fingerprint, so cargo just rebuilds it. "Used"
 is the access time cargo's fingerprint read renews, about daily on a
 `relatime` mount (/home's); a `noatime` mount fails and removes nothing. A
 checkout whose cargo holds a `.cargo-lock` is kept, and said. Both are
-self-tested in `just selftest` (`scripts/slot.selftest.sh`,
-`scripts/trim-targets.selftest.sh`, which builds a fixture workspace and
+self-tested in `just selftest` (`scripts/trim-targets.selftest.sh`, which builds a fixture workspace and
 needs cargo-sweep; CI's Linux job installs it). No compiler cache is used,
 and `CARGO_INCREMENTAL` is cargo's default (owner ruling of 2026-11-16,
 after measuring: released sccache cannot share a workspace crate's compile
@@ -5345,7 +5316,7 @@ directory it cannot see, so a gate run in the dev container, which mounts only
 the checkout, cut every other worktree on the host off from the repository
 (2026-11-12).
 
-ONE STAGED TARGET FOR EVERY CHECKOUT (owner, 2026-11-23: three slots'
+ONE STAGED TARGET FOR EVERY CHECKOUT (owner, 2026-11-23: three checkouts'
 `target/staged` of 13-66 GB each filled /home twice): the staged tree
 (`_staged-tree`, and `_commit-tree`) builds into `<cache>/staged-target`
 under ONE lock, `<cache>/staged-tree.lock`, whichever worktree runs it, with
@@ -5363,7 +5334,7 @@ it. `scripts/scratch-tree-lock.selftest.sh` and
 A LANDING SWEEPS WHAT IT GREW (owner ruling 2026-11-24, after /home filled
 twice in two days): at its end, pass or fail, `closeout-ratchet.sh` (so `just
 land-ratchet` and `closeout-ratchet`) runs `scripts/land-sweep.sh` on its
-checkout, by its own path (no slot pool). It removes `target/ratchet-base`
+checkout, by its own path. It removes `target/ratchet-base`
 (the base's build, a new sha each landing, never reused; skipped while
 `ratchet-base.sh` holds `target/.ratchet-base.lock`) and every rustc
 incremental directory of `target/`, never touching `target/ratchet/` (the

@@ -7,15 +7,15 @@
 /// What a wake line starts with.
 const PREFIX: &str = "ctxloom: wake ";
 
-/// What a wake line ends with.
-const SUFFIX: &str = " (messages delivered at turn start)";
-
 /// How many hex digits a nonce is.
 pub const NONCE_DIGITS: usize = 16;
 
-/// The prompt a wake with `nonce` starts its turn with.
+/// The prompt a wake with `nonce` starts its turn with: as short as a
+/// recognisable trigger can be. What a woken turn is for is the server's
+/// instructions' to say, once a session, and its hook's context carries the
+/// messages.
 pub fn wake_line(nonce: &str) -> String {
-    format!("{PREFIX}{nonce}{SUFFIX}")
+    format!("{PREFIX}{nonce}")
 }
 
 /// The nonce, when `prompt` IS a wake line (the whole prompt, a trailing
@@ -25,8 +25,7 @@ pub fn wake_nonce(prompt: &str) -> Option<&str> {
     let nonce = prompt
         .strip_suffix('\n')
         .unwrap_or(prompt)
-        .strip_prefix(PREFIX)?
-        .strip_suffix(SUFFIX)?;
+        .strip_prefix(PREFIX)?;
     let shaped = nonce.len() == NONCE_DIGITS
         && nonce
             .bytes()

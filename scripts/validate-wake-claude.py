@@ -472,7 +472,7 @@ def main():
 
     # Fact 2.
     nonce = secrets.token_hex(8)
-    line = "ctxloom: wake " + nonce + " (messages delivered at turn start)"
+    line = "ctxloom: wake " + nonce
     r = ask_stub(probe, 2, line)
     print("fact 2: the server posted the wake line: %s" % r)
     seen = await_prompt(captured, nonce, BOUND)
@@ -491,7 +491,7 @@ def main():
         dump_debug(cfg)
         finish(1 if failed else 0)
     # Fact 4: the one model call.
-    line = "ctxloom: wake " + deliver_marker + secrets.token_hex(4) + " (messages delivered at turn start)"
+    line = "ctxloom: wake " + deliver_marker + secrets.token_hex(4)
     model_calls.append("haiku: one woken turn whose hook adds the probe word as additionalContext")
     r = ask_stub(probe, 3, line)
     print("fact 4: the server posted a delivering wake: %s" % r)

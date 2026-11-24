@@ -33,7 +33,7 @@ fn the_messages_of_the_urgencies_asked_are_delivered_in_order_with_their_sender(
     assert_eq!(
         delivery.context,
         format!(
-            "{HEADER}\n\
+            "{MARKER}\n\
              <message id=\"m1\" from=\"the user\" urgency=\"inform\">the tests pass</message>\n\
              <message id=\"m3\" from=\"projects/p/sessions/kid\" urgency=\"wake\">child kid finished its turn</message>"
         )
@@ -82,7 +82,7 @@ fn the_messages_past_the_cap_wait_behind_a_pointer_to_session_show() {
 // Exactly the budget fits; one character over does not.
 #[test]
 fn a_delivery_of_exactly_the_budget_fits_whole() {
-    let framing = chars(HEADER) + 1 + chars(&element(&message("m1", "inform", "", ""), ""));
+    let framing = chars(MARKER) + 1 + chars(&element(&message("m1", "inform", "", ""), ""));
     let budget = 5000;
     let fits = message("m1", "inform", &"y".repeat(budget - framing), "");
     let delivery = messages_context(std::slice::from_ref(&fits), &["inform"], "h", budget);

@@ -39,6 +39,16 @@ for exe in "$ctxloom" "$stub"; do
         exit 1
     fi
 done
+# `ctxloom` is run from a copy: <profile>/ctxloom is where any cargo build of
+# the package writes, and a plain one (`just build`'s, in this checkout while
+# a test run goes on) over it made the tests run a binary with no test-support,
+# whose account home is the real one, and reach the owner's real daemon.
+# (crates/root/bin/ctxloom/src/main.test.rs `TEST_BINARIES`.)
+kept="$(dirname "$ctxloom")/test-binaries"
+mkdir -p "$kept"
+cp "$ctxloom" "$kept/.ctxloom.$$"
+mv -f "$kept/.ctxloom.$$" "$kept/$(basename "$ctxloom")"
+ctxloom="$kept/$(basename "$ctxloom")"
 {
     echo "CTXLOOM_TEST_BINARY=$ctxloom"
     echo "CTXLOOM_TEST_COMPANION_STUB=$stub"

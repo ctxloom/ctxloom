@@ -167,6 +167,11 @@ impl Frontend<'_> {
         // Let go only now: the session reads live until its exit is known.
         self.run_lock.take();
         drop(lock);
+        if resumable(&launch.engine) {
+            notices.push(Notice::SessionEnded {
+                harp: launch.at.harp.clone(),
+            });
+        }
         Ok(Ended {
             harp: launch.at.harp.clone(),
             session: prepared.session.clone(),
@@ -223,6 +228,13 @@ impl Frontend<'_> {
             }
         }
     }
+}
+
+/// Whether an interactive session on `engine` binds a native session its
+/// `run --session` can resume: opencode binds none from its hooks, so its
+/// interactive session cannot be resumed and is not told to be.
+fn resumable(engine: &str) -> bool {
+    engine != "opencode"
 }
 
 /// What a report tells, as a notice names it.

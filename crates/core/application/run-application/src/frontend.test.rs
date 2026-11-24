@@ -233,12 +233,12 @@ fn timeline(rig: &Rig) -> Vec<String> {
 async fn test_the_lock_is_taken_before_the_start_and_let_go_after_the_exit_is_reported() {
     let mut rig = rig(Vec::new());
     let done = run(&mut rig).await;
-    let ended = done.result.unwrap();
+    let ended = done.result.as_ref().unwrap().clone();
     assert_eq!(ended.harp, "amber-quiet-heron");
     assert_eq!(ended.session, "projects/p/sessions/amber-quiet-heron");
     assert_eq!(ended.engine, "claude-code");
     assert_eq!(ended.code, Some(0));
-    assert!(done.notices.is_empty());
+    assert!(told(&done).is_empty());
     assert_eq!(
         timeline(&rig),
         [
@@ -356,8 +356,8 @@ async fn test_a_held_start_keeps_the_runs_lock_until_the_exit_is_reported() {
             "unlock amber-quiet-heron",
         ]
     );
-    assert_eq!(done.notices.len(), 1, "{:?}", done.notices);
-    let said = format!("{:?}", done.notices[0]);
+    assert_eq!(told(&done).len(), 1, "{:?}", told(&done));
+    let said = format!("{:?}", told(&done)[0]);
     assert!(said.contains("held the session's start"), "{said}");
 }
 
@@ -375,7 +375,7 @@ async fn test_a_report_is_one_attempt() {
             .count(),
         1
     );
-    let said = format!("{:?}", done.notices);
+    let said = format!("{:?}", told(&done));
     assert!(said.contains("held the session's exit"), "{said}");
 }
 
@@ -388,7 +388,7 @@ async fn test_a_report_neither_recorded_nor_held_is_said() {
     }]);
     let done = run(&mut rig).await;
     assert!(done.result.is_ok());
-    let said = format!("{:?}", done.notices);
+    let said = format!("{:?}", told(&done));
     assert!(said.contains("nor hold it: the hold is full"), "{said}");
 }
 
@@ -429,8 +429,8 @@ async fn test_a_refused_report_is_said_at_once_and_not_retried() {
     })]);
     let done = run(&mut rig).await;
     assert!(done.result.is_ok());
-    assert_eq!(done.notices.len(), 1);
-    let said = format!("{:?}", done.notices[0]);
+    assert_eq!(told(&done).len(), 1);
+    let said = format!("{:?}", told(&done)[0]);
     assert!(said.contains("the session's start"), "{said}");
     assert!(said.contains("the run has ended"), "{said}");
     assert_eq!(
@@ -449,8 +449,8 @@ async fn test_a_parked_report_is_said() {
         Reported::Delivered(Delivery::Parked),
     ]);
     let done = run(&mut rig).await;
-    assert_eq!(done.notices.len(), 1);
-    assert!(format!("{:?}", done.notices[0]).contains("parked"));
+    assert_eq!(told(&done).len(), 1);
+    assert!(format!("{:?}", told(&done)[0]).contains("parked"));
 }
 
 // s4-Q14, H3 follow-up: a report the daemon answers no such session is
@@ -466,4 +466,60 @@ fn a_report_to_a_session_with_no_record_is_said_so() {
         text,
         "could not tell the daemon the session's start: the daemon has no record of this session"
     );
+}
+
+/// What the frontend said of the reports, the resume hint apart.
+fn told(started: &super::Started) -> Vec<&library_application::Notice> {
+    started
+        .notices
+        .iter()
+        .filter(|n| !matches!(n, library_application::Notice::SessionEnded { .. }))
+        .collect()
+}
+
+fn ended_notices(started: &super::Started) -> Vec<String> {
+    started
+        .notices
+        .iter()
+        .filter(|n| matches!(n, library_application::Notice::SessionEnded { .. }))
+        .map(|n| match n {
+            library_application::Notice::SessionEnded { harp } => harp.clone(),
+            _ => unreachable!(),
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn test_an_ended_session_is_told_how_to_resume_once_after_the_exit_is_reported() {
+    let mut rig = rig(Vec::new());
+    let started = run(&mut rig).await;
+    assert_eq!(
+        ended_notices(&started),
+        vec!["amber-quiet-heron".to_string()]
+    );
+}
+
+#[tokio::test]
+async fn test_a_launch_that_never_started_is_not_told_to_resume() {
+    let mut rig = rig(Vec::new());
+    rig.tty.refuse = true;
+    let started = run(&mut rig).await;
+    assert!(ended_notices(&started).is_empty());
+}
+
+#[tokio::test]
+async fn test_a_session_that_binds_no_native_session_is_not_told_to_resume() {
+    let mut rig = rig(Vec::new());
+    let mut prepared = prepared();
+    prepared.launch.engine = "opencode".to_string();
+    let run_lock = None;
+    let mut frontend = Frontend {
+        locks: &mut rig.locks,
+        terminal: &rig.tty,
+        reports: &rig.daemon,
+        limits: Limits::new(Duration::from_secs(1)),
+        run_lock,
+    };
+    let started = frontend.run(&prepared).await;
+    assert!(ended_notices(&started).is_empty());
 }

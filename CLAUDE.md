@@ -1131,7 +1131,14 @@ runs the frontend follows `WatchRun` (reopened on the next daemon when one
 dies): a `stop` (the session CLOSED, S20: `Frontended` sees `SessionClosed`
 in the session's stream) asks the TUI to stop, then kills it after
 `Terminal::STOP_GRACE`; once the TUI is over the run's last notices (said
-after the TUI, as before) and its end are read for up to 10 s. A daemon
+after the TUI, as before) and its end are read for up to 10 s. Once the
+exit is reported the frontend adds the notice
+`library-application-notice-session-ended` (`Notice::SessionEnded{harp}`,
+wording a DRAFT): `session <harp> ended; resume it with: ctxloom run
+--session <harp>`, said once with the other notices after the TUI; not for a
+launch that never started, nor for opencode's interactive session, which binds
+no native session and cannot be resumed
+(`run_application::frontend::resumable`). A daemon
 killed mid-session does not end the TUI; its reports reach the next daemon.
 The daemon counts a session it prepares as a client it serves (idle). A
 DAEMON DYING UNDER A LIVE TUI (owner 2026-11-14; `daemon-application`'s

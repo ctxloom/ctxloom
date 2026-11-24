@@ -646,6 +646,8 @@ Feature: run — assembling a project's context and handing it to an engine
       # The sentence's end is every platform's: where a link cannot be made
       # (macOS's keychain, Windows) it says why in its own words first.
       And the output contains "the primary session will not be signed in"
+      # DRAFT wording: said once, after the exit is reported.
+      And the output contains "ended; resume it with: ctxloom run --session"
       And the assistant was started with the program, arguments, environment and directory of the daemon's launch, and nothing else
 
   Rule: A run holds its session's lock for as long as it runs, so its session reads live

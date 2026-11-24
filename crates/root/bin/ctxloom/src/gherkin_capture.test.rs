@@ -497,7 +497,7 @@ fn child_transcript(w: &mut World) {
         "the tool's response body was kept"
     );
     assert!(
-        !whole.contains("echo hi") && !whole.contains("Print hi via echo"),
+        !whole.contains("Print hi via echo") && !whole.contains("description"),
         "the tool's input was kept"
     );
     assert!(

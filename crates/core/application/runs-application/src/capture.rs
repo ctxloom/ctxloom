@@ -110,9 +110,11 @@ pub fn observe(event: &HookEvent) -> Vec<Observation> {
                     prompt_id: event.prompt_id.clone(),
                     tool_use_id: call.tool_use_id.clone(),
                     tool: call.tool.clone(),
-                    input: call.input.clone(),
-                    input_bytes: None,
-                    input_sha256: None,
+                    // A tool's input can hold whole files: its size and
+                    // digest are recorded, as its result's are, never its text.
+                    input: String::new(),
+                    input_bytes: Some(call.input.len() as u64),
+                    input_sha256: Some(format!("{:x}", Sha256::digest(call.input.as_bytes()))),
                     response_bytes: call.response.len() as u64,
                     response_sha256: format!("{:x}", Sha256::digest(call.response.as_bytes())),
                     status: tool_status(call.status),

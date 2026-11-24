@@ -33,7 +33,10 @@ fn tool_text(tool: &v1::LogTool) -> String {
         Some(Ok(log_tool::Status::Error)) => ", error",
         _ => "",
     };
-    format!("tool {}, {} bytes{how}", tool.name, tool.response_bytes)
+    format!(
+        "tool {}, input {} bytes, result {} bytes{how}",
+        tool.name, tool.input_bytes, tool.response_bytes
+    )
 }
 
 fn lifecycle_text(lifecycle: &v1::LogLifecycle) -> String {

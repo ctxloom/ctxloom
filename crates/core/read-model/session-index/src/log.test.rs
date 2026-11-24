@@ -171,7 +171,7 @@ fn an_old_tool_event_reads_as_the_size_and_digest_of_its_input() {
     else {
         panic!("tool")
     };
-    assert_eq!(entry.input_bytes, 20);
+    assert_eq!(entry.input_bytes, 21);
     assert_eq!(
         entry.input_sha256,
         "1eab1ef18bb109ae99f48bfe7efaba9dde08e27bdb46438214bd6c65eb3ff2ff"

@@ -20,6 +20,8 @@ sessions.workspace = true
 time.workspace = true
 # The canonical transcript is JSON lines.
 serde.workspace = true
+# A tool input's digest, as a result's is (an older event keeps its text).
+sha2.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]

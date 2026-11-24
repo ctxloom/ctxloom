@@ -4532,6 +4532,19 @@ transcript's entry is the `gap` arm (`dropped`, `why`, `dropped_at`), and its te
 facts, and the daemon's start-up flush (above). A unit test's executable never spawns itself as the daemon
 (`SPAWNS_ITSELF`). The session's end is NOT captured (owner 2026-11-15):
 it is its run's end (`IncarnationEnded`) and its lock's verdict.
+A TOOL CALL'S INPUT IS NEVER STORED (owner 2026-11-24: ToolCalled was two
+thirds of an owner's event bodies, Write and Edit inputs holding whole
+files): `observe` records the input's size and SHA-256 (`input_bytes`,
+`input_sha256`, optional and additive on `RecordToolCall` and `ToolCalled`,
+the same lowercase-hex digest as the result's) and sets no `input` text. A
+call recorded before keeps its `input` in the store and still reads: the
+log fold gives its size and digest from that text. `LogTool` has the tool's
+name, `input_bytes`, `input_sha256`, `response_bytes`, `response_sha256` and
+no text (its `input`, number 4, is reserved). Nothing read the stored input:
+the skill-mates hook and the file-edit hooks take the skill and path from the
+live hook payload (`HookEvent.skill`, `.path`), `invoked_skills` reads the
+engine's own transcript file, and re-injection reads owed library changes.
+No summary of the input (a Bash command's first line) is kept.
 THE ENGINE EXTENSION POINT (owner 2026-11-24): an engine's adapter may attach
 data of its own to an observation, which the common fields do not hold:
 `HookEvent.extra` (for every observation the event makes), `ToolCall.extra`

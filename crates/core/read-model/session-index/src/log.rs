@@ -12,6 +12,8 @@
 
 use std::collections::BTreeMap;
 
+use sha2::{Digest, Sha256};
+
 use angzarr_embedded::Timestamp;
 use daemon_proto::v1::{self, log_compaction, log_entry::Entry as Arm, log_tool};
 use sessions::{CompactionPhase, SessionEvent, ToolCallStatus};
@@ -64,6 +66,21 @@ impl Projection {
     }
 }
 
+/// The size of the tool call's input: as recorded, else (a call recorded
+/// before the input was summarized, whose text the store keeps) the text's.
+fn input_size(called: &sessions::ToolCalled) -> u64 {
+    called.input_bytes.unwrap_or(called.input.len() as u64)
+}
+
+/// The SHA-256 (lowercase hex) of the tool call's input, as recorded, else
+/// of the text an older call kept: the entry never carries the text.
+fn input_digest(called: &sessions::ToolCalled) -> String {
+    called
+        .input_sha256
+        .clone()
+        .unwrap_or_else(|| format!("{:x}", Sha256::digest(called.input.as_bytes())))
+}
+
 /// The arm an event is, with the engine data its observation carried; none
 /// for an event that is not the log's.
 fn arm_of(event: &SessionEvent) -> Option<(Arm, BTreeMap<String, String>)> {
@@ -91,8 +108,8 @@ fn arm_of(event: &SessionEvent) -> Option<(Arm, BTreeMap<String, String>)> {
                 prompt_id: called.prompt_id.clone(),
                 tool_use_id: called.tool_use_id.clone(),
                 name: called.tool.clone(),
-                input_bytes: 0,
-                input_sha256: String::new(),
+                input_bytes: input_size(called),
+                input_sha256: input_digest(called),
                 response_bytes: called.response_bytes,
                 response_sha256: called.response_sha256.clone(),
                 // How the call ended, only where the engine said.

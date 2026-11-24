@@ -191,7 +191,7 @@ fn a_tool_result_is_recorded_as_size_and_digest_only() {
         panic!("one tool call, not {observed:?}");
     };
     assert_eq!(call.tool, "Bash");
-    assert_eq!(call.input, r#"{"command":"echo hi"}"#);
+    assert_eq!(call.input, "", "the input's text is not recorded either");
     assert_eq!(
         call.response_bytes,
         response.len() as u64,

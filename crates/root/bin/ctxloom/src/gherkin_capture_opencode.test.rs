@@ -389,7 +389,7 @@ fn transcript_holds(w: &mut World) {
     assert_eq!(tool["status"], "COMPLETED");
     // The input is its size and digest, never its text.
     assert!(tool.get("input").is_none(), "{tool}");
-    assert_eq!(count(&tool["input_bytes"]), 20);
+    assert_eq!(count(&tool["input_bytes"]), 21);
     assert_eq!(
         tool["input_sha256"],
         "1eab1ef18bb109ae99f48bfe7efaba9dde08e27bdb46438214bd6c65eb3ff2ff"

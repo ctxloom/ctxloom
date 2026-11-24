@@ -40,18 +40,20 @@ Feature: ctxloom's own MCP server — an engine's way to the daemon, through the
   Rule: Every session's engine is given ctxloom's MCP server
 
     Scenario Outline: A session home registers ctxloom's MCP server for its engine
-      # new: the server in each engine's config.
+      # new: the server in each engine's config. A claude session the daemon
+      # hosts starts it without the terminal wake's poster (`--no-wake`): the
+      # daemon delivers to it, and one session has one delivery mechanism.
       Given an initialized ctxloom project
       And Alice has exported her assistant's token
       And a <kind> session on <engine>
-      Then its session home registers "ctxloom mcp serve" as the MCP server "ctxloom"
+      Then its session home registers "<command>" as the MCP server "ctxloom"
 
       Examples:
-        | kind        | engine      |
-        | child       | claude-code |
-        | interactive | claude-code |
-        | child       | opencode    |
-        | interactive | opencode    |
+        | kind        | engine      | command                     |
+        | child       | claude-code | ctxloom mcp serve --no-wake |
+        | interactive | claude-code | ctxloom mcp serve           |
+        | child       | opencode    | ctxloom mcp serve           |
+        | interactive | opencode    | ctxloom mcp serve           |
 
     Scenario: The server offers the child, session, context and approval tools
       # new: the tool list.

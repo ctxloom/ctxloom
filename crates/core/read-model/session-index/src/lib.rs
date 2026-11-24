@@ -25,6 +25,8 @@
 //! - [`title_of`] is a session's title, [`Retention`] the rule that keeps its
 //!   transcript, and [`stamp`] the instants as the rows show them.
 
+pub mod conversation;
+pub mod log;
 mod projection;
 mod retention;
 pub mod stamp;

@@ -8,10 +8,7 @@ const NONCE: &str = "0123456789abcdef";
 #[test]
 fn a_wake_line_names_its_nonce_and_reads_back_as_it() {
     let line = wake_line(NONCE);
-    assert_eq!(
-        line,
-        "ctxloom: wake 0123456789abcdef (messages delivered at turn start)"
-    );
+    assert_eq!(line, "ctxloom: wake 0123456789abcdef");
     assert_eq!(wake_nonce(&line), Some(NONCE));
 }
 

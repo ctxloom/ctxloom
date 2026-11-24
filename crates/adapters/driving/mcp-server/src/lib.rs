@@ -70,6 +70,9 @@ pub fn verb() -> clap::Command {
         )
 }
 
+/// What the model is told, once a session, of the messages delivered to it.
+const MESSAGE_NOTES: &str = "";
+
 /// `--no-wake`: the server of a session the daemon hosts.
 pub const NO_WAKE: &str = "no-wake";
 
@@ -94,6 +97,8 @@ pub struct Server<D> {
     /// The terminal wake's poster, started beside the protocol; none, the
     /// session is never woken (its engine exported no messaging socket).
     wakes: Option<wake::Wakes>,
+    /// Whether the server's instructions explain delivered messages.
+    message_notes: bool,
 }
 
 impl<D: Daemons + 'static> Server<D> {
@@ -105,6 +110,17 @@ impl<D: Daemons + 'static> Server<D> {
             say: Box::new(|d| angzarr_diagnostic::Report::of(d).to_string()),
             cancels: approval::Cancels::default(),
             wakes: None,
+            message_notes: true,
+        }
+    }
+
+    /// This server with no instructions on delivered messages: a hosted
+    /// child is fed its messages as turns, never as elements.
+    #[must_use]
+    pub fn without_message_notes(self) -> Server<D> {
+        Server {
+            message_notes: false,
+            ..self
         }
     }
 
@@ -141,6 +157,9 @@ where
         implementation.version = self.version.clone();
         let mut info = ServerConfig::new(ServerCapabilities::builder().enable_tools().build());
         info.server_info = implementation;
+        if self.message_notes {
+            info.instructions = Some(MESSAGE_NOTES.to_string());
+        }
         info
     }
 

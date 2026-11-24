@@ -5,7 +5,7 @@ use run_ports::WakePost;
 
 use crate::messaging::{messaging_wake, wire, SOCKET_VARIABLE, TOKEN_VARIABLE};
 
-const LINE: &str = "ctxloom: wake 0123456789abcdef (messages delivered at turn start)";
+const LINE: &str = "ctxloom: wake 0123456789abcdef";
 
 fn exported<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
     move |name| {

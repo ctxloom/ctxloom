@@ -296,3 +296,114 @@ async fn the_snapshot_of_a_project_with_nothing_hosted_is_empty() {
     let snapshot = snapshot_of(stream.next().unwrap());
     assert!(snapshot.sessions.is_empty() && snapshot.approvals.is_empty());
 }
+
+fn log_event(event: &Option<v1::top_event::Event>) -> Option<&v1::TopLog> {
+    match event {
+        Some(v1::top_event::Event::Log(log)) => Some(log),
+        _ => None,
+    }
+}
+
+/// A watch read on a thread of its own, so a news that never comes fails the
+/// test instead of hanging it.
+struct Read {
+    events: std::sync::mpsc::Receiver<v1::TopEvent>,
+    stop: crate::TopStop,
+    reading: tokio::task::JoinHandle<()>,
+}
+
+impl Read {
+    fn of(stream: crate::TopStream) -> Read {
+        let stop = stream.stopper();
+        let (told, events) = std::sync::mpsc::channel();
+        let reading = tokio::task::spawn_blocking(move || {
+            for event in stream {
+                if told.send(event).is_err() {
+                    return;
+                }
+            }
+        });
+        Read {
+            events,
+            stop,
+            reading,
+        }
+    }
+
+    fn next(&self) -> v1::TopEvent {
+        self.events
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("the watch told nothing more")
+    }
+
+    async fn end(self) {
+        drop(self.events);
+        self.stop.stop();
+        self.reading.await.unwrap();
+    }
+}
+
+fn watching_every_log() -> v1::WatchTopRequest {
+    v1::WatchTopRequest {
+        all_logs: true,
+        ..request()
+    }
+}
+
+#[tokio::test]
+async fn a_leaving_sessions_pending_log_entries_are_told_before_its_removal() {
+    let f = opened(&["amber-swift-owl"]).await;
+    let mut stream = f.api.watch_top(watching_every_log()).await.unwrap();
+    snapshot_of(stream.next().unwrap());
+    let read = Read::of(stream);
+    let started = read.next();
+    assert!(log_event(&started.event).is_some_and(|log| log.event == "started"));
+    // Its last word is folded into the timeline in the very look that finds
+    // its lock let go: the entry is pending as the session leaves.
+    f.close("amber-swift-owl").await;
+    f.locks
+        .0
+        .lock()
+        .unwrap()
+        .insert("amber-swift-owl".to_string(), State::Ended);
+    f.catch_up_timelines().await;
+    let told = [read.next().event, read.next().event];
+    read.end().await;
+    assert!(
+        log_event(&told[0]).is_some_and(|log| log.event == "closed"),
+        "its last entry comes first: {told:?}"
+    );
+    assert!(
+        matches!(&told[1], Some(v1::top_event::Event::SessionRemoved(gone))
+            if gone.name == session_name("amber-swift-owl")),
+        "then its removal: {told:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_log_entry_folded_after_its_session_left_is_still_told() {
+    let f = opened(&["amber-swift-owl"]).await;
+    let mut stream = f.api.watch_top(watching_every_log()).await.unwrap();
+    snapshot_of(stream.next().unwrap());
+    stream.next().unwrap();
+    let read = Read::of(stream);
+    // The lock is let go first; the word that explains it is folded later.
+    f.locks
+        .0
+        .lock()
+        .unwrap()
+        .insert("amber-swift-owl".to_string(), State::Ended);
+    f.index.notify();
+    let gone = read.next();
+    assert!(matches!(
+        gone.event,
+        Some(v1::top_event::Event::SessionRemoved(_))
+    ));
+    f.close("amber-swift-owl").await;
+    f.catch_up_timelines().await;
+    let log = read.next();
+    read.end().await;
+    let told = log_event(&log.event).unwrap_or_else(|| panic!("not a log line: {log:?}"));
+    assert_eq!(told.event, "closed");
+    assert!(told.session.ends_with("/sessions/amber-swift-owl"));
+}

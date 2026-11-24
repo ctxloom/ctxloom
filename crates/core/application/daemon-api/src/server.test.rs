@@ -242,6 +242,9 @@ pub(crate) struct Fixture {
     /// The pending messages the API reads, caught up only by
     /// [`Fixture::catch_up_pending`] (a round's, in the daemon).
     pub(crate) pending: pending_messages::PendingMessages,
+    /// The sessions' timelines the watches' logs read, caught up with the
+    /// index.
+    pub(crate) timelines: session_timeline::SessionTimelines,
     pub(crate) api: Api<World>,
 }
 
@@ -253,6 +256,7 @@ pub(crate) fn fixture(harps: Vec<&'static str>) -> Fixture {
     let places = Arc::new(FakePlaces::default());
     let locks = Arc::new(Locks::default());
     let pending = pending_messages::PendingMessages::default();
+    let timelines = session_timeline::SessionTimelines::default();
     let api = Api::new(Parts {
         edge: Arc::clone(&world),
         index: index.clone(),
@@ -272,7 +276,8 @@ pub(crate) fn fixture(harps: Vec<&'static str>) -> Fixture {
         },
         places: Arc::new(Arc::clone(&places)) as Arc<dyn crate::Places>,
         purges: Arc::clone(&world) as Arc<dyn crate::Purges>,
-    });
+    })
+    .timelining(timelines.clone());
     Fixture {
         world,
         index,
@@ -281,6 +286,7 @@ pub(crate) fn fixture(harps: Vec<&'static str>) -> Fixture {
         places,
         locks,
         pending,
+        timelines,
         api,
     }
 }
@@ -296,6 +302,16 @@ impl Fixture {
             .unwrap();
         let mut board = daemon_board::caught_up(self.board.clone());
         board
+            .step(&self.world.store, self.world.registry.catalog())
+            .await
+            .unwrap();
+        self.catch_up_timelines().await;
+    }
+
+    /// The timelines alone caught up with what the store holds.
+    pub(crate) async fn catch_up_timelines(&self) {
+        let mut timelines = session_timeline::caught_up(self.timelines.clone());
+        timelines
             .step(&self.world.store, self.world.registry.catalog())
             .await
             .unwrap();
@@ -355,6 +371,23 @@ impl Fixture {
             workspace: None,
         };
         let book = sessions::keyed_book(cover, &mint, &format!("mint:{harp}"));
+        self.world.handle(book).await.unwrap();
+    }
+
+    /// The session `harp` is closed: a line of its timeline.
+    pub(crate) async fn close(&self, harp: &str) {
+        let name = format!("projects/calm-quiet-heron/sessions/{harp}");
+        let root = sessions::SessionName::parse(&name).unwrap().root();
+        let cover = Cover {
+            domain: sessions::SESSION_DOMAIN.to_string(),
+            root: Some(root),
+            edition: None,
+        };
+        let closed = sessions::CloseSession {
+            cause: "done".to_string(),
+            requester: None,
+        };
+        let book = sessions::keyed_book(cover, &closed, &format!("closed:{harp}"));
         self.world.handle(book).await.unwrap();
     }
 

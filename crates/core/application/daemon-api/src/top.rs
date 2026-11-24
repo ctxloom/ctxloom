@@ -312,14 +312,14 @@ impl Scene {
     fn log_after(
         &self,
         said: &mut BTreeMap<String, u64>,
-        in_view: &BTreeMap<String, v1::Session>,
+        carried: &BTreeSet<String>,
     ) -> Vec<v1::TopLog> {
         let Some(timelines) = &self.timelines else {
             return Vec::new();
         };
         let ids: Vec<String> = match (self.all_logs, &self.log) {
-            (true, _) => in_view
-                .keys()
+            (true, _) => carried
+                .iter()
                 .filter_map(|name| SessionName::parse(name).ok())
                 .map(|name| name.uid())
                 .collect(),
@@ -410,7 +410,7 @@ impl TopWatch {
         };
         let mut owed = VecDeque::from([event(v1::top_event::Event::Snapshot(snapshot))]);
         let mut said_log = BTreeMap::new();
-        let told = scene.log_after(&mut said_log, &view.sessions);
+        let told = scene.log_after(&mut said_log, &view.sessions.keys().cloned().collect());
         owed.extend(
             told.into_iter()
                 .map(|log| event(v1::top_event::Event::Log(log))),
@@ -433,6 +433,30 @@ impl TopWatch {
     fn refresh(&mut self) {
         use v1::top_event::Event;
         let view = self.scene.view();
+        // What a session said is told while the watch still has it and after
+        // it left (the word that explains its leaving is folded about the
+        // time its lock is let go): a leaving session's entries come before
+        // its removal.
+        let leaving: BTreeSet<String> = self
+            .said_sessions
+            .keys()
+            .filter(|name| !view.sessions.contains_key(*name))
+            .cloned()
+            .collect();
+        let carried: BTreeSet<String> = view
+            .sessions
+            .keys()
+            .chain(&leaving)
+            .chain(&self.left)
+            .cloned()
+            .collect();
+        let (parting, entries): (Vec<v1::TopLog>, Vec<v1::TopLog>) = self
+            .scene
+            .log_after(&mut self.said_log, &carried)
+            .into_iter()
+            .partition(|log| leaving.contains(&log.session));
+        self.owed
+            .extend(parting.into_iter().map(|log| event(Event::Log(log))));
         for (name, session) in &view.sessions {
             if self.said_sessions.get(name) != Some(session) {
                 self.owed
@@ -498,7 +522,6 @@ impl TopWatch {
                     })));
             }
         }
-        let entries = self.scene.log_after(&mut self.said_log, &view.sessions);
         self.owed.extend(
             entries
                 .into_iter()

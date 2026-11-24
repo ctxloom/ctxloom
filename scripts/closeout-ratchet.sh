@@ -49,7 +49,8 @@
 # the run grew that a later build does not need (owner ruling 2026-11-24),
 # scripts/land-sweep.sh: target/ratchet-base (never reused: each base is a new
 # sha), the checkout's incremental directories, and the shared staged target
-# by age, under its lock; the cached lists in target/ratchet/ are kept. One
+# (its incremental directories, then the whole of it over STAGED_TARGET_CAP),
+# under its lock; the cached lists in target/ratchet/ are kept. One
 # `ok   sweep (...)` line each; a sweep failure is said and changes no verdict.
 #
 # Exit: 0 when every gate passed and no scenario turned red; 1 when any gate

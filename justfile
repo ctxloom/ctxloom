@@ -79,6 +79,11 @@ mutants_swap_max := env("MUTANTS_SWAP_MAX", "2G")
 # the cap.
 tests_memory_max := env("TESTS_MEMORY_MAX", "16G")
 tests_swap_max := env("TESTS_SWAP_MAX", "2G")
+# The shared staged target's size cap (scripts/land-sweep.sh, run at the end of
+# a landing): its incremental directories go first, and what is still larger
+# than this is removed whole (owner ruling 2026-11-24). STAGED_TARGET_CAP
+# changes it.
+staged_target_cap := env("STAGED_TARGET_CAP", "40G")
 
 # The sweep of a checkout's target/ (scripts/trim-targets.sh) is the released
 # cargo-sweep pinned at cargo_sweep_version (`cargo install --locked
@@ -610,7 +615,7 @@ closeout base="":
 [doc("Close-out on an integration branch with a red spec: closeout-ratchet <base>")]
 [no-exit-message]
 closeout-ratchet base:
-    @{{TOP}}/scripts/closeout-ratchet.sh '{{base}}'
+    @STAGED_TARGET_CAP='{{staged_target_cap}}' {{TOP}}/scripts/closeout-ratchet.sh '{{base}}'
 
 # The landing gate of a branch on an integration branch (owner ruling of
 # 2026-11-13): closeout-ratchet's gates and ratchet without mutation
@@ -621,7 +626,7 @@ closeout-ratchet base:
 [doc("Landing gate on an integration branch, no mutation: land-ratchet <base>")]
 [no-exit-message]
 land-ratchet base:
-    @{{TOP}}/scripts/closeout-ratchet.sh --no-mutation '{{base}}'
+    @STAGED_TARGET_CAP='{{staged_target_cap}}' {{TOP}}/scripts/closeout-ratchet.sh --no-mutation '{{base}}'
 
 # The base's scenario list for the ratchet, cached by its sha
 # (scripts/ratchet-base.sh): the feature runner on the base's tip in a
@@ -679,7 +684,7 @@ selftest:
     @{{TOP}}/scripts/install-shutdown.selftest.sh
     @{{TOP}}/scripts/arch-lint-install.selftest.sh
     @TRIM_SWEEP_VERSION='{{cargo_sweep_version}}' {{TOP}}/scripts/trim-targets.selftest.sh
-    @TRIM_SWEEP_VERSION='{{cargo_sweep_version}}' {{TOP}}/scripts/land-sweep.selftest.sh
+    @{{TOP}}/scripts/land-sweep.selftest.sh
 
 # The terminal wake's live probe against the installed claude (owner ruling
 # 2026-11-18): re-run on each claude bump. Not a gate. One model call (haiku);

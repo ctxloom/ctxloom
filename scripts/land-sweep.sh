@@ -12,14 +12,15 @@
 #   - every rustc incremental directory of the checkout's target/
 #     (target/*/incremental, target/*/*/incremental), which grows without
 #     bound and is rebuilt on the next compile of its crate;
-#   - the shared staged target (<cache>/staged-target, the one
-#     `_scratch-tree` builds into), by AGE (trim-targets.sh: cargo-sweep and
-#     stale incremental directories, LAND_SWEEP_DAYS, default 2), and only
-#     while <cache>/staged-tree.lock is taken (flock -n); held by a commit
-#     gate, it is skipped and said. It is swept by age rather than removed
-#     whole: every commit gate builds its staged tree there, and a whole
-#     removal makes the next commit rebuild every dependency; by age the
-#     units the current dependency set still uses stay warm.
+#   - the shared staged target (<cache>/staged-target, the one `_scratch-tree`
+#     builds into), only while <cache>/staged-tree.lock is taken (flock -n;
+#     held by a commit gate, it is skipped and said, never waited for): first
+#     its rustc incremental directories (staged-target/*/incremental,
+#     */*/incremental), then, if it is still larger than the cap
+#     (STAGED_TARGET_CAP, default 40G), the whole of it. Not swept by age:
+#     every commit in every worktree builds into it, so nothing in it is ever
+#     two days unused and an age sweep freed 0B at five landings in a row
+#     while it grew to 114G.
 #
 # Nothing is touched while a cargo holds a .cargo-lock of the target. One
 # terse line each (`ok   sweep (<what>) <freed>`, `skip  sweep (<what>): <why>`,
@@ -27,14 +28,13 @@
 # status, which is always 0 (a landing's verdict is not the sweep's).
 # <cache> is $GATES_STAGED_CACHE, else ${XDG_CACHE_HOME:-<account home>/.cache}/
 # ctxloom/gates, resolved as gates/gates.just's `_scratch-tree` does.
-# Environment: TRIM_SWEEP_VERSION (the pinned cargo-sweep; default 0.8.0),
-# LAND_SWEEP_DAYS. Self-test: scripts/land-sweep.selftest.sh.
+# Environment: STAGED_TARGET_CAP (an IEC size such as 40G; the justfile's
+# staged_target_cap passes it). Self-test: scripts/land-sweep.selftest.sh.
 set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 top=$(cd "${1:-$(git rev-parse --show-toplevel)}" && pwd)
 t=$top/target
-days=${LAND_SWEEP_DAYS:-2}
-export TRIM_SWEEP_VERSION=${TRIM_SWEEP_VERSION:-0.8.0}
+cap=${STAGED_TARGET_CAP:-40G}
 size_of() { du -sb "$1" 2>/dev/null | cut -f1; }
 human() { numfmt --to=iec-i --suffix=B "${1:-0}"; }
 
@@ -96,8 +96,12 @@ sweep_staged() {
         fi
         cache=$cache/ctxloom/gates
     fi
-    local st=$cache/staged-target before out
+    local st=$cache/staged-target d n freed=0 size limit
     [ -d "$st" ] || { echo "skip  sweep (staged-target): none"; return; }
+    if ! limit=$(numfmt --from=iec "${cap%B}" 2> /dev/null); then
+        echo "FAIL sweep (staged-target): STAGED_TARGET_CAP '$cap' is no size"
+        return
+    fi
     # `>>`: opening must not truncate a holder's note. The lock is held for
     # the sweep, so a commit gate meanwhile waits and says so.
     exec 9>> "$cache/staged-tree.lock"
@@ -106,15 +110,16 @@ sweep_staged() {
         exec 9>&-
         return
     fi
-    before=$(size_of "$st")
-    if out=$(TRIM_TARGET_DIR=$st "$here/trim-targets.sh" --days "$days" "$top" 2>&1); then
-        if grep -q '^kept ' <<< "$out"; then
-            echo "skip  sweep (staged-target): cargo holds a build lock"
-        else
-            echo "ok   sweep (staged-target, unused $days days) freed $(human $((before - $(size_of "$st"))))"
-        fi
-    else
-        echo "FAIL sweep (staged-target): $(tail -n 1 <<< "$out")"
+    while IFS= read -r -d '' d; do
+        n=$(size_of "$d")
+        if rm -rf "$d"; then freed=$((freed + ${n:-0}))
+        else echo "FAIL sweep (staged-target incremental): could not remove $d"; fi
+    done < <(find "$st" -maxdepth 3 -name incremental -type d -print0 2> /dev/null)
+    echo "ok   sweep (staged-target incremental) freed $(human "$freed")"
+    size=$(size_of "$st")
+    if [ "${size:-0}" -gt "$limit" ]; then
+        if rm -rf "$st"; then echo "ok   sweep (staged-target over $cap) removed $(human "$size")"
+        else echo "FAIL sweep (staged-target over $cap): could not remove $st"; fi
     fi
     exec 9>&-
 }

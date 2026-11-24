@@ -487,6 +487,7 @@ impl SessionAggregate {
         record(live(&self.session).ok().map(|_| PromptSubmitted {
             prompt_id: fact.prompt_id,
             prompt: fact.prompt,
+            extra: fact.extra,
         }))
     }
 
@@ -506,6 +507,7 @@ impl SessionAggregate {
             index: fact.index,
             is_final: fact.is_final,
             text: fact.text,
+            extra: fact.extra,
         }))
     }
 
@@ -522,6 +524,7 @@ impl SessionAggregate {
             response_bytes: fact.response_bytes,
             response_sha256: fact.response_sha256.clone(),
             status: fact.status,
+            extra: fact.extra,
         }))
     }
 
@@ -532,6 +535,7 @@ impl SessionAggregate {
         let _ = ctx;
         record(live(&self.session).ok().map(|_| TurnEnded {
             prompt_id: fact.prompt_id,
+            extra: fact.extra,
         }))
     }
 
@@ -550,6 +554,7 @@ impl SessionAggregate {
             trigger: fact.trigger,
             summary_bytes: fact.summary_bytes,
             summary_sha256: fact.summary_sha256,
+            extra: fact.extra,
         }))
     }
 
@@ -630,6 +635,7 @@ impl SessionAggregate {
         record(live(&self.session).ok().map(|_| ConversationCleared {
             native_session: fact.native_session,
             trigger: fact.trigger,
+            extra: fact.extra,
         }))
     }
 

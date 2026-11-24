@@ -838,6 +838,7 @@ fn cleared_fact() -> RecordConversationCleared {
     RecordConversationCleared {
         native_session: "n2".to_string(),
         trigger: "clear".to_string(),
+        ..Default::default()
     }
 }
 
@@ -853,6 +854,7 @@ fn a_clear_is_recorded_on_a_live_session_once() {
         [SessionEvent::ConversationCleared(ConversationCleared {
             native_session: "n2".to_string(),
             trigger: "clear".to_string(),
+            ..Default::default()
         })]
     );
     assert!(session.fact(cleared_fact(), "hook:clear:s:n2").is_empty());
@@ -916,6 +918,7 @@ fn prompt_fact() -> RecordPromptSubmitted {
     RecordPromptSubmitted {
         prompt_id: "p1".to_string(),
         prompt: "Run the shell command: echo hi".to_string(),
+        ..Default::default()
     }
 }
 
@@ -927,6 +930,7 @@ fn text_fact(index: u32, is_final: bool, text: &str) -> RecordAssistantText {
         index,
         is_final,
         text: text.to_string(),
+        ..Default::default()
     }
 }
 
@@ -939,6 +943,7 @@ fn tool_fact() -> RecordToolCall {
         response_bytes: 2,
         response_sha256: "00".repeat(32),
         status: None,
+        ..Default::default()
     }
 }
 
@@ -974,6 +979,7 @@ fn every_observation_records_its_event_on_a_live_session() {
         [SessionEvent::PromptSubmitted(PromptSubmitted {
             prompt_id: "p1".to_string(),
             prompt: "Run the shell command: echo hi".to_string(),
+            ..Default::default()
         })]
     );
     assert_eq!(
@@ -985,6 +991,7 @@ fn every_observation_records_its_event_on_a_live_session() {
             index: 0,
             is_final: true,
             text: "done".to_string(),
+            ..Default::default()
         })]
     );
     assert_eq!(
@@ -997,17 +1004,20 @@ fn every_observation_records_its_event_on_a_live_session() {
             response_bytes: 2,
             response_sha256: "00".repeat(32),
             status: None,
+            ..Default::default()
         })]
     );
     assert_eq!(
         session.fact(
             RecordTurnEnded {
-                prompt_id: "p1".to_string()
+                prompt_id: "p1".to_string(),
+                ..Default::default()
             },
             "hook:turn-end:s:p1"
         ),
         [SessionEvent::TurnEnded(TurnEnded {
-            prompt_id: "p1".to_string()
+            prompt_id: "p1".to_string(),
+            ..Default::default()
         })]
     );
     assert_eq!(
@@ -1018,6 +1028,7 @@ fn every_observation_records_its_event_on_a_live_session() {
                 trigger: "manual".to_string(),
                 summary_bytes: 12,
                 summary_sha256: "ab".to_string(),
+                extra: Default::default()
             },
             "hook:compact:s:p1:manual:before"
         ),
@@ -1027,6 +1038,7 @@ fn every_observation_records_its_event_on_a_live_session() {
             trigger: "manual".to_string(),
             summary_bytes: 12,
             summary_sha256: "ab".to_string(),
+            extra: Default::default()
         })]
     );
 }
@@ -1173,4 +1185,33 @@ fn an_owed_change_is_recorded_on_a_live_session_once() {
     assert!(session.fact(fact.clone(), &key).is_empty());
     let mut none = Session::new();
     assert!(none.fact(fact, &key).is_empty());
+}
+
+// The engine extension point: what an adapter attached to an observation
+// reaches the event, beside the common fields and never in them.
+#[test]
+fn an_observations_engine_extension_reaches_its_event() {
+    let extra: BTreeMap<String, String> =
+        BTreeMap::from([("opencode.part_id".to_string(), "prt_1".to_string())]);
+    let mut session = Session::minted();
+    let [SessionEvent::ToolCalled(called)] = &session.fact(
+        RecordToolCall {
+            extra: extra.clone(),
+            ..tool_fact()
+        },
+        "hook:tool:s:toolu_x",
+    )[..] else {
+        panic!("one tool event");
+    };
+    assert_eq!(called.extra, extra);
+    let [SessionEvent::PromptSubmitted(prompt)] = &session.fact(
+        RecordPromptSubmitted {
+            extra: extra.clone(),
+            ..prompt_fact()
+        },
+        "hook:prompt:s:px",
+    )[..] else {
+        panic!("one prompt event");
+    };
+    assert_eq!(prompt.extra, extra);
 }

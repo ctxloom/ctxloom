@@ -27,6 +27,12 @@ message RecordPromptSubmitted {
 
   string prompt_id = 1;
   string prompt = 2;
+  // Data of the engine's own that the common fields do not hold, attached by
+  // its adapter: keys are namespaced by engine (`<engine>.<name>`), values are
+  // text (structured data as compact JSON). Optional and additive: a stream
+  // recorded before it reads as none. Carried to the log entry's `extra`,
+  // never into a common field.
+  map<string, string> extra = 3;
 }
 
 // One piece (delta) of the assistant's text was shown. Every piece is
@@ -45,6 +51,12 @@ message RecordAssistantText {
   uint32 index = 4;
   bool is_final = 5;
   string text = 6;
+  // Data of the engine's own that the common fields do not hold, attached by
+  // its adapter: keys are namespaced by engine (`<engine>.<name>`), values are
+  // text (structured data as compact JSON). Optional and additive: a stream
+  // recorded before it reads as none. Carried to the log entry's `extra`,
+  // never into a common field.
+  map<string, string> extra = 7;
 }
 
 // How a tool call ended, when the engine says (opencode does; claude's hooks
@@ -74,6 +86,12 @@ message RecordToolCall {
   // How the call ended; absent when the engine does not say (claude), so a
   // fact recorded before the field existed reads the same.
   optional ToolCallStatus status = 7;
+  // Data of the engine's own that the common fields do not hold, attached by
+  // its adapter: keys are namespaced by engine (`<engine>.<name>`), values are
+  // text (structured data as compact JSON). Optional and additive: a stream
+  // recorded before it reads as none. Carried to the log entry's `extra`,
+  // never into a common field.
+  map<string, string> extra = 8;
 }
 
 // The assistant's turn ended (Stop). external_id
@@ -86,6 +104,12 @@ message RecordTurnEnded {
   };
 
   string prompt_id = 1;
+  // Data of the engine's own that the common fields do not hold, attached by
+  // its adapter: keys are namespaced by engine (`<engine>.<name>`), values are
+  // text (structured data as compact JSON). Optional and additive: a stream
+  // recorded before it reads as none. Carried to the log entry's `extra`,
+  // never into a common field.
+  map<string, string> extra = 2;
 }
 
 enum CompactionPhase {
@@ -111,6 +135,12 @@ message RecordCompaction {
   string trigger = 3;
   uint64 summary_bytes = 4;
   string summary_sha256 = 5;
+  // Data of the engine's own that the common fields do not hold, attached by
+  // its adapter: keys are namespaced by engine (`<engine>.<name>`), values are
+  // text (structured data as compact JSON). Optional and additive: a stream
+  // recorded before it reads as none. Carried to the log entry's `extra`,
+  // never into a common field.
+  map<string, string> extra = 6;
 }
 
 // PROPOSAL (s4-Q14, unit H3; the owner's to approve): a fact a hook observed
@@ -155,6 +185,12 @@ message PromptSubmitted {
 
   string prompt_id = 1;
   string prompt = 2;
+  // Data of the engine's own that the common fields do not hold, attached by
+  // its adapter: keys are namespaced by engine (`<engine>.<name>`), values are
+  // text (structured data as compact JSON). Optional and additive: a stream
+  // recorded before it reads as none. Carried to the log entry's `extra`,
+  // never into a common field.
+  map<string, string> extra = 3;
 }
 
 message AssistantTextShown {
@@ -166,6 +202,12 @@ message AssistantTextShown {
   uint32 index = 4;
   bool is_final = 5;
   string text = 6;
+  // Data of the engine's own that the common fields do not hold, attached by
+  // its adapter: keys are namespaced by engine (`<engine>.<name>`), values are
+  // text (structured data as compact JSON). Optional and additive: a stream
+  // recorded before it reads as none. Carried to the log entry's `extra`,
+  // never into a common field.
+  map<string, string> extra = 7;
 }
 
 message ToolCalled {
@@ -180,12 +222,24 @@ message ToolCalled {
   // How the call ended; absent when the engine does not say (claude), so a
   // fact recorded before the field existed reads the same.
   optional ToolCallStatus status = 7;
+  // Data of the engine's own that the common fields do not hold, attached by
+  // its adapter: keys are namespaced by engine (`<engine>.<name>`), values are
+  // text (structured data as compact JSON). Optional and additive: a stream
+  // recorded before it reads as none. Carried to the log entry's `extra`,
+  // never into a common field.
+  map<string, string> extra = 8;
 }
 
 message TurnEnded {
   option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
 
   string prompt_id = 1;
+  // Data of the engine's own that the common fields do not hold, attached by
+  // its adapter: keys are namespaced by engine (`<engine>.<name>`), values are
+  // text (structured data as compact JSON). Optional and additive: a stream
+  // recorded before it reads as none. Carried to the log entry's `extra`,
+  // never into a common field.
+  map<string, string> extra = 2;
 }
 
 // RETIRED (owner 2026-11-15): never emitted; folded to nothing and rendered
@@ -207,6 +261,12 @@ message Compacted {
   string trigger = 3;
   uint64 summary_bytes = 4;
   string summary_sha256 = 5;
+  // Data of the engine's own that the common fields do not hold, attached by
+  // its adapter: keys are namespaced by engine (`<engine>.<name>`), values are
+  // text (structured data as compact JSON). Optional and additive: a stream
+  // recorded before it reads as none. Carried to the log entry's `extra`,
+  // never into a common field.
+  map<string, string> extra = 6;
 }
 
 // The engine started a new conversation within the session: claude's /clear
@@ -226,6 +286,12 @@ message RecordConversationCleared {
   string native_session = 1;
   // What the engine named as its cause (`clear`); empty when it named none.
   string trigger = 2;
+  // Data of the engine's own that the common fields do not hold, attached by
+  // its adapter: keys are namespaced by engine (`<engine>.<name>`), values are
+  // text (structured data as compact JSON). Optional and additive: a stream
+  // recorded before it reads as none. Carried to the log entry's `extra`,
+  // never into a common field.
+  map<string, string> extra = 3;
 }
 
 // 10c (U13, G6/G7): the re-assembled context a live session's engine was
@@ -311,6 +377,12 @@ message ConversationCleared {
 
   string native_session = 1;
   string trigger = 2;
+  // Data of the engine's own that the common fields do not hold, attached by
+  // its adapter: keys are namespaced by engine (`<engine>.<name>`), values are
+  // text (structured data as compact JSON). Optional and additive: a stream
+  // recorded before it reads as none. Carried to the log entry's `extra`,
+  // never into a common field.
+  map<string, string> extra = 3;
 }
 
 message CaptureGapped {

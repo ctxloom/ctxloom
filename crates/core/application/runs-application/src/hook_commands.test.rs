@@ -46,6 +46,7 @@ fn turn_ended(cover: Cover, external_id: &str) -> angzarr_embedded::v1::CommandB
         cover,
         sessions::RecordTurnEnded {
             prompt_id: "p1".to_string(),
+            ..Default::default()
         },
         external_id,
     )
@@ -116,6 +117,7 @@ async fn what_the_users_allowlist_forbids_is_answered_as_an_unknown_domain_and_w
             mine_cover.clone(),
             sessions::RecordTurnEnded {
                 prompt_id: "p".to_string(),
+                ..Default::default()
             },
         ))
         .await

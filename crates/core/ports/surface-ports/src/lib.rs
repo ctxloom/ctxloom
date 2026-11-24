@@ -415,6 +415,11 @@ pub struct HookEvent {
     /// The summary the engine wrote of the context (a PostCompact's): the
     /// capture records its size and digest, never this text.
     pub compact_summary: String,
+    /// Data of the engine's own the common fields do not hold, attached by
+    /// its codec to every observation the event makes: keys namespaced by
+    /// engine (`<engine>.<name>`), values text. Carried to the stored fact
+    /// and the log entry's `extra`, never into a common field.
+    pub extra: BTreeMap<String, String>,
 }
 
 /// One MessageDisplay event: a piece of the assistant's text as it is shown.
@@ -428,6 +433,8 @@ pub struct MessageDisplay {
     /// The message's last piece.
     pub is_final: bool,
     pub delta: String,
+    /// The piece's own engine data, laid over the event's ([`HookEvent::extra`]).
+    pub extra: BTreeMap<String, String>,
 }
 
 /// One tool call of a PostToolBatch event.
@@ -441,6 +448,8 @@ pub struct ToolCall {
     pub response: String,
     /// How the call ended, when the engine says.
     pub status: ToolStatus,
+    /// The call's own engine data, laid over the event's ([`HookEvent::extra`]).
+    pub extra: BTreeMap<String, String>,
 }
 
 /// How a tool call ended: claude's hooks do not say (`Unspecified`);

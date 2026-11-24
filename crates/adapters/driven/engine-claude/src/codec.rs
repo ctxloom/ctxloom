@@ -97,6 +97,7 @@ fn tool_calls(doc: &Json) -> Vec<ToolCall> {
                     response: response_text(c.get("tool_response")),
                     // Claude's hooks say nothing of how a call ended.
                     status: ToolStatus::Unspecified,
+                    ..Default::default()
                 })
                 .collect()
         })
@@ -117,6 +118,7 @@ fn message_display(native: &str, doc: &Json) -> Option<MessageDisplay> {
             .unwrap_or_default(),
         is_final: matches!(doc.get("final"), Some(Json::Bool(true))),
         delta: text(doc, "delta"),
+        ..Default::default()
     })
 }
 
@@ -158,6 +160,7 @@ impl HookCodec for Codec {
             tool_calls: tool_calls(&doc),
             trigger: text(&doc, "trigger"),
             compact_summary: text(&doc, "compact_summary"),
+            ..Default::default()
         })
     }
 

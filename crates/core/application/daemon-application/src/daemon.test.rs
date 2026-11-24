@@ -844,6 +844,7 @@ async fn a_fresh_daemon_catches_every_read_model_up_before_its_first_round() {
                                 &sessions::RecordPromptSubmitted {
                                     prompt_id: "p1".to_string(),
                                     prompt: "left by the previous daemon".to_string(),
+                                    ..Default::default()
                                 },
                             ),
                         )

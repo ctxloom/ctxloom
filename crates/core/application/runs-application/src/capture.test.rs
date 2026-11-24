@@ -38,6 +38,7 @@ fn delta(message_id: &str, index: u32, is_final: bool, text: &str) -> HookEvent 
             index,
             is_final,
             delta: text.to_string(),
+            ..Default::default()
         }),
         ..HookEvent::default()
     }
@@ -110,6 +111,7 @@ fn a_submitted_prompt_is_one_observation() {
             sessions::RecordPromptSubmitted {
                 prompt_id: "p1".to_string(),
                 prompt: "echo hi".to_string(),
+                ..Default::default()
             }
         )]
     );
@@ -127,6 +129,7 @@ fn every_message_display_delta_is_its_own_observation() {
             index: 2,
             is_final: true,
             text: "last piece".to_string(),
+            ..Default::default()
         })]
     );
     let first = observe(&delta("m1", 0, false, "first"));
@@ -211,7 +214,8 @@ fn a_turn_end_is_one_observation_without_text() {
     assert_eq!(
         observe(&turn_end()),
         [Observation::TurnEnded(sessions::RecordTurnEnded {
-            prompt_id: "p1".to_string()
+            prompt_id: "p1".to_string(),
+            ..Default::default()
         })]
     );
 }
@@ -226,6 +230,7 @@ fn a_compaction_is_before_or_after_by_the_event() {
             trigger: "manual".to_string(),
             summary_bytes: 0,
             summary_sha256: String::new(),
+            extra: Default::default()
         })]
     );
     // PostCompact carries the summary: its size and digest are recorded and
@@ -242,6 +247,7 @@ fn a_compaction_is_before_or_after_by_the_event() {
             summary_bytes: 3,
             summary_sha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
                 .to_string(),
+            extra: Default::default()
         })]
     );
     assert!(!format!("{observed:?}").contains("abc"));
@@ -833,4 +839,62 @@ fn the_no_such_session_key_is_the_typed_answers_full_name() {
     let (package, name) = run_ports::NO_SUCH_SESSION.rsplit_once('.').unwrap();
     assert!(proto.contains(&format!("package {package};")), "{package}");
     assert!(proto.contains(&format!("\nmessage {name} {{")), "{name}");
+}
+
+// The engine extension point: what a codec attached to the event is on every
+// fact it makes, a piece's or a call's own laid over it, and the common
+// fields are untouched.
+fn extra(pairs: &[(&str, &str)]) -> std::collections::BTreeMap<String, String> {
+    pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
+}
+
+#[test]
+fn test_observe_carries_the_codecs_engine_data_onto_every_fact() {
+    let mut prompt = turn_start("p1", "hi");
+    prompt.extra = extra(&[("opencode.step", "1")]);
+    let [Observation::PromptSubmitted(fact)] = &observe(&prompt)[..] else {
+        panic!("one prompt fact");
+    };
+    assert_eq!(fact.extra, extra(&[("opencode.step", "1")]));
+    assert_eq!(fact.prompt, "hi", "the common fields are untouched");
+
+    let mut calls = batch(&[("t1", "Bash", "{}", "ok"), ("t2", "Read", "{}", "ok")]);
+    calls.extra = extra(&[("opencode.step", "1"), ("opencode.part", "event")]);
+    calls.tool_calls[1].extra = extra(&[("opencode.part", "own")]);
+    let made = observe(&calls);
+    let [Observation::ToolCall(first), Observation::ToolCall(second)] = &made[..] else {
+        panic!("two tool facts");
+    };
+    assert_eq!(
+        first.extra,
+        extra(&[("opencode.step", "1"), ("opencode.part", "event")])
+    );
+    assert_eq!(
+        second.extra,
+        extra(&[("opencode.step", "1"), ("opencode.part", "own")]),
+        "a call's own data wins over the event's"
+    );
+
+    let mut piece = delta("m1", 0, true, "done");
+    piece.extra = extra(&[("opencode.step", "1")]);
+    if let Some(message) = piece.message.as_mut() {
+        message.extra = extra(&[("opencode.part_id", "prt_9")]);
+    }
+    let [Observation::AssistantText(text)] = &observe(&piece)[..] else {
+        panic!("one text fact");
+    };
+    assert_eq!(
+        text.extra,
+        extra(&[("opencode.step", "1"), ("opencode.part_id", "prt_9")])
+    );
+
+    let mut end = turn_end();
+    end.extra = extra(&[("opencode.step", "1")]);
+    let [Observation::TurnEnded(ended)] = &observe(&end)[..] else {
+        panic!("one end fact");
+    };
+    assert_eq!(ended.extra, extra(&[("opencode.step", "1")]));
 }

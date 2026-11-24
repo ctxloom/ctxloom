@@ -104,6 +104,7 @@ fn test_a_finished_text_part_is_one_whole_text_of_its_prompt() {
             index: 0,
             is_final: true,
             delta: "ok".to_string(),
+            ..Default::default()
         })
     );
 }
@@ -146,6 +147,7 @@ fn test_a_completed_tool_part_is_one_call_with_its_status() {
             input: r#"{"command":"echo hi"}"#.to_string(),
             response: "hi\n".to_string(),
             status: ToolStatus::Completed,
+            ..Default::default()
         }]
     );
 }
@@ -163,6 +165,7 @@ fn test_a_failed_tool_part_is_one_call_whose_response_is_its_error() {
             input: r#"{"filePath":"/nonexistent_xyz/a.txt"}"#.to_string(),
             response: "The user rejected permission to use this specific tool call.".to_string(),
             status: ToolStatus::Error,
+            ..Default::default()
         }]
     );
 }

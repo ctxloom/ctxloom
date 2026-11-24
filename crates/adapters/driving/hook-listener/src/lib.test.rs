@@ -286,6 +286,7 @@ impl World {
     fn turn_ended(&self, id: &str) -> CommandBook {
         Observation::TurnEnded(sessions::RecordTurnEnded {
             prompt_id: id.to_string(),
+            ..Default::default()
         })
         .book(&self.session)
     }
@@ -418,6 +419,7 @@ async fn what_the_gate_forbids_is_answered_as_an_unknown_domain_and_writes_nothi
                 nowhere,
                 &sessions::RecordTurnEnded {
                     prompt_id: "p".to_string(),
+                    ..Default::default()
                 },
                 "x",
             ),
@@ -441,6 +443,7 @@ async fn what_the_gate_forbids_is_answered_as_an_unknown_domain_and_writes_nothi
                 mine.clone(),
                 &sessions::RecordTurnEnded {
                     prompt_id: "p".to_string(),
+                    ..Default::default()
                 },
             ),
         ),
@@ -460,6 +463,7 @@ async fn what_the_gate_forbids_is_answered_as_an_unknown_domain_and_writes_nothi
 fn world_fact(session: &Uuid, id: &str) -> CommandBook {
     Observation::TurnEnded(sessions::RecordTurnEnded {
         prompt_id: id.to_string(),
+        ..Default::default()
     })
     .book(session)
 }
@@ -726,6 +730,7 @@ async fn a_request_over_the_size_limit_is_refused_and_writes_nothing() {
             index: 0,
             is_final: false,
             text: "x".repeat(crate::MAX_REQUEST_BYTES + 1024),
+            ..Default::default()
         },
         "big",
     );
@@ -793,6 +798,7 @@ fn fact_of_encoded_size(world: &World, size: usize) -> CommandBook {
                 index: 0,
                 is_final: false,
                 text: "x".repeat(text),
+                ..Default::default()
             },
             "sized",
         )

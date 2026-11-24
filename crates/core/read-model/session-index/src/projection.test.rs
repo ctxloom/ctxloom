@@ -20,6 +20,7 @@ fn prompt(text: &str) -> SessionEvent {
     SessionEvent::PromptSubmitted(sessions::PromptSubmitted {
         prompt_id: "p1".to_string(),
         prompt: text.to_string(),
+        ..Default::default()
     })
 }
 
@@ -31,6 +32,7 @@ fn delta(message: &str, index: u32, is_final: bool, text: &str) -> SessionEvent 
         index,
         is_final,
         text: text.to_string(),
+        ..Default::default()
     })
 }
 
@@ -43,12 +45,14 @@ fn tool() -> SessionEvent {
         response_bytes: 3,
         response_sha256: "ab".repeat(32),
         status: None,
+        ..Default::default()
     })
 }
 
 fn turn_ended() -> SessionEvent {
     SessionEvent::TurnEnded(sessions::TurnEnded {
         prompt_id: "p1".to_string(),
+        ..Default::default()
     })
 }
 
@@ -162,6 +166,7 @@ fn the_other_observations_have_their_own_kinds() {
             trigger: "auto".to_string(),
             summary_bytes: 12,
             summary_sha256: "ab".to_string(),
+            extra: Default::default(),
         }),
     ));
     assert_eq!(compaction[0]["kind"], "compaction");
@@ -211,6 +216,7 @@ fn a_clear_is_a_clear_line_naming_the_new_conversation() {
         &SessionEvent::ConversationCleared(sessions::ConversationCleared {
             native_session: "n2".to_string(),
             trigger: "clear".to_string(),
+            ..Default::default()
         }),
     ));
     assert_eq!(cleared.len(), 1, "{cleared:?}");

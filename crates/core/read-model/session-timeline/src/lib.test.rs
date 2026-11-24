@@ -67,6 +67,7 @@ fn prompt(text: &str) -> SessionEvent {
     SessionEvent::PromptSubmitted(PromptSubmitted {
         prompt_id: "p1".to_string(),
         prompt: text.to_string(),
+        ..Default::default()
     })
 }
 

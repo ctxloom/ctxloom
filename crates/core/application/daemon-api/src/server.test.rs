@@ -1281,6 +1281,7 @@ async fn prompted(f: &Fixture, harp: &str, prompt_id: &str, prompt: &str) {
     let fact = sessions::RecordPromptSubmitted {
         prompt_id: prompt_id.to_string(),
         prompt: prompt.to_string(),
+        ..Default::default()
     };
     let book = CommandBook {
         cover: Some(cover),

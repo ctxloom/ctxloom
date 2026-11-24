@@ -133,6 +133,7 @@ fn read_part(part: &Json, base: HookEvent) -> Option<HookEvent> {
                     index: 0,
                     is_final: true,
                     delta: said.to_string(),
+                    ..Default::default()
                 }),
                 ..base
             })
@@ -157,6 +158,7 @@ fn read_part(part: &Json, base: HookEvent) -> Option<HookEvent> {
                         .unwrap_or_default(),
                     response,
                     status,
+                    ..Default::default()
                 }],
                 ..base
             })

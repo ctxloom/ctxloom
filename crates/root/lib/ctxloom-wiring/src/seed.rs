@@ -466,6 +466,7 @@ fn first_prompt(cover: &Cover, id: [u8; 16], harp: &str) -> Result<CommandBook, 
     let prompt = sessions::RecordPromptSubmitted {
         prompt_id: "seed".to_string(),
         prompt: format!("Seeded prompt for {harp}."),
+        ..Default::default()
     };
     Ok(CommandBook {
         cover: Some(cover.clone()),

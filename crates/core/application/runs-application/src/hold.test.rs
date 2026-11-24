@@ -53,6 +53,7 @@ fn pieces(n: u32) -> HookEvent {
             index: 0,
             is_final: n == 1,
             delta: "words".to_string(),
+            ..Default::default()
         }),
         ..HookEvent::default()
     }

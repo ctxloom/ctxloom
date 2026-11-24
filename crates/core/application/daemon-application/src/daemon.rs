@@ -1985,6 +1985,7 @@ impl<E: Edge> Daemon<E> {
                 runs_application::Observation::Cleared(sessions::RecordConversationCleared {
                     native_session: native_id.clone(),
                     trigger: "clear".to_string(),
+                    ..Default::default()
                 });
             if let Err(error) = facts.observe(&who, &cleared).await {
                 (self.say)(&format!("{}: not recorded: {error:?}", who.harp));

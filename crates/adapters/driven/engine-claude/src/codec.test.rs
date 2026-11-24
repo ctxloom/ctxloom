@@ -190,6 +190,7 @@ fn test_a_message_display_is_a_piece_of_the_assistants_text() {
             index: 0,
             is_final: true,
             delta: "The command `echo hi` ran and printed `hi`.".into(),
+            ..Default::default()
         })
     );
 }

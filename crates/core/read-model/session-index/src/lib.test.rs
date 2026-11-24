@@ -434,6 +434,7 @@ fn prompt(id: u8, prompt_id: &str, text: &str) -> CommandBook {
     let payload = wire(&sessions::RecordPromptSubmitted {
         prompt_id: prompt_id.to_string(),
         prompt: text.to_string(),
+        ..Default::default()
     });
     fact(id, payload, &format!("hook:prompt:{id}:{prompt_id}"))
 }
@@ -446,6 +447,7 @@ fn words(id: u8, prompt_id: &str, index: u32, text: &str) -> CommandBook {
         index,
         is_final: false,
         text: text.to_string(),
+        ..Default::default()
     });
     fact(id, payload, &format!("hook:text:{id}:m1:{index}"))
 }
@@ -453,6 +455,7 @@ fn words(id: u8, prompt_id: &str, index: u32, text: &str) -> CommandBook {
 fn turn_end(id: u8, prompt_id: &str) -> CommandBook {
     let payload = wire(&sessions::RecordTurnEnded {
         prompt_id: prompt_id.to_string(),
+        ..Default::default()
     });
     fact(id, payload, &format!("hook:turn-end:{id}:{prompt_id}"))
 }

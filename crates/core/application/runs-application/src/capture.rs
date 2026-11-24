@@ -13,6 +13,7 @@
 //! Every observation is a RUNNER-authored fact on the SESSION stream (the
 //! hook is launched by the runner and holds its credential).
 
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use angzarr_embedded::markup::DomainMessage;
@@ -83,6 +84,7 @@ pub fn observe(event: &HookEvent) -> Vec<Observation> {
             sessions::RecordPromptSubmitted {
                 prompt_id: event.prompt_id.clone(),
                 prompt: event.prompt.clone(),
+                extra: event.extra.clone(),
             },
         )],
         "message_display" => event
@@ -96,6 +98,7 @@ pub fn observe(event: &HookEvent) -> Vec<Observation> {
                     index: piece.index,
                     is_final: piece.is_final,
                     text: piece.delta.clone(),
+                    extra: laid_over(&event.extra, &piece.extra),
                 })
             })
             .collect(),
@@ -111,17 +114,29 @@ pub fn observe(event: &HookEvent) -> Vec<Observation> {
                     response_bytes: call.response.len() as u64,
                     response_sha256: format!("{:x}", Sha256::digest(call.response.as_bytes())),
                     status: tool_status(call.status),
+                    extra: laid_over(&event.extra, &call.extra),
                 })
             })
             .collect(),
         "turn_end" => vec![Observation::TurnEnded(sessions::RecordTurnEnded {
             prompt_id: event.prompt_id.clone(),
+            extra: event.extra.clone(),
         })],
         "session_start" => session_start(event),
         "compaction_before" => vec![compaction(event, sessions::CompactionPhase::Before)],
         "compaction_after" => vec![compaction(event, sessions::CompactionPhase::After)],
         _ => Vec::new(),
     }
+}
+
+/// The engine data of one observation: the event's, an item's own over it.
+fn laid_over(
+    event: &BTreeMap<String, String>,
+    own: &BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
+    let mut merged = event.clone();
+    merged.extend(own.iter().map(|(k, v)| (k.clone(), v.clone())));
+    merged
 }
 
 /// How a call ended, as its fact says it: nothing when the engine said nothing.
@@ -142,6 +157,7 @@ fn session_start(event: &HookEvent) -> Vec<Observation> {
         held.push(Observation::Cleared(sessions::RecordConversationCleared {
             native_session: event.native_session.clone(),
             trigger: CLEAR.to_string(),
+            extra: event.extra.clone(),
         }));
     }
     if !(event.native_session.is_empty() && event.transcript.is_empty()) {
@@ -169,6 +185,7 @@ fn compaction(event: &HookEvent, phase: sessions::CompactionPhase) -> Observatio
         } else {
             format!("{:x}", Sha256::digest(event.compact_summary.as_bytes()))
         },
+        extra: event.extra.clone(),
     })
 }
 

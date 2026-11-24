@@ -150,6 +150,7 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
       And the first line reports "snapshot.sessions[name$=/sessions/brisk-copper-moth].profiles[0]" as "review"
       And the first line reports "snapshot.sessions[name$=/sessions/brisk-copper-moth].tags[0]" as "team-rules"
       And the first line reports "snapshot.sessions[name$=/sessions/brisk-copper-moth].engine" as "claude-code"
+      And the first line reports "snapshot.sessions[name$=/sessions/brisk-copper-moth].state_change_time" containing "Z"
 
     Scenario: With nothing hosted the snapshot is empty, and the stream stays open
       # new: an empty snapshot is `{"snapshot":{}}`, a default left out; DRAFT.
@@ -682,7 +683,7 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
     line is `<field>=<value>`, an empty one clears), `q` (quit). A frame is:
     a header line naming the scope, the filter and the sort, an inbox table (its
     header row `NAME STATE AGENT PROFILES TAGS ENGINE OWNER` and one row
-    per session, the selected one marked `>`, a row an ask waits on in the state `! ASK`, and `! ASK x2` when two wait), a line `--- asks of <harp>`,
+    per session, the selected one marked `>`, a row an ask waits on in the state `! ASK`, and `! ASK x2` when two wait; each state is followed by the time since the session's last status change, `live 3m`, `! ASK 12s`, rounded down to the largest whole unit: `s`, `m`, `h`, `d`), a line `--- asks of <harp>`,
     its asks, a line `--- log of <harp>`, and its log entries oldest first.
     A real terminal's drawing, its alternate screen and its restoring on
     exit are the one pty scenario's, below.
@@ -738,6 +739,25 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
       When I start "ctxloom top --format text" in a terminal and read its frames
       Then the frame's row for "brisk-copper-moth" shows the state "! ASK"
       And the frame's row for "amber-quiet-heron" shows the state "live"
+
+    Scenario: A row's state carries the time since its last status change
+      # new: the state cell is the state word and the time since the session's last lifecycle or
+      # ask entry, rounded down to its largest whole unit (`12s`, `3m`, `5h`, `2d`); owner
+      # 2026-11-24; DRAFT. The clock is the screen's own, set ahead under test-support, so
+      # no scenario waits.
+      Given an initialized ctxloom project
+      And a child "brisk-copper-moth" of "amber-quiet-heron" that is open and idle
+      And the top screen's clock runs 3 hours ahead
+      When I start "ctxloom top --format text" in a terminal and read its frames
+      Then the frame's row for "brisk-copper-moth" shows the state "live 3h"
+
+    Scenario: The ask state carries its timer too
+      # new: DRAFT.
+      Given an initialized ctxloom project
+      And a child "brisk-copper-moth" of "amber-quiet-heron" whose engine has asked to run "Bash" with "rm -rf build/"
+      And the top screen's clock runs 3 hours ahead
+      When I start "ctxloom top --format text" in a terminal and read its frames
+      Then the frame's row for "brisk-copper-moth" shows the state "! ASK 3h"
 
     Scenario: A row with an ask waiting is highlighted, and the frame says which in words
       # new: the screen's first colour; DRAFT glyph and wording. A terminal paints the

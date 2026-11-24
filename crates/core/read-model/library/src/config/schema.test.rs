@@ -743,11 +743,11 @@ fn test_home_only_keys_are_taken_out_of_a_layer() {
 // or `now`, and the home config's alone (taken out of a project layer).
 #[test]
 fn test_the_drain_timeout_is_a_span_said_by_the_home_config_alone() {
-    for good in ["5m", "1h30m", "90s", "0s", "now"] {
+    for good in ["5m", "1h30m", "90s", "0s", "now", "500ms", "1.5h", "2 days"] {
         let doc = parse(&format!("daemon:\n  drain_timeout: {good}\n"));
         assert!(validate(&doc).is_empty(), "{good}");
     }
-    for bad in ["soon", "5", "-1m", "true", "500ms"] {
+    for bad in ["soon", "5", "0", "-1m", "true", "1.5d", ".5h", "1y"] {
         let doc = parse(&format!("daemon:\n  drain_timeout: {bad}\n"));
         assert_eq!(validate(&doc).len(), 1, "{bad}");
     }
@@ -762,7 +762,7 @@ fn test_the_drain_timeout_is_a_span_said_by_the_home_config_alone() {
 // one of ruling 46's keys, nor the home config's alone).
 #[test]
 fn test_an_engines_approval_timeout_is_a_span_or_now() {
-    for good in ["5m", "1h", "90s", "2s", "0s", "now"] {
+    for good in ["5m", "1h", "90s", "2s", "0s", "now", "500ms"] {
         for engine in ["claude-code", "opencode"] {
             let doc = parse(&format!(
                 "engines:\n  {engine}:\n    approval_timeout: {good}\n"
@@ -770,7 +770,7 @@ fn test_an_engines_approval_timeout_is_a_span_or_now() {
             assert!(validate(&doc).is_empty(), "{engine} {good}");
         }
     }
-    for bad in ["soon", "300", "-1m", "true", "500ms", "\"\""] {
+    for bad in ["soon", "300", "0", "-1m", "true", "1.5d", "\"\""] {
         let doc = parse(&format!(
             "engines:\n  claude-code:\n    approval_timeout: {bad}\n"
         ));

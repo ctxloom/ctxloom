@@ -237,7 +237,7 @@ fn test_a_frontend_that_never_reports_its_start_is_given_up_after_the_bound() {
     let (frontended, clock) = frontended(told(), reports, LockProbe::Free);
     let failure = frontended.start(&launch(), &limits()).err().unwrap();
     assert!(!failure.deterministic);
-    assert!(failure.detail.contains("60 s"), "{}", failure.detail);
+    assert!(failure.detail.contains("within 1m"), "{}", failure.detail);
     assert!(clock.elapsed() >= START_WITHIN);
     assert!(clock.elapsed() < START_WITHIN + super::POLL * 2);
 }

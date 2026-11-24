@@ -99,7 +99,7 @@ impl Tasks for TaskloomCli {
         let Some(status) = output.status else {
             return Err(TasksError::TimedOut {
                 program,
-                timeout: format!("{:?}", self.timeout),
+                timeout: duration_text::format_exact(self.timeout),
             });
         };
         let stderr = String::from_utf8_lossy(&output.stderr);

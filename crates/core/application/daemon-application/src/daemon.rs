@@ -941,8 +941,8 @@ impl<E: Edge> Daemon<E> {
         drop(board);
         let within = match self.hand_over_began {
             Some(_) => format!(
-                "handed over within {}s, its turn cut",
-                self.hand_over_period.as_secs()
+                "handed over within {}, its turn cut",
+                duration_text::format_exact(self.hand_over_period)
             ),
             None => "handed over at its turn's end".to_string(),
         };
@@ -982,9 +982,9 @@ impl<E: Edge> Daemon<E> {
             self.drained.insert(run.clone());
             if let Some(hosted) = self.hosted.get(run) {
                 (self.say)(&format!(
-                    "{}: still busy after {}s: its turn in flight cut, handed over",
+                    "{}: still busy after {}: its turn in flight cut, handed over",
                     hosted.who.harp,
-                    self.hand_over_period.as_secs()
+                    duration_text::format_exact(self.hand_over_period)
                 ));
                 let _ = hosted.control.end(END_GRACE);
             }
@@ -1036,9 +1036,9 @@ impl<E: Edge> Daemon<E> {
         for placed in one_shots.live() {
             if one_shots.stop(&placed.run, STOP_SIGNAL) {
                 (self.say)(&format!(
-                    "{}: a one-shot still running after {}s: its engine stopped ({STOP_SIGNAL})",
+                    "{}: a one-shot still running after {}: its engine stopped ({STOP_SIGNAL})",
                     placed.harp,
-                    self.hand_over_period.as_secs()
+                    duration_text::format_exact(self.hand_over_period)
                 ));
                 stopped = true;
             }

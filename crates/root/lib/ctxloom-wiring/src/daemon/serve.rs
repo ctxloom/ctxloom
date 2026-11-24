@@ -1232,7 +1232,10 @@ async fn run<E: run_ports::Edge>(
             if period != launcher.hand_over_period() {
                 said(
                     say,
-                    &format!("the drain waits {}s from its start", period.as_secs()),
+                    &format!(
+                        "the drain waits {} from its start",
+                        duration_text::format_exact(period)
+                    ),
                 );
                 launcher.hand_over_within(period);
             }
@@ -1328,9 +1331,9 @@ impl<'a> Staying<'a> {
                 said(
                     say,
                     &format!(
-                        "after the drain's {}s and {}s more, the frontends {} still run: exiting",
-                        period.as_secs(),
-                        FRONTENDS_GRACE.as_secs(),
+                        "after the drain's {} and {} more, the frontends {} still run: exiting",
+                        duration_text::format_exact(period),
+                        duration_text::format_exact(FRONTENDS_GRACE),
                         pids_said(&live)
                     ),
                 );

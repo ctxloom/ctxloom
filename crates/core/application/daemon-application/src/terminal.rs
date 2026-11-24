@@ -385,8 +385,8 @@ impl RunnerLauncher for Frontended {
                 return Err(LaunchFailure {
                     deterministic: false,
                     detail: format!(
-                        "no frontend started the session within {} s",
-                        START_WITHIN.as_secs()
+                        "no frontend started the session within {}",
+                        duration_text::format_exact(START_WITHIN)
                     ),
                 });
             }

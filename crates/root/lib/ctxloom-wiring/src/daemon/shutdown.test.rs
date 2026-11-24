@@ -13,8 +13,8 @@ use runs_application::{observe, Undelivered};
 use surface_ports::HookEvent;
 
 use super::{
-    configured_drain_timeout, epoch_seconds, holds_said, notice_text, span_text, undelivered_in,
-    verdict, Running, ShutdownError,
+    configured_drain_timeout, epoch_seconds, holds_said, notice_text, undelivered_in, verdict,
+    Running, ShutdownError,
 };
 use crate::capture::Deadline;
 use crate::daemon::flush::{flush_with, Flushed};
@@ -107,21 +107,15 @@ fn the_errors_are_a_decline_and_a_failure() {
 
 // A span is said as the one grammar writes it, longest unit first.
 #[test]
-fn a_span_is_said_longest_unit_first() {
+fn a_notice_names_the_time_left_as_the_one_grammar_writes_a_span() {
     for (seconds, text) in [
-        (0, "0s"),
-        (1, "1s"),
         (2, "2s"),
-        (59, "59s"),
-        (60, "1m"),
         (300, "5m"),
-        (3_600, "1h"),
-        (5_400, "1h30m"),
-        (3_661, "1h1m1s"),
-        (86_400, "1d"),
-        (90_061, "1d1h1m1s"),
+        (5_400, "1h 30m"),
+        (90_061, "25h 1m 1s"),
     ] {
-        assert_eq!(span_text(Duration::from_secs(seconds)), text, "{seconds}");
+        let notice = notice_text(Duration::from_secs(seconds));
+        assert!(notice.contains(&format!("stopped in {text};")), "{notice}");
         assert_eq!(
             duration_text::parse(text),
             Ok(Duration::from_secs(seconds)),

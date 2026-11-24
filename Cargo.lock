@@ -1345,6 +1345,7 @@ dependencies = [
  "coded-diagnostic",
  "daemon-board",
  "daemon-proto",
+ "duration-text",
  "isolation-ports",
  "library-application",
  "library-checkout",
@@ -3274,6 +3275,7 @@ dependencies = [
  "coded-diagnostic",
  "daemon-api",
  "daemon-proto",
+ "duration-text",
  "mutants",
  "prost",
  "prost-types",
@@ -4187,6 +4189,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "deps-ports",
+ "duration-text",
  "file-system",
  "fixture-program",
  "git-cli",
@@ -4859,6 +4862,7 @@ dependencies = [
  "crossterm",
  "daemon-api",
  "daemon-proto",
+ "duration-text",
  "isolation-application",
  "mutants",
  "presentation",
@@ -5571,6 +5575,7 @@ name = "taskloom-cli-client"
 version = "0.1.0"
 dependencies = [
  "coded-diagnostic",
+ "duration-text",
  "file-system",
  "fixture-program",
  "mutants",
@@ -6644,6 +6649,7 @@ version = "0.1.0"
 dependencies = [
  "coded-diagnostic",
  "ctxloom-ports",
+ "duration-text",
  "file-system",
  "fixture-program",
  "git-cli",

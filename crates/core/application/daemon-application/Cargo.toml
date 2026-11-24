@@ -8,6 +8,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+duration-text.workspace = true
 coded-diagnostic.workspace = true
 angzarr-embedded.workspace = true
 daemon-board.workspace = true

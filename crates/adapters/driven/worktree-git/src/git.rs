@@ -44,7 +44,8 @@ impl fmt::Display for GitError {
             GitError::Said(said) => f.write_str(said),
             GitError::TimedOut { command, timeout } => write!(
                 f,
-                "git {command} did not finish within {timeout:?} and was killed"
+                "git {command} did not finish within {} and was killed",
+                duration_text::format_exact(*timeout)
             ),
         }
     }
@@ -57,7 +58,7 @@ impl GitError {
             GitError::Said(_) => None,
             GitError::TimedOut { command, timeout } => Some(WorktreeError::GitTimedOut {
                 command: command.clone(),
-                timeout: format!("{timeout:?}"),
+                timeout: duration_text::format_exact(*timeout),
             }),
         }
     }

@@ -2674,7 +2674,7 @@ async fn a_child_still_busy_after_the_period_is_handed_over_its_turn_cut() {
     assert_eq!(world.engine.asked.lock().unwrap().ends, 1, "once");
     let log = world.said.lock().unwrap().join("\n");
     assert!(
-        log.contains("kid: still busy after 300s: its turn in flight cut, handed over"),
+        log.contains("kid: still busy after 5m: its turn in flight cut, handed over"),
         "{log}"
     );
     world.say(exited());
@@ -2762,7 +2762,7 @@ async fn a_draining_daemon_warns_at_once_of_each_busy_child() {
     for _ in 0..3 {
         world.tick().await;
     }
-    let warned = "kid: a turn in flight: steered to end it; handed over within 300s, its turn cut";
+    let warned = "kid: a turn in flight: steered to end it; handed over within 5m, its turn cut";
     let said = world.said.lock().unwrap().clone();
     assert_eq!(
         said.iter().filter(|line| line.as_str() == warned).count(),

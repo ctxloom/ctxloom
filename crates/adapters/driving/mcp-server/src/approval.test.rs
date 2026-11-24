@@ -123,15 +123,23 @@ fn an_expired_ask_is_denied_for_its_time_or_at_once() {
 }
 
 #[test]
-fn a_span_is_written_as_the_config_writes_one() {
-    assert_eq!(span(0), "0s");
-    assert_eq!(span(90), "90s");
-    assert_eq!(span(120), "2m");
-    assert_eq!(span(300), "5m");
-    assert_eq!(span(3600), "1h");
-    assert_eq!(span(7200), "2h");
-    assert_eq!(span(3660), "61m");
-    assert_eq!(span(59), "59s");
+fn an_expired_asks_wait_is_named_as_the_one_grammar_writes_a_span() {
+    let say: Say = Box::new(|d| format!("{d}"));
+    let mut asked = approval("expired", "", "");
+    for (seconds, text) in [
+        (300, "5m"),
+        (90, "1m 30s"),
+        (3600, "1h"),
+        (3660, "1h 1m"),
+        (59, "59s"),
+    ] {
+        asked.timeout_seconds = seconds;
+        assert_eq!(
+            answer_of(&asked, &json!({}), &say),
+            json!({"behavior": "deny", "message": format!("mcp-server-approval-expired timeout={}", coded_diagnostic::quote(text))}),
+            "{seconds}"
+        );
+    }
 }
 
 #[test]

@@ -251,8 +251,9 @@ impl Render for Status {
         )?;
         writeln!(
             out,
-            "idle {}s of {}s",
-            daemon.idle_seconds, daemon.idle_limit_seconds
+            "idle {} of {}",
+            duration_text::format_exact(Duration::from_secs(daemon.idle_seconds)),
+            duration_text::format_exact(Duration::from_secs(daemon.idle_limit_seconds))
         )?;
         if daemon.draining {
             writeln!(

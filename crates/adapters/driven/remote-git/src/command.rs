@@ -107,7 +107,8 @@ impl Git {
                 Err(Failed::Said(format!("git {label}: {}", other.io())))
             }
             Err(git_cli::Failure::TimedOut(timeout)) => Err(Failed::TimedOut(format!(
-                "git {label}: did not finish within {timeout:?} and was killed"
+                "git {label}: did not finish within {} and was killed",
+                duration_text::format_exact(timeout)
             ))),
             Err(git_cli::Failure::Exited { status, stderr, .. }) => {
                 let said = credential.redact(String::from_utf8_lossy(&stderr).trim());

@@ -330,7 +330,7 @@ recorded done, which drops it from the state. Under test-support every
 ctxloom clock is moved on by `CTXLOOM_TEST_CLOCK_OFFSET`, a span of the
 duration grammar (`3h`, `2d`, `90m`, `1h30m`, `0s`; `daemon::clock_offset`,
 the one reader): the daemon's, passed on to a daemon a command starts, and
-the `top` screen's. A bare integer, a negative span or anything that is no
+the `top` screen's. A bare integer (`0` too), a negative span or anything that is no
 span is refused (the daemon's start, a `top` command: exit 48); a clock only
 moves on, never back (owner ruling 2026-11-24, one variable for all). Each rename's directories are
 synced after it, the target's then the source's when it is another, and
@@ -2651,7 +2651,14 @@ reports.
 SHUTDOWN (owner, 2026-11-15, OD-62; `ctxloom-wiring`'s `daemon/shutdown.rs`).
 `ctxloom shutdown [<duration> | now]` stops every running ctxloom of this
 home, as an installer must before it replaces the binary. Its time is a
-span of the one grammar (rust-support's `duration-text`, read directly:
+span of the one grammar (rust-support's `duration-text` 0.2.0, over jiff's
+friendly format and the word `now`: a number always has a unit, so `30` and
+`0` are refused, a fraction only on the last unit and never on days or weeks
+(`1.5h` reads, `1.5d` and `.5h` do not), `ms`, `us` and `ns` and written-out
+units (`2 days`) read, a year or a month is refused; a span is TOLD as
+`format_exact` writes it, `1h 30m`, never in days, or as `format_age` rounds
+it, `2d`: every text of ctxloom that names a span, its daemon's log and `daemon
+status` included; read directly:
 `15m`, `1h30m`, `90s`, `0s`, and its word `now`, zero);
 none given, `daemon.drain_timeout`, else five minutes; one that is no span
 is refused before anything is asked, `ctxloom-wiring-shutdown-bad-time`
@@ -2889,8 +2896,7 @@ always says `!`), in place of its own state word, and there is no ASKS column.
 The state cell also says how long ago the session's status last changed
 (owner ruling 2026-11-24): `live 3m`, `ended 2h`, `! ASK x2 12s`, the age
 rounded down to its largest whole unit (`s`, `m`, `h`, `d`; days the largest,
-`session-cli`'s `age::age`, a temporary formatter until `duration-text`'s is
-adopted, no new dependency). The daemon fills the OPTIONAL `Session.state_change_time`
+`duration_text::format_age`). The daemon fills the OPTIONAL `Session.state_change_time`
 (field 27, additive) in the top watch from the session timeline's latest
 lifecycle or ask entry (`session_timeline::STATUS_EVENTS`: started, exited,
 rehosted, restarted, closed, reopened, approval asked, approval settled;

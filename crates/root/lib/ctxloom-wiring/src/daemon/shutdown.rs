@@ -85,25 +85,8 @@ const LOOK: Duration = Duration::from_millis(100);
 pub(crate) fn notice_text(left: Duration) -> String {
     format!(
         "ctxloom is shutting down: this session will be stopped in {}; finish and exit",
-        span_text(left)
+        duration_text::format_exact(left)
     )
-}
-
-/// `span` as the one grammar writes it, longest unit first, whole seconds:
-/// `2s`, `5m`, `1h30m`, `0s`.
-pub(crate) fn span_text(span: Duration) -> String {
-    let mut left = span.as_secs();
-    let mut text = String::new();
-    for (unit, length) in [("d", 86_400), ("h", 3_600), ("m", 60), ("s", 1)] {
-        if left >= length {
-            text.push_str(&format!("{}{unit}", left / length));
-            left %= length;
-        }
-    }
-    if text.is_empty() {
-        text.push_str("0s");
-    }
-    text
 }
 
 /// Seconds since the epoch, on this host's clock.
@@ -514,8 +497,8 @@ impl Shutdown<'_> {
                     .flat_map(|daemon| daemon.runs.iter().map(|run| run.harp.clone()))
                     .collect();
                 say(format!(
-                    "asked the daemon to drain within {}s; it hosts: {}",
-                    period.as_secs(),
+                    "asked the daemon to drain within {}; it hosts: {}",
+                    duration_text::format_exact(period),
                     if hosts.is_empty() {
                         "nothing".to_string()
                     } else {
@@ -547,8 +530,8 @@ impl Shutdown<'_> {
                 _ => after,
             };
             say(format!(
-                "after the drain's {}s, still running: {}",
-                period.as_secs(),
+                "after the drain's {}, still running: {}",
+                duration_text::format_exact(period),
                 after.said()
             ));
         }
@@ -586,8 +569,8 @@ impl Shutdown<'_> {
             let after = self.wait(FRONTENDS_WAIT, |running| running.frontends.is_empty())?;
             if !after.frontends.is_empty() {
                 say(format!(
-                    "after {}s, frontends still running: {}",
-                    FRONTENDS_WAIT.as_secs(),
+                    "after {}, frontends still running: {}",
+                    duration_text::format_exact(FRONTENDS_WAIT),
                     pids_of(&after.frontends)
                 ));
             }
@@ -603,8 +586,8 @@ impl Shutdown<'_> {
             let after = self.wait(within, |running| running.daemon.is_none())?;
             if after.daemon.is_some() {
                 say(format!(
-                    "after {}s, the daemon still serves",
-                    within.as_secs()
+                    "after {}, the daemon still serves",
+                    duration_text::format_exact(within)
                 ));
             }
         }

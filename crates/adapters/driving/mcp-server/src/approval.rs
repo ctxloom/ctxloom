@@ -143,16 +143,6 @@ impl Diagnostic for Denied {
     }
 }
 
-/// `seconds` as the config's span grammar writes it: `1h`, `5m`, `90s`.
-pub(crate) fn span(seconds: u32) -> String {
-    match seconds {
-        0 => "0s".to_string(),
-        s if s % 3600 == 0 => format!("{}h", s / 3600),
-        s if s % 60 == 0 => format!("{}m", s / 60),
-        s => format!("{s}s"),
-    }
-}
-
 /// The session rule claude keeps for `rule` (`Bash(rm -rf build/)`): its
 /// tool and its content, destination `session` (P0 Q9); none for a rule
 /// not of that shape.
@@ -191,7 +181,9 @@ pub(crate) fn answer_of(approval: &v1::Approval, input: &Value, say: &Say) -> Va
             engine: approval.engine.clone(),
         }),
         ("expired", _) => deny(Denied::Expired {
-            timeout: span(approval.timeout_seconds),
+            timeout: duration_text::format_exact(std::time::Duration::from_secs(u64::from(
+                approval.timeout_seconds,
+            ))),
         }),
         _ => deny(Denied::ByUser),
     }

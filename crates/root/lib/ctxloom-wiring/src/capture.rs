@@ -435,8 +435,8 @@ impl<R: HookReach, H: HeldFacts, I: SessionIds> Recording for HoldingRecording<R
                 event,
                 Serving::Unreached {
                     why: format!(
-                        "no ctxloom daemon could be reached or started within {} s",
-                        hook_bound(native).as_secs()
+                        "no ctxloom daemon could be reached or started within {}",
+                        duration_text::format_exact(hook_bound(native))
                     ),
                 },
             ),

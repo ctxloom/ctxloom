@@ -647,7 +647,7 @@ impl Screen {
             waiting => format!("{} ASK x{waiting}", self.icon),
         };
         match self.since(session) {
-            Some(elapsed) => format!("{state} {}", crate::age::age(elapsed)),
+            Some(elapsed) => format!("{state} {}", duration_text::format_age(elapsed)),
             None => state,
         }
     }

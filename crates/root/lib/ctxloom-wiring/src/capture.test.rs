@@ -709,7 +709,7 @@ fn a_hook_that_reaches_no_daemon_holds_and_says_why() {
         panic!("one held: {said:?}")
     };
     assert!(
-        why.contains("no ctxloom daemon could be reached or started within 10 s"),
+        why.contains("no ctxloom daemon could be reached or started within 10s"),
         "{why}"
     );
     let waits = recording.reach.waits.lock().unwrap().clone();

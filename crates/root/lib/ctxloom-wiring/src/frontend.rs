@@ -814,8 +814,8 @@ impl<H: run_ports::HeldFacts> ReportAt<'_, H> {
                 std::slice::from_ref(&item),
                 runs_application::Serving::Unreached {
                     why: format!(
-                        "no ctxloom daemon could be reached or started within {} s",
-                        REPORT_BOUND.as_secs()
+                        "no ctxloom daemon could be reached or started within {}",
+                        duration_text::format_exact(REPORT_BOUND)
                     ),
                 },
             ),

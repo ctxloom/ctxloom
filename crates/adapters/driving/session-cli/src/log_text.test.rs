@@ -41,19 +41,21 @@ fn the_transcripts_entries_read_as_who_said_what() {
     assert_eq!(
         said(Arm::Tool(v1::LogTool {
             name: "Bash".to_string(),
+            input_bytes: 120,
             response_bytes: 2100,
             ..v1::LogTool::default()
         })),
-        "tool Bash, 2100 bytes"
+        "tool Bash, input 120 bytes, result 2100 bytes"
     );
     assert_eq!(
         said(Arm::Tool(v1::LogTool {
             name: "bash".to_string(),
+            input_bytes: 20,
             response_bytes: 3,
             status: Some(v1::log_tool::Status::Error as i32),
             ..v1::LogTool::default()
         })),
-        "tool bash, 3 bytes, error"
+        "tool bash, input 20 bytes, result 3 bytes, error"
     );
     assert_eq!(said(Arm::TurnEnd(v1::LogTurnEnd::default())), "turn ended");
     assert_eq!(

@@ -69,7 +69,9 @@ enum ToolCallStatus {
 
 // One tool call and what became of it. The result's body is never recorded:
 // only its size and the SHA-256 (lowercase hex) of its bytes. The input is
-// recorded whole. Thinking blocks are not observable and not recorded.
+// recorded as its size and SHA-256 too, never its text (`input` is set on
+// calls recorded before only). Thinking blocks are not observable and not
+// recorded.
 // external_id `hook:tool:<session>:<tool_use_id>`.
 message RecordToolCall {
   option (io.angzarr.v1.fact) = {
@@ -92,6 +94,12 @@ message RecordToolCall {
   // recorded before it reads as none. Carried to the log entry's `extra`,
   // never into a common field.
   map<string, string> extra = 8;
+  // The input's size and SHA-256 (lowercase hex of its bytes), recorded in
+  // its place: a tool's input can hold whole file contents, so a new call's
+  // `input` text is never set. Absent on a call recorded before, which keeps
+  // its `input` and still reads.
+  optional uint64 input_bytes = 9;
+  optional string input_sha256 = 10;
 }
 
 // The assistant's turn ended (Stop). external_id
@@ -228,6 +236,12 @@ message ToolCalled {
   // recorded before it reads as none. Carried to the log entry's `extra`,
   // never into a common field.
   map<string, string> extra = 8;
+  // The input's size and SHA-256 (lowercase hex of its bytes), recorded in
+  // its place: a tool's input can hold whole file contents, so a new call's
+  // `input` text is never set. Absent on a call recorded before, which keeps
+  // its `input` and still reads.
+  optional uint64 input_bytes = 9;
+  optional string input_sha256 = 10;
 }
 
 message TurnEnded {

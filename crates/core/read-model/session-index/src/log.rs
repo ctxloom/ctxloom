@@ -91,7 +91,8 @@ fn arm_of(event: &SessionEvent) -> Option<(Arm, BTreeMap<String, String>)> {
                 prompt_id: called.prompt_id.clone(),
                 tool_use_id: called.tool_use_id.clone(),
                 name: called.tool.clone(),
-                input: called.input.clone(),
+                input_bytes: 0,
+                input_sha256: String::new(),
                 response_bytes: called.response_bytes,
                 response_sha256: called.response_sha256.clone(),
                 // How the call ended, only where the engine said.

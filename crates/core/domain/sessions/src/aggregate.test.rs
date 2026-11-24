@@ -1215,3 +1215,30 @@ fn an_observations_engine_extension_reaches_its_event() {
     };
     assert_eq!(prompt.extra, extra);
 }
+
+// A tool call's input size and digest reach its event; a call recorded
+// before them (an input text, no size) is as it was.
+#[test]
+fn a_tool_calls_input_size_and_digest_reach_its_event() {
+    let mut session = Session::minted();
+    let [SessionEvent::ToolCalled(called)] = &session.fact(
+        RecordToolCall {
+            input: String::new(),
+            input_bytes: Some(41_000),
+            input_sha256: Some("ab".repeat(32)),
+            ..tool_fact()
+        },
+        "hook:tool:s:toolu_big",
+    )[..] else {
+        panic!("one tool event");
+    };
+    assert_eq!(called.input, "");
+    assert_eq!(called.input_bytes, Some(41_000));
+    assert_eq!(called.input_sha256, Some("ab".repeat(32)));
+    let [SessionEvent::ToolCalled(old)] = &session.fact(tool_fact(), "hook:tool:s:toolu_old")[..]
+    else {
+        panic!("one tool event");
+    };
+    assert_eq!(old.input, r#"{"command":"echo hi"}"#);
+    assert_eq!((old.input_bytes, old.input_sha256.clone()), (None, None));
+}

@@ -111,6 +111,8 @@ pub fn observe(event: &HookEvent) -> Vec<Observation> {
                     tool_use_id: call.tool_use_id.clone(),
                     tool: call.tool.clone(),
                     input: call.input.clone(),
+                    input_bytes: None,
+                    input_sha256: None,
                     response_bytes: call.response.len() as u64,
                     response_sha256: format!("{:x}", Sha256::digest(call.response.as_bytes())),
                     status: tool_status(call.status),

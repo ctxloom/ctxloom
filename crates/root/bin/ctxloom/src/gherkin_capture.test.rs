@@ -60,6 +60,10 @@ const AFTER_CLEAR: &str = "2222bbbb-0000-4000-8000-000000000002";
 /// The prompt a late hook's turn's end names: one no hook had reported.
 const LATE_PROMPT: &str = "1a7e1a7e-0000-4000-8000-0000001a7e00";
 
+/// The tool call's input as the codec compacts it, its size and its digest
+/// (`sha256sum`): the input's text is never recorded.
+const TOOL_INPUT: &str = r#"{"command":"echo hi","description":"Print hi via echo"}"#;
+const TOOL_INPUT_DIGEST: &str = "fa5825175a8445f0979f1631d64a01f4bf56995b04914038c5089e8dd1a6bea3";
 /// The digest of [`TOOL_BODY`] (`sha256sum`).
 const TOOL_DIGEST: &str = "71ca0ef886ae43a96de885a15d913cc2cbe0553f553638a28601890879ed97e3";
 
@@ -478,6 +482,10 @@ fn child_transcript(w: &mut World) {
     assert_eq!(tool["name"], "Bash");
     assert_eq!(count(&tool["response_bytes"]), TOOL_BODY.len() as u64);
     assert_eq!(tool["response_sha256"], TOOL_DIGEST);
+    // The input is its size and digest, never its text.
+    assert_eq!(count(&tool["input_bytes"]), TOOL_INPUT.len() as u64);
+    assert_eq!(tool["input_sha256"], TOOL_INPUT_DIGEST);
+    assert!(tool.get("input").is_none(), "{tool}");
     let turn_end = lines[5]["turn_end"].as_object().unwrap();
     assert!(
         !turn_end.contains_key("text") && !turn_end.contains_key("delta"),
@@ -487,6 +495,10 @@ fn child_transcript(w: &mut World) {
     assert!(
         !whole.contains(TOOL_BODY),
         "the tool's response body was kept"
+    );
+    assert!(
+        !whole.contains("echo hi") && !whole.contains("Print hi via echo"),
+        "the tool's input was kept"
     );
     assert!(
         !whole.contains(CHILD_REPLY),

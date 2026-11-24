@@ -521,6 +521,8 @@ impl SessionAggregate {
             tool_use_id: fact.tool_use_id,
             tool: fact.tool,
             input: fact.input,
+            input_bytes: fact.input_bytes,
+            input_sha256: fact.input_sha256,
             response_bytes: fact.response_bytes,
             response_sha256: fact.response_sha256.clone(),
             status: fact.status,

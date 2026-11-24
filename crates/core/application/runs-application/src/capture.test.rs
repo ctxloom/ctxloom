@@ -898,3 +898,22 @@ fn test_observe_carries_the_codecs_engine_data_onto_every_fact() {
     };
     assert_eq!(ended.extra, extra(&[("opencode.step", "1")]));
 }
+
+// The owner's ruling of 2026-11-24: a tool call's input is recorded as its
+// size and SHA-256, as its result is, and its text is never set.
+#[test]
+fn test_observe_records_a_tool_inputs_size_and_digest_and_not_its_text() {
+    let input = r#"{"file_path":"/work/a.rs","content":"fn main() {}"}"#;
+    let made = observe(&batch(&[("t1", "Write", input, "ok")]));
+    let [Observation::ToolCall(call)] = &made[..] else {
+        panic!("one tool fact");
+    };
+    assert_eq!(call.input, "", "the input's text is not recorded");
+    assert_eq!(call.input_bytes, Some(input.len() as u64));
+    assert_eq!(
+        call.input_sha256.as_deref(),
+        Some(format!("{:x}", Sha256::digest(input.as_bytes())).as_str())
+    );
+    assert_eq!(call.tool, "Write", "the tool is named");
+    assert_eq!(call.response_bytes, 2);
+}

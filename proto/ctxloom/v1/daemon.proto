@@ -1774,8 +1774,8 @@ message LogWords {
   string text = 6;
 }
 
-// One tool call. The result's body is never recorded: its size and SHA-256
-// (lowercase hex) only.
+// One tool call. Neither its input nor its result's body is recorded: the
+// size and SHA-256 (lowercase hex) of each only, and the tool's name.
 message LogTool {
   enum Status {
     STATUS_UNSPECIFIED = 0;
@@ -1785,8 +1785,12 @@ message LogTool {
   string prompt_id = 1;
   string tool_use_id = 2;
   string name = 3;
-  // The call's input, compact JSON.
-  string input = 4;
+  // The call's input is never in the entry (it can hold whole file contents):
+  // its size and SHA-256 (lowercase hex) are, as the result's are.
+  reserved 4;
+  reserved "input";
+  uint64 input_bytes = 8;
+  string input_sha256 = 9;
   uint64 response_bytes = 5;
   string response_sha256 = 6;
   // How the call ended; absent when the engine does not say.

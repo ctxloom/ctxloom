@@ -133,10 +133,17 @@ fn a_tool_entry_carries_the_calls_status_when_it_is_known() {
     assert_eq!(unknown.status, None, "no status where the engine said none");
 }
 
-// Ruling B: the tool's input, and its result as size and digest. No body.
+// Ruling B and the owner's of 2026-11-24: neither the tool's input (it can
+// hold whole files) nor its result is in the entry: each is its size and
+// SHA-256, and the entry names the tool. A new call records the input's size
+// and digest and no text.
 #[test]
-fn a_tool_entry_is_input_size_and_digest_and_no_result_body() {
-    let Arm::Tool(entry) = arm(Projection::new().fold(7, at(0), &SessionEvent::ToolCalled(tool())))
+fn a_tool_entry_is_names_sizes_and_digests_and_no_text() {
+    let mut called = tool();
+    called.input = String::new();
+    called.input_bytes = Some(20);
+    called.input_sha256 = Some("1e".repeat(32));
+    let Arm::Tool(entry) = arm(Projection::new().fold(7, at(0), &SessionEvent::ToolCalled(called)))
     else {
         panic!("tool")
     };
@@ -146,12 +153,31 @@ fn a_tool_entry_is_input_size_and_digest_and_no_result_body() {
             prompt_id: "p1".to_string(),
             tool_use_id: "toolu_1".to_string(),
             name: "Bash".to_string(),
-            input: r#"{"command":"echo hi"}"#.to_string(),
+            input_bytes: 20,
+            input_sha256: "1e".repeat(32),
             response_bytes: 3,
             response_sha256: "ab".repeat(32),
             status: None,
         }
     );
+}
+
+// A call recorded before the input was summarized keeps its input text in
+// the store and still reads: its entry carries the size and digest of that
+// text, never the text.
+#[test]
+fn an_old_tool_event_reads_as_the_size_and_digest_of_its_input() {
+    let Arm::Tool(entry) = arm(Projection::new().fold(7, at(0), &SessionEvent::ToolCalled(tool())))
+    else {
+        panic!("tool")
+    };
+    assert_eq!(entry.input_bytes, 20);
+    assert_eq!(
+        entry.input_sha256,
+        "1eab1ef18bb109ae99f48bfe7efaba9dde08e27bdb46438214bd6c65eb3ff2ff"
+    );
+    let json = serde_json::to_string(&entry).unwrap();
+    assert!(!json.contains("echo hi"), "{json}");
 }
 
 #[test]

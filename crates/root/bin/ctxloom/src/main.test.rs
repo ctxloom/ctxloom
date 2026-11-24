@@ -501,6 +501,9 @@ mod session_start;
 #[path = "store_close.test.rs"]
 mod store_close;
 
+#[path = "store_migration.test.rs"]
+mod store_migration;
+
 #[path = "surfaces.test.rs"]
 mod surfaces;
 

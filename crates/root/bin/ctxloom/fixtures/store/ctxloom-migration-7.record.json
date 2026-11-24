@@ -1,0 +1,54 @@
+[
+ {
+  "domain": "project-names",
+  "root": "a065d4c0-e533-57cf-9925-851ad83333fe",
+  "events": [
+   {
+    "type": "ProjectNameClaimed",
+    "payload": "0a147374756e672d7368616b61626c652d737761726d121c756e6c696b61626c652d696d706f74656e742d737065617266697368"
+   }
+  ]
+ },
+ {
+  "domain": "projects",
+  "root": "526ded71-d37a-54f6-bb79-91cc1d527062",
+  "events": [
+   {
+    "type": "ProjectNamed",
+    "payload": "0a1c756e6c696b61626c652d696d706f74656e742d73706561726669736812147374756e672d7368616b61626c652d737761726d"
+   }
+  ]
+ },
+ {
+  "domain": "session-names",
+  "root": "a67f9a6e-8f67-5d62-a516-5106014d16eb",
+  "events": [
+   {
+    "type": "Claimed",
+    "payload": "0a1c756e6c696b61626c652d696d706f74656e742d737065617266697368120f616d6265722d73776966742d6f776c1a2461363766396136652d386636372d356436322d613531362d353130363031346431366562"
+   }
+  ]
+ },
+ {
+  "domain": "sessions",
+  "root": "a67f9a6e-8f67-5d62-a516-5106014d16eb",
+  "events": [
+   {
+    "type": "SessionMinted",
+    "payload": "0a0f616d6265722d73776966742d6f776c121c756e6c696b61626c652d696d706f74656e742d7370656172666973681a0f2f746d702f2e746d7062557470655722272f746d702f2e746d706255747065572f6374786c6f6f6d2f616d6265722d73776966742d6f776c2a0b636c617564652d636f646530013a0608d58593d806",
+    "harp": "amber-swift-owl",
+    "workspace": null
+   },
+   {
+    "type": "IncarnationOwed",
+    "payload": "080112056669727374",
+    "incarnation": 1,
+    "reason": "first"
+   },
+   {
+    "type": "PromptSubmitted",
+    "payload": "0a047365656412225365656465642070726f6d707420666f7220616d6265722d73776966742d6f776c2e"
+   }
+  ]
+ }
+]

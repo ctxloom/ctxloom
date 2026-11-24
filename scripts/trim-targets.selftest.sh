@@ -7,7 +7,7 @@
 # incremental cache alone, and the next build rebuilds `old` and not `fresh`
 # (the fingerprints still agree with what is left). A checkout whose cargo
 # build lock is held is kept and said; one without a target/ is skipped; the
-# pool's slots are the default checkouts; another cargo-sweep version, and
+# working checkout is the default when none is given; another cargo-sweep version, and
 # usage, are refused. Needs cargo and the pinned cargo-sweep on PATH
 # (TRIM_SWEEP_VERSION, the justfile's cargo_sweep_version; default 0.8.0).
 set -euo pipefail
@@ -71,12 +71,14 @@ has "$out" "swept 0 target/ directories of artifacts unused for 2 days, kept 1"
 grep -q '^fresh-' <<< "$(units)" || fail "a building checkout was swept"
 kill "$holder"; wait "$holder" 2>/dev/null || true; holder=
 
-# The pool's slots are the default checkouts.
-mkdir -p "$tmp/pool/p--slot-2"
-out=$(SLOT_ROOT=$tmp/pool SLOT_PREFIX=p--slot- SLOT_COUNT=2 "$trim" --days 5 2>&1) || fail "the pool: exit $?: $out"
-has "$out" "skip    $tmp/pool/p--slot-1: no target/"
-has "$out" "skip    $tmp/pool/p--slot-2: no target/"
+# No checkout given: the checkout the working directory is in.
+mkdir -p "$tmp/here"; git -C "$tmp/here" init -q
+out=$(cd "$tmp/here" && "$trim" --days 5 2>&1) || fail "default checkout: exit $?: $out"
+has "$out" "skip    $tmp/here: no target/"
 has "$out" "unused for 5 days"
+rc=0
+out=$(cd "$tmp" && GIT_CEILING_DIRECTORIES=$tmp "$trim" 2>&1) || rc=$?
+[ "$rc" -eq 1 ] || fail "no checkout, no repository: exit $rc, not 1: $out"
 
 # Another cargo-sweep version, and usage: refused, nothing removed.
 rc=0
@@ -88,4 +90,4 @@ rc=0
 [ "$rc" -eq 2 ] || fail "usage: exit $rc, not 2"
 grep -q '^fresh-' <<< "$(units)" || fail "a refused run removed something"
 
-echo "ok   trim-targets.selftest (aged units and caches swept, fresh kept and not rebuilt, dry run removes nothing, building kept, pool default, version pinned)"
+echo "ok   trim-targets.selftest (aged units and caches swept, fresh kept and not rebuilt, dry run removes nothing, building kept, working checkout default, version pinned)"

@@ -84,6 +84,12 @@ pub(crate) fn serve(
     })?;
     let server =
         mcp_server::Server::new(caller, stamp).saying(Box::new(move |d| catalog.message(d)));
+    // A hosted child is fed its messages as turns, never as elements.
+    let server = if wakes {
+        server
+    } else {
+        server.without_message_notes()
+    };
     // The terminal wake: where claude exported its messaging socket to this
     // server (its engine started it), the server keeps its session awake.
     let exported = |name: &str| {

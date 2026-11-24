@@ -135,30 +135,57 @@ fn first(w: &mut World) -> Vec<String> {
     screen(w).seen[0].clone()
 }
 
+/// A frame of `screen` that satisfies `ok`, waiting for more frames until
+/// one does: only the newest frame seen when `newest`, else any frame seen
+/// or to come. The screen redraws as its timers count, so a frame that
+/// carried news (the bell) is followed by plain ones, and a step about
+/// "a frame" must look back at what came; a step about the screen as it
+/// stands is about the newest. Err: the newest frame, on the deadline.
+fn find(
+    screen: &mut Screen,
+    newest: bool,
+    ok: &dyn Fn(&Parts) -> bool,
+    deadline: Instant,
+) -> Result<Parts, Vec<String>> {
+    loop {
+        while let Ok(frame) = screen.frames.try_recv() {
+            screen.seen.push(frame);
+        }
+        let mut candidates = screen.seen.iter().rev();
+        let found = match newest {
+            true => candidates.next().map(|f| parts(f)).filter(|p| ok(p)),
+            false => candidates.map(|f| parts(f)).find(|p| ok(p)),
+        };
+        if let Some(found) = found {
+            return Ok(found);
+        }
+        let left = deadline.saturating_duration_since(Instant::now());
+        match screen.frames.recv_timeout(left) {
+            Ok(frame) => screen.seen.push(frame),
+            Err(_) => return Err(screen.seen.last().cloned().unwrap_or_default()),
+        }
+    }
+}
+
+fn found_or_panic(w: &mut World, what: &str, newest: bool, ok: &dyn Fn(&Parts) -> bool) -> Parts {
+    let deadline = Instant::now() + WAIT;
+    find(screen(w), newest, ok, deadline).unwrap_or_else(|last| {
+        panic!(
+            "no frame {what}: the last was {last:#?}\n{}",
+            daemon_spec::daemon_log_text(w)
+        )
+    })
+}
+
 /// The newest frame that satisfies `ok`, waiting for more frames until one
 /// does.
 fn until(w: &mut World, what: &str, ok: impl Fn(&Parts) -> bool) -> Parts {
-    let deadline = Instant::now() + WAIT;
-    loop {
-        drain(w);
-        if let Some(frame) = screen(w).seen.last() {
-            let found = parts(frame);
-            if ok(&found) {
-                return found;
-            }
-        }
-        let left = deadline.saturating_duration_since(Instant::now());
-        match screen(w).frames.recv_timeout(left) {
-            Ok(frame) => screen(w).seen.push(frame),
-            Err(_) => {
-                let last = screen(w).seen.last().cloned().unwrap_or_default();
-                panic!(
-                    "no frame {what}: the last was {last:#?}\n{}",
-                    daemon_spec::daemon_log_text(w)
-                )
-            }
-        }
-    }
+    found_or_panic(w, what, true, &ok)
+}
+
+/// Any frame, of those seen and those to come, that satisfies `ok`.
+fn until_any(w: &mut World, what: &str, ok: impl Fn(&Parts) -> bool) -> Parts {
+    found_or_panic(w, what, false, &ok)
 }
 
 fn press_key(w: &mut World, key: &str) {
@@ -403,12 +430,12 @@ fn first_row_no_line(w: &mut World, harp: String, line: String) {
 
 #[then(expr = "a frame has the line {string}")]
 fn a_frame_has_line(w: &mut World, line: String) {
-    until(w, "with that line", |p| p.status.contains(&line));
+    until_any(w, "with that line", |p| p.status.contains(&line));
 }
 
 #[then(regex = r#"^that frame's row for "([^"]+)" shows the state "([^"]+)"$"#)]
 fn that_frames_row(w: &mut World, harp: String, state: String) {
-    until(w, "with the bell and that state", |p| {
+    until_any(w, "with the bell and that state", |p| {
         p.status.iter().any(|l| l == "bell") && row_has_state(p, &harp, &state)
     });
 }
@@ -1030,4 +1057,58 @@ fn back_on_main(w: &mut World) {
     if !done["before"].is_null() && !done["after"].is_null() {
         assert_eq!(done["before"], done["after"], "{done}");
     }
+}
+
+/// A screen over a program that reads and ignores its keys, holding `frames`
+/// as the frames already drawn.
+fn screen_of(frames: Vec<Vec<String>>) -> Screen {
+    let mut child = std::process::Command::new("cat")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .expect("cat runs");
+    let keys = child.stdin.take().expect("stdin is piped");
+    let (tx, rx) = channel();
+    for frame in frames {
+        tx.send(frame).unwrap();
+    }
+    Screen {
+        child,
+        keys,
+        frames: rx,
+        seen: Vec::new(),
+    }
+}
+
+fn drawn(status: &[&str]) -> Vec<String> {
+    let mut frame = vec!["ctxloom top  scope: this project  filter: none  sort: tree".to_string()];
+    frame.extend(status.iter().map(|l| l.to_string()));
+    frame.extend(
+        [
+            "  NAME              STATE AGENT OWNER",
+            "> brisk-copper-moth ! ASK 3s",
+            "--- asks of brisk-copper-moth",
+            "--- log of brisk-copper-moth",
+        ]
+        .map(String::from),
+    );
+    frame
+}
+
+/// The interleaving that failed a landing: the frame with the bell is drawn,
+/// then the timer redraws one more before the step looks.
+#[test]
+fn test_a_frame_that_had_the_bell_is_found_after_a_later_frame_replaced_it() {
+    let mut screen = screen_of(vec![drawn(&["bell"]), drawn(&[])]);
+    let soon = Instant::now() + Duration::from_secs(2);
+    let has_bell = |p: &Parts| p.status.iter().any(|l| l == "bell");
+    assert!(find(&mut screen, false, &has_bell, soon).is_ok());
+}
+
+#[test]
+fn test_the_screen_as_it_stands_is_its_newest_frame_alone() {
+    let mut screen = screen_of(vec![drawn(&["bell"]), drawn(&[])]);
+    let soon = Instant::now() + Duration::from_millis(300);
+    let has_bell = |p: &Parts| p.status.iter().any(|l| l == "bell");
+    assert!(find(&mut screen, true, &has_bell, soon).is_err());
 }

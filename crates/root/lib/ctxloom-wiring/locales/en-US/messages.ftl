@@ -1,13 +1,16 @@
 # Messages for the crate's errors. Each id is an error's code, which begins
 # with the crate's name; the variables are its args.
 
-ctxloom-wiring-no-home = there is no home directory: { $variable } is not set, nor is CTXLOOM_HOME
+ctxloom-wiring-no-home = there is no home directory: { $variable } is not set, nor is CTXLOOM_DAEMON_ROOT
 ctxloom-wiring-bad-session = { $session } is not a session id: { $ext_err_txt }
 ctxloom-wiring-no-runtime = cannot start a runtime to open the store: { $ext_err_txt }
 ctxloom-wiring-store = cannot open the project store: { $error }
 ctxloom-wiring-daemon-other-home = the user's daemon serves the ctxloom home { $daemon_home }, not this command's { $home }: there is one daemon per OS user
 ctxloom-wiring-project-unnamed = the project at { $root } has no project id yet, and a dry run never makes one
 ctxloom-wiring-project-unnamed-fix = run `ctxloom init` in { $root } to give the project its id
+# A DRAFT: no project root outside git (the user's home is never taken for one).
+ctxloom-wiring-project-root-needed = no project root: { $cwd } has no .ctxloom of its own, is not in a git repository, and no root was named
+ctxloom-wiring-project-root-needed-fix = name the project root with `--root=<dir>` (or CTXLOOM_ROOT), `--root` alone for your home directory, or run `ctxloom init` in { $cwd } to make it one
 # Step 10a U0: not drafted in the red spec (a failure of the machine, exit 32).
 ctxloom-wiring-checkout = the library checkout's name at { $path } could not be read or written: { $ext_err_txt }
 # Step 10c U13 rework (a DRAFT): the scanner could not walk a library tree.

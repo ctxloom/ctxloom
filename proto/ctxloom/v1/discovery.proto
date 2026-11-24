@@ -3,7 +3,7 @@ syntax = "proto3";
 // The discovery file (T3, T12, slice 2): what the user's daemon writes, once
 // it serves, so that a client can find it, pin it and present the user
 // bearer. It is `~/.ctxloom/daemon/daemon.discovery` under ctxloom's home
-// (`CTXLOOM_HOME` first, then `HOME`), a 0600 file in the 0700 daemon
+// (`CTXLOOM_DAEMON_ROOT` first, then `HOME`), a 0600 file in the 0700 daemon
 // directory (on Windows no mode is set: the profile directory's inherited
 // ACL, M8), written atomically (a temporary file renamed over it), holding
 // one `Discovery` in protobuf's binary encoding (owner, S5). `daemon-proto`
@@ -55,7 +55,7 @@ message Discovery {
   // differs treats the daemon as another build (M3's skew rule).
   string stamp = 7;
 
-  // The ctxloom home the daemon serves (`CTXLOOM_HOME` as it resolved it,
+  // The ctxloom home the daemon serves (`CTXLOOM_DAEMON_ROOT` as it resolved it,
   // else the account's home): there is ONE daemon per OS account, so a
   // client whose ctxloom home is another is refused, naming both, and never
   // served by a second daemon. A file naming none is unreadable.

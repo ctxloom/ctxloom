@@ -561,7 +561,7 @@ fn agent_write(name: &'static str, about: &'static str) -> Command {
             "surface",
             "Delivery preference: kind=approach (repeatable)",
         ))
-        .arg(each("root", "Root selection: kind=root (repeatable)"))
+        .arg(each("surface-root", "Root selection: kind=root (repeatable)"))
         .arg(each(
             "env",
             "Bare variable name passed through to the engine (repeatable; '' clears the list)",

@@ -36,6 +36,29 @@ pub struct Globals {
     /// --config-set config.content_form=original)
     #[arg(long = "config-set", global = true, value_name = "PATH=VALUE", action = ArgAction::Append)]
     pub config_set: Vec<String>,
+    /// The project root: `--root=<dir>` names it, a bare `--root` makes the
+    /// user's home directory the project root; omitted, `CTXLOOM_ROOT`,
+    /// else the walk up to the git root. Not `--home` (the home CONFIG layer)
+    #[arg(
+        long,
+        global = true,
+        value_name = "DIR",
+        num_args = 0..=1,
+        require_equals = true,
+        default_missing_value = ""
+    )]
+    pub root: Option<String>,
+    /// The daemon root (the store, the daemon's directory, the user
+    /// library): `--daemon-root=<dir>` names it; omitted,
+    /// `CTXLOOM_DAEMON_ROOT`, else the account's home. Not `--root` (the
+    /// project) and not `--home` (the home CONFIG layer)
+    #[arg(
+        long,
+        global = true,
+        value_name = "DIR",
+        value_parser = clap::builder::NonEmptyStringValueParser::new()
+    )]
+    pub daemon_root: Option<String>,
     /// Exit 1 for a success that would change something (a dry run or a
     /// preview that would act); without it every success exits 0
     #[arg(id = cli_support::DETAILED_EXITCODE, long = cli_support::DETAILED_EXITCODE, global = true)]

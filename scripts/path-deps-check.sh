@@ -5,13 +5,13 @@
 # a tracked Cargo.toml or .cargo/*.toml, or a `paths = [...]` override, that is
 # absolute or climbs out of the repository root once normalized, is refused: a
 # path to a sibling checkout builds on one machine only. Local co-development
-# is the gitignored .cargo/config.toml (copied from .cargo/local-deps.toml);
-# a tracked .cargo/config.toml or .cargo/config is refused too.
+# is `cargo local-pins`: the gitignored .cargo/local-pins.toml, included by the
+# gitignored .cargo/config.toml; a tracked .cargo/config.toml, .cargo/config or
+# .cargo/local-pins.toml is refused too.
 #
 # It judges the INDEX (the staged content, or the commit once committed), never
 # the working copy. Paths in a Cargo.toml are relative to its directory; those
 # in a .cargo file are relative to the directory holding .cargo (cargo's rule).
-# .cargo/local-deps.toml is the sample cargo never reads, and is exempt.
 #
 # Limits: a symlink inside the repository that points outside is not followed;
 # a path assembled any other way than a TOML string is not seen; a line number
@@ -27,7 +27,7 @@ import posixpath, subprocess, sys, tomllib
 
 root = sys.argv[1]
 FIX = ("use the git dependency pinned by full commit; keep local paths in the "
-       "gitignored .cargo/config.toml")
+       "gitignored .cargo/local-pins.toml (cargo local-pins)")
 
 def git(*args):
     return subprocess.run(["git", "-C", root, *args], check=True,
@@ -48,7 +48,7 @@ findings = []
 def is_cargo_config(path):
     parts = path.split("/")
     return (len(parts) >= 2 and parts[-2] == ".cargo"
-            and (parts[-1] in ("config", "config.toml")))
+            and (parts[-1] in ("config", "config.toml", "local-pins.toml")))
 
 def outside(base, value):
     if not isinstance(value, str):
@@ -99,7 +99,7 @@ for path, blob in sorted(entries.items()):
         findings.append("%s: a cargo config is local-only and is never tracked" % path)
     is_manifest = base_name == "Cargo.toml"
     in_cargo_dir = "/.cargo/" in "/" + path and path.endswith(".toml") \
-        and base_name != "local-deps.toml" and ".cargo" in path.split("/")[:-1]
+        and ".cargo" in path.split("/")[:-1]
     if not (is_manifest or in_cargo_dir):
         continue
     text = subprocess.run(["git", "-C", root, "cat-file", "blob", blob], check=True,

@@ -30,6 +30,7 @@ mod program;
 mod rebind;
 #[cfg(feature = "test-support")]
 mod record;
+mod root_flag;
 mod scheduling;
 #[cfg(feature = "test-support")]
 mod seed;
@@ -311,14 +312,14 @@ pub(crate) enum Minting {
 
 impl Wiring {
     /// The wiring over the environment the process was launched in, read
-    /// once by the composition root: its home (CTXLOOM_HOME, the variable a
+    /// once by the composition root: its home (CTXLOOM_DAEMON_ROOT, the variable a
     /// run names ctxloom's home by for its engine, whose own HOME is the
     /// session home (owner ruling 112); failing that HOME, or USERPROFILE on
     /// Windows), and the real filesystem over its working directory (with
     /// none when it cannot be read: only what needs it fails).
     pub fn new(env: Arc<EnvSnapshot>) -> Result<Wiring, LibError> {
         let home = env
-            .non_empty(run_ports::HOME_VARIABLE)
+            .non_empty(run_ports::DAEMON_ROOT_VARIABLE)
             .or_else(|| env.home())
             .map(PathBuf::from)
             .ok_or_else(|| LibError::NoHome {
@@ -391,6 +392,7 @@ impl Wiring {
             root_env: self.env.utf8("CTXLOOM_ROOT").map(String::from),
             cwd: self.env.cwd().unwrap_or_else(|_| PathBuf::from(".")),
             home: self.home.clone(),
+            user_home: self.user_home.clone(),
             temp_root: self.env.temp_dir().to_path_buf(),
         }
     }
@@ -476,6 +478,24 @@ impl Wiring {
         }
         let at = app.path.parent()?.to_path_buf();
         (at != self.home).then_some(at)
+    }
+
+    /// Refused where there is no project root to work in (a run's need):
+    /// no `CTXLOOM_ROOT` or `--root`, no `.ctxloom` of a project found by
+    /// the walk, and no git root above the working directory. The user's
+    /// home, and the daemon root, are never taken for one.
+    pub(crate) fn require_project_root(&self) -> Result<(), LibError> {
+        let cwd = self.env.cwd().unwrap_or_else(|_| PathBuf::from("."));
+        let named = self.env.non_empty("CTXLOOM_ROOT").is_some();
+        if named
+            || self.ctxloom_project().is_some()
+            || config_files::git_root_above(self.fs.as_ref(), &cwd)
+        {
+            return Ok(());
+        }
+        Err(LibError::ProjectRootNeeded {
+            cwd: cwd.display().to_string(),
+        })
     }
 
     /// The registry's environment, the ONE project resolution every command

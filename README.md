@@ -6,7 +6,7 @@ with architect review of each piece as it is ported.
 ## Notes on using it
 
 These cover behaviour a command's `-h` does not spell out. Each was run
-against a built binary in a fresh `HOME` and `CTXLOOM_HOME`, except where a
+against a built binary in a fresh `HOME` and `CTXLOOM_DAEMON_ROOT`, except where a
 line says it is pinned by a test.
 
 ### The library needs no git

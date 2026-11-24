@@ -6,7 +6,7 @@ syntax = "proto3";
 // process of an up-to-date version to deliver later, in the order held.
 //
 // It is `~/.ctxloom/held/<session root>.held` under ctxloom's home
-// (`CTXLOOM_HOME` first, then `HOME`): a 0600 file in the 0700 `held`
+// (`CTXLOOM_DAEMON_ROOT` first, then `HOME`): a 0600 file in the 0700 `held`
 // directory (on Windows no mode is set: the profile directory's inherited
 // ACL, M8), as sensitive as the store, since a fact carries a prompt's text
 // and a tool call's whole input. The file is the magic `CTXHELD\x01` (its

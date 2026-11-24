@@ -493,6 +493,9 @@ pub enum Notice {
     /// digest of it (T30, S51): its original was used in its place.
     /// `kind` is `fragment` or `command`.
     StaleDistilled { kind: String, reference: String },
+    /// An interactive session's TUI is over and the session can be resumed:
+    /// its harp names it for `ctxloom run --session <harp>`.
+    SessionEnded { harp: String },
 }
 
 impl Notice {
@@ -540,6 +543,7 @@ impl Diagnostic for Notice {
             Notice::UntrustedSetting { .. } => code!("notice-untrusted-setting"),
             Notice::CheckoutLeft { .. } => code!("notice-checkout-left"),
             Notice::StaleDistilled { .. } => code!("stale-distilled"),
+            Notice::SessionEnded { .. } => code!("notice-session-ended"),
             Notice::RuntimeOverride { change, .. } => match change {
                 library::config::engines::Change::Weakens => code!("notice-runtime-weakens"),
                 library::config::engines::Change::Strengthens => {
@@ -634,6 +638,7 @@ impl Diagnostic for Notice {
                 ("kind", kind.as_str().into()),
                 ("reference", reference.as_str().into()),
             ],
+            Notice::SessionEnded { harp } => vec![("harp", harp.as_str().into())],
         }
     }
 }
@@ -857,6 +862,9 @@ fn notice_samples() -> Vec<Box<dyn Diagnostic>> {
             path: s("/h/.ctxloom/worktrees/calm-otter/amber-swift-owl/reviewer"),
             branch: s("ctxloom/amber-swift-owl/reviewer"),
             reason: s("it has uncommitted changes; left in place to preserve WIP"),
+        }),
+        Box::new(Notice::SessionEnded {
+            harp: s("amber-quiet-heron"),
         }),
         Box::new(Notice::StaleDistilled {
             kind: s("fragment"),

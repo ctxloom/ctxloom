@@ -297,7 +297,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
         | --format json | developer           |
         | --format text | Updated agent       |
 
-    # --root picks, per surface kind, WHICH root that surface is written
+    # --surface-root picks, per surface kind, WHICH root that surface is written
     # under (kind=root, repeatable). Like --surface it has no listing render,
     # so the binding is the effect. The refusal is the other half: a root the
     # engine's approach does not offer must fail at write time, not be stored
@@ -308,7 +308,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And I run "ctxloom agent create developer --engine claude-code --profiles dev"
       When Alice picks where this binding's MCP config is written:
         """
-        ctxloom agent edit developer --root mcp=project-root
+        ctxloom agent edit developer --surface-root mcp=project-root
         """
       Then the command succeeds
       And the file ".ctxloom/config.yaml" contains "mcp: project-root"
@@ -317,7 +317,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       Given an initialized ctxloom project
       And a profile "dev" exists
       And I run "ctxloom agent create developer --engine claude-code --profiles dev"
-      When I run "ctxloom agent edit developer --root context=nowhere"
+      When I run "ctxloom agent edit developer --surface-root context=nowhere"
       Then the command fails
       And the output contains "context=nowhere"
       And the file ".ctxloom/config.yaml" does not contain "roots:"

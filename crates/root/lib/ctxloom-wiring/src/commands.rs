@@ -510,6 +510,26 @@ impl Extension for Commands {
         out: &mut dyn Write,
         err: &mut dyn Write,
     ) -> Result<Exit, Failure> {
+        // The project root the flag names, as `CTXLOOM_ROOT` for everything
+        // wired after this (and the daemon, which reads the caller's whole
+        // environment).
+        self.env = crate::root_flag::applied(
+            &self.env,
+            call.matches
+                .try_get_one::<String>("root")
+                .ok()
+                .flatten()
+                .map(String::as_str),
+        )
+        .map_err(|e| Failure::new(e, cli_support::Exit::REFUSED))?;
+        self.env = crate::root_flag::daemon_root_applied(
+            &self.env,
+            call.matches
+                .try_get_one::<String>("daemon_root")
+                .ok()
+                .flatten()
+                .map(String::as_str),
+        );
         let ran = self.run_noun(noun, call, catalog, out, err);
         // What the flush on the way in set aside (s4-Q14, H3), said once
         // a session as the command ends.
@@ -564,7 +584,12 @@ impl Commands {
                 .to_string()
         };
         if crate::mcp::is_serve(noun, &verb_of(noun)) {
-            return crate::mcp::serve(&self.env, &self.version, out);
+            let wakes = call
+                .matches
+                .subcommand_matches(noun)
+                .and_then(|m| m.subcommand_matches(mcp_server::VERB))
+                .is_none_or(mcp_server::posts_wakes);
+            return crate::mcp::serve(&self.env, &self.version, wakes, out);
         }
         // A hook answers its engine whatever the store (it never fails the
         // engine); every other command in a project that still has a store

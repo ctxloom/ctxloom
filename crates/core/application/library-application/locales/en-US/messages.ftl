@@ -104,6 +104,9 @@ library-application-notice-untrusted-setting = { $path } in { $file } is held ba
 library-application-notice-untrusted-setting-fix = see what trusting the project allows with `ctxloom trust`, then say yes; or set it in your home config ({ $home_file })
 library-application-notice-checkout-left = the session's checkout { $path } (branch { $branch }) was left in place: { $reason }
 library-application-notice-checkout-left-fix = commit or discard its work; the session's next run re-enters it, and `ctxloom session remove` takes it once it is clean
+# A DRAFT wording, the owner's to approve: said once an interactive session's
+# TUI is over and the session can be resumed.
+library-application-notice-session-ended = session { $harp } ended; resume it with: ctxloom run --session { $harp }
 library-application-stale-distilled = the distilled form of the { $kind } { $reference } is stale: it does not match its source as it is now, or records no digest of it, so the original was used
 library-application-stale-distilled-fix = run `ctxloom { $kind } distill { $reference }` to distill it again
 library-application-notice-root-ignored = CTXLOOM_ROOT={ $root } is not a directory; ignoring it

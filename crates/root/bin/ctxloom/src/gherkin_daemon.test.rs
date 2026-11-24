@@ -797,6 +797,10 @@ while IFS= read -r line; do
       printf '{"type":"result","subtype":"success","is_error":false,"result":"","session_id":"%s"}\n' "$sid"
       continue ;;
   esac
+  # The prompt submitted, echoed as claude echoes every user message it
+  # submits (`--replay-user-messages`: the recorded streams in
+  # engine-claude's fixtures, a first turn's too), before its turn's work.
+  printf '%s\n' "$line" | sed 's/}[[:space:]]*$/,"session_id":"'"$sid"'","isReplay":true}/'
   printf '%s %s\n' "$sid" "$line" >> "$here/turns"
   printf '%s %s\n' "$sid" "$line" >> "$rec/turns"
   : > "$here/child-turn"
@@ -4770,8 +4774,8 @@ fn launched_with(args: &[String], flag: &str, value: &str) {
 }
 
 /// The MCP config claude was named (`--mcp-config`) names ctxloom's own
-/// server, `ctxloom mcp serve` as the running binary's name, with no
-/// identity in its entry.
+/// server, `ctxloom mcp serve --no-wake` (a hosted session's) as the running
+/// binary's name, with no identity in its entry.
 fn names_ctxloom_server(args: &[String]) {
     let file = flag_value(args, "--mcp-config");
     let config: Value =
@@ -4781,7 +4785,13 @@ fn names_ctxloom_server(args: &[String]) {
         entry["command"].as_str().is_some_and(|c| !c.is_empty()),
         "{config}"
     );
-    assert_eq!(entry["args"], json!(["mcp", "serve"]), "{config}");
+    // A session the daemon hosts (a child, a one-shot): its server without
+    // the terminal wake's poster.
+    assert_eq!(
+        entry["args"],
+        json!(["mcp", "serve", "--no-wake"]),
+        "{config}"
+    );
     assert!(entry.get("env").is_none(), "{entry}");
 }
 

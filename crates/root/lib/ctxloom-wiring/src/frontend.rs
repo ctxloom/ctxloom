@@ -348,6 +348,12 @@ pub(crate) fn client_terminal(
         result: Err(error),
         notices: Vec::new(),
     };
+    if let Err(e) = wiring.require_project_root() {
+        return refused(crate::oneshot::failed(cli_support::Failure::new(
+            e,
+            cli_support::Exit::REFUSED,
+        )));
+    }
     // Resolved before the run's runtime starts: the resolution blocks on a
     // runtime of its own.
     let parent = match crate::daemon::library_parent(wiring, stamp, crate::Minting::AtRoot) {
@@ -1044,8 +1050,8 @@ async fn heard_out(
 }
 
 /// For the TUI's life, look every [`ASK_LOOK`] at the permission asks
-/// waiting under `session` (the root of its tree: a child's or a one-shot's
-/// ask arrives there), and tell the human of each new one, once: the bell
+/// waiting in `session`'s whole project (whatever their root: a child's,
+/// a one-shot's or another session's), and tell the human of each new one, once: the bell
 /// and one line on standard error ([`frontend_asks`]). It runs in the
 /// command's main-thread future beside the TUI, never spawned, as the stop
 /// watch does: it writes to stderr, whose std lock that thread holds. It
@@ -1053,7 +1059,7 @@ async fn heard_out(
 /// no asks to tell of), and says nothing of a look that failed: the next is
 /// a second away.
 async fn tell_of_asks(reach: &Reach<'_>, session: &str, over: &Over, wiring: &Wiring) {
-    let Some(listing) = crate::frontend_asks::listing_under(session) else {
+    let Some(listing) = crate::frontend_asks::project_listing(session) else {
         return;
     };
     let mut ended: Pin<Box<dyn Future<Output = ()> + Send + '_>> = Box::pin(over.ended());
@@ -1071,12 +1077,23 @@ async fn tell_of_asks(reach: &Reach<'_>, session: &str, over: &Over, wiring: &Wi
             First::Left(listed) => listed,
         };
         let Some(listed) = listed else { continue };
-        for (ask, line) in told.news(&listed.approvals) {
-            show_on_stderr(&line, true);
-            record_ask(wiring, &format!("told {ask}"));
-        }
-        record_ask(wiring, "look");
+        tell_news(&mut told, &listed.approvals, wiring, show_on_stderr);
     }
+}
+
+/// One look's outcome: each ask in `waiting` not told of yet is shown (the
+/// bell with it) and recorded as told, then the look itself is recorded.
+fn tell_news(
+    told: &mut crate::frontend_asks::AsksTold,
+    waiting: &[v1::Approval],
+    wiring: &Wiring,
+    mut show: impl FnMut(&str, bool),
+) {
+    for (ask, line) in told.news(waiting) {
+        show(&line, true);
+        record_ask(wiring, &format!("told {ask}"));
+    }
+    record_ask(wiring, "look");
 }
 
 /// Under `test-support`, a line of the frontend's watch for asks appended to

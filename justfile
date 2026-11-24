@@ -15,7 +15,7 @@ import 'gates/gates.just'
 import 'gates/os-gates.just'
 import 'gates/fixture-gates.just'
 import 'gates/arch-gates.just'
-# Cross-project dependency automation (dev-local, repin, land, pins-check): the
+# Cross-project dependency automation (repin, land, pins-check): the
 # shared dev module of rust-support's tools/dev, linked as .dev (gitignored;
 # `tools/dev/install.sh` in a rust-support checkout). Optional: absent in a clone
 # or CI without the sibling.
@@ -24,15 +24,16 @@ mod? dev '.dev'
 # What gates/arch-gates.just takes from this justfile: the arch-lint binary, built
 # from the same rust-support commit the workspace pins (arch_lint_rev, kept
 # equal to Cargo.toml's by `_arch-lint-ready`'s check) and installed once per
-# commit into the user's cache, shared by every worktree.
+# commit under CARGO_HOME (which every engine launch gives its children as the
+# user's own, while their HOME is a per-session one), shared by every worktree.
 arch_lint_rev := "5bc1d60f1a10d4902b2daad36c348e9bc39c15fa"
-arch_lint_root := env_var_or_default("XDG_CACHE_HOME", env_var("HOME") / ".cache") / "ctxloom-arch-lint" / arch_lint_rev
+arch_lint_root := env_var_or_default("CARGO_HOME", env_var("HOME") / ".cargo") / "ctxloom-arch-lint" / arch_lint_rev
 arch_lint := arch_lint_root / "bin/arch-lint"
 
 # The staged tree is a sibling of the checkout, not under target/: cargo
 # reads .cargo/config.toml from every parent directory, so under the checkout
-# it would pick up a local-deps override (.cargo/local-deps.toml) and gate the
-# sibling checkouts instead of the commit's pinned dependencies.
+# it would pick up the `cargo local-pins` patch (.cargo/local-pins.toml) and gate
+# the sibling checkouts instead of the commit's pinned dependencies.
 staged_tree := "../.{name}.staged"
 
 # No feature is turned on by what a commit changes, and the mutation run
@@ -212,7 +213,7 @@ install when="":
         echo "ok   installed $program"
     fi
     text='#!/bin/sh
-    export CTXLOOM_HOME="$HOME/.ctxloom-rs"
+    export CTXLOOM_DAEMON_ROOT="$HOME/.ctxloom-rs"
     exec "$HOME/.local/lib/ctxloom/ctxloom" "$@"'
     text=$(sed 's/^    //' <<< "$text")
     if [ -f "$wrapper" ] && [ "$(cat "$wrapper")" = "$text" ] && [ "$(stat -c %a "$wrapper")" = 755 ]; then
@@ -228,12 +229,12 @@ install when="":
     fi
 
 # Install the Rust ctxloom on Windows (owner ruling: the exe on PATH and a
-# user CTXLOOM_HOME), under Git Bash: the PLAIN binary (`cargo build` of the
+# user CTXLOOM_DAEMON_ROOT), under Git Bash: the PLAIN binary (`cargo build` of the
 # package, no feature named), as %LOCALAPPDATA%\Programs\ctxloom\ctxloom.exe,
-# and the USER variable CTXLOOM_HOME set to %USERPROFILE%\.ctxloom-rs with
+# and the USER variable CTXLOOM_DAEMON_ROOT set to %USERPROFILE%\.ctxloom-rs with
 # `setx`, only when the user's own value (HKCU\Environment) is not that
 # already. There is no wrapper: the home is the variable, which every new
-# terminal and every engine's hook process (ruling 112's CTXLOOM_HOME) sees.
+# terminal and every engine's hook process (ruling 112's CTXLOOM_DAEMON_ROOT) sees.
 # The directory is put on nobody's PATH: when the current PATH lacks it, the
 # recipe says how to add it to the user's Path, and edits no registry key for
 # it. A running ctxloom.exe cannot be overwritten but can be renamed, so the
@@ -243,7 +244,7 @@ install when="":
 # no USERPROFILE (`just install` and `just build` hold the same build to them
 # on unix). Unverified: written without a Windows machine to run it on.
 [group('install')]
-[doc("On Windows (Git Bash): install ctxloom.exe in %LOCALAPPDATA%\\Programs\\ctxloom, CTXLOOM_HOME a user variable: install-windows [when]")]
+[doc("On Windows (Git Bash): install ctxloom.exe in %LOCALAPPDATA%\\Programs\\ctxloom, CTXLOOM_DAEMON_ROOT a user variable: install-windows [when]")]
 [no-exit-message]
 install-windows when="":
     #!/usr/bin/env bash
@@ -287,11 +288,11 @@ install-windows when="":
             awk -v name="$1" 'toupper($1) == toupper(name) { $1 = ""; $2 = ""; sub(/^ +/, ""); print }'
     }
     home="$USERPROFILE\\.ctxloom-rs"
-    if [ "$(user_var CTXLOOM_HOME)" = "$home" ]; then
-        echo "ok   unchanged CTXLOOM_HOME=$home (user)"
+    if [ "$(user_var CTXLOOM_DAEMON_ROOT)" = "$home" ]; then
+        echo "ok   unchanged CTXLOOM_DAEMON_ROOT=$home (user)"
     else
-        MSYS2_ARG_CONV_EXCL='*' setx CTXLOOM_HOME "$home" >/dev/null
-        echo "ok   set CTXLOOM_HOME=$home (user; a new terminal sees it)"
+        MSYS2_ARG_CONV_EXCL='*' setx CTXLOOM_DAEMON_ROOT "$home" >/dev/null
+        echo "ok   set CTXLOOM_DAEMON_ROOT=$home (user; a new terminal sees it)"
     fi
     case ":$PATH:" in
         *":$dir:"*) echo "ok   on PATH $win_dir" ;;
@@ -371,9 +372,7 @@ _arch-lint-ready:
         echo "FAIL lint-arch: arch_lint_rev in the justfile is not the rust-support rev Cargo.toml pins" >&2
         exit 1
     fi
-    [ -x '{{arch_lint}}' ] && exit 0
-    cargo install --quiet --git https://github.com/benjaminabbitt/rust-support --rev {{arch_lint_rev}} \
-        arch-lint --locked --root '{{arch_lint_root}}' 2>&1 | tail -n 20
+    {{TOP}}/scripts/arch-lint-install.sh '{{arch_lint_root}}' {{arch_lint_rev}} {{TOP}}/target/logs/arch-lint-install.log
 
 # Clippy, warnings denied, including the core's purity rules
 # (crates/core/clippy.toml), after `lint-os` and `lint-arch`: lefthook's `clippy` step. Clippy
@@ -408,7 +407,7 @@ lint: lint-arch lint-path-deps
 # No dependency, [patch] or [replace] entry reaches outside the repository by
 # path, and no .cargo/config.toml is tracked (scripts/path-deps-check.sh): it
 # judges the staged index. Local sibling checkouts go in the gitignored
-# .cargo/config.toml. Lefthook's pre-commit `path-deps` runs this.
+# .cargo/local-pins.toml (`cargo local-pins`). Lefthook's pre-commit `path-deps` runs this.
 [group('check')]
 [doc("No dependency path reaches outside the repository")]
 [no-exit-message]
@@ -702,6 +701,7 @@ selftest:
     @{{TOP}}/scripts/mcp-env-probe.selftest.sh
     @{{TOP}}/scripts/install-shutdown.selftest.sh
     @{{TOP}}/scripts/slot.selftest.sh
+    @{{TOP}}/scripts/arch-lint-install.selftest.sh
     @TRIM_SWEEP_VERSION='{{cargo_sweep_version}}' {{TOP}}/scripts/trim-targets.selftest.sh
 
 # The terminal wake's live probe against the installed claude (owner ruling

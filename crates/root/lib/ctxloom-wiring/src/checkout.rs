@@ -2,7 +2,7 @@
 //! one name of a checkout, kept in its `.ctxloom/state/checkout`, which is
 //! out of git (the scaffold's `.gitignore` holds `/state`), so a git
 //! worktree of a project, or a clone, is a checkout of its own. The home's
-//! `.ctxloom` keeps one too, so each `CTXLOOM_HOME` is a stream of its own.
+//! `.ctxloom` keeps one too, so each `CTXLOOM_DAEMON_ROOT` is a stream of its own.
 //!
 //! It is minted at the tree's first read (U2), never by a write; reading
 //! it mints nothing. The file holds the harp and a newline.

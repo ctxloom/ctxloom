@@ -221,3 +221,13 @@ fn only_the_context_rides_a_launch_by_default() {
 fn test_ctxloom_server_is_started_with_mcp_serve() {
     assert_eq!(ctxloom_server_args(), ["mcp", "serve"]);
 }
+
+#[test]
+fn test_a_hosted_childs_ctxloom_server_is_started_without_the_wake_poster() {
+    assert_eq!(
+        hosted_server_args(),
+        ["mcp", "serve", "--no-wake"],
+        "the daemon owns delivery to a session it hosts"
+    );
+    assert_eq!(hosted_server_args()[..2], ctxloom_server_args()[..]);
+}

@@ -120,7 +120,7 @@ fn test_a_binding_is_written_with_sorted_keys_and_the_rest_of_the_file_is_kept()
             "haiku",
             "--surface",
             "context=system-prompt",
-            "--root",
+            "--surface-root",
             "mcp=project-root",
             "--env",
             "A",
@@ -366,7 +366,13 @@ fn test_selecting_a_root_for_a_surface_kind_records_it_in_the_binding() {
         ])
         .succeeds();
     project
-        .run(&["agent", "edit", "developer", "--root", "mcp=project-root"])
+        .run(&[
+            "agent",
+            "edit",
+            "developer",
+            "--surface-root",
+            "mcp=project-root",
+        ])
         .succeeds();
     project.file_contains(CONFIG, "mcp: project-root");
 }
@@ -389,7 +395,13 @@ fn test_a_root_the_engine_does_not_offer_is_refused_and_the_binding_is_left_alon
         .succeeds();
     let before = project.read(CONFIG);
     project
-        .run(&["agent", "edit", "developer", "--root", "context=nowhere"])
+        .run(&[
+            "agent",
+            "edit",
+            "developer",
+            "--surface-root",
+            "context=nowhere",
+        ])
         .fails()
         .contains("context=nowhere");
     project.file_lacks(CONFIG, "roots:");
@@ -457,7 +469,7 @@ fn test_an_agent_write_refuses_what_it_cannot_honour_and_writes_nothing() {
         ),
         (vec!["--env", "A=1"], "A=1"),
         (
-            vec!["--root", "context=bogus"],
+            vec!["--surface-root", "context=bogus"],
             "\"bogus\" is not a root (session-home, project-root, work-dir)",
         ),
         (vec!["--surface", "context=nosuch"], "context=nosuch"),

@@ -74,7 +74,7 @@ pub(crate) const HEALTH_WAIT: Duration = Duration::from_secs(1);
 /// The environment a spawned daemon is given of its spawner's `vars`
 /// (D-N45): what it needs to run, named as `flavor` compares names (so
 /// Windows' `Path` is `PATH`), and ctxloom's `home` when the spawner set
-/// one (its `CTXLOOM_HOME`; with none the daemon serves the account's home,
+/// one (its `CTXLOOM_DAEMON_ROOT`; with none the daemon serves the account's home,
 /// [`daemon_home`]). Nothing else of the spawner's crosses: a child's
 /// environment is its launcher's (S6).
 fn daemon_env<N: AsRef<OsStr>, V: AsRef<OsStr>>(
@@ -98,7 +98,7 @@ fn daemon_env<N: AsRef<OsStr>, V: AsRef<OsStr>>(
         .collect();
     if let Some(home) = home {
         env.push((
-            run_ports::HOME_VARIABLE.into(),
+            run_ports::DAEMON_ROOT_VARIABLE.into(),
             home.as_os_str().to_os_string(),
         ));
     }
@@ -138,7 +138,7 @@ pub(crate) fn account_home(_: &EnvSnapshot) -> Option<PathBuf> {
 
 /// Under `test-support` the account's home is the test's
 /// ([`ACCOUNT_HOME_VARIABLE`]), else the process's ctxloom home
-/// (`CTXLOOM_HOME`), else its HOME (each test's temporary home), never the
+/// (`CTXLOOM_DAEMON_ROOT`), else its HOME (each test's temporary home), never the
 /// real account's: no test reaches the real account's lock or files. The
 /// ctxloom home stands in before HOME because it is what an engine's hook
 /// processes carry (their HOME is the session home): as the account's real
@@ -147,16 +147,16 @@ pub(crate) fn account_home(_: &EnvSnapshot) -> Option<PathBuf> {
 #[cfg(feature = "test-support")]
 pub(crate) fn account_home(env: &EnvSnapshot) -> Option<PathBuf> {
     env.non_empty(ACCOUNT_HOME_VARIABLE)
-        .or_else(|| env.non_empty(run_ports::HOME_VARIABLE))
+        .or_else(|| env.non_empty(run_ports::DAEMON_ROOT_VARIABLE))
         .or_else(|| env.home())
         .map(PathBuf::from)
 }
 
-/// The daemon's ctxloom home (M4): `CTXLOOM_HOME` when it was given one
+/// The daemon's ctxloom home (M4): `CTXLOOM_DAEMON_ROOT` when it was given one
 /// (its spawner's, [`daemon_env`]), else the ACCOUNT's home, never its HOME:
 /// the daemon serves the account, whoever spawned it.
 pub(crate) fn daemon_home(env: &EnvSnapshot) -> Option<PathBuf> {
-    env.non_empty(run_ports::HOME_VARIABLE)
+    env.non_empty(run_ports::DAEMON_ROOT_VARIABLE)
         .map(PathBuf::from)
         .or_else(|| account_home(env))
 }
@@ -567,7 +567,7 @@ impl Render for Resolved {
 fn daemon_wiring(env: &Arc<EnvSnapshot>) -> Result<Wiring, Failure> {
     let home = daemon_home(env).ok_or_else(|| {
         failed(LibError::NoHome {
-            variable: run_ports::HOME_VARIABLE.to_string(),
+            variable: run_ports::DAEMON_ROOT_VARIABLE.to_string(),
         })
     })?;
     Ok(Wiring::at(Arc::clone(env), home).with_user_home(account_home(env)))
@@ -1463,7 +1463,9 @@ fn ensure_within(wiring: &Wiring, env: &EnvSnapshot, wait: Duration) -> Option<D
     // The daemon's own environment is what it needs to run, nothing more: a
     // child's is its launcher's (S6, D-N45), so no spawner's credential
     // lives in the daemon.
-    let ctxloom_home = env.non_empty(run_ports::HOME_VARIABLE).map(PathBuf::from);
+    let ctxloom_home = env
+        .non_empty(run_ports::DAEMON_ROOT_VARIABLE)
+        .map(PathBuf::from);
     let mut kept = daemon_env(env.flavor(), env.vars(), ctxloom_home.as_deref());
     // A test's place for the single-instance lock, and its account's home,
     // are the daemon's too.

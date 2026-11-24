@@ -13,7 +13,10 @@
 //!    directory in a nested repository never adopts an enclosing `.ctxloom`
 //!    (owner ruling 2026-11-20). A `.git` directory or file marks a root (a
 //!    worktree's is a file).
-//! 3. Otherwise the home's `~/.ctxloom` (no project).
+//!    The walk never adopts the user's own home's `.ctxloom` nor the daemon
+//!    root's (`CTXLOOM_DAEMON_ROOT`'s): those are theirs, a project root only when
+//!    `CTXLOOM_ROOT` (or `--root`) names it.
+//! 3. Otherwise the daemon root's `.ctxloom` (no project).
 //!
 //! Finding is a read: nothing is created.
 
@@ -46,7 +49,13 @@ pub struct Surroundings {
     /// `CTXLOOM_ROOT`, as given (empty counts as unset).
     pub root_env: Option<String>,
     pub cwd: PathBuf,
+    /// The daemon root (`CTXLOOM_DAEMON_ROOT`, else the account's home): its
+    /// `.ctxloom` is the store's, the home config layer's.
     pub home: PathBuf,
+    /// The user's own home directory (the account's, which is the daemon
+    /// root only when `CTXLOOM_DAEMON_ROOT` names none): the walk never adopts its
+    /// `.ctxloom` as a project. `CTXLOOM_ROOT` (or `--root`) naming it does.
+    pub user_home: Option<PathBuf>,
     /// The OS temporary directory.
     pub temp_root: PathBuf,
 }
@@ -90,7 +99,14 @@ pub fn find_app_dir(fs: &dyn Fs, around: &Surroundings) -> AppDir {
                 || (project_dir::holds_entry(fs, dir, GIT_MARKER)
                     && !project_dir::holds_dir(fs, dir, APP_DIR_NAME))
         },
-        |dir| project_dir::holds_dir(fs, dir, APP_DIR_NAME),
+        |dir| {
+            project_dir::holds_dir(fs, dir, APP_DIR_NAME)
+                && resolved(dir) != resolved(&around.home)
+                && around
+                    .user_home
+                    .as_deref()
+                    .is_none_or(|user| resolved(dir) != resolved(user))
+        },
     );
     if let Some(root) = nearest {
         return AppDir {
@@ -104,6 +120,13 @@ pub fn find_app_dir(fs: &dyn Fs, around: &Surroundings) -> AppDir {
         source: Source::Home,
         ignored_root,
     }
+}
+
+/// Whether `dir`, or a directory above it, is a git root (a `.git` directory
+/// or, in a worktree, file).
+pub fn git_root_above(fs: &dyn Fs, dir: &Path) -> bool {
+    dir.ancestors()
+        .any(|d| project_dir::holds_entry(fs, d, GIT_MARKER))
 }
 
 /// The layered config files of one app dir.

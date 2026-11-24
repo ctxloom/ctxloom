@@ -89,6 +89,20 @@ pub fn ctxloom_server_args() -> Vec<String> {
     vec!["mcp".to_string(), "serve".to_string()]
 }
 
+/// The argument that starts ctxloom's MCP server without the terminal wake's
+/// poster.
+pub const NO_WAKE_ARG: &str = "--no-wake";
+
+/// The arguments that start the MCP server of a session the daemon HOSTS (a
+/// child, a one-shot): the daemon owns every delivery to it, so the server is
+/// constructed without the socket wake poster, which is a primary terminal
+/// session's delivery path alone.
+pub fn hosted_server_args() -> Vec<String> {
+    let mut args = ctxloom_server_args();
+    args.push(NO_WAKE_ARG.to_string());
+    args
+}
+
 /// A lifecycle hook, in a unified event.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct Hook {

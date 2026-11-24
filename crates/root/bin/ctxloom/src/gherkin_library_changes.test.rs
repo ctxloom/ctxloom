@@ -363,3 +363,51 @@ fn error_is(w: &mut World, code: String) {
     let envelope = super::adopt::envelope_of(w);
     assert_eq!(envelope["code"], code, "{}", w.ran().said());
 }
+
+// ------------------------------------------------------------ the root flag
+
+/// root.feature: the daemon root (`CTXLOOM_DAEMON_ROOT`, as `just install`'s) is
+/// another directory than her home, and her home holds a `.ctxloom` of
+/// her own: the walk up from a directory below her home, outside git, finds
+/// it.
+#[given("her daemon root is elsewhere, and her home holds a ctxloom directory of her own")]
+fn daemon_root_elsewhere(w: &mut World) {
+    let home = w.common.project.home().to_path_buf();
+    let elsewhere = home.parent().expect("a parent").join("daemon-root");
+    files::mkdirs(&elsewhere);
+    w.common
+        .set_env("CTXLOOM_DAEMON_ROOT", elsewhere.display().to_string());
+    files::put(
+        home.join(".ctxloom/config.yaml"),
+        "schema_version: 9\neditor:\n  command: \"true\"\n",
+    );
+}
+
+#[given(expr = "a directory {string} in her home")]
+fn directory_in_home(w: &mut World, rel: String) {
+    files::mkdirs(in_home(w, &rel));
+}
+
+/// `line`, run from `rel` in her home (no `CTXLOOM_ROOT` unless the scenario
+/// set one).
+#[when(expr = "I run {string} in her home's directory {string}")]
+fn run_in_home_directory(w: &mut World, line: String, rel: String) {
+    let dir = in_home(w, &rel);
+    w.before_line(&line);
+    w.before_run();
+    w.common.run_lines_at(Some(&dir), &line, "");
+}
+
+#[then(expr = "the home's file {string} exists")]
+fn home_file_present(w: &mut World, rel: String) {
+    let path = in_home(w, &rel);
+    assert!(files::exists(&path), "{} should exist", path.display());
+}
+
+/// The variable names the project directory as the scenario has it, which a
+/// line cannot spell before the scenario runs.
+#[given(expr = "the environment variable {string} names the project directory")]
+fn variable_names_project(w: &mut World, name: String) {
+    let dir = w.common.project.dir().display().to_string();
+    w.common.set_env(&name, dir);
+}

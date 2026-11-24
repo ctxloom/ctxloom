@@ -1924,7 +1924,7 @@ impl<E: Edge> Daemon<E> {
     ) -> BTreeMap<String, String> {
         let mut env = sent.clone();
         env.insert(
-            run_ports::HOME_VARIABLE.to_string(),
+            run_ports::DAEMON_ROOT_VARIABLE.to_string(),
             self.place.home.clone(),
         );
         let dir = program

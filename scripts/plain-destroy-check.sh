@@ -82,7 +82,7 @@ else
 fi
 # Its ctxloom home is the temporary one; it serves that, under the
 # account's lock.
-(cd "$home" && env -i PATH="$PATH" HOME="$home" CTXLOOM_HOME="$home" TMPDIR="$home" ${windows[@]+"${windows[@]}"} "$bin" daemon serve --idle-seconds 30 >/dev/null 2>&1) &
+(cd "$home" && env -i PATH="$PATH" HOME="$home" CTXLOOM_DAEMON_ROOT="$home" TMPDIR="$home" ${windows[@]+"${windows[@]}"} "$bin" daemon serve --idle-seconds 30 >/dev/null 2>&1) &
 daemon=$!
 trap 'kill "$daemon" 2>/dev/null || true; rm -rf "$home"' EXIT
 log="$home/.ctxloom/daemon/daemon.log"
@@ -134,5 +134,5 @@ for method in DeleteSession SweepSessions; do
         exit 1
     fi
 done
-(cd "$home" && env -i PATH="$PATH" HOME="$home" CTXLOOM_HOME="$home" TMPDIR="$home" ${windows[@]+"${windows[@]}"} "$bin" daemon stop >/dev/null 2>&1) || true
+(cd "$home" && env -i PATH="$PATH" HOME="$home" CTXLOOM_DAEMON_ROOT="$home" TMPDIR="$home" ${windows[@]+"${windows[@]}"} "$bin" daemon stop >/dev/null 2>&1) || true
 wait "$daemon" 2>/dev/null || true

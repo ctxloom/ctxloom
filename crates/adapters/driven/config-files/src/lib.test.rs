@@ -46,6 +46,7 @@ fn around(root_env: Option<&str>, cwd: &str) -> Surroundings {
         root_env: root_env.map(ToString::to_string),
         cwd: PathBuf::from(cwd),
         home: PathBuf::from(at("/home/u")),
+        user_home: None,
         temp_root: PathBuf::from("/tmp"),
     }
 }
@@ -140,6 +141,65 @@ fn test_the_walk_up_stops_at_the_temporary_directory() {
     );
     assert_eq!(found.source, Source::Home);
     assert_eq!(found.path, Path::new(&at("/home/u/.ctxloom")));
+}
+
+/// The daemon root elsewhere (`CTXLOOM_DAEMON_ROOT`), the user's own home `/home/u`.
+fn around_user_home(root_env: Option<&str>, cwd: &str) -> Surroundings {
+    Surroundings {
+        home: PathBuf::from(at("/home/u/.ctxloom-rs")),
+        user_home: Some(PathBuf::from(at("/home/u"))),
+        ..around(root_env, cwd)
+    }
+}
+
+// The walk outside git climbs to the user's home, whose `.ctxloom` is the
+// user's own (config, store of other projects) and never a project's.
+#[test]
+fn test_the_walk_never_adopts_the_users_home_ctxloom_as_a_project() {
+    let fs = rooted();
+    dir(&fs, "/home/u/.ctxloom");
+    dir(&fs, "/home/u/newproj");
+    let found = find_app_dir(&*fs, &around_user_home(None, &at("/home/u/newproj")));
+    assert_eq!(found.source, Source::Home, "no project is found");
+}
+
+// `--root` bare is `CTXLOOM_ROOT` naming the user's home: the explicit ask.
+#[test]
+fn test_ctxloom_root_naming_the_users_home_makes_it_the_project() {
+    let fs = rooted();
+    dir(&fs, "/home/u/newproj");
+    let found = find_app_dir(
+        &*fs,
+        &around_user_home(Some(&at("/home/u")), &at("/home/u/newproj")),
+    );
+    assert_eq!(found.source, Source::Project);
+    assert_eq!(found.path, Path::new(&at("/home/u")).join(".ctxloom"));
+}
+
+// Nor the daemon root's: `CTXLOOM_DAEMON_ROOT` names a directory whose `.ctxloom`
+// holds the store, never a project's.
+#[test]
+fn test_the_walk_never_adopts_the_daemon_roots_ctxloom_as_a_project() {
+    let fs = rooted();
+    dir(&fs, "/home/u/.ctxloom-rs/.ctxloom");
+    dir(&fs, "/home/u/.ctxloom-rs/sub");
+    let found = find_app_dir(
+        &*fs,
+        &around_user_home(None, &at("/home/u/.ctxloom-rs/sub")),
+    );
+    assert_eq!(found.source, Source::Home);
+}
+
+// A `.ctxloom` of a directory below the user's home is a project as ever.
+#[test]
+fn test_a_ctxloom_below_the_users_home_is_still_found() {
+    let fs = rooted();
+    dir(&fs, "/home/u/.ctxloom");
+    dir(&fs, "/home/u/work/.ctxloom");
+    dir(&fs, "/home/u/work/sub");
+    let found = find_app_dir(&*fs, &around_user_home(None, &at("/home/u/work/sub")));
+    assert_eq!(found.source, Source::Project);
+    assert_eq!(found.path, Path::new(&at("/home/u/work")).join(".ctxloom"));
 }
 
 // findappdir_test.go: TestLoad_EmptyHomeNonRepoCwd_CreatesNothing: the home
@@ -669,21 +729,19 @@ fn test_the_walk_stops_at_the_temporary_directory_itself_and_below_it_only() {
 }
 
 #[test]
-fn test_the_walk_is_not_stopped_by_the_home_so_the_homes_app_dir_is_a_project() {
-    // Go parity, not a defect: Go's walkUpForAppDir (ctxloom
-    // internal/adapters/configload/appdir.go:81) stops only at the temp
-    // directory, never at the home, so a working directory under the home
-    // finds the home's own `.ctxloom` on the way up, as a Project, not a
-    // Home. Do not stop the walk at the home without changing Go first.
+fn test_the_walk_never_adopts_the_daemon_roots_ctxloom_when_it_is_the_users_home() {
+    // Owner ruling 2026-11-22 (reversing Go's walk, which stopped only at the
+    // temp directory): the home's `.ctxloom` is the daemon root's here (no
+    // `CTXLOOM_DAEMON_ROOT`), the store's and the home config layer's, never a
+    // project's. Only `CTXLOOM_ROOT` / `--root` makes it one.
     // (The tests use an in-memory fs, and the wiring's real-fs tests give
-    // themselves a HOME and walk no further than the temp directory, so a
-    // TMPDIR under the real $HOME never reaches the real `~/.ctxloom`.)
+    // themselves a HOME and walk no further than the temp directory.)
     let fs = rooted();
     dir(&fs, "/home/u/.ctxloom");
     dir(&fs, "/home/u/code/x");
     let found = find_app_dir(&*fs, &around(None, "/home/u/code/x"));
-    assert_eq!(found.path, Path::new("/home/u/.ctxloom"));
-    assert_eq!(found.source, Source::Project);
+    assert_eq!(found.path, Path::new(&at("/home/u/.ctxloom")));
+    assert_eq!(found.source, Source::Home);
 }
 
 #[test]

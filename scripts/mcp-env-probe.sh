@@ -2,7 +2,7 @@
 # OD-7's live probe (daemon slice 3, ruled 2026-11-13): does claude pass the
 # environment it runs in to a stdio MCP server it starts, so that ctxloom's
 # own server (`ctxloom mcp serve`) gets the session's name (CTXLOOM_SESSION)
-# and ctxloom's home (CTXLOOM_HOME), which its entry in the MCP config never
+# and ctxloom's home (CTXLOOM_DAEMON_ROOT), which its entry in the MCP config never
 # carries? One REAL claude turn, authenticated by an environment token only.
 #
 #   CLAUDE_CODE_OAUTH_TOKEN=... scripts/mcp-env-probe.sh [ctxloom binary]
@@ -16,7 +16,7 @@
 # if none serves). The probe prints what the server received and whether the
 # tool answered.
 #
-# ctxloom's home is the probe's own: a temporary CTXLOOM_HOME (and HOME), and
+# ctxloom's home is the probe's own: a temporary CTXLOOM_DAEMON_ROOT (and HOME), and
 # a temporary project its CTXLOOM_ROOT, so the daemon the tool call starts
 # serves that home and never the user's ~/.ctxloom or ~/.ctxloom-rs (its
 # first run, 2026-11-14, set none, and its call started a daemon against the
@@ -40,7 +40,7 @@ home=$work/home
 mkdir -p "$work/config" "$work/project/.ctxloom" "$home"
 # ctxloom's home, HOME and the project are the probe's alone, for claude, the
 # server it starts and the daemon the server's call starts.
-export CTXLOOM_HOME="$home" HOME="$home" CTXLOOM_ROOT="$work/project"
+export CTXLOOM_DAEMON_ROOT="$home" HOME="$home" CTXLOOM_ROOT="$work/project"
 export CTXLOOM_DAEMON_IDLE_SECONDS=30
 finish() {
     "$ctxloom" daemon stop >/dev/null 2>&1 || true
@@ -77,7 +77,7 @@ session="projects/probe-mcp-env/sessions/probe-mcp-turn"
 echo "== claude ($(claude --version 2>/dev/null || echo unknown))"
 echo "== the environment the stdio server was started with"
 if [ -f "$work/server.env" ]; then
-    for name in CTXLOOM_SESSION CTXLOOM_HOME CTXLOOM_PROBE_MARKER CLAUDE_CODE_OAUTH_TOKEN HOME PATH; do
+    for name in CTXLOOM_SESSION CTXLOOM_DAEMON_ROOT CTXLOOM_PROBE_MARKER CLAUDE_CODE_OAUTH_TOKEN HOME PATH; do
         if grep -q "^$name=" "$work/server.env"; then
             case "$name" in
                 CLAUDE_CODE_OAUTH_TOKEN) echo "$name: present (value withheld)" ;;

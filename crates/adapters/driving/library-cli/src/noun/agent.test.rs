@@ -202,7 +202,7 @@ mod write {
                 &[
                     "agent", "edit", "dev", "--profiles", "dev,dev", "--runtime", "host",
                     "--model", "haiku",
-                    "--env", "A", "--env", "B", "--surface", "context=system-prompt", "--root", "mcp=project-root",
+                    "--env", "A", "--env", "B", "--surface", "context=system-prompt", "--surface-root", "mcp=project-root",
                 ]
             ),
             "Updated agent \"dev\" (engine: claude-code, profiles: project#profiles/dev, project#profiles/dev, runtime: host, engines.claude-code: {model: haiku}, env: A, B)\n"
@@ -214,14 +214,10 @@ mod write {
         assert_eq!(named, "projects/calm-otter/agents/dev");
         assert_eq!(engine, "projects/calm-otter/engines/claude-code");
         assert_eq!(doc["applied"], true);
-        let bad = refused_code(
-            &library,
-            &["agent", "edit", "dev", "--surface", "nope"],
-            TEXT,
-        );
-        assert!(bad.contains("flag-pair"), "{bad}");
-        let bad = refused_code(&library, &["agent", "edit", "dev", "--root", "nope"], TEXT);
-        assert!(bad.contains("flag-pair"), "{bad}");
+        for flag in ["--surface", "--surface-root"] {
+            let bad = refused_code(&library, &["agent", "edit", "dev", flag, "nope"], TEXT);
+            assert!(bad.contains("flag-pair"), "{bad}");
+        }
         assert_eq!(
             text(&library, &["agent", "default"]),
             "No default agent set.\n"
@@ -531,7 +527,7 @@ mod writes_asked {
             "host",
             "--surface",
             "context=system-prompt",
-            "--root",
+            "--surface-root",
             "mcp=project-root",
             "--env",
             "A",

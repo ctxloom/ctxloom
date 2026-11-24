@@ -219,14 +219,14 @@ fn the_run_engine_is_named_claude_code() {
 // what its tools write under `~` lands in the session's own directory and
 // never in the project (the hand test found gh's `.local/state` there, made
 // relative to the working directory with no HOME). ctxloom's own home still
-// reaches the hook processes by name, as CTXLOOM_HOME.
+// reaches the hook processes by name, as CTXLOOM_DAEMON_ROOT.
 #[test]
 fn the_engines_home_is_the_session_home_and_ctxlooms_home_is_named() {
     let mut asked = request();
     asked.env = env(&[
         ("PATH", "/usr/bin"),
         ("HOME", "/home/alice"),
-        ("CTXLOOM_HOME", "/home/alice"),
+        ("CTXLOOM_DAEMON_ROOT", "/home/alice"),
     ]);
     for command in [
         Claude::new().drive_interactive(&asked).unwrap(),
@@ -235,10 +235,10 @@ fn the_engines_home_is_the_session_home_and_ctxlooms_home_is_named() {
         let names: Vec<&str> = command.env.keys().map(String::as_str).collect();
         assert_eq!(
             names,
-            vec!["CLAUDE_CONFIG_DIR", "CTXLOOM_HOME", "HOME", "PATH"]
+            vec!["CLAUDE_CONFIG_DIR", "CTXLOOM_DAEMON_ROOT", "HOME", "PATH"]
         );
         assert_eq!(command.env["HOME"], "/p/.ctxloom/sessions/h/home");
-        assert_eq!(command.env["CTXLOOM_HOME"], "/home/alice");
+        assert_eq!(command.env["CTXLOOM_DAEMON_ROOT"], "/home/alice");
     }
 }
 
@@ -472,7 +472,7 @@ fn the_terminal_and_a_childs_turn_are_both_passed_the_listener_variables() {
     }
     for name in run_ports::HOOK_VARIABLES
         .into_iter()
-        .chain([run_ports::HOME_VARIABLE, run_ports::ROOT_VARIABLE])
+        .chain([run_ports::DAEMON_ROOT_VARIABLE, run_ports::ROOT_VARIABLE])
     {
         assert!(INTERACTIVE_ENV_ALLOWLIST.contains(&name), "{name}");
         assert!(ENV_ALLOWLIST.contains(&name), "{name} reaches a turn");
@@ -834,7 +834,7 @@ fn the_primarys_token_is_never_a_childs_whatever_the_config_says() {
         ("CTXLOOM_BEARER", "run.secret"),
         ("CTXLOOM_ENDPOINT", "e"),
         ("CTXLOOM_RUN", "r"),
-        ("CTXLOOM_HOME", "/h"),
+        ("CTXLOOM_DAEMON_ROOT", "/h"),
         (
             "CTXLOOM_SESSION",
             "projects/amber-quiet-heron/sessions/brisk-copper-moth",
@@ -1840,7 +1840,7 @@ fn the_servers_ride_an_mcp_config_the_command_names() {
     assert_eq!(
         ours,
         surface_ports::Json::parse(
-            r#"{"mcpServers":{"ctxloom":{"command":"ctxloom","args":["mcp","serve"]}}}"#
+            r#"{"mcpServers":{"ctxloom":{"command":"ctxloom","args":["mcp","serve","--no-wake"]}}}"#
         )
         .unwrap()
     );
@@ -2165,4 +2165,34 @@ fn a_context_is_handed_to_claude_at_its_next_prompt_or_tool_result() {
             "{hook}"
         );
     }
+}
+
+// ONE DELIVERY OWNER PER SESSION (owner ruling): the daemon feeds a hosted
+// child, so its `mcp serve` is constructed without the socket wake poster; a
+// terminal session's is the one the wake wakes.
+#[test]
+fn test_ctxloom_server_entry_has_the_wake_poster_only_for_a_terminal_session() {
+    let args = |interactive: bool| {
+        let prepared = prepare_carrying(
+            interactive,
+            SessionHome::Session,
+            None,
+            surface_ports::Inputs::default(),
+        );
+        let mcp =
+            surface_ports::Json::parse(&file_of(&prepared, MCP_CONFIG_FILE).unwrap()).unwrap();
+        mcp.get("mcpServers")
+            .and_then(|s| s.get("ctxloom"))
+            .and_then(|t| t.get("args"))
+            .cloned()
+            .unwrap()
+    };
+    assert_eq!(
+        args(true),
+        surface_ports::Json::parse(r#"["mcp","serve"]"#).unwrap()
+    );
+    assert_eq!(
+        args(false),
+        surface_ports::Json::parse(r#"["mcp","serve","--no-wake"]"#).unwrap()
+    );
 }

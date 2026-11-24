@@ -47,7 +47,7 @@ const state = (globalThis.__ctxloomOpencode ??= {
 })
 
 // The hook's environment: the engine's, without the HOME opencode runs under
-// (the session's own), so ctxloom finds its home through CTXLOOM_HOME.
+// (the session's own), so ctxloom finds its home through CTXLOOM_DAEMON_ROOT.
 function hookEnv() {
   const env = { ...process.env }
   delete env.HOME

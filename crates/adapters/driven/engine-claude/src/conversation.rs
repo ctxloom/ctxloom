@@ -21,7 +21,9 @@
 //!
 //! Read: the first `system`/`init` is [`ChildObservation::Started`]; the
 //! echo of the message given (`isReplay`) starts its turn; `result` ends the
-//! turn in flight (or the clear); `control_response` answers an interrupt.
+//! turn in flight once it was echoed (or the clear), a failure echoed or not:
+//! a `result` of a prompt a hook blocked, which claude never submitted, ends
+//! nothing; `control_response` answers an interrupt.
 //! Everything else (deltas, assistant and tool messages, hook and rate-limit
 //! notices) is skipped: a child's words are its hooks' (owner ruling 51).
 
@@ -189,7 +191,10 @@ impl Conversation {
                 }
             }
             Some("result") => {
-                step.observations.push(self.result(&event));
+                let Some(ended) = self.result(&event) else {
+                    return step;
+                };
+                step.observations.push(ended);
                 self.interrupting = false;
                 if !self.closed {
                     if let Some(item) = self.held.pop_front() {
@@ -292,20 +297,29 @@ impl Conversation {
         user_message(&text)
     }
 
-    /// What a `result` ends.
-    fn result(&mut self, result: &Json) -> ChildObservation {
-        match self.in_flight.take() {
-            Some(InFlight::Clear { reset }) => ChildObservation::Cleared {
+    /// What a `result` ends; none when it is no result of a turn of ours.
+    ///
+    /// A turn is claude's once its prompt was SUBMITTED (the echo): a prompt a
+    /// hook blocked (the terminal wake's line, answered "nothing was sent to
+    /// the model") still ends in a `result`, with no model turn, that is not
+    /// the turn in flight's, whose own `result` comes later. A failure is
+    /// still the turn's, echoed or not (the API refused it first). With no
+    /// turn in flight there is none to end.
+    fn result(&mut self, result: &Json) -> Option<ChildObservation> {
+        let failed = matches!(result.get("is_error"), Some(Json::Bool(true)));
+        if let Some(InFlight::Turn { echoed: false, .. }) = &self.in_flight {
+            if !failed {
+                return None;
+            }
+        }
+        match self.in_flight.take()? {
+            InFlight::Clear { reset } => Some(ChildObservation::Cleared {
                 native_id: if reset { self.native_id.clone() } else { None },
-            },
-            Some(InFlight::Turn { ids, .. }) => ChildObservation::TurnEnded {
+            }),
+            InFlight::Turn { ids, .. } => Some(ChildObservation::TurnEnded {
                 message_ids: ids,
                 outcome: self.outcome(result),
-            },
-            None => ChildObservation::TurnEnded {
-                message_ids: Vec::new(),
-                outcome: self.outcome(result),
-            },
+            }),
         }
     }
 

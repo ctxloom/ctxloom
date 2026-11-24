@@ -28,7 +28,7 @@ env > "$here/engine-env"
 : > "$here/listening"
 for proc in /proc/[0-9]*; do
   [ "$(readlink "$proc/exe" 2>/dev/null)" = "$binary" ] || continue
-  tr '\0' '\n' < "$proc/environ" 2>/dev/null | grep -qF "=$CTXLOOM_HOME" || continue
+  tr '\0' '\n' < "$proc/environ" 2>/dev/null | grep -qF "=$CTXLOOM_DAEMON_ROOT" || continue
   pid="${proc#/proc/}"
   for fd in "$proc"/fd/*; do
     link="$(readlink "$fd" 2>/dev/null)" || continue

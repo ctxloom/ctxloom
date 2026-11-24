@@ -1,7 +1,7 @@
 //! `ctxloom mcp serve` composed (slice 3, T20): ctxloom's MCP server over
 //! the session the engine's environment names (`CTXLOOM_SESSION`, s3-Q3),
 //! reaching the user's daemon as every client does (its discovery file
-//! under ctxloom's home, `CTXLOOM_HOME`; one spawned and waited for when
+//! under ctxloom's home, `CTXLOOM_DAEMON_ROOT`; one spawned and waited for when
 //! none serves, S16), but NEVER stopping one (OD-3: a daemon of another
 //! version is a typed refusal of the call, never stopped under the
 //! sessions it hosts).
@@ -30,6 +30,7 @@ pub(crate) fn is_serve(noun: &str, verb: &str) -> bool {
 pub(crate) fn serve(
     env: &Arc<EnvSnapshot>,
     stamp: &str,
+    wakes: bool,
     out: &mut dyn std::io::Write,
 ) -> Result<Exit, Failure> {
     let Some(session) = env.non_empty(run_ports::SESSION_VARIABLE) else {
@@ -89,7 +90,10 @@ pub(crate) fn serve(
         env.non_empty(name)
             .map(|value| value.to_string_lossy().into_owned())
     };
-    let server = match engine_claude::messaging_wake(&exported) {
+    // Only a server constructed with the poster (a terminal session's) has
+    // one; a hosted child's deliveries are the daemon's.
+    let socket = engine_claude::messaging_wake(&exported).filter(|_| wakes);
+    let server = match socket {
         Some(socket) => server.waking(mcp_server::wake::Wakes {
             post: Arc::new(socket),
             mint: Box::new(nonce),

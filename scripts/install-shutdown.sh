@@ -19,7 +19,7 @@
 # Usage: install-shutdown.sh <built binary> <ctxloom home> [when]
 set -uo pipefail
 built=$1 home=$2 when=${3:-}
-CTXLOOM_HOME="$home" "$built" shutdown ${when:+"$when"} --format text | sed 's/^/ok   shutdown: /'
+CTXLOOM_DAEMON_ROOT="$home" "$built" shutdown ${when:+"$when"} --format text | sed 's/^/ok   shutdown: /'
 rc=${PIPESTATUS[0]}
 case "$rc" in
     0) echo "ok   nothing of ctxloom runs" ;;

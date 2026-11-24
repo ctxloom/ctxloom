@@ -62,6 +62,22 @@ pub fn verb() -> clap::Command {
     clap::Command::new(VERB)
         .about("Serve ctxloom's MCP tools over stdio (an engine starts it)")
         .hide(true)
+        .arg(
+            clap::Arg::new(NO_WAKE)
+                .long(NO_WAKE)
+                .action(clap::ArgAction::SetTrue)
+                .help("Start without the terminal wake's poster (the daemon hosts the session)"),
+        )
+}
+
+/// `--no-wake`: the server of a session the daemon hosts.
+pub const NO_WAKE: &str = "no-wake";
+
+/// Whether the server `serve`'s arguments describe has the terminal wake's
+/// poster: a primary terminal session's has; a hosted child's, whose
+/// deliveries are the daemon's, is constructed without it.
+pub fn posts_wakes(serve: &clap::ArgMatches) -> bool {
+    !serve.get_flag(NO_WAKE)
 }
 
 /// How a diagnostic is said to the engine: its words, as the binary's

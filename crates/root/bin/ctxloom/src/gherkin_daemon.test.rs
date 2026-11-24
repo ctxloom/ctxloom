@@ -1695,6 +1695,7 @@ fn listed_in(w: &World, dir: &std::path::Path) -> Vec<String> {
 
 #[given("no ctxloom daemon is serving for Alice")]
 fn none_serving_for_alice(w: &mut World) {
+    super::top::forget_pending(w);
     none_serving(w);
 }
 
@@ -4649,6 +4650,14 @@ fn ran_projects_program_now(w: &mut World) {
     assert!(!their_program_ran(w, 1), "the old program ran");
 }
 
+/// A setting the project config will say once the scenario's children are
+/// launched (their agents are written beside it).
+pub(super) fn says_in_project(w: &mut World, setting: String) {
+    if !w.daemon_spec.project_says.contains(&setting) {
+        w.daemon_spec.project_says.push(setting);
+    }
+}
+
 #[given(expr = "an initialized ctxloom project whose project config says {string}")]
 fn project_says(w: &mut World, setting: String) {
     w.common.project = crate::tests::library::Project::initialized();
@@ -7186,6 +7195,16 @@ fn child_asking(w: &mut World, child: &str, owner: &str, tool: &str, text: &str)
     ask(w, child, tool, text);
 }
 
+/// `child`'s engine asks, its alarm held until the scenario says its time
+/// runs out (the race rule, as [`child_asking`] holds it).
+pub(super) fn ask_holding_alarms(w: &mut World, child: &str, tool: &str, text: &str) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs());
+    files::put(alarms_hold(w), now.to_string());
+    ask(w, child, tool, text);
+}
+
 /// The daemon's test-support hold of its scheduler's alarms
 /// (`test-hold-alarms`, the instant it holds them at): while it is there
 /// no alarm armed since comes due.
@@ -7301,7 +7320,10 @@ fn engine_told(w: &mut World, what: String) {
         let end = start + text[start..].find('"')?;
         Some(text[start..end].to_string())
     };
-    if what == "to run the tool" {
+    if what == "not to run the tool" {
+        let answer = prompt_answer(the_ask(w, None));
+        assert_eq!(answer["behavior"], "deny", "{answer}");
+    } else if what == "to run the tool" {
         let ask = the_ask(w, None);
         let answer = prompt_answer(ask);
         allowed(&answer, ask, None);

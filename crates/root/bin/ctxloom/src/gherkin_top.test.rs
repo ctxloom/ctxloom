@@ -57,6 +57,129 @@ pub(super) struct State {
     /// Streams started beside the first, by the name the scenario gave
     /// them, each with the lines read from it.
     named: std::collections::BTreeMap<String, (Stream, Vec<Value>)>,
+    /// What Alice's orchestrator has been said to launch (owner, child,
+    /// agent), made when her first look at `top` needs it: a scenario that
+    /// says no daemon serves must not find one the Background started.
+    pending: Vec<(String, String, String)>,
+}
+
+/// The Background's launches are forgotten: no daemon serves, so nothing was
+/// launched yet.
+pub(super) fn forget_pending(w: &mut World) {
+    w.top.pending.clear();
+}
+
+/// The launches the journey has said, made now.
+pub(super) fn launch_pending(w: &mut World) {
+    for (owner, child, agent) in std::mem::take(&mut w.top.pending) {
+        daemon_spec::child_on_agent(w, &child, &owner, &agent, None, "claude-code");
+    }
+}
+
+#[given(
+    regex = r#"^Alice's orchestrator "([^"]+)" has launched "([^"]+)" on "([^"]+)" and "([^"]+)" on "([^"]+)"$"#
+)]
+fn alice_has_launched_two(
+    w: &mut World,
+    owner: String,
+    first: String,
+    first_agent: String,
+    second: String,
+    second_agent: String,
+) {
+    w.top.pending.push((owner.clone(), first, first_agent));
+    w.top.pending.push((owner, second, second_agent));
+}
+
+#[when(regex = r#"^Alice's orchestrator "([^"]+)" has launched "([^"]+)" on "([^"]+)"$"#)]
+fn alice_has_launched(w: &mut World, owner: String, child: String, agent: String) {
+    w.top.pending.push((owner.clone(), child, agent));
+    launch_pending(w);
+    // Her orchestrator's engine is running: its row is live, as the
+    // screen's own start makes it where a daemon already serves.
+    daemon_spec::hold_owner_live(w, &owner);
+    // Taking a session's lock is no fold, and a watch is woken by folds and
+    // by a lock's release: her engine naming its session is the news that
+    // makes an open screen look again.
+    let env = daemon_spec::env_of(w);
+    let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    let ran = w
+        .common
+        .project
+        .run_with(&env, &["session", "rename", &owner, "orchestrator"]);
+    assert_eq!(ran.code, 0, "{}", ran.said());
+}
+
+#[given(expr = "the engine {string} is set to ask for at most {int} seconds")]
+fn engine_asks_for_at_most(w: &mut World, engine: String, seconds: u64) {
+    daemon_spec::says_in_project(w, format!("engines.{engine}.approval_timeout: {seconds}s"));
+}
+
+#[when(regex = r#"^her editor's plugin runs `([^`]+)` and reads it as it streams:$"#)]
+fn plugin_runs(w: &mut World, line: String) {
+    launch_pending(w);
+    started(w, line);
+}
+
+#[then(expr = "its first line is a snapshot holding {string} alone")]
+fn first_is_snapshot_of_one(w: &mut World, harp: String) {
+    let line = first_line(w);
+    let sessions = at(&line, "snapshot.sessions")
+        .and_then(Value::as_array)
+        .unwrap_or_else(|| panic!("no snapshot.sessions in {line}"))
+        .clone();
+    assert_eq!(sessions.len(), 1, "{line}");
+    assert!(
+        sessions[0]["name"]
+            .as_str()
+            .is_some_and(|n| n.ends_with(&format!("/sessions/{harp}"))),
+        "{line}"
+    );
+}
+
+#[then("its first line is a snapshot of her sessions")]
+fn first_is_snapshot(w: &mut World) {
+    let line = first_line(w);
+    let sessions = at(&line, "snapshot.sessions")
+        .and_then(Value::as_array)
+        .unwrap_or_else(|| panic!("no snapshot.sessions in {line}"))
+        .clone();
+    for harp in [
+        "amber-quiet-heron",
+        "brisk-copper-moth",
+        "quiet-silver-fern",
+    ] {
+        assert!(
+            sessions.iter().any(|s| s["name"]
+                .as_str()
+                .is_some_and(|n| n.ends_with(&format!("/sessions/{harp}")))),
+            "no {harp} in {line}"
+        );
+    }
+}
+
+#[then(expr = "the next line says an ask arrived for {string}")]
+fn an_ask_arrived(w: &mut World, harp: String) {
+    // The daemon says other news of the same moment first (the row's count,
+    // the log): the ask's own line is waited for.
+    let wanted = format!("/sessions/{harp}");
+    until_line(w, 30, |line| {
+        at(line, "approval_asked.approval.child").is_some_and(|c| said(c).contains(&wanted))
+    });
+}
+
+#[then(expr = "the next line says an ask arrived for {string}, and none was said of {string}")]
+fn an_ask_arrived_not_of(w: &mut World, harp: String, other: String) {
+    an_ask_arrived(w, harp);
+    no_line_names(w, other);
+}
+
+#[then(expr = "the next line says the ask was answered {string}")]
+fn the_ask_was_answered(w: &mut World, option: String) {
+    until_line(w, 30, |line| {
+        at(line, "approval_settled.approval.state").is_some_and(|s| said(s) == "answered")
+            && at(line, "approval_settled.approval.option").is_some_and(|o| said(o) == option)
+    });
 }
 
 #[given(expr = "I start {string} and read its output as it streams")]

@@ -269,26 +269,75 @@ fn pressed(w: &mut World, key: String) {
 fn pressed_until(w: &mut World, key: String, harp: String) {
     for _ in 0..20 {
         let frame = until(w, "with a row marked", |p| !marked(p).is_empty());
-        if marked(&frame) == [harp.clone()] {
+        let before = marked(&frame);
+        if before == [harp.clone()] {
             return;
         }
-        let seen = screen(w).seen.len();
         press_key(w, &key);
+        // The key's effect is the frame that marks another row. A frame the
+        // daemon's own news drew meanwhile (a log line) is not it, and a key
+        // pressed again on it would move the mark twice.
         let deadline = Instant::now() + WAIT;
-        while screen(w).seen.len() <= seen {
+        loop {
             let left = deadline.saturating_duration_since(Instant::now());
-            let next = screen(w).frames.recv_timeout(left);
-            match next {
-                Ok(next) => screen(w).seen.push(next),
+            match screen(w).frames.recv_timeout(left) {
+                Ok(next) => {
+                    let moved = moves_the_mark(&before, &next);
+                    screen(w).seen.push(next);
+                    if moved {
+                        break;
+                    }
+                }
                 Err(e) => {
                     let log = daemon_spec::daemon_log_text(w);
                     let frames = screen(w).seen.clone();
-                    panic!("the key {key} changed no frame ({e}); the frames so far: {frames:#?}\n{log}")
+                    panic!(
+                        "the key {key} moved no mark ({e}); the frames so far: {frames:#?}\n{log}"
+                    )
                 }
             }
         }
     }
     panic!("{harp} was never marked");
+}
+
+/// Whether `frame` is the effect of a key that moved the mark off `before`:
+/// a frame the daemon's own news drew (a log line) marks what it marked.
+fn moves_the_mark(before: &[String], frame: &[String]) -> bool {
+    marked_in(frame) != before
+}
+
+#[test]
+fn test_a_frame_drawn_by_news_is_not_the_effect_of_a_key() {
+    let frame = |marked: &str, log: &str| -> Vec<String> {
+        [
+            "ctxloom top  scope: this project  filter: none  sort: tree".to_string(),
+            "  NAME              STATE AGENT OWNER ASKS".to_string(),
+            format!(
+                "{} amber-quiet-heron live 0",
+                if marked == "a" { ">" } else { " " }
+            ),
+            format!(
+                "{} brisk-copper-moth live 0",
+                if marked == "b" { ">" } else { " " }
+            ),
+            "--- asks of x".to_string(),
+            "--- log of x".to_string(),
+            log.to_string(),
+        ]
+        .to_vec()
+    };
+    let before = marked_in(&frame("a", ""));
+    assert!(
+        !moves_the_mark(&before, &frame("a", "  06:40:30 started")),
+        "the log line's frame is the news, not the key"
+    );
+    assert!(moves_the_mark(&before, &frame("b", "")));
+}
+
+/// The rows a frame marks.
+fn marked_in(frame: &[String]) -> Vec<String> {
+    marked(&parts(frame))
 }
 
 #[when(expr = "I press {string} and type {string}")]
@@ -531,6 +580,214 @@ fn above(w: &mut World, upper: String, lower: String) {
         matches!((at(&upper), at(&lower)), (Some(a), Some(b)) if a < b)
     });
     let _ = row_of;
+}
+
+// ------------------------------------------------- the journey's screen
+
+/// Alice's `ctxloom top`, at her terminal, once her orchestrator's launches
+/// are made.
+fn alice_opens(w: &mut World) {
+    super::top::launch_pending(w);
+    started(w, "ctxloom top --format text".to_string());
+}
+
+#[when("Alice opens `ctxloom top` at her terminal")]
+fn alice_opens_top(w: &mut World) {
+    alice_opens(w);
+}
+
+#[given("Alice has `ctxloom top` open at her terminal")]
+fn alice_has_top_open(w: &mut World) {
+    alice_opens(w);
+}
+
+#[given(expr = "Alice has `ctxloom top` open at her terminal, with {string} selected")]
+fn alice_has_top_open_selected(w: &mut World, harp: String) {
+    alice_opens(w);
+    pressed_until(w, "down".to_string(), harp);
+}
+
+#[when(expr = "Alice selects {string}")]
+fn alice_selects(w: &mut World, harp: String) {
+    pressed_until(w, "down".to_string(), harp);
+}
+
+#[given(regex = r#"^the engine of "([^"]+)" has asked to run "([^"]+)" with "([^"]*)"$"#)]
+fn engine_has_asked(w: &mut World, child: String, tool: String, input: String) {
+    daemon_spec::ask_holding_alarms(w, &child, &tool, &input);
+}
+
+#[then(
+    regex = r#"^the table's top part has a row for "([^"]+)" with its children "([^"]+)" and "([^"]+)" under it$"#
+)]
+fn tree_rows(w: &mut World, owner: String, a: String, b: String) {
+    let frame = until(w, "with the tree", |p| {
+        [&owner, &a, &b].iter().all(|h| has_row(p, h))
+    });
+    let indent = |harp: &str| name_of(row_of(&frame, harp)).len() - harp.len();
+    let at = |harp: &str| frame.rows.iter().position(|r| harp_of(r) == harp);
+    for child in [&a, &b] {
+        assert!(
+            indent(child) > indent(&owner),
+            "{child} is not under {owner}"
+        );
+        assert!(at(child) > at(&owner), "{child} is above {owner}");
+    }
+}
+
+#[then("each row shows its state, its agent, its engine and its owner")]
+fn rows_show_columns(w: &mut World) {
+    let frame = until(w, "with the rows", |p| p.rows.len() >= 3);
+    for (harp, agent, owner) in [
+        ("amber-quiet-heron", None, None),
+        (
+            "brisk-copper-moth",
+            Some("reviewer"),
+            Some("amber-quiet-heron"),
+        ),
+        (
+            "quiet-silver-fern",
+            Some("fixer"),
+            Some("amber-quiet-heron"),
+        ),
+    ] {
+        let row = row_of(&frame, harp);
+        for want in ["live", "claude-code"]
+            .into_iter()
+            .chain(agent)
+            .chain(owner)
+        {
+            assert!(row.contains(want), "{harp}'s row lacks {want}: {row}");
+        }
+    }
+}
+
+#[then("one row is selected, and the bottom part shows that session's asks and log")]
+fn one_selected_with_details(w: &mut World) {
+    let frame = until(w, "with a row marked", |p| !marked(p).is_empty());
+    let selected = marked(&frame);
+    assert_eq!(selected.len(), 1, "{selected:?}");
+    assert_eq!(frame.asks_title, format!("--- asks of {}", selected[0]));
+    assert_eq!(frame.log_title, format!("--- log of {}", selected[0]));
+}
+
+#[then(expr = "the row of {string} shows one ask waiting")]
+fn row_shows_one_ask(w: &mut World, harp: String) {
+    asks_column(w, harp, "1".to_string());
+}
+
+#[then(
+    expr = "the bottom part lists the ask, what it would run, and the options {string}, {string}, {string} and {string}"
+)]
+fn bottom_lists_ask(w: &mut World, a: String, b: String, c: String, d: String) {
+    until(w, "with the ask and its options", |p| {
+        let text = p.asks.join("\n");
+        text.contains("ask-")
+            && text.contains("Bash")
+            && text.contains("rm -rf build/")
+            && [&a, &b, &c, &d].iter().all(|o| text.contains(o.as_str()))
+    });
+}
+
+#[then(
+    expr = "her first screen shows the ask settled, answered {string}, and no ask waiting on the row"
+)]
+fn first_screen_settled(w: &mut World, option: String) {
+    until(w, "with the ask settled", |p| {
+        p.asks
+            .iter()
+            .any(|l| l.contains(&format!("answered {option}")))
+            && marked(p)
+                .first()
+                .is_some_and(|harp| row_of(p, harp).split_whitespace().last() == Some("0"))
+    });
+}
+
+#[when(expr = "Alice chooses {string} for the ask on the screen")]
+fn alice_chooses(w: &mut World, option: String) {
+    // The reading pane's asks take the choice: tab to them, then its number.
+    let frame = until(w, "with the ask offered", |p| {
+        p.asks.iter().any(|l| l.contains(&format!(" {option}")))
+    });
+    let number = frame
+        .asks
+        .iter()
+        .flat_map(|l| {
+            l.split_whitespace()
+                .collect::<Vec<_>>()
+                .windows(2)
+                .map(|w| (w[0].to_string(), w[1].to_string()))
+                .collect::<Vec<_>>()
+        })
+        .find(|(n, name)| name == &option && n.len() == 1)
+        .map(|(n, _)| n)
+        .unwrap_or_else(|| panic!("{option} is not numbered: {:#?}", frame.asks));
+    pressed(w, "tab".to_string());
+    pressed(w, number);
+}
+
+#[then(expr = "the bottom part shows the ask settled, answered {string}, by her")]
+fn bottom_settled_by_her(w: &mut World, option: String) {
+    until(w, "with the ask settled by her", |p| {
+        let text = p.asks.join("\n");
+        text.contains(&format!("answered {option}"))
+    });
+}
+
+#[then("the log pane shows what it said, then that its run ended, in that order")]
+fn log_said_then_ended(w: &mut World) {
+    // An ended session leaves a live view (its default state), so the pane
+    // that showed both may be a frame the screen has moved on from: every
+    // frame the scenario has seen is looked at, the selected session's.
+    let (said, ended) = ("the migration is reversible", "exited");
+    let deadline = Instant::now() + WAIT;
+    loop {
+        drain(w);
+        let shown = |frame: &Vec<String>| {
+            let p = parts(frame);
+            let text = p.log.join("\n");
+            p.log_title == "--- log of quiet-silver-fern"
+                && matches!((text.find(said), text.find(ended)), (Some(x), Some(y)) if x < y)
+        };
+        if screen(w).seen.iter().any(shown) {
+            return;
+        }
+        let left = deadline.saturating_duration_since(Instant::now());
+        match screen(w).frames.recv_timeout(left) {
+            Ok(frame) => screen(w).seen.push(frame),
+            Err(_) => panic!("no frame showed the log in order: {:#?}", screen(w).seen),
+        }
+    }
+}
+
+#[then(expr = "her screen shows the ask expired, and no ask waiting on the row of {string}")]
+fn screen_ask_expired(w: &mut World, harp: String) {
+    // The reading pane is the selected row's: her screen shows the child's
+    // ask where she looks at that child.
+    pressed_until(w, "down".to_string(), harp.clone());
+    until(w, "with the ask expired", |p| {
+        p.asks.iter().any(|l| l.contains("expired"))
+            && row_of(p, &harp).split_whitespace().last() == Some("0")
+    });
+}
+
+#[then("it says it is waiting for a ctxloom daemon, and no ctxloom daemon was started")]
+fn says_waiting(w: &mut World) {
+    let frame = first(w);
+    assert!(
+        frame
+            .iter()
+            .any(|l| l.contains("waiting for a ctxloom daemon")),
+        "{frame:#?}"
+    );
+    daemon_spec::nothing_started(w);
+}
+
+#[then(expr = "her screen shows {string} and {string}, and no longer says it is waiting")]
+fn screen_shows_both(w: &mut World, a: String, b: String) {
+    until(w, "with both rows and no waiting", |p| {
+        has_row(p, &a) && has_row(p, &b) && !joined(p).contains("waiting for a ctxloom daemon")
+    });
 }
 
 // ---------------------------------------------------------------- pty

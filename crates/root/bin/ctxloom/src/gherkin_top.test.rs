@@ -398,7 +398,118 @@ fn daemon_still_serving(w: &mut World) {
 
 #[given(expr = "a child {string} of {string} launched on agent {string}")]
 fn child_on_agent(w: &mut World, child: String, owner: String, agent: String) {
-    daemon_spec::child_on_agent(w, &child, &owner, &agent);
+    daemon_spec::child_on_agent(w, &child, &owner, &agent, None);
+}
+
+#[given(
+    regex = r#"^a child "([^"]+)" of "([^"]+)" launched on agent "([^"]+)" with profile "([^"]+)", whose loadout loaded the bundle "([^"]+)"$"#
+)]
+fn child_with_profile(
+    w: &mut World,
+    child: String,
+    owner: String,
+    agent: String,
+    profile: String,
+    bundle: String,
+) {
+    daemon_spec::child_on_agent(w, &child, &owner, &agent, Some((&profile, &bundle)));
+}
+
+#[given(
+    regex = r#"^a child "([^"]+)" of "([^"]+)" launched on agent "([^"]+)" with profile "([^"]+)", whose loadout loaded the bundle "([^"]+)", on engine "([^"]+)"$"#
+)]
+fn child_with_profile_on_engine(
+    w: &mut World,
+    child: String,
+    owner: String,
+    agent: String,
+    profile: String,
+    bundle: String,
+    engine: String,
+) {
+    assert_eq!(
+        engine, "claude-code",
+        "only claude-code's child is hosted by the harness"
+    );
+    daemon_spec::child_on_agent(w, &child, &owner, &agent, Some((&profile, &bundle)));
+}
+
+/// Another child must start in a second of its own: the start is told in
+/// seconds, and an order of starts is what the scenario sorts by.
+fn a_second_apart() {
+    std::thread::sleep(Duration::from_millis(1100));
+}
+
+#[given(
+    regex = r#"^a child "([^"]+)" of "([^"]+)" launched on agent "([^"]+)" on engine "([^"]+)", started (first|second)$"#
+)]
+fn child_on_engine_started(
+    w: &mut World,
+    child: String,
+    owner: String,
+    agent: String,
+    engine: String,
+    when: String,
+) {
+    assert_eq!(
+        engine, "claude-code",
+        "only claude-code's child is hosted by the harness"
+    );
+    if when == "second" {
+        a_second_apart();
+    }
+    daemon_spec::child_on_agent(w, &child, &owner, &agent, None);
+}
+
+#[given(regex = r#"^a child "([^"]+)" of "([^"]+)", started (first|second)$"#)]
+fn child_started(w: &mut World, child: String, owner: String, when: String) {
+    if when == "second" {
+        a_second_apart();
+    }
+    daemon_spec::child_of_idle(w, child, owner);
+}
+
+#[when(regex = r#"^I start "([^"]+)", "([^"]+)" and "([^"]+)", and read their first lines$"#)]
+fn started_three(w: &mut World, a: String, b: String, c: String) {
+    for (at, line) in [a, b, c].into_iter().enumerate() {
+        let stream = spawn_stream(w, &line);
+        w.top
+            .named
+            .insert(format!("watch {}", at + 1), (stream, Vec::new()));
+    }
+    for at in 1..=3 {
+        let name = format!("watch {at}");
+        next_named(w, &name, WAIT).unwrap_or_else(|| panic!("no first line of {name}"));
+    }
+}
+
+/// The watch RPCs the daemon's log says it served, by name.
+fn served_watches(w: &World) -> Vec<String> {
+    daemon_spec::daemon_log_text(w)
+        .lines()
+        .filter_map(|line| line.split("served /ctxloom.v1.Ctxloom/").nth(1))
+        .filter(|rpc| rpc.starts_with("Watch"))
+        .map(str::to_string)
+        .collect()
+}
+
+#[then(expr = "the daemon's log says it served {string} three times")]
+fn served_three_times(w: &mut World, rpc: String) {
+    let served = served_watches(w);
+    assert_eq!(
+        served.iter().filter(|r| **r == rpc).count(),
+        3,
+        "{served:?}"
+    );
+}
+
+#[then(expr = "it served no other watch RPC for them but {string} for the one-session watch")]
+fn served_no_other(w: &mut World, allowed: String) {
+    let served = served_watches(w);
+    assert!(
+        served.iter().all(|r| r == "WatchTop" || *r == allowed),
+        "{served:?}"
+    );
 }
 
 /// The session's hook `native`, as its engine fires it, on `payload` with

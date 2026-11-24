@@ -476,7 +476,21 @@ pub(super) fn hold_owner_live(w: &mut World, owner: &str) {
 /// A child of `owner` launched on `agent`, which the project says is on
 /// claude-code; its first turn ended and told. The project's config is made
 /// again, so a later child names an agent the daemon reads at its launch.
-pub(super) fn child_on_agent(w: &mut World, child: &str, owner: &str, agent: &str) {
+pub(super) fn child_on_agent(
+    w: &mut World,
+    child: &str,
+    owner: &str,
+    agent: &str,
+    profile: Option<(&str, &str)>,
+) {
+    // A profile of the project whose loadout loads `bundle`, the agent's.
+    if let Some((profile, bundle)) = profile {
+        bundle_profile(w, bundle, profile, "fragments/rules.md", "the rules");
+        let said = format!("agents.{agent}.profiles: [{profile}]");
+        if !w.daemon_spec.project_says.contains(&said) {
+            w.daemon_spec.project_says.push(said);
+        }
+    }
     let said = format!("agents.{agent}.engine: claude-code");
     if !w.daemon_spec.project_says.contains(&said) {
         w.daemon_spec.project_says.push(said);

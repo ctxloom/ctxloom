@@ -533,15 +533,22 @@ impl Watch {
 }
 
 /// `text` as a line of ctxloom's on this terminal's standard error (which
-/// its human sees above the TUI), the bell rung first when `bell`. Written
-/// by the command's main thread alone (see `client_terminal`).
-fn show_on_stderr(text: &str, bell: bool) {
+/// its human sees above the TUI). Written by the command's main thread
+/// alone (see `client_terminal`).
+fn show_on_stderr(text: &str) {
     use std::io::Write;
     let mut err = std::io::stderr();
-    if bell {
-        let _ = err.write_all(b"\x07");
-    }
     let _ = writeln!(err, "\r\nctxloom: {text}\r");
+    let _ = err.flush();
+}
+
+/// The terminal's bell, rung on its standard error: a control character
+/// that draws nothing, so it cannot land in the TUI's input box as a line
+/// would. Written by the command's main thread alone.
+fn ring_bell() {
+    use std::io::Write;
+    let mut err = std::io::stderr();
+    let _ = err.write_all(b"\x07");
     let _ = err.flush();
 }
 
@@ -566,7 +573,7 @@ async fn watch_for_stop(
             crate::daemon::shutdown::epoch_seconds(),
         );
         if let Some(text) = show {
-            show_on_stderr(&text, false);
+            show_on_stderr(&text);
         }
         if let Some(cause) = cause {
             *stopped
@@ -1052,9 +1059,10 @@ async fn heard_out(
 /// For the TUI's life, look every [`ASK_LOOK`] at the permission asks
 /// waiting in `session`'s whole project (whatever their root: a child's,
 /// a one-shot's or another session's), and tell the human of each new one, once: the bell
-/// and one line on standard error ([`frontend_asks`]). It runs in the
-/// command's main-thread future beside the TUI, never spawned, as the stop
-/// watch does: it writes to stderr, whose std lock that thread holds. It
+/// ([`frontend_asks`]): the bell, and no line, for the TUI owns the terminal
+/// (the count is the statusline's). It runs in the command's main-thread
+/// future beside the TUI, never spawned, as the stop watch does: it writes
+/// to stderr, whose std lock that thread holds. It
 /// asks the daemon serving and starts none (a daemon that is not there has
 /// no asks to tell of), and says nothing of a look that failed: the next is
 /// a second away.
@@ -1077,20 +1085,20 @@ async fn tell_of_asks(reach: &Reach<'_>, session: &str, over: &Over, wiring: &Wi
             First::Left(listed) => listed,
         };
         let Some(listed) = listed else { continue };
-        tell_news(&mut told, &listed.approvals, wiring, show_on_stderr);
+        tell_news(&mut told, &listed.approvals, wiring, ring_bell);
     }
 }
 
-/// One look's outcome: each ask in `waiting` not told of yet is shown (the
-/// bell with it) and recorded as told, then the look itself is recorded.
+/// One look's outcome: each ask in `waiting` not told of yet is rung (the
+/// bell, once) and recorded as told, then the look itself is recorded.
 fn tell_news(
     told: &mut crate::frontend_asks::AsksTold,
     waiting: &[v1::Approval],
     wiring: &Wiring,
-    mut show: impl FnMut(&str, bool),
+    mut ring: impl FnMut(),
 ) {
-    for (ask, line) in told.news(waiting) {
-        show(&line, true);
+    for ask in told.news(waiting) {
+        ring();
         record_ask(wiring, &format!("told {ask}"));
     }
     record_ask(wiring, "look");
@@ -1098,7 +1106,7 @@ fn tell_news(
 
 /// Under `test-support`, a line of the frontend's watch for asks appended to
 /// `<ctxloom home>/.ctxloom/test-frontend-asks` (`look` after each look,
-/// `told <ask>` after each ask shown), which the acceptance tests wait on.
+/// `told <ask>` after each ask rung), which the acceptance tests wait on.
 /// Compiled out of the shipped binary.
 #[cfg(feature = "test-support")]
 fn record_ask(wiring: &Wiring, line: &str) {

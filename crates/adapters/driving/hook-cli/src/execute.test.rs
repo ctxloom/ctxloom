@@ -276,3 +276,15 @@ fn a_failed_write_sends_no_ack() {
     assert!(deliver(&outcome, &mut FailsFlush, &Acking(log.clone())).is_err());
     assert!(log.borrow().is_empty(), "no ack: {:?}", log.borrow());
 }
+
+#[test]
+fn the_statusline_entry_says_the_waiting_asks_and_records_nothing() {
+    let out = statusline(HUD_PAYLOAD, "brisk-copper-moth", 2);
+    assert!(out.stdout.contains("Opus 5"), "{}", out.stdout);
+    assert!(
+        out.stdout.contains("2 asks waiting: ctxloom top"),
+        "{}",
+        out.stdout
+    );
+    assert!(out.warnings.is_empty() && out.offered.is_empty());
+}

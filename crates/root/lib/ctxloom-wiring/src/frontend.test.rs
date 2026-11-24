@@ -353,27 +353,21 @@ fn asks_record(wiring: &crate::Wiring) -> String {
 }
 
 #[test]
-fn test_a_look_shows_each_new_ask_with_a_bell_and_records_it_then_the_look() {
+fn test_a_look_rings_the_bell_once_for_each_new_ask_and_records_it_then_the_look() {
     let world = crate::commands::tests::World::new("asks");
     let wiring = world.wiring();
     crate::fixtures::mkdirs(wiring.home().join(".ctxloom"));
     let mut told = crate::frontend_asks::AsksTold::default();
-    let mut shown: Vec<(String, bool)> = Vec::new();
+    let mut rung = 0;
     let asks = [waiting_ask("ask-a-b"), waiting_ask("ask-c-d")];
 
-    super::tell_news(&mut told, &asks, &wiring, |line, bell| {
-        shown.push((line.to_string(), bell));
-    });
-    assert_eq!(shown.len(), 2);
-    assert!(shown.iter().all(|(_, bell)| *bell));
-    assert!(shown[0].0.contains("ask-a-b") && shown[1].0.contains("ask-c-d"));
+    super::tell_news(&mut told, &asks, &wiring, || rung += 1);
+    assert_eq!(rung, 2);
     assert_eq!(asks_record(&wiring), "told ask-a-b\ntold ask-c-d\nlook\n");
 
-    // The same asks again: nothing shown, the look recorded after the rest.
-    super::tell_news(&mut told, &asks, &wiring, |line, bell| {
-        shown.push((line.to_string(), bell));
-    });
-    assert_eq!(shown.len(), 2);
+    // The same asks again: no bell, the look recorded after the rest.
+    super::tell_news(&mut told, &asks, &wiring, || rung += 1);
+    assert_eq!(rung, 2);
     assert_eq!(
         asks_record(&wiring),
         "told ask-a-b\ntold ask-c-d\nlook\nlook\n"

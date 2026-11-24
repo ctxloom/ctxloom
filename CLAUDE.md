@@ -2727,13 +2727,20 @@ project (owner ruling 2026-11-22, project-wide 2026-11-23;
 its whole project (`ListApprovals` with no root, the bare `session approvals`
 listing: a one-shot's and any other session's asks too; each TUI of the project
 tells every ask, the accepted cost; polled because no stream of asks exists),
-and for each it has not told of rings the bell and
-writes one stderr line through the same path as a drain's notice, in the same
-main-thread future: who asks, what it asks to run (an option's rule, else
-tool and input) and `ctxloom session approvals answer <ask> <options>`. Once
-per ask; an ask no longer waiting is never told. The ask's words are another
-agent's, so control characters in them are spaces. The line's words are a
-DRAFT. No statusline count; answering stays in the CLI. Under `test-support`
+and for each it has not told of rings the bell, once per ask, and
+writes NO line: the TUI owns the terminal, and a line written under it lands in
+the human's input box (owner ruling 2026-11-24, reversing 2026-11-22's "no
+statusline count"). An ask no longer waiting is never told. The count is the
+statusline's: ctxloom's claude statusline (`hook claude-code execute
+statusline`, `hook_cli::statusline`) appends `⚠ <n> ask(s) waiting: ctxloom
+top` after the rest of its line, nothing when none wait (a DRAFT wording).
+`ctxloom_wiring::hook_asks::waiting` asks the project's waiting asks of
+`CTXLOOM_SESSION`'s project (`ListApprovals` with no root) of a daemon already
+serving (`daemon::hook_daemon_serving`; the statusline never starts one),
+within `ASK_WITHIN` (2 s, under the hook's bound: the engine redraws often and
+drops a slow line), and counts none when no daemon serves, the session names
+no project or the answer is late. Answering stays in `ctxloom top` and the
+CLI. Under `test-support`
 the watch appends `look` and `told <ask>` lines to
 `<home>/.ctxloom/test-frontend-asks`, which session_approvals.feature waits
 on.

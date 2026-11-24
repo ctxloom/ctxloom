@@ -45,6 +45,13 @@
 # the integration branch; the full closeout-ratchet runs once per batch and
 # before main.
 #
+# However it ends (pass, fail, or the base's list not made), it sweeps what
+# the run grew that a later build does not need (owner ruling 2026-11-24),
+# scripts/land-sweep.sh: target/ratchet-base (never reused: each base is a new
+# sha), the checkout's incremental directories, and the shared staged target
+# by age, under its lock; the cached lists in target/ratchet/ are kept. One
+# `ok   sweep (...)` line each; a sweep failure is said and changes no verdict.
+#
 # Exit: 0 when every gate passed and no scenario turned red; 1 when any gate
 # failed, a scenario turned red or the base's list could not be made; 2 on a
 # usage error.
@@ -54,7 +61,8 @@
 # RATCHET_RECONFIRM_CACHE (the re-confirmation cache's path) and
 # RATCHET_RECONFIRM (a command given `<base> <ids> <out>`, instead of
 # `ratchet-base.sh --reconfirm`): the self-test's seams; the mutants-batch
-# variables.
+# variables; RATCHET_SWEEP (the sweep's command, instead of
+# scripts/land-sweep.sh) is the self-test's seam.
 set -uo pipefail
 top=$(git rev-parse --show-toplevel)
 here=$(cd "$(dirname "$0")" && pwd)
@@ -77,6 +85,9 @@ for gate in "${listed[@]}"; do
     gates+=("$gate")
 done
 start=$(date +%s)
+# The sweep runs at every exit from here on and never changes the status.
+sweep_caches() { "${RATCHET_SWEEP:-$here/land-sweep.sh}" "$top" 2>&1 || echo "FAIL sweep: land-sweep.sh exited $?"; }
+trap sweep_caches EXIT
 
 base_list=${RATCHET_BASE_LIST:-$top/target/ratchet/$base_sha.list}
 if [ -z "${RATCHET_BASE_LIST:-}" ]; then

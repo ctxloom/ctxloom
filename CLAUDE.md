@@ -5340,6 +5340,24 @@ by worktree, so cargo rebuilds what changed (accepted). The age sweep
 it. `scripts/scratch-tree-lock.selftest.sh` and
 `scripts/test-staged.selftest.sh` hold the path and the serialization.
 
+A LANDING SWEEPS WHAT IT GREW (owner ruling 2026-11-24, after /home filled
+twice in two days): at its end, pass or fail, `closeout-ratchet.sh` (so `just
+land-ratchet` and `closeout-ratchet`) runs `scripts/land-sweep.sh` on its
+checkout, by its own path (no slot pool). It removes `target/ratchet-base`
+(the base's build, a new sha each landing, never reused; skipped while
+`ratchet-base.sh` holds `target/.ratchet-base.lock`) and every rustc
+incremental directory of `target/`, never touching `target/ratchet/` (the
+cached lists and re-confirmations, reused by sha); it sweeps the shared
+staged target BY AGE (`trim-targets.sh` with `TRIM_TARGET_DIR`, `LAND_SWEEP_DAYS`,
+default 2) and only while it holds `staged-tree.lock` (`flock -n`; a commit
+gate holding it skips the sweep, said). Age, not whole removal: every commit
+gate builds there, and removing it whole would rebuild every dependency at the
+next commit (not measured: building the workspace is outside this change's
+gates); a sweep that cannot run is said and never changes the landing's
+verdict. Each is one line, `ok   sweep (<what>) freed <size>`. A cargo's
+`.cargo-lock` held keeps its target. Self-tests: `scripts/land-sweep.selftest.sh`
+and `closeout-ratchet.selftest.sh`.
+
 Each throwaway's lock (`.staged-tree.lock` in the cache, `.ratchet-base.lock`,
 `.mutants-batch.lock`) is a descriptor bash opens without close-on-exec and
 `flock`s; the gate holds it, and what it runs is started without it (`9>&-`,

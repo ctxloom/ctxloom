@@ -101,6 +101,9 @@ pub struct Screen {
     /// then there is nothing true to draw.
     heard: bool,
     selected: Option<String>,
+    /// The selected session that left the view and is kept, ended, until
+    /// the selection moves.
+    lingering: Option<String>,
     focus: Focus,
     ask_cursor: usize,
     /// Typed filters: field to value.
@@ -174,6 +177,7 @@ impl Screen {
             waiting: false,
             heard: false,
             selected: None,
+            lingering: None,
             focus: Focus::Table,
             ask_cursor: 0,
             filters: BTreeMap::new(),
@@ -229,15 +233,17 @@ impl Screen {
                     .map(|ask| (ask.name.clone(), ask))
                     .collect();
                 self.logs.clear();
+                self.lingering = None;
             }
             Event::SessionChanged(changed) => {
                 if let Some(session) = changed.session {
+                    if self.lingering.as_ref() == Some(&session.name) {
+                        self.lingering = None;
+                    }
                     self.sessions.insert(session.name.clone(), session);
                 }
             }
-            Event::SessionRemoved(removed) => {
-                self.sessions.remove(&removed.name);
-            }
+            Event::SessionRemoved(removed) => self.removed(&removed),
             Event::ApprovalAsked(asked) => {
                 if let Some(ask) = asked.approval {
                     self.asks.insert(ask.name.clone(), ask);
@@ -262,6 +268,27 @@ impl Screen {
                 }
             }
             Event::Log(log) => self.logs.entry(log.session.clone()).or_default().push(log),
+        }
+    }
+
+    /// A session the watch took out of the view. The one the selection is on
+    /// that only left the filter (its run ended) stays, marked ended, until
+    /// the selection moves, so its last words can be read where it was; every
+    /// other, and one destroyed, goes.
+    fn removed(&mut self, removed: &v1::TopSessionRemoved) {
+        let left_filter = removed.reason == v1::top_session_removed::Reason::LeftFilter as i32;
+        let selected = self.selected_name().as_deref() == Some(removed.name.as_str());
+        match self.sessions.get_mut(&removed.name) {
+            Some(session) if left_filter && selected => {
+                session.state = v1::session::State::Ended as i32;
+                self.lingering = Some(removed.name.clone());
+            }
+            _ => {
+                self.sessions.remove(&removed.name);
+                if self.lingering.as_ref() == Some(&removed.name) {
+                    self.lingering = None;
+                }
+            }
         }
     }
 
@@ -468,6 +495,13 @@ impl Screen {
         };
         self.selected = rows.get(to).map(|(_, s)| s.name.clone());
         self.ask_cursor = 0;
+        if let Some(gone) = self.lingering.take() {
+            if self.selected.as_ref() != Some(&gone) {
+                self.sessions.remove(&gone);
+            } else {
+                self.lingering = Some(gone);
+            }
+        }
     }
 
     /// A key while the filter prompt is open.

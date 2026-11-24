@@ -361,3 +361,104 @@ fn the_seam_names_its_keys() {
     assert_eq!(Key::named("y"), Some(Key::Char('y')));
     assert_eq!(Key::named("what"), None);
 }
+
+fn removed(harp: &str, reason: v1::top_session_removed::Reason) -> v1::TopEvent {
+    v1::TopEvent {
+        event: Some(v1::top_event::Event::SessionRemoved(
+            v1::TopSessionRemoved {
+                name: format!("projects/p/sessions/{harp}"),
+                reason: reason as i32,
+            },
+        )),
+    }
+}
+
+fn said_by(harp: &str, event: &str) -> v1::TopEvent {
+    v1::TopEvent {
+        event: Some(v1::top_event::Event::Log(v1::TopLog {
+            session: format!("projects/p/sessions/{harp}"),
+            kind: v1::top_log::Kind::Daemon as i32,
+            event: event.to_string(),
+            text: format!("run 1 ended: {event}"),
+            ..v1::TopLog::default()
+        })),
+    }
+}
+
+#[test]
+fn test_the_selected_row_that_leaves_the_view_stays_marked_ended_with_its_last_words() {
+    let mut screen = tree();
+    screen.key(Key::Down);
+    assert_eq!(screen.frame().asks_title, "--- asks of brisk-copper-moth");
+    screen.apply(removed(
+        "brisk-copper-moth",
+        v1::top_session_removed::Reason::LeftFilter,
+    ));
+    screen.apply(said_by("brisk-copper-moth", "exited"));
+    let frame = screen.frame();
+    let row = frame
+        .rows
+        .iter()
+        .find(|row| row.contains("brisk-copper-moth"))
+        .expect("the row stays while it is selected");
+    assert!(row.contains("ended"), "{row}");
+    assert_eq!(frame.log_title, "--- log of brisk-copper-moth");
+    assert!(frame.log.iter().any(|line| line.contains("exited")));
+}
+
+#[test]
+fn test_the_row_that_left_goes_when_the_selection_moves() {
+    let mut screen = tree();
+    screen.key(Key::Down);
+    screen.apply(removed(
+        "brisk-copper-moth",
+        v1::top_session_removed::Reason::LeftFilter,
+    ));
+    screen.key(Key::Down);
+    assert!(!names(&screen).contains(&"brisk-copper-moth".to_string()));
+}
+
+#[test]
+fn test_a_row_that_leaves_while_another_is_selected_goes_at_once() {
+    let mut screen = tree();
+    screen.apply(removed(
+        "brisk-copper-moth",
+        v1::top_session_removed::Reason::LeftFilter,
+    ));
+    assert!(!names(&screen).contains(&"brisk-copper-moth".to_string()));
+}
+
+#[test]
+fn test_a_destroyed_session_goes_even_when_selected() {
+    let mut screen = tree();
+    screen.key(Key::Down);
+    screen.apply(removed(
+        "brisk-copper-moth",
+        v1::top_session_removed::Reason::Destroyed,
+    ));
+    assert!(!names(&screen).contains(&"brisk-copper-moth".to_string()));
+}
+
+#[test]
+fn test_a_kept_row_that_comes_back_live_is_not_dropped_when_the_selection_moves() {
+    let mut screen = tree();
+    screen.key(Key::Down);
+    screen.apply(removed(
+        "brisk-copper-moth",
+        v1::top_session_removed::Reason::LeftFilter,
+    ));
+    screen.apply(v1::TopEvent {
+        event: Some(v1::top_event::Event::SessionChanged(
+            v1::TopSessionChanged {
+                session: Some(session(
+                    "brisk-copper-moth",
+                    "amber-quiet-heron",
+                    "reviewer",
+                    20,
+                )),
+            },
+        )),
+    });
+    screen.key(Key::Down);
+    assert!(names(&screen).contains(&"brisk-copper-moth".to_string()));
+}

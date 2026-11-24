@@ -1,5 +1,5 @@
-//! The timeline folded from session and approvals pages: lifecycle words,
-//! asks, transcript lines, all in time order.
+//! The timeline folded from session and approvals pages: typed log entries
+//! (lifecycle, asks, the transcript's), all in time order.
 
 use angzarr_embedded::angzarr_proto::v1::EventMeta;
 use angzarr_embedded::v1::{event_page, Cover, EventBook, EventPage, Uuid};
@@ -13,7 +13,9 @@ use sessions::{
     SessionMinted, SESSION_DOMAIN,
 };
 
-use crate::{Content, Entry, TimelineIndex};
+use daemon_proto::v1::{log_ask, log_entry::Entry as Arm, log_lifecycle, LogEntry};
+
+use crate::{Entry, TimelineIndex};
 
 fn session_id(n: u8) -> String {
     uuid::Uuid::from_bytes([n; 16]).hyphenated().to_string()
@@ -86,24 +88,37 @@ fn ended(cause: &str) -> SessionEvent {
     })
 }
 
-fn daemon(entries: &[Entry]) -> Vec<(String, String)> {
-    entries
-        .iter()
-        .filter_map(|entry| match &entry.content {
-            Content::Daemon { event, text } => Some((event.clone(), text.clone())),
-            Content::Transcript { .. } => None,
-        })
-        .collect()
+/// What an entry is, in a word: a lifecycle's kind (`started`, `exited`,
+/// ...), an ask's state (`asked`, `answered`, ...), else its arm.
+fn word_of(entry: &Entry) -> String {
+    match &entry.log.entry {
+        Some(Arm::Lifecycle(l)) => log_lifecycle::Kind::try_from(l.kind)
+            .map_or("?", |k| k.as_str_name())
+            .to_lowercase(),
+        Some(Arm::Ask(a)) => log_ask::State::try_from(a.state)
+            .map_or("?", |s| s.as_str_name())
+            .to_lowercase(),
+        Some(Arm::Prompt(_)) => "prompt".to_string(),
+        other => format!("{other:?}"),
+    }
 }
 
 fn words(entries: &[Entry]) -> Vec<String> {
-    entries
-        .iter()
-        .map(|entry| match &entry.content {
-            Content::Daemon { event, .. } => event.clone(),
-            Content::Transcript { .. } => "line".to_string(),
-        })
-        .collect()
+    entries.iter().map(word_of).collect()
+}
+
+fn lifecycle(entry: &Entry) -> &daemon_proto::v1::LogLifecycle {
+    match &entry.log.entry {
+        Some(Arm::Lifecycle(l)) => l,
+        other => panic!("not a lifecycle entry: {other:?}"),
+    }
+}
+
+fn ask_of(entry: &Entry) -> &daemon_proto::v1::LogAsk {
+    match &entry.log.entry {
+        Some(Arm::Ask(a)) => a,
+        other => panic!("not an ask entry: {other:?}"),
+    }
 }
 
 fn ask(child: u8) -> ApprovalEvent {
@@ -140,11 +155,12 @@ fn a_session_that_started_says_started() {
         .project(&book(SESSION_DOMAIN, 1, 0, vec![(100, minted())]))
         .unwrap();
     let entries = timeline.entries(&session_id(1));
-    assert_eq!(
-        daemon(&entries).first().map(|e| e.0.as_str()),
-        Some("started")
-    );
+    assert_eq!(words(&entries), ["started"]);
+    assert_eq!(lifecycle(&entries[0]).engine, "claude-code");
     assert_eq!(entries[0].time, at(100));
+    // The entry is dated as its event, and its seq is the timeline's order.
+    assert_eq!(entries[0].log.time.as_ref().map(|t| t.seconds), Some(100));
+    assert_eq!(entries[0].log.seq, entries[0].n - 1);
 }
 
 #[test]
@@ -164,12 +180,14 @@ fn the_end_of_a_run_is_exited_with_its_cause_and_a_rehost_is_rehosted() {
             ],
         ))
         .unwrap();
-    let said = daemon(&timeline.entries(&session_id(1)));
+    let said = timeline.entries(&session_id(1));
     assert_eq!(
-        said.iter().map(|e| e.0.as_str()).collect::<Vec<_>>(),
+        words(&said),
         ["started", "exited", "rehosted", "restarted", "rehosted"]
     );
-    assert!(said[1].1.contains("runner-exit"), "{said:?}");
+    assert_eq!(lifecycle(&said[1]).cause, "runner-exit");
+    assert_eq!(lifecycle(&said[1]).run, 1);
+    assert_eq!(lifecycle(&said[2]).run, 2);
 }
 
 #[test]
@@ -188,12 +206,11 @@ fn a_prompt_is_a_transcript_line_between_the_events_around_it() {
         ))
         .unwrap();
     let entries = timeline.entries(&session_id(1));
-    assert_eq!(words(&entries), ["started", "line", "exited"]);
-    let Content::Transcript { line } = &entries[1].content else {
+    assert_eq!(words(&entries), ["started", "prompt", "exited"]);
+    let Some(Arm::Prompt(prompt)) = &entries[1].log.entry else {
         panic!("{entries:?}")
     };
-    assert!(line.contains("review the migration"), "{line}");
-    assert!(!line.ends_with('\n'), "{line:?}");
+    assert_eq!(prompt.text, "review the migration");
 }
 
 #[test]
@@ -220,14 +237,15 @@ fn an_ask_and_its_settling_are_entries_of_the_asking_session() {
             )],
         ))
         .unwrap();
-    let said = daemon(&timeline.entries(&session_id(1)));
-    assert_eq!(said[1].0, "approval_asked");
-    assert!(
-        said[1].1.contains("Bash") && said[1].1.contains("rm -rf build/"),
-        "{said:?}"
-    );
-    assert_eq!(said[2].0, "approval_settled");
-    assert!(said[2].1.contains("allow-once"), "{said:?}");
+    let said = timeline.entries(&session_id(1));
+    assert_eq!(words(&said), ["started", "asked", "answered"]);
+    let asked = ask_of(&said[1]);
+    assert_eq!(asked.ask, "ask-a");
+    assert_eq!(asked.tool, "Bash");
+    assert_eq!(asked.input_excerpt, "rm -rf build/");
+    let settled = ask_of(&said[2]);
+    assert_eq!(settled.ask, "ask-a");
+    assert_eq!(settled.option, "allow-once");
     assert!(timeline.entries(&session_id(2)).is_empty());
 }
 
@@ -252,8 +270,9 @@ fn an_ask_that_expires_or_is_withdrawn_says_how() {
         timeline
             .project(&book(APPROVALS_DOMAIN, 9, 1, vec![(130, settle)]))
             .unwrap();
-        let said = daemon(&timeline.entries(&session_id(1)));
-        assert!(said[1].1.contains(word), "{said:?}");
+        let said = timeline.entries(&session_id(1));
+        assert_eq!(word_of(&said[1]), word, "{said:?}");
+        assert_eq!(ask_of(&said[1]).ask, "ask-a");
     }
 }
 
@@ -272,7 +291,7 @@ fn entries_are_in_time_order_whichever_stream_they_arrive_from() {
         .project(&book(APPROVALS_DOMAIN, 9, 0, vec![(120, ask(1))]))
         .unwrap();
     let entries = timeline.entries(&session_id(1));
-    assert_eq!(words(&entries), ["started", "approval_asked", "exited"]);
+    assert_eq!(words(&entries), ["started", "asked", "exited"]);
     let times: Vec<i64> = entries.iter().map(|e| e.time.seconds).collect();
     assert!(times.windows(2).all(|pair| pair[0] <= pair[1]), "{times:?}");
 }
@@ -335,4 +354,84 @@ fn only_the_newest_entries_of_a_session_are_kept() {
         entries.last().unwrap().time.seconds,
         10 + crate::KEPT as i64 + 9
     );
+}
+
+#[test]
+fn the_other_lifecycle_events_are_typed_with_their_run_and_cause() {
+    let mut timeline = TimelineIndex::default();
+    timeline
+        .project(&book(
+            SESSION_DOMAIN,
+            1,
+            0,
+            vec![
+                (100, minted()),
+                (110, owed("resume")),
+                (
+                    120,
+                    SessionEvent::RestartOwed(sessions::RestartOwed {
+                        reason: sessions::RestartReason::Operator,
+                        incarnation: 2,
+                        note: String::new(),
+                    }),
+                ),
+                (
+                    130,
+                    SessionEvent::SessionClosed(SessionClosed {
+                        cause: "user".to_string(),
+                    }),
+                ),
+                (
+                    140,
+                    SessionEvent::SessionReopened(sessions::SessionReopened {
+                        cause: "resume".to_string(),
+                    }),
+                ),
+                (
+                    150,
+                    SessionEvent::ChildLaunchFailed(sessions::ChildLaunchFailed {
+                        reason: "no credential".to_string(),
+                        ..Default::default()
+                    }),
+                ),
+            ],
+        ))
+        .unwrap();
+    let said = timeline.entries(&session_id(1));
+    assert_eq!(
+        words(&said),
+        [
+            "started",
+            "resumed",
+            "restart_owed",
+            "closed",
+            "reopened",
+            "launch_failed"
+        ]
+    );
+    assert_eq!(lifecycle(&said[1]).run, 2);
+    assert_eq!(lifecycle(&said[2]).run, 2);
+    assert_eq!(lifecycle(&said[3]).cause, "user");
+    assert_eq!(lifecycle(&said[4]).cause, "resume");
+    assert_eq!(lifecycle(&said[5]).cause, "no credential");
+}
+
+// The log is one session's: an entry names no session, harp or engine of
+// its own (the started entry's engine is the fact it records, not a stamp).
+#[test]
+fn an_entry_carries_the_log_and_nothing_that_names_the_session() {
+    let mut timeline = TimelineIndex::default();
+    timeline
+        .project(&book(
+            SESSION_DOMAIN,
+            1,
+            0,
+            vec![(100, minted()), (105, prompt("hi"))],
+        ))
+        .unwrap();
+    let entries = timeline.entries(&session_id(1));
+    let json: Vec<LogEntry> = entries.iter().map(|e| e.log.clone()).collect();
+    let text = serde_json::to_string(&json[1]).unwrap();
+    assert!(!text.contains("brisk-copper-moth"), "{text}");
+    assert!(!text.contains("claude-code"), "{text}");
 }

@@ -47,7 +47,10 @@ pub trait SessionService {
         query: TranscriptQuery,
     ) -> impl Future<Output = Result<Vec<TranscriptRow>, AppError>> + Send;
     /// A session's whole canonical transcript, read from its events.
-    fn transcript(&mut self, harp: &str) -> impl Future<Output = Result<String, AppError>> + Send;
+    fn transcript(
+        &mut self,
+        harp: &str,
+    ) -> impl Future<Output = Result<Vec<daemon_proto::v1::LogEntry>, AppError>> + Send;
     /// Bind the engine's session to a harp.
     fn bind(
         &mut self,
@@ -186,7 +189,10 @@ where
         self.reading().transcripts(query).await
     }
 
-    async fn transcript(&mut self, harp: &str) -> Result<String, AppError> {
+    async fn transcript(
+        &mut self,
+        harp: &str,
+    ) -> Result<Vec<daemon_proto::v1::LogEntry>, AppError> {
         self.reading().transcript(harp).await
     }
 

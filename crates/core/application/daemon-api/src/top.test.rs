@@ -297,6 +297,16 @@ async fn the_snapshot_of_a_project_with_nothing_hosted_is_empty() {
     assert!(snapshot.sessions.is_empty() && snapshot.approvals.is_empty());
 }
 
+use v1::log_lifecycle::Kind;
+
+/// The kind of lifecycle entry `log` holds, if it holds one.
+fn lifecycle_of(log: &v1::TopLog) -> Option<Kind> {
+    match log.entry.as_ref()?.entry.as_ref()? {
+        v1::log_entry::Entry::Lifecycle(l) => Kind::try_from(l.kind).ok(),
+        _ => None,
+    }
+}
+
 fn log_event(event: &Option<v1::top_event::Event>) -> Option<&v1::TopLog> {
     match event {
         Some(v1::top_event::Event::Log(log)) => Some(log),
@@ -357,7 +367,7 @@ async fn a_leaving_sessions_pending_log_entries_are_told_before_its_removal() {
     snapshot_of(stream.next().unwrap());
     let read = Read::of(stream);
     let started = read.next();
-    assert!(log_event(&started.event).is_some_and(|log| log.event == "started"));
+    assert!(log_event(&started.event).is_some_and(|log| lifecycle_of(log) == Some(Kind::Started)));
     // Its last word is folded into the timeline in the very look that finds
     // its lock let go: the entry is pending as the session leaves.
     f.close("amber-swift-owl").await;
@@ -370,7 +380,7 @@ async fn a_leaving_sessions_pending_log_entries_are_told_before_its_removal() {
     let told = [read.next().event, read.next().event];
     read.end().await;
     assert!(
-        log_event(&told[0]).is_some_and(|log| log.event == "closed"),
+        log_event(&told[0]).is_some_and(|log| lifecycle_of(log) == Some(Kind::Closed)),
         "its last entry comes first: {told:?}"
     );
     assert!(
@@ -404,6 +414,6 @@ async fn a_log_entry_folded_after_its_session_left_is_still_told() {
     let log = read.next();
     read.end().await;
     let told = log_event(&log.event).unwrap_or_else(|| panic!("not a log line: {log:?}"));
-    assert_eq!(told.event, "closed");
+    assert_eq!(lifecycle_of(told), Some(Kind::Closed));
     assert!(told.session.ends_with("/sessions/amber-swift-owl"));
 }

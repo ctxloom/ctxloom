@@ -460,44 +460,31 @@ fn turn_end(id: u8, prompt_id: &str) -> CommandBook {
     fact(id, payload, &format!("hook:turn-end:{id}:{prompt_id}"))
 }
 
-fn lines(text: &str) -> Vec<serde_json::Value> {
-    text.lines()
-        .map(|line| serde_json::from_str(line).unwrap())
-        .collect()
-}
-
-// Ruling 87a: the transcript is read from the session's events, in D27's
-// envelope (`v, harp, session_id, engine, seq, ts, kind`), each capture event
-// a line, `seq` counting them, the instant the page's.
+// Ruling 87a: the transcript is read from the session's events, as typed
+// log entries (an arm each, none naming the session, its harp or its
+// engine), `seq` counting them, the instant the page's.
 #[test]
 fn a_sessions_transcript_is_folded_from_its_capture_events() {
+    use daemon_proto::v1::log_entry::Entry as Arm;
     let mut project = Project::new();
     let mut index = SessionIndex::catch_up();
     project.run(&mut index, FIRST, mint("amber-swift-owl"));
     project.run_book(&mut index, prompt(FIRST, "p1", "Fix the build"));
     project.run_book(&mut index, words(FIRST, "p1", 0, "Done."));
     project.run_book(&mut index, turn_end(FIRST, "p1"));
-    let text = index
+    let got = index
         .projector()
         .index()
         .transcript(&id_text(FIRST))
         .expect("a transcript");
-    let got = lines(&text);
-    let kinds: Vec<&str> = got.iter().map(|l| l["kind"].as_str().unwrap()).collect();
-    assert_eq!(kinds, ["entry", "assistant_delta", "turn_end"]);
-    assert_eq!(got[0]["entry"]["type"], "user");
-    assert_eq!(got[0]["entry"]["content"], "Fix the build");
-    assert_eq!(got[1]["delta"]["text"], "Done.");
-    for (n, line) in got.iter().enumerate() {
-        assert_eq!(line["v"], 1);
-        assert_eq!(line["seq"], n);
-        assert_eq!(line["harp"], "amber-swift-owl");
-        assert_eq!(line["session_id"], id_text(FIRST));
-        assert_eq!(line["engine"], "claude-code");
+    assert!(matches!(&got[0].entry, Some(Arm::Prompt(p)) if p.text == "Fix the build"));
+    assert!(matches!(&got[1].entry, Some(Arm::Words(w)) if w.text == "Done."));
+    assert!(matches!(&got[2].entry, Some(Arm::TurnEnd(_))));
+    for (n, entry) in got.iter().enumerate() {
+        assert_eq!(entry.seq, n as u64);
     }
     // The mint was sampled at 101, the prompt at 102 (the Project's clock).
-    assert_eq!(got[0]["ts"], "1970-01-01T00:01:42Z");
-    assert!(text.ends_with('\n'), "a line each, newline ended");
+    assert_eq!(got[0].time.as_ref().map(|t| t.seconds), Some(102));
 }
 
 // Ruling 87a: a session no hook has delivered for holds no transcript (the
@@ -512,7 +499,7 @@ fn a_session_with_no_capture_holds_no_transcript_and_none_of_anothers() {
     let held = index.projector().index();
     assert_eq!(held.transcript(&id_text(FIRST)), None);
     let second = held.transcript(&id_text(SECOND)).expect("the second's");
-    assert_eq!(lines(&second).len(), 1);
+    assert_eq!(second.len(), 1);
 }
 
 // Ruling 87a: the transcript is LIVE: what the hooks delivered so far is
@@ -525,7 +512,7 @@ fn the_transcript_holds_what_was_delivered_so_far_and_a_redelivery_adds_nothing(
     project.run(&mut kept, FIRST, mint("amber-swift-owl"));
     project.run_book(&mut kept, prompt(FIRST, "p1", "first"));
     let before = kept.projector().index().transcript(&id_text(FIRST));
-    assert_eq!(before.as_deref().map(|t| lines(t).len()), Some(1));
+    assert_eq!(before.as_deref().map(<[_]>::len), Some(1));
     project.run_book(&mut kept, words(FIRST, "p1", 0, "partial"));
     project.run_book(&mut kept, words(FIRST, "p1", 0, "partial"));
     let after = kept
@@ -533,9 +520,8 @@ fn the_transcript_holds_what_was_delivered_so_far_and_a_redelivery_adds_nothing(
         .index()
         .transcript(&id_text(FIRST))
         .unwrap();
-    let got = lines(&after);
-    assert_eq!(got.len(), 2, "the redelivery is a DUPLICATE: {got:#?}");
-    assert_eq!(got[1]["seq"], 1);
+    assert_eq!(after.len(), 2, "the redelivery is a DUPLICATE: {after:#?}");
+    assert_eq!(after[1].seq, 1);
     let fresh = project.rebuilt();
     assert_eq!(
         fresh.projector().index().transcript(&id_text(FIRST)),

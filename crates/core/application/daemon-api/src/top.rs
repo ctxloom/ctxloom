@@ -16,7 +16,7 @@ use daemon_proto::v1;
 use pending_approvals::{PendingApprovals, State as AskState};
 use run_ports::Edge;
 use session_index::{SessionIndexes, SessionRecord};
-use session_timeline::{Content, Entry, SessionTimelines};
+use session_timeline::{Entry, SessionTimelines};
 use sessions::{ProjectName, SessionName};
 
 use crate::refusal::{ApiError, ApiRefusal};
@@ -373,28 +373,10 @@ struct TopWatch {
 }
 
 fn log_of(session: &str, entry: &Entry) -> v1::TopLog {
-    let (kind, line, event, text) = match &entry.content {
-        Content::Transcript { line } => (
-            v1::top_log::Kind::Transcript,
-            line.clone(),
-            String::new(),
-            String::new(),
-        ),
-        Content::Daemon { event, text } => (
-            v1::top_log::Kind::Daemon,
-            String::new(),
-            event.clone(),
-            text.clone(),
-        ),
-    };
     v1::TopLog {
         session: session.to_string(),
         time: Some(entry.time.into()),
-        kind: kind as i32,
-        line,
-        event,
-        text,
-        ..Default::default()
+        entry: Some(entry.log.clone()),
     }
 }
 

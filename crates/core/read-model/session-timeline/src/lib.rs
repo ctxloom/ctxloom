@@ -5,9 +5,13 @@
 //! - its lifecycle, from the session stream (started, exited with its
 //!   cause, re-hosted, restarted, closed, reopened, a launch that failed);
 //! - its asks, from the approvals streams (asked, settled);
-//! - its transcript lines, the same lines the session index folds from the
-//!   capture events (`session_index::Projection`), each at its event's
-//!   recorded instant.
+//! - its transcript entries, the same typed entries the session index folds
+//!   from the capture events (`session_index::Projection`), each at its
+//!   event's recorded instant.
+//!
+//! Every entry is one `ctxloom.v1.LogEntry`: the daemon's own (lifecycle, ask)
+//! and the engine-neutral transcript's alike, naming no session, harp or
+//! engine; `seq` is the order the timeline received it, from 0.
 //!
 //! Held in memory on the projector port like the other read models
 //! ([`SessionTimelines`]), woken watchers see each change pushed.
@@ -21,6 +25,7 @@ use angzarr_embedded::angzarr_router::hpb::{ProjectRequest, ProjectResponse};
 use angzarr_embedded::v1::{event_page, Cover, EventBook};
 use angzarr_embedded::{Any, CatchUp, Payload, PayloadError, ProjectorHandler, Timestamp};
 use approvals::{ApprovalEvent, APPROVALS_DOMAIN};
+use daemon_proto::v1::{self, log_ask, log_entry::Entry as Arm, log_lifecycle};
 use held_projection::{Fill, Held, Lock, Model};
 use session_index::Projection;
 use sessions::{SessionEvent, DRAINED, REHOSTED, RESTARTED, SESSION_DOMAIN};
@@ -34,15 +39,6 @@ pub const SOURCES: [&str; 2] = [SESSION_DOMAIN, APPROVALS_DOMAIN];
 /// The most entries kept for one session; the oldest go first.
 pub const KEPT: usize = 2000;
 
-/// What an entry says.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Content {
-    /// A transcript line, as the transcript has it (no newline).
-    Transcript { line: String },
-    /// An event of the daemon: a word and its text.
-    Daemon { event: String, text: String },
-}
-
 /// One entry of a session's timeline.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Entry {
@@ -50,7 +46,8 @@ pub struct Entry {
     /// has told up to.
     pub n: u64,
     pub time: Timestamp,
-    pub content: Content,
+    /// What it says, typed; its `seq` is `n - 1`.
+    pub log: v1::LogEntry,
 }
 
 /// One session's entries, oldest first.
@@ -61,12 +58,14 @@ struct Timeline {
 }
 
 impl Timeline {
-    fn push(&mut self, time: Timestamp, content: Content) {
+    fn push(&mut self, time: Timestamp, mut log: v1::LogEntry) {
         self.received += 1;
+        log.time = Some(time.into());
+        log.seq = self.received - 1;
         let entry = Entry {
             n: self.received,
             time,
-            content,
+            log,
         };
         let key = |t: &Timestamp| (t.seconds, t.nanos);
         // After every entry at the same instant: ties keep arrival order.
@@ -105,42 +104,64 @@ fn uid_of(root: &[u8]) -> String {
         .unwrap_or_default()
 }
 
-fn said(event: &str, text: impl Into<String>) -> Content {
-    Content::Daemon {
-        event: event.to_string(),
-        text: text.into(),
+fn log(arm: Arm) -> v1::LogEntry {
+    v1::LogEntry {
+        entry: Some(arm),
+        ..v1::LogEntry::default()
     }
 }
 
+fn lifecycle_entry(kind: log_lifecycle::Kind, run: u32, cause: &str) -> v1::LogEntry {
+    log(Arm::Lifecycle(v1::LogLifecycle {
+        kind: kind as i32,
+        run,
+        cause: cause.to_string(),
+        engine: String::new(),
+    }))
+}
+
 /// What the daemon says of a lifecycle event; none for one that is not.
-fn lifecycle(event: &SessionEvent) -> Option<Content> {
+fn lifecycle(event: &SessionEvent) -> Option<v1::LogEntry> {
+    use log_lifecycle::Kind;
     Some(match event {
-        SessionEvent::SessionMinted(minted) => {
-            said("started", format!("started on {}", minted.engine))
+        SessionEvent::SessionMinted(minted) => log(Arm::Lifecycle(v1::LogLifecycle {
+            kind: Kind::Started as i32,
+            run: 0,
+            cause: String::new(),
+            engine: minted.engine.clone(),
+        })),
+        SessionEvent::IncarnationOwed(owed) => {
+            let kind = match owed.reason.as_str() {
+                REHOSTED | DRAINED => Kind::Rehosted,
+                RESTARTED => Kind::Restarted,
+                "resume" => Kind::Resumed,
+                _ => return None,
+            };
+            lifecycle_entry(kind, owed.incarnation, "")
         }
-        SessionEvent::IncarnationOwed(owed) => match owed.reason.as_str() {
-            REHOSTED | DRAINED => said("rehosted", format!("re-hosted, run {}", owed.incarnation)),
-            RESTARTED => said("restarted", format!("restarted, run {}", owed.incarnation)),
-            "resume" => said("resumed", format!("resumed, run {}", owed.incarnation)),
-            _ => return None,
-        },
-        SessionEvent::IncarnationEnded(ended) => said(
-            "exited",
-            format!("run {} ended: {}", ended.incarnation, ended.cause),
-        ),
-        SessionEvent::RestartOwed(owed) => said(
-            "restart_owed",
-            format!("a restart is owed for run {}", owed.incarnation),
-        ),
-        SessionEvent::SessionClosed(closed) => said("closed", format!("closed: {}", closed.cause)),
+        SessionEvent::IncarnationEnded(ended) => {
+            lifecycle_entry(Kind::Exited, ended.incarnation, &ended.cause)
+        }
+        SessionEvent::RestartOwed(owed) => lifecycle_entry(Kind::RestartOwed, owed.incarnation, ""),
+        SessionEvent::SessionClosed(closed) => lifecycle_entry(Kind::Closed, 0, &closed.cause),
         SessionEvent::SessionReopened(reopened) => {
-            said("reopened", format!("reopened: {}", reopened.cause))
+            lifecycle_entry(Kind::Reopened, 0, &reopened.cause)
         }
         SessionEvent::ChildLaunchFailed(failed) => {
-            said("launch_failed", format!("launch failed: {}", failed.reason))
+            lifecycle_entry(Kind::LaunchFailed, 0, &failed.reason)
         }
         _ => return None,
     })
+}
+
+fn ask_entry(state: log_ask::State, ask: &str, fill: impl FnOnce(&mut v1::LogAsk)) -> v1::LogEntry {
+    let mut entry = v1::LogAsk {
+        state: state as i32,
+        ask: ask.to_string(),
+        ..v1::LogAsk::default()
+    };
+    fill(&mut entry);
+    log(Arm::Ask(entry))
 }
 
 fn recorded_of(page: &angzarr_embedded::v1::EventPage) -> Timestamp {
@@ -180,24 +201,16 @@ impl TimelineIndex {
             };
             let recorded = recorded_of(page);
             let event = SessionEvent::from_any(event)?;
-            if let SessionEvent::SessionMinted(minted) = &event {
-                self.transcripts.insert(
-                    root.clone(),
-                    Projection::new(&minted.harp, &id, &minted.engine),
-                );
+            if let SessionEvent::SessionMinted(_) = &event {
+                self.transcripts.insert(root.clone(), Projection::new());
             }
             let timeline = self.sessions.entry(id.clone()).or_default();
-            if let Some(content) = lifecycle(&event) {
-                timeline.push(recorded, content);
+            if let Some(entry) = lifecycle(&event) {
+                timeline.push(recorded, entry);
             }
             if let Some(transcript) = self.transcripts.get_mut(&root) {
-                for line in transcript.fold(page.sequence, recorded.seconds, &event) {
-                    timeline.push(
-                        recorded,
-                        Content::Transcript {
-                            line: line.trim_end_matches('\n').to_string(),
-                        },
-                    );
+                if let Some(entry) = transcript.fold(page.sequence, recorded, &event) {
+                    timeline.push(recorded, entry);
                 }
             }
         }
@@ -214,40 +227,45 @@ impl TimelineIndex {
                 continue;
             };
             let recorded = recorded_of(page);
-            let (word, text) = match ApprovalEvent::from_any(event)? {
+            let entry = match ApprovalEvent::from_any(event)? {
                 ApprovalEvent::ApprovalAsked(asked) => {
-                    let text = format!(
-                        "{}: {} {}",
-                        asked.ask_id, asked.tool_name, asked.input_excerpt
-                    );
                     self.asks
-                        .insert(root.clone(), (asked.child.session, asked.ask_id));
-                    ("approval_asked", text)
+                        .insert(root.clone(), (asked.child.session, asked.ask_id.clone()));
+                    ask_entry(log_ask::State::Asked, &asked.ask_id, |ask| {
+                        ask.tool = asked.tool_name.clone();
+                        ask.input_excerpt = asked.input_excerpt.clone();
+                    })
                 }
-                ApprovalEvent::ApprovalAnswered(answered) => (
-                    "approval_settled",
-                    self.settled(&root, &format!("answered {}", answered.option)),
-                ),
+                ApprovalEvent::ApprovalAnswered(answered) => {
+                    self.settled(&root, log_ask::State::Answered, |ask| {
+                        ask.option = answered.option.clone();
+                    })
+                }
                 ApprovalEvent::ApprovalExpired(_) => {
-                    ("approval_settled", self.settled(&root, "expired"))
+                    self.settled(&root, log_ask::State::Expired, |_| {})
                 }
                 ApprovalEvent::ApprovalWithdrawn(_) => {
-                    ("approval_settled", self.settled(&root, "withdrawn"))
+                    self.settled(&root, log_ask::State::Withdrawn, |_| {})
                 }
             };
             if let Some((session, _)) = self.asks.get(&root) {
                 self.sessions
                     .entry(session.clone())
                     .or_default()
-                    .push(recorded, said(word, text));
+                    .push(recorded, entry);
             }
         }
         Ok(())
     }
 
-    fn settled(&self, root: &[u8], how: &str) -> String {
+    fn settled(
+        &self,
+        root: &[u8],
+        state: log_ask::State,
+        fill: impl FnOnce(&mut v1::LogAsk),
+    ) -> v1::LogEntry {
         let ask = self.asks.get(root).map_or("", |(_, ask)| ask.as_str());
-        format!("{ask}: {how}")
+        ask_entry(state, ask, fill)
     }
 
     /// The entries of the session with the stable id `session`, oldest first.

@@ -12,6 +12,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use daemon_proto::v1;
 
 use crate::approvals::AlwaysPlan;
+use crate::log_text::text_of;
 use crate::top::Sort;
 
 /// What the status line says while no daemon serves.
@@ -751,7 +752,7 @@ impl Screen {
     }
 }
 
-/// A log entry as a line: its time, then what it says.
+/// A log entry as a line: its time, then what it says (plain words).
 fn log_line(log: &v1::TopLog) -> String {
     let seconds = log
         .time
@@ -764,27 +765,8 @@ fn log_line(log: &v1::TopLog) -> String {
         seconds % 3600 / 60,
         seconds % 60
     );
-    match v1::top_log::Kind::try_from(log.kind) {
-        Ok(v1::top_log::Kind::Transcript) => format!("  {clock} {}", readable(&log.line)),
-        _ => format!("  {clock} {} {}", log.event, log.text),
-    }
-}
-
-/// A transcript line's words: its speaker and content, else the line.
-fn readable(line: &str) -> String {
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
-        return line.to_string();
-    };
-    let said = |pointer: &str| value.pointer(pointer).and_then(|v| v.as_str());
-    match (
-        said("/entry/type"),
-        said("/entry/content"),
-        said("/delta/text"),
-    ) {
-        (Some(who), Some(content), _) => format!("{who}: {content}"),
-        (_, _, Some(text)) => format!("assistant: {text}"),
-        _ => line.to_string(),
-    }
+    let said = log.entry.as_ref().map_or_else(String::new, text_of);
+    format!("  {clock} {said}")
 }
 
 #[cfg(test)]

@@ -4931,8 +4931,10 @@ version = "0.1.0"
 dependencies = [
  "angzarr-embedded",
  "approvals",
+ "daemon-proto",
  "held-projection",
  "mutants",
+ "serde_json",
  "session-index",
  "sessions",
  "uuid",
@@ -4960,6 +4962,7 @@ dependencies = [
  "angzarr-embedded",
  "angzarr-embedded-runner",
  "angzarr-yaml",
+ "daemon-proto",
  "exit-code",
  "mutants",
  "pending-messages",

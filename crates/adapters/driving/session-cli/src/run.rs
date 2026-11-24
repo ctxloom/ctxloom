@@ -353,10 +353,13 @@ pub fn read<R: SessionReads>(
                     .get_transcript(&args.harp)
                     .await
                     .map_err(call_failure)?;
-                let text: String = read.lines.iter().map(|l| format!("{}\n", l.json)).collect();
                 wrote(match format {
-                    Format::Json => write!(out, "{text}"),
-                    Format::Text => conversation_text(&text, out),
+                    // One entry's proto3 JSON a line (`ctxloom.v1.LogEntry`).
+                    Format::Json => read
+                        .entries
+                        .iter()
+                        .try_for_each(|entry| writeln!(out, "{}", json_line(entry))),
+                    Format::Text => conversation_text(&read.entries, out),
                 })?;
                 Ok(Done::default())
             }
@@ -364,6 +367,11 @@ pub fn read<R: SessionReads>(
             _ => list(reads, &ListArgs::default(), format, out).await,
         }
     })
+}
+
+/// One log entry as one line of proto3 JSON.
+fn json_line(entry: &v1::LogEntry) -> String {
+    serde_json::to_string(entry).unwrap_or_default()
 }
 
 /// Run `session`'s command (one that is not a read, [`is_read`]) on

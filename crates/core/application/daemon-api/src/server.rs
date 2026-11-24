@@ -1245,14 +1245,7 @@ impl<E: Edge> Api<E> {
         })?;
         Ok(v1::Transcript {
             name: format!("{name}{TRANSCRIPT}"),
-            lines: text
-                .lines()
-                .filter(|line| !line.is_empty())
-                .map(|line| v1::TranscriptLine {
-                    json: line.to_string(),
-                })
-                .collect(),
-            ..Default::default()
+            entries: text,
         })
     }
 
@@ -1643,8 +1636,8 @@ impl<E: Edge> Api<E> {
             record: record.clone(),
             state,
             title,
-            captured: transcript.map(|text| Captured {
-                bytes: text.len() as u64,
+            captured: transcript.map(|entries| Captured {
+                bytes: session_index::printed_bytes(&entries),
             }),
             pending: Vec::new(),
         };

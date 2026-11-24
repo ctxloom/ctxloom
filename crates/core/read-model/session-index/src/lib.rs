@@ -19,7 +19,7 @@
 //!   answered the command's session as its resource message,
 //!   `ctxloom.v1.Session`, named by its project's harp and its own
 //!   (S42, S54: the index folds the projects' streams for their harps).
-//! - A session's transcript (D27's lines) is folded from its capture events
+//! - A session's transcript (typed `LogEntry`s) is folded from its capture events
 //!   too ([`SessionIndex::transcript`], [`Projection`]): no file holds it
 //!   (owner ruling 87a), so a read, live or not, sees what was delivered.
 //! - [`title_of`] is a session's title, [`Retention`] the rule that keeps its
@@ -27,11 +27,9 @@
 
 pub mod conversation;
 pub mod log;
-mod projection;
 mod retention;
 pub mod stamp;
 mod title;
-mod transcript;
 mod view;
 
 use std::collections::BTreeMap;
@@ -49,12 +47,11 @@ use sessions::{
     PROJECTS_DOMAIN, SESSION_DOMAIN,
 };
 
+pub use log::Projection;
 pub use pending_messages::PendingMessage;
-pub use projection::Projection;
 pub use retention::{ended, Retained, Retention};
 pub use title::{first_line_summary, title_of, TITLE_BYTES};
-pub use transcript::{entry_line, rfc3339, Speaker};
-pub use view::{only_state, Captured, State, View, NO_SUMMARY, STATES};
+pub use view::{only_state, printed_bytes, Captured, State, View, NO_SUMMARY, STATES};
 
 /// What the store records of one session, as its events fold.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -225,7 +222,7 @@ pub struct SessionIndex {
 /// A session's transcript as folded so far.
 struct Folded {
     projection: Projection,
-    text: String,
+    entries: Vec<daemon_proto::v1::LogEntry>,
     /// The instant of the newest line.
     last: Option<Timestamp>,
 }
@@ -341,7 +338,7 @@ impl SessionIndex {
                 .and_then(|meta| meta.recorded_at)
                 .unwrap_or_default();
             self.handed(&root, &event, recorded);
-            self.transcribe(&root, &session, page.sequence, recorded, &event);
+            self.transcribe(&root, page.sequence, recorded, &event);
         }
         self.streams.insert(root, session);
         Ok(())
@@ -410,24 +407,21 @@ impl SessionIndex {
     fn transcribe(
         &mut self,
         root: &[u8],
-        session: &SessionAggregate,
         sequence: u64,
         recorded: Timestamp,
         event: &SessionEvent,
     ) {
-        let state = session.state();
         let folded = self
             .transcripts
             .entry(root.to_vec())
             .or_insert_with(|| Folded {
-                projection: Projection::new(&state.harp, &uuid_text(root), &state.engine),
-                text: String::new(),
+                projection: Projection::new(),
+                entries: Vec::new(),
                 last: None,
             });
-        let lines = folded.projection.fold(sequence, recorded.seconds, event);
-        if !lines.is_empty() {
+        if let Some(entry) = folded.projection.fold(sequence, recorded, event) {
             folded.last = Some(recorded);
-            folded.text.extend(lines);
+            folded.entries.push(entry);
         }
     }
 
@@ -482,12 +476,12 @@ impl SessionIndex {
     /// far as the store held when this index caught up. `None` when the
     /// session has no capture event (or no such session).
     ///
-    pub fn transcript(&self, id: &str) -> Option<String> {
+    pub fn transcript(&self, id: &str) -> Option<Vec<daemon_proto::v1::LogEntry>> {
         self.transcripts
             .iter()
             .find(|(root, _)| uuid_text(root) == id)
-            .map(|(_, folded)| folded.text.clone())
-            .filter(|text| !text.is_empty())
+            .map(|(_, folded)| folded.entries.clone())
+            .filter(|entries| !entries.is_empty())
     }
 
     /// The session with the stable id `id`.

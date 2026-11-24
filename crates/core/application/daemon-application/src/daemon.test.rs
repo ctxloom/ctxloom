@@ -909,7 +909,7 @@ async fn a_fresh_daemon_catches_every_read_model_up_before_its_first_round() {
     assert!(
         index
             .transcript(&record.id)
-            .is_some_and(|t| t.contains("left by the previous daemon")),
+            .is_some_and(|entries| format!("{entries:?}").contains("left by the previous daemon")),
         "its transcript is folded at the start"
     );
     drop(index);

@@ -662,17 +662,13 @@ impl Svc {
     }
 }
 
-fn kinds_and_contents(text: &str) -> Vec<(String, String)> {
-    text.lines()
-        .map(|line| {
-            let line: serde_json::Value = serde_json::from_str(line).unwrap();
-            (
-                line["kind"].as_str().unwrap_or_default().to_string(),
-                line["entry"]["content"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .to_string(),
-            )
+fn kinds_and_contents(entries: &[daemon_proto::v1::LogEntry]) -> Vec<(String, String)> {
+    use daemon_proto::v1::log_entry::Entry;
+    entries
+        .iter()
+        .map(|entry| match &entry.entry {
+            Some(Entry::Prompt(prompt)) => ("prompt".to_string(), prompt.text.clone()),
+            other => (format!("{other:?}"), String::new()),
         })
         .collect()
 }
@@ -686,7 +682,7 @@ fn a_transcript_is_shown_from_the_sessions_events_with_no_file() {
     let text = ready(svc.transcript("amber-swift-owl")).unwrap();
     assert_eq!(
         kinds_and_contents(&text),
-        [("entry".to_string(), "Fix the build".to_string())]
+        [("prompt".to_string(), "Fix the build".to_string())]
     );
 }
 
@@ -696,7 +692,8 @@ fn a_transcript_is_shown_from_the_sessions_events_with_no_file() {
 fn a_transcript_file_left_on_disk_is_not_what_is_shown() {
     let mut svc = service();
     svc.seed_captured(1, "amber-swift-owl", NOW - DAY, &["from the events"]);
-    let text = ready(svc.transcript("amber-swift-owl")).unwrap();
+    let entries = ready(svc.transcript("amber-swift-owl")).unwrap();
+    let text = format!("{:?}", kinds_and_contents(&entries));
     assert!(text.contains("from the events"), "{text}");
     assert!(!text.contains("Seeded prompt"), "{text}");
 }
@@ -716,7 +713,7 @@ fn a_running_session_shows_what_its_hooks_delivered_so_far() {
     captured(store, 1, NOW - DAY + 3600, "p9", "second");
     let since = ready(svc.transcript("amber-swift-owl")).unwrap();
     let got = kinds_and_contents(&since);
-    assert_eq!(got.len(), 2, "{since}");
+    assert_eq!(got.len(), 2, "{since:?}");
     assert_eq!(got[1].1, "second");
 }
 
@@ -735,7 +732,7 @@ fn a_listing_is_titled_and_sized_from_the_sessions_events() {
     assert_eq!(views[0].title.as_deref(), Some("Fix the build"));
     let text = ready(svc.transcript("amber-swift-owl")).unwrap();
     let captured = views[0].captured.as_ref().expect("captured");
-    assert_eq!(captured.bytes, text.len() as u64);
+    assert_eq!(captured.bytes, session_index::printed_bytes(&text));
     let found = ready(svc.search(SearchQuery {
         list: all(),
         words: vec!["build".to_string()],
@@ -765,7 +762,7 @@ fn the_transcript_listing_reads_the_events_and_names_no_file() {
         got,
         [
             ("brisk-copper-moth", false, 0),
-            ("amber-swift-owl", true, text.len() as u64),
+            ("amber-swift-owl", true, session_index::printed_bytes(&text)),
         ]
     );
 }

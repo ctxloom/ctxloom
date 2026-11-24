@@ -16,7 +16,7 @@ use session_ports::{Liveness, LockState, ProjectStores};
 /// A session as its store records it, and its transcript.
 pub(crate) struct Held {
     pub record: SessionRecord,
-    pub transcript: Option<String>,
+    pub transcript: Option<Vec<daemon_proto::v1::LogEntry>>,
 }
 
 use crate::{failed, AppError, ListQuery, SearchQuery, ShowQuery, TranscriptQuery, TranscriptRow};
@@ -140,8 +140,8 @@ where
             false => Some(record.title.clone()),
             true => transcript.as_deref().and_then(title_of),
         };
-        let captured = transcript.as_ref().map(|text| Captured {
-            bytes: text.len() as u64,
+        let captured = transcript.as_ref().map(|entries| Captured {
+            bytes: session_index::printed_bytes(entries),
         });
         View {
             record,
@@ -245,7 +245,10 @@ where
             .collect())
     }
 
-    pub(crate) async fn transcript(&mut self, harp: &str) -> Result<String, AppError> {
+    pub(crate) async fn transcript(
+        &mut self,
+        harp: &str,
+    ) -> Result<Vec<daemon_proto::v1::LogEntry>, AppError> {
         let (_, held) = self.find_held(None, harp).await?;
         held.transcript.ok_or(AppError::NoCapturedTranscript {
             harp: held.record.harp,

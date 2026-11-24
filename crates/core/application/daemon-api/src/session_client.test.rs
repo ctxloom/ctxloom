@@ -107,10 +107,7 @@ impl DaemonApi for Fake {
         self.names.lock().unwrap().push(r.name.clone());
         Ok(v1::Transcript {
             name: r.name,
-            lines: vec![v1::TranscriptLine {
-                json: "{}".to_string(),
-            }],
-            ..Default::default()
+            entries: vec![v1::LogEntry::default()],
         })
     }
 
@@ -799,7 +796,7 @@ async fn a_transcript_is_read_from_the_daemon_of_the_resolved_project() {
         read.name,
         "projects/calm-otter/sessions/amber-swift-owl/transcript"
     );
-    assert_eq!(read.lines.len(), 1);
+    assert_eq!(read.entries.len(), 1);
     assert_eq!(
         daemons.asked(),
         [

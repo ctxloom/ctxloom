@@ -120,6 +120,9 @@ pub use server::{About, Answer, Api, Calls, Harps, Hosting, Observing, Parts, Se
 pub use session_client::{
     Client, LibraryReads, LibraryWrites, Removed, RequestIds, SessionReads, SessionRemovals,
 };
+/// The one joiner and placer of a log's words, for the screen and `session
+/// transcript show` alike (`session_index::conversation`).
+pub use session_index::conversation;
 pub use setup_reads::{SetupAnswer, SetupRead, SetupReads};
 pub use start_up::StartUpIncomplete;
 pub use top::{TopStop, TopStream};

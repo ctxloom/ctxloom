@@ -66,22 +66,76 @@ fn a_worktree_report_reads_each_owner_state_and_verdict() {
     );
 }
 
-// s4-Q14, H3 (PROPOSAL, the owner's to word): a gap line reads as a line of
-// its own, in its place in the conversation, saying how many facts are
-// missing, which, when they were dropped and why.
+fn entry(arm: v1::log_entry::Entry) -> v1::LogEntry {
+    v1::LogEntry {
+        entry: Some(arm),
+        ..v1::LogEntry::default()
+    }
+}
+
+fn prompt(prompt_id: &str, text: &str) -> v1::LogEntry {
+    entry(v1::log_entry::Entry::Prompt(v1::LogPrompt {
+        prompt_id: prompt_id.to_string(),
+        text: text.to_string(),
+    }))
+}
+
+fn words(prompt_id: &str, message: &str, index: u32, text: &str) -> v1::LogEntry {
+    entry(v1::log_entry::Entry::Words(v1::LogWords {
+        prompt_id: prompt_id.to_string(),
+        message_id: message.to_string(),
+        index,
+        text: text.to_string(),
+        ..v1::LogWords::default()
+    }))
+}
+
+fn gap(dropped: &str, why: &str, seconds: i64) -> v1::LogEntry {
+    entry(v1::log_entry::Entry::Gap(v1::LogGap {
+        dropped: dropped.to_string(),
+        why: why.to_string(),
+        dropped_at: Some(daemon_proto::google::protobuf::Timestamp { seconds, nanos: 0 }),
+    }))
+}
+
+fn read(entries: &[v1::LogEntry]) -> String {
+    let mut out = Vec::new();
+    super::conversation_text(entries, &mut out).unwrap();
+    String::from_utf8(out).unwrap()
+}
+
+// A transcript reads as a conversation: each prompt, the assistant's message
+// joined from its pieces under the prompt of its own turn even when its words
+// came late, and nothing of the tool calls or turn ends.
+#[test]
+fn a_conversation_reads_prompts_and_joined_messages_under_their_prompts() {
+    let turn_end = entry(v1::log_entry::Entry::TurnEnd(v1::LogTurnEnd {
+        prompt_id: "p1".to_string(),
+    }));
+    assert_eq!(
+        read(&[
+            prompt("p1", "Hi"),
+            turn_end,
+            prompt("p2", "Again"),
+            words("p1", "m1", 1, "there"),
+            words("p1", "m1", 0, "Hello "),
+        ]),
+        "user: Hi\nassistant: Hello there\nuser: Again\n"
+    );
+}
+
+// s4-Q14, H3 (PROPOSAL, the owner's to word): a gap reads as a line of its
+// own, in its place in the conversation, saying that a fact is missing,
+// which, when it was dropped and why.
 #[test]
 fn a_gap_reads_as_a_line_of_its_own_in_its_place() {
-    let transcript = [
-        r#"{"kind":"entry","entry":{"type":"user","content":"Hi"}}"#,
-        r#"{"kind":"gap","gap":{"facts":1,"dropped":"hook:turn-end:s:p1","why":"bound","dropped_at":"2023-11-14T22:14:10Z"}}"#,
-        r#"{"kind":"gap","gap":{"facts":1,"dropped":"hook:text:s:m1:0","why":"disk","dropped_at":"2023-11-14T22:14:11Z"}}"#,
-        r#"{"kind":"entry","entry":{"type":"user","content":"Again"}}"#,
-    ]
-    .join("\n");
-    let mut out = Vec::new();
-    super::conversation_text(&transcript, &mut out).unwrap();
     assert_eq!(
-        String::from_utf8(out).unwrap(),
+        read(&[
+            prompt("p1", "Hi"),
+            gap("hook:turn-end:s:p1", "bound", 1_700_000_050),
+            gap("hook:text:s:m1:0", "disk", 1_700_000_051),
+            prompt("p2", "Again"),
+        ]),
         "user: Hi\n\
          gap: 1 fact not recorded (hook:turn-end:s:p1, dropped at 2023-11-14T22:14:10Z: the session's hold was at its bound)\n\
          gap: 1 fact not recorded (hook:text:s:m1:0, dropped at 2023-11-14T22:14:11Z: the disk refused it)\n\
@@ -89,16 +143,11 @@ fn a_gap_reads_as_a_line_of_its_own_in_its_place() {
     );
 }
 
-// A gap whose why this ctxloom does not know (a later word) says it as it
-// is, and one that counts no facts is still one dropped fact.
+// A gap whose why this ctxloom does not know (a later word) says it as it is.
 #[test]
 fn a_gap_of_an_unknown_why_says_the_word() {
-    let transcript =
-        r#"{"kind":"gap","gap":{"dropped":"x","why":"quota","dropped_at":"2023-11-14T22:14:10Z"}}"#;
-    let mut out = Vec::new();
-    super::conversation_text(transcript, &mut out).unwrap();
     assert_eq!(
-        String::from_utf8(out).unwrap(),
+        read(&[gap("x", "quota", 1_700_000_050)]),
         "gap: 1 fact not recorded (x, dropped at 2023-11-14T22:14:10Z: quota)\n"
     );
 }

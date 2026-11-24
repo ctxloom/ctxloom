@@ -565,7 +565,8 @@ the store grows without bound (ruling 90; compaction is taskloom
   session aggregate and the `session-names` claim aggregate);
 - `core/read-model/session-index` (the rows, state, title, search, retention,
   and each session's transcript folded from its capture events: `Projection`,
-  D27's lines, `seq` counting them);
+  typed `LogEntry`s, `seq` counting them, and `conversation`, the one joiner
+  and placer of a log's words);
 - `core/ports/session-ports` (the user's store through `ProjectStores`, with `Purge`; `Liveness` and
   `SessionLock`; a session's files, Go's session directories);
 - `core/application/sessions-application` (list, search, show, keep, title,
@@ -2835,12 +2836,22 @@ loadout loaded) are `Session` fields 24-26, from its recorded loadout.
 
 The log is `core/read-model/session-timeline`: one time-ordered list per
 session of its lifecycle (started, exited with its cause, rehosted, restarted,
-closed, reopened), its asks (asked, settled) and its transcript lines (the
-same lines `session-index` folds, at each event's recorded instant), folded
+closed, reopened), its asks (asked, settled) and its transcript entries (the
+same entries `session-index` folds, at each event's recorded instant), folded
 from the session and approvals streams and held in memory (`SessionTimelines`,
 registered in the daemon's kernel and caught up each round; nothing new is
-persisted, 2000 entries a session). `TopLog.line` is the transcript's stored
-JSON line. A one-session scope carries its log; `--log` names another;
+persisted, 2000 entries a session). Every entry is ONE `ctxloom.v1.LogEntry`
+(owner ruling 2026-11-24): `time`, `seq` (the timeline's order of receipt,
+from 0), ONE arm (`prompt`, `words`, `tool`, `turn_end`, `compaction`,
+`clear`, `gap`, `lifecycle`, `ask`) and `extra`, the engine's own data no
+arm holds. It names no session, harp, id or engine (the log is the selected
+session's). `TopLog` is `{session, time, entry}` (its `kind`, `line`,
+`event` and `text` are reserved), `Transcript` is `{name, entries}`. The
+screen says an entry in plain words (`session-cli`'s `log_text`); words stay
+pieces on the wire and `session_index::conversation` (`daemon_api::
+conversation`) joins a message's pieces by `index` and places each message
+under the prompt entry of its own `prompt_id`, for `ctxloom top` and
+`session transcript show` alike. A one-session scope carries its log; `--log` names another;
 `WatchTopRequest.all_logs` (additive) carries every session in view, which the
 screen asks so moving the selection keeps its one watch.
 
@@ -4377,8 +4388,10 @@ them for later, below, and never fails its engine). The
 session aggregate records each on a live session, nothing on any other, and a
 redelivery is DUPLICATE. No file holds the transcript (owner ruling 87a):
 `session-index` folds it from the stream's pages on each read (a
-`Projection`, D27's envelope `v, harp, session_id, engine, seq, ts, kind`,
-`seq` counting lines), so it is live: a session still running shows what its
+`Projection` making one typed `LogEntry` per event, `seq` counting entries;
+D27's JSON lines and their envelope `v, harp, session_id, engine, seq, ts,
+kind` are gone, owner 2026-11-24: `session transcript show --format json`
+prints each entry's proto3 JSON a line), so it is live: a session still running shows what its
 hooks have delivered. A one-shot child's prompt and words come from its hooks ALONE (owner
 rulings 26 and 51): the launcher records none of them, and reads the child's
 stream only for the reply it returns and the run's outcome facts (RecordRunnerStarted,
@@ -4393,15 +4406,15 @@ PostToolUse and no error flag; the stream's `is_error` is not recorded); every
 under claude's prompt id; ruling 26's principle): the launcher records no
 prompt for any run, only the run's own facts (a j001000 scenario proves it
 lands once). A
-reader coalesces deltas by `message_id` and `index`. ARRIVAL ORDER IS NOT
+reader joins deltas by `message_id` and `index` (`conversation::join`). ARRIVAL ORDER IS NOT
 TURN ORDER: Stop and MessageDisplay are separate hook processes, and Stop
 fires first (a live probe saw `turn_end` before the turn's words, and the
 words can follow the next prompt), so a reader never assumes a turn's words
 precede its `turn_end` or the next entry. `session transcript show` places an
-assistant message by its `prompt_id` (the user entries are the prompts in
-order, the prompt ids in order of first appearance are the same prompts; an
-`entry` line carries no `prompt_id` of its own, which an additive field would
-make exact). The listener cannot treat `turn_end` as "the words are in".
+assistant message under the prompt entry with its `prompt_id`
+(`conversation::place`; a `prompt` entry carries its `prompt_id`, so the
+placement is exact, and a message no prompt matches stays where it
+arrived). The listener cannot treat `turn_end` as "the words are in".
 Compaction (`PreCompact`, `PostCompact`) is registered and recorded: the fact
 holds the prompt, the phase, the `trigger` (`manual`/`auto`) and the summary's
 size and SHA-256 (never its text, ruling B). Not captured: thinking
@@ -4514,12 +4527,22 @@ external id, `why`, `dropped_at` the hook's clock, the hook's stamp;
 external id `hook:gap:<the dropped fact's external id>`,
 `Observation::gap`), recorded as `CaptureGapped` on a live session, so the
 session's record says for good which fact is missing there, and when; the
-transcript's line is `kind: gap`, `gap: {facts: 1, dropped, why,
-dropped_at}`, and its text `gap: 1 fact not recorded (<id>, dropped at
+transcript's entry is the `gap` arm (`dropped`, `why`, `dropped_at`), and its text `gap: 1 fact not recorded (<id>, dropped at
 <time>: <why>)` (the wording a draft, the owner's to approve). The in-process `EdgeSink` is for tests and the run's own
 facts, and the daemon's start-up flush (above). A unit test's executable never spawns itself as the daemon
 (`SPAWNS_ITSELF`). The session's end is NOT captured (owner 2026-11-15):
 it is its run's end (`IncarnationEnded`) and its lock's verdict.
+THE ENGINE EXTENSION POINT (owner 2026-11-24): an engine's adapter may attach
+data of its own to an observation, which the common fields do not hold:
+`HookEvent.extra` (for every observation the event makes), `ToolCall.extra`
+and `MessageDisplay.extra` (one item's, laid over the event's), a
+`BTreeMap<String, String>` keyed `<engine>.<name>` (structured data as
+compact JSON text). `runs_application::observe` copies it onto the capture
+fact, the session aggregate onto the event (`extra`, field numbers 2 to 8 of
+the six transcript facts and events, optional and additive: a stream
+recorded before reads as none), and the log fold onto `LogEntry.extra`; no
+arm ever widens for it and no consumer reads a key it does not know. No
+adapter attaches any yet.
 `RecordSessionEnded` is gone; `SessionEnded`, in every interactive stream
 recorded before, is RETIRED in place (angzarr refuses an unknown stored
 type): never emitted, folded to nothing and rendered nothing (no line, no
@@ -4528,8 +4551,9 @@ nothing. A clear (claude's `/clear`: SessionStart `source: clear`) is
 `RecordConversationCleared{native_session, trigger}` (`ConversationCleared`,
 no content; `hook:clear:<session>:<the new conversation>`, so a daemon
 child's driver reporting the same clear is one fact), then the new
-conversation's bind; its transcript line is `kind: clear` (`native_session`,
+conversation's bind; its transcript entry is the `clear` arm (`native_session`,
 `trigger`), the text transcript showing neither a clear nor a compaction.
+A bind is not shown in the log.
 The bind is not a capture fact to `no_such_session` (it records nothing on a
 session already bound to it).
 A compaction's external id is `hook:compact:<session>:<prompt_id>:<trigger>:

@@ -416,122 +416,43 @@ pub(crate) fn worktrees_text(
 }
 
 /// A transcript read as a conversation: `user: ...`, `assistant: ...`, for
-/// each entry, and `gap: ...` where a hook dropped a fact (s4-Q14, H3); the
-/// records that are not the conversation (the session's id, a completion, a
-/// tool call) say nothing a reader wants. The assistant's words
-/// are coalesced here: a message's `assistant_delta` lines are joined by their
-/// `index`, and the message is one `assistant:` line.
+/// each prompt and message, and `gap: ...` where a hook dropped a fact
+/// (s4-Q14, H3); the entries that are not the conversation (a tool call, a
+/// turn's end, a compaction, a clear) say nothing a reader wants.
 ///
-/// Arrival order is not turn order: the engine's Stop and MessageDisplay hooks
-/// are separate processes, so a turn's words can follow its `turn_end` and
-/// even the next prompt. A message is placed by its `prompt_id`: the user
-/// entries are the prompts in order, and the prompt ids, in the order each
-/// first appears on any record, are the same prompts, so a message follows
-/// the entry of its own prompt. (The entry line carries no `prompt_id` of its
-/// own.) A message whose prompt is not matched to an entry stands where its
-/// first piece arrived.
-pub(crate) fn conversation_text(transcript: &str, out: &mut dyn Write) -> io::Result<()> {
-    let records: Vec<serde_json::Value> = transcript
-        .lines()
-        .filter(|l| !l.trim().is_empty())
-        .filter_map(|line| serde_json::from_str(line).ok())
-        .collect();
-    let prompt_of = |record: &serde_json::Value| -> String {
-        record["prompt_id"].as_str().unwrap_or_default().to_string()
-    };
-    // The prompts, in the order each first appears.
-    let mut prompts: Vec<String> = Vec::new();
-    for record in &records {
-        let prompt = prompt_of(record);
-        if record["kind"] != "entry" && !prompt.is_empty() && !prompts.contains(&prompt) {
-            prompts.push(prompt);
-        }
-    }
-    let users = records
-        .iter()
-        .filter(|r| r["kind"] == "entry" && r["entry"]["type"] == "user")
-        .count();
-    // The prompts an entry stands for: a message of one is printed after it.
-    let matched = &prompts[..users.min(prompts.len())];
-    // The messages, in order of first arrival: (message id, prompt id, text).
-    let mut messages: Vec<(String, String, String)> = Vec::new();
-    for (at, record) in records.iter().enumerate() {
-        if record["kind"] != "assistant_delta" {
-            continue;
-        }
-        let message = record["delta"]["message_id"].as_str().unwrap_or_default();
-        if messages.iter().any(|(m, _, _)| m == message) {
-            continue;
-        }
-        let mut pieces: Vec<(u64, &str)> = records[at..]
-            .iter()
-            .filter(|r| {
-                r["kind"] == "assistant_delta" && r["delta"]["message_id"].as_str() == Some(message)
-            })
-            .map(|r| {
-                (
-                    r["delta"]["index"].as_u64().unwrap_or_default(),
-                    r["delta"]["text"].as_str().unwrap_or_default(),
-                )
-            })
-            .collect();
-        pieces.sort_by_key(|(index, _)| *index);
-        pieces.dedup_by_key(|(index, _)| *index);
-        let text: String = pieces.iter().map(|(_, text)| *text).collect();
-        messages.push((message.to_string(), prompt_of(record), text));
-    }
-    let mut said: Vec<&str> = Vec::new();
-    let mut user = 0;
-    for record in &records {
-        match record["kind"].as_str() {
-            Some("entry") => {
-                let entry = &record["entry"];
-                let kind = entry["type"].as_str().unwrap_or_default();
-                let content = entry["content"].as_str().unwrap_or_default();
-                writeln!(out, "{kind}: {content}")?;
-                if kind == "user" {
-                    let own = matched.get(user);
-                    user += 1;
-                    for (message, prompt, text) in &messages {
-                        if own == Some(prompt) && !said.contains(&message.as_str()) {
-                            said.push(message);
-                            writeln!(out, "assistant: {text}")?;
-                        }
-                    }
-                }
-            }
-            Some("assistant_delta") => {
-                let message = record["delta"]["message_id"].as_str().unwrap_or_default();
-                if said.contains(&message) {
-                    continue;
-                }
-                let held = messages
-                    .iter()
-                    .find(|(m, prompt, _)| m == message && matched.contains(prompt));
-                if held.is_some() {
-                    // It is printed under its own prompt's entry.
-                    continue;
-                }
-                if let Some((_, _, text)) = messages.iter().find(|(m, _, _)| m == message) {
-                    said.push(message);
-                    writeln!(out, "assistant: {text}")?;
-                }
-            }
-            Some("gap") => {
-                let gap = &record["gap"];
-                writeln!(
+/// The assistant's pieces are joined into messages and each message is
+/// placed under the prompt of its own turn, by the one joiner and placer
+/// `ctxloom top` shares (`daemon_api::conversation`): arrival order is not
+/// turn order, since the engine's Stop and MessageDisplay hooks are separate
+/// processes.
+pub(crate) fn conversation_text(entries: &[v1::LogEntry], out: &mut dyn Write) -> io::Result<()> {
+    use daemon_api::conversation::{join, place, Said};
+    use v1::log_entry::Entry;
+    for said in place(join(entries)) {
+        match said {
+            Said::Message(message) => writeln!(out, "assistant: {}", message.text)?,
+            Said::Entry(entry) => match &entry.entry {
+                Some(Entry::Prompt(prompt)) => writeln!(out, "user: {}", prompt.text)?,
+                Some(Entry::Gap(gap)) => writeln!(
                     out,
-                    "gap: {} fact not recorded ({}, dropped at {}: {})",
-                    gap["facts"].as_u64().unwrap_or(1),
-                    gap["dropped"].as_str().unwrap_or_default(),
-                    gap["dropped_at"].as_str().unwrap_or_default(),
-                    gap_why(gap["why"].as_str().unwrap_or_default()),
-                )?;
-            }
-            _ => {}
+                    "gap: 1 fact not recorded ({}, dropped at {}: {})",
+                    gap.dropped,
+                    gap.dropped_at.as_ref().map_or_else(String::new, instant),
+                    gap_why(&gap.why),
+                )?,
+                _ => {}
+            },
         }
     }
     Ok(())
+}
+
+/// An instant as RFC 3339 text, as the messages print it.
+fn instant(at: &daemon_proto::google::protobuf::Timestamp) -> String {
+    serde_json::to_value(at)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_string))
+        .unwrap_or_default()
 }
 
 /// Why a fact was dropped, as a gap line says it (PROPOSAL, s4-Q14 H3: the

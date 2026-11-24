@@ -2,6 +2,7 @@
 //! what keys do to it.
 
 use daemon_proto::v1;
+use daemon_proto::v1::log_lifecycle::Kind;
 
 use super::{Effect, Key, Screen, ICON_ASCII, ICON_UTF8, WAITING};
 use crate::approvals::AlwaysPlan;
@@ -371,23 +372,12 @@ fn a_given_sort_orders_the_rows_and_the_header_names_it() {
 fn the_log_section_lists_the_selected_sessions_entries_oldest_first() {
     let mut screen = tree();
     screen.key(Key::Down);
-    for (event, text) in [
-        ("started", "started on claude-code"),
-        ("exited", "run 1 ended"),
-    ] {
-        screen.apply(v1::TopEvent {
-            event: Some(v1::top_event::Event::Log(v1::TopLog {
-                session: "projects/p/sessions/brisk-copper-moth".to_string(),
-                kind: v1::top_log::Kind::Daemon as i32,
-                event: event.to_string(),
-                text: text.to_string(),
-                ..v1::TopLog::default()
-            })),
-        });
+    for kind in [Kind::Started, Kind::Exited] {
+        screen.apply(lifecycle_log("brisk-copper-moth", kind));
     }
     let text = screen.frame().text();
-    let started = text.find("started started on").expect("started");
-    let exited = text.find("exited run 1 ended").expect("exited");
+    let started = text.find("started on claude-code").expect("started");
+    let exited = text.find("run 1 ended").expect("exited");
     assert!(started < exited, "{text}");
 }
 
@@ -415,13 +405,19 @@ fn removed(harp: &str, reason: v1::top_session_removed::Reason) -> v1::TopEvent 
     }
 }
 
-fn said_by(harp: &str, event: &str) -> v1::TopEvent {
+fn lifecycle_log(harp: &str, kind: Kind) -> v1::TopEvent {
     v1::TopEvent {
         event: Some(v1::top_event::Event::Log(v1::TopLog {
             session: format!("projects/p/sessions/{harp}"),
-            kind: v1::top_log::Kind::Daemon as i32,
-            event: event.to_string(),
-            text: format!("run 1 ended: {event}"),
+            entry: Some(v1::LogEntry {
+                entry: Some(v1::log_entry::Entry::Lifecycle(v1::LogLifecycle {
+                    kind: kind as i32,
+                    run: 1,
+                    cause: "runner-exit".to_string(),
+                    engine: "claude-code".to_string(),
+                })),
+                ..v1::LogEntry::default()
+            }),
             ..v1::TopLog::default()
         })),
     }
@@ -436,7 +432,7 @@ fn test_the_selected_row_that_leaves_the_view_stays_marked_ended_with_its_last_w
         "brisk-copper-moth",
         v1::top_session_removed::Reason::LeftFilter,
     ));
-    screen.apply(said_by("brisk-copper-moth", "exited"));
+    screen.apply(lifecycle_log("brisk-copper-moth", Kind::Exited));
     let frame = screen.frame();
     let row = frame
         .rows
@@ -445,7 +441,7 @@ fn test_the_selected_row_that_leaves_the_view_stays_marked_ended_with_its_last_w
         .expect("the row stays while it is selected");
     assert!(row.contains("ended"), "{row}");
     assert_eq!(frame.log_title, "--- log of brisk-copper-moth");
-    assert!(frame.log.iter().any(|line| line.contains("exited")));
+    assert!(frame.log.iter().any(|line| line.contains("run 1 ended")));
 }
 
 #[test]

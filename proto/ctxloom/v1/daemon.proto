@@ -213,10 +213,10 @@ service Ctxloom {
   rpc GetTranscript(GetTranscriptRequest) returns (Transcript) {
     option (google.api.method_signature) = "name";
   }
-  // `session transcript watch`: its lines as they are delivered.
+  // `session transcript watch`: its entries as they are delivered.
   // (-- api-linter: core::0136::response-message-name=disabled
   //     aip.dev/not-precedent: a daemon-folded stream of the resource's lines or events (S44). --)
-  rpc WatchTranscript(WatchTranscriptRequest) returns (stream TranscriptLine);
+  rpc WatchTranscript(WatchTranscriptRequest) returns (stream LogEntry);
   // The terminal wake (owner ruling 2026-11-18): a session's ctxloom MCP
   // server watches its own session for messages that would wake it, and
   // posts the wake on its engine's messaging socket. While a watch is open
@@ -1613,13 +1613,6 @@ message ChangeSummary {
   string from_path = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
 }
 
-// One D27 line, as its JSON envelope.
-message TranscriptLine {
-  // The line's JSON envelope (`v, harp, session_id, engine, seq, ts, kind`),
-  // as one line of text.
-  string json = 1;
-}
-
 // A session's transcript, folded from its capture events on each read.
 message Transcript {
   option (google.api.resource) = {
@@ -1631,9 +1624,10 @@ message Transcript {
 
   // `projects/{project}/sessions/{session}/transcript`.
   string name = 1 [(google.api.field_behavior) = IDENTIFIER];
-  // Its lines, in the order delivered (`seq`).
-  repeated TranscriptLine lines = 2;
-  // Its entries, typed (additive; replaces `lines`).
+  reserved 2;
+  reserved "lines";
+
+  // Its entries, in the order delivered (`seq`).
   repeated LogEntry entries = 3;
 }
 
@@ -1880,22 +1874,16 @@ message LogAsk {
   string option = 5;
 }
 
+// One entry of the log of the session `session`, at `time`.
 message TopLog {
-  enum Kind {
-    KIND_UNSPECIFIED = 0;
-    TRANSCRIPT = 1;
-    DAEMON = 2;
-  }
+  // The numbers and names of the fields this replaced (`kind`, `line`,
+  // `event`, `text`: the transcript's JSON envelope as a string, and a
+  // daemon entry's word and text) are never reused.
+  reserved 3, 4, 5, 6;
+  reserved "kind", "line", "event", "text";
+
   string session = 1;
   google.protobuf.Timestamp time = 2;
-  Kind kind = 3;
-  // A transcript entry: the line's JSON envelope as the transcript has it.
-  string line = 4;
-  // A daemon entry: the event's word (`started`, `exited`, `rehosted`,
-  // `approval_asked`, `approval_settled`) and its text.
-  string event = 5;
-  string text = 6;
-  // The entry, typed (additive; replaces `kind`, `line`, `event` and `text`).
   LogEntry entry = 7;
 }
 

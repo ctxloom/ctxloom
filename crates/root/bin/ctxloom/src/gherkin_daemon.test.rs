@@ -3570,13 +3570,24 @@ fn gap_says_when_and_why(w: &mut World) {
         .as_str()
         .unwrap_or_default()
         .to_string();
-    // The hook's clock when it dropped it: an RFC 3339 instant, never the
-    // epoch, no later than the gap was recorded.
-    assert!(at.ends_with('Z') && at.len() == 20, "{at}");
+    // The hook's clock when it dropped it: an RFC 3339 instant (its fraction
+    // kept), never the epoch, no later than the gap was recorded.
+    assert!(at.ends_with('Z') && at.len() >= 20, "{at}");
     let year: u64 = at[..4].parse().expect("a year");
     assert!(year >= 2026, "{at}");
     let recorded = gap["time"].as_str().unwrap_or_default();
-    assert!(at.as_str() <= recorded, "dropped {at}, recorded {recorded}");
+    let second = |instant: &str| {
+        instant
+            .trim_end_matches('Z')
+            .split('.')
+            .next()
+            .unwrap_or_default()
+            .to_string()
+    };
+    assert!(
+        second(&at) <= second(recorded),
+        "dropped {at}, recorded {recorded}"
+    );
 }
 
 #[then(

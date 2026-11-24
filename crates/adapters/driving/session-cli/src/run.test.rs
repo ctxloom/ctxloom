@@ -31,7 +31,7 @@ fn ts(seconds: i64) -> sessions_application::Timestamp {
 struct Fake {
     views: Vec<View>,
     rows: Vec<TranscriptRow>,
-    transcript: String,
+    transcript: Vec<v1::LogEntry>,
     dead_letters: bool,
     list: Vec<ListQuery>,
     search: Vec<SearchQuery>,
@@ -143,7 +143,7 @@ impl SessionService for Fake {
         Ok(self.rows.clone())
     }
 
-    async fn transcript(&mut self, _harp: &str) -> Result<String, AppError> {
+    async fn transcript(&mut self, _harp: &str) -> Result<Vec<v1::LogEntry>, AppError> {
         Ok(self.transcript.clone())
     }
 
@@ -199,8 +199,8 @@ struct Reads {
     asked: std::cell::RefCell<Vec<String>>,
     /// Answer every call with this, instead.
     refuse: Option<daemon_api::CallError>,
-    /// The transcript's lines `get_transcript` answers.
-    transcript: Vec<String>,
+    /// The transcript's entries `get_transcript` answers.
+    transcript: Vec<v1::LogEntry>,
 }
 
 impl daemon_api::SessionReads for Reads {
@@ -256,26 +256,16 @@ impl daemon_api::SessionReads for Reads {
         }
         Ok(v1::Transcript {
             name: format!("projects/calm-otter/sessions/{harp}/transcript"),
-            lines: self
-                .transcript
-                .iter()
-                .map(|json| v1::TranscriptLine { json: json.clone() })
-                .collect(),
-            ..Default::default()
+            entries: self.transcript.clone(),
         })
     }
 }
 
 /// `words` (a `transcript show`) read from the daemon, which answers the
-/// fake's transcript, its lines as the daemon keeps them (no empty one).
+/// fake's transcript, its entries as the daemon keeps them.
 fn shown(fake: &Fake, format: Format, words: &[&str]) -> Ran {
     let reads = Reads {
-        transcript: fake
-            .transcript
-            .lines()
-            .filter(|l| !l.is_empty())
-            .map(str::to_string)
-            .collect(),
+        transcript: fake.transcript.clone(),
         ..Reads::default()
     };
     let ran = read_go(&reads, format, words);
@@ -1488,13 +1478,39 @@ fn an_empty_transcript_listing_is_the_placeholder() {
     );
 }
 
+fn prompt(prompt_id: &str, text: &str) -> v1::LogEntry {
+    v1::LogEntry {
+        entry: Some(v1::log_entry::Entry::Prompt(v1::LogPrompt {
+            prompt_id: prompt_id.to_string(),
+            text: text.to_string(),
+        })),
+        ..v1::LogEntry::default()
+    }
+}
+
+fn words(message: &str, index: u32, text: &str) -> v1::LogEntry {
+    v1::LogEntry {
+        entry: Some(v1::log_entry::Entry::Words(v1::LogWords {
+            prompt_id: "p1".to_string(),
+            message_id: message.to_string(),
+            index,
+            text: text.to_string(),
+            ..v1::LogWords::default()
+        })),
+        ..v1::LogEntry::default()
+    }
+}
+
 // session.feature: "Show prints the whole transcript and exits, ready for a
-// pipe": every line of stdout is a JSON object, and nothing else is written.
+// pipe": every line of stdout is one log entry's JSON object, and nothing
+// else is written; the entry names no session, harp or engine.
 #[test]
-fn transcript_show_prints_the_records_as_they_are_stored() {
-    let line = r#"{"v":1,"harp":"amber-swift-owl","engine":"claude-code","seq":0,"ts":"2026-01-01T00:00:00Z","kind":"entry","entry":{"type":"user","content":"Seeded prompt for amber-swift-owl."}}"#;
+fn transcript_show_prints_each_entry_as_its_proto3_json() {
     let fake = Fake {
-        transcript: format!("{line}\n"),
+        transcript: vec![
+            prompt("p1", "Seeded prompt for amber-swift-owl."),
+            words("m", 0, "ok"),
+        ],
         ..Fake::default()
     };
     let ran = shown(
@@ -1503,43 +1519,52 @@ fn transcript_show_prints_the_records_as_they_are_stored() {
         &["transcript", "show", "amber-swift-owl"],
     );
     assert!(ran.result.is_ok());
-    assert_eq!(ran.out, format!("{line}\n"));
-    for l in ran.out.lines() {
-        assert!(serde_json::from_str::<Value>(l).unwrap().is_object());
-    }
+    let lines: Vec<Value> = ran
+        .out
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(lines.len(), 2, "{}", ran.out);
+    assert_eq!(
+        lines[0],
+        json!({"prompt": {"prompt_id": "p1", "text": "Seeded prompt for amber-swift-owl."}})
+    );
+    assert_eq!(
+        lines[1],
+        json!({"words": {"prompt_id": "p1", "message_id": "m", "text": "ok"}})
+    );
 }
 
 #[test]
 fn transcript_show_in_text_reads_as_a_conversation() {
-    let user = r#"{"v":1,"harp":"h","engine":"claude-code","seq":0,"ts":"2026-01-01T00:00:00Z","kind":"entry","entry":{"type":"user","content":"What now?"}}"#;
-    let assistant = r#"{"v":1,"harp":"h","engine":"claude-code","seq":1,"ts":"2026-01-01T00:00:01Z","kind":"entry","entry":{"type":"assistant","content":"This."}}"#;
-    let session = r#"{"v":1,"harp":"h","engine":"claude-code","seq":2,"ts":"2026-01-01T00:00:02Z","kind":"session","session":{"session_id":"s"}}"#;
     let fake = Fake {
-        transcript: format!("{user}\n{assistant}\n{session}\n"),
+        transcript: vec![prompt("p1", "What now?"), words("m", 0, "This.")],
         ..Fake::default()
     };
     let ran = shown(&fake, Format::Text, &["transcript", "show", "h"]);
     assert_eq!(ran.out, "user: What now?\nassistant: This.\n");
 }
 
-// The assistant's words are one line per delta in the transcript; the reader
-// joins a message's pieces by index, wherever the pieces came in the stream.
+// The assistant's words are one entry per piece in the transcript; the
+// reader joins a message's pieces by index, wherever the pieces came in the
+// stream.
 #[test]
 fn transcript_show_in_text_joins_a_messages_deltas() {
-    let line = |seq: u32, index: u32, text: &str| {
-        format!(
-            r#"{{"v":1,"harp":"h","engine":"claude-code","seq":{seq},"ts":"2026-01-01T00:00:00Z","kind":"assistant_delta","delta":{{"message_id":"m1","index":{index},"final":false,"text":"{text}"}}}}"#
-        )
+    let tool = v1::LogEntry {
+        entry: Some(v1::log_entry::Entry::Tool(v1::LogTool {
+            name: "Bash".to_string(),
+            ..v1::LogTool::default()
+        })),
+        ..v1::LogEntry::default()
     };
-    let user = r#"{"v":1,"harp":"h","engine":"claude-code","seq":0,"ts":"2026-01-01T00:00:00Z","kind":"entry","entry":{"type":"user","content":"Hi"}}"#;
-    let tool = r#"{"v":1,"harp":"h","engine":"claude-code","seq":2,"ts":"2026-01-01T00:00:00Z","kind":"tool","tool":{"id":"t","name":"Bash","input":"{}","response_bytes":1,"response_sha256":"00"}}"#;
     let fake = Fake {
-        transcript: format!(
-            "{user}\n{}\n{tool}\n{}\n{}\n",
-            line(1, 1, "world"),
-            line(3, 0, "Hello "),
-            line(4, 1, "world")
-        ),
+        transcript: vec![
+            prompt("p1", "Hi"),
+            words("m1", 1, "world"),
+            tool,
+            words("m1", 0, "Hello "),
+            words("m1", 1, "world"),
+        ],
         ..Fake::default()
     };
     let ran = shown(&fake, Format::Text, &["transcript", "show", "h"]);
@@ -1649,19 +1674,6 @@ fn an_answer_that_cannot_be_written_fails_the_command() {
     let failure = crate::read(&session, &reads, Format::Json, &mut Broken).unwrap_err();
     assert_eq!(failure.failure.cause.code(), "session-cli-output");
     assert_eq!(failure.failure.exit, Exit::FAILED);
-}
-
-// A transcript without a last newline still ends its last line, once.
-#[test]
-fn a_transcript_is_printed_with_one_closing_newline() {
-    let fake = Fake {
-        transcript: "{\"v\":1}".to_string(),
-        ..Fake::default()
-    };
-    assert_eq!(
-        shown(&fake, Format::Json, &["transcript", "show", "h"]).out,
-        "{\"v\":1}\n"
-    );
 }
 
 // ---------------------------------------------------------------- worktrees
@@ -2302,23 +2314,17 @@ fn remove_takes_a_session_or_an_age_never_both_nor_neither() {
 }
 
 // Two messages whose pieces interleave in the stream are two `assistant:`
-// lines, each of its own pieces only (a piece of another message, or a line of
-// another kind, is not joined in).
+// lines, each of its own pieces only (a piece of another message, or an entry
+// of another kind, is not joined in).
 #[test]
 fn transcript_show_in_text_keeps_two_messages_apart() {
-    let delta = |seq: u32, message: &str, index: u32, text: &str| {
-        format!(
-            r#"{{"v":1,"harp":"h","engine":"claude-code","seq":{seq},"ts":"2026-01-01T00:00:00Z","kind":"assistant_delta","delta":{{"message_id":"{message}","index":{index},"final":false,"text":"{text}"}}}}"#
-        )
-    };
     let fake = Fake {
-        transcript: format!(
-            "{}\n{}\n{}\n{}\n",
-            delta(0, "m1", 0, "One "),
-            delta(1, "m2", 0, "Two "),
-            delta(2, "m1", 1, "again"),
-            delta(3, "m2", 1, "too")
-        ),
+        transcript: vec![
+            words("m1", 0, "One "),
+            words("m2", 0, "Two "),
+            words("m1", 1, "again"),
+            words("m2", 1, "too"),
+        ],
         ..Fake::default()
     };
     let ran = shown(&fake, Format::Text, &["transcript", "show", "h"]);
@@ -2331,57 +2337,62 @@ fn transcript_show_in_text_keeps_two_messages_apart() {
 // The reader places an assistant message by its prompt_id, not by position.
 #[test]
 fn transcript_show_in_text_places_a_message_under_its_own_prompt_whatever_arrived_first() {
-    let user = |seq: u32, content: &str| {
-        format!(
-            r#"{{"v":1,"harp":"h","engine":"claude-code","seq":{seq},"ts":"2026-01-01T00:00:00Z","kind":"entry","entry":{{"type":"user","content":"{content}"}}}}"#
-        )
+    let tool = |prompt: &str| v1::LogEntry {
+        entry: Some(v1::log_entry::Entry::Tool(v1::LogTool {
+            prompt_id: prompt.to_string(),
+            name: "Bash".to_string(),
+            ..v1::LogTool::default()
+        })),
+        ..v1::LogEntry::default()
     };
-    let tool = |seq: u32, prompt: &str| {
-        format!(
-            r#"{{"v":1,"harp":"h","engine":"claude-code","seq":{seq},"ts":"2026-01-01T00:00:00Z","kind":"tool","prompt_id":"{prompt}","tool":{{"id":"t","name":"Bash","input":"{{}}","response_bytes":1,"response_sha256":"00"}}}}"#
-        )
+    let end = |prompt: &str| v1::LogEntry {
+        entry: Some(v1::log_entry::Entry::TurnEnd(v1::LogTurnEnd {
+            prompt_id: prompt.to_string(),
+        })),
+        ..v1::LogEntry::default()
     };
-    let end = |seq: u32, prompt: &str| {
-        format!(
-            r#"{{"v":1,"harp":"h","engine":"claude-code","seq":{seq},"ts":"2026-01-01T00:00:00Z","kind":"turn_end","prompt_id":"{prompt}"}}"#
-        )
-    };
-    let said = |seq: u32, prompt: &str, text: &str| {
-        format!(
-            r#"{{"v":1,"harp":"h","engine":"claude-code","seq":{seq},"ts":"2026-01-01T00:00:00Z","kind":"assistant_delta","prompt_id":"{prompt}","turn_id":"{prompt}","delta":{{"message_id":"m-{prompt}","index":0,"final":true,"text":"{text}"}}}}"#
-        )
+    let said = |prompt: &str, text: &str| v1::LogEntry {
+        entry: Some(v1::log_entry::Entry::Words(v1::LogWords {
+            prompt_id: prompt.to_string(),
+            turn_id: prompt.to_string(),
+            message_id: format!("m-{prompt}"),
+            index: 0,
+            is_final: true,
+            text: text.to_string(),
+        })),
+        ..v1::LogEntry::default()
     };
     // The probe's own order (Stop first), then the worst case: turn 1's words
     // after turn 2's prompt.
     let orders = [
         vec![
-            user(0, "q1"),
-            tool(1, "p1"),
-            end(2, "p1"),
-            said(3, "p1", "a1"),
-            user(4, "q2"),
-            end(5, "p2"),
-            said(6, "p2", "a2"),
+            prompt("p1", "q1"),
+            tool("p1"),
+            end("p1"),
+            said("p1", "a1"),
+            prompt("p2", "q2"),
+            end("p2"),
+            said("p2", "a2"),
         ],
         vec![
-            user(0, "q1"),
-            tool(1, "p1"),
-            end(2, "p1"),
-            user(3, "q2"),
-            said(4, "p1", "a1"),
-            end(5, "p2"),
-            said(6, "p2", "a2"),
+            prompt("p1", "q1"),
+            tool("p1"),
+            end("p1"),
+            prompt("p2", "q2"),
+            said("p1", "a1"),
+            end("p2"),
+            said("p2", "a2"),
         ],
     ];
-    for lines in orders {
+    for entries in orders {
         let fake = Fake {
-            transcript: format!("{}\n", lines.join("\n")),
+            transcript: entries.clone(),
             ..Fake::default()
         };
         let ran = shown(&fake, Format::Text, &["transcript", "show", "h"]);
         assert_eq!(
             ran.out, "user: q1\nassistant: a1\nuser: q2\nassistant: a2\n",
-            "{lines:?}"
+            "{entries:?}"
         );
     }
 }

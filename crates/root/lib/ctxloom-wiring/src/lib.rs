@@ -224,7 +224,10 @@ impl SessionService for Sessions {
         self.use_cases.transcripts(query).await
     }
 
-    async fn transcript(&mut self, harp: &str) -> Result<String, AppError> {
+    async fn transcript(
+        &mut self,
+        harp: &str,
+    ) -> Result<Vec<daemon_proto::v1::LogEntry>, AppError> {
         self.use_cases.transcript(harp).await
     }
 

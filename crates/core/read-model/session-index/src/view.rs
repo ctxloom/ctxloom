@@ -54,6 +54,15 @@ pub struct View {
     pub pending: Vec<crate::PendingMessage>,
 }
 
+/// The size of `entries` as `session transcript show --format json` prints
+/// them: each entry's JSON and its newline.
+pub fn printed_bytes(entries: &[daemon_proto::v1::LogEntry]) -> u64 {
+    entries
+        .iter()
+        .map(|entry| serde_json::to_string(entry).map_or(0, |json| json.len() as u64 + 1))
+        .sum()
+}
+
 /// A captured transcript, as the session's events hold it.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Captured {

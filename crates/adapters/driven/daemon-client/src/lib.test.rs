@@ -276,11 +276,14 @@ impl Ctxloom for Fake {
         self.admit(&request)?;
         let name = request.into_inner().name;
         Ok(Response::new(v1::Transcript {
-            lines: vec![v1::TranscriptLine {
-                json: format!("{{\"of\":\"{name}\"}}"),
+            entries: vec![v1::LogEntry {
+                entry: Some(v1::log_entry::Entry::Prompt(v1::LogPrompt {
+                    prompt_id: "p".to_string(),
+                    text: format!("of {name}"),
+                })),
+                ..v1::LogEntry::default()
             }],
             name,
-            ..Default::default()
         }))
     }
 
@@ -758,7 +761,7 @@ async fn a_transcript_and_an_assembly_are_answered() {
         .await
         .unwrap();
     assert_eq!(transcript.name, "projects/p/sessions/s");
-    assert_eq!(transcript.lines.len(), 1);
+    assert_eq!(transcript.entries.len(), 1);
     let assembled = client
         .assemble_context(v1::AssembleContextRequest {
             agent: "reviewer".to_string(),

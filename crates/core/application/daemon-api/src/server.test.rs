@@ -1299,7 +1299,7 @@ async fn prompted(f: &Fixture, harp: &str, prompt_id: &str, prompt: &str) {
     f.world.handle(book).await.unwrap();
 }
 
-// GetTranscript answers each line the session's hooks delivered, and no
+// GetTranscript answers each entry the session's hooks delivered, and no
 // blank one.
 #[tokio::test]
 async fn get_transcript_answers_each_captured_line() {
@@ -1318,10 +1318,16 @@ async fn get_transcript_answers_each_captured_line() {
         .await
         .unwrap();
     assert_eq!(transcript.name, format!("{name}/transcript"));
-    let lines: Vec<&str> = transcript.lines.iter().map(|l| l.json.as_str()).collect();
-    assert_eq!(lines.len(), 2, "{lines:?}");
-    assert!(lines[0].contains("first words"), "{lines:?}");
-    assert!(lines[1].contains("second words"), "{lines:?}");
+    let prompts: Vec<&str> = transcript
+        .entries
+        .iter()
+        .filter_map(|entry| match &entry.entry {
+            Some(v1::log_entry::Entry::Prompt(prompt)) => Some(prompt.text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(prompts, ["first words", "second words"]);
+    assert_eq!(transcript.entries.len(), 2, "{:?}", transcript.entries);
 }
 
 /// The trees a read sees, from a table: no files, each scan counted.

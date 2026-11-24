@@ -93,7 +93,8 @@ fn the_transcripts_listed_and_read_are_the_one_the_seed_captured() {
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].harp, HARP);
     assert!(rows[0].captured && rows[0].bytes > 0, "{rows:?}");
-    let text = block(sessions.transcript(HARP)).unwrap();
+    let entries = block(sessions.transcript(HARP)).unwrap();
+    let text = format!("{entries:?}");
     assert!(
         text.contains("Seeded prompt for jolly-mute-magma."),
         "{text}"

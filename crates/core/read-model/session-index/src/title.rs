@@ -1,6 +1,7 @@
 //! A session's title: the first thing its user asked, read from its
-//! canonical transcript (`transcripts/transcript.jsonl`, docs/transcript.schema
-//! .json in Go; D27).
+//! transcript's prompt entries.
+
+use daemon_proto::v1::{log_entry::Entry as Arm, LogEntry};
 
 /// The longest a title is, in bytes (Go's `FirstLineSummary`).
 pub const TITLE_BYTES: usize = 80;
@@ -26,45 +27,17 @@ fn truncate_bytes(s: &str, max: usize) -> &str {
     &s[..end]
 }
 
-/// The title of the session whose canonical transcript is `transcript`: its
-/// first main-thread user prompt that says anything, cut to one line
-/// ([`first_line_summary`]). `None` when the transcript holds no such prompt,
-/// or cannot be read (a line that is not a record, or a record of a version
-/// this reader does not know): a renderer chooses its own placeholder.
-pub fn title_of(transcript: &str) -> Option<String> {
-    let mut title = None;
-    for line in transcript.lines().filter(|l| !l.trim().is_empty()) {
-        let record: Record = serde_json::from_str(line).ok()?;
-        if record.v != 1 {
-            return None;
+/// The title of the session whose transcript is `entries`: its first prompt
+/// that says anything, cut to one line ([`first_line_summary`]). `None` when
+/// the transcript holds no such prompt: a renderer chooses its own
+/// placeholder.
+pub fn title_of(entries: &[LogEntry]) -> Option<String> {
+    entries.iter().find_map(|entry| match &entry.entry {
+        Some(Arm::Prompt(prompt)) if !prompt.text.trim().is_empty() => {
+            Some(first_line_summary(&prompt.text))
         }
-        if title.is_some() || record.kind != "entry" {
-            continue;
-        }
-        let Some(entry) = record.entry else { continue };
-        if entry.kind == "user" && !entry.sidechain && !entry.content.trim().is_empty() {
-            title = Some(first_line_summary(&entry.content));
-        }
-    }
-    title
-}
-
-/// One line of the canonical transcript, as far as a title reads it.
-#[derive(serde::Deserialize)]
-struct Record {
-    v: u32,
-    kind: String,
-    entry: Option<Entry>,
-}
-
-#[derive(serde::Deserialize)]
-struct Entry {
-    #[serde(rename = "type")]
-    kind: String,
-    #[serde(default)]
-    content: String,
-    #[serde(default)]
-    sidechain: bool,
+        _ => None,
+    })
 }
 
 #[cfg(test)]

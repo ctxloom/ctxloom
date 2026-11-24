@@ -79,8 +79,8 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
   project, and with the daemon deciding, a session that stops matching or
   starts matching is one well-defined event (`session_removed` with
   `LEFT_FILTER`, `session_changed`) rather than every client re-deriving it.
-  The screen's filter keys therefore re-open the watch with a new filter, and
-  take a new snapshot. SORTING is the client's: the stream is a set of
+  The screen's filter keys narrow the rows the watch already gave it (the
+  watch's own filters are the command line's, fixed for its life). SORTING is the client's: the stream is a set of
   changes keyed by name, whose order is a matter of presentation. `--sort`
   sets the order of the snapshot's sessions and of the screen's table.
 
@@ -129,15 +129,12 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
   nor a profile's `select_tags`), recorded at its mint and carried on every
   read of it. `--tag <bundle>` and the TAGS column are those names.
 
-  WHAT THE LOG NEEDS THAT THE DAEMON DOES NOT SERVE TODAY (DRAFT):
-  `WatchTranscript` serves a session's transcript lines, but whole from its
-  start and with no tail. Nothing serves the daemon's own events for a
-  session (started, exited with its cause, re-hosted, restart owed, closed,
-  a turn failed, an ask asked and how it settled): they are folded into
-  several streams (session, run, approvals) and `Session` keeps only the
-  incarnation count and the last failure. The log wants one RPC, `WatchSessionLog`
-  (DRAFT), that answers the last N entries of both kinds, in the order they
-  happened, then follows.
+  WHAT THE LOG IS (owner ruling 2026-11-23): `WatchTop` carries it, as `log`
+  events: the entries of the session a one-session scope names or `--log`
+  names, or (`all_logs`, additive) of every session in view, from a
+  per-session timeline projector (`session-timeline`) that merges the
+  session's lifecycle events, its asks and its transcript lines in the order
+  they happened. No separate `WatchSessionLog` RPC is served.
 
   Rule: The JSON stream begins with a snapshot, then says what changes
 
@@ -687,7 +684,7 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
     per session, the selected one marked `>`), a line `--- asks of <harp>`,
     its asks, a line `--- log of <harp>`, and its log entries oldest first.
     A real terminal's drawing, its alternate screen and its restoring on
-    exit are not tested here (DEFERRED: needs a pty harness).
+    exit are the one pty scenario's, below.
 
     Scenario: The screen is an inbox above, and the selected row's reading pane below
       # new: the layout, as the owner ruled it (an email client's); DRAFT texts.

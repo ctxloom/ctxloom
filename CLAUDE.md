@@ -2784,30 +2784,68 @@ is on its stream is passed over; a book from 0 with another first event is
 folded afresh; a book past where it is is a gap, read from the store first,
 else left for the catch-up).
 
-## `ctxloom top` (DRAFT: built as far as the JSON stream)
+## `ctxloom top` (DRAFT texts; the owner's management view)
 
 `ctxloom top` is session-cli's third noun (`session_cli::top`, a client of the
 daemon's `WatchTop`; spec `features/cli/top.feature`,
 `features/journeys/j002900_watching_children.feature`). `--format json` (the
 default off a terminal) prints one `ctxloom.v1.TopEvent` per line: a
-`snapshot`, then `session_changed`, `session_removed`, `approval_asked` and
-`approval_settled`; `waiting` is the CLIENT's, said once while no daemon
-serves (`top` never starts one and polls only for a daemon, every 500 ms,
-`ctxloom-wiring`'s `top::DAEMON_LOOK`) and again when a daemon is lost. A
-request carries a scope (the project's list, one session, or its subtree:
-`WatchTopRequest.session`, `subtree`) and filters (states, default LIVE
+`snapshot`, then `session_changed`, `session_removed` (`LEFT_FILTER`, or
+`DESTROYED` once a session that left the view is purged), `approval_asked`,
+`approval_settled` and `log`; `waiting` is the CLIENT's, said once while no
+daemon serves (`top` never starts one; it looks for one every 500 ms,
+`ctxloom-wiring`'s `top::DAEMON_LOOK`, the one thing looked for on a timer,
+and a draining daemon is none) and again when a daemon is lost. A request
+carries a scope (the project's list, one session, or its subtree:
+`WatchTopRequest.session`, `subtree`; `--owner` and `--log` name sessions the
+project must have, else `SessionNotFound`) and filters (states, default LIVE
 alone; agents, profiles, tags, engines, owners), which are the DAEMON's;
 sorting (`--sort`, `session_cli::top::Sort`) orders the snapshot and is the
-client's. The watch is PUSHED, never polled: `daemon_api::top`'s `TopWatch`
+client's. The watch is PUSHED, not polled: `daemon_api::top`'s `TopWatch`
 waits on the wake `held_projection::Held::watch_into` sends when a fold
-changes `SessionIndexes` or `PendingApprovals` (also the kernel's inline
-fold), reads both and says what differs from what it last said. A session's
-`agent`, `profiles` and `tags` (the bundles its loadout loaded) are
-`Session` fields 24-26, from its recorded loadout. Not built: the full-screen
-UI, the log (`log_session` is carried and unserved), daemon events, a
-projector of its own (the watch reads the session index and the approvals'
-index), and `top` outside a project pushing (it lists nothing and stays
-open).
+changes `SessionIndexes`, `PendingApprovals` or the timelines, reads them and
+says what differs from what it last said. A session's state is its lock's
+verdict and a lock let go is no event, so the daemon tells the index's
+watchers when it drops a hosted child's locks (`SessionIndexes::notify`) and
+a watch looks again at 100 ms, 400 ms and 1.5 s after each wake (a frontend's
+lock is let go in its own process). A watch is ended when the client's stream
+is dropped (`TopStream::stopper`, fired by daemon-api-grpc) and its stream
+ends with it. A session's `agent`, `profiles` and `tags` (the bundles its
+loadout loaded) are `Session` fields 24-26, from its recorded loadout.
+
+The log is `core/read-model/session-timeline`: one time-ordered list per
+session of its lifecycle (started, exited with its cause, rehosted, restarted,
+closed, reopened), its asks (asked, settled) and its transcript lines (the
+same lines `session-index` folds, at each event's recorded instant), folded
+from the session and approvals streams and held in memory (`SessionTimelines`,
+registered in the daemon's kernel and caught up each round; nothing new is
+persisted, 2000 entries a session). `TopLog.line` is the transcript's stored
+JSON line. A one-session scope carries its log; `--log` names another;
+`WatchTopRequest.all_logs` (additive) carries every session in view, which the
+screen asks so moving the selection keeps its one watch.
+
+At a terminal `--format text` is the screen: an inbox of sessions above the
+reading pane of the selected one (its asks, answerable, and its log). It is
+`screen.rs` (the model: events and keys in, a `Frame` out; filters typed on
+the screen narrow the rows the watch gave), `screen_run.rs` (the loop, on a
+tick so a key is never kept waiting on the watch) and `tui.rs` (ratatui
+painting and crossterm keys on the alternate screen); the text seam
+(`CTXLOOM_TEST_TERMINAL`, frames ended by `---`, keys named a line each on
+stdin) draws the same `Frame` as plain lines. An answer is
+`session approvals answer`'s, as the user and in its order (the ask checked
+waiting, an allow-always's rule written and previewed first, a rule kept for
+an ask settled meanwhile said); the caller that answers is made at the first
+answer, so `top` reaches no daemon and makes no project to draw. `--format
+text` off a terminal is refused `session-cli-top-needs-terminal`, in the json
+envelope. `top` hears SIGINT, SIGTERM and SIGHUP for its whole life
+(`DaemonTop::stopped`) and ends on the first, 128 plus its number. Where no
+project exists the watch opens again each second, so a project made there
+later is listed (as `session_changed` lines), and a session named by its harp
+alone is refused `daemon-api-project-unknown`.
+
+Test-support: `--poll-ms` (a test daemon's round period) lets a scenario prove
+a change arrives by push alone; the harness hosts a second engine's child with
+a python stand-in for `opencode acp`.
 
 ## Trust (step 8 U1, ruling 142; plan `approvals-trust-step8.plan.md` §0)
 

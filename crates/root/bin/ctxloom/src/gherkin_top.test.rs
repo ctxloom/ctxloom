@@ -46,6 +46,8 @@ pub(super) struct State {
     /// line reports" after it, must satisfy together: path, text, whether
     /// the whole value is that text (else it holds it).
     wanted: Vec<(String, String, bool)>,
+    /// The stream "that line" was read from: one called so, else the first.
+    that_from: Option<String>,
     /// How many lines had been read when an action was taken: a step that
     /// names a line "within N seconds" after it looks past them.
     mark: usize,
@@ -263,6 +265,7 @@ fn until_line(w: &mut World, seconds: u64, found: impl Fn(&Value) -> bool) -> Va
 fn line_has(w: &mut World, seconds: u64, field: String) {
     let line = until_line(w, seconds, |line| line.get(&field).is_some());
     w.top.wanted.clear();
+    w.top.that_from = None;
     w.top.that = Some(line);
 }
 
@@ -272,6 +275,7 @@ fn line_has_containing(w: &mut World, seconds: u64, path: String, text: String) 
         at(line, &path).is_some_and(|got| said(got).contains(&text))
     });
     w.top.wanted = vec![(path, text, false)];
+    w.top.that_from = None;
     w.top.that = Some(line);
 }
 
@@ -290,6 +294,7 @@ fn line_has_as(w: &mut World, seconds: u64, path: String, want: String) {
         at(line, &path).is_some_and(|got| is(got, &want))
     });
     w.top.wanted = vec![(path, want, true)];
+    w.top.that_from = None;
     w.top.that = Some(line);
 }
 
@@ -310,12 +315,19 @@ fn that_line_is(w: &mut World, check: (String, String, bool)) {
     w.top.wanted.push(check);
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
-        let from = w.top.mark.max(1);
+        // The line found says it itself, or one read since the action does.
+        let from = w.top.mark;
+        let named = w.top.that_from.clone();
+        let read = match &named {
+            Some(name) => w.top.named.get(name).map(|(_, read)| read.clone()),
+            None => Some(w.top.read.clone()),
+        }
+        .unwrap_or_default();
         let found = w
             .top
-            .read
+            .that
             .iter()
-            .skip(from)
+            .chain(read.iter().skip(from))
             .find(|line| satisfies(line, &w.top.wanted))
             .cloned();
         if let Some(line) = found {
@@ -330,7 +342,10 @@ fn that_line_is(w: &mut World, check: (String, String, bool)) {
                 w.top.wanted, w.top.read
             );
         }
-        next_line(w, left.min(Duration::from_secs(1)));
+        match &named {
+            Some(name) => next_named(w, name, left.min(Duration::from_secs(1))),
+            None => next_line(w, left.min(Duration::from_secs(1))),
+        };
     }
 }
 
@@ -350,6 +365,7 @@ fn later_reports_containing(w: &mut World, path: String, text: String) {
         at(line, &path).is_some_and(|got| said(got).contains(&text))
     });
     w.top.wanted = vec![(path, text, false)];
+    w.top.that_from = None;
     w.top.that = Some(line);
 }
 
@@ -817,6 +833,7 @@ fn later_reports(w: &mut World, path: String, want: String) {
         at(line, &path).is_some_and(|got| is(got, &want))
     });
     w.top.wanted = vec![(path, want, true)];
+    w.top.that_from = None;
     w.top.that = Some(found);
 }
 
@@ -853,6 +870,8 @@ fn named_line_has(w: &mut World, seconds: u64, name: String, path: String, text:
             .find(|line| at(line, &path).is_some_and(|got| said(got).contains(&text)))
         {
             w.top.that = Some(found.clone());
+            w.top.wanted = vec![(path, text, false)];
+            w.top.that_from = Some(name);
             return;
         }
         let left = deadline.saturating_duration_since(Instant::now());

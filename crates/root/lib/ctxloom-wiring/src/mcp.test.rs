@@ -11,3 +11,14 @@ fn a_wakes_nonce_reads_back_from_its_line_and_each_is_fresh() {
     );
     assert_ne!(super::nonce(), nonce);
 }
+
+// The argument the engine's entry carries is the one the server reads.
+#[test]
+fn test_the_hosted_entrys_flag_is_the_servers_no_wake() {
+    let mut argv = surface_ports::hosted_server_args();
+    argv.remove(0);
+    let matches = mcp_server::verb()
+        .try_get_matches_from(argv)
+        .expect("the entry's arguments parse");
+    assert!(!mcp_server::posts_wakes(&matches));
+}

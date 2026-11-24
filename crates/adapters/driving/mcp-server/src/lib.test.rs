@@ -669,3 +669,16 @@ async fn an_ask_missing_an_argument_is_the_tools_error() {
     assert!(seen.lock().unwrap().calls.is_empty());
     engine.end().await;
 }
+
+#[test]
+fn test_serve_takes_no_wake_to_start_without_the_wake_poster() {
+    let plain = super::verb().try_get_matches_from(["serve"]).unwrap();
+    assert!(
+        super::posts_wakes(&plain),
+        "a terminal session's server posts wakes"
+    );
+    let hosted = super::verb()
+        .try_get_matches_from(["serve", "--no-wake"])
+        .unwrap();
+    assert!(!super::posts_wakes(&hosted));
+}

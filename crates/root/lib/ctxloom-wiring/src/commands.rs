@@ -584,7 +584,12 @@ impl Commands {
                 .to_string()
         };
         if crate::mcp::is_serve(noun, &verb_of(noun)) {
-            return crate::mcp::serve(&self.env, &self.version, out);
+            let wakes = call
+                .matches
+                .subcommand_matches(noun)
+                .and_then(|m| m.subcommand_matches(mcp_server::VERB))
+                .is_none_or(mcp_server::posts_wakes);
+            return crate::mcp::serve(&self.env, &self.version, wakes, out);
         }
         // A hook answers its engine whatever the store (it never fails the
         // engine); every other command in a project that still has a store

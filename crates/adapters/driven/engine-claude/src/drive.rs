@@ -238,7 +238,8 @@ impl Engine for Claude {
             HomeFile {
                 executable: false,
                 rel: MCP_CONFIG_FILE.to_string(),
-                bytes: mcp_config(&request.surfaces.0, &self.program).into_bytes(),
+                bytes: mcp_config(&request.surfaces.0, &self.program, request.interactive)
+                    .into_bytes(),
             },
         ];
         // The commands and skills: the session home's own (its
@@ -518,7 +519,7 @@ fn with_deny(document: Option<Json>, deny: &[String]) -> Option<Json> {
 /// server named `ctxloom` is shadowed by it (OD-6; the plan names it). A
 /// launch with no context (OD-38) lists no server at all, ctxloom's own
 /// included.
-fn mcp_config(surfaces: &surface_ports::Inputs, program: &str) -> String {
+fn mcp_config(surfaces: &surface_ports::Inputs, program: &str, interactive: bool) -> String {
     if surfaces.no_context {
         let doc = Json::object([("mcpServers", Json::Object(Vec::new()))]);
         return format!("{}\n", doc.pretty());
@@ -529,11 +530,17 @@ fn mcp_config(surfaces: &surface_ports::Inputs, program: &str) -> String {
         .filter(|server| server.name != surface_ports::CTXLOOM_SERVER)
         .map(|server| (server.name.clone(), crate::mcp_entry(server)))
         .collect::<Vec<_>>();
+    // One delivery owner per session: a terminal session's server posts its
+    // wake; a hosted child's is constructed without the poster.
+    let args = match interactive {
+        true => surface_ports::ctxloom_server_args(),
+        false => surface_ports::hosted_server_args(),
+    };
     servers.push((
         surface_ports::CTXLOOM_SERVER.to_string(),
         Json::object([
             ("command", Json::text(program)),
-            ("args", Json::strings(surface_ports::ctxloom_server_args())),
+            ("args", Json::strings(args)),
         ]),
     ));
     let doc = Json::object([("mcpServers", Json::Object(servers))]);

@@ -1840,7 +1840,7 @@ fn the_servers_ride_an_mcp_config_the_command_names() {
     assert_eq!(
         ours,
         surface_ports::Json::parse(
-            r#"{"mcpServers":{"ctxloom":{"command":"ctxloom","args":["mcp","serve"]}}}"#
+            r#"{"mcpServers":{"ctxloom":{"command":"ctxloom","args":["mcp","serve","--no-wake"]}}}"#
         )
         .unwrap()
     );
@@ -2165,4 +2165,34 @@ fn a_context_is_handed_to_claude_at_its_next_prompt_or_tool_result() {
             "{hook}"
         );
     }
+}
+
+// ONE DELIVERY OWNER PER SESSION (owner ruling): the daemon feeds a hosted
+// child, so its `mcp serve` is constructed without the socket wake poster; a
+// terminal session's is the one the wake wakes.
+#[test]
+fn test_ctxloom_server_entry_has_the_wake_poster_only_for_a_terminal_session() {
+    let args = |interactive: bool| {
+        let prepared = prepare_carrying(
+            interactive,
+            SessionHome::Session,
+            None,
+            surface_ports::Inputs::default(),
+        );
+        let mcp =
+            surface_ports::Json::parse(&file_of(&prepared, MCP_CONFIG_FILE).unwrap()).unwrap();
+        mcp.get("mcpServers")
+            .and_then(|s| s.get("ctxloom"))
+            .and_then(|t| t.get("args"))
+            .cloned()
+            .unwrap()
+    };
+    assert_eq!(
+        args(true),
+        surface_ports::Json::parse(r#"["mcp","serve"]"#).unwrap()
+    );
+    assert_eq!(
+        args(false),
+        surface_ports::Json::parse(r#"["mcp","serve","--no-wake"]"#).unwrap()
+    );
 }

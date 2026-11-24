@@ -3961,6 +3961,24 @@ left it out, anything else does not), and an absent list has 0 entries.
 
 ## The terminal wake (step 9, owner rulings 2026-11-18)
 
+ONE DELIVERY OWNER PER SESSION, chosen when its pieces are built (owner
+ruling 2026-11-24): the daemon owns every delivery to a session it hosts (a
+child's stdin feed and steer; a one-shot), and the socket wake below is the
+delivery path of a primary terminal session alone. The launch writes each
+session's `ctxloom-mcp.json`, and `ctxloom`'s entry for a hosted session's
+home is `mcp serve --no-wake` (`surface_ports::hosted_server_args`, engine-claude's
+`mcp_config` on `PrepareRequest::interactive` false), for which the wiring's
+`mcp::serve` constructs the server with no `Wakes` poster
+(`mcp_server::posts_wakes`); a terminal session's entry is `mcp serve`. The
+Waker has no branch for it: it exists or it does not. (A hosted child woken
+by both paths had its own server's wake line blocked by the prompt hook, "a
+wake with no message waiting for it", whose `result` ended the child's real
+turn early and notified its owner before its words.) A claude `result` ends a
+hosted child's turn only once that turn's prompt was echoed (submitted)
+(`Conversation::result`): a `result` of a blocked prompt, or with no turn in
+flight, ends nothing, and a failure still ends the turn echoed or not.
+opencode has no messaging socket, so its entry is unchanged.
+
 A primary terminal session is woken through its engine's own messaging
 socket. claude exports `CLAUDE_CODE_MESSAGING_SOCKET` (and `_TOKEN`) to what
 it starts, so `ctxloom mcp serve` (the stdio server it starts from

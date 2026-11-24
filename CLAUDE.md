@@ -5416,13 +5416,16 @@ checkout, by its own path. It removes `target/ratchet-base`
 `ratchet-base.sh` holds `target/.ratchet-base.lock`) and every rustc
 incremental directory of `target/`, never touching `target/ratchet/` (the
 cached lists and re-confirmations, reused by sha); it sweeps the shared
-staged target BY AGE (`trim-targets.sh` with `TRIM_TARGET_DIR`, `LAND_SWEEP_DAYS`,
-default 2) and only while it holds `staged-tree.lock` (`flock -n`; a commit
-gate holding it skips the sweep, said). Age, not whole removal: every commit
-gate builds there, and removing it whole would rebuild every dependency at the
-next commit (not measured: building the workspace is outside this change's
-gates); a sweep that cannot run is said and never changes the landing's
-verdict. Each is one line, `ok   sweep (<what>) freed <size>`. A cargo's
+staged target only while it holds `staged-tree.lock` (`flock -n`; a commit
+gate holding it skips the sweep, said, never waited for): first the staged
+target's rustc incremental directories, then, if it is still larger than
+`staged_target_cap` (the justfile's, env `STAGED_TARGET_CAP`, default 40G,
+passed by `closeout-ratchet` and `land-ratchet`), the whole of it (the next
+commit rebuilds every dependency, the accepted cost of a bounded cache). It
+is not swept by age: every commit in every worktree builds there, so nothing
+in it is ever two days unused, and the age sweep said `freed 0B` at five
+landings in a row while it grew to 114G. A sweep that cannot run is said and
+never changes the landing's verdict. Each is one line, `ok   sweep (<what>) freed <size>` (`removed <size>` for the cap's). A cargo's
 `.cargo-lock` held keeps its target. Self-tests: `scripts/land-sweep.selftest.sh`
 and `closeout-ratchet.selftest.sh`.
 

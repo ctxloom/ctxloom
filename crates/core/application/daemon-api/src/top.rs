@@ -363,6 +363,8 @@ struct TopWatch {
     owed: VecDeque<v1::TopEvent>,
     /// The newest log entry told.
     said_log: BTreeMap<String, u64>,
+    /// The sessions it said had left the view, and may be destroyed after.
+    left: BTreeSet<String>,
     /// When it looks again after a wake, soonest first.
     settle: VecDeque<Duration>,
     /// The one session scoped to was destroyed: the watch ends once its
@@ -422,6 +424,7 @@ impl TopWatch {
             owed,
             said_log,
             settle: VecDeque::new(),
+            left: BTreeSet::new(),
             ended: false,
         }
     }
@@ -452,7 +455,29 @@ impl TopWatch {
                     name: name.clone(),
                     reason: reason as i32,
                 })));
+            if !destroyed {
+                self.left.insert(name.clone());
+            }
             self.ended |= destroyed && self.scene.scope.is_some() && view.sessions.is_empty();
+        }
+        // A session that left the view (its lock let go, a destroy's
+        // directory taken) and is destroyed after is removed once more, for
+        // what became of it; one back in view is no longer gone.
+        self.left.retain(|name| !view.sessions.contains_key(name));
+        let destroyed: Vec<String> = self
+            .left
+            .iter()
+            .filter(|name| !view.known.contains(*name))
+            .cloned()
+            .collect();
+        for name in destroyed {
+            self.left.remove(&name);
+            self.owed
+                .push_back(event(Event::SessionRemoved(v1::TopSessionRemoved {
+                    name,
+                    reason: v1::top_session_removed::Reason::Destroyed as i32,
+                })));
+            self.ended |= self.scene.scope.is_some() && view.sessions.is_empty();
         }
         for (name, ask) in &view.asks {
             if !self.said_asks.contains_key(name) {

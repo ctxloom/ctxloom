@@ -95,6 +95,8 @@ pub(super) struct State {
     second: Option<PathBuf>,
     /// The daemon's round period, in milliseconds, when a step set one.
     poll_ms: Option<u64>,
+    /// A stand-in `opencode`, when a scenario hosts a child on it.
+    opencode_stub: Option<PathBuf>,
     /// Processes that hold sessions' locks until the scenario ends.
     holders: Vec<Child>,
     /// The daemon a step killed outright, by its pid.
@@ -391,6 +393,14 @@ pub(super) fn ended_session(w: &mut World, harp: &str) {
     assert_eq!(seeded.code, 0, "{}", seeded.said());
 }
 
+/// The harp of the project `name` beside this one, as `projects/<harp>`
+/// names it.
+pub(super) fn beside_name(w: &World, name: &str) -> String {
+    let ran = run_in_beside(w, name, &["test", "project-name"]);
+    assert_eq!(ran.code, 0, "{}", ran.said());
+    ran.stdout.trim().to_string()
+}
+
 /// The project `name` beside this one, with a session `harp` that is
 /// running there: its lock held until the scenario ends.
 pub(super) fn second_project_running(w: &mut World, name: &str, harp: &str) {
@@ -429,6 +439,35 @@ pub(super) fn kill_daemon(w: &mut World) {
         let _ = daemon.kill();
     }
     daemon_gone(w);
+}
+
+/// The daemon the scenario started has drained and exited.
+pub(super) fn drained_daemon_gone(w: &mut World) {
+    exit_of_daemon(w);
+    w.daemon_spec.daemon = None;
+}
+
+/// An ask waits under the harness's owner: the child's engine asks to run
+/// `make test` when none does.
+pub(super) fn ensure_an_ask(w: &mut World, child: &str) {
+    if waiting_asks(w, Some("amber-quiet-heron")).is_empty() {
+        ask(w, child, "Bash", "make test");
+    }
+}
+
+/// Whether a step of the scenario started a daemon.
+pub(super) fn started_a_daemon(w: &World) -> bool {
+    w.daemon_spec.daemon.is_some()
+}
+
+/// Nothing has started a daemon in this scenario's home.
+pub(super) fn nothing_started(w: &World) {
+    let dir = w.common.project.home().join(".ctxloom/daemon");
+    assert!(
+        !files::exists(discovery_path(w)),
+        "a daemon advertised itself"
+    );
+    assert!(!files::exists(dir.join("daemon.log")), "a daemon logged");
 }
 
 /// A daemon serves for this home, hosting nothing.
@@ -473,6 +512,34 @@ pub(super) fn hold_owner_live(w: &mut World, owner: &str) {
     });
 }
 
+/// `opencode acp`, as an ACP agent: it answers the client's opening, takes
+/// each prompt with one reply and ends the turn, and exits when its input
+/// ends. (A hosted opencode child is this one long-lived process.)
+const OPENCODE_CHILD_STUB: &str = r#"exec python3 -I -c '
+import json, sys
+
+def send(message):
+    sys.stdout.write(json.dumps(message) + "\n")
+    sys.stdout.flush()
+
+for line in sys.stdin:
+    try:
+        message = json.loads(line)
+    except ValueError:
+        continue
+    method, ident = message.get("method"), message.get("id")
+    if method == "initialize":
+        send({"jsonrpc": "2.0", "id": ident, "result": {"protocolVersion": 1, "agentCapabilities": {}}})
+    elif method == "session/new":
+        send({"jsonrpc": "2.0", "id": ident, "result": {"sessionId": "ses_stub"}})
+    elif method == "session/prompt":
+        send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "ses_stub", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "ok"}}}})
+        send({"jsonrpc": "2.0", "id": ident, "result": {"stopReason": "end_turn"}})
+    elif ident is not None:
+        send({"jsonrpc": "2.0", "id": ident, "result": {}})
+'
+"#;
+
 /// A child of `owner` launched on `agent`, which the project says is on
 /// claude-code; its first turn ended and told. The project's config is made
 /// again, so a later child names an agent the daemon reads at its launch.
@@ -482,6 +549,7 @@ pub(super) fn child_on_agent(
     owner: &str,
     agent: &str,
     profile: Option<(&str, &str)>,
+    engine: &str,
 ) {
     // A profile of the project whose loadout loads `bundle`, the agent's.
     if let Some((profile, bundle)) = profile {
@@ -491,7 +559,20 @@ pub(super) fn child_on_agent(
             w.daemon_spec.project_says.push(said);
         }
     }
-    let said = format!("agents.{agent}.engine: claude-code");
+    if engine == "opencode" && w.daemon_spec.opencode_stub.is_none() {
+        // `opencode run` answers one turn and exits; the daemon keeps the
+        // child hosted between turns.
+        let stub = w
+            .common
+            .project
+            .home()
+            .join("fake-opencode")
+            .join("opencode");
+        files::put_program(&stub, OPENCODE_CHILD_STUB);
+        w.daemon_spec.opencode_stub = Some(stub);
+        write_home_config(w);
+    }
+    let said = format!("agents.{agent}.engine: {engine}");
     if !w.daemon_spec.project_says.contains(&said) {
         w.daemon_spec.project_says.push(said);
     }
@@ -507,6 +588,13 @@ pub(super) fn child_on_agent(
     }
     if w.daemon_spec.stub.is_some() {
         write_project_config(w);
+    }
+    // A child of a hosted child: its first turn is told through its owner's
+    // own conversation, so it is the run's record that says it ended.
+    if owner != "amber-quiet-heron" {
+        hosting_daemon(w);
+        grandchild_of(w, owner, child, Some(agent));
+        return;
     }
     user_launches(w, owner, child, Some(agent));
     first_turn_told(w, owner, child);
@@ -534,6 +622,12 @@ fn write_home_config(w: &World) {
             "engines:\n  claude-code:\n    command: {}\n",
             stub.display()
         ));
+        if let Some(opencode) = &w.daemon_spec.opencode_stub {
+            config.push_str(&format!(
+                "  opencode:\n    command: {}\n",
+                opencode.display()
+            ));
+        }
     }
     if let Some(timeout) = &w.daemon_spec.drain_timeout {
         config.push_str(&format!("daemon:\n  drain_timeout: {timeout}\n"));
@@ -2162,7 +2256,7 @@ pub(super) fn child_of_idle(w: &mut World, child: String, owner: String) {
     }
     // A child of a hosted child: launched by it, as its engine would.
     if owner != "amber-quiet-heron" {
-        grandchild_of(w, &owner, &child);
+        grandchild_of(w, &owner, &child, None);
         return;
     }
     if (child.as_str(), owner.as_str()) == ("brisk-copper-moth", "amber-quiet-heron") {
@@ -2194,18 +2288,20 @@ fn claude_child_on(w: &mut World, child: String, owner: String, profile: String)
 /// The hosted child's own child (step 10c D16): launched by the child,
 /// `olive-quiet-finch`, its first turn ended and told to it.
 fn grandchild_idle(w: &mut World) {
-    grandchild_of(w, "brisk-copper-moth", "olive-quiet-finch");
+    grandchild_of(w, "brisk-copper-moth", "olive-quiet-finch", None);
 }
 
 /// `child`, launched under the hosted child `owner`, its first turn ended.
-fn grandchild_of(w: &mut World, owner: &str, child: &str) {
+fn grandchild_of(w: &mut World, owner: &str, child: &str, agent: Option<&str>) {
     let mut env = env_of(w);
     env.push(("ANTHROPIC_API_KEY".to_string(), "a-key".to_string())); // gitleaks:allow
     let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
-    let launched = w.common.project.run_with(
-        &env,
-        &["session", "launch", owner, "--name", child, "a task"],
-    );
+    let mut args = vec!["session", "launch", owner, "--name", child];
+    if let Some(agent) = agent {
+        args.extend(["--agent", agent]);
+    }
+    args.push("a task");
+    let launched = w.common.project.run_with(&env, &args);
     assert_eq!(launched.code, 0, "{}", launched.said());
     // Its first turn's end is its run's record (its owner, itself a
     // hosted child, is told it through its own conversation).
@@ -7001,8 +7097,12 @@ fn child_asking(w: &mut World, child: &str, owner: &str, tool: &str, text: &str)
         hosted_child(w);
     } else {
         let taken = turns(w).len();
-        let seeded = run_now(w, &["test", "seed-session", owner]);
-        assert_eq!(seeded.code, 0, "{}", seeded.said());
+        // An owner the scenario already has (the harness's, a child hosted)
+        // is not made again.
+        if listed_state(w, owner).is_none() {
+            let seeded = run_now(w, &["test", "seed-session", owner]);
+            assert_eq!(seeded.code, 0, "{}", seeded.said());
+        }
         let mut env = env_of(w);
         env.push(("ANTHROPIC_API_KEY".to_string(), "a-key".to_string())); // gitleaks:allow
         let launched = w.common.project.run_with(
@@ -7185,6 +7285,7 @@ fn none_waiting(w: &mut World, root: String) {
 }
 
 #[then(expr = "an ask is still waiting under {string}")]
+#[then(expr = "the ask is still waiting under {string}")]
 fn still_waiting(w: &mut World, root: String) {
     if !waiting_asks(w, Some(&root)).is_empty() {
         return;

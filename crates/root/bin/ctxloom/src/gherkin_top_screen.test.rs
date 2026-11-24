@@ -239,6 +239,15 @@ fn pressed(w: &mut World, key: String) {
                 .unwrap_or_else(|_| panic!("the key {key} changed nothing on the screen"));
             screen(w).seen.push(frame);
         }
+        // A confirmed answer says it was made, or why not.
+        if key == "y" {
+            let frame = screen(w).seen.last().cloned().unwrap_or_default();
+            assert!(
+                frame.iter().any(|line| line.contains("answered")),
+                "the confirmed answer was not made; the screen says:\n{}",
+                frame.join("\n")
+            );
+        }
     }
     if key == "q" {
         let mut screen = w.top_screen.screen.take().expect("a screen was started");

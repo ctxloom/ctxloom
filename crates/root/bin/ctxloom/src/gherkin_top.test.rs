@@ -45,6 +45,9 @@ pub(super) struct State {
     /// How many lines had been read when an action was taken: a step that
     /// names a line "within N seconds" after it looks past them.
     mark: usize,
+    /// Where the scenario's commands run when it is not the project: a
+    /// directory that is in no ctxloom project.
+    elsewhere: Option<std::path::PathBuf>,
     /// Streams started beside the first, by the name the scenario gave
     /// them, each with the lines read from it.
     named: std::collections::BTreeMap<String, (Stream, Vec<Value>)>,
@@ -69,13 +72,19 @@ fn started_named(w: &mut World, line: String, name: String) {
 
 /// `line`'s command started, its stdout read on a thread of its own.
 fn spawn_stream(w: &mut World, line: &str) -> Stream {
+    let line = &expanded_projects(w, line);
     let words = split(line);
     assert_eq!(words.first().map(String::as_str), Some("ctxloom"), "{line}");
     let args: Vec<&str> = words[1..].iter().map(String::as_str).collect();
     let env = daemon_spec::env_of(w);
     let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
-    daemon_spec::hold_owner_live(w, "amber-quiet-heron");
-    let mut child = w.common.project.start_with_input(&env, &args);
+    let mut child = match w.top.elsewhere.clone() {
+        Some(dir) => w.common.project.start_in_with(&dir, &env, &args),
+        None => {
+            daemon_spec::hold_owner_live(w, "amber-quiet-heron");
+            w.common.project.start_with_input(&env, &args)
+        }
+    };
     let stdout = child.stdout.take().expect("stdout is piped");
     let input = child.stdin.take();
     let (tx, lines) = channel();
@@ -326,6 +335,7 @@ fn daemon_starts_hosting(w: &mut World, child: String, owner: String) {
 
 #[when(expr = "a child {string} of {string} is launched")]
 fn child_launched(w: &mut World, child: String, owner: String) {
+    settle_mark(w);
     daemon_spec::user_launches(w, &owner, &child, None);
 }
 
@@ -338,6 +348,7 @@ fn child_of(w: &mut World, child: String, owner: String) {
 
 #[when(regex = r#"^the engine of "([^"]+)" asks to run "([^"]+)" with "([^"]*)"$"#)]
 fn engine_of_asks(w: &mut World, child: String, tool: String, input: String) {
+    settle_mark(w);
     daemon_spec::ask(w, &child, &tool, &input);
 }
 
@@ -380,6 +391,11 @@ fn sent_sigint(w: &mut World) {
 
 #[then("the daemon is still serving")]
 fn daemon_still_serving(w: &mut World) {
+    // `top` starts no daemon: where the scenario had none, it has none.
+    if !daemon_spec::started_a_daemon(w) {
+        daemon_spec::nothing_started(w);
+        return;
+    }
     let env = daemon_spec::env_of(w);
     let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
     let ran = w
@@ -398,7 +414,7 @@ fn daemon_still_serving(w: &mut World) {
 
 #[given(expr = "a child {string} of {string} launched on agent {string}")]
 fn child_on_agent(w: &mut World, child: String, owner: String, agent: String) {
-    daemon_spec::child_on_agent(w, &child, &owner, &agent, None);
+    daemon_spec::child_on_agent(w, &child, &owner, &agent, None, "claude-code");
 }
 
 #[given(
@@ -412,7 +428,14 @@ fn child_with_profile(
     profile: String,
     bundle: String,
 ) {
-    daemon_spec::child_on_agent(w, &child, &owner, &agent, Some((&profile, &bundle)));
+    daemon_spec::child_on_agent(
+        w,
+        &child,
+        &owner,
+        &agent,
+        Some((&profile, &bundle)),
+        "claude-code",
+    );
 }
 
 #[given(
@@ -427,11 +450,14 @@ fn child_with_profile_on_engine(
     bundle: String,
     engine: String,
 ) {
-    assert_eq!(
-        engine, "claude-code",
-        "only claude-code's child is hosted by the harness"
+    daemon_spec::child_on_agent(
+        w,
+        &child,
+        &owner,
+        &agent,
+        Some((&profile, &bundle)),
+        &engine,
     );
-    daemon_spec::child_on_agent(w, &child, &owner, &agent, Some((&profile, &bundle)));
 }
 
 /// Another child must start in a second of its own: the start is told in
@@ -451,14 +477,10 @@ fn child_on_engine_started(
     engine: String,
     when: String,
 ) {
-    assert_eq!(
-        engine, "claude-code",
-        "only claude-code's child is hosted by the harness"
-    );
     if when == "second" {
         a_second_apart();
     }
-    daemon_spec::child_on_agent(w, &child, &owner, &agent, None);
+    daemon_spec::child_on_agent(w, &child, &owner, &agent, None, &engine);
 }
 
 #[given(regex = r#"^a child "([^"]+)" of "([^"]+)", started (first|second)$"#)]
@@ -552,13 +574,13 @@ fn says(w: &mut World, harp: &str, text: &str) {
 #[given(expr = "{string} says {string}")]
 #[when(expr = "{string} says {string}")]
 fn says_step(w: &mut World, harp: String, text: String) {
-    w.top.mark = w.top.read.len();
+    settle_mark(w);
     says(w, &harp, &text);
 }
 
 #[when(expr = "{string} says {string} and its run then ends")]
 fn says_then_ends(w: &mut World, harp: String, text: String) {
-    w.top.mark = w.top.read.len();
+    settle_mark(w);
     says(w, &harp, &text);
     run_ends_of(w, &harp);
 }
@@ -573,11 +595,13 @@ fn run_ends_of(w: &mut World, harp: &str) {
 
 #[when(regex = r#"^"([^"]+)"'s run ends$"#)]
 fn run_ends(w: &mut World, harp: String) {
+    settle_mark(w);
     run_ends_of(w, &harp);
 }
 
 #[when(regex = r#"^the daemon is stopped and the next daemon re-hosts "([^"]+)"$"#)]
 fn rehosted(w: &mut World, _harp: String) {
+    settle_mark(w);
     let env = daemon_spec::env_of(w);
     let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
     let stopped = w
@@ -585,12 +609,18 @@ fn rehosted(w: &mut World, _harp: String) {
         .project
         .run_with(&env, &["daemon", "stop", "--drain"]);
     assert_eq!(stopped.code, 0, "{}", stopped.said());
+    // The next daemon is started once this one has exited (it hands its
+    // children over first).
+    daemon_spec::drained_daemon_gone(w);
     let next = w.common.project.run_with(&env, &["daemon", "resolve"]);
     assert_eq!(next.code, 0, "{}", next.said());
 }
 
 #[when(expr = "the ask is answered {string}")]
 fn ask_answered(w: &mut World, option: String) {
+    // "The ask": the child's engine asks first when none waits.
+    daemon_spec::ensure_an_ask(w, "brisk-copper-moth");
+    settle_mark(w);
     let env = daemon_spec::env_of(w);
     let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
     let ran = w.common.project.run_with(
@@ -748,11 +778,33 @@ fn named_line_has(w: &mut World, seconds: u64, name: String, path: String, text:
 #[then(expr = "no line read names {string}")]
 fn no_line_names(w: &mut World, text: String) {
     for line in &w.top.read {
-        assert!(
-            !line.to_string().contains(&text),
-            "a line names {text}: {line}"
-        );
+        assert!(!names_a_session(line, &text), "a line names {text}: {line}");
     }
+}
+
+/// Whether `value` holds, under a key that names a session (`name`, `child`,
+/// `session`), a name containing `text`: a session in a list of children
+/// is not a line about it.
+fn names_a_session(value: &Value, text: &str) -> bool {
+    match value {
+        Value::Object(fields) => fields.iter().any(|(key, inner)| {
+            let names = matches!(key.as_str(), "name" | "child" | "session")
+                && inner.as_str().is_some_and(|s| s.contains(text));
+            names || names_a_session(inner, text)
+        }),
+        Value::Array(items) => items.iter().any(|inner| names_a_session(inner, text)),
+        _ => false,
+    }
+}
+
+/// What the scenario has read is the past: lines pending now are drained
+/// first, and a line "within N seconds" of the next step is one that comes
+/// after.
+fn settle_mark(w: &mut World) {
+    if w.top.stream.is_some() {
+        while next_line(w, Duration::from_millis(300)).is_some() {}
+    }
+    w.top.mark = w.top.read.len();
 }
 
 #[then(expr = "within {int} seconds no line names {string}")]
@@ -816,4 +868,27 @@ fn daemon_killed(w: &mut World) {
 #[when("a ctxloom daemon starts serving for this home")]
 fn daemon_starts_serving(w: &mut World) {
     daemon_spec::serve_again(w);
+}
+
+/// `projects/{name}/...` in a command line: `{name}` is the harp of the
+/// project beside this one of that name.
+fn expanded_projects(w: &World, line: &str) -> String {
+    let mut out = line.to_string();
+    while let Some(open) = out.find("projects/{") {
+        let from = open + "projects/{".len();
+        let Some(len) = out[from..].find('}') else {
+            break;
+        };
+        let name = out[from..from + len].to_string();
+        let harp = daemon_spec::beside_name(w, &name);
+        out.replace_range(open..from + len + 1, &harp);
+    }
+    out
+}
+
+#[given("a directory that is in no ctxloom project")]
+fn directory_in_no_project(w: &mut World) {
+    let dir = w.adopt_scratch().join("elsewhere");
+    crate::tests::files::mkdirs(&dir);
+    w.top.elsewhere = Some(dir);
 }

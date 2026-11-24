@@ -655,6 +655,11 @@ fn test_transcript_show_prints_the_whole_transcript_for_a_pipe() {
     for line in ran.stdout.lines() {
         let value: Value = serde_json::from_str(line).unwrap_or_else(|e| panic!("{e}: {line}"));
         assert!(value.is_object(), "{line}");
+        // A typed log entry: its arm and no name of the session or its engine.
+        assert!(value.get("prompt").is_some(), "{line}");
+        for key in ["v", "harp", "session_id", "engine", "kind"] {
+            assert!(value.get(key).is_none(), "{key} in {line}");
+        }
     }
     assert!(
         ran.stdout.contains("Seeded prompt for amber-swift-owl."),

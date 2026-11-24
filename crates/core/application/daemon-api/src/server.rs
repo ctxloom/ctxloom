@@ -1252,6 +1252,7 @@ impl<E: Edge> Api<E> {
                     json: line.to_string(),
                 })
                 .collect(),
+            ..Default::default()
         })
     }
 

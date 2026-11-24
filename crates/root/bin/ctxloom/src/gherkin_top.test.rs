@@ -913,12 +913,16 @@ fn log_in_order(w: &mut World, seconds: u64, text: String, event: String) {
     let deadline = Instant::now() + Duration::from_secs(seconds);
     loop {
         let logs = log_lines(w);
+        // A typed entry (`ctxloom.v1.LogEntry`): the words of the transcript
+        // are its `prompt` or `words` arm, what the daemon did its `lifecycle`.
         let said = logs.iter().position(|l| {
-            l["kind"] == "TRANSCRIPT" && l["line"].as_str().is_some_and(|x| x.contains(&text))
+            let entry = &l["entry"];
+            (entry.get("words").is_some() || entry.get("prompt").is_some())
+                && entry.to_string().contains(&text)
         });
         let ended = logs
             .iter()
-            .position(|l| l["kind"] == "DAEMON" && l["event"] == event.as_str());
+            .position(|l| l["entry"]["lifecycle"]["kind"] == event.to_uppercase().as_str());
         if let (Some(said), Some(ended)) = (said, ended) {
             assert!(said < ended, "the entries came out of order: {logs:#?}");
             return;
@@ -999,6 +1003,14 @@ fn that_holds(w: &mut World, path: String, text: String) {
     let line = w.top.that.clone().expect("a step found a line");
     let got = at(&line, &path).unwrap_or_else(|| panic!("no {path} in {line}"));
     assert!(said(got).contains(&text), "{path} is {got}: {line}");
+}
+
+#[then(expr = "that line has no {string}, {string} or {string}")]
+fn that_has_none(w: &mut World, one: String, two: String, three: String) {
+    let line = w.top.that.clone().expect("a step found a line");
+    for path in [one, two, three] {
+        assert!(at(&line, &path).is_none(), "{path} is in {line}");
+    }
 }
 
 /// The next line of the stream called `name`, within `within`.

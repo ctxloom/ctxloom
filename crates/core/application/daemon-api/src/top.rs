@@ -394,6 +394,7 @@ fn log_of(session: &str, entry: &Entry) -> v1::TopLog {
         line,
         event,
         text,
+        ..Default::default()
     }
 }
 

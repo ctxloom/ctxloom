@@ -1633,6 +1633,8 @@ message Transcript {
   string name = 1 [(google.api.field_behavior) = IDENTIFIER];
   // Its lines, in the order delivered (`seq`).
   repeated TranscriptLine lines = 2;
+  // Its entries, typed (additive; replaces `lines`).
+  repeated LogEntry entries = 3;
 }
 
 // The session to watch for messages that would wake it.
@@ -1725,6 +1727,159 @@ message TopApprovalSettled {
   Approval approval = 1;
 }
 
+// One entry of a session's log: what `ctxloom top` shows beside the session's
+// state and what `session transcript show` prints. ONE engine-neutral shape
+// for what an engine's hooks observed (prompt, words, tool, turn end,
+// compaction, clear, gap), what the daemon did to the session (lifecycle) and
+// what asked of the user (ask), built by the read model from the session's
+// events: nothing here is an engine's native shape, and none of the names that
+// identify the session (its harp, id or engine) are in it: the log is one
+// session's, already selected.
+message LogEntry {
+  // When the entry happened (its event's recorded instant).
+  google.protobuf.Timestamp time = 1;
+  // The entry's place in the list it came from, from 0: a transcript's
+  // entries, or a session's whole log.
+  uint64 seq = 2;
+  oneof entry {
+    LogPrompt prompt = 3;
+    LogWords words = 4;
+    LogTool tool = 5;
+    LogTurnEnd turn_end = 6;
+    LogCompaction compaction = 7;
+    LogClear clear = 8;
+    LogGap gap = 9;
+    LogLifecycle lifecycle = 10;
+    LogAsk ask = 11;
+  }
+  // The engine's own data for this entry that no common arm holds, as its
+  // adapter attached it to the observation: keys namespaced by engine
+  // (`<engine>.<name>`), values text. Empty for an engine that attached none
+  // and for an entry the daemon made itself. Never read by a consumer that
+  // does not know the key.
+  map<string, string> extra = 15;
+}
+
+// The user submitted a prompt.
+message LogPrompt {
+  // The turn the prompt opens, as the engine named it; the key that places
+  // the turn's words after it.
+  string prompt_id = 1;
+  string text = 2;
+}
+
+// One piece of the assistant's words. Pieces of one message are joined by
+// `message_id` and `index` (one shared joiner, `session_index::conversation`).
+message LogWords {
+  string prompt_id = 1;
+  string turn_id = 2;
+  string message_id = 3;
+  uint32 index = 4;
+  // The message's last piece.
+  bool is_final = 5;
+  string text = 6;
+}
+
+// One tool call. The result's body is never recorded: its size and SHA-256
+// (lowercase hex) only.
+message LogTool {
+  enum Status {
+    STATUS_UNSPECIFIED = 0;
+    COMPLETED = 1;
+    ERROR = 2;
+  }
+  string prompt_id = 1;
+  string tool_use_id = 2;
+  string name = 3;
+  // The call's input, compact JSON.
+  string input = 4;
+  uint64 response_bytes = 5;
+  string response_sha256 = 6;
+  // How the call ended; absent when the engine does not say.
+  optional Status status = 7;
+}
+
+// The assistant's turn ended. It carries no text: the words are LogWords.
+message LogTurnEnd {
+  string prompt_id = 1;
+}
+
+// The engine compacted its context. Of the summary, its size and SHA-256 only.
+message LogCompaction {
+  enum Phase {
+    PHASE_UNSPECIFIED = 0;
+    BEFORE = 1;
+    AFTER = 2;
+  }
+  string prompt_id = 1;
+  Phase phase = 2;
+  // `manual` or `auto`; `unknown` when the engine named none.
+  string trigger = 3;
+  uint64 summary_bytes = 4;
+  string summary_sha256 = 5;
+}
+
+// The engine started a new conversation within the session (`/clear`).
+message LogClear {
+  string native_session = 1;
+  string trigger = 2;
+}
+
+// A fact the session's hook could not keep was dropped: one gap is one fact
+// missing here.
+message LogGap {
+  // The dropped fact's key (its kind and the engine's ids, never its content).
+  string dropped = 1;
+  // `bound` (the hold was full) or `disk`.
+  string why = 2;
+  // The dropping hook's clock when it dropped the fact.
+  google.protobuf.Timestamp dropped_at = 3;
+}
+
+// Something the daemon did to the session.
+message LogLifecycle {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    STARTED = 1;
+    REHOSTED = 2;
+    RESTARTED = 3;
+    RESUMED = 4;
+    EXITED = 5;
+    RESTART_OWED = 6;
+    CLOSED = 7;
+    REOPENED = 8;
+    LAUNCH_FAILED = 9;
+  }
+  Kind kind = 1;
+  // The run (incarnation) the entry is of; 0 where none (a close, a launch
+  // that failed).
+  uint32 run = 2;
+  // Why: an exit's cause, a close's or reopening's cause, a failed launch's
+  // reason. Empty for the rest.
+  string cause = 3;
+  // The engine a session started on (STARTED alone).
+  string engine = 4;
+}
+
+// A permission ask of the session: asked, then settled.
+message LogAsk {
+  enum State {
+    STATE_UNSPECIFIED = 0;
+    ASKED = 1;
+    ANSWERED = 2;
+    EXPIRED = 3;
+    WITHDRAWN = 4;
+  }
+  State state = 1;
+  // The ask's name (`ask-<adjective>-<noun>`).
+  string ask = 2;
+  // ASKED: the tool asked about and an excerpt of its input.
+  string tool = 3;
+  string input_excerpt = 4;
+  // ANSWERED: the option the user chose.
+  string option = 5;
+}
+
 message TopLog {
   enum Kind {
     KIND_UNSPECIFIED = 0;
@@ -1740,6 +1895,8 @@ message TopLog {
   // `approval_asked`, `approval_settled`) and its text.
   string event = 5;
   string text = 6;
+  // The entry, typed (additive; replaces `kind`, `line`, `event` and `text`).
+  LogEntry entry = 7;
 }
 
 // `session transcript watch <harp>`.

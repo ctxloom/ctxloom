@@ -280,6 +280,7 @@ impl Ctxloom for Fake {
                 json: format!("{{\"of\":\"{name}\"}}"),
             }],
             name,
+            ..Default::default()
         }))
     }
 

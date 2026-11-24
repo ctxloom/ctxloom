@@ -65,9 +65,13 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
     approval_settled  an ask no longer waiting: the `Approval` with its
                       `state` (`answered`, `expired`, `withdrawn`) and `option`
     log               one entry of the log asked for with `--log`: `session`,
-                      `time`, `kind` (`TRANSCRIPT`, `DAEMON`), and for a
-                      transcript entry its `line` as the transcript has it,
-                      for a daemon entry its `event` (a word) and `text`
+                      `time` and `entry`, a typed `LogEntry`: its `time`, its
+                      `seq` and ONE arm of `prompt`, `words`, `tool`,
+                      `turn_end`, `compaction`, `clear`, `gap`, `lifecycle` or
+                      `ask`, with the arm's own fields. Nothing in it names
+                      the session, its harp or its engine (the log is the
+                      selected session's), and an engine's own data that no
+                      arm holds is `entry.extra`, a map keyed `<engine>.<name>`
 
   A connection to a daemon always begins with a snapshot; there is no resuming. A client
   that reconnects takes a new snapshot as the truth.
@@ -133,8 +137,8 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
   events: the entries of the session a one-session scope names or `--log`
   names, or (`all_logs`, additive) of every session in view, from a
   per-session timeline projector (`session-timeline`) that merges the
-  session's lifecycle events, its asks and its transcript lines in the order
-  they happened. No separate `WatchSessionLog` RPC is served.
+  session's lifecycle events, its asks and its transcript entries in the order
+  they happened, all one `LogEntry` type. No separate `WatchSessionLog` RPC is served.
 
   Rule: The JSON stream begins with a snapshot, then says what changes
 
@@ -487,13 +491,11 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
       When I start "ctxloom top --format json --log brisk-copper-moth" and read its output as it streams
       Then its first line has "snapshot" set
       And the next line reports "log.session" containing "/sessions/brisk-copper-moth"
-      And that line reports "log.kind" as "DAEMON"
-      And that line reports "log.event" as "started"
-      And a later line reports "log.kind" as "TRANSCRIPT"
-      And that line's "log.line" holds "review the migration"
+      And that line reports "log.entry.lifecycle.kind" as "STARTED"
+      And a later line reports "log.entry.prompt.text" as "review the migration"
+      And that line has no "log.entry.harp", "log.entry.engine" or "log.entry.session_id"
       When "brisk-copper-moth" says "the migration is reversible"
-      Then within 10 seconds a line reports "log.kind" as "TRANSCRIPT"
-      And that line's "log.line" holds "the migration is reversible"
+      Then within 10 seconds a line reports "log.entry.words.text" as "the migration is reversible"
 
     Scenario Outline: The daemon's events for a session are in its log
       # new: DRAFT; the events the owner named: started, exited, re-hosted, an ask arriving or settling.
@@ -501,15 +503,14 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
       And a child "brisk-copper-moth" of "amber-quiet-heron" that is open and idle
       And I start "ctxloom top --format json --log brisk-copper-moth" and read its output as it streams
       When <cause>
-      Then within 10 seconds a line reports "log.kind" as "DAEMON"
-      And that line reports "log.event" as "<event>"
+      Then within 10 seconds a line reports "<path>" as "<value>"
 
       Examples:
-        | cause                                                                | event          |
-        | "brisk-copper-moth"'s run ends                                       | exited         |
-        | the daemon is stopped and the next daemon re-hosts "brisk-copper-moth" | rehosted     |
-        | the engine of "brisk-copper-moth" asks to run "Bash" with "make test" | approval_asked |
-        | the ask is answered "allow-once"                                     | approval_settled |
+        | cause                                                                  | path                       | value    |
+        | "brisk-copper-moth"'s run ends                                         | log.entry.lifecycle.kind   | EXITED   |
+        | the daemon is stopped and the next daemon re-hosts "brisk-copper-moth" | log.entry.lifecycle.kind   | REHOSTED |
+        | the engine of "brisk-copper-moth" asks to run "Bash" with "make test"  | log.entry.ask.state        | ASKED    |
+        | the ask is answered "allow-once"                                       | log.entry.ask.state        | ANSWERED |
 
     Scenario: Entries are in the order they happened, whichever kind they are
       # new: DRAFT; one timeline, not two lists.

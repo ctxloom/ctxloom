@@ -261,6 +261,7 @@ impl daemon_api::SessionReads for Reads {
                 .iter()
                 .map(|json| v1::TranscriptLine { json: json.clone() })
                 .collect(),
+            ..Default::default()
         })
     }
 }

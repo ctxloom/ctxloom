@@ -369,32 +369,33 @@ fn transcript_holds(w: &mut World) {
     // Ruling 87a: read from the session's events, as a person reads it.
     let lines = super::capture::read_transcript(w, &w.opencode_harp());
     super::capture::holds_only_its_home(&w.opencode_session_dir());
-    let kinds: Vec<&str> = lines.iter().map(|l| l["kind"].as_str().unwrap()).collect();
+    use super::capture::{assert_no_envelope, count, kind_of};
+    let kinds: Vec<&str> = lines.iter().map(kind_of).collect();
     assert_eq!(
         kinds,
         // No `session_end` at the exit (owner 2026-11-15).
-        ["entry", "tool", "assistant_delta", "turn_end"],
+        ["prompt", "tool", "words", "turn_end"],
         "each once, the turn ended twice (its completion and its idle): {lines:#?}"
     );
     for line in &lines {
-        assert_eq!(line["engine"], "opencode", "{line}");
+        // The log is one session's: nothing in an entry names its engine.
+        assert_no_envelope(line);
     }
-    assert_eq!(lines[0]["entry"]["type"], "user");
-    assert_eq!(lines[0]["entry"]["content"], "Reply with exactly: ok");
+    assert_eq!(lines[0]["prompt"]["text"], "Reply with exactly: ok");
     let tool = &lines[1]["tool"];
-    assert_eq!(lines[1]["prompt_id"], PROMPT_ID);
-    assert_eq!(tool["id"], TOOL_PART);
+    assert_eq!(tool["prompt_id"], PROMPT_ID);
+    assert_eq!(tool["tool_use_id"], TOOL_PART);
     assert_eq!(tool["name"], "bash");
-    assert_eq!(tool["status"], "completed");
+    assert_eq!(tool["status"], "COMPLETED");
     assert_eq!(tool["input"], r#"{"command":"echo hi"}"#);
-    assert_eq!(tool["response_bytes"], TOOL_BODY.len());
+    assert_eq!(count(&tool["response_bytes"]), TOOL_BODY.len() as u64);
     assert_eq!(tool["response_sha256"], TOOL_DIGEST);
-    let words = &lines[2];
+    let words = &lines[2]["words"];
     assert_eq!(words["prompt_id"], PROMPT_ID);
-    assert_eq!(words["delta"]["message_id"], TEXT_PART);
-    assert_eq!(words["delta"]["text"], WORDS);
-    assert_eq!(words["delta"]["final"], true);
-    assert_eq!(lines[3]["prompt_id"], PROMPT_ID);
+    assert_eq!(words["message_id"], TEXT_PART);
+    assert_eq!(words["text"], WORDS);
+    assert_eq!(words["is_final"], true);
+    assert_eq!(lines[3]["turn_end"]["prompt_id"], PROMPT_ID);
     let whole = serde_json::to_string(&lines).unwrap();
     assert!(!whole.contains(TOOL_BODY), "the tool's output was kept");
     assert!(

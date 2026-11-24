@@ -110,6 +110,7 @@ impl DaemonApi for Fake {
             lines: vec![v1::TranscriptLine {
                 json: "{}".to_string(),
             }],
+            ..Default::default()
         })
     }
 

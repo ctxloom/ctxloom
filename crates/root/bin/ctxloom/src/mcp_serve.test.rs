@@ -443,7 +443,7 @@ fn test_session_list_and_show_answer_the_daemons_sessions() {
 }
 
 // S46, slice 3 step 5: `transcript_show` answers the daemon's
-// `GetTranscript`, a session's D27 lines as delivered so far; a session
+// `GetTranscript`, a session's log entries as delivered so far; a session
 // with none captured is a typed refusal, said as the tool's error.
 #[test]
 fn test_transcript_show_answers_the_lines_delivered_so_far() {
@@ -455,13 +455,16 @@ fn test_transcript_show_answers_the_lines_delivered_so_far() {
     let shown =
         answered_json(&mcp.call("transcript_show", json!({"session": "amber-quiet-heron"})));
     assert_eq!(shown["name"], format!("{me}/transcript"), "{shown}");
-    let lines = shown["lines"]
+    let entries = shown["entries"]
         .as_array()
-        .unwrap_or_else(|| panic!("no lines: {shown}"));
-    assert!(!lines.is_empty(), "{shown}");
-    for line in lines {
-        let entry: Value = serde_json::from_str(line["json"].as_str().unwrap()).unwrap();
-        assert_eq!(entry["harp"], "amber-quiet-heron", "{entry}");
+        .unwrap_or_else(|| panic!("no entries: {shown}"));
+    assert!(!entries.is_empty(), "{shown}");
+    assert!(shown.get("lines").is_none(), "{shown}");
+    for entry in entries {
+        // The log is one session's: nothing in an entry names it or its engine.
+        for key in ["v", "harp", "session_id", "engine"] {
+            assert!(entry.get(key).is_none(), "{key} in {entry}");
+        }
     }
     let none = mcp.call("transcript_show", json!({"session": "brisk-copper-moth"}));
     assert_eq!(none["isError"], true, "{none}");

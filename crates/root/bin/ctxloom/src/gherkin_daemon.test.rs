@@ -21,6 +21,7 @@ use std::time::{Duration, Instant};
 use cucumber::{given, then, when};
 use serde_json::{json, Value};
 
+use super::capture::{assert_no_envelope, count, kind_of};
 use super::{writes, World};
 use crate::tests::gherkin_common::CommonWorld;
 use crate::tests::{files, procs};
@@ -3486,7 +3487,7 @@ fn prompt_lines(lines: &[Value]) -> Vec<usize> {
     lines
         .iter()
         .enumerate()
-        .filter(|(_, l)| l["kind"] == "entry" && l["entry"]["content"] == PROMPT)
+        .filter(|(_, l)| l["prompt"]["text"] == PROMPT)
         .map(|(n, _)| n)
         .collect()
 }
@@ -3506,7 +3507,7 @@ fn prompt_then_turn_end(w: &mut World) {
     assert_eq!(prompts.len(), 1, "{lines:#?}");
     let ends = lines[prompts[0]..]
         .iter()
-        .filter(|l| l["kind"] == "turn_end")
+        .filter(|l| kind_of(l) == "turn_end")
         .count();
     assert_eq!(ends, 1, "the turn's end after the prompt: {lines:#?}");
 }
@@ -3519,9 +3520,9 @@ fn ten_pieces_once(w: &mut World) {
         let found = lines
             .iter()
             .filter(|l| {
-                l["kind"] == "assistant_delta"
-                    && l["delta"]["index"] == index
-                    && l["delta"]["text"] == format!("piece {index}")
+                kind_of(l) == "words"
+                    && count(&l["words"]["index"]) == index
+                    && l["words"]["text"] == format!("piece {index}")
             })
             .count();
         assert_eq!(found, 1, "piece {index}: {lines:#?}");
@@ -3533,7 +3534,7 @@ fn the_gap(lines: &[Value]) -> Value {
     let prompts = prompt_lines(lines);
     assert_eq!(prompts.len(), 1, "the prompt, once: {lines:#?}");
     let gaps: Vec<usize> = (0..lines.len())
-        .filter(|n| lines[*n]["kind"] == "gap")
+        .filter(|n| kind_of(&lines[*n]) == "gap")
         .collect();
     assert_eq!(gaps.len(), 1, "one gap: {lines:#?}");
     assert!(gaps[0] > prompts[0], "the gap after the prompt: {lines:#?}");
@@ -3547,7 +3548,7 @@ fn prompt_then_gap(w: &mut World) {
     let harp = fired(w).harp.clone();
     let lines = transcript_lines(w, &harp);
     let gap = the_gap(&lines);
-    assert_eq!(gap["gap"]["facts"], 1, "{gap}");
+    assert_no_envelope(&gap);
     assert!(
         gap["gap"]["dropped"]
             .as_str()
@@ -3555,7 +3556,7 @@ fn prompt_then_gap(w: &mut World) {
         "the turn's end was dropped: {gap}"
     );
     assert!(
-        !lines.iter().any(|l| l["kind"] == "turn_end"),
+        !lines.iter().any(|l| kind_of(l) == "turn_end"),
         "the turn's end itself was never recorded: {lines:#?}"
     );
 }
@@ -3574,7 +3575,7 @@ fn gap_says_when_and_why(w: &mut World) {
     assert!(at.ends_with('Z') && at.len() == 20, "{at}");
     let year: u64 = at[..4].parse().expect("a year");
     assert!(year >= 2026, "{at}");
-    let recorded = gap["ts"].as_str().unwrap_or_default();
+    let recorded = gap["time"].as_str().unwrap_or_default();
     assert!(at.as_str() <= recorded, "dropped {at}, recorded {recorded}");
 }
 

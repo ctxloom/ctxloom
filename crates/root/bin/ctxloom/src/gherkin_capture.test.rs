@@ -242,6 +242,46 @@ pub(super) fn read_transcript(w: &World, harp: &str) -> Vec<Value> {
         .collect()
 }
 
+/// The arms of a log entry (`ctxloom.v1.LogEntry`'s oneof), as its proto3
+/// JSON names them.
+const ARMS: [&str; 9] = [
+    "prompt",
+    "words",
+    "tool",
+    "turn_end",
+    "compaction",
+    "clear",
+    "gap",
+    "lifecycle",
+    "ask",
+];
+
+/// The kind of a log entry: the arm it holds.
+pub(super) fn kind_of(entry: &Value) -> &'static str {
+    ARMS.iter()
+        .find(|arm| entry.get(**arm).is_some())
+        .copied()
+        .unwrap_or("")
+}
+
+/// A 64-bit integer of an entry's proto3 JSON (a decimal string; a default is
+/// left out).
+pub(super) fn count(value: &Value) -> u64 {
+    match value {
+        Value::String(text) => text.parse().expect("a decimal string"),
+        Value::Number(n) => n.as_u64().expect("an unsigned number"),
+        _ => 0,
+    }
+}
+
+/// A log entry names no session, harp, id or engine: the log is one
+/// session's, already selected.
+pub(super) fn assert_no_envelope(entry: &Value) {
+    for key in ["v", "harp", "session_id", "engine", "kind", "line"] {
+        assert!(entry.get(key).is_none(), "{key} is in the entry: {entry}");
+    }
+}
+
 /// Ruling 87a: what a session's directory may hold, now that nothing of its
 /// events is projected there: its session home (and what the engine itself
 /// writes in it), never `metadata.json`, `records/` or `transcripts/`.
@@ -417,33 +457,28 @@ fn child_registered(w: &mut World) {
 #[then("the session's transcript holds her prompt, the assistant's words in order, the tool call as a digest and the turn's end, each once")]
 fn child_transcript(w: &mut World) {
     let lines = w.transcript();
-    let kinds: Vec<&str> = lines.iter().map(|l| l["kind"].as_str().unwrap()).collect();
+    let kinds: Vec<&str> = lines.iter().map(kind_of).collect();
     assert_eq!(
         kinds,
-        [
-            "entry",
-            "assistant_delta",
-            "assistant_delta",
-            "assistant_delta",
-            "tool",
-            "turn_end"
-        ],
+        ["prompt", "words", "words", "words", "tool", "turn_end"],
         "each observation once, from the hooks alone: {lines:#?}"
     );
-    assert_eq!(lines[0]["entry"]["type"], "user");
-    assert_eq!(lines[0]["entry"]["content"], PROMPT);
+    assert_eq!(lines[0]["prompt"]["text"], PROMPT);
     for (n, delta) in DELTAS.iter().enumerate() {
-        let line = &lines[1 + n]["delta"];
+        let line = &lines[1 + n]["words"];
         assert_eq!(line["text"], *delta, "{n}");
-        assert_eq!(line["index"], n);
-        assert_eq!(line["final"], n == DELTAS.len() - 1);
+        assert_eq!(count(&line["index"]), n as u64);
+        assert_eq!(
+            line["is_final"].as_bool().unwrap_or(false),
+            n == DELTAS.len() - 1
+        );
         assert!(!line["message_id"].as_str().unwrap_or_default().is_empty());
     }
     let tool = &lines[4]["tool"];
     assert_eq!(tool["name"], "Bash");
-    assert_eq!(tool["response_bytes"], TOOL_BODY.len());
+    assert_eq!(count(&tool["response_bytes"]), TOOL_BODY.len() as u64);
     assert_eq!(tool["response_sha256"], TOOL_DIGEST);
-    let turn_end = lines[5].as_object().unwrap();
+    let turn_end = lines[5]["turn_end"].as_object().unwrap();
     assert!(
         !turn_end.contains_key("text") && !turn_end.contains_key("delta"),
         "the turn's end carries no text: {turn_end:?}"
@@ -458,7 +493,8 @@ fn child_transcript(w: &mut World) {
         "the stream's reply is not a second copy of the words"
     );
     for (n, line) in lines.iter().enumerate() {
-        assert_eq!(line["seq"], n, "{line}");
+        assert_eq!(count(&line["seq"]), n as u64, "{line}");
+        assert_no_envelope(line);
     }
     w.capture.ended = lines;
 }
@@ -468,7 +504,9 @@ fn no_conversation(w: &mut World) {
     let lines = w.transcript();
     let text = serde_json::to_string(&lines).unwrap();
     assert!(
-        !text.contains("\"entry\"") && !text.contains("assistant_delta"),
+        !lines
+            .iter()
+            .any(|l| matches!(kind_of(l), "prompt" | "words")),
         "{text}"
     );
     assert!(!text.contains(CHILD_REPLY), "{text}");
@@ -642,12 +680,12 @@ fn transcript_ends_late(w: &mut World) {
     let lines = w.transcript();
     let late: Vec<&Value> = lines
         .iter()
-        .filter(|l| l["prompt_id"] == LATE_PROMPT)
+        .filter(|l| l[kind_of(l)]["prompt_id"] == LATE_PROMPT)
         .collect();
     assert_eq!(late.len(), 1, "the late turn's end once: {lines:#?}");
     let last = lines.last().expect("a transcript");
-    assert_eq!(last["kind"], "turn_end", "{lines:#?}");
-    assert_eq!(last["prompt_id"], LATE_PROMPT, "{lines:#?}");
+    assert_eq!(kind_of(last), "turn_end", "{lines:#?}");
+    assert_eq!(last["turn_end"]["prompt_id"], LATE_PROMPT, "{lines:#?}");
 }
 
 #[then("the session is listed as ended under its own name")]
@@ -696,19 +734,28 @@ fn run_compacting(w: &mut World, step: &cucumber::gherkin::Step) {
 )]
 fn compaction_recorded(w: &mut World, trigger: String) {
     let lines = w.transcript();
-    let compactions: Vec<&Value> = lines.iter().filter(|l| l["kind"] == "compaction").collect();
+    let compactions: Vec<&Value> = lines
+        .iter()
+        .filter(|l| kind_of(l) == "compaction")
+        .collect();
     assert_eq!(
         compactions.len(),
         2,
         "before and after, once each: {lines:#?}"
     );
     let (before, after) = (compactions[0], compactions[1]);
-    for (line, phase) in [(before, "before"), (after, "after")] {
-        assert_eq!(line["phase"], phase, "{line}");
-        assert_eq!(line["trigger"], trigger.as_str(), "{line}");
-        assert_eq!(line["prompt_id"], COMPACT_PROMPT, "{line}");
+    for (line, phase) in [(before, "BEFORE"), (after, "AFTER")] {
+        let compaction = &line["compaction"];
+        assert_eq!(compaction["phase"], phase, "{line}");
+        assert_eq!(compaction["trigger"], trigger.as_str(), "{line}");
+        assert_eq!(compaction["prompt_id"], COMPACT_PROMPT, "{line}");
     }
-    assert_eq!(after["summary_bytes"], SUMMARY.len(), "{after}");
+    let after = &after["compaction"];
+    assert_eq!(
+        count(&after["summary_bytes"]),
+        SUMMARY.len() as u64,
+        "{after}"
+    );
     assert_eq!(after["summary_sha256"], SUMMARY_DIGEST, "{after}");
     let whole = serde_json::to_string(&lines).unwrap();
     assert!(!whole.contains(SUMMARY), "the summary's text was kept");
@@ -791,16 +838,16 @@ fn ran_naming_conversation(w: &mut World, native: String) {
 #[then("the session's transcript holds her first prompt, its turn's end, the clear, her second prompt and its turn's end, each once")]
 fn transcript_holds_the_clear(w: &mut World) {
     let lines = w.transcript();
-    let kinds: Vec<&str> = lines.iter().map(|l| l["kind"].as_str().unwrap()).collect();
+    let kinds: Vec<&str> = lines.iter().map(kind_of).collect();
     assert_eq!(
         kinds,
-        ["entry", "turn_end", "clear", "entry", "turn_end"],
+        ["prompt", "turn_end", "clear", "prompt", "turn_end"],
         "{lines:#?}"
     );
-    assert_eq!(lines[0]["entry"]["content"], "prompt 1");
-    assert_eq!(lines[2]["native_session"], AFTER_CLEAR);
-    assert_eq!(lines[2]["trigger"], "clear");
-    assert_eq!(lines[3]["entry"]["content"], "prompt 2");
+    assert_eq!(lines[0]["prompt"]["text"], "prompt 1");
+    assert_eq!(lines[2]["clear"]["native_session"], AFTER_CLEAR);
+    assert_eq!(lines[2]["clear"]["trigger"], "clear");
+    assert_eq!(lines[3]["prompt"]["text"], "prompt 2");
 }
 
 #[then("the session's record keeps the conversation before the clear in its lineage")]

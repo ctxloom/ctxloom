@@ -77,6 +77,15 @@ fn answered(answer: &str, native: &str) -> TurnOutcome {
     }
 }
 
+/// The echo claude prints once it has SUBMITTED a user message
+/// (`--replay-user-messages`): the turn it starts.
+const ECHO: &str =
+    r#"{"type":"user","isReplay":true,"message":{"role":"user","content":"x"},"session_id":"n"}"#;
+
+/// The `result` of a turn that answered `hi`.
+const RESULT: &str =
+    r#"{"type":"result","subtype":"success","is_error":false,"result":"hi","session_id":"n"}"#;
+
 fn session_of(stream: &str) -> String {
     let first = Json::parse(stream.lines().next().unwrap()).unwrap();
     first
@@ -266,6 +275,7 @@ fn a_second_steer_goes_after_the_first_and_asks_no_second_interrupt() {
     assert!(second.is_empty(), "{second:?}");
     assert_eq!(conversation.interrupt().unwrap(), (false, Vec::new()));
     let ends = |c: &mut Conversation| {
+        c.read(ECHO);
         c.read(r#"{"type":"result","subtype":"success","is_error":false,"result":"x","session_id":"n"}"#)
             .writes
     };
@@ -297,6 +307,7 @@ fn an_interrupt_asks_only_a_turn_in_flight() {
     assert_eq!(writes.len(), 1);
     assert!(writes[0].contains(r#""subtype":"interrupt""#), "{writes:?}");
     // The next one has a request id of its own.
+    conversation.read(ECHO);
     conversation.read(r#"{"type":"result","subtype":"success","result":"","session_id":"n"}"#);
     conversation
         .send(message("m-2", "go"), Urgency::Wake)
@@ -346,6 +357,7 @@ fn an_inform_sent_mid_turn_rides_on_the_held_wake_when_it_is_written() {
     conversation
         .send(message("i-1", "late news"), Urgency::Inform)
         .unwrap();
+    conversation.read(ECHO);
     let step =
         conversation.read(r#"{"type":"result","subtype":"success","result":"","session_id":"n"}"#);
     assert_eq!(step.writes, vec![user_line("late news\n\ntwo")]);
@@ -414,6 +426,7 @@ fn a_clear_mid_turn_waits_for_the_turn_and_goes_before_a_later_wake() {
         .send(message("m-2", "two"), Urgency::Wake)
         .unwrap();
     let end = r#"{"type":"result","subtype":"success","result":"","session_id":"n"}"#;
+    conversation.read(ECHO);
     assert_eq!(conversation.read(end).writes, vec![user_line("/clear")]);
     // A steer during a clear waits for it: a clear is not interrupted.
     let (queued, writes) = conversation
@@ -426,22 +439,56 @@ fn a_clear_mid_turn_waits_for_the_turn_and_goes_before_a_later_wake() {
         vec![ChildObservation::Cleared { native_id: None }]
     );
     assert_eq!(step.writes, vec![user_line("steer")]);
+    conversation.read(ECHO);
     assert_eq!(conversation.read(end).writes, vec![user_line("two")]);
 }
 
 #[test]
-fn an_unasked_turn_ends_naming_no_message() {
+fn a_result_with_no_turn_submitted_ends_no_turn() {
     let mut conversation = Conversation::default();
-    let step = conversation.read(
-        r#"{"type":"result","subtype":"success","is_error":false,"result":"hi","session_id":"n"}"#,
+    let step = conversation.read(RESULT);
+    assert_eq!(step.observations, Vec::new());
+    assert!(step.writes.is_empty());
+}
+
+// The interleaving measured on harp-hash-red: a wake line's prompt is blocked
+// by the hook (its `result` arrives with no model turn), then the real
+// message's prompt is submitted, then its own `result`. Forced by where each
+// line is read, never by time.
+#[test]
+fn a_result_for_a_blocked_prompt_ends_no_turn_and_the_real_turns_own_result_does() {
+    let mut conversation = Conversation::default();
+    conversation
+        .send(message("m-1", "real"), Urgency::Wake)
+        .unwrap();
+    conversation
+        .send(message("m-2", "next"), Urgency::Wake)
+        .unwrap();
+    // The blocked wake line's result: no turn of ours was submitted.
+    let blocked = conversation.read(RESULT);
+    assert_eq!(blocked.observations, Vec::new());
+    assert!(
+        blocked.writes.is_empty(),
+        "the turn in flight is still in flight: {:?}",
+        blocked.writes
     );
+    // The real prompt is submitted, then its own result ends it.
+    let started = conversation.read(ECHO);
     assert_eq!(
-        step.observations,
+        started.observations,
+        vec![ChildObservation::TurnStarted {
+            message_ids: vec!["m-1".to_string()]
+        }]
+    );
+    let ended = conversation.read(RESULT);
+    assert_eq!(
+        ended.observations,
         vec![ChildObservation::TurnEnded {
-            message_ids: Vec::new(),
+            message_ids: vec!["m-1".to_string()],
             outcome: answered("hi", "n"),
         }]
     );
+    assert_eq!(ended.writes, vec![user_line("next")]);
 }
 
 #[test]
@@ -564,6 +611,7 @@ fn ending_interrupts_the_turn_in_flight_and_answers_what_was_never_written() {
     assert_eq!(undelivered, vec!["i-1".to_string(), "m-2".to_string()]);
     assert_eq!(writes.len(), 1);
     assert!(writes[0].contains("interrupt"), "{writes:?}");
+    conversation.read(ECHO);
     // Ended: nothing more is taken, and the end writes nothing more.
     assert_eq!(
         conversation.send(message("m-3", "three"), Urgency::Wake),

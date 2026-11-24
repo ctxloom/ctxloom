@@ -66,6 +66,22 @@ fn snapshot() -> v1::TopEvent {
 /// A watch that says its snapshot once and then nothing.
 struct Feed(Option<v1::TopEvent>);
 
+/// A watch that says each event in turn and then nothing.
+struct Told(std::collections::VecDeque<v1::TopEvent>);
+
+impl TopFeed for Told {
+    fn next(&mut self) -> Option<Result<v1::TopEvent, Failure>> {
+        self.0.pop_front().map(Ok)
+    }
+
+    fn within(&mut self, _: Duration) -> Within {
+        match self.0.pop_front() {
+            Some(event) => Within::Event(Box::new(event)),
+            None => Within::Idle,
+        }
+    }
+}
+
 impl TopFeed for Feed {
     fn next(&mut self) -> Option<Result<v1::TopEvent, Failure>> {
         self.0.take().map(Ok)
@@ -141,6 +157,8 @@ impl Display for Scripted {
             asks: frame.asks.clone(),
             log_title: frame.log_title.clone(),
             log: frame.log.clone(),
+            alerts: frame.alerts.clone(),
+            bell: frame.bell,
         });
         if frame.rows.is_empty() {
             return Ok(());
@@ -289,4 +307,42 @@ fn from_arg_matches_is_how_the_command_is_built() {
     let top = command(&["--agent", "reviewer"]);
     assert_eq!(top.agent, ["reviewer"]);
     let _ = <Top as FromArgMatches>::from_arg_matches;
+}
+
+#[test]
+fn test_a_new_ask_is_drawn_with_the_bell_once_and_no_other_frame_rings() {
+    struct Asked;
+    impl TopSource for Asked {
+        fn open(
+            &self,
+            _: bool,
+            _: &dyn Fn(&str) -> Result<v1::WatchTopRequest, Failure>,
+        ) -> Result<Option<Box<dyn TopFeed>>, Failure> {
+            let mut second = ask();
+            second.name = "projects/p/approvals/ask-b".to_string();
+            let asked = v1::TopEvent {
+                event: Some(v1::top_event::Event::ApprovalAsked(v1::TopApprovalAsked {
+                    approval: Some(second),
+                })),
+            };
+            Ok(Some(Box::new(Told([snapshot(), asked].into()))))
+        }
+        fn wait(&self) {}
+    }
+    let (send, keys) = channel();
+    let mut display = Scripted {
+        frames: Vec::new(),
+        script: vec![vec![], vec![quit()]].into_iter(),
+        send,
+    };
+    drive(
+        &command(&[]),
+        &Asked,
+        &Answers::default(),
+        &keys,
+        &mut display,
+    )
+    .unwrap();
+    let bells: Vec<bool> = display.frames.iter().map(|f| f.bell).collect();
+    assert_eq!(bells, [false, true], "the snapshot's ask is no news");
 }

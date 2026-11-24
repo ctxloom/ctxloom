@@ -3,6 +3,7 @@
 
 use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::backend::TestBackend;
+use ratatui::style::Modifier;
 use ratatui::Terminal;
 
 use super::{named, paint};
@@ -19,6 +20,8 @@ fn frame() -> Frame {
         asks: vec![],
         log_title: "--- log of brisk".to_string(),
         log: (0..30).map(|n| format!("  entry {n}")).collect(),
+        alerts: vec![],
+        bell: false,
     }
 }
 
@@ -76,4 +79,29 @@ fn terminal_keys_are_the_screens() {
         Some(Key::Char('q'))
     );
     assert_eq!(named(KeyCode::F(5), none), None);
+}
+
+#[test]
+fn test_a_row_with_an_ask_waiting_is_painted_yellow_and_bold_and_the_others_are_not() {
+    let mut alerted = frame();
+    alerted.alerts = vec![0];
+    let mut terminal = Terminal::new(TestBackend::new(80, 20)).expect("a test terminal");
+    terminal
+        .draw(|screen| paint(screen, &alerted))
+        .expect("it paints");
+    let buffer = terminal.backend().buffer().clone();
+    let row_of = |text: &str| {
+        (0..20)
+            .find(|&y| {
+                (0..80)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect::<String>()
+                    .contains(text)
+            })
+            .unwrap_or_else(|| panic!("no row {text}"))
+    };
+    let (amber, brisk) = (row_of("amber live"), row_of("brisk live"));
+    assert_eq!(buffer[(4, amber)].fg, ratatui::style::Color::Yellow);
+    assert!(buffer[(4, amber)].modifier.contains(Modifier::BOLD));
+    assert_ne!(buffer[(4, brisk)].fg, ratatui::style::Color::Yellow);
 }

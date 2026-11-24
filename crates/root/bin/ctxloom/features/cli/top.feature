@@ -681,7 +681,7 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
     line is `<field>=<value>`, an empty one clears), `q` (quit). A frame is:
     a header line naming the scope, the filter and the sort, an inbox table (its
     header row `NAME STATE AGENT PROFILES TAGS ENGINE OWNER ASKS` and one row
-    per session, the selected one marked `>`), a line `--- asks of <harp>`,
+    per session, the selected one marked `>`, an ask waiting on it shown in its ASKS cell as `⚠` and the count), a line `--- asks of <harp>`,
     its asks, a line `--- log of <harp>`, and its log entries oldest first.
     A real terminal's drawing, its alternate screen and its restoring on
     exit are the one pty scenario's, below.
@@ -735,8 +735,36 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
       Given an initialized ctxloom project
       And a child "brisk-copper-moth" of "amber-quiet-heron" whose engine has asked to run "Bash" with "rm -rf build/"
       When I start "ctxloom top --format text" in a terminal and read its frames
-      Then the frame's row for "brisk-copper-moth" has "1" in its ASKS column
+      Then the frame's row for "brisk-copper-moth" has "⚠1" in its ASKS column
       And the frame's row for "amber-quiet-heron" has "0"
+
+    Scenario: A row with an ask waiting is highlighted, and the frame says which in words
+      # new: the screen's first colour; DRAFT glyph and wording. A terminal paints the
+      # row yellow and bold; the text frame names the rows so a test can read it.
+      Given an initialized ctxloom project
+      And a child "brisk-copper-moth" of "amber-quiet-heron" whose engine has asked to run "Bash" with "rm -rf build/"
+      When I start "ctxloom top --format text" in a terminal and read its frames
+      Then a frame has the line "highlighted: brisk-copper-moth"
+
+    Scenario: An ask already waiting when the screen opens does not ring the bell
+      # new: the bell is for news; DRAFT.
+      Given an initialized ctxloom project
+      And a child "brisk-copper-moth" of "amber-quiet-heron" whose engine has asked to run "Bash" with "rm -rf build/"
+      When I start "ctxloom top --format text" in a terminal and read its frames
+      Then the first frame has a row for "brisk-copper-moth" and no line "bell"
+
+    Scenario: A new ask rings the bell once, in the frame that shows it
+      # new: the bell is a line `bell` in the one frame drawn for the new ask; the terminal
+      # writes BEL for it. DRAFT.
+      Given an initialized ctxloom project
+      And a child "brisk-copper-moth" of "amber-quiet-heron"
+      When I start "ctxloom top --format text" in a terminal and read its frames
+      And the engine of "brisk-copper-moth" asks to run "Bash" with "rm -rf build/"
+      Then a frame has the line "bell"
+      And that frame's row for "brisk-copper-moth" has "⚠1" in its ASKS column
+      When I press "down" until "brisk-copper-moth" is marked
+      And the ask is answered from another terminal with "deny"
+      Then exactly one frame has the line "bell"
 
     Scenario: The asks section lists each ask with its options, numbered
       # new: DRAFT.

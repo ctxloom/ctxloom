@@ -103,6 +103,14 @@ Feature: session approvals — a child's permission ask, answered by the user
       And the output reports "approvals[0].options[2].rule" as "Bash(rm -rf build/)"
       And the output reports "approvals[0].options[3].id" as "deny"
 
+    Scenario: The text listing says when an ask is denied as a date and time, in UTC
+      # changed: the line said `denied at 1795533819` (epoch seconds); now `YYYY-MM-DD HH:MM:SS`, as `session list` shows its times.
+      Given an initialized ctxloom project
+      And a child "brisk-copper-moth" of "amber-quiet-heron" whose engine has asked to run "Bash" with "rm -rf build/"
+      When I run "ctxloom session approvals amber-quiet-heron --format text"
+      Then the command succeeds
+      And the output says "denied at" then a UTC date and time, then "unless answered"
+
     Scenario Outline: A path tool's ask offers its rule by path
       # new: the rule a claude ask implies.
       Given an initialized ctxloom project

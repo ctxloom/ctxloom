@@ -3,7 +3,7 @@
 
 use daemon_proto::v1;
 
-use super::{Effect, Key, Screen, WAITING};
+use super::{Effect, Key, Screen, ASK_BADGE, WAITING};
 use crate::approvals::AlwaysPlan;
 use crate::top::Sort;
 
@@ -109,7 +109,10 @@ fn a_snapshot_ends_the_waiting_and_fills_the_table() {
 #[test]
 fn children_sit_under_their_owner_indented_and_the_first_row_is_marked() {
     let text = tree().frame().text();
-    let rows: Vec<&str> = text.lines().filter(|l| l.contains("-")).collect();
+    let rows: Vec<&str> = text
+        .lines()
+        .filter(|l| l.contains("-") && !l.starts_with("highlighted"))
+        .collect();
     assert!(rows[0].starts_with("> amber-quiet-heron"), "{text}");
     assert!(rows[1].starts_with("    brisk-copper-moth"), "{text}");
     assert!(rows[2].starts_with("      quiet-silver-fern"), "{text}");
@@ -124,7 +127,10 @@ fn children_sit_under_their_owner_indented_and_the_first_row_is_marked() {
 #[test]
 fn a_row_counts_the_asks_waiting_on_it() {
     let frame = tree().frame();
-    assert_eq!(frame.rows[1].split_whitespace().last(), Some("1"));
+    assert_eq!(
+        frame.rows[1].split_whitespace().last(),
+        Some(format!("{ASK_BADGE}1").as_str())
+    );
     assert_eq!(frame.rows[0].split_whitespace().last(), Some("0"));
 }
 
@@ -461,4 +467,86 @@ fn test_a_kept_row_that_comes_back_live_is_not_dropped_when_the_selection_moves(
     });
     screen.key(Key::Down);
     assert!(names(&screen).contains(&"brisk-copper-moth".to_string()));
+}
+
+fn asked(name: &str, child: &str) -> v1::TopEvent {
+    v1::TopEvent {
+        event: Some(v1::top_event::Event::ApprovalAsked(v1::TopApprovalAsked {
+            approval: Some(ask(name, child)),
+        })),
+    }
+}
+
+#[test]
+fn test_a_row_with_an_ask_waiting_is_highlighted_and_named_in_the_text_frame() {
+    let frame = tree().frame();
+    assert_eq!(frame.alerts, [1]);
+    let text = frame.text();
+    assert!(
+        text.lines().any(|l| l == "highlighted: brisk-copper-moth"),
+        "{text}"
+    );
+}
+
+#[test]
+fn test_no_row_is_highlighted_when_no_ask_waits() {
+    let mut screen = Screen::new("this project", None);
+    screen.apply(snapshot(
+        vec![session("amber-quiet-heron", "", "", 10)],
+        vec![],
+    ));
+    let frame = screen.frame();
+    assert!(frame.alerts.is_empty());
+    assert!(!frame.text().contains("highlighted"));
+}
+
+#[test]
+fn test_the_asks_in_the_snapshot_at_open_ring_no_bell() {
+    let mut screen = tree();
+    assert!(!screen.take_bell());
+}
+
+#[test]
+fn test_a_new_ask_rings_the_bell_once() {
+    let mut screen = tree();
+    screen.apply(asked("ask-b", "quiet-silver-fern"));
+    assert!(screen.take_bell());
+    assert!(!screen.take_bell(), "taken once");
+}
+
+#[test]
+fn test_the_same_ask_told_again_rings_no_second_bell() {
+    let mut screen = tree();
+    screen.apply(asked("ask-b", "quiet-silver-fern"));
+    assert!(screen.take_bell());
+    screen.apply(asked("ask-b", "quiet-silver-fern"));
+    assert!(!screen.take_bell());
+}
+
+#[test]
+fn test_an_ask_of_the_snapshot_told_again_as_asked_rings_no_bell() {
+    let mut screen = tree();
+    screen.apply(asked("ask-a", "brisk-copper-moth"));
+    assert!(!screen.take_bell());
+}
+
+#[test]
+fn test_a_snapshot_after_a_reconnect_rings_no_bell_for_asks_it_holds() {
+    let mut screen = tree();
+    screen.apply(snapshot(
+        vec![session("brisk-copper-moth", "", "", 20)],
+        vec![
+            ask("ask-a", "brisk-copper-moth"),
+            ask("ask-c", "brisk-copper-moth"),
+        ],
+    ));
+    assert!(!screen.take_bell());
+}
+
+#[test]
+fn test_the_frame_says_a_bell_in_a_line_of_its_own() {
+    let mut frame = tree().frame();
+    assert!(!frame.text().lines().any(|l| l == "bell"));
+    frame.bell = true;
+    assert!(frame.text().lines().any(|l| l == "bell"));
 }

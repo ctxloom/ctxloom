@@ -7,7 +7,7 @@
 //! Pure: events and keys in, [`Effect`]s out; the daemon, the terminal and
 //! the clock are the driver's.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use daemon_proto::v1;
 
@@ -16,6 +16,9 @@ use crate::top::Sort;
 
 /// What the status line says while no daemon serves.
 pub const WAITING: &str = "waiting for a ctxloom daemon";
+
+/// The glyph before an ask count in a row's ASKS cell (DRAFT).
+pub const ASK_BADGE: &str = "\u{26a0}";
 
 /// The table's header row, the columns in order.
 pub const HEADER: [&str; 8] = [
@@ -94,6 +97,11 @@ pub struct Screen {
     /// The asks waiting, by name; the settled ones the person was told of.
     asks: BTreeMap<String, v1::Approval>,
     settled: BTreeMap<String, v1::Approval>,
+    /// Every ask the person has been shown or told of: a bell is for an ask
+    /// not in it, once.
+    seen_asks: BTreeSet<String>,
+    /// A new ask arrived since the bell was last taken.
+    bell: bool,
     /// The log of the session the watch carries one for, oldest first.
     logs: BTreeMap<String, Vec<v1::TopLog>>,
     waiting: bool,
@@ -129,6 +137,10 @@ pub struct Frame {
     pub asks: Vec<String>,
     pub log_title: String,
     pub log: Vec<String>,
+    /// The rows (indexes into `rows`) an ask waits on: painted highlighted.
+    pub alerts: Vec<usize>,
+    /// Whether this frame is drawn for a new ask: the terminal rings.
+    pub bell: bool,
 }
 
 impl Frame {
@@ -136,6 +148,17 @@ impl Frame {
     pub fn text(&self) -> String {
         let mut lines = vec![self.header.clone()];
         lines.extend(self.status.iter().cloned());
+        if !self.alerts.is_empty() {
+            let names: Vec<&str> = self
+                .alerts
+                .iter()
+                .filter_map(|&at| self.rows.get(at)?.split_whitespace().next())
+                .collect();
+            lines.push(format!("highlighted: {}", names.join(", ")));
+        }
+        if self.bell {
+            lines.push("bell".to_string());
+        }
         lines.push(format!("  {}", self.columns));
         for (at, row) in self.rows.iter().enumerate() {
             let mark = if self.selected == Some(at) {
@@ -173,6 +196,8 @@ impl Screen {
             sessions: BTreeMap::new(),
             asks: BTreeMap::new(),
             settled: BTreeMap::new(),
+            seen_asks: BTreeSet::new(),
+            bell: false,
             logs: BTreeMap::new(),
             waiting: false,
             heard: false,
@@ -197,6 +222,11 @@ impl Screen {
     /// Whether the screen has something to draw.
     pub fn ready(&self) -> bool {
         self.heard
+    }
+
+    /// Whether a new ask arrived since the last call; taken once.
+    pub fn take_bell(&mut self) -> bool {
+        std::mem::take(&mut self.bell)
     }
 
     /// Say `text` on the status line.
@@ -232,6 +262,9 @@ impl Screen {
                     .into_iter()
                     .map(|ask| (ask.name.clone(), ask))
                     .collect();
+                // The asks of a snapshot (the first, or the next daemon's) are
+                // what the person finds, not news.
+                self.seen_asks.extend(self.asks.keys().cloned());
                 self.logs.clear();
                 self.lingering = None;
             }
@@ -246,6 +279,10 @@ impl Screen {
             Event::SessionRemoved(removed) => self.removed(&removed),
             Event::ApprovalAsked(asked) => {
                 if let Some(ask) = asked.approval {
+                    let waiting = ask.state == "waiting" || ask.state.is_empty();
+                    if self.seen_asks.insert(ask.name.clone()) && waiting {
+                        self.bell = true;
+                    }
                     self.asks.insert(ask.name.clone(), ask);
                 }
             }
@@ -557,7 +594,10 @@ impl Screen {
             session.tags.join(","),
             session.engine.clone(),
             last(&session.owner).to_string(),
-            self.waiting_asks(&session.name).len().to_string(),
+            match self.waiting_asks(&session.name).len() {
+                0 => "0".to_string(),
+                waiting => format!("{ASK_BADGE}{waiting}"),
+            },
         ]
     }
 
@@ -592,6 +632,12 @@ impl Screen {
         let selected = rows
             .iter()
             .position(|(_, s)| Some(&s.name) == selected_name.as_ref());
+        let alerts = rows
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, session))| !self.waiting_asks(&session.name).is_empty())
+            .map(|(at, _)| at)
+            .collect();
         let harp = selected_name.as_deref().map(last).unwrap_or_default();
         let mut status = Vec::new();
         if self.waiting {
@@ -625,6 +671,8 @@ impl Screen {
             asks,
             log_title: format!("--- log of {harp}"),
             log,
+            alerts,
+            bell: false,
         }
     }
 

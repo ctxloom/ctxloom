@@ -153,11 +153,17 @@ pub fn drive(
                 }
             }
         }
-        let frame = screen.frame();
+        let mut frame = screen.frame();
+        // The bell is news, not state: the text compared is the frame's
+        // without it, so a bell never makes a frame that changed nothing
+        // else a different one, and is rung in the frame drawn for it.
         let text = frame.text();
-        if screen.ready() && text != drawn {
-            display.draw(&frame)?;
-            drawn = text;
+        if screen.ready() {
+            frame.bell = screen.take_bell();
+            if frame.bell || text != drawn {
+                display.draw(&frame)?;
+                drawn = text;
+            }
         }
     }
 }

@@ -5042,6 +5042,25 @@ fn run_in_project(w: &mut World, line: String, name: String) {
     }
 }
 
+#[then(expr = "the output says \"denied at\" then a UTC date and time, then \"unless answered\"")]
+fn denied_at_a_date_and_time(w: &mut World) {
+    let out = w.common.ran().stdout.clone();
+    let after = out
+        .split_once("denied at ")
+        .unwrap_or_else(|| panic!("no `denied at` in {out:?}"))
+        .1;
+    let (when, rest) = after.split_at(after.len().min(19));
+    let shaped = when.len() == 19
+        && when.chars().enumerate().all(|(at, c)| match at {
+            4 | 7 => c == '-',
+            10 => c == ' ',
+            13 | 16 => c == ':',
+            _ => c.is_ascii_digit(),
+        });
+    assert!(shaped, "not `YYYY-MM-DD HH:MM:SS`: {when:?} in {out:?}");
+    assert!(rest.starts_with(" unless answered"), "{out:?}");
+}
+
 #[given(expr = "I note the ask named by {string} as {string}")]
 #[then(expr = "I note the ask named by {string} as {string}")]
 fn note_ask(w: &mut World, path: String, label: String) {

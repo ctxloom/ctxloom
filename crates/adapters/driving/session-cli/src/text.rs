@@ -10,6 +10,14 @@ use angzarr_diagnostic::{code, Arg, Diagnostic};
 
 use crate::error::EN_US;
 
+/// A time in the text rows' form, UTC (`session list`'s): what an ask's
+/// expiry and a trust's grant are said as, never raw epoch seconds.
+fn when(seconds: i64) -> String {
+    sessions_application::stamp::text(
+        daemon_proto::google::protobuf::Timestamp { seconds, nanos: 0 }.into(),
+    )
+}
+
 /// One thing said in text, by its message.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Text {
@@ -179,7 +187,7 @@ impl Diagnostic for Text {
             Text::AskUnderUntil { ask, root, seconds } => vec![
                 ("ask", s(ask)),
                 ("root", s(root)),
-                ("seconds", (*seconds).into()),
+                ("when", when(*seconds).into()),
             ],
             Text::AnswerWith { ask } => vec![("ask", s(ask))],
             Text::AlwaysWould { ask, rule, path } => {
@@ -211,7 +219,7 @@ impl Diagnostic for Text {
             } => vec![
                 ("name", s(name)),
                 ("actor", s(actor)),
-                ("seconds", (*seconds).into()),
+                ("when", when(*seconds).into()),
             ],
         }
     }

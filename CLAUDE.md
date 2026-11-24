@@ -2848,7 +2848,18 @@ stdin) draws the same `Frame` as plain lines. An answer is
 `session approvals answer`'s, as the user and in its order (the ask checked
 waiting, an allow-always's rule written and previewed first, a rule kept for
 an ask settled meanwhile said); the caller that answers is made at the first
-answer, so `top` reaches no daemon and makes no project to draw. `--format
+answer, so `top` reaches no daemon and makes no project to draw. A row an
+ask waits on says so in its ASKS cell (`screen::ASK_BADGE`, a DRAFT glyph,
+then the count) and is painted yellow and bold (`Frame.alerts`: the screen's
+one colour; the seam names those rows in a line `highlighted: <harp>, ...`
+after the status lines). A NEW ask rings the terminal's bell once: `Screen`
+keeps every ask it has been shown (a snapshot's, each daemon's, is not news)
+and an `approval_asked` for a waiting ask not among them sets the bell
+(`Screen::take_bell`), which `screen_run::drive` puts in the one frame it
+draws for it (`Frame.bell`, drawn even when nothing else changed); `tui.rs`
+writes BEL ahead of that frame and the seam says a line `bell`. The text of
+`session approvals` and `trust list` says a time as `YYYY-MM-DD HH:MM:SS` UTC
+(`session list`'s), never epoch seconds. `--format
 text` off a terminal is refused `session-cli-top-needs-terminal`, in the json
 envelope. `top` hears SIGINT, SIGTERM and SIGHUP for its whole life
 (`DaemonTop::stopped`) and ends on the first, 128 plus its number. Where no

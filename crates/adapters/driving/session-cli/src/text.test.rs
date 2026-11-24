@@ -47,7 +47,7 @@ fn the_listing_and_the_trust_lines_are_said_as_before() {
             seconds: 1_800_000_000,
         }
         .said(),
-        "ask ask-tidy-wren, under amber-quiet-heron, denied at 1800000000 unless answered"
+        "ask ask-tidy-wren, under amber-quiet-heron, denied at 2027-01-15 08:00:00 unless answered"
     );
     assert_eq!(
         Text::TrustedBySince {
@@ -56,7 +56,7 @@ fn the_listing_and_the_trust_lines_are_said_as_before() {
             seconds: 5,
         }
         .said(),
-        "projects/x/trust  by ben since 5"
+        "projects/x/trust  by ben since 1970-01-01 00:00:05"
     );
     assert_eq!(
         Text::TrustNothing.said(),

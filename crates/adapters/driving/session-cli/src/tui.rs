@@ -3,6 +3,7 @@
 //! model's [`Frame`] holds and decides nothing; the model and the loop
 //! are `screen` and `screen_run`.
 
+use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
@@ -10,7 +11,7 @@ use std::time::Duration;
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::layout::{Constraint, Layout};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Line;
 use ratatui::widgets::Paragraph;
 use ratatui::DefaultTerminal;
@@ -46,6 +47,13 @@ impl Drop for Tui {
 
 impl Display for Tui {
     fn draw(&mut self, frame: &Frame) -> Result<(), Failure> {
+        if frame.bell {
+            // BEL on the person's terminal, ahead of the frame it is for.
+            let mut out = std::io::stdout();
+            out.write_all(b"\x07")
+                .and_then(|()| out.flush())
+                .map_err(|e| drawing(&e))?;
+        }
         self.terminal
             .draw(|screen| paint(screen, frame))
             .map(|_| ())
@@ -76,10 +84,13 @@ fn paint(screen: &mut ratatui::Frame<'_>, frame: &Frame) {
     )];
     for (at, row) in frame.rows.iter().enumerate() {
         let chosen = frame.selected == Some(at);
-        let style = match chosen {
+        let mut style = match chosen {
             true => Style::default().add_modifier(Modifier::REVERSED),
             false => Style::default(),
         };
+        if frame.alerts.contains(&at) {
+            style = style.fg(Color::Yellow).add_modifier(Modifier::BOLD);
+        }
         let mark = if chosen { "> " } else { "  " };
         rows.push(Line::styled(format!("{mark}{row}"), style));
     }

@@ -385,6 +385,39 @@ fn first_rows(w: &mut World, a: String, b: String) {
     );
 }
 
+#[then(expr = "the first frame has a row for {string} and no line {string}")]
+fn first_row_no_line(w: &mut World, harp: String, line: String) {
+    let frame = parts(&first(w));
+    assert!(has_row(&frame, &harp), "{:#?}", frame.rows);
+    assert!(!frame.status.contains(&line), "{:#?}", frame.status);
+}
+
+#[then(expr = "a frame has the line {string}")]
+fn a_frame_has_line(w: &mut World, line: String) {
+    until(w, "with that line", |p| p.status.contains(&line));
+}
+
+#[then(regex = r#"^that frame's row for "([^"]+)" has "([^"]+)" in its ASKS column$"#)]
+fn that_frames_row(w: &mut World, harp: String, count: String) {
+    until(w, "with the bell and that ASKS count", |p| {
+        p.status.iter().any(|l| l == "bell")
+            && p.rows
+                .iter()
+                .any(|r| harp_of(r) == harp && r.split_whitespace().last() == Some(count.as_str()))
+    });
+}
+
+#[then(expr = "exactly one frame has the line {string}")]
+fn one_frame_has_line(w: &mut World, line: String) {
+    drain(w);
+    let count = screen(w)
+        .seen
+        .iter()
+        .filter(|frame| parts(frame).status.contains(&line))
+        .count();
+    assert_eq!(count, 1, "{:#?}", screen(w).seen);
+}
+
 #[then(expr = "the first frame has no row for {string} and none for {string}")]
 fn first_no_rows(w: &mut World, a: String, b: String) {
     let frame = parts(&first(w));
@@ -673,7 +706,7 @@ fn one_selected_with_details(w: &mut World) {
 
 #[then(expr = "the row of {string} shows one ask waiting")]
 fn row_shows_one_ask(w: &mut World, harp: String) {
-    asks_column(w, harp, "1".to_string());
+    asks_column(w, harp, "\u{26a0}1".to_string());
 }
 
 #[then(

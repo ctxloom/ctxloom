@@ -4544,7 +4544,14 @@ no text (its `input`, number 4, is reserved). Nothing read the stored input:
 the skill-mates hook and the file-edit hooks take the skill and path from the
 live hook payload (`HookEvent.skill`, `.path`), `invoked_skills` reads the
 engine's own transcript file, and re-injection reads owed library changes.
-No summary of the input (a Bash command's first line) is kept.
+No summary of the input (a Bash command's first line) is kept, but for the
+PATH a FILE tool touched (owner 2026-11-24), which the adapter attaches as
+engine data, `<engine>.path` (`claude-code.path` for Read, Write, Edit and
+MultiEdit's `file_path` and NotebookEdit's `notebook_path`; `opencode.path`
+for opencode's `read`, `write` and `edit` `filePath`): the entry's `extra`.
+The screen says `tool Edit, src/lib.rs, input 4.1 KB, result 12 B`, the path
+relative to the session's project root when under it, else as given, read
+from the session's own engine's key alone (`log_text::Of`).
 THE ENGINE EXTENSION POINT (owner 2026-11-24): an engine's adapter may attach
 data of its own to an observation, which the common fields do not hold:
 `HookEvent.extra` (for every observation the event makes), `ToolCall.extra`
@@ -4554,8 +4561,10 @@ compact JSON text). `runs_application::observe` copies it onto the capture
 fact, the session aggregate onto the event (`extra`, field numbers 2 to 8 of
 the six transcript facts and events, optional and additive: a stream
 recorded before reads as none), and the log fold onto `LogEntry.extra`; no
-arm ever widens for it and no consumer reads a key it does not know. No
-adapter attaches any yet.
+arm ever widens for it and no consumer reads a key it does not know. Data
+yes, display no: the `started` entry carries its engine in `LogLifecycle.
+engine` and its words say only `started`. The
+file tools' path is the first use (above).
 `RecordSessionEnded` is gone; `SessionEnded`, in every interactive stream
 recorded before, is RETIRED in place (angzarr refuses an unknown stored
 type): never emitted, folded to nothing and rendered nothing (no line, no

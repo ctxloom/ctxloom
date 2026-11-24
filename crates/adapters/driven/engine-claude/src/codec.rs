@@ -2,6 +2,8 @@
 //! claude writes to a hook's stdin, decoded, and the JSON it reads back from
 //! stdout, encoded.
 
+use std::collections::BTreeMap;
+
 use surface_ports::{
     HookCodec, HookEvent, HookResponse, Json, MessageDisplay, SurfaceError, ToolCall, ToolStatus,
 };
@@ -83,6 +85,23 @@ fn response_text(doc: Option<&Json>) -> String {
     }
 }
 
+/// The path a file tool's call touched, as the engine extension
+/// (`claude-code.path`), and nothing else of its input: the file tools' input
+/// can hold whole file contents. None for any other tool.
+fn touched_path(tool: &str, input: Option<&Json>) -> BTreeMap<String, String> {
+    let field = match tool {
+        "Read" | "Write" | "Edit" | "MultiEdit" => "file_path",
+        "NotebookEdit" => "notebook_path",
+        _ => return BTreeMap::new(),
+    };
+    input
+        .and_then(|input| input.get(field))
+        .and_then(Json::as_str)
+        .filter(|path| !path.is_empty())
+        .map(|path| BTreeMap::from([(format!("{NAME}.path"), path.to_string())]))
+        .unwrap_or_default()
+}
+
 /// The calls of a PostToolBatch, in order.
 fn tool_calls(doc: &Json) -> Vec<ToolCall> {
     doc.get("tool_calls")
@@ -97,7 +116,7 @@ fn tool_calls(doc: &Json) -> Vec<ToolCall> {
                     response: response_text(c.get("tool_response")),
                     // Claude's hooks say nothing of how a call ended.
                     status: ToolStatus::Unspecified,
-                    ..Default::default()
+                    extra: touched_path(&text(c, "tool_name"), c.get("tool_input")),
                 })
                 .collect()
         })

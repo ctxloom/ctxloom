@@ -65,6 +65,17 @@ const LATE_PROMPT: &str = "1a7e1a7e-0000-4000-8000-0000001a7e00";
 const EDITED: &str = "/work/src/lib.rs";
 const EDIT_SECRET: &str = "OLD-TEXT-THAT-MUST-NOT-BE-KEPT";
 
+/// A file tool's call beside the batch's own: its path is said through the
+/// engine's data, nothing else of its input.
+fn with_a_file_tool(batch: &mut Value) {
+    batch["tool_calls"].as_array_mut().unwrap().push(json!({
+        "tool_name": "Edit",
+        "tool_use_id": "toolu_edit",
+        "tool_input": {"file_path": EDITED, "old_string": EDIT_SECRET},
+        "tool_response": "ok",
+    }));
+}
+
 /// The tool call's input as the codec compacts it, its size and its digest
 /// (`sha256sum`): the input's text is never recorded.
 const TOOL_INPUT: &str = r#"{"command":"echo hi","description":"Print hi via echo"}"#;
@@ -377,14 +388,7 @@ fn run_child(w: &mut World, step: &cucumber::gherkin::Step, fire: bool) {
         payloads.push((
             payload(POST_TOOL_BATCH, |v| {
                 v["tool_calls"][0]["tool_response"] = json!(TOOL_BODY);
-                // A file tool beside it: its path is said through the engine's
-                // data, nothing else of its input.
-                v["tool_calls"][1] = json!({
-                    "tool_name": "Edit",
-                    "tool_use_id": "toolu_edit",
-                    "tool_input": {"file_path": EDITED, "old_string": EDIT_SECRET},
-                    "tool_response": "ok",
-                });
+                with_a_file_tool(v);
             }),
             "PostToolBatch",
         ));
@@ -566,6 +570,7 @@ fn run_firing_hooks(w: &mut World, step: &cucumber::gherkin::Step) {
     }
     payloads.push(payload(POST_TOOL_BATCH, |v| {
         v["tool_calls"][0]["tool_response"] = json!(TOOL_BODY);
+        with_a_file_tool(v);
     }));
     payloads.push(payload(STOP, |v| {
         v["last_assistant_message"] = json!(DELTAS.concat());

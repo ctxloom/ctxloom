@@ -23,6 +23,8 @@
 //!
 //! An event of none of these kinds holds nothing.
 
+use std::collections::BTreeMap;
+
 use surface_ports::{
     HookCodec, HookEvent, HookResponse, Json, MessageDisplay, SurfaceError, ToolCall, ToolStatus,
 };
@@ -117,6 +119,21 @@ fn read(kind: &str, props: Option<&Json>, ctx: Option<&Json>, base: HookEvent) -
     }
 }
 
+/// The path a file tool's call touched, as the engine extension
+/// (`opencode.path`), and nothing else of its input: the file tools' input
+/// can hold whole file contents. None for any other tool.
+fn touched_path(tool: &str, input: Option<&Json>) -> BTreeMap<String, String> {
+    match tool {
+        "read" | "write" | "edit" => input
+            .and_then(|input| input.get("filePath"))
+            .and_then(Json::as_str)
+            .filter(|path| !path.is_empty())
+            .map(|path| BTreeMap::from([(format!("{NAME}.path"), path.to_string())]))
+            .unwrap_or_default(),
+        _ => BTreeMap::new(),
+    }
+}
+
 /// A part of a message: a finished text, an ended tool call, a compaction.
 fn read_part(part: &Json, base: HookEvent) -> Option<HookEvent> {
     match part.get("type").and_then(Json::as_str)? {
@@ -146,6 +163,7 @@ fn read_part(part: &Json, base: HookEvent) -> Option<HookEvent> {
                 _ => return None,
             };
             let tool = text(Some(part), "tool");
+            let tool_name = tool.clone();
             Some(HookEvent {
                 event: "post_tool_batch".to_string(),
                 tool: tool.clone(),
@@ -158,7 +176,7 @@ fn read_part(part: &Json, base: HookEvent) -> Option<HookEvent> {
                         .unwrap_or_default(),
                     response,
                     status,
-                    ..Default::default()
+                    extra: touched_path(&tool_name, state.and_then(|s| s.get("input"))),
                 }],
                 ..base
             })

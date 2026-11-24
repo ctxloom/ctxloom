@@ -775,7 +775,7 @@ fn log_said_then_ended(w: &mut World) {
     // An ended session leaves a live view (its default state), so the pane
     // that showed both may be a frame the screen has moved on from: every
     // frame the scenario has seen is looked at, the selected session's.
-    let (said, ended) = ("the migration is reversible", "exited");
+    let (said, ended) = ("the migration is reversible", "run 1 ended");
     let deadline = Instant::now() + WAIT;
     loop {
         drain(w);

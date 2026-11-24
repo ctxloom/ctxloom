@@ -3,8 +3,8 @@
 //! are Go's `sidecar_schemaver_test.go` and the migration steps' tests
 //! (`internal/migrations/sessionsidecar`, release/0.7).
 
-use angzarr_diagnostic::Diagnostic;
 use angzarr_embedded::Timestamp;
+use coded_diagnostic::Diagnostic;
 
 use super::{decode, GoSidecarError};
 

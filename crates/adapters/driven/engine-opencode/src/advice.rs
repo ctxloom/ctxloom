@@ -3,7 +3,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
+use coded_diagnostic::{code, Arg, Diagnostic};
 use run_ports::{Advice, Planned};
 
 /// A notice of opencode's on what the plan resolved for it.
@@ -17,7 +17,7 @@ pub enum OpencodeNotice {
 
 impl fmt::Display for OpencodeNotice {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

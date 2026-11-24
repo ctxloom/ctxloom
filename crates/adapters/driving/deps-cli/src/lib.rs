@@ -26,12 +26,12 @@ use cli_support::{Exit, ExitClass};
 use daemon_proto::v1;
 use std::io::{self, Write};
 
-use angzarr_presentation::{Catalog, Format};
 use clap::ArgMatches;
 use cli_support::{flag, one, say_notices};
 use deps_application::{
     AppError, Deps, DiscoverRequest, MoveRequest, MoveTarget, Notice, Outcome, PushRequest,
 };
+use presentation::{Catalog, Format};
 use serde::Serialize;
 
 pub use commands::{bundle_verbs, is_bundle_verb, nouns};

@@ -1,12 +1,12 @@
 //! The errors' codes, exit codes, args and messages.
 
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 use exit_code::{Exit, ExitClass};
 use sessions_application::AppError;
 
 use super::*;
 
-angzarr_presentation::english_for!(&[EN_US.1, duration_text::EN_US.1]);
+presentation::english_for!(&[EN_US.1, duration_text::EN_US.1]);
 
 fn bad_age() -> ReclaimError {
     ReclaimError::BadAge {
@@ -14,6 +14,7 @@ fn bad_age() -> ReclaimError {
         value: "soon".into(),
         cause: duration_text::DurationError::Malformed {
             text: "soon".into(),
+            ext_err_txt: "expected a unit".into(),
         },
     }
 }

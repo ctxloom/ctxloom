@@ -49,7 +49,7 @@ fn a_session_its_worktrees_keep_is_refused() {
     };
     assert_eq!(error.exit(), Exit::REFUSED);
     assert_eq!(
-        angzarr_diagnostic::Diagnostic::code(&error),
+        coded_diagnostic::Diagnostic::code(&error),
         "isolation-application-keeps-session"
     );
 }

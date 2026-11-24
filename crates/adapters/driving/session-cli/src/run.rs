@@ -3,16 +3,16 @@
 use cli_support::{Exit, ExitClass};
 use std::io::{self, Write};
 
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 #[cfg(feature = "session-destroy")]
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use angzarr_presentation::{write_json, Format};
 use daemon_api::{CallError, ChildWrites, Launch, SessionReads, Written};
 #[cfg(feature = "session-destroy")]
 use daemon_api::{Removed, SessionRemovals};
 use daemon_proto::v1;
 use isolation_application::{IsolationError, WorktreeUse};
+use presentation::{write_json, Format};
 #[cfg(feature = "session-destroy")]
 use reclaim_application::{destroys_held, ReclaimError, SessionHolds};
 #[cfg(feature = "session-destroy")]

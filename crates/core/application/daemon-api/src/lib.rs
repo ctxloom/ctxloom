@@ -145,7 +145,7 @@ pub const EN_US: (&str, &str) = (
 
 /// One value of every diagnostic of the crate, for the catalog test.
 #[cfg(any(test, feature = "test-support"))]
-pub fn diagnostic_samples() -> Vec<Box<dyn angzarr_diagnostic::Diagnostic>> {
+pub fn diagnostic_samples() -> Vec<Box<dyn coded_diagnostic::Diagnostic>> {
     let mut all = refusal::samples();
     all.extend(client::samples());
     all.extend(start_up::samples());

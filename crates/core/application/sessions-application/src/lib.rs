@@ -31,7 +31,7 @@ mod typed;
 mod types;
 mod write;
 
-use angzarr_diagnostic::Report;
+use coded_diagnostic::Report;
 
 /// A dead letter, as the kernel answers it and the store keeps it. A use case
 /// returns every one its kernel calls answered, beside its result or on its

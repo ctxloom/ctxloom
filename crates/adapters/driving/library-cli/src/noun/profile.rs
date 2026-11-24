@@ -119,11 +119,11 @@ fn create(
 /// The context of a write that answers in text unless json is asked for
 /// by name (OD-40).
 fn text_unless_asked<'a>(cx: &'a Context<'a>) -> Context<'a> {
-    let json_by_name = cx.explicit && cx.format == angzarr_presentation::Format::Json;
+    let json_by_name = cx.explicit && cx.format == presentation::Format::Json;
     cx.formatted(if json_by_name {
-        angzarr_presentation::Format::Json
+        presentation::Format::Json
     } else {
-        angzarr_presentation::Format::Text
+        presentation::Format::Text
     })
 }
 

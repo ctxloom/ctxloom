@@ -884,7 +884,7 @@ impl crate::ProjectRefresh for FakeRefresh {
     fn refresh(
         &self,
         write: bool,
-    ) -> Result<crate::Refresh, Box<dyn angzarr_diagnostic::Diagnostic>> {
+    ) -> Result<crate::Refresh, Box<dyn coded_diagnostic::Diagnostic>> {
         self.asked.lock().expect("a lock").push(write);
         if let Some(detail) = &self.refused {
             return Err(Box::new(crate::AppError::Required {

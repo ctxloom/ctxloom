@@ -48,9 +48,9 @@ use angzarr_embedded::{
     Bus, BusPolicy, CatchUp, CommitNotify, Host, Kernel, Misconfigured, Outbox, Processed, Purge,
     ReadStore, Registry, Store, StreamRef, Timestamp, Wait, Watch, Write,
 };
-use angzarr_test_dir::TestDir;
 use runs::{EndCause, RunMode, RUN_DOMAIN};
 use sessions::SESSION_DOMAIN;
+use test_dir::TestDir;
 use tokio::sync::Notify;
 
 use super::*;

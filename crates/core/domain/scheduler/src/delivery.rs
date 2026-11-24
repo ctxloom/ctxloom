@@ -3,9 +3,9 @@
 //! with [`delivery!`](crate::delivery), because a policy has a single target
 //! type and a const NAME that is its identity.
 
-use angzarr_diagnostic::Report;
 use angzarr_embedded::v1::Uuid;
 use angzarr_embedded::{Any, Payload};
+use coded_diagnostic::Report;
 
 use crate::{RecordAlarmReached, SchedulerEvent};
 

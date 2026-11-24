@@ -3,7 +3,7 @@
 //! `reportPlanOnly` and session.feature's "removed nothing" scenarios,
 //! release/0.7.
 
-use angzarr_diagnostic::{Diagnostic, Report};
+use coded_diagnostic::{Diagnostic, Report};
 use exit_code::{Exit, ExitClass};
 use sessions::SessionRejection;
 

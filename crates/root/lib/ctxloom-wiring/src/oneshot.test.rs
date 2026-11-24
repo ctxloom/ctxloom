@@ -31,7 +31,7 @@ mod told {
     use std::path::Path;
     use std::sync::Arc;
 
-    use angzarr_diagnostic::Diagnostic;
+    use coded_diagnostic::Diagnostic;
     use file_system::{Fs, Perms, Rooted};
     use os::Mode;
     use ports::Names;

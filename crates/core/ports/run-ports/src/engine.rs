@@ -15,7 +15,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
+use coded_diagnostic::{code, Arg, Diagnostic};
 
 use crate::launcher::{TurnCommand, TurnOutput};
 
@@ -371,7 +371,7 @@ pub struct Planned {
 /// An engine's word on a plan (owner ruling 168): a diagnostic of the
 /// engine's own crate (its code, args and en-US message, and a `-fix` when
 /// there is one), said as a notice. Never a refusal: the run goes on.
-pub type Advice = Box<dyn angzarr_diagnostic::Diagnostic + Send + Sync>;
+pub type Advice = Box<dyn coded_diagnostic::Diagnostic + Send + Sync>;
 
 /// How a re-assembled context reaches a live session at the hook its
 /// engine fired (step 10c U13, G6/G7: one polymorphic interface, every
@@ -492,7 +492,7 @@ pub enum EngineError {
 
 impl fmt::Display for EngineError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

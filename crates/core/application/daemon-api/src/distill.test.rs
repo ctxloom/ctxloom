@@ -6,7 +6,7 @@
 use std::sync::Weak;
 use std::time::Duration;
 
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 use daemon_application::Reaction;
 use daemon_proto::v1;
 use exit_code::{Exit, ExitClass};

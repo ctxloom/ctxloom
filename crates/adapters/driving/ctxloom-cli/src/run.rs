@@ -3,10 +3,10 @@
 use std::ffi::OsString;
 use std::io::Write;
 
-use angzarr_presentation::{write_json, Catalog, Format};
 use clap::error::{ContextKind, ContextValue, ErrorKind};
 use clap::{Command, FromArgMatches};
 use library_application::Flags;
+use presentation::{write_json, Catalog, Format};
 use serde::Serialize;
 
 use crate::commands::{command, Cli, Verb, PROG};
@@ -294,7 +294,7 @@ pub(crate) fn report(
     catalog: &Catalog,
     err: &mut dyn Write,
 ) -> Exit {
-    let refusals: &[Box<dyn angzarr_diagnostic::Diagnostic>] = match error {
+    let refusals: &[Box<dyn coded_diagnostic::Diagnostic>] = match error {
         CliError::Extension(failure) => &failure.refusals,
         _ => &[],
     };

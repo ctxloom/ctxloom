@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 use library::findings::Finding;
 use library::profile::{self, LoadError, Profile, ProfileSource, ResolvedProfile};
 use library::ProfileError;

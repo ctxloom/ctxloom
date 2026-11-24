@@ -17,7 +17,7 @@
 # copies are independent).
 
 # Nothing in this workspace names an operating system: what differs between
-# them is angzarr-platform's os crate's alone. No cfg naming one, `cfg!(`,
+# them is rust-support's os crate's alone. No cfg naming one, `cfg!(`,
 # `std::os::`, `split_paths` or target-specific dependency, tests included,
 # but the allowlist's (scripts/os-cfg-allow.txt).
 [no-exit-message]

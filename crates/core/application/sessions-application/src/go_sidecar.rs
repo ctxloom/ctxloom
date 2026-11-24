@@ -12,10 +12,10 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
 use angzarr_embedded::Timestamp;
 use angzarr_yaml::from_value;
 use angzarr_yaml::versioned::{remove_key, LoadError, LoadProblem, Migrations};
+use coded_diagnostic::{code, Arg, Diagnostic, Report};
 use serde::Deserialize;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
@@ -87,7 +87,7 @@ pub enum GoSidecarError {
 
 impl fmt::Display for GoSidecarError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

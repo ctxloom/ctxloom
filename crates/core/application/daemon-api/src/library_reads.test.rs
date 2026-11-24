@@ -449,7 +449,7 @@ async fn a_deps_read_is_observed_then_answered_and_a_decline_carries_its_cause()
     };
     let report = crate::library_refusals::rejection(&refusal.refusal).unwrap();
     assert!(
-        angzarr_diagnostic::Diagnostic::code(&report).starts_with("deps-"),
+        coded_diagnostic::Diagnostic::code(&report).starts_with("deps-"),
         "{report:?}"
     );
 }

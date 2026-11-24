@@ -26,7 +26,7 @@ pub(crate) struct ForeignWriters {
 }
 
 /// `cause` said as the API says a notice.
-pub(crate) fn notice_of(cause: &dyn angzarr_diagnostic::Diagnostic) -> v1::Notice {
+pub(crate) fn notice_of(cause: &dyn coded_diagnostic::Diagnostic) -> v1::Notice {
     v1::Notice {
         code: cause.code().to_string(),
         args: run_application::client::flat_args(cause),
@@ -65,7 +65,7 @@ impl daemon_api::ForeignPlans for ForeignWriters {
             .iter()
             .map(|(name, value)| (name.as_str(), value.as_str()));
         let wiring = super::caller_wiring(&self.home, &self.temp, (&at, None), pairs);
-        let failed = |e: &dyn angzarr_diagnostic::Diagnostic| ApiError::diagnosed(e);
+        let failed = |e: &dyn coded_diagnostic::Diagnostic| ApiError::diagnosed(e);
         if matches!(ask, ForeignAsk::DoctorFix) {
             return self.doctor_fix(&wiring);
         }

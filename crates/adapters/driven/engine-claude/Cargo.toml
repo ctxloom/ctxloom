@@ -8,7 +8,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-angzarr-diagnostic.workspace = true
+coded-diagnostic.workspace = true
 ctxloom-ports.workspace = true
 # The terminal wake's post to claude's messaging socket (`os::socket`).
 os.workspace = true

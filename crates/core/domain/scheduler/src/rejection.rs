@@ -3,7 +3,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
+use coded_diagnostic::{code, Arg, Diagnostic};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum SchedulerRejection {
@@ -17,7 +17,7 @@ pub enum SchedulerRejection {
 
 impl fmt::Display for SchedulerRejection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

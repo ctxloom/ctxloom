@@ -222,7 +222,7 @@ fn test_the_hook_list_names_each_hooks_origin_and_empty_events() {
 mod commands_run {
     use std::sync::Arc;
 
-    use angzarr_presentation::Catalog;
+    use presentation::Catalog;
     use surface_ports::ForeignFiles;
 
     use super::*;
@@ -842,7 +842,7 @@ mod commands_run {
 }
 
 /// A diagnostic as the API says a notice: its code and en-US text.
-fn said(cause: &dyn angzarr_diagnostic::Diagnostic) -> daemon_proto::v1::Notice {
+fn said(cause: &dyn coded_diagnostic::Diagnostic) -> daemon_proto::v1::Notice {
     daemon_proto::v1::Notice {
         code: cause.code().to_string(),
         text: cause.to_string(),

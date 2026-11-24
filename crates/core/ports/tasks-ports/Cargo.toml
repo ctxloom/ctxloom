@@ -8,7 +8,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-angzarr-diagnostic.workspace = true
+coded-diagnostic.workspace = true
 
 [dev-dependencies]
 mutants.workspace = true

@@ -8,7 +8,6 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use angzarr_presentation::Catalog;
 use companion_probe::ProcessProbe;
 use config_files::{ConfigFilesFs, ScaffoldFs};
 use content_fs::{ContentFs, UserFilesFs};
@@ -18,6 +17,7 @@ use deps_ports::RemoteLibrary;
 use editor_process::ProcessEditor;
 use file_system::{Fs, Kind};
 use library_application::{Library, WritePorts};
+use presentation::Catalog;
 use process_env::EnvSnapshot;
 
 use crate::{LibError, Wiring};
@@ -115,9 +115,8 @@ impl LibraryCommands {
 /// catalogs and the library's own, read once, at the first diagnostic said;
 /// a catalog that does not read says each by its code and args.
 fn words() -> library_application::Words {
-    static CATALOG: std::sync::OnceLock<Option<angzarr_presentation::Catalog>> =
-        std::sync::OnceLock::new();
-    Arc::new(|d: &dyn angzarr_diagnostic::Diagnostic| {
+    static CATALOG: std::sync::OnceLock<Option<presentation::Catalog>> = std::sync::OnceLock::new();
+    Arc::new(|d: &dyn coded_diagnostic::Diagnostic| {
         let catalog = CATALOG.get_or_init(|| {
             let mut sources = crate::catalog_sources();
             sources.extend([
@@ -127,7 +126,7 @@ fn words() -> library_application::Words {
                 deps::EN_US,
                 deps_application::EN_US,
             ]);
-            angzarr_presentation::Catalog::en_us(&sources).ok()
+            presentation::Catalog::en_us(&sources).ok()
         });
         match catalog {
             Some(catalog) => catalog.message(d),

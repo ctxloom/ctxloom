@@ -5,9 +5,9 @@
 
 use std::io::{self, Write};
 
-use angzarr_diagnostic::{Arg, Diagnostic};
-use angzarr_presentation::text;
+use coded_diagnostic::{Arg, Diagnostic};
 use daemon_proto::v1;
+use presentation::text;
 use serde::Serialize;
 use sessions_application::{stamp, ImportReport, Titled, TranscriptRow, NO_SUMMARY};
 #[cfg(feature = "session-destroy")]

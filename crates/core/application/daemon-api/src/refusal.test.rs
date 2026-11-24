@@ -1,7 +1,7 @@
 //! A typed refusal, as the diagnostic a person is told.
 
-use angzarr_diagnostic::Diagnostic;
 use angzarr_embedded::Any;
+use coded_diagnostic::Diagnostic;
 use daemon_proto::v1;
 
 use super::{rejection_of, ApiError, ApiRefusal, ApiRejection, Rejection, RemovalRejection};

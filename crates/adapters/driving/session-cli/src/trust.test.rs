@@ -3,10 +3,10 @@
 
 use std::cell::RefCell;
 
-use angzarr_presentation::Format;
 use clap::FromArgMatches;
 use daemon_api::{CallError, TrustWrites, Trusted};
 use daemon_proto::v1;
+use presentation::Format;
 
 use super::{trust, trust_noun, Asking, Trust, TrustVerb};
 
@@ -120,7 +120,7 @@ fn ran(args: &[&str], fake: &Fake, who: &Person, format: Format) -> (Result<bool
     let out = String::from_utf8(out).unwrap();
     let done = done
         .map(|d| d.would_change)
-        .map_err(|f| angzarr_diagnostic::Diagnostic::code(&*f.failure.cause).to_string());
+        .map_err(|f| coded_diagnostic::Diagnostic::code(&*f.failure.cause).to_string());
     (done, out)
 }
 

@@ -8,8 +8,8 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-angzarr-diagnostic.workspace = true
-angzarr-presentation.workspace = true
+coded-diagnostic.workspace = true
+presentation.workspace = true
 cli-support.workspace = true
 clap.workspace = true
 daemon-proto.workspace = true
@@ -19,7 +19,7 @@ serde.workspace = true
 setup-application.workspace = true
 
 [dev-dependencies]
-angzarr-presentation = { workspace = true, features = ["test-support"] }
+presentation = { workspace = true, features = ["test-support"] }
 library-application = { workspace = true, features = ["test-support"] }
 serde_json.workspace = true
 surface-ports.workspace = true

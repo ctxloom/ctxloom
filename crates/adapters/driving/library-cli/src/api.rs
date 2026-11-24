@@ -16,7 +16,7 @@ use std::io::{self, Write};
 
 /// Write `message`'s proto3 JSON, as every json answer is written.
 pub(crate) fn print<M: serde::Serialize>(out: &mut dyn Write, message: &M) -> io::Result<()> {
-    angzarr_presentation::write_json(out, message)
+    presentation::write_json(out, message)
 }
 
 #[cfg(test)]

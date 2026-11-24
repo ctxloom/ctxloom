@@ -28,8 +28,8 @@ use std::future::Future;
 use std::pin::Pin;
 use std::task::Poll;
 
-use angzarr_diagnostic::{Arg, Diagnostic, Report};
 use angzarr_embedded::v1::Cover;
+use coded_diagnostic::{Arg, Diagnostic, Report};
 use daemon_ports::{Called, DaemonApi};
 use daemon_proto::v1;
 use exit_code::{Exit, ExitClass};

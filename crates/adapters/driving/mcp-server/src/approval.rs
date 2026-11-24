@@ -22,7 +22,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
+use coded_diagnostic::{code, Arg, Diagnostic};
 use daemon_proto::v1;
 use serde_json::{json, Value};
 
@@ -121,7 +121,7 @@ pub enum Denied {
 
 impl fmt::Display for Denied {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

@@ -1,6 +1,6 @@
 //! The texts: each said in English from the catalog, never as its code.
 
-use angzarr_diagnostic::Diagnostic as _;
+use coded_diagnostic::Diagnostic as _;
 
 use super::{texts, Text};
 

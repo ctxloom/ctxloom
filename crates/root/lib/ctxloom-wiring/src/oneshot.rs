@@ -14,9 +14,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::CoreStores;
-use angzarr_diagnostic::Report;
 use angzarr_embedded::angzarr_store_sqlite::SqliteStore;
 use angzarr_embedded::Catalog;
+use coded_diagnostic::Report;
 use daemon_ports::Daemons;
 use embedded_edge::EmbeddedEdge;
 use file_system::Fs;
@@ -79,19 +79,19 @@ impl Core for crate::SharedCore<SqliteStore> {
 struct Told(Project);
 
 impl ProjectIdentity for Told {
-    fn for_write(&mut self, _: Option<&str>) -> Result<Project, angzarr_diagnostic::Report> {
+    fn for_write(&mut self, _: Option<&str>) -> Result<Project, coded_diagnostic::Report> {
         Ok(self.0.clone())
     }
 
-    fn for_read(&mut self, _: Option<&str>) -> Result<Option<Project>, angzarr_diagnostic::Report> {
+    fn for_read(&mut self, _: Option<&str>) -> Result<Option<Project>, coded_diagnostic::Report> {
         Ok(Some(self.0.clone()))
     }
 
-    fn every_project(&mut self) -> Result<Vec<Project>, angzarr_diagnostic::Report> {
+    fn every_project(&mut self) -> Result<Vec<Project>, coded_diagnostic::Report> {
         Ok(vec![self.0.clone()])
     }
 
-    fn rootless_directory(&mut self) -> Result<Option<String>, angzarr_diagnostic::Report> {
+    fn rootless_directory(&mut self) -> Result<Option<String>, coded_diagnostic::Report> {
         Ok(None)
     }
 }

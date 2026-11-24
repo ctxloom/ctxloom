@@ -4,7 +4,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
+use coded_diagnostic::{code, Arg, Diagnostic};
 
 macro_rules! write_errors {
     ($($(#[$doc:meta])* $variant:ident { $($field:ident),* } = $code:literal;)*) => {
@@ -179,7 +179,7 @@ write_errors! {
 
 impl fmt::Display for WriteError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

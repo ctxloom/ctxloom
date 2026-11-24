@@ -229,7 +229,7 @@ fn test_a_home_write_takes_host_into_the_home_config_alone() {
 // command keeps a home write home.
 #[test]
 fn test_the_refusal_names_the_home_write_and_the_apply_command_keeps_home() {
-    use angzarr_diagnostic::Diagnostic as _;
+    use coded_diagnostic::Diagnostic as _;
     let refusal = crate::WriteError::SessionHomeHostInProject {
         name: "dev2".to_string(),
         verb: "edit".to_string(),

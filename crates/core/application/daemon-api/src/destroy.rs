@@ -579,7 +579,7 @@ fn fact_book<M: angzarr_embedded::markup::DomainMessage>(
 
 fn app_failed(detail: &str) -> AppError {
     AppError::Failed(
-        angzarr_diagnostic::Report::new("sessions-application-gave-up")
+        coded_diagnostic::Report::new("sessions-application-gave-up")
             .arg("attempts", 1_i64)
             .arg("error", detail.to_string()),
     )

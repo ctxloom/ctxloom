@@ -44,7 +44,7 @@ pub(crate) fn hear(notices: Vec<v1::Notice>) {
 /// What this process heard and has not said yet, taken: the command says
 /// each once, on stderr, as it ends, in its own code and args (rendered by
 /// the command's catalog).
-pub(crate) fn take_heard() -> Vec<angzarr_diagnostic::Report> {
+pub(crate) fn take_heard() -> Vec<coded_diagnostic::Report> {
     HEARD
         .lock()
         .map(|mut heard| std::mem::take(&mut heard.unsaid))

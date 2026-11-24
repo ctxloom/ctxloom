@@ -9,7 +9,7 @@ publish.workspace = true
 
 [dependencies]
 exit-code.workspace = true
-angzarr-diagnostic.workspace = true
+coded-diagnostic.workspace = true
 ctxloom-ports.workspace = true
 isolation.workspace = true
 isolation-ports.workspace = true

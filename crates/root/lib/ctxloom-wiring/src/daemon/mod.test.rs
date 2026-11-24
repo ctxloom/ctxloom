@@ -436,10 +436,9 @@ fn test_a_hooks_unprobed_daemon_is_its_homes_discovery_without_a_health_check() 
 }
 
 /// What `render` says of `value` in text.
-fn said_text(value: &impl angzarr_presentation::Render) -> String {
+fn said_text(value: &impl presentation::Render) -> String {
     let mut out = Vec::new();
-    angzarr_presentation::render(&mut out, angzarr_presentation::Format::Text, value)
-        .expect("rendered");
+    presentation::render(&mut out, presentation::Format::Text, value).expect("rendered");
     String::from_utf8(out).expect("utf-8")
 }
 

@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
+use coded_diagnostic::{code, Arg, Diagnostic};
 use exit_code::{Exit, ExitClass};
 use isolation_ports::Failure;
 
@@ -70,7 +70,7 @@ impl ExitClass for IsolationError {
 
 impl fmt::Display for IsolationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

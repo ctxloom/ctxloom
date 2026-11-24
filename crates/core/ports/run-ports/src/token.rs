@@ -3,7 +3,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
+use coded_diagnostic::{code, Arg, Diagnostic};
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 
@@ -99,7 +99,7 @@ pub enum TokenError {
 
 impl fmt::Display for TokenError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

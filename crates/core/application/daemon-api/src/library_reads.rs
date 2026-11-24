@@ -172,7 +172,7 @@ impl<E: Edge> Api<E> {
         })?;
         let mut said = site.said;
         said.extend(outcome.notices.iter().map(|notice| v1::Notice {
-            code: angzarr_diagnostic::Diagnostic::code(notice).to_string(),
+            code: coded_diagnostic::Diagnostic::code(notice).to_string(),
             args: run_application::client::flat_args(notice),
             text: notice.to_string(),
         }));

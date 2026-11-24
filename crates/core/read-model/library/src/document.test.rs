@@ -4,7 +4,7 @@
 
 use super::*;
 
-angzarr_presentation::english_for!(&[crate::EN_US.1]);
+presentation::english_for!(&[crate::EN_US.1]);
 
 fn parse(text: &str) -> Bundle {
     parse_document(text).unwrap_or_else(|e| panic!("{}", e.english()))

@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 use library::config::engines::{self, AuthError, Effective, EngineError};
 use library::model::McpServer;
 use library::premise::Surface;

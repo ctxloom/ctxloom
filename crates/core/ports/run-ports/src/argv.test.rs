@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 
 use super::*;
 use crate::TurnCommand;

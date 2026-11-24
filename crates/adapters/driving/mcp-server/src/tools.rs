@@ -11,7 +11,7 @@
 use std::fmt;
 use std::sync::Arc;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
+use coded_diagnostic::{code, Arg, Diagnostic};
 use daemon_api::{CallError, Caller, Daemons, Launch};
 use daemon_proto::v1;
 use rmcp::model::{JsonObject, Tool};
@@ -188,7 +188,7 @@ pub enum ToolArgs {
 
 impl fmt::Display for ToolArgs {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

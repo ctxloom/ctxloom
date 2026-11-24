@@ -273,7 +273,7 @@ mod loading {
     /// What loading `flags` over `layers` refused with, as its code and
     /// violations.
     fn refused_by(layers: &[&str], flags: &Flags) -> (String, String) {
-        use angzarr_diagnostic::Diagnostic as _;
+        use coded_diagnostic::Diagnostic as _;
         let (_, mem) = Setup {
             layers,
             ..Setup::default()

@@ -7,7 +7,7 @@ use std::collections::BTreeSet;
 
 use super::*;
 
-angzarr_presentation::english_for!(&[crate::EN_US.1]);
+presentation::english_for!(&[crate::EN_US.1]);
 
 /// The `$variables` of the message `id`: its own lines, up to the next
 /// message.

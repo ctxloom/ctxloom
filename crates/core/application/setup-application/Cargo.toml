@@ -9,7 +9,7 @@ publish.workspace = true
 
 [dependencies]
 exit-code.workspace = true
-angzarr-diagnostic.workspace = true
+coded-diagnostic.workspace = true
 ctxloom-ports.workspace = true
 # A hook's library read, as the daemon answers it (O3).
 daemon-proto.workspace = true
@@ -22,7 +22,7 @@ surface-ports.workspace = true
 [dev-dependencies]
 # The hooks' reads in the tests, answered as the daemon answers them.
 library-api.workspace = true
-angzarr-presentation = { workspace = true, features = ["test-support"] }
+presentation = { workspace = true, features = ["test-support"] }
 library-application = { workspace = true, features = ["test-support"] }
 serde_json.workspace = true
 mutants.workspace = true

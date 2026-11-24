@@ -11,7 +11,7 @@ mod scan;
 
 use std::collections::BTreeMap;
 
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 
 pub use operation::{Operated, Operation, Operations, Point, STAGING_DIR, STATE_DIR, TRASH_DIR};
 pub use scan::{LibraryScanner, LIBRARY_PATHS};

@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
+use coded_diagnostic::{code, Arg, Diagnostic};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum SessionRejection {
@@ -107,7 +107,7 @@ pub enum SessionRejection {
 /// Its key and args, never English (angzarr decision 14.37).
 impl fmt::Display for SessionRejection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

@@ -10,7 +10,7 @@ publish.workspace = true
 [dependencies]
 # The session aggregate on angzarr-embedded's markup (`SessionAggregate`).
 angzarr-embedded.workspace = true
-angzarr-diagnostic.workspace = true
+coded-diagnostic.workspace = true
 angzarr-embedded-macros.workspace = true
 # The generated domain layer names prost::Name and the wire types.
 prost.workspace = true

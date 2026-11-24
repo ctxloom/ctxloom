@@ -382,7 +382,7 @@ async fn outside_a_project_its_own_listing_is_refused() {
         .await
         .unwrap_err();
     assert_eq!(
-        angzarr_diagnostic::Diagnostic::code(&refused),
+        coded_diagnostic::Diagnostic::code(&refused),
         "daemon-api-project-unknown"
     );
     assert_eq!(refused.exit(), Exit::REFUSED);
@@ -420,7 +420,7 @@ async fn an_unnamed_projects_own_listing_and_search_are_empty_and_ask_no_daemon(
     assert_eq!(daemons.names(), ["projects/-"]);
     let refused = client.get_session("amber-swift-owl").await.unwrap_err();
     assert_eq!(
-        angzarr_diagnostic::Diagnostic::code(&refused),
+        coded_diagnostic::Diagnostic::code(&refused),
         "daemon-api-project-unknown"
     );
 }
@@ -510,11 +510,11 @@ async fn an_unreached_daemon_is_a_failure_or_a_decline() {
         .await
         .unwrap_err();
     assert_eq!(
-        angzarr_diagnostic::Diagnostic::code(&failed),
+        coded_diagnostic::Diagnostic::code(&failed),
         "daemon-ports-not-started"
     );
     assert_eq!(failed.exit(), Exit::FAILED);
-    let declined: Arc<dyn angzarr_diagnostic::Diagnostic + Send + Sync> =
+    let declined: Arc<dyn coded_diagnostic::Diagnostic + Send + Sync> =
         Arc::new(crate::ApiRejection::ProjectUnknown {
             cwd: "/tmp".to_string(),
         });
@@ -775,7 +775,7 @@ async fn a_dry_runs_parent_reaches_the_daemon_even_with_nothing_to_resolve() {
         .await
         .unwrap_err();
     assert_eq!(
-        angzarr_diagnostic::Diagnostic::code(&failed),
+        coded_diagnostic::Diagnostic::code(&failed),
         "daemon-ports-not-started"
     );
     assert_eq!(failed.exit(), Exit::FAILED);

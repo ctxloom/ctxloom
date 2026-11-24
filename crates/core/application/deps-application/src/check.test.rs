@@ -1,7 +1,7 @@
 //! `deps check` over the fakes: it reads, it never calls an unchecked entry
 //! current.
 
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 
 use crate::fakes::{demo, Fixture, ENVELOPE};
 use crate::{AppError, Outcome};

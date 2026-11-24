@@ -555,12 +555,10 @@ impl super::SetupReading for ReadingIn<'_> {
                         .args()
                         .into_iter()
                         .filter_map(|(name, arg)| match arg {
-                            angzarr_diagnostic::Arg::Str(value) => {
-                                Some(daemon_proto::v1::NeedArg {
-                                    name: name.to_string(),
-                                    value,
-                                })
-                            }
+                            coded_diagnostic::Arg::Str(value) => Some(daemon_proto::v1::NeedArg {
+                                name: name.to_string(),
+                                value,
+                            }),
                             _ => None,
                         })
                         .collect(),

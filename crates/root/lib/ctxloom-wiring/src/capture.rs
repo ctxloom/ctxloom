@@ -32,9 +32,9 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use angzarr_diagnostic::Diagnostic;
 use angzarr_embedded::v1::{DeliveryOutcome, Uuid};
 use angzarr_embedded::{Failure, KernelError};
+use coded_diagnostic::Diagnostic;
 use hook_cli::{NotRecorded, Recording, Unrecorded};
 use hook_sink_grpc::GrpcSink;
 use run_ports::{

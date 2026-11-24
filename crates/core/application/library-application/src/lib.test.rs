@@ -4,7 +4,7 @@
 
 use crate::fakes::{plain, Setup, CONFIG, ENVELOPE};
 use crate::{AppError, AssembleRequest, ItemKind, Notice, RunRequest, SearchRequest};
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 use exit_code::{Exit, ExitClass};
 
 const DEMO: &[(&str, &str)] = &[
@@ -177,7 +177,7 @@ fn test_a_bundle_in_the_old_layout_is_refused_naming_the_move_from_the_projects_
         .args()
         .into_iter()
         .filter_map(|(k, v)| match v {
-            angzarr_diagnostic::Arg::Str(s) => Some((k.to_string(), s)),
+            coded_diagnostic::Arg::Str(s) => Some((k.to_string(), s)),
             _ => None,
         })
         .collect();
@@ -742,7 +742,7 @@ fn test_assembling_reports_what_it_could_not_load() {
 fn test_agent_show_reports_the_declaration_the_resolution_and_a_failure_to_resolve() {
     let layers = ["schema_version: 9\nagents:\n  good:\n    engine: claude-code\n    profiles: [dev]\n  bad:\n    engine: claude-code\n    profiles: [ghost]\n"];
     let library = setup(&layers).library();
-    let say = |d: &dyn angzarr_diagnostic::Diagnostic| d.code().to_string();
+    let say = |d: &dyn coded_diagnostic::Diagnostic| d.code().to_string();
     let good = ok(library.agent_show(&plain(), "good", &say));
     let resolved = good.resolved.unwrap();
     assert_eq!(resolved.engine, "claude-code");

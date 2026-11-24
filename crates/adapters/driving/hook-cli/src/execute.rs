@@ -4,7 +4,7 @@
 //! name is the engine's native hook event, answered by the application through
 //! the registry's engine codec.
 
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 use setup_application::{HookAnswer, Offered};
 
 use crate::{hud, HookService, HookWarning};

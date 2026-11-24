@@ -22,7 +22,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
+use coded_diagnostic::{code, Arg, Diagnostic};
 
 use crate::TurnCommand;
 
@@ -65,7 +65,7 @@ pub struct CommandTooLong {
 
 impl fmt::Display for CommandTooLong {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

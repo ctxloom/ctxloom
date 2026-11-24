@@ -3,7 +3,7 @@
 # lint` checks they match.
 excessive-nesting-threshold = 6
 
-# All file I/O goes through the file-system seam (angzarr-platform's
+# All file I/O goes through the file-system seam (rust-support's
 # file-system): an `Fs`, the real `Os` in production and a temp-rooted
 # `Rooted` in tests, so a test's files, its SQLite databases and its lock
 # files land under a root of its own. Nothing in a workspace calls these. Each

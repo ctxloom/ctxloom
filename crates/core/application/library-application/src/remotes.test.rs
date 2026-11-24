@@ -155,7 +155,7 @@ fn test_an_installed_bundle_in_the_old_layout_is_refused_naming_its_remote() {
     );
     let refused = lib.bundle_show(&plain(), "origin/kit").result.unwrap_err();
     assert_eq!(
-        angzarr_diagnostic::Diagnostic::code(&refused),
+        coded_diagnostic::Diagnostic::code(&refused),
         "library-sidecar-old-layout"
     );
 }

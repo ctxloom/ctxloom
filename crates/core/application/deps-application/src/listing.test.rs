@@ -1,6 +1,6 @@
 //! `deps list`, `deps hold` and `deps unhold` over the fakes.
 
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 
 use crate::fakes::{demo, Fixture};
 use crate::{AppError, Notice, Outcome};

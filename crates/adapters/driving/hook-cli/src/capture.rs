@@ -10,7 +10,7 @@
 //! [`crate::HookWarning::Held`], [`crate::HookWarning::HeldBehind`]), never
 //! stdout and never the exit code.
 
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 use setup_application::HookAnswer;
 
 use crate::{HookService, HookWarning, Outcome};

@@ -76,15 +76,15 @@ impl FakePlaces {
 struct Files(Arc<FakePlaces>);
 
 impl SessionFiles for Files {
-    fn last_active(&mut self, harp: &str) -> Result<Option<Timestamp>, angzarr_diagnostic::Report> {
+    fn last_active(&mut self, harp: &str) -> Result<Option<Timestamp>, coded_diagnostic::Report> {
         Ok(self.0.held().last_active.get(harp).copied())
     }
 
-    fn survey(&mut self, harp: &str) -> Result<Vec<FileItem>, angzarr_diagnostic::Report> {
+    fn survey(&mut self, harp: &str) -> Result<Vec<FileItem>, coded_diagnostic::Report> {
         Ok(self.0.held().survey.get(harp).cloned().unwrap_or_default())
     }
 
-    fn size(&mut self, harp: &str) -> Result<u64, angzarr_diagnostic::Report> {
+    fn size(&mut self, harp: &str) -> Result<u64, coded_diagnostic::Report> {
         Ok(self
             .0
             .held()
@@ -110,9 +110,7 @@ impl ctxloom_ports::Operations for Operations {
         match operation {
             ctxloom_ports::Operation::Trash { path } => {
                 if held.fail_destroy {
-                    return Err(Box::new(angzarr_diagnostic::Report::new(
-                        "x-destroy-failed",
-                    )));
+                    return Err(Box::new(coded_diagnostic::Report::new("x-destroy-failed")));
                 }
                 let harp = path.strip_prefix("sessions/").unwrap_or(path).to_string();
                 if held.destroyed.contains(&harp) {
@@ -127,7 +125,7 @@ impl ctxloom_ports::Operations for Operations {
             }
             ctxloom_ports::Operation::Purge => {
                 if std::mem::take(&mut held.fail_purge) {
-                    return Err(Box::new(angzarr_diagnostic::Report::new("x-purge-failed")));
+                    return Err(Box::new(coded_diagnostic::Report::new("x-purge-failed")));
                 }
                 held.purged.push(request_id.to_string());
             }

@@ -4,7 +4,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
+use coded_diagnostic::{code, Arg, Diagnostic, Report};
 
 /// This crate's en-US messages (`locales/en-US/messages.ftl`, ids under the
 /// crate's name).
@@ -68,7 +68,7 @@ pub enum DepsError {
 
 impl fmt::Display for DepsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

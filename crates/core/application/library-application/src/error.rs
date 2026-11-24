@@ -4,7 +4,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
+use coded_diagnostic::{code, Arg, Diagnostic};
 use exit_code::{Exit, ExitClass};
 use library::{BundleError, ProfileError, RefError};
 
@@ -136,7 +136,7 @@ pub enum AppError {
     /// A distiller that gave no answer (step 5): nothing was written.
     DistillFailed {
         reference: String,
-        cause: angzarr_diagnostic::Report,
+        cause: coded_diagnostic::Report,
     },
     /// A distiller's answer under 2% of its source (step 5): refused as
     /// truncated, and nothing was written.
@@ -197,7 +197,7 @@ impl ExitClass for AppError {
 
 impl fmt::Display for AppError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 
@@ -430,7 +430,7 @@ pub enum Notice {
     /// A `CTXLOOM_ROOT` that names no directory.
     RootIgnored { root: String },
     /// The dependencies installed from remotes could not be read.
-    RemotesUnreadable { cause: angzarr_diagnostic::Report },
+    RemotesUnreadable { cause: coded_diagnostic::Report },
     /// A registered, enabled companion whose program is not on the `PATH`
     /// where the agent runs: what it would bring is left out, and nothing
     /// fails (j000800).
@@ -518,7 +518,7 @@ impl Notice {
 
 impl fmt::Display for Notice {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 
@@ -768,7 +768,7 @@ fn error_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(AppError::NoFragments { detail: s("none") }),
         Box::new(AppError::DistillFailed {
             reference: s("demo#fragments/rules"),
-            cause: angzarr_diagnostic::Report::of(&BundleError::NoManifest { bundle: s("demo") }),
+            cause: coded_diagnostic::Report::of(&BundleError::NoManifest { bundle: s("demo") }),
         }),
         Box::new(AppError::DistillSourceMoved {
             reference: s("demo#fragments/rules"),
@@ -828,7 +828,7 @@ fn notice_samples() -> Vec<Box<dyn Diagnostic>> {
             root: s("/nowhere"),
         }),
         Box::new(Notice::RemotesUnreadable {
-            cause: angzarr_diagnostic::Report::of(&BundleError::NoManifest { bundle: s("demo") }),
+            cause: coded_diagnostic::Report::of(&BundleError::NoManifest { bundle: s("demo") }),
         }),
         Box::new(Notice::CompanionNotOnPath {
             name: s("reprise"),

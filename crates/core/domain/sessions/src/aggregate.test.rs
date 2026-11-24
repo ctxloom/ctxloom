@@ -6,13 +6,13 @@
 
 use std::collections::BTreeMap;
 
-use angzarr_diagnostic::{Arg, Diagnostic};
 use angzarr_embedded::markup::DomainMessage;
 use angzarr_embedded::testing::{Harness, Samples};
 use angzarr_embedded::v1::{
     command_page, CommandBook, CommandPage, Cover, EventPage, Fact, FactOrigin, Uuid,
 };
 use angzarr_embedded::{Any, Failure, Payload, Registry, Timestamp};
+use coded_diagnostic::{Arg, Diagnostic};
 
 use crate::{
     AdoptRotations, BindEngineSession, EndRecorded, EngineSessionBound, KeptChanged, MintSession,

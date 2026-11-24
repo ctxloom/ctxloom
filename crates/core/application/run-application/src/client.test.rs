@@ -6,7 +6,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use angzarr_diagnostic::{Arg, Diagnostic, Report};
+use coded_diagnostic::{Arg, Diagnostic, Report};
 use daemon_ports::{Called, DaemonApi, RunEvents};
 use daemon_proto::v1;
 use exit_code::{Exit, ExitClass};

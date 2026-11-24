@@ -1,7 +1,7 @@
 //! The command line's own errors: their codes, args and exit codes (D28).
 
-use angzarr_diagnostic::Diagnostic;
 use cli_support::{Exit, ExitClass};
+use coded_diagnostic::Diagnostic;
 
 use super::CliError;
 

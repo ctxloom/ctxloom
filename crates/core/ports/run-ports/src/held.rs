@@ -32,8 +32,8 @@
 use std::fmt;
 use std::time::Duration;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
 use angzarr_embedded::v1::CommandBook;
+use coded_diagnostic::{code, Arg, Diagnostic};
 use daemon_proto::google::protobuf::Timestamp;
 use prost::Message;
 use uuid::Uuid;
@@ -340,7 +340,7 @@ pub enum HoldError {
 
 impl fmt::Display for HoldError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

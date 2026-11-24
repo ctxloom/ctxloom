@@ -1,4 +1,4 @@
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 use run_ports::{Engine, Planned};
 
 use super::{diagnostic_samples, OpencodeNotice, EN_US};

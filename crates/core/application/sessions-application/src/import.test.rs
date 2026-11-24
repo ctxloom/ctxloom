@@ -407,7 +407,7 @@ fn a_sidecar_this_build_cannot_read_is_left_and_the_others_still_import() {
 fn a_sidecar_that_could_not_be_read_from_disk_is_left() {
     let broken = GoSession {
         harp: OWL.to_string(),
-        sidecar: Err(angzarr_diagnostic::Report::new("session-files-io")),
+        sidecar: Err(coded_diagnostic::Report::new("session-files-io")),
         keep_marker: false,
     };
     let mut imp = importer(vec![broken, go(MOTH, SCHEMA2, false)]);

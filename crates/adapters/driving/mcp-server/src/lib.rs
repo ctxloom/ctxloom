@@ -36,7 +36,7 @@ pub mod wake;
 use std::fmt;
 use std::sync::Arc;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
+use coded_diagnostic::{code, Arg, Diagnostic};
 use daemon_api::{Caller, Daemons};
 use rmcp::model::{
     CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, Implementation,
@@ -111,7 +111,7 @@ impl<D: Daemons + 'static> Server<D> {
         Server {
             caller: Arc::new(caller),
             version: version.to_string(),
-            say: Box::new(|d| angzarr_diagnostic::Report::of(d).to_string()),
+            say: Box::new(|d| coded_diagnostic::Report::of(d).to_string()),
             cancels: approval::Cancels::default(),
             wakes: None,
             message_notes: true,
@@ -412,7 +412,7 @@ pub enum McpError {
 
 impl fmt::Display for McpError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

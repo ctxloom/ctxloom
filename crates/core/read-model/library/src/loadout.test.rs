@@ -3,7 +3,7 @@
 
 use super::*;
 
-angzarr_presentation::english_for!(&[crate::EN_US.1]);
+presentation::english_for!(&[crate::EN_US.1]);
 
 fn parse(text: &str) -> Loadout {
     parse_loadout(text).unwrap_or_else(|e| panic!("{}", e.english()))

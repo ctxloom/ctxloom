@@ -10,7 +10,7 @@ publish.workspace = true
 [dependencies]
 # The transport-free gRPC status (`Code`) the infrastructure root names.
 angzarr-coordinator.workspace = true
-angzarr-diagnostic.workspace = true
+coded-diagnostic.workspace = true
 angzarr-embedded.workspace = true
 base64.workspace = true
 daemon-proto.workspace = true

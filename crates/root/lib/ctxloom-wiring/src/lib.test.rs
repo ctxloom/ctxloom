@@ -719,7 +719,7 @@ fn test_opening_a_store_makes_it_under_the_home_and_names_its_database() {
 
 #[test]
 fn test_opening_a_store_for_an_unsafe_project_id_is_refused_and_makes_nothing() {
-    use angzarr_diagnostic::Diagnostic;
+    use coded_diagnostic::Diagnostic;
     let env = Env::new("open-store-unsafe");
     let wiring = from_process().ok().unwrap();
     let error = wiring.open_store("../escape").expect_err("refused");

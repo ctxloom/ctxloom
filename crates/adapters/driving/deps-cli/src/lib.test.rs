@@ -2,10 +2,10 @@
 //! line parsed by this crate's own nouns, the application over in-memory
 //! ports, the answer as bytes.
 
-use angzarr_presentation::{Catalog, Format};
 use clap::Command;
 use deps_application::dependency_id;
 use deps_application::fakes::{demo, FakeRefresh, Fixture, BUNDLES};
+use presentation::{Catalog, Format};
 
 use super::*;
 
@@ -216,7 +216,7 @@ impl Served for ServedBy<'_> {
             .failure
             .as_ref()
             .map(|failure| daemon_proto::v1::Notice {
-                code: angzarr_diagnostic::Diagnostic::code(failure).to_string(),
+                code: coded_diagnostic::Diagnostic::code(failure).to_string(),
                 args: run_application::client::flat_args(failure),
                 text: failure.to_string(),
             });
@@ -252,7 +252,7 @@ fn written<T>(
         .notices
         .iter()
         .map(|notice| daemon_proto::v1::Notice {
-            code: angzarr_diagnostic::Diagnostic::code(notice).to_string(),
+            code: coded_diagnostic::Diagnostic::code(notice).to_string(),
             args: run_application::client::flat_args(notice),
             text: notice.to_string(),
         })

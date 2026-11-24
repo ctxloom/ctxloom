@@ -39,7 +39,7 @@ pub(crate) fn session_cover(id: &str) -> Result<Cover, AppError> {
     let bytes = uuid::Uuid::parse_str(id)
         .map_err(|e| {
             AppError::Failed(
-                angzarr_diagnostic::Report::new("sessions-application-bad-id")
+                coded_diagnostic::Report::new("sessions-application-bad-id")
                     .arg("ext_err_txt", e.to_string()),
             )
         })?

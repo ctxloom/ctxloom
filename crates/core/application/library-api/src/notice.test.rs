@@ -1,4 +1,4 @@
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 
 use super::{diagnostic_samples, LibraryApiNotice, EN_US};
 

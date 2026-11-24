@@ -154,9 +154,9 @@ async fn test_a_read_only_store_is_replaced_when_a_write_asks() {
 // Where the one database is, what asking makes and what it does not.
 
 use super::{OpenError, StoreOpenError};
-use angzarr_diagnostic::Diagnostic;
 use angzarr_embedded::angzarr_ports::Arg as PortArg;
 use angzarr_embedded::StoreError;
+use coded_diagnostic::Diagnostic;
 use os::Mode;
 
 #[test]
@@ -379,7 +379,7 @@ fn refusal_args(error: &dyn Diagnostic) -> Vec<(String, String)> {
         .args()
         .into_iter()
         .map(|(name, arg)| match arg {
-            angzarr_diagnostic::Arg::Str(text) => (name.to_string(), text),
+            coded_diagnostic::Arg::Str(text) => (name.to_string(), text),
             other => panic!("{name}: {other:?}"),
         })
         .collect()

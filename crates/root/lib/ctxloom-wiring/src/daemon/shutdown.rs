@@ -38,13 +38,13 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
-use angzarr_presentation::{render, Format, Render};
 use clap::{Arg as ClapArg, Command};
 use cli_support::Exit;
+use coded_diagnostic::{code, Arg, Diagnostic};
 use ctxloom_cli::{Call, Failure};
 use file_system::Fs;
 use liveness::FrontendLocks;
+use presentation::{render, Format, Render};
 use serde::Serialize;
 
 use run_ports::{HeldFacts, HoldError};
@@ -139,7 +139,7 @@ pub(crate) enum ShutdownError {
 
 impl std::fmt::Display for ShutdownError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

@@ -254,7 +254,7 @@ impl ImportService for Sessions {
 /// frontends' own: angzarr's (the kernel's reasons, the store's), the
 /// platform's, taskloom's project registry's, and this program's adapters and
 /// use cases'.
-pub fn catalog_sources() -> Vec<angzarr_presentation::Source> {
+pub fn catalog_sources() -> Vec<presentation::Source> {
     let mut sources = vec![
         EN_US,
         angzarr_embedded::angzarr_proto::REASONS_EN_US,
@@ -563,7 +563,7 @@ impl Wiring {
             let identity = registry(Arc::clone(&self.fs), self.environment(), HarpNames);
             let root = identity
                 .identity_root()
-                .map_err(|e| LibError::Project(angzarr_diagnostic::Report::of(&e)))?;
+                .map_err(|e| LibError::Project(coded_diagnostic::Report::of(&e)))?;
             rebind::unbind_stale(&*self.fs, &self.home, &root, project_id)
                 .map_err(LibError::Project)?;
         }
@@ -688,11 +688,11 @@ impl Wiring {
                 harps: fresh_project_harps(),
             })
             .await
-            .map_err(|e| LibError::Project(angzarr_diagnostic::Report::of(&e)));
+            .map_err(|e| LibError::Project(coded_diagnostic::Report::of(&e)));
         // Closed, not dropped (ruling 131).
         let closed = sessions.close().await;
         let named = named?;
-        closed.map_err(|e| LibError::Project(angzarr_diagnostic::Report::of(&e)))?;
+        closed.map_err(|e| LibError::Project(coded_diagnostic::Report::of(&e)))?;
         Ok(named)
     }
 

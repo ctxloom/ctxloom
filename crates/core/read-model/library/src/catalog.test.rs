@@ -5,7 +5,7 @@
 use super::*;
 use crate::distill::{distilled_file, source_digest, DistilledState};
 
-angzarr_presentation::english_for!(&[crate::EN_US.1]);
+presentation::english_for!(&[crate::EN_US.1]);
 
 use crate::testdata::{catalog_of, corpus, ALPHA, BETA};
 
@@ -524,7 +524,7 @@ fn test_lookup_refuses_an_item_reference_in_every_spelling() {
     ] {
         let err = cat.lookup(ask).expect_err(ask);
         assert_eq!(
-            angzarr_diagnostic::Diagnostic::code(&err),
+            coded_diagnostic::Diagnostic::code(&err),
             "library-catalog-item-not-bundle",
             "{ask}"
         );

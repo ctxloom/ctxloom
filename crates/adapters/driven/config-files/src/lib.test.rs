@@ -4,7 +4,7 @@
 use file_system::{Perms, Rooted};
 use os::Mode;
 
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 
 use super::*;
 

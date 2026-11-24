@@ -8,7 +8,7 @@
 //! Its three tables (to the wire, back, and the tests' samples) list the
 //! same variants in the same order, library.proto's.
 
-use angzarr_diagnostic::{Arg, Diagnostic, Report};
+use coded_diagnostic::{Arg, Diagnostic, Report};
 use daemon_ports::Any;
 use daemon_proto::v1;
 use library_application::AppError;

@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
+use coded_diagnostic::{code, Arg, Diagnostic, Report};
 use exit_code::{Exit, ExitClass};
 use library_application::AppError as PlanError;
 use run_launcher::LaunchError;
@@ -144,7 +144,7 @@ impl RunError {
 
 impl fmt::Display for RunError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

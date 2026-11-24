@@ -253,10 +253,10 @@ fn every_field_of_a_removal() -> v1::DeleteSessionResponse {
 }
 
 /// `value` as `--format json` writes it: compact, and as the CLI prints it
-/// (angzarr-presentation's `write_json`).
+/// (presentation's `write_json`).
 fn bytes_of<T: serde::Serialize>(value: &T) -> (String, String) {
     let mut printed = Vec::new();
-    angzarr_presentation::write_json(&mut printed, value).expect("prints");
+    presentation::write_json(&mut printed, value).expect("prints");
     (
         serde_json::to_string(value).expect("serializes"),
         String::from_utf8(printed).expect("utf-8"),

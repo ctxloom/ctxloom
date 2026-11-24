@@ -8,8 +8,8 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-angzarr-diagnostic.workspace = true
-angzarr-presentation.workspace = true
+coded-diagnostic.workspace = true
+presentation.workspace = true
 angzarr-yaml.workspace = true
 cache-files.workspace = true
 container-cli.workspace = true

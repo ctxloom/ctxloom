@@ -3,7 +3,7 @@
 //!
 //! - Noun-verb, with `-h` at every depth and no `help` command; an unknown
 //!   verb is an error that says "Did you mean" and lists the verbs there are.
-//! - `--format` is `json` or `text` (angzarr-presentation's [`Format`]),
+//! - `--format` is `json` or `text` (presentation's [`Format`]),
 //!   json off a terminal; any other value is refused, whatever it once was.
 //! - Under json an error is the envelope `{code, args, message}` on stderr;
 //!   under text it is `ctxloom: <message>`, then `  fix: <remedy>` where its
@@ -20,12 +20,12 @@ mod error;
 mod extension;
 mod run;
 
-pub use angzarr_presentation::Catalog;
 pub use commands::{shaped, BARE_RUNS_DEFAULT, PROG};
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{CliError, EN_US};
 pub use extension::{Call, Exit, Extension, Failure, NoExtension};
+pub use presentation::Catalog;
 pub use run::{run, Context, Services};
 
 #[cfg(test)]

@@ -76,7 +76,7 @@ fn test_show_names_each_hook_its_engine_cannot_carry_and_none_where_it_can() {
     let (library, _) = world_with(
         "schema_version: 9\nagents:\n  dev:\n    engine: opencode\n    profiles: [team]\n  old:\n    profiles: [team]\n",
     );
-    let say = |_: &dyn angzarr_diagnostic::Diagnostic| String::new();
+    let say = |_: &dyn coded_diagnostic::Diagnostic| String::new();
     let shown = library.agent_show(&plain(), "dev", &say).result.unwrap();
     let events: Vec<(&str, &str, &str)> = shown
         .not_carried

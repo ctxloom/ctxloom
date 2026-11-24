@@ -49,10 +49,6 @@ crate = "angzarr-bus"
 allow = ["AGPL-3.0-only WITH AdditionRef-angzarr-runtime-exception"]
 
 [[licenses.exceptions]]
-crate = "angzarr-diagnostic"
-allow = ["AGPL-3.0-only WITH AdditionRef-angzarr-runtime-exception"]
-
-[[licenses.exceptions]]
 crate = "angzarr-embedded"
 allow = ["AGPL-3.0-only WITH AdditionRef-angzarr-runtime-exception"]
 
@@ -66,10 +62,6 @@ allow = ["AGPL-3.0-only WITH AdditionRef-angzarr-runtime-exception"]
 
 [[licenses.exceptions]]
 crate = "angzarr-ports"
-allow = ["AGPL-3.0-only WITH AdditionRef-angzarr-runtime-exception"]
-
-[[licenses.exceptions]]
-crate = "angzarr-presentation"
 allow = ["AGPL-3.0-only WITH AdditionRef-angzarr-runtime-exception"]
 
 [[licenses.exceptions]]
@@ -104,14 +96,15 @@ unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 allow-git = [
-  # angzarr: one workspace (core, the platform crates os, file-system and
-  # file-lock, angzarr-build and angzarr-codegen, angzarr-embedded and the
-  # router it runs handlers through).
+  # angzarr: one workspace (core, angzarr-build and angzarr-codegen,
+  # angzarr-embedded and the router it runs handlers through, the store and
+  # sqlite-store-opener).
   "https://github.com/angzarr-io/angzarr",
   # taskloom, by commit: harp-names and its ports.
   "https://github.com/ctxloom/taskloom",
-  # rust-support, by commit: the shared driving-edge shims (cli-support), the
-  # environment snapshot (process-env) and the rest of the shared substrate.
+  # rust-support, by commit: the shared substrate (coded-diagnostic,
+  # presentation, os, file-system, file-lock, test-dir) and the driving-edge
+  # shims (cli-support), the environment snapshot (process-env) and the rest.
   "https://github.com/benjaminabbitt/rust-support",
   # harp-core: the word lists ids are minted from.
   "https://github.com/benjaminabbitt/harp",

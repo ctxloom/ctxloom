@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use angzarr_diagnostic::Report;
+use coded_diagnostic::Report;
 use std::io::Write;
 
 use file_system::{Fs, Kind, Open, Perms};

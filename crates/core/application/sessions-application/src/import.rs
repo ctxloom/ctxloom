@@ -10,10 +10,10 @@
 use std::fmt;
 use std::future::Future;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
 use angzarr_embedded::v1::{CommandBook, Cover, Uuid};
 use angzarr_embedded::{CommandBookExt, Handled, OnRetryable, Registry};
 use angzarr_embedded_runner::Runner;
+use coded_diagnostic::{code, Arg, Diagnostic, Report};
 
 use crate::bridge::Port;
 use crate::typed;
@@ -60,7 +60,7 @@ pub enum Why {
 
 impl fmt::Display for Why {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

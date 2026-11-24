@@ -14,7 +14,7 @@ use cli_support::{ExitClass, Failure};
 
 /// A diagnostic said as the API says a notice: its code, flattened args and
 /// en-US text (the caller's flattening: run-application's, in the daemon).
-pub type NoticeOf<'a> = &'a dyn Fn(&dyn angzarr_diagnostic::Diagnostic) -> v1::Notice;
+pub type NoticeOf<'a> = &'a dyn Fn(&dyn coded_diagnostic::Diagnostic) -> v1::Notice;
 
 /// A materialize's report as the API says it, each failure said by
 /// `notice_of` and its text among the errors too.

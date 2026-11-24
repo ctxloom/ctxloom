@@ -41,7 +41,7 @@ impl Drop for Guard {
 impl SessionLock for Locks {
     fn hold(&mut self, harp: &str) -> Result<Held, LockError> {
         if self.held_by_another {
-            return Err(LockError::Held(angzarr_diagnostic::Report::new(
+            return Err(LockError::Held(coded_diagnostic::Report::new(
                 "file-lock-held",
             )));
         }

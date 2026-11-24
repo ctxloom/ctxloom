@@ -236,7 +236,7 @@ fn an_untrusted_read_says_each_held_back_setting_as_its_typed_notice() {
         .find(|n| matches!(n, crate::Notice::UntrustedSetting { .. }))
         .unwrap();
     assert_eq!(
-        angzarr_diagnostic::Diagnostic::code(notice),
+        coded_diagnostic::Diagnostic::code(notice),
         "library-application-notice-untrusted-setting"
     );
 }

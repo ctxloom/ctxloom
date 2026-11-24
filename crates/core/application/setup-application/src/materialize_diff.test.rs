@@ -2,7 +2,7 @@
 //! journeys/j001900_diagnosis.feature, "His assistant has the guidance and
 //! hers does not, and something compares the two".
 
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 use exit_code::{Exit, ExitClass};
 use library_application::{Flags, PackageRequest};
 

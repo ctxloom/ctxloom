@@ -21,8 +21,8 @@
 use std::fmt;
 use std::future::Future;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
 pub use angzarr_embedded::v1::{CommandBook, Projection};
+use coded_diagnostic::{code, Arg, Diagnostic};
 use daemon_proto::v1;
 
 pub use prost_types::Any;
@@ -540,7 +540,7 @@ impl PartialEq for Unreached {
 
 impl fmt::Display for Unreached {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 
@@ -603,7 +603,7 @@ impl Called {
 
 impl fmt::Display for Called {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

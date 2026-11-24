@@ -1,4 +1,4 @@
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 
 use crate::hook::{
     endpoint_url, hook_environment, name_the_run, parse_endpoint, Bearer, BearerError, Dial,

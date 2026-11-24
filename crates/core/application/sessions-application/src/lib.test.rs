@@ -3,7 +3,7 @@
 //! ports (session.feature, j001200, j001300, `operations`/`cli` tests,
 //! release/0.7), or says it is design.
 
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 use exit_code::{Exit, ExitClass};
 use session_ports::LockState;
 
@@ -625,7 +625,7 @@ fn a_title_for_a_session_nobody_recorded_fails_naming_it() {
 #[test]
 fn a_project_that_cannot_be_resolved_is_an_identity_failure() {
     let mut svc = service();
-    svc.identity.fails = Some(angzarr_diagnostic::Report::new("x-no-home"));
+    svc.identity.fails = Some(coded_diagnostic::Report::new("x-no-home"));
     let error = ready(svc.list(ListQuery::default())).unwrap_err();
     assert!(matches!(error, AppError::Identity(_)), "{error:?}");
     assert_eq!(error.code(), "x-no-home");

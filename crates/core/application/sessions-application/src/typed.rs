@@ -9,13 +9,13 @@
 //! clock, the ports the kernel waits on, the retry) and settles the answer
 //! with the domain's `TryFrom<&TypedRefusal>`.
 
-use angzarr_diagnostic::Report;
 use angzarr_embedded::markup::TypedRefusal;
 use angzarr_embedded::v1::{CommandBook, Uuid};
 use angzarr_embedded::{
     Domain, Failure, Handled, Kernel, Recovery, Rejected, Sampled, Store, Wait,
 };
 use angzarr_embedded_runner::{attempts, Clock, Delay, Jitter, Ported, Refusal, Runner, Unrun};
+use coded_diagnostic::Report;
 use sessions::SessionRejection;
 
 /// Run `book`, a command to a stream of the marked-up aggregate `A`, under

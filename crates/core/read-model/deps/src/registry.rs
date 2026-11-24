@@ -11,9 +11,9 @@
 //! (a `note:`, a field of a remote it does not know) is the author's, so every
 //! rewrite keeps it.
 
-use angzarr_diagnostic::Report;
 use angzarr_yaml::versioned::{LoadProblem, Migrations};
 use angzarr_yaml::Value;
+use coded_diagnostic::Report;
 
 use crate::address::{same_repository, stored_url};
 use crate::DepsError;

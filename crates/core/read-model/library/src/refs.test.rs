@@ -3,7 +3,7 @@
 
 use super::*;
 
-angzarr_presentation::english_for!(&[crate::EN_US.1]);
+presentation::english_for!(&[crate::EN_US.1]);
 
 // refuri_test.go: TestHasScheme_KnowsEveryClass
 #[test]

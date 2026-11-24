@@ -736,7 +736,7 @@ fn test_a_search_caps_its_local_results_and_says_so() {
     assert_eq!(out.result.unwrap().hidden_local, 0);
 }
 
-fn say(d: &dyn angzarr_diagnostic::Diagnostic) -> String {
+fn say(d: &dyn coded_diagnostic::Diagnostic) -> String {
     d.code().to_string()
 }
 
@@ -1514,8 +1514,7 @@ fn host_notices(layers: &[&str], agent: &str, engine: &str) -> Vec<Notice> {
         .notices
         .into_iter()
         .filter(|n| {
-            angzarr_diagnostic::Diagnostic::code(n)
-                == "library-application-notice-session-home-host"
+            coded_diagnostic::Diagnostic::code(n) == "library-application-notice-session-home-host"
         })
         .collect()
 }
@@ -1666,11 +1665,11 @@ impl std::fmt::Display for Shown {
     }
 }
 
-impl angzarr_diagnostic::Diagnostic for Shown {
+impl coded_diagnostic::Diagnostic for Shown {
     fn code(&self) -> &str {
         "advising-shown"
     }
-    fn args(&self) -> Vec<(&str, angzarr_diagnostic::Arg)> {
+    fn args(&self) -> Vec<(&str, coded_diagnostic::Arg)> {
         vec![("shown", self.0.as_str().into())]
     }
 }
@@ -1726,8 +1725,8 @@ fn advised(layers: &str, agent: &str, engine: &str) -> Vec<String> {
         )
         .notices
         .iter()
-        .filter(|n| angzarr_diagnostic::Diagnostic::code(*n) == "advising-shown")
-        .map(|n| format!("{:?}", angzarr_diagnostic::Diagnostic::args(n)[0].1))
+        .filter(|n| coded_diagnostic::Diagnostic::code(*n) == "advising-shown")
+        .map(|n| format!("{:?}", coded_diagnostic::Diagnostic::args(n)[0].1))
         .collect()
 }
 
@@ -1776,7 +1775,7 @@ fn test_a_carried_server_named_ctxloom_is_said_shadowed() {
             .notices
             .into_iter()
             .filter(|n| {
-                angzarr_diagnostic::Diagnostic::code(n)
+                coded_diagnostic::Diagnostic::code(n)
                     == "library-application-notice-mcp-server-shadowed"
             })
             .collect()

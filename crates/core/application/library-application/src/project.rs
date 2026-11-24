@@ -97,7 +97,7 @@ pub struct Project {
 }
 
 /// How a diagnostic is said, in the catalog's words.
-pub type Words = Arc<dyn Fn(&dyn angzarr_diagnostic::Diagnostic) -> String + Send + Sync>;
+pub type Words = Arc<dyn Fn(&dyn coded_diagnostic::Diagnostic) -> String + Send + Sync>;
 
 impl Library {
     /// The library over `content` and `files`; `environ` is the process's
@@ -132,7 +132,7 @@ impl Library {
 
     /// `diagnostic` in the library's words: [`Library::with_words`]'s, else
     /// its code and args.
-    pub fn say(&self, diagnostic: &dyn angzarr_diagnostic::Diagnostic) -> String {
+    pub fn say(&self, diagnostic: &dyn coded_diagnostic::Diagnostic) -> String {
         match &self.words {
             Some(words) => words(diagnostic),
             None => diagnostic.to_string(),
@@ -379,7 +379,7 @@ impl Library {
             Ok(installed) => installed,
             Err(cause) => {
                 notices.push(Notice::RemotesUnreadable {
-                    cause: angzarr_diagnostic::Report::of(&*cause),
+                    cause: coded_diagnostic::Report::of(&*cause),
                 });
                 return origins;
             }

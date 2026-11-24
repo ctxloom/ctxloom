@@ -5,7 +5,7 @@ use super::*;
 use std::path::PathBuf;
 
 use ::process_env::EnvSnapshot;
-use angzarr_presentation::Format;
+use presentation::Format;
 
 fn verbs(noun: &Command) -> Vec<String> {
     noun.get_subcommands()
@@ -248,7 +248,7 @@ fn test_clean_asks_the_daemon_and_takes_nothing_without_one() {
     let Err(failure) = failed else {
         panic!("clean ran in process")
     };
-    let code = angzarr_diagnostic::Diagnostic::code(failure.cause.as_ref()).to_string();
+    let code = coded_diagnostic::Diagnostic::code(failure.cause.as_ref()).to_string();
     assert!(code.starts_with("daemon-"), "{code}");
     assert!(crate::fixtures::exists(&cached), "nothing taken");
 }
@@ -432,8 +432,8 @@ fn test_a_bundle_publishing_verb_is_run_by_the_dependency_commands() {
         .unwrap();
     let call = Call::with_globals(
         &matches,
-        Some(angzarr_presentation::Format::Json),
-        angzarr_presentation::Format::Json,
+        Some(presentation::Format::Json),
+        presentation::Format::Json,
         library_application::Flags::default(),
     );
     let catalog = Catalog::en_us(&[crate::EN_US]).unwrap();

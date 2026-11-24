@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
+use coded_diagnostic::{code, Arg, Diagnostic};
 use ctxloom_ports::Failure;
 use duration_text::DurationError;
 use exit_code::{Exit, ExitClass};
@@ -50,7 +50,7 @@ impl From<AppError> for ReclaimError {
 
 impl fmt::Display for ReclaimError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 
@@ -93,6 +93,7 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         value: "soon".to_string(),
         cause: DurationError::Malformed {
             text: "soon".to_string(),
+            ext_err_txt: "expected a unit".to_string(),
         },
     })]
 }

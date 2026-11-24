@@ -46,7 +46,7 @@ fn answered<T>(outcome: Outcome<T>) -> Result<(T, Vec<v1::Notice>), ApiError> {
 }
 
 /// The catalog a refresh's refusals are said from, as the CLI says them.
-fn catalog() -> Result<angzarr_presentation::Catalog, ApiError> {
+fn catalog() -> Result<presentation::Catalog, ApiError> {
     let mut sources = crate::catalog_sources();
     sources.extend([
         library::EN_US,
@@ -56,7 +56,7 @@ fn catalog() -> Result<angzarr_presentation::Catalog, ApiError> {
         surface_ports::EN_US,
         setup_application::EN_US,
     ]);
-    angzarr_presentation::Catalog::en_us(&sources).map_err(|e| ApiError::Failed {
+    presentation::Catalog::en_us(&sources).map_err(|e| ApiError::Failed {
         detail: format!("{e:?}"),
     })
 }
@@ -81,7 +81,7 @@ impl daemon_api::DepsPlans for DepsWriters {
         let (_, app) = wiring.locate();
         let files = Arc::new(ProjectFiles::new(wiring.fs(), app.path.clone()));
         let store = Arc::new(RecordingDepsFiles::over(Arc::clone(&files)));
-        let failed = |e: &dyn angzarr_diagnostic::Diagnostic| ApiError::diagnosed(e);
+        let failed = |e: &dyn coded_diagnostic::Diagnostic| ApiError::diagnosed(e);
         let deps = Rc::new(
             crate::commands::build_deps_over(&wiring, store.clone(), Arc::clone(&files))
                 .map_err(|e| failed(&e))?,

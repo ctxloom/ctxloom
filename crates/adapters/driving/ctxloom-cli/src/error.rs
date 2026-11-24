@@ -3,8 +3,8 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
 use cli_support::{Exit, ExitClass};
+use coded_diagnostic::{code, Arg, Diagnostic};
 
 /// This crate's en-US messages (`locales/en-US/messages.ftl`, ids under the
 /// crate's name).
@@ -54,7 +54,7 @@ impl ExitClass for CliError {
 
 impl fmt::Display for CliError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

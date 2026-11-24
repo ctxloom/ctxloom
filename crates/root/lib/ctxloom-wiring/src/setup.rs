@@ -134,15 +134,15 @@ impl SetupUseCases {
 /// Each bundle in the old layout (step 10c U5, D15), its refusal and the
 /// move that migrates it, in the library's en-US words.
 pub(crate) fn said_old_layouts(found: &[library::BundleError]) -> Vec<(String, String)> {
-    use angzarr_diagnostic::Diagnostic;
-    let Ok(catalog) = angzarr_presentation::Catalog::en_us(&[library::EN_US]) else {
+    use coded_diagnostic::Diagnostic;
+    let Ok(catalog) = presentation::Catalog::en_us(&[library::EN_US]) else {
         return Vec::new();
     };
     found
         .iter()
         .map(|cause| {
             let fix = cause.args().into_iter().fold(
-                angzarr_diagnostic::Report::new(format!("{}-fix", cause.code())),
+                coded_diagnostic::Report::new(format!("{}-fix", cause.code())),
                 |fix, (name, value)| fix.arg(name.to_string(), value),
             );
             (

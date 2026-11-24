@@ -9,7 +9,7 @@ publish.workspace = true
 
 [dependencies]
 exit-code.workspace = true
-angzarr-diagnostic.workspace = true
+coded-diagnostic.workspace = true
 angzarr-embedded.workspace = true
 # Go's session.yaml, read through the one reader (versioned, strict).
 angzarr-yaml.workspace = true

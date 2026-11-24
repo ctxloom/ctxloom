@@ -6,11 +6,11 @@ use cli_support::Exit;
 use std::io::Write;
 use std::sync::Arc;
 
-use angzarr_diagnostic::Diagnostic;
-use angzarr_presentation::{Catalog, Format};
 use clap::{ArgMatches, Command, FromArgMatches};
 use cli_support::say_warning;
+use coded_diagnostic::Diagnostic;
 use ctxloom_cli::{shaped, Call, CliError, Failure, PROG};
+use presentation::{Catalog, Format};
 
 use crate::capture::DaemonReach;
 use crate::{Commands, HoldingRecording, HookRecording, HookSink, RunIds, Sessions, Wiring};

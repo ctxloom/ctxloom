@@ -6,7 +6,7 @@
 use super::*;
 use crate::config::{CURRENT, OLDEST};
 
-angzarr_presentation::english_for!(&[crate::EN_US.1]);
+presentation::english_for!(&[crate::EN_US.1]);
 
 fn parse(text: &str) -> Value {
     angzarr_yaml::parse(text).unwrap_or_else(|e| panic!("{e}"))

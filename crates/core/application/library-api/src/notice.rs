@@ -5,7 +5,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
+use coded_diagnostic::{code, Arg, Diagnostic};
 
 /// A notice of a write.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -17,7 +17,7 @@ pub enum LibraryApiNotice {
 
 impl fmt::Display for LibraryApiNotice {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

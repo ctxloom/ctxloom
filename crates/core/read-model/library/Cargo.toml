@@ -8,7 +8,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-angzarr-diagnostic.workspace = true
+coded-diagnostic.workspace = true
 # The one config reader (D15): the parsed tree, versioned documents.
 angzarr-yaml.workspace = true
 # The skill archive's zip (owner-approved third party, 2026-11-04): deflate
@@ -29,7 +29,7 @@ duration-text.workspace = true
 
 [dev-dependencies]
 # The tests hold an error's English to Go's words (english_for!).
-angzarr-presentation = { workspace = true, features = ["test-support"] }
+presentation = { workspace = true, features = ["test-support"] }
 
 [features]
 # `diagnostic_samples`, for other crates' catalog tests.

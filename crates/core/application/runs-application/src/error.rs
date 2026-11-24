@@ -3,9 +3,9 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
 use angzarr_embedded::markup::TypedRefusal;
 use angzarr_embedded::{Failure, Rejected};
+use coded_diagnostic::{code, Arg, Diagnostic, Report};
 use run_ports::Unserved;
 use runs::RunRejection;
 use sessions::SessionRejection;
@@ -85,7 +85,7 @@ fn arg_text(arg: &Arg) -> String {
 
 impl fmt::Display for AppError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

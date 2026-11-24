@@ -1,6 +1,6 @@
 //! The credential token and its digest (D29). RED (S5): stubs.
 
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 
 use crate::{diagnostic_samples, Token, TokenError, TokenHash, EN_US};
 

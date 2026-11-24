@@ -8,7 +8,7 @@
 //! port ([`ProjectRefresh`]), so that this crate does not depend on the
 //! surfaces it is delivered through: the program's composition wires one.
 
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 
 use crate::views::PullReport;
 use crate::{AppError, Deps, Notice, Outcome};

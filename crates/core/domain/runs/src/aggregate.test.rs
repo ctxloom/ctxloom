@@ -5,11 +5,11 @@
 
 use std::collections::BTreeMap;
 
-use angzarr_diagnostic::{Arg, Diagnostic};
 use angzarr_embedded::markup::DomainMessage;
 use angzarr_embedded::testing::{Harness, Samples};
 use angzarr_embedded::v1::{command_page, CommandBook, CommandPage, Cover, Fact, FactOrigin};
 use angzarr_embedded::{Any, Failure, Handled, Payload, Registry};
+use coded_diagnostic::{Arg, Diagnostic};
 
 use crate::{
     run_root, CredentialEvidence, EndCause, EnqueueRun, Grant, QueueTurn, RecordFinalReported,

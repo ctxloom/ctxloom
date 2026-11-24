@@ -335,7 +335,7 @@ span is refused (the daemon's start, a `top` command: exit 48); a clock only
 moves on, never back (owner ruling 2026-11-24, one variable for all). Each rename's directories are
 synced after it, the target's then the source's when it is another, and
 a purged slot's trash directory after the purge (owner ruling
-2026-11-18, evening; angzarr-platform's `Fs::sync_dir`: fsync on unix,
+2026-11-18, evening; rust-support's `Fs::sync_dir`: fsync on unix,
 nothing on Windows), so a power loss cannot undo a step the record holds
 done; a sync that fails fails the step, `content-fs-sync-dir`. An
 observation that sees exactly a pending intent's ids is that step done
@@ -1275,7 +1275,7 @@ the URL's host. The private key lives in memory in
 `run_ports::HookCertificate` (whose `Debug` withholds it) and goes to
 `hook-listener`'s `TlsIdentity` and nowhere else: never journaled, logged, in
 an environment or in an error. The listener's limits are angzarr's generic
-`Listener` defaults (angzarr `71b453a4`; `hook-listener` sets none): a TLS
+`Listener` defaults (angzarr `434ccc0a`; `hook-listener` sets none): a TLS
 handshake within 10 s, an HTTP/2 keepalive ping every 60 s answered within
 20 s, a connection closed after 1 h plus a 30 s grace (never zero: a zero
 grace is `ListenError::ZeroConnectionAgeGrace` at bind, which
@@ -1735,7 +1735,7 @@ The rules:
   driving adapter sees only the application layer (and the generated wire
   types, owner M7: pure data an API edge renders), never a domain's
   internals. Adapters never depend on each other, except that driving
-  adapters share angzarr core's `angzarr-presentation`, and a driven adapter
+  adapters share rust-support's `presentation`, and a driven adapter
   may use the platform crates (`os`, `file-system`, `file-lock`).
 - A domain never depends on a read model; a read model never depends on the
   application layer.
@@ -1832,21 +1832,31 @@ shutdown` flushes the holds before an install (no alias table).
 
 ## The pins: one of each
 
-The lock holds ONE `angzarr-embedded`, `angzarr-proto`, `angzarr-ports` and
-`angzarr-diagnostic` (a test reads Cargo.lock). Every pin in `Cargo.toml` is
-a full commit. The angzarr pins are one commit of one repository,
-`71b453a4` of github.com/angzarr-io/angzarr (core, `angzarr-embedded` and its
-router, the platform crates, `angzarr-build` and `angzarr-codegen` were five
-repositories and are crates of that workspace now; `angzarr-coordinator-grpc`'s
-`tls` feature, which `hook-listener` enables, is `Listener::tls`). taskloom's
-crates (`d43fb683`) and
-rust-support's (`5bc1d60f`) are built on the same commit, so moving one moves
-all. The lock holds one of every angzarr crate. The platform crates (`os`,
-`file-system`, `file-lock`) are `Apache-2.0 OR BSD-3-Clause`; the shared runtime
-crates (`angzarr-diagnostic`, `angzarr-presentation`, `angzarr-yaml`,
-`angzarr-embedded`...) are AGPL-3.0-only with angzarr's runtime exception and
-the coordinators with its gRPC API permission, each allowed by name in
-`deny.toml`; this workspace is `Apache-2.0 OR BSD-3-Clause`.
+The lock holds ONE `angzarr-embedded`, `angzarr-proto`, `angzarr-ports`,
+`sqlite-store-opener` and, of rust-support's, `coded-diagnostic`,
+`presentation`, `os`, `file-system`, `file-lock`, `duration-text`, `cli-support`,
+`process-env` and `exit-code` (a test reads Cargo.lock), and every crate of one
+repository (angzarr, rust-support) at ONE commit
+(`test_every_crate_of_one_repository_is_locked_at_one_commit`). Every pin in
+`Cargo.toml` is a full commit. The angzarr pins are one commit of one
+repository, `434ccc0a` of github.com/angzarr-io/angzarr (core, `angzarr-embedded`
+and its router, `angzarr-build` and `angzarr-codegen`, the store and
+`sqlite-store-opener`; `angzarr-coordinator-grpc`'s `tls` feature, which
+`hook-listener` enables, is `Listener::tls`). angzarr owns no `diagnostic`,
+`presentation` or platform crate any more: the generic substrate is
+rust-support's (`2f7d2670` of github.com/benjaminabbitt/rust-support):
+`coded-diagnostic` (the `Diagnostic` trait, `code!`, `Report`, the catalogs),
+`presentation`, `test-dir`, and the platform crates `os`, `file-system` and
+`file-lock`. taskloom's crates (`1c1008a0`) are built on the same angzarr and
+the same rust-support, so moving one moves all: the lock holds ONE
+`Diagnostic` trait, which every error of every crate implements, because two
+do not compose. 434ccc0a is the angzarr commit taskloom pins (angzarr's
+`04107e5` differs only in the generated apps' own pins; a second angzarr rev in
+the lock would be a second copy of every angzarr crate). rust-support's
+crates are `Apache-2.0 OR BSD-3-Clause`; the angzarr runtime crates
+(`angzarr-yaml`, `angzarr-embedded`...) are AGPL-3.0-only with angzarr's
+runtime exception and the coordinators with its gRPC API permission, each
+allowed by name in `deny.toml`; this workspace is `Apache-2.0 OR BSD-3-Clause`.
 
 The API protos' annotations and their linter are pinned too (owner rulings
 S36, S37, S57, D6; step 10 U1). googleapis' `google/api/{resource,
@@ -2139,7 +2149,7 @@ after step 3/4: no clustering): its single-instance lock, `daemon.lock`,
 is keyed to the account, never to `CTXLOOM_DAEMON_ROOT` or `HOME`, at the place
 ONE function says (`daemon::files::instance_lock_path`):
 `<account home>/.ctxloom/daemon/daemon.lock`, the account's home being the
-system's (`daemon::account_home`, angzarr-platform's `Os::user_home`: the
+system's (`daemon::account_home`, rust-support's `Os::user_home`: the
 account database's, never a variable). That is the daemon directory of the
 account's DEFAULT ctxloom home, so with no `CTXLOOM_DAEMON_ROOT` the lock, the
 discovery file and the daemon's files are one directory, and two ctxloom
@@ -3652,7 +3662,7 @@ ctxloom's store is ONE per user (owner T14): angzarr-store-sqlite's
 `SqliteStore` (through angzarr-embedded's `sqlite` feature), opened at
 `<ctxloom home>/.ctxloom/ctxloom.db` (the home resolved as everywhere:
 `CTXLOOM_DAEMON_ROOT` first) by `ctxloom-store-sqlite` (the file name, the placement
-and the `ProjectStores` port, over rust-support's `sqlite-store-opener`, which
+and the `ProjectStores` port, over angzarr's `sqlite-store-opener`, which
 refuses a store from before the embedded store, `ctxloom.db.pre-embedded`
 naming its backup). Every project's streams are in it, each rooted on its
 resource name (slice 2 re-root, above), so nothing routes by file: there is no `route.rs` and no routing metadata. taskloom's
@@ -3727,7 +3737,7 @@ git commits, a listing reports, a PATH search wants). Its self-test is
 
 ## Errors are localizable: a code, args, and an en-US message
 
-Every error implements `angzarr_diagnostic::Diagnostic`: a stable code
+Every error implements `coded_diagnostic::Diagnostic` (rust-support's): a stable code
 prefixed with the crate's name (`code!`), named args, and an en-US message in
 `locales/en-US/messages.ftl` whose id is the full code and which uses exactly
 the args. An id ending `-fix` is the remedy of the code before it, printed as
@@ -3745,7 +3755,7 @@ message}` on stderr in json, plus `fix` (the same text as the `  fix:` line)
 when the catalog has the error's `<code>-fix` id, the key omitted otherwise,
 and `refusals`, each refusal an aggregate refusal holds reported the same way,
 in order, the key omitted when there are none (cli-support's `Reported`, which
-`ctxloom-cli`'s `report` writes through `say_failure`; angzarr-presentation's
+`ctxloom-cli`'s `report` writes through `say_failure`; presentation's
 `Envelope` has neither field). `-h` works at every depth, there is no `help` command, an unknown
 verb says "Did you mean" and lists the verbs, `-v` is accepted everywhere
 and changes no output.

@@ -26,7 +26,7 @@ pub fn said(notice: &v1::Notice) -> library_application::Notice {
 /// The diagnostic a daemon's notice said (its code and flattened args,
 /// rebuilt), for a client to say in its own catalog's words or end a
 /// command with.
-pub fn reported(notice: &v1::Notice) -> angzarr_diagnostic::Report {
+pub fn reported(notice: &v1::Notice) -> coded_diagnostic::Report {
     run_application::client::report_of(&notice.code, &notice.args)
 }
 
@@ -294,7 +294,7 @@ pub fn get_agent(
 ) -> Outcome<v1::Agent> {
     let name =
         names::named_under(parent, "agents", &request.name).unwrap_or_else(|| request.name.clone());
-    let say = |d: &dyn angzarr_diagnostic::Diagnostic| library.say(d);
+    let say = |d: &dyn coded_diagnostic::Diagnostic| library.say(d);
     let read = library.agent_show(flags, &name, &say);
     let default = default_agent(library, flags);
     mapped(read, |show| resources::agent_shown(parent, &show, &default))

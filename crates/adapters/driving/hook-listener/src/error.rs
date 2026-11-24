@@ -3,7 +3,7 @@
 use std::fmt;
 
 use angzarr_coordinator_grpc::ListenError;
-use angzarr_diagnostic::{code, Arg, Diagnostic};
+use coded_diagnostic::{code, Arg, Diagnostic};
 
 /// A listener that could not be bound, or did not stop cleanly.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -44,7 +44,7 @@ impl ListenerError {
 
 impl fmt::Display for ListenerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

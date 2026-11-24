@@ -9,7 +9,7 @@ publish.workspace = true
 
 [dependencies]
 exit-code.workspace = true
-angzarr-diagnostic.workspace = true
+coded-diagnostic.workspace = true
 ctxloom-ports.workspace = true
 isolation-application.workspace = true
 # A session's hold (s4-Q14, H4): what its destroy discards.
@@ -22,7 +22,7 @@ sessions-application.workspace = true
 duration-text.workspace = true
 
 [dev-dependencies]
-angzarr-presentation = { workspace = true, features = ["test-support"] }
+presentation = { workspace = true, features = ["test-support"] }
 mutants.workspace = true
 # The hold's session roots, as the fake of the holds names them.
 uuid.workspace = true

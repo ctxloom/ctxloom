@@ -20,9 +20,9 @@ mod text;
 use cli_support::{Exit, ExitClass};
 use std::io::Write;
 
-use angzarr_diagnostic::Diagnostic;
-use angzarr_presentation::{write_json, Format};
+use coded_diagnostic::Diagnostic;
 use isolation_application::ContainerUse;
+use presentation::{write_json, Format};
 
 pub use commands::nouns;
 #[cfg(any(test, feature = "test-support"))]

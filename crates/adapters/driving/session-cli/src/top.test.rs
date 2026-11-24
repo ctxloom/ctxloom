@@ -4,9 +4,9 @@
 use std::cell::RefCell;
 use std::collections::VecDeque;
 
-use angzarr_presentation::Format;
 use clap::FromArgMatches as _;
 use daemon_proto::v1;
+use presentation::Format;
 
 use super::*;
 use crate::tui::Look;

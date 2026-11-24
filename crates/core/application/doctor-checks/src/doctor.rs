@@ -395,7 +395,7 @@ impl Doctor {
     /// config that does not parse is the setup marker's own finding, a
     /// warning (the diagnosis goes on past it), so it is none here.
     fn refusal(&self) -> Option<(String, String)> {
-        use angzarr_diagnostic::Diagnostic;
+        use coded_diagnostic::Diagnostic;
         let error = match library_application::load_config(
             self.config.as_ref(),
             &[],
@@ -409,7 +409,7 @@ impl Doctor {
         let message = English(catalog, &error).to_string();
         let fix = English(
             catalog,
-            &angzarr_diagnostic::Report::new(format!("{}-fix", error.code())),
+            &coded_diagnostic::Report::new(format!("{}-fix", error.code())),
         )
         .to_string();
         // A code with no fix in the catalog renders as the code itself.
@@ -458,10 +458,10 @@ impl Doctor {
 }
 
 /// A diagnostic in the en-US catalog `.0`.
-struct English<'a>(&'a str, &'a dyn angzarr_diagnostic::Diagnostic);
+struct English<'a>(&'a str, &'a dyn coded_diagnostic::Diagnostic);
 
 impl std::fmt::Display for English<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        angzarr_diagnostic::catalog::render(self.0, self.1, f)
+        coded_diagnostic::catalog::render(self.0, self.1, f)
     }
 }

@@ -4,13 +4,13 @@
 
 use std::io::{self, Write};
 
-use angzarr_presentation::text;
 use library_application::{
     AgentRow, AgentSettings, AgentShow, BundleList, BundleRow, BundleShow, BundleView,
     CompanionRow, DryRun, EngineRow, EnvSetting, Hook, ItemList, ItemShow, McpList, McpShow,
     Premises, ProfileHooks, ProfileList, ProfileShow, RemoteFound, RuntimeSetting, SearchResults,
     SkillList, SkillShow, SourcedValue,
 };
+use presentation::text;
 
 use crate::inert::{body, field};
 

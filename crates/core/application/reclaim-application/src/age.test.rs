@@ -1,6 +1,7 @@
 //! The age bounds, over `duration-text`'s grammar. Go: `agebound.Parse`
 //! (release/0.7), which read only `Nd`, `Nw`, `Nh` and a date.
 
+use coded_diagnostic::Diagnostic as _;
 use duration_text::DurationError;
 use sessions_application::Timestamp;
 
@@ -19,7 +20,8 @@ fn an_age_is_that_long_before_now() {
         ("720h", 720 * 3_600),
         ("1h30m", 5_400),
         ("90m", 5_400),
-        ("1.5d", 129_600),
+        ("36h", 129_600),
+        ("1.5h", 5_400),
         ("0d", 0),
         (" 2w1d ", 15 * 86_400),
     ] {
@@ -78,7 +80,6 @@ fn a_now_before_the_epoch_is_read_as_it_is() {
 #[test]
 fn an_unrepresentable_now_or_span_is_refused_as_an_overflow() {
     for (now, text) in [
-        (NOW, "18446744073709551615s"),
         (
             Timestamp {
                 seconds: i64::MIN,
@@ -96,7 +97,7 @@ fn an_unrepresentable_now_or_span_is_refused_as_an_overflow() {
     ] {
         match parse_age("--older-than", text, now) {
             Err(ReclaimError::BadAge {
-                cause: DurationError::Overflow { .. },
+                cause: DurationError::OutOfRange { .. },
                 ..
             }) => {}
             other => panic!("{text}: {other:?}"),
@@ -106,28 +107,23 @@ fn an_unrepresentable_now_or_span_is_refused_as_an_overflow() {
 
 #[test]
 fn anything_else_is_refused_naming_the_flag_and_why() {
-    for (text, why) in [
-        ("", DurationError::Empty),
-        (
-            "soon",
-            DurationError::Malformed {
-                text: "soon".into(),
-            },
-        ),
-        ("30", DurationError::NoUnit { text: "30".into() }),
-        ("-3d", DurationError::Negative { text: "-3d".into() }),
-        (
-            "2026-13-40",
-            DurationError::InvalidDate {
-                text: "2026-13-40".into(),
-            },
-        ),
-        ("d", DurationError::Malformed { text: "d".into() }),
+    // The grammar and its refusals are duration-text's (jiff's friendly
+    // format): a refusal is held to its code, its jiff text is jiff's.
+    for (text, code) in [
+        ("", "duration-text-empty"),
+        ("soon", "duration-text-malformed"),
+        ("30", "duration-text-malformed"),
+        ("1.5d", "duration-text-malformed"),
+        ("18446744073709551615s", "duration-text-malformed"),
+        ("d", "duration-text-malformed"),
+        ("-3d", "duration-text-negative"),
+        ("1y", "duration-text-calendar-unit"),
+        ("2026-13-40", "duration-text-invalid-date"),
     ] {
         match parse_age("--older-than", text, NOW) {
             Err(ReclaimError::BadAge { flag, value, cause }) => {
                 assert_eq!((flag.as_str(), value.as_str()), ("--older-than", text));
-                assert_eq!(cause, why, "{text}");
+                assert_eq!(cause.code(), code, "{text}");
             }
             other => panic!("{text}: {other:?}"),
         }

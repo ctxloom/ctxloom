@@ -11,7 +11,7 @@ publish.workspace = true
 angzarr-coordinator = { workspace = true, features = ["commands"] }
 # TLS (`tls`: tonic's `tls-ring`, never aws-lc): the listener is TLS only (rulings 35-37).
 angzarr-coordinator-grpc = { workspace = true, default-features = false, features = ["commands", "tls"] }
-angzarr-diagnostic.workspace = true
+coded-diagnostic.workspace = true
 angzarr-proto-transport-distributed.workspace = true
 runs-application.workspace = true
 tokio = { workspace = true, features = ["time"] }

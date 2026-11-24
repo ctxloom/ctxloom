@@ -24,7 +24,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::time::Duration;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
+use coded_diagnostic::{code, Arg, Diagnostic};
 
 use crate::engine::{EngineError, TurnOutcome};
 use crate::launch::{Launch, Stdio};
@@ -271,7 +271,7 @@ impl From<EngineError> for ChildError {
 impl fmt::Display for ChildError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // An engine error's code and args are its own, so its words are too.
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

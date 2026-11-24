@@ -8,9 +8,9 @@
 
 use std::collections::BTreeMap;
 
-use angzarr_diagnostic::{Diagnostic, Report};
 use angzarr_yaml::versioned::{remove_key, LoadError, LoadProblem, Loader, Migrations};
 use angzarr_yaml::{from_value, Value};
+use coded_diagnostic::{Diagnostic, Report};
 use library::refs::Parts;
 use serde::Deserialize;
 

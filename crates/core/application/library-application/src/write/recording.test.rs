@@ -163,7 +163,7 @@ fn test_an_export_onto_a_path_that_is_there_is_refused_and_plans_nothing() {
     let refused = recording.bundle_export(&plain(), "demo", "out", "");
     let error = refused.result.expect_err("refused");
     assert_eq!(
-        angzarr_diagnostic::Diagnostic::code(&error),
+        coded_diagnostic::Diagnostic::code(&error),
         "library-application-write-export-destination-exists"
     );
     assert!(recorder.take().is_empty());
@@ -211,22 +211,22 @@ fn test_a_bundle_move_onto_a_bundle_there_or_onto_itself_is_refused() {
     );
     let (recording, recorder) = library.recording();
     let code = |outcome: crate::Outcome<crate::BundleMoved>| {
-        angzarr_diagnostic::Diagnostic::code(&outcome.result.expect_err("refused")).to_string()
+        coded_diagnostic::Diagnostic::code(&outcome.result.expect_err("refused")).to_string()
     };
     let refused = recording
         .bundle_move_into(&plain(), "demo", "/work/other")
         .result
         .expect_err("refused");
     assert_eq!(
-        angzarr_diagnostic::Diagnostic::code(&refused),
+        coded_diagnostic::Diagnostic::code(&refused),
         "library-application-write-move-destination-exists"
     );
     // Its fix names the removal that clears the way, there, then the move
     // again (owner 2026-11-18, night).
-    let args: Vec<(String, String)> = angzarr_diagnostic::Diagnostic::args(&refused)
+    let args: Vec<(String, String)> = coded_diagnostic::Diagnostic::args(&refused)
         .into_iter()
         .filter_map(|(name, value)| match value {
-            angzarr_diagnostic::Arg::Str(text) => Some((name.to_string(), text)),
+            coded_diagnostic::Arg::Str(text) => Some((name.to_string(), text)),
             _ => None,
         })
         .collect();

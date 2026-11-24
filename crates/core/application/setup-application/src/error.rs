@@ -4,7 +4,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
+use coded_diagnostic::{code, Arg, Diagnostic};
 use exit_code::{Exit, ExitClass};
 
 /// This crate's en-US messages (`locales/en-US/messages.ftl`, ids under the
@@ -93,7 +93,7 @@ impl ExitClass for SetupError {
 
 impl fmt::Display for SetupError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

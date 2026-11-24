@@ -22,7 +22,7 @@
 //! not register is said there, never a failure of the init. The interview
 //! is a terminal `CreateRun`, as every `ctxloom run`.
 
-use angzarr_diagnostic::Diagnostic as _;
+use coded_diagnostic::Diagnostic as _;
 use daemon_proto::v1;
 use daemon_proto::Carries as _;
 use init_application::needs::{self, Given};
@@ -166,13 +166,13 @@ pub(crate) fn companion_answers(answers: &[v1::Answer]) -> Vec<init_application:
 /// What a person is told of `error`: a typed refusal this crate knows in
 /// its own words (a declined write is its cause's code and args), anything
 /// else the error itself.
-pub(crate) fn error_report(error: &ApiError) -> angzarr_diagnostic::Report {
+pub(crate) fn error_report(error: &ApiError) -> coded_diagnostic::Report {
     if let ApiError::Refused(refused) = error {
         if let Some(rejection) = crate::refusal::rejection_of(&refused.refusal) {
             return rejection.report();
         }
     }
-    angzarr_diagnostic::Report::of(error)
+    coded_diagnostic::Report::of(error)
 }
 
 /// `error` as the notice a result says it in.
@@ -506,7 +506,7 @@ impl<E: Edge> Api<E> {
                     .args()
                     .into_iter()
                     .find_map(|(name, arg)| match arg {
-                        angzarr_diagnostic::Arg::Str(value) if name == "program" => Some(value),
+                        coded_diagnostic::Arg::Str(value) if name == "program" => Some(value),
                         _ => None,
                     })
                     .unwrap_or_default();

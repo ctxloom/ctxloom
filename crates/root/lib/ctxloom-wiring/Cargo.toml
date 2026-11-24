@@ -8,9 +8,9 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-angzarr-diagnostic.workspace = true
+coded-diagnostic.workspace = true
 angzarr-embedded.workspace = true
-angzarr-presentation.workspace = true
+presentation.workspace = true
 angzarr-yaml.workspace = true
 isolation-ports.workspace = true
 clap.workspace = true

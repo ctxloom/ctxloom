@@ -8,10 +8,10 @@
 
 use std::sync::Arc;
 
-use angzarr_presentation::Catalog;
 use cli_support::Exit;
 use ctxloom_cli::Failure;
 use daemon_api::{Caller, Daemons, Unreached};
+use presentation::Catalog;
 use process_env::EnvSnapshot;
 
 use crate::Wiring;
@@ -119,7 +119,7 @@ fn nonce() -> String {
 /// The messages a tool's error is said in: the wiring's sources, which hold
 /// every crate a call can come to (the daemon's client and its refusals,
 /// the sessions domain's, the server's own).
-fn tool_catalog() -> Result<Catalog, angzarr_presentation::CatalogError> {
+fn tool_catalog() -> Result<Catalog, presentation::CatalogError> {
     Catalog::en_us(&crate::catalog_sources())
 }
 

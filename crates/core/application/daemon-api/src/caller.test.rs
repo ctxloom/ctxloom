@@ -519,7 +519,7 @@ fn a_caller_is_a_sessions_resource_name_and_nothing_else() {
         panic!("a bare harp is no caller");
     };
     assert_eq!(
-        angzarr_diagnostic::Diagnostic::code(&rejection.report()),
+        coded_diagnostic::Diagnostic::code(&rejection.report()),
         "daemon-api-name-invalid"
     );
 }
@@ -1156,7 +1156,7 @@ impl Drop for Holding {
 impl run_ports::RunLocks for Locks {
     fn hold_run(&self, run: &str) -> Result<run_ports::HeldLock, run_ports::LockError> {
         if !self.held.lock().unwrap().insert(run.to_string()) {
-            return Err(run_ports::LockError::Held(angzarr_diagnostic::Report::of(
+            return Err(run_ports::LockError::Held(coded_diagnostic::Report::of(
                 &crate::ApiRejection::LaunchInProgress {
                     harp: run.to_string(),
                 },

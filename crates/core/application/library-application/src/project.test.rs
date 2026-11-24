@@ -2,7 +2,7 @@
 //! operational prompts) in a project's catalog, read-only, overridden by a
 //! project bundle of the same name, and in no session's context.
 
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 use exit_code::{Exit, ExitClass};
 use std::rc::Rc;
 
@@ -11,7 +11,7 @@ use crate::{AppError, AssembleRequest, ItemKind, Library, WriteError};
 
 use std::sync::Arc;
 
-angzarr_presentation::english_for!(&[crate::EN_US.1]);
+presentation::english_for!(&[crate::EN_US.1]);
 
 /// The project bundle `ctxloom init` seeds: its `default` profile, as
 /// scaffolded, bare (ruling 117).

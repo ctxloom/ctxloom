@@ -8,7 +8,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
+use coded_diagnostic::{code, Arg, Diagnostic};
 use daemon_proto::v1;
 
 /// The daemon's start-up catch-up or sweep failed, `why` its own words.
@@ -31,7 +31,7 @@ impl StartUpIncomplete {
 
 impl fmt::Display for StartUpIncomplete {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

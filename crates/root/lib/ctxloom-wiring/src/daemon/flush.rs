@@ -25,7 +25,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
+use coded_diagnostic::{code, Arg, Diagnostic};
 use std::time::{Duration, Instant};
 
 use run_ports::{Delivery, FactSink, HeldFacts, HoldError};
@@ -328,7 +328,7 @@ pub(crate) struct HeldSetAside {
 
 impl std::fmt::Display for HeldSetAside {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

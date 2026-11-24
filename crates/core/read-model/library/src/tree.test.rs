@@ -6,9 +6,9 @@
 
 use super::*;
 use crate::testdata::{code_quality, files};
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 
-angzarr_presentation::english_for!(&[crate::EN_US.1]);
+presentation::english_for!(&[crate::EN_US.1]);
 
 /// The `<code>-fix` text of `error`, rendered from the catalog.
 fn fix_of(error: &BundleError) -> String {
@@ -23,7 +23,7 @@ fn fix_of(error: &BundleError) -> String {
         fn code(&self) -> &str {
             &self.1
         }
-        fn args(&self) -> Vec<(&str, angzarr_diagnostic::Arg)> {
+        fn args(&self) -> Vec<(&str, coded_diagnostic::Arg)> {
             self.0.args()
         }
     }

@@ -92,7 +92,7 @@ fn what_runs_is_said_by_its_pids() {
 // A time that is no span is a decline; what will not stop, a failure.
 #[test]
 fn the_errors_are_a_decline_and_a_failure() {
-    use angzarr_diagnostic::Diagnostic;
+    use coded_diagnostic::Diagnostic;
     let bad = ShutdownError::BadWhen {
         value: "soon".to_string(),
         cause: "x".to_string(),

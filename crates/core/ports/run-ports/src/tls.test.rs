@@ -1,6 +1,6 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 
 use crate::bind::{bind_for, ContainerRuntime, PlatformFacts, Runtime};
 use crate::tls::{CertError, CertNames, HookCertificate, PublicCert};

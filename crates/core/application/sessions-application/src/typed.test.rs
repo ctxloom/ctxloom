@@ -5,11 +5,11 @@
 //! real, through the kernel over an in-memory store, then settled as a use
 //! case settles it.
 
-use angzarr_diagnostic::Diagnostic;
 use angzarr_embedded::angzarr_ports::memory::MemoryStore;
 use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
 use angzarr_embedded::{Domain, Handled, OnRetryable, Payload};
 use angzarr_embedded_runner::{Refusal, Runner, Unrun};
+use coded_diagnostic::Diagnostic;
 use exit_code::ExitClass;
 use sessions::{
     AdoptRotations, ClaimName, MintSession, NameClaimAggregate, NameClaimCommand, ReleaseName,
@@ -130,10 +130,10 @@ fn told(store: &MemoryStore, aggregate_is_claim: bool, book: CommandBook) -> Tol
         .into_iter()
         .map(|(name, arg)| {
             let text = match arg {
-                angzarr_diagnostic::Arg::Str(text) => text,
-                angzarr_diagnostic::Arg::Uint(n) => n.to_string(),
-                angzarr_diagnostic::Arg::Int(n) => n.to_string(),
-                angzarr_diagnostic::Arg::Nested(cause) => cause.code().to_string(),
+                coded_diagnostic::Arg::Str(text) => text,
+                coded_diagnostic::Arg::Uint(n) => n.to_string(),
+                coded_diagnostic::Arg::Int(n) => n.to_string(),
+                coded_diagnostic::Arg::Nested(cause) => cause.code().to_string(),
             };
             (name.to_string(), text)
         })

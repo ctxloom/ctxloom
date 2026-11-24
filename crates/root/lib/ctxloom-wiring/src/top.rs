@@ -28,11 +28,11 @@ impl<'a> DaemonTop<'a> {
     pub(crate) fn new(
         wiring: &'a Wiring,
         stamp: &str,
-    ) -> Result<DaemonTop<'a>, Box<dyn angzarr_diagnostic::Diagnostic>> {
+    ) -> Result<DaemonTop<'a>, Box<dyn coded_diagnostic::Diagnostic>> {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
-            .map_err(|e| -> Box<dyn angzarr_diagnostic::Diagnostic> {
+            .map_err(|e| -> Box<dyn coded_diagnostic::Diagnostic> {
                 Box::new(ctxloom_cli::CliError::Output {
                     detail: e.to_string(),
                 })

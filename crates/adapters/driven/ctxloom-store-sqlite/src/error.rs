@@ -6,9 +6,9 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
 use angzarr_embedded::angzarr_ports::{Arg as PortArg, Cause};
 use angzarr_embedded::StoreError;
+use coded_diagnostic::{code, Arg, Diagnostic};
 use project_dir::ProjectDirError;
 use sqlite_store_opener::OpenError;
 
@@ -34,7 +34,7 @@ pub const EN_US: (&str, &str) = (
 
 impl fmt::Display for StoreOpenError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

@@ -182,7 +182,7 @@ fn library_with(files: &[(&str, &str)]) -> Library {
 /// The notices, each as `<kind> <reference>` if it is the stale-distilled
 /// one, and its code otherwise.
 fn said(notices: &[crate::Notice]) -> Vec<String> {
-    use angzarr_diagnostic::Diagnostic;
+    use coded_diagnostic::Diagnostic;
     notices
         .iter()
         .map(|n| match n {

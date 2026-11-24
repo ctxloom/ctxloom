@@ -19,7 +19,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 
 use angzarr_embedded::v1::{Cover, Uuid};
 use angzarr_embedded::{Catalog, CommandBookExt, Failure, Payload, Processed, ReadStore, Store};

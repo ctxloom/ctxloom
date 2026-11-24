@@ -28,7 +28,7 @@ pub use frontends::{FrontendHeld, FrontendLocks, FrontendNotice};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use angzarr_diagnostic::Report;
+use coded_diagnostic::Report;
 use file_system::{Fs, Kind, Open};
 use os::LockKind;
 use session_ports::{Held, Liveness, LockError, LockState, SessionLock};

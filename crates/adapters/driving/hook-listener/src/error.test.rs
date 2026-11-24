@@ -1,5 +1,5 @@
 use angzarr_coordinator_grpc::ListenError;
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 
 use crate::{diagnostic_samples, ListenerError, EN_US};
 

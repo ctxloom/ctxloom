@@ -11,7 +11,6 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use angzarr_presentation::Catalog;
 use clap::Command;
 use content_fs::ContentFs;
 use ctxloom_cli::{Call, Extension, Failure};
@@ -21,6 +20,7 @@ use deps_application::{Deps, ProjectRefresh, Refresh, RefreshEngine, RefusedKind
 use deps_files::ProjectFiles;
 use deps_ports::DepsFiles;
 use forge_github::GitHub;
+use presentation::Catalog;
 use process_env::EnvSnapshot;
 use remote_git::GitRemotes;
 use setup_application::{MaterializeRequest, Puller, Setup};
@@ -118,7 +118,7 @@ impl Puller for DepsPuller {
         match pulled.result {
             Ok(report) if report.errors == 0 => Ok(report.installed),
             Ok(report) => Err(format!("{} could not be installed", report.errors)),
-            Err(e) => Err(angzarr_diagnostic::Diagnostic::code(&e).to_string()),
+            Err(e) => Err(coded_diagnostic::Diagnostic::code(&e).to_string()),
         }
     }
 }
@@ -133,7 +133,7 @@ pub(crate) struct SetupRefresh<'a> {
 }
 
 impl ProjectRefresh for SetupRefresh<'_> {
-    fn refresh(&self, write: bool) -> Result<Refresh, Box<dyn angzarr_diagnostic::Diagnostic>> {
+    fn refresh(&self, write: bool) -> Result<Refresh, Box<dyn coded_diagnostic::Diagnostic>> {
         let done = self
             .setup
             .materialize(&MaterializeRequest {
@@ -143,7 +143,7 @@ impl ProjectRefresh for SetupRefresh<'_> {
                 flags: self.flags.clone(),
                 ..MaterializeRequest::default()
             })
-            .map_err(|e| Box::new(e) as Box<dyn angzarr_diagnostic::Diagnostic>)?;
+            .map_err(|e| Box::new(e) as Box<dyn coded_diagnostic::Diagnostic>)?;
         let result = done.value;
         if write {
             if let Some(first) = result.failures.into_iter().next() {
@@ -330,7 +330,7 @@ impl hook_cli::HookService for Hooks<'_> {
         native: &str,
         payload: &str,
         harp: &str,
-    ) -> Result<setup_application::HookAnswer, Box<dyn angzarr_diagnostic::Diagnostic>> {
+    ) -> Result<setup_application::HookAnswer, Box<dyn coded_diagnostic::Diagnostic>> {
         self.0
             .execute_hook(engine, native, payload, harp)
             .map_err(|e| Box::new(e) as _)

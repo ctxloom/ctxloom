@@ -24,15 +24,15 @@ pub mod wire;
 use cli_support::Exit;
 use std::io::Write;
 
-use angzarr_diagnostic::Diagnostic;
-use angzarr_presentation::{write_json, Catalog, Format};
 use auth_application::Auth;
 use clap::ArgMatches;
 use cli_support::{say_notices, say_warning};
+use coded_diagnostic::Diagnostic;
 use daemon_proto::v1;
 use deps_application::Notice;
 use doctor_checks::Doctor;
 use init_application::{interview, Outcome, Prompts, Sessions, Terminal};
+use presentation::{write_json, Catalog, Format};
 use reclaim_application::{CleanReport, CleanTarget};
 use sessions_application::RemovedNothing;
 

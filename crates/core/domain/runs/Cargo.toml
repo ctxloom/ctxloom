@@ -9,7 +9,7 @@ publish.workspace = true
 
 [dependencies]
 angzarr-embedded.workspace = true
-angzarr-diagnostic.workspace = true
+coded-diagnostic.workspace = true
 angzarr-embedded-macros.workspace = true
 prost.workspace = true
 runs-proto.workspace = true

@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
+use coded_diagnostic::{code, Arg, Diagnostic};
 
 /// One fatal finding of a launch's plan, as the library said it, carried by
 /// the refusal for a caller with nobody else to say it (owner ruling
@@ -16,7 +16,7 @@ pub struct LaunchFinding {
 
 impl fmt::Display for LaunchFinding {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 
@@ -107,7 +107,7 @@ impl RunRejection {
 
 impl fmt::Display for RunRejection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

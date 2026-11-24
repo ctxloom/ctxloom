@@ -1,7 +1,7 @@
 //! `deps pull` over the fakes: first pins only; nothing moved; the evidence
 //! rule.
 
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 
 use crate::fakes::{demo, Fixture, BUNDLES, ENVELOPE};
 use crate::views::PullReport;

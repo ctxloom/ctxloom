@@ -3,7 +3,7 @@
 use exit_code::{Exit, ExitClass};
 use std::cell::RefCell;
 
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 
 use crate::fakes::Fixture;
 use crate::{AppError, ProjectRefresh, Refresh, RefreshEngine, RefusedKind};

@@ -1,4 +1,4 @@
-use angzarr_diagnostic::{Arg, Diagnostic};
+use coded_diagnostic::{Arg, Diagnostic};
 use exit_code::{Exit, ExitClass};
 use library_application::AppError as PlanError;
 use run_ports::FailureClass;
@@ -225,7 +225,7 @@ fn a_resume_refused_is_the_session_domains_own_refusal() {
 // run is live: 20); a lock file that cannot be made is a failure (32).
 #[test]
 fn a_lock_held_elsewhere_is_refused_and_one_that_cannot_be_made_failed() {
-    use angzarr_diagnostic::Report;
+    use coded_diagnostic::Report;
     use run_ports::LockError;
     let held = RunError::Lock(LockError::Held(Report::new("file-lock-timeout")));
     assert_eq!(held.exit(), Exit::REFUSED);

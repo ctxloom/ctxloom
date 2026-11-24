@@ -243,7 +243,7 @@ async fn a_refused_stop_is_told_in_its_words_and_declines() {
     };
     let refused = stop(&daemon, false).await.unwrap_err();
     assert_eq!(
-        angzarr_diagnostic::Diagnostic::code(&refused),
+        coded_diagnostic::Diagnostic::code(&refused),
         "daemon-api-daemon-hosting"
     );
     assert_eq!(refused.exit(), Exit::REFUSED);
@@ -277,7 +277,7 @@ async fn a_refused_registration_is_the_sessions_domains() {
     .await
     .unwrap_err();
     assert_eq!(
-        angzarr_diagnostic::Diagnostic::code(&refused),
+        coded_diagnostic::Diagnostic::code(&refused),
         "sessions-project-harp-mismatch"
     );
     assert_eq!(refused.exit(), Exit::REFUSED);

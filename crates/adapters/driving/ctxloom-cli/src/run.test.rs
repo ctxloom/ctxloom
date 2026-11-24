@@ -8,8 +8,8 @@ use std::ffi::OsString;
 use std::io::Write;
 
 use super::*;
-use angzarr_presentation::Format;
 use clap::{Arg, Command};
+use presentation::Format;
 
 /// What the fake extension is told to answer.
 pub(crate) struct Fake {

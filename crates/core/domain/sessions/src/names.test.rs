@@ -8,10 +8,10 @@
 
 use std::collections::BTreeMap;
 
-use angzarr_diagnostic::{Arg, Diagnostic};
 use angzarr_embedded::testing::{Harness, Samples};
 use angzarr_embedded::v1::{Cover, Uuid};
 use angzarr_embedded::{Failure, Registry};
+use coded_diagnostic::{Arg, Diagnostic};
 
 use crate::{
     ClaimName, Claimed, NameClaimAggregate, NameClaimCommand, NameClaimEvent, NameClaimState,

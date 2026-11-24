@@ -6,10 +6,10 @@ use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use angzarr_diagnostic::{Diagnostic, Report};
 use angzarr_embedded::testing::MemoryStore;
 use angzarr_embedded::v1::{event_page, CommandBook, Cover, EventPage};
 use angzarr_embedded::{Answered, Catalog, CommandBookExt, Failure, Rejected, StoreError};
+use coded_diagnostic::{Diagnostic, Report};
 use library_application::{
     AppError as PlanError, DryRun, FindingRow, Flags, Notice, Outcome, Previewed, RunRequest,
 };

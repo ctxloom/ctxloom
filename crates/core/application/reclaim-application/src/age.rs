@@ -20,7 +20,7 @@ pub fn parse_age(flag: &str, value: &str, now: Timestamp) -> Result<Timestamp, R
         value: value.to_string(),
         cause,
     };
-    let overflow = || DurationError::Overflow {
+    let overflow = || DurationError::OutOfRange {
         text: value.trim().to_string(),
     };
     // `now`'s whole seconds as an instant (from, or before the epoch, back

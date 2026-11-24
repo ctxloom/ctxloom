@@ -9,7 +9,7 @@ publish.workspace = true
 
 [dependencies]
 exit-code.workspace = true
-angzarr-diagnostic.workspace = true
+coded-diagnostic.workspace = true
 angzarr-embedded.workspace = true
 # The one-shot's client (U4): the daemon's API as a port, its messages.
 daemon-ports.workspace = true

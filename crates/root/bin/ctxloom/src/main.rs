@@ -9,8 +9,8 @@ use std::io::{self, IsTerminal};
 use std::process::ExitCode;
 use std::sync::Arc;
 
-use angzarr_presentation::Format;
 use ctxloom_cli::{Catalog, Context, Exit, Extension, Failure, Services};
+use presentation::Format;
 use process_env::EnvSnapshot;
 
 // build.rs composes the stamp; the program only checks it.
@@ -28,7 +28,7 @@ const EN_US: (&str, &str) = (
 );
 
 /// The binary's en-US catalog: every crate's own.
-fn catalog() -> Result<Catalog, angzarr_presentation::CatalogError> {
+fn catalog() -> Result<Catalog, presentation::CatalogError> {
     let mut sources = ctxloom_wiring::catalog_sources();
     sources.extend([
         ctxloom_cli::EN_US,
@@ -77,7 +77,7 @@ impl Services for Wired {
 /// One value of every diagnostic the binary can raise besides the wiring's and
 /// the command line's own, for `ctxloom test diagnostics`.
 #[cfg(feature = "test-support")]
-fn diagnostic_samples() -> Vec<Box<dyn angzarr_diagnostic::Diagnostic>> {
+fn diagnostic_samples() -> Vec<Box<dyn coded_diagnostic::Diagnostic>> {
     let mut all = unstamped::diagnostic_samples();
     all.extend(ctxloom_store_sqlite::diagnostic_samples());
     all.extend(project_dir::diagnostic_samples());

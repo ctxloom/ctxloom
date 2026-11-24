@@ -250,7 +250,7 @@ async fn fire<S: Store>(
 }
 
 fn failure_code(failure: &Failure<Rejected>) -> String {
-    use angzarr_diagnostic::Diagnostic as _;
+    use coded_diagnostic::Diagnostic as _;
     failure.code().to_string()
 }
 

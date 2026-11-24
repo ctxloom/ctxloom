@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
+use coded_diagnostic::{code, Arg, Diagnostic};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum WorktreeError {
@@ -23,7 +23,7 @@ pub enum WorktreeError {
 
 impl fmt::Display for WorktreeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

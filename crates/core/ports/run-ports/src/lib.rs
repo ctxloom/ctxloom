@@ -91,7 +91,7 @@ pub use wake::{wake_line, wake_nonce, WakePost, NONCE_DIGITS};
 
 /// One value of every error, for the catalog test.
 #[cfg(any(test, feature = "test-support"))]
-pub fn diagnostic_samples() -> Vec<Box<dyn angzarr_diagnostic::Diagnostic>> {
+pub fn diagnostic_samples() -> Vec<Box<dyn coded_diagnostic::Diagnostic>> {
     let mut samples = token::diagnostic_samples();
     samples.extend(held::diagnostic_samples());
     samples.extend(hook::diagnostic_samples());

@@ -32,7 +32,7 @@
 
 use std::sync::{Arc, Weak};
 
-use angzarr_diagnostic::Report;
+use coded_diagnostic::Report;
 use daemon_application::{Reacted, Reaction};
 use daemon_proto::v1;
 use exit_code::{Exit, ExitClass};

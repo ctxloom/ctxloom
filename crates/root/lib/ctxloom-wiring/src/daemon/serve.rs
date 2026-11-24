@@ -140,7 +140,7 @@ pub(crate) fn serve(
     let say: Say = Arc::new(Mutex::new(say));
     let runtime = super::runtime::build(super::runtime::workers()).map_err(|e| e.to_string())?;
     let served = runtime.block_on(async move {
-        let code = |e: &dyn angzarr_diagnostic::Diagnostic| e.code().to_string();
+        let code = |e: &dyn coded_diagnostic::Diagnostic| e.code().to_string();
         let store = Stores::new(Arc::clone(&fs), home.to_path_buf())
             .open()
             .await
@@ -610,7 +610,7 @@ async fn start(
     (files, shared, one_shots, terminals): Hosts<'_>,
     (say, env): (&Say, &Arc<process_env::EnvSnapshot>),
 ) -> Result<(HookListener, Daemon<CoreEdge>, Discovery), String> {
-    let code = |e: &dyn angzarr_diagnostic::Diagnostic| e.code().to_string();
+    let code = |e: &dyn coded_diagnostic::Diagnostic| e.code().to_string();
     let edge = core.edge();
     // The user bearer (T12): minted at each start, advertised in the
     // discovery file alone.
@@ -1629,7 +1629,7 @@ fn daemon_certificate() -> Result<run_ports::HookCertificate, String> {
         run_ports::DAEMON_CERT_LIFETIME_SECONDS,
     )
     .mint(&names)
-    .map_err(|e| angzarr_diagnostic::Diagnostic::code(&e).to_string())
+    .map_err(|e| coded_diagnostic::Diagnostic::code(&e).to_string())
 }
 
 /// A session's state, from its liveness lock in its project.

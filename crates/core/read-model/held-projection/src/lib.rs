@@ -329,7 +329,7 @@ impl<M: Model> ProjectorHandler for Held<M> {
 /// `error`, an event the model cannot read, as the projector port's bug: its
 /// code, and its text args (the type URL it names).
 pub fn bug(error: &PayloadError) -> CodedError {
-    use angzarr_embedded::angzarr_diagnostic::{Arg, Diagnostic as _};
+    use angzarr_embedded::coded_diagnostic::{Arg, Diagnostic as _};
     let args = error
         .args()
         .into_iter()

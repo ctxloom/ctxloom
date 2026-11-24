@@ -110,7 +110,7 @@ impl Wiring {
                 harps: crate::fresh_project_harps(),
             })
             .await
-            .map_err(|e| seed_error(angzarr_diagnostic::Diagnostic::code(&e)))?;
+            .map_err(|e| seed_error(coded_diagnostic::Diagnostic::code(&e)))?;
         let project = sessions
             .use_cases
             .identity
@@ -206,7 +206,7 @@ impl Wiring {
                     harps: crate::fresh_project_harps(),
                 })
                 .await
-                .map_err(|e| seed_error(angzarr_diagnostic::Diagnostic::code(&e)));
+                .map_err(|e| seed_error(coded_diagnostic::Diagnostic::code(&e)));
             let closed = sessions.use_cases.stores.close().await.map_err(seed_error);
             let named = named?;
             closed?;
@@ -235,7 +235,7 @@ impl Wiring {
                 harps: crate::fresh_project_harps(),
             })
             .await
-            .map_err(|e| seed_error(angzarr_diagnostic::Diagnostic::code(&e)));
+            .map_err(|e| seed_error(coded_diagnostic::Diagnostic::code(&e)));
         let mut identity = sessions.use_cases.identity;
         let mut stores = sessions.use_cases.stores;
         let project = identity
@@ -486,8 +486,8 @@ fn first_prompt(cover: &Cover, id: [u8; 16], harp: &str) -> Result<CommandBook, 
 }
 
 /// A report from a port, as a seed error.
-fn seed_error_of(report: angzarr_diagnostic::Report) -> TestError {
-    seed_error(angzarr_diagnostic::Diagnostic::code(&report))
+fn seed_error_of(report: coded_diagnostic::Report) -> TestError {
+    seed_error(coded_diagnostic::Diagnostic::code(&report))
 }
 
 /// Claim the session's name, first, as the real mint does.

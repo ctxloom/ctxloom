@@ -1,7 +1,7 @@
 //! `deps upgrade` over the fakes: the one command that moves a pin, and shows
 //! the move first.
 
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 
 use deps::version::Compat;
 

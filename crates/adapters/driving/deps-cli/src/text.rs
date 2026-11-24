@@ -5,11 +5,11 @@
 use std::io::{self, Write};
 
 use crate::pins::{new_pins_text, pin_changes_text};
-use angzarr_presentation::text;
 use deps_application::{
     Browsed, CheckReport, CheckedRef, DepsListing, Discovered, EditedRemote, HoldResult, Moved,
     PullReport, Pushed, RemoteListing, RemoveResult, UpgradeReport,
 };
+use presentation::text;
 
 /// A value for a terminal: control characters shown as escapes.
 pub fn field(value: &str) -> String {

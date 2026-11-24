@@ -16,7 +16,7 @@ use std::ffi::OsString;
 use std::sync::Arc;
 use std::time::Duration;
 
-use angzarr_diagnostic::Report;
+use coded_diagnostic::Report;
 use process_env::EnvSnapshot;
 use run_within::{run_within, RunError, Spec, Within};
 use serde::Deserialize;

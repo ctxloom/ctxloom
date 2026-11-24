@@ -23,7 +23,7 @@
 //! - `ctxloom test open-store <project-id>`: opens the project's store
 //!   (`Stores::open`) under the process's home and prints its path.
 //!
-//! These tests cannot use angzarr-presentation, angzarr-diagnostic or the
+//! These tests cannot use presentation, coded-diagnostic or the
 //! file-system seam yet: S0 has not added their pins. So they read the
 //! binary's output, the lock file, the manifests and the catalogs' text
 //! instead of the crates' types.

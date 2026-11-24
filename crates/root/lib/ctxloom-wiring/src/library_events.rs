@@ -162,7 +162,7 @@ impl Wiring {
             app.path
         };
         let Some(checkout) = crate::checkout_harp(self.fs().as_ref(), &app_dir)
-            .map_err(|e| read_error(angzarr_diagnostic::Diagnostic::code(&e)))?
+            .map_err(|e| read_error(coded_diagnostic::Diagnostic::code(&e)))?
         else {
             return Ok(None);
         };
@@ -176,7 +176,7 @@ impl Wiring {
         };
         crate::checkout_tree(&project, &checkout)
             .map(Some)
-            .map_err(|e| read_error(angzarr_diagnostic::Diagnostic::code(&e)))
+            .map_err(|e| read_error(coded_diagnostic::Diagnostic::code(&e)))
     }
 
     /// The events of the cwd checkout's (or the home's) library stream, as

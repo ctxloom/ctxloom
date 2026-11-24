@@ -1,11 +1,11 @@
 //! The scheduler aggregate, driven through its kernel as the binary drives it
 //! (`Harness`, over an in-memory store).
 
-use angzarr_diagnostic::{Arg, Diagnostic};
 use angzarr_embedded::markup::DomainMessage;
 use angzarr_embedded::testing::{Harness, Samples};
 use angzarr_embedded::v1::{command_page, CommandBook, CommandPage, Cover, Fact, FactOrigin};
 use angzarr_embedded::{Any, Failure, Handled, Payload, Registry, Timestamp};
+use coded_diagnostic::{Arg, Diagnostic};
 
 use crate::{
     alarm_external_id, stream_for, AlarmArmed, AlarmCancelled, AlarmFired, ArmAlarm, CancelAlarm,

@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
+use coded_diagnostic::{code, Arg, Diagnostic};
 use ctxloom_ports::{
     Change, CompanionLoadout, CompanionProbe, ConfigFiles, ContentRepo, Editor, EditorCommand,
     Failure, LayerText, ProbeSite, Put, Scaffold, Scope, Source, TreeFiles, UserFiles,

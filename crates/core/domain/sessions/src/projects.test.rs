@@ -26,7 +26,7 @@ fn refused<T: std::fmt::Debug>(result: Result<T, Failure<angzarr_embedded::Rejec
         .rejection::<angzarr_embedded::markup::TypedRefusal>()
         .expect("a typed refusal");
     let rejection = SessionRejection::try_from(typed).expect("a refusal of this domain");
-    angzarr_diagnostic::Diagnostic::code(&rejection).to_string()
+    coded_diagnostic::Diagnostic::code(&rejection).to_string()
 }
 
 fn project() -> Harness<ProjectAggregate> {

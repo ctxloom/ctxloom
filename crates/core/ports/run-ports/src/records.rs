@@ -6,7 +6,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
+use coded_diagnostic::{code, Arg, Diagnostic};
 
 /// A session's directory in the project, file by file.
 pub trait SessionRecords: Send {
@@ -67,7 +67,7 @@ pub enum RecordsError {
 
 impl fmt::Display for RecordsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

@@ -30,13 +30,13 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use angzarr_presentation::{render, Catalog, Render};
 use clap::{Command, FromArgMatches, Subcommand};
 use cli_support::{Exit, ExitClass};
 use ctxloom_cli::{shaped, Call, CliError, Failure};
 use daemon_ports::{Daemons, Unreached};
 use file_system::{Fs, Open};
 use os::Mode;
+use presentation::{render, Catalog, Render};
 use process_env::EnvSnapshot;
 use serde::Serialize;
 use sessions::ProjectName;
@@ -149,7 +149,7 @@ pub(crate) const LIFELINE_VARIABLE: &str = "CTXLOOM_TEST_LIFELINE";
 #[cfg(feature = "test-support")]
 pub(crate) const ACCOUNT_HOME_VARIABLE: &str = "CTXLOOM_TEST_ACCOUNT_HOME";
 
-/// The OS account's home, as the system keeps it (angzarr-platform's
+/// The OS account's home, as the system keeps it (rust-support's
 /// `Os::user_home`: the account database's, never `HOME` or `USERPROFILE`,
 /// so a process whose HOME was moved still finds the account's); none when
 /// the account has none. One daemon per OS USER: the single-instance lock
@@ -316,7 +316,7 @@ fn warned(warnings: &[daemon_proto::v1::Notice], catalog: &Catalog) -> Vec<Strin
         .collect()
 }
 
-fn failed(cause: impl angzarr_diagnostic::Diagnostic + 'static) -> Failure {
+fn failed(cause: impl coded_diagnostic::Diagnostic + 'static) -> Failure {
     Failure::new(cause, Exit::FAILED)
 }
 
@@ -909,7 +909,7 @@ fn under_home(flavor: os::Flavor, below: &Path) -> String {
 }
 
 /// A refusal of the wiring's, as the reach declines.
-fn declined(refused: impl angzarr_diagnostic::Diagnostic + Send + Sync + 'static) -> Unreached {
+fn declined(refused: impl coded_diagnostic::Diagnostic + Send + Sync + 'static) -> Unreached {
     Unreached::Declined(Arc::new(refused))
 }
 
@@ -1339,7 +1339,7 @@ pub(crate) fn project_resolver(wiring: &Wiring, base: PathBuf) -> Arc<daemon_api
             Ok(None) => Err(unknown()),
             Err(e) => Err(daemon_api::CallError::Call(daemon_ports::Called::Failed {
                 code: 0,
-                detail: angzarr_diagnostic::Diagnostic::code(&e).to_string(),
+                detail: coded_diagnostic::Diagnostic::code(&e).to_string(),
             })),
         }
     })
@@ -1774,7 +1774,7 @@ pub(crate) fn child_plan(
     library
         .dry_run(&flags, &request)
         .result
-        .map_err(|e| angzarr_diagnostic::Diagnostic::code(&e).to_string())
+        .map_err(|e| coded_diagnostic::Diagnostic::code(&e).to_string())
 }
 
 /// The root of the session output folders of the project at
@@ -1815,7 +1815,7 @@ fn child_library(
         env.iter()
             .map(|(name, value)| (name.as_str(), value.as_str())),
     );
-    let code = |e: &dyn angzarr_diagnostic::Diagnostic| e.code().to_string();
+    let code = |e: &dyn coded_diagnostic::Diagnostic| e.code().to_string();
     crate::library::build(&wiring).map_err(|e| code(&e))
 }
 

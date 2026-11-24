@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 use super::*;
 use crate::{BundleError, CatalogError, ProfileError};
 
-angzarr_presentation::english_for!(&[crate::EN_US.1]);
+presentation::english_for!(&[crate::EN_US.1]);
 
 /// The `$variables` of the message `id` in the catalog: its own lines, up to
 /// the next message. None when the catalog has none.

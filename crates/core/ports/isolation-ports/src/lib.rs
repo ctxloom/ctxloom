@@ -14,7 +14,7 @@
 
 use std::path::{Path, PathBuf};
 
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 
 /// Why an adapter could not do what it was asked: its own diagnostic.
 pub type Failure = Box<dyn Diagnostic>;

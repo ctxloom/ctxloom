@@ -538,7 +538,7 @@ fn a_stale_plan_a_client_is_answered_reads_as_the_trust_domains_rejection() {
         "{error:?}"
     );
     assert_eq!(
-        angzarr_diagnostic::Diagnostic::code(&error),
+        coded_diagnostic::Diagnostic::code(&error),
         "trust-plan-stale"
     );
     assert_eq!(cli_exit(&error), 48);

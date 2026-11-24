@@ -3,9 +3,9 @@
 //! as bytes. Each test names the Go command (`internal/adapters/cli`) or the
 //! Gherkin feature it holds the adapter to.
 
-use angzarr_presentation::{Catalog, Format};
 use clap::Command;
 use library_application::fakes::{Setup, ENVELOPE};
+use presentation::{Catalog, Format};
 
 use super::*;
 pub(crate) use daemon_proto::Carries as _;
@@ -494,7 +494,7 @@ impl Diagnostic for Stale {
         "library-tree-plan-stale"
     }
 
-    fn args(&self) -> Vec<(&str, angzarr_diagnostic::Arg)> {
+    fn args(&self) -> Vec<(&str, coded_diagnostic::Arg)> {
         Vec::new()
     }
 }
@@ -513,7 +513,7 @@ impl Diagnostic for NoDaemon {
         "daemon-api-unreached"
     }
 
-    fn args(&self) -> Vec<(&str, angzarr_diagnostic::Arg)> {
+    fn args(&self) -> Vec<(&str, coded_diagnostic::Arg)> {
         Vec::new()
     }
 }
@@ -986,7 +986,7 @@ fn test_an_answer_that_cannot_be_written_fails_with_its_cause() {
     assert_eq!(args[0].0, "ext_err_txt");
     assert_eq!(
         format!("{:?}", args[0].1),
-        format!("{:?}", angzarr_diagnostic::Arg::from("pipe closed"))
+        format!("{:?}", coded_diagnostic::Arg::from("pipe closed"))
     );
     assert!(failure.cause.to_string().contains("ctxloom-cli-output"));
 }

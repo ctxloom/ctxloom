@@ -25,7 +25,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
+use coded_diagnostic::{code, Arg, Diagnostic};
 
 use crate::tls::PublicCert;
 use crate::token::{Token, TokenError};
@@ -171,7 +171,7 @@ pub enum EndpointError {
 
 impl fmt::Display for EndpointError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 
@@ -251,7 +251,7 @@ pub enum BearerError {
 
 impl fmt::Display for BearerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

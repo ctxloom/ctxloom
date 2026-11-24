@@ -1,4 +1,4 @@
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 use daemon_proto::v1;
 use prost::Name;
 

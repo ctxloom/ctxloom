@@ -190,9 +190,9 @@ fn test_a_two_word_create_writes_gos_placeholder_and_refuses_a_missing_bundle() 
         .result
         .expect_err("a bundle nobody has is refused");
     assert!(
-        angzarr_diagnostic::Diagnostic::code(&refused).contains("bundle-not-found"),
+        coded_diagnostic::Diagnostic::code(&refused).contains("bundle-not-found"),
         "{}",
-        angzarr_diagnostic::Diagnostic::code(&refused)
+        coded_diagnostic::Diagnostic::code(&refused)
     );
     assert!(recorder.take().is_empty());
 }
@@ -719,7 +719,7 @@ fn test_an_mcp_server_update_not_allowed_to_create_refuses_a_missing_one() {
         .result
         .expect_err("a missing server is not created");
     assert_eq!(
-        angzarr_diagnostic::Diagnostic::code(&refused),
+        coded_diagnostic::Diagnostic::code(&refused),
         "library-application-mcp-not-found"
     );
     assert!(planned_writes(&recorder.take()).is_empty());

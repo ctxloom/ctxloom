@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
+use coded_diagnostic::{code, Arg, Diagnostic};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum LibraryTreeRejection {
@@ -33,7 +33,7 @@ pub enum LibraryTreeRejection {
 
 impl fmt::Display for LibraryTreeRejection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

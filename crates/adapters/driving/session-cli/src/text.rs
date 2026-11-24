@@ -6,7 +6,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
+use coded_diagnostic::{code, Arg, Diagnostic};
 
 use crate::error::EN_US;
 
@@ -114,13 +114,13 @@ struct English<'a>(&'a Text);
 
 impl fmt::Display for English<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::catalog::render(EN_US.1, self.0, f)
+        coded_diagnostic::catalog::render(EN_US.1, self.0, f)
     }
 }
 
 impl fmt::Display for Text {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

@@ -31,7 +31,7 @@ fn each_fault_displays_its_code_and_args_and_has_its_words_in_the_catalog() {
         "setup-cli-output ext_err_txt=\"broken pipe\""
     );
     assert_eq!(no_such().to_string(), "setup-cli-no-such-command noun=frob");
-    let catalog = angzarr_presentation::Catalog::en_us(&[EN_US]).expect("a catalog");
+    let catalog = presentation::Catalog::en_us(&[EN_US]).expect("a catalog");
     assert_eq!(
         catalog.message(&output()),
         "could not write the answer: broken pipe"
@@ -61,7 +61,7 @@ fn the_token_notice_has_its_code_args_and_words_and_fix() {
     assert_eq!(notice.code(), "setup-cli-token-not-exported");
     let args: Vec<&str> = notice.args().iter().map(|(k, _)| *k).collect();
     assert_eq!(args, vec!["variables", "export", "command"]);
-    let catalog = angzarr_presentation::Catalog::en_us(&[EN_US]).expect("a catalog");
+    let catalog = presentation::Catalog::en_us(&[EN_US]).expect("a catalog");
     assert_eq!(
         catalog.message(&notice),
         "delegated agents need a token, and none is exported (CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY)"

@@ -9,7 +9,7 @@ publish.workspace = true
 
 [dependencies]
 exit-code.workspace = true
-angzarr-diagnostic.workspace = true
+coded-diagnostic.workspace = true
 angzarr-yaml.workspace = true
 # The one span grammar (`daemon.drain_timeout`; `now` is zero).
 duration-text.workspace = true
@@ -22,7 +22,7 @@ serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
-angzarr-presentation = { workspace = true, features = ["test-support"] }
+presentation = { workspace = true, features = ["test-support"] }
 mutants.workspace = true
 # The tests drive the mock engines, which only `test-support` compiles into the
 # library's engine list (ruling 52); this crate's own `test-support` stays off.

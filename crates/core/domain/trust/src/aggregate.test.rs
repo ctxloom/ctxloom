@@ -60,7 +60,7 @@ fn run(
                 .rejection::<angzarr_embedded::markup::TypedRefusal>()
                 .expect("a typed refusal");
             let rejection = crate::TrustRejection::try_from(typed).expect("a trust refusal");
-            Err(angzarr_diagnostic::Diagnostic::code(&rejection).to_string())
+            Err(coded_diagnostic::Diagnostic::code(&rejection).to_string())
         }
         Err(other) => panic!("not a rejection: {other:?}"),
     }

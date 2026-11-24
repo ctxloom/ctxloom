@@ -4,10 +4,10 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use angzarr_diagnostic::Report;
 use angzarr_embedded::angzarr_ports::memory::MemoryStore;
 use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
 use angzarr_embedded::{Kernel, OnRetryable, Payload, Sampled, StoreError, Timestamp};
+use coded_diagnostic::Report;
 use ports::{Project, ProjectIdentity};
 use session_ports::{GoSession, GoSessions, Liveness, LockState, ProjectStores};
 use sessions::{

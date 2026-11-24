@@ -4,9 +4,9 @@
 
 use std::io::{self, Write};
 
-use angzarr_presentation::Catalog;
 use daemon_proto::v1;
 use deps_application::Refresh;
+use presentation::Catalog;
 
 use cli_support::FixOf;
 

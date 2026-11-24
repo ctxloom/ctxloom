@@ -189,7 +189,7 @@ impl daemon_api::Purges for StorePurges {
             sessions_application::purge(self.0.as_ref(), StreamRef::main(domain, root))
                 .await
                 .map_err(|e| ApiError::Failed {
-                    detail: angzarr_diagnostic::Diagnostic::code(&e).to_string(),
+                    detail: coded_diagnostic::Diagnostic::code(&e).to_string(),
                 })
         })
     }
@@ -233,7 +233,7 @@ impl daemon_api::Libraries for ProjectLibraries {
         env: &[(String, String)],
         read: &mut dyn FnMut(&library_application::Library),
     ) -> Result<(), ApiError> {
-        let failed = |e: &dyn angzarr_diagnostic::Diagnostic| ApiError::Failed {
+        let failed = |e: &dyn coded_diagnostic::Diagnostic| ApiError::Failed {
             detail: e.code().to_string(),
         };
         let at = if dir.is_empty() {
@@ -260,7 +260,7 @@ impl daemon_api::Libraries for ProjectLibraries {
         };
         let wiring = self.at(&at, env);
         let deps = crate::commands::build_deps(&wiring).map_err(|e| ApiError::Failed {
-            detail: angzarr_diagnostic::Diagnostic::code(&e).to_string(),
+            detail: coded_diagnostic::Diagnostic::code(&e).to_string(),
         })?;
         read(&deps);
         Ok(())
@@ -281,7 +281,7 @@ impl daemon_api::Trusts for ProjectTrusts {
         // Read as a process there would, with ctxloom's home and nothing
         // else of an environment.
         let wiring = super::caller_wiring(&self.home, &self.temp, (root, Some(root)), []);
-        let failed = |e: &dyn angzarr_diagnostic::Diagnostic| ApiError::Failed {
+        let failed = |e: &dyn coded_diagnostic::Diagnostic| ApiError::Failed {
             detail: e.code().to_string(),
         };
         let library = crate::library::build(&wiring).map_err(|e| failed(&e))?;

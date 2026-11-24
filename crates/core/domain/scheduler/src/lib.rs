@@ -113,9 +113,9 @@ pub fn alarm_external_id(target: &Stream, alarm_id: &str, at: &Timestamp) -> Str
 /// crate depends on none of it directly.
 #[doc(hidden)]
 pub mod __private {
-    pub use angzarr_diagnostic::Report;
     pub use angzarr_embedded::markup::{CommandTarget, Commands, Policy, PolicyContext, TypeName};
     pub use angzarr_embedded::Any;
+    pub use coded_diagnostic::Report;
     pub use scheduler_proto::v1::AlarmFired;
 }
 

@@ -2,10 +2,10 @@
 //! exit ladder, the sample list in both formats, the envelopes, the id mints,
 //! the store open and the seed.
 
-use angzarr_diagnostic::Diagnostic;
-use angzarr_presentation::{Catalog, Format};
 use clap::Command;
+use coded_diagnostic::Diagnostic;
 use ctxloom_cli::{Call, Extension};
+use presentation::{Catalog, Format};
 use sessions_application::{ListQuery, SessionService};
 
 use super::*;

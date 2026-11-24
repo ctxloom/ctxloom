@@ -10,7 +10,7 @@
 use std::fmt;
 use std::sync::Arc;
 
-use angzarr_diagnostic::{Arg, Diagnostic};
+use coded_diagnostic::{Arg, Diagnostic};
 pub use ctxloom_ports::ExportedVars;
 use library::config::{engines, schema};
 use serde::Serialize;
@@ -397,7 +397,7 @@ struct InRunsWords<'a>(&'a dyn Diagnostic);
 
 impl fmt::Display for InRunsWords<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::catalog::render(RUNS_EN_US.1, self.0, f)
+        coded_diagnostic::catalog::render(RUNS_EN_US.1, self.0, f)
     }
 }
 
@@ -407,7 +407,7 @@ struct FixOf<'a>(&'a FileOnly, String);
 
 impl fmt::Display for FixOf<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

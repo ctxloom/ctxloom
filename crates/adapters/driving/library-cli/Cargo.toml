@@ -8,8 +8,8 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-angzarr-diagnostic.workspace = true
-angzarr-presentation.workspace = true
+coded-diagnostic.workspace = true
+presentation.workspace = true
 cli-support.workspace = true
 clap.workspace = true
 # The API messages a converted noun prints (OD-40), their generated JSON.
@@ -22,7 +22,7 @@ serde_json.workspace = true
 
 [dev-dependencies]
 library-application = { workspace = true, features = ["test-support"] }
-angzarr-presentation = { workspace = true, features = ["test-support"] }
+presentation = { workspace = true, features = ["test-support"] }
 
 [features]
 test-support = ["library-application/test-support"]

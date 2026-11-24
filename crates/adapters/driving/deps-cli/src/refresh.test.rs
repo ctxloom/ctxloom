@@ -1,7 +1,7 @@
 //! The skipped refresh as words and as its API message.
 
-use angzarr_presentation::Catalog;
 use deps_application::{AppError, Refresh, RefreshEngine, RefusedKind};
+use presentation::Catalog;
 
 use super::*;
 

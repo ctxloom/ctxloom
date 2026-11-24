@@ -247,7 +247,7 @@ impl Setup {
                     failed = true;
                     errors.push(format!(
                         "{name}: {}",
-                        angzarr_diagnostic::Diagnostic::code(&e)
+                        coded_diagnostic::Diagnostic::code(&e)
                     ));
                 }
             }

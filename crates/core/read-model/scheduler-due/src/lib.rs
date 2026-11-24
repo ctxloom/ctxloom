@@ -193,7 +193,7 @@ pub fn catch_up() -> CatchUp<DueModel> {
 /// `error`, an event the model cannot read, as the projector port's bug: its
 /// code, and its text args (the type URL it names).
 fn bug(error: &PayloadError) -> CodedError {
-    use angzarr_embedded::angzarr_diagnostic::{Arg, Diagnostic as _};
+    use angzarr_embedded::coded_diagnostic::{Arg, Diagnostic as _};
     let args = error
         .args()
         .into_iter()

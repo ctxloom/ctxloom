@@ -24,7 +24,7 @@ fn the_samples_hold_every_diagnostic_of_the_crate() {
 // Each error says what it was given, by name.
 #[test]
 fn each_error_reports_its_args() {
-    use angzarr_diagnostic::Diagnostic;
+    use coded_diagnostic::Diagnostic;
     let no = super::McpError::NoSession {
         variable: "CTXLOOM_SESSION".to_string(),
     };

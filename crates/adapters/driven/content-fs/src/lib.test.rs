@@ -9,7 +9,7 @@ use std::path::Path;
 use file_system::{Fs, Rooted};
 use os::Mode;
 
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 
 use super::*;
 

@@ -4,7 +4,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
+use coded_diagnostic::{code, Arg, Diagnostic, Report};
 use exit_code::{Exit, ExitClass};
 
 /// This crate's en-US messages (`locales/en-US/messages.ftl`, ids under the
@@ -109,7 +109,7 @@ impl ExitClass for AppError {
 
 impl fmt::Display for AppError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 
@@ -241,7 +241,7 @@ impl Notice {
 
 impl fmt::Display for Notice {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

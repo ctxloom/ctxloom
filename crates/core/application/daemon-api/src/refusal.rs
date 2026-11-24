@@ -6,8 +6,8 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
 use angzarr_embedded::{Any, Rejected};
+use coded_diagnostic::{code, Arg, Diagnostic, Report};
 use daemon_proto::v1;
 use exit_code::{Exit, ExitClass};
 use prost::Message;
@@ -98,7 +98,7 @@ impl From<ApiRefusal> for ApiError {
 
 impl fmt::Display for ApiError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 
@@ -347,7 +347,7 @@ impl Diagnostic for ApiRejection {
 
 impl fmt::Display for ApiRejection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 
@@ -486,7 +486,7 @@ impl Diagnostic for RemovalRejection {
 
 impl fmt::Display for RemovalRejection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 
@@ -896,7 +896,7 @@ pub(crate) fn app_error(error: &library_application::AppError) -> ApiError {
 /// decline's own code and args.
 pub fn deps_error(error: &deps_application::AppError) -> ApiError {
     use exit_code::ExitClass;
-    let declined = |d: &dyn angzarr_diagnostic::Diagnostic| {
+    let declined = |d: &dyn coded_diagnostic::Diagnostic| {
         ApiError::Refused(ApiRefusal::of(&daemon_proto::v1::LibraryDeclined {
             cause: Some(daemon_proto::v1::Cause {
                 code: d.code().to_string(),

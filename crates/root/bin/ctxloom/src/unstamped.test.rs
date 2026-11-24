@@ -1,4 +1,4 @@
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 
 use super::*;
 
@@ -18,7 +18,7 @@ fn test_an_empty_or_bare_version_is_refused_naming_it() {
         assert_eq!(args.len(), 1);
         assert_eq!(args[0].0, "stamp");
         match &args[0].1 {
-            angzarr_diagnostic::Arg::Str(stamp) => assert_eq!(stamp, version),
+            coded_diagnostic::Arg::Str(stamp) => assert_eq!(stamp, version),
             other => panic!("the stamp is a string: {other:?}"),
         }
     }

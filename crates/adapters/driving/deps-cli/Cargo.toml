@@ -8,8 +8,8 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-angzarr-diagnostic.workspace = true
-angzarr-presentation.workspace = true
+coded-diagnostic.workspace = true
+presentation.workspace = true
 cli-support.workspace = true
 clap.workspace = true
 # The API messages the json answers print (OD-40, B4), their generated JSON.
@@ -26,7 +26,7 @@ run-application.workspace = true
 deps-ports.workspace = true
 serde_json.workspace = true
 mutants.workspace = true
-angzarr-presentation = { workspace = true, features = ["test-support"] }
+presentation = { workspace = true, features = ["test-support"] }
 deps-application = { workspace = true, features = ["test-support"] }
 
 [features]

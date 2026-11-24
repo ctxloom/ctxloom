@@ -5,7 +5,7 @@
 //!
 //! Taskloom's form of this test calls each crate's `diagnostic_samples()`
 //! and the binary's `catalog()`. S0 has not added the pins that give those
-//! types (angzarr-diagnostic, angzarr-presentation), so this reads the same
+//! types (coded-diagnostic, presentation), so this reads the same
 //! facts from outside: the binary's `test diagnostics` (every sample, as the
 //! envelope the binary renders from its catalog), `cargo metadata` for the
 //! crates, and their catalogs' text.

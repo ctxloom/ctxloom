@@ -24,12 +24,12 @@ mod write;
 mod prelude {
     pub(crate) use std::io::{self, Write};
 
-    pub(crate) use angzarr_presentation::Format;
     pub(crate) use clap::ArgMatches;
     pub(crate) use cli_support::{flag, many, say_notices, Exit};
     pub(crate) use library_application::{
         AgentRow, AppError, DefaultAgent, ItemKind, SwapPreview, WriteError,
     };
+    pub(crate) use presentation::Format;
 
     pub(crate) use crate::write::{
         finish_text, given, given_list, given_map, given_pairs, nothing, text_only,
@@ -43,12 +43,12 @@ mod prelude {
 use cli_support::{Exit, ExitClass};
 use std::io::{self, Write};
 
-use angzarr_diagnostic::Diagnostic;
-use angzarr_presentation::{Catalog, Format};
 use clap::ArgMatches;
 use cli_support::{one, say_notices};
+use coded_diagnostic::Diagnostic;
 use daemon_proto::v1;
 use library_application::{AppError, Flags, ItemKind, Library, Notice};
+use presentation::{Catalog, Format};
 use serde::Serialize;
 
 pub use commands::nouns;
@@ -594,7 +594,7 @@ struct OutputFailure(String);
 
 impl std::fmt::Display for OutputFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 
@@ -603,7 +603,7 @@ impl Diagnostic for OutputFailure {
         "ctxloom-cli-output"
     }
 
-    fn args(&self) -> Vec<(&str, angzarr_diagnostic::Arg)> {
+    fn args(&self) -> Vec<(&str, coded_diagnostic::Arg)> {
         vec![("ext_err_txt", self.0.as_str().into())]
     }
 }

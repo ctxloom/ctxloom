@@ -1,4 +1,4 @@
-use angzarr_diagnostic::{Diagnostic, Report};
+use coded_diagnostic::{Diagnostic, Report};
 
 use super::{every, rejection, typed};
 
@@ -135,7 +135,7 @@ fn every_typed_decline_exits_refused() {
 
 #[test]
 fn an_arg_is_read_as_its_text_or_its_count_whatever_its_number() {
-    use angzarr_diagnostic::Arg;
+    use coded_diagnostic::Arg;
     let args = [
         ("text", Arg::Str("words".to_string())),
         ("uint", Arg::Uint(3)),

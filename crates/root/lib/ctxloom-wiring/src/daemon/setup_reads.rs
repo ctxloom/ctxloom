@@ -18,7 +18,7 @@ pub(crate) struct SetupReaders {
 }
 
 /// `cause`, a use case's error of the class `exit`, as the call's.
-fn refused(cause: &dyn angzarr_diagnostic::Diagnostic, exit: cli_support::Exit) -> ApiError {
+fn refused(cause: &dyn coded_diagnostic::Diagnostic, exit: cli_support::Exit) -> ApiError {
     daemon_api::setup_error(cause, exit)
 }
 
@@ -40,7 +40,7 @@ impl daemon_api::SetupReads for SetupReaders {
             .iter()
             .map(|(name, value)| (name.as_str(), value.as_str()));
         let wiring = super::caller_wiring(&self.home, &self.temp, (&at, None), pairs);
-        let failed = |e: &dyn angzarr_diagnostic::Diagnostic| ApiError::diagnosed(e);
+        let failed = |e: &dyn coded_diagnostic::Diagnostic| ApiError::diagnosed(e);
         if ask == SetupRead::InitPrompt {
             return init_prompt(&wiring, flags);
         }

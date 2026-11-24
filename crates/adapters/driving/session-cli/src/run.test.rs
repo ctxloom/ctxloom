@@ -4,9 +4,9 @@
 //! `session_state_test.go` and session.feature (release/0.7); the rows are
 //! D16's.
 
-use angzarr_presentation::Format;
 use clap::{Args, Command, FromArgMatches};
 use cli_support::Exit;
+use presentation::Format;
 use serde_json::{json, Value};
 use sessions_application::{
     dead_letter_sample, AppError, BindRequest, Bound, ImportReport, ImportRequest, ImportService,
@@ -1111,7 +1111,7 @@ fn an_applied_removal_says_destroyed_and_adds_no_notice() {
 
 /// A command's notices but the authored-files warning (owner ruling 104),
 /// which the removal tests below hold on their own.
-fn without_authored(done: crate::Done) -> Vec<Box<dyn angzarr_diagnostic::Diagnostic>> {
+fn without_authored(done: crate::Done) -> Vec<Box<dyn coded_diagnostic::Diagnostic>> {
     done.notices
         .into_iter()
         .filter(|n| n.code() != "sessions-application-destroys-authored")

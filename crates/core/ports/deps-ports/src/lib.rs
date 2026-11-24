@@ -25,7 +25,7 @@ pub use cache::{BundleSlot, CachePath, Repository};
 /// at a commit is the bundle `<bundle>`.
 pub const BUNDLES_IN_REPOSITORY: &str = ".ctxloom/content/bundles/v2";
 
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 
 /// Why the library could not read what it was handed: a diagnostic of the
 /// adapter or the use case behind the port.

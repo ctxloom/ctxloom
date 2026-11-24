@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 
 use crate::{
     ChildError, ChildMessage, ChildPermissions, ChildSpec, EngineError, EngineSettings, Urgency,

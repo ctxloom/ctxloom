@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
+use coded_diagnostic::{code, Arg, Diagnostic, Report};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum TasksError {
@@ -32,7 +32,7 @@ pub enum TasksError {
 
 impl fmt::Display for TasksError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

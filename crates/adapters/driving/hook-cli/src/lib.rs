@@ -21,8 +21,8 @@ mod error;
 mod execute;
 mod hud;
 
-use angzarr_diagnostic::Diagnostic;
 use clap::{Args, Command, Subcommand};
+use coded_diagnostic::Diagnostic;
 
 pub use capture::{execute_recording, NotRecorded, Recording, Unrecorded};
 #[cfg(any(test, feature = "test-support"))]

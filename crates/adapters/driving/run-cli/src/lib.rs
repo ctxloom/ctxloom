@@ -10,10 +10,10 @@
 use cli_support::{Exit, ExitClass};
 use std::io::{self, Write};
 
-use angzarr_presentation::{Catalog, Format};
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use cli_support::{flag, many, one, say_notices};
 use library_application::{Flags, RunRequest};
+use presentation::{Catalog, Format};
 use run_application::{Answer, OneShot, RunError, RunService};
 use serde::Serialize;
 
@@ -191,16 +191,16 @@ struct OutputFailure {
 
 impl std::fmt::Display for OutputFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 
-impl angzarr_diagnostic::Diagnostic for OutputFailure {
+impl coded_diagnostic::Diagnostic for OutputFailure {
     fn code(&self) -> &str {
-        angzarr_diagnostic::code!("output")
+        coded_diagnostic::code!("output")
     }
 
-    fn args(&self) -> Vec<(&str, angzarr_diagnostic::Arg)> {
+    fn args(&self) -> Vec<(&str, coded_diagnostic::Arg)> {
         vec![("ext_err_txt", self.ext_err_txt.as_str().into())]
     }
 }
@@ -213,7 +213,7 @@ pub const EN_US: (&str, &str) = (
 
 /// One value of every error, for the catalog test.
 #[cfg(any(test, feature = "test-support"))]
-pub fn diagnostic_samples() -> Vec<Box<dyn angzarr_diagnostic::Diagnostic>> {
+pub fn diagnostic_samples() -> Vec<Box<dyn coded_diagnostic::Diagnostic>> {
     vec![Box::new(OutputFailure {
         ext_err_txt: "broken pipe".to_string(),
     })]

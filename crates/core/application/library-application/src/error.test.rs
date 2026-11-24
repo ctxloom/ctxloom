@@ -1,10 +1,10 @@
 //! Every error and notice names itself, shows its args, and reads in English.
 
-use angzarr_diagnostic::{Arg, Diagnostic};
+use coded_diagnostic::{Arg, Diagnostic};
 
 use super::{diagnostic_samples, version_args, AppError, Notice, EN_US};
 
-angzarr_presentation::english_for!(&[EN_US.1]);
+presentation::english_for!(&[EN_US.1]);
 
 fn english(d: &dyn Diagnostic) -> String {
     d.english()

@@ -19,7 +19,7 @@ uuid.workspace = true
 # ctxloom runs), a temporary directory for the SQLite file, and tokio's
 # runtime for both; tests only.
 angzarr-embedded = { workspace = true, features = ["test-support", "sqlite"] }
-angzarr-test-dir.workspace = true
+test-dir.workspace = true
 mutants.workspace = true
 tokio = { workspace = true, features = ["macros"] }
 

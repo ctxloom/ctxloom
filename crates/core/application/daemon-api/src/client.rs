@@ -9,7 +9,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
+use coded_diagnostic::{code, Arg, Diagnostic};
 use daemon_ports::{Called, DaemonApi};
 use exit_code::{Exit, ExitClass};
 /// The one semver "newer" (run-ports'), which the hook's hold judges by
@@ -109,7 +109,7 @@ pub async fn reconcile_session<A: DaemonApi>(
 
 impl fmt::Display for SkewError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 
@@ -206,7 +206,7 @@ impl From<Called> for CallError {
 
 impl fmt::Display for CallError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

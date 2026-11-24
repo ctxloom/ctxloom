@@ -88,7 +88,7 @@ fn a_list_argument_is_its_texts_and_absent_only_where_optional() {
 
 #[test]
 fn each_argument_error_reports_its_args() {
-    use angzarr_diagnostic::Diagnostic;
+    use coded_diagnostic::Diagnostic;
     let missing = ToolArgs::Missing {
         tool: "child_send".to_string(),
         argument: "text".to_string(),

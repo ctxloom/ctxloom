@@ -8,7 +8,7 @@ use std::sync::Arc;
 use super::*;
 use crate::fakes::{plain, Mem, Setup, CONFIG, ENVELOPE};
 
-angzarr_presentation::english_for!(&[crate::EN_US.1]);
+presentation::english_for!(&[crate::EN_US.1]);
 
 /// The source: long enough that a short answer clears the 2% floor.
 fn long() -> String {
@@ -220,7 +220,7 @@ fn test_an_answer_whose_source_moved_since_it_was_asked_is_refused_stale() {
         "{error:?}"
     );
     assert_eq!(
-        angzarr_diagnostic::Diagnostic::code(&error),
+        coded_diagnostic::Diagnostic::code(&error),
         "library-application-distill-source-moved"
     );
     assert_eq!(exit_code::ExitClass::exit(&error), exit_code::Exit::REFUSED);

@@ -28,7 +28,7 @@ fn a_redelivered_context_is_framed_then_given_whole() {
 // Its message is the catalog's, by its code, with its one arg.
 #[test]
 fn the_framing_is_the_catalogs_message() {
-    use angzarr_diagnostic::Diagnostic;
+    use coded_diagnostic::Diagnostic;
     let framing = ContextRedelivered {
         changed: vec!["demo".to_string()],
     };

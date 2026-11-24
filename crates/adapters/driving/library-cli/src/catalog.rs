@@ -49,7 +49,7 @@ pub(crate) fn answer<T, M: Serialize>(
 ) -> Result<Exit, Failure> {
     say_notices(&outcome.notices, PROG, cx.format, cx.catalog, err);
     let value = outcome.result.map_err(failed)?;
-    let json = cx.format == angzarr_presentation::Format::Json && (cx.explicit || !explicit_json);
+    let json = cx.format == presentation::Format::Json && (cx.explicit || !explicit_json);
     let mut notes = Vec::new();
     if json {
         let parent = cx.names.parent()?;

@@ -9,7 +9,7 @@ publish.workspace = true
 
 [dependencies]
 exit-code.workspace = true
-angzarr-diagnostic.workspace = true
+coded-diagnostic.workspace = true
 ctxloom-ports.workspace = true
 deps.workspace = true
 deps-ports.workspace = true
@@ -18,7 +18,7 @@ pin-changes.workspace = true
 serde.workspace = true
 
 [dev-dependencies]
-angzarr-presentation = { workspace = true, features = ["test-support"] }
+presentation = { workspace = true, features = ["test-support"] }
 deps = { workspace = true, features = ["test-support"] }
 ctxloom-ports = { workspace = true, features = ["test-support"] }
 serde_json.workspace = true

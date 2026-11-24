@@ -688,7 +688,7 @@ async fn an_unspecified_address_is_never_bound() {
             }
         );
         assert_eq!(
-            angzarr_diagnostic::Diagnostic::code(&error),
+            coded_diagnostic::Diagnostic::code(&error),
             "hook-listener-bind-unspecified"
         );
     }

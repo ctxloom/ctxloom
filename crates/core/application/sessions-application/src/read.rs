@@ -5,8 +5,8 @@
 //! (owner ruling 87a): caught up fresh, a read sees what the hooks of a
 //! session still running have delivered so far.
 
-use angzarr_diagnostic::Report;
 use angzarr_embedded::Registry;
+use coded_diagnostic::Report;
 use ports::{Project, ProjectIdentity};
 use session_index::{
     only_state, title_of, Captured, PendingMessage, SessionIndex, SessionRecord, State, View,

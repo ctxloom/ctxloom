@@ -8,7 +8,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-angzarr-diagnostic.workspace = true
+coded-diagnostic.workspace = true
 angzarr-embedded.workspace = true
 # The board a destroy tells the stream is gone.
 daemon-application.workspace = true

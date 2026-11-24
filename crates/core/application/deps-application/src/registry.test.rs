@@ -1,6 +1,6 @@
 //! `remote list|create|edit|remove|default|show|discover` over the fakes.
 
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 use deps::registry::Edit;
 
 use crate::fakes::Fixture;

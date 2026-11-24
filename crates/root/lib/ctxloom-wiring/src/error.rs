@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
+use coded_diagnostic::{code, Arg, Diagnostic, Report};
 use ctxloom_store_sqlite::StoreOpenError;
 
 /// This crate's en-US messages.
@@ -63,7 +63,7 @@ impl cli_support::ExitClass for LibError {
 
 impl fmt::Display for LibError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

@@ -4,19 +4,31 @@
 use crate::tests::files;
 use std::path::Path;
 
-/// angzarr crates a lock must hold exactly once, whatever pulls them in:
-/// taskloom's `tasks-lib` brings its own graph, so the pins must agree.
-const ONE_OF_EACH: [&str; 8] = [
+/// Crates a lock must hold exactly once, whatever pulls them in: taskloom's
+/// `tasks-lib` brings its own graph, so the pins must agree. angzarr's, then
+/// rust-support's: a second source of a crate is a second type, and two
+/// `Diagnostic` traits do not compose.
+const ONE_OF_EACH: [&str; 14] = [
     "angzarr-proto",
     "angzarr-ports",
-    "angzarr-diagnostic",
     "angzarr-embedded",
     "angzarr-embedded-runner",
-    // rust-support's: its own angzarr pins are ours, so it must not be held
-    // at two commits (one from a transitive consumer).
+    "sqlite-store-opener",
+    "coded-diagnostic",
+    "presentation",
+    "os",
+    "file-system",
+    "file-lock",
+    "duration-text",
     "cli-support",
     "process-env",
-    "sqlite-store-opener",
+    "exit-code",
+];
+
+/// The repositories whose every crate in the lock is at ONE commit.
+const ONE_REV_REPOSITORIES: [&str; 2] = [
+    "github.com/angzarr-io/angzarr",
+    "github.com/benjaminabbitt/rust-support",
 ];
 
 #[test]
@@ -126,6 +138,50 @@ fn check_one_repository_each(lock: &str) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// The commits `repository`'s crates are locked at (a source reads
+/// `git+<url>?rev=<pin>#<commit>`), without duplicates.
+fn commits_of(lock: &str, repository: &str) -> Vec<String> {
+    let mut commits: Vec<String> = git_packages(lock)
+        .into_iter()
+        .filter(|(_, source)| source.contains(repository))
+        .filter_map(|(_, source)| source.rsplit_once('#').map(|(_, c)| c.to_string()))
+        .collect();
+    commits.sort_unstable();
+    commits.dedup();
+    commits
+}
+
+fn check_one_rev_per_repository(lock: &str) -> Result<(), String> {
+    for repository in ONE_REV_REPOSITORIES {
+        let commits = commits_of(lock, repository);
+        if commits.len() != 1 {
+            return Err(format!("{repository}: locked at {commits:?}"));
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn test_every_crate_of_one_repository_is_locked_at_one_commit() {
+    let lock = include_str!("../../../../../Cargo.lock");
+    let name = "test_every_crate_of_one_repository_is_locked_at_one_commit";
+    settle(
+        name,
+        judge(local_pins().as_deref(), || {
+            check_one_rev_per_repository(lock)
+        }),
+    );
+}
+
+#[test]
+fn test_a_repository_locked_at_two_commits_is_refused() {
+    let lock = "[[package]]\nname = \"a\"\nsource = \"git+https://github.com/benjaminabbitt/rust-support?rev=1#1\"\n\n\
+[[package]]\nname = \"b\"\nsource = \"git+https://github.com/benjaminabbitt/rust-support?rev=2#2\"\n\n\
+[[package]]\nname = \"c\"\nsource = \"git+https://github.com/angzarr-io/angzarr?rev=3#3\"\n";
+    let refused = check_one_rev_per_repository(lock).unwrap_err();
+    assert!(refused.contains("rust-support"), "{refused}");
 }
 
 #[test]

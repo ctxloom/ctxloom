@@ -5,7 +5,7 @@ use crate::catalog::{Catalog, Entry};
 use crate::document::parse_document;
 use crate::tree::Files;
 
-angzarr_presentation::english_for!(&[crate::EN_US.1]);
+presentation::english_for!(&[crate::EN_US.1]);
 
 macro_rules! tree {
     ($($path:literal),* $(,)?) => {

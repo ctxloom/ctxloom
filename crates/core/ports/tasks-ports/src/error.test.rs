@@ -1,6 +1,6 @@
 //! The diagnostics: each says its code and args, and its message uses exactly them.
 
-use angzarr_diagnostic::{Arg, Diagnostic, Report};
+use coded_diagnostic::{Arg, Diagnostic, Report};
 
 use super::{diagnostic_samples, TasksError, EN_US};
 

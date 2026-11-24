@@ -7,7 +7,7 @@
 
 use std::collections::BTreeMap;
 
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 use library_application::{EnginePackage, Flags, PackageRequest};
 use serde::Serialize;
 use surface_ports::{EngineSurfaces, Inputs, Inspected, Kind, SurfaceError};

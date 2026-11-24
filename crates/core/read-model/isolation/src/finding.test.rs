@@ -60,7 +60,7 @@ fn every_finding_exits_fatal_findings() {
 #[test]
 fn the_args_name_the_runtimes_in_their_own_words() {
     use super::{Finding, Ownership};
-    use angzarr_diagnostic::Diagnostic;
+    use coded_diagnostic::Diagnostic;
     let arg = |finding: &Finding| -> Vec<(String, String)> {
         finding
             .args()

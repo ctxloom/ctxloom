@@ -816,7 +816,7 @@ impl<E: Edge> Daemon<E> {
         let swept = sweeper
             .sweep(owed, started)
             .await
-            .map_err(|e| angzarr_diagnostic::Diagnostic::code(&e).to_string())?;
+            .map_err(|e| coded_diagnostic::Diagnostic::code(&e).to_string())?;
         for run in &swept {
             (self.say)(&format!(
                 "{}: its owner is gone; ended {}",
@@ -1378,7 +1378,7 @@ impl<E: Edge> Daemon<E> {
             Ok(_) => self.record_loadout(&at, &child.loadout, covered).await,
             // Judged as any child is (rulings 53, 73e): refused for good.
             Err(EnqueueError::Refused(rejection)) => {
-                let code = angzarr_diagnostic::Diagnostic::code(&rejection).to_string();
+                let code = coded_diagnostic::Diagnostic::code(&rejection).to_string();
                 (self.say)(&format!("{harp}: refused: {code}"));
                 drop(session_lock);
                 drop(lock);

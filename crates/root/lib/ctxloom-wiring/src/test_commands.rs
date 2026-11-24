@@ -9,10 +9,10 @@
 use cli_support::Exit;
 use std::io::Write;
 
-use angzarr_diagnostic::Diagnostic;
-use angzarr_presentation::{render, write_json, Catalog, Render};
 use clap::{Args, Command, FromArgMatches, Subcommand};
+use coded_diagnostic::Diagnostic;
 use ctxloom_cli::{shaped, Call, CliError, Failure};
+use presentation::{render, write_json, Catalog, Render};
 use serde::Serialize;
 
 use crate::{LibError, Seed, TestError, Wiring};

@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 
 use super::*;
 
-angzarr_presentation::english_for!(&[crate::EN_US.1]);
+presentation::english_for!(&[crate::EN_US.1]);
 
 /// Profiles by canonical key, as the project bundle holds them.
 struct Source(BTreeMap<String, Profile>);

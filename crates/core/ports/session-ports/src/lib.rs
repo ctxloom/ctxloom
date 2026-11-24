@@ -15,8 +15,8 @@
 
 use std::future::Future;
 
-use angzarr_diagnostic::Report;
 use angzarr_embedded::{Processed, Purge, ReadStore, Store, StoreError};
+use coded_diagnostic::Report;
 use ports::Project;
 
 /// An instant, as every recorded event carries one.

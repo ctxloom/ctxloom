@@ -224,7 +224,7 @@ where
                     project_id: project.id.clone(),
                 })?;
         let child = SessionName::new(&project_harp, &request.harp)
-            .map_err(|rejection| AppError::Rejected(angzarr_diagnostic::Report::of(&rejection)))?
+            .map_err(|rejection| AppError::Rejected(coded_diagnostic::Report::of(&rejection)))?
             .uid();
         let command = LaunchChild {
             child_project_id: project.id.clone(),

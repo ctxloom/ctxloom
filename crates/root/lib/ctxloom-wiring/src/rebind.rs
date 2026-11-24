@@ -14,8 +14,8 @@
 
 use std::path::{Path, PathBuf};
 
-use angzarr_diagnostic::Report;
 use angzarr_yaml::Value;
+use coded_diagnostic::Report;
 use file_system::{Fs, Perms};
 use os::Mode;
 use project_registry::RegistryError;

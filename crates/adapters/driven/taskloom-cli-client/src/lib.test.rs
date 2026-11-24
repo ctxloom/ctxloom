@@ -6,7 +6,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use angzarr_diagnostic::{Diagnostic, Report};
+use coded_diagnostic::{Diagnostic, Report};
 use file_system::{Fs, Perms, Rooted};
 use os::Mode;
 use process_env::EnvSnapshot;

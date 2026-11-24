@@ -2,7 +2,7 @@
 
 use std::fmt::Write as _;
 
-use angzarr_diagnostic::{Arg, Diagnostic};
+use coded_diagnostic::{Arg, Diagnostic};
 
 use super::LibError;
 

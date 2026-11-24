@@ -25,7 +25,7 @@
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr};
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
+use coded_diagnostic::{code, Arg, Diagnostic};
 
 use crate::Arrival;
 
@@ -183,7 +183,7 @@ impl BindPlan {
 
 impl fmt::Display for BindRefusal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

@@ -4,7 +4,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
+use coded_diagnostic::{code, Arg, Diagnostic};
 
 use crate::EN_US;
 
@@ -27,7 +27,7 @@ impl Diagnostic for ContextRedelivered {
 
 impl fmt::Display for ContextRedelivered {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::catalog::render(EN_US.1, self, f)
+        coded_diagnostic::catalog::render(EN_US.1, self, f)
     }
 }
 
@@ -73,7 +73,7 @@ impl Diagnostic for ContextChangedOnly {
 
 impl fmt::Display for ContextChangedOnly {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::catalog::render(EN_US.1, self, f)
+        coded_diagnostic::catalog::render(EN_US.1, self, f)
     }
 }
 
@@ -96,7 +96,7 @@ impl Diagnostic for ContextTooLong {
 
 impl fmt::Display for ContextTooLong {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::catalog::render(EN_US.1, self, f)
+        coded_diagnostic::catalog::render(EN_US.1, self, f)
     }
 }
 

@@ -417,3 +417,60 @@ async fn a_log_entry_folded_after_its_session_left_is_still_told() {
     assert_eq!(lifecycle_of(told), Some(Kind::Closed));
     assert!(told.session.ends_with("/sessions/amber-swift-owl"));
 }
+
+fn stamped(seconds: i64) -> Option<daemon_proto::google::protobuf::Timestamp> {
+    Some(daemon_proto::google::protobuf::Timestamp { seconds, nanos: 0 })
+}
+
+fn session_at(state: v1::session::State, start: i64, end: Option<i64>) -> v1::Session {
+    v1::Session {
+        state: state as i32,
+        start_time: stamped(start),
+        end_time: end.and_then(stamped),
+        ..v1::Session::default()
+    }
+}
+
+#[test]
+fn test_the_timelines_latest_status_entry_is_the_state_change_time() {
+    let session = session_at(v1::session::State::Live, 100, None);
+    let latest = Some(angzarr_embedded::Timestamp {
+        seconds: 250,
+        nanos: 0,
+    });
+    assert_eq!(super::state_change_time(latest, &session), stamped(250));
+}
+
+#[test]
+fn test_with_no_status_entry_a_live_session_changed_state_when_it_started() {
+    let session = session_at(v1::session::State::Live, 100, None);
+    assert_eq!(super::state_change_time(None, &session), stamped(100));
+}
+
+#[test]
+fn test_with_no_status_entry_an_ended_session_changed_state_when_it_ended() {
+    let session = session_at(v1::session::State::Ended, 100, Some(400));
+    assert_eq!(super::state_change_time(None, &session), stamped(400));
+}
+
+#[test]
+fn test_an_ended_session_with_no_end_time_falls_back_to_its_start() {
+    let session = session_at(v1::session::State::Ended, 100, None);
+    assert_eq!(super::state_change_time(None, &session), stamped(100));
+}
+
+#[tokio::test]
+async fn test_the_snapshot_carries_the_time_of_the_sessions_started_entry() {
+    let f = opened(&["amber-swift-owl"]).await;
+    f.catch_up_timelines().await;
+    let mut stream = f.api.watch_top(watching_every_log()).await.unwrap();
+    let snapshot = snapshot_of(stream.next().unwrap());
+    let read = Read::of(stream);
+    let started = read.next();
+    let log = log_event(&started.event)
+        .expect("the started entry")
+        .clone();
+    read.end().await;
+    assert_eq!(lifecycle_of(&log), Some(Kind::Started));
+    assert_eq!(snapshot.sessions[0].state_change_time, log.time);
+}

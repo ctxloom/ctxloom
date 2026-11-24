@@ -213,6 +213,7 @@ fn every_field_of_a_session() -> v1::Session {
         agent: "reviewer".to_string(),
         profiles: vec!["review".to_string()],
         tags: vec!["team-rules".to_string()],
+        state_change_time: at(1_784_309_800, 5_000),
     }
 }
 

@@ -435,3 +435,117 @@ fn an_entry_carries_the_log_and_nothing_that_names_the_session() {
     assert!(!text.contains("brisk-copper-moth"), "{text}");
     assert!(!text.contains("claude-code"), "{text}");
 }
+
+#[test]
+fn test_state_changed_at_is_the_latest_lifecycle_entry() {
+    let mut timeline = TimelineIndex::default();
+    timeline
+        .project(&book(
+            SESSION_DOMAIN,
+            1,
+            0,
+            vec![
+                (100, minted()),
+                (150, prompt("hello")),
+                (200, ended("runner-exit")),
+            ],
+        ))
+        .unwrap();
+    // The prompt at 150 is no status change; the exit at 200 is.
+    assert_eq!(timeline.state_changed_at(&session_id(1)), Some(at(200)));
+}
+
+#[test]
+fn test_state_changed_at_ignores_transcript_lines_after_the_last_change() {
+    let mut timeline = TimelineIndex::default();
+    timeline
+        .project(&book(
+            SESSION_DOMAIN,
+            1,
+            0,
+            vec![(100, minted()), (300, prompt("later"))],
+        ))
+        .unwrap();
+    assert_eq!(timeline.state_changed_at(&session_id(1)), Some(at(100)));
+}
+
+#[test]
+fn test_state_changed_at_follows_an_ask_asked_and_settled() {
+    let mut timeline = TimelineIndex::default();
+    timeline
+        .project(&book(SESSION_DOMAIN, 1, 0, vec![(100, minted())]))
+        .unwrap();
+    timeline
+        .project(&book(APPROVALS_DOMAIN, 9, 0, vec![(120, ask(1))]))
+        .unwrap();
+    assert_eq!(timeline.state_changed_at(&session_id(1)), Some(at(120)));
+    timeline
+        .project(&book(
+            APPROVALS_DOMAIN,
+            9,
+            1,
+            vec![(
+                130,
+                ApprovalEvent::ApprovalExpired(approvals::ApprovalExpired::default()),
+            )],
+        ))
+        .unwrap();
+    assert_eq!(timeline.state_changed_at(&session_id(1)), Some(at(130)));
+}
+
+#[test]
+fn test_state_changed_at_is_none_for_a_session_with_no_entry() {
+    let timeline = TimelineIndex::default();
+    assert_eq!(timeline.state_changed_at(&session_id(7)), None);
+}
+
+#[test]
+fn test_state_changed_at_counts_a_restart_a_rehost_and_a_close() {
+    let mut timeline = TimelineIndex::default();
+    timeline
+        .project(&book(
+            SESSION_DOMAIN,
+            1,
+            0,
+            vec![
+                (100, minted()),
+                (110, owed("restart")),
+                (120, owed("rehost")),
+                (
+                    130,
+                    SessionEvent::SessionClosed(SessionClosed {
+                        cause: "user".to_string(),
+                    }),
+                ),
+            ],
+        ))
+        .unwrap();
+    assert_eq!(timeline.state_changed_at(&session_id(1)), Some(at(130)));
+}
+
+// Only the lifecycle words that change a status count: a resume's incarnation
+// owed, a restart owed and a failed launch do not.
+#[test]
+fn test_state_changed_at_ignores_the_lifecycle_words_that_change_no_status() {
+    let mut timeline = TimelineIndex::default();
+    timeline
+        .project(&book(
+            SESSION_DOMAIN,
+            1,
+            0,
+            vec![
+                (100, minted()),
+                (110, owed("resume")),
+                (
+                    120,
+                    SessionEvent::RestartOwed(sessions::RestartOwed {
+                        reason: sessions::RestartReason::Operator,
+                        incarnation: 2,
+                        note: String::new(),
+                    }),
+                ),
+            ],
+        ))
+        .unwrap();
+    assert_eq!(timeline.state_changed_at(&session_id(1)), Some(at(100)));
+}

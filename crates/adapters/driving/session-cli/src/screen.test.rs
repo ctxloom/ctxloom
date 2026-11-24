@@ -614,3 +614,83 @@ fn test_the_seam_icon_is_ascii_until_the_display_chooses_another() {
     assert!(frame.rows[1].contains("! ASK"), "{}", frame.rows[1]);
     assert!(frame.rows[1].is_ascii());
 }
+
+fn changed_at(mut session: v1::Session, seconds: i64) -> v1::Session {
+    session.state_change_time =
+        Some(daemon_proto::google::protobuf::Timestamp { seconds, nanos: 0 });
+    session
+}
+
+fn screen_of(sessions: Vec<v1::Session>, asks: Vec<v1::Approval>) -> Screen {
+    let mut screen = Screen::new("this project", None);
+    screen.apply(snapshot(sessions, asks));
+    screen
+}
+
+#[test]
+fn test_the_state_is_followed_by_the_time_since_it_changed() {
+    let mut screen = screen_of(
+        vec![changed_at(session("amber-quiet-heron", "", "", 10), 1_000)],
+        vec![],
+    );
+    screen.tick(1_000 + 3 * 60 + 20);
+    let row = &screen.frame().rows[0];
+    assert!(row.contains("live 3m"), "{row}");
+}
+
+#[test]
+fn test_the_timer_moves_with_the_screens_clock_and_never_with_the_system_s() {
+    let mut screen = screen_of(
+        vec![changed_at(session("amber-quiet-heron", "", "", 10), 1_000)],
+        vec![],
+    );
+    screen.tick(1_012);
+    assert!(screen.frame().rows[0].contains("live 12s"));
+    screen.tick(1_000 + 2 * 3600 + 5);
+    assert!(screen.frame().rows[0].contains("live 2h"));
+}
+
+#[test]
+fn test_a_row_the_daemon_gave_no_change_time_has_no_timer() {
+    let mut screen = screen_of(vec![session("amber-quiet-heron", "", "", 10)], vec![]);
+    screen.tick(5_000);
+    let row = &screen.frame().rows[0];
+    let words: Vec<&str> = row.split_whitespace().collect();
+    assert_eq!(words, ["amber-quiet-heron", "live", "claude-code"], "{row}");
+}
+
+#[test]
+fn test_a_change_time_after_the_clock_reads_zero_seconds() {
+    let mut screen = screen_of(
+        vec![changed_at(session("amber-quiet-heron", "", "", 10), 2_000)],
+        vec![],
+    );
+    screen.tick(1_990);
+    assert!(screen.frame().rows[0].contains("live 0s"));
+}
+
+#[test]
+fn test_the_ask_state_carries_the_timer_and_the_count_comes_first() {
+    let mut screen = screen_of(
+        vec![changed_at(
+            session("brisk-copper-moth", "", "reviewer", 20),
+            1_000,
+        )],
+        vec![ask("ask-a", "brisk-copper-moth")],
+    );
+    screen.tick(1_012);
+    let ask = format!("{ICON_ASCII} ASK 12s");
+    assert!(screen.frame().rows[0].contains(&ask));
+    screen.apply(asked("ask-b", "brisk-copper-moth"));
+    let two = format!("{ICON_ASCII} ASK x2 12s");
+    assert!(screen.frame().rows[0].contains(&two));
+}
+
+#[test]
+fn test_an_ended_session_says_ended_and_its_time() {
+    let mut ended = changed_at(session("amber-quiet-heron", "", "", 10), 1_000);
+    ended.state = v1::session::State::Ended as i32;
+    let mut screen = screen_of(vec![ended], vec![]);
+    screen.tick(1_000 + 2 * 86_400 + 1);
+    assert!(screen.frame().rows[0].contains("ended 2d"));
+}

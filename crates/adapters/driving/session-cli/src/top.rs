@@ -239,7 +239,13 @@ fn screen(
                 }
             }
         });
-        return drive(command, source, answers, &keys, &mut Frames(out));
+        return drive(
+            command,
+            source,
+            answers,
+            &keys,
+            &mut Frames(out, look.ahead),
+        );
     }
     let stop = Arc::new(AtomicBool::new(false));
     let keys = crate::tui::keys(&stop);

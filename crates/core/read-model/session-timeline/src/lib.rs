@@ -39,6 +39,26 @@ pub const SOURCES: [&str; 2] = [SESSION_DOMAIN, APPROVALS_DOMAIN];
 /// The most entries kept for one session; the oldest go first.
 pub const KEPT: usize = 2000;
 
+/// Whether `entry` changes a session's status: its lifecycle (started,
+/// exited, re-hosted, restarted, closed, reopened) and its asks (asked,
+/// settled); a transcript entry or any other lifecycle word is no change.
+fn changes_status(entry: &v1::LogEntry) -> bool {
+    use log_lifecycle::Kind;
+    match &entry.entry {
+        Some(Arm::Lifecycle(lifecycle)) => matches!(
+            Kind::try_from(lifecycle.kind),
+            Ok(Kind::Started
+                | Kind::Exited
+                | Kind::Rehosted
+                | Kind::Restarted
+                | Kind::Closed
+                | Kind::Reopened)
+        ),
+        Some(Arm::Ask(_)) => true,
+        _ => false,
+    }
+}
+
 /// One entry of a session's timeline.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Entry {
@@ -274,6 +294,20 @@ impl TimelineIndex {
             .get(session)
             .map(|timeline| timeline.entries.clone())
             .unwrap_or_default()
+    }
+
+    /// When the session with the stable id `session` last changed status: the
+    /// time of its latest lifecycle or ask entry ([`changes_status`]), a
+    /// transcript entry or any other lifecycle word being no change. None when it has
+    /// no such entry.
+    pub fn state_changed_at(&self, session: &str) -> Option<Timestamp> {
+        self.sessions
+            .get(session)?
+            .entries
+            .iter()
+            .rev()
+            .find(|entry| changes_status(&entry.log))
+            .map(|entry| entry.time)
     }
 
     /// The entries of `session` received after `n`, oldest first.

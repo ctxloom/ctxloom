@@ -320,6 +320,23 @@ impl Commands {
         said(ran, format, catalog, err)
     }
 
+    /// How `top` draws: the caller's environment decides colour and glyphs;
+    /// the screen's clock is ahead of the system's by the span
+    /// `CTXLOOM_TEST_CLOCK_OFFSET` names (under `test-support`, as every
+    /// ctxloom clock is), so a scenario reads a timer of hours with no
+    /// waiting. A value that is no span is refused.
+    fn look(&self) -> Result<session_cli::Look, Failure> {
+        let mut look = session_cli::Look::of(|name| {
+            self.env
+                .non_empty(name)
+                .map(|value| value.to_string_lossy().into_owned())
+        });
+        let offset = crate::daemon::clock_offset(&self.env)
+            .map_err(|cause| Failure::new(cause, Exit::REFUSED))?;
+        look.ahead = i64::try_from(offset.as_secs()).unwrap_or(i64::MAX);
+        Ok(look)
+    }
+
     /// `top ...` (DRAFT): what the daemon hosts, live, through her daemon's
     /// `WatchTop`; it starts no daemon and waits for one.
     pub(crate) fn top(
@@ -381,11 +398,7 @@ impl Commands {
             (
                 session_cli::Asking::is_terminal(&terminal),
                 terminal.stood_in,
-                session_cli::Look::of(|name| {
-                    self.env
-                        .non_empty(name)
-                        .map(|value| value.to_string_lossy().into_owned())
-                }),
+                self.look()?,
             ),
             out,
         );

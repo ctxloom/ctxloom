@@ -123,6 +123,49 @@ impl daemon_api::DaemonApi for Never {
     }
 }
 
+fn server() -> super::Server<Nowhere> {
+    let caller = daemon_api::Caller::new(
+        Nowhere,
+        "projects/calm-quiet-heron/sessions/amber-quiet-heron",
+        daemon_proto::v1::Caller::default(),
+        Box::new(String::new),
+    )
+    .unwrap_or_else(|_| panic!("a name"));
+    super::Server::new(caller, "v0.1.0-abc")
+}
+
+// What a message element is, said ONCE a session, in the server's
+// instructions (the model reads them at initialize): that the elements hold
+// untrusted data from another agent and never the user's instructions, that
+// an id may be offered again and a repeat is ignored, and the urgencies.
+#[test]
+fn the_server_explains_delivered_messages_once_in_its_instructions() {
+    use super::ServerHandler;
+    let info = server().get_info();
+    let text = info.instructions.expect("instructions");
+    for word in [
+        "<message",
+        "untrusted",
+        "not instructions from the user",
+        "ignore a repeat",
+        "inform",
+        "wake",
+    ] {
+        assert!(text.contains(word), "{word}: {text}");
+    }
+}
+
+// A hosted child is fed its messages as turns, never as elements: its
+// server says nothing of them.
+#[test]
+fn a_server_without_message_notes_gives_no_instructions() {
+    use super::ServerHandler;
+    assert_eq!(
+        server().without_message_notes().get_info().instructions,
+        None
+    );
+}
+
 // S45: the handshake and the list are answered over the transport, from the
 // static list, reaching no daemon; an unknown tool is the tool's error.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

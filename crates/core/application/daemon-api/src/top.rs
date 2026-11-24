@@ -228,7 +228,15 @@ impl Scene {
         let sessions = records
             .iter()
             .filter(|record| scoped.contains(&record.id))
-            .map(|record| state_resource(self.states.as_ref(), &index, record).0)
+            .map(|record| {
+                let mut session = state_resource(self.states.as_ref(), &index, record).0;
+                let latest = self
+                    .timelines
+                    .as_ref()
+                    .and_then(|timelines| timelines.index().state_changed_at(&record.id));
+                session.state_change_time = state_change_time(latest, &session);
+                session
+            })
             .filter(|session| self.matches(session))
             .map(|session| (session.name.clone(), session))
             .collect();
@@ -370,6 +378,20 @@ struct TopWatch {
     /// The one session scoped to was destroyed: the watch ends once its
     /// last event is read.
     ended: bool,
+}
+
+/// When `session`'s status last changed: the timeline's latest lifecycle or
+/// ask entry, else, for a session the timeline holds none of, its end time
+/// once it has ended, else its start time.
+fn state_change_time(
+    latest: Option<angzarr_embedded::Timestamp>,
+    session: &v1::Session,
+) -> Option<daemon_proto::google::protobuf::Timestamp> {
+    let ended = session.state == v1::session::State::Ended as i32;
+    latest
+        .map(Into::into)
+        .or(ended.then_some(session.end_time).flatten())
+        .or(session.start_time)
 }
 
 fn log_of(session: &str, entry: &Entry) -> v1::TopLog {

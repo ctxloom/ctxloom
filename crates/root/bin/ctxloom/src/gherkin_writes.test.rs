@@ -24,7 +24,7 @@ use crate::tests::files;
 use crate::tests::gherkin_common::{doc, split};
 use crate::tests::library::reports_as;
 
-/// The test-support clock offset in whole days a daemon a command starts
+/// The test-support clock offset, a span, a daemon a command starts
 /// adds to its clock (QUESTIONS.md 5).
 pub(super) const CLOCK_OFFSET: &str = "CTXLOOM_TEST_CLOCK_OFFSET";
 
@@ -56,8 +56,8 @@ pub(super) struct State {
     /// Every file of the project's `.ctxloom` but `state/`, relative to it,
     /// before the last removal or edit.
     tree_before: Vec<(String, Vec<u8>)>,
-    /// The days the daemon's clock has been moved on.
-    days: u32,
+    /// The span the daemon's clock has been moved on by.
+    moved: std::time::Duration,
     /// The other process that creates a bundle while a creation is staged:
     /// the bundle, and whether it found the staging and wrote its bundle.
     other: Option<(String, JoinHandle<bool>)>,
@@ -505,14 +505,15 @@ fn none_serving(w: &World) {
 }
 
 /// The daemon is stopped, and the next one a command starts runs with its
-/// clock `days` on (the test-support offset); two reads through it, each
+/// clock a span on (the test-support offset); two reads through it, each
 /// answered after a round of its own, so a round has run.
-#[when(regex = r"^(\d+) (more )?days pass on the daemon's clock, and its next round runs$")]
-fn days_pass(w: &mut World, days: u32, more: String) {
-    w.writes.days = if more.is_empty() {
-        days
+#[when(regex = r#"^"([^"]+)" (more )?pass on the daemon's clock, and its next round runs$"#)]
+fn time_passes(w: &mut World, span: String, more: String) {
+    let span = duration_text::parse(&span).expect("a span of the duration grammar");
+    w.writes.moved = if more.is_empty() {
+        span
     } else {
-        w.writes.days + days
+        w.writes.moved + span
     };
     let stopped = run_now(w, &[], &["daemon", "stop"]);
     assert!(
@@ -521,7 +522,8 @@ fn days_pass(w: &mut World, days: u32, more: String) {
         stopped.said()
     );
     none_serving(w);
-    w.common.set_env(CLOCK_OFFSET, w.writes.days.to_string());
+    w.common
+        .set_env(CLOCK_OFFSET, format!("{}s", w.writes.moved.as_secs()));
     for _ in 0..2 {
         let read = run_now(w, &[], &["bundle", "list", "--format", "json"]);
         assert_eq!(read.code, 0, "a read on the later daemon: {}", read.said());

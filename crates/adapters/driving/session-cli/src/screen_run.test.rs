@@ -346,3 +346,79 @@ fn test_a_new_ask_is_drawn_with_the_bell_once_and_no_other_frame_rings() {
     let bells: Vec<bool> = display.frames.iter().map(|f| f.bell).collect();
     assert_eq!(bells, [false, true], "the snapshot's ask is no news");
 }
+
+/// A display whose clock a test sets, drawing into a list.
+struct Clocked {
+    now: i64,
+    frames: Vec<Frame>,
+    quit: Sender<Input>,
+}
+
+impl Display for Clocked {
+    fn now(&self) -> i64 {
+        self.now
+    }
+
+    fn draw(&mut self, frame: &Frame) -> Result<(), Failure> {
+        self.frames.push(Frame {
+            header: frame.header.clone(),
+            status: frame.status.clone(),
+            columns: frame.columns.clone(),
+            rows: frame.rows.clone(),
+            selected: frame.selected,
+            asks_title: frame.asks_title.clone(),
+            asks: frame.asks.clone(),
+            log_title: frame.log_title.clone(),
+            log: frame.log.clone(),
+            alerts: frame.alerts.clone(),
+            bell: frame.bell,
+        });
+        let _ = self.quit.send(quit());
+        Ok(())
+    }
+}
+
+/// A daemon whose one session changed state at second 1000.
+struct Aged;
+
+impl TopSource for Aged {
+    fn open(
+        &self,
+        _: bool,
+        _: &dyn Fn(&str) -> Result<v1::WatchTopRequest, Failure>,
+    ) -> Result<Option<Box<dyn TopFeed>>, Failure> {
+        let mut aged = session("amber-quiet-heron", "");
+        aged.state_change_time = Some(daemon_proto::google::protobuf::Timestamp {
+            seconds: 1_000,
+            nanos: 0,
+        });
+        Ok(Some(Box::new(Feed(Some(v1::TopEvent {
+            event: Some(v1::top_event::Event::Snapshot(v1::TopSnapshot {
+                sessions: vec![aged],
+                approvals: vec![],
+            })),
+        })))))
+    }
+
+    fn wait(&self) {}
+}
+
+#[test]
+fn test_the_loop_counts_a_rows_timer_by_the_displays_clock() {
+    let (send, keys) = channel();
+    let mut display = Clocked {
+        now: 1_000 + 7 * 3600,
+        frames: Vec::new(),
+        quit: send,
+    };
+    drive(
+        &command(&[]),
+        &Aged,
+        &Answers::default(),
+        &keys,
+        &mut display,
+    )
+    .unwrap();
+    let row = &display.frames[0].rows[0];
+    assert!(row.contains("live 7h"), "{row}");
+}

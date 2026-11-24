@@ -295,9 +295,9 @@ Feature: writes — every change to ctxloom's own trees is whole or absent, and 
       And the file ".ctxloom/<path>" does not exist
       And the checkout's trash holds ".ctxloom/<path>" of that removal, whole
       When I run "ctxloom daemon stop"
-      And 6 days pass on the daemon's clock, and its next round runs
+      And "6d23h" pass on the daemon's clock, and its next round runs
       Then the checkout's trash holds ".ctxloom/<path>" of that removal, whole
-      When 2 more days pass on the daemon's clock, and its next round runs
+      When "1h" more pass on the daemon's clock, and its next round runs
       Then the checkout's trash holds nothing
       And nothing is left under ".ctxloom/state/trash"
 

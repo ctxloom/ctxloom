@@ -54,6 +54,7 @@ mod error;
 mod log_text;
 // The hand-written renderer the generated JSON replaced (OQ-21), kept as
 // the oracle its byte-equality test holds the generated JSON to.
+mod age;
 mod approvals;
 #[cfg(test)]
 mod proto_json;

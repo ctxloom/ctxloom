@@ -37,6 +37,9 @@ pub struct Tui {
 pub struct Look {
     pub colour: bool,
     pub utf8: bool,
+    /// Seconds the screen's clock runs ahead of the system's: zero, but for
+    /// a test-support build's scenario.
+    pub ahead: i64,
 }
 
 impl Look {
@@ -45,6 +48,7 @@ impl Look {
         Look {
             colour: colour_wanted(&var),
             utf8: utf8_wanted(&var),
+            ahead: 0,
         }
     }
 }

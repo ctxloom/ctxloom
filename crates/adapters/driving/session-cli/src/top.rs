@@ -220,7 +220,7 @@ fn screen(
     command: &Top,
     source: &dyn TopSource,
     answers: &dyn crate::screen_run::TopAnswers,
-    stood_in: bool,
+    (stood_in, look): (bool, crate::tui::Look),
     out: &mut dyn Write,
 ) -> Result<Done, Failure> {
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -243,7 +243,7 @@ fn screen(
     }
     let stop = Arc::new(AtomicBool::new(false));
     let keys = crate::tui::keys(&stop);
-    let mut terminal = crate::tui::Tui::take()?;
+    let mut terminal = crate::tui::Tui::take(look)?;
     let done = drive(command, source, answers, &keys, &mut terminal);
     stop.store(true, Ordering::Relaxed);
     done
@@ -397,19 +397,20 @@ fn said_as_changes(snapshot: v1::TopSnapshot, out: &mut dyn Write) -> Result<(),
 /// Run `top` on `source`: its lines to `out`, until the watch ends; at a
 /// terminal, the screen. A person at the screen answers asks through
 /// `answers`; `stood_in` is a terminal a test stands in (frames as plain
-/// text, keys named a line each on stdin).
+/// text, keys named a line each on stdin); `look` is how a real terminal is drawn
+/// (colour, icon; the json stream and the seam never use it).
 pub fn top(
     command: &Top,
     source: &dyn TopSource,
     answers: &dyn crate::screen_run::TopAnswers,
     format: Format,
-    (terminal, stood_in): (bool, bool),
+    (terminal, stood_in, look): (bool, bool, crate::tui::Look),
     out: &mut dyn Write,
 ) -> Result<Done, Failure> {
     if format == Format::Text {
         needs_terminal(format, terminal).map_err(fault)?;
         command.usage()?;
-        return screen(command, source, answers, stood_in, out);
+        return screen(command, source, answers, (stood_in, look), out);
     }
     command.usage()?;
     let sort = Sort::of(command.sort.as_deref())?;

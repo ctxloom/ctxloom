@@ -35,6 +35,11 @@ pub enum Input {
 
 /// Where a frame is drawn.
 pub trait Display {
+    /// The icon of the ask state this display can draw.
+    fn icon(&self) -> &'static str {
+        crate::screen::ICON_ASCII
+    }
+
     fn draw(&mut self, frame: &Frame) -> Result<(), Failure>;
 }
 
@@ -83,7 +88,7 @@ pub fn drive(
         Some(word) => Some(Sort::of(Some(word))?),
         None => None,
     };
-    let mut screen = Screen::new(&scope_of(command), sort);
+    let mut screen = Screen::new(&scope_of(command), sort).with_icon(display.icon());
     let mut feed: Option<Box<dyn TopFeed>> = None;
     let mut looked: Option<Instant> = None;
     let mut idle = 0;

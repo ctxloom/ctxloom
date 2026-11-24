@@ -27,13 +27,57 @@ const LOOK: Duration = Duration::from_millis(100);
 /// go when it is dropped, however the screen ended.
 pub struct Tui {
     terminal: DefaultTerminal,
+    look: Look,
+}
+
+/// How the display looks on this terminal, each part decided from the
+/// caller's environment: colour ([`colour_wanted`]) and the icon of the ask
+/// state ([`utf8_wanted`]). The default is plain: no colour, ASCII.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Look {
+    pub colour: bool,
+    pub utf8: bool,
+}
+
+impl Look {
+    /// The look `var` (the caller's environment) allows.
+    pub fn of(var: impl Fn(&str) -> Option<String>) -> Look {
+        Look {
+            colour: colour_wanted(&var),
+            utf8: utf8_wanted(&var),
+        }
+    }
+}
+
+/// Whether the terminal draws UTF-8: the first of `LC_ALL`, `LC_CTYPE` and
+/// `LANG` that is set non-empty decides, by naming UTF-8 (`UTF-8`, `utf8`,
+/// any case).
+pub fn utf8_wanted(var: impl Fn(&str) -> Option<String>) -> bool {
+    ["LC_ALL", "LC_CTYPE", "LANG"]
+        .iter()
+        .find_map(|name| var(name).filter(|value| !value.is_empty()))
+        .is_some_and(|locale| {
+            let locale = locale.to_lowercase();
+            locale.contains("utf-8") || locale.contains("utf8")
+        })
+}
+
+/// Whether the terminal is to be painted in colour: not when `NO_COLOR` is
+/// set to anything (no-color.org: a non-empty value), and not when `TERM`
+/// is unset or `dumb`, which have none. `var` reads the caller's
+/// environment (the driving edge reads none itself).
+pub fn colour_wanted(var: impl Fn(&str) -> Option<String>) -> bool {
+    if var("NO_COLOR").is_some_and(|value| !value.is_empty()) {
+        return false;
+    }
+    var("TERM").is_some_and(|term| !term.is_empty() && term != "dumb")
 }
 
 impl Tui {
-    /// Take the terminal over.
-    pub fn take() -> Result<Tui, Failure> {
+    /// Take the terminal over, looking as `look` says.
+    pub fn take(look: Look) -> Result<Tui, Failure> {
         let terminal = ratatui::try_init().map_err(|e| drawing(&e))?;
-        Ok(Tui { terminal })
+        Ok(Tui { terminal, look })
     }
 }
 
@@ -46,6 +90,13 @@ impl Drop for Tui {
 }
 
 impl Display for Tui {
+    fn icon(&self) -> &'static str {
+        match self.look.utf8 {
+            true => crate::screen::ICON_UTF8,
+            false => crate::screen::ICON_ASCII,
+        }
+    }
+
     fn draw(&mut self, frame: &Frame) -> Result<(), Failure> {
         if frame.bell {
             // BEL on the person's terminal, ahead of the frame it is for.
@@ -54,16 +105,17 @@ impl Display for Tui {
                 .and_then(|()| out.flush())
                 .map_err(|e| drawing(&e))?;
         }
+        let colour = self.look.colour;
         self.terminal
-            .draw(|screen| paint(screen, frame))
+            .draw(|screen| paint(screen, frame, colour))
             .map(|_| ())
             .map_err(|e| drawing(&e))
     }
 }
 
-/// `frame` on `screen`: the header and status, the table above and the
+/// `frame` on `screen` (in colour when `colour`): the header and status, the table above and the
 /// reading pane below, its newest log lines kept in view.
-fn paint(screen: &mut ratatui::Frame<'_>, frame: &Frame) {
+fn paint(screen: &mut ratatui::Frame<'_>, frame: &Frame, colour: bool) {
     let top = (frame.rows.len() + 2).min(usize::from(screen.area().height) * 2 / 5) as u16;
     let [header, table, pane] = Layout::vertical([
         Constraint::Length(1 + frame.status.len() as u16),
@@ -89,7 +141,11 @@ fn paint(screen: &mut ratatui::Frame<'_>, frame: &Frame) {
             false => Style::default(),
         };
         if frame.alerts.contains(&at) {
-            style = style.fg(Color::Yellow).add_modifier(Modifier::BOLD);
+            // Bold always, so the row stands out where there is no colour.
+            style = style.add_modifier(Modifier::BOLD);
+            if colour {
+                style = style.fg(Color::Red);
+            }
         }
         let mark = if chosen { "> " } else { "  " };
         rows.push(Line::styled(format!("{mark}{row}"), style));

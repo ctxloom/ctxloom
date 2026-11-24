@@ -550,6 +550,18 @@ fn every_line_is_an_object(w: &mut World) {
     assert!(w.top.read.iter().all(Value::is_object), "{:?}", w.top.read);
 }
 
+#[then("no line read holds an escape character, whatever colour the terminal has")]
+fn no_line_is_coloured(w: &mut World) {
+    read_what_comes(w, 1);
+    for line in &w.top.read {
+        let text = line.to_string();
+        assert!(
+            !text.contains('\u{1b}') && !text.contains("\\u001b"),
+            "colour in {text}"
+        );
+    }
+}
+
 #[then(regex = r#"^each line has exactly one of ("[a-z_]+"(?:, "[a-z_]+")*) set$"#)]
 fn each_has_one_of(w: &mut World, fields: String) {
     read_what_comes(w, 1);

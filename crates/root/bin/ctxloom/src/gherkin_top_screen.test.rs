@@ -312,13 +312,13 @@ fn test_a_frame_drawn_by_news_is_not_the_effect_of_a_key() {
     let frame = |marked: &str, log: &str| -> Vec<String> {
         [
             "ctxloom top  scope: this project  filter: none  sort: tree".to_string(),
-            "  NAME              STATE AGENT OWNER ASKS".to_string(),
+            "  NAME              STATE AGENT OWNER".to_string(),
             format!(
-                "{} amber-quiet-heron live 0",
+                "{} amber-quiet-heron live",
                 if marked == "a" { ">" } else { " " }
             ),
             format!(
-                "{} brisk-copper-moth live 0",
+                "{} brisk-copper-moth live",
                 if marked == "b" { ">" } else { " " }
             ),
             "--- asks of x".to_string(),
@@ -397,13 +397,10 @@ fn a_frame_has_line(w: &mut World, line: String) {
     until(w, "with that line", |p| p.status.contains(&line));
 }
 
-#[then(regex = r#"^that frame's row for "([^"]+)" has "([^"]+)" in its ASKS column$"#)]
-fn that_frames_row(w: &mut World, harp: String, count: String) {
-    until(w, "with the bell and that ASKS count", |p| {
-        p.status.iter().any(|l| l == "bell")
-            && p.rows
-                .iter()
-                .any(|r| harp_of(r) == harp && r.split_whitespace().last() == Some(count.as_str()))
+#[then(regex = r#"^that frame's row for "([^"]+)" shows the state "([^"]+)"$"#)]
+fn that_frames_row(w: &mut World, harp: String, state: String) {
+    until(w, "with the bell and that state", |p| {
+        p.status.iter().any(|l| l == "bell") && row_has_state(p, &harp, &state)
     });
 }
 
@@ -509,13 +506,19 @@ fn asks_section_empty(w: &mut World, title: String) {
     });
 }
 
-#[then(regex = r#"^the frame's row for "([^"]+)" has "([^"]+)"(?: in its ASKS column)?$"#)]
-fn asks_column(w: &mut World, harp: String, count: String) {
-    until(w, "with that ASKS count", |p| {
-        p.rows
-            .iter()
-            .any(|r| harp_of(r) == harp && r.split_whitespace().last() == Some(count.as_str()))
-    });
+#[then(regex = r#"^the frame's row for "([^"]+)" shows the state "([^"]+)"$"#)]
+fn row_state(w: &mut World, harp: String, state: String) {
+    until(w, "with that state", |p| row_has_state(p, &harp, &state));
+}
+
+/// Whether `harp`'s row has `state` after its name: `live` is no part of
+/// `! ASK`, and a row in the ask state has no state word of the session's.
+fn row_has_state(parts: &Parts, harp: &str, state: &str) -> bool {
+    parts.rows.iter().any(|r| {
+        harp_of(r) == harp
+            && r.split_once(harp)
+                .is_some_and(|(_, rest)| rest.trim_start().starts_with(state))
+    })
 }
 
 #[then(
@@ -706,7 +709,7 @@ fn one_selected_with_details(w: &mut World) {
 
 #[then(expr = "the row of {string} shows one ask waiting")]
 fn row_shows_one_ask(w: &mut World, harp: String) {
-    asks_column(w, harp, "\u{26a0}1".to_string());
+    row_state(w, harp, "! ASK".to_string());
 }
 
 #[then(
@@ -732,7 +735,7 @@ fn first_screen_settled(w: &mut World, option: String) {
             .any(|l| l.contains(&format!("answered {option}")))
             && marked(p)
                 .first()
-                .is_some_and(|harp| row_of(p, harp).split_whitespace().last() == Some("0"))
+                .is_some_and(|harp| !row_of(p, harp).contains("ASK"))
     });
 }
 
@@ -799,8 +802,7 @@ fn screen_ask_expired(w: &mut World, harp: String) {
     // ask where she looks at that child.
     pressed_until(w, "down".to_string(), harp.clone());
     until(w, "with the ask expired", |p| {
-        p.asks.iter().any(|l| l.contains("expired"))
-            && row_of(p, &harp).split_whitespace().last() == Some("0")
+        p.asks.iter().any(|l| l.contains("expired")) && !row_of(p, &harp).contains("ASK")
     });
 }
 

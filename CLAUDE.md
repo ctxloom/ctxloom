@@ -2848,11 +2848,20 @@ stdin) draws the same `Frame` as plain lines. An answer is
 `session approvals answer`'s, as the user and in its order (the ask checked
 waiting, an allow-always's rule written and previewed first, a rule kept for
 an ask settled meanwhile said); the caller that answers is made at the first
-answer, so `top` reaches no daemon and makes no project to draw. A row an
-ask waits on says so in its ASKS cell (`screen::ASK_BADGE`, a DRAFT glyph,
-then the count) and is painted yellow and bold (`Frame.alerts`: the screen's
-one colour; the seam names those rows in a line `highlighted: <harp>, ...`
-after the status lines). A NEW ask rings the terminal's bell once: `Screen`
+answer, so `top` reaches no daemon and makes no project to draw. Waiting on an
+ask is a row's STATE (owner ruling 2026-11-24): the state cell of a live session
+with a waiting ask says `ASK` after an icon (`ASK x2` when two wait; the raised
+hand `screen::ICON_UTF8`, two columns wide, where the locale is UTF-8, else
+`!`, `ICON_ASCII`; the display chooses it, `Screen::with_icon`, and the text seam
+always says `!`), in place of its own state word, and there is no ASKS column.
+Columns are measured in terminal columns, not characters. Colour is the DISPLAY's alone: the model's `Frame` carries facts
+(`Frame.alerts`, the rows an ask waits on; `bell`) and plain words, never a
+colour or escape, and the seam names those rows in a line `highlighted: <harp>,
+...`; `tui.rs` paints an alert row bold and, only when `tui::colour_wanted`
+(no `NO_COLOR` set non-empty, `TERM` set and not `dumb`), red. The icon and the colour are the display's `tui::Look`, judged from the caller's
+environment (`utf8_wanted`: the first of `LC_ALL`, `LC_CTYPE`, `LANG` set non-empty
+names UTF-8). The json stream
+carries no colour. A NEW ask rings the terminal's bell once: `Screen`
 keeps every ask it has been shown (a snapshot's, each daemon's, is not news)
 and an `approval_asked` for a waiting ask not among them sets the bell
 (`Screen::take_bell`), which `screen_run::drive` puts in the one frame it

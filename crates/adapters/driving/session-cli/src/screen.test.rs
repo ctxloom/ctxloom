@@ -3,7 +3,7 @@
 
 use daemon_proto::v1;
 
-use super::{Effect, Key, Screen, ASK_BADGE, WAITING};
+use super::{Effect, Key, Screen, ICON_ASCII, ICON_UTF8, WAITING};
 use crate::approvals::AlwaysPlan;
 use crate::top::Sort;
 
@@ -102,7 +102,7 @@ fn a_snapshot_ends_the_waiting_and_fills_the_table() {
     assert_eq!(frame.rows.len(), 3);
     assert_eq!(
         frame.columns.split_whitespace().collect::<Vec<_>>(),
-        ["NAME", "STATE", "AGENT", "PROFILES", "TAGS", "ENGINE", "OWNER", "ASKS"]
+        ["NAME", "STATE", "AGENT", "PROFILES", "TAGS", "ENGINE", "OWNER"]
     );
 }
 
@@ -125,13 +125,48 @@ fn children_sit_under_their_owner_indented_and_the_first_row_is_marked() {
 }
 
 #[test]
-fn a_row_counts_the_asks_waiting_on_it() {
+fn a_row_with_an_ask_waiting_is_in_the_ask_state_instead_of_its_own() {
     let frame = tree().frame();
-    assert_eq!(
-        frame.rows[1].split_whitespace().last(),
-        Some(format!("{ASK_BADGE}1").as_str())
+    let ask = format!("{ICON_ASCII} ASK");
+    assert!(frame.rows[1].contains(&ask), "{}", frame.rows[1]);
+    assert!(!frame.rows[1].contains("live"), "{}", frame.rows[1]);
+    assert!(frame.rows[0].contains("live"), "{}", frame.rows[0]);
+    assert!(!frame.rows[0].contains("ASK"), "{}", frame.rows[0]);
+}
+
+#[test]
+fn test_the_ask_state_says_the_count_when_more_than_one_waits() {
+    let mut screen = tree();
+    screen.apply(asked("ask-b", "brisk-copper-moth"));
+    let frame = screen.frame();
+    assert!(
+        frame.rows[1].contains(&format!("{ICON_ASCII} ASK x2")),
+        "{}",
+        frame.rows[1]
     );
-    assert_eq!(frame.rows[0].split_whitespace().last(), Some("0"));
+}
+
+#[test]
+fn test_the_state_goes_back_to_the_sessions_own_when_the_ask_settles() {
+    let mut screen = tree();
+    screen.apply(v1::TopEvent {
+        event: Some(v1::top_event::Event::ApprovalSettled(
+            v1::TopApprovalSettled {
+                approval: Some(v1::Approval {
+                    state: "answered".to_string(),
+                    ..ask("ask-a", "brisk-copper-moth")
+                }),
+            },
+        )),
+    });
+    let row = &screen.frame().rows[1];
+    assert!(row.contains("live") && !row.contains("ASK"), "{row}");
+}
+
+#[test]
+fn test_the_frame_carries_no_colour_code_or_escape() {
+    let text = tree().frame().text();
+    assert!(!text.contains('\u{1b}'), "{text:?}");
 }
 
 #[test]
@@ -270,7 +305,8 @@ fn a_settled_ask_is_shown_settled_and_no_longer_counted() {
     screen.key(Key::Down);
     let text = screen.frame().text();
     assert!(text.contains("answered allow-once"), "{text}");
-    assert_eq!(screen.frame().rows[1].split_whitespace().last(), Some("0"));
+    let row = &screen.frame().rows[1];
+    assert!(row.contains("live") && !row.contains("ASK"), "{row}");
 }
 
 #[test]
@@ -549,4 +585,36 @@ fn test_the_frame_says_a_bell_in_a_line_of_its_own() {
     assert!(!frame.text().lines().any(|l| l == "bell"));
     frame.bell = true;
     assert!(frame.text().lines().any(|l| l == "bell"));
+}
+
+#[test]
+fn test_the_raised_hand_takes_two_columns_and_the_table_stays_aligned() {
+    use ratatui::text::Span;
+    let mut screen = Screen::new("this project", None).with_icon(ICON_UTF8);
+    screen.apply(snapshot(
+        vec![
+            session("amber-quiet-heron", "", "", 10),
+            session("brisk-copper-moth", "amber-quiet-heron", "reviewer", 20),
+        ],
+        vec![ask("ask-a", "brisk-copper-moth")],
+    ));
+    let frame = screen.frame();
+    assert!(frame.rows[1].contains("\u{270b} ASK"), "{}", frame.rows[1]);
+    let before = |line: &str, word: &str| Span::raw(&line[..line.find(word).expect(word)]).width();
+    assert_eq!(
+        before(&frame.rows[1], "reviewer"),
+        before(&frame.columns, "AGENT"),
+        "{frame:?}"
+    );
+    assert_eq!(
+        before(&frame.rows[1], "claude-code"),
+        before(&frame.columns, "ENGINE")
+    );
+}
+
+#[test]
+fn test_the_seam_icon_is_ascii_until_the_display_chooses_another() {
+    let frame = tree().frame();
+    assert!(frame.rows[1].contains("! ASK"), "{}", frame.rows[1]);
+    assert!(frame.rows[1].is_ascii());
 }

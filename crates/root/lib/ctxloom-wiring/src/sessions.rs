@@ -381,6 +381,11 @@ impl Commands {
             (
                 session_cli::Asking::is_terminal(&terminal),
                 terminal.stood_in,
+                session_cli::Look::of(|name| {
+                    self.env
+                        .non_empty(name)
+                        .map(|value| value.to_string_lossy().into_owned())
+                }),
             ),
             out,
         );

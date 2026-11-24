@@ -17,12 +17,15 @@ use crate::top::Sort;
 /// What the status line says while no daemon serves.
 pub const WAITING: &str = "waiting for a ctxloom daemon";
 
-/// The glyph before an ask count in a row's ASKS cell (DRAFT).
-pub const ASK_BADGE: &str = "\u{26a0}";
+/// The icon before `ASK`, the state of a row an ask waits on, on a UTF-8
+/// terminal: a raised hand, two columns wide (owner ruling 2026-11-24).
+pub const ICON_UTF8: &str = "\u{270b}";
+/// The icon where the terminal is not UTF-8, and in the text seam.
+pub const ICON_ASCII: &str = "!";
 
 /// The table's header row, the columns in order.
-pub const HEADER: [&str; 8] = [
-    "NAME", "STATE", "AGENT", "PROFILES", "TAGS", "ENGINE", "OWNER", "ASKS",
+pub const HEADER: [&str; 7] = [
+    "NAME", "STATE", "AGENT", "PROFILES", "TAGS", "ENGINE", "OWNER",
 ];
 
 /// A key, as the screen takes it.
@@ -100,6 +103,8 @@ pub struct Screen {
     /// Every ask the person has been shown or told of: a bell is for an ask
     /// not in it, once.
     seen_asks: BTreeSet<String>,
+    /// The icon of the ask state, the display's to choose.
+    icon: &'static str,
     /// A new ask arrived since the bell was last taken.
     bell: bool,
     /// The log of the session the watch carries one for, oldest first.
@@ -177,6 +182,12 @@ impl Frame {
     }
 }
 
+/// How many terminal columns `text` takes: a wide character (the ask
+/// icon) is two, as the display counts them.
+fn columns_of(text: &str) -> usize {
+    ratatui::text::Span::raw(text).width()
+}
+
 fn last(name: &str) -> &str {
     name.rsplit('/').next().unwrap_or_default()
 }
@@ -197,6 +208,7 @@ impl Screen {
             asks: BTreeMap::new(),
             settled: BTreeMap::new(),
             seen_asks: BTreeSet::new(),
+            icon: ICON_ASCII,
             bell: false,
             logs: BTreeMap::new(),
             waiting: false,
@@ -211,6 +223,13 @@ impl Screen {
             pending: None,
             notice: None,
         }
+    }
+
+    /// The screen with `icon` before `ASK`: the display says which its
+    /// terminal can draw; the seam keeps [`ICON_ASCII`].
+    pub fn with_icon(mut self, icon: &'static str) -> Screen {
+        self.icon = icon;
+        self
     }
 
     /// No daemon serves (again).
@@ -588,17 +607,33 @@ impl Screen {
     fn cells(&self, depth: usize, session: &v1::Session) -> Vec<String> {
         vec![
             format!("{}{}", "  ".repeat(depth), last(&session.name)),
-            state_word(session),
+            self.state_cell(session),
             session.agent.clone(),
             session.profiles.join(","),
             session.tags.join(","),
             session.engine.clone(),
             last(&session.owner).to_string(),
-            match self.waiting_asks(&session.name).len() {
-                0 => "0".to_string(),
-                waiting => format!("{ASK_BADGE}{waiting}"),
-            },
         ]
+    }
+
+    /// The asks waiting on a session that is live: an ended session's row
+    /// says it ended, whatever it left unanswered.
+    fn asking(&self, session: &v1::Session) -> usize {
+        match v1::session::State::try_from(session.state) {
+            Ok(v1::session::State::Live) => self.waiting_asks(&session.name).len(),
+            _ => 0,
+        }
+    }
+
+    /// A row's state: its own, or `ASK` (and the count when several wait)
+    /// while an ask waits on it. Plain words and a glyph: the colour is the
+    /// display's.
+    fn state_cell(&self, session: &v1::Session) -> String {
+        match self.asking(session) {
+            0 => state_word(session),
+            1 => format!("{} ASK", self.icon),
+            waiting => format!("{} ASK x{waiting}", self.icon),
+        }
     }
 
     /// The frame of the screen as it stands.
@@ -612,7 +647,7 @@ impl Screen {
             .map(|c| {
                 table
                     .iter()
-                    .map(|row| row[c].chars().count())
+                    .map(|row| columns_of(&row[c]))
                     .chain([HEADER[c].len()])
                     .max()
                     .unwrap_or(0)
@@ -622,7 +657,12 @@ impl Screen {
             cells
                 .iter()
                 .zip(&widths)
-                .map(|(cell, width)| format!("{cell:<width$}"))
+                .map(|(cell, width)| {
+                    format!(
+                        "{cell}{}",
+                        " ".repeat(width.saturating_sub(columns_of(cell)))
+                    )
+                })
                 .collect::<Vec<_>>()
                 .join(" ")
                 .trim_end()
@@ -635,7 +675,7 @@ impl Screen {
         let alerts = rows
             .iter()
             .enumerate()
-            .filter(|(_, (_, session))| !self.waiting_asks(&session.name).is_empty())
+            .filter(|(_, (_, session))| self.asking(session) > 0)
             .map(|(at, _)| at)
             .collect();
         let harp = selected_name.as_deref().map(last).unwrap_or_default();

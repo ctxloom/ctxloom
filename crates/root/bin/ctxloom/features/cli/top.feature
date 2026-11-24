@@ -167,6 +167,7 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
       And a child "quiet-silver-fern" of "amber-quiet-heron" is launched
       Then every line read is one JSON object on one line
       And each line has exactly one of "snapshot", "session_changed", "session_removed", "approval_asked", "approval_settled", "log", "waiting" set
+      And no line read holds an escape character, whatever colour the terminal has
 
     Scenario: Off a terminal the format is json without being asked
       # new: the default format rule of the vocabulary (§4, `--format`); DRAFT.
@@ -680,8 +681,8 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
     column), `r` (reverse the sort), `f` (opens the filter prompt: the next
     line is `<field>=<value>`, an empty one clears), `q` (quit). A frame is:
     a header line naming the scope, the filter and the sort, an inbox table (its
-    header row `NAME STATE AGENT PROFILES TAGS ENGINE OWNER ASKS` and one row
-    per session, the selected one marked `>`, an ask waiting on it shown in its ASKS cell as `⚠` and the count), a line `--- asks of <harp>`,
+    header row `NAME STATE AGENT PROFILES TAGS ENGINE OWNER` and one row
+    per session, the selected one marked `>`, a row an ask waits on in the state `! ASK`, and `! ASK x2` when two wait), a line `--- asks of <harp>`,
     its asks, a line `--- log of <harp>`, and its log entries oldest first.
     A real terminal's drawing, its alternate screen and its restoring on
     exit are the one pty scenario's, below.
@@ -691,7 +692,7 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
       Given an initialized ctxloom project
       And a child "brisk-copper-moth" of "amber-quiet-heron" launched on agent "reviewer"
       When I start "ctxloom top --format text" in a terminal and read its frames
-      Then the first frame's header row is "NAME STATE AGENT PROFILES TAGS ENGINE OWNER ASKS"
+      Then the first frame's header row is "NAME STATE AGENT PROFILES TAGS ENGINE OWNER"
       And the first frame has a row for "amber-quiet-heron" and a row for "brisk-copper-moth"
       And exactly one row is marked "> ", the first row until a key moves it
       And the table comes before the line "--- asks of <the selected row's harp>", which comes before the line "--- log of <the selected row's harp>"
@@ -730,13 +731,13 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
       When I press "down"
       Then the frame has "--- asks of quiet-silver-fern" and its asks section holds no ask
 
-    Scenario: A row shows how many asks wait on it
-      # new: the ASKS column; DRAFT.
+    Scenario: Waiting on an ask is the row's state, with the count when several wait
+      # changed: the ASKS column is gone; the state cell says it (owner 2026-11-24); DRAFT.
       Given an initialized ctxloom project
       And a child "brisk-copper-moth" of "amber-quiet-heron" whose engine has asked to run "Bash" with "rm -rf build/"
       When I start "ctxloom top --format text" in a terminal and read its frames
-      Then the frame's row for "brisk-copper-moth" has "⚠1" in its ASKS column
-      And the frame's row for "amber-quiet-heron" has "0"
+      Then the frame's row for "brisk-copper-moth" shows the state "! ASK"
+      And the frame's row for "amber-quiet-heron" shows the state "live"
 
     Scenario: A row with an ask waiting is highlighted, and the frame says which in words
       # new: the screen's first colour; DRAFT glyph and wording. A terminal paints the
@@ -761,7 +762,7 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
       When I start "ctxloom top --format text" in a terminal and read its frames
       And the engine of "brisk-copper-moth" asks to run "Bash" with "rm -rf build/"
       Then a frame has the line "bell"
-      And that frame's row for "brisk-copper-moth" has "⚠1" in its ASKS column
+      And that frame's row for "brisk-copper-moth" shows the state "! ASK"
       When I press "down" until "brisk-copper-moth" is marked
       And the ask is answered from another terminal with "deny"
       Then exactly one frame has the line "bell"
@@ -784,7 +785,7 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
       And I press "1"
       Then the child's engine was told to run the tool
       And a later frame's asks section for "brisk-copper-moth" says the ask was answered "allow-once"
-      And the frame's row for "brisk-copper-moth" has "0" in its ASKS column
+      And the frame's row for "brisk-copper-moth" shows the state "live"
 
     Scenario: allow-always shows the config it would write and asks first, as the CLI does
       # new: DRAFT; the preview and the [y/N] are `session approvals answer`'s.

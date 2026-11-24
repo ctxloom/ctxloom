@@ -3,10 +3,10 @@
 
 use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::backend::TestBackend;
-use ratatui::style::Modifier;
+use ratatui::style::{Color, Modifier};
 use ratatui::Terminal;
 
-use super::{named, paint};
+use super::{colour_wanted, named, paint, utf8_wanted, Look};
 use crate::screen::{Frame, Key};
 
 fn frame() -> Frame {
@@ -28,7 +28,7 @@ fn frame() -> Frame {
 fn painted(width: u16, height: u16) -> Vec<String> {
     let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("a test terminal");
     terminal
-        .draw(|screen| paint(screen, &frame()))
+        .draw(|screen| paint(screen, &frame(), true))
         .expect("it paints");
     let buffer = terminal.backend().buffer().clone();
     (0..height)
@@ -82,26 +82,122 @@ fn terminal_keys_are_the_screens() {
 }
 
 #[test]
-fn test_a_row_with_an_ask_waiting_is_painted_yellow_and_bold_and_the_others_are_not() {
+fn test_a_row_with_an_ask_waiting_is_painted_red_and_bold_and_the_others_are_not() {
+    let buffer = painted_buffer(true);
+    let (amber, brisk) = (row_of(&buffer, "amber live"), row_of(&buffer, "brisk live"));
+    assert_eq!(buffer[(4, amber)].fg, Color::Red);
+    assert!(buffer[(4, amber)].modifier.contains(Modifier::BOLD));
+    assert_ne!(buffer[(4, brisk)].fg, Color::Red);
+}
+
+fn painted_buffer(colour: bool) -> ratatui::buffer::Buffer {
     let mut alerted = frame();
     alerted.alerts = vec![0];
     let mut terminal = Terminal::new(TestBackend::new(80, 20)).expect("a test terminal");
     terminal
-        .draw(|screen| paint(screen, &alerted))
+        .draw(|screen| paint(screen, &alerted, colour))
         .expect("it paints");
-    let buffer = terminal.backend().buffer().clone();
-    let row_of = |text: &str| {
-        (0..20)
-            .find(|&y| {
-                (0..80)
-                    .map(|x| buffer[(x, y)].symbol())
-                    .collect::<String>()
-                    .contains(text)
-            })
-            .unwrap_or_else(|| panic!("no row {text}"))
-    };
-    let (amber, brisk) = (row_of("amber live"), row_of("brisk live"));
-    assert_eq!(buffer[(4, amber)].fg, ratatui::style::Color::Yellow);
+    terminal.backend().buffer().clone()
+}
+
+fn row_of(buffer: &ratatui::buffer::Buffer, text: &str) -> u16 {
+    (0..20)
+        .find(|&y| {
+            (0..80)
+                .map(|x| buffer[(x, y)].symbol())
+                .collect::<String>()
+                .contains(text)
+        })
+        .unwrap_or_else(|| panic!("no row {text}"))
+}
+
+#[test]
+fn test_without_colour_nothing_is_painted_in_a_colour_and_the_row_still_stands_out() {
+    let buffer = painted_buffer(false);
+    let amber = row_of(&buffer, "amber live");
+    for y in 0..20 {
+        for x in 0..80 {
+            assert_eq!(buffer[(x, y)].fg, Color::Reset, "colour at {x},{y}");
+        }
+    }
     assert!(buffer[(4, amber)].modifier.contains(Modifier::BOLD));
-    assert_ne!(buffer[(4, brisk)].fg, ratatui::style::Color::Yellow);
+}
+
+fn env(pairs: &'static [(&'static str, &'static str)]) -> impl Fn(&str) -> Option<String> {
+    move |name| {
+        pairs
+            .iter()
+            .find(|(k, _)| *k == name)
+            .map(|(_, v)| (*v).to_string())
+    }
+}
+
+#[test]
+fn test_colour_is_wanted_on_a_terminal_that_has_it() {
+    assert!(colour_wanted(env(&[("TERM", "xterm-256color")])));
+}
+
+#[test]
+fn test_no_colour_when_no_color_is_set_to_anything_non_empty() {
+    assert!(!colour_wanted(env(&[("TERM", "xterm"), ("NO_COLOR", "1")])));
+}
+
+#[test]
+fn test_an_empty_no_color_does_not_turn_colour_off() {
+    assert!(colour_wanted(env(&[("TERM", "xterm"), ("NO_COLOR", "")])));
+}
+
+#[test]
+fn test_no_colour_on_a_dumb_terminal_or_with_no_term() {
+    assert!(!colour_wanted(env(&[("TERM", "dumb")])));
+    assert!(!colour_wanted(env(&[])));
+}
+
+#[test]
+fn test_a_utf8_locale_is_found_by_lc_all_then_lc_ctype_then_lang() {
+    assert!(utf8_wanted(env(&[("LANG", "en_US.UTF-8")])));
+    assert!(utf8_wanted(env(&[("LC_CTYPE", "C.utf8")])));
+    assert!(utf8_wanted(env(&[("LC_ALL", "de_DE.Utf-8")])));
+}
+
+#[test]
+fn test_the_first_locale_variable_set_decides() {
+    assert!(!utf8_wanted(env(&[
+        ("LC_ALL", "C"),
+        ("LANG", "en_US.UTF-8")
+    ])));
+    assert!(utf8_wanted(env(&[("LC_ALL", ""), ("LANG", "en_US.UTF-8")])));
+    assert!(!utf8_wanted(env(&[
+        ("LC_CTYPE", "POSIX"),
+        ("LANG", "en_US.UTF-8")
+    ])));
+}
+
+#[test]
+fn test_no_locale_or_a_non_utf8_one_is_not_utf8() {
+    assert!(!utf8_wanted(env(&[])));
+    assert!(!utf8_wanted(env(&[("LANG", "en_US.ISO-8859-1")])));
+}
+
+#[test]
+fn test_the_look_is_each_part_judged_alone() {
+    let look = Look::of(env(&[
+        ("TERM", "xterm"),
+        ("NO_COLOR", "1"),
+        ("LANG", "C.UTF-8"),
+    ]));
+    assert_eq!(
+        look,
+        Look {
+            colour: false,
+            utf8: true
+        }
+    );
+    assert_eq!(
+        Look::default(),
+        Look {
+            colour: false,
+            utf8: false
+        }
+    );
 }

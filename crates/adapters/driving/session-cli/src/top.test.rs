@@ -9,6 +9,7 @@ use clap::FromArgMatches as _;
 use daemon_proto::v1;
 
 use super::*;
+use crate::tui::Look;
 
 fn args(line: &[&str]) -> Top {
     let matches = top_noun()
@@ -268,7 +269,7 @@ fn with_no_daemon_it_says_waiting_once_and_waits_until_one_serves() {
         &source,
         &NoAnswers,
         Format::Json,
-        (true, false),
+        (true, false, Look::default()),
         &mut out,
     )
     .unwrap();
@@ -295,7 +296,7 @@ fn a_daemon_lost_under_the_stream_puts_it_back_to_waiting_and_the_next_snapshot_
         &source,
         &NoAnswers,
         Format::Json,
-        (true, false),
+        (true, false, Look::default()),
         &mut out,
     )
     .unwrap();
@@ -320,7 +321,7 @@ fn a_watch_that_ends_ends_the_command() {
         &source,
         &NoAnswers,
         Format::Json,
-        (true, false),
+        (true, false, Look::default()),
         &mut out,
     )
     .unwrap();
@@ -343,7 +344,7 @@ fn the_snapshot_is_printed_in_the_sorted_order() {
         &source,
         &NoAnswers,
         Format::Json,
-        (true, false),
+        (true, false, Look::default()),
         &mut out,
     )
     .unwrap();
@@ -366,7 +367,7 @@ fn text_off_a_terminal_is_refused_naming_json() {
         &source,
         &NoAnswers,
         Format::Text,
-        (false, false),
+        (false, false, Look::default()),
         &mut Vec::new(),
     )
     .unwrap_err();
@@ -425,9 +426,36 @@ fn a_command_asked_to_stop_ends_though_its_watch_says_nothing() {
         &source,
         &NoAnswers,
         Format::Json,
-        (true, false),
+        (true, false, Look::default()),
         &mut Vec::new(),
     )
     .unwrap_err();
     assert_eq!(ended.failure.cause.code(), "session-cli-output");
+}
+
+#[test]
+fn test_the_json_stream_is_colour_free_even_where_the_terminal_has_colour() {
+    let source = Source {
+        absent: RefCell::new(0),
+        feeds: RefCell::new(VecDeque::from([vec![Ok(snapshot(Vec::new()))]])),
+        waits: RefCell::new(0),
+    };
+    let mut out = Vec::new();
+    top(
+        &args(&["top"]),
+        &source,
+        &NoAnswers,
+        Format::Json,
+        (
+            true,
+            false,
+            Look {
+                colour: true,
+                utf8: true,
+            },
+        ),
+        &mut out,
+    )
+    .unwrap();
+    assert!(!out.contains(&0x1b), "{:?}", String::from_utf8_lossy(&out));
 }

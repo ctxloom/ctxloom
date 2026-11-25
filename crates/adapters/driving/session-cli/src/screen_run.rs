@@ -6,7 +6,9 @@
 //!
 //! The watch is pushed: the loop waits on it for a tick at a time so that a
 //! key is never kept waiting, which is a local tick and no look at the
-//! daemon. The one thing looked for on a timer is a daemon to wait for.
+//! daemon. What the watch already holds is applied together, up to
+//! [`BATCH`] events, before the frame is drawn, so a backlog is not replayed
+//! frame by frame. The one thing looked for on a timer is a daemon to wait for.
 
 use std::io::Write;
 use std::sync::mpsc::Receiver;
@@ -22,6 +24,10 @@ use crate::top::{Sort, Top, TopFeed, TopSource, Within};
 
 /// How long the loop waits on the watch before it looks at the keys again.
 pub(crate) const TICK: Duration = Duration::from_millis(50);
+/// The most events one pass applies before it draws: a backlog the watch
+/// already holds (every session's log, after the snapshot) is one frame, and
+/// one that never runs dry cannot keep the keys waiting.
+pub(crate) const BATCH: usize = 256;
 /// How long between looks for a daemon to serve.
 const LOOK: Duration = Duration::from_millis(500);
 
@@ -161,24 +167,17 @@ pub fn drive(
             }
         }
         match feed.as_mut() {
-            Some(open) => match open.within(TICK) {
-                Within::Idle => {
-                    idle += 1;
-                    if open.reopened_when_idle() && idle >= 10 {
-                        feed = None;
-                        looked = None;
-                        idle = 0;
-                    }
+            Some(open) => match drained(open.as_mut(), &mut screen, &mut idle) {
+                Drained::Open => {}
+                Drained::Reopen => {
+                    feed = None;
+                    looked = None;
                 }
-                Within::Event(event) => {
-                    idle = 0;
-                    screen.apply(*event);
-                }
-                Within::Broke(_) => {
+                Drained::Broke => {
                     feed = None;
                     screen.wait();
                 }
-                Within::Ended => return Ok(Done::default()),
+                Drained::Ended => return Ok(Done::default()),
             },
             None => {
                 if looked.is_none_or(|at| at.elapsed() >= LOOK) {
@@ -216,6 +215,45 @@ pub fn drive(
             }
         }
     }
+}
+
+/// How a pass over the watch left it.
+enum Drained {
+    Open,
+    /// An idle watch to be opened again.
+    Reopen,
+    Broke,
+    Ended,
+}
+
+/// One pass over the watch: wait a tick for its first event, then apply
+/// what it already holds, up to [`BATCH`], so one frame is drawn for them.
+fn drained(open: &mut dyn TopFeed, screen: &mut Screen, idle: &mut u32) -> Drained {
+    let mut wait = TICK;
+    for _ in 0..BATCH {
+        match open.within(wait) {
+            Within::Event(event) => {
+                *idle = 0;
+                screen.apply(*event);
+                // What is already waiting, never a wait.
+                wait = Duration::ZERO;
+            }
+            // Only the wait for a first event is idleness; the end of a
+            // drain is the backlog's.
+            Within::Idle if wait == TICK => {
+                *idle += 1;
+                if open.reopened_when_idle() && *idle >= 10 {
+                    *idle = 0;
+                    return Drained::Reopen;
+                }
+                return Drained::Open;
+            }
+            Within::Idle => return Drained::Open,
+            Within::Broke(_) => return Drained::Broke,
+            Within::Ended => return Drained::Ended,
+        }
+    }
+    Drained::Open
 }
 
 fn said(screen: &mut Screen, answered: Result<String, String>) {

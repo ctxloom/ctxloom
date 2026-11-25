@@ -671,6 +671,11 @@ _mutants-affected:
 # rather than filling the machine (2026-11-15: twice, about 70 GB, and the
 # global OOM took the user scope that started it). The log ends with the
 # scope's memory peak. `mutants_memory_max` `none` opts out, and says so.
+#
+# AFTER EACH MUTANT (owner ruling 2026-11-25), not only at the run's end:
+# `MEMORY_CAP_REAP=3` makes the cap's watcher kill, every 3 s, whatever the
+# scope's cgroup holds beyond cargo-mutants' own process tree (a detached
+# leftover of a finished mutant's test), logging each (pid, comm, cmdline).
 [no-exit-message]
 _mutants-judge: _mutants-no-features
     #!/usr/bin/env bash
@@ -700,7 +705,7 @@ _mutants-judge: _mutants-no-features
     # In the background, so an interrupt is handled at once rather than once
     # the run ends: the trap's exit reaps the session, cargo mutants too.
     setsid --wait bash -c 'echo $$ > "$1"; shift; exec "$@"' mutants-session "$session" \
-        "$root/gates/memory-cap.sh" mutants-staged '{{mutants_memory_max}}' '{{mutants_swap_max}}' \
+        env MEMORY_CAP_REAP=3 "$root/gates/memory-cap.sh" mutants-staged '{{mutants_memory_max}}' '{{mutants_swap_max}}' \
         cargo mutants --dir "$root" --in-place --workspace --in-diff "$work/staged.patch" \
         --output "$out" --colors never 9>&- &
     wait "$!" || rc=$?

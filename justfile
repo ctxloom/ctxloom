@@ -545,7 +545,7 @@ mutants-shard shard out="target/logs/mutants-shard" package="": _mutants-no-feat
         fi
     fi
     rc=0
-    "${ratchet[@]}" {{TOP}}/gates/memory-cap.sh mutants-shard '{{mutants_memory_max}}' '{{mutants_swap_max}}' \
+    MEMORY_CAP_REAP=3 "${ratchet[@]}" {{TOP}}/gates/memory-cap.sh mutants-shard '{{mutants_memory_max}}' '{{mutants_swap_max}}' \
         cargo mutants --dir {{TOP}} --in-place "${scope[@]}" --shard '{{shard}}' --output "$out" --colors never || rc=$?
     echo "$rc" > "$out/exit"
     found=$(jq '.total_mutants // 0' "$out/mutants.out/outcomes.json" 2>/dev/null || echo 0)

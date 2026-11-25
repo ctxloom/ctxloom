@@ -45,6 +45,20 @@
 # in what is said (MEMORY_CAP_OPT_OUT, default MUTANTS_MEMORY_MAX; the
 # test gates' is TESTS_MEMORY_MAX).
 #
+# Per-mutant reap (owner ruling 2026-11-25): with MEMORY_CAP_REAP=<seconds>
+# in the environment (the mutation recipes set it; cargo-mutants has no
+# per-mutant hook, so this is a watcher in the scope), a watcher polls the
+# scope's cgroup.procs every <seconds> and kills every process of the scope
+# that is not the command's own process tree (descendants of the command,
+# by parent pid) nor this wrapper or the watcher. A detached leftover
+# (setsid, double fork) of a finished mutant's test is orphaned, so it is no
+# descendant, and goes; one seen orphaned is killed on its SECOND consecutive
+# look (a grace for a process whose parent is between fork and exit). Each
+# is logged to stderr as `<label>: reaped pid <pid> (<comm>): <cmdline head>`;
+# a last sweep runs when the command ends. The command's exit is unchanged.
+# 2026-11-25: 1,866 copies of a test harness, spawned detached by one mutant,
+# filled the 8G cap and its OOM killer killed cargo-mutants itself.
+#
 # Exit: the command's own; 1 when the cap cannot be had; 2 on usage.
 # Environment: MEMORY_CAP_RUN_USER, the directory holding the per-user
 # runtime directories (default /run/user; the self-test's seam), and
@@ -68,7 +82,56 @@ if [ "${1:-}" = --inside ]; then
             exit 1 ;;
     esac
     rc=0
-    "$@" || rc=$?
+    if [ -n "${MEMORY_CAP_REAP:-}" ]; then
+        inside=$$
+        reap_pass() {
+            local mode=${1:-} pid line rest ppid p changed keep=" $inside $BASHPID $cmd " seen_now=" "
+            local -A par=()
+            for pid in $(cat "$cg/cgroup.procs" 2>/dev/null); do
+                line=$(cat "/proc/$pid/stat" 2>/dev/null) || continue
+                rest=${line##*) }
+                # shellcheck disable=SC2086
+                set -- $rest
+                par[$pid]=$2
+            done
+            changed=1
+            while [ "$changed" = 1 ]; do
+                changed=0
+                for pid in "${!par[@]}"; do
+                    case "$keep" in *" $pid "*) continue ;; esac
+                    ppid=${par[$pid]}
+                    case "$keep" in *" $ppid "*) keep+="$pid "; changed=1 ;; esac
+                done
+            done
+            for pid in "${!par[@]}"; do
+                case "$keep" in *" $pid "*) continue ;; esac
+                seen_now+="$pid "
+                if [ "$mode" != final ]; then
+                    case "$seen" in *" $pid "*) ;; *) continue ;; esac
+                fi
+                p=$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | cut -c1-120)
+                echo "$label: reaped pid $pid ($(cat "/proc/$pid/comm" 2>/dev/null)): $p" >&2
+                kill -KILL "$pid" 2>/dev/null || true
+            done
+            seen=$seen_now
+        }
+        seen=" "
+        "$@" &
+        cmd=$!
+        (
+            while kill -0 "$cmd" 2>/dev/null; do
+                reap_pass
+                sleep "$MEMORY_CAP_REAP"
+            done
+        ) &
+        watcher=$!
+        wait "$cmd" || rc=$?
+        kill "$watcher" 2>/dev/null || true
+        wait "$watcher" 2>/dev/null || true
+        reap_pass final
+    else
+        "$@" || rc=$?
+    fi
     peak=$(cat "$cg/memory.peak" 2>/dev/null || true)
     [ -z "$peak" ] || peak=$(numfmt --to=iec "$peak" 2>/dev/null || echo "$peak bytes")
     kills=$(sed -n 's/^oom_kill //p' "$cg/memory.events" 2>/dev/null || true)

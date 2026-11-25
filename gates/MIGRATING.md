@@ -182,3 +182,17 @@ and the doc comment of `lint-staged`. Self-tests: `scripts/scratch-tree-lock.sel
 self-test that runs a staged recipe must). Replace `<cache>/ctxloom/gates`
 with the repository's own directory name when porting, if it should not share
 ctxloom's.
+
+## Per-mutant reap (2026-11-25)
+
+`memory-cap.sh` gains `MEMORY_CAP_REAP=<seconds>`: a watcher in the scope
+kills, every N seconds, every process of the scope's cgroup that is not the
+command's own process tree (so a detached `setsid` leftover of a finished
+mutant, orphaned, goes; second consecutive sighting, and a last sweep at the
+command's end), logging `<label>: reaped pid <pid> (<comm>): <cmdline>`.
+cargo-mutants has no per-mutant hook, hence a watcher. A repository copying
+this: replace `gates/memory-cap.sh`, add the reap section to
+`scripts/memory-cap.selftest.sh`, and set `MEMORY_CAP_REAP=3` on the
+`memory-cap.sh` call that runs cargo-mutants in `_mutants-judge`
+(`gates/gates.just`) and in `mutants-shard` (the justfile). The shared gates
+repository, taskloom and annals copies are not changed here.

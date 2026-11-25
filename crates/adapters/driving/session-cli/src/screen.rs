@@ -25,9 +25,7 @@ pub const ICON_UTF8: &str = "\u{270b}";
 pub const ICON_ASCII: &str = "!";
 
 /// The table's header row, the columns in order.
-pub const HEADER: [&str; 7] = [
-    "NAME", "STATE", "AGENT", "PROFILES", "TAGS", "ENGINE", "OWNER",
-];
+pub const HEADER: [&str; 6] = ["NAME", "STATE", "AGENT", "PROFILES", "ENGINE", "OWNER"];
 
 /// A key, as the screen takes it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -622,7 +620,6 @@ impl Screen {
             self.state_cell(session),
             session.agent.clone(),
             session.profiles.join(","),
-            session.tags.join(","),
             session.engine.clone(),
             last(&session.owner).to_string(),
         ]

@@ -57,6 +57,11 @@ pub trait Display {
         system_now()
     }
 
+    /// How many lines of input the loop has consumed so far. The text seam
+    /// says it in every frame (`keys: <n>`), so a test that sent a key knows
+    /// which frame is drawn after it was read; the real display ignores it.
+    fn consumed(&mut self, _lines: usize) {}
+
     fn draw(&mut self, frame: &Frame) -> Result<(), Failure>;
 }
 
@@ -76,17 +81,25 @@ pub trait TopAnswers {
 /// own clock runs `.1` seconds ahead of the system's (zero unless a
 /// test-support build says otherwise), so a scenario reads a timer of hours
 /// with no waiting.
-pub struct Frames<'a>(pub &'a mut dyn Write, pub i64);
+pub struct Frames<'a>(pub &'a mut dyn Write, pub i64, pub usize);
 
 impl Display for Frames<'_> {
     fn now(&self) -> i64 {
         system_now().saturating_add(self.1)
     }
 
+    fn consumed(&mut self, lines: usize) {
+        self.2 = lines;
+    }
+
     fn draw(&mut self, frame: &Frame) -> Result<(), Failure> {
+        // `keys: <n>` ends the frame, before its closing `---`.
+        let text = frame.text();
+        let body = text.strip_suffix("---\n").unwrap_or(&text);
+        let text = format!("{body}keys: {}\n---\n", self.2);
         wrote(
             self.0
-                .write_all(frame.text().as_bytes())
+                .write_all(text.as_bytes())
                 .and_then(|()| self.0.flush()),
         )
     }
@@ -117,12 +130,15 @@ pub fn drive(
     let mut looked: Option<Instant> = None;
     let mut idle = 0;
     let mut drawn = String::new();
+    let mut taken = 0usize;
+    let mut told = 0usize;
     loop {
         if let Some(stop) = source.stopped() {
             return Err(stop);
         }
         screen.tick(display.now());
         while let Ok(input) = keys.try_recv() {
+            taken += 1;
             let key = match input {
                 Input::Key(key) => key,
                 Input::Line(line) if screen.prompting() => Key::Text(line),
@@ -190,9 +206,13 @@ pub fn drive(
         let text = frame.text();
         if screen.ready() {
             frame.bell = screen.take_bell();
-            if frame.bell || text != drawn {
+            // A line read is drawn for, though it changed nothing on the
+            // screen, so what the seam says it consumed is always news.
+            if frame.bell || text != drawn || taken != told {
+                display.consumed(taken);
                 display.draw(&frame)?;
                 drawn = text;
+                told = taken;
             }
         }
     }

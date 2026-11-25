@@ -24,6 +24,9 @@ pub(super) struct Screen {
     frames: Receiver<Vec<String>>,
     /// Every frame read so far, oldest first.
     seen: Vec<Vec<String>>,
+    /// The lines of input sent so far: a frame whose `keys: <n>` line says
+    /// `n` at least this has been drawn after the loop read them all.
+    sent: usize,
 }
 
 impl Drop for Screen {
@@ -53,7 +56,24 @@ struct Parts {
     log: Vec<String>,
 }
 
+/// The input lines the loop had consumed when it drew `frame` (its `keys: <n>`
+/// line, which only the text seam draws), none for a frame with no such line.
+fn keys_of(frame: &[String]) -> usize {
+    frame
+        .iter()
+        .rev()
+        .find_map(|l| l.strip_prefix("keys: "))
+        .and_then(|n| n.trim().parse().ok())
+        .unwrap_or(0)
+}
+
 fn parts(frame: &[String]) -> Parts {
+    let frame: Vec<String> = frame
+        .iter()
+        .filter(|l| !l.starts_with("keys: "))
+        .cloned()
+        .collect();
+    let frame = &frame[..];
     let at = |prefix: &str| {
         frame
             .iter()
@@ -190,6 +210,7 @@ fn until_any(w: &mut World, what: &str, ok: impl Fn(&Parts) -> bool) -> Parts {
 
 fn press_key(w: &mut World, key: &str) {
     let screen = screen(w);
+    screen.sent += 1;
     writeln!(screen.keys, "{key}")
         .and_then(|()| screen.keys.flush())
         .expect("the screen takes its keys");
@@ -255,29 +276,21 @@ fn started(w: &mut World, line: String) {
         keys,
         frames,
         seen: Vec::new(),
+        sent: 0,
     });
 }
 
 #[when(expr = "I press {string}")]
 fn pressed(w: &mut World, key: String) {
     drain(w);
-    let seen = screen(w).seen.len();
     press_key(w, &key);
     // An answer, a confirmation or a refusal changes the frame: it is waited
     // for, so what a step asserts or reads on disk is after the key's effect.
     if key.len() == 1 && "123456789yn".contains(key.as_str()) {
-        let deadline = Instant::now() + WAIT;
-        while screen(w).seen.len() <= seen {
-            let left = deadline.saturating_duration_since(Instant::now());
-            let frame = screen(w)
-                .frames
-                .recv_timeout(left)
-                .unwrap_or_else(|_| panic!("the key {key} changed nothing on the screen"));
-            screen(w).seen.push(frame);
-        }
+        let frame = after_keys(screen(w), WAIT)
+            .unwrap_or_else(|_| panic!("the key {key} was never read by the screen"));
         // A confirmed answer says it was made, or why not.
         if key == "y" {
-            let frame = screen(w).seen.last().cloned().unwrap_or_default();
             assert!(
                 frame.iter().any(|line| line.contains("answered")),
                 "the confirmed answer was not made; the screen says:\n{}",
@@ -298,6 +311,22 @@ fn pressed(w: &mut World, key: String) {
             stdout: String::new(),
             stderr,
         });
+    }
+}
+
+/// The first frame drawn after the loop had read every line sent, read from
+/// the screen's frames (those drawn before, a timer's among them, are kept in
+/// `seen` and passed over). The frame says what it consumed (`keys: <n>`), so
+/// nothing here guesses which frame is the key's.
+fn after_keys(screen: &mut Screen, wait: Duration) -> Result<Vec<String>, ()> {
+    let deadline = Instant::now() + wait;
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        let frame = screen.frames.recv_timeout(left).map_err(|_| ())?;
+        screen.seen.push(frame.clone());
+        if keys_of(&frame) >= screen.sent {
+            return Ok(frame);
+        }
     }
 }
 
@@ -380,12 +409,14 @@ fn marked_in(frame: &[String]) -> Vec<String> {
 fn pressed_and_typed(w: &mut World, key: String, text: String) {
     press_key(w, &key);
     press_key(w, &text);
+    after_keys(screen(w), WAIT).expect("the screen reads what was typed");
 }
 
 #[when(expr = "I press {string} and type nothing")]
 fn pressed_and_typed_nothing(w: &mut World, key: String) {
     press_key(w, &key);
     press_key(w, "");
+    after_keys(screen(w), WAIT).expect("the screen reads what was typed");
 }
 
 #[when(expr = "the ask is answered from another terminal with {string}")]
@@ -1077,6 +1108,7 @@ fn screen_of(frames: Vec<Vec<String>>) -> Screen {
         keys,
         frames: rx,
         seen: Vec::new(),
+        sent: 0,
     }
 }
 
@@ -1111,4 +1143,22 @@ fn test_the_screen_as_it_stands_is_its_newest_frame_alone() {
     let soon = Instant::now() + Duration::from_millis(300);
     let has_bell = |p: &Parts| p.status.iter().any(|l| l == "bell");
     assert!(find(&mut screen, true, &has_bell, soon).is_err());
+}
+
+/// The interleaving that failed a landing: the screen's own timer draws a frame
+/// after the key was sent and before the loop read it. The step must take the
+/// frame that has consumed the key, not the first one to come.
+#[test]
+fn test_a_timer_frame_drawn_before_the_key_is_read_is_not_its_frame() {
+    let with = |n: usize, status: &str| -> Vec<String> {
+        let mut frame = drawn(&[]);
+        frame.push(status.to_string());
+        frame.push(format!("keys: {n}"));
+        frame
+    };
+    let mut screen = screen_of(vec![with(0, "timer"), with(1, "answered x")]);
+    screen.sent = 1;
+    let frame = after_keys(&mut screen, Duration::from_secs(2)).expect("a frame");
+    assert!(frame.iter().any(|l| l == "answered x"), "{frame:#?}");
+    assert_eq!(screen.seen.len(), 2, "the timer frame is kept as seen");
 }

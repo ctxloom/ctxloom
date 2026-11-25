@@ -422,3 +422,57 @@ fn test_the_loop_counts_a_rows_timer_by_the_displays_clock() {
     let row = &display.frames[0].rows[0];
     assert!(row.contains("live 7h"), "{row}");
 }
+
+/// A display that wraps the text seam and sends its scripted input after the
+/// first frame, keeping what the seam wrote.
+struct Seamed<'a> {
+    seam: super::Frames<'a>,
+    send: Sender<Input>,
+    frames: usize,
+}
+
+impl Display for Seamed<'_> {
+    fn consumed(&mut self, lines: usize) {
+        self.seam.consumed(lines);
+    }
+
+    fn draw(&mut self, frame: &Frame) -> Result<(), Failure> {
+        self.seam.draw(frame)?;
+        self.frames += 1;
+        if self.frames == 1 {
+            // A line that names no key changes nothing on the screen.
+            let _ = self.send.send(Input::Line("nonsense".to_string()));
+        } else {
+            let _ = self.send.send(Input::Key(Key::Char('q')));
+        }
+        Ok(())
+    }
+}
+
+#[test]
+fn the_text_seam_says_in_every_frame_how_many_input_lines_were_consumed() {
+    let (send, keys) = channel();
+    let mut out = Vec::new();
+    let mut display = Seamed {
+        seam: super::Frames(&mut out, 0, 0),
+        send,
+        frames: 0,
+    };
+    drive(
+        &command(&[]),
+        &Source::default(),
+        &Answers::default(),
+        &keys,
+        &mut display,
+    )
+    .unwrap();
+    let text = String::from_utf8(out).unwrap();
+    let counts: Vec<&str> = text.lines().filter(|l| l.starts_with("keys: ")).collect();
+    assert_eq!(counts.first(), Some(&"keys: 0"), "{text}");
+    // The unnamed line was read and said so in a frame of its own.
+    assert!(counts.contains(&"keys: 1"), "{text}");
+    assert!(
+        text.contains("keys: 1\n---\n"),
+        "keys closes its frame: {text}"
+    );
+}

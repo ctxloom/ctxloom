@@ -2885,7 +2885,7 @@ the screen narrow the rows the watch gave), `screen_run.rs` (the loop, on a
 tick so a key is never kept waiting on the watch) and `tui.rs` (ratatui
 painting and crossterm keys on the alternate screen); the text seam
 (`CTXLOOM_TEST_TERMINAL`, frames ended by `---`, keys named a line each on
-stdin) draws the same `Frame` as plain lines. An answer is
+stdin) draws the same `Frame` as plain lines, each ended by a line `keys: <n>` (the input lines the loop has consumed, `Display::consumed`; a line read is drawn for even when it changes nothing), so a step that sent a key waits for the first frame whose count covers it, never for "the next frame", which the state timer's own redraw may be. An answer is
 `session approvals answer`'s, as the user and in its order (the ask checked
 waiting, an allow-always's rule written and previewed first, a rule kept for
 an ask settled meanwhile said); the caller that answers is made at the first

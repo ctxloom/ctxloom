@@ -86,6 +86,35 @@ fn take_own_lifeline(fs: &dyn file_system::Fs, path: &Path) -> file_lock::Locked
     file_lock::lock_within(fs, path, OWN_LIFELINE_WAIT).expect("this test process's lifeline")
 }
 
+// Run directly as a libtest binary with a cleared environment, the fallback
+// build compiled sqlx with the toolchain its own rust-toolchain.toml names
+// (1.78), which rejects the flags cargo passes. The compiler named beside
+// cargo is no rustup proxy: a directory's toolchain file does not choose it.
+#[test]
+fn test_the_rustc_beside_cargo_ignores_a_toolchain_file_of_the_directory_it_runs_in() {
+    let cargo = Path::new(env!("CARGO"));
+    assert!(cargo.is_absolute(), "cargo is named by its path: {cargo:?}");
+    let dir = temp_root().join(format!("ctxloom-test-rustc-beside-{}", std::process::id()));
+    files::mkdirs(&dir);
+    files::put(
+        dir.join("rust-toolchain.toml"),
+        "[toolchain]\nchannel = \"0.0.1-no-such-toolchain\"\n",
+    );
+    let out = Command::new(rustc_beside(cargo))
+        .arg("--version")
+        .current_dir(&dir)
+        .env_clear()
+        .output()
+        .expect("rustc runs");
+    files::remove_tree(&dir);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(String::from_utf8_lossy(&out.stdout).starts_with("rustc "));
+}
+
 // CI on macOS (2026-11-19): a test process took its new lifeline's lock
 // without waiting, and failed (`Timeout { waited_ms: 0 }`) because another
 // test process's reaper held it at that instant. The race forced: another
@@ -152,6 +181,16 @@ fn kept_apart(built: &Path, profile_dir: &Path) -> PathBuf {
     kept
 }
 
+/// The `rustc` of the toolchain whose `cargo` is `cargo`. Run by itself (no
+/// nextest, a cleared environment: nothing names the toolchain through
+/// `RUSTUP_TOOLCHAIN`), the fallback build below has rustup's `rustc` proxy
+/// choose a toolchain per crate from the directory cargo compiles it in, and
+/// a dependency's own `rust-toolchain.toml` (sqlx's pins 1.78) then compiles
+/// that dependency with another compiler than the rest.
+pub(crate) fn rustc_beside(cargo: &Path) -> PathBuf {
+    cargo.with_file_name(format!("rustc{}", std::env::consts::EXE_SUFFIX))
+}
+
 /// The `ctxloom` binary with its test-only commands: the one nextest's setup
 /// script built for the run (`prebuilt`), else built once per test process.
 pub(crate) fn binary() -> &'static Path {
@@ -182,6 +221,9 @@ pub(crate) fn binary() -> &'static Path {
             .arg("--manifest-path")
             .arg(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"))
             .env("CARGO_TARGET_DIR", target_dir);
+        if host_var("RUSTC").is_none() {
+            build.env("RUSTC", rustc_beside(Path::new(env!("CARGO"))));
+        }
         if profile_dir.file_name().is_some_and(|p| p == "release") {
             build.arg("--release");
         }

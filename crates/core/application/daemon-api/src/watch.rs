@@ -63,10 +63,13 @@ impl<E: Edge> Api<E> {
                 name: request.name.clone(),
             })));
         }
-        let now = daemon_application::signal_of(
-            &self.parts.pending.pending().pending(&session),
-            self.parts.board.board().session(&session),
-        );
+        // Lock order: the daemon's loop holds the board and then reads the
+        // pending messages, so this takes them one at a time, never the
+        // pending messages while it waits for the board (a deadlock, which
+        // also parked every blocking thread behind it).
+        let pending = self.parts.pending.pending().pending(&session);
+        let now =
+            daemon_application::signal_of(&pending, self.parts.board.board().session(&session));
         Ok(Box::new(watches.watch(&session, now)))
     }
 }

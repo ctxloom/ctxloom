@@ -128,3 +128,45 @@ async fn get_session_says_a_wake_outstanding_and_one_not_answered() {
     f.catch_up().await;
     assert_eq!(shown(&f).await.wake, "not answered");
 }
+
+// The daemon's loop holds the board and then reads the pending messages
+// (`Daemon::plan`), so a watch that holds the pending messages while it
+// waits for the board is the other half of a deadlock (2026-11-25: the
+// loop, every watch and the kernel's projections all stuck). While the
+// board is held elsewhere, a watch opening must not keep the pending
+// messages locked: a reader of them must still get through.
+#[tokio::test]
+async fn a_watch_waiting_for_the_board_holds_no_pending_messages() {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+    let (f, _watches) = watched().await;
+    let handle = tokio::runtime::Handle::current();
+    let reads = AtomicUsize::new(0);
+    let done = AtomicBool::new(false);
+    let board = f.board.board();
+    let (stalled, waited) = std::thread::scope(|scope| {
+        scope.spawn(|| {
+            // Opens the watch: blocks on the board we hold.
+            let _ = handle.block_on(f.api.watch_session(watch_of(NAME)));
+        });
+        scope.spawn(|| {
+            while !done.load(Ordering::SeqCst) {
+                drop(f.pending.pending());
+                reads.fetch_add(1, Ordering::SeqCst);
+                std::thread::sleep(Duration::from_millis(2));
+            }
+        });
+        // Bounded: the reader's progress is judged, never waited on.
+        std::thread::sleep(Duration::from_millis(500));
+        let before = reads.load(Ordering::SeqCst);
+        std::thread::sleep(Duration::from_millis(500));
+        let after = reads.load(Ordering::SeqCst);
+        drop(board);
+        done.store(true, Ordering::SeqCst);
+        (after == before, after)
+    });
+    assert!(
+        !stalled,
+        "a reader of the pending messages stalled behind a watch waiting for the board (read {waited} times)"
+    );
+}

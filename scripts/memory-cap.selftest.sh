@@ -79,6 +79,43 @@ rc=0
 [ "$rc" -eq 5 ] || fail "scope: exit $rc, not the command's 5: $(cat "$tmp/out")"
 grep -qx "$((64 * 1024 * 1024))" "$tmp/out" || fail "scope: memory.max is not the 64M cap: $(cat "$tmp/out")"
 grep -q "^probe: memory peak .* (cap MemoryMax=64M MemorySwapMax=0)" "$tmp/out" || fail "scope: no peak line: $(cat "$tmp/out")"
+# The per-mutant reap (MEMORY_CAP_REAP=<seconds>): a fake cargo-mutants runs
+# two "mutants"; the first's test leaves a DETACHED (setsid) looping child
+# and exits, as the 2026-11-25 harness did. The reaper must kill the leftover
+# (named in the log) while the run goes on: a legitimate child of the run
+# (not detached) survives to the end, the run's exit is the command's own,
+# and the second mutant still runs. Without MEMORY_CAP_REAP the leftover
+# lives (the fake exits 3), which is what this proves absent before.
+cat > "$tmp/fake-mutants" <<'F'
+#!/usr/bin/env bash
+dir=$1
+sleep 60 & echo $! > "$dir/legit.pid"
+# mutant 1: its test spawns a detached loop and ends
+( setsid bash -c 'echo $BASHPID > "$1"; while :; do sleep 1; done' loop "$dir/leftover.pid" & ) 
+for _ in $(seq 50); do [ -s "$dir/leftover.pid" ] && break; sleep 0.1; done
+leftover=$(cat "$dir/leftover.pid")
+# mutant 2 runs after the leftover has had time to be reaped
+for _ in $(seq 100); do kill -0 "$leftover" 2>/dev/null || break; sleep 0.1; done
+if kill -0 "$leftover" 2>/dev/null; then kill -KILL "$leftover"; exit 3; fi
+kill -0 "$(cat "$dir/legit.pid")" 2>/dev/null || exit 4
+touch "$dir/second-mutant-ran"
+exit 0
+F
+chmod +x "$tmp/fake-mutants" 2>/dev/null || true
+mkdir -p "$tmp/noreap" "$tmp/reap"
+rc=0
+"$cap" probe 64M 0 bash "$tmp/fake-mutants" "$tmp/noreap" > "$tmp/out" 2>&1 || rc=$?
+[ "$rc" -eq 3 ] || fail "no reap: the detached leftover did not live (exit $rc, not 3): $(cat "$tmp/out")"
+rc=0
+MEMORY_CAP_REAP=1 "$cap" probe 64M 0 bash "$tmp/fake-mutants" "$tmp/reap" > "$tmp/out" 2>&1 || rc=$?
+[ "$rc" -eq 0 ] || fail "reap: exit $rc, not the command's 0: $(cat "$tmp/out")"
+[ -e "$tmp/reap/second-mutant-ran" ] || fail "reap: the run did not go on: $(cat "$tmp/out")"
+grep -q "^probe: reaped pid $(cat "$tmp/reap/leftover.pid") (" "$tmp/out" || fail "reap: the leftover is not named in the log: $(cat "$tmp/out")"
+# The legitimate child lived while the command ran (the fake checks it, exit
+# 4 otherwise); only the final sweep, once the command is over, takes it.
+[ "$(grep -c "^probe: reaped pid .*sleep 60" "$tmp/out")" -le 1 ] || fail "reap: odd sweep: $(cat "$tmp/out")"
+kill -0 "$(cat "$tmp/reap/legit.pid")" 2>/dev/null && kill "$(cat "$tmp/reap/legit.pid")" || true
+
 # A process of the run outgrows the cap: the cap's OOM killer kills it, the
 # machine is untouched and the wrapper (the run) goes on to say so and to
 # exit with the command's own status, 137. The runaway is ONE process, no

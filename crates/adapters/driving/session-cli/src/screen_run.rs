@@ -6,7 +6,9 @@
 //!
 //! The watch is pushed: the loop waits on it for a tick at a time so that a
 //! key is never kept waiting, which is a local tick and no look at the
-//! daemon. The one thing looked for on a timer is a daemon to wait for.
+//! daemon. What the watch already holds is applied together, up to
+//! [`BATCH`] events, before the frame is drawn, so a backlog is not replayed
+//! frame by frame. The one thing looked for on a timer is a daemon to wait for.
 
 use std::io::Write;
 use std::sync::mpsc::Receiver;
@@ -22,6 +24,10 @@ use crate::top::{Sort, Top, TopFeed, TopSource, Within};
 
 /// How long the loop waits on the watch before it looks at the keys again.
 pub(crate) const TICK: Duration = Duration::from_millis(50);
+/// The most events one pass applies before it draws: a backlog the watch
+/// already holds (every session's log, after the snapshot) is one frame, and
+/// one that never runs dry cannot keep the keys waiting.
+pub(crate) const BATCH: usize = 256;
 /// How long between looks for a daemon to serve.
 const LOOK: Duration = Duration::from_millis(500);
 
@@ -57,6 +63,11 @@ pub trait Display {
         system_now()
     }
 
+    /// How many lines of input the loop has consumed so far. The text seam
+    /// says it in every frame (`keys: <n>`), so a test that sent a key knows
+    /// which frame is drawn after it was read; the real display ignores it.
+    fn consumed(&mut self, _lines: usize) {}
+
     fn draw(&mut self, frame: &Frame) -> Result<(), Failure>;
 }
 
@@ -76,17 +87,25 @@ pub trait TopAnswers {
 /// own clock runs `.1` seconds ahead of the system's (zero unless a
 /// test-support build says otherwise), so a scenario reads a timer of hours
 /// with no waiting.
-pub struct Frames<'a>(pub &'a mut dyn Write, pub i64);
+pub struct Frames<'a>(pub &'a mut dyn Write, pub i64, pub usize);
 
 impl Display for Frames<'_> {
     fn now(&self) -> i64 {
         system_now().saturating_add(self.1)
     }
 
+    fn consumed(&mut self, lines: usize) {
+        self.2 = lines;
+    }
+
     fn draw(&mut self, frame: &Frame) -> Result<(), Failure> {
+        // `keys: <n>` ends the frame, before its closing `---`.
+        let text = frame.text();
+        let body = text.strip_suffix("---\n").unwrap_or(&text);
+        let text = format!("{body}keys: {}\n---\n", self.2);
         wrote(
             self.0
-                .write_all(frame.text().as_bytes())
+                .write_all(text.as_bytes())
                 .and_then(|()| self.0.flush()),
         )
     }
@@ -117,12 +136,15 @@ pub fn drive(
     let mut looked: Option<Instant> = None;
     let mut idle = 0;
     let mut drawn = String::new();
+    let mut taken = 0usize;
+    let mut told = 0usize;
     loop {
         if let Some(stop) = source.stopped() {
             return Err(stop);
         }
         screen.tick(display.now());
         while let Ok(input) = keys.try_recv() {
+            taken += 1;
             let key = match input {
                 Input::Key(key) => key,
                 Input::Line(line) if screen.prompting() => Key::Text(line),
@@ -145,24 +167,17 @@ pub fn drive(
             }
         }
         match feed.as_mut() {
-            Some(open) => match open.within(TICK) {
-                Within::Idle => {
-                    idle += 1;
-                    if open.reopened_when_idle() && idle >= 10 {
-                        feed = None;
-                        looked = None;
-                        idle = 0;
-                    }
+            Some(open) => match drained(open.as_mut(), &mut screen, &mut idle) {
+                Drained::Open => {}
+                Drained::Reopen => {
+                    feed = None;
+                    looked = None;
                 }
-                Within::Event(event) => {
-                    idle = 0;
-                    screen.apply(*event);
-                }
-                Within::Broke(_) => {
+                Drained::Broke => {
                     feed = None;
                     screen.wait();
                 }
-                Within::Ended => return Ok(Done::default()),
+                Drained::Ended => return Ok(Done::default()),
             },
             None => {
                 if looked.is_none_or(|at| at.elapsed() >= LOOK) {
@@ -190,12 +205,55 @@ pub fn drive(
         let text = frame.text();
         if screen.ready() {
             frame.bell = screen.take_bell();
-            if frame.bell || text != drawn {
+            // A line read is drawn for, though it changed nothing on the
+            // screen, so what the seam says it consumed is always news.
+            if frame.bell || text != drawn || taken != told {
+                display.consumed(taken);
                 display.draw(&frame)?;
                 drawn = text;
+                told = taken;
             }
         }
     }
+}
+
+/// How a pass over the watch left it.
+enum Drained {
+    Open,
+    /// An idle watch to be opened again.
+    Reopen,
+    Broke,
+    Ended,
+}
+
+/// One pass over the watch: wait a tick for its first event, then apply
+/// what it already holds, up to [`BATCH`], so one frame is drawn for them.
+fn drained(open: &mut dyn TopFeed, screen: &mut Screen, idle: &mut u32) -> Drained {
+    let mut wait = TICK;
+    for _ in 0..BATCH {
+        match open.within(wait) {
+            Within::Event(event) => {
+                *idle = 0;
+                screen.apply(*event);
+                // What is already waiting, never a wait.
+                wait = Duration::ZERO;
+            }
+            // Only the wait for a first event is idleness; the end of a
+            // drain is the backlog's.
+            Within::Idle if wait == TICK => {
+                *idle += 1;
+                if open.reopened_when_idle() && *idle >= 10 {
+                    *idle = 0;
+                    return Drained::Reopen;
+                }
+                return Drained::Open;
+            }
+            Within::Idle => return Drained::Open,
+            Within::Broke(_) => return Drained::Broke,
+            Within::Ended => return Drained::Ended,
+        }
+    }
+    Drained::Open
 }
 
 fn said(screen: &mut Screen, answered: Result<String, String>) {

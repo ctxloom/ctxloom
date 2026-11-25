@@ -103,7 +103,7 @@ fn a_snapshot_ends_the_waiting_and_fills_the_table() {
     assert_eq!(frame.rows.len(), 3);
     assert_eq!(
         frame.columns.split_whitespace().collect::<Vec<_>>(),
-        ["NAME", "STATE", "AGENT", "PROFILES", "TAGS", "ENGINE", "OWNER"]
+        ["NAME", "STATE", "AGENT", "PROFILES", "ENGINE", "OWNER"]
     );
 }
 

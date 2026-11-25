@@ -244,7 +244,7 @@ fn screen(
             source,
             answers,
             &keys,
-            &mut Frames(out, look.ahead),
+            &mut Frames(out, look.ahead, 0),
         );
     }
     let stop = Arc::new(AtomicBool::new(false));

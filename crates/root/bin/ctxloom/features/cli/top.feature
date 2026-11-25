@@ -131,7 +131,7 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
   names the launch planned with) and `Session.tags` (owner ruling: the NAMES
   OF THE BUNDLES ITS PROFILES' LOADOUT LOADED; neither the launch's `--tag`s
   nor a profile's `select_tags`), recorded at its mint and carried on every
-  read of it. `--tag <bundle>` and the TAGS column are those names.
+  read of it. `--tag <bundle>` filters on those names.
 
   WHAT THE LOG IS (owner ruling 2026-11-23): `WatchTop` carries it, as `log`
   events: the entries of the session a one-session scope names or `--log`
@@ -683,7 +683,7 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
     column), `r` (reverse the sort), `f` (opens the filter prompt: the next
     line is `<field>=<value>`, an empty one clears), `q` (quit). A frame is:
     a header line naming the scope, the filter and the sort, an inbox table (its
-    header row `NAME STATE AGENT PROFILES TAGS ENGINE OWNER` and one row
+    header row `NAME STATE AGENT PROFILES ENGINE OWNER` and one row
     per session, the selected one marked `>`, a row an ask waits on in the state `! ASK`, and `! ASK x2` when two wait; each state is followed by the time since the session's last status change, `live 3m`, `! ASK 12s`, rounded down to the largest whole unit: `s`, `m`, `h`, `d`), a line `--- asks of <harp>`,
     its asks, a line `--- log of <harp>`, and its log entries oldest first.
     A real terminal's drawing, its alternate screen and its restoring on
@@ -694,7 +694,7 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
       Given an initialized ctxloom project
       And a child "brisk-copper-moth" of "amber-quiet-heron" launched on agent "reviewer"
       When I start "ctxloom top --format text" in a terminal and read its frames
-      Then the first frame's header row is "NAME STATE AGENT PROFILES TAGS ENGINE OWNER"
+      Then the first frame's header row is "NAME STATE AGENT PROFILES ENGINE OWNER"
       And the first frame has a row for "amber-quiet-heron" and a row for "brisk-copper-moth"
       And exactly one row is marked "> ", the first row until a key moves it
       And the table comes before the line "--- asks of <the selected row's harp>", which comes before the line "--- log of <the selected row's harp>"

@@ -1468,6 +1468,20 @@ const SPAWNS_ITSELF: bool = true;
 #[cfg(test)]
 const SPAWNS_ITSELF: bool = false;
 
+/// The executable to spawn as the daemon: this one, unless it is a unit
+/// test's harness ([`SPAWNS_ITSELF`]), or it cannot be named.
+// Not mutated: a mutant that lets a unit test's harness spawn itself as the
+// daemon starts a detached cascade (each copy runs the daemon tests, which
+// spawn again), outside cargo-mutants' process group, until the run's memory
+// cap kills cargo-mutants itself; such a mutant can be judged by no test.
+#[cfg_attr(test, mutants::skip)]
+fn own_executable() -> Option<PathBuf> {
+    if !SPAWNS_ITSELF {
+        return None;
+    }
+    std::env::current_exe().ok()
+}
+
 /// Make sure the user's daemon serves: spawn one when none is live, and
 /// wait, within [`SPAWN_WAIT`], for a live one to advertise itself (the one
 /// spawned, or another client's, whichever took the single-instance lock). A stale file
@@ -1488,12 +1502,7 @@ fn ensure_within(wiring: &Wiring, env: &EnvSnapshot, wait: Duration) -> Option<D
     if files.discovery().is_some_and(|found| live(&found)) {
         return None;
     }
-    if !SPAWNS_ITSELF {
-        return None;
-    }
-    let Ok(exe) = std::env::current_exe() else {
-        return None;
-    };
+    let exe = own_executable()?;
     let mut command = os::process::Detach::new(exe);
     command.args(["daemon", "serve"]);
     if let Some(idle) = env.utf8(IDLE_VARIABLE) {

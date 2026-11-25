@@ -587,11 +587,36 @@ fn serving_nothing(w: &mut World) {
     expr = "a ctxloom daemon starts serving for this home, hosting a child {string} of {string}"
 )]
 fn daemon_starts_hosting(w: &mut World, child: String, owner: String) {
+    // The daemon is found by `top` as soon as it advertises itself, and it
+    // advertises before the child is launched into it, so a `top` left running
+    // can take its snapshot in between (an empty one is then the truth at that
+    // instant, and the child arrives as `session_changed`). The step says the
+    // daemon starts serving WITH the child: a `top` already running is held
+    // (SIGSTOP) until the child is hosted, then let go to look.
+    let held = hold_top(w);
     if (child.as_str(), owner.as_str()) == ("brisk-copper-moth", "amber-quiet-heron") {
         daemon_spec::idle_child(w);
     } else {
         daemon_spec::user_launches(w, &owner, &child, None);
     }
+    if let Some(pid) = held {
+        signal_top(&pid, "-CONT");
+    }
+}
+
+/// Hold the running `top` (if one was started) with SIGSTOP, answering its pid.
+fn hold_top(w: &World) -> Option<String> {
+    let pid = w.top.stream.as_ref()?.child.id().to_string();
+    signal_top(&pid, "-STOP");
+    Some(pid)
+}
+
+fn signal_top(pid: &str, signal: &str) {
+    let sent = std::process::Command::new("kill")
+        .args([signal, pid])
+        .status()
+        .expect("kill runs");
+    assert!(sent.success(), "kill {signal} {pid}");
 }
 
 #[when(expr = "a child {string} of {string} is launched")]

@@ -89,7 +89,7 @@ pub fn dead_letter_sample(component: &str) -> DeadLetter {
             source_component: component.to_string(),
             why: Some(Why::Reason(Diagnostic {
                 code: "ROUTER_REASON_UNHANDLED_HANDLER_ERROR".to_string(),
-                args: Default::default(),
+                typed_args: Vec::new(),
             })),
             ..AngzarrDeadLetter::default()
         },

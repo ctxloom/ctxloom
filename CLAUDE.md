@@ -1275,7 +1275,7 @@ the URL's host. The private key lives in memory in
 `run_ports::HookCertificate` (whose `Debug` withholds it) and goes to
 `hook-listener`'s `TlsIdentity` and nowhere else: never journaled, logged, in
 an environment or in an error. The listener's limits are angzarr's generic
-`Listener` defaults (angzarr `434ccc0a`; `hook-listener` sets none): a TLS
+`Listener` defaults (angzarr `8dc7da9a`; `hook-listener` sets none): a TLS
 handshake within 10 s, an HTTP/2 keepalive ping every 60 s answered within
 20 s, a connection closed after 1 h plus a 30 s grace (never zero: a zero
 grace is `ListenError::ZeroConnectionAgeGrace` at bind, which
@@ -1839,20 +1839,22 @@ The lock holds ONE `angzarr-embedded`, `angzarr-proto`, `angzarr-ports`,
 repository (angzarr, rust-support) at ONE commit
 (`test_every_crate_of_one_repository_is_locked_at_one_commit`). Every pin in
 `Cargo.toml` is a full commit. The angzarr pins are one commit of one
-repository, `434ccc0a` of github.com/angzarr-io/angzarr (core, `angzarr-embedded`
+repository, `8dc7da9a` of github.com/angzarr-io/angzarr (core, `angzarr-embedded`
 and its router, `angzarr-build` and `angzarr-codegen`, the store and
 `sqlite-store-opener`; `angzarr-coordinator-grpc`'s `tls` feature, which
 `hook-listener` enables, is `Listener::tls`). angzarr owns no `diagnostic`,
 `presentation` or platform crate any more: the generic substrate is
-rust-support's (`2f7d2670` of github.com/benjaminabbitt/rust-support):
+rust-support's (`dcb930d1` of github.com/benjaminabbitt/rust-support):
 `coded-diagnostic` (the `Diagnostic` trait, `code!`, `Report`, the catalogs),
 `presentation`, `test-dir`, and the platform crates `os`, `file-system` and
-`file-lock`. taskloom's crates (`1c1008a0`) are built on the same angzarr and
+`file-lock`. taskloom's crates (`68328343`) are built on the same angzarr and
 the same rust-support, so moving one moves all: the lock holds ONE
 `Diagnostic` trait, which every error of every crate implements, because two
-do not compose. 434ccc0a is the angzarr commit taskloom pins (angzarr's
-`04107e5` differs only in the generated apps' own pins; a second angzarr rev in
-the lock would be a second copy of every angzarr crate). rust-support's
+do not compose. 8dc7da9a is the angzarr commit taskloom pins (a second angzarr
+rev in the lock would be a second copy of every angzarr crate); harp-core is
+`45d05e96` of github.com/benjaminabbitt/harp. Diagnostic args are typed on
+the wire (`Diagnostic.typed_args`: text, int, uint, nested; proto maps are
+`BTreeMap`). rust-support's
 crates are `Apache-2.0 OR BSD-3-Clause`; the angzarr runtime crates
 (`angzarr-yaml`, `angzarr-embedded`...) are AGPL-3.0-only with angzarr's
 runtime exception and the coordinators with its gRPC API permission, each

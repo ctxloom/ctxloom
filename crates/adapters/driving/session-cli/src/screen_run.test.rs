@@ -67,18 +67,18 @@ fn snapshot() -> v1::TopEvent {
 /// A watch that says its snapshot once and then nothing.
 struct Feed(Option<v1::TopEvent>);
 
-/// A watch that says each event in turn and then nothing.
-struct Told(std::collections::VecDeque<v1::TopEvent>);
+/// A watch that says each event in turn, a `None` being a tick of silence.
+struct Paced(std::collections::VecDeque<Option<v1::TopEvent>>);
 
-impl TopFeed for Told {
+impl TopFeed for Paced {
     fn next(&mut self) -> Option<Result<v1::TopEvent, Failure>> {
-        self.0.pop_front().map(Ok)
+        None
     }
 
     fn within(&mut self, _: Duration) -> Within {
         match self.0.pop_front() {
-            Some(event) => Within::Event(Box::new(event)),
-            None => Within::Idle,
+            Some(Some(event)) => Within::Event(Box::new(event)),
+            _ => Within::Idle,
         }
     }
 }
@@ -326,7 +326,11 @@ fn test_a_new_ask_is_drawn_with_the_bell_once_and_no_other_frame_rings() {
                     approval: Some(second),
                 })),
             };
-            Ok(Some(Box::new(Told([snapshot(), asked].into()))))
+            // The ask comes in a later pass than the snapshot: what the watch
+            // holds together is one frame.
+            Ok(Some(Box::new(Paced(
+                vec![Some(snapshot()), None, Some(asked)].into(),
+            ))))
         }
         fn wait(&self) {}
     }

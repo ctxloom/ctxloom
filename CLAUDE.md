@@ -2882,7 +2882,7 @@ At a terminal `--format text` is the screen: an inbox of sessions above the
 reading pane of the selected one (its asks, answerable, and its log). It is
 `screen.rs` (the model: events and keys in, a `Frame` out; filters typed on
 the screen narrow the rows the watch gave), `screen_run.rs` (the loop, on a
-tick so a key is never kept waiting on the watch) and `tui.rs` (ratatui
+tick so a key is never kept waiting on the watch; the events the watch already holds, up to `screen_run::BATCH` (256), are applied before one frame is drawn, so the backlog after the snapshot is not replayed frame by frame) and `tui.rs` (ratatui
 painting and crossterm keys on the alternate screen); the text seam
 (`CTXLOOM_TEST_TERMINAL`, frames ended by `---`, keys named a line each on
 stdin) draws the same `Frame` as plain lines. An answer is

@@ -7,8 +7,9 @@ use std::time::Duration;
 
 use clap::{FromArgMatches, Parser};
 use daemon_proto::v1;
+use daemon_proto::v1::log_lifecycle::Kind;
 
-use super::{drive, Display, Input, TopAnswers};
+use super::{drive, Display, Input, TopAnswers, BATCH};
 use crate::approvals::AlwaysPlan;
 use crate::screen::{Frame, Key};
 use crate::top::{Top, TopFeed, TopSource, Within};
@@ -421,4 +422,123 @@ fn test_the_loop_counts_a_rows_timer_by_the_displays_clock() {
     .unwrap();
     let row = &display.frames[0].rows[0];
     assert!(row.contains("live 7h"), "{row}");
+}
+
+/// A watch holding its snapshot and then `backlog` log events (all of them
+/// at once, or for ever when `None`), counting what was taken.
+struct Backlog {
+    snapshot: Option<v1::TopEvent>,
+    left: Option<usize>,
+    taken: std::rc::Rc<std::cell::Cell<usize>>,
+}
+
+impl TopFeed for Backlog {
+    fn next(&mut self) -> Option<Result<v1::TopEvent, Failure>> {
+        None
+    }
+
+    fn within(&mut self, _: Duration) -> Within {
+        if let Some(event) = self.snapshot.take() {
+            self.taken.set(self.taken.get() + 1);
+            return Within::Event(Box::new(event));
+        }
+        match self.left.as_mut() {
+            Some(0) => Within::Idle,
+            left => {
+                if let Some(n) = left {
+                    *n -= 1;
+                }
+                self.taken.set(self.taken.get() + 1);
+                Within::Event(Box::new(lifecycle_log("amber-quiet-heron", Kind::Started)))
+            }
+        }
+    }
+}
+
+struct Backlogged {
+    left: Option<usize>,
+    taken: std::rc::Rc<std::cell::Cell<usize>>,
+}
+
+impl TopSource for Backlogged {
+    fn open(
+        &self,
+        _: bool,
+        _: &dyn Fn(&str) -> Result<v1::WatchTopRequest, Failure>,
+    ) -> Result<Option<Box<dyn TopFeed>>, Failure> {
+        Ok(Some(Box::new(Backlog {
+            snapshot: Some(snapshot()),
+            left: self.left,
+            taken: self.taken.clone(),
+        })))
+    }
+
+    fn wait(&self) {}
+}
+
+/// Records how many events the watch had given when each frame was drawn,
+/// and quits at the first.
+struct Counting {
+    taken: std::rc::Rc<std::cell::Cell<usize>>,
+    at_frames: Vec<usize>,
+    quit: Sender<Input>,
+}
+
+impl Display for Counting {
+    fn draw(&mut self, _: &Frame) -> Result<(), Failure> {
+        self.at_frames.push(self.taken.get());
+        let _ = self.quit.send(quit());
+        Ok(())
+    }
+}
+
+fn counted(left: Option<usize>) -> Vec<usize> {
+    let taken = std::rc::Rc::new(std::cell::Cell::new(0));
+    let (send, keys) = channel();
+    let mut display = Counting {
+        taken: taken.clone(),
+        at_frames: Vec::new(),
+        quit: send,
+    };
+    drive(
+        &command(&[]),
+        &Backlogged { left, taken },
+        &Answers::default(),
+        &keys,
+        &mut display,
+    )
+    .unwrap();
+    display.at_frames
+}
+
+#[test]
+fn a_backlog_already_waiting_is_applied_before_the_first_frame() {
+    let at = counted(Some(200));
+    assert_eq!(at[0], 201, "the first frame was drawn mid-replay: {at:?}");
+}
+
+#[test]
+fn a_watch_that_never_runs_dry_still_draws_and_hears_the_keys() {
+    let at = counted(None);
+    // The loop returned (the key was heard) and the frame was drawn after a
+    // bounded batch, not after the whole of an endless backlog.
+    assert!(at[0] > 1 && at[0] <= BATCH + 1, "{at:?}");
+}
+
+fn lifecycle_log(harp: &str, kind: Kind) -> v1::TopEvent {
+    v1::TopEvent {
+        event: Some(v1::top_event::Event::Log(v1::TopLog {
+            session: format!("projects/p/sessions/{harp}"),
+            entry: Some(v1::LogEntry {
+                entry: Some(v1::log_entry::Entry::Lifecycle(v1::LogLifecycle {
+                    kind: kind as i32,
+                    run: 1,
+                    cause: "runner-exit".to_string(),
+                    engine: "claude-code".to_string(),
+                })),
+                ..v1::LogEntry::default()
+            }),
+            ..v1::TopLog::default()
+        })),
+    }
 }

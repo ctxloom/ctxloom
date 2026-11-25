@@ -22,6 +22,9 @@ use crate::top::{Sort, Top, TopFeed, TopSource, Within};
 
 /// How long the loop waits on the watch before it looks at the keys again.
 pub(crate) const TICK: Duration = Duration::from_millis(50);
+/// The most events one pass applies before it draws.
+#[cfg(test)]
+pub(crate) const BATCH: usize = 256;
 /// How long between looks for a daemon to serve.
 const LOOK: Duration = Duration::from_millis(500);
 

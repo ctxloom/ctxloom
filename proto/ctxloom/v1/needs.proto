@@ -21,7 +21,7 @@ syntax = "proto3";
 //     MCP elicitation; an `Edit` is answered with the new document text
 //     (API Q12);
 //   - a CLI off a terminal shows the preview and applies nothing (exit 0,
-//     or 1 with `--detailed-exitcode` when it would change something).
+//     or 17 with `--detailed-exitcode` when it would change something).
 package ctxloom.v1;
 
 import "google/api/field_behavior.proto";

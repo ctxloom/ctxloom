@@ -37,7 +37,7 @@ fn launch() -> Launch {
 fn end(code: &str) -> v1::RunEvent {
     v1::RunEvent {
         event: Some(v1::run_event::Event::End(v1::RunEnd {
-            exit: 20,
+            exit: 48,
             code: code.to_string(),
             ..v1::RunEnd::default()
         })),

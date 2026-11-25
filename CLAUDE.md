@@ -2498,7 +2498,7 @@ A `Client` reaches its daemon through daemon-ports' `Daemons` (the wiring's
 `daemon::Reach`): `serving` finds the one the discovery file names, live
 and this home's, and never starts one (S14: `daemon status|stop` are
 answered locally when none serves, status printing `no ctxloom daemon is
-serving`, the empty message in json); `reach` reconciles a daemon of
+serving`, the empty `{"daemons": []}` in json); `reach` reconciles a daemon of
 another stamp first (M3), else spawns one and waits (S16's bound), and with
 none started is `Unreached::NotStarted`, `daemon-ports-not-started` (exit
 10, naming its log as `~/.ctxloom/daemon/daemon.log` under the home), or,

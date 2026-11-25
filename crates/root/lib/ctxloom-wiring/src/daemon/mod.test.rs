@@ -467,10 +467,9 @@ fn daemon_stop_says_what_it_stopped_and_when_nothing_served() {
 }
 
 /// What `render` says of `value` in json.
-fn said_json(value: &impl angzarr_presentation::Render) -> serde_json::Value {
+fn said_json(value: &impl presentation::Render) -> serde_json::Value {
     let mut out = Vec::new();
-    angzarr_presentation::render(&mut out, angzarr_presentation::Format::Json, value)
-        .expect("rendered");
+    presentation::render(&mut out, presentation::Format::Json, value).expect("rendered");
     serde_json::from_slice(&out).expect("json")
 }
 

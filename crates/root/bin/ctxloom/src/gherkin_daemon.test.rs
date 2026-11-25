@@ -481,7 +481,7 @@ pub(super) fn serving_draining(w: &mut World, child: String) {
     assert_eq!(drained.code, 0, "{}", drained.said());
     until(w, "the daemon draining", DAEMON_WAIT, |w| {
         let status = run_now(w, &["daemon", "status", "--format", "json"]);
-        (status.json()["draining"] == true).then_some(())
+        (status.json()["daemons"][0]["draining"] == true).then_some(())
     });
 }
 

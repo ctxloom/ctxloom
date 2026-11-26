@@ -871,6 +871,35 @@ fn says_then_ends(w: &mut World, harp: String, text: String) {
     run_ends_of(w, &harp);
 }
 
+/// A made-up, random-looking token (not a credential), which a scenario names
+/// `<a random-looking token>`, and its first characters.
+pub(super) const TOKEN: &str = "k3Jf9Zq2LmX8vB1nRt7YwP5dHs0AcE4uGiOb6QxTzVyN2Mw"; // gitleaks:allow
+
+/// `text` with the scenario's names for the token put as it is.
+pub(super) fn with_token(text: &str) -> String {
+    text.replace("<a random-looking token>", TOKEN)
+        .replace("<the token's first characters>", &TOKEN[..8])
+}
+
+/// `harp` ran the tool `tool` on `command`, which printed `output`: a
+/// PostToolBatch, as its engine fires it.
+#[when(expr = "{string} ran the tool {string} with the command {string} and the output {string}")]
+fn ran_the_tool(w: &mut World, harp: String, tool: String, command: String, output: String) {
+    settle_mark(w);
+    hook_of(
+        w,
+        &harp,
+        "PostToolBatch",
+        daemon_spec::POST_TOOL_BATCH,
+        |body| {
+            let call = &mut body["tool_calls"][0];
+            call["tool_name"] = Value::String(tool);
+            call["tool_input"] = serde_json::json!({ "command": with_token(&command) });
+            call["tool_response"] = Value::String(output.replace("\\n", "\n"));
+        },
+    );
+}
+
 /// `harp`'s run ended, as the user stops it.
 fn run_ends_of(w: &mut World, harp: &str) {
     let env = daemon_spec::env_of(w);

@@ -40,8 +40,8 @@ const SESSION_START: &str =
 const PROMPT: &str = "Run the shell command: echo hi";
 /// The assistant's words, in the deltas it said them.
 const DELTAS: [&str; 3] = ["The command `echo hi` ", "ran and ", "printed `hi`."];
-/// The tool's response: a body no record may keep.
-const TOOL_BODY: &str = "TOOL-RESPONSE-BODY-THAT-MUST-NOT-BE-KEPT";
+/// The tool's response: its first lines are the entry's `result` (masked).
+const TOOL_BODY: &str = "built the demo crate";
 
 /// The summary a compaction writes: text no record may keep.
 const SUMMARY: &str = "SUMMARY-TEXT-THAT-MUST-NOT-BE-KEPT";
@@ -81,7 +81,7 @@ fn with_a_file_tool(batch: &mut Value) {
 const TOOL_INPUT: &str = r#"{"command":"echo hi","description":"Print hi via echo"}"#;
 const TOOL_INPUT_DIGEST: &str = "fa5825175a8445f0979f1631d64a01f4bf56995b04914038c5089e8dd1a6bea3";
 /// The digest of [`TOOL_BODY`] (`sha256sum`).
-const TOOL_DIGEST: &str = "71ca0ef886ae43a96de885a15d913cc2cbe0553f553638a28601890879ed97e3";
+const TOOL_DIGEST: &str = "f9fc3b8ff40ee1d221c6fceee65a46ef013a24f52d8e8d0a468583460ff18e69";
 
 /// The stub engine.
 const STUB: &str = r#"here="$(dirname "$0")"
@@ -475,6 +475,14 @@ fn child_registered(w: &mut World) {
     );
 }
 
+/// The Bash call: its one meaningful field and its result, never its
+/// `description`, and no path.
+fn bash_is_said_by_its_command(bash: &Value) {
+    assert_eq!(bash["extra"]["claude-code.summary"], "echo hi");
+    assert_eq!(bash["extra"]["claude-code.result"], TOOL_BODY);
+    assert!(bash["extra"].get("claude-code.path").is_none(), "{bash}");
+}
+
 #[then("the session's transcript holds her prompt, the assistant's words in order, the tool call as a digest and the turn's end, each once")]
 fn child_transcript(w: &mut World) {
     let lines = w.transcript();
@@ -509,24 +517,16 @@ fn child_transcript(w: &mut World) {
     assert_eq!(edit["extra"]["claude-code.path"], EDITED, "{edit}");
     assert_eq!(
         edit["extra"].as_object().map(|e| e.len()),
-        Some(1),
+        Some(2), // the path and the result: nothing of the input but the path
         "{edit}"
     );
-    assert!(
-        lines[4].get("extra").is_none(),
-        "no path for Bash: {}",
-        lines[4]
-    );
+    bash_is_said_by_its_command(&lines[4]);
     let turn_end = lines[6]["turn_end"].as_object().unwrap();
     assert!(
         !turn_end.contains_key("text") && !turn_end.contains_key("delta"),
         "the turn's end carries no text: {turn_end:?}"
     );
     let whole = serde_json::to_string(&lines).unwrap();
-    assert!(
-        !whole.contains(TOOL_BODY),
-        "the tool's response body was kept"
-    );
     assert!(!whole.contains(EDIT_SECRET), "the edit's text was kept");
     assert!(
         !whole.contains("Print hi via echo") && !whole.contains("description"),

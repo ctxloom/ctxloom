@@ -55,10 +55,10 @@ const TOOL_PART: &str = "prt_1c39f745b001c5IdBJ9I7M5n07";
 const TEXT_PART: &str = "prt_1c39b7d0e001Ls1aH8dEy6GbZm";
 /// The assistant's words.
 const WORDS: &str = "The command `echo hi` ran and printed `hi`.";
-/// The tool's output: a body no record may keep.
-const TOOL_BODY: &str = "TOOL-RESPONSE-BODY-THAT-MUST-NOT-BE-KEPT";
+/// The tool's output: its first lines are the entry's `result` (masked).
+const TOOL_BODY: &str = "built the demo crate";
 /// The digest of [`TOOL_BODY`] (`sha256sum`).
-const TOOL_DIGEST: &str = "71ca0ef886ae43a96de885a15d913cc2cbe0553f553638a28601890879ed97e3";
+const TOOL_DIGEST: &str = "f9fc3b8ff40ee1d221c6fceee65a46ef013a24f52d8e8d0a468583460ff18e69";
 
 /// The stub opencode: records its environment, then runs the driver over the
 /// plugin its session home holds.
@@ -380,12 +380,13 @@ fn file_tool_is_said_by_its_path(bash: &Value, edit: &Value) {
     assert_eq!(edit["tool"]["tool_use_id"], EDIT_PART);
     assert_eq!(edit["tool"]["name"], "edit");
     assert_eq!(edit["extra"]["opencode.path"], EDITED, "{edit}");
-    assert_eq!(
-        edit["extra"].as_object().map(|e| e.len()),
-        Some(1),
-        "{edit}"
+    assert!(edit["extra"].get("opencode.summary").is_none(), "{edit}");
+    assert_eq!(bash["extra"]["opencode.summary"], "echo hi", "{bash}");
+    assert_eq!(bash["extra"]["opencode.result"], TOOL_BODY, "{bash}");
+    assert!(
+        bash["extra"].get("opencode.path").is_none(),
+        "no path for bash: {bash}"
     );
-    assert!(bash.get("extra").is_none(), "no path for bash: {bash}");
 }
 
 #[cucumber::then(
@@ -430,7 +431,6 @@ fn transcript_holds(w: &mut World) {
     assert_eq!(words["is_final"], true);
     assert_eq!(lines[4]["turn_end"]["prompt_id"], PROMPT_ID);
     let whole = serde_json::to_string(&lines).unwrap();
-    assert!(!whole.contains(TOOL_BODY), "the tool's output was kept");
     assert!(!whole.contains(EDIT_SECRET), "the edit's text was kept");
     assert!(
         !whole.contains("The user wants ok."),

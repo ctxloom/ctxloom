@@ -318,11 +318,8 @@ fn test_a_file_tools_path_is_the_calls_engine_data() {
         ),
     ] {
         let call = &batch_of(tool, input).tool_calls[0];
-        assert_eq!(
-            call.extra,
-            [("claude-code.path".to_string(), "/work/a.rs".to_string())].into(),
-            "{tool}"
-        );
+        assert_eq!(call.extra["claude-code.path"], "/work/a.rs", "{tool}");
+        assert!(!call.extra.contains_key("claude-code.summary"), "{tool}");
         assert!(!format!("{:?}", call.extra).contains("SECRET"), "{tool}");
     }
 }
@@ -335,8 +332,152 @@ fn test_a_tool_that_is_no_file_tool_says_no_path() {
         ("Read", r#"{}"#),
     ] {
         assert!(
-            batch_of(tool, input).tool_calls[0].extra.is_empty(),
+            !batch_of(tool, input).tool_calls[0]
+                .extra
+                .contains_key("claude-code.path"),
             "{tool}"
         );
     }
+}
+
+/// A batch of one `tool` call with `input` and the response document
+/// `response` (JSON text), as claude writes them.
+fn batch_with(tool: &str, input: &str, response: &str) -> HookEvent {
+    let payload = format!(
+        r#"{{"session_id":"s","prompt_id":"p","hook_event_name":"PostToolBatch","tool_calls":[{{"tool_name":"{tool}","tool_input":{input},"tool_use_id":"toolu_1","tool_response":{response}}}]}}"#
+    );
+    decode(&payload)
+}
+
+/// A made-up, random-looking token (not a credential).
+const TOKEN: &str = "k3Jf9Zq2LmX8vB1nRt7YwP5dHs0AcE4uGiOb6QxTzVyN2Mw"; // gitleaks:allow
+
+fn extra_of(tool: &str, input: &str, response: &str) -> std::collections::BTreeMap<String, String> {
+    batch_with(tool, input, response).tool_calls[0]
+        .extra
+        .clone()
+}
+
+// The owner's ruling of 2026-11-25: each tool says ONE meaningful field of its
+// input as `claude-code.summary`, and the first lines of its result as
+// `claude-code.result`.
+#[test]
+fn test_each_tools_summary_is_its_one_meaningful_field() {
+    for (tool, input, summary) in [
+        (
+            "Bash",
+            r#"{"command":"cargo build --release\necho second","description":"build"}"#,
+            "cargo build --release",
+        ),
+        (
+            "Grep",
+            r#"{"pattern":"TODO","path":"src/"}"#,
+            "\"TODO\" in src/",
+        ),
+        ("Grep", r#"{"pattern":"TODO"}"#, "\"TODO\""),
+        (
+            "Glob",
+            r#"{"pattern":"**/*.rs","path":"crates"}"#,
+            "**/*.rs in crates",
+        ),
+        (
+            "WebFetch",
+            r#"{"url":"https://x.test/a","prompt":"p"}"#,
+            "https://x.test/a",
+        ),
+        ("WebSearch", r#"{"query":"rust serde"}"#, "rust serde"),
+        (
+            "Task",
+            r#"{"description":"Find the bug","prompt":"long"}"#,
+            "Find the bug",
+        ),
+        (
+            "Agent",
+            r#"{"description":"Review it","prompt":"long"}"#,
+            "Review it",
+        ),
+    ] {
+        let extra = extra_of(tool, input, r#""ok""#);
+        assert_eq!(
+            extra.get("claude-code.summary").map(String::as_str),
+            Some(summary),
+            "{tool}: {extra:?}"
+        );
+    }
+}
+
+#[test]
+fn test_a_tool_with_nothing_meaningful_says_no_summary() {
+    for (tool, input) in [
+        ("Skill", r#"{"skill":"admit"}"#),
+        ("TodoWrite", r#"{"todos":[]}"#),
+        ("Bash", r#"{}"#),
+        ("Grep", r#"{"path":"src/"}"#),
+        // A file tool keeps its path alone.
+        (
+            "Write",
+            r#"{"file_path":"/work/a.rs","content":"SECRET-CONTENT"}"#,
+        ),
+    ] {
+        let extra = extra_of(tool, input, r#""""#);
+        assert!(
+            !extra.contains_key("claude-code.summary"),
+            "{tool}: {extra:?}"
+        );
+        assert!(!format!("{extra:?}").contains("SECRET"), "{tool}");
+    }
+}
+
+#[test]
+fn test_a_file_tool_keeps_its_path_and_gains_its_result() {
+    let extra = extra_of("Read", r#"{"file_path":"/work/a.rs"}"#, r#""fn main() {}""#);
+    assert_eq!(extra["claude-code.path"], "/work/a.rs");
+    assert_eq!(extra["claude-code.result"], "fn main() {}");
+    assert!(!extra.contains_key("claude-code.summary"));
+}
+
+#[test]
+fn test_a_result_is_its_first_five_lines_each_cut_at_120() {
+    let long = "x".repeat(200);
+    let text = format!("1\\n2\\n3\\n4\\n5\\n6\\n{long}");
+    let extra = extra_of("Bash", r#"{"command":"ls"}"#, &format!("\"{text}\""));
+    assert_eq!(extra["claude-code.result"], "1\n2\n3\n4\n5");
+    let extra = extra_of("Bash", r#"{"command":"ls"}"#, &format!("\"{long}\""));
+    let line = &extra["claude-code.result"];
+    assert_eq!(line.chars().count(), 121, "{line}");
+    assert!(line.ends_with('\u{2026}'));
+}
+
+#[test]
+fn test_a_bash_response_document_says_its_output_and_its_exit_code() {
+    let extra = extra_of(
+        "Bash",
+        r#"{"command":"make"}"#,
+        r#"{"stdout":"built\nok","stderr":"","interrupted":false,"exitCode":2}"#,
+    );
+    assert_eq!(extra["claude-code.result"], "built\nok");
+    assert_eq!(extra["claude-code.exit"], "2");
+    let failed = extra_of(
+        "Bash",
+        r#"{"command":"make"}"#,
+        r#"{"stdout":"","stderr":"no rule","interrupted":false}"#,
+    );
+    assert_eq!(failed["claude-code.result"], "no rule");
+    assert!(!failed.contains_key("claude-code.exit"), "{failed:?}");
+}
+
+#[test]
+fn test_a_summary_and_a_result_are_masked_before_they_are_recorded() {
+    let marker = format!("[masked:{}]", TOKEN.len());
+    let extra = extra_of(
+        "Bash",
+        &format!(r#"{{"command":"curl -H token={TOKEN} https://x.test"}}"#),
+        &format!(r#""KEY={TOKEN}""#),
+    );
+    assert_eq!(
+        extra["claude-code.summary"],
+        format!("curl -H token={marker} https://x.test")
+    );
+    assert_eq!(extra["claude-code.result"], format!("KEY={marker}"));
+    assert!(!format!("{extra:?}").contains(&TOKEN[..8]));
 }

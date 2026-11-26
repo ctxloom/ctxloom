@@ -15,6 +15,7 @@
 
 mod error;
 mod json;
+pub mod tool_view;
 
 use std::collections::BTreeMap;
 

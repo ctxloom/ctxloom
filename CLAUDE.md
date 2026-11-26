@@ -4596,7 +4596,7 @@ transcript's entry is the `gap` arm (`dropped`, `why`, `dropped_at`), and its te
 facts, and the daemon's start-up flush (above). A unit test's executable never spawns itself as the daemon
 (`SPAWNS_ITSELF`). The session's end is NOT captured (owner 2026-11-15):
 it is its run's end (`IncarnationEnded`) and its lock's verdict.
-A TOOL CALL'S INPUT IS NEVER STORED (owner 2026-11-24: ToolCalled was two
+A TOOL CALL'S INPUT IS NEVER STORED WHOLE (owner 2026-11-24, narrowed 2026-11-25, below: ToolCalled was two
 thirds of an owner's event bodies, Write and Edit inputs holding whole
 files): `observe` records the input's size and SHA-256 (`input_bytes`,
 `input_sha256`, optional and additive on `RecordToolCall` and `ToolCalled`,
@@ -4608,14 +4608,31 @@ no text (its `input`, number 4, is reserved). Nothing read the stored input:
 the skill-mates hook and the file-edit hooks take the skill and path from the
 live hook payload (`HookEvent.skill`, `.path`), `invoked_skills` reads the
 engine's own transcript file, and re-injection reads owed library changes.
-No summary of the input (a Bash command's first line) is kept, but for the
-PATH a FILE tool touched (owner 2026-11-24), which the adapter attaches as
-engine data, `<engine>.path` (`claude-code.path` for Read, Write, Edit and
-MultiEdit's `file_path` and NotebookEdit's `notebook_path`; `opencode.path`
-for opencode's `read`, `write` and `edit` `filePath`): the entry's `extra`.
-The screen says `tool Edit, src/lib.rs, input 4.1 KB, result 12 B`, the path
-relative to the session's project root when under it, else as given, read
-from the session's own engine's key alone (`log_text::Of`).
+A tool's input is kept as its size and digest, and, narrowed by the owner's
+ruling of 2026-11-25, as ONE meaningful field of it and the first lines of
+its result, both MASKED, through the engine extension (below). THE PATH a
+FILE tool touched is attached by the adapter as `<engine>.path`
+(`claude-code.path` for Read, Write, Edit and MultiEdit's `file_path` and
+NotebookEdit's `notebook_path`; `opencode.path` for opencode's `read`,
+`write` and `edit` `filePath`): the entry's `extra`. The SUMMARY
+(`<engine>.summary`) is each adapter's pick of one field per tool: a Bash
+command's first non-empty line (`bash` for opencode), Grep's pattern (quoted)
+and `path` (`"TODO" in src/`), Glob's pattern and path, WebFetch's `url`,
+WebSearch's `query`, a Task or Agent's `description`; any other tool, and the
+file tools (path alone), has none. The RESULT (`<engine>.result`) is the
+first five non-empty lines of the tool's response (a string, or a document's
+`stdout`, else `stderr`, `output`, `content`, `text`), and a Bash call's EXIT
+CODE (`<engine>.exit`) where the payload gives one (claude's `exitCode`,
+opencode's `state.metadata.exit`). Every line is cut at 120 characters (an
+ellipsis) AFTER masking: `surface_ports::tool_view::masked`, the one seam
+every recorded text goes through, is rust-support's `secret-mask` (a block
+split on whitespace and `=` that looks random becomes `[masked:N]`; until the
+family repin moves ctxloom's rust-support pin to it the seam is the
+identity and the masking tests stay red). `session-cli`'s `log_text` says
+the entry as `tool Bash: cargo build --release (exit 2)` with each result
+line indented on a line of its own (`tool Grep: "TODO" in src/`); a tool with
+no summary keeps `tool <name>[, <path>], input <size>, result <size>`, its
+result lines after it. The screen shows only the session's own engine's keys.
 THE ENGINE EXTENSION POINT (owner 2026-11-24): an engine's adapter may attach
 data of its own to an observation, which the common fields do not hold:
 `HookEvent.extra` (for every observation the event makes), `ToolCall.extra`

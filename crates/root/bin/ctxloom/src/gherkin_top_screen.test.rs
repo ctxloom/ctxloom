@@ -647,6 +647,14 @@ fn log_has_then(w: &mut World, a: String, b: String) {
     });
 }
 
+#[then(expr = "the log section never shows {string}")]
+fn log_never_shows(w: &mut World, text: String) {
+    let text = super::top::with_token(&text);
+    until(w, "with a log that holds none of it", |p| {
+        !p.log.is_empty() && !p.log.join("\n").contains(&text)
+    });
+}
+
 #[then(expr = "a later frame's log section ends with {string}")]
 fn log_ends_with(w: &mut World, text: String) {
     until(w, "with that log end", |p| {

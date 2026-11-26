@@ -2584,6 +2584,8 @@ fn restarted(w: &mut World) {
 
 pub(super) const USER_PROMPT_SUBMIT: &str =
     include_str!("../../../../adapters/driven/engine-claude/src/fixtures/user_prompt_submit.json");
+pub(super) const POST_TOOL_BATCH: &str =
+    include_str!("../../../../adapters/driven/engine-claude/src/fixtures/post_tool_batch.json");
 pub(super) const STOP: &str =
     include_str!("../../../../adapters/driven/engine-claude/src/fixtures/stop.json");
 pub(super) const MESSAGE_DISPLAY: &str =

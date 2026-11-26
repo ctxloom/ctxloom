@@ -728,7 +728,10 @@ impl Screen {
                     project_root: session.map_or("", |s| s.project_root.as_str()),
                     engine: session.map_or("", |s| s.engine.as_str()),
                 };
-                entries.iter().map(|entry| log_line(entry, &of)).collect()
+                entries
+                    .iter()
+                    .flat_map(|entry| log_lines(entry, &of))
+                    .collect()
             })
             .unwrap_or_default();
         Frame {
@@ -781,8 +784,9 @@ impl Screen {
     }
 }
 
-/// A log entry as a line: its time, then what it says (plain words).
-fn log_line(log: &v1::TopLog, of: &Of<'_>) -> String {
+/// A log entry as lines: its time and the first line of what it says (plain
+/// words), then the rest of it, each under the first's words.
+fn log_lines(log: &v1::TopLog, of: &Of<'_>) -> Vec<String> {
     let seconds = log
         .time
         .as_ref()
@@ -798,7 +802,12 @@ fn log_line(log: &v1::TopLog, of: &Of<'_>) -> String {
         .entry
         .as_ref()
         .map_or_else(String::new, |entry| text_of(entry, of));
-    format!("  {clock} {said}")
+    let mut lines = said.lines();
+    let first = lines.next().unwrap_or_default();
+    let indent = " ".repeat(clock.len() + 3);
+    std::iter::once(format!("  {clock} {first}"))
+        .chain(lines.map(|line| format!("{indent}{line}")))
+        .collect()
 }
 
 #[cfg(test)]

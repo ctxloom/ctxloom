@@ -847,6 +847,27 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
       When "brisk-copper-moth" says "the migration is reversible"
       Then a later frame's log section ends with "the migration is reversible"
 
+    Scenario: The log section says a tool call by its summary and the first lines of its result, masked
+      # new: DRAFT (owner ruling 2026-11-25: a tool's one meaningful input field and
+      # up to five lines of its result, masked by secret-mask, are its engine's data).
+      Given an initialized ctxloom project
+      And a child "brisk-copper-moth" of "amber-quiet-heron" whose hooks delivered the prompt "build it"
+      When I start "ctxloom top --format text" in a terminal and read its frames
+      And I press "down" until "brisk-copper-moth" is marked
+      And "brisk-copper-moth" ran the tool "Bash" with the command "cargo build --release" and the output "Compiling demo\nFinished release"
+      Then the log section has "tool Bash: cargo build --release" and then "Compiling demo"
+      And a later frame's log section ends with "Finished release"
+
+    Scenario: A token in a tool's command or output is masked before the log shows it
+      # new: DRAFT (secret-mask: a high-entropy block becomes `[masked:N]`).
+      Given an initialized ctxloom project
+      And a child "brisk-copper-moth" of "amber-quiet-heron" whose hooks delivered the prompt "call it"
+      When I start "ctxloom top --format text" in a terminal and read its frames
+      And I press "down" until "brisk-copper-moth" is marked
+      And "brisk-copper-moth" ran the tool "Bash" with the command "curl -H token=<a random-looking token> https://x.test" and the output "ok"
+      Then the log section has "tool Bash: curl -H token=[masked:47] https://x.test" and then "ok"
+      And the log section never shows "<the token's first characters>"
+
     Scenario: A filter typed on the screen narrows the table, and clearing it widens it again
       # new: DRAFT; the filter re-opens the daemon's watch.
       Given an initialized ctxloom project

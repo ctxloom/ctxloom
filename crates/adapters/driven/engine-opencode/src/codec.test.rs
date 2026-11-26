@@ -147,7 +147,12 @@ fn test_a_completed_tool_part_is_one_call_with_its_status() {
             input: r#"{"command":"echo hi"}"#.to_string(),
             response: "hi\n".to_string(),
             status: ToolStatus::Completed,
-            ..Default::default()
+            extra: [
+                ("opencode.summary".to_string(), "echo hi".to_string()),
+                ("opencode.result".to_string(), "hi".to_string()),
+                ("opencode.exit".to_string(), "0".to_string()),
+            ]
+            .into(),
         }]
     );
 }
@@ -165,10 +170,16 @@ fn test_a_failed_tool_part_is_one_call_whose_response_is_its_error() {
             input: r#"{"filePath":"/nonexistent_xyz/a.txt"}"#.to_string(),
             response: "The user rejected permission to use this specific tool call.".to_string(),
             status: ToolStatus::Error,
-            extra: [(
-                "opencode.path".to_string(),
-                "/nonexistent_xyz/a.txt".to_string()
-            )]
+            extra: [
+                (
+                    "opencode.path".to_string(),
+                    "/nonexistent_xyz/a.txt".to_string()
+                ),
+                (
+                    "opencode.result".to_string(),
+                    "The user rejected permission to use this specific tool call.".to_string()
+                ),
+            ]
             .into(),
         }]
     );
@@ -342,11 +353,8 @@ fn test_a_file_tools_path_is_the_calls_engine_data() {
         let [call] = &event.tool_calls[..] else {
             panic!("one call: {event:?}")
         };
-        assert_eq!(
-            call.extra,
-            [("opencode.path".to_string(), "/work/src/lib.rs".to_string())].into(),
-            "{tool}"
-        );
+        assert_eq!(call.extra["opencode.path"], "/work/src/lib.rs", "{tool}");
+        assert!(!call.extra.contains_key("opencode.summary"), "{tool}");
         assert!(
             !format!("{:?}", call.extra).contains("SECRET"),
             "nothing else of the input"
@@ -363,6 +371,99 @@ fn test_a_tool_that_is_no_file_tool_says_no_path() {
         ("read", r#"{}"#),
     ] {
         let event = tool_event(tool, input);
-        assert!(event.tool_calls[0].extra.is_empty(), "{tool}");
+        assert!(
+            !event.tool_calls[0].extra.contains_key("opencode.path"),
+            "{tool}"
+        );
     }
+}
+
+/// A made-up, random-looking token (not a credential).
+const TOKEN: &str = "k3Jf9Zq2LmX8vB1nRt7YwP5dHs0AcE4uGiOb6QxTzVyN2Mw"; // gitleaks:allow
+
+fn extra_of(tool: &str, input: &str) -> std::collections::BTreeMap<String, String> {
+    tool_event(tool, input).tool_calls[0].extra.clone()
+}
+
+// The owner's ruling of 2026-11-25: each tool says ONE meaningful field of its
+// input as `opencode.summary`, and the first lines of its output as
+// `opencode.result`.
+#[test]
+fn test_each_tools_summary_is_its_one_meaningful_field() {
+    for (tool, input, summary) in [
+        (
+            "bash",
+            r#"{"command":"cargo build\necho two"}"#,
+            "cargo build",
+        ),
+        (
+            "grep",
+            r#"{"pattern":"TODO","path":"src/"}"#,
+            "\"TODO\" in src/",
+        ),
+        (
+            "glob",
+            r#"{"pattern":"**/*.rs","path":"crates"}"#,
+            "**/*.rs in crates",
+        ),
+        (
+            "webfetch",
+            r#"{"url":"https://x.test/a"}"#,
+            "https://x.test/a",
+        ),
+        ("websearch", r#"{"query":"rust serde"}"#, "rust serde"),
+        (
+            "task",
+            r#"{"description":"Find the bug","prompt":"long"}"#,
+            "Find the bug",
+        ),
+    ] {
+        let extra = extra_of(tool, input);
+        assert_eq!(
+            extra.get("opencode.summary").map(String::as_str),
+            Some(summary),
+            "{tool}: {extra:?}"
+        );
+    }
+}
+
+#[test]
+fn test_a_tool_with_nothing_meaningful_says_no_summary() {
+    for (tool, input) in [
+        ("todowrite", r#"{"todos":[]}"#),
+        ("bash", r#"{}"#),
+        (
+            "write",
+            r#"{"filePath":"/work/a.rs","content":"SECRET-CONTENT"}"#,
+        ),
+    ] {
+        let extra = extra_of(tool, input);
+        assert!(!extra.contains_key("opencode.summary"), "{tool}: {extra:?}");
+        assert!(!format!("{extra:?}").contains("SECRET"), "{tool}");
+    }
+}
+
+#[test]
+fn test_a_result_is_five_lines_and_a_bash_exit_is_kept() {
+    let payload = fixture("tool_completed").replace(
+        r#""output":"hi\n","metadata":{"output":"hi\n","exit":0"#,
+        r#""output":"1\n2\n3\n4\n5\n6","metadata":{"exit":3"#,
+    );
+    let event = Codec.decode("message.part.updated", &payload).unwrap();
+    let extra = &event.tool_calls[0].extra;
+    assert_eq!(extra["opencode.result"], "1\n2\n3\n4\n5");
+    assert_eq!(extra["opencode.exit"], "3");
+}
+
+// Stays red until `secret_mask::mask` is the seam (the repin).
+#[test]
+fn test_a_result_is_masked_before_it_is_recorded() {
+    let marker = format!("[masked:{}]", TOKEN.len());
+    let payload = fixture("tool_completed")
+        .replace(r#""output":"hi\n""#, &format!(r#""output":"KEY={TOKEN}""#));
+    let event = Codec.decode("message.part.updated", &payload).unwrap();
+    assert_eq!(
+        event.tool_calls[0].extra["opencode.result"],
+        format!("KEY={marker}")
+    );
 }

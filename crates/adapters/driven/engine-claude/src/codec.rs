@@ -4,6 +4,7 @@
 
 use std::collections::BTreeMap;
 
+use surface_ports::tool_view;
 use surface_ports::{
     HookCodec, HookEvent, HookResponse, Json, MessageDisplay, SurfaceError, ToolCall, ToolStatus,
 };
@@ -85,21 +86,98 @@ fn response_text(doc: Option<&Json>) -> String {
     }
 }
 
-/// The path a file tool's call touched, as the engine extension
-/// (`claude-code.path`), and nothing else of its input: the file tools' input
-/// can hold whole file contents. None for any other tool.
-fn touched_path(tool: &str, input: Option<&Json>) -> BTreeMap<String, String> {
+/// The path a file tool's call touched (`claude-code.path`), and nothing else
+/// of its input: the file tools' input can hold whole file contents. None for
+/// any other tool.
+fn touched_path(tool: &str, input: Option<&Json>) -> Option<String> {
     let field = match tool {
         "Read" | "Write" | "Edit" | "MultiEdit" => "file_path",
         "NotebookEdit" => "notebook_path",
-        _ => return BTreeMap::new(),
+        _ => return None,
     };
     input
         .and_then(|input| input.get(field))
         .and_then(Json::as_str)
         .filter(|path| !path.is_empty())
-        .map(|path| BTreeMap::from([(format!("{NAME}.path"), path.to_string())]))
+        .map(str::to_string)
+}
+
+/// The input's field `key` as text, empty when absent.
+fn field(input: Option<&Json>, key: &str) -> String {
+    input
+        .and_then(|input| input.get(key))
+        .and_then(Json::as_str)
         .unwrap_or_default()
+        .to_string()
+}
+
+/// The ONE meaningful field of a tool's input, masked and cut (owner ruling
+/// 2026-11-25): a command's first line, a search's pattern and path, a URL or
+/// a query, a sub-agent's description. Empty for any other tool, and for the
+/// file tools, which say their path alone.
+fn summary_of(tool: &str, input: Option<&Json>) -> String {
+    match tool {
+        "Bash" => tool_view::summary_line(&field(input, "command")),
+        "Grep" => tool_view::search_summary(&field(input, "pattern"), &field(input, "path"), true),
+        "Glob" => tool_view::search_summary(&field(input, "pattern"), &field(input, "path"), false),
+        "WebFetch" => tool_view::summary_line(&field(input, "url")),
+        "WebSearch" => tool_view::summary_line(&field(input, "query")),
+        "Task" | "Agent" => tool_view::summary_line(&field(input, "description")),
+        _ => String::new(),
+    }
+}
+
+/// The text of a tool's response: a string as it is, a document by the field
+/// that holds what the tool printed (Bash's `stdout`, else its `stderr`).
+fn output_of(doc: Option<&Json>) -> String {
+    let Some(doc) = doc else {
+        return String::new();
+    };
+    if let Some(text) = doc.as_str() {
+        return text.to_string();
+    }
+    ["stdout", "stderr", "output", "content", "text"]
+        .iter()
+        .filter_map(|key| doc.get(key).and_then(Json::as_str))
+        .find(|text| !text.trim().is_empty())
+        .or_else(|| {
+            doc.get("file")
+                .and_then(|file| file.get("content"))
+                .and_then(Json::as_str)
+        })
+        .unwrap_or_default()
+        .to_string()
+}
+
+/// A command's exit code, where the response document gives one.
+fn exit_of(tool: &str, doc: Option<&Json>) -> Option<i64> {
+    if tool != "Bash" {
+        return None;
+    }
+    ["exitCode", "exit_code", "returncode"]
+        .iter()
+        .find_map(|key| doc.and_then(|doc| doc.get(key)))
+        .and_then(|code| code.pretty().parse().ok())
+}
+
+/// The engine data of one call (`claude-code.<name>`): the path a file tool
+/// touched, the input's summary, the result's first lines and a command's
+/// exit code. The summary and the result are masked before they are kept.
+fn engine_data(
+    tool: &str,
+    input: Option<&Json>,
+    response: Option<&Json>,
+) -> BTreeMap<String, String> {
+    let mut data = tool_view::engine_data(
+        NAME,
+        &summary_of(tool, input),
+        &tool_view::result_lines(&output_of(response)),
+        exit_of(tool, response),
+    );
+    if let Some(path) = touched_path(tool, input) {
+        data.insert(format!("{NAME}.path"), path);
+    }
+    data
 }
 
 /// The calls of a PostToolBatch, in order.
@@ -116,7 +194,11 @@ fn tool_calls(doc: &Json) -> Vec<ToolCall> {
                     response: response_text(c.get("tool_response")),
                     // Claude's hooks say nothing of how a call ended.
                     status: ToolStatus::Unspecified,
-                    extra: touched_path(&text(c, "tool_name"), c.get("tool_input")),
+                    extra: engine_data(
+                        &text(c, "tool_name"),
+                        c.get("tool_input"),
+                        c.get("tool_response"),
+                    ),
                 })
                 .collect()
         })

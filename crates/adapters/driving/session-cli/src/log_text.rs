@@ -15,7 +15,8 @@ pub(crate) struct Of<'a> {
     pub engine: &'a str,
 }
 
-/// What `entry` says, as one line of plain text.
+/// What `entry` says, as plain text: one line, and a tool's result's lines
+/// after it (each on a line of its own).
 pub(crate) fn text_of(entry: &v1::LogEntry, of: &Of<'_>) -> String {
     match &entry.entry {
         Some(Arm::Prompt(prompt)) => format!("user: {}", prompt.text),
@@ -42,22 +43,41 @@ fn tool_text(
     extra: &std::collections::BTreeMap<String, String>,
     of: &Of<'_>,
 ) -> String {
+    // What the call's engine adapter attached (`<engine>.<name>`); no other
+    // key is read.
+    let data = |name: &str| extra.get(&format!("{}.{name}", of.engine));
     let how = match tool.status.map(log_tool::Status::try_from) {
         Some(Ok(log_tool::Status::Error)) => ", error",
         _ => "",
     };
-    // The file the call touched, which its engine's adapter attached
-    // (`<engine>.path`); no other key is read.
-    let path = extra
-        .get(&format!("{}.path", of.engine))
-        .map(|path| format!(", {}", shown_path(path, of.project_root)))
-        .unwrap_or_default();
-    format!(
-        "tool {}{path}, input {}, result {}{how}",
-        tool.name,
-        size_text(tool.input_bytes),
-        size_text(tool.response_bytes),
-    )
+    let first = match data("summary") {
+        // The call, in the words of its input's one meaningful field.
+        Some(summary) => {
+            let exit = data("exit")
+                .map(|code| format!(" (exit {code})"))
+                .unwrap_or_default();
+            format!("tool {}: {summary}{exit}{how}", tool.name)
+        }
+        None => {
+            let path = data("path")
+                .map(|path| format!(", {}", shown_path(path, of.project_root)))
+                .unwrap_or_default();
+            format!(
+                "tool {}{path}, input {}, result {}{how}",
+                tool.name,
+                size_text(tool.input_bytes),
+                size_text(tool.response_bytes),
+            )
+        }
+    };
+    // The first lines of its result, each a line of the log of its own.
+    data("result")
+        .map(|result| {
+            result
+                .lines()
+                .fold(first.clone(), |said, line| format!("{said}\n  {line}"))
+        })
+        .unwrap_or(first)
 }
 
 /// `path` relative to the project root when it is under it, else as given.

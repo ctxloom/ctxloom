@@ -381,6 +381,41 @@ fn the_log_section_lists_the_selected_sessions_entries_oldest_first() {
     assert!(started < exited, "{text}");
 }
 
+// A tool entry's result lines are lines of the log of their own.
+#[test]
+fn a_tools_result_lines_are_lines_of_the_log() {
+    let mut screen = tree();
+    screen.key(Key::Down);
+    let mut entry = v1::LogEntry {
+        entry: Some(v1::log_entry::Entry::Tool(v1::LogTool {
+            name: "Bash".to_string(),
+            ..v1::LogTool::default()
+        })),
+        ..v1::LogEntry::default()
+    };
+    entry
+        .extra
+        .insert("claude-code.summary".to_string(), "make".to_string());
+    entry
+        .extra
+        .insert("claude-code.result".to_string(), "one\ntwo".to_string());
+    screen.apply(v1::TopEvent {
+        event: Some(v1::top_event::Event::Log(v1::TopLog {
+            session: "projects/p/sessions/brisk-copper-moth".to_string(),
+            entry: Some(entry),
+            ..v1::TopLog::default()
+        })),
+    });
+    let log = screen.frame().log;
+    assert_eq!(log.len(), 3, "{log:?}");
+    assert!(log[0].ends_with("tool Bash: make"), "{log:?}");
+    assert!(
+        log[1].ends_with("  one") && !log[1].contains("tool"),
+        "{log:?}"
+    );
+    assert!(log[2].ends_with("  two"), "{log:?}");
+}
+
 #[test]
 fn q_quits() {
     assert_eq!(tree().key(Key::Char('q')), Some(Effect::Quit));

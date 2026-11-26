@@ -249,3 +249,99 @@ fn a_started_entry_keeps_its_engine_in_the_data_and_not_in_the_words() {
     };
     assert_eq!(data.engine, "claude-code");
 }
+
+/// A tool entry of the engine `engine` with its engine data `extra`.
+fn tool_with(tool: &str, engine_data: &[(&str, &str)]) -> v1::LogEntry {
+    let mut with = entry(Arm::Tool(v1::LogTool {
+        name: tool.to_string(),
+        input_bytes: 120,
+        response_bytes: 2150,
+        ..v1::LogTool::default()
+    }));
+    for (key, value) in engine_data {
+        with.extra.insert(key.to_string(), value.to_string());
+    }
+    with
+}
+
+// The owner's ruling of 2026-11-25: a tool's summary (its engine's data,
+// `<engine>.summary`) is what the entry says of the call, its result's lines
+// follow indented, and a command's exit code ends the first line.
+#[test]
+fn a_tools_summary_and_result_are_said_in_words() {
+    let of = Of {
+        project_root: "/work/proj",
+        engine: "claude-code",
+    };
+    assert_eq!(
+        words_of(
+            &tool_with(
+                "Bash",
+                &[
+                    ("claude-code.summary", "cargo build --release"),
+                    ("claude-code.result", "Compiling x\nFinished"),
+                ]
+            ),
+            &of
+        ),
+        "tool Bash: cargo build --release\n  Compiling x\n  Finished"
+    );
+    assert_eq!(
+        words_of(
+            &tool_with("Grep", &[("claude-code.summary", "\"TODO\" in src/")]),
+            &of
+        ),
+        "tool Grep: \"TODO\" in src/"
+    );
+    assert_eq!(
+        words_of(
+            &tool_with(
+                "Bash",
+                &[
+                    ("claude-code.summary", "make"),
+                    ("claude-code.exit", "2"),
+                    ("claude-code.result", "no rule"),
+                ]
+            ),
+            &of
+        ),
+        "tool Bash: make (exit 2)\n  no rule"
+    );
+}
+
+#[test]
+fn a_result_alone_follows_the_sizes_and_a_file_tool_keeps_its_path() {
+    let of = Of {
+        project_root: "/work/proj",
+        engine: "claude-code",
+    };
+    assert_eq!(
+        words_of(&tool_with("Foo", &[("claude-code.result", "done")]), &of),
+        "tool Foo, input 120 B, result 2.1 KB\n  done"
+    );
+    assert_eq!(
+        words_of(
+            &tool_with(
+                "Read",
+                &[
+                    ("claude-code.path", "/work/proj/a.rs"),
+                    ("claude-code.result", "fn main() {}"),
+                ]
+            ),
+            &of
+        ),
+        "tool Read, a.rs, input 120 B, result 2.1 KB\n  fn main() {}"
+    );
+}
+
+#[test]
+fn another_engines_summary_is_not_read() {
+    let of = Of {
+        project_root: "",
+        engine: "opencode",
+    };
+    assert_eq!(
+        words_of(&tool_with("bash", &[("claude-code.summary", "ls")]), &of),
+        "tool bash, input 120 B, result 2.1 KB"
+    );
+}

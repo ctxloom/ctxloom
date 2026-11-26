@@ -25,6 +25,7 @@
 
 use std::collections::BTreeMap;
 
+use surface_ports::tool_view;
 use surface_ports::{
     HookCodec, HookEvent, HookResponse, Json, MessageDisplay, SurfaceError, ToolCall, ToolStatus,
 };
@@ -119,19 +120,64 @@ fn read(kind: &str, props: Option<&Json>, ctx: Option<&Json>, base: HookEvent) -
     }
 }
 
-/// The path a file tool's call touched, as the engine extension
-/// (`opencode.path`), and nothing else of its input: the file tools' input
-/// can hold whole file contents. None for any other tool.
-fn touched_path(tool: &str, input: Option<&Json>) -> BTreeMap<String, String> {
+/// The path a file tool's call touched (`opencode.path`), and nothing else of
+/// its input: the file tools' input can hold whole file contents. None for
+/// any other tool.
+fn touched_path(tool: &str, input: Option<&Json>) -> Option<String> {
     match tool {
         "read" | "write" | "edit" => input
             .and_then(|input| input.get("filePath"))
             .and_then(Json::as_str)
             .filter(|path| !path.is_empty())
-            .map(|path| BTreeMap::from([(format!("{NAME}.path"), path.to_string())]))
-            .unwrap_or_default(),
-        _ => BTreeMap::new(),
+            .map(str::to_string),
+        _ => None,
     }
+}
+
+/// The input's field `key` as text, empty when absent.
+fn field(input: Option<&Json>, key: &str) -> String {
+    text(input, key)
+}
+
+/// The ONE meaningful field of a tool's input, masked and cut (owner ruling
+/// 2026-11-25). Empty for any other tool, and for the file tools, which say
+/// their path alone.
+fn summary_of(tool: &str, input: Option<&Json>) -> String {
+    match tool {
+        "bash" => tool_view::summary_line(&field(input, "command")),
+        "grep" => tool_view::search_summary(&field(input, "pattern"), &field(input, "path"), true),
+        "glob" => tool_view::search_summary(&field(input, "pattern"), &field(input, "path"), false),
+        "webfetch" => tool_view::summary_line(&field(input, "url")),
+        "websearch" => tool_view::summary_line(&field(input, "query")),
+        "task" => tool_view::summary_line(&field(input, "description")),
+        _ => String::new(),
+    }
+}
+
+/// The engine data of one call (`opencode.<name>`): the path a file tool
+/// touched, the input's summary, the response's first lines and a command's
+/// exit code (`state.metadata.exit`). The summary and the result are masked
+/// before they are kept.
+fn engine_data(tool: &str, state: Option<&Json>, response: &str) -> BTreeMap<String, String> {
+    let input = state.and_then(|s| s.get("input"));
+    let exit = (tool == "bash")
+        .then(|| {
+            state
+                .and_then(|s| s.get("metadata"))
+                .and_then(|m| m.get("exit"))
+                .and_then(|code| code.pretty().parse().ok())
+        })
+        .flatten();
+    let mut data = tool_view::engine_data(
+        NAME,
+        &summary_of(tool, input),
+        &tool_view::result_lines(response),
+        exit,
+    );
+    if let Some(path) = touched_path(tool, input) {
+        data.insert(format!("{NAME}.path"), path);
+    }
+    data
 }
 
 /// A part of a message: a finished text, an ended tool call, a compaction.
@@ -174,9 +220,9 @@ fn read_part(part: &Json, base: HookEvent) -> Option<HookEvent> {
                         .and_then(|s| s.get("input"))
                         .map(compact)
                         .unwrap_or_default(),
+                    extra: engine_data(&tool_name, state, &response),
                     response,
                     status,
-                    extra: touched_path(&tool_name, state.and_then(|s| s.get("input"))),
                 }],
                 ..base
             })

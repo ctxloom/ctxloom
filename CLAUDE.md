@@ -78,15 +78,35 @@ the architecture; there is no other table of crates.
 - `core/read-model`: projectors: the query side.
 - `core/ports`: traits the core needs from outside.
 - `core/application`: command and query handlers.
-- `adapters/driven`: port implementations (stores, clock, git).
+- `adapters/driven`: port implementations (clock, git, the files).
+- `adapters/store`: the store adapter (`ctxloom-store-sqlite`); only
+  `root/daemon` and the binary depend on it.
+- `adapters/kernel`: the kernel host adapter (`embedded-edge`); likewise.
 - `adapters/support`: infrastructure driven adapters share, depending on no
   other workspace crate, each listed in `arch-rules.toml`'s `[classes]
   support` (step 10, G9: `git-cli`, the one git runner).
 - `adapters/driving`: the CLI (and later gRPC, MCP): translation only.
-- `root/lib`: the composition root's wiring as a library (`ctxloom-wiring`).
-- `root/bin`: the `ctxloom` binary, the composition root.
+- `root/lib`: the CLI's composition as a library (`ctxloom-wiring`): a CLIENT
+  of the daemon. It opens no store and hosts no kernel (`arch-rules.toml`
+  lists neither `adapters/store` nor `adapters/kernel` for it). Its
+  `daemon/` module is the client half (`Reach`, `ensure`, `resolve`, the
+  hook daemon, `flush`, `heard`, `shutdown`, `watch`) beside what both
+  halves share (`files`, `runtime`, `Pace`, `caller_wiring`).
+- `root/daemon`: the daemon's composition (`ctxloom-daemon`): the store, the
+  kernel (`core_link`), the scheduler, the listener and the hosted runs and
+  terminals, `daemon serve`. It depends on `ctxloom-wiring`, never the
+  reverse. The binary hands it to the command line: `ctxloom_wiring::
+  Commands::hosted_by(ctxloom_daemon::hosting())` carries `daemon serve`
+  (`Hosting::serve`, called with the verb's `Pace`), the guard that refuses a
+  project with a legacy store of its own (`Hosting::per_project_guard`) and,
+  under test-support, the hidden `test` commands that read or write the store
+  (`Hosting::store_tests`, run for a `StoreVerb`: `open-store`,
+  `seed-session`, `session-events`, `library-events`, `record`,
+  `seed-rehosts`, `session-name`), so the CLI parse stays in one place.
+  Built without `hosted_by`, `daemon serve` fails and no store command runs.
+- `root/bin`: the `ctxloom` binary, the composition root of both.
 
-Slice S0 made `ctxloom-store-sqlite` (driven), `ctxloom-cli` (driving),
+Slice S0 made `ctxloom-store-sqlite` (`adapters/store`), `ctxloom-cli` (driving),
 `ctxloom-wiring` (wiring) and the `ctxloom` binary. Slice S1 (library read side)
 adds:
 
@@ -1695,7 +1715,7 @@ crate; today's 23 edges are `CLI_APPLICATION_DEPARTURES`, each with what it
 is used for, because step 10a U2's deletion of them is not done; a new edge
 or a stale entry fails) and
 `test_nothing_in_the_daemon_opens_a_library_tree_outside_the_observation`
-(the daemon's root sources, `ctxloom-wiring`'s `daemon/`, `oneshot.rs` and
+(the daemon's root sources, `ctxloom-daemon`'s `src/`, and the wiring's `oneshot.rs` and
 `frontend.rs`, open a library, `library::build(`, `library::build_over(`,
 `build_setup(`, `build_setup_over(`, only at `DAEMON_LIBRARY_OPENS`' files and counts, each
 reached through the observation or a stated departure; daemon-api and
@@ -1749,26 +1769,26 @@ The daemon is the store's ONE writer. Every write is a command or fact sent
 to its coordinator (its own components write through `core.edge()`); no CLI
 process starts an angzarr kernel or opens the store. Aggregates, projectors
 and runners communicate by messages alone, as if in different processes. Three
-guards, all in `just lint`, each holding today's violations as visible debt
-that only shrinks (never silenced):
+guards, all in `just lint`, each hard-failing (no ceiling, no allowance for
+legacy code):
 
 - G1, clippy `disallowed-methods` (root `clippy.toml` and
   `crates/core/clippy.toml`, kept equal): `angzarr_embedded::Kernel::new`,
   `angzarr_embedded_host::App::builder`, `ctxloom_store_sqlite::Stores::{open,
   open_for,open_existing}` and `session_ports::ProjectStores::{open,
-  open_existing}`. The daemon's composition (`core_link`'s `begin`,
-  `daemon/serve.rs`) and the store adapter itself carry
-  `#[expect(clippy::disallowed_methods, reason = "...")]`; every other
-  production site carries one whose reason begins `P2 one-writer debt:` and
-  names what replaces it (today the test-support seed and `test
-  record|library-events|open-store`, and sessions-application's `Service`,
-  which only the seed still uses). `just lint-one-writer`
-  (`scripts/one-writer-debt-check.sh`) counts them against
-  `scripts/one-writer-debt.max` (15 today): more fails, fewer says to lower
-  it. The owner's ruling of 2026-11-26 is that P2 ends at ZERO and the ceiling
-  goes (any non-daemon site fails `just lint`); that is not done yet. A test
-  that needs a kernel or store of its own allows it on its own function
-  (`#[allow(clippy::disallowed_methods, reason = ...)]`), never a module.
+  open_existing}`. An allowed site (`#[expect(clippy::disallowed_methods,
+  reason = "...")]`) lives in `crates/root/daemon/ctxloom-daemon` (the
+  composition, and its test-support `seed`, `record` and `library_events`,
+  which write the store as the composition does, before any daemon serves) or
+  in the store adapter that opens it. A test that needs a kernel or store of
+  its own allows it on its own function (`#[allow(clippy::disallowed_methods,
+  reason = "a test kernel or store of its own")]`), never a module; a test
+  double's in-memory kernel says so in its reason. `just lint-one-writer`
+  (`scripts/one-writer-check.sh`) fails an allowed site anywhere else, and
+  any leftover `P2 one-writer debt` reason. The in-process sessions `Service`
+  (`SessionService`, its read, write and orchestration paths) is gone from
+  sessions-application with its tests; `session worktrees` is the one `session`
+  verb still run in the CLI's process (`Sessions` holds only the worktrees).
   Built (P2 units b to d): `session keep|keep --undo|rename` send `SetKept`
   and `SetSessionTitle` through the coordinator as the user (`Caller::keep`,
   `Caller::title`, `ChildWrites`), under an id minted once per call, so a
@@ -1780,7 +1800,7 @@ that only shrinks (never silenced):
   `MintSession`, the bind, rotations, keep, end) through its own core's edge:
   sessions-application's `Importer` only plans, and sends through its
   `Dispatch` port (`dispatch.rs`), which the daemon implements over
-  `run_ports::Edge` (`daemon/imports.rs`, `EdgeDispatch`; the `Imports` port
+  `run_ports::Edge` (ctxloom-daemon's `imports.rs`, `EdgeDispatch`; the `Imports` port
   of daemon-api). `session transcript list` is `ListSessions` with the
   additive `ListSessionsRequest.transcripts`, each `Session` then carrying
   `transcript_captured` (28) and `transcript_bytes` (29). A hosted one-shot's
@@ -1789,7 +1809,7 @@ that only shrinks (never silenced):
   store. The scenarios are `features/cli/daemon.feature`, "Every write to the
   store is a command sent to the daemon". Under test-support the daemon's log
   says `handled <CommandType>` for each command its edge RECEIVES, applied or
-  refused (`EmbeddedEdge::hearing`, set in `daemon/serve.rs`; the steps read
+  refused (`EmbeddedEdge::hearing`, set in ctxloom-daemon's `serve.rs`; the steps read
   it), as it says `served <path>` for each service call.
 - G3, `just lint-handoffs` (`scripts/handoff-check.sh`, ast-grep rules in
   `scripts/handoff-rules/`): in `crates/core/application` and `crates/root`
@@ -1804,12 +1824,12 @@ that only shrinks (never silenced):
   11 debt, 23 runner state or test fakes. An entry that covers nothing fails.
   Heuristic: it errs loud and misses other shapes (`Mutex<Option<..>>`, a
   `Held` handle). Self-tests: `scripts/handoff-check.selftest.sh`,
-  `scripts/one-writer-debt-check.selftest.sh` (`just selftest`).
-- G2, `arch-rules.toml`: the rule that the CLI's composition
-  (`ctxloom-wiring`) may not depend on the store adapter or the kernel host,
-  written and commented out until `ctxloom-wiring` is split into the CLI's
-  composition and the daemon's (`ctxloom-daemon`); the plan is in
-  `.plan/messages-only.design.md`, "P2 one writer".
+  `scripts/one-writer-check.selftest.sh` (`just selftest`).
+- G2, `arch-rules.toml`: `root/lib` (`ctxloom-wiring`) lists neither
+  `adapters/store` nor `adapters/kernel`, so the CLI's composition cannot depend
+  on the store adapter or the kernel host; `root/daemon` (`ctxloom-daemon`) and
+  `root/bin` may. The binary hosts both programs in one executable, so the
+  shape cannot keep a CLI PROCESS from the store: that is G1.
 
 ## A refusal is a typed message; its status lives in the proto alone
 
@@ -2113,7 +2133,7 @@ composes claude and opencode, and nothing in the launcher names an adapter),
 `ChildWorkspaces` (`Daemon::placing`: the project's worktree-git
 workspaces), `Ears` (the root pumps each child's observations off a thread:
 no thread in the core), `RunLocks`, `TokenSource` and the edge.
-`ctxloom-wiring/src/daemon/serve.rs` only composes it, with the single-instance lock,
+`ctxloom-daemon`'s `serve.rs` only composes it, with the single-instance lock,
 the runtime, the store and its core, the listener, the discovery file and
 the pace. The start's sweep runs BEFORE the daemon is advertised (its
 discovery file published), so the first command that finds a new daemon
@@ -3258,12 +3278,12 @@ registry, which holds no policy), and no production CLI process starts an
 clients). Work a core without the consumers left owed waits for the
 daemon's next start (`core_link.test.rs`'s `resume_at_start`).
 The daemon's core also registers the due model (`Projectors::due`, the
-wiring's `scheduling::SchedulerDues`: `scheduler_due::Due` held by
+ctxloom-daemon's `scheduling::SchedulerDues`: `scheduler_due::Due` held by
 `held-projection`, so the kernel's inline fold and the loop's catch-up are
 ONE fold, each page once; `scheduler-loop`'s `SchedulerLoop::sharing` reads
 it through `scheduler_due::ReadsDue`). The daemon runs `SchedulerLoop::run`
 for its life on its runtime (`daemon/serve.rs`'s `scheduler_over`, the
-wiring's `scheduling::start`): on `core_link::SystemClock` (the clock each
+ctxloom-daemon's `scheduling::start`): on `core_link::SystemClock` (the clock each
 call's sample reads), waiting `min(next due, the daemon's poll)` on the
 runtime's timer, cut short by any book the kernel folds into the due model
 (an alarm armed in process fires at once) and by the stop; it fires through

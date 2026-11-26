@@ -431,6 +431,98 @@ fn is(got: &Value, want: &str) -> bool {
     got == want || got.ends_with(&format!("/{want}"))
 }
 
+/// Whether `line` reports the session named `harp` in `state`, in a
+/// snapshot or as a change: a daemon reached while a child registers says
+/// `{"snapshot":{}}` first and the session as a `session_changed` after it.
+fn reports_session_state(line: &Value, harp: &str, state: &str) -> bool {
+    let in_snapshot = at(
+        line,
+        &format!("snapshot.sessions[name$=/sessions/{harp}].state"),
+    )
+    .is_some_and(|got| said(got) == state);
+    let as_change = at(line, "session_changed.session").is_some_and(|session| {
+        at(session, "name").is_some_and(|name| said(name).ends_with(&format!("/sessions/{harp}")))
+            && at(session, "state").is_some_and(|got| said(got) == state)
+    });
+    in_snapshot || as_change
+}
+
+#[then(
+    expr = "within {int} seconds a line reports the session {string} as {string}, in a snapshot or a change"
+)]
+fn line_reports_session(w: &mut World, seconds: u64, harp: String, state: String) {
+    let line = until_line(w, seconds, |line| {
+        reports_session_state(line, &harp, &state)
+    });
+    w.top.wanted.clear();
+    w.top.that_from = None;
+    w.top.that = Some(line);
+}
+
+#[cfg(test)]
+mod race {
+    use super::*;
+    use serde_json::json;
+
+    fn change(state: &str) -> Value {
+        json!({"session_changed": {"session": {
+            "name": "projects/p/sessions/brisk-copper-moth", "state": state}}})
+    }
+
+    #[test]
+    fn test_an_empty_snapshot_is_not_a_line_reporting_the_session_live() {
+        let empty = json!({"snapshot": {}});
+        assert!(!reports_session_state(&empty, "brisk-copper-moth", "LIVE"));
+    }
+
+    #[test]
+    fn test_the_old_binding_took_the_empty_snapshot_the_session_never_shows_in() {
+        // The old steps: the first line with "snapshot" set, then its path.
+        let lines = [json!({"snapshot": {}}), change("LIVE")];
+        let first = lines.iter().find(|l| l.get("snapshot").is_some()).unwrap();
+        let wanted = [(
+            "snapshot.sessions[name$=/sessions/brisk-copper-moth].state".to_string(),
+            "LIVE".to_string(),
+            true,
+        )];
+        assert!(!satisfies(first, &wanted));
+        // The new step finds the session in the later line.
+        assert!(lines
+            .iter()
+            .any(|l| reports_session_state(l, "brisk-copper-moth", "LIVE")));
+    }
+
+    #[test]
+    fn test_a_change_of_the_session_to_live_is_reported_live() {
+        assert!(reports_session_state(
+            &change("LIVE"),
+            "brisk-copper-moth",
+            "LIVE"
+        ));
+    }
+
+    #[test]
+    fn test_a_change_of_another_session_or_state_is_not_reported() {
+        assert!(!reports_session_state(
+            &change("ENDED"),
+            "brisk-copper-moth",
+            "LIVE"
+        ));
+        assert!(!reports_session_state(
+            &change("LIVE"),
+            "other-name",
+            "LIVE"
+        ));
+    }
+
+    #[test]
+    fn test_a_snapshot_holding_the_session_live_is_reported_live() {
+        let line = json!({"snapshot": {"sessions": [
+            {"name": "projects/p/sessions/brisk-copper-moth", "state": "LIVE"}]}});
+        assert!(reports_session_state(&line, "brisk-copper-moth", "LIVE"));
+    }
+}
+
 #[then(expr = "within {int} seconds a line has {string} as {string}")]
 #[then(expr = "within {int} seconds a line reports {string} as {string}")]
 fn line_has_as(w: &mut World, seconds: u64, path: String, want: String) {

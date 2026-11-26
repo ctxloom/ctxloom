@@ -174,9 +174,9 @@ pub(crate) const TEST_BINARIES: &str = "test-binaries";
 /// `built` copied into [`TEST_BINARIES`] (`files::copy` writes whole and
 /// renames in, so a process running an older copy keeps it).
 fn kept_apart(built: &Path, profile_dir: &Path) -> PathBuf {
-    let kept = profile_dir
-        .join(TEST_BINARIES)
-        .join(built.file_name().expect("a file name"));
+    let dir = profile_dir.join(TEST_BINARIES);
+    files::mkdirs(&dir);
+    let kept = dir.join(built.file_name().expect("a file name"));
     files::copy(built, &kept);
     kept
 }

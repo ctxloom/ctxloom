@@ -111,10 +111,6 @@ serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
-# A domain that consumes the scheduler, so the daemon's scheduler is proven
-# end to end without an application domain; and a clock a test moves.
-scheduler-fixture.workspace = true
-scheduler-ports = { workspace = true, features = ["test-support"] }
 # A projection's view, decoded (S32).
 prost.workspace = true
 fixture-program.workspace = true

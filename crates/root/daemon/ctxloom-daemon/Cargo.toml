@@ -120,7 +120,6 @@ fixture-program.workspace = true
 # and session tests need it) without turning it on for the `ctxloom` binary:
 # the feature adds code here and changes no trait another crate implements.
 ctxloom-wiring = { workspace = true, features = ["test-support"] }
-harp-core.workspace = true
 angzarr-embedded = { workspace = true, features = ["test-support"] }
 tokio = { workspace = true, features = ["macros", "rt"] }
 deps-application = { workspace = true, features = ["test-support"] }

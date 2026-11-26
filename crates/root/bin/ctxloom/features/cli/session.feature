@@ -22,9 +22,13 @@ Feature: session — the record of what your assistant did, and the tools to pru
   This is the comprehensive per-noun spec: what the noun DOES, leaf by leaf,
   hermetically against seeded sessions in the session index, which is
   folded from the session events in the project's store: listing, searching
-  and showing a session, and its transcript, are queries of the user's
+  and showing a session, and its transcript and the listing of which
+  sessions have one, are queries of the user's
   daemon, which alone opens the store and keeps those read models warm
-  (cli/daemon.feature), never a file in the session's directory. The
+  (cli/daemon.feature), never a file in the session's directory. Its writes
+  (`keep`, `rename`, `import`) are commands sent to the same daemon, the
+  store's one writer (cli/daemon.feature, "Every write to the store is a
+  command sent to the daemon"). The
   narrative versions — Alice
   recalling a conversation from March, Alice closing a shipped workstream out
   — are journeys/j001200_recall.feature and j001300_closeout.feature, which

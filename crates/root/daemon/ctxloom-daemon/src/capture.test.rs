@@ -15,8 +15,9 @@ use runs_application::observe;
 use setup_application::HookAnswer;
 use surface_ports::{HookEvent, ToolCall};
 
-use super::*;
 use crate::InProcessCore;
+use ctxloom_wiring::capture::*;
+use run_ports::HeldFacts;
 
 /// The session's resource name, as `CTXLOOM_SESSION` carries it (s3-Q3).
 const SESSION: &str = "projects/amber-quiet-heron/sessions/amber-swift-owl";
@@ -715,7 +716,7 @@ fn a_hook_that_reaches_no_daemon_holds_and_says_why() {
     let waits = recording.reach.waits.lock().unwrap().clone();
     assert_eq!(waits.len(), 1);
     assert!(
-        waits[0] <= crate::daemon::SPAWN_WAIT,
+        waits[0] <= ctxloom_wiring::daemon::SPAWN_WAIT,
         "a spawn waits at most a client's wait: {waits:?}"
     );
 }
@@ -725,16 +726,19 @@ fn a_hook_that_reaches_no_daemon_holds_and_says_why() {
 // (MessageDisplay's five); a bound no longer than the margin leaves no wait.
 #[test]
 fn a_hooks_spawn_wait_is_what_its_bound_leaves() {
-    assert_eq!(hook_bound("UserPromptSubmit"), crate::daemon::HOOK_BOUND);
+    assert_eq!(
+        hook_bound("UserPromptSubmit"),
+        ctxloom_wiring::daemon::HOOK_BOUND
+    );
     assert_eq!(hook_bound("MessageDisplay"), Duration::from_secs(5));
     let start = std::time::Instant::now();
     let wait = spawn_wait(&Deadline(start + hook_bound("UserPromptSubmit")));
     assert!(
-        wait <= crate::daemon::SPAWN_WAIT && wait > Duration::from_secs(7),
+        wait <= ctxloom_wiring::daemon::SPAWN_WAIT && wait > Duration::from_secs(7),
         "{wait:?}"
     );
     assert_eq!(
-        spawn_wait(&Deadline(start + crate::daemon::DELIVERY_MARGIN)),
+        spawn_wait(&Deadline(start + ctxloom_wiring::daemon::DELIVERY_MARGIN)),
         Duration::ZERO
     );
 }

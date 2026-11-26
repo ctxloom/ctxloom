@@ -22,7 +22,7 @@ use std::path::PathBuf;
 
 /// The importer's way out: the core's edge, each command under the id the
 /// importer derived for it.
-pub(crate) struct EdgeDispatch<E> {
+pub struct EdgeDispatch<E> {
     pub(crate) edge: Arc<E>,
 }
 

@@ -13,9 +13,10 @@ use run_ports::{Delivery, Edge, FactSink, Held, HeldEntry, HeldFact, HeldFacts};
 use runs_application::{observe, Left};
 use surface_ports::HookEvent;
 
-use super::*;
-use crate::capture::EdgeSink;
 use crate::InProcessCore;
+use ctxloom_wiring::capture::{Deadline, EdgeSink};
+use ctxloom_wiring::daemon::flush::*;
+use runs_application::SessionFlush;
 
 type TheEdge = embedded_edge::EmbeddedEdge<crate::CoreStores<MemoryStore>>;
 
@@ -392,7 +393,7 @@ fn with_no_daemon_serving_nothing_is_flushed() {
     let temp = crate::fixtures::root();
     let home = temp.root().join("home");
     crate::fixtures::mkdirs(&home);
-    let base = crate::tests::host_snapshot();
+    let base = ctxloom_wiring::fixtures::host_snapshot();
     let env = process_env::EnvSnapshot::from_parts(
         base.flavor(),
         Ok(home.clone()),

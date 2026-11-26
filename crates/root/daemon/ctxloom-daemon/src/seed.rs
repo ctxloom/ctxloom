@@ -26,7 +26,9 @@ use sessions::{
 };
 use system::System;
 
-use crate::{TestError, Wiring};
+use crate::store_tests::Harness;
+use crate::SeedArgs;
+use crate::TestError;
 
 /// A session to plant.
 #[derive(Clone, Debug, Default)]
@@ -57,6 +59,63 @@ pub struct Seed {
     pub loadout: Option<sessions::SessionLoadout>,
 }
 
+impl From<SeedArgs> for Seed {
+    fn from(args: SeedArgs) -> Seed {
+        let native = match (args.native_id, args.native_transcript) {
+            (None, None) => None,
+            (id, transcript) => Some((id.unwrap_or_default(), transcript.unwrap_or_default())),
+        };
+        Seed {
+            harp: args.harp,
+            project: args.project,
+            started_ago: args.started_ago,
+            ended_ago: args.ended_ago,
+            lock_free: args.lock == "free",
+            transcript: args.transcript,
+            keep: args.keep,
+            oneshot: args.oneshot,
+            native,
+            other_files: args.other_file,
+            resumable: args.resumable,
+            // A profile's loadout is the daemon's assembly of it, made by
+            // the command.
+            loadout: None,
+        }
+    }
+}
+
+/// The sessions use cases the seed plants through, over the default
+/// adapters, in the wiring's home, for the project it resolves.
+type SessionUseCases = sessions_application::Service<
+    project_registry::ProjectRegistry<harp_names::HarpNames>,
+    ctxloom_store_sqlite::SqliteStores,
+    liveness::LockFiles,
+    system::System,
+    system::System,
+>;
+
+pub(crate) struct SeedSessions {
+    pub(crate) use_cases: SessionUseCases,
+}
+
+impl Harness<'_> {
+    pub(crate) fn sessions(&self) -> SeedSessions {
+        let wiring = self.0;
+        let environment = wiring.environment();
+        let registry =
+            || ctxloom_wiring::registry(wiring.fs(), environment.clone(), harp_names::HarpNames);
+        SeedSessions {
+            use_cases: sessions_application::Service::new(
+                registry(),
+                ctxloom_store_sqlite::SqliteStores::new(wiring.fs(), wiring.home().to_path_buf()),
+                liveness::LockFiles::new(wiring.fs(), wiring.project_dir()),
+                system::System,
+                system::System,
+            ),
+        }
+    }
+}
+
 fn seed_error(detail: impl ToString) -> TestError {
     TestError::Seed {
         detail: detail.to_string(),
@@ -77,7 +136,7 @@ fn loadout_book(cover: &Cover, id: [u8; 16], loadout: &sessions::SessionLoadout)
     sessions::fact_book(cover.clone(), &fact, &sessions::loadout_key(&session, 1))
 }
 
-impl Wiring {
+impl Harness<'_> {
     /// The events of the cwd's project's session `harp`, as `ctxloom test
     /// session-events` prints them (slice 3: a write applied once): each
     /// one's type name, and a message's id and text.
@@ -271,7 +330,7 @@ impl Wiring {
     ) -> Result<String, TestError> {
         let store = stores.open(project).await.map_err(seed_error)?;
         let name = sessions::SessionName::new(project_harp, &seed.harp).map_err(seed_error)?;
-        let cwd = self.fs.cwd().map_err(seed_error)?.to_path_buf();
+        let cwd = self.fs().cwd().map_err(seed_error)?.to_path_buf();
         let output_dir = self.seed_output_dir(&seed.harp)?;
 
         let mut system = System;
@@ -376,14 +435,14 @@ impl Wiring {
     /// Where a seeded session's output goes: where a run's would
     /// (`<project>/<output.dir>/<harp>`, owner rulings 89, 106).
     fn seed_output_dir(&self, harp: &str) -> Result<std::path::PathBuf, TestError> {
-        let library = crate::library::build(self).map_err(seed_error)?;
+        let library = ctxloom_wiring::library::build(self).map_err(seed_error)?;
         let written = library
             .run_settings(&library_application::Flags::default())
             .map_or_else(
                 || library_application::OUTPUT_DIR_DEFAULT.to_string(),
                 |s| s.output_dir,
             );
-        Ok(crate::oneshot::output_root(&self.project_dir(), &written).join(harp))
+        Ok(ctxloom_wiring::oneshot::output_root(&self.project_dir(), &written).join(harp))
     }
 
     /// The files a fixture writes beside a session: its lock and authored
@@ -396,11 +455,11 @@ impl Wiring {
         let mut written = Vec::new();
         let mut write = |path: &Path, body: &str| -> Result<(), TestError> {
             if let Some(parent) = path.parent() {
-                self.fs
+                self.fs()
                     .create_dir_all(parent, Mode::from_bits(0o755))
                     .map_err(seed_error)?;
             }
-            self.fs
+            self.fs()
                 .write_atomic(path, body.as_bytes(), Perms::Exact(Mode::from_bits(0o600)))
                 .map_err(seed_error)?;
             written.push(path.to_path_buf());
@@ -412,11 +471,11 @@ impl Wiring {
         if seed.lock_free {
             let lock = session_ports::lock_path(&sessions_dir.join(&seed.harp));
             if let Some(parent) = lock.parent() {
-                self.fs
+                self.fs()
                     .create_dir_all(parent, Mode::from_bits(0o755))
                     .map_err(seed_error)?;
             }
-            self.fs
+            self.fs()
                 .open(&lock, Open::Create(Mode::from_bits(0o600)))
                 .map_err(seed_error)?;
             written.push(lock);
@@ -424,7 +483,7 @@ impl Wiring {
         if let Some(ago) = seed.ended_ago {
             let at = SystemTime::now() - Duration::from_secs(ago);
             for path in written {
-                self.fs
+                self.fs()
                     .open(&path, Open::Append(Mode::from_bits(0o600)))
                     .and_then(|file| file.set_modified(at))
                     .map_err(seed_error)?;

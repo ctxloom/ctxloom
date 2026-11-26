@@ -23,28 +23,28 @@ use os::{Signal, Signals};
 use run_application::RunError;
 
 /// Every signal a run hears, so none ends ctxloom by its default.
-pub(crate) const HEARD: [Signal; 3] = Signal::ALL;
+pub const HEARD: [Signal; 3] = Signal::ALL;
 
 /// The signals that stop a one-shot: all of them.
-pub(crate) const STOP_ONE_SHOT: [Signal; 3] = Signal::ALL;
+pub const STOP_ONE_SHOT: [Signal; 3] = Signal::ALL;
 
 /// The signals that stop the human's session: not SIGINT, which the
 /// terminal gives the engine itself.
-pub(crate) const STOP_SESSION: [Signal; 2] = [Signal::Hangup, Signal::Terminate];
+pub const STOP_SESSION: [Signal; 2] = [Signal::Hangup, Signal::Terminate];
 
 /// The first signal of `stop_on` heard, once one is.
 #[derive(Clone, Debug, Default)]
-pub(crate) struct Heard(Arc<OnceLock<Signal>>);
+pub struct Heard(Arc<OnceLock<Signal>>);
 
 impl Heard {
     /// The signal that stopped the run, if one did.
-    pub(crate) fn signal(&self) -> Option<Signal> {
+    pub fn signal(&self) -> Option<Signal> {
         self.0.get().copied()
     }
 
     /// Make the run's result what the signal that stopped it says; leave it
     /// as it is when none did.
-    pub(crate) fn overrule<T>(&self, result: &mut Result<T, RunError>) {
+    pub fn overrule<T>(&self, result: &mut Result<T, RunError>) {
         if let Some(signal) = self.signal() {
             *result = Err(RunError::Stopped {
                 signal: signal.name().to_string(),
@@ -56,12 +56,7 @@ impl Heard {
 
 /// Hear `signals` until one of `stop_on` arrives: then record it in `heard`
 /// and request `stop`. A signal outside `stop_on` is let pass.
-pub(crate) async fn forward(
-    mut signals: Signals,
-    stop_on: &'static [Signal],
-    stop: Stop,
-    heard: Heard,
-) {
+pub async fn forward(mut signals: Signals, stop_on: &'static [Signal], stop: Stop, heard: Heard) {
     loop {
         let signal = signals.recv().await;
         if stop_on.contains(&signal) {
@@ -80,7 +75,7 @@ pub(crate) async fn forward(
 /// the follow as heard already (which then asks the daemon to stop the
 /// run). The first of [`STOP_ONE_SHOT`] counts; a later one changes
 /// nothing.
-pub(crate) struct CommandStops {
+pub struct CommandStops {
     first: Arc<OnceLock<Signal>>,
     told: Arc<tokio::sync::Notify>,
     /// Why none can be heard, when none can.
@@ -90,7 +85,7 @@ pub(crate) struct CommandStops {
 impl CommandStops {
     /// Hear the signals `listen` makes (in the listener's runtime), once it
     /// listens: none of them ends the command by its default from now on.
-    pub(crate) fn hearing(
+    pub fn hearing(
         listen: impl FnOnce() -> std::io::Result<Signals> + Send + 'static,
     ) -> CommandStops {
         let first = Arc::new(OnceLock::new());
@@ -143,17 +138,17 @@ impl CommandStops {
     }
 
     /// The stop heard so far, if one was.
-    pub(crate) fn signal(&self) -> Option<Signal> {
+    pub fn signal(&self) -> Option<Signal> {
         self.first.get().copied()
     }
 
     /// Why no signal can be heard, when none can.
-    pub(crate) fn unheard(&self) -> Option<&str> {
+    pub fn unheard(&self) -> Option<&str> {
         self.unheard.as_deref()
     }
 
     /// The first stop's name, once one is heard (at once if it was).
-    pub(crate) fn heard(&self) -> run_application::client::Heard<'static> {
+    pub fn heard(&self) -> run_application::client::Heard<'static> {
         let (first, told) = (Arc::clone(&self.first), Arc::clone(&self.told));
         Box::pin(async move {
             loop {

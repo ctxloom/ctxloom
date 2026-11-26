@@ -25,11 +25,11 @@ use crate::{LibError, Wiring};
 /// Where a program is on the `PATH`, by the filesystem seam, by the file
 /// names the host looks a command up by (`git`; on Windows `git.exe` and the
 /// rest of `PATHEXT`'s).
-pub(crate) struct PathSearch {
-    pub(crate) fs: Arc<dyn Fs>,
-    pub(crate) dirs: Vec<PathBuf>,
-    pub(crate) flavor: os::Flavor,
-    pub(crate) pathext: Option<String>,
+pub struct PathSearch {
+    pub fs: Arc<dyn Fs>,
+    pub dirs: Vec<PathBuf>,
+    pub flavor: os::Flavor,
+    pub pathext: Option<String>,
 }
 
 impl PathSearch {
@@ -138,17 +138,14 @@ fn words() -> library_application::Words {
 /// The library as a run reads it: over the dependency use cases of `wiring`'s
 /// project, so a bundle installed from a remote resolves (owner ruling
 /// 2026-11-21: a library without the remotes is unrepresentable).
-pub(crate) fn build(wiring: &Wiring) -> Result<Library, LibError> {
+pub fn build(wiring: &Wiring) -> Result<Library, LibError> {
     let deps: Rc<dyn RemoteLibrary> = Rc::new(crate::commands::build_deps(wiring)?);
     build_over(wiring, deps)
 }
 
 /// The same library over `remotes`, for a caller that shares its dependency
 /// use cases with the library (a command, a hosted run).
-pub(crate) fn build_over(
-    wiring: &Wiring,
-    remotes: Rc<dyn RemoteLibrary>,
-) -> Result<Library, LibError> {
+pub fn build_over(wiring: &Wiring, remotes: Rc<dyn RemoteLibrary>) -> Result<Library, LibError> {
     let fs = wiring.fs();
     let home = wiring.home().to_path_buf();
     let (around, app) = wiring.locate();
@@ -231,18 +228,18 @@ fn builtins_withheld(_: &EnvSnapshot) -> bool {
 /// The library's names (and the remotes' and dependencies', B4), rooted
 /// where the daemon's `ResolveProject` says (OD-40, OQ-2): asked only when a
 /// json answer prints a name.
-pub(crate) struct DaemonNames {
-    pub(crate) env: Arc<EnvSnapshot>,
-    pub(crate) version: String,
+pub struct DaemonNames {
+    pub env: Arc<EnvSnapshot>,
+    pub version: String,
     /// Whether naming the project may mint its id ([`minting`]).
-    pub(crate) minting: crate::Minting,
+    pub minting: crate::Minting,
 }
 
 /// Whether `noun`'s names may mint the project's id (owner ruling
 /// 2026-11-14): every command that names its project may, at its root, but
 /// the library's `run`, which is the dry run alone (a launch is the run use
 /// case's), never does: "dry run should *not* mint".
-pub(crate) fn minting(noun: &str) -> crate::Minting {
+pub fn minting(noun: &str) -> crate::Minting {
     if noun == "run" {
         crate::Minting::Never
     } else {
@@ -281,17 +278,17 @@ impl deps_cli::Names for DaemonNames {
 /// The library reads the daemon answers (step 10a U2), as this command
 /// asks them: its project's (registered at its root, minted there if it
 /// has no identity yet), at its working directory, with its environment.
-pub(crate) struct DaemonServed {
-    pub(crate) env: Arc<EnvSnapshot>,
-    pub(crate) version: String,
+pub struct DaemonServed {
+    pub env: Arc<EnvSnapshot>,
+    pub version: String,
     /// The command's stops, heard once something asks
     /// ([`library_cli::Served::hear_stops`]), for the rest of its life.
-    pub(crate) stops: std::sync::OnceLock<crate::signals::CommandStops>,
+    pub stops: std::sync::OnceLock<crate::signals::CommandStops>,
 }
 
 impl DaemonServed {
     /// The daemon's calls for a command in `env`, of the binary `version`.
-    pub(crate) fn new(env: Arc<EnvSnapshot>, version: String) -> DaemonServed {
+    pub fn new(env: Arc<EnvSnapshot>, version: String) -> DaemonServed {
         DaemonServed {
             env,
             version,

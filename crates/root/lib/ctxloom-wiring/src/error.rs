@@ -3,7 +3,6 @@
 use std::fmt;
 
 use coded_diagnostic::{code, Arg, Diagnostic, Report};
-use ctxloom_store_sqlite::StoreOpenError;
 
 /// This crate's en-US messages.
 pub const EN_US: (&str, &str) = (
@@ -21,8 +20,6 @@ pub enum LibError {
     BadSession { session: String, detail: String },
     /// No runtime could be started to open the store.
     NoRuntime { detail: String },
-    /// The project's store would not open.
-    Store(StoreOpenError),
     /// The project could not be named (S54).
     Project(Report),
     /// The user's one daemon serves another ctxloom home than this
@@ -75,7 +72,6 @@ impl Diagnostic for LibError {
             LibError::NoHome { .. } => code!("no-home"),
             LibError::BadSession { .. } => code!("bad-session"),
             LibError::NoRuntime { .. } => code!("no-runtime"),
-            LibError::Store(_) => code!("store"),
             LibError::Project(cause) => cause.code(),
             LibError::DaemonOtherHome { .. } => code!("daemon-other-home"),
             LibError::ProjectUnnamed { .. } => code!("project-unnamed"),
@@ -94,7 +90,6 @@ impl Diagnostic for LibError {
                 ("ext_err_txt", detail.as_str().into()),
             ],
             LibError::NoRuntime { detail } => vec![("ext_err_txt", detail.as_str().into())],
-            LibError::Store(cause) => vec![("error", Arg::Nested(Box::new(cause.clone())))],
             LibError::Project(cause) => cause.args(),
             LibError::DaemonOtherHome { home, daemon_home } => vec![
                 ("home", home.as_str().into()),
@@ -146,17 +141,6 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
             path: "/work/app/.ctxloom".to_string(),
             detail: "permission denied".to_string(),
         }),
-        Box::new(LibError::Store(StoreOpenError::Open(
-            ctxloom_store_sqlite::OpenError::Unplaced {
-                path: "/home/u/.ctxloom/projects/p/ctxloom.db".to_string(),
-                detail: "no place on disk".to_string(),
-            },
-        ))),
-        Box::new(LibError::Store(StoreOpenError::UnsafeProject(
-            project_dir::ProjectDirError::IdSeparator {
-                id: "../escape".to_string(),
-            },
-        ))),
         Box::new(crate::daemon::flush::HeldSetAside {
             session: "brisk-copper-moth".to_string(),
             count: 2,

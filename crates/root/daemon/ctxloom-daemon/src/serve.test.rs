@@ -12,7 +12,7 @@ use super::{
     advertised, said, stays_for, step_of, why_it_exits, Advertised, HandOffFiles, Homes, Pumps,
     Say, Workspaces,
 };
-use crate::daemon::files::DaemonFiles;
+use crate::files::DaemonFiles;
 use crate::fixtures;
 
 const SESSION: &str = "5f0c7a52-2222-5222-8222-000000000002";
@@ -33,7 +33,7 @@ fn a_hand_off_is_read_as_it_was_left_listed_and_deleted() {
     files.hand_off(SESSION, &handed).unwrap();
     let hand_offs = HandOffFiles(
         DaemonFiles::new(fixtures::fs(), &home),
-        crate::daemon::files::HandedPrograms::default(),
+        crate::files::HandedPrograms::default(),
     );
     assert_eq!(hand_offs.read(SESSION), Some(handed.clone()));
     assert_eq!(hand_offs.read(SESSION), Some(handed.clone()), "read again");
@@ -61,7 +61,7 @@ fn a_hand_off_is_read_with_its_launchers_program_until_deleted() {
         ..daemon_application::HandOff::default()
     };
     files.hand_off(SESSION, &handed).unwrap();
-    let programs = crate::daemon::files::HandedPrograms::default();
+    let programs = crate::files::HandedPrograms::default();
     let program = daemon_application::Program {
         name: "ctxloom-dev".to_string(),
         dir: "/opt/client/bin".to_string(),
@@ -397,7 +397,7 @@ fn a_one_shot_that_ended_is_not_hosted_before_the_loops_next_round() {
         ],
         "the round's child, and the one-shot live"
     );
-    crate::oneshot::polled_once(told.lock().unwrap()[0].done(run_application::Done {
+    crate::hosted_oneshots::polled_once(told.lock().unwrap()[0].done(run_application::Done {
         result: Ok(run_application::Answer {
             harp: "harp-1".to_string(),
             session: SESSION.to_string(),
@@ -609,7 +609,7 @@ fn a_childs_checkout_is_made_with_git_in_its_launchers_environment() {
     let (home, project) = (dir.join("home"), dir.join("work"));
     fixtures::mkdirs(&home);
     fixtures::mkdirs(&project);
-    let base = crate::tests::host_snapshot();
+    let base = ctxloom_wiring::fixtures::host_snapshot();
     let daemon_env = Arc::new(process_env::EnvSnapshot::from_parts(
         base.flavor(),
         Ok(home.clone()),
@@ -790,6 +790,6 @@ fn the_daemon_serves_on_a_runtime_of_its_workers() {
     super::serve(fixtures::fs(), place, pace, say).expect("served to its idle end");
     assert_eq!(
         *seen.lock().unwrap(),
-        [(crate::daemon::runtime::workers(), 6 * 1024)]
+        [(crate::runtime::workers(), 6 * 1024)]
     );
 }

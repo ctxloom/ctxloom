@@ -110,7 +110,7 @@ daemon-application = { path = "crates/core/application/daemon-application" }
 run-application = { path = "crates/core/application/run-application" }
 credentials = { path = "crates/adapters/driven/credentials" }
 hook-sink-grpc = { path = "crates/adapters/driven/hook-sink-grpc" }
-embedded-edge = { path = "crates/adapters/driven/embedded-edge" }
+embedded-edge = { path = "crates/adapters/kernel/embedded-edge" }
 session-ports = { path = "crates/core/ports/session-ports" }
 sessions-proto = { path = "crates/core/wire/sessions-proto" }
 daemon-proto = { path = "crates/core/wire/daemon-proto" }
@@ -141,6 +141,7 @@ library-application = { path = "crates/core/application/library-application" }
 library-cli = { path = "crates/adapters/driving/library-cli" }
 stub-companion = { path = "crates/root/bin/stub-companion" }
 ctxloom-wiring = { path = "crates/root/lib/ctxloom-wiring" }
+ctxloom-daemon = { path = "crates/root/daemon/ctxloom-daemon" }
 deps = { path = "crates/core/read-model/deps" }
 pin-changes = { path = "crates/core/read-model/pin-changes" }
 deps-ports = { path = "crates/core/ports/deps-ports" }
@@ -150,7 +151,7 @@ remote-git = { path = "crates/adapters/driven/remote-git" }
 deps-files = { path = "crates/adapters/driven/deps-files" }
 deps-cli = { path = "crates/adapters/driving/deps-cli" }
 forge-github = { path = "crates/adapters/driven/forge-github" }
-ctxloom-store-sqlite = { path = "crates/adapters/driven/ctxloom-store-sqlite" }
+ctxloom-store-sqlite = { path = "crates/adapters/store/ctxloom-store-sqlite" }
 surface-ports = { path = "crates/core/ports/surface-ports" }
 setup-application = { path = "crates/core/application/setup-application" }
 surface-files = { path = "crates/adapters/driven/surface-files" }

@@ -6,9 +6,11 @@ use std::time::{Duration, SystemTime};
 
 use sessions_application::{BindRequest, ListQuery, SearchQuery, SessionService, TranscriptQuery};
 
-use crate::commands::tests::World;
 use crate::fixtures::fs;
-use crate::{Seed, TestError};
+use crate::seed::Seed;
+use crate::store_tests::Harness;
+use crate::TestError;
+use ctxloom_wiring::fixtures::World;
 
 const HARP: &str = "jolly-mute-magma";
 
@@ -51,9 +53,9 @@ fn near(at: SystemTime, expected: SystemTime) {
 fn a_seeded_session_is_listed_under_the_id_the_seed_answered() {
     let world = World::new("seed-list");
     let wiring = world.wiring();
-    let id = wiring.seed_session(&seed()).unwrap();
+    let id = Harness(&wiring).seed_session(&seed()).unwrap();
     assert!(uuid::Uuid::parse_str(&id).is_ok(), "{id}");
-    let mut sessions = wiring.sessions();
+    let mut sessions = Harness(&wiring).sessions().use_cases;
     let views = block(sessions.list(ListQuery::default())).unwrap();
     assert_eq!(views.len(), 1);
     assert_eq!(views[0].record.id, id);
@@ -67,8 +69,8 @@ fn a_seeded_session_is_listed_under_the_id_the_seed_answered() {
 fn a_session_is_searched_by_the_words_of_its_listing() {
     let world = World::new("seed-search");
     let wiring = world.wiring();
-    wiring.seed_session(&seed()).unwrap();
-    let mut sessions = wiring.sessions();
+    Harness(&wiring).seed_session(&seed()).unwrap();
+    let mut sessions = Harness(&wiring).sessions().use_cases;
     let search = |words: &[&str]| SearchQuery {
         list: ListQuery::default(),
         words: words.iter().map(ToString::to_string).collect(),
@@ -84,8 +86,8 @@ fn a_session_is_searched_by_the_words_of_its_listing() {
 fn the_transcripts_listed_and_read_are_the_one_the_seed_captured() {
     let world = World::new("seed-transcripts");
     let wiring = world.wiring();
-    wiring.seed_session(&seed()).unwrap();
-    let mut sessions = wiring.sessions();
+    Harness(&wiring).seed_session(&seed()).unwrap();
+    let mut sessions = Harness(&wiring).sessions().use_cases;
     let rows = block(sessions.transcripts(TranscriptQuery::default())).unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].harp, HARP);
@@ -104,7 +106,7 @@ fn the_transcripts_listed_and_read_are_the_one_the_seed_captured() {
 #[test]
 fn the_seed_plants_the_sessions_files_backdated_to_its_end() {
     let world = World::new("seed-files");
-    world.wiring().seed_session(&seed()).unwrap();
+    Harness(&world.wiring()).seed_session(&seed()).unwrap();
     // The seed marks the project in the work directory's `.ctxloom`, which
     // is then the project's directory.
     let sessions = world.work().join(".ctxloom/sessions");
@@ -127,7 +129,7 @@ fn a_session_that_never_ended_keeps_its_files_as_they_were_written() {
         ended_ago: None,
         ..seed()
     };
-    world.wiring().seed_session(&live).unwrap();
+    Harness(&world.wiring()).seed_session(&live).unwrap();
     let authored = world
         .work()
         .join(".ctxloom/sessions")
@@ -143,8 +145,8 @@ fn a_session_that_never_ended_keeps_its_files_as_they_were_written() {
 fn a_name_already_claimed_is_refused_as_a_seed_error() {
     let world = World::new("seed-claimed");
     let wiring = world.wiring();
-    wiring.seed_session(&seed()).unwrap();
-    match wiring.seed_session(&seed()) {
+    Harness(&wiring).seed_session(&seed()).unwrap();
+    match Harness(&wiring).seed_session(&seed()) {
         Err(TestError::Seed { detail }) => assert!(!detail.is_empty()),
         other => panic!("{other:?}"),
     }
@@ -162,8 +164,11 @@ fn the_sessions_service_binds_a_seeded_session() {
         native: None,
         ..seed()
     };
-    wiring.seed_session(&unbound).unwrap();
-    let mut sessions = world.wiring().sessions();
+    Harness(&wiring).seed_session(&unbound).unwrap();
+    let mut sessions = {
+        let w = world.wiring();
+        Harness(&w).sessions().use_cases
+    };
     let bind = || BindRequest {
         project: None,
         harp: HARP.to_string(),
@@ -192,8 +197,8 @@ fn the_sessions_service_binds_a_seeded_session() {
 fn a_seeded_sessions_output_dir_is_under_the_projects_output_directory() {
     let world = World::new("seed-output");
     let wiring = world.wiring();
-    wiring.seed_session(&seed()).unwrap();
-    let mut sessions = wiring.sessions();
+    Harness(&wiring).seed_session(&seed()).unwrap();
+    let mut sessions = Harness(&wiring).sessions().use_cases;
     let views = block(sessions.list(ListQuery::default())).unwrap();
     let expected = wiring.project_dir().join("ctxloom").join(HARP);
     assert_eq!(views[0].record.output_dir, expected.display().to_string());
@@ -215,8 +220,8 @@ fn a_seed_with_a_loadout_records_it_on_the_session() {
         loadout: Some(loadout.clone()),
         ..seed()
     };
-    wiring.seed_session(&on_profile).unwrap();
-    let events = wiring.session_events(HARP, None).unwrap();
+    Harness(&wiring).seed_session(&on_profile).unwrap();
+    let events = Harness(&wiring).session_events(HARP, None).unwrap();
     let recorded: Vec<&serde_json::Value> = events
         .as_array()
         .unwrap()

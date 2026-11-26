@@ -5,7 +5,6 @@
 //! use cases, so both are built together.
 
 use cli_support::Exit;
-use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -36,7 +35,7 @@ const OWN_NOUNS: [&str; 2] = ["remote", "deps"];
 
 /// The dependency use cases over the process's home, working directory and
 /// project.
-pub(crate) fn build_deps(wiring: &Wiring) -> Result<Deps, LibError> {
+pub fn build_deps(wiring: &Wiring) -> Result<Deps, LibError> {
     let (_, app) = wiring.locate();
     let files = Arc::new(ProjectFiles::new(wiring.fs(), app.path.clone()));
     build_deps_over(wiring, files.clone(), files)
@@ -45,7 +44,7 @@ pub(crate) fn build_deps(wiring: &Wiring) -> Result<Deps, LibError> {
 /// The dependency use cases over `store`, the deps files they read and
 /// write (a recording one in the daemon, step 10c U4); `files` the
 /// project's own, which a clone's token is looked up in.
-pub(crate) fn build_deps_over(
+pub fn build_deps_over(
     wiring: &Wiring,
     store: Arc<dyn DepsFiles>,
     files: Arc<ProjectFiles>,
@@ -65,7 +64,7 @@ pub(crate) fn build_deps_over(
 /// The remotes over git, in `wiring`'s environment (the caller's, in the
 /// daemon: step 10c U4), cloned under its project's cache; a clone's token
 /// looked up in `files`' registry.
-pub(crate) fn git_remotes(wiring: &Wiring, files: Arc<ProjectFiles>) -> GitRemotes {
+pub fn git_remotes(wiring: &Wiring, files: Arc<ProjectFiles>) -> GitRemotes {
     let env = Arc::clone(wiring.env());
     let (_, app) = wiring.locate();
     GitRemotes::new(wiring.fs(), app.path.join("cache/repos"), Arc::clone(&env)).with_credentials(
@@ -110,7 +109,7 @@ fn piped_prompt() -> Option<String> {
 const SURFACE_NOUNS: [&str; 3] = ["manage", "materialize", "util"];
 
 /// The dependency pull `manage install` ends with.
-pub(crate) struct DepsPuller(pub(crate) Rc<Deps>);
+pub struct DepsPuller(pub Rc<Deps>);
 
 impl Puller for DepsPuller {
     fn pull(&self) -> Result<u64, String> {
@@ -127,9 +126,9 @@ impl Puller for DepsPuller {
 /// into the project's directory, with the context of an engine whose context
 /// rides the launch left alone. Without consent it is a dry run, and answers
 /// only what would change.
-pub(crate) struct SetupRefresh<'a> {
-    pub(crate) setup: &'a Setup,
-    pub(crate) flags: library_application::Flags,
+pub struct SetupRefresh<'a> {
+    pub setup: &'a Setup,
+    pub flags: library_application::Flags,
 }
 
 impl ProjectRefresh for SetupRefresh<'_> {
@@ -199,73 +198,9 @@ pub fn engines() -> Engines {
     Engines::new(composed)
 }
 
-/// The engines the daemon hosts a child on (T18), each its `Engine` beside
-/// its `ChildEngine`, by name: claude, then opencode (its ACP child). The
-/// launcher resolves a child's engine here, never by naming an adapter.
-/// They are composed as EVERY launch's are (`oneshot::launch_engines`, the
-/// one session-setup path): calling `program`, over `wiring`'s user's own
-/// settings.
-pub fn hosted_engines(wiring: &Wiring, program: &str) -> Vec<daemon_application::HostedEngine> {
-    let crate::oneshot::LaunchEngines { claude, opencode } =
-        crate::oneshot::launch_engines(wiring, program);
-    // Each launch composed anew (T21): her settings read at that launch,
-    // where her launcher finds them, never once at the daemon's start.
-    let home = wiring.home().to_path_buf();
-    let user_home = wiring.user_home();
-    let temp = wiring.env().temp_dir().to_path_buf();
-    let program = program.to_string();
-    let for_launch = move |claude_side: bool| -> daemon_application::ForLaunch {
-        let (home, user_home, temp, program) = (
-            home.clone(),
-            user_home.clone(),
-            temp.clone(),
-            program.clone(),
-        );
-        Arc::new(
-            move |launcher: &BTreeMap<String, String>,
-                  launched: Option<&daemon_application::Program>| {
-                // The launcher's program, else the daemon's own (owner,
-                // 2026-11-18).
-                let program = launched.map_or(program.as_str(), |launched| launched.name.as_str());
-                let engines = crate::daemon::launch_engines_for(
-                    &home,
-                    user_home.as_deref(),
-                    &temp,
-                    launcher,
-                    program,
-                );
-                match claude_side {
-                    true => (
-                        engines.claude.clone() as Arc<dyn run_ports::Engine>,
-                        engines.claude as Arc<dyn run_ports::ChildEngine>,
-                    ),
-                    false => (
-                        engines.opencode.clone() as Arc<dyn run_ports::Engine>,
-                        engines.opencode as Arc<dyn run_ports::ChildEngine>,
-                    ),
-                }
-            },
-        )
-    };
-    vec![
-        daemon_application::HostedEngine {
-            engine: claude.clone(),
-            child: claude,
-            transcripts: Arc::new(engine_claude::transcripts_of),
-            for_launch: Some(for_launch(true)),
-        },
-        daemon_application::HostedEngine {
-            engine: opencode.clone(),
-            child: opencode,
-            transcripts: Arc::new(|_| None),
-            for_launch: Some(for_launch(false)),
-        },
-    ]
-}
-
 /// The setup use cases over the process's home, working directory and
 /// project.
-pub(crate) fn build_setup(wiring: &Wiring, deps: Rc<Deps>) -> Result<Setup, LibError> {
+pub fn build_setup(wiring: &Wiring, deps: Rc<Deps>) -> Result<Setup, LibError> {
     let files = Arc::new(SurfaceFiles::new(
         wiring.fs(),
         wiring.home().join(".ctxloom/records"),
@@ -275,7 +210,7 @@ pub(crate) fn build_setup(wiring: &Wiring, deps: Rc<Deps>) -> Result<Setup, LibE
 
 /// `setup`, its hooks reading the library and their contexts through the
 /// daemon, as the client stamped `stamp` (a hook process's own setup).
-pub(crate) fn with_hook_clients(setup: Setup, wiring: &Wiring, stamp: &str) -> Setup {
+pub fn with_hook_clients(setup: Setup, wiring: &Wiring, stamp: &str) -> Setup {
     setup
         // The hooks read the library through the daemon (O3), within their
         // bound from when the use cases were wired, which a hook does first.
@@ -292,7 +227,7 @@ pub(crate) fn with_hook_clients(setup: Setup, wiring: &Wiring, stamp: &str) -> S
 
 /// The setup use cases over `files`, the surface store they deliver
 /// through (a recording one in the daemon, step 10c U10).
-pub(crate) fn build_setup_over(
+pub fn build_setup_over(
     wiring: &Wiring,
     deps: Rc<Deps>,
     files: Arc<SurfaceFiles>,
@@ -361,12 +296,14 @@ fn token_vars(files: Arc<ProjectFiles>) -> remote_git::TokenVars {
 /// Every command of the program, wired when one first needs the home.
 pub struct Commands {
     /// The environment the process was launched in, read once.
-    pub(crate) env: Arc<EnvSnapshot>,
+    pub env: Arc<EnvSnapshot>,
     /// The binary's version stamp, as `ctxloom version` says it.
-    pub(crate) version: String,
+    pub version: String,
     wired: Option<Wired>,
     /// The sessions use cases, built when a command first needs them.
-    pub(crate) sessions: Option<Sessions>,
+    pub sessions: Option<Sessions>,
+    /// The daemon's composition, handed in by the binary.
+    hosting: crate::daemon::Hosting,
     /// The diagnostics beyond the wiring's and the command line's that
     /// `ctxloom test diagnostics` lists: the composition root's to name.
     #[cfg(feature = "test-support")]
@@ -388,9 +325,21 @@ impl Commands {
             version: version.to_string(),
             wired: None,
             sessions: None,
+            hosting: crate::daemon::Hosting::NONE,
             #[cfg(feature = "test-support")]
             samples: Vec::new,
         }
+    }
+
+    /// The daemon's composition (`ctxloom-daemon`'s [`Hosting`]): what runs
+    /// `daemon serve`, refuses a legacy store and hosts the store's test
+    /// commands. The binary hands it in, so the CLI's parse stays here.
+    ///
+    /// [`Hosting`]: crate::daemon::Hosting
+    #[must_use]
+    pub fn hosted_by(mut self, hosting: crate::daemon::Hosting) -> Commands {
+        self.hosting = hosting;
+        self
     }
 
     /// The diagnostics `ctxloom test diagnostics` lists besides the wiring's
@@ -563,7 +512,7 @@ impl Commands {
             return Some(crate::test_commands::run(
                 || Wiring::new(env),
                 &self.version,
-                self.samples,
+                (self.samples, self.hosting.store_tests),
                 call,
                 catalog,
                 out,
@@ -571,6 +520,7 @@ impl Commands {
         }
         if noun == crate::daemon::NOUN {
             return Some(crate::daemon::run(
+                self.hosting.serve,
                 &self.env,
                 &self.version,
                 call,
@@ -617,9 +567,7 @@ impl Commands {
         let hook = SESSION_NOUNS.contains(&noun) && noun != "session";
         if !hook {
             if let Ok(wiring) = Wiring::new(Arc::clone(&self.env)) {
-                wiring
-                    .refuse_per_project_store()
-                    .map_err(|refused| Failure::new(refused, Exit::REFUSED))?;
+                (self.hosting.per_project_guard)(&wiring)?;
             }
         }
         if noun == "container" {
@@ -689,4 +637,4 @@ impl Commands {
 
 #[cfg(test)]
 #[path = "commands.test.rs"]
-pub(crate) mod tests;
+pub mod tests;

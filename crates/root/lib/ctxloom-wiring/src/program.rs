@@ -11,12 +11,12 @@ use std::sync::OnceLock;
 
 /// Where the running binary is.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct Program {
+pub struct Program {
     /// Its directory; empty when it could not be found.
-    pub(crate) dir: String,
+    pub dir: String,
     /// Its file name; [`surface_ports::CALLBACK_PROGRAM`] when it could not
     /// be found.
-    pub(crate) name: String,
+    pub name: String,
 }
 
 impl Program {
@@ -24,7 +24,7 @@ impl Program {
     /// `/proc/self/exe`, a symlink's target and never the link); none known,
     /// the authored name and no directory. `suffix` is the platform's
     /// executable suffix (`std::env::consts::EXE_SUFFIX`).
-    pub(crate) fn at(exe: Option<&Path>, suffix: &str) -> Program {
+    pub fn at(exe: Option<&Path>, suffix: &str) -> Program {
         let dir = exe
             .and_then(Path::parent)
             .map(|dir| dir.to_string_lossy().into_owned())
@@ -53,7 +53,7 @@ fn without_suffix<'n>(name: &'n str, suffix: &str) -> &'n str {
 /// The program a run the daemon hosts for a client runs (owner,
 /// 2026-11-18): the client's, as its request named it; none named, the
 /// daemon's own ([`running`]).
-pub(crate) fn of_client(client: Option<&daemon_application::Program>) -> Program {
+pub fn of_client(client: Option<&daemon_application::Program>) -> Program {
     match client {
         Some(client) => Program {
             dir: client.dir.clone(),
@@ -64,7 +64,7 @@ pub(crate) fn of_client(client: Option<&daemon_application::Program>) -> Program
 }
 
 /// The running binary, asked once per process.
-pub(crate) fn running() -> &'static Program {
+pub fn running() -> &'static Program {
     static RUNNING: OnceLock<Program> = OnceLock::new();
     RUNNING.get_or_init(|| {
         Program::at(

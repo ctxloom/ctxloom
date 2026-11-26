@@ -49,6 +49,18 @@ rule = "the core depends on the core only"
 allow = ["core/ports", "core/wire", "@support"]
 rule = "a driven adapter sees only ports and wire types, never another adapter"
 
+# ONE WRITER (owner ruling 2026-11-25): the store and the kernel host are roles
+# of their own, so a rule can name who may depend on them. Only `root/daemon`
+# (and the binary, the composition root of both programs) may; see the
+# `root/lib` rule below.
+[roles."adapters/store"]
+allow = ["core/ports", "core/wire", "@support"]
+rule = "the store adapter sees only ports and wire types; only the daemon's composition depends on it"
+
+[roles."adapters/kernel"]
+allow = ["core/ports", "core/wire", "@support"]
+rule = "the kernel host adapter sees only ports and wire types; only the daemon's composition depends on it"
+
 # A support crate is infrastructure shared by driven adapters: it knows no
 # port, no use case and no other adapter.
 [roles."adapters/support"]
@@ -68,8 +80,23 @@ rule = "a driving adapter sees only the application layer, the wire types and th
 [roles."root/bin"]
 allow = ["*"]
 
-[roles."root/lib"]
+# ONE WRITER, G2 (owner ruling 2026-11-25; design note messages-only.design.md,
+# P2): the daemon is the store's one writer, so the dependency shape says it.
+# `root/daemon` (crates/root/daemon/ctxloom-daemon) is the daemon's
+# composition: the store, the kernel host, the scheduler, the listener and the
+# hosted runs. `root/lib` (ctxloom-wiring) is the CLI's composition, a CLIENT
+# of the daemon: `adapters/store` and `adapters/kernel` are not in its list, so
+# it cannot open the store or host a kernel. The binary (`root/bin`) hosts
+# both programs in one executable, so the shape cannot keep a CLI PROCESS from
+# the store; that is clippy's `disallowed-methods` (clippy.toml, "ONE WRITER")
+# and `just lint-one-writer`.
+[roles."root/daemon"]
 allow = ["*"]
+rule = "the daemon's composition: with the binary, the only crate that depends on the store adapter and the kernel host"
+
+[roles."root/lib"]
+allow = ["core/*", "adapters/driving", "adapters/driven", "adapters/support", "@presentation"]
+rule = "the CLI's composition is a client of the daemon: no store adapter (adapters/store) and no kernel host (adapters/kernel), neither listed here"
 
 # A known departure, kept as debt: from, to, optionally kind ("normal",
 # "build" or "dev"), and why. One that matches no finding is stale and fails.
@@ -173,46 +200,3 @@ from = "daemon-api-grpc"
 to = "daemon-api-grpc"
 kind = "dev"
 reason = "test-only: the crate's own tests compile the served destroy (M5) through a self dev-dependency, so no feature rule is needed and the plain daemon answers UNIMPLEMENTED"
-
-# ONE WRITER, G2 (owner ruling 2026-11-25; design note messages-only.design.md,
-# P2): the daemon is the store's one writer, so the dependency shape says it.
-# DORMANT until the split of `ctxloom-wiring` lands (the next P2 step): today
-# the one `root/lib` crate is both the CLI's composition and the daemon's, and
-# every rule above lets it depend on anything.
-#
-# TODO(P2 split): `ctxloom-wiring` keeps the CLI's composition (its commands,
-# its clients of the daemon, the test-support commands that call the daemon);
-# a new crate `ctxloom-daemon` takes the daemon's (daemon/, core_link,
-# scheduling, the one-shot and terminal HOSTING of oneshot.rs and
-# frontend.rs). arch-lint judges ROLES (a crate's directory), not crates, so
-# the two compositions and the store must each be a role of their own for the
-# rule to say "the CLI's composition is refused the store and the kernel
-# host":
-#
-#   crates/root/daemon/ctxloom-daemon            role root/daemon
-#   crates/adapters/store/ctxloom-store-sqlite   role adapters/store (moved out
-#                                                of adapters/driven)
-#   crates/adapters/driven/embedded-edge         role adapters/driven, listed
-#                                                below by class: the kernel host
-#
-# and then, replacing the `root/lib` entry above:
-#
-# [classes]
-# kernel-host = ["embedded-edge"]
-#
-# [roles."adapters/store"]
-# allow = ["core/ports", "core/wire", "@support"]
-# rule = "the store adapter sees only ports and wire types"
-#
-# [roles."root/daemon"]
-# allow = ["*"]
-# rule = "the daemon's composition: the only crate besides the binary that depends on the store adapter and the kernel host"
-#
-# [roles."root/lib"]
-# allow = ["core/*", "adapters/driving", "adapters/driven", "adapters/support", "@presentation"]
-# rule = "the CLI's composition is a client of the daemon: no store adapter (adapters/store is not listed) and no kernel host (embedded-edge: drop it from adapters/driven's use here with an exception per crate that still needs it, each with its P2 reason)"
-#
-# `root/bin` stays "*": the binary hosts `daemon serve` and the CLI in one
-# executable, so the shape cannot keep a CLI PROCESS from the store; that is
-# clippy's `disallowed-methods` (clippy.toml, "ONE WRITER") and the debt
-# ceiling `scripts/one-writer-debt.max`.

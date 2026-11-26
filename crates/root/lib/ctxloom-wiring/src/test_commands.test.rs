@@ -6,18 +6,9 @@ use clap::Command;
 use coded_diagnostic::Diagnostic;
 use ctxloom_cli::{Call, Extension};
 use presentation::{Catalog, Format};
-use sessions_application::{ListQuery, SessionService};
 
 use super::*;
 use crate::commands::tests::{run_line, try_line, World};
-
-fn block<T>(future: impl std::future::Future<Output = T>) -> T {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap()
-        .block_on(future)
-}
 
 fn failure(world: &World, line: &[&str]) -> (u8, String) {
     let failed = try_line(&mut world.commands(), Format::Json, line).unwrap_err();
@@ -115,7 +106,7 @@ fn an_answer_that_cannot_be_written_is_a_failure_with_exit_10() {
     let failed = run(
         || unreachable!("a session id needs no home"),
         "v0.0.0-test",
-        Vec::new,
+        (Vec::new, crate::daemon::Hosting::NONE.store_tests),
         &call,
         &catalog,
         &mut Broken,
@@ -179,48 +170,7 @@ fn a_run_id_is_the_runs_uuid_and_a_bad_session_is_refused() {
     );
 }
 
-#[test]
-fn open_store_prints_the_path_of_the_projects_database() {
-    let world = World::new("test-open-store");
-    let (_, out, _) = run_line(&mut world.commands(), &["test", "open-store", "proj-1"]);
-    let path = world.wiring().open_store("proj-1").unwrap();
-    assert_eq!(out, format!("{}\n", path.display()));
-    assert!(path.starts_with(world.home()), "{path:?}");
-    assert_eq!(
-        failure(&world, &["test", "open-store", "../escape"]),
-        (32, "ctxloom-wiring-store".to_string())
-    );
-}
-
-#[test]
-fn seed_session_plants_a_session_and_prints_its_id() {
-    let world = World::new("test-seed-session");
-    let (_, out, _) = run_line(
-        &mut world.commands(),
-        &["test", "seed-session", "jolly-mute-magma", "--transcript"],
-    );
-    let id = out.strip_suffix('\n').unwrap();
-    assert!(uuid::Uuid::parse_str(id).is_ok(), "{id}");
-    let mut sessions = world.wiring().sessions();
-    let views = block(sessions.list(ListQuery::default())).unwrap();
-    assert_eq!(views.len(), 1);
-    assert_eq!(views[0].record.id, id);
-    assert_eq!(views[0].record.harp, "jolly-mute-magma");
-}
-
-#[test]
-fn a_seed_that_cannot_plant_ends_in_a_failure() {
-    let world = World::new("test-seed-fails");
-    // The same name twice: the second claim is refused.
-    let line = ["test", "seed-session", "jolly-mute-magma"];
-    run_line(&mut world.commands(), &line);
-    assert_eq!(
-        failure(&world, &line),
-        (32, "ctxloom-wiring-seed".to_string())
-    );
-}
-
-fn seed_of(line: &[&str]) -> Seed {
+fn seed_of(line: &[&str]) -> SeedArgs {
     let program = Command::new("ctxloom").subcommand(noun());
     let argv = ["ctxloom", "test", "seed-session"];
     let matches = program
@@ -228,7 +178,7 @@ fn seed_of(line: &[&str]) -> Seed {
         .unwrap();
     let matches = matches.subcommand_matches(NOUN).unwrap();
     match TestVerb::from_arg_matches(matches).unwrap() {
-        TestVerb::SeedSession(args) => args.into(),
+        TestVerb::SeedSession(args) => args,
         other => panic!("{other:?}"),
     }
 }
@@ -264,21 +214,20 @@ fn every_seed_flag_lands_in_the_seed() {
         format!("{seed:?}"),
         format!(
             "{:?}",
-            Seed {
+            SeedArgs {
                 harp: "harp-one".to_string(),
                 project: Some("other".to_string()),
                 started_ago: 5,
                 ended_ago: Some(3),
-                lock_free: true,
+                lock: "free".to_string(),
                 transcript: true,
                 keep: true,
                 oneshot: true,
-                native: Some(("n1".to_string(), "/t/n1.jsonl".to_string())),
-                other_files: vec!["a.md".to_string(), "b.md".to_string()],
+                native_id: Some("n1".to_string()),
+                native_transcript: Some("/t/n1.jsonl".to_string()),
+                other_file: vec!["a.md".to_string(), "b.md".to_string()],
                 resumable: true,
-                // A profile's loadout is the daemon's assembly of it, which
-                // the command asks for (step 10c U13), not the arguments'.
-                loadout: None,
+                profile: Some("dev".to_string()),
             }
         )
     );
@@ -291,24 +240,12 @@ fn a_seed_with_no_flags_is_a_day_old_unfinished_unlocked_session() {
         format!("{seed:?}"),
         format!(
             "{:?}",
-            Seed {
+            SeedArgs {
                 harp: "harp-one".to_string(),
                 started_ago: 86_400,
-                ..Seed::default()
+                lock: "none".to_string(),
+                ..SeedArgs::default()
             }
         )
     );
-}
-
-#[test]
-fn a_half_named_native_binding_keeps_the_half_it_has() {
-    assert_eq!(
-        seed_of(&["h", "--native-id", "n1"]).native,
-        Some(("n1".to_string(), String::new()))
-    );
-    assert_eq!(
-        seed_of(&["h", "--native-transcript", "/t"]).native,
-        Some((String::new(), "/t".to_string()))
-    );
-    assert!(!seed_of(&["h", "--lock", "none"]).lock_free);
 }

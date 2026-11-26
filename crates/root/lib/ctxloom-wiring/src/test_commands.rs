@@ -15,10 +15,43 @@ use ctxloom_cli::{shaped, Call, CliError, Failure};
 use presentation::{render, write_json, Catalog, Render};
 use serde::Serialize;
 
-use crate::{LibError, Seed, TestError, Wiring};
+use crate::{LibError, TestError, Wiring};
+
+/// The test commands that read or write the store: the daemon's
+/// composition runs them (the CLI's wiring opens no store), handed in by the
+/// binary as [`Hosting::store_tests`](crate::daemon::Hosting).
+#[derive(Debug)]
+pub enum StoreVerb {
+    OpenStore {
+        project: String,
+    },
+    SeedSession {
+        args: Box<SeedArgs>,
+        loadout: Option<sessions::SessionLoadout>,
+    },
+    SessionName {
+        harp: String,
+    },
+    SessionEvents {
+        harp: String,
+        run: Option<u32>,
+    },
+    LibraryEvents {
+        home: bool,
+    },
+    Record,
+    SeedRehosts {
+        harp: String,
+        count: u32,
+    },
+}
+
+/// Runs a [`StoreVerb`] where `wiring` is, for the binary of stamp `version`,
+/// writing its answer to `out`.
+pub type StoreTest = fn(&Wiring, &str, StoreVerb, &mut dyn Write) -> Result<(), Failure>;
 
 /// The noun these commands own.
-pub(crate) const NOUN: &str = "test";
+pub const NOUN: &str = "test";
 
 /// One value of every diagnostic the binary can raise besides the wiring's
 /// and the command line's own: what the composition root hands in.
@@ -118,75 +151,50 @@ const HOLD_FOR: std::time::Duration = std::time::Duration::from_secs(600);
 
 /// What `ctxloom test seed-session` plants (see the acceptance tests).
 #[derive(Args, Debug, Clone, Default)]
-struct SeedArgs {
+pub struct SeedArgs {
     /// The session's name
-    harp: String,
+    pub harp: String,
     /// Another project than the cwd's
     #[arg(long)]
-    project: Option<String>,
+    pub project: Option<String>,
     /// Seconds ago it was minted
     #[arg(long, default_value_t = 86_400)]
-    started_ago: u64,
+    pub started_ago: u64,
     /// Seconds ago its last run ended; left out, it never ended
     #[arg(long)]
-    ended_ago: Option<u64>,
+    pub ended_ago: Option<u64>,
     /// `free` makes its lock file with nothing holding it; `none` makes none
     #[arg(long, default_value = "none")]
-    lock: String,
+    pub lock: String,
     /// Record the first prompt Go's fixture's transcript holds, as a hook would
     #[arg(long)]
-    transcript: bool,
+    pub transcript: bool,
     /// Mark its transcript kept
     #[arg(long)]
-    keep: bool,
+    pub keep: bool,
     /// An internal one-shot's session
     #[arg(long)]
-    oneshot: bool,
+    pub oneshot: bool,
     /// The engine's session it is bound to
     #[arg(long)]
-    native_id: Option<String>,
+    pub native_id: Option<String>,
     /// The engine's transcript it is bound to
     #[arg(long)]
-    native_transcript: Option<String>,
+    pub native_transcript: Option<String>,
     /// An authored file in the session directory
     #[arg(long)]
-    other_file: Vec<String>,
+    pub other_file: Vec<String>,
     /// Its first incarnation ended, so it can be resumed
     #[arg(long)]
-    resumable: bool,
+    pub resumable: bool,
     /// The profile its run was planned on, so its loadout names that
     /// profile's bundles
     #[arg(long)]
-    profile: Option<String>,
-}
-
-impl From<SeedArgs> for Seed {
-    fn from(args: SeedArgs) -> Seed {
-        let native = match (args.native_id, args.native_transcript) {
-            (None, None) => None,
-            (id, transcript) => Some((id.unwrap_or_default(), transcript.unwrap_or_default())),
-        };
-        Seed {
-            harp: args.harp,
-            project: args.project,
-            started_ago: args.started_ago,
-            ended_ago: args.ended_ago,
-            lock_free: args.lock == "free",
-            transcript: args.transcript,
-            keep: args.keep,
-            oneshot: args.oneshot,
-            native,
-            other_files: args.other_file,
-            resumable: args.resumable,
-            // A profile's loadout is the daemon's assembly of it, made by
-            // the command (`TestVerb::SeedSession`).
-            loadout: None,
-        }
-    }
+    pub profile: Option<String>,
 }
 
 /// The noun, shaped like the command line's own and hidden from its help.
-pub(crate) fn noun() -> Command {
+pub fn noun() -> Command {
     shaped(TestVerb::augment_subcommands(
         Command::new(NOUN)
             .about("Commands for the tests only")
@@ -233,11 +241,23 @@ fn output(written: std::io::Result<()>) -> Result<(), Failure> {
     })
 }
 
+/// `verb` run where the home is, by the daemon's composition.
+fn stored(
+    wiring: impl FnOnce() -> Result<Wiring, LibError>,
+    store_tests: StoreTest,
+    version: &str,
+    verb: StoreVerb,
+    out: &mut dyn Write,
+) -> Result<(), Failure> {
+    let wiring = wiring().map_err(failed)?;
+    store_tests(&wiring, version, verb, out)
+}
+
 /// Run the `test` noun's verb.
-pub(crate) fn run(
+pub fn run(
     wiring: impl FnOnce() -> Result<Wiring, LibError>,
     version: &str,
-    samples: Samples,
+    (samples, store_tests): (Samples, StoreTest),
     call: &Call<'_>,
     catalog: &Catalog,
     out: &mut dyn Write,
@@ -278,48 +298,55 @@ pub(crate) fn run(
                 Some(profile) => Some(crate::daemon::profile_loadout(&wiring, version, profile)?),
                 None => None,
             };
-            let seed = Seed {
-                loadout,
-                ..seed.into()
-            };
-            let id = wiring.seed_session(&seed).map_err(failed)?;
-            output(writeln!(out, "{id}"))
+            store_tests(
+                &wiring,
+                version,
+                StoreVerb::SeedSession {
+                    args: Box::new(seed),
+                    loadout,
+                },
+                out,
+            )?;
+            Ok(())
         }
         TestVerb::ProjectName => {
             let wiring = wiring().map_err(failed)?;
             let parent = crate::daemon::library_parent(&wiring, version, crate::Minting::AtRoot)?;
             output(writeln!(out, "{parent}"))
         }
-        TestVerb::SessionName { harp } => {
-            let wiring = wiring().map_err(failed)?;
-            let name = wiring.session_resource(&harp).map_err(failed)?;
-            output(writeln!(out, "{name}"))
-        }
-        TestVerb::SessionEvents { harp, run } => {
-            let wiring = wiring().map_err(failed)?;
-            let events = wiring.session_events(&harp, run).map_err(failed)?;
-            // As `test library-events` prints its tree's (step 10c U13: a
-            // scenario reads `events[type=...]`).
-            output(writeln!(out, "{}", serde_json::json!({ "events": events })))
-        }
-        TestVerb::LibraryEvents { home } => {
-            let wiring = wiring().map_err(failed)?;
-            let events = wiring.library_events(home, version).map_err(failed)?;
-            output(writeln!(out, "{events}"))
-        }
+        TestVerb::SessionName { harp } => stored(
+            wiring,
+            store_tests,
+            version,
+            StoreVerb::SessionName { harp },
+            out,
+        ),
+        TestVerb::SessionEvents { harp, run } => stored(
+            wiring,
+            store_tests,
+            version,
+            StoreVerb::SessionEvents { harp, run },
+            out,
+        ),
+        TestVerb::LibraryEvents { home } => stored(
+            wiring,
+            store_tests,
+            version,
+            StoreVerb::LibraryEvents { home },
+            out,
+        ),
         TestVerb::WatchLibrary { home, count } => {
             let wiring = wiring().map_err(failed)?;
             crate::daemon::watch::watch_library(&wiring, version, home, count, out)
         }
-        TestVerb::Record => {
-            let wiring = wiring().map_err(failed)?;
-            let record = wiring.record().map_err(failed)?;
-            output(writeln!(out, "{record}"))
-        }
-        TestVerb::SeedRehosts { harp, count } => {
-            let wiring = wiring().map_err(failed)?;
-            wiring.seed_rehosts(&harp, count).map_err(failed)
-        }
+        TestVerb::Record => stored(wiring, store_tests, version, StoreVerb::Record, out),
+        TestVerb::SeedRehosts { harp, count } => stored(
+            wiring,
+            store_tests,
+            version,
+            StoreVerb::SeedRehosts { harp, count },
+            out,
+        ),
         TestVerb::HoldLock { path } => {
             // The platform's lock, not `flock(1)`, which macOS has not
             // (CI, 2026-11-19).
@@ -330,12 +357,13 @@ pub(crate) fn run(
             drop(held);
             Ok(())
         }
-        TestVerb::OpenStore { project } => {
-            let path = wiring()
-                .and_then(|w| w.open_store(&project))
-                .map_err(failed)?;
-            output(writeln!(out, "{}", path.display()))
-        }
+        TestVerb::OpenStore { project } => stored(
+            wiring,
+            store_tests,
+            version,
+            StoreVerb::OpenStore { project },
+            out,
+        ),
     }
     .map(|()| Exit::OK)
 }

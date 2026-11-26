@@ -83,7 +83,7 @@ impl daemon_api::DepsPlans for DepsWriters {
         let store = Arc::new(RecordingDepsFiles::over(Arc::clone(&files)));
         let failed = |e: &dyn coded_diagnostic::Diagnostic| ApiError::diagnosed(e);
         let deps = Rc::new(
-            crate::commands::build_deps_over(&wiring, store.clone(), Arc::clone(&files))
+            ctxloom_wiring::commands::build_deps_over(&wiring, store.clone(), Arc::clone(&files))
                 .map_err(|e| failed(&e))?,
         );
         let mut foreign = Vec::new();
@@ -147,7 +147,7 @@ impl daemon_api::DepsPlans for DepsWriters {
                 })
             }
         };
-        let remotes = crate::commands::git_remotes(&wiring, Arc::clone(&files));
+        let remotes = ctxloom_wiring::commands::git_remotes(&wiring, Arc::clone(&files));
         planned(answer, (&store.take(), files.as_ref()), &remotes, foreign)
     }
 }
@@ -169,9 +169,10 @@ fn pull(
         wiring.fs(),
         wiring.home().join(".ctxloom/records"),
     ));
-    let setup = crate::commands::build_setup_over(wiring, Rc::clone(deps), surfaces.clone())
-        .map_err(|e| ApiError::diagnosed(&e))?;
-    let refresher = crate::commands::SetupRefresh {
+    let setup =
+        ctxloom_wiring::commands::build_setup_over(wiring, Rc::clone(deps), surfaces.clone())
+            .map_err(|e| ApiError::diagnosed(&e))?;
+    let refresher = ctxloom_wiring::commands::SetupRefresh {
         setup: &setup,
         flags: flags.clone(),
     };

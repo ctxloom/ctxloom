@@ -54,56 +54,9 @@ use crate::fixtures::{
     runs_scripts, temp_var,
 };
 
-/// The version stamp the wiring's tests build their commands with.
-pub(crate) const VERSION: &str = "v0.1.0-abc1234";
-
-/// The process's environment is one: tests that set it take this first, and
-/// tests that read it read it through `host_snapshot`, never while an `Env`
-/// holds it changed (one with PATH unset finds no `git`).
-pub(crate) static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-/// Whether the variable `name` is one an enclosing ctxloom session gives the
-/// engine its tests may be run under (an agent's shell runs `just test`):
-/// ctxloom's own (`CTXLOOM_*`: its home, the run's listener, bearer and
-/// certificate, the session's id and harp, a permit) and the directories the
-/// engine is relocated into (`CLAUDE_CONFIG_DIR`, `OPENCODE_*`, the XDG
-/// bases). A test that kept them would read the caller's ctxloom home and
-/// deliver its hooks' facts to the caller's listener; none of them is the
-/// test's, so no test starts from them.
-pub(crate) fn enclosing_session(name: &OsStr) -> bool {
-    name.to_str().is_some_and(|name| {
-        name.starts_with("CTXLOOM_")
-            || name.starts_with("OPENCODE_")
-            || name.starts_with("XDG_")
-            || name == "CLAUDE_CONFIG_DIR"
-    })
-}
-
-/// The process's environment and working directory, read under `ENV_LOCK`
-/// (owner ruling 144): what a test that changes neither starts from, without
-/// the variables of an enclosing ctxloom session ([`enclosing_session`]), so a
-/// test passes alike inside and outside one. A test holding an `Env` reads
-/// them through `from_process` instead (the lock is not reentrant), and the
-/// `Env` has unset those variables.
-pub(crate) fn host_snapshot() -> EnvSnapshot {
-    let _held = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    without_enclosing_session(&EnvSnapshot::from_process())
-}
-
-/// `process` without the variables of an enclosing ctxloom session.
-fn without_enclosing_session(process: &EnvSnapshot) -> EnvSnapshot {
-    let vars: Vec<(OsString, OsString)> = process
-        .vars()
-        .filter(|(name, _)| !enclosing_session(name))
-        .map(|(name, value)| (name.to_os_string(), value.to_os_string()))
-        .collect();
-    EnvSnapshot::from_parts(
-        process.flavor(),
-        process.cwd(),
-        process.temp_dir().to_path_buf(),
-        vars,
-    )
-}
+pub(crate) use crate::fixtures::{
+    enclosing_session, host_snapshot, without_enclosing_session, ENV_LOCK, VERSION,
+};
 
 // Run inside a ctxloom session (an agent's shell running `just test`), a test
 // starts from none of its variables: not its home, nor its listener, which a
@@ -580,8 +533,8 @@ fn test_the_project_is_the_one_the_environment_pins_and_its_store_is_state_db_un
     let mut env = Env::new("pinned");
     env.set("CTXLOOM_PROJECT_ID", "pinned-by-env");
     let wiring = from_process().ok().unwrap();
-    let mut sessions = wiring.sessions();
-    let project = sessions.use_cases.identity.for_write(None).unwrap();
+    let mut identity = crate::registry(wiring.fs(), wiring.environment(), harp_names::HarpNames);
+    let project = identity.for_write(None).unwrap();
     assert_eq!(project.id, "pinned-by-env");
     assert_eq!(
         project.store,
@@ -595,12 +548,8 @@ fn test_an_explicit_project_beats_the_environments() {
     let mut env = Env::new("pinned-arg");
     env.set("CTXLOOM_PROJECT_ID", "pinned-by-env");
     let wiring = from_process().ok().unwrap();
-    let mut sessions = wiring.sessions();
-    let project = sessions
-        .use_cases
-        .identity
-        .for_write(Some("asked"))
-        .unwrap();
+    let mut identity = crate::registry(wiring.fs(), wiring.environment(), harp_names::HarpNames);
+    let project = identity.for_write(Some("asked")).unwrap();
     assert_eq!(project.id, "asked");
 }
 
@@ -609,9 +558,9 @@ fn test_an_empty_project_variable_pins_nothing_and_a_read_finds_no_project() {
     let mut env = Env::new("pinned-empty");
     env.set("CTXLOOM_PROJECT_ID", "");
     let wiring = from_process().ok().unwrap();
-    let mut sessions = wiring.sessions();
-    assert_eq!(sessions.use_cases.identity.for_read(None).unwrap(), None);
-    let minted = sessions.use_cases.identity.for_write(None).unwrap();
+    let mut identity = crate::registry(wiring.fs(), wiring.environment(), harp_names::HarpNames);
+    assert_eq!(identity.for_read(None).unwrap(), None);
+    let minted = identity.for_write(None).unwrap();
     assert!(!minted.id.is_empty());
     assert_eq!(minted.id.split('-').count(), 3, "a minted harp id");
 }
@@ -621,8 +570,8 @@ fn test_a_project_variable_that_is_not_utf_8_pins_nothing() {
     let mut env = Env::new("pinned-bytes");
     env.set("CTXLOOM_PROJECT_ID", os::not_unicode("p"));
     let wiring = from_process().ok().unwrap();
-    let mut sessions = wiring.sessions();
-    assert_eq!(sessions.use_cases.identity.for_read(None).unwrap(), None);
+    let mut identity = crate::registry(wiring.fs(), wiring.environment(), harp_names::HarpNames);
+    assert_eq!(identity.for_read(None).unwrap(), None);
 }
 
 #[test]
@@ -632,8 +581,8 @@ fn test_the_root_variable_makes_the_work_root_and_the_project_is_marked_there() 
     mkdirs(&root);
     env.set("CTXLOOM_ROOT", &root);
     let wiring = from_process().ok().unwrap();
-    let mut sessions = wiring.sessions();
-    let project = sessions.use_cases.identity.for_write(None).unwrap();
+    let mut identity = crate::registry(wiring.fs(), wiring.environment(), harp_names::HarpNames);
+    let project = identity.for_write(None).unwrap();
     assert_eq!(
         project.root.as_deref().map(Path::new),
         Some(canonical(&root).as_path())
@@ -709,29 +658,6 @@ fn test_a_variable_that_is_not_utf_8_does_not_stop_the_library_being_wired() {
 }
 
 #[test]
-fn test_opening_a_store_makes_it_under_the_home_and_names_its_database() {
-    let env = Env::new("open-store");
-    let wiring = from_process().ok().unwrap();
-    let path = wiring.open_store("jolly-mute-magma").ok().unwrap();
-    assert_eq!(path, env.home().join(".ctxloom/ctxloom.db"));
-    assert!(exists(&path), "the database is made");
-}
-
-#[test]
-fn test_opening_a_store_for_an_unsafe_project_id_is_refused_and_makes_nothing() {
-    use coded_diagnostic::Diagnostic;
-    let env = Env::new("open-store-unsafe");
-    let wiring = from_process().ok().unwrap();
-    let error = wiring.open_store("../escape").expect_err("refused");
-    assert_eq!(error.code(), "ctxloom-wiring-store");
-    assert!(
-        matches!(&error, LibError::Store(inner) if inner.code() == "project-dir-id-separator"),
-        "{error:?}"
-    );
-    assert!(!exists(env.home().join(".ctxloom")));
-}
-
-#[test]
 fn test_the_catalog_has_the_shared_project_dir_messages_and_the_samples_carry_its_error() {
     let sources = crate::catalog_sources();
     assert!(
@@ -755,10 +681,6 @@ fn test_the_catalog_has_the_shared_project_dir_messages_and_the_samples_carry_it
         .iter()
         .map(|d| d.code().to_string())
         .collect();
-    assert!(
-        codes.contains(&"ctxloom-wiring-store".to_string()),
-        "{codes:?}"
-    );
     assert!(
         codes.len() >= 5 && !crate::catalog_sources().is_empty(),
         "{codes:?}"

@@ -44,10 +44,10 @@ impl daemon_api::SetupReads for SetupReaders {
         if ask == SetupRead::InitPrompt {
             return init_prompt(&wiring, flags);
         }
-        let deps = Rc::new(crate::commands::build_deps(&wiring).map_err(|e| failed(&e))?);
+        let deps = Rc::new(ctxloom_wiring::commands::build_deps(&wiring).map_err(|e| failed(&e))?);
         Ok(match ask {
             SetupRead::Doctor { deps: only } => {
-                let uses = crate::setup::SetupUseCases::build(&wiring, &self.stamp)
+                let uses = ctxloom_wiring::setup::SetupUseCases::build(&wiring, &self.stamp)
                     .map_err(|e| failed(&e))?;
                 SetupAnswer::Doctor(v1::RunDoctorResponse {
                     checks: setup_cli::wire::checks(&uses.doctor.report(only)),
@@ -55,7 +55,7 @@ impl daemon_api::SetupReads for SetupReaders {
                 })
             }
             SetupRead::AuthStatus => {
-                let uses = crate::setup::SetupUseCases::build(&wiring, &self.stamp)
+                let uses = ctxloom_wiring::setup::SetupUseCases::build(&wiring, &self.stamp)
                     .map_err(|e| failed(&e))?;
                 let rows = uses.auth.status(&uses.doctor.layer_texts());
                 SetupAnswer::AuthStatus(v1::GetAuthStatusResponse {
@@ -64,7 +64,8 @@ impl daemon_api::SetupReads for SetupReaders {
                 })
             }
             SetupRead::CheckManage => {
-                let setup = crate::commands::build_setup(&wiring, deps).map_err(|e| failed(&e))?;
+                let setup =
+                    ctxloom_wiring::commands::build_setup(&wiring, deps).map_err(|e| failed(&e))?;
                 let done = setup.check(flags).map_err(|e| {
                     let exit = e.exit();
                     refused(&e, exit)
@@ -91,7 +92,7 @@ fn init_prompt(
     flags: &library_application::Flags,
 ) -> Result<SetupAnswer, ApiError> {
     use cli_support::ExitClass;
-    let library = crate::library::build(wiring).map_err(|e| ApiError::diagnosed(&e))?;
+    let library = ctxloom_wiring::library::build(wiring).map_err(|e| ApiError::diagnosed(&e))?;
     let read = library.operational_prompt(flags, library::builtin::SETUP_INTERVIEW_NAME);
     let text = read.result.map_err(|e| {
         let exit = e.exit();

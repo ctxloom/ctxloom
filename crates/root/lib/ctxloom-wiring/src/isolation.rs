@@ -66,7 +66,7 @@ impl Companions for Registered {
 }
 
 /// Run `ctxloom container ...`.
-pub(crate) fn container(
+pub fn container(
     env: &Arc<EnvSnapshot>,
     call: &Call<'_>,
     _catalog: &Catalog,

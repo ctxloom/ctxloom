@@ -19,7 +19,7 @@ use reclaim_application::{destroys_held, ReclaimError, SessionHolds};
 use sessions_application::Timestamp;
 #[cfg(feature = "session-destroy")]
 use sessions_application::{DestroysAuthored, DestroysHeld, REMOVE_VERB};
-use sessions_application::{RemovedNothing, SessionService, State, TranscriptRow, Urgency, STATES};
+use sessions_application::{RemovedNothing, State, TranscriptRow, Urgency, STATES};
 
 use crate::render::{
     conversation_text, import_text, listing_text, session_text, transcripts_text, worktrees_text,
@@ -446,7 +446,7 @@ fn json_line(entry: &v1::LogEntry) -> String {
 
 /// Run `session`'s command (one that is not a read, [`is_read`]) on
 /// `service`, writing its answer to `out`.
-pub fn run<S: SessionService + WorktreeUse>(
+pub fn run<S: WorktreeUse>(
     session: &Session,
     service: &mut S,
     format: Format,
@@ -523,7 +523,7 @@ fn state_of(word: Option<&String>) -> Result<Option<State>, Failure> {
     })
 }
 
-async fn execute<S: SessionService + WorktreeUse>(
+async fn execute<S: WorktreeUse>(
     session: &Session,
     service: &mut S,
     format: Format,

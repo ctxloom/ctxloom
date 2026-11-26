@@ -18,7 +18,7 @@ use os::Mode;
 use run_ports::{Discovery, DAEMON_DIR, DAEMON_LOCK_FILE, DISCOVERY_FILE};
 
 /// The daemon's log: what it says while nobody reads its stderr.
-pub(crate) const LOG_FILE: &str = "daemon.log";
+pub const LOG_FILE: &str = "daemon.log";
 
 /// The directory of the launching clients' hand-offs, one file per child.
 const LAUNCH_DIR: &str = "launch";
@@ -52,7 +52,7 @@ const FILE_MODE: u32 = 0o600;
 /// and the discovery file are in, so each test's temporary home keeps its
 /// own daemon (and two homes can be made to share one). Read only under
 /// `test-support`.
-pub(crate) const INSTANCE_DIR_VARIABLE: &str = "CTXLOOM_TEST_INSTANCE_DIR";
+pub const INSTANCE_DIR_VARIABLE: &str = "CTXLOOM_TEST_INSTANCE_DIR";
 
 /// Where the single-instance lock is: ONE per OS account, the discovery file
 /// beside it, keyed to the account, never to `CTXLOOM_DAEMON_ROOT` or `HOME`:
@@ -65,7 +65,7 @@ pub(crate) const INSTANCE_DIR_VARIABLE: &str = "CTXLOOM_TEST_INSTANCE_DIR";
 /// variables (`XDG_RUNTIME_DIR`), absent on macOS and Windows, or shared
 /// temp space. `overridden` (a test's, [`INSTANCE_DIR_VARIABLE`]) is the
 /// directory instead.
-pub(crate) fn instance_lock_path(account: &Path, overridden: Option<&Path>) -> PathBuf {
+pub fn instance_lock_path(account: &Path, overridden: Option<&Path>) -> PathBuf {
     overridden
         .map_or_else(|| account.join(DAEMON_DIR), Path::to_path_buf)
         .join(DAEMON_LOCK_FILE)
@@ -73,7 +73,7 @@ pub(crate) fn instance_lock_path(account: &Path, overridden: Option<&Path>) -> P
 
 /// Why the single-instance lock was not taken.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Unheld {
+pub enum Unheld {
     /// Another process held it for the whole wait: another daemon serves,
     /// or is starting, or is stopping.
     Held { lock: String },
@@ -85,14 +85,14 @@ pub(crate) enum Unheld {
 /// The single-instance lock, held: released when dropped. It keeps a second
 /// handle on the file it locked, to tell whether that is still the file at
 /// the lock's path ([`DaemonFiles::still_holds`]).
-pub(crate) struct Instance {
+pub struct Instance {
     _locked: Locked,
     held: File,
 }
 
 /// The daemon's files of one home.
 #[derive(Clone)]
-pub(crate) struct DaemonFiles {
+pub struct DaemonFiles {
     fs: Arc<dyn Fs>,
     /// ctxloom's home, whose run locks a launch's lock is among.
     home: PathBuf,
@@ -103,13 +103,13 @@ pub(crate) struct DaemonFiles {
 impl DaemonFiles {
     /// The files of `home`, the single-instance lock where
     /// [`instance_lock_path`] puts it with no override.
-    pub(crate) fn new(fs: Arc<dyn Fs>, home: &Path) -> DaemonFiles {
+    pub fn new(fs: Arc<dyn Fs>, home: &Path) -> DaemonFiles {
         DaemonFiles::with_instance(fs, home, instance_lock_path(home, None))
     }
 
     /// The files of `home`, the single-instance lock at `lock` and the
     /// discovery file beside it.
-    pub(crate) fn with_instance(fs: Arc<dyn Fs>, home: &Path, lock: PathBuf) -> DaemonFiles {
+    pub fn with_instance(fs: Arc<dyn Fs>, home: &Path, lock: PathBuf) -> DaemonFiles {
         DaemonFiles {
             fs,
             home: home.to_path_buf(),
@@ -128,7 +128,7 @@ impl DaemonFiles {
     }
 
     #[cfg(test)]
-    pub(crate) fn dir(&self) -> &Path {
+    pub fn dir(&self) -> &Path {
         &self.dir
     }
 
@@ -137,8 +137,8 @@ impl DaemonFiles {
     }
 
     /// [`Self::take_instance`], none when it was not taken.
-    #[cfg(test)]
-    pub(crate) fn hold_instance(&self, wait: Duration) -> Option<Instance> {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn hold_instance(&self, wait: Duration) -> Option<Instance> {
         self.take_instance(wait).ok()
     }
 
@@ -151,7 +151,7 @@ impl DaemonFiles {
     /// this lock.
     ///
     /// The lock file is made once and never removed or replaced by ctxloom.
-    pub(crate) fn take_instance(&self, wait: Duration) -> Result<Instance, Unheld> {
+    pub fn take_instance(&self, wait: Duration) -> Result<Instance, Unheld> {
         let fs = self.fs.as_ref();
         let path = self.lock.as_path();
         fs.create_dir_all(self.instance_dir(), Mode::from_bits(DIR_MODE))
@@ -184,7 +184,7 @@ impl DaemonFiles {
     /// inode, volume and file index). A lock file removed or replaced under
     /// a serving daemon excludes nobody, so the daemon exits once it is not.
     /// What cannot be told is held.
-    pub(crate) fn still_holds(&self, instance: &Instance) -> bool {
+    pub fn still_holds(&self, instance: &Instance) -> bool {
         match self.fs.same_file(&instance.held, &self.lock) {
             Ok(same) => same,
             Err(e) => e.kind() != std::io::ErrorKind::NotFound,
@@ -196,13 +196,13 @@ impl DaemonFiles {
     /// temporary home), which the single-instance lock does not always say,
     /// as it may be elsewhere (the account's, while `CTXLOOM_DAEMON_ROOT` names
     /// another home; a test's own place). What cannot be told is there.
-    pub(crate) fn home_gone(&self) -> bool {
+    pub fn home_gone(&self) -> bool {
         matches!(self.fs.exists(self.ctxloom_dir()), Ok(false))
     }
 
     /// The daemon's ctxloom directory as a person reads it, once it is gone
     /// ([`home_gone`](Self::home_gone)); none while it is there.
-    pub(crate) fn gone_home(&self) -> Option<String> {
+    pub fn gone_home(&self) -> Option<String> {
         self.home_gone()
             .then(|| self.ctxloom_dir().display().to_string())
     }
@@ -221,7 +221,7 @@ impl DaemonFiles {
     }
 
     /// Advertise `discovery`, 0600, in a 0700 directory.
-    pub(crate) fn publish(&self, discovery: &Discovery) -> std::io::Result<()> {
+    pub fn publish(&self, discovery: &Discovery) -> std::io::Result<()> {
         self.private_dir(self.instance_dir())?;
         #[cfg(feature = "test-support")]
         self.die_while_publishing(discovery);
@@ -252,7 +252,7 @@ impl DaemonFiles {
     }
 
     /// What the discovery file says, if it says it.
-    pub(crate) fn discovery(&self) -> Option<Discovery> {
+    pub fn discovery(&self) -> Option<Discovery> {
         let bytes = self.fs.read(&self.discovery_path()).ok()?;
         Discovery::decode(&bytes)
     }
@@ -264,7 +264,7 @@ impl DaemonFiles {
 
     /// Withdraw the advertisement only while it is still `own`: a daemon
     /// whose file another daemon's replaced leaves that one's alone.
-    pub(crate) fn withdraw_own(&self, own: &Discovery) {
+    pub fn withdraw_own(&self, own: &Discovery) {
         if self.discovery().as_ref() == Some(own) {
             self.withdraw();
         }
@@ -280,7 +280,7 @@ impl DaemonFiles {
     /// Keep `handed`, the environment the child `session` is started with
     /// and where its launcher finds its user's settings (S6, S7, T6): 0600,
     /// in the 0700 daemon directory, written whole.
-    pub(crate) fn hand_off(&self, session: &str, handed: &HandOff) -> std::io::Result<()> {
+    pub fn hand_off(&self, session: &str, handed: &HandOff) -> std::io::Result<()> {
         let path = self
             .hand_off_path(session)
             .ok_or_else(|| std::io::Error::other("a child's id is a UUID"))?;
@@ -303,7 +303,7 @@ impl DaemonFiles {
     /// Hand the daemon `handed` for the child `session`'s launch (T6, the
     /// owner's ruling on U3): its mark first, then the hand-off, so no
     /// hand-off of a launch is ever there unmarked.
-    pub(crate) fn launching(&self, session: &str, handed: &HandOff) -> std::io::Result<()> {
+    pub fn launching(&self, session: &str, handed: &HandOff) -> std::io::Result<()> {
         let mark = self
             .mark_path(session)
             .ok_or_else(|| std::io::Error::other("a child's id is a UUID"))?;
@@ -316,7 +316,7 @@ impl DaemonFiles {
 
     /// The hand-off of `session` claimed by its `LaunchChild`: its mark
     /// cleared, the hand-off left.
-    pub(crate) fn claim_hand_off(&self, session: &str) {
+    pub fn claim_hand_off(&self, session: &str) {
         if let Some(mark) = self.mark_path(session) {
             let _ = self.fs.remove_file(&mark);
         }
@@ -325,14 +325,14 @@ impl DaemonFiles {
     /// The hand-off of `session`, read and left where it is (T6: it lives as
     /// long as the child is open). None when there is none, or it does not
     /// read.
-    pub(crate) fn read_hand_off(&self, session: &str) -> Option<HandOff> {
+    pub fn read_hand_off(&self, session: &str) -> Option<HandOff> {
         let path = self.hand_off_path(session)?;
         decode_hand_off(&self.fs.read_to_string(&path).ok()?)
     }
 
     /// Delete the hand-off of `session` (its child closed, its launch
     /// refused, or swept).
-    pub(crate) fn delete_hand_off(&self, session: &str) {
+    pub fn delete_hand_off(&self, session: &str) {
         if let Some(path) = self.hand_off_path(session) {
             let _ = self.fs.remove_file(&path);
         }
@@ -340,7 +340,7 @@ impl DaemonFiles {
     }
 
     /// The run locks a launch's lock is among (`daemon_api::launch_lock_name`).
-    pub(crate) fn launch_locks(&self) -> liveness::RunLockFiles {
+    pub fn launch_locks(&self) -> liveness::RunLockFiles {
         liveness::RunLockFiles::new(Arc::clone(&self.fs), self.home.clone())
     }
 
@@ -359,7 +359,7 @@ impl DaemonFiles {
     /// Every hand-off there is, by its child's stable id: whether it is
     /// marked in launch, and whether its launch's creator still holds its
     /// launch lock. A file not named by a UUID is no hand-off.
-    pub(crate) fn hand_offs(&self) -> Vec<daemon_application::Kept> {
+    pub fn hand_offs(&self) -> Vec<daemon_application::Kept> {
         let dir = self.dir.join(LAUNCH_DIR);
         let Ok(entries) = self.fs.read_dir(&dir) else {
             return Vec::new();
@@ -383,7 +383,7 @@ impl DaemonFiles {
     }
 
     /// The log file's path.
-    pub(crate) fn log_path(&self) -> PathBuf {
+    pub fn log_path(&self) -> PathBuf {
         self.path(LOG_FILE)
     }
 
@@ -391,7 +391,7 @@ impl DaemonFiles {
     /// is applied, before it is answered (slice 3 step 4), taken by the
     /// daemon that finds it: whether it was there.
     #[cfg(feature = "test-support")]
-    pub(crate) fn take_die_after_apply(&self) -> bool {
+    pub fn take_die_after_apply(&self) -> bool {
         self.fs.remove_file(&self.path(DIE_AFTER_APPLY)).is_ok()
     }
 
@@ -401,7 +401,7 @@ impl DaemonFiles {
     /// `step`, taken (removed) when it does, so the daemon started after
     /// finds none.
     #[cfg(feature = "test-support")]
-    pub(crate) fn take_die_at(&self, step: &str) -> bool {
+    pub fn take_die_at(&self, step: &str) -> bool {
         let named = self
             .fs
             .read(&self.path(DIE_AT))
@@ -417,7 +417,7 @@ impl DaemonFiles {
     /// waited for). Bounded by `HOLD_MOST`, so a test that never lets go
     /// cannot hang the daemon.
     #[cfg(feature = "test-support")]
-    pub(crate) fn hold_at(&self, point: &str) {
+    pub fn hold_at(&self, point: &str) {
         let named = || {
             self.fs
                 .read(&self.path(HOLD_AT))
@@ -439,7 +439,7 @@ impl DaemonFiles {
     /// when a loaded machine is slow: the race rule). A line that is no
     /// number holds them at none (the system's clock).
     #[cfg(feature = "test-support")]
-    pub(crate) fn alarms_held_at(&self) -> Option<i64> {
+    pub fn alarms_held_at(&self) -> Option<i64> {
         let bytes = self.fs.read(&self.path(HOLD_ALARMS)).ok()?;
         String::from_utf8_lossy(&bytes).trim().parse().ok()
     }
@@ -448,7 +448,7 @@ impl DaemonFiles {
     /// drain (`test-deaf-to-stop`): while it is there, each is taken and
     /// ignored, so `ctxloom shutdown` finds a daemon that will not exit.
     #[cfg(feature = "test-support")]
-    pub(crate) fn deaf_to_stop(&self) -> bool {
+    pub fn deaf_to_stop(&self) -> bool {
         self.fs.exists(&self.path(DEAF_TO_STOP)).unwrap_or(false)
     }
 
@@ -456,7 +456,7 @@ impl DaemonFiles {
     /// plain stop (`test-shutdown-stop-wait`, its one line whole seconds);
     /// none, or one that does not read, is none.
     #[cfg(feature = "test-support")]
-    pub(crate) fn shutdown_stop_wait(&self) -> Option<std::time::Duration> {
+    pub fn shutdown_stop_wait(&self) -> Option<std::time::Duration> {
         let bytes = self.fs.read(&self.path(SHUTDOWN_STOP_WAIT)).ok()?;
         let seconds = String::from_utf8_lossy(&bytes).trim().parse().ok()?;
         Some(std::time::Duration::from_secs(seconds))
@@ -468,134 +468,9 @@ impl DaemonFiles {
     /// file's one line. Never taken: a test removes it to see a later
     /// catch-up succeed.
     #[cfg(feature = "test-support")]
-    pub(crate) fn start_up_fails(&self) -> Option<String> {
+    pub fn start_up_fails(&self) -> Option<String> {
         let bytes = self.fs.read(&self.path(START_UP_FAILS)).ok()?;
         Some(String::from_utf8_lossy(&bytes).trim().to_string())
-    }
-}
-
-/// The daemon's hand-offs, as its API makes them (`CreateHandOff`, S10):
-/// each child planned by its project's dry run in the environment its
-/// launch sent, judged on the evidence the plan gives (by name only), and
-/// its hand-off written through [`DaemonFiles`]. What a child may be given
-/// of that environment is its engine's allowlist, its engine block's `env`,
-/// its credential source's variables and the permits
-/// (`engine_claude::launcher_environment`); where its launcher finds its
-/// user's settings is the launch's [`super::SETTINGS_PLACES`].
-pub(crate) struct ApiHandOffs {
-    files: DaemonFiles,
-    /// Each launch's client program, kept beside its hand-off.
-    programs: HandedPrograms,
-    home: PathBuf,
-    temp: PathBuf,
-    /// The engines a child is hosted on: their names and credentials.
-    engines: Vec<daemon_application::HostedEngine>,
-}
-
-/// The daemon's hand-offs (slice 4 U3: a child's hand-off planned, judged
-/// and kept here), over `home`'s daemon files, planning with `temp` and the
-/// `engines` children are hosted on.
-pub(crate) fn api_hand_offs(
-    fs: &Arc<dyn Fs>,
-    (home, temp): (&Path, &Path),
-    engines: &[daemon_application::HostedEngine],
-    programs: &HandedPrograms,
-) -> Arc<dyn daemon_api::HandOffs> {
-    Arc::new(ApiHandOffs {
-        files: DaemonFiles::new(Arc::clone(fs), home),
-        programs: programs.clone(),
-        home: home.to_path_buf(),
-        temp: temp.to_path_buf(),
-        engines: engines.to_vec(),
-    })
-}
-
-impl daemon_api::HandOffs for ApiHandOffs {
-    fn plan(&self, request: &daemon_api::HandingOff) -> Result<daemon_api::Planned, String> {
-        // Keyed as the platform compares names (uppercase on Windows), as a
-        // run's environment is (`os::Flavor::env_key`).
-        let flavor = os::host().flavor();
-        let caller: std::collections::BTreeMap<String, String> = request
-            .env
-            .iter()
-            .map(|(name, value)| (flavor.env_key(name), value.clone()))
-            .collect();
-        let previewed = super::child_plan(
-            &self.home,
-            &self.temp,
-            &request.engine,
-            &request.agent,
-            &request.root,
-            &caller,
-            request.trusted,
-        )?;
-        // None asked: the engine the plan resolved for the agent (its own,
-        // else the config's default engine).
-        let engine = match request.engine.is_empty() {
-            true => previewed.plan.engine.clone(),
-            false => request.engine.clone(),
-        };
-        let drivable: Vec<String> = self
-            .engines
-            .iter()
-            .map(|engine| engine.name().to_string())
-            .collect();
-        let base = self
-            .engines
-            .iter()
-            .find(|hosted| hosted.name() == engine)
-            .map_or(run_ports::Credentials::NONE, |hosted| {
-                hosted.engine.credentials()
-            });
-        let child = run_application::hosted_child(&previewed, &engine, &drivable, base, &caller);
-        let credential = child.evidence.credential.clone().unwrap_or_default();
-        Ok(daemon_api::Planned {
-            engine,
-            drivable_engines: child.evidence.drivable_engines.clone(),
-            credential: runs::CredentialEvidence {
-                file_only: credential.file_only,
-                builtin_variables: credential.builtin_variables,
-                accepted_variables: credential.accepted_variables,
-                accepted_set: credential.accepted_set,
-            },
-            fatal_findings: child.evidence.fatal_findings,
-            fatal: child
-                .evidence
-                .fatal
-                .iter()
-                .map(|finding| daemon_api::FatalFinding {
-                    text: finding.text.clone(),
-                    remedy: finding.remedy.clone(),
-                })
-                .collect(),
-            untrusted_settings: child.evidence.untrusted_settings.clone(),
-            content: daemon_api::HandOffContent {
-                env: engine_claude::launcher_environment(&child.settings, &caller),
-                launcher: super::settings_places(&caller),
-                agent: request.agent.clone(),
-                // The API's to say: the client that asked.
-                program: None,
-            },
-        })
-    }
-
-    fn write(&self, child: &str, content: &daemon_api::HandOffContent) -> Result<(), String> {
-        let handed = HandOff {
-            env: content.env.clone(),
-            launcher: content.launcher.clone(),
-            agent: content.agent.clone(),
-            program: None,
-        };
-        self.programs.keep(child, content.program.clone());
-        self.files
-            .launching(child, &handed)
-            .map_err(|e| e.to_string())
-    }
-
-    fn delete(&self, child: &str) -> Result<(), String> {
-        self.programs.forget(child);
-        self.files.delete_hand_off(child);
-        Ok(())
     }
 }
 
@@ -607,13 +482,13 @@ impl daemon_api::HandOffs for ApiHandOffs {
 /// the child runs the daemon's own program, which the version rule makes the
 /// same version.
 #[derive(Clone, Default)]
-pub(crate) struct HandedPrograms(
+pub struct HandedPrograms(
     Arc<std::sync::Mutex<std::collections::BTreeMap<String, daemon_application::Program>>>,
 );
 
 impl HandedPrograms {
     /// Keep `program` for the child `child` (none: forget any kept).
-    pub(crate) fn keep(&self, child: &str, program: Option<daemon_application::Program>) {
+    pub fn keep(&self, child: &str, program: Option<daemon_application::Program>) {
         let mut kept = self
             .0
             .lock()
@@ -625,7 +500,7 @@ impl HandedPrograms {
     }
 
     /// The program kept for the child `child`.
-    pub(crate) fn of(&self, child: &str) -> Option<daemon_application::Program> {
+    pub fn of(&self, child: &str) -> Option<daemon_application::Program> {
         let kept = self
             .0
             .lock()
@@ -634,7 +509,7 @@ impl HandedPrograms {
     }
 
     /// Forget the child `child`'s program.
-    pub(crate) fn forget(&self, child: &str) {
+    pub fn forget(&self, child: &str) {
         self.keep(child, None);
     }
 }
@@ -675,7 +550,7 @@ const SHUTDOWN_STOP_WAIT: &str = "test-shutdown-stop-wait";
 /// the child's environment, a `@NAME=value` line per place of its
 /// launcher's and, for an agent named, a `!agent=<agent>` line, each value's
 /// backslashes, newlines and carriage returns escaped.
-pub(crate) fn encode_hand_off(handed: &HandOff) -> String {
+pub fn encode_hand_off(handed: &HandOff) -> String {
     let mut text = format!("{HAND_OFF_HEADER}\n");
     let mut lines: Vec<(String, &str)> = handed
         .env
@@ -702,7 +577,7 @@ pub(crate) fn encode_hand_off(handed: &HandOff) -> String {
 }
 
 /// What [`encode_hand_off`] wrote; none for anything else.
-pub(crate) fn decode_hand_off(text: &str) -> Option<HandOff> {
+pub fn decode_hand_off(text: &str) -> Option<HandOff> {
     let mut lines = text.lines();
     if !matches!(lines.next()?, HAND_OFF_HEADER | HAND_OFF_HEADER_2) {
         return None;

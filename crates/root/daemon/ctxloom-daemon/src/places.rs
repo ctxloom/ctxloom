@@ -164,7 +164,7 @@ pub(crate) struct TreeHarps(pub(crate) Arc<dyn Fs>);
 
 impl library_api::CheckoutHarps for TreeHarps {
     fn harp(&self, tree: &str) -> Result<String, ctxloom_ports::Failure> {
-        crate::checkout::mint_checkout_harp(
+        ctxloom_wiring::checkout::mint_checkout_harp(
             self.0.as_ref(),
             std::path::Path::new(tree),
             crate::session_name,
@@ -242,7 +242,7 @@ impl daemon_api::Libraries for ProjectLibraries {
             dir.to_string()
         };
         let wiring = self.at(&at, env);
-        let library = crate::library::build(&wiring).map_err(|e| failed(&e))?;
+        let library = ctxloom_wiring::library::build(&wiring).map_err(|e| failed(&e))?;
         read(&library);
         Ok(())
     }
@@ -259,7 +259,7 @@ impl daemon_api::Libraries for ProjectLibraries {
             dir.to_string()
         };
         let wiring = self.at(&at, env);
-        let deps = crate::commands::build_deps(&wiring).map_err(|e| ApiError::Failed {
+        let deps = ctxloom_wiring::commands::build_deps(&wiring).map_err(|e| ApiError::Failed {
             detail: coded_diagnostic::Diagnostic::code(&e).to_string(),
         })?;
         read(&deps);
@@ -284,7 +284,7 @@ impl daemon_api::Trusts for ProjectTrusts {
         let failed = |e: &dyn coded_diagnostic::Diagnostic| ApiError::Failed {
             detail: e.code().to_string(),
         };
-        let library = crate::library::build(&wiring).map_err(|e| failed(&e))?;
+        let library = ctxloom_wiring::library::build(&wiring).map_err(|e| failed(&e))?;
         let held = library.trust_settings().map_err(|e| failed(&e))?;
         Ok(held
             .into_iter()
@@ -329,7 +329,9 @@ impl daemon_application::owed::SessionTrees for LibraryTrees {
             }
             for dir in dirs {
                 let app = dir.join(".ctxloom");
-                if let Ok(Some(checkout)) = crate::checkout::checkout_harp(self.fs.as_ref(), &app) {
+                if let Ok(Some(checkout)) =
+                    ctxloom_wiring::checkout::checkout_harp(self.fs.as_ref(), &app)
+                {
                     let tree = format!("projects/{project}/checkouts/{checkout}/library");
                     if !trees.contains(&tree) {
                         trees.push(tree);

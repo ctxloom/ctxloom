@@ -28,12 +28,12 @@ use crate::oneshot::OneShots;
 use crate::Wiring;
 
 /// The person's terminal.
-pub(crate) struct StdTerminal {
+pub struct StdTerminal {
     stood_in: bool,
 }
 
 impl StdTerminal {
-    pub(crate) fn new(env: &EnvSnapshot) -> StdTerminal {
+    pub fn new(env: &EnvSnapshot) -> StdTerminal {
         StdTerminal {
             stood_in: stood_in(env),
         }
@@ -43,13 +43,13 @@ impl StdTerminal {
 /// A terminal stood in by the tests' variable: only in a binary built for
 /// them.
 #[cfg(feature = "test-support")]
-pub(crate) fn stood_in(env: &EnvSnapshot) -> bool {
+pub fn stood_in(env: &EnvSnapshot) -> bool {
     env.non_empty("CTXLOOM_TEST_TERMINAL").is_some()
 }
 
 /// The shipped binary has no stand-in.
 #[cfg(not(feature = "test-support"))]
-pub(crate) fn stood_in(_: &EnvSnapshot) -> bool {
+pub fn stood_in(_: &EnvSnapshot) -> bool {
     false
 }
 
@@ -102,12 +102,12 @@ fn answered(line: Option<&str>) -> bool {
 /// The interactive sessions of `init`: each prepared by the user's daemon
 /// and started on this terminal by its frontend (U5, owner s4-Q6), as a
 /// `ctxloom run` is.
-pub(crate) struct SetupSessions<'a> {
-    pub(crate) env: &'a Arc<EnvSnapshot>,
-    pub(crate) flags: &'a Flags,
+pub struct SetupSessions<'a> {
+    pub env: &'a Arc<EnvSnapshot>,
+    pub flags: &'a Flags,
     /// This binary's stamp, which the daemon that prepares the session must
     /// share (M3).
-    pub(crate) stamp: &'a str,
+    pub stamp: &'a str,
 }
 
 impl SetupSessions<'_> {

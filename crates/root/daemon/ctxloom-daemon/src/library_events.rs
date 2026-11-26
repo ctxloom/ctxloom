@@ -20,7 +20,8 @@ use angzarr_embedded::{EventStore, Payload, StreamRef};
 use library_tree::{Change, ChangeStatus, LibraryEvent, TreeName, LIBRARY_DOMAIN};
 use serde_json::{json, Value};
 
-use crate::{TestError, Wiring};
+use crate::store_tests::Harness;
+use crate::TestError;
 
 fn read_error(detail: impl ToString) -> TestError {
     TestError::Seed {
@@ -148,7 +149,7 @@ pub(crate) fn document(tree: Option<&TreeName>, pages: &[EventPage]) -> Value {
     })
 }
 
-impl Wiring {
+impl Harness<'_> {
     /// The tree the reader reads: the home's under `home`, else the cwd's
     /// project checkout's, its project as the daemon names it (asked, never
     /// minted); none where no checkout harp was minted, or the project has
@@ -169,7 +170,7 @@ impl Wiring {
         if at_home {
             return TreeName::home(&checkout).map(Some).map_err(read_error);
         }
-        let parent = crate::daemon::library_parent_if_named(self, version, crate::Minting::Never)
+        let parent = crate::library_parent_if_named(self, version, crate::Minting::Never)
             .map_err(|failure| read_error(format!("{failure:?}")))?;
         let Some(project) = parent.and_then(|p| sessions::ProjectName::parse(&p).ok()) else {
             return Ok(None);

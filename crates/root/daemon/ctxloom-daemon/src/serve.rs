@@ -39,7 +39,7 @@ use runs_application::UserGate;
 use session_files::SessionDirs;
 
 use super::files::{DaemonFiles, Instance, Unheld};
-use crate::{InProcessCore, Projectors};
+use crate::{InProcessCore, Pace, Projectors};
 
 /// How long a daemon starting waits for the single-instance lock.
 const INSTANCE_WAIT: Duration = Duration::from_secs(5);
@@ -64,20 +64,6 @@ pub(crate) struct Place {
     pub(crate) engines: Vec<daemon_application::HostedEngine>,
     /// The environment its children's checkouts' git runs in (s4-Q11).
     pub(crate) env: Arc<process_env::EnvSnapshot>,
-}
-
-/// How the daemon paces itself.
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct Pace {
-    /// Exit after this long with nothing hosted and nothing to do.
-    pub(crate) idle: Duration,
-    /// How often it looks at the store.
-    pub(crate) poll: Duration,
-    /// How long a drain waits for a busy child before it hands it over
-    /// anyway, its turn cut, when neither the drain's request nor the home
-    /// config's `daemon.drain_timeout` says (OD-54;
-    /// `daemon_application::HAND_OVER_PERIOD`).
-    pub(crate) hand_over: Duration,
 }
 
 /// The daemon's log, shared by the loop and the launcher.
@@ -556,7 +542,7 @@ fn one_shots_over(
     temp: &Path,
 ) -> Arc<daemon_application::OneShots> {
     Arc::new(daemon_application::OneShots::new(Box::new(
-        crate::oneshot::HostedOneShots {
+        crate::hosted_oneshots::HostedOneShots {
             core: core.share(),
             runtime: tokio::runtime::Handle::current(),
             home: home.to_path_buf(),
@@ -582,7 +568,7 @@ fn terminals_over(
     temp: &Path,
 ) -> Arc<daemon_application::Terminals> {
     Arc::new(daemon_application::Terminals::new(Box::new(
-        crate::frontend::HostedTerminals {
+        crate::hosted_terminals::HostedTerminals {
             core: core.share(),
             runtime: tokio::runtime::Handle::current(),
             home: home.to_path_buf(),
@@ -861,7 +847,7 @@ fn served(
                 home: home.to_path_buf(),
                 edge: Arc::clone(edge),
             }))
-            .handing_off(super::files::api_hand_offs(
+            .handing_off(crate::hand_offs::api_hand_offs(
                 fs,
                 (home, temp),
                 engines,

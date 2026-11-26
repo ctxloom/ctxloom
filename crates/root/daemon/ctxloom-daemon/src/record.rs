@@ -13,7 +13,8 @@ use serde_json::{json, Value};
 use sessions::{SessionAggregate, SessionEvent, SESSION_DOMAIN};
 use system::System;
 
-use crate::{TestError, Wiring};
+use crate::store_tests::Harness;
+use crate::TestError;
 
 fn record_error(detail: impl ToString) -> TestError {
     TestError::Seed {
@@ -93,7 +94,7 @@ fn row(any: &angzarr_embedded::Any) -> Value {
     row
 }
 
-impl Wiring {
+impl Harness<'_> {
     /// Every stream of the one store, as `ctxloom test record` prints it:
     /// `[{domain, root, events: [row]}]`, by domain then root. None where
     /// no store was made.

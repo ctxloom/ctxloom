@@ -57,7 +57,7 @@ use super::{
 use crate::Wiring;
 
 /// The noun.
-pub(crate) const NOUN: &str = "shutdown";
+pub const NOUN: &str = "shutdown";
 
 /// How much longer than its drain's timeout the daemon is waited for: its
 /// period's end stops each one-shot (a five-second grace, then its end
@@ -82,7 +82,7 @@ const LOOK: Duration = Duration::from_millis(100);
 /// What a live frontend's human is told when a drain starts (owner,
 /// 2026-11-15, OD-63; a DRAFT wording): it will be stopped once `left` has
 /// passed.
-pub(crate) fn notice_text(left: Duration) -> String {
+pub fn notice_text(left: Duration) -> String {
     format!(
         "ctxloom is shutting down: this session will be stopped in {}; finish and exit",
         duration_text::format_exact(left)
@@ -90,14 +90,14 @@ pub(crate) fn notice_text(left: Duration) -> String {
 }
 
 /// Seconds since the epoch, on this host's clock.
-pub(crate) fn epoch_seconds() -> u64 {
+pub fn epoch_seconds() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |since| since.as_secs())
 }
 
 /// The noun as the command line has it.
-pub(crate) fn noun() -> Command {
+pub fn noun() -> Command {
     Command::new(NOUN)
         .about("Stop every running ctxloom of this user, gracefully within a time, then what remains")
         .arg(
@@ -109,7 +109,7 @@ pub(crate) fn noun() -> Command {
 
 /// Why the shutdown is refused, or did not stop everything.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum ShutdownError {
+pub enum ShutdownError {
     /// `<when>` is no span.
     BadWhen { value: String, cause: String },
     /// What still runs once everything was asked to stop and waited for.
@@ -154,7 +154,7 @@ impl Diagnostic for ShutdownError {
 
 /// One value of each, for the catalog's test.
 #[cfg(any(test, feature = "test-support"))]
-pub(crate) fn samples() -> Vec<Box<dyn Diagnostic>> {
+pub fn samples() -> Vec<Box<dyn Diagnostic>> {
     vec![
         Box::new(ShutdownError::BadWhen {
             value: "soon".to_string(),
@@ -173,7 +173,7 @@ pub(crate) fn samples() -> Vec<Box<dyn Diagnostic>> {
 /// The home config's `daemon.drain_timeout` (owner, 2026-11-15), read
 /// afresh, as a command reads the home layer: none when it is not said, or
 /// the config does not read.
-pub(crate) fn configured_drain_timeout(fs: &Arc<dyn Fs>, home: &Path) -> Option<Duration> {
+pub fn configured_drain_timeout(fs: &Arc<dyn Fs>, home: &Path) -> Option<Duration> {
     let app = config_files::AppDir {
         path: home.join(".ctxloom"),
         source: ctxloom_ports::Source::Home,
@@ -195,15 +195,13 @@ pub(crate) fn configured_drain_timeout(fs: &Arc<dyn Fs>, home: &Path) -> Option<
 /// gap no daemon took, or a hold this ctxloom cannot read. A set-aside part
 /// is never delivered again, so it is no record a daemon will decode: it
 /// is not counted ([`runs_application::undelivered`]).
-pub(crate) fn undelivered_in<H: HeldFacts + ?Sized>(
-    held: &H,
-) -> Result<Vec<Undelivered>, HoldError> {
+pub fn undelivered_in<H: HeldFacts + ?Sized>(held: &H) -> Result<Vec<Undelivered>, HoldError> {
     Ok(runs_application::undelivered(&held.survey()?))
 }
 
 /// The holds `left` names, as shutdown says them: each session's harp
 /// (else its session root) and what it holds, in the survey's order.
-pub(crate) fn holds_said(left: &[Undelivered]) -> String {
+pub fn holds_said(left: &[Undelivered]) -> String {
     left.iter()
         .map(|hold| {
             let who = flush::harp_or_root(hold.session.as_deref(), &hold.root);
@@ -337,7 +335,7 @@ fn pids_of(pids: &[u32]) -> String {
 }
 
 /// Run `ctxloom shutdown`.
-pub(crate) fn run(
+pub fn run(
     wiring: &Wiring,
     stamp: &str,
     call: &Call<'_>,

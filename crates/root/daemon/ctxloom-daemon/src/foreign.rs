@@ -69,12 +69,12 @@ impl daemon_api::ForeignPlans for ForeignWriters {
         if matches!(ask, ForeignAsk::DoctorFix) {
             return self.doctor_fix(&wiring);
         }
-        let deps = Rc::new(crate::commands::build_deps(&wiring).map_err(|e| failed(&e))?);
+        let deps = Rc::new(ctxloom_wiring::commands::build_deps(&wiring).map_err(|e| failed(&e))?);
         let store = Arc::new(SurfaceFiles::recording(
             wiring.fs(),
             wiring.home().join(".ctxloom/records"),
         ));
-        let setup = crate::commands::build_setup_over(&wiring, deps, Arc::clone(&store))
+        let setup = ctxloom_wiring::commands::build_setup_over(&wiring, deps, Arc::clone(&store))
             .map_err(|e| failed(&e))?;
         let refused = |error: setup_application::SetupError| {
             use cli_support::ExitClass;
@@ -111,8 +111,8 @@ impl ForeignWriters {
     /// `doctor --fix` over recording user files: the stale entries it
     /// takes out, and each settings file as it would leave it.
     fn doctor_fix(&self, wiring: &Wiring) -> Result<ForeignPlanned, ApiError> {
-        let uses =
-            crate::setup::SetupUseCases::build(wiring, "").map_err(|e| ApiError::diagnosed(&e))?;
+        let uses = ctxloom_wiring::setup::SetupUseCases::build(wiring, "")
+            .map_err(|e| ApiError::diagnosed(&e))?;
         let files = Arc::new(Recording::over(Arc::new(content_fs::UserFilesFs::new(
             wiring.fs(),
         ))));

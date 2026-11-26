@@ -772,9 +772,10 @@ pub(crate) struct Hosted {
 /// The set-up of a run the daemon hosts for `request`: the dependencies
 /// pulled first when `sync.on_run` asks. What failed, and what was said
 /// before it did, otherwise.
-pub(crate) async fn hosted_setup(
+pub(crate) async fn hosted_setup<E: run_ports::Edge>(
     (home, temp): (&Path, &Path),
     request: &daemon_application::HostRequest,
+    edge: &Arc<E>,
 ) -> Result<Hosted, (RunError, Vec<library_application::Notice>)> {
     let wiring = hosted_wiring(home, temp, request);
     let deps = match crate::commands::build_deps(&wiring) {
@@ -806,7 +807,17 @@ pub(crate) async fn hosted_setup(
     // project's (its parent `users/me`) is named here.
     let project_harp = match &request.project {
         Some(named) => named.harp.clone(),
-        None => match wiring.named_project().await {
+        // Through the daemon's own edge (ONE WRITER), never a second
+        // connection to the store.
+        None => match sessions_application::name_through(
+            &mut crate::daemon::EdgeDispatch {
+                edge: Arc::clone(edge),
+            },
+            &project,
+            &crate::fresh_project_harps(),
+        )
+        .await
+        {
             Ok(named) => named.harp,
             Err(e) => return Err((RunError::Project(Report::of(&e)), synced)),
         },
@@ -831,7 +842,7 @@ async fn host_one_shot(
     stop: host_launcher::Stop,
     told: daemon_application::Told,
 ) -> Done<Answer> {
-    let hosted = match hosted_setup(places, &request).await {
+    let hosted = match hosted_setup(places, &request, &core.edge()).await {
         Ok(hosted) => hosted,
         Err((error, notices)) => {
             return Done {

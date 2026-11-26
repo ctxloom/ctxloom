@@ -612,6 +612,19 @@ impl DaemonApi for DaemonClient {
         )
     }
 
+    async fn import_sessions(
+        &self,
+        request: v1::ImportSessionsRequest,
+    ) -> Result<v1::ImportSessionsResponse, Called> {
+        call!(
+            self,
+            import_sessions,
+            "ImportSessions",
+            request,
+            self.destroying
+        )
+    }
+
     async fn sweep_sessions(
         &self,
         request: v1::SweepSessionsRequest,

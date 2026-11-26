@@ -5,11 +5,10 @@
 
 use std::io::{self, Write};
 
-use coded_diagnostic::{Arg, Diagnostic};
 use daemon_proto::v1;
 use presentation::text;
 use serde::Serialize;
-use sessions_application::{stamp, ImportReport, Titled, TranscriptRow, NO_SUMMARY};
+use sessions_application::{stamp, TranscriptRow, NO_SUMMARY};
 #[cfg(feature = "session-destroy")]
 use sessions_application::{Class, FilePlan, PlanItem, Removal};
 
@@ -188,11 +187,12 @@ pub(crate) struct TitleDoc {
 }
 
 impl TitleDoc {
-    pub(crate) fn of(titled: &Titled) -> TitleDoc {
+    /// The answer of a title set through the daemon.
+    pub(crate) fn new(harp: &str, title: &str, changed: bool) -> TitleDoc {
         TitleDoc {
-            harp: titled.harp.clone(),
-            title: titled.title.clone(),
-            changed: titled.changed,
+            harp: harp.to_string(),
+            title: title.to_string(),
+            changed,
         }
     }
 }
@@ -490,7 +490,7 @@ struct LeftDoc {
 }
 
 impl ImportDoc {
-    pub(crate) fn of(report: &ImportReport) -> ImportDoc {
+    pub(crate) fn of(report: &v1::ImportSessionsResponse) -> ImportDoc {
         ImportDoc {
             imported: report
                 .imported
@@ -507,18 +507,8 @@ impl ImportDoc {
                 .iter()
                 .map(|l| LeftDoc {
                     harp: l.harp.clone(),
-                    code: l.why.code().to_string(),
-                    args: l
-                        .why
-                        .args()
-                        .into_iter()
-                        .filter_map(|(name, arg)| match arg {
-                            Arg::Str(text) => Some((name.to_string(), text)),
-                            Arg::Uint(n) => Some((name.to_string(), n.to_string())),
-                            Arg::Int(n) => Some((name.to_string(), n.to_string())),
-                            Arg::Nested(_) => None,
-                        })
-                        .collect(),
+                    code: l.code.clone(),
+                    args: l.args.clone().into_iter().collect(),
                 })
                 .collect(),
         }
@@ -526,7 +516,10 @@ impl ImportDoc {
 }
 
 /// A count line, then each session left and its reason's code.
-pub(crate) fn import_text(report: &ImportReport, out: &mut dyn Write) -> io::Result<()> {
+pub(crate) fn import_text(
+    report: &v1::ImportSessionsResponse,
+    out: &mut dyn Write,
+) -> io::Result<()> {
     writeln!(
         out,
         "imported {}, already held {}, left {}",
@@ -535,7 +528,7 @@ pub(crate) fn import_text(report: &ImportReport, out: &mut dyn Write) -> io::Res
         report.left.len()
     )?;
     for left in &report.left {
-        writeln!(out, "left {}: {}", left.harp, left.why.code())?;
+        writeln!(out, "left {}: {}", left.harp, left.code)?;
     }
     Ok(())
 }

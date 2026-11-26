@@ -158,7 +158,7 @@ pub(crate) fn serve(
         // Under test-support, the kill switch at a step (U6), on every book
         // the core applies: the launcher's, its one-shots', its clients'.
         #[cfg(feature = "test-support")]
-        dies_at_steps(&core.edge(), &files);
+        dies_at_steps(&core.edge(), &files, &say);
         // What the loop shares with the API's use cases (slice 2 step 5).
         let one_shots = one_shots_over(&core, home, &temp);
         let shared = shared_over(&kept, &one_shots, (&fs, home), pace);
@@ -656,6 +656,7 @@ async fn start(
         (home, temp, &stamp),
         (&engines, terminals, kept),
         &handed,
+        &edge,
     );
     let listener = HookListener::serve_tcp_beside(
         coordinated(&edge, files),
@@ -838,6 +839,7 @@ fn served(
         &Projectors,
     ),
     handed: &super::files::HandedPrograms,
+    edge: &Arc<CoreEdge>,
 ) -> Arc<dyn daemon_api::Calls> {
     // Shared, so what follows from a run it hosts (a distill's write, step
     // 10b) reaches it once the call that started the run has answered.
@@ -851,6 +853,13 @@ fn served(
             .reading(Arc::new(super::places::ProjectLibraries {
                 home: home.to_path_buf(),
                 temp: temp.to_path_buf(),
+            }))
+            // Go's sessions imported by commands sent through the core's own
+            // edge (ONE WRITER).
+            .importing(Arc::new(super::imports::Importing {
+                fs: Arc::clone(fs),
+                home: home.to_path_buf(),
+                edge: Arc::clone(edge),
             }))
             .handing_off(super::files::api_hand_offs(
                 fs,
@@ -1002,8 +1011,15 @@ impl<E: run_ports::Edge> run_ports::Edge for Dying<E> {
 /// `RecordRunnerStarted`), `turn` (a `RecordTurnStarted`), `hook` (a hook's capture
 /// fact). Forced, never waited for (the race rule).
 #[cfg(feature = "test-support")]
-fn dies_at_steps(edge: &Arc<CoreEdge>, files: &DaemonFiles) {
+fn dies_at_steps(edge: &Arc<CoreEdge>, files: &DaemonFiles, say: &Say) {
     let files = files.clone();
+    // Each command the edge takes, applied or refused, is said as handled.
+    let say = Arc::clone(say);
+    edge.hearing(Box::new(move |book| {
+        if let Some(command) = command_of(book) {
+            said(&say, &format!("handled {command}"));
+        }
+    }));
     edge.telling(Box::new(move |book, _| {
         if let Some(step) = step_of(book) {
             if files.take_die_at(step) {
@@ -1037,6 +1053,24 @@ fn write_kills(files: &DaemonFiles) -> daemon_api::library_writes::DiesAt {
 #[cfg(not(feature = "test-support"))]
 fn write_kills(_: &DaemonFiles) -> daemon_api::library_writes::DiesAt {
     Arc::new(|_: &str| {})
+}
+
+/// The name of the command a book carries (a fact is not one), as its
+/// message is named: what the log says the daemon `handled` (ONE WRITER:
+/// every write to the store is a command, and a test reads which).
+#[cfg(feature = "test-support")]
+fn command_of(book: &angzarr_embedded::v1::CommandBook) -> Option<String> {
+    use angzarr_embedded::v1::command_page::Body;
+    match book.page.as_ref()?.body.as_ref()? {
+        Body::Command(command) => command
+            .payload
+            .as_ref()?
+            .type_url
+            .rsplit('.')
+            .next()
+            .map(str::to_string),
+        Body::Fact(_) => None,
+    }
 }
 
 /// The kill switch's step a book applied is, if any.

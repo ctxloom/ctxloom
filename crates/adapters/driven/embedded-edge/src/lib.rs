@@ -63,12 +63,17 @@ pub struct EmbeddedEdge<R: Stores<Key = ()>> {
     sample: Box<dyn Fn() -> Sampled + Send + Sync>,
     exposed: BTreeMap<String, Expose>,
     applied: OnceLock<Applied>,
+    heard: OnceLock<Heard>,
 }
 
 /// What is told of each book the edge applied, once it is applied and
 /// before it is answered: the book, and where it arrived from (a `handle`
 /// is the core's own, `Loopback`).
 pub type Applied = Box<dyn Fn(&CommandBook, Arrival) + Send + Sync>;
+
+/// What is told of each book the edge RECEIVES, before it is judged: the
+/// book alone (a refused one too).
+pub type Heard = Box<dyn Fn(&CommandBook) + Send + Sync>;
 
 impl<R: Stores<Key = ()>> EmbeddedEdge<R> {
     /// An edge over `app`; `sample` gives each call its instant and command id
@@ -82,6 +87,7 @@ impl<R: Stores<Key = ()>> EmbeddedEdge<R> {
             sample: Box::new(sample),
             exposed: BTreeMap::new(),
             applied: OnceLock::new(),
+            heard: OnceLock::new(),
         }
     }
 
@@ -91,6 +97,20 @@ impl<R: Stores<Key = ()>> EmbeddedEdge<R> {
     /// one was set is answered.
     pub fn telling(&self, applied: Applied) -> bool {
         self.applied.set(applied).is_ok()
+    }
+
+    /// Tell `heard` of each book this edge receives, before it is judged and
+    /// whether or not it is applied (the composition root's test-support log
+    /// of the commands the daemon takes). Set once; whether this one was set
+    /// is answered.
+    pub fn hearing(&self, heard: Heard) -> bool {
+        self.heard.set(heard).is_ok()
+    }
+
+    fn hear(&self, book: &CommandBook) {
+        if let Some(heard) = self.heard.get() {
+            heard(book);
+        }
     }
 
     /// Tell what is told of applied books that `book` was.
@@ -127,6 +147,7 @@ fn hidden(
 
 impl<R: Stores<Key = ()>> Edge for EmbeddedEdge<R> {
     async fn serve(&self, book: CommandBook, arrival: Arrival) -> Result<Answered, Unserved> {
+        self.hear(&book);
         let told = self.applied.get().map(|_| book.clone());
         let served = self
             .app
@@ -140,6 +161,7 @@ impl<R: Stores<Key = ()>> Edge for EmbeddedEdge<R> {
     }
 
     async fn handle(&self, book: CommandBook) -> Result<Answered, Failure<Rejected>> {
+        self.hear(&book);
         let cover = book.cover.clone();
         let told = self.applied.get().map(|_| book.clone());
         let handled = self.app.handle(book, &(self.sample)()).await?;
@@ -155,6 +177,7 @@ impl<R: Stores<Key = ()>> Edge for EmbeddedEdge<R> {
         projectors: Vec<String>,
         arrival: Arrival,
     ) -> Result<SyncAnswered, Unserved> {
+        self.hear(&book);
         if let Some(domain) = hidden(&self.exposed, &book, arrival) {
             return Err(Unserved::Hidden { domain });
         }

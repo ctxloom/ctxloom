@@ -65,27 +65,13 @@ fn settled(
 ) -> Result<Result<Handled, Refusal<SessionRejection>>, Unrun> {
     match handled {
         Ok(handled) => Ok(Ok(handled)),
-        Err(Failure::Rejected(rejected)) => Ok(Err(refusal(&rejected))),
+        Err(Failure::Rejected(rejected)) => Ok(Err(crate::dispatch::refused(&rejected))),
         Err(failure) if failure.recovery() == Recovery::Retry => Err(Unrun::GaveUp {
             attempts: attempts(&retry),
             error: Report::of(&failure),
         }),
         Err(failure) => Err(Unrun::Failed(Report::of(&failure))),
     }
-}
-
-/// The domain's refusal `rejected` is, by its type: the rejection, and its
-/// report (the rejection's code and args; the runtime's own for a refusal
-/// that is none of the domain's).
-fn refusal(rejected: &Rejected) -> Refusal<SessionRejection> {
-    let rejection = rejected
-        .rejection::<TypedRefusal>()
-        .and_then(|typed| SessionRejection::try_from(typed).ok());
-    let report = match &rejection {
-        Some(rejection) => Report::of(rejection),
-        None => rejected.report().clone(),
-    };
-    Refusal { rejection, report }
 }
 
 #[cfg(test)]

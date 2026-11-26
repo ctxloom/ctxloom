@@ -11,18 +11,15 @@ use std::fmt;
 use std::future::Future;
 
 use angzarr_embedded::v1::{CommandBook, Cover, Uuid};
-use angzarr_embedded::{CommandBookExt, Handled, OnRetryable, Registry};
-use angzarr_embedded_runner::Runner;
+use angzarr_embedded::CommandBookExt;
 use coded_diagnostic::{code, Arg, Diagnostic, Report};
 
-use crate::bridge::Port;
-use crate::typed;
-use ports::{Clock, CommandIds, Delay, Jitter, Project, ProjectIdentity};
-use session_ports::{GoSession, GoSessions, ProjectStores};
+use crate::dispatch::Dispatch;
+use ports::{Project, ProjectIdentity};
+use session_ports::{GoSession, GoSessions};
 use sessions::{
-    AdoptRotations, BindEngineSession, ClaimName, MintSession, NameClaimAggregate,
-    NameClaimCommand, Origin, RecordEnd, Rotation, SessionAggregate, SessionCommand, SessionName,
-    SessionRejection, SetKept, NAMES_DOMAIN, SESSION_DOMAIN,
+    AdoptRotations, BindEngineSession, ClaimName, MintSession, NameClaimCommand, Origin, RecordEnd,
+    Rotation, SessionCommand, SessionName, SessionRejection, SetKept, NAMES_DOMAIN, SESSION_DOMAIN,
 };
 
 use crate::{decode_go_sidecar, AppError, DeadLetter, GoEntry, GoSidecarError};
@@ -109,41 +106,31 @@ pub trait ImportService {
     ) -> impl Future<Output = Result<ImportReport, AppError>> + Send;
 }
 
-/// The importer: the only holder of Go's session directories. A service of its
-/// own, as taskloom's importer is the only holder of its JSONL logs.
-pub struct Importer<I, S, G, C, D> {
+/// The importer: the only reader of Go's session directories. A service of
+/// its own, as taskloom's importer is the only holder of its JSONL logs. It
+/// writes nothing itself: every command goes to the owner of the store
+/// through its [`Dispatch`] (ONE WRITER).
+pub struct Importer<I, K, G> {
     pub identity: I,
-    pub stores: S,
+    pub dispatch: K,
     pub go: G,
-    pub clock: C,
-    pub delay: D,
-    pub retry: OnRetryable,
-    pub(crate) registry: Registry,
-    pub(crate) dead_letters: Vec<DeadLetter>,
 }
 
-impl<I, S, G, C, D> Importer<I, S, G, C, D> {
-    pub fn new(identity: I, stores: S, go: G, clock: C, delay: D) -> Self {
+impl<I, K, G> Importer<I, K, G> {
+    pub fn new(identity: I, dispatch: K, go: G) -> Self {
         Importer {
             identity,
-            stores,
+            dispatch,
             go,
-            clock,
-            delay,
-            retry: angzarr_embedded_runner::KERNEL_RETRY,
-            registry: crate::registry(),
-            dead_letters: Vec::new(),
         }
     }
 }
 
-impl<I, S, G, C, D> ImportService for Importer<I, S, G, C, D>
+impl<I, K, G> ImportService for Importer<I, K, G>
 where
     I: ProjectIdentity + Send,
-    S: ProjectStores + Send,
+    K: Dispatch + Send,
     G: GoSessions + Send,
-    C: Clock + CommandIds + Send,
-    D: Delay + Jitter + Send,
 {
     async fn import(&mut self, request: ImportRequest) -> Result<ImportReport, AppError> {
         let ImportRequest { project_harps } = request;
@@ -155,7 +142,7 @@ where
         for go in sessions {
             let result = self.one(&projects, &project_harps, go, &mut report).await;
             if let Err(error) = result {
-                let letters = std::mem::take(&mut self.dead_letters);
+                let letters = self.dispatch.dead_letters();
                 return Err(match letters.is_empty() {
                     true => error,
                     false => AppError::DeadLettered {
@@ -165,7 +152,7 @@ where
                 });
             }
         }
-        report.dead_letters = std::mem::take(&mut self.dead_letters);
+        report.dead_letters = self.dispatch.dead_letters();
         Ok(report)
     }
 }
@@ -180,33 +167,16 @@ enum Step {
     Left(Why),
 }
 
-impl<I, S, G, C, D> Importer<I, S, G, C, D>
-where
-    S: ProjectStores,
-    C: Clock + CommandIds,
-    D: Delay + Jitter + Send,
-{
+impl<I, K: Dispatch + Send, G> Importer<I, K, G> {
     /// The harp `project` was named with, named now with the first of
     /// `harps` no other project holds when it has none.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "P2 one-writer debt: session import is a command sent to the daemon's coordinator, not a local kernel"
-    )]
     async fn project_harp(
         &mut self,
         project: &Project,
         harps: &[String],
     ) -> Result<String, AppError> {
-        let store = self.stores.open(project).await.map_err(crate::failed)?;
-        let mut runner = Runner {
-            registry: &self.registry,
-            clock: &mut Port(&mut self.clock),
-            delay: &mut Port(&mut self.delay),
-            retry: self.retry,
-            dead_letters: &mut self.dead_letters,
-        };
         Ok(
-            crate::projects::name_in(&mut runner, store, &project.id, harps)
+            crate::projects::name_through(&mut self.dispatch, project, harps)
                 .await?
                 .harp,
         )
@@ -276,10 +246,6 @@ where
     ///
     /// Go's `run_ends[]` and `end_reason` are NOT imported: owner ruling,
     /// 2026-11-03 ("Do NOT import run_ends[] in S4; they return with S10").
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "P2 one-writer debt: session import is a command sent to the daemon's coordinator, not a local kernel"
-    )]
     async fn session(
         &mut self,
         project: &Project,
@@ -302,27 +268,20 @@ where
         };
         let step_id =
             |step: &str| Uuid::from_bytes(*uuid::Uuid::new_v5(&root, step.as_bytes()).as_bytes());
-        let store = self.stores.open(project).await.map_err(crate::failed)?;
-        let mut runner = Runner {
-            registry: &self.registry,
-            clock: &mut Port(&mut self.clock),
-            delay: &mut Port(&mut self.delay),
-            retry: self.retry,
-            dead_letters: &mut self.dead_letters,
-        };
         // The name first: a name another session holds is not taken.
         let claim = NameClaimCommand::from(ClaimName {
             project_id: project.id.clone(),
             harp: harp.to_string(),
             session: id.clone(),
         });
-        let claimed = typed::run::<NameClaimAggregate, _, _, _>(
-            &mut runner,
-            store,
-            CommandBook::command_of(claim_cover, &claim),
-            &step_id("claim"),
-        )
-        .await?;
+        let claimed = self
+            .dispatch
+            .send(
+                project,
+                CommandBook::command_of(claim_cover, &claim),
+                &step_id("claim"),
+            )
+            .await?;
         match claimed {
             Ok(_) => {}
             Err(refusal)
@@ -349,15 +308,12 @@ where
             .collect();
         let mut already = false;
         for (step, command) in commands {
-            let handled = typed::run::<SessionAggregate, _, _, _>(
-                &mut runner,
-                store,
-                command,
-                &step_id(step),
-            )
-            .await??;
+            let sent = self
+                .dispatch
+                .send(project, command, &step_id(step))
+                .await??;
             if step == "mint" {
-                already = matches!(handled, Handled::Duplicate(..));
+                already = sent.duplicate;
             }
         }
         Ok(Step::Done { already })

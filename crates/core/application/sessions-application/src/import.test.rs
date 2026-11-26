@@ -15,7 +15,7 @@ use sessions::{ClaimName, NameClaimAggregate, NameClaimState, Origin};
 
 use crate::fakes::{
     cover, minted, project_at, ready, FakeClock, FakeDelay, FakeGo, FakeIdentity, FakeLiveness,
-    FakeStores,
+    StoreDispatch,
 };
 use crate::{ImportRequest, ImportService, Importer, ListQuery, Service, SessionService, Why};
 
@@ -47,7 +47,7 @@ fn imported_id(harp: &str) -> String {
     name(harp).uid()
 }
 
-type Imp = Importer<FakeIdentity, FakeStores, FakeGo, FakeClock, FakeDelay>;
+type Imp = Importer<FakeIdentity, StoreDispatch, FakeGo>;
 
 fn go(harp: &str, sidecar: &str, keep_marker: bool) -> GoSession {
     GoSession {
@@ -66,10 +66,8 @@ fn importer(sessions: Vec<GoSession>) -> Imp {
             every: vec![project_at(HERE, "/work/proj")],
             fails: None,
         },
-        FakeStores::default(),
+        StoreDispatch::default(),
         FakeGo(sessions),
-        FakeClock::default(),
-        FakeDelay::default(),
     )
 }
 
@@ -85,7 +83,7 @@ fn three() -> Vec<GoSession> {
 fn listing(imp: Imp) -> Vec<crate::View> {
     let mut service = Service::new(
         imp.identity,
-        imp.stores,
+        imp.dispatch.stores,
         FakeLiveness::default(),
         FakeClock::default(),
         FakeDelay::default(),
@@ -224,7 +222,7 @@ fn a_rerun_adds_nothing() {
     let mut imp = importer(three());
     ready(imp.import(request())).unwrap();
     let heads = |imp: &Imp| -> Vec<u64> {
-        let store: &MemoryStore = imp.stores.stores.get(HERE).expect("a store");
+        let store: &MemoryStore = imp.dispatch.stores.stores.get(HERE).expect("a store");
         [OWL, MOTH, WREN]
             .iter()
             .map(|h| {
@@ -273,7 +271,7 @@ fn cover_of(id: uuid::Uuid) -> angzarr_embedded::v1::Cover {
 fn an_imported_session_holds_its_name() {
     let mut imp = importer(vec![go(OWL, SCHEMA1, false)]);
     ready(imp.import(request())).unwrap();
-    let store = imp.stores.stores.get(HERE).expect("a store");
+    let store = imp.dispatch.stores.stores.get(HERE).expect("a store");
     let mut registry = angzarr_embedded::Registry::new();
     registry
         .aggregate::<NameClaimAggregate>(NameClaimAggregate::default)
@@ -299,7 +297,12 @@ fn an_imported_session_holds_its_name() {
 fn a_name_another_session_holds_leaves_the_go_session() {
     let mut imp = importer(vec![go(OWL, SCHEMA1, false)]);
     {
-        let store = imp.stores.stores.entry(HERE.to_string()).or_default();
+        let store = imp
+            .dispatch
+            .stores
+            .stores
+            .entry(HERE.to_string())
+            .or_default();
         minted(store, 9, OWL, "/work/proj", 1_700_000_000);
         let registry = {
             let mut r = angzarr_embedded::Registry::new();

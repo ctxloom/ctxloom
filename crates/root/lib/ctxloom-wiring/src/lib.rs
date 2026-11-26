@@ -59,11 +59,9 @@ use isolation_application::{IsolationError, Report, WorktreeUse, Worktrees};
 use liveness::LockFiles;
 use ports::{Names, ProjectIdentity};
 use project_registry::{Environment, ProjectRegistry};
-use session_files::GoDirs;
 use sessions_application::{
-    AppError, BindRequest, Bound, ImportReport, ImportRequest, ImportService, Importer,
-    KeepRequest, Kept, ListQuery, SearchQuery, Service, SessionService, ShowQuery, TranscriptQuery,
-    TranscriptRow, View,
+    AppError, BindRequest, Bound, KeepRequest, Kept, ListQuery, SearchQuery, Service,
+    SessionService, ShowQuery, TranscriptQuery, TranscriptRow, View,
 };
 use system::System;
 
@@ -162,14 +160,10 @@ pub fn run_id(session: &str, incarnation: u64) -> Result<Uuid, LibError> {
 pub type SessionUseCases =
     Service<ProjectRegistry<HarpNames>, SqliteStores, LockFiles, System, System>;
 
-/// The import over the same adapters, and Go's session directories.
-pub type ImportUseCase = Importer<ProjectRegistry<HarpNames>, SqliteStores, GoDirs, System, System>;
-
 /// Everything the `session` commands and the session hooks call: the sessions
 /// use cases and the import, one value to the command line.
 pub struct Sessions {
     pub use_cases: SessionUseCases,
-    pub importer: ImportUseCase,
     /// The scratch worktrees sessions left behind (S11).
     pub worktrees: Worktrees<GitWorkspaces, LockFiles>,
 }
@@ -181,9 +175,7 @@ impl Sessions {
     /// which a process that exits first never lets it do. Both are closed
     /// whatever the first says; the first failure is answered.
     pub async fn close(&mut self) -> Result<(), StoreError> {
-        let used = self.use_cases.stores.close().await;
-        let imported = self.importer.stores.close().await;
-        used.and(imported)
+        self.use_cases.stores.close().await
     }
 }
 
@@ -233,20 +225,6 @@ impl SessionService for Sessions {
 
     async fn bind(&mut self, request: BindRequest) -> Result<Bound, AppError> {
         self.use_cases.bind(request).await
-    }
-}
-
-impl ImportService for Sessions {
-    /// The import, a project it writes to named with fresh harps when it
-    /// has none (slice 2 M1).
-    async fn import(&mut self, request: ImportRequest) -> Result<ImportReport, AppError> {
-        let request = match request.project_harps.is_empty() {
-            true => ImportRequest {
-                project_harps: fresh_project_harps(),
-            },
-            false => request,
-        };
-        self.importer.import(request).await
     }
 }
 
@@ -448,13 +426,6 @@ impl Wiring {
                 registry(),
                 stores(),
                 LockFiles::new(Arc::clone(&self.fs), project.clone()),
-                System,
-                System,
-            ),
-            importer: Importer::new(
-                registry(),
-                stores(),
-                GoDirs::new(Arc::clone(&self.fs), self.home.clone()),
                 System,
                 System,
             ),
@@ -661,39 +632,6 @@ impl Wiring {
             // Its client's, filled as every request's is.
             caller: None,
         }
-    }
-
-    /// Name the project this process is in (S54), once, in the one store:
-    /// its harp, minted from fresh harps, or the one it has. Every command
-    /// that mints a session names its project first, at its resolution
-    /// (slice 2 M1: a run, a child's launch, an import, the test seed); the
-    /// daemon's `ResolveProject` is a later step's.
-    pub fn name_project(&self) -> Result<sessions_application::ProjectHarp, LibError> {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .map_err(|e: io::Error| LibError::NoRuntime {
-                detail: e.to_string(),
-            })?;
-        runtime.block_on(self.named_project())
-    }
-
-    /// [`Wiring::name_project`], on the caller's runtime.
-    pub async fn named_project(&self) -> Result<sessions_application::ProjectHarp, LibError> {
-        let mut sessions = self.sessions();
-        let named = sessions
-            .use_cases
-            .name_project(sessions_application::NameProjectRequest {
-                project: None,
-                harps: fresh_project_harps(),
-            })
-            .await
-            .map_err(|e| LibError::Project(coded_diagnostic::Report::of(&e)));
-        // Closed, not dropped (ruling 131).
-        let closed = sessions.close().await;
-        let named = named?;
-        closed.map_err(|e| LibError::Project(coded_diagnostic::Report::of(&e)))?;
-        Ok(named)
     }
 
     /// The one store opened (made, if need be) under the home for `project`

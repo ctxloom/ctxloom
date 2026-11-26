@@ -699,8 +699,8 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
       And the daemon's log says it served "ListSessions"
       And the output contains "amber-swift-owl"
 
-    Scenario: A hosted one-shot's project is named by the daemon through its own edge, not through a second connection to the store
-      # new: ONE WRITER; `Wiring::named_project` and the one-shot's `hosted_setup` opened a second connection.
+    Scenario: A hosted one-shot's commands are the daemon's, handled once through its own edge
+      # new: ONE WRITER; a project nothing has named is named by the daemon's edge (never a second connection to the store).
       Given Alice has a project that has never used ctxloom
       And Alice has exported her assistant's token
       And Alice has set ctxloom up in her project
@@ -710,7 +710,7 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
         ctxloom run --one-shot "Run the shell command: echo hi"
         """
       Then the command succeeds
-      And the daemon's log says it handled the command "NameProject" once
+      And the daemon's log says it handled the command "EnqueueRun" once
 
   Rule: The preview carries the questions, and the apply answers them
 

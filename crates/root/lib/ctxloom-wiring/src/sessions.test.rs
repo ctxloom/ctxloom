@@ -346,7 +346,7 @@ fn held<'a>(commands: &'a mut Commands, home: &std::path::Path) -> &'a mut crate
         .unwrap();
     runtime
         .block_on(ProjectStores::open(
-            &mut sessions.importer.stores,
+            &mut sessions.use_cases.stores,
             &project("q"),
         ))
         .unwrap();

@@ -41,15 +41,22 @@ fn said(ran: &Ran) -> String {
 /// A home with sessions seeded in it.
 struct Home {
     env: Env,
+    /// The project the commands run in: a directory of the home with a
+    /// `.ctxloom` of its own (a session's writes are the daemon's, as the
+    /// user's, and name their project from the directory).
+    project: PathBuf,
 }
 
 impl Home {
     fn new() -> Home {
-        Home { env: Env::new() }
+        let env = Env::new();
+        let project = files::canonical(env.home()).join("proj");
+        files::mkdirs(project.join(".ctxloom"));
+        Home { env, project }
     }
 
     fn run(&self, args: &[&str]) -> Ran {
-        self.env.run(args)
+        self.env.run_in(&self.project, args)
     }
 
     /// The resource name of the seeded session `harp` (`CTXLOOM_SESSION`'s
@@ -64,7 +71,7 @@ impl Home {
     fn seed(&self, harp: &str, flags: &[&str]) {
         let mut args = vec!["test", "seed-session", harp];
         args.extend_from_slice(flags);
-        let ran = self.env.run(&args);
+        let ran = self.run(&args);
         assert_eq!(ran.code, 0, "seed {harp} {flags:?}: {}", ran.said());
     }
 
@@ -88,6 +95,11 @@ impl Home {
     }
 
     fn session_dir(&self, harp: &str) -> PathBuf {
+        self.project.join(".ctxloom/sessions").join(harp)
+    }
+
+    /// Where Go left the session `harp`: the account's own sessions directory.
+    fn go_dir(&self, harp: &str) -> PathBuf {
         self.env.home().join(".ctxloom/sessions").join(harp)
     }
 
@@ -102,7 +114,7 @@ impl Home {
     /// (the project is the home here; `output.dir` is its default,
     /// `ctxloom/`, owner rulings 89, 106).
     fn output_dir(&self, harp: &str) -> PathBuf {
-        self.env.home().join("ctxloom").join(harp)
+        self.project.join("ctxloom").join(harp)
     }
 
     /// A summary an older ctxloom left in the session's output dir.
@@ -115,12 +127,7 @@ impl Home {
 
     /// Hold `harp`'s lock as a running session does, until dropped.
     fn running(&self, harp: &str) -> File {
-        let path = self
-            .env
-            .home()
-            .join(".ctxloom/sessions")
-            .join(harp)
-            .join("session.lock");
+        let path = self.session_dir(harp).join("session.lock");
         let file = files::open_read(path).expect("a lock file: seed with --lock free");
         file.lock().expect("the lock is free to take");
         file
@@ -227,7 +234,11 @@ fn test_reading_creates_nothing() {
     // at most the daemon's own (its directory, the one store it keeps); no
     // identity, session, transcript or store of a read's.
     let top = files::children(home.env.home());
-    assert_eq!(top, [home.env.home().join(".ctxloom")], "{top:?}");
+    assert_eq!(
+        top,
+        [home.env.home().join(".ctxloom"), home.project.clone()],
+        "{top:?}"
+    );
     for entry in files::children(home.env.home().join(".ctxloom")) {
         let name = entry.file_name().unwrap().to_string_lossy().to_string();
         assert!(
@@ -844,11 +855,11 @@ impl Home {
     /// project this home is (the seed registers it).
     fn go_sessions(&self) -> Vec<(PathBuf, String)> {
         self.seed("registered-project-marker", &[]);
-        let work_root = files::canonical(self.env.home());
+        let work_root = files::canonical(&self.project);
         GO_SIDECARS
             .iter()
             .map(|(harp, text)| {
-                let dir = self.session_dir(harp);
+                let dir = self.go_dir(harp);
                 let body = text.replace("/work/proj", &work_root.display().to_string());
                 files::put(dir.join("session.yaml"), &body);
                 (dir.join("session.yaml"), body)
@@ -894,7 +905,7 @@ fn test_import_gives_the_listing_go_gives_for_each_sidecar_generation() {
 fn test_import_skips_a_directory_whose_name_is_no_harp() {
     let home = Home::new();
     home.go_sessions();
-    let work_root = files::canonical(home.env.home());
+    let work_root = files::canonical(&home.project);
     let body = GO_SIDECARS[0]
         .1
         .replace("/work/proj", &work_root.display().to_string());
@@ -905,7 +916,7 @@ fn test_import_skips_a_directory_whose_name_is_no_harp() {
         not_harps.push("has:colon");
     }
     for name in not_harps {
-        files::put(home.session_dir(name).join("session.yaml"), &body);
+        files::put(home.go_dir(name).join("session.yaml"), &body);
     }
     let ran = home.run(&["session", "import"]);
     assert_eq!(ran.code, 0, "{}", ran.said());

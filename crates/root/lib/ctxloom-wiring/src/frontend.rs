@@ -182,7 +182,7 @@ async fn host_terminal(
     request: HostRequest,
     told: TerminalTold,
 ) -> Done<Ended> {
-    let hosted = match hosted_setup(places, &request).await {
+    let hosted = match hosted_setup(places, &request, &core.edge()).await {
         Ok(hosted) => hosted,
         Err((error, notices)) => {
             return Done {

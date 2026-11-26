@@ -151,6 +151,8 @@ pub fn session(session: &v1::Session) -> Value {
                 .collect(),
         )
         .time("state_change_time", session.state_change_time)
+        .flag("transcript_captured", session.transcript_captured)
+        .u64("transcript_bytes", session.transcript_bytes)
         .done()
 }
 

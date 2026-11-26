@@ -14,6 +14,8 @@ mod deps;
 mod files;
 pub(crate) mod flush;
 mod foreign;
+mod imports;
+pub(crate) use imports::EdgeDispatch;
 pub(crate) mod heard;
 mod places;
 pub(crate) mod runtime;

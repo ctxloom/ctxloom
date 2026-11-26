@@ -20,6 +20,7 @@
 //! stable ids: neither is here.
 
 mod bridge;
+mod dispatch;
 mod error;
 mod go_sidecar;
 mod import;
@@ -39,6 +40,7 @@ use coded_diagnostic::Report;
 /// bug.
 pub use angzarr_embedded::{dead_letter_line, DeadLetter};
 
+pub use dispatch::{failed as dispatch_failed, refused, Dispatch, Sending, Sent};
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{
@@ -52,7 +54,7 @@ pub use orchestrate::{
     urgencies_of, ClearRequest, CloseRequest, LaunchRequest, Ordered, SendRequest,
 };
 pub use ports::{Project, Timestamp};
-pub use projects::{NameProjectRequest, ProjectHarp};
+pub use projects::{name_through, NameProjectRequest, ProjectHarp};
 pub use service::{registry, Service, SessionService, DEFAULT_RETENTION_DAYS};
 pub use session_index::{
     stamp, Captured, PendingMessage, SessionRecord, State, View, NO_SUMMARY, STATES,

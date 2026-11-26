@@ -4,10 +4,7 @@
 use std::future::Future;
 use std::time::{Duration, SystemTime};
 
-use sessions_application::{
-    BindRequest, ImportRequest, ImportService, ListQuery, SearchQuery, SessionService,
-    TranscriptQuery,
-};
+use sessions_application::{BindRequest, ListQuery, SearchQuery, SessionService, TranscriptQuery};
 
 use crate::commands::tests::World;
 use crate::fixtures::fs;
@@ -186,31 +183,6 @@ fn the_sessions_service_binds_a_seeded_session() {
         matches!(again, sessions_application::Bound::Unchanged),
         "{again:?}"
     );
-}
-
-// A Go session of the project's work root is imported; the sessions the
-// import found are the ones its report names.
-#[test]
-fn a_go_session_of_the_project_is_imported() {
-    let world = World::new("seed-import");
-    let wiring = world.wiring();
-    // Seeding registers the project of the working directory.
-    wiring.seed_session(&seed()).unwrap();
-    let go = world.home().join(".ctxloom/sessions/amber-swift-owl");
-    crate::fixtures::mkdirs(&go);
-    let work = crate::fixtures::canonical(world.work());
-    crate::fixtures::put_mode(
-        go.join("session.yaml"),
-        &format!(
-            "schema_version: 3\nsession_id: 9a1c0d1e-3333-4333-8333-000000000003\nbackend: claude-code\nproject_dir: {}\noutput_dir: /out\nstarted_at: 2026-06-01T12:00:00Z\nended_at: 2026-06-01T13:00:00Z\ntranscript_path: /t.jsonl\n",
-            work.display()
-        ),
-        0o644,
-    );
-    let mut sessions = wiring.sessions();
-    let report = block(sessions.import(ImportRequest::default())).unwrap();
-    let harps: Vec<&str> = report.imported.iter().map(|i| i.harp.as_str()).collect();
-    assert_eq!(harps, ["amber-swift-owl"], "{report:?}");
 }
 
 // A seeded session's output goes where a run's does (owner rulings 89, 106):

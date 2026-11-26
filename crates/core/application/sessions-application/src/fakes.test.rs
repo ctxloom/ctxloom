@@ -365,3 +365,64 @@ pub fn holder(store: &MemoryStore, project: &str, harp: &str) -> String {
 pub fn id_text(id: u8) -> String {
     uuid::Uuid::from_bytes([id; 16]).to_string()
 }
+
+/// The importer's way out, over in-memory stores: each command handled by a
+/// kernel of the test's own, as the daemon's core handles it for the real
+/// one. `stores` is where the streams are kept.
+#[derive(Default)]
+pub struct StoreDispatch {
+    pub stores: FakeStores,
+    pub clock: FakeClock,
+    pub sent: Vec<String>,
+}
+
+impl crate::Dispatch for StoreDispatch {
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "a test kernel or store of its own"
+    )]
+    async fn send(&mut self, project: &Project, book: CommandBook, id: &Uuid) -> crate::Sending {
+        use angzarr_embedded::Handled;
+        use ports::Clock;
+        let store = self.stores.open(project).await.expect("a store");
+        let registry = crate::registry();
+        let sampled = Sampled {
+            now: self.clock.now(),
+            command_id: id.clone(),
+        };
+        let domain = book.cover.as_ref().map(|c| c.domain.clone());
+        self.sent.extend(domain);
+        let handled = Kernel::new(&registry)
+            .on_retryable(OnRetryable::default())
+            .handle_any(store, book, &sampled)
+            .await;
+        match handled {
+            Ok(handled) => Ok(Ok(crate::Sent {
+                duplicate: matches!(handled, Handled::Duplicate(..)),
+            })),
+            Err(angzarr_embedded::Failure::Rejected(rejected)) => {
+                Ok(Err(crate::refused(&rejected)))
+            }
+            Err(failure) => Err(crate::dispatch::failed_unrun(&failure)),
+        }
+    }
+
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "a test kernel or store of its own"
+    )]
+    async fn events(
+        &mut self,
+        project: &Project,
+        cover: &Cover,
+    ) -> Result<Vec<angzarr_embedded::v1::EventPage>, StoreError> {
+        use angzarr_embedded::{EventStore, StreamRef};
+        let store = self.stores.open(project).await?;
+        let stream = StreamRef::try_from(cover).expect("a stream");
+        Ok(store.read(stream, 0, None).await?.pages)
+    }
+
+    fn dead_letters(&mut self) -> Vec<crate::DeadLetter> {
+        Vec::new()
+    }
+}

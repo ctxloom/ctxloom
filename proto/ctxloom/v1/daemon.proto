@@ -208,6 +208,13 @@ service Ctxloom {
   // `session sweep`: each session by the fixed table, its purges through
   // the same removal as `DeleteSession`. A `session-destroy` build's (M5).
   rpc SweepSessions(SweepSessionsRequest) returns (SweepSessionsResponse);
+  // `session import`: Go's session directories of this account, each into
+  // its project's streams (ONE WRITER: the daemon sends the commands, naming
+  // the project first, the name's claim, then each session's). Idempotent:
+  // each command's id derives from the session's, so a rerun adds nothing.
+  // The one write no single domain command can say: it reads Go's files and
+  // sends a sequence of commands to several aggregates.
+  rpc ImportSessions(ImportSessionsRequest) returns (ImportSessionsResponse);
   // `session transcript show`; `transcript list` is `ListSessions` with
   // `has_transcript`.
   rpc GetTranscript(GetTranscriptRequest) returns (Transcript) {
@@ -1172,6 +1179,11 @@ message Session {
   // its end time when it has ended, else its start time. Only the top watch
   // fills it.
   google.protobuf.Timestamp state_change_time = 27 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Whether its events hold a transcript; filled where a listing asks
+  // (`ListSessionsRequest.transcripts`), `session transcript list`.
+  bool transcript_captured = 28 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // The size of that transcript as `session transcript show` prints it.
+  uint64 transcript_bytes = 29 [(google.api.field_behavior) = OUTPUT_ONLY];
 }
 
 // What a run was launched with: its MCP servers' NAMES and its engine's
@@ -1225,6 +1237,9 @@ message ListSessionsRequest {
   Session.State state = 2 [(google.api.field_behavior) = OPTIONAL];
   // Only sessions whose hooks have delivered a transcript.
   bool has_transcript = 3 [(google.api.field_behavior) = OPTIONAL];
+  // Fill each session's `transcript_captured` and `transcript_bytes`
+  // (`session transcript list`).
+  bool transcripts = 4 [(google.api.field_behavior) = OPTIONAL];
   // The most results to answer in one page (AIP-158); 0 is the server's
   // choice. Every page is the whole list today.
   int32 page_size = 80 [(google.api.field_behavior) = OPTIONAL];
@@ -1263,6 +1278,41 @@ message SearchSessionsRequest {
   // Moved into `caller` (owner, 2026-11-18).
   reserved 94;
   reserved "env";
+}
+
+// `session import`.
+message ImportSessionsRequest {
+  // The client's id for this write (AIP-155), sent again unchanged on the one
+  // retry (API Q13).
+  string request_id = 90 [(google.api.field_behavior) = OPTIONAL];
+}
+
+// What an import did.
+message ImportSessionsResponse {
+  // A Go session now a session of ctxloom's.
+  message Imported {
+    // Its harp.
+    string harp = 1;
+    // Its project's id.
+    string project = 2;
+    // Its stable id.
+    string id = 3;
+  }
+  // A Go session left where it is, and why (a diagnostic's code and args).
+  message Left {
+    // Its harp.
+    string harp = 1;
+    // The reason's catalog code.
+    string code = 2;
+    // The code's args, by name.
+    map<string, string> args = 3;
+  }
+  // Each session this import made.
+  repeated Imported imported = 1;
+  // Each session a former import already holds (its harp).
+  repeated string already = 2;
+  // Each session left.
+  repeated Left left = 3;
 }
 
 // `session remove <harp> [--even-if-live] [--yes]`.

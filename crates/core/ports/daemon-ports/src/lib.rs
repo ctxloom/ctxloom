@@ -333,6 +333,16 @@ pub trait DaemonApi: Send + Sync {
         async { Err(unserved("DeleteSession")) }
     }
 
+    /// `ImportSessions`: Go's sessions of this account, imported by the
+    /// daemon, which sends the commands.
+    fn import_sessions(
+        &self,
+        request: v1::ImportSessionsRequest,
+    ) -> impl Future<Output = Result<v1::ImportSessionsResponse, Called>> + Send {
+        let _ = request;
+        async { Err(unserved("ImportSessions")) }
+    }
+
     /// `SweepSessions`: every session by the sweep's table; as
     /// `DeleteSession`, a `session-destroy` build's.
     fn sweep_sessions(

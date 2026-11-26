@@ -1,7 +1,7 @@
 //! What prepares the daemon's interactive sessions (U5): each on a thread of
 //! its own, over the daemon's ONE store (its core shared), in the environment
-//! and directory its client sent (S7). Its frontend is the command
-//! (`ctxloom_wiring::frontend`).
+//! and directory its client sent (S7). Its frontend is the `ctxloom run`
+//! command (`ctxloom_wiring::frontend`), which starts the prepared TUI.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -22,8 +22,6 @@ use run_ports::{Edge, LaunchAt, LaunchFailure};
 use session_ports::{Held, LockError, SessionLock};
 
 use crate::hosted_oneshots::{hosted_setup, Hosted};
-
-// ----------------------------------------------------------- the daemon's
 
 /// What prepares the daemon's interactive sessions (U5): each on a thread of
 /// its own, over the daemon's ONE store (its core shared), in the

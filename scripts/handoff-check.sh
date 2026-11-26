@@ -18,7 +18,7 @@
 # hit in that file whose declaration text (whitespace collapsed) contains the
 # fragment. An entry that covers nothing fails too, so the list only shrinks.
 # A `why` that starts `debt:` is counted and printed: the list of what is left to
-# remove. Anything else is a runner's own state and says why it is not a
+# remove; it must end naming the phase that removes it (P3, P4 or P5; never P2). Anything else is a runner's own state and says why it is not a
 # hand-off.
 #
 # Usage: handoff-check.sh [root]   (root defaults to the repository)
@@ -49,6 +49,19 @@ if [ -f "$allow_file" ]; then
     if [ -z "$file" ] || [ -z "$fragment" ] || [ -z "$why" ]; then
       echo "FAIL lint-handoffs: $allow_file: an entry needs a file, the text of the declaration and why: $entry" >&2
       exit 1
+    fi
+    # A debt entry names the phase that removes it, P3, P4 or P5 (owner ruling
+    # 2026-11-26: no entry outlives its phase, and P2 removes its own rows, so
+    # an entry naming P2 or no phase is refused).
+    if [[ $why == debt:* ]]; then
+      phase=$(printf '%s' "$why" | grep -oE '\bP[0-9]+\b' | tail -n 1 || true)
+      case "$phase" in
+        P3 | P4 | P5) ;;
+        *)
+          echo "FAIL lint-handoffs: $allow_file: a debt entry must name the phase that removes it (P3, P4 or P5), not '${phase:-none}': $entry" >&2
+          exit 1
+          ;;
+      esac
     fi
     files+=("$file") fragments+=("$fragment") whys+=("$why")
   done < "$allow_file"

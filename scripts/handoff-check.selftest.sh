@@ -48,11 +48,13 @@ expect 0 "$(fixture plain-box 'struct S { b: Box<dyn Iterator<Item = u8>> }')" "
 expect 0 "$(fixture a-local 'fn f() { let t: Mutex<Vec<u8>> = Mutex::new(vec![]); let _ = t; }')" "a local, not a field"
 expect 0 "$(fixture test-file 'struct S { table: Mutex<Vec<String>> }' '' crates/core/application/x/src/lib.test.rs)" "a *.test.rs file"
 expect 0 "$(fixture outside 'struct S { table: Mutex<Vec<String>> }' '' crates/adapters/driven/y/src/lib.rs)" "a crate outside the two trees"
-allow='crates/core/application/x/src/lib.rs | table: Mutex<Vec | debt: row 99, replaced by a stream tail'
+allow='crates/core/application/x/src/lib.rs | table: Mutex<Vec | debt: row 99, replaced by a stream tail (P4)'
 expect 0 "$(fixture allowed 'struct S { table: Mutex<Vec<String>> }' "$allow")" "a listed exception"
 expect 1 "$(fixture allowed-other 'struct S { rows: Mutex<Vec<String>> }' "$allow")" "an exception for another declaration, and the stale one"
 expect 1 "$(fixture stale 'struct S { n: u32 }' "$allow")" "a stale exception"
 expect 1 "$(fixture no-why 'struct S { table: Mutex<Vec<String>> }' 'crates/core/application/x/src/lib.rs | table: Mutex<Vec |')" "an exception with no why"
+expect 1 "$(fixture debt-no-phase 'struct S { table: Mutex<Vec<String>> }' 'crates/core/application/x/src/lib.rs | table: Mutex<Vec | debt: row 99, replaced by a stream tail')" "a debt entry naming no phase"
+expect 1 "$(fixture debt-p2 'struct S { table: Mutex<Vec<String>> }' 'crates/core/application/x/src/lib.rs | table: Mutex<Vec | debt: row 99, replaced by a stream tail (P2)')" "a debt entry naming P2"
 expect 1 "$(fixture one-of-two 'struct S { table: Mutex<Vec<String>>, other: Condvar }' "$allow")" "one of two hits listed"
 out=$("$check" "$(fixture counted 'struct S { table: Mutex<Vec<String>> }' "$allow")")
 [[ $out == *"1 debt, 0 runner state"* ]] || { echo "selftest FAIL: the debt is counted: $out" >&2; exit 1; }

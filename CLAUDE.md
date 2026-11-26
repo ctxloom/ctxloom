@@ -1760,17 +1760,37 @@ that only shrinks (never silenced):
   `daemon/serve.rs`) and the store adapter itself carry
   `#[expect(clippy::disallowed_methods, reason = "...")]`; every other
   production site carries one whose reason begins `P2 one-writer debt:` and
-  names what replaces it (the CLI's `session keep|rename|import`, project
-  naming, `transcript list`'s own fold, and the test-support seed and
-  `test record|library-events|open-store`). `just lint-one-writer`
+  names what replaces it (today the test-support seed and `test
+  record|library-events|open-store`, and sessions-application's `Service`,
+  which only the seed still uses). `just lint-one-writer`
   (`scripts/one-writer-debt-check.sh`) counts them against
-  `scripts/one-writer-debt.max` (17 today): more fails, fewer says to lower
-  it. A test that needs a kernel or store of its own allows it on its own
-  function (`#[allow(clippy::disallowed_methods, reason = ...)]`), never a
-  module. The scenarios are `features/cli/daemon.feature`, "Every write to the
-  store is a command sent to the daemon" (red until the sessions verbs are the
-  daemon's clients); under test-support the daemon's log is to say `handled
-  <CommandType>` for each command it takes (the steps read it).
+  `scripts/one-writer-debt.max` (15 today): more fails, fewer says to lower
+  it. The owner's ruling of 2026-11-26 is that P2 ends at ZERO and the ceiling
+  goes (any non-daemon site fails `just lint`); that is not done yet. A test
+  that needs a kernel or store of its own allows it on its own function
+  (`#[allow(clippy::disallowed_methods, reason = ...)]`), never a module.
+  Built (P2 units b to d): `session keep|keep --undo|rename` send `SetKept`
+  and `SetSessionTitle` through the coordinator as the user (`Caller::keep`,
+  `Caller::title`, `ChildWrites`), under an id minted once per call, so a
+  retry is a DUPLICATE and a second call is not; an unknown session is the
+  domain's `sessions-session-unknown`. `session import` is the additive RPC
+  `ImportSessions` (daemon.proto; callerless): the daemon reads Go's
+  directories of the account (its registry, `GoDirs`) and sends every command
+  of the import (the project's naming and claim, each session's name claim,
+  `MintSession`, the bind, rotations, keep, end) through its own core's edge:
+  sessions-application's `Importer` only plans, and sends through its
+  `Dispatch` port (`dispatch.rs`), which the daemon implements over
+  `run_ports::Edge` (`daemon/imports.rs`, `EdgeDispatch`; the `Imports` port
+  of daemon-api). `session transcript list` is `ListSessions` with the
+  additive `ListSessionsRequest.transcripts`, each `Session` then carrying
+  `transcript_captured` (28) and `transcript_bytes` (29). A hosted one-shot's
+  project that nothing has named is named through the daemon's edge
+  (`sessions_application::name_through`), never a second connection to the
+  store. The scenarios are `features/cli/daemon.feature`, "Every write to the
+  store is a command sent to the daemon". Under test-support the daemon's log
+  says `handled <CommandType>` for each command its edge RECEIVES, applied or
+  refused (`EmbeddedEdge::hearing`, set in `daemon/serve.rs`; the steps read
+  it), as it says `served <path>` for each service call.
 - G3, `just lint-handoffs` (`scripts/handoff-check.sh`, ast-grep rules in
   `scripts/handoff-rules/`): in `crates/core/application` and `crates/root`
   (not `*.test.rs`), a struct field or static that is a `Mutex|RwLock` around
@@ -1778,7 +1798,9 @@ that only shrinks (never silenced):
   non-unit `T`, or a `Box|Arc|Rc<dyn Fn*>` (also in a trait's signature) is
   refused unless `scripts/handoff-allow.txt` lists it with why: `debt:` for a
   hand-off the design replaces (naming its inventory row,
-  `.plan/messages-only.plan.md`), else the runner's own state. Today 34 hits:
+  `.plan/messages-only.plan.md`, and ending with the phase that removes it,
+  P3, P4 or P5: an entry naming P2 or no phase fails), else the runner's own
+  state. Today 34 hits:
   11 debt, 23 runner state or test fakes. An entry that covers nothing fails.
   Heuristic: it errs loud and misses other shapes (`Mutex<Option<..>>`, a
   `Held` handle). Self-tests: `scripts/handoff-check.selftest.sh`,

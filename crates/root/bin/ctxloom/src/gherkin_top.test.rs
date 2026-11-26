@@ -451,8 +451,17 @@ fn reports_session_state(line: &Value, harp: &str, state: &str) -> bool {
     expr = "within {int} seconds a line reports the session {string} as {string}, in a snapshot or a change"
 )]
 fn line_reports_session(w: &mut World, seconds: u64, harp: String, state: String) {
-    let line = until_line(w, seconds, |line| {
-        reports_session_state(line, &harp, &state)
+    // The line the step before found may be the snapshot that holds it, and
+    // `until_line` reads on from the lines after the first: it is asked first.
+    let found = w
+        .top
+        .that
+        .clone()
+        .filter(|line| reports_session_state(line, &harp, &state));
+    let line = found.unwrap_or_else(|| {
+        until_line(w, seconds, |line| {
+            reports_session_state(line, &harp, &state)
+        })
     });
     w.top.wanted.clear();
     w.top.that_from = None;

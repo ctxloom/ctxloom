@@ -183,6 +183,10 @@ mod through_an_app {
     }
 
     /// An edge over an application with the lamp exposed to loopback only.
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "a test kernel or store of its own"
+    )]
     async fn edge() -> EmbeddedEdge<OneStore<MemoryStore>> {
         let mut registry = Registry::new();
         registry.aggregate::<Lamp>(Lamp::default).unwrap();

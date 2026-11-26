@@ -95,6 +95,10 @@ impl Wiring {
 
     /// The events of `harp`'s session stream, or of its run of incarnation
     /// `run` when one is named (U5: the frontend's reports, as recorded).
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "P2 one-writer debt: test-support seed sends its commands and facts to a daemon's coordinator, not its own kernel"
+    )]
     async fn events_of(
         &self,
         harp: &str,
@@ -254,6 +258,10 @@ impl Wiring {
     }
 
     /// Plant `seed` in `project`'s store, opened through `stores`.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "P2 one-writer debt: test-support seed sends its commands and facts to a daemon's coordinator, not its own kernel"
+    )]
     async fn seed_in(
         &self,
         stores: &mut SqliteStores,
@@ -491,6 +499,10 @@ fn seed_error_of(report: coded_diagnostic::Report) -> TestError {
 }
 
 /// Claim the session's name, first, as the real mint does.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "P2 one-writer debt: test-support seed sends its commands and facts to a daemon's coordinator, not its own kernel"
+)]
 async fn claim_name<S: Store + ReadStore + Processed + Send + Sync>(
     store: &S,
     project_id: &str,

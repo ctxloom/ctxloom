@@ -54,6 +54,10 @@ impl Project {
         self.run_book(index, sessions::bind_book(cover(id), &bind));
     }
 
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "a test kernel or store of its own"
+    )]
     fn run_book(&mut self, index: &mut Index, book: CommandBook) {
         self.seconds += 1;
         let sampled = Sampled {
@@ -649,6 +653,10 @@ fn a_record_carries_its_owner_its_close_and_the_children_it_holds() {
 // and it answers the command's session as its resource message, named by
 // its project's harp and its own (S42, S54); a catch-up of the same index
 // after it folds nothing twice.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a test kernel or store of its own"
+)]
 #[test]
 fn handle_sync_answers_the_session_as_its_resource_named_by_both_harps() {
     use prost::Message as _;

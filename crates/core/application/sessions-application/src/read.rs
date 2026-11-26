@@ -53,6 +53,10 @@ where
     /// `project`'s sessions as the store holds them now, most recently
     /// started first; none where there is no store yet. The one store holds
     /// every project's (T14): only `project`'s are its.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "P2 one-writer debt: the session reads (transcript list) are served by the daemon, not folded from the store file"
+    )]
     pub(crate) async fn records(&mut self, project: &Project) -> Result<Vec<Held>, AppError> {
         let Some(store) = self.stores.open_existing(project).await.map_err(failed)? else {
             return Ok(Vec::new());
@@ -197,6 +201,10 @@ where
 
     /// The messages `session` (its id) in `project` was sent and no turn has
     /// carried: the pending messages, caught up fresh from the store.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "P2 one-writer debt: the session reads (transcript list) are served by the daemon, not folded from the store file"
+    )]
     async fn pending(
         &mut self,
         project: &Project,

@@ -63,6 +63,10 @@ impl Project {
         }
     }
 
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "a test kernel or store of its own"
+    )]
     fn run(&mut self, model: &mut Model, book: CommandBook) {
         self.seconds += 1;
         let sampled = Sampled {

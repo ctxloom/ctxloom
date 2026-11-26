@@ -679,6 +679,10 @@ impl Drop for SlowRelease {
 // not closed"), leaves its `-wal` behind and the daemon exits with the
 // store unclosed. The fix is `lifelong_ended` joining what it aborted
 // (`terminated.abort(); let _ = terminated.await;`); the test passes then.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a test kernel or store of its own"
+)]
 #[test]
 fn a_terminate_listener_the_exit_cut_has_let_go_of_what_it_held_when_the_exit_goes_on() {
     let runtime = tokio::runtime::Builder::new_multi_thread()

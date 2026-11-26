@@ -1,0 +1,23 @@
+id: handoff-callback
+language: rust
+severity: error
+message: A boxed or shared closure held as a field or static, or taken by a trait, is a callback hand-off.
+note: >
+  A callback one component gives another is a side channel the store never
+  sees. The decision belongs on an event the other follows. A runner's own
+  plumbing is allowed with a reason in scripts/handoff-allow.txt.
+rule:
+  any:
+    - kind: field_declaration
+    - kind: static_item
+    - kind: function_signature_item
+    - kind: function_item
+      inside:
+        kind: declaration_list
+        inside:
+          kind: trait_item
+          stopBy: end
+        stopBy: end
+  regex: '\b(Box|Arc|Rc)\s*<\s*dyn\s+(Send\s*\+\s*)?(Sync\s*\+\s*)?Fn(Mut|Once)?\s*\('
+ignores:
+  - "**/*.test.rs"

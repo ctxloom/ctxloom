@@ -888,6 +888,10 @@ fn mint_book() -> angzarr_embedded::v1::CommandBook {
 // session" (it has loaded that empty stream once), then the other process
 // mints the session, and the very next delivery through the listener is
 // applied, never "no such session" from a cached fold.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a test kernel or store of its own"
+)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_session_another_process_minted_a_moment_ago_is_seen_by_the_listener() {
     let fs = Arc::new(file_system::Rooted::temp().unwrap());

@@ -78,4 +78,24 @@ disallowed-methods = [
   { path = "std::env::set_var", reason = "the process's environment is read, never written: a test builds an EnvSnapshot of its own" },
   { path = "std::env::remove_var", reason = "the process's environment is read, never written: a test builds an EnvSnapshot of its own" },
   { path = "std::env::set_current_dir", reason = "the process's working directory is read, never changed: a test builds an EnvSnapshot of its own" },
+
+  # ONE WRITER (owner ruling 2026-11-25): the daemon is the store's one writer.
+  # No CLI process starts an angzarr kernel or kernel host, or opens the store:
+  # every write is a command or fact sent to the daemon's coordinator, and the
+  # daemon's own components write through its `core.edge()`. The daemon's
+  # composition is the one site (`#[expect(clippy::disallowed_methods, reason =
+  # "the daemon is the one writer")]`); every other site carries an `#[expect]`
+  # whose reason says "P2 one-writer debt: <what replaces it>", so the debt is
+  # visible, counted by `grep -rc 'P2 one-writer debt'`, and shrinks. A test
+  # that needs a store or a kernel allows it on its own function
+  # (`#[allow(clippy::disallowed_methods)]`), never a whole module.
+  # `allow-invalid`: a crate that does not depend on the path's crate cannot
+  # resolve it, and calls nothing there.
+  { path = "angzarr_embedded::Kernel::new", reason = "one writer: only the daemon starts a kernel; send a command or fact to its coordinator", allow-invalid = true },
+  { path = "angzarr_embedded_host::App::builder", reason = "one writer: only the daemon's composition hosts a kernel", allow-invalid = true },
+  { path = "ctxloom_store_sqlite::Stores::open", reason = "one writer: only the daemon opens the store", allow-invalid = true },
+  { path = "ctxloom_store_sqlite::Stores::open_for", reason = "one writer: only the daemon opens the store", allow-invalid = true },
+  { path = "ctxloom_store_sqlite::Stores::open_existing", reason = "one writer: only the daemon opens the store; a read is a daemon RPC", allow-invalid = true },
+  { path = "session_ports::ProjectStores::open", reason = "one writer: only the daemon opens the store; send a command to its coordinator", allow-invalid = true },
+  { path = "session_ports::ProjectStores::open_existing", reason = "one writer: only the daemon opens the store; a read is a daemon RPC", allow-invalid = true },
 ]

@@ -29,6 +29,11 @@
 //!   closes a read's store it reopens to write, and [`SqliteStores::close`]
 //!   the one it holds; whoever [`Stores::open`]s one closes it.
 
+#![expect(
+    clippy::disallowed_methods,
+    reason = "the store adapter is the opener: its callers are the guarded sites (one writer)"
+)]
+
 mod error;
 
 use std::path::PathBuf;

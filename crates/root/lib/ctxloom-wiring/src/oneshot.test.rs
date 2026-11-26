@@ -158,6 +158,10 @@ fn a_path_is_told_as_it_is_spelled() {
 
 // The core the run use cases take serves its own catalog: the registered
 // domains, which the sessions are among (a default catalog holds none).
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a test kernel or store of its own"
+)]
 #[test]
 fn the_core_serves_the_catalog_of_its_domains() {
     use run_application::Core;
@@ -714,6 +718,10 @@ mod opencode_recent_models {
 // blocking thread, never an async worker (`equipped`, which `runs_over`
 // builds each launcher through): a launcher not so equipped waits on the
 // calling thread.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a test kernel or store of its own"
+)]
 #[test]
 fn every_runs_launcher_parks_its_turns() {
     use std::sync::Arc;

@@ -108,6 +108,10 @@ where
 {
     /// Run `command` on the session `harp` names, under `command_id` (a
     /// fresh one for none): the session's harp, and whether it recorded.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "P2 one-writer debt: orchestration commands are sent to the daemon's coordinator, not a local kernel"
+    )]
     async fn order(
         &mut self,
         project: Option<&str>,

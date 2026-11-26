@@ -379,7 +379,7 @@ _arch-lint-ready:
 [group('check')]
 [doc("Clippy, warnings denied, with the core's purity rules and the OS-cfg check")]
 [no-exit-message]
-lint: lint-arch lint-path-deps
+lint: lint-arch lint-path-deps lint-handoffs lint-one-writer
     #!/usr/bin/env bash
     set -euo pipefail
     root=$(grep '^excessive-nesting-threshold' {{TOP}}/clippy.toml)
@@ -400,6 +400,28 @@ lint: lint-arch lint-path-deps
     [ "${VERBOSE:-}" = 1 ] && terse=()
     exec just --justfile {{TOP}}/justfile _run lint workspace cargo \
         cargo clippy "${terse[@]}" --manifest-path {{TOP}}/Cargo.toml --workspace --all-targets -- -D warnings
+
+# No in-memory hand-off between components (owner ruling 2026-11-25: aggregates,
+# projectors and runners communicate exclusively by messages): ast-grep over
+# crates/core/application and crates/root refuses a lock around a collection,
+# a Condvar, a channel sender carrying a value and a boxed closure held as a
+# field, static or trait parameter, unless scripts/handoff-allow.txt lists it
+# with why (`debt:` for one to be replaced by a message). Part of `just lint`.
+[group('check')]
+[doc("No in-memory hand-off between components (ast-grep, allow list scripts/handoff-allow.txt)")]
+[no-exit-message]
+lint-handoffs:
+    @{{TOP}}/scripts/handoff-check.sh
+
+# The one-writer debt only shrinks: clippy's disallowed-methods refuses a kernel
+# started or the store opened outside the daemon, and each remaining site is an
+# `#[expect]` whose reason says `P2 one-writer debt:`; this counts them against
+# scripts/one-writer-debt.max. Part of `just lint`.
+[group('check')]
+[doc("The one-writer debt sites (clippy expects) are at their ceiling, never more")]
+[no-exit-message]
+lint-one-writer:
+    @{{TOP}}/scripts/one-writer-debt-check.sh
 
 # No dependency, [patch] or [replace] entry reaches outside the repository by
 # path, and no .cargo/config.toml is tracked (scripts/path-deps-check.sh): it
@@ -657,7 +679,7 @@ trim-targets *args:
 
 # The self-tests of this repository's scripts against fixture trees.
 [group('check')]
-[doc("Self-tests of the scripts: drop-worktree, mutants-batch, mutants-verdict, memory cap, closeout, closeout-ratchet, ratchet-base, ltk rules, output budget, tests exit, test-staged, scratch-tree lock, machine-wide test lock, exec-mode check, path deps, vendored googleapis, mcp-env probe, install shutdown, trim-targets, land-sweep")]
+[doc("Self-tests of the scripts: drop-worktree, mutants-batch, mutants-verdict, memory cap, closeout, closeout-ratchet, ratchet-base, ltk rules, output budget, tests exit, test-staged, scratch-tree lock, machine-wide test lock, exec-mode check, handoff check, one-writer debt check, path deps, vendored googleapis, mcp-env probe, install shutdown, trim-targets, land-sweep")]
 [no-exit-message]
 selftest:
     @{{TOP}}/scripts/drop-worktree.selftest.sh
@@ -675,6 +697,8 @@ selftest:
     @{{TOP}}/scripts/scratch-tree-lock.selftest.sh
     @{{TOP}}/scripts/tests-lock.selftest.sh
     @{{TOP}}/scripts/exec-mode-check.selftest.sh
+    @{{TOP}}/scripts/handoff-check.selftest.sh
+    @{{TOP}}/scripts/one-writer-debt-check.selftest.sh
     @if [ -e {{TOP}}/.dev ]; then just dev::selftest; fi
     @{{TOP}}/scripts/path-deps-check.selftest.sh
     @{{TOP}}/scripts/vendor-googleapis.selftest.sh

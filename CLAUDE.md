@@ -1743,6 +1743,52 @@ The rules:
   never an aggregate. There is no commit position, fork point or global
   position anywhere (a test greps the sources for them).
 
+## One writer, and no in-memory hand-offs (owner ruling 2026-11-25)
+
+The daemon is the store's ONE writer. Every write is a command or fact sent
+to its coordinator (its own components write through `core.edge()`); no CLI
+process starts an angzarr kernel or opens the store. Aggregates, projectors
+and runners communicate by messages alone, as if in different processes. Three
+guards, all in `just lint`, each holding today's violations as visible debt
+that only shrinks (never silenced):
+
+- G1, clippy `disallowed-methods` (root `clippy.toml` and
+  `crates/core/clippy.toml`, kept equal): `angzarr_embedded::Kernel::new`,
+  `angzarr_embedded_host::App::builder`, `ctxloom_store_sqlite::Stores::{open,
+  open_for,open_existing}` and `session_ports::ProjectStores::{open,
+  open_existing}`. The daemon's composition (`core_link`'s `begin`,
+  `daemon/serve.rs`) and the store adapter itself carry
+  `#[expect(clippy::disallowed_methods, reason = "...")]`; every other
+  production site carries one whose reason begins `P2 one-writer debt:` and
+  names what replaces it (the CLI's `session keep|rename|import`, project
+  naming, `transcript list`'s own fold, and the test-support seed and
+  `test record|library-events|open-store`). `just lint-one-writer`
+  (`scripts/one-writer-debt-check.sh`) counts them against
+  `scripts/one-writer-debt.max` (17 today): more fails, fewer says to lower
+  it. A test that needs a kernel or store of its own allows it on its own
+  function (`#[allow(clippy::disallowed_methods, reason = ...)]`), never a
+  module. The scenarios are `features/cli/daemon.feature`, "Every write to the
+  store is a command sent to the daemon" (red until the sessions verbs are the
+  daemon's clients); under test-support the daemon's log is to say `handled
+  <CommandType>` for each command it takes (the steps read it).
+- G3, `just lint-handoffs` (`scripts/handoff-check.sh`, ast-grep rules in
+  `scripts/handoff-rules/`): in `crates/core/application` and `crates/root`
+  (not `*.test.rs`), a struct field or static that is a `Mutex|RwLock` around
+  a `BTreeMap|HashMap|Vec|VecDeque`, a `Condvar`, a `Sender<T>` with a
+  non-unit `T`, or a `Box|Arc|Rc<dyn Fn*>` (also in a trait's signature) is
+  refused unless `scripts/handoff-allow.txt` lists it with why: `debt:` for a
+  hand-off the design replaces (naming its inventory row,
+  `.plan/messages-only.plan.md`), else the runner's own state. Today 34 hits:
+  11 debt, 23 runner state or test fakes. An entry that covers nothing fails.
+  Heuristic: it errs loud and misses other shapes (`Mutex<Option<..>>`, a
+  `Held` handle). Self-tests: `scripts/handoff-check.selftest.sh`,
+  `scripts/one-writer-debt-check.selftest.sh` (`just selftest`).
+- G2, `arch-rules.toml`: the rule that the CLI's composition
+  (`ctxloom-wiring`) may not depend on the store adapter or the kernel host,
+  written and commented out until `ctxloom-wiring` is split into the CLI's
+  composition and the daemon's (`ctxloom-daemon`); the plan is in
+  `.plan/messages-only.design.md`, "P2 one writer".
+
 ## A refusal is a typed message; its status lives in the proto alone
 
 Two trees of answers that are not a success (owner ruling 2026-11-14), each

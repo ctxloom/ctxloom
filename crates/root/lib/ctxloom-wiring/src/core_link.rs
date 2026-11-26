@@ -343,6 +343,7 @@ where
         InProcessCore::begin(store, projectors, consumers, Resume::AtStart).await
     }
 
+    #[expect(clippy::disallowed_methods, reason = "the daemon is the one writer")]
     async fn begin(
         store: S,
         projectors: impl FnOnce(&Arc<S>) -> Projectors,

@@ -188,6 +188,10 @@ struct World {
 }
 
 impl World {
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "a test kernel or store of its own"
+    )]
     async fn new() -> World {
         let mut registry = Registry::new();
         registry

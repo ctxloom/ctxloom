@@ -152,6 +152,10 @@ pub fn run(store: &MemoryStore, id: u8, seconds: i64, command: impl Into<Session
 }
 
 /// Send `book` to its session stream directly, sampled at `seconds`.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a test kernel or store of its own"
+)]
 fn run_book(store: &MemoryStore, seconds: i64, book: CommandBook) {
     let registry = crate::registry();
     let sampled = Sampled {
@@ -291,6 +295,10 @@ pub fn claim_cover(project: &str, harp: &str) -> Cover {
 
 /// `session` (a UUID's text) takes the name `harp` of `project` in `store`
 /// directly, as a mint does; the kernel's answer.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a test kernel or store of its own"
+)]
 pub fn claim(
     store: &MemoryStore,
     project: &str,
@@ -339,6 +347,10 @@ pub fn claim(
 }
 
 /// Who holds the name `harp` of `project` in `store`; empty while free.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a test kernel or store of its own"
+)]
 pub fn holder(store: &MemoryStore, project: &str, harp: &str) -> String {
     let registry = crate::registry();
     let (claim, _) = ready(

@@ -97,6 +97,10 @@ impl Wiring {
     /// Every stream of the one store, as `ctxloom test record` prints it:
     /// `[{domain, root, events: [row]}]`, by domain then root. None where
     /// no store was made.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "P2 one-writer debt: test-support `test record` and `test seed-rehosts` go through a daemon, not their own store and kernel"
+    )]
     pub fn record(&self) -> Result<Value, TestError> {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -141,6 +145,10 @@ impl Wiring {
     /// its next owed `rehost`, recorded over the last few minutes, then the
     /// last one's lost too: a child re-hosted `count` times in the last
     /// hour, whose host was lost again.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "P2 one-writer debt: test-support `test record` and `test seed-rehosts` go through a daemon, not their own store and kernel"
+    )]
     pub fn seed_rehosts(&self, harp: &str, count: u32) -> Result<(), TestError> {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -188,6 +196,10 @@ async fn session_named<S: EventStore + ListStreams>(
     Err(record_error(format!("no session {harp}")))
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "P2 one-writer debt: test-support `test record` and `test seed-rehosts` go through a daemon, not their own store and kernel"
+)]
 async fn plant_rehosts<S>(store: &S, harp: &str, count: u32) -> Result<(), TestError>
 where
     S: angzarr_embedded::Store

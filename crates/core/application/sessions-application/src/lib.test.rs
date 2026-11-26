@@ -1070,6 +1070,10 @@ fn a_launch_in_a_project_with_no_harp_is_refused() {
 // Owner, 2026-11-12, slice 2 re-root: the projects stream, which mints the
 // harp, is rooted on the project id; the harp's claim on the project's
 // resource name, `projects/{harp}`.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a test kernel or store of its own"
+)]
 #[test]
 fn a_projects_stream_is_rooted_on_its_id_and_its_harps_claim_on_its_name() {
     use angzarr_embedded::Kernel;

@@ -116,6 +116,7 @@ fn instance(files: &DaemonFiles) -> Result<Instance, Unserved> {
         })
 }
 
+#[expect(clippy::disallowed_methods, reason = "the daemon is the one writer")]
 /// Run the daemon in this process until it exits: the instance held, served,
 /// advertised, swept, then ticking. `say` is its log.
 pub(crate) fn serve(

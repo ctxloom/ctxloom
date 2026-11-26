@@ -699,6 +699,10 @@ impl Wiring {
     /// The one store opened (made, if need be) under the home for `project`
     /// (T14), the path of its database; refused where the project still has
     /// a store of its own (T17).
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "P2 one-writer debt: test-support `test open-store` is made through the daemon (it opens the store as its start does)"
+    )]
     pub fn open_store(&self, project: &str) -> Result<PathBuf, LibError> {
         let stores = Stores::new(Arc::clone(&self.fs), self.home.clone());
         let runtime = tokio::runtime::Builder::new_current_thread()

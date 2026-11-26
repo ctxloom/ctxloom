@@ -330,6 +330,10 @@ fn runtime() -> tokio::runtime::Runtime {
 }
 
 /// Both use cases' stores held open to write: the log beside each.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a test kernel or store of its own"
+)]
 fn held<'a>(commands: &'a mut Commands, home: &std::path::Path) -> &'a mut crate::Sessions {
     use session_ports::ProjectStores;
     let sessions = commands.sessions().ok().unwrap();

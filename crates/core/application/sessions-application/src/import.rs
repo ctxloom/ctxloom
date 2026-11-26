@@ -188,6 +188,10 @@ where
 {
     /// The harp `project` was named with, named now with the first of
     /// `harps` no other project holds when it has none.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "P2 one-writer debt: session import is a command sent to the daemon's coordinator, not a local kernel"
+    )]
     async fn project_harp(
         &mut self,
         project: &Project,
@@ -272,6 +276,10 @@ where
     ///
     /// Go's `run_ends[]` and `end_reason` are NOT imported: owner ruling,
     /// 2026-11-03 ("Do NOT import run_ends[] in S4; they return with S10").
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "P2 one-writer debt: session import is a command sent to the daemon's coordinator, not a local kernel"
+    )]
     async fn session(
         &mut self,
         project: &Project,

@@ -265,6 +265,10 @@ fn cover_of(id: uuid::Uuid) -> angzarr_embedded::v1::Cover {
 }
 
 // Plan 9 / 3.1: the name is claimed for the session first.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a test kernel or store of its own"
+)]
 #[test]
 fn an_imported_session_holds_its_name() {
     let mut imp = importer(vec![go(OWL, SCHEMA1, false)]);
@@ -287,6 +291,10 @@ fn an_imported_session_holds_its_name() {
 
 // D5 Q1: a name another session holds is not taken: the Go session is left,
 // named, not renamed.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a test kernel or store of its own"
+)]
 #[test]
 fn a_name_another_session_holds_leaves_the_go_session() {
     let mut imp = importer(vec![go(OWL, SCHEMA1, false)]);

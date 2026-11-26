@@ -398,6 +398,10 @@ impl Idles {
 
 /// Serve `model` from `store` as `rig` says, while `driver` runs; ends when
 /// the driver does (dropping the serve, as a crash does).
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a test kernel or store of its own"
+)]
 async fn live<S: Backend, D: Future>(
     store: &S,
     rig: Rig,
@@ -440,6 +444,10 @@ async fn live<S: Backend, D: Future>(
 
 /// Serve `shared` from `store` until the bus is idle once, then stop: what
 /// a process does that reads the whole store into a model, once.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a test kernel or store of its own"
+)]
 async fn drain<S: Backend>(store: &S, rig: Rig, shared: &Shared, instances: usize) {
     let registry = Registry::new();
     let kernel = Kernel::new(&registry);

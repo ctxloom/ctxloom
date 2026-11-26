@@ -73,6 +73,10 @@ where
     }
 
     /// Send `book` (a command, or a fact such as the bind) to the session.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "P2 one-writer debt: session keep|rename are commands sent to the daemon's coordinator, not a local kernel"
+    )]
     async fn commit_book(
         &mut self,
         project: &Project,

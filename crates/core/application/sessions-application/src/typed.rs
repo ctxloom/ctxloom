@@ -22,6 +22,10 @@ use sessions::SessionRejection;
 /// `command_id` on `store`, as `Runner::run` does: committed (or a duplicate
 /// of what was), or refused with the domain's [`SessionRejection`] read from
 /// the refusal's type; or why it was not decided.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "P2 one-writer debt: session writes are commands sent to the daemon's coordinator (CLI: session keep|rename|import)"
+)]
 pub(crate) async fn run<A, C, D, S>(
     runner: &mut Runner<'_, C, D>,
     store: &S,

@@ -339,6 +339,10 @@ type SqliteCore = InProcessCore<angzarr_embedded::angzarr_store_sqlite::SqliteSt
 
 /// A project's real store under a temporary home, its core started on a
 /// runtime of the run's kind (multi-thread), and the runtime.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a test kernel or store of its own"
+)]
 fn sqlite_core() -> (
     Arc<file_system::Rooted>,
     SqliteCore,

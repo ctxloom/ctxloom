@@ -64,6 +64,10 @@ fn home() -> (Arc<file_system::Rooted>, tokio::runtime::Runtime) {
 
 /// The daemon's core over the home's store, every read model registered,
 /// `consumers` the domains that arm alarms; and its due model.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a test kernel or store of its own"
+)]
 async fn core_over(
     fs: &Arc<file_system::Rooted>,
     consumers: &[AlarmConsumer],
@@ -360,6 +364,10 @@ fn a_running_scheduler_holds_the_store_until_it_is_stopped() {
 
 // The production core registers the scheduler and the due model: an alarm
 // armed on it by hand is folded, and the system clock reads now.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a test kernel or store of its own"
+)]
 #[test]
 fn the_production_core_registers_the_scheduler_and_the_system_clock_reads_now() {
     use scheduler_ports::Clock as _;
@@ -424,6 +432,10 @@ async fn arm(core: &Core, alarm_id: &str, seconds: i64) {
 // no due model): the daemon's kernel, handed only its own commit, reads the
 // pages before it from the store, so the model holds both alarms at once,
 // before any catch-up.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a test kernel or store of its own"
+)]
 #[test]
 fn an_arming_after_another_processs_reads_what_that_one_wrote() {
     let (fs, runtime) = home();

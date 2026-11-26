@@ -181,6 +181,10 @@ impl Wiring {
 
     /// The events of the cwd checkout's (or the home's) library stream, as
     /// `ctxloom test library-events` prints them.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "P2 one-writer debt: test-support `test library-events` reads the stream through a daemon read, not its own store"
+    )]
     pub fn library_events(&self, home: bool, version: &str) -> Result<Value, TestError> {
         let tree = self.events_tree(home, version)?;
         let Some(name) = tree.as_ref() else {

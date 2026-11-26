@@ -85,6 +85,10 @@ impl Edge for World {
         self.handle(book).await.map_err(Unserved::Failed)
     }
 
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "a test kernel or store of its own"
+    )]
     async fn handle(&self, book: CommandBook) -> Result<Answered, Failure<Rejected>> {
         let sampled: Sampled = self.samples.lock().unwrap().next_sample();
         let kernel = Kernel::new(&self.registry).on_retryable(OnRetryable {

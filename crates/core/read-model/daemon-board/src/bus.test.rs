@@ -59,6 +59,10 @@ async fn append<S: Store + Sync>(store: &S, b: &EventBook) {
 
 /// Serve `boards` from `store` as an ephemeral subscription until the bus is
 /// idle once, then stop: what a process that starts now does.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a test kernel or store of its own"
+)]
 async fn serve(store: &MemoryStore, boards: &Boards) {
     let registry = Registry::new();
     let kernel = Kernel::new(&registry);

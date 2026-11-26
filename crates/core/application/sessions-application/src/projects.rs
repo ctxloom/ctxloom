@@ -170,6 +170,10 @@ where
     D: Delay + Jitter + Send,
 {
     /// The harp `project` was named with; `None` until it is named.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "P2 one-writer debt: naming a project is a command sent to the daemon's coordinator (ResolveProject), not a local kernel"
+    )]
     pub(crate) async fn project_harp(
         &mut self,
         project: &Project,
@@ -178,6 +182,10 @@ where
         harp_of(store, &project.id).await
     }
 
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "P2 one-writer debt: naming a project is a command sent to the daemon's coordinator (ResolveProject), not a local kernel"
+    )]
     pub(crate) async fn name_project(
         &mut self,
         request: NameProjectRequest,

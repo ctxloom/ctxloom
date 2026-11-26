@@ -2718,7 +2718,7 @@ after the drained one adopts it (U5), or `ctxloom shutdown` asks it to stop;
 a draining daemon stays while one is live (above), so it takes its last
 reports.
 
-SHUTDOWN (owner, 2026-11-15, OD-62; `ctxloom-wiring`'s `daemon/shutdown.rs`).
+SHUTDOWN (owner, 2026-11-15, OD-62; `ctxloom-wiring`'s `daemon/client/shutdown.rs`).
 `ctxloom shutdown [<duration> | now]` stops every running ctxloom of this
 home, as an installer must before it replaces the binary. Its time is a
 span of the one grammar (rust-support's `duration-text` 0.2.0, over jiff's

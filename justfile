@@ -413,15 +413,15 @@ lint: lint-arch lint-path-deps lint-handoffs lint-one-writer
 lint-handoffs:
     @{{TOP}}/scripts/handoff-check.sh
 
-# The one-writer debt only shrinks: clippy's disallowed-methods refuses a kernel
-# started or the store opened outside the daemon, and each remaining site is an
-# `#[expect]` whose reason says `P2 one-writer debt:`; this counts them against
-# scripts/one-writer-debt.max. Part of `just lint`.
+# The daemon is the store's one writer: clippy's disallowed-methods refuses a
+# kernel started or the store opened outside it, and an allowed site lives in
+# the daemon's crate or the store adapter, or is one test's own. Any other
+# site, and any leftover "P2 one-writer debt", fails. Part of `just lint`.
 [group('check')]
-[doc("The one-writer debt sites (clippy expects) are at their ceiling, never more")]
+[doc("No store open or kernel start outside the daemon (clippy expects live in ctxloom-daemon)")]
 [no-exit-message]
 lint-one-writer:
-    @{{TOP}}/scripts/one-writer-debt-check.sh
+    @{{TOP}}/scripts/one-writer-check.sh
 
 # No dependency, [patch] or [replace] entry reaches outside the repository by
 # path, and no .cargo/config.toml is tracked (scripts/path-deps-check.sh): it
@@ -698,7 +698,7 @@ selftest:
     @{{TOP}}/scripts/tests-lock.selftest.sh
     @{{TOP}}/scripts/exec-mode-check.selftest.sh
     @{{TOP}}/scripts/handoff-check.selftest.sh
-    @{{TOP}}/scripts/one-writer-debt-check.selftest.sh
+    @{{TOP}}/scripts/one-writer-check.selftest.sh
     @if [ -e {{TOP}}/.dev ]; then just dev::selftest; fi
     @{{TOP}}/scripts/path-deps-check.selftest.sh
     @{{TOP}}/scripts/vendor-googleapis.selftest.sh

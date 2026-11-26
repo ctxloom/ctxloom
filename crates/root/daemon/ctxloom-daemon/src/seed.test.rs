@@ -1,10 +1,7 @@
 //! The seed the acceptance tests plant sessions with, and the sessions use
 //! cases it plants them for: what it writes is what the commands then read.
 
-use std::future::Future;
 use std::time::{Duration, SystemTime};
-
-use sessions_application::{BindRequest, ListQuery, SearchQuery, SessionService, TranscriptQuery};
 
 use crate::fixtures::fs;
 use crate::seed::Seed;
@@ -13,14 +10,6 @@ use crate::TestError;
 use ctxloom_wiring::fixtures::World;
 
 const HARP: &str = "jolly-mute-magma";
-
-fn block<T>(future: impl Future<Output = T>) -> T {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap()
-        .block_on(future)
-}
 
 fn seed() -> Seed {
     Seed {
@@ -44,59 +33,6 @@ fn near(at: SystemTime, expected: SystemTime) {
     assert!(
         off < Duration::from_secs(120),
         "{at:?} is not near {expected:?}"
-    );
-}
-
-// The id the seed answers is the stable id of the session it minted, which
-// the listing then holds, started when the seed said.
-#[test]
-fn a_seeded_session_is_listed_under_the_id_the_seed_answered() {
-    let world = World::new("seed-list");
-    let wiring = world.wiring();
-    let id = Harness(&wiring).seed_session(&seed()).unwrap();
-    assert!(uuid::Uuid::parse_str(&id).is_ok(), "{id}");
-    let mut sessions = Harness(&wiring).sessions().use_cases;
-    let views = block(sessions.list(ListQuery::default())).unwrap();
-    assert_eq!(views.len(), 1);
-    assert_eq!(views[0].record.id, id);
-    assert_eq!(views[0].record.harp, HARP);
-    let started = SystemTime::UNIX_EPOCH
-        + Duration::from_secs(u64::try_from(views[0].record.started_at.seconds).unwrap());
-    near(started, ago(7200));
-}
-
-#[test]
-fn a_session_is_searched_by_the_words_of_its_listing() {
-    let world = World::new("seed-search");
-    let wiring = world.wiring();
-    Harness(&wiring).seed_session(&seed()).unwrap();
-    let mut sessions = Harness(&wiring).sessions().use_cases;
-    let search = |words: &[&str]| SearchQuery {
-        list: ListQuery::default(),
-        words: words.iter().map(ToString::to_string).collect(),
-    };
-    let found = block(sessions.search(search(&["jolly"]))).unwrap();
-    assert_eq!(found.len(), 1);
-    assert!(block(sessions.search(search(&["nosuchword"])))
-        .unwrap()
-        .is_empty());
-}
-
-#[test]
-fn the_transcripts_listed_and_read_are_the_one_the_seed_captured() {
-    let world = World::new("seed-transcripts");
-    let wiring = world.wiring();
-    Harness(&wiring).seed_session(&seed()).unwrap();
-    let mut sessions = Harness(&wiring).sessions().use_cases;
-    let rows = block(sessions.transcripts(TranscriptQuery::default())).unwrap();
-    assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].harp, HARP);
-    assert!(rows[0].captured && rows[0].bytes > 0, "{rows:?}");
-    let entries = block(sessions.transcript(HARP)).unwrap();
-    let text = format!("{entries:?}");
-    assert!(
-        text.contains("Seeded prompt for jolly-mute-magma."),
-        "{text}"
     );
 }
 
@@ -152,58 +88,6 @@ fn a_name_already_claimed_is_refused_as_a_seed_error() {
     }
 }
 
-// The sessions service binds a seeded session to the engine's session and
-// transcript: the session then shows them, and a repeat records nothing.
-// (The hook's bind is delivered to the daemon as capture is:
-// `capture.test.rs`.)
-#[test]
-fn the_sessions_service_binds_a_seeded_session() {
-    let world = World::new("seed-bind");
-    let wiring = world.wiring();
-    let unbound = Seed {
-        native: None,
-        ..seed()
-    };
-    Harness(&wiring).seed_session(&unbound).unwrap();
-    let mut sessions = {
-        let w = world.wiring();
-        Harness(&w).sessions().use_cases
-    };
-    let bind = || BindRequest {
-        project: None,
-        harp: HARP.to_string(),
-        native_id: "native-9".to_string(),
-        transcript_path: "/t/native-9.jsonl".to_string(),
-    };
-    let first = block(sessions.bind(bind())).unwrap();
-    assert!(
-        !matches!(first, sessions_application::Bound::Unchanged),
-        "{first:?}"
-    );
-    let views = block(sessions.list(ListQuery::default())).unwrap();
-    assert_eq!(views[0].record.native_id, "native-9");
-    assert_eq!(views[0].record.transcript_path, "/t/native-9.jsonl");
-    let again = block(sessions.bind(bind())).unwrap();
-    assert!(
-        matches!(again, sessions_application::Bound::Unchanged),
-        "{again:?}"
-    );
-}
-
-// A seeded session's output goes where a run's does (owner rulings 89, 106):
-// `<project>/<output.dir>/<harp>`, `output.dir` being `ctxloom/` unless the
-// config names one.
-#[test]
-fn a_seeded_sessions_output_dir_is_under_the_projects_output_directory() {
-    let world = World::new("seed-output");
-    let wiring = world.wiring();
-    Harness(&wiring).seed_session(&seed()).unwrap();
-    let mut sessions = Harness(&wiring).sessions().use_cases;
-    let views = block(sessions.list(ListQuery::default())).unwrap();
-    let expected = wiring.project_dir().join("ctxloom").join(HARP);
-    assert_eq!(views[0].record.output_dir, expected.display().to_string());
-}
-
 // Step 10c U13's harness: a session seeded on a profile is one whose run
 // was planned on it: its loadout, as the daemon assembled the profile, is
 // recorded on it, so the index's record carries it.
@@ -231,4 +115,36 @@ fn a_seed_with_a_loadout_records_it_on_the_session() {
     assert_eq!(recorded.len(), 1, "{events}");
     assert_eq!(recorded[0]["bundles"], serde_json::json!(["demo"]));
     assert_eq!(recorded[0]["profiles"], serde_json::json!(["dev"]));
+}
+
+fn types(events: &serde_json::Value) -> Vec<String> {
+    events
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["type"].as_str().unwrap().to_string())
+        .collect()
+}
+
+// What the seed answers is the stable id of the session it minted, which is
+// a UUID; the session's stream holds its mint, its engine binding and the
+// prompt its fixture's transcript holds, as its hooks would deliver them.
+#[test]
+fn a_seeded_session_is_minted_bound_and_captured_on_its_stream() {
+    let world = World::new("seed-events");
+    let wiring = world.wiring();
+    let id = Harness(&wiring).seed_session(&seed()).unwrap();
+    assert!(uuid::Uuid::parse_str(&id).is_ok(), "{id}");
+    let name = Harness(&wiring).session_resource(HARP).unwrap();
+    assert_eq!(
+        sessions::SessionName::parse(&name)
+            .unwrap()
+            .id()
+            .to_string(),
+        id
+    );
+    let seen = types(&Harness(&wiring).session_events(HARP, None).unwrap());
+    for expected in ["SessionMinted", "EngineSessionBound", "PromptSubmitted"] {
+        assert!(seen.iter().any(|t| t == expected), "{expected} in {seen:?}");
+    }
 }

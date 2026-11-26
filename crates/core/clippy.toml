@@ -81,12 +81,12 @@ disallowed-methods = [
   # No CLI process starts an angzarr kernel or kernel host, or opens the store:
   # every write is a command or fact sent to the daemon's coordinator, and the
   # daemon's own components write through its `core.edge()`. The daemon's
-  # composition is the one site (`#[expect(clippy::disallowed_methods, reason =
-  # "the daemon is the one writer")]`); every other site carries an `#[expect]`
-  # whose reason says "P2 one-writer debt: <what replaces it>", so the debt is
-  # visible, counted by `grep -rc 'P2 one-writer debt'`, and shrinks. A test
-  # that needs a store or a kernel allows it on its own function
-  # (`#[allow(clippy::disallowed_methods)]`), never a whole module.
+  # composition (crates/root/daemon/ctxloom-daemon) and the store adapter
+  # carry the sites (`#[expect(clippy::disallowed_methods, reason = ...)]`);
+  # `just lint-one-writer` fails a site anywhere else. A test that needs a
+  # store or a kernel allows it on its own function
+  # (`#[allow(clippy::disallowed_methods, reason = "a test kernel or store of
+  # its own")]`), never a whole module.
   # `allow-invalid`: a crate that does not depend on the path's crate cannot
   # resolve it, and calls nothing there.
   { path = "angzarr_embedded::Kernel::new", reason = "one writer: only the daemon starts a kernel; send a command or fact to its coordinator", allow-invalid = true },

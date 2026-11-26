@@ -184,7 +184,7 @@ impl Harness<'_> {
     /// `ctxloom test library-events` prints them.
     #[expect(
         clippy::disallowed_methods,
-        reason = "P2 one-writer debt: test-support `test library-events` reads the stream through a daemon read, not its own store"
+        reason = "the daemon crate's test-support `test library-events` reads the store as the daemon's composition does"
     )]
     pub fn library_events(&self, home: bool, version: &str) -> Result<Value, TestError> {
         let tree = self.events_tree(home, version)?;

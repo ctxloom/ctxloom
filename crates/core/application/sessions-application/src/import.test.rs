@@ -13,11 +13,8 @@ use angzarr_embedded::{EventStore, Kernel, OnRetryable, Sampled, StreamRef, Time
 use session_ports::GoSession;
 use sessions::{ClaimName, NameClaimAggregate, NameClaimState, Origin};
 
-use crate::fakes::{
-    cover, minted, project_at, ready, FakeClock, FakeDelay, FakeGo, FakeIdentity, FakeLiveness,
-    StoreDispatch,
-};
-use crate::{ImportRequest, ImportService, Importer, ListQuery, Service, SessionService, Why};
+use crate::fakes::{cover, minted, project_at, ready, FakeGo, FakeIdentity, StoreDispatch};
+use crate::{ImportRequest, ImportService, Importer, Why};
 
 const SCHEMA1: &str = include_str!("../fixtures/go-sidecar/schema1.yaml");
 const SCHEMA2: &str = include_str!("../fixtures/go-sidecar/schema2.yaml");
@@ -79,20 +76,39 @@ fn three() -> Vec<GoSession> {
     ]
 }
 
-/// The sessions the import left, read back as `session list --all` would.
+/// The sessions the import left, read back as `session list --all` would:
+/// each project's streams folded into the session index.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a test kernel or store of its own"
+)]
 fn listing(imp: Imp) -> Vec<crate::View> {
-    let mut service = Service::new(
-        imp.identity,
-        imp.dispatch.stores,
-        FakeLiveness::default(),
-        FakeClock::default(),
-        FakeDelay::default(),
-    );
-    ready(service.list(ListQuery {
-        all: true,
-        ..ListQuery::default()
-    }))
-    .unwrap()
+    use ports::ProjectIdentity;
+    use session_ports::ProjectStores;
+    let (mut identity, mut stores) = (imp.identity, imp.dispatch.stores);
+    let registry = crate::registry();
+    let mut views = Vec::new();
+    for project in identity.every_project().unwrap() {
+        let Some(store) = ready(stores.open_existing(&project)).unwrap() else {
+            continue;
+        };
+        let mut catch_up = session_index::SessionIndex::catch_up();
+        ready(catch_up.step(store, registry.catalog())).unwrap();
+        let index = catch_up.projector().index();
+        for record in index.records() {
+            if record.project_id != project.id {
+                continue;
+            }
+            views.push(crate::View {
+                record,
+                state: crate::State::Unknown,
+                title: None,
+                captured: None,
+                pending: Vec::new(),
+            });
+        }
+    }
+    views
 }
 
 // ------------------------------------------------------------------ the id

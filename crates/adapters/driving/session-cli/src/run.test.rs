@@ -8,11 +8,7 @@ use clap::{Args, Command, FromArgMatches};
 use cli_support::Exit;
 use presentation::Format;
 use serde_json::{json, Value};
-use sessions_application::{
-    dead_letter_sample, AppError, BindRequest, Bound, KeepRequest, Kept, ListQuery, Refusal,
-    SearchQuery, SessionService, ShowQuery, TitleRequest, Titled, TranscriptQuery, TranscriptRow,
-    View,
-};
+use sessions_application::Refusal;
 
 use daemon_proto::v1;
 
@@ -29,16 +25,7 @@ fn ts(seconds: i64) -> sessions_application::Timestamp {
 /// What the fake answers with and what it was asked.
 #[derive(Default)]
 struct Fake {
-    views: Vec<View>,
-    rows: Vec<TranscriptRow>,
     transcript: Vec<v1::LogEntry>,
-    dead_letters: bool,
-    list: Vec<ListQuery>,
-    search: Vec<SearchQuery>,
-    show: Vec<ShowQuery>,
-    keep: Vec<KeepRequest>,
-    titled: Vec<TitleRequest>,
-    transcripts: Vec<TranscriptQuery>,
     wt_report: Option<isolation_application::Report>,
     /// What an applied worktree question answers, when it differs from the
     /// plan (`wt_report`): a removal's outcome.
@@ -77,69 +64,6 @@ impl isolation_application::WorktreeUse for Fake {
         answer.ok_or(isolation_application::IsolationError::NoSession {
             harp: harp.unwrap_or_default().to_string(),
         })
-    }
-}
-
-impl SessionService for Fake {
-    async fn list(&mut self, query: ListQuery) -> Result<Vec<View>, AppError> {
-        self.list.push(query);
-        Ok(self.views.clone())
-    }
-
-    async fn search(&mut self, query: SearchQuery) -> Result<Vec<View>, AppError> {
-        self.search.push(query);
-        Ok(self.views.clone())
-    }
-
-    async fn show(&mut self, query: ShowQuery) -> Result<View, AppError> {
-        self.show.push(query.clone());
-        self.views
-            .first()
-            .cloned()
-            .ok_or(AppError::NoSession { harp: query.harp })
-    }
-
-    async fn keep(&mut self, request: KeepRequest) -> Result<Kept, AppError> {
-        self.keep.push(request.clone());
-        Ok(Kept {
-            harp: request.harp,
-            kept: request.keep,
-            changed: true,
-            dead_letters: if self.dead_letters {
-                vec![dead_letter_sample("sessions")]
-            } else {
-                Vec::new()
-            },
-        })
-    }
-
-    async fn set_title(&mut self, request: TitleRequest) -> Result<Titled, AppError> {
-        self.titled.push(request.clone());
-        if request.harp == "no-such-harp" {
-            return Err(AppError::NoSession { harp: request.harp });
-        }
-        Ok(Titled {
-            harp: request.harp,
-            title: request.title,
-            changed: true,
-            dead_letters: Vec::new(),
-        })
-    }
-
-    async fn transcripts(
-        &mut self,
-        query: TranscriptQuery,
-    ) -> Result<Vec<TranscriptRow>, AppError> {
-        self.transcripts.push(query);
-        Ok(self.rows.clone())
-    }
-
-    async fn transcript(&mut self, _harp: &str) -> Result<Vec<v1::LogEntry>, AppError> {
-        Ok(self.transcript.clone())
-    }
-
-    async fn bind(&mut self, _request: BindRequest) -> Result<Bound, AppError> {
-        Ok(Bound::Unchanged)
     }
 }
 

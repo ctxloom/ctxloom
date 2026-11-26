@@ -84,35 +84,47 @@ impl From<SeedArgs> for Seed {
     }
 }
 
-/// The sessions use cases the seed plants through, over the default
-/// adapters, in the wiring's home, for the project it resolves.
-type SessionUseCases = sessions_application::Service<
-    project_registry::ProjectRegistry<harp_names::HarpNames>,
-    ctxloom_store_sqlite::SqliteStores,
-    liveness::LockFiles,
-    system::System,
-    system::System,
->;
-
-pub(crate) struct SeedSessions {
-    pub(crate) use_cases: SessionUseCases,
-}
-
 impl Harness<'_> {
-    pub(crate) fn sessions(&self) -> SeedSessions {
-        let wiring = self.0;
-        let environment = wiring.environment();
-        let registry =
-            || ctxloom_wiring::registry(wiring.fs(), environment.clone(), harp_names::HarpNames);
-        SeedSessions {
-            use_cases: sessions_application::Service::new(
-                registry(),
-                ctxloom_store_sqlite::SqliteStores::new(wiring.fs(), wiring.home().to_path_buf()),
-                liveness::LockFiles::new(wiring.fs(), wiring.project_dir()),
-                system::System,
-                system::System,
-            ),
-        }
+    /// The project registry the seed resolves its project through.
+    fn identity(&self) -> project_registry::ProjectRegistry<harp_names::HarpNames> {
+        ctxloom_wiring::registry(self.fs(), self.environment(), harp_names::HarpNames)
+    }
+
+    /// The seed's own handle on the store.
+    pub(crate) fn stores(&self) -> ctxloom_store_sqlite::SqliteStores {
+        ctxloom_store_sqlite::SqliteStores::new(self.fs(), self.home().to_path_buf())
+    }
+
+    /// The project `project` (the cwd's for none) and its harp, named first
+    /// as a run names it (slice 2 M1): by the commands that name it, sent
+    /// through the edge of a core over the store (the daemon's own
+    /// composition, as the daemon names a project), the core then let go,
+    /// closed, so the file holds the commands with no log beside it.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the daemon crate's test-support seed plants before any daemon serves: it opens the store as the daemon's composition does"
+    )]
+    pub(crate) async fn named(
+        &self,
+        project: Option<&str>,
+    ) -> Result<(Project, String), TestError> {
+        let project = self.identity().for_write(project).map_err(seed_error_of)?;
+        let stores = ctxloom_store_sqlite::Stores::new(self.fs(), self.home().to_path_buf());
+        let store = stores.open_for(&project.id).await.map_err(seed_error)?;
+        let core = crate::InProcessCore::start(store).await;
+        let mut dispatch = crate::EdgeDispatch { edge: core.edge() };
+        let named = sessions_application::name_through(
+            &mut dispatch,
+            &project,
+            &crate::fresh_project_harps(),
+        )
+        .await
+        .map_err(|e| seed_error(coded_diagnostic::Diagnostic::code(&e)));
+        drop(dispatch);
+        let closed = core.close().await.map_err(seed_error);
+        let named = named?;
+        closed?;
+        Ok((project, named.harp))
     }
 }
 
@@ -156,7 +168,7 @@ impl Harness<'_> {
     /// `run` when one is named (U5: the frontend's reports, as recorded).
     #[expect(
         clippy::disallowed_methods,
-        reason = "P2 one-writer debt: test-support seed sends its commands and facts to a daemon's coordinator, not its own kernel"
+        reason = "the daemon crate's test-support seed plants before any daemon serves: it writes the store as the daemon's composition does"
     )]
     async fn events_of(
         &self,
@@ -165,24 +177,11 @@ impl Harness<'_> {
     ) -> Result<serde_json::Value, TestError> {
         use angzarr_embedded::v1::event_page;
         use angzarr_embedded::{EventStore, StreamRef};
-        let mut sessions = self.sessions();
-        let named = sessions
-            .use_cases
-            .name_project(sessions_application::NameProjectRequest {
-                project: None,
-                harps: crate::fresh_project_harps(),
-            })
-            .await
-            .map_err(|e| seed_error(coded_diagnostic::Diagnostic::code(&e)))?;
-        let project = sessions
-            .use_cases
-            .identity
-            .for_write(None)
-            .map_err(seed_error_of)?;
-        let mut stores = sessions.use_cases.stores;
+        let (project, project_harp) = self.named(None).await?;
+        let mut stores = self.stores();
         let read = async {
             let store = stores.open(&project).await.map_err(seed_error)?;
-            let name = sessions::SessionName::new(&named.harp, harp).map_err(seed_error)?;
+            let name = sessions::SessionName::new(&project_harp, harp).map_err(seed_error)?;
             let cover = match run {
                 None => Cover {
                     domain: SESSION_DOMAIN.to_string(),
@@ -261,19 +260,8 @@ impl Harness<'_> {
             .build()
             .map_err(seed_error)?;
         runtime.block_on(async {
-            let mut sessions = self.sessions();
-            let named = sessions
-                .use_cases
-                .name_project(sessions_application::NameProjectRequest {
-                    project: None,
-                    harps: crate::fresh_project_harps(),
-                })
-                .await
-                .map_err(|e| seed_error(coded_diagnostic::Diagnostic::code(&e)));
-            let closed = sessions.use_cases.stores.close().await.map_err(seed_error);
-            let named = named?;
-            closed?;
-            let name = sessions::SessionName::new(&named.harp, harp).map_err(seed_error)?;
+            let (_, project_harp) = self.named(None).await?;
+            let name = sessions::SessionName::new(&project_harp, harp).map_err(seed_error)?;
             Ok(name.to_string())
         })
     }
@@ -288,26 +276,11 @@ impl Harness<'_> {
     }
 
     async fn seed(&self, seed: &Seed) -> Result<String, TestError> {
-        let mut sessions = self.sessions();
-        // The project is named first, as a run names it (slice 2 M1): the
-        // session is rooted on its name.
-        let named = sessions
-            .use_cases
-            .name_project(sessions_application::NameProjectRequest {
-                project: seed.project.clone(),
-                harps: crate::fresh_project_harps(),
-            })
-            .await
-            .map_err(|e| seed_error(coded_diagnostic::Diagnostic::code(&e)));
-        let mut identity = sessions.use_cases.identity;
-        let mut stores = sessions.use_cases.stores;
-        let project = identity
-            .for_write(seed.project.as_deref())
-            .map_err(seed_error_of)?;
-        let seeded = match named {
-            Ok(named) => self.seed_in(&mut stores, &project, &named.harp, seed).await,
-            Err(error) => Err(error),
-        };
+        let (project, project_harp) = self.named(seed.project.as_deref()).await?;
+        let mut stores = self.stores();
+        let seeded = self
+            .seed_in(&mut stores, &project, &project_harp, seed)
+            .await;
         // Closed, not dropped (ruling 131): the seed's commits are in the
         // file, with no log beside it, when the command exits.
         let closed = stores.close().await.map_err(seed_error);
@@ -319,7 +292,7 @@ impl Harness<'_> {
     /// Plant `seed` in `project`'s store, opened through `stores`.
     #[expect(
         clippy::disallowed_methods,
-        reason = "P2 one-writer debt: test-support seed sends its commands and facts to a daemon's coordinator, not its own kernel"
+        reason = "the daemon crate's test-support seed plants before any daemon serves: it writes the store as the daemon's composition does"
     )]
     async fn seed_in(
         &self,
@@ -560,7 +533,7 @@ fn seed_error_of(report: coded_diagnostic::Report) -> TestError {
 /// Claim the session's name, first, as the real mint does.
 #[expect(
     clippy::disallowed_methods,
-    reason = "P2 one-writer debt: test-support seed sends its commands and facts to a daemon's coordinator, not its own kernel"
+    reason = "the daemon crate's test-support seed plants before any daemon serves: it writes the store as the daemon's composition does"
 )]
 async fn claim_name<S: Store + ReadStore + Processed + Send + Sync>(
     store: &S,

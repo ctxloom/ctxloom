@@ -14,12 +14,10 @@ angzarr-embedded.workspace = true
 # Go's session.yaml, read through the one reader (versioned, strict).
 angzarr-yaml.workspace = true
 # A session's transcript is its typed log entries.
-daemon-proto.workspace = true
 # Each command run through the kernel, as every context runs one.
 angzarr-embedded-runner.workspace = true
 ports.workspace = true
 # A session's pending messages, for `show` (D30).
-pending-messages.workspace = true
 runs.workspace = true
 session-index.workspace = true
 serde.workspace = true

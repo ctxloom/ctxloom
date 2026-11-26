@@ -4,7 +4,6 @@
 use ctxloom_wiring::fixtures::{run_line, try_line, World};
 use ctxloom_wiring::SeedArgs;
 use presentation::Format;
-use sessions_application::{ListQuery, SessionService};
 
 use crate::seed::Seed;
 use crate::store_tests::Harness;
@@ -19,14 +18,6 @@ fn failure(world: &World, line: &[&str]) -> (u8, String) {
         failed.exit.code(true),
         coded_diagnostic::Diagnostic::code(&*failed.cause).to_string(),
     )
-}
-
-fn block<T>(future: impl std::future::Future<Output = T>) -> T {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap()
-        .block_on(future)
 }
 
 #[test]
@@ -48,14 +39,17 @@ fn seed_session_plants_a_session_and_prints_its_id() {
     );
     let id = out.strip_suffix('\n').unwrap();
     assert!(uuid::Uuid::parse_str(id).is_ok(), "{id}");
-    let mut sessions = {
-        let w = world.wiring();
-        Harness(&w).sessions().use_cases
-    };
-    let views = block(sessions.list(ListQuery::default())).unwrap();
-    assert_eq!(views.len(), 1);
-    assert_eq!(views[0].record.id, id);
-    assert_eq!(views[0].record.harp, "jolly-mute-magma");
+    let wiring = world.wiring();
+    let name = Harness(&wiring)
+        .session_resource("jolly-mute-magma")
+        .unwrap();
+    assert_eq!(
+        sessions::SessionName::parse(&name)
+            .unwrap()
+            .id()
+            .to_string(),
+        id
+    );
 }
 
 #[test]

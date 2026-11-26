@@ -1,36 +1,20 @@
-//! The sessions use cases, each over only the ports it uses, composed by one
-//! [`Service`] behind the trait a driving adapter calls ([`SessionService`]):
-//!
-//! - read them: list, search, show, and the transcripts' list and show;
-//! - keep one, or release it;
-//! - (a remove is the daemon's: daemon-api's `DeleteSession`, over the
-//!   types here and [`purge`]);
-//! - bind the engine's session to a harp (the SessionStart hook).
-//!
-//! Each reaches its project through the project identity port (taskloom's
-//! `ports`), its store through [`session_ports::ProjectStores`], and a write
-//! runs its commands through angzarr-embedded's kernel through
-//! angzarr-embedded-runner's `Runner`, which retries them. A read is the session index
-//! caught up from the store. The ports are the only way out: this crate does
-//! no I/O, keeps no clock and starts no runtime.
-//!
-//! A session's state is its lock's verdict ([`session_ports::Liveness`]),
-//! never its end stamp; its title is the first prompt of its transcript.
-//! Renaming waits on the session-name claims (D5 Q1) and the importer on the
-//! stable ids: neither is here.
+//! The sessions application: what the daemon's session use cases share. A
+//! session's writes are commands SENT to the owner of the store
+//! ([`Dispatch`]); the importer plans Go's sessions into such commands
+//! ([`Importer`]) and a project is named through them ([`name_through`]); a
+//! remove is the daemon's (daemon-api's `DeleteSession`, over the types here
+//! and [`purge`]). The ports are the only way out: this crate does no I/O,
+//! keeps no clock and starts no runtime, and opens no store.
 
-mod bridge;
 mod dispatch;
 mod error;
 mod go_sidecar;
 mod import;
-mod orchestrate;
 mod projects;
-mod read;
-mod service;
-mod typed;
+mod purge;
+mod registry;
 mod types;
-mod write;
+mod urgency;
 
 use coded_diagnostic::Report;
 
@@ -50,12 +34,10 @@ pub use go_sidecar::{
     decode as decode_go_sidecar, GoEndReason, GoEntry, GoRotation, GoRunEnd, GoSidecarError,
 };
 pub use import::{ImportReport, ImportRequest, ImportService, Imported, Importer, Left, Why};
-pub use orchestrate::{
-    urgencies_of, ClearRequest, CloseRequest, LaunchRequest, Ordered, SendRequest,
-};
 pub use ports::{Project, Timestamp};
-pub use projects::{name_through, NameProjectRequest, ProjectHarp};
-pub use service::{registry, Service, SessionService, DEFAULT_RETENTION_DAYS};
+pub use projects::{name_through, ProjectHarp};
+pub use purge::purge;
+pub use registry::{registry, DEFAULT_RETENTION_DAYS};
 pub use session_index::{
     stamp, Captured, PendingMessage, SessionRecord, State, View, NO_SUMMARY, STATES,
 };
@@ -63,12 +45,8 @@ pub use session_index::{
 pub use sessions::{urgency_word, Urgency};
 /// A record's owner link and the children it holds (D26), for a renderer.
 pub use sessions::{Child, SessionRef};
-pub use types::{
-    BindRequest, Bound, Class, FilePlan, KeepRequest, Kept, ListQuery, PlanItem, Removal,
-    RemoveRequest, SearchQuery, ShowQuery, TitleRequest, Titled, TranscriptQuery, TranscriptRow,
-    REMOVE_VERB,
-};
-pub use write::purge;
+pub use types::{Class, FilePlan, PlanItem, Removal, RemoveRequest, TranscriptRow, REMOVE_VERB};
+pub use urgency::urgencies_of;
 
 /// A store's failure, as the use cases fail with it.
 pub(crate) fn failed(error: angzarr_embedded::StoreError) -> AppError {
@@ -97,10 +75,6 @@ pub fn dead_letter_sample(component: &str) -> DeadLetter {
         },
     }
 }
-
-#[cfg(test)]
-#[path = "lib.test.rs"]
-mod tests;
 
 #[cfg(test)]
 #[path = "fakes.test.rs"]

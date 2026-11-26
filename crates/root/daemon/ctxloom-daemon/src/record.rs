@@ -100,7 +100,7 @@ impl Harness<'_> {
     /// no store was made.
     #[expect(
         clippy::disallowed_methods,
-        reason = "P2 one-writer debt: test-support `test record` and `test seed-rehosts` go through a daemon, not their own store and kernel"
+        reason = "the daemon crate's test-support `test record` and `test seed-rehosts` read and write the store as the daemon's composition does"
     )]
     pub fn record(&self) -> Result<Value, TestError> {
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -148,7 +148,7 @@ impl Harness<'_> {
     /// hour, whose host was lost again.
     #[expect(
         clippy::disallowed_methods,
-        reason = "P2 one-writer debt: test-support `test record` and `test seed-rehosts` go through a daemon, not their own store and kernel"
+        reason = "the daemon crate's test-support `test record` and `test seed-rehosts` read and write the store as the daemon's composition does"
     )]
     pub fn seed_rehosts(&self, harp: &str, count: u32) -> Result<(), TestError> {
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -199,7 +199,7 @@ async fn session_named<S: EventStore + ListStreams>(
 
 #[expect(
     clippy::disallowed_methods,
-    reason = "P2 one-writer debt: test-support `test record` and `test seed-rehosts` go through a daemon, not their own store and kernel"
+    reason = "the daemon crate's test-support `test record` and `test seed-rehosts` read and write the store as the daemon's composition does"
 )]
 async fn plant_rehosts<S>(store: &S, harp: &str, count: u32) -> Result<(), TestError>
 where

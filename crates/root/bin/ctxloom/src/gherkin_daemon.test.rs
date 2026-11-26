@@ -4361,6 +4361,31 @@ const GO_SIDECAR: &str = include_str!("../fixtures/go-sidecar/schema1.yaml");
 fn go_left_a_session(w: &mut World, harp: String) {
     assert_eq!(harp, "amber-swift-owl", "the fixture is schema 1's session");
     let work_root = files::canonical(w.common.project.dir());
+    // The project is one the registry holds (its index names the id of the
+    // directory the seed made, for this root): a project with a marker of
+    // its own is bound only when a command binds it.
+    w.before_run();
+    let registry = w.common.project.home().join(".ctxloom/projects");
+    if !files::exists(registry.join("index.yaml")) {
+        let id = files::children(&registry)
+            .into_iter()
+            .filter(|dir| files::is_dir(dir))
+            .find_map(|dir| dir.file_name().map(|n| n.to_string_lossy().to_string()))
+            .unwrap_or_else(|| {
+                panic!(
+                    "the seeded session made its project's directory under {}: {:?}",
+                    registry.display(),
+                    files::children(w.common.project.home().join(".ctxloom"))
+                )
+            });
+        files::put(
+            registry.join("index.yaml"),
+            format!(
+                "schema_version: 1\nprojects:\n  - project_id: {id}\n    path: {}\n    created_at: 2026-01-01T00:00:00Z\n    last_seen_at: 2026-01-01T00:00:00Z\n",
+                work_root.display()
+            ),
+        );
+    }
     let body = GO_SIDECAR.replace("/work/proj", &work_root.display().to_string());
     files::put(
         w.common

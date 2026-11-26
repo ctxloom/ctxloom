@@ -666,7 +666,6 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
       And no ctxloom daemon is serving for this home
       When I run "ctxloom session import --format json"
       Then the command succeeds
-      # DRAFT: the fixture's project must be one the registry holds, else the session is left (`left-no-project`): to settle in the implementation.
       And the output reports "imported[0].harp" as "amber-swift-owl"
       And a ctxloom daemon serves for this home, started detached in a session of its own
       And the daemon's log says it handled the command "MintSession" once
@@ -702,11 +701,15 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
 
     Scenario: A hosted one-shot's project is named by the daemon through its own edge, not through a second connection to the store
       # new: ONE WRITER; `Wiring::named_project` and the one-shot's `hosted_setup` opened a second connection.
-      Given an initialized ctxloom project
-      And no ctxloom daemon is serving for this home
-      When I run 'ctxloom run --one-shot "hi" --engine mock'
+      Given Alice has a project that has never used ctxloom
+      And Alice has exported her assistant's token
+      And Alice has set ctxloom up in her project
+      And no ctxloom daemon is serving for Alice
+      When Alice asks her assistant one thing, which her daemon runs:
+        """
+        ctxloom run --one-shot "Run the shell command: echo hi"
+        """
       Then the command succeeds
-      And a ctxloom daemon serves for this home, started detached in a session of its own
       And the daemon's log says it handled the command "NameProject" once
 
   Rule: The preview carries the questions, and the apply answers them

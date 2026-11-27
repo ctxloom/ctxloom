@@ -4728,9 +4728,7 @@ CODE (`<engine>.exit`) where the payload gives one (claude's `exitCode`,
 opencode's `state.metadata.exit`). Every line is cut at 120 characters (an
 ellipsis) AFTER masking: `surface_ports::tool_view::masked`, the one seam
 every recorded text goes through, is rust-support's `secret-mask` (a block
-split on whitespace and `=` that looks random becomes `[masked:N]`; until the
-family repin moves ctxloom's rust-support pin to it the seam is the
-identity and the masking tests stay red). `session-cli`'s `log_text` says
+split on whitespace and `=` that looks random becomes `[masked:N]`). `session-cli`'s `log_text` says
 the entry as `tool Bash: cargo build --release (exit 2)` with each result
 line indented on a line of its own (`tool Grep: "TODO" in src/`); a tool with
 no summary keeps `tool <name>[, <path>], input <size>, result <size>`, its

@@ -186,6 +186,8 @@ project-dir = { git = "https://github.com/benjaminabbitt/rust-support", rev = "e
 run-within = { git = "https://github.com/benjaminabbitt/rust-support", rev = "e92609d8de072c2947438a0cc395548fba51aedf" }
 # duration-text (S9): a span or date as an age, and the cutoff it makes.
 duration-text = { git = "https://github.com/benjaminabbitt/rust-support", rev = "e92609d8de072c2947438a0cc395548fba51aedf" }
+# secret-mask: a block that looks like a random token becomes `[masked:N]`; every tool summary and result is masked with it before it is recorded.
+secret-mask = { git = "https://github.com/benjaminabbitt/rust-support", rev = "e92609d8de072c2947438a0cc395548fba51aedf" }
 # sqlite-store-opener (angzarr's, at the angzarr pin): places and opens a project's SQLite store under a file name the caller
 # names, refusing a store from before the embedded store; ctxloom-store-sqlite is its adapter.
 sqlite-store-opener = { git = "https://github.com/angzarr-io/angzarr", rev = "329a8b21035739c6df7d186dbed9672df1b40666" }

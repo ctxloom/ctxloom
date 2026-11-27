@@ -17,11 +17,11 @@ pub const RESULT_LINES: usize = 5;
 const READ_BOUND: usize = 1000;
 
 /// The masking seam: `text` with every block that looks like a random token
-/// replaced by its marker (`[masked:N]`). Every text an adapter records goes
+/// replaced by its marker (`[masked:N]`, rust-support's `secret-mask`). Every text an adapter records goes
 /// through it first, and nothing is cut before it, so a token is never kept
 /// in part.
 pub fn masked(text: &str) -> String {
-    text.to_string()
+    secret_mask::mask(text).text
 }
 
 /// `line` masked, then cut at [`SUMMARY_CUT`] characters (an ellipsis marks

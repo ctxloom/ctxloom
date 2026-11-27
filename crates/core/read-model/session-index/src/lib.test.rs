@@ -833,11 +833,11 @@ fn a_session_is_its_resource_with_its_owner_and_children_named() {
     assert!(!owner.kept && !owner.closed);
 }
 
-// A project stream gone (purged: no page at 0) takes its harp with it, and
-// a session's name is empty again; a book with no page that is not at 0
+// A project stream closed by a purge (its last page a tombstone) takes its
+// harp with it, and a session's name is empty again; a book with no page
 // changes nothing.
 #[test]
-fn a_gone_project_stream_takes_its_harp_with_it() {
+fn a_closed_project_stream_takes_its_harp_with_it() {
     let mut index = SessionIndex::new();
     let record = SessionRecord {
         project_id: "calm-otter".to_string(),
@@ -852,7 +852,11 @@ fn a_gone_project_stream_takes_its_harp_with_it() {
         index.name_of(&record),
         "projects/calm-quiet-heron/sessions/amber-swift-owl"
     );
-    index.project(&project_book(None, 0)).unwrap();
+    let mut closed = project_book(None, 2);
+    closed
+        .pages
+        .push(angzarr_embedded::angzarr_ports::tombstone::page(1));
+    index.project(&closed).unwrap();
     assert_eq!(index.name_of(&record), "");
 }
 

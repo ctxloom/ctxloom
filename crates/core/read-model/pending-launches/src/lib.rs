@@ -25,6 +25,7 @@
 use std::collections::BTreeMap;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
+use angzarr_embedded::angzarr_ports::tombstone;
 use angzarr_embedded::angzarr_router::error::CodedError;
 use angzarr_embedded::angzarr_router::hpb::{ProjectRequest, ProjectResponse};
 use angzarr_embedded::v1::{event_page, EventBook, Uuid};
@@ -135,32 +136,27 @@ impl Pending {
     }
 
     /// Fold `book`, one stream's events after the last projected of it, as the
-    /// projector port hands it: a book from sequence 0 starts the stream
-    /// afresh; a book with no event and `next_sequence` 0 says the stream is
-    /// gone (purged), and it leaves the model.
+    /// projector port hands it. A tombstone (a purge's `StreamClosed`) closes
+    /// the stream: what the model held of it leaves, and what follows starts
+    /// afresh.
     pub fn project(&mut self, book: &EventBook) -> Result<(), PayloadError> {
         let domain = book.cover.as_ref().map_or("", |c| c.domain.as_str());
         let root = root_of(book);
-        let fresh = book.pages.first().is_none_or(|page| page.sequence == 0);
-        match domain {
-            RUN_DOMAIN => {
-                if fresh {
-                    self.forget_run(&root);
-                }
-                for event in events(book) {
+        for step in steps(book) {
+            match (domain, step) {
+                (RUN_DOMAIN, Step::Closed) => self.forget_run(&root),
+                (RUN_DOMAIN, Step::Event(event)) => {
                     self.fold_run(&root, RunEvent::from_any(event)?);
                 }
-            }
-            SESSION_DOMAIN => {
-                if fresh {
+                (SESSION_DOMAIN, Step::Closed) => {
                     self.owed.retain(|_, owner| *owner != root);
                     self.places.remove(&text_of(&root));
                 }
-                for event in events(book) {
+                (SESSION_DOMAIN, Step::Event(event)) => {
                     self.fold_session(&root, SessionEvent::from_any(event)?);
                 }
+                _ => {}
             }
-            _ => {}
         }
         Ok(())
     }
@@ -279,11 +275,24 @@ impl Pending {
     }
 }
 
-/// The event bodies of `book`; a framework meta page is no domain's event.
-fn events(book: &EventBook) -> impl Iterator<Item = &angzarr_embedded::Any> {
-    book.pages.iter().filter_map(|page| match &page.body {
-        Some(event_page::Body::Event(event)) => Some(event),
-        _ => None,
+/// One page of a book as a model folds it.
+enum Step<'a> {
+    /// A purge's tombstone: the stream is closed.
+    Closed,
+    /// A domain's event.
+    Event(&'a angzarr_embedded::Any),
+}
+
+/// The steps of `book`; a framework meta page is no domain's event.
+fn steps(book: &EventBook) -> impl Iterator<Item = Step<'_>> {
+    book.pages.iter().filter_map(|page| {
+        if tombstone::is(page) {
+            return Some(Step::Closed);
+        }
+        match &page.body {
+            Some(event_page::Body::Event(event)) => Some(Step::Event(event)),
+            _ => None,
+        }
     })
 }
 

@@ -549,7 +549,8 @@ where
             .await
             .map_err(|e| failed(&e))?;
         let mut state = SessionState::default();
-        for page in &pages {
+        // A purge's tombstone closes the stream: it folds from after it.
+        for page in run_ports::since_closed(&pages) {
             if let Some(angzarr_embedded::v1::event_page::Body::Event(any)) = &page.body {
                 let event = SessionEvent::from_any(any).map_err(|e| failed(&e))?;
                 let at = page

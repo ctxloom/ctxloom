@@ -275,6 +275,18 @@ async fn head(world: &World, domain: &str, root: uuid::Uuid) -> u64 {
         .next_sequence
 }
 
+/// Whether the stream is destroyed: a purge left its tombstone as the last
+/// event (the stream stays, its events gone).
+async fn purged(world: &World, domain: &str, root: uuid::Uuid) -> bool {
+    let slice = EventStore::read(&world.store, StreamRef::main(domain, root), 0, None)
+        .await
+        .unwrap();
+    slice
+        .pages
+        .last()
+        .is_some_and(angzarr_embedded::angzarr_ports::tombstone::is)
+}
+
 /// A run stream of the session's first incarnation, with one event: the
 /// run of `session` (its id text) enqueued.
 async fn a_run_of(world: &World, session: &str, root: uuid::Uuid) {
@@ -403,8 +415,8 @@ async fn a_delete_destroys_the_session_its_runs_and_its_directory() {
     assert_eq!(done.applied, Some(true));
     assert_eq!(done.events_destroyed, events);
     assert_eq!(done.bytes_freed, 7);
-    assert_eq!(head(&f.world, sessions::SESSION_DOMAIN, session).await, 0);
-    assert_eq!(head(&f.world, runs::RUN_DOMAIN, run).await, 0);
+    assert!(purged(&f.world, sessions::SESSION_DOMAIN, session).await);
+    assert!(purged(&f.world, runs::RUN_DOMAIN, run).await);
     assert_eq!(f.places.held().destroyed, [HARP]);
     let gone = f
         .api
@@ -1113,9 +1125,8 @@ async fn a_removal_is_intended_on_the_project_stream_and_resumed_by_its_retry() 
     let failed = f.api.delete_session(delete_as(NAME, "req-1")).await;
     assert!(failed.is_err(), "{failed:?}");
     let (session, _) = roots(NAME);
-    assert_eq!(
-        head(&f.world, sessions::SESSION_DOMAIN, session).await,
-        0,
+    assert!(
+        purged(&f.world, sessions::SESSION_DOMAIN, session).await,
         "purged"
     );
     let restarted = f.restarted().await;

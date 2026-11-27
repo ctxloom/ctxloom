@@ -311,12 +311,18 @@ fn armed(alarm_id: &str, seconds: i64) -> SchedulerEvent {
 }
 
 #[test]
-fn a_book_from_sequence_zero_starts_the_stream_afresh() {
+fn a_tombstone_closes_the_stream_and_what_follows_starts_it_afresh() {
     let mut due = Due::new();
     due.project(&book(vec![page(0, armed("old", 10), 1)], 1))
         .unwrap();
-    due.project(&book(vec![page(0, armed("new", 20), 2)], 1))
-        .unwrap();
+    due.project(&book(
+        vec![
+            angzarr_embedded::angzarr_ports::tombstone::page(1),
+            page(2, armed("new", 20), 2),
+        ],
+        3,
+    ))
+    .unwrap();
     let alarms = due.due_at_or_before(&at(100));
     assert_eq!(alarms.len(), 1);
     assert_eq!(alarms[0].alarm_id, "new");
@@ -333,7 +339,7 @@ fn a_later_book_adds_to_the_stream() {
 }
 
 #[test]
-fn an_empty_book_at_zero_forgets_the_stream_and_an_empty_one_after_it_does_not() {
+fn a_tombstone_forgets_the_stream_and_an_empty_book_does_not() {
     let mut due = Due::new();
     due.project(&book(vec![page(0, armed("a", 10), 1)], 1))
         .unwrap();
@@ -343,7 +349,11 @@ fn an_empty_book_at_zero_forgets_the_stream_and_an_empty_one_after_it_does_not()
         1,
         "nothing new is not gone"
     );
-    due.project(&book(vec![], 0)).unwrap();
+    due.project(&book(
+        vec![angzarr_embedded::angzarr_ports::tombstone::page(1)],
+        2,
+    ))
+    .unwrap();
     assert_eq!(due.due_at_or_before(&at(100)).len(), 0);
 }
 

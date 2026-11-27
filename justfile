@@ -26,7 +26,7 @@ mod? dev '.dev'
 # equal to Cargo.toml's by `_arch-lint-ready`'s check) and installed once per
 # commit under CARGO_HOME (which every engine launch gives its children as the
 # user's own, while their HOME is a per-session one), shared by every worktree.
-arch_lint_rev := "dcb930d198706371d8e7496ec5ec35efb067b92f"
+arch_lint_rev := "e92609d8de072c2947438a0cc395548fba51aedf"
 arch_lint_root := env_var_or_default("CARGO_HOME", env_var("HOME") / ".cargo") / "ctxloom-arch-lint" / arch_lint_rev
 arch_lint := arch_lint_root / "bin/arch-lint"
 

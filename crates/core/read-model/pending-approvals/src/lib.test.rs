@@ -43,6 +43,16 @@ fn asked(ask: &str, root: &str, timeout: u32) -> ApprovalEvent {
 
 /// The stream `n`: `events` from `first` on, each recorded at 1000 plus its
 /// sequence plus `n`.
+/// A book a purge's tombstone at `at` opens, then `events` after it.
+fn after_tombstone(n: u8, domain: &str, at: u64, events: Vec<ApprovalEvent>) -> EventBook {
+    let mut after = on(n, domain, at + 1, events);
+    after
+        .pages
+        .insert(0, angzarr_embedded::angzarr_ports::tombstone::page(at));
+    after.next_sequence = after.pages.last().map_or(at + 1, |p| p.sequence + 1);
+    after
+}
+
 fn on(n: u8, domain: &str, first: u64, events: Vec<ApprovalEvent>) -> EventBook {
     let pages: Vec<EventPage> = (first..)
         .zip(events)
@@ -289,7 +299,7 @@ fn asks_asked_at_once_are_listed_by_name() {
 }
 
 #[test]
-fn a_book_from_sequence_zero_starts_the_stream_afresh_and_another_domains_is_ignored() {
+fn a_tombstone_closes_the_stream_and_another_domains_is_ignored() {
     let mut index = ApprovalIndex::new();
     index
         .project(&on(
@@ -299,9 +309,9 @@ fn a_book_from_sequence_zero_starts_the_stream_afresh_and_another_domains_is_ign
             vec![asked("ask-a", "root", 300)],
         ))
         .unwrap();
-    let mut again = on(1, APPROVALS_DOMAIN, 0, vec![]);
-    again.next_sequence = 0;
-    index.project(&again).unwrap();
+    index
+        .project(&after_tombstone(1, APPROVALS_DOMAIN, 1, vec![]))
+        .unwrap();
     assert_eq!(index.by_uid(&uid(1)), None);
     index
         .project(&on(1, "sessions", 0, vec![asked("ask-a", "root", 300)]))

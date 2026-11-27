@@ -987,14 +987,15 @@ mod resume_at_start {
         drop(daemon);
     }
 
-    // The daemon's core resumes at start: every policy source is scanned,
-    // the approvals' (the arming) and the scheduler's (the delivery).
+    // The daemon's core resumes at start: every policy source is scanned by
+    // its covers, the approvals' (the arming) and the scheduler's (the
+    // delivery); the resume lists no stream of the whole store.
     #[tokio::test]
     async fn the_daemons_core_start_scans_every_policy_source() {
         let store = an_owed_arming().await;
         let core = InProcessCore::start_with(store.clone(), |_| Projectors::default()).await;
         let asked = store.asked();
-        assert_eq!(asked.listed, 1, "{asked:?}");
+        assert_eq!(asked.listed, 0, "the resume asks each source's covers");
         assert!(
             asked
                 .covered

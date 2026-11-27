@@ -696,8 +696,22 @@ each run stream UUIDv5(session, 1..=n) are purged from the store, each
 guarded by the head just read (retried on a conflict), then the trash slot
 is removed (`Operation::Purge`), so none is left; the name's claim is kept,
 and the daemon's warm
-session index, pending messages and board are told the streams are gone
+session index, pending messages and board are handed the streams as the
+store now holds them, each ending in the purge's tombstone
 (the board its runs' too, so a destroyed session leaves no board row).
+A PURGE KEEPS THE STREAM (angzarr-ports' `tombstone`, its event
+`StreamClosed`): it deletes the events and appends one tombstone at the next
+sequence, so sequences never restart and the stream stays listed. A stream is
+dense from 0 or from its latest tombstone, and DESTROYED means its last event
+is a tombstone (`run_ports::is_closed`; a stream never written is not). What
+folds a stream restarts at a tombstone: an aggregate's state is the default
+again (the kernel does it, and an aggregate decides "exists" on its FOLDED
+state, never on the router's `had_prior_events`, which a tombstone leaves
+true: `session mint`, `run enqueue`), every read model resets that stream at
+it (`tombstone::is` in each `project`, `held-projection`'s `admit` owing a
+tombstone ahead of the fold no gap), and a reader that folds raw pages starts
+after the last (`run_ports::since_closed`). No fold may fail to decode
+`StreamClosed`.
 Before the purge each child the session holds is closed and its owner
 forgets it (`session_policies::destroy`, keyed commands through the core). Its scratch
 worktrees go first, in ONE safe order both verbs share
@@ -1295,7 +1309,7 @@ the URL's host. The private key lives in memory in
 `run_ports::HookCertificate` (whose `Debug` withholds it) and goes to
 `hook-listener`'s `TlsIdentity` and nowhere else: never journaled, logged, in
 an environment or in an error. The listener's limits are angzarr's generic
-`Listener` defaults (angzarr `8dc7da9a`; `hook-listener` sets none): a TLS
+`Listener` defaults (angzarr `329a8b21`; `hook-listener` sets none): a TLS
 handshake within 10 s, an HTTP/2 keepalive ping every 60 s answered within
 20 s, a connection closed after 1 h plus a 30 s grace (never zero: a zero
 grace is `ListenError::ZeroConnectionAgeGrace` at bind, which
@@ -1927,20 +1941,20 @@ The lock holds ONE `angzarr-embedded`, `angzarr-proto`, `angzarr-ports`,
 repository (angzarr, rust-support) at ONE commit
 (`test_every_crate_of_one_repository_is_locked_at_one_commit`). Every pin in
 `Cargo.toml` is a full commit. The angzarr pins are one commit of one
-repository, `8dc7da9a` of github.com/angzarr-io/angzarr (core, `angzarr-embedded`
+repository, `329a8b21` of github.com/angzarr-io/angzarr (core, `angzarr-embedded`
 and its router, `angzarr-build` and `angzarr-codegen`, the store and
 `sqlite-store-opener`; `angzarr-coordinator-grpc`'s `tls` feature, which
 `hook-listener` enables, is `Listener::tls`). angzarr owns no `diagnostic`,
 `presentation` or platform crate any more: the generic substrate is
-rust-support's (`dcb930d1` of github.com/benjaminabbitt/rust-support):
+rust-support's (`e92609d8` of github.com/benjaminabbitt/rust-support):
 `coded-diagnostic` (the `Diagnostic` trait, `code!`, `Report`, the catalogs),
 `presentation`, `test-dir`, and the platform crates `os`, `file-system` and
-`file-lock`. taskloom's crates (`68328343`) are built on the same angzarr and
+`file-lock`. taskloom's crates (`5cb2f3d2`) are built on the same angzarr and
 the same rust-support, so moving one moves all: the lock holds ONE
 `Diagnostic` trait, which every error of every crate implements, because two
-do not compose. 8dc7da9a is the angzarr commit taskloom pins (a second angzarr
+do not compose. 329a8b21 is the angzarr commit taskloom pins (a second angzarr
 rev in the lock would be a second copy of every angzarr crate); harp-core is
-`45d05e96` of github.com/benjaminabbitt/harp. Diagnostic args are typed on
+`8144ec98` of github.com/benjaminabbitt/harp. angzarr-store pulls in the git source github.com/angzarr-io/angzarr-project (`deny.toml` allows it). Diagnostic args are typed on
 the wire (`Diagnostic.typed_args`: text, int, uint, nested; proto maps are
 `BTreeMap`). rust-support's
 crates are `Apache-2.0 OR BSD-3-Clause`; the angzarr runtime crates
@@ -2547,7 +2561,7 @@ rows, counts, cutoff and each removal). Each carries the client's
 the SAME on its one retry on a new daemon). Nothing of a destroy is kept
 in memory (O2: `destroy::Applied` is gone): a retry of a removal still open
 resumes it; a retried `DeleteSession` whose session the store says is
-destroyed (its name claimed by it, its stream empty) is answered applied
+destroyed (its name claimed by it, its stream's last event a purge's tombstone) is answered applied
 from those facts, nothing counted (AIP-155's first response is not
 reproduced: its counts are gone with the session; accepted cost: a fresh
 `session remove --yes` of an already-destroyed session, which carries a
@@ -2912,9 +2926,9 @@ nothing at start); the daemon's does (`start_with`, `Projectors::
 filled`). There is ONE fold per read model: `core/read-model/held-projection`'s
 `Held` is a shared handle, the same instance the kernel runs inline and the
 daemon's catch-up drives, each page folded once (one before where the fold
-is on its stream is passed over; a book from 0 with another first event is
-folded afresh; a book past where it is is a gap, read from the store first,
-else left for the catch-up).
+is on its stream is passed over; a book holding a tombstone at or past where
+the fold is restarts the stream there, nothing below it owed; a book past where
+it is is a gap, read from the store first, else left for the catch-up).
 
 ## `ctxloom top` (DRAFT texts; the owner's management view)
 

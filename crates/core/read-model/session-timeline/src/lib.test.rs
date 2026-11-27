@@ -333,8 +333,8 @@ fn a_stream_purged_takes_its_session_out() {
             root: Some(Uuid::from_bytes([1; 16])),
             edition: None,
         }),
-        pages: Vec::new(),
-        next_sequence: 0,
+        pages: vec![angzarr_embedded::angzarr_ports::tombstone::page(1)],
+        next_sequence: 2,
         snapshot: None,
     };
     timeline.project(&gone).unwrap();

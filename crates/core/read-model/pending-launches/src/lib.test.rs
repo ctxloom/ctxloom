@@ -38,6 +38,13 @@ fn book(domain: &str, root: Uuid, pages: Vec<EventPage>) -> EventBook {
     }
 }
 
+/// A purge's tombstone at `at` on the stream `root`, then `pages`.
+fn closed(domain: &str, root: Uuid, at: u64, pages: Vec<EventPage>) -> EventBook {
+    let mut all = vec![angzarr_embedded::angzarr_ports::tombstone::page(at)];
+    all.extend(pages);
+    book(domain, root, all)
+}
+
 fn owed(n: u8, incarnation: u32) -> EventBook {
     let (root, _) = session_root(n);
     let event = SessionEvent::IncarnationOwed(IncarnationOwed {
@@ -242,11 +249,27 @@ fn launches_are_ordered_by_session_then_incarnation() {
 }
 
 #[test]
-fn a_stream_projected_again_from_its_start_is_folded_afresh() {
+fn a_stream_closed_by_a_tombstone_is_folded_afresh_after_it() {
     let mut model = fold(&[enqueued(1, 1, RunMode::OneShot), later(1, 1, 1, started())]);
     assert!(model.launches().is_empty());
-    // The same stream replayed from sequence 0, as a rebuild hands it.
-    model.project(&enqueued(1, 1, RunMode::OneShot)).unwrap();
+    // The run's stream purged and enqueued again: its events are deleted,
+    // a tombstone stands at 2, and the new enqueue follows it.
+    let (_, session) = session_root(1);
+    let event = RunEvent::RunEnqueued(RunEnqueued {
+        session: session.clone(),
+        incarnation: 1,
+        mode: RunMode::OneShot,
+        launcher_lock: lock_of(1),
+        grant: None,
+    });
+    model
+        .project(&closed(
+            RUN_DOMAIN,
+            run_root(&session, 1),
+            2,
+            vec![page(3, event.to_any())],
+        ))
+        .unwrap();
     assert_eq!(model.launches().len(), 1);
     // And the same session's owed, replayed, does not double.
     model.project(&owed(4, 1)).unwrap();
@@ -258,11 +281,13 @@ fn a_stream_projected_again_from_its_start_is_folded_afresh() {
 fn a_purged_stream_leaves_the_model() {
     let mut model = fold(&[enqueued(1, 1, RunMode::OneShot), owed(2, 1)]);
     let (_, session) = session_root(1);
-    let gone = book(RUN_DOMAIN, run_root(&session, 1), vec![]);
+    let gone = closed(RUN_DOMAIN, run_root(&session, 1), 1, vec![]);
     model.project(&gone).unwrap();
     assert!(model.launches().is_empty());
     let (root, _) = session_root(2);
-    model.project(&book(SESSION_DOMAIN, root, vec![])).unwrap();
+    model
+        .project(&closed(SESSION_DOMAIN, root, 1, vec![]))
+        .unwrap();
     assert!(model.owed().is_empty());
 }
 
@@ -348,11 +373,24 @@ fn a_book_after_the_first_page_does_not_start_its_stream_afresh() {
     assert_eq!(model.owed().len(), 2);
 }
 
-// And a book from sequence 0 replaces what the model held of the stream.
+// A tombstone replaces what the model held of the stream: what follows it is
+// all the session owes.
 #[test]
-fn a_book_from_the_first_page_replaces_what_the_session_owed() {
+fn a_book_after_a_tombstone_replaces_what_the_session_owed() {
     let mut model = fold(&[owed(3, 1)]);
-    model.project(&owed(3, 2)).unwrap();
+    let (root, _) = session_root(3);
+    let event = SessionEvent::IncarnationOwed(IncarnationOwed {
+        incarnation: 2,
+        reason: "new".to_string(),
+    });
+    model
+        .project(&closed(
+            SESSION_DOMAIN,
+            root,
+            1,
+            vec![page(2, event.to_any())],
+        ))
+        .unwrap();
     let incarnations: Vec<u32> = model.owed().iter().map(|o| o.incarnation).collect();
     assert_eq!(incarnations, vec![2]);
 }

@@ -1,8 +1,8 @@
 //! The session index: a read model a projector folds from a project's
 //! session streams. It is purely derived, so it is no aggregate: it projects
 //! every session stream in a project's store (the store is the collection),
-//! holding every session there (a destroyed one's stream is gone, and so is
-//! it).
+//! holding every session there (a destroyed one's stream ends in a
+//! tombstone, and so does it leave the index).
 //!
 //! - [`SessionIndex`] is the read model, folded one stream's book at a time
 //!   ([`SessionIndex::project`]); [`SessionIndexes`] is it on
@@ -35,6 +35,7 @@ mod view;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use angzarr_embedded::angzarr_ports::tombstone;
 use angzarr_embedded::angzarr_router::error::CodedError;
 use angzarr_embedded::angzarr_router::hpb::{ProjectRequest, ProjectResponse};
 use angzarr_embedded::v1::{event_page, Cover, EventBook};
@@ -259,10 +260,11 @@ impl SessionIndex {
     /// Fold a project stream's `book`: the harp it names its project with,
     /// and its registration.
     fn project_named(&mut self, root: Vec<u8>, book: &EventBook) -> Result<(), PayloadError> {
-        if book.pages.is_empty() && book.next_sequence == 0 {
-            self.projects.remove(&root);
-        }
         for page in &book.pages {
+            if tombstone::is(page) {
+                self.projects.remove(&root);
+                continue;
+            }
             let Some(event_page::Body::Event(event)) = &page.body else {
                 continue;
             };
@@ -290,10 +292,10 @@ impl SessionIndex {
     }
 
     /// Fold `book`, one session stream's events after the last projected of
-    /// it, as the projector port hands it: a book from sequence 0 starts the
-    /// stream afresh; a book with no event at 0 says the stream is gone
-    /// (purged whole), and its session leaves the index. An event the sessions
-    /// domain cannot read folds nothing and is the fold's error.
+    /// it, as the projector port hands it. A tombstone (a purge's
+    /// `StreamClosed`) closes the stream: the session, its transcript and its
+    /// loadout leave the index, and what follows starts afresh. An event the
+    /// sessions domain cannot read folds nothing and is the fold's error.
     pub fn project(&mut self, book: &EventBook) -> Result<(), PayloadError> {
         let root = root(book.cover.as_ref());
         if book
@@ -303,23 +305,20 @@ impl SessionIndex {
         {
             return self.project_named(root, book);
         }
-        let Some(first) = book.pages.first() else {
-            if book.next_sequence == 0 {
-                self.streams.remove(&root);
-                self.transcripts.remove(&root);
-                self.loadouts.remove(&root);
-            }
+        if book.pages.is_empty() {
             return Ok(());
-        };
-        let mut session = match first.sequence {
-            0 => {
+        }
+        let mut session = self.streams.remove(&root).unwrap_or_default();
+        let mut closed = false;
+        for page in &book.pages {
+            if tombstone::is(page) {
                 self.transcripts.remove(&root);
                 self.loadouts.remove(&root);
-                SessionAggregate::default()
+                session = SessionAggregate::default();
+                closed = true;
+                continue;
             }
-            _ => self.streams.remove(&root).unwrap_or_default(),
-        };
-        for page in &book.pages {
+            closed = false;
             // A framework meta-event is no session event: only a domain's
             // event is folded.
             let Some(event_page::Body::Event(event)) = &page.body else {
@@ -340,7 +339,9 @@ impl SessionIndex {
             self.handed(&root, &event, recorded);
             self.transcribe(&root, page.sequence, recorded, &event);
         }
-        self.streams.insert(root, session);
+        if !closed {
+            self.streams.insert(root, session);
+        }
         Ok(())
     }
 

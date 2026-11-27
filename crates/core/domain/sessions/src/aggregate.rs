@@ -3,7 +3,7 @@
 //!
 //! - the instance holds the folded [`SessionState`], read by
 //!   [`SessionAggregate::state`];
-//! - one `#[handles_cmd]` per command, `ctx.command.had_prior_events` saying
+//! - one `#[handles_cmd]` per command, the folded state saying
 //!   whether the stream has history and `ctx.recorded_at()` the instant its
 //!   events are recorded at: no clock;
 //! - a bind, a keep, a rename, an adopt return `Option`: a change that
@@ -83,7 +83,8 @@ impl SessionAggregate {
         cmd: MintSession,
         ctx: &Context,
     ) -> Result<(SessionMinted, IncarnationOwed), Failed<Refuses<Self, MintSession>>> {
-        let taken = ctx.command.had_prior_events;
+        let _ = ctx;
+        let taken = !self.session.harp.is_empty();
         let minted = session_minted(&self.session, taken, &cmd).map_err(|rejection| {
             refuse!(
                 SessionRejection,

@@ -105,6 +105,18 @@ impl Run {
             .events()
     }
 
+    /// Purge the stream as a session's destroy does.
+    pub(crate) fn purge(&self) -> u64 {
+        use angzarr_embedded::{EventStore, Purge, StreamRef};
+        let cover = cover();
+        let stream = StreamRef::try_from(&cover).unwrap();
+        let store = self.harness.store().inner();
+        let head = angzarr_embedded::testing::block_on_ready(EventStore::head(store, stream))
+            .unwrap()
+            .next_sequence;
+        angzarr_embedded::testing::block_on_ready(Purge::purge(store, stream, head)).unwrap()
+    }
+
     pub(crate) fn state(&self) -> RunState {
         self.harness.state().state().clone()
     }
@@ -1256,4 +1268,15 @@ fn the_pre_launch_refusal_holds_the_findings() {
     };
     assert_eq!(findings.len(), 1);
     assert_eq!(findings[0].text, "t");
+}
+
+// A purge leaves a tombstone, which folds to the default state: a stream
+// whose last event is a tombstone holds no run, so an enqueue on it is the
+// first of a new run, not an AlreadyEnqueued.
+#[test]
+fn an_enqueue_on_a_stream_closed_by_a_purge_is_accepted() {
+    let mut run = Run::enqueued();
+    assert!(run.purge() > 0, "events deleted");
+    run.command(enqueue()).expect("the stream holds no run");
+    assert!(run.state().mode.is_some());
 }

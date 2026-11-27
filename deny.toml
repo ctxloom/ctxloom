@@ -100,6 +100,8 @@ allow-git = [
   # angzarr-embedded and the router it runs handlers through, the store and
   # sqlite-store-opener).
   "https://github.com/angzarr-io/angzarr",
+  # angzarr-project: the spec package angzarr-store depends on.
+  "https://github.com/angzarr-io/angzarr-project",
   # taskloom, by commit: harp-names and its ports.
   "https://github.com/ctxloom/taskloom",
   # rust-support, by commit: the shared substrate (coded-diagnostic,

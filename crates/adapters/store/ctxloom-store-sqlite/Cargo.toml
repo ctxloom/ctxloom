@@ -31,6 +31,8 @@ file-system = { workspace = true, features = ["test-support"] }
 tokio = { workspace = true, features = ["macros"] }
 
 [features]
+# angzarr-store-sqlite's purge, behind the ProjectStores bound. Off by default.
+purge = ["angzarr-embedded/purge", "session-ports/purge"]
 # `diagnostic_samples`, for other crates' catalog tests: their dev-dependency
 # turns it on, and no build of a binary does.
 test-support = ["sqlite-store-opener/test-support"]

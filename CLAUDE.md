@@ -684,7 +684,14 @@ ask `files::needs_purge()`; CI runs `just test` in both flavours. The crates'
 own unit tests compile `purge` either way, through their self dev-dependencies,
 and `session-cli` (and `daemon-api-grpc`)
 dev-depends on itself with it, so its tests and `--all-targets` lint compile the destroy (no
-`feature_rules` entry: the mutation recipe refuses one). A destroy is a T28
+`feature_rules` entry: the mutation recipe refuses one). angzarr's own Purge API is behind its cargo feature `purge`, which ctxloom's
+`purge` turns on through `ctxloom-daemon` -> `ctxloom-store-sqlite`,
+`sessions-application` (the head-guarded `purge`), `session-ports` (the
+`ProjectStores::Store` Purge bound) -> `angzarr-embedded`; the default build
+compiles with none (the daemon hands the API a `NoPurges` there, which no
+served RPC reaches), and the crates whose unit tests purge a stream turn it on
+for their test build by a dev-dependency feature. taskloom's own `purge` is not
+used: ctxloom reads none of its stores that purge. A destroy is a T28
 sequence on the PROJECT stream (O2, step 10b U9): the domain's
 `RemoveSession` (its command id the request's, keyed `removal:{request id}`,
 a sweep's `removal:{request id}:{harp}`; the project stream keeps it when
@@ -1319,7 +1326,7 @@ the URL's host. The private key lives in memory in
 `run_ports::HookCertificate` (whose `Debug` withholds it) and goes to
 `hook-listener`'s `TlsIdentity` and nowhere else: never journaled, logged, in
 an environment or in an error. The listener's limits are angzarr's generic
-`Listener` defaults (angzarr `329a8b21`; `hook-listener` sets none): a TLS
+`Listener` defaults (angzarr `33528cf1`; `hook-listener` sets none): a TLS
 handshake within 10 s, an HTTP/2 keepalive ping every 60 s answered within
 20 s, a connection closed after 1 h plus a 30 s grace (never zero: a zero
 grace is `ListenError::ZeroConnectionAgeGrace` at bind, which
@@ -1951,7 +1958,7 @@ The lock holds ONE `angzarr-embedded`, `angzarr-proto`, `angzarr-ports`,
 repository (angzarr, rust-support) at ONE commit
 (`test_every_crate_of_one_repository_is_locked_at_one_commit`). Every pin in
 `Cargo.toml` is a full commit. The angzarr pins are one commit of one
-repository, `329a8b21` of github.com/angzarr-io/angzarr (core, `angzarr-embedded`
+repository, `33528cf1` of github.com/angzarr-io/angzarr (core, `angzarr-embedded`
 and its router, `angzarr-build` and `angzarr-codegen`, the store and
 `sqlite-store-opener`; `angzarr-coordinator-grpc`'s `tls` feature, which
 `hook-listener` enables, is `Listener::tls`). angzarr owns no `diagnostic`,
@@ -1959,10 +1966,10 @@ and its router, `angzarr-build` and `angzarr-codegen`, the store and
 rust-support's (`e92609d8` of github.com/benjaminabbitt/rust-support):
 `coded-diagnostic` (the `Diagnostic` trait, `code!`, `Report`, the catalogs),
 `presentation`, `test-dir`, and the platform crates `os`, `file-system` and
-`file-lock`. taskloom's crates (`b0fa4fed`) are built on the same angzarr and
+`file-lock`. taskloom's crates (`7c94eeb3`) are built on the same angzarr and
 the same rust-support, so moving one moves all: the lock holds ONE
 `Diagnostic` trait, which every error of every crate implements, because two
-do not compose. 329a8b21 is the angzarr commit taskloom pins (a second angzarr
+do not compose. 33528cf1 is the angzarr commit taskloom pins (a second angzarr
 rev in the lock would be a second copy of every angzarr crate); harp-core is
 `8144ec98` of github.com/benjaminabbitt/harp. angzarr-store pulls in the git source github.com/angzarr-io/angzarr-project (`deny.toml` allows it). Diagnostic args are typed on
 the wire (`Diagnostic.typed_args`: text, int, uint, nested; proto maps are

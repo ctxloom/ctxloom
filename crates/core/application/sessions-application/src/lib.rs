@@ -11,6 +11,7 @@ mod error;
 mod go_sidecar;
 mod import;
 mod projects;
+#[cfg(feature = "purge")]
 mod purge;
 mod registry;
 mod types;
@@ -36,6 +37,7 @@ pub use go_sidecar::{
 pub use import::{ImportReport, ImportRequest, ImportService, Imported, Importer, Left, Why};
 pub use ports::{Project, Timestamp};
 pub use projects::{name_through, ProjectHarp};
+#[cfg(feature = "purge")]
 pub use purge::purge;
 pub use registry::{registry, DEFAULT_RETENTION_DAYS};
 pub use session_index::{

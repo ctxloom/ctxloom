@@ -23,7 +23,9 @@ angzarr-build.workspace = true
 [dev-dependencies]
 # The aggregates' tests run the kernel over an in-memory store through
 # angzarr-embedded's test support (`testing::Harness`).
-angzarr-embedded = { workspace = true, features = ["test-support"] }
+# `purge`: the tests purge a stream, as a session's destroy does; only a test
+# build has the Purge API.
+angzarr-embedded = { workspace = true, features = ["test-support", "purge"] }
 mutants.workspace = true
 
 [features]

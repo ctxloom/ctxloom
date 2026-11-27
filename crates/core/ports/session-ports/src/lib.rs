@@ -15,7 +15,9 @@
 
 use std::future::Future;
 
-use angzarr_embedded::{Processed, Purge, ReadStore, Store, StoreError};
+#[cfg(feature = "purge")]
+use angzarr_embedded::Purge;
+use angzarr_embedded::{Processed, ReadStore, Store, StoreError};
 use coded_diagnostic::Report;
 use ports::Project;
 
@@ -25,9 +27,14 @@ pub use angzarr_embedded::Timestamp;
 /// A project's ctxloom store, opened where its project says.
 pub trait ProjectStores {
     /// A project's store: the base ports, one-moment reads, the positions it
-    /// holds, listed (what a catch-up reads when it starts), and the purge a
-    /// session's destroy runs (owner ruling 94b).
+    /// holds, listed (what a catch-up reads when it starts), and, under the
+    /// `purge` feature, the purge a session's destroy runs (owner ruling 94b).
+    #[cfg(feature = "purge")]
     type Store: Store + ReadStore + Processed + Purge + Send + Sync;
+    /// The project's store: the base ports, one-moment reads and the
+    /// positions it holds; it cannot purge a stream.
+    #[cfg(not(feature = "purge"))]
+    type Store: Store + ReadStore + Processed + Send + Sync;
 
     /// The project's store, to write: opened (and created) on first use and
     /// held after.

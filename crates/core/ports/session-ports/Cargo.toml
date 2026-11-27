@@ -12,5 +12,10 @@ coded-diagnostic.workspace = true
 angzarr-embedded.workspace = true
 ports.workspace = true
 
+[features]
+# The purge a session's destroy runs: the store bound has angzarr's Purge. Off
+# by default; a default build has no Purge API.
+purge = ["angzarr-embedded/purge"]
+
 [lints]
 workspace = true

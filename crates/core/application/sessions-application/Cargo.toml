@@ -41,6 +41,8 @@ serde_json.workspace = true
 
 
 [features]
+# `purge`: a stream's head-guarded destroy. Off by default.
+purge = ["angzarr-embedded/purge", "session-ports/purge"]
 # `diagnostic_samples`, for other crates' catalog tests: their dev-dependency
 # turns it on, and no build of a binary does.
 test-support = []

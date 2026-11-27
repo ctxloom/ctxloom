@@ -13,7 +13,9 @@ angzarr-embedded.workspace = true
 scheduler.workspace = true
 
 [dev-dependencies]
-angzarr-embedded = { workspace = true, features = ["test-support"] }
+# `purge`: the tests purge a stream, as a session's destroy does; only a test
+# build has the Purge API.
+angzarr-embedded = { workspace = true, features = ["test-support", "purge"] }
 mutants.workspace = true
 
 [lints]

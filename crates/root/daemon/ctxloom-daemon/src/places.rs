@@ -10,9 +10,12 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+#[cfg(feature = "purge")]
 use angzarr_embedded::angzarr_store_sqlite::SqliteStore;
 use angzarr_embedded::v1::Uuid;
-use angzarr_embedded::{StreamRef, Timestamp};
+#[cfg(feature = "purge")]
+use angzarr_embedded::StreamRef;
+use angzarr_embedded::Timestamp;
 use config_files::ConfigFilesFs;
 use daemon_api::{Answer, ApiError};
 use file_system::Fs;
@@ -177,9 +180,11 @@ impl library_api::CheckoutHarps for TreeHarps {
     }
 }
 
+#[cfg(feature = "purge")]
 /// The daemon's one store, as the destroy purges it.
 pub(crate) struct StorePurges(pub(crate) Arc<SqliteStore>);
 
+#[cfg(feature = "purge")]
 impl daemon_api::Purges for StorePurges {
     fn purge<'a>(&'a self, domain: &'a str, root: Uuid) -> Answer<'a, u64> {
         Box::pin(async move {
@@ -191,6 +196,22 @@ impl daemon_api::Purges for StorePurges {
                 .map_err(|e| ApiError::Failed {
                     detail: coded_diagnostic::Diagnostic::code(&e).to_string(),
                 })
+        })
+    }
+}
+
+/// What the daemon hands the API where it is built without `purge`: no
+/// destroy RPC is served there, so nothing asks it to purge.
+#[cfg(not(feature = "purge"))]
+pub(crate) struct NoPurges;
+
+#[cfg(not(feature = "purge"))]
+impl daemon_api::Purges for NoPurges {
+    fn purge<'a>(&'a self, _domain: &'a str, _root: Uuid) -> Answer<'a, u64> {
+        Box::pin(async move {
+            Err(ApiError::Failed {
+                detail: "this build cannot purge".to_string(),
+            })
         })
     }
 }

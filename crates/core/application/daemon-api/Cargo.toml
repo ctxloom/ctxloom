@@ -72,7 +72,10 @@ ctxloom-ports.workspace = true
 angzarr-yaml.workspace = true
 library-application = { workspace = true, features = ["test-support"] }
 deps-application = { workspace = true, features = ["test-support"] }
-angzarr-embedded = { workspace = true, features = ["test-support"] }
+# `purge`: the tests purge a stream, as a session's destroy does; only a test
+# build has the Purge API.
+angzarr-embedded = { workspace = true, features = ["test-support", "purge"] }
+sessions-application = { workspace = true, features = ["purge"] }
 mutants.workspace = true
 run-ports = { workspace = true, features = ["test-support"] }
 tokio = { workspace = true, features = ["macros", "rt"] }

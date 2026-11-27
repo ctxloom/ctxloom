@@ -623,7 +623,10 @@ async fn start(
                 home: home.to_path_buf(),
                 temp: temp.to_path_buf(),
             }),
+            #[cfg(feature = "purge")]
             purges: Arc::new(super::places::StorePurges(core.store_handle())),
+            #[cfg(not(feature = "purge"))]
+            purges: Arc::new(super::places::NoPurges),
             about: about(&stamp, started_at, pace),
         })
         // The one-shots it hosts (U4).

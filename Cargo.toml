@@ -60,15 +60,15 @@ file-lock = { git = "https://github.com/benjaminabbitt/rust-support", rev = "e92
 
 # taskloom, by commit (D3 (b), D2 (a)): harp-names and the ports it implements.
 # 7af0580 is taskloom's pin on the same angzarr family; only these crates are consumed.
-harp-names = { git = "https://github.com/ctxloom/taskloom", rev = "5cb2f3d2425ec254b94d4a4b4d2ceddc1d9d6e3f" }
-ports = { git = "https://github.com/ctxloom/taskloom", rev = "5cb2f3d2425ec254b94d4a4b4d2ceddc1d9d6e3f" }
+harp-names = { git = "https://github.com/ctxloom/taskloom", rev = "b0fa4feda601ebee30b1aec138302eb396e20a0d" }
+ports = { git = "https://github.com/ctxloom/taskloom", rev = "b0fa4feda601ebee30b1aec138302eb396e20a0d" }
 # taskloom's system adapter: the clock, command ids, delay and jitter ports.
-system = { git = "https://github.com/ctxloom/taskloom", rev = "5cb2f3d2425ec254b94d4a4b4d2ceddc1d9d6e3f" }
+system = { git = "https://github.com/ctxloom/taskloom", rev = "b0fa4feda601ebee30b1aec138302eb396e20a0d" }
 # taskloom's project identity (the work root, the `.project-id` marker and the
 # home registry of projects), read through, not copied (D2 (a)).
-project-registry = { git = "https://github.com/ctxloom/taskloom", rev = "5cb2f3d2425ec254b94d4a4b4d2ceddc1d9d6e3f" }
+project-registry = { git = "https://github.com/ctxloom/taskloom", rev = "b0fa4feda601ebee30b1aec138302eb396e20a0d" }
 # Harp's word lists, at taskloom's rev, so the lock holds one.
-harp-core = { git = "https://github.com/benjaminabbitt/harp", rev = "45d05e96313fb6f702c9ac83dd2ff4a5becebcc5" }
+harp-core = { git = "https://github.com/benjaminabbitt/harp", rev = "8144ec982a66ade96000501fbc9643b945ae10f2" }
 
 # prost must be the version angzarr-proto generates for.
 prost = "0.14"

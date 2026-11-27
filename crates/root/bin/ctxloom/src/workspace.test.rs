@@ -145,7 +145,9 @@ fn check_one_repository_each(lock: &str) -> Result<(), String> {
 fn commits_of(lock: &str, repository: &str) -> Vec<String> {
     let mut commits: Vec<String> = git_packages(lock)
         .into_iter()
-        .filter(|(_, source)| source.contains(repository))
+        // The repository's own url, ended by its query: `angzarr` is not
+        // `angzarr-project`.
+        .filter(|(_, source)| source.contains(&format!("{repository}?")))
         .filter_map(|(_, source)| source.rsplit_once('#').map(|(_, c)| c.to_string()))
         .collect();
     commits.sort_unstable();
@@ -182,6 +184,16 @@ fn test_a_repository_locked_at_two_commits_is_refused() {
 [[package]]\nname = \"c\"\nsource = \"git+https://github.com/angzarr-io/angzarr?rev=3#3\"\n";
     let refused = check_one_rev_per_repository(lock).unwrap_err();
     assert!(refused.contains("rust-support"), "{refused}");
+}
+
+// A repository whose name another's begins with (angzarr, angzarr-project) is
+// its own: its crates are locked at the commit its own pin names.
+#[test]
+fn test_a_repository_named_by_a_prefix_of_another_is_judged_apart() {
+    let lock = "[[package]]\nname = \"a\"\nsource = \"git+https://github.com/angzarr-io/angzarr?rev=1#1\"\n\n\
+[[package]]\nname = \"p\"\nsource = \"git+https://github.com/angzarr-io/angzarr-project?rev=2#2\"\n\n\
+[[package]]\nname = \"r\"\nsource = \"git+https://github.com/benjaminabbitt/rust-support?rev=3#3\"\n";
+    assert_eq!(check_one_rev_per_repository(lock), Ok(()));
 }
 
 #[test]

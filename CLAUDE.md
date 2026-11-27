@@ -1949,7 +1949,7 @@ and its router, `angzarr-build` and `angzarr-codegen`, the store and
 rust-support's (`e92609d8` of github.com/benjaminabbitt/rust-support):
 `coded-diagnostic` (the `Diagnostic` trait, `code!`, `Report`, the catalogs),
 `presentation`, `test-dir`, and the platform crates `os`, `file-system` and
-`file-lock`. taskloom's crates (`5cb2f3d2`) are built on the same angzarr and
+`file-lock`. taskloom's crates (`b0fa4fed`) are built on the same angzarr and
 the same rust-support, so moving one moves all: the lock holds ONE
 `Diagnostic` trait, which every error of every crate implements, because two
 do not compose. 329a8b21 is the angzarr commit taskloom pins (a second angzarr

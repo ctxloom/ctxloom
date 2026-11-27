@@ -2043,7 +2043,7 @@ checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
 [[package]]
 name = "fnv-hash"
 version = "0.1.0"
-source = "git+https://github.com/benjaminabbitt/rust-support?rev=dcb930d198706371d8e7496ec5ec35efb067b92f#dcb930d198706371d8e7496ec5ec35efb067b92f"
+source = "git+https://github.com/benjaminabbitt/rust-support?rev=e92609d8de072c2947438a0cc395548fba51aedf#e92609d8de072c2947438a0cc395548fba51aedf"
 
 [[package]]
 name = "foldhash"
@@ -2334,7 +2334,7 @@ dependencies = [
 [[package]]
 name = "harp-core"
 version = "0.1.2"
-source = "git+https://github.com/benjaminabbitt/harp?rev=45d05e96313fb6f702c9ac83dd2ff4a5becebcc5#45d05e96313fb6f702c9ac83dd2ff4a5becebcc5"
+source = "git+https://github.com/benjaminabbitt/harp?rev=8144ec982a66ade96000501fbc9643b945ae10f2#8144ec982a66ade96000501fbc9643b945ae10f2"
 dependencies = [
  "flate2",
  "fnv-hash",
@@ -2347,7 +2347,7 @@ dependencies = [
 [[package]]
 name = "harp-names"
 version = "0.1.0"
-source = "git+https://github.com/ctxloom/taskloom?rev=5cb2f3d2425ec254b94d4a4b4d2ceddc1d9d6e3f#5cb2f3d2425ec254b94d4a4b4d2ceddc1d9d6e3f"
+source = "git+https://github.com/ctxloom/taskloom?rev=b0fa4feda601ebee30b1aec138302eb396e20a0d#b0fa4feda601ebee30b1aec138302eb396e20a0d"
 dependencies = [
  "harp-core",
  "ports",
@@ -3842,7 +3842,7 @@ dependencies = [
 [[package]]
 name = "ports"
 version = "0.1.0"
-source = "git+https://github.com/ctxloom/taskloom?rev=5cb2f3d2425ec254b94d4a4b4d2ceddc1d9d6e3f#5cb2f3d2425ec254b94d4a4b4d2ceddc1d9d6e3f"
+source = "git+https://github.com/ctxloom/taskloom?rev=b0fa4feda601ebee30b1aec138302eb396e20a0d#b0fa4feda601ebee30b1aec138302eb396e20a0d"
 dependencies = [
  "angzarr-ports",
  "coded-diagnostic",
@@ -3949,7 +3949,7 @@ dependencies = [
 [[package]]
 name = "project-registry"
 version = "0.1.0"
-source = "git+https://github.com/ctxloom/taskloom?rev=5cb2f3d2425ec254b94d4a4b4d2ceddc1d9d6e3f#5cb2f3d2425ec254b94d4a4b4d2ceddc1d9d6e3f"
+source = "git+https://github.com/ctxloom/taskloom?rev=b0fa4feda601ebee30b1aec138302eb396e20a0d#b0fa4feda601ebee30b1aec138302eb396e20a0d"
 dependencies = [
  "angzarr-yaml",
  "coded-diagnostic",
@@ -5649,7 +5649,7 @@ dependencies = [
 [[package]]
 name = "system"
 version = "0.1.0"
-source = "git+https://github.com/ctxloom/taskloom?rev=5cb2f3d2425ec254b94d4a4b4d2ceddc1d9d6e3f#5cb2f3d2425ec254b94d4a4b4d2ceddc1d9d6e3f"
+source = "git+https://github.com/ctxloom/taskloom?rev=b0fa4feda601ebee30b1aec138302eb396e20a0d#b0fa4feda601ebee30b1aec138302eb396e20a0d"
 dependencies = [
  "ports",
  "prost-types",

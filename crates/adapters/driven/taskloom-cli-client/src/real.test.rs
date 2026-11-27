@@ -35,13 +35,17 @@ fn the_real_taskloom_lists_a_deferred_task_of_a_throwaway_project() {
         return;
     }
     // A home of its own: the project's task log is under it, so the real one
-    // is not opened.
+    // is not opened. taskloom resolves the ACCOUNT's home from the passwd
+    // database, not from HOME (taskloom c584d4e), so the throwaway home is
+    // named as its account home too; HOME alone reached the user's real
+    // `~/.ctxloom/projects`.
     let home = Rooted::temp().unwrap();
     let home_dir = home.root().to_str().unwrap().to_string();
     let root = format!("{home_dir}/root");
     let env = Arc::new(EnvSnapshot::of([
         ("PATH", path.as_str()),
         ("HOME", home_dir.as_str()),
+        ("TASKLOOM_ACCOUNT_HOME", home_dir.as_str()),
         ("CTXLOOM_ROOT", root.as_str()),
     ]));
     let project = "tasks-poc-throwaway";

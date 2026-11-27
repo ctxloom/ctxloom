@@ -5438,7 +5438,10 @@ hook-sink-grpc, daemon-client, daemon-api-grpc, forge-github, the wiring's
 second setup script, `guard-homes` (`scripts/nextest-guard-homes.sh`, every
 test on every platform; OD-34: a test once kept the shell's CTXLOOM_DAEMON_ROOT and
 registered 85 temporary projects in the owner's real home), names
-CTXLOOM_DAEMON_ROOT, CLAUDE_CONFIG_DIR, OPENCODE_CONFIG_DIR and the four XDG bases
+CTXLOOM_DAEMON_ROOT, TASKLOOM_ACCOUNT_HOME (taskloom resolves its home from it,
+else the passwd database, never HOME: a test of the real taskloom that set only
+HOME wrote a throwaway project into the owner's `~/.ctxloom/projects`,
+2026-11-27), CLAUDE_CONFIG_DIR, OPENCODE_CONFIG_DIR and the four XDG bases
 as one FILE, `target/test-guard/inherited-home`, so a test that keeps one
 from the process and writes under it fails (ENOTDIR) instead of writing
 into the caller's; the wiring's

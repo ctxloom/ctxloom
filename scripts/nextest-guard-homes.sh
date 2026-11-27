@@ -4,7 +4,10 @@
 #
 # The owner's shell and every agent's (a ctxloom session's) carry
 # CTXLOOM_DAEMON_ROOT, which ctxloom reads BEFORE HOME, and an engine's relocated
-# CLAUDE_CONFIG_DIR, OPENCODE_CONFIG_DIR and XDG bases. A test that started
+# CLAUDE_CONFIG_DIR, OPENCODE_CONFIG_DIR and XDG bases, and taskloom resolves
+# its home from TASKLOOM_ACCOUNT_HOME before the passwd database (never HOME;
+# taskloom c584d4e: a test run of the real taskloom wrote a throwaway project
+# into the owner's ~/.ctxloom/projects, 2026-11-27). A test that started
 # from the process's environment and kept one of them wrote into the
 # caller's real home: the wiring's fixtures, before 6911bd804, registered 85
 # temporary projects in the owner's ~/.ctxloom-rs. Each is named here, for
@@ -31,7 +34,7 @@ fi
 if command -v cygpath >/dev/null 2>&1; then
     guard=$(cygpath -m "$guard")
 fi
-for name in CTXLOOM_DAEMON_ROOT CLAUDE_CONFIG_DIR OPENCODE_CONFIG_DIR \
+for name in CTXLOOM_DAEMON_ROOT TASKLOOM_ACCOUNT_HOME CLAUDE_CONFIG_DIR OPENCODE_CONFIG_DIR \
     XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME; do
     echo "$name=$guard"
 done >> "$NEXTEST_ENV"

@@ -81,8 +81,9 @@ fn test_a_test_starts_from_none_of_an_enclosing_session_s_variables() {
 
 /// The variables that place ctxloom's home or an engine's state, which a
 /// test run never inherits from the shell it was started in (OD-34).
-const GUARDED_HOMES: [&str; 7] = [
+const GUARDED_HOMES: [&str; 8] = [
     "CTXLOOM_DAEMON_ROOT",
+    "TASKLOOM_ACCOUNT_HOME",
     "CLAUDE_CONFIG_DIR",
     "OPENCODE_CONFIG_DIR",
     "XDG_CONFIG_HOME",

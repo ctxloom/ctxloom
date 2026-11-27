@@ -3,7 +3,7 @@
 use crate::{DeadLetter, Refusal};
 
 /// Remove a session: DESTROY it (owner rulings 94, 94b, 98; `session
-/// remove`, the session-destroy feature's): every event of its stream and of
+/// remove`, the purge feature's): every event of its stream and of
 /// each of its runs' purged from the store, its directory and lock removed.
 /// Its name stays claimed (94c).
 #[derive(Clone, PartialEq, Eq, Debug, Default)]

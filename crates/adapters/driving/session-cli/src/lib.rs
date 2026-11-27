@@ -9,9 +9,9 @@
 //! ctxloom session show <harp>
 //! ctxloom session rename <harp> <title>
 //! ctxloom session keep <harp> [--undo]
-//! ctxloom session remove <harp> [--yes] [--even-if-live]  (session-destroy)
-//! ctxloom session remove --older-than <age> [--yes]     (session-destroy)
-//! ctxloom session sweep [--purge-older-than <age>] [--yes] (session-destroy)
+//! ctxloom session remove <harp> [--yes] [--even-if-live]  (purge)
+//! ctxloom session remove --older-than <age> [--yes]     (purge)
+//! ctxloom session sweep [--purge-older-than <age>] [--yes] (purge)
 //! ctxloom session transcript               (bare: lists)
 //! ctxloom session transcript list [<harp>] [--all]
 //! ctxloom session transcript show <harp>
@@ -72,7 +72,7 @@ pub use approvals::{approvals, is_approvals, AlwaysPlan, AlwaysRules};
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{CliFault, EN_US};
-#[cfg(feature = "session-destroy")]
+#[cfg(feature = "purge")]
 pub use run::destroy;
 pub use run::{child, is_child, is_destroy, is_read, read, run, Done, Failure};
 pub use screen::{Effect, Frame, Key, Screen};
@@ -121,13 +121,13 @@ pub enum SessionVerb {
     )]
     Keep(KeepArgs),
     /// Destroy a session: every event of it and of its runs, its directory and its lock; its name stays taken
-    #[cfg(feature = "session-destroy")]
+    #[cfg(feature = "purge")]
     #[command(
         after_help = "Examples:\n  ctxloom session remove amber-swift-owl\n  ctxloom session remove amber-swift-owl --yes\n  ctxloom session remove --older-than 90d --yes"
     )]
     Remove(RemoveArgs),
     /// Tidy every ended session of this project by rule: destroy what it can prove is safe, report the rest
-    #[cfg(feature = "session-destroy")]
+    #[cfg(feature = "purge")]
     #[command(
         after_help = "Examples:\n  ctxloom session sweep\n  ctxloom session sweep --purge-older-than 90d --yes"
     )]
@@ -317,7 +317,7 @@ pub struct KeepArgs {
 
 /// One session by its name, or every ended session of this project last
 /// active before an age (the age form is `session sweep`'s, with that age).
-#[cfg(feature = "session-destroy")]
+#[cfg(feature = "purge")]
 #[derive(Args, Debug)]
 #[command(group = clap::ArgGroup::new("which").required(true).args(["harp", "older_than"]))]
 pub struct RemoveArgs {

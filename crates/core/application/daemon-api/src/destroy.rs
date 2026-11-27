@@ -619,7 +619,7 @@ fn env_of(env: Option<&v1::EnvVars>) -> Vec<(String, String)> {
 }
 
 impl<E: Edge> Api<E> {
-    /// `DeleteSession` (`session remove`, a `session-destroy` build's, M5):
+    /// `DeleteSession` (`session remove`, a `purge` build's, M5):
     /// the session by its resource name, removed whole or not at all
     /// ([`reclaim_application::remove`]); `validate_only` is the plan.
     /// Refused, it answers [`v1::RemovalRefusal`] carrying the plan.
@@ -899,7 +899,7 @@ impl<E: Edge> Api<E> {
         Ok(cutoffs)
     }
 
-    /// `SweepSessions` (`session sweep`, a `session-destroy` build's, M5):
+    /// `SweepSessions` (`session sweep`, a `purge` build's, M5):
     /// every session under `parent` by the sweep's table, its purges through
     /// the same removal as `DeleteSession`; the purge age the request's, else
     /// the `session_purge_age` of its project, read from its registered

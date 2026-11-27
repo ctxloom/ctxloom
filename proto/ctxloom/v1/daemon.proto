@@ -4,7 +4,7 @@ syntax = "proto3";
 // daemon-proto (its messages, each refusal's status, and the `Ctxloom`
 // service's stubs). Served so far (slice 2 steps 5, 6): GetDaemon, StopDaemon,
 // ResolveProject, GetProject, GetSession, ListSessions, SearchSessions, and
-// in a `session-destroy` build DeleteSession and SweepSessions; slice 3 adds
+// in a `purge` build DeleteSession and SweepSessions; slice 3 adds
 // GetTranscript and AssembleContext (its fragments and tags); slice 4 adds
 // CreateHandOff and DeleteHandOff (a child's launch, U3), CreateRun for a
 // ONE_SHOT run, GetRun and WatchRun (U4), and CreateRun for a TERMINAL run,
@@ -201,12 +201,12 @@ service Ctxloom {
   rpc SearchSessions(SearchSessionsRequest) returns (ListSessionsResponse);
   // `session remove`: its worktrees classified, the whole refused (with its
   // plan) if one is unsafe, else the worktrees removed, then the destroy.
-  // Served only in a `session-destroy` build (M5).
+  // Served only in a `purge` build (M5).
   rpc DeleteSession(DeleteSessionRequest) returns (DeleteSessionResponse) {
     option (google.api.method_signature) = "name,etag";
   }
   // `session sweep`: each session by the fixed table, its purges through
-  // the same removal as `DeleteSession`. A `session-destroy` build's (M5).
+  // the same removal as `DeleteSession`. A `purge` build's (M5).
   rpc SweepSessions(SweepSessionsRequest) returns (SweepSessionsResponse);
   // `session import`: Go's session directories of this account, each into
   // its project's streams (ONE WRITER: the daemon sends the commands, naming

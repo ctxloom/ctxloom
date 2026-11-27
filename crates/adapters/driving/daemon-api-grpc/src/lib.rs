@@ -20,7 +20,7 @@
 //!   a blocking thread into its stream; `GetTrust` and `ListTrusts` (step 8
 //!   U1).
 //! - `DeleteSession` and `SweepSessions` are served only in a
-//!   `session-destroy` build (M5, the feature of the same name); every other
+//!   `purge` build (M5, the feature of the same name); every other
 //!   RPC is the generated default, UNIMPLEMENTED, to the user bearer alone
 //!   (a plain build's `DeleteSession` and `SweepSessions` among them).
 
@@ -676,7 +676,7 @@ impl Ctxloom for Served {
         Ok(Response::new(Box::pin(ReceiverStream::new(heard))))
     }
 
-    #[cfg(feature = "session-destroy")]
+    #[cfg(feature = "purge")]
     async fn delete_session(
         &self,
         request: Request<v1::DeleteSessionRequest>,
@@ -697,7 +697,7 @@ impl Ctxloom for Served {
         .await
     }
 
-    #[cfg(feature = "session-destroy")]
+    #[cfg(feature = "purge")]
     async fn sweep_sessions(
         &self,
         request: Request<v1::SweepSessionsRequest>,

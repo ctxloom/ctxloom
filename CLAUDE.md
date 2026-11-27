@@ -655,7 +655,7 @@ claimed. The refusal code of a taken name is `sessions-names-taken` (the
 crate-prefix rule).
 
 `session remove` DESTROYS a session (owner rulings 94, 94a-d, 98), and exists
-only under the cargo feature `session-destroy` (binary -> `ctxloom-wiring` ->
+only under the cargo feature `purge` (binary -> `ctxloom-wiring` ->
 `session-cli` and `daemon-api-grpc`; `session sweep`, whose apply is that
 destroy, too, as is `session remove --older-than <age>`, the one
 destroyer's age form (docs/plans/ctxloom-features.md "Sessions"), which is
@@ -2540,7 +2540,7 @@ served RPC's use case runs on the
 runtime's BLOCKING pool (`spawn_blocking`, M10); a refusal is answered under
 the gRPC code its `(refusal_status)` declares (S11), the typed refusal packed
 in `google.rpc.Status.details`; a failure is INTERNAL. `DeleteSession` and
-`SweepSessions` are served only in a `session-destroy` build (M5, owner
+`SweepSessions` are served only in a `purge` build (M5, owner
 2026-11-12: `daemon-api-grpc`'s feature of that name, which the wiring's
 turns on; the crate dev-depends on itself with it, as `session-cli` does):
 `Api::delete_session` and `Api::sweep_sessions` (`daemon-api`'s `destroy`),
@@ -5438,7 +5438,7 @@ The binaries are a workflow of their own, parallel to CI
 (`.github/workflows/binaries.yml`, on a push to main or a dispatch): the
 shared binaries workflow builds the plain binary in the `ci-artifact`
 profile (`just release-binary ci-artifact`: no test-support, no
-session-destroy, cargo's release defaults, no LTO, no debug info, the two
+purge, cargo's release defaults, no LTO, no debug info, the two
 plain-build checks) for linux-x86_64, windows-x86_64, macos-arm64 and
 macos-x86_64 (cross-built on the macos-15 runner with `CARGO_BUILD_TARGET`,
 which `release-binary` honours, and run under Rosetta), each the artifact
@@ -5762,7 +5762,7 @@ hook with `just hooks-install` once more (`gates/MIGRATING.md`).
    saying `none judged`). No feature reaches the mutation run: `mutants-staged` refuses
    a non-empty `feature_rules` (`_mutants-no-features`), so a crate whose
    tests need a feature of its own dev-depends on itself with it (as
-   `session-cli` does for `session-destroy`). Both are held by
+   `session-cli` does for `purge`). Both are held by
    `scripts/mutants-verdict.selftest.sh` (`just selftest`).
 
 A slice landing on an integration branch that carries a red spec on purpose

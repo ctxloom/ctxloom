@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# A plain build (no `session-destroy`) has no way to delete a session (owner
+# A plain build (no `purge`) has no way to delete a session (owner
 # rulings 94, 94b, 98): `session remove`, which destroys a session (its
 # stream, its runs' streams, its directory and lock), and `session sweep`,
-# whose apply is that destroy, are compiled only under the `session-destroy`
+# whose apply is that destroy, are compiled only under the `purge`
 # feature, and `session purge` exists in no build. This runs the binary a
 # plain `cargo build` made, in a temporary home, and refuses one where any of
 # `session remove`, `session purge` or `session sweep` is anything but clap's

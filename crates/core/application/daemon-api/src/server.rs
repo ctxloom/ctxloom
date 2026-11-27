@@ -169,13 +169,13 @@ pub trait Calls: Send + Sync {
         &self,
         request: v1::SearchSessionsRequest,
     ) -> Answer<'_, v1::ListSessionsResponse>;
-    /// `DeleteSession`: an edge serves it only in a `session-destroy`
+    /// `DeleteSession`: an edge serves it only in a `purge`
     /// build (M5).
     fn delete_session(
         &self,
         request: v1::DeleteSessionRequest,
     ) -> Answer<'_, v1::DeleteSessionResponse>;
-    /// `SweepSessions`: as `DeleteSession`, a `session-destroy` build's.
+    /// `SweepSessions`: as `DeleteSession`, a `purge` build's.
     fn sweep_sessions(
         &self,
         request: v1::SweepSessionsRequest,

@@ -97,7 +97,7 @@ grep -q "failed before a verdict (exit 1)" "$dir/verdict.txt" || fail "broke ver
 # Owner ruling 99: no feature rule reaches the mutation run; a crate turns its
 # own features on through a dev-dependency on itself.
 gate _mutants-no-features >/dev/null 2>&1 || fail "an empty feature_rules was refused"
-if said=$(gate --set feature_rules "session-cli=session-destroy" _mutants-no-features 2>&1); then
+if said=$(gate --set feature_rules "session-cli=purge" _mutants-no-features 2>&1); then
     fail "a feature rule was not refused: $said"
 fi
 grep -q "feature_rules" <<< "$said" || fail "the refusal names feature_rules: $said"

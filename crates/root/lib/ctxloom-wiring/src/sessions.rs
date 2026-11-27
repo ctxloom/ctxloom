@@ -548,9 +548,9 @@ fn said(
     }
 }
 
-/// `session remove|sweep` on the daemon's client: a `session-destroy`
+/// `session remove|sweep` on the daemon's client: a `purge`
 /// build's alone.
-#[cfg(feature = "session-destroy")]
+#[cfg(feature = "purge")]
 fn destroy<R: daemon_api::SessionRemovals>(
     command: &session_cli::Session,
     client: &R,
@@ -565,7 +565,7 @@ fn destroy<R: daemon_api::SessionRemovals>(
 }
 
 /// A plain build has no destroying verb, so nothing is a destroy.
-#[cfg(not(feature = "session-destroy"))]
+#[cfg(not(feature = "purge"))]
 fn destroy<R>(
     _: &session_cli::Session,
     _: &R,

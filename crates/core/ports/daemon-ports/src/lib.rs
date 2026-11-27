@@ -323,7 +323,7 @@ pub trait DaemonApi: Send + Sync {
     }
 
     /// `DeleteSession`: a session removed whole or not at all (refused
-    /// `RemovalRefusal`, its plan inside); a `session-destroy` build's daemon
+    /// `RemovalRefusal`, its plan inside); a `purge` build's daemon
     /// serves it (M5). The default is a daemon that does not.
     fn delete_session(
         &self,
@@ -344,7 +344,7 @@ pub trait DaemonApi: Send + Sync {
     }
 
     /// `SweepSessions`: every session by the sweep's table; as
-    /// `DeleteSession`, a `session-destroy` build's.
+    /// `DeleteSession`, a `purge` build's.
     fn sweep_sessions(
         &self,
         request: v1::SweepSessionsRequest,

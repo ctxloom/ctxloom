@@ -134,7 +134,7 @@ os = { workspace = true, features = ["test-support"] }
 # changes what another crate must implement.
 # `session remove` (and `sweep`), the destroy of a whole session (owner
 # rulings 94, 94b, 98).
-session-destroy = ["session-cli/session-destroy"]
+purge = ["session-cli/purge"]
 test-support = [
     "ctxloom-cli/test-support",
     "dep:engine-mock",

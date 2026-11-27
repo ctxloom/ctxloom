@@ -38,7 +38,7 @@ staged_tree := "../.{name}.staged"
 
 # No feature is turned on by what a commit changes, and the mutation run
 # refuses any (owner ruling 99: `_mutants-no-features`). session-cli's tests
-# turn on its `session-destroy` themselves, by a dev-dependency on the crate.
+# turn on its `purge` themselves, by a dev-dependency on the crate.
 feature_rules := ""
 features_prepare := ""
 
@@ -160,7 +160,7 @@ _extract-plain-binary log rc:
     if [ -n "$said" ]; then echo "$said"; else echo "failed (exit $2)"; fi
 
 # Install the Rust ctxloom beside the Go one (owner ruling 164): the PLAIN
-# binary (no test-support, no session-destroy; held to that by the same two
+# binary (no test-support, no purge; held to that by the same two
 # checks `just build` runs), in the profile `just build` uses (the workspace
 # defines no release profile of its own), as
 # ~/.local/lib/ctxloom/ctxloom, and the wrapper ~/.local/bin/ctxloom (ahead of
@@ -297,7 +297,7 @@ install-windows when="":
     esac
 
 # Build the binary that ships (owner ruling 2026-11-12): the PLAIN binary (no
-# test-support, no session-destroy; held to that by the two checks `just
+# test-support, no purge; held to that by the two checks `just
 # build` runs), versionator-stamped by build.rs, in `profile`: `release` (the
 # default; Cargo.toml's release profile, fat LTO with line tables, which
 # `release-package` splits and strips) or `ci-artifact` (CI's per-push
@@ -737,7 +737,7 @@ hook-latency base="2579730b1" calls="200" profile="dev":
     built() {
         cargo build --quiet --message-format=json-render-diagnostics \
             --manifest-path "$1/Cargo.toml" --package ctxloom \
-            --features test-support,session-destroy --bin ctxloom --profile {{profile}} "${@:2}" \
+            --features test-support,purge --bin ctxloom --profile {{profile}} "${@:2}" \
             | jq -r 'select(.reason == "compiler-artifact" and .target.name == "ctxloom"
                 and .executable != null) | .executable'
     }

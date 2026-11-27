@@ -216,7 +216,7 @@ pub(crate) fn binary() -> &'static Path {
                 "--bin",
                 "ctxloom",
                 "--features",
-                "test-support,session-destroy",
+                "test-support,purge",
             ])
             .arg("--manifest-path")
             .arg(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"))

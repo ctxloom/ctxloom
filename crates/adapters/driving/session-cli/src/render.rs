@@ -9,7 +9,7 @@ use daemon_proto::v1;
 use presentation::text;
 use serde::Serialize;
 use sessions_application::{stamp, TranscriptRow, NO_SUMMARY};
-#[cfg(feature = "session-destroy")]
+#[cfg(feature = "purge")]
 use sessions_application::{Class, FilePlan, PlanItem, Removal};
 
 /// Columns by display width, two spaces between, no trailing spaces.
@@ -204,7 +204,7 @@ pub(crate) struct KeepDoc {
     pub(crate) kept: bool,
 }
 
-#[cfg(feature = "session-destroy")]
+#[cfg(feature = "purge")]
 fn class(class: Class) -> &'static str {
     match class {
         Class::Machine => "machine",
@@ -214,7 +214,7 @@ fn class(class: Class) -> &'static str {
 
 /// The removal the daemon answered (its plan, or its destroy), as the
 /// report renders it.
-#[cfg(feature = "session-destroy")]
+#[cfg(feature = "purge")]
 pub(crate) fn removal_of(plan: &v1::DeleteSessionResponse) -> Removal {
     Removal {
         harp: plan.harp.clone(),
@@ -242,7 +242,7 @@ pub(crate) fn removal_of(plan: &v1::DeleteSessionResponse) -> Removal {
 }
 
 /// The worktrees the daemon answered, as `session worktrees` renders them.
-#[cfg(feature = "session-destroy")]
+#[cfg(feature = "purge")]
 pub(crate) fn report_of(report: &v1::WorktreeReport) -> isolation_application::Report {
     use isolation_application::{Row, Verdict};
     isolation_application::Report {
@@ -274,7 +274,7 @@ pub(crate) fn report_of(report: &v1::WorktreeReport) -> isolation_application::R
     }
 }
 
-#[cfg(feature = "session-destroy")]
+#[cfg(feature = "purge")]
 /// A summary line, then a table of every file the destroy takes, then one
 /// line for the session itself.
 pub(crate) fn removal_text(removal: &Removal, out: &mut dyn Write) -> io::Result<()> {
@@ -534,7 +534,7 @@ pub(crate) fn import_text(
 }
 
 /// Go's sweep report: a line per session, the reason under it, and a count.
-#[cfg(feature = "session-destroy")]
+#[cfg(feature = "purge")]
 pub(crate) fn sweep_text(
     report: &v1::SweepSessionsResponse,
     out: &mut dyn Write,

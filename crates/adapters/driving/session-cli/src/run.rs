@@ -4,20 +4,20 @@ use cli_support::{Exit, ExitClass};
 use std::io::{self, Write};
 
 use coded_diagnostic::Diagnostic;
-#[cfg(feature = "session-destroy")]
+#[cfg(feature = "purge")]
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use daemon_api::{CallError, ChildWrites, Launch, SessionReads, Written};
-#[cfg(feature = "session-destroy")]
+#[cfg(feature = "purge")]
 use daemon_api::{Removed, SessionRemovals};
 use daemon_proto::v1;
 use isolation_application::{IsolationError, WorktreeUse};
 use presentation::{write_json, Format};
-#[cfg(feature = "session-destroy")]
+#[cfg(feature = "purge")]
 use reclaim_application::{destroys_held, ReclaimError, SessionHolds};
-#[cfg(feature = "session-destroy")]
+#[cfg(feature = "purge")]
 use sessions_application::Timestamp;
-#[cfg(feature = "session-destroy")]
+#[cfg(feature = "purge")]
 use sessions_application::{DestroysAuthored, DestroysHeld, REMOVE_VERB};
 use sessions_application::{RemovedNothing, State, TranscriptRow, Urgency, STATES};
 
@@ -25,7 +25,7 @@ use crate::render::{
     conversation_text, import_text, listing_text, session_text, transcripts_text, worktrees_text,
     ImportDoc, KeepDoc, TitleDoc, TranscriptsDoc,
 };
-#[cfg(feature = "session-destroy")]
+#[cfg(feature = "purge")]
 use crate::{
     render::{removal_of, removal_text, report_of, sweep_text},
     RemoveArgs,
@@ -90,14 +90,14 @@ pub fn is_read(session: &Session) -> bool {
 /// `sweep`: owner, 2026-11-12), which [`destroy`] runs; none in a plain
 /// build, which has neither verb.
 pub fn is_destroy(session: &Session) -> bool {
-    #[cfg(feature = "session-destroy")]
+    #[cfg(feature = "purge")]
     {
         matches!(
             session.verb,
             Some(SessionVerb::Remove(_) | SessionVerb::Sweep(_))
         )
     }
-    #[cfg(not(feature = "session-destroy"))]
+    #[cfg(not(feature = "purge"))]
     {
         let _ = session;
         false
@@ -108,7 +108,7 @@ pub fn is_destroy(session: &Session) -> bool {
 /// `removals`, writing its answer to `out`; each session it destroys, or
 /// plans to, has its hold in this process's `holds` warned of, and once
 /// destroyed discarded (s4-Q14, H4: the hold is the client's).
-#[cfg(feature = "session-destroy")]
+#[cfg(feature = "purge")]
 pub fn destroy<R: SessionRemovals>(
     session: &Session,
     removals: &R,
@@ -535,7 +535,7 @@ async fn execute<S: WorktreeUse>(
             unreachable!("a read is the daemon's: session_cli::read")
         }
         // The daemon's: `destroy` runs them.
-        #[cfg(feature = "session-destroy")]
+        #[cfg(feature = "purge")]
         Some(SessionVerb::Remove(_) | SessionVerb::Sweep(_)) => {
             unreachable!("a destroy is the daemon's: session_cli::destroy")
         }
@@ -623,10 +623,10 @@ async fn list<R: SessionReads>(
     listing(&listed, format, out)
 }
 
-/// `session remove`: the destroy (owner ruling 98, the session-destroy
+/// `session remove`: the destroy (owner ruling 98, the purge
 /// feature's), which the DAEMON runs (owner, 2026-11-12): reported, and
 /// applied on `--yes`. A refused removal prints its plan, then fails.
-#[cfg(feature = "session-destroy")]
+#[cfg(feature = "purge")]
 async fn remove<R: SessionRemovals>(
     removals: &R,
     (holds, asking): (&dyn SessionHolds, &dyn crate::Asking),
@@ -717,7 +717,7 @@ async fn remove<R: SessionRemovals>(
 }
 
 /// A removal preview's Confirm need: its id and its question.
-#[cfg(feature = "session-destroy")]
+#[cfg(feature = "purge")]
 fn confirmation(needs: &[v1::Need]) -> Option<(&str, &str)> {
     needs.iter().find_map(|need| match &need.kind {
         Some(v1::need::Kind::Confirm(confirm)) => Some((need.id.as_str(), confirm.text.as_str())),
@@ -726,15 +726,15 @@ fn confirmation(needs: &[v1::Need]) -> Option<(&str, &str)> {
 }
 
 /// `session sweep`'s purge age flag.
-#[cfg(feature = "session-destroy")]
+#[cfg(feature = "purge")]
 const PURGE_FLAG: &str = "--purge-older-than";
 
 /// `session remove`'s age form's flag: the same sweep, by that age.
-#[cfg(feature = "session-destroy")]
+#[cfg(feature = "purge")]
 const AGE_FLAG: &str = "--older-than";
 
 /// A sweep as asked, by `session sweep` or `session remove --older-than`.
-#[cfg(feature = "session-destroy")]
+#[cfg(feature = "purge")]
 struct Sweep<'a> {
     all_projects: bool,
     /// The purge age, with the flag it was given by.
@@ -746,9 +746,9 @@ struct Sweep<'a> {
 
 /// `session sweep` (and `session remove --older-than`, the same sweep):
 /// every session's fate reported by the daemon, and with `--yes` acted on
-/// there (a destroy: the session-destroy feature's). An age that is none is
+/// there (a destroy: the purge feature's). An age that is none is
 /// refused here, naming its flag, before the daemon is asked.
-#[cfg(feature = "session-destroy")]
+#[cfg(feature = "purge")]
 async fn sweep<R: SessionRemovals>(
     removals: &R,
     holds: &dyn SessionHolds,
@@ -827,13 +827,13 @@ async fn sweep<R: SessionRemovals>(
 
 /// A hold this process could not read or discard: a failure (32), never a
 /// quiet leftover.
-#[cfg(feature = "session-destroy")]
+#[cfg(feature = "purge")]
 fn hold_failure(error: reclaim_application::HoldError) -> Failure {
     Failure::new(error, Exit::FAILED, Vec::new())
 }
 
 /// A reclaim use case's failure: its diagnostic and exit code.
-#[cfg(feature = "session-destroy")]
+#[cfg(feature = "purge")]
 fn reclaim_failure(error: ReclaimError) -> Failure {
     let exit = error.exit();
     Failure::new(error, exit, Vec::new())

@@ -687,7 +687,7 @@ async fn a_blocked_use_case_holds_no_async_worker() {
     assert_eq!(waiting.await.unwrap().unwrap().into_inner().pid, 7);
 }
 
-// M5: a `session-destroy` build serves DeleteSession and SweepSessions; a
+// M5: a `purge` build serves DeleteSession and SweepSessions; a
 // refused removal is its typed refusal, its plan inside, in the details.
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn a_destroy_build_serves_delete_and_sweep() {

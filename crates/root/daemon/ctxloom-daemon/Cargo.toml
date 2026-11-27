@@ -130,7 +130,7 @@ os = { workspace = true, features = ["test-support"] }
 
 [features]
 # `session destroy`, served by the daemon (owner rulings 94, 94b, 98).
-session-destroy = ["ctxloom-wiring/session-destroy", "daemon-api-grpc/session-destroy"]
+purge = ["ctxloom-wiring/purge", "daemon-api-grpc/purge"]
 test-support = [
     "ctxloom-wiring/test-support",
     "ctxloom-store-sqlite/test-support",

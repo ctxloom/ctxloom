@@ -1,6 +1,6 @@
 # The release (owner rulings 2026-11-12), on a pushed `v*` tag: ctxloom/ci's
 # reusable binaries workflow builds the PLAIN binary (no test-support, no
-# session-destroy, Cargo.toml's release profile, versionator-stamped by
+# purge, Cargo.toml's release profile, versionator-stamped by
 # build.rs) for linux-x86_64, windows-x86_64, macos-arm64 and macos-x86_64,
 # each stripped NEXT TO its debug file (`just release-package <os>`: linux
 # `<name>.debug`, macOS `<name>.dSYM.zip`, Windows `<name>.pdb`), the binary

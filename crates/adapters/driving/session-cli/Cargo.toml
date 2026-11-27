@@ -32,11 +32,11 @@ mutants.workspace = true
 # tests is the order the binary prints (OQ-21's byte-equality spike).
 serde_json = { workspace = true, features = ["preserve_order"] }
 # The crate's own tests (and its lint, `--all-targets`) hold `session remove`,
-# the destroy (owner rulings 94b, 98), which only `session-destroy` compiles: the
+# the destroy (owner rulings 94b, 98), which only `purge` compiles: the
 # crate depends on itself with it, for its tests alone. A plain build builds no
 # dev-dependency, so the shipped binary stays without it
 # (scripts/plain-destroy-check.sh).
-session-cli = { path = ".", features = ["session-destroy"] }
+session-cli = { path = ".", features = ["purge"] }
 sessions-application = { workspace = true, features = ["test-support"] }
 
 
@@ -47,7 +47,7 @@ test-support = []
 # rulings 94, 94b, 98): its stream, its runs' streams, its directory and lock.
 # Off in a plain build, where both verbs are unknown and nothing deletes a
 # session (scripts/plain-destroy-check.sh, in `just build`).
-session-destroy = []
+purge = []
 
 [lints]
 workspace = true

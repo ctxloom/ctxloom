@@ -126,7 +126,7 @@ feature file; it belongs in git history.
 - **Switching an engine back** is `agent edit --engine <old>`; there is no new verb.
 - **Sessions:** `session remove <harp>` or `session remove --older-than <age>` is the one
   destroyer (owner ruling 98, 2026-11-10: the verb is `remove`, built only under the
-  `session-destroy` feature; `session purge` is dropped).
+  `purge` feature; `session purge` is dropped).
   - The session is gone, from disk and the listing. A session holding anything the human wrote
     is destroyed with it after a warning naming each thing (owner ruling 104: a notice, not a
     refusal).

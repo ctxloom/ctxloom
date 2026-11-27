@@ -6,7 +6,7 @@
 # it each test process (nextest runs one per test) built them itself, a cargo
 # freshness check of about 2.3 s per test.
 #
-# - CTXLOOM_TEST_BINARY: `ctxloom` with `test-support,session-destroy`
+# - CTXLOOM_TEST_BINARY: `ctxloom` with `test-support,purge`
 #   (crates/root/bin/ctxloom/src/main.test.rs `binary()`);
 # - CTXLOOM_TEST_COMPANION_STUB: `ctxloom-companion-stub`
 #   (companion_stub.test.rs `binary()`).
@@ -31,7 +31,7 @@ built() {
             and .executable != null) | .executable' | tr -d '\r'
 }
 
-ctxloom=$(built ctxloom --package ctxloom --features test-support,session-destroy)
+ctxloom=$(built ctxloom --package ctxloom --features test-support,purge)
 stub=$(built ctxloom-companion-stub --package stub-companion)
 for exe in "$ctxloom" "$stub"; do
     if [ ! -x "$exe" ]; then

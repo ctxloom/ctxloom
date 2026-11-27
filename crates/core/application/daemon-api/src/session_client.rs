@@ -99,7 +99,7 @@ pub enum Removed {
 }
 
 /// The destroys a command asks of its daemon (`session remove`, `session
-/// sweep`: the `session-destroy` build's verbs).
+/// sweep`: the `purge` build's verbs).
 #[allow(async_fn_in_trait)]
 pub trait SessionRemovals {
     /// `session remove <harp>`: this project's session removed whole or not

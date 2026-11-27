@@ -671,8 +671,18 @@ is gone). There is
 one deleting verb: `session purge` is gone in every build, and a plain build
 has no deleting verb at all (accepted cost: it cannot hide a session from the
 listings); `scripts/plain-destroy-check.sh`, run by `just build`, holds the
-plain binary to knowing none of `remove`, `purge` or `sweep`. The acceptance
-tests build with the feature, and `session-cli` (and `daemon-api-grpc`)
+plain binary to knowing none of `remove`, `purge` or `sweep`. TWO FLAVOURS
+are built and released (owner ruling 2026-11-26): the default, `ctxloom`,
+append-only with no deleting verb, and `ctxloom-purge`, built with `--features
+purge` (`just release-binary [profile] purge`, `release-binary-purge`;
+`scripts/purge-present-check.sh` holds it to HAVING `remove` and `sweep`). The
+acceptance tests build with the feature unless `CTXLOOM_TEST_FLAVOUR=plain`
+(`files.test.rs`; `scripts/nextest-build-binaries.sh` reads it too), which builds
+the binary without it, leaves out the scenarios tagged `@purge` (on a Scenario,
+Rule or Feature: those that run a destroy verb) and skips the Rust tests that
+ask `files::needs_purge()`; CI runs `just test` in both flavours. The crates'
+own unit tests compile `purge` either way, through their self dev-dependencies,
+and `session-cli` (and `daemon-api-grpc`)
 dev-depends on itself with it, so its tests and `--all-targets` lint compile the destroy (no
 `feature_rules` entry: the mutation recipe refuses one). A destroy is a T28
 sequence on the PROJECT stream (O2, step 10b U9): the domain's
@@ -5435,7 +5445,9 @@ the unix one is unchanged), and the plain-binary checks find `ctxloom.exe`
 and give it a USERPROFILE, TEMP and SYSTEMROOT.
 
 The binaries are a workflow of their own, parallel to CI
-(`.github/workflows/binaries.yml`, on a push to main or a dispatch): the
+(`.github/workflows/binaries.yml`, on a push to main or a dispatch; each job
+twice, the plain `ctxloom` and the purge flavour `ctxloom-purge`, from
+`release-binary-purge` and `release-package-purge`): the
 shared binaries workflow builds the plain binary in the `ci-artifact`
 profile (`just release-binary ci-artifact`: no test-support, no
 purge, cargo's release defaults, no LTO, no debug info, the two
@@ -5495,7 +5507,8 @@ Releases (`.github/workflows/release.yml`, owner rulings 2026-11-12): a person
 runs `just set-version <v>`, commits, and pushes the tag `v<v>` on that
 commit (agents never tag). The shared binaries workflow refuses a tag that is
 not VERSION's, then packages the four plain binaries (`just release-package
-<os>`) named `ctxloom-<stamp>-<os>-<arch>`, each archived (`.tar.gz`, `.zip`
+<os>`) named `ctxloom-<stamp>-<os>-<arch>` and the four purge ones
+(`release-package-purge`) named `ctxloom-purge-<stamp>-<os>-<arch>`, each archived (`.tar.gz`, `.zip`
 on Windows) beside its debug file (`.debug`, `.dSYM.zip`, `.pdb`); the
 shared release workflow adds `install.sh` and `install.ps1` (ctxloom/ci's
 installers, their defaults set to this repository and `ctxloom`: checksum

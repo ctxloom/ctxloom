@@ -908,7 +908,7 @@ pub(crate) fn scenario_ids(file: &Path) -> Option<Vec<String>> {
         .iter()
         .flat_map(|r| r.scenarios.iter().map(move |s| (Some(r), s)));
     for (rule, scenario) in plain.chain(ruled) {
-        if is_pending(&feature, rule, scenario) {
+        if left_out(&feature, rule, scenario) {
             continue;
         }
         let id = scenario_id(&name, rule, scenario);
@@ -1036,7 +1036,7 @@ where
             .max_concurrent_scenarios(at_once)
             .fail_on_skipped()
             .filter_run(file, move |feature, rule, scenario| {
-                !is_pending(feature, rule, scenario)
+                !left_out(feature, rule, scenario)
                     && only
                         .as_deref()
                         .is_none_or(|id| scenario_id(&chosen, rule, scenario) == id)
@@ -1278,6 +1278,18 @@ pub(crate) fn is_pending(feature: &Feature, rule: Option<&Rule>, scenario: &Scen
     tagged_pending(&feature.tags)
         || rule.is_some_and(|r| tagged_pending(&r.tags))
         || tagged_pending(&scenario.tags)
+}
+
+/// Whether the runner leaves a scenario out: pending, or tagged `@purge` (it
+/// runs a destroy verb, which only a `purge` build has) when the acceptance
+/// binary is the default flavour (`CTXLOOM_TEST_FLAVOUR=plain`).
+pub(crate) fn left_out(feature: &Feature, rule: Option<&Rule>, scenario: &Scenario) -> bool {
+    let purge = |tags: &[String]| tags.iter().any(|t| t == "purge");
+    is_pending(feature, rule, scenario)
+        || (!crate::tests::files::purge_flavour()
+            && (purge(&feature.tags)
+                || rule.is_some_and(|r| purge(&r.tags))
+                || purge(&scenario.tags)))
 }
 
 /// Whether a tag list carries `@pending`.

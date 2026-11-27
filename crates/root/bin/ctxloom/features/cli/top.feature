@@ -202,6 +202,7 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
       And within 10 seconds a line of "the wide one" has "session_changed.session.name" containing "/sessions/brisk-copper-moth"
       And that line reports "session_changed.session.state" as "ENDED"
 
+    @purge
     Scenario: A destroyed session is removed from every view, with the reason
       # new: DESTROYED against LEFT_FILTER; DRAFT.
       Given an initialized ctxloom project
@@ -290,6 +291,7 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
       Then the command exits with code 48
       And the refusal is "session-cli-top-tree-without-session"
 
+    @purge
     Scenario: A one-session watch ends when its session is destroyed
       # new: DRAFT; the scope is gone, so the stream says so and ends, exit 0.
       Given an initialized ctxloom project
@@ -299,6 +301,7 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
       Then within 10 seconds a line has "session_removed.reason" as "DESTROYED"
       And the stream then ends and the command exits with code 0
 
+    @purge
     Scenario: A subtree watch whose root is destroyed ends the same way
       # new: DRAFT.
       Given an initialized ctxloom project

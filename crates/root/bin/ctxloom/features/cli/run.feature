@@ -665,6 +665,7 @@ Feature: run — assembling a project's context and handing it to an engine
     (S55): a rename sets the session's title, live or ended, and its directory
     and lock stay under its harp.
 
+    @purge
     Scenario: While her session runs another terminal sees it live, titles it, and cannot remove it
       # new: concurrent-primaries defects 1 and 2, with a stub engine on PATH
       # that runs the other terminal's commands itself, while it runs.

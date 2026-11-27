@@ -12,6 +12,12 @@
 # push the tag `v<v>` (CLAUDE.md, "Releases"); a tag that is not VERSION's
 # is refused before anything is built.
 #
+# Both flavours (owner ruling 2026-11-26): the plain binary `ctxloom` and the
+# `purge` one `ctxloom-purge` (the cargo feature of that name, which adds the
+# destroy verbs), each its own binaries job and its own archives,
+# `ctxloom-<stamp>-<os>-<arch>` and `ctxloom-purge-<stamp>-<os>-<arch>`;
+# `release` attaches all sixteen files (`ctxloom-*` matches both).
+#
 # `workflow_dispatch` builds the same files and uploads them as the run's
 # artifacts (`release-files` holds SHA256SUMS and the installers), and
 # creates NO release.
@@ -34,13 +40,21 @@ jobs:
       bin: ctxloom
       profile: release
 
+  binaries-purge:
+    uses: ctxloom/ci/.github/workflows/binaries.yml@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
+    with:
+      bin: ctxloom-purge
+      profile: release
+      build-recipe: release-binary-purge
+      package-recipe: release-package-purge
+
   release:
-    needs: binaries
+    needs: [binaries, binaries-purge]
     permissions:
       contents: write # the release job alone creates the release
     uses: ctxloom/ci/.github/workflows/release.yml@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
     with:
       bin: ctxloom
       ci-ref: fa01764571615bd3174313e84631bdd5c13a02e6
-      # Four archives and four debug files.
-      expected-files: 8
+      # Four archives and four debug files, for each of the two flavours.
+      expected-files: 16

@@ -434,6 +434,9 @@ fn test_a_query_that_matches_nothing_says_so() {
 // says it is kept" (the listing and the destroyer; --undo releases it).
 #[test]
 fn test_keep_marks_the_listing_and_undo_releases_it() {
+    if !crate::tests::files::needs_purge() {
+        return;
+    }
     let home = Home::new();
     home.finished(HARP);
     let kept = home.run(&["session", "keep", HARP]);
@@ -469,6 +472,9 @@ fn test_keeping_a_session_nobody_recorded_fails_naming_it() {
 // session.feature: "Delete reports before it removes".
 #[test]
 fn test_remove_reports_before_it_removes() {
+    if !crate::tests::files::needs_purge() {
+        return;
+    }
     let home = Home::new();
     home.finished(HARP);
     let ran = home.run(&["session", "remove", HARP]);
@@ -488,6 +494,9 @@ fn test_remove_reports_before_it_removes() {
 // leaves the output dir (the human's).
 #[test]
 fn test_remove_yes_takes_the_index_entry_and_the_transcript_and_leaves_the_output_dir() {
+    if !crate::tests::files::needs_purge() {
+        return;
+    }
     let home = Home::new();
     home.finished(HARP);
     let essence = home.leave_summary(HARP);
@@ -504,6 +513,9 @@ fn test_remove_yes_takes_the_index_entry_and_the_transcript_and_leaves_the_outpu
 // native history, its lock too, and its events: nothing shows it afterwards.
 #[test]
 fn test_remove_yes_destroys_the_whole_session_its_directory_lock_and_events() {
+    if !crate::tests::files::needs_purge() {
+        return;
+    }
     let home = Home::new();
     home.finished(HARP);
     home.seed(
@@ -568,6 +580,9 @@ fn test_there_is_no_session_purge() {
 // destroyer": a session that finished an hour ago.
 #[test]
 fn test_remove_within_the_retention_is_refused() {
+    if !crate::tests::files::needs_purge() {
+        return;
+    }
     let home = Home::new();
     home.seed(
         "brisk-copper-moth",
@@ -591,6 +606,9 @@ fn test_remove_within_the_retention_is_refused() {
 // the escape is named", and "--even-if-live sweeps it anyway".
 #[test]
 fn test_remove_of_a_session_the_lock_cannot_prove_dead_is_refused_and_the_escape_is_named() {
+    if !crate::tests::files::needs_purge() {
+        return;
+    }
     let home = Home::new();
     home.seed(
         HARP,

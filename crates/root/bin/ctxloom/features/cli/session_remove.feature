@@ -12,6 +12,7 @@
 #   verb's one override is `--even-if-live`, and a person's files go with the
 #   session after a warning that names each. `session remove` is built only
 #   with the `purge` feature, which the acceptance tests turn on.
+@purge
 Feature: session remove — the one destroyer, and a removed session is gone
 
   `ctxloom session remove <harp>` destroys one session: its events and its

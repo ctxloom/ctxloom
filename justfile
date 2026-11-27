@@ -296,59 +296,80 @@ install-windows when="":
         *) echo "todo add $win_dir to your user Path (Settings > System > About > Advanced system settings > Environment Variables), then open a new terminal" ;;
     esac
 
-# Build the binary that ships (owner ruling 2026-11-12): the PLAIN binary (no
-# test-support, no purge; held to that by the two checks `just
-# build` runs), versionator-stamped by build.rs, in `profile`: `release` (the
-# default; Cargo.toml's release profile, fat LTO with line tables, which
+# Build the binary that ships (owner ruling 2026-11-12): no test-support,
+# versionator-stamped by build.rs, in `profile`: `release` (the default;
+# Cargo.toml's release profile, fat LTO with line tables, which
 # `release-package` splits and strips) or `ci-artifact` (CI's per-push
-# artifact on main: cargo's release defaults, no LTO, unstripped). The gate's
-# `ok`/`FAIL` line goes to stderr; stdout is the binary's path alone
-# (`ctxloom.exe` on Windows), for a caller to take with `$(just release-binary)`.
-# CARGO_BUILD_TARGET, when set, is cargo's target (a cross build: ctxloom/ci's
-# binaries workflow builds x86_64-apple-darwin on an arm64 macOS runner), and
-# the binary is under target/<triple>/<profile>/.
+# artifact on main: cargo's release defaults, no LTO, unstripped). `flavour`
+# is `plain` (the default: append-only, no deleting verb; held to that by the
+# two checks `just build` runs) or `purge` (the cargo feature of that name, the
+# destroy verbs; held to HAVING them by `session remove --help`). The two
+# flavours build into one directory, so a caller packages one before it builds
+# the other. The gate's `ok`/`FAIL` line goes to stderr; stdout is the binary's
+# path alone (`ctxloom.exe` on Windows), for a caller to take with
+# `$(just release-binary)`. CARGO_BUILD_TARGET, when set, is cargo's target (a
+# cross build: ctxloom/ci's binaries workflow builds x86_64-apple-darwin on an
+# arm64 macOS runner), and the binary is under target/<triple>/<profile>/.
 [group('install')]
-[doc("Build the plain binary (profile release|ci-artifact) and print its path")]
+[doc("Build the shipped binary (profile release|ci-artifact, flavour plain|purge) and print its path")]
 [no-exit-message]
-release-binary profile="release":
+release-binary profile="release" flavour="plain":
     #!/usr/bin/env bash
     set -euo pipefail
     case '{{profile}}' in
         release | ci-artifact) ;;
         *) echo "FAIL release-binary: profile '{{profile}}' is not release or ci-artifact" >&2; exit 1 ;;
     esac
+    features=(); check='{{TOP}}/scripts/plain-destroy-check.sh'
+    case '{{flavour}}' in
+        plain) ;;
+        purge) features=(--features purge); check='{{TOP}}/scripts/purge-present-check.sh' ;;
+        *) echo "FAIL release-binary: flavour '{{flavour}}' is not plain or purge" >&2; exit 1 ;;
+    esac
     terse=(-q --message-format=short)
     [ "${VERBOSE:-}" = 1 ] && terse=()
     target=${CARGO_TARGET_DIR:-{{TOP}}/target}
     built="$target/${CARGO_BUILD_TARGET:+$CARGO_BUILD_TARGET/}{{profile}}/ctxloom"
     just --justfile {{TOP}}/justfile _run release-binary ctxloom cargo \
-        bash -c 'cargo build "${@:5}" --profile "$3" --manifest-path "$1/Cargo.toml" --package ctxloom --bin ctxloom &&
-            "$1/scripts/plain-engines-check.sh" "$2" &&
-            "$1/scripts/plain-destroy-check.sh" "$2"' release-binary {{TOP}} "$built" '{{profile}}' "${terse[@]}" >&2
+        bash -c 'top=$1; built=$2; profile=$3; check=$4; shift 4
+            cargo build "$@" --profile "$profile" --manifest-path "$top/Cargo.toml" --package ctxloom --bin ctxloom &&
+            "$top/scripts/plain-engines-check.sh" "$built" &&
+            "$check" "$built"' release-binary {{TOP}} "$built" '{{profile}}' "$check" ${features[@]+"${features[@]}"} "${terse[@]}" >&2
     [ -f "$built.exe" ] && built=$built.exe
     echo "$built"
+
+# `release-binary` for the purge flavour, under a recipe name of its own so a
+# caller that takes a recipe name alone (ctxloom/ci's binaries workflow:
+# `build-recipe`, `package-recipe`) can ask for it.
+[group('install')]
+[doc("Build the purge flavour of the shipped binary and print its path")]
+[no-exit-message]
+release-binary-purge profile="release":
+    @just --justfile {{TOP}}/justfile release-binary '{{profile}}' purge
 
 # The release's files for `os` (linux, macos or windows): the release-profile
 # binary, stripped, next to its debug file (linux `<name>.debug` by its
 # .gnu_debuglink and build id, macOS `<name>.dSYM.zip`, Windows `<name>.exe`
 # with `<name>.pdb`), in `out`, named `<name>` (release.yml's
-# `ctxloom-<stamp>-<os>-<arch>`; by default `ctxloom-<stamp>-<os>-<machine>`).
+# `ctxloom-<stamp>-<os>-<arch>`; by default `ctxloom-<stamp>-<os>-<machine>`,
+# `ctxloom-purge-...` for the purge flavour).
 # scripts/release-package.sh does the work; on linux it also proves the debug
 # file resolves an address of the stripped binary to file:line when an
 # llvm-symbolizer is found. stdout: the files' paths, one per line.
 # `profile` is release-binary's: `ci-artifact` (debug = 0, nothing to split)
 # packages the binary alone, copied as `<name>[.exe]`, one line.
 [group('install')]
-[doc("Package the release binary with its debug file: release-package <linux|macos|windows> [out] [name] [profile]")]
+[doc("Package the release binary with its debug file: release-package <linux|macos|windows> [out] [name] [profile] [flavour]")]
 [no-exit-message]
-release-package os out="dist" name="" profile="release":
+release-package os out="dist" name="" profile="release" flavour="plain":
     #!/usr/bin/env bash
     set -euo pipefail
-    bin=$(just --justfile {{TOP}}/justfile release-binary '{{profile}}')
+    bin=$(just --justfile {{TOP}}/justfile release-binary '{{profile}}' '{{flavour}}')
     name='{{name}}'
     if [ -z "$name" ]; then
         stamp=$("$bin" version --format json | jq -r .version | tr -d '\r')
-        name="ctxloom-$stamp-{{os}}-$(uname -m)"
+        prefix=ctxloom; [ '{{flavour}}' = plain ] || prefix="ctxloom-{{flavour}}"
+        name="$prefix-$stamp-{{os}}-$(uname -m)"
     fi
     if [ '{{profile}}' = ci-artifact ]; then
         mkdir -p '{{out}}'
@@ -358,6 +379,14 @@ release-package os out="dist" name="" profile="release":
         exit 0
     fi
     {{TOP}}/scripts/release-package.sh '{{os}}' "${bin%.exe}" '{{out}}' "$name"
+
+# `release-package` for the purge flavour, under a recipe name of its own (see
+# `release-binary-purge`).
+[group('install')]
+[doc("Package the purge flavour: release-package-purge <linux|macos|windows> [out] [name] [profile]")]
+[no-exit-message]
+release-package-purge os out="dist" name="" profile="release":
+    @just --justfile {{TOP}}/justfile release-package '{{os}}' '{{out}}' '{{name}}' '{{profile}}' purge
 
 # Install the arch-lint binary at the pinned rust-support commit, unless it is
 # there; and refuse a pin that differs from the one Cargo.toml has.

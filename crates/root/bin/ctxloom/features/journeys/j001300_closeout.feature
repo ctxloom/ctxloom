@@ -2,7 +2,7 @@
 # Ported from journeys/j001300_closeout.feature (rev f36e8dfb2)
 # NOT ported: nothing.
 
-@doc
+@doc @purge
 Feature: The close-out — the end of a workstream
 
   The feature shipped on Monday. The next week the debris is real, and none of it is

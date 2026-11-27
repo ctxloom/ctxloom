@@ -41,6 +41,7 @@ Feature: session worktrees - the scratch checkouts a session left behind
 
     # A harp-scoped purge does not stray outside its harp: the running and the
     # unprovable sessions beside it keep their worktrees.
+    @purge
     Scenario: Purging removes only what it can prove is safe, and says why it left the rest
       # substitution: the verb is `session remove` (`session worktrees purge` is retired); the purged session holds only a clean tree, since uncommitted work keeps its whole session (next scenario).
       Given a finished session "amber-quiet-heron" whose transcript retention has passed
@@ -59,6 +60,7 @@ Feature: session worktrees - the scratch checkouts a session left behind
     # work is never taken: not stashed, not branched, not left to the reflog. It
     # stays in place, read back by its own bytes, and its session is refused
     # whole, so a purged session is always entirely gone.
+    @purge
     Scenario: Emptying a session spares the uncommitted work living inside it
       # substitution: purge is all or nothing, so a session holding uncommitted work is refused whole (its clean sibling stays too) and the report names the worktree, by its row (its path is the platform's, `\` on Windows).
       Given a finished session "amber-quiet-heron" whose transcript retention has passed
@@ -72,6 +74,7 @@ Feature: session worktrees - the scratch checkouts a session left behind
       And the machine-written bulk of "amber-quiet-heron" is still there
 
     # A clean tree survives purely because its session still holds its lock.
+    @purge
     Scenario: Purging a session that is still running removes nothing
       # substitution: the verb is `session remove` (`session worktrees purge` is retired).
       Given a session "teal-running-wren" that is still running
@@ -80,6 +83,7 @@ Feature: session worktrees - the scratch checkouts a session left behind
       Then no worktree of "teal-running-wren" is removed, and ctxloom says it could prove nothing safe
 
     # A missing lock never reads as a free one.
+    @purge
     Scenario: Purging a session nothing can prove the liveness of removes nothing
       # substitution: the verb is `session remove` (`session worktrees purge` is retired).
       Given a session "slate-unproven-vole" nothing can prove the liveness of
@@ -88,6 +92,7 @@ Feature: session worktrees - the scratch checkouts a session left behind
       Then no worktree of "slate-unproven-vole" is removed, and ctxloom says it could prove nothing safe
 
     # Worktrees outside the sessions root are never listed and never purged.
+    @purge
     Scenario: Her own long-lived worktrees are not this verb's business
       # substitution: the verb is `session remove` (`session worktrees purge` is retired).
       Given a finished session "amber-quiet-heron" whose transcript retention has passed

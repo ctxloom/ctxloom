@@ -307,6 +307,7 @@ Feature: writes — every change to ctxloom's own trees is whole or absent, and 
         | ctxloom skill remove demo#skills/review --yes | content/bundles/v2/demo/skills/review |
         | ctxloom clean --yes                           | cache/context                         |
 
+    @purge
     Scenario Outline: A sequence that takes something to the trash leaves no trash once it ends
       # new: step 10 G12(a), a sequence's own trash is purged by its last step.
       Given an initialized ctxloom project
@@ -342,6 +343,7 @@ Feature: writes — every change to ctxloom's own trees is whole or absent, and 
       And a session "amber-swift-owl" that is still running
       Then its lock is "sessions/amber-swift-owl/session.lock", inside its directory
 
+    @purge
     Scenario Outline: A sequence killed between its steps converges when the command is run again
       # new: the crash-mid-sequence retry.
       Given an initialized ctxloom project

@@ -116,6 +116,9 @@ fn held_row(env: &Env) -> Value {
 // facts go with it" (H-Q8 (a)).
 #[test]
 fn test_removing_a_session_warns_that_its_held_facts_go_with_it() {
+    if !crate::tests::files::needs_purge() {
+        return;
+    }
     let env = ended();
     let name = name_of(&env, HARP);
     let held = hold(&env, &name, 3);
@@ -131,6 +134,9 @@ fn test_removing_a_session_warns_that_its_held_facts_go_with_it() {
 // A removal's report warns of the held facts, and keeps them.
 #[test]
 fn test_a_removal_report_warns_of_the_held_facts_and_keeps_them() {
+    if !crate::tests::files::needs_purge() {
+        return;
+    }
     let env = ended();
     let name = name_of(&env, HARP);
     let held = hold(&env, &name, 2);

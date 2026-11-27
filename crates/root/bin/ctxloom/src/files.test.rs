@@ -26,6 +26,33 @@ pub(crate) fn runs_scripts() -> bool {
     false
 }
 
+/// The variable that picks the flavour the acceptance tests build and run:
+/// `plain` (the default build, which has no deleting verb) or `purge` (the
+/// `purge` feature, which adds them); unset is `purge`, so a local run covers
+/// every scenario. Read by `main.test.rs`'s `binary()` and by
+/// `scripts/nextest-build-binaries.sh`, which must agree.
+pub(crate) const FLAVOUR_VARIABLE: &str = "CTXLOOM_TEST_FLAVOUR";
+
+/// Whether the acceptance binary is the `purge` flavour. A test that runs a
+/// destroy verb asks it first and, in the plain flavour, is skipped and says
+/// so on stderr, `SKIP <test>: <why>`, never silently.
+pub(crate) fn purge_flavour() -> bool {
+    crate::tests::host_var(FLAVOUR_VARIABLE).is_none_or(|flavour| flavour != "plain")
+}
+
+/// [`purge_flavour`], saying the skip for the asking test when it is not.
+pub(crate) fn needs_purge() -> bool {
+    if purge_flavour() {
+        return true;
+    }
+    let test = std::thread::current();
+    eprintln!(
+        "SKIP {}: it runs a destroy verb, which only a `purge` build has",
+        test.name().unwrap_or("a test")
+    );
+    false
+}
+
 /// Whether this host keeps a file's execute bits: unix. Windows keeps none
 /// (a file is one it would run by its extension), so a test of what a bit on
 /// disk does is skipped there and says so, `SKIP <test>: <why>`.

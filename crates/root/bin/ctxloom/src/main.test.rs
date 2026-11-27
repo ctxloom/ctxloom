@@ -216,7 +216,11 @@ pub(crate) fn binary() -> &'static Path {
                 "--bin",
                 "ctxloom",
                 "--features",
-                "test-support,purge",
+                if crate::tests::files::purge_flavour() {
+                    "test-support,purge"
+                } else {
+                    "test-support"
+                },
             ])
             .arg("--manifest-path")
             .arg(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"))

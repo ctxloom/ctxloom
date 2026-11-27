@@ -132,7 +132,15 @@ jobs:
         with:
           node-version: "22"
       - run: just build
-      - name: just test (uncapped, TESTS_MEMORY_MAX=none)
+      - name: just test (purge flavour, uncapped, TESTS_MEMORY_MAX=none)
+        run: |
+          echo "test gates: memory cap: none (TESTS_MEMORY_MAX=none): this runner's VM is the job's alone"
+          just test
+      # The default flavour: the acceptance binary is built without `purge`
+      # and the scenarios tagged @purge are left out (CLAUDE.md, "CI").
+      - name: just test (plain flavour, uncapped, TESTS_MEMORY_MAX=none)
+        env:
+          CTXLOOM_TEST_FLAVOUR: plain
         run: |
           echo "test gates: memory cap: none (TESTS_MEMORY_MAX=none): this runner's VM is the job's alone"
           just test

@@ -189,6 +189,7 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
         | ctxloom daemon status         | 0    |
         | ctxloom daemon stop           | 0    |
 
+    @purge
     Scenario Outline: A write that cannot start a daemon fails, and changes no file
       # new: step 10 D17, the cannot-start rows per noun: no write falls back to the files.
       Given an initialized ctxloom project
@@ -714,6 +715,7 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
 
   Rule: The preview carries the questions, and the apply answers them
 
+    @purge
     Scenario Outline: Off a terminal, a preview applies nothing, and says with --detailed-exitcode whether it would change something
       # new: the preview's exit codes.
       Given an initialized ctxloom project
@@ -730,6 +732,7 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
         | ctxloom bundle remove notes --detailed-exitcode         | 17   |
         | ctxloom session remove nobody-ever-ran --detailed-exitcode | 48 |
 
+    @purge
     Scenario: At her terminal, the CLI asks Alice the preview's confirmation, and applies her answer
       # new: a client with no elicitation presents the needs itself.
       Given an initialized ctxloom project
@@ -741,6 +744,7 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
       Then the daemon's confirmation was asked at her terminal, and the session is gone
       And the removal was previewed first, and applied with her answer and the preview's tag
 
+    @purge
     Scenario: A client that supports elicitation passes the preview's questions through to its engine
       # new: an MCP client turns needs into elicitations.
       Given an initialized ctxloom project

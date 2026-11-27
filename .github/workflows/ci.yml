@@ -23,6 +23,11 @@
 # is its release binary by checksum, so no job sets up Go; ltk (Linux only,
 # for selftest's ltk-rules-check.sh) is go-installed on a cache miss only.
 #
+# Both flavours (owner ruling 2026-11-26): every test step runs twice, the
+# purge flavour (the full suite) and the plain one (`CTXLOOM_TEST_FLAVOUR=
+# plain`: the default build, whose acceptance binary has no deleting verb and
+# which leaves out the scenarios tagged @purge).
+#
 # The binaries are binaries.yml's (a push to main) and release.yml's (a tag).
 # The nightly (full suites everywhere, macOS x86_64, mutation scoring) is
 # nightly.yml.
@@ -91,13 +96,25 @@ jobs:
           path: ~/.cargo/ctxloom-arch-lint
           key: arch-lint-${{ runner.os }}-${{ hashFiles('justfile') }}
       - run: just build
+      # The purge flavour builds and has the deleting verbs
+      # (scripts/purge-present-check.sh); `just build` held the plain one to
+      # having none.
+      - run: just release-binary ci-artifact purge
       # The ci-platform profile lists every crate on the platform seams.
       - run: scripts/ci-platform-check.sh
       - run: just fmt-check
       - run: just lint
       - run: just lint-os
       - run: just lint-deps
-      - name: just test (uncapped, TESTS_MEMORY_MAX=none)
+      - name: just test (purge flavour, uncapped, TESTS_MEMORY_MAX=none)
+        run: |
+          echo "test gates: memory cap: none (TESTS_MEMORY_MAX=none): this runner's VM is the job's alone"
+          just test
+      # The default flavour: the acceptance binary is built without `purge`
+      # and the scenarios tagged @purge are left out (CLAUDE.md, "CI").
+      - name: just test (plain flavour, uncapped, TESTS_MEMORY_MAX=none)
+        env:
+          CTXLOOM_TEST_FLAVOUR: plain
         run: |
           echo "test gates: memory cap: none (TESTS_MEMORY_MAX=none): this runner's VM is the job's alone"
           just test
@@ -132,7 +149,15 @@ jobs:
       - name: Tool versions
         run: just --version; cargo nextest --version; protoc --version; node --version; jq --version; command -v versionator; echo "nextest profile $NEXTEST_PROFILE"
       - run: just build
-      - name: just test (uncapped, TESTS_MEMORY_MAX=none)
+      - name: just test (purge flavour, uncapped, TESTS_MEMORY_MAX=none)
+        run: |
+          echo "test gates: memory cap: none (TESTS_MEMORY_MAX=none): this runner's VM is the job's alone"
+          just test
+      # The default flavour: the acceptance binary is built without `purge`
+      # and the scenarios tagged @purge are left out (CLAUDE.md, "CI").
+      - name: just test (plain flavour, uncapped, TESTS_MEMORY_MAX=none)
+        env:
+          CTXLOOM_TEST_FLAVOUR: plain
         run: |
           echo "test gates: memory cap: none (TESTS_MEMORY_MAX=none): this runner's VM is the job's alone"
           just test
@@ -166,7 +191,15 @@ jobs:
       - name: Tool versions
         run: just --version; cargo nextest --version; protoc --version; jq --version; sh --version | head -n 1; command -v versionator; echo "nextest profile $NEXTEST_PROFILE"
       - run: just build
-      - name: just test (uncapped, TESTS_MEMORY_MAX=none)
+      - name: just test (purge flavour, uncapped, TESTS_MEMORY_MAX=none)
+        run: |
+          echo "test gates: memory cap: none (TESTS_MEMORY_MAX=none): this runner's VM is the job's alone"
+          just test
+      # The default flavour: the acceptance binary is built without `purge`
+      # and the scenarios tagged @purge are left out (CLAUDE.md, "CI").
+      - name: just test (plain flavour, uncapped, TESTS_MEMORY_MAX=none)
+        env:
+          CTXLOOM_TEST_FLAVOUR: plain
         run: |
           echo "test gates: memory cap: none (TESTS_MEMORY_MAX=none): this runner's VM is the job's alone"
           just test

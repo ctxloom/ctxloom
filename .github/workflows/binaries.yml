@@ -7,6 +7,11 @@
 # `ctxloom-<stamp>-<os>-<arch>.tar.gz` (`.zip` on Windows) holding
 # `ctxloom` (`ctxloom.exe`), its exec bit kept by tar. A dispatch builds the
 # same from any branch.
+#
+# Two flavours (owner ruling 2026-11-26): the plain binary above and the
+# `purge` one (the cargo feature of that name, the destroy verbs), as
+# `ctxloom-purge-<stamp>-<os>-<arch>` holding `ctxloom-purge`, from the
+# recipes `release-binary-purge` and `release-package-purge`.
 
 name: binaries
 
@@ -25,3 +30,11 @@ jobs:
     with:
       bin: ctxloom
       profile: ci-artifact
+
+  binaries-purge:
+    uses: ctxloom/ci/.github/workflows/binaries.yml@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
+    with:
+      bin: ctxloom-purge
+      profile: ci-artifact
+      build-recipe: release-binary-purge
+      package-recipe: release-package-purge

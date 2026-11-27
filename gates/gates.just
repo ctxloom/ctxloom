@@ -819,8 +819,8 @@ _commit-tree commit +recipe:
 # 13-66 GB). `<cache>` is `$GATES_STAGED_CACHE` (the self-tests' seam), else
 # `${XDG_CACHE_HOME:-<the account's home>/.cache}/ctxloom/gates`, the account's
 # home from the passwd database and never from `$HOME`, which a session may
-# have relocated (tests-lock.sh keys on `$HOME`; the two directories agree for
-# a normal login). Worktrees' trees differ, so cargo rebuilds what changed.
+# have relocated (gates/account-cache.sh, shared with tests-lock.sh).
+# Worktrees' trees differ, so cargo rebuilds what changed.
 # Its recipes are its own tree's, so a staged change to these gates is run by
 # the gates it stages. Gate logs go to this checkout's target/logs
 # (GATE_LOG_DIR), not the throwaway tree's.
@@ -839,16 +839,7 @@ _scratch-tree source +recipe:
     # real index. git names its own repository-locating variables.
     scrub=(env)
     while IFS= read -r var; do scrub+=(-u "$var"); done < <(git rev-parse --local-env-vars)
-    cache=${GATES_STAGED_CACHE:-}
-    if [ -z "$cache" ]; then
-        cache=${XDG_CACHE_HOME:-}
-        if [ -z "$cache" ]; then
-            account=$(getent passwd "$(id -u)" 2> /dev/null | cut -d: -f6 || true)
-            [ -n "$account" ] || account=$(eval echo "~$(id -un)")
-            cache=${account:-$HOME}/.cache
-        fi
-        cache=$cache/ctxloom/gates
-    fi
+    cache=${GATES_STAGED_CACHE:-$("$top/gates/account-cache.sh")}
     mkdir -p "$top/target" "$cache"
     lock=$cache/staged-tree.lock
     # `>>`, never `>`: opening must not truncate the holder's note away.

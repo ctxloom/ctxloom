@@ -2858,7 +2858,12 @@ changed binary replaces the installed one (`just install now`: at once),
 through `scripts/install-shutdown.sh` (its self-test in `just selftest`):
 what will not stop (any failure, 10) is said and the install goes on; a
 DECLINE (20-29: holds left undelivered, or a time that is no span) is
-`FAIL install: ...` and the installed binary is not replaced. A daemon's exit lets its
+`FAIL install: ...` and the installed binary is not replaced. Both recipes
+refuse first, exit 48, when `CTXLOOM_SESSION` is set and non-empty
+(`scripts/install-guard.sh`): shutdown would stop the session that ran the
+install (it did, twice, 2026-11-27) and, `$HOME` being the session home, name
+the wrong ctxloom home; run it from your own terminal or as `! just install`
+in the agent prompt. Nothing is built or installed. A daemon's exit lets its
 runtime go within `RUNTIME_END` (5 s, `Runtime::shutdown_timeout`), never
 waited on for good: a live frontend's session keeps a blocking task (its
 `WatchRun`) that a plain drop waited out for the frontend's life, every
@@ -5617,8 +5622,15 @@ Whole-workspace test runs are serialized MACHINE-WIDE (2026-11-16: up to
 three agents share one machine, and two memory-capped runs at once can
 still take all its RAM; two global OOMs did). `gates/tests-lock.sh
 <label> <command>...` runs the command under a `flock` on one file per
-user, `${XDG_CACHE_HOME:-$HOME/.cache}/ctxloom/gates/workspace-tests.lock`
-(`TESTS_LOCK_FILE` overrides it, the self-tests' seam), never under
+user, `${XDG_CACHE_HOME:-<account home>/.cache}/ctxloom/gates/workspace-tests.lock`
+(`TESTS_LOCK_FILE` overrides it, the self-tests' seam). The account's home is
+the passwd database's, never `$HOME`, which an agent session relocates (ruling
+112; 2026-11-27: ten session homes each had a lock file, so sessions did not
+serialize): `gates/account-cache.sh` is the ONE resolution, shared with the
+staged target (`_scratch-tree`) and `scripts/land-sweep.sh`, and
+`scripts/home-guard.selftest.sh` (in `just selftest`) refuses a bare `$HOME`
+in `gates/`, `scripts/` and the justfile that is not in
+`scripts/home-allow.txt` with its reason. The lock is never under
 `$XDG_RUNTIME_DIR`, which an agent's shell often lacks or sets itself and
 which goes when the last session ends; the path names no repository, so
 the gates' copies in taskloom and annals would share it. Its takers:

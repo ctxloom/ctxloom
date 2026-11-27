@@ -54,4 +54,21 @@ for rc in 48 49 63; do
     grep -q "nothing of ctxloom runs" "$tmp/out" && fail "a decline ($rc) said done"
 done
 
+# scripts/install-guard.sh, run first by both install recipes: refuses (48,
+# a FAIL line and a fix naming the terminal and `!`) inside a session, goes
+# on when CTXLOOM_SESSION is unset or empty.
+guard=$here/install-guard.sh
+rc=0
+CTXLOOM_SESSION=projects/p/sessions/s "$guard" > "$tmp/gout" 2> "$tmp/gerr" || rc=$?
+[ "$rc" = 48 ] || fail "in a session the guard did not refuse with 48: got $rc"
+grep -q "^FAIL install: refused inside a ctxloom session" "$tmp/gerr" || fail "guard FAIL line: $(cat "$tmp/gerr")"
+grep -q "own terminal.*\`!\`" "$tmp/gerr" || fail "guard fix: $(cat "$tmp/gerr")"
+env -u CTXLOOM_SESSION "$guard" || fail "outside a session the guard refused"
+CTXLOOM_SESSION= "$guard" || fail "an empty CTXLOOM_SESSION refused"
+# Both recipes call it before anything is built.
+for r in "^install when" "^install-windows when"; do
+    sed -n "/$r/,/install-guard.sh/p" "$here/../justfile" | grep -q 'install-guard.sh' || fail "recipe $r does not call the guard"
+    sed -n "/$r/,/install-guard.sh/p" "$here/../justfile" | grep -q 'cargo build\|install-build' && fail "recipe $r builds before the guard"
+done
+
 echo "ok   install-shutdown.selftest"

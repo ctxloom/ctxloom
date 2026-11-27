@@ -85,17 +85,8 @@ sweep_incremental() {
 }
 
 sweep_staged() {
-    local cache account
-    cache=${GATES_STAGED_CACHE:-}
-    if [ -z "$cache" ]; then
-        cache=${XDG_CACHE_HOME:-}
-        if [ -z "$cache" ]; then
-            account=$(getent passwd "$(id -u)" 2> /dev/null | cut -d: -f6 || true)
-            [ -n "$account" ] || account=$(eval echo "~$(id -un)")
-            cache=${account:-$HOME}/.cache
-        fi
-        cache=$cache/ctxloom/gates
-    fi
+    local cache
+    cache=${GATES_STAGED_CACHE:-$("$(dirname "${BASH_SOURCE[0]}")/../gates/account-cache.sh")}
     local st=$cache/staged-target d n freed=0 size limit
     [ -d "$st" ] || { echo "skip  sweep (staged-target): none"; return; }
     if ! limit=$(numfmt --from=iec "${cap%B}" 2> /dev/null); then

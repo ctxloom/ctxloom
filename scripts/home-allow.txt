@@ -1,0 +1,16 @@
+# Uses of a bare $HOME that the check scripts/home-guard.selftest.sh allows.
+# One per line: <file>|<fixed text of the line>|<why>. Everything else that
+# names $HOME in gates/, scripts/ or the justfile (comments and *.selftest.sh
+# fixtures aside) is refused: user-wide state (locks, caches, registries)
+# belongs under the ACCOUNT's home, gates/account-cache.sh, because a ctxloom
+# session's HOME is a per-session home (ruling 112).
+gates/account-cache.sh|cache=${account:-$HOME}/.cache|last resort only, when the passwd database and the shell both fail to name the account's home
+scripts/go-manage-fixtures.sh|sed -e "s#$1#\$HOME#g"|a literal placeholder written into golden fixtures, not a path read
+scripts/compare-go-import.sh|logs=${1:-$HOME/.ctxloom/tasks}|a manual dev tool's default for the Go-era logs of the user running it, in their own shell, never a gate or a session
+scripts/lint-api.sh|cache="${XDG_CACHE_HOME:-$HOME/.cache}/ctxloom-api-linter/$version"|the api-linter download cache: a session refetches it into its own home (a cost, not a correctness or exclusion issue); not a gate
+justfile|lib="$HOME/.local/lib/ctxloom"|the install's own target: the installing user's home, refused inside a session (scripts/install-guard.sh)
+justfile|wrapper="$HOME/.local/bin/ctxloom"|the install's own target (as above)
+justfile|mkdir -p "$lib" "$HOME/.local/bin"|the install's own target (as above)
+justfile|"$built" "$HOME/.ctxloom-rs"|the home the installed wrapper serves, the installing user's (as above)
+justfile|export CTXLOOM_DAEMON_ROOT="$HOME/.ctxloom-rs"|the installed wrapper's own script: runs in the user's login, not in a session
+justfile|exec "$HOME/.local/lib/ctxloom/ctxloom" "$@"'|the installed wrapper's own script (as above)

@@ -33,6 +33,26 @@ fail() { echo "FAIL tests-lock.selftest: $*" >&2; exit 1; }
 export TESTS_LOCK_FILE=$tmp/workspace-tests.lock
 lock=$TESTS_LOCK_FILE
 
+# A relocated HOME (an agent session's, ruling 112) takes the SAME lock: with
+# no TESTS_LOCK_FILE the path is the account's cache, from the passwd
+# database (a fake getent names the account's home), whatever HOME says;
+# XDG_CACHE_HOME and TESTS_LOCK_FILE still win.
+mkdir -p "$tmp/fakebin"
+printf '#!/bin/sh\necho "u:x:1:1::%s/acct:/bin/sh"\n' "$tmp" > "$tmp/fakebin/getent"
+chmod +x "$tmp/fakebin/getent"
+for h in a b; do
+    env -u TESTS_LOCK_FILE -u XDG_CACHE_HOME -u GATES_TESTS_LOCK_HELD PATH="$tmp/fakebin:$PATH" \
+        HOME="$tmp/session-home-$h" bash "$lock_sh" "home-$h" true \
+        || fail "a run under a relocated HOME ($h) failed"
+done
+[ -e "$tmp/acct/.cache/ctxloom/gates/workspace-tests.lock" ] \
+    || fail "a relocated HOME did not take the account's lock: $(find "$tmp" -name workspace-tests.lock)"
+[ ! -e "$tmp/session-home-a" ] && [ ! -e "$tmp/session-home-b" ] \
+    || fail "a relocated HOME got a lock file of its own"
+env -u TESTS_LOCK_FILE -u GATES_TESTS_LOCK_HELD XDG_CACHE_HOME="$tmp/xdg" HOME="$tmp/session-home-a" \
+    bash "$lock_sh" xdg true || fail "XDG_CACHE_HOME run failed"
+[ -e "$tmp/xdg/ctxloom/gates/workspace-tests.lock" ] || fail "XDG_CACHE_HOME no longer wins"
+
 # No flock: skipped and said, once, nested or not; the command still runs.
 nobin=$tmp/noflock
 mkdir -p "$nobin"
@@ -55,7 +75,7 @@ fi
 fx=$tmp/fx
 mkdir -p "$fx/gates" "$fx/crates/a/src" "$tmp/bin"
 cp "$gates" "$fx/gates/gates.just"
-for f in drop-worktree.sh memory-cap.sh tests-lock.sh; do cp "$(dirname "$gates")/$f" "$fx/gates/$f"; done
+for f in drop-worktree.sh memory-cap.sh tests-lock.sh account-cache.sh; do cp "$(dirname "$gates")/$f" "$fx/gates/$f"; done
 printf '[workspace]\nmembers = ["crates/a"]\nresolver = "2"\n' > "$fx/Cargo.toml"
 printf '[package]\nname = "a"\nversion = "0.1.0"\nedition = "2021"\n' > "$fx/crates/a/Cargo.toml"
 : > "$fx/crates/a/src/lib.rs"

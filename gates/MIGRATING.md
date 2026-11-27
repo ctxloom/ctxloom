@@ -196,3 +196,17 @@ this: replace `gates/memory-cap.sh`, add the reap section to
 `memory-cap.sh` call that runs cargo-mutants in `_mutants-judge`
 (`gates/gates.just`) and in `mutants-shard` (the justfile). The shared gates
 repository, taskloom and annals copies are not changed here.
+
+## The test lock keys on the account's home (ctxloom, 2026-11-27)
+
+`gates/tests-lock.sh` built its lock path from `${XDG_CACHE_HOME:-$HOME/.cache}`;
+an agent session's `$HOME` is a per-session home, so each session had its own
+lock file and whole-workspace runs did not serialize. The directory now comes
+from the new `gates/account-cache.sh` (the passwd database's home, not `$HOME`;
+`XDG_CACHE_HOME` and `TESTS_LOCK_FILE` still win), which `_scratch-tree` in
+`gates/gates.just` also uses (replacing its inline copy). TO PORT: add
+`gates/account-cache.sh`, change `tests-lock.sh`'s `lock=` line and the
+`_scratch-tree` cache lines, and copy `account-cache.sh` beside `tests-lock.sh`
+in every self-test fixture (`scripts/tests-lock.selftest.sh` has the
+relocated-HOME case). The shared gates repository, taskloom and annals copies
+are not changed here.

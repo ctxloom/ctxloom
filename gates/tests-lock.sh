@@ -16,13 +16,18 @@
 # (`_tests <packages>`, `test-pkg`, `test-staged`'s changed crates) does not.
 #
 # The lock: flock(1) on ONE file per user, `$TESTS_LOCK_FILE`, by default
-# `${XDG_CACHE_HOME:-$HOME/.cache}/ctxloom/gates/workspace-tests.lock`.
+# `${XDG_CACHE_HOME:-<account home>/.cache}/ctxloom/gates/workspace-tests.lock`,
+# the account's home from the passwd database (gates/account-cache.sh, the one
+# resolution, shared with the staged target), NEVER `$HOME`: an agent session's
+# HOME is a per-session home (ruling 112), and keyed on it each session had a
+# lock file of its own and runs in different sessions did not serialize
+# (2026-11-27: ten such files).
 # The cache dir, not $XDG_RUNTIME_DIR: an agent's shell often has no
 # XDG_RUNTIME_DIR (memory-cap.sh supplies one) and the landing command sets
 # its own, so keyed on it two runs could take two different files; and
 # /run/user/<uid> is removed when the user's last session ends, so a run
-# holding it could be joined by one that made it anew. $HOME is set in every
-# gate's shell and the cache dir is on a persistent filesystem. The path
+# holding it could be joined by one that made it anew. The cache dir is on a
+# persistent filesystem. The path
 # names no repository, so the copies of these gates in taskloom and annals
 # serialize against ctxloom's too, as the memory they share needs.
 #
@@ -60,7 +65,7 @@ set -euo pipefail
 [ $# -ge 2 ] || { echo "usage: tests-lock.sh <label> <command>..." >&2; exit 2; }
 label=$1
 shift
-lock=${TESTS_LOCK_FILE:-${XDG_CACHE_HOME:-$HOME/.cache}/ctxloom/gates/workspace-tests.lock}
+lock=${TESTS_LOCK_FILE:-$("$(dirname "${BASH_SOURCE[0]}")/account-cache.sh")/workspace-tests.lock}
 
 if [ "${GATES_TESTS_LOCK_HELD:-}" = "$lock" ]; then
     exec "$@"

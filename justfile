@@ -185,6 +185,7 @@ _extract-plain-binary log rc:
 install when="":
     #!/usr/bin/env bash
     set -euo pipefail
+    "{{TOP}}/scripts/install-guard.sh"
     terse=(-q --message-format=short)
     [ "${VERBOSE:-}" = 1 ] && terse=()
     target=${CARGO_TARGET_DIR:-{{TOP}}/target}
@@ -246,6 +247,7 @@ install when="":
 install-windows when="":
     #!/usr/bin/env bash
     set -euo pipefail
+    "{{TOP}}/scripts/install-guard.sh"
     case "$(uname -s)" in
         MINGW*|MSYS*|CYGWIN*) ;;
         *) echo "FAIL install-windows: run it under Git Bash on Windows; elsewhere it is \`just install\`" >&2; exit 1 ;;
@@ -708,7 +710,7 @@ trim-targets *args:
 
 # The self-tests of this repository's scripts against fixture trees.
 [group('check')]
-[doc("Self-tests of the scripts: drop-worktree, mutants-batch, mutants-verdict, memory cap, closeout, closeout-ratchet, ratchet-base, ltk rules, output budget, tests exit, test-staged, scratch-tree lock, machine-wide test lock, exec-mode check, handoff check, one-writer debt check, path deps, vendored googleapis, mcp-env probe, install shutdown, trim-targets, land-sweep")]
+[doc("Self-tests of the scripts: drop-worktree, mutants-batch, mutants-verdict, memory cap, closeout, closeout-ratchet, ratchet-base, ltk rules, output budget, tests exit, test-staged, scratch-tree lock, machine-wide test lock, exec-mode check, handoff check, one-writer debt check, path deps, vendored googleapis, mcp-env probe, install shutdown and guard, bare-HOME guard, trim-targets, land-sweep")]
 [no-exit-message]
 selftest:
     @{{TOP}}/scripts/drop-worktree.selftest.sh
@@ -735,6 +737,7 @@ selftest:
     @{{TOP}}/scripts/release-package.selftest.sh
     @{{TOP}}/scripts/mcp-env-probe.selftest.sh
     @{{TOP}}/scripts/install-shutdown.selftest.sh
+    @{{TOP}}/scripts/home-guard.selftest.sh
     @{{TOP}}/scripts/arch-lint-install.selftest.sh
     @TRIM_SWEEP_VERSION='{{cargo_sweep_version}}' {{TOP}}/scripts/trim-targets.selftest.sh
     @{{TOP}}/scripts/land-sweep.selftest.sh

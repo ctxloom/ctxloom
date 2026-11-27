@@ -688,9 +688,14 @@ dev-depends on itself with it, so its tests and `--all-targets` lint compile the
 `purge` turns on through `ctxloom-daemon` -> `ctxloom-store-sqlite`,
 `sessions-application` (the head-guarded `purge`), `session-ports` (the
 `ProjectStores::Store` Purge bound) -> `angzarr-embedded`; the default build
-compiles with none (the daemon hands the API a `NoPurges` there, which no
-served RPC reaches), and the crates whose unit tests purge a stream turn it on
-for their test build by a dev-dependency feature. taskloom's own `purge` is not
+compiles with none, and the destroy is ABSENT there, not refusing: daemon-api's
+`purge` feature carries `destroy.rs` (`Places`, `Purges`, `Api::destroying`,
+`Api::delete_session`/`sweep_sessions` and their `Calls` methods), which the
+daemon wires only under its own `purge` (no `Parts` field holds them), so the
+generated server answers DeleteSession and SweepSessions UNIMPLEMENTED. The
+crates whose unit tests purge a stream, or compile the destroy, turn it on for
+their test build by a dev-dependency feature (so a workspace test build
+unifies it on). taskloom's own `purge` is not
 used: ctxloom reads none of its stores that purge. A destroy is a T28
 sequence on the PROJECT stream (O2, step 10b U9): the domain's
 `RemoveSession` (its command id the request's, keyed `removal:{request id}`,

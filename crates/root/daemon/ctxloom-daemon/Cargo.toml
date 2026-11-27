@@ -108,7 +108,8 @@ fact-spool.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
-ctxloom-daemon = { path = ".", features = ["test-support"] }
+# `purge`: the destroy's places and purges are tested here, as session-cli's are.
+ctxloom-daemon = { path = ".", features = ["test-support", "purge"] }
 # A domain that consumes the scheduler, so the daemon's scheduler is proven
 # end to end without an application domain; and a clock a test moves.
 scheduler-fixture.workspace = true
@@ -133,6 +134,7 @@ os = { workspace = true, features = ["test-support"] }
 purge = [
     "ctxloom-wiring/purge",
     "daemon-api-grpc/purge",
+    "daemon-api/purge",
     "ctxloom-store-sqlite/purge",
     "sessions-application/purge",
     "session-ports/purge",

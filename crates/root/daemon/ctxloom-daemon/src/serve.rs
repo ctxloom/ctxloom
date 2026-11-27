@@ -609,38 +609,40 @@ async fn start(
     let watches = daemon_application::SessionWatches::new(daemon_application::KEEPALIVE);
     // Each hosted launch's client program, from its hand-off to its close.
     let handed = super::files::HandedPrograms::default();
-    let calls = served(
-        daemon_api::Api::new(daemon_api::Parts {
-            edge: Arc::clone(&edge),
-            index: kept.index.clone().unwrap_or_default(),
-            pending: kept.pending.clone().unwrap_or_default(),
-            board: kept.board.clone().unwrap_or_default(),
-            hosting: Arc::clone(shared) as Arc<dyn daemon_api::Hosting>,
-            states: Arc::new(Locks(Arc::clone(fs))),
-            harps: Arc::new(FreshHarps),
-            places: Arc::new(super::places::ProjectPlaces {
+    let api = daemon_api::Api::new(daemon_api::Parts {
+        edge: Arc::clone(&edge),
+        index: kept.index.clone().unwrap_or_default(),
+        pending: kept.pending.clone().unwrap_or_default(),
+        board: kept.board.clone().unwrap_or_default(),
+        hosting: Arc::clone(shared) as Arc<dyn daemon_api::Hosting>,
+        states: Arc::new(Locks(Arc::clone(fs))),
+        harps: Arc::new(FreshHarps),
+        about: about(&stamp, started_at, pace),
+    })
+    // The one-shots it hosts (U4).
+    .hosting_one_shots(Arc::clone(one_shots))
+    // A live session's re-assembled context is handed through its
+    // engine (step 10c U13).
+    .delivering(Arc::new(EngineDeliveries(
+        engines
+            .iter()
+            .map(|hosted| Arc::clone(&hosted.engine))
+            .collect(),
+    )))
+    .watching(Arc::clone(&watches));
+    #[cfg(feature = "purge")]
+    let api = api
+        .destroying(
+            Arc::new(super::places::ProjectPlaces {
                 fs: Arc::clone(fs),
                 home: home.to_path_buf(),
                 temp: temp.to_path_buf(),
             }),
-            #[cfg(feature = "purge")]
-            purges: Arc::new(super::places::StorePurges(core.store_handle())),
-            #[cfg(not(feature = "purge"))]
-            purges: Arc::new(super::places::NoPurges),
-            about: about(&stamp, started_at, pace),
-        })
-        // The one-shots it hosts (U4).
-        .hosting_one_shots(Arc::clone(one_shots))
-        // A live session's re-assembled context is handed through its
-        // engine (step 10c U13).
-        .delivering(Arc::new(EngineDeliveries(
-            engines
-                .iter()
-                .map(|hosted| Arc::clone(&hosted.engine))
-                .collect(),
-        )))
-        .watching(Arc::clone(&watches))
-        .on_os(&os),
+            Arc::new(super::places::StorePurges(core.store_handle())),
+        )
+        .on_os(&os);
+    let calls = served(
+        api,
         (fs, files, trash_clock(env)?),
         (home, temp, &stamp),
         (&engines, terminals, kept),

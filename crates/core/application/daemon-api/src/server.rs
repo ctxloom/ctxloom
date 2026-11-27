@@ -143,11 +143,6 @@ pub struct Parts<E> {
     pub states: Arc<dyn SessionStates>,
     pub harps: Arc<dyn Harps>,
     pub about: About,
-    /// The projects' places a destroy reaches (`DeleteSession`,
-    /// `SweepSessions`).
-    pub places: Arc<dyn crate::Places>,
-    /// The daemon's one store, as a destroy purges it.
-    pub purges: Arc<dyn crate::Purges>,
 }
 
 /// An answer of a use case, boxed: what the API's edge awaits.
@@ -171,11 +166,13 @@ pub trait Calls: Send + Sync {
     ) -> Answer<'_, v1::ListSessionsResponse>;
     /// `DeleteSession`: an edge serves it only in a `purge`
     /// build (M5).
+    #[cfg(feature = "purge")]
     fn delete_session(
         &self,
         request: v1::DeleteSessionRequest,
     ) -> Answer<'_, v1::DeleteSessionResponse>;
     /// `SweepSessions`: as `DeleteSession`, a `purge` build's.
+    #[cfg(feature = "purge")]
     fn sweep_sessions(
         &self,
         request: v1::SweepSessionsRequest,
@@ -461,6 +458,7 @@ impl<E: Edge + 'static> Calls for Api<E> {
         })
     }
 
+    #[cfg(feature = "purge")]
     fn delete_session(
         &self,
         request: v1::DeleteSessionRequest,
@@ -481,6 +479,7 @@ impl<E: Edge + 'static> Calls for Api<E> {
         })
     }
 
+    #[cfg(feature = "purge")]
     fn sweep_sessions(
         &self,
         request: v1::SweepSessionsRequest,
@@ -976,6 +975,11 @@ use served_library_reads;
 /// The use cases of the daemon's API.
 pub struct Api<E> {
     pub(crate) parts: Parts<E>,
+    /// The projects' places a destroy reaches (`DeleteSession`,
+    /// `SweepSessions`) and the daemon's one store, as it purges it: set by
+    /// [`Api::destroying`], which the daemon calls in a `purge` build alone.
+    #[cfg(feature = "purge")]
+    pub(crate) destroyers: Option<(Arc<dyn crate::Places>, Arc<dyn crate::Purges>)>,
     /// The one-shots the daemon hosts (U4); none, `CreateRun` fails.
     pub(crate) one_shots: Option<Arc<daemon_application::OneShots>>,
     /// Where a child's hand-off is planned and kept; none, `CreateHandOff`
@@ -1016,6 +1020,7 @@ pub struct Api<E> {
     pub(crate) me: std::sync::OnceLock<std::sync::Weak<Api<E>>>,
     /// The platform's name (`std::env::consts::OS`'s), which a removal's
     /// evidence is judged by (D18); empty is a unix.
+    #[cfg(feature = "purge")]
     pub(crate) os: String,
     /// The engines a live session's re-assembled context is handed through
     /// (step 10c U13); none, `RedeliverContext` answers nothing.
@@ -1040,6 +1045,8 @@ impl<E: Edge> Api<E> {
     pub fn new(parts: Parts<E>) -> Api<E> {
         Api {
             parts,
+            #[cfg(feature = "purge")]
+            destroyers: None,
             one_shots: None,
             hand_offs: None,
             imports: None,
@@ -1053,6 +1060,7 @@ impl<E: Edge> Api<E> {
             caches: None,
             watches: None,
             me: std::sync::OnceLock::new(),
+            #[cfg(feature = "purge")]
             os: String::new(),
             deliveries: None,
             foreign: None,
@@ -1089,9 +1097,26 @@ impl<E: Edge> Api<E> {
         }
     }
 
+    /// The API destroying through `places` (each session's project) and
+    /// `purges` (the one store): what `DeleteSession` and `SweepSessions`
+    /// run over.
+    #[cfg(feature = "purge")]
+    #[must_use]
+    pub fn destroying(
+        self,
+        places: Arc<dyn crate::Places>,
+        purges: Arc<dyn crate::Purges>,
+    ) -> Api<E> {
+        Api {
+            destroyers: Some((places, purges)),
+            ..self
+        }
+    }
+
     /// The API on the platform `os` (`std::env::consts::OS`'s name; the
     /// wiring's `os_name`): on `windows` a held session lock blocks its
     /// removal (D18).
+    #[cfg(feature = "purge")]
     #[must_use]
     pub fn on_os(self, os: &str) -> Api<E> {
         Api {

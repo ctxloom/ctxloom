@@ -1362,6 +1362,7 @@ dependencies = [
  "approvals-proto",
  "coded-diagnostic",
  "ctxloom-ports",
+ "daemon-api",
  "daemon-application",
  "daemon-board",
  "daemon-ports",

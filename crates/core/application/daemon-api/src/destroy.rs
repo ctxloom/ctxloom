@@ -152,8 +152,7 @@ impl<E: Edge> Removing<'_, E> {
         for (domain, root) in &roots {
             destroyed += self
                 .api
-                .parts
-                .purges
+                .purges()
                 .purge(domain, root.clone())
                 .await
                 .map_err(|e| app_failed(&e.to_string()))?;
@@ -263,7 +262,7 @@ impl<E: Edge> Removing<'_, E> {
 impl<E: Edge> Removals for Removing<'_, E> {
     async fn remove(&mut self, request: RemoveRequest) -> Result<Removal, AppError> {
         let record = self.find(request.project.as_deref(), &request.harp)?;
-        let mut files = self.api.parts.places.files(&record.project_dir);
+        let mut files = self.api.places().files(&record.project_dir);
         let plan = plan(files.survey(&record.harp).map_err(AppError::Files)?);
         let last_active = files.last_active(&record.harp).map_err(AppError::Files)?;
         let lock = self
@@ -271,7 +270,7 @@ impl<E: Edge> Removals for Removing<'_, E> {
             .parts
             .states
             .state(&record.project_dir, &record.harp);
-        let now = self.api.parts.places.now();
+        let now = self.api.places().now();
         let mut evidence = evidence(
             &record,
             lock,
@@ -317,8 +316,7 @@ impl<E: Edge> Removals for Removing<'_, E> {
             });
         };
         self.api
-            .parts
-            .places
+            .places()
             .worktrees(&record.project_dir, &record.project_id, &self.env)
             .worktrees(Some(harp), apply)
     }
@@ -463,6 +461,24 @@ struct Removed {
 }
 
 impl<E: Edge> Api<E> {
+    /// The projects' places a destroy reaches; wired by [`Api::destroying`].
+    fn places(&self) -> &dyn Places {
+        self.destroyers
+            .as_ref()
+            .map(|(places, _)| places.as_ref())
+            .expect("a destroy runs on an Api built with destroying()")
+    }
+
+    /// The daemon's one store, as a destroy purges it.
+    fn purges(&self) -> &dyn Purges {
+        self.destroyers
+            .as_ref()
+            .map(|(_, purges)| purges.as_ref())
+            .expect("a destroy runs on an Api built with destroying()")
+    }
+}
+
+impl<E: Edge> Api<E> {
     /// The steps of the removal `removed` from `start` (O2,
     /// [`sessions::REMOVAL_STEPS`]), each recorded done: its worktrees
     /// (reclaim's, already made when it was intended: made again, WIP-safe,
@@ -477,7 +493,7 @@ impl<E: Edge> Api<E> {
         removing: &Removing<'_, E>,
     ) -> Result<u64, AppError> {
         let tree = format!("{}/.ctxloom", removed.project_dir.trim_end_matches('/'));
-        let operations = self.parts.places.operations();
+        let operations = self.places().operations();
         let operate = |operation: ctxloom_ports::Operation| {
             operations
                 .operate(&tree, &removed.request_id, &operation, &|point| {
@@ -503,8 +519,7 @@ impl<E: Edge> Api<E> {
                     // it; the removal goes on (it was judged whole).
                     if resumed {
                         let _ = self
-                            .parts
-                            .places
+                            .places()
                             .worktrees(&removed.project_dir, &removed.project_id, &removing.env)
                             .worktrees(Some(&removed.harp), true);
                     }
@@ -855,7 +870,7 @@ impl<E: Edge> Api<E> {
         records: &[SessionRecord],
         env: &[(String, String)],
     ) -> Result<BTreeMap<String, Timestamp>, ApiError> {
-        let now = self.parts.places.now();
+        let now = self.places().now();
         let mut cutoffs = BTreeMap::new();
         for record in records {
             if cutoffs.contains_key(&record.project_id) {
@@ -869,31 +884,31 @@ impl<E: Edge> Api<E> {
                     .map(|row| row.root)
                     .filter(|root| !root.is_empty())
             };
-            let cutoff =
-                match root {
-                    None => default_cutoff(now),
-                    Some(root) => {
-                        let configured =
-                            self.parts.places.settings(&root, env).retention().map_err(
-                                |failure| {
-                                    ApiError::from(ApiRefusal::of(&v1::ConfigUnreadable {
-                                        root: root.clone(),
-                                        detail: failure.to_string(),
-                                    }))
-                                },
-                            )?;
-                        match configured.as_deref().map(str::trim) {
-                            Some(age) if !age.is_empty() => parse_age(RETENTION_KEY, age, now)
-                                .map_err(|_| {
-                                    ApiError::from(ApiRefusal::of(&v1::AgeInvalid {
-                                        key: RETENTION_KEY.to_string(),
-                                        value: age.to_string(),
-                                    }))
-                                })?,
-                            _ => default_cutoff(now),
-                        }
+            let cutoff = match root {
+                None => default_cutoff(now),
+                Some(root) => {
+                    let configured =
+                        self.places()
+                            .settings(&root, env)
+                            .retention()
+                            .map_err(|failure| {
+                                ApiError::from(ApiRefusal::of(&v1::ConfigUnreadable {
+                                    root: root.clone(),
+                                    detail: failure.to_string(),
+                                }))
+                            })?;
+                    match configured.as_deref().map(str::trim) {
+                        Some(age) if !age.is_empty() => parse_age(RETENTION_KEY, age, now)
+                            .map_err(|_| {
+                                ApiError::from(ApiRefusal::of(&v1::AgeInvalid {
+                                    key: RETENTION_KEY.to_string(),
+                                    value: age.to_string(),
+                                }))
+                            })?,
+                        _ => default_cutoff(now),
                     }
-                };
+                }
+            };
             cutoffs.insert(record.project_id.clone(), cutoff);
         }
         Ok(cutoffs)
@@ -922,7 +937,7 @@ impl<E: Edge> Api<E> {
                 .map(|view| (view.record.id.clone(), index.name_of(&view.record)))
                 .collect()
         };
-        let now = self.parts.places.now();
+        let now = self.places().now();
         let flag = Some(request.older_than.as_str()).filter(|age| !age.trim().is_empty());
         // The flag given, the configuration is never read (a broken one
         // cannot stop a sweep that does not need it).
@@ -1005,7 +1020,7 @@ impl<E: Edge> Api<E> {
         env: &[(String, String)],
     ) -> Box<dyn SweepConfig + Send> {
         match self.config_root(request) {
-            Some(root) => self.parts.places.settings(&root, env),
+            Some(root) => self.places().settings(&root, env),
             None => Box::new(Unconfigured),
         }
     }

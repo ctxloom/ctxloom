@@ -12,31 +12,47 @@ use std::sync::Arc;
 
 #[cfg(feature = "purge")]
 use angzarr_embedded::angzarr_store_sqlite::SqliteStore;
+#[cfg(feature = "purge")]
 use angzarr_embedded::v1::Uuid;
 #[cfg(feature = "purge")]
 use angzarr_embedded::StreamRef;
+#[cfg(feature = "purge")]
 use angzarr_embedded::Timestamp;
+#[cfg(feature = "purge")]
 use config_files::ConfigFilesFs;
-use daemon_api::{Answer, ApiError};
+#[cfg(feature = "purge")]
+use daemon_api::Answer;
+use daemon_api::ApiError;
 use file_system::Fs;
+#[cfg(feature = "purge")]
 use isolation_application::{WorktreeUse, Worktrees};
+#[cfg(feature = "purge")]
 use liveness::LockFiles;
+#[cfg(feature = "purge")]
 use process_env::EnvSnapshot;
+#[cfg(feature = "purge")]
 use reclaim_application::SweepConfig;
+#[cfg(feature = "purge")]
 use session_files::SessionDirs;
+#[cfg(feature = "purge")]
 use session_ports::SessionFiles;
+#[cfg(feature = "purge")]
 use worktree_git::GitWorkspaces;
 
-use crate::{SweepSettings, Wiring};
+use crate::Wiring;
+#[cfg(feature = "purge")]
+use ctxloom_wiring::SweepSettings;
 
 /// A project's places, over this process's filesystem, ctxloom's `home`
 /// and the temporary root.
+#[cfg(feature = "purge")]
 pub(crate) struct ProjectPlaces {
     pub(crate) fs: Arc<dyn Fs>,
     pub(crate) home: PathBuf,
     pub(crate) temp: PathBuf,
 }
 
+#[cfg(feature = "purge")]
 impl ProjectPlaces {
     /// The caller's environment `env` (S7), as a process at `dir` sees it.
     fn snapshot(&self, dir: &str, env: &[(String, String)]) -> Arc<EnvSnapshot> {
@@ -49,6 +65,7 @@ impl ProjectPlaces {
     }
 }
 
+#[cfg(feature = "purge")]
 impl daemon_api::Places for ProjectPlaces {
     fn files(&self, project_dir: &str) -> Box<dyn SessionFiles + Send> {
         Box::new(SessionDirs::new(
@@ -180,8 +197,8 @@ impl library_api::CheckoutHarps for TreeHarps {
     }
 }
 
-#[cfg(feature = "purge")]
 /// The daemon's one store, as the destroy purges it.
+#[cfg(feature = "purge")]
 pub(crate) struct StorePurges(pub(crate) Arc<SqliteStore>);
 
 #[cfg(feature = "purge")]
@@ -196,22 +213,6 @@ impl daemon_api::Purges for StorePurges {
                 .map_err(|e| ApiError::Failed {
                     detail: coded_diagnostic::Diagnostic::code(&e).to_string(),
                 })
-        })
-    }
-}
-
-/// What the daemon hands the API where it is built without `purge`: no
-/// destroy RPC is served there, so nothing asks it to purge.
-#[cfg(not(feature = "purge"))]
-pub(crate) struct NoPurges;
-
-#[cfg(not(feature = "purge"))]
-impl daemon_api::Purges for NoPurges {
-    fn purge<'a>(&'a self, _domain: &'a str, _root: Uuid) -> Answer<'a, u64> {
-        Box::pin(async move {
-            Err(ApiError::Failed {
-                detail: "this build cannot purge".to_string(),
-            })
         })
     }
 }

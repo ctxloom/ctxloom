@@ -76,6 +76,8 @@ deps-application = { workspace = true, features = ["test-support"] }
 # build has the Purge API.
 angzarr-embedded = { workspace = true, features = ["test-support", "purge"] }
 sessions-application = { workspace = true, features = ["purge"] }
+# The destroy's own tests compile it.
+daemon-api = { path = ".", features = ["purge"] }
 mutants.workspace = true
 run-ports = { workspace = true, features = ["test-support"] }
 tokio = { workspace = true, features = ["macros", "rt"] }
@@ -86,6 +88,9 @@ trust-proto.workspace = true
 approvals-proto.workspace = true
 
 [features]
+# The destroy: `DeleteSession` and `SweepSessions`, the `Places` and `Purges`
+# ports they run over. Off by default; a default build has none of it.
+purge = []
 # `diagnostic_samples`, for other crates' catalog tests.
 test-support = []
 

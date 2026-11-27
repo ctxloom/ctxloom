@@ -35,7 +35,7 @@ tonic = { version = "0.14", default-features = false, features = ["channel", "co
 # `DeleteSession` and `SweepSessions` served (M5): the destroy, as the
 # `session remove` and `session sweep` verbs are. Off in a plain build, where
 # both answer UNIMPLEMENTED (behind the bearer gate).
-purge = []
+purge = ["daemon-api/purge"]
 
 [lints]
 workspace = true

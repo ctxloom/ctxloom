@@ -52,9 +52,7 @@ use ctxloom_wiring::fixtures;
 use ctxloom_wiring::run_id;
 #[cfg(feature = "test-support")]
 use ctxloom_wiring::{checkout_harp, checkout_tree, Minting, SeedArgs, TestError};
-use ctxloom_wiring::{
-    fresh_project_harps, registry, session_name, LibError, SweepSettings, Wiring,
-};
+use ctxloom_wiring::{fresh_project_harps, registry, session_name, LibError, Wiring};
 
 /// The daemon's composition as the command line takes it (handed in by the
 /// binary): `daemon serve`, the guard against a project's legacy store and,

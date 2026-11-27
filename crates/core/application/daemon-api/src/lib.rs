@@ -60,6 +60,7 @@ mod caller_wake;
 mod clean;
 mod client;
 mod deps_writes;
+#[cfg(feature = "purge")]
 mod destroy;
 mod distill;
 mod foreign;
@@ -101,6 +102,7 @@ pub use client::{
     newer, reconcile, reconcile_session, resolve, stop, CallError, Reconciled, SkewError,
 };
 pub use deps_writes::{DepsAnswer, DepsAsk, DepsPlanned, DepsPlans, DepsTree};
+#[cfg(feature = "purge")]
 pub use destroy::{Places, Purges};
 pub use foreign::{ForeignAnswer, ForeignAsk, ForeignPlanned, ForeignPlans, ForeignPut};
 pub use hand_off::{FatalFinding, HandOffContent, HandOffs, HandingOff, Planned};

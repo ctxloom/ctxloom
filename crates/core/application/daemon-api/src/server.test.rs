@@ -278,9 +278,11 @@ pub(crate) fn fixture(harps: Vec<&'static str>) -> Fixture {
             },
             idle_limit_seconds: 600,
         },
-        places: Arc::new(Arc::clone(&places)) as Arc<dyn crate::Places>,
-        purges: Arc::clone(&world) as Arc<dyn crate::Purges>,
     })
+    .destroying(
+        Arc::new(Arc::clone(&places)) as Arc<dyn crate::Places>,
+        Arc::clone(&world) as Arc<dyn crate::Purges>,
+    )
     .timelining(timelines.clone());
     Fixture {
         world,
@@ -348,9 +350,11 @@ impl Fixture {
             states: Arc::clone(&self.locks) as Arc<dyn SessionStates>,
             harps: Arc::new(Offered(Vec::new())),
             about: About::default(),
-            places: Arc::new(Arc::clone(&self.places)) as Arc<dyn crate::Places>,
-            purges: Arc::clone(&self.world) as Arc<dyn crate::Purges>,
         })
+        .destroying(
+            Arc::new(Arc::clone(&self.places)) as Arc<dyn crate::Places>,
+            Arc::clone(&self.world) as Arc<dyn crate::Purges>,
+        )
     }
 
     /// Mint the session `harp` of the project.

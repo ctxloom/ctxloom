@@ -19,7 +19,6 @@
 
 mod commands;
 mod text;
-pub mod wire;
 
 use cli_support::Exit;
 use std::io::Write;
@@ -192,7 +191,7 @@ fn auth(
         ..v1::GetAuthStatusRequest::default()
     })?;
     say_v1(&answered.notices, format, catalog, err);
-    let rows = wire::rows_of(&answered.rows);
+    let rows = setup_api::wire::rows_of(&answered.rows);
     match format {
         Format::Json => write_json(out, &rows),
         Format::Text => text::auth(&rows, out),
@@ -278,7 +277,7 @@ fn doctor(
         ..v1::RunDoctorRequest::default()
     })?;
     say_v1(&answered.notices, format, catalog, err);
-    let report = wire::report(&answered.checks);
+    let report = setup_api::wire::report(&answered.checks);
     match format {
         Format::Json => write_json(out, &report),
         Format::Text => text::doctor(&report, sub.get_flag("all"), out),

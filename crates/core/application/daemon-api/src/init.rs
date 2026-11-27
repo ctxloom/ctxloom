@@ -35,9 +35,9 @@ use library_tree::{Evidence, TreeName};
 use run_ports::Edge;
 use sessions::ProjectName;
 
-use crate::library_writes::{notice_of, LibraryWriteRequest, Made};
-use crate::refusal::{ApiError, ApiRefusal};
+use crate::library_writes::{notice_of, Made};
 use crate::server::Api;
+use daemon_api_contract::{ApiError, ApiRefusal, LibraryWriteRequest};
 
 /// The verb an init's intent is recorded under.
 pub(crate) const VERB: &str = "init";
@@ -168,7 +168,7 @@ pub(crate) fn companion_answers(answers: &[v1::Answer]) -> Vec<init_application:
 /// else the error itself.
 pub(crate) fn error_report(error: &ApiError) -> coded_diagnostic::Report {
     if let ApiError::Refused(refused) = error {
-        if let Some(rejection) = crate::refusal::rejection_of(&refused.refusal) {
+        if let Some(rejection) = daemon_api_contract::rejection_of(&refused.refusal) {
             return rejection.report();
         }
     }

@@ -12,7 +12,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use coded_diagnostic::{code, Arg, Diagnostic};
-use daemon_api::{CallError, Caller, Daemons, Launch};
+use daemon_api_client::{CallError, Caller, Daemons, Launch};
 use daemon_proto::v1;
 use rmcp::model::{JsonObject, Tool};
 use serde_json::{json, Value};
@@ -338,7 +338,10 @@ pub(crate) async fn dispatch<D: Daemons, E: Elicit>(
             let mut assembled = caller.assemble(fragments, tags).await.map_err(failed)?;
             // The index is this edge's to render (E2), on the launch whose
             // session calls the tool (s3-Q5).
-            daemon_api::render_premise_index(&mut assembled, daemon_api::Shown::Launch);
+            daemon_api_client::render_premise_index(
+                &mut assembled,
+                daemon_api_client::Shown::Launch,
+            );
             Ok(vec![json_text(&assembled)])
         }
         "child_launch" => {
@@ -357,7 +360,7 @@ pub(crate) async fn dispatch<D: Daemons, E: Elicit>(
         "child_send" => {
             let child = text(tool, args, "child").map_err(refused)?;
             let word = text(tool, args, "urgency").map_err(refused)?;
-            let urgency = daemon_api::urgency_of(word).ok_or_else(|| {
+            let urgency = daemon_api_client::urgency_of(word).ok_or_else(|| {
                 refused(ToolArgs::Urgency {
                     given: word.to_string(),
                 })

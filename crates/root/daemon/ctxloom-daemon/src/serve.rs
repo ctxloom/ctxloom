@@ -355,10 +355,10 @@ impl daemon_application::Monotonic for ProcessClock {
 }
 
 /// The home config's `daemon.drain_timeout` (owner, 2026-11-15), read
-/// afresh each time it is asked ([`super::shutdown::configured_drain_timeout`]).
+/// afresh each time it is asked ([`super::drain::configured_drain_timeout`]).
 fn configured_drain_timeout(fs: &Arc<dyn Fs>, home: &Path) -> Reader {
     let (fs, home) = (Arc::clone(fs), home.to_path_buf());
-    Box::new(move || super::shutdown::configured_drain_timeout(&fs, &home))
+    Box::new(move || super::drain::configured_drain_timeout(&fs, &home))
 }
 
 /// Whether the daemon is to ignore a stop and a drain: only under
@@ -449,7 +449,7 @@ fn hear_terminate(
         said(&say, "SIGTERM: asked to drain");
         daemon_api::Hosting::drain(shared.as_ref(), None);
         shared.wake.notify_one();
-        let started = super::shutdown::epoch_seconds();
+        let started = super::drain::epoch_seconds();
         let mut told = None;
         loop {
             let period = shared.drain_period();
@@ -476,10 +476,10 @@ fn hear_terminate(
 /// since the epoch), by itself; each said in the log.
 fn tell_frontends(frontends: &liveness::FrontendLocks, stop_at: u64, say: &Say) {
     let left =
-        std::time::Duration::from_secs(stop_at.saturating_sub(super::shutdown::epoch_seconds()));
+        std::time::Duration::from_secs(stop_at.saturating_sub(super::drain::epoch_seconds()));
     for pid in frontends.live() {
         let notice = liveness::FrontendNotice {
-            text: super::shutdown::notice_text(left),
+            text: super::drain::notice_text(left),
             stop_at: Some(stop_at),
         };
         match frontends.tell(pid, &notice) {
@@ -851,6 +851,11 @@ fn served(
                 fs: Arc::clone(fs),
                 home: home.to_path_buf(),
                 edge: Arc::clone(edge),
+            }))
+            // A project with a store of its own from before the one store is
+            // refused at its resolution (T17).
+            .refusing_legacy_stores(Arc::new(crate::LegacyStores {
+                stores: Stores::new(Arc::clone(fs), home.to_path_buf()),
             }))
             .handing_off(crate::hand_offs::api_hand_offs(
                 fs,

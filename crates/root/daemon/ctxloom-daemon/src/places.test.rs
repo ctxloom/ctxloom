@@ -82,7 +82,7 @@ fn git(dir: &std::path::Path, args: &[&str]) {
 
 /// The host's `PATH`, which finds git.
 fn path() -> String {
-    ctxloom_wiring::fixtures::host_snapshot()
+    ctxloom_compose::fixtures::host_snapshot()
         .utf8("PATH")
         .unwrap_or_default()
         .to_string()

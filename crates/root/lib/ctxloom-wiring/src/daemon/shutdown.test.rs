@@ -8,14 +8,12 @@ use file_system::Rooted;
 
 use angzarr_embedded::v1::CommandBook;
 use cli_support::Exit;
+use ctxloom_compose::daemon::drain::{configured_drain_timeout, epoch_seconds, notice_text};
 use run_ports::{Delivery, FactSink, Held, HeldFact, HeldFacts};
 use runs_application::{observe, Undelivered};
 use surface_ports::HookEvent;
 
-use super::{
-    configured_drain_timeout, epoch_seconds, holds_said, notice_text, undelivered_in, verdict,
-    Running, ShutdownError,
-};
+use super::{holds_said, undelivered_in, verdict, Running, ShutdownError};
 use crate::capture::Deadline;
 use crate::daemon::flush::{flush_with, Flushed};
 

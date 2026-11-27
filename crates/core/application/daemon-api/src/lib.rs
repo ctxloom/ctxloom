@@ -55,10 +55,7 @@
 
 mod admit;
 mod approvals;
-mod caller;
-mod caller_wake;
 mod clean;
-mod client;
 mod deps_writes;
 #[cfg(feature = "purge")]
 mod destroy;
@@ -69,37 +66,27 @@ mod hand_over;
 mod hook_context;
 mod imports;
 mod init;
-pub mod launch;
+mod legacy_stores;
 mod library_reads;
-mod library_refusals;
 pub mod library_writes;
 mod reactions;
-mod refusal;
 mod runs;
 mod server;
-mod session_client;
 mod setup_reads;
 mod shown;
 mod start_up;
 mod terminal;
 mod top;
 mod trust;
-mod waker;
 mod watch;
 
 pub use ::runs::{LaunchFinding, RunRejection};
 pub use admit::{admit, program_of};
-pub use approvals::{
-    ask_of, settled_how, settled_of, settled_refusal, Answered, ApprovalAnswers, Approving,
-    AskNames,
-};
-pub use caller::{
-    launch_lock_name, urgency_of, Caller, ChildWrites, Launch, ProjectResolver, Written,
-    DELEGATION_LIMIT,
-};
+pub use approvals::{Approving, AskNames};
 pub use clean::Caches;
-pub use client::{
-    newer, reconcile, reconcile_session, resolve, stop, CallError, Reconciled, SkewError,
+pub use daemon_api_contract::{
+    app_error, deps_error, launch, library_refusal, rejection_of, setup_error, ApiError,
+    ApiRefusal, ApiRejection, Rejection, RemovalRejection, TRUST_INDEX,
 };
 pub use deps_writes::{DepsAnswer, DepsAsk, DepsPlanned, DepsPlans, DepsTree};
 #[cfg(feature = "purge")]
@@ -108,30 +95,23 @@ pub use foreign::{ForeignAnswer, ForeignAsk, ForeignPlanned, ForeignPlans, Forei
 pub use hand_off::{FatalFinding, HandOffContent, HandOffs, HandingOff, Planned};
 pub use hand_over::HandingOver;
 pub use imports::Imports;
+pub use legacy_stores::LegacyStores;
 pub use library_api::premise::{render_premise_index, Shown};
 pub use library_reads::{Libraries, LibraryRequest};
 pub use reactions::{Deliveries, LibraryPoll, Wake};
-pub use refusal::{
-    deps_error, library_refusal, rejection_of, setup_error, ApiError, ApiRefusal, ApiRejection,
-    Rejection, RemovalRejection,
-};
 pub use run_ports::{wake_line, wake_nonce, WakePost};
 /// The infrastructure tree's one root (owner, 2026-11-14), for the daemon's
 /// service, which answers an error that is no refusal through it.
 pub use run_ports::{Infrastructure, DIAGNOSED};
 pub use runs::RunStream;
 pub use server::{About, Answer, Api, Calls, Harps, Hosting, Observing, Parts, SessionStates};
-pub use session_client::{
-    Client, LibraryReads, LibraryWrites, Removed, RequestIds, SessionReads, SessionRemovals,
-};
 /// The one joiner and placer of a log's words, for the screen and `session
 /// transcript show` alike (`session_index::conversation`).
 pub use session_index::conversation;
 pub use setup_reads::{SetupAnswer, SetupRead, SetupReads};
 pub use start_up::StartUpIncomplete;
 pub use top::{TopStop, TopStream};
-pub use trust::{etag_of, TrustWrites, Trusted, Trusting, Trusts, TRUST_INDEX};
-pub use waker::{WakeAct, Waker, DISARM_AFTER};
+pub use trust::{etag_of, Trusting, Trusts};
 pub use watch::SessionStream;
 
 /// What a call can come to, and why no daemon could be called: the port's,
@@ -150,9 +130,7 @@ pub const EN_US: (&str, &str) = (
 /// One value of every diagnostic of the crate, for the catalog test.
 #[cfg(any(test, feature = "test-support"))]
 pub fn diagnostic_samples() -> Vec<Box<dyn coded_diagnostic::Diagnostic>> {
-    let mut all = refusal::samples();
-    all.extend(client::samples());
-    all.extend(start_up::samples());
+    let mut all = start_up::samples();
     all.extend(hand_over::samples());
     all
 }

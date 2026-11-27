@@ -1,9 +1,9 @@
 //! The terminal wake's poster at work (owner ruling 2026-11-18): while
 //! `mcp serve` runs for a primary terminal session (its session named, and
 //! its engine's messaging socket exported to it), it watches its own
-//! session (`WatchSession`) and does what [`daemon_api::Waker`] decides with
+//! session (`WatchSession`) and does what [`daemon_api_client::Waker`] decides with
 //! each signal: a wake due is issued (journaled), then posted on the socket
-//! and timed; one not answered in [`daemon_api::DISARM_AFTER`] is disarmed;
+//! and timed; one not answered in [`daemon_api_client::DISARM_AFTER`] is disarmed;
 //! one whose post fails is disarmed at once; one not issued is tried again
 //! at the next signal. A watch that ends (the daemon
 //! gone) is opened again after [`WATCH_AGAIN`], the poster's state kept.
@@ -14,7 +14,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
-use daemon_api::{wake_line, Caller, Daemons, WakeAct, WakePost, Waker};
+use daemon_api_client::{wake_line, Caller, Daemons, WakeAct, WakePost, Waker};
 
 /// How long after a watch ended it is opened again.
 pub const WATCH_AGAIN: Duration = Duration::from_secs(1);
@@ -100,7 +100,7 @@ async fn act_on<D>(
             }
             match wakes.post.post(&wake_line(&nonce)) {
                 Ok(()) => {
-                    let sleep = Box::pin(tokio::time::sleep(daemon_api::DISARM_AFTER));
+                    let sleep = Box::pin(tokio::time::sleep(daemon_api_client::DISARM_AFTER));
                     *timer = Some((nonce, sleep));
                 }
                 Err(_) => {

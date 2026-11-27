@@ -26,7 +26,7 @@ use sessions::{
     RegisterProject, SessionName, SessionRejection, PROJECTS_DOMAIN, PROJECT_NAMES_DOMAIN,
 };
 
-use crate::refusal::{ApiError, ApiRefusal};
+use daemon_api_contract::{ApiError, ApiRefusal};
 
 /// The daemon's singleton name (AIP-156).
 const DAEMON: &str = "daemon";
@@ -987,6 +987,9 @@ pub struct Api<E> {
     pub(crate) hand_offs: Option<Arc<dyn crate::HandOffs>>,
     /// What imports Go's sessions (ONE WRITER); none, `ImportSessions` fails.
     pub(crate) imports: Option<Arc<dyn crate::Imports>>,
+    /// What refuses a project with a store of its own from before the one
+    /// store; none, no project is refused.
+    pub(crate) legacy_stores: Option<Arc<dyn crate::LegacyStores>>,
     /// The interactive sessions the daemon prepares (U5); none, a TERMINAL
     /// `CreateRun` fails.
     pub(crate) terminals: Option<Arc<daemon_application::Terminals>>,
@@ -1050,6 +1053,7 @@ impl<E: Edge> Api<E> {
             one_shots: None,
             hand_offs: None,
             imports: None,
+            legacy_stores: None,
             terminals: None,
             trusting: None,
             approving: None,
@@ -1494,6 +1498,13 @@ impl<E: Edge> Api<E> {
                 .to_string(),
         };
         let id = request.project_id.as_str();
+        if let Some(path) = self
+            .legacy_stores
+            .as_ref()
+            .and_then(|legacy| legacy.held(id))
+        {
+            return Err(ApiRefusal::of(&v1::PerProjectStore { path }).into());
+        }
         let before = self.project(id).await?;
         if before.harp.is_empty() {
             self.name(id).await?;

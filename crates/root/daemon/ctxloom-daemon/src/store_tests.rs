@@ -1,14 +1,14 @@
 //! The hidden `ctxloom test` commands that read or write the store
 //! (`test-support` only): the daemon crate runs them, so the CLI's wiring
 //! opens no store. The command line parses them ([`StoreVerb`]) and hands
-//! each here through [`Hosting::store_tests`](ctxloom_wiring::daemon::Hosting).
+//! each here through [`DaemonEntry::store_tests`](ctxloom_compose::daemon::DaemonEntry).
 
 use std::io::Write;
 use std::ops::Deref;
 
 use cli_support::Exit;
-use ctxloom_cli::{CliError, Failure};
-use ctxloom_wiring::{StoreVerb, TestError, Wiring};
+use cli_support::Failure;
+use ctxloom_compose::{StoreVerb, TestError, Wiring};
 
 use crate::seed::Seed;
 
@@ -30,7 +30,7 @@ fn failed(cause: impl coded_diagnostic::Diagnostic + 'static) -> Failure {
 
 fn output(written: std::io::Result<()>) -> Result<(), Failure> {
     written.map_err(|e| {
-        failed(CliError::Output {
+        failed(TestError::Output {
             detail: e.to_string(),
         })
     })

@@ -11,7 +11,7 @@ publish.workspace = true
 duration-text.workspace = true
 coded-diagnostic.workspace = true
 clap.workspace = true
-daemon-api.workspace = true
+daemon-api-client.workspace = true
 daemon-proto.workspace = true
 # The official Rust MCP SDK (ruling 150, OD/s3-Q1), pinned exactly, its
 # default features off: the server and the stdio transport alone (no macros,

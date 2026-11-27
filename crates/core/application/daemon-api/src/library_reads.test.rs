@@ -447,7 +447,11 @@ async fn a_deps_read_is_observed_then_answered_and_a_decline_carries_its_cause()
     let ApiError::Refused(refusal) = refused else {
         panic!("{refused:?}");
     };
-    let report = crate::library_refusals::rejection(&refusal.refusal).unwrap();
+    let Some(daemon_api_contract::Rejection::LibraryRead(report)) =
+        daemon_api_contract::rejection_of(&refusal.refusal)
+    else {
+        panic!("{refusal:?}");
+    };
     assert!(
         coded_diagnostic::Diagnostic::code(&report).starts_with("deps-"),
         "{report:?}"

@@ -116,7 +116,7 @@ sessions-proto = { path = "crates/core/wire/sessions-proto" }
 daemon-proto = { path = "crates/core/wire/daemon-proto" }
 daemon-ports = { path = "crates/core/ports/daemon-ports" }
 daemon-api = { path = "crates/core/application/daemon-api" }
-daemon-api-grpc = { path = "crates/adapters/driving/daemon-api-grpc" }
+daemon-api-grpc = { path = "crates/adapters/serving/daemon-api-grpc" }
 daemon-client = { path = "crates/adapters/driven/daemon-client" }
 sessions = { path = "crates/core/domain/sessions" }
 session-index = { path = "crates/core/read-model/session-index" }
@@ -127,7 +127,7 @@ session-files = { path = "crates/adapters/driven/session-files" }
 session-cli = { path = "crates/adapters/driving/session-cli" }
 mcp-server = { path = "crates/adapters/driving/mcp-server" }
 hook-cli = { path = "crates/adapters/driving/hook-cli" }
-hook-listener = { path = "crates/adapters/driving/hook-listener" }
+hook-listener = { path = "crates/adapters/serving/hook-listener" }
 hook-tls = { path = "crates/adapters/driven/hook-tls" }
 run-cli = { path = "crates/adapters/driving/run-cli" }
 ctxloom-cli = { path = "crates/adapters/driving/ctxloom-cli" }
@@ -140,6 +140,9 @@ library = { path = "crates/core/read-model/library" }
 library-application = { path = "crates/core/application/library-application" }
 library-cli = { path = "crates/adapters/driving/library-cli" }
 stub-companion = { path = "crates/root/bin/stub-companion" }
+ctxloom-compose = { path = "crates/root/compose/ctxloom-compose" }
+daemon-api-contract = { path = "crates/core/application/daemon-api-contract" }
+daemon-api-client = { path = "crates/core/application/daemon-api-client" }
 ctxloom-wiring = { path = "crates/root/lib/ctxloom-wiring" }
 ctxloom-daemon = { path = "crates/root/daemon/ctxloom-daemon" }
 deps = { path = "crates/core/read-model/deps" }
@@ -159,12 +162,14 @@ engine-claude = { path = "crates/adapters/driven/engine-claude" }
 engine-mock = { path = "crates/adapters/driven/engine-mock" }
 engine-opencode = { path = "crates/adapters/driven/engine-opencode" }
 host-launcher = { path = "crates/adapters/driven/host-launcher" }
+surface-api = { path = "crates/core/application/surface-api" }
 surface-cli = { path = "crates/adapters/driving/surface-cli" }
 cache-files = { path = "crates/adapters/driven/cache-files" }
 auth-application = { path = "crates/core/application/auth-application" }
 reclaim-application = { path = "crates/core/application/reclaim-application" }
 doctor-checks = { path = "crates/core/application/doctor-checks" }
 init-application = { path = "crates/core/application/init-application" }
+setup-api = { path = "crates/core/application/setup-api" }
 setup-cli = { path = "crates/adapters/driving/setup-cli" }
 isolation-ports = { path = "crates/core/ports/isolation-ports" }
 isolation = { path = "crates/core/read-model/isolation" }

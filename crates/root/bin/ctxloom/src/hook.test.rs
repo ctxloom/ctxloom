@@ -607,7 +607,7 @@ fn test_a_hook_process_with_no_home_at_all_is_refused_naming_both_variables() {
     );
     assert_eq!(ran.code, 32, "{}", ran.said());
     let err = ran.err_json();
-    assert_eq!(err["code"], "ctxloom-wiring-no-home");
+    assert_eq!(err["code"], "ctxloom-compose-no-home");
     assert!(
         err["message"]
             .as_str()

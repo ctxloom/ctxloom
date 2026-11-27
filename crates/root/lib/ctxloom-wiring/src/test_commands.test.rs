@@ -8,7 +8,7 @@ use ctxloom_cli::{Call, Extension};
 use presentation::{Catalog, Format};
 
 use super::*;
-use crate::commands::tests::{run_line, try_line, World};
+use crate::commands::tests::{run_line, try_line, World, WorldCommands};
 
 fn failure(world: &World, line: &[&str]) -> (u8, String) {
     let failed = try_line(&mut world.commands(), Format::Json, line).unwrap_err();
@@ -51,11 +51,11 @@ fn refuse_is_a_refusal_with_a_remedy_and_findings_are_fatal() {
     let world = World::new("test-ladder");
     assert_eq!(
         failure(&world, &["test", "refuse"]),
-        (48, "ctxloom-wiring-test-refused".to_string())
+        (48, "ctxloom-compose-test-refused".to_string())
     );
     assert_eq!(
         failure(&world, &["test", "findings"]),
-        (49, "ctxloom-wiring-test-findings".to_string())
+        (49, "ctxloom-compose-test-findings".to_string())
     );
 }
 
@@ -106,7 +106,7 @@ fn an_answer_that_cannot_be_written_is_a_failure_with_exit_10() {
     let failed = run(
         || unreachable!("a session id needs no home"),
         "v0.0.0-test",
-        (Vec::new, crate::daemon::Hosting::NONE.store_tests),
+        (Vec::new, crate::daemon::DaemonEntry::NONE.store_tests),
         &call,
         &catalog,
         &mut Broken,
@@ -133,8 +133,8 @@ fn diagnostics_are_the_envelopes_of_the_lines_wiring_and_the_roots_samples() {
     assert!(out.starts_with('[') && out.ends_with("]\n"), "{out}");
     for code in [
         "ctxloom-cli-usage",
-        "ctxloom-wiring-seed",
-        "ctxloom-wiring-test-findings",
+        "ctxloom-compose-seed",
+        "ctxloom-compose-test-findings",
     ] {
         assert!(
             out.contains(&format!("\"code\": \"{code}\"")),
@@ -166,7 +166,7 @@ fn a_run_id_is_the_runs_uuid_and_a_bad_session_is_refused() {
     assert_ne!(out, format!("{}\n", crate::run_id(session, 4).unwrap()));
     assert_eq!(
         failure(&world, &["test", "run-id", "not-a-uuid", "1"]),
-        (32, "ctxloom-wiring-bad-session".to_string())
+        (32, "ctxloom-compose-bad-session".to_string())
     );
 }
 

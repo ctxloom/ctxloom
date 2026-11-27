@@ -759,7 +759,7 @@ async fn a_daemon_whose_home_is_gone_refuses_every_call_that_would_create_there(
 }
 
 // A refusal for a gone home is told in this crate's words
-// (`daemon-api-home-gone`), a decline.
+// (`daemon-api-contract-home-gone`), a decline.
 #[test]
 fn a_home_gone_refusal_is_told_in_its_words() {
     let refusal = ApiRefusal::of(&v1::DaemonHomeGone {
@@ -774,12 +774,12 @@ fn a_home_gone_refusal_is_told_in_its_words() {
     );
     assert_eq!(
         rejection.report().to_string(),
-        "daemon-api-home-gone home=/home/u/.ctxloom"
+        "daemon-api-contract-home-gone home=/home/u/.ctxloom"
     );
 }
 
 // A daemon's refusal of a call while it drains is told in this crate's
-// words (`daemon-api-draining`), a decline.
+// words (`daemon-api-contract-draining`), a decline.
 #[test]
 fn a_draining_refusal_is_told_in_its_words() {
     let refusal = ApiRefusal::of(&v1::DaemonDraining {
@@ -796,7 +796,7 @@ fn a_draining_refusal_is_told_in_its_words() {
     );
     assert_eq!(
         rejection.report().to_string(),
-        "daemon-api-draining daemon=v0.1.0-a harps=brisk-copper-moth"
+        "daemon-api-contract-draining daemon=v0.1.0-a harps=brisk-copper-moth"
     );
 }
 

@@ -8,6 +8,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+ctxloom-compose.workspace = true
 coded-diagnostic.workspace = true
 angzarr-embedded.workspace = true
 presentation.workspace = true
@@ -97,7 +98,7 @@ credentials.workspace = true
 # with its catch-ups, their gaps filled from the store.
 # The daemon's one launcher (T18), which the root only composes.
 daemon-application.workspace = true
-daemon-api.workspace = true
+daemon-api-client.workspace = true
 daemon-client.workspace = true
 daemon-ports.workspace = true
 hook-sink-grpc.workspace = true
@@ -136,6 +137,7 @@ os = { workspace = true, features = ["test-support"] }
 # rulings 94, 94b, 98).
 purge = ["session-cli/purge"]
 test-support = [
+    "ctxloom-compose/test-support",
     "ctxloom-cli/test-support",
     "dep:engine-mock",
     "library-application/test-support",

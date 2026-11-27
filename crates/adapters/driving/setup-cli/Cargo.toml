@@ -21,6 +21,7 @@ library-api.workspace = true
 reclaim-application.workspace = true
 serde.workspace = true
 sessions-application.workspace = true
+setup-api.workspace = true
 
 [dev-dependencies]
 presentation = { workspace = true, features = ["test-support"] }

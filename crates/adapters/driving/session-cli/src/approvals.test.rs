@@ -5,7 +5,7 @@
 use std::cell::RefCell;
 
 use clap::FromArgMatches;
-use daemon_api::{Answered, ApiRejection, ApprovalAnswers, CallError, Rejection};
+use daemon_api_client::{Answered, ApiRejection, ApprovalAnswers, CallError, Rejection};
 use daemon_proto::v1;
 use presentation::Format;
 
@@ -85,7 +85,7 @@ impl ApprovalAnswers for Fake {
         if self.settled_meanwhile {
             let mut settled = approval.clone();
             settled.state = "expired".to_string();
-            return Err(daemon_api::settled_refusal(&settled).unwrap());
+            return Err(daemon_api_client::settled_refusal(&settled).unwrap());
         }
         let mut answered = approval.clone();
         answered.state = "answered".to_string();
@@ -403,7 +403,10 @@ fn a_rule_written_for_an_ask_settled_meanwhile_stays_and_is_said() {
         },
         Format::Text,
     );
-    assert_eq!(done, Err("daemon-api-approval-rule-kept".to_string()));
+    assert_eq!(
+        done,
+        Err("daemon-api-contract-approval-rule-kept".to_string())
+    );
     let _ = (
         ApiRejection::ApprovalNoneWaiting {
             harp: String::new(),

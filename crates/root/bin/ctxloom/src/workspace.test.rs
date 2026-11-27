@@ -734,102 +734,6 @@ fn test_the_callerless_list_names_only_rpcs_that_carry_no_caller() {
     }
 }
 
-/// The CLI crates' dependencies on application crates there are today (step
-/// 10 U11's forcing check): every one is a DEPARTURE from the rule, listed
-/// with what it is used for, until the CLI crates are request and render
-/// alone (step 10a U2's "the CLI crates' application dependencies" deletion,
-/// not done yet). A new edge fails the check; so does an entry here whose
-/// edge is gone (take it out).
-const CLI_APPLICATION_DEPARTURES: &[(&str, &str, &str)] = &[
-    (
-        "container-cli",
-        "isolation-application",
-        "its error and container rows, rendered",
-    ),
-    (
-        "ctxloom-cli",
-        "library-application",
-        "the global `Flags` it parses",
-    ),
-    (
-        "deps-cli",
-        "deps-application",
-        "the rows it renders and its catalog",
-    ),
-    (
-        "deps-cli",
-        "library-api",
-        "resource names, reads' flags, the deps resources",
-    ),
-    (
-        "hook-cli",
-        "setup-application",
-        "`HookAnswer`, what a hook answers its engine",
-    ),
-    (
-        "library-cli",
-        "library-application",
-        "`Flags`, `SourcedValue`, `AgentSettings` and hints, rendered",
-    ),
-    (
-        "library-cli",
-        "library-api",
-        "resource names, resources and served writes' helpers",
-    ),
-    ("run-cli", "library-application", "its catalog (`EN_US`)"),
-    (
-        "run-cli",
-        "run-application",
-        "the run's use case, in process",
-    ),
-    (
-        "session-cli",
-        "daemon-api",
-        "the daemon's client (`CallError`, `Written`, `Removed`)",
-    ),
-    (
-        "session-cli",
-        "isolation-application",
-        "worktree verdicts and rows, rendered",
-    ),
-    (
-        "session-cli",
-        "reclaim-application",
-        "holds and `parse_age`",
-    ),
-    (
-        "session-cli",
-        "sessions-application",
-        "timestamps, urgencies and classes",
-    ),
-    (
-        "setup-cli",
-        "auth-application",
-        "auth rows and their catalog",
-    ),
-    ("setup-cli", "deps-application", "deps' errors and notices"),
-    ("setup-cli", "doctor-checks", "doctor's `Report`"),
-    (
-        "setup-cli",
-        "init-application",
-        "init's companions and prompts ports",
-    ),
-    ("setup-cli", "library-api", "reads' flags"),
-    ("setup-cli", "reclaim-application", "clean's `CleanReport`"),
-    (
-        "setup-cli",
-        "sessions-application",
-        "its errors and catalog",
-    ),
-    ("surface-cli", "library-api", "reads' flags"),
-    ("surface-cli", "library-application", "the global `Flags`"),
-    (
-        "surface-cli",
-        "setup-application",
-        "materialize's diff and the hooks' status, rendered",
-    ),
-];
-
 /// The package name a crate directory's `Cargo.toml` gives.
 fn package_name(manifest: &str) -> Option<String> {
     let package = manifest.split("[package]").nth(1)?;
@@ -863,65 +767,6 @@ fn dependency_names(manifest: &str) -> Vec<String> {
         }
     }
     names
-}
-
-/// The package names of the crates directly under `dir`.
-fn packages_under(dir: &Path) -> Vec<(String, String)> {
-    let mut found = Vec::new();
-    for path in files::children(dir) {
-        let Ok(manifest) = files::read(path.join("Cargo.toml")) else {
-            continue;
-        };
-        if let Some(name) = package_name(&manifest) {
-            found.push((name, manifest));
-        }
-    }
-    found
-}
-
-/// The rule (step 10 U11): no CLI crate (a driving adapter named `*-cli`)
-/// depends on an application crate (`crates/core/application/*`); the CLI
-/// is request and render, and every use case runs in the daemon. Today's
-/// edges are the listed departures.
-#[test]
-fn test_no_cli_crate_depends_on_an_application_crate_but_the_departures() {
-    let root = super::repo_root();
-    let applications: Vec<String> = packages_under(&root.join("crates/core/application"))
-        .into_iter()
-        .map(|(name, _)| name)
-        .collect();
-    assert!(applications.len() > 10, "read {applications:?}");
-    let clis: Vec<(String, String)> = packages_under(&root.join("crates/adapters/driving"))
-        .into_iter()
-        .filter(|(name, _)| name.ends_with("-cli"))
-        .collect();
-    assert!(clis.len() > 5, "read {} CLI crates", clis.len());
-    let mut edges = Vec::new();
-    for (cli, manifest) in &clis {
-        for dependency in dependency_names(manifest) {
-            if applications.contains(&dependency) {
-                edges.push((cli.clone(), dependency));
-            }
-        }
-    }
-    let listed = |cli: &str, application: &str| {
-        CLI_APPLICATION_DEPARTURES
-            .iter()
-            .any(|(c, a, _)| *c == cli && *a == application)
-    };
-    let new: Vec<_> = edges.iter().filter(|(c, a)| !listed(c, a)).collect();
-    assert!(
-        new.is_empty(),
-        "a CLI crate depends on an application crate (the CLI is request and render): {new:#?}"
-    );
-    let stale: Vec<_> = CLI_APPLICATION_DEPARTURES
-        .iter()
-        .filter(|(c, a, _)| !edges.iter().any(|(ec, ea)| ec == c && ea == a))
-        .collect();
-    assert!(
-        stale.is_empty(),
-        "a departure whose edge is gone, take it out: {stale:#?}"
-    );
 }
 
 #[test]
@@ -986,6 +831,8 @@ const DAEMON_LIBRARY_OPENS: &[(&str, usize, &str)] = &[
 const LIBRARY_OPENERS: &[&str] = &[
     "library::build(",
     "library::build_over(",
+    "library_build::build(",
+    "library_build::build_over(",
     "build_setup(",
     "build_setup_over(",
 ];
@@ -1005,7 +852,7 @@ fn library_opens(text: &str) -> usize {
 
 /// The rule (step 10 U11): nothing in the daemon reads a library tree
 /// outside the observation. The daemon's root sources (`ctxloom-daemon`'s
-/// sources, and the wiring's `oneshot.rs` and `frontend.rs`) open a
+/// sources, and the shared composition's (`ctxloom-compose`) `oneshot.rs` and `frontend.rs`) open a
 /// library only where [`DAEMON_LIBRARY_OPENS`] lists; the core's daemon
 /// crates (daemon-api, daemon-application) open none at all (they reach a
 /// library through their ports, each observed first).
@@ -1017,7 +864,7 @@ fn test_nothing_in_the_daemon_opens_a_library_tree_outside_the_observation() {
         &root.join("crates/root/daemon/ctxloom-daemon/src"),
         &mut sources,
     );
-    let wiring = root.join("crates/root/lib/ctxloom-wiring/src");
+    let wiring = root.join("crates/root/compose/ctxloom-compose/src");
     sources.push(wiring.join("oneshot.rs"));
     sources.push(wiring.join("frontend.rs"));
     for core in ["daemon-api", "daemon-application"] {

@@ -83,7 +83,7 @@ impl daemon_api::DepsPlans for DepsWriters {
         let store = Arc::new(RecordingDepsFiles::over(Arc::clone(&files)));
         let failed = |e: &dyn coded_diagnostic::Diagnostic| ApiError::diagnosed(e);
         let deps = Rc::new(
-            ctxloom_wiring::commands::build_deps_over(&wiring, store.clone(), Arc::clone(&files))
+            ctxloom_compose::compose::build_deps_over(&wiring, store.clone(), Arc::clone(&files))
                 .map_err(|e| failed(&e))?,
         );
         let mut foreign = Vec::new();
@@ -101,7 +101,7 @@ impl daemon_api::DepsPlans for DepsWriters {
                 let (report, notices) = answered(outcome)?;
                 DepsAnswer::Upgraded(v1::UpgradeDependenciesResponse {
                     notices,
-                    ..deps_cli::wire::upgraded(&report, reference.as_deref())
+                    ..library_api::deps_wire::dependency::upgraded(&report, reference.as_deref())
                 })
             }
             DepsAsk::CreateRemote { name, url, forge } => {
@@ -112,7 +112,7 @@ impl daemon_api::DepsPlans for DepsWriters {
                 }))?;
                 DepsAnswer::Created(v1::CreateRemoteResponse {
                     notices,
-                    ..deps_cli::wire::created(parent, &created, forge)
+                    ..library_api::deps_wire::remote::created(parent, &created, forge)
                 })
             }
             DepsAsk::EditRemote {
@@ -129,25 +129,25 @@ impl daemon_api::DepsPlans for DepsWriters {
                 let (edited, notices) = answered(deps.remote_edit(remote, &edit))?;
                 DepsAnswer::Edited(v1::UpdateRemoteResponse {
                     notices,
-                    ..deps_cli::wire::edited(parent, &edited)
+                    ..library_api::deps_wire::remote::edited(parent, &edited)
                 })
             }
             DepsAsk::RemoveRemote { name, apply } => {
                 let (removed, notices) = answered(deps.remote_remove(name, *apply))?;
                 DepsAnswer::Removed(v1::DeleteRemoteResponse {
                     notices,
-                    ..deps_cli::wire::removed(parent, name, &removed)
+                    ..library_api::deps_wire::remote::removed(parent, name, &removed)
                 })
             }
             DepsAsk::DefaultRemote { name } => {
                 let (set, notices) = answered(deps.remote_default(name.as_deref()))?;
                 DepsAnswer::Defaulted(v1::SetDefaultRemoteResponse {
                     notices,
-                    ..deps_cli::wire::defaulted(parent, &set)
+                    ..library_api::deps_wire::remote::defaulted(parent, &set)
                 })
             }
         };
-        let remotes = ctxloom_wiring::commands::git_remotes(&wiring, Arc::clone(&files));
+        let remotes = ctxloom_compose::compose::git_remotes(&wiring, Arc::clone(&files));
         planned(answer, (&store.take(), files.as_ref()), &remotes, foreign)
     }
 }
@@ -170,9 +170,9 @@ fn pull(
         wiring.home().join(".ctxloom/records"),
     ));
     let setup =
-        ctxloom_wiring::commands::build_setup_over(wiring, Rc::clone(deps), surfaces.clone())
+        ctxloom_compose::compose::build_setup_over(wiring, Rc::clone(deps), surfaces.clone())
             .map_err(|e| ApiError::diagnosed(&e))?;
-    let refresher = ctxloom_wiring::commands::SetupRefresh {
+    let refresher = ctxloom_compose::compose::SetupRefresh {
         setup: &setup,
         flags: flags.clone(),
     };
@@ -186,11 +186,11 @@ fn pull(
     let skipped = pulled
         .skipped
         .as_ref()
-        .map(|refresh| deps_cli::wire::view(refresh, &catalog));
+        .map(|refresh| library_api::deps_wire::refresh::view(refresh, &catalog));
     let answer = DepsAnswer::Pulled(v1::PullDependenciesResponse {
         notices,
         refresh_refusal,
-        ..deps_cli::wire::pulled(parent, &pulled.report, skipped.as_ref())
+        ..library_api::deps_wire::dependency::pulled(parent, &pulled.report, skipped.as_ref())
     });
     Ok((answer, foreign))
 }

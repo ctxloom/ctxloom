@@ -9,14 +9,14 @@ use angzarr_embedded::testing::{Fault, FaultyStore, MemoryStore};
 use angzarr_embedded::v1::{Cover, EventPage, Uuid};
 use angzarr_embedded::{Answered, CommandBookExt, Failure, Rejected, StoreError};
 use embedded_edge::EmbeddedEdge;
-use hook_cli::Recording;
 use run_ports::{Arrival, Delivery, Edge, FactSink, Unserved};
 use runs_application::observe;
 use setup_application::HookAnswer;
+use setup_application::Recording;
 use surface_ports::{HookEvent, ToolCall};
 
 use crate::InProcessCore;
-use ctxloom_wiring::capture::*;
+use ctxloom_compose::capture::*;
 use run_ports::HeldFacts;
 
 /// The session's resource name, as `CTXLOOM_SESSION` carries it (s3-Q3).
@@ -213,9 +213,9 @@ fn answer(event: HookEvent) -> HookAnswer {
 }
 
 /// The not-recorded report an [`Unrecorded`] is (a test's expectation).
-fn dropped(unrecorded: &hook_cli::Unrecorded) -> &hook_cli::NotRecorded {
+fn dropped(unrecorded: &setup_application::Unrecorded) -> &setup_application::NotRecorded {
     match unrecorded {
-        hook_cli::Unrecorded::Dropped(dropped) => dropped,
+        setup_application::Unrecorded::Dropped(dropped) => dropped,
         other => panic!("not dropped: {other:?}"),
     }
 }
@@ -690,7 +690,7 @@ async fn a_hook_newer_than_its_daemon_holds_its_facts_and_says_so() {
     assert_eq!(held_ids(&held), external_ids(&batch()));
     assert_eq!(said.len(), 2);
     for unrecorded in &said {
-        let hook_cli::Unrecorded::Held { harp, why, .. } = unrecorded else {
+        let setup_application::Unrecorded::Held { harp, why, .. } = unrecorded else {
             panic!("held: {unrecorded:?}")
         };
         assert_eq!(harp, HARP);
@@ -706,7 +706,7 @@ fn a_hook_that_reaches_no_daemon_holds_and_says_why() {
     let recording = holding(Reaching::none(), &held);
     let said = recording.record("UserPromptSubmit", HARP, &answer(prompt("p1")));
     assert_eq!(held_ids(&held), external_ids(&prompt("p1")));
-    let [hook_cli::Unrecorded::Held { why, .. }] = said.as_slice() else {
+    let [setup_application::Unrecorded::Held { why, .. }] = said.as_slice() else {
         panic!("one held: {said:?}")
     };
     assert!(
@@ -716,7 +716,7 @@ fn a_hook_that_reaches_no_daemon_holds_and_says_why() {
     let waits = recording.reach.waits.lock().unwrap().clone();
     assert_eq!(waits.len(), 1);
     assert!(
-        waits[0] <= ctxloom_wiring::daemon::SPAWN_WAIT,
+        waits[0] <= ctxloom_compose::daemon::SPAWN_WAIT,
         "a spawn waits at most a client's wait: {waits:?}"
     );
 }
@@ -728,17 +728,17 @@ fn a_hook_that_reaches_no_daemon_holds_and_says_why() {
 fn a_hooks_spawn_wait_is_what_its_bound_leaves() {
     assert_eq!(
         hook_bound("UserPromptSubmit"),
-        ctxloom_wiring::daemon::HOOK_BOUND
+        ctxloom_compose::daemon::HOOK_BOUND
     );
     assert_eq!(hook_bound("MessageDisplay"), Duration::from_secs(5));
     let start = std::time::Instant::now();
     let wait = spawn_wait(&Deadline(start + hook_bound("UserPromptSubmit")));
     assert!(
-        wait <= ctxloom_wiring::daemon::SPAWN_WAIT && wait > Duration::from_secs(7),
+        wait <= ctxloom_compose::daemon::SPAWN_WAIT && wait > Duration::from_secs(7),
         "{wait:?}"
     );
     assert_eq!(
-        spawn_wait(&Deadline(start + ctxloom_wiring::daemon::DELIVERY_MARGIN)),
+        spawn_wait(&Deadline(start + ctxloom_compose::daemon::DELIVERY_MARGIN)),
         Duration::ZERO
     );
 }
@@ -810,7 +810,10 @@ async fn two_hooks_of_one_session_at_once_record_each_fact_once_in_held_order() 
     .unwrap();
     let second = told.recv().unwrap();
     assert!(
-        matches!(second.as_slice(), [hook_cli::Unrecorded::HeldBehind { .. }]),
+        matches!(
+            second.as_slice(),
+            [setup_application::Unrecorded::HeldBehind { .. }]
+        ),
         "{second:?}"
     );
     assert!(first.is_empty(), "{first:?}");

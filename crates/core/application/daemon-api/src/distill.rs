@@ -40,9 +40,9 @@ use library_application::{AppError, DistillAsk, ItemDistilled, ItemKind};
 use run_application::{Answer, Done, HostedEnd, Placement, RunError};
 use run_ports::Edge;
 
-use crate::library_writes::LibraryWriteRequest;
-use crate::refusal::ApiError;
 use crate::server::Api;
+use daemon_api_contract::ApiError;
+use daemon_api_contract::LibraryWriteRequest;
 
 /// The verb a distill's write is recorded under, by its kind.
 fn verb(kind: ItemKind) -> &'static str {
@@ -212,7 +212,7 @@ fn hosted(report: Report, exit: Exit) -> RunError {
 pub(crate) fn unwritten(error: &ApiError) -> RunError {
     match error {
         ApiError::Refused(refused) => hosted(
-            crate::refusal::rejection_of(&refused.refusal)
+            daemon_api_contract::rejection_of(&refused.refusal)
                 .map_or_else(|| Report::of(error), |rejection| rejection.report()),
             Exit::REFUSED,
         ),

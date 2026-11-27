@@ -86,7 +86,7 @@ Feature: The coordination tools advertise a closed vocabulary, and refuse what i
       Then the tool answered with the child's session, closed
       And "brisk-copper-moth" was closed once
       When the engine of "amber-quiet-heron" calls "child_close" for "calm-hollow-reed"
-      Then the tool failed with "daemon-api-session-not-found", naming "calm-hollow-reed"
+      Then the tool failed with "daemon-api-contract-session-not-found", naming "calm-hollow-reed"
 
     # Only a session's owner may send it a message. A session that is not
     # its owner (here, the child's own child) is refused, and

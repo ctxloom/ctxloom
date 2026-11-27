@@ -32,9 +32,10 @@ use library_tree::{
 use run_ports::Edge;
 
 use crate::foreign::{files_of, ForeignPut};
-use crate::library_writes::{landing_of, notice_of, LibraryWriteRequest, Made};
-use crate::refusal::{ApiError, ApiRefusal};
+use crate::library_writes::{landing_of, notice_of, Made};
 use crate::server::Api;
+use daemon_api_contract::LibraryWriteRequest;
+use daemon_api_contract::{ApiError, ApiRefusal};
 
 /// The registry's path in its tree.
 const REGISTRY: &str = "remotes.yaml";

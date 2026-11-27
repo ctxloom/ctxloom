@@ -158,7 +158,10 @@ impl Served for ServedBy<'_> {
             url: remote.url,
             forge: remote.forge.clone(),
         }))?;
-        Ok(wire::created(PARENT, &created.0, &remote.forge).noticed(created.1))
+        Ok(
+            library_api::deps_wire::remote::created(PARENT, &created.0, &remote.forge)
+                .noticed(created.1),
+        )
     }
 
     fn update_remote(
@@ -177,7 +180,7 @@ impl Served for ServedBy<'_> {
         };
         let asked = under.rsplit('/').next().unwrap_or(under);
         let edited = written(self.0.remote_edit(asked, &edit))?;
-        Ok(wire::edited(PARENT, &edited.0).noticed(edited.1))
+        Ok(library_api::deps_wire::remote::edited(PARENT, &edited.0).noticed(edited.1))
     }
 
     fn delete_remote(
@@ -187,7 +190,7 @@ impl Served for ServedBy<'_> {
     ) -> Result<daemon_proto::v1::DeleteRemoteResponse, Failure> {
         let asked = under.rsplit('/').next().unwrap_or(under);
         let removed = written(self.0.remote_remove(asked, !request.validate_only))?;
-        Ok(wire::removed(PARENT, asked, &removed.0).noticed(removed.1))
+        Ok(library_api::deps_wire::remote::removed(PARENT, asked, &removed.0).noticed(removed.1))
     }
 
     fn set_default_remote(
@@ -197,7 +200,7 @@ impl Served for ServedBy<'_> {
     ) -> Result<daemon_proto::v1::SetDefaultRemoteResponse, Failure> {
         let name = (!request.remote.is_empty()).then_some(request.remote.as_str());
         let set = written(self.0.remote_default(name))?;
-        Ok(wire::defaulted(PARENT, &set.0).noticed(set.1))
+        Ok(library_api::deps_wire::remote::defaulted(PARENT, &set.0).noticed(set.1))
     }
 
     fn pull_dependencies(
@@ -221,10 +224,15 @@ impl Served for ServedBy<'_> {
                 text: failure.to_string(),
             });
         let catalog = Catalog::en_us(&[deps_application::EN_US]).expect("a catalog");
-        let skipped = pulled.0.skipped.as_ref().map(|r| wire::view(r, &catalog));
+        let skipped = pulled
+            .0
+            .skipped
+            .as_ref()
+            .map(|r| library_api::deps_wire::refresh::view(r, &catalog));
         Ok(daemon_proto::v1::PullDependenciesResponse {
             refresh_refusal,
-            ..wire::pulled(PARENT, &pulled.0.report, skipped.as_ref()).noticed(pulled.1)
+            ..library_api::deps_wire::dependency::pulled(PARENT, &pulled.0.report, skipped.as_ref())
+                .noticed(pulled.1)
         })
     }
 
@@ -239,7 +247,7 @@ impl Served for ServedBy<'_> {
             Some(reference) => self.0.upgrade_only(reference, apply),
             None => self.0.upgrade(apply),
         })?;
-        Ok(wire::upgraded(&report.0, reference).noticed(report.1))
+        Ok(library_api::deps_wire::dependency::upgraded(&report.0, reference).noticed(report.1))
     }
 }
 

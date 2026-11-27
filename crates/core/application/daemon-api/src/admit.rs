@@ -9,7 +9,7 @@
 
 use daemon_proto::v1;
 
-use crate::refusal::{ApiError, ApiRefusal};
+use daemon_api_contract::{ApiError, ApiRefusal};
 
 /// Admit a request whose caller is `caller` to the daemon whose stamp is
 /// `own`: a client of the same stamp. A request that names no caller, or a

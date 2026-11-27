@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use ctxloom_wiring::daemon::files::{DaemonFiles, HandedPrograms};
+use ctxloom_compose::daemon::files::{DaemonFiles, HandedPrograms};
 use daemon_application::HandOff;
 use file_system::Fs;
 

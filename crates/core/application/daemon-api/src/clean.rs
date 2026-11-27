@@ -15,8 +15,8 @@ use reclaim_application::{CleanReport, Cleaner};
 use run_ports::Edge;
 
 use crate::library_writes::{landing_of, notice_of};
-use crate::refusal::ApiError;
 use crate::server::Api;
+use daemon_api_contract::ApiError;
 
 /// A project tree's regenerable cache, by the tree's directory (its
 /// `.ctxloom`).

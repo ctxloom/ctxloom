@@ -1,0 +1,17 @@
+[package]
+name = "surface-api"
+version = "0.1.0"
+description = "The setup writes as the API says them: materialize, uninstall, check and gitignore reports as their messages, and back (the daemon says its answers in them; the CLI reads them back)"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+coded-diagnostic.workspace = true
+daemon-proto.workspace = true
+library-application.workspace = true
+setup-application.workspace = true
+
+[lints]
+workspace = true

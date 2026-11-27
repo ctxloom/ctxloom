@@ -36,7 +36,7 @@ pub const WAIT_MARGIN: std::time::Duration = std::time::Duration::from_secs(60);
 /// [`WAIT_MARGIN`], one instant however often the call is retried (U5: the
 /// expiry is the daemon's alarm, so this is only a backstop). Every ask the
 /// daemon answers has an expiry; one without would end its wait at once.
-pub(crate) fn wait_until(asked: &v1::Approval) -> daemon_api::Until {
+pub(crate) fn wait_until(asked: &v1::Approval) -> daemon_api_client::Until {
     let mut until = asked.expire_time.unwrap_or_default();
     until.seconds += i64::try_from(WAIT_MARGIN.as_secs()).unwrap_or(i64::MAX);
     until

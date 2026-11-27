@@ -520,7 +520,7 @@ impl super::SetupReading for ReadingIn<'_> {
         request: daemon_proto::v1::RunDoctorRequest,
     ) -> Result<daemon_proto::v1::RunDoctorResponse, Failure> {
         Ok(daemon_proto::v1::RunDoctorResponse {
-            checks: super::wire::checks(&self.doctor.report(request.deps)),
+            checks: setup_api::wire::checks(&self.doctor.report(request.deps)),
             ..daemon_proto::v1::RunDoctorResponse::default()
         })
     }
@@ -531,7 +531,7 @@ impl super::SetupReading for ReadingIn<'_> {
     ) -> Result<daemon_proto::v1::GetAuthStatusResponse, Failure> {
         let rows = self.auth.status(&self.doctor.layer_texts());
         Ok(daemon_proto::v1::GetAuthStatusResponse {
-            rows: super::wire::auth_rows(&rows),
+            rows: setup_api::wire::auth_rows(&rows),
             ..daemon_proto::v1::GetAuthStatusResponse::default()
         })
     }

@@ -113,16 +113,16 @@ struct Reads {
     /// `list all state`, `search words all state`, `get harp`.
     asked: std::cell::RefCell<Vec<String>>,
     /// Answer every call with this, instead.
-    refuse: Option<daemon_api::CallError>,
+    refuse: Option<daemon_api_client::CallError>,
     /// The transcript's entries `get_transcript` answers.
     transcript: Vec<v1::LogEntry>,
 }
 
-impl daemon_api::SessionReads for Reads {
+impl daemon_api_client::SessionReads for Reads {
     async fn list_transcripts(
         &self,
         all: bool,
-    ) -> Result<v1::ListSessionsResponse, daemon_api::CallError> {
+    ) -> Result<v1::ListSessionsResponse, daemon_api_client::CallError> {
         self.asked.borrow_mut().push(format!("transcripts {all}"));
         if let Some(refused) = &self.refuse {
             return Err(refused.clone());
@@ -137,7 +137,7 @@ impl daemon_api::SessionReads for Reads {
         &self,
         all: bool,
         state: v1::session::State,
-    ) -> Result<v1::ListSessionsResponse, daemon_api::CallError> {
+    ) -> Result<v1::ListSessionsResponse, daemon_api_client::CallError> {
         self.asked
             .borrow_mut()
             .push(format!("list {all} {}", state.as_str_name()));
@@ -155,7 +155,7 @@ impl daemon_api::SessionReads for Reads {
         words: Vec<String>,
         all: bool,
         state: v1::session::State,
-    ) -> Result<v1::ListSessionsResponse, daemon_api::CallError> {
+    ) -> Result<v1::ListSessionsResponse, daemon_api_client::CallError> {
         self.asked.borrow_mut().push(format!(
             "search {} {all} {}",
             words.join(" "),
@@ -167,7 +167,7 @@ impl daemon_api::SessionReads for Reads {
         })
     }
 
-    async fn get_session(&self, harp: &str) -> Result<v1::Session, daemon_api::CallError> {
+    async fn get_session(&self, harp: &str) -> Result<v1::Session, daemon_api_client::CallError> {
         self.asked.borrow_mut().push(format!("get {harp}"));
         if let Some(refused) = &self.refuse {
             return Err(refused.clone());
@@ -175,10 +175,15 @@ impl daemon_api::SessionReads for Reads {
         self.sessions
             .first()
             .cloned()
-            .ok_or(daemon_api::CallError::Call(daemon_ports_like_unreachable()))
+            .ok_or(daemon_api_client::CallError::Call(
+                daemon_ports_like_unreachable(),
+            ))
     }
 
-    async fn get_transcript(&self, harp: &str) -> Result<v1::Transcript, daemon_api::CallError> {
+    async fn get_transcript(
+        &self,
+        harp: &str,
+    ) -> Result<v1::Transcript, daemon_api_client::CallError> {
         self.asked.borrow_mut().push(format!("transcript {harp}"));
         if let Some(refused) = &self.refuse {
             return Err(refused.clone());
@@ -207,8 +212,8 @@ fn shown(fake: &Fake, format: Format, words: &[&str]) -> Ran {
 }
 
 /// A call that came to nothing (no daemon answered).
-fn daemon_ports_like_unreachable() -> daemon_api::Called {
-    daemon_api::Called::Unreachable {
+fn daemon_ports_like_unreachable() -> daemon_api_client::Called {
+    daemon_api_client::Called::Unreachable {
         detail: "gone".to_string(),
     }
 }
@@ -584,8 +589,8 @@ fn show_in_text_names_what_its_run_was_given_and_how_its_last_turn_failed() {
 #[test]
 fn a_failed_call_is_the_commands_failure_with_its_exit_code() {
     let reads = Reads {
-        refuse: Some(daemon_api::CallError::Unreached(
-            daemon_api::Unreached::NotStarted {
+        refuse: Some(daemon_api_client::CallError::Unreached(
+            daemon_api_client::Unreached::NotStarted {
                 log: "~/.ctxloom/daemon/daemon.log".to_string(),
             },
         )),
@@ -622,7 +627,9 @@ fn only_list_search_show_and_transcript_show_are_the_daemons_reads() {
 #[test]
 fn a_transcript_the_daemon_refuses_writes_nothing() {
     let reads = Reads {
-        refuse: Some(daemon_api::CallError::Call(daemon_ports_like_unreachable())),
+        refuse: Some(daemon_api_client::CallError::Call(
+            daemon_ports_like_unreachable(),
+        )),
         ..Reads::default()
     };
     let ran = read_go(&reads, Format::Json, &["transcript", "show", "h"]);
@@ -711,7 +718,7 @@ fn the_harp_changing_edit_is_gone() {
 /// What the daemon answers a destroy with, and what it was asked.
 #[derive(Default)]
 struct Daemon {
-    removed: Option<daemon_api::Removed>,
+    removed: Option<daemon_api_client::Removed>,
     swept: Option<v1::SweepSessionsResponse>,
     /// Each delete asked: harp, yes, even_if_live.
     deletes: std::cell::RefCell<Vec<(String, bool, bool)>>,
@@ -773,22 +780,24 @@ impl reclaim_application::SessionHolds for Daemon {
     }
 }
 
-impl daemon_api::SessionRemovals for Daemon {
+impl daemon_api_client::SessionRemovals for Daemon {
     async fn delete_session(
         &self,
         harp: &str,
         yes: bool,
         even_if_live: bool,
-    ) -> Result<daemon_api::Removed, daemon_api::CallError> {
+    ) -> Result<daemon_api_client::Removed, daemon_api_client::CallError> {
         self.deletes
             .borrow_mut()
             .push((harp.to_string(), yes, even_if_live));
         self.removed
             .clone()
-            .ok_or(daemon_api::CallError::Call(daemon_api::Called::Failed {
-                code: 13,
-                detail: "boom".to_string(),
-            }))
+            .ok_or(daemon_api_client::CallError::Call(
+                daemon_api_client::Called::Failed {
+                    code: 13,
+                    detail: "boom".to_string(),
+                },
+            ))
     }
 
     async fn apply_removal(
@@ -797,11 +806,11 @@ impl daemon_api::SessionRemovals for Daemon {
         even_if_live: bool,
         etag: &str,
         answers: Vec<v1::Answer>,
-    ) -> Result<daemon_api::Removed, daemon_api::CallError> {
+    ) -> Result<daemon_api_client::Removed, daemon_api_client::CallError> {
         self.applies
             .borrow_mut()
             .push((harp.to_string(), even_if_live, etag.to_string(), answers));
-        Ok(daemon_api::Removed::Done(plan(true)))
+        Ok(daemon_api_client::Removed::Done(plan(true)))
     }
 
     async fn sweep_sessions(
@@ -809,7 +818,7 @@ impl daemon_api::SessionRemovals for Daemon {
         all: bool,
         older_than: Option<String>,
         yes: bool,
-    ) -> Result<v1::SweepSessionsResponse, daemon_api::CallError> {
+    ) -> Result<v1::SweepSessionsResponse, daemon_api_client::CallError> {
         self.sweeps.borrow_mut().push((all, older_than, yes));
         Ok(self.swept.clone().unwrap_or_default())
     }
@@ -854,16 +863,16 @@ fn plan(applied: bool) -> v1::DeleteSessionResponse {
 
 fn done_with(plan: v1::DeleteSessionResponse) -> Daemon {
     Daemon {
-        removed: Some(daemon_api::Removed::Done(plan)),
+        removed: Some(daemon_api_client::Removed::Done(plan)),
         ..Daemon::default()
     }
 }
 
 fn refused_with(why: Refusal) -> Daemon {
     Daemon {
-        removed: Some(daemon_api::Removed::Refused {
+        removed: Some(daemon_api_client::Removed::Refused {
             plan: plan(false),
-            why: daemon_api::RemovalRejection::Session(why),
+            why: daemon_api_client::RemovalRejection::Session(why),
         }),
         ..Daemon::default()
     }
@@ -1267,9 +1276,9 @@ fn a_session_its_worktrees_keep_prints_them_then_fails_refused() {
         ..v1::WorktreeReport::default()
     });
     let daemon = Daemon {
-        removed: Some(daemon_api::Removed::Refused {
+        removed: Some(daemon_api_client::Removed::Refused {
             plan: kept,
-            why: daemon_api::RemovalRejection::KeepsSession {
+            why: daemon_api_client::RemovalRejection::KeepsSession {
                 harp: "amber-swift-owl".to_string(),
                 spared: 1,
                 skipped: 0,
@@ -1374,7 +1383,10 @@ fn the_bare_transcript_lists_and_names_the_harp_it_is_given() {
     );
     let failure = unknown.result.unwrap_err();
     assert_eq!(failure.failure.exit, Exit::REFUSED);
-    assert_eq!(failure.failure.cause.code(), "daemon-api-session-not-found");
+    assert_eq!(
+        failure.failure.cause.code(),
+        "daemon-api-contract-session-not-found"
+    );
 }
 
 #[test]
@@ -2386,8 +2398,8 @@ struct Writes {
 }
 
 impl Writes {
-    fn written(&self, harp: &str, id: &str) -> daemon_api::Written {
-        daemon_api::Written {
+    fn written(&self, harp: &str, id: &str) -> daemon_api_client::Written {
+        daemon_api_client::Written {
             session: session(harp, v1::session::State::Live),
             id: id.to_string(),
             applied: !self.duplicate,
@@ -2395,11 +2407,11 @@ impl Writes {
     }
 }
 
-impl daemon_api::ChildWrites for Writes {
+impl daemon_api_client::ChildWrites for Writes {
     async fn launch(
         &self,
-        launch: &daemon_api::Launch,
-    ) -> Result<daemon_api::Written, daemon_api::CallError> {
+        launch: &daemon_api_client::Launch,
+    ) -> Result<daemon_api_client::Written, daemon_api_client::CallError> {
         self.asked.lock().unwrap().push(format!("{launch:?}"));
         Ok(self.written(launch.harp.as_deref().unwrap_or("minted-name-here"), "c1"))
     }
@@ -2410,7 +2422,7 @@ impl daemon_api::ChildWrites for Writes {
         urgency: sessions_application::Urgency,
         text: &str,
         id: Option<&str>,
-    ) -> Result<daemon_api::Written, daemon_api::CallError> {
+    ) -> Result<daemon_api_client::Written, daemon_api_client::CallError> {
         self.asked
             .lock()
             .unwrap()
@@ -2418,17 +2430,26 @@ impl daemon_api::ChildWrites for Writes {
         Ok(self.written(target, id.unwrap_or("minted")))
     }
 
-    async fn clear(&self, target: &str) -> Result<daemon_api::Written, daemon_api::CallError> {
+    async fn clear(
+        &self,
+        target: &str,
+    ) -> Result<daemon_api_client::Written, daemon_api_client::CallError> {
         self.asked.lock().unwrap().push(format!("clear {target}"));
         Ok(self.written(target, "k1"))
     }
 
-    async fn close(&self, target: &str) -> Result<daemon_api::Written, daemon_api::CallError> {
+    async fn close(
+        &self,
+        target: &str,
+    ) -> Result<daemon_api_client::Written, daemon_api_client::CallError> {
         self.asked.lock().unwrap().push(format!("close {target}"));
         Ok(self.written(target, "uid"))
     }
 
-    async fn stop(&self, target: &str) -> Result<daemon_api::Written, daemon_api::CallError> {
+    async fn stop(
+        &self,
+        target: &str,
+    ) -> Result<daemon_api_client::Written, daemon_api_client::CallError> {
         self.asked.lock().unwrap().push(format!("stop {target}"));
         Ok(self.written(target, "uid"))
     }
@@ -2437,7 +2458,7 @@ impl daemon_api::ChildWrites for Writes {
         &self,
         target: &str,
         note: &str,
-    ) -> Result<daemon_api::Written, daemon_api::CallError> {
+    ) -> Result<daemon_api_client::Written, daemon_api_client::CallError> {
         self.asked
             .lock()
             .unwrap()
@@ -2445,7 +2466,7 @@ impl daemon_api::ChildWrites for Writes {
         Ok(self.written(target, "uid"))
     }
 
-    async fn import(&self) -> Result<v1::ImportSessionsResponse, daemon_api::CallError> {
+    async fn import(&self) -> Result<v1::ImportSessionsResponse, daemon_api_client::CallError> {
         self.asked.lock().unwrap().push("import".to_string());
         Ok(self.report.clone())
     }
@@ -2454,7 +2475,7 @@ impl daemon_api::ChildWrites for Writes {
         &self,
         target: &str,
         kept: bool,
-    ) -> Result<daemon_api::Written, daemon_api::CallError> {
+    ) -> Result<daemon_api_client::Written, daemon_api_client::CallError> {
         self.asked
             .lock()
             .unwrap()
@@ -2466,7 +2487,7 @@ impl daemon_api::ChildWrites for Writes {
         &self,
         target: &str,
         title: &str,
-    ) -> Result<daemon_api::Written, daemon_api::CallError> {
+    ) -> Result<daemon_api_client::Written, daemon_api_client::CallError> {
         self.asked
             .lock()
             .unwrap()
@@ -2516,7 +2537,7 @@ fn a_launch_names_its_owner_child_agent_engine_and_task() {
         asked,
         [format!(
             "{:?}",
-            daemon_api::Launch {
+            daemon_api_client::Launch {
                 owner: Some("amber-quiet-heron".to_string()),
                 harp: Some("brisk-copper-moth".to_string()),
                 engine: "claude-code".to_string(),
@@ -2617,11 +2638,11 @@ fn a_clear_and_a_close_say_what_they_did_and_a_second_close_says_so() {
 #[test]
 fn a_refused_child_verb_fails_as_its_refusal_says() {
     struct Refusing;
-    impl daemon_api::ChildWrites for Refusing {
+    impl daemon_api_client::ChildWrites for Refusing {
         async fn launch(
             &self,
-            _: &daemon_api::Launch,
-        ) -> Result<daemon_api::Written, daemon_api::CallError> {
+            _: &daemon_api_client::Launch,
+        ) -> Result<daemon_api_client::Written, daemon_api_client::CallError> {
             unreachable!()
         }
         async fn send_as(
@@ -2630,44 +2651,55 @@ fn a_refused_child_verb_fails_as_its_refusal_says() {
             _: sessions_application::Urgency,
             _: &str,
             _: Option<&str>,
-        ) -> Result<daemon_api::Written, daemon_api::CallError> {
-            Err(daemon_api::CallError::Refused(daemon_api::Rejection::Api(
-                daemon_api::ApiRejection::SessionNotFound {
-                    name: "brisk-copper-moth".to_string(),
-                },
-            )))
+        ) -> Result<daemon_api_client::Written, daemon_api_client::CallError> {
+            Err(daemon_api_client::CallError::Refused(
+                daemon_api_client::Rejection::Api(
+                    daemon_api_client::ApiRejection::SessionNotFound {
+                        name: "brisk-copper-moth".to_string(),
+                    },
+                ),
+            ))
         }
-        async fn clear(&self, _: &str) -> Result<daemon_api::Written, daemon_api::CallError> {
+        async fn clear(
+            &self,
+            _: &str,
+        ) -> Result<daemon_api_client::Written, daemon_api_client::CallError> {
             unreachable!()
         }
-        async fn close(&self, _: &str) -> Result<daemon_api::Written, daemon_api::CallError> {
+        async fn close(
+            &self,
+            _: &str,
+        ) -> Result<daemon_api_client::Written, daemon_api_client::CallError> {
             unreachable!()
         }
-        async fn stop(&self, _: &str) -> Result<daemon_api::Written, daemon_api::CallError> {
+        async fn stop(
+            &self,
+            _: &str,
+        ) -> Result<daemon_api_client::Written, daemon_api_client::CallError> {
             unreachable!()
         }
         async fn restart(
             &self,
             _: &str,
             _: &str,
-        ) -> Result<daemon_api::Written, daemon_api::CallError> {
+        ) -> Result<daemon_api_client::Written, daemon_api_client::CallError> {
             unreachable!()
         }
-        async fn import(&self) -> Result<v1::ImportSessionsResponse, daemon_api::CallError> {
+        async fn import(&self) -> Result<v1::ImportSessionsResponse, daemon_api_client::CallError> {
             unreachable!()
         }
         async fn keep(
             &self,
             _: &str,
             _: bool,
-        ) -> Result<daemon_api::Written, daemon_api::CallError> {
+        ) -> Result<daemon_api_client::Written, daemon_api_client::CallError> {
             unreachable!()
         }
         async fn title(
             &self,
             _: &str,
             _: &str,
-        ) -> Result<daemon_api::Written, daemon_api::CallError> {
+        ) -> Result<daemon_api_client::Written, daemon_api_client::CallError> {
             unreachable!()
         }
     }
@@ -2675,7 +2707,10 @@ fn a_refused_child_verb_fails_as_its_refusal_says() {
     let mut out = Vec::new();
     let failed = crate::child(&command, &Refusing, Format::Text, &mut out).unwrap_err();
     assert_eq!(failed.failure.exit, Exit::REFUSED);
-    assert_eq!(failed.failure.cause.code(), "daemon-api-session-not-found");
+    assert_eq!(
+        failed.failure.cause.code(),
+        "daemon-api-contract-session-not-found"
+    );
 }
 
 // S19's `session stop` (OD-57): the child's run is asked to stop, and the
@@ -2771,16 +2806,16 @@ fn show_in_text_says_a_wake_sent_and_not_answered() {
 // lists each of them, its remedy as the fix, beside the summary.
 #[test]
 fn a_launch_refused_for_fatal_findings_lists_them() {
-    let error = daemon_api::CallError::Refused(daemon_api::Rejection::Runs(
-        daemon_api::RunRejection::LaunchRefused {
+    let error = daemon_api_client::CallError::Refused(daemon_api_client::Rejection::Runs(
+        daemon_api_client::RunRejection::LaunchRefused {
             refusals: Vec::new(),
             fatal_findings: 2,
             findings: vec![
-                daemon_api::LaunchFinding {
+                daemon_api_client::LaunchFinding {
                     text: "failed to load bundle \"hub/demo\"".to_string(),
                     remedy: "run `ctxloom deps pull`".to_string(),
                 },
-                daemon_api::LaunchFinding {
+                daemon_api_client::LaunchFinding {
                     text: "second".to_string(),
                     remedy: String::new(),
                 },

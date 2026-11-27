@@ -116,7 +116,7 @@ filter = '''
     | package(daemon-client)
     | package(daemon-api-grpc)
     | package(forge-github)
-    | (package(ctxloom-wiring) & test(/^capture::tests::/))
+    | (package(ctxloom-compose) & test(/^capture::tests::/))
     | (package(ctxloom) & test(/^tests::hook::/))
 '''
 test-group = 'ports'
@@ -382,6 +382,8 @@ default-filter = '''
     | rdeps(container-runtime)
     | rdeps(content-fs)
     | rdeps(ctxloom)
+    | rdeps(ctxloom-compose)
+    | rdeps(ctxloom-daemon)
     | rdeps(ctxloom-store-sqlite)
     | rdeps(ctxloom-wiring)
     | rdeps(deps-files)

@@ -3,7 +3,7 @@
 //! core shared), in the environment and working directory its client sent,
 //! so it is planned, its dependencies pulled and its engine set up and driven
 //! exactly as a process there would. The command is its client
-//! (`ctxloom_wiring::oneshot::client_one_shot`).
+//! (`ctxloom_compose::oneshot::client_one_shot`).
 
 use std::path::Path;
 use std::sync::Arc;
@@ -11,7 +11,7 @@ use std::sync::Arc;
 use angzarr_embedded::angzarr_store_sqlite::SqliteStore;
 use angzarr_embedded::Catalog;
 use coded_diagnostic::Report;
-use ctxloom_wiring::oneshot::{runs_over, sync_at_start, tell_project, Driven};
+use ctxloom_compose::oneshot::{runs_over, sync_at_start, tell_project, Driven};
 use embedded_edge::EmbeddedEdge;
 use harp_names::HarpNames;
 use library_application::{Library, OUTPUT_DIR_DEFAULT};
@@ -183,7 +183,7 @@ pub(crate) struct Hosted {
     pub(crate) synced: Vec<library_application::Notice>,
     pub(crate) project: (Project, String),
     /// The program its callbacks run: its client's, else the daemon's own.
-    pub(crate) program: ctxloom_wiring::program::Program,
+    pub(crate) program: ctxloom_compose::program::Program,
 }
 
 /// The set-up of a run the daemon hosts for `request`: the dependencies
@@ -195,12 +195,12 @@ pub(crate) async fn hosted_setup<E: run_ports::Edge>(
     edge: &Arc<E>,
 ) -> Result<Hosted, (RunError, Vec<library_application::Notice>)> {
     let wiring = hosted_wiring(home, temp, request);
-    let deps = match ctxloom_wiring::commands::build_deps(&wiring) {
+    let deps = match ctxloom_compose::compose::build_deps(&wiring) {
         Ok(deps) => std::rc::Rc::new(deps),
         Err(e) => return Err((RunError::Project(Report::of(&e)), Vec::new())),
     };
     let remotes: std::rc::Rc<dyn deps_ports::RemoteLibrary> = deps.clone();
-    let library = match ctxloom_wiring::library::build_over(&wiring, remotes) {
+    let library = match ctxloom_compose::library_build::build_over(&wiring, remotes) {
         Ok(library) => library,
         Err(e) => return Err((RunError::Project(Report::of(&e)), Vec::new())),
     };
@@ -211,7 +211,7 @@ pub(crate) async fn hosted_setup<E: run_ports::Edge>(
     // Before the run is planned, so the plan sees what was installed.
     let synced = match &settings {
         Some(settings) => {
-            let puller = ctxloom_wiring::commands::DepsPuller(deps);
+            let puller = ctxloom_compose::compose::DepsPuller(deps);
             sync_at_start(settings.on_run, || setup_application::Puller::pull(&puller))
         }
         None => Vec::new(),
@@ -245,7 +245,7 @@ pub(crate) async fn hosted_setup<E: run_ports::Edge>(
         output_dir,
         synced,
         project: (project, project_harp),
-        program: ctxloom_wiring::program::of_client(request.program.as_ref()),
+        program: ctxloom_compose::program::of_client(request.program.as_ref()),
     })
 }
 

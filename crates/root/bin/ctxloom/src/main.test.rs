@@ -583,7 +583,7 @@ mod gherkin_lint;
 /// checkout while a test run goes on) writes `<target>/<profile>/ctxloom`
 /// over the test-support build. The tests then ran a plain binary, whose
 /// account home is the passwd database's, and found the owner's real daemon
-/// (`ctxloom-wiring-daemon-other-home`, 14 tests, 2026-11-23). The binary
+/// (`ctxloom-compose-daemon-other-home`, 14 tests, 2026-11-23). The binary
 /// the tests run is therefore never that path.
 #[test]
 fn test_the_binary_tests_run_is_not_the_path_a_plain_build_overwrites() {

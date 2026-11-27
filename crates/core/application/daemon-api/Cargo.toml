@@ -8,6 +8,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+daemon-api-contract.workspace = true
 coded-diagnostic.workspace = true
 angzarr-embedded.workspace = true
 # The board a destroy tells the stream is gone.

@@ -30,6 +30,9 @@ library-checkout.workspace = true
 # The edge an observation is recorded through.
 run-ports.workspace = true
 sessions.workspace = true
+# The refresh's refusals said in the catalog's words, and their fixes.
+presentation.workspace = true
+cli-support.workspace = true
 
 [dev-dependencies]
 deps-application = { workspace = true, features = ["test-support"] }

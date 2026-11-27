@@ -27,7 +27,7 @@ crates/core/application/daemon-application/src/daemon.rs | say: Box<dyn FnMut(&s
 crates/core/application/daemon-application/src/terminal.rs | lock_path: Arc<dyn Fn(&str) -> String + Send + Sync> | a pure function forming a session lock's path (session_ports::lock_path), no data handed over
 crates/core/application/doctor-checks/src/doctor.rs | Option<Box<dyn Fn() | doctor's lazily computed inputs (losses, unresolved, stale): pure queries run in the one command, nothing handed to another component
 crates/root/daemon/ctxloom-daemon/src/places.rs | now: Box<dyn Fn() -> std::time::SystemTime + Send + Sync> | an injected clock, the seam a test replaces
-crates/root/lib/ctxloom-wiring/src/daemon/flush.rs | static SAID: Mutex<Vec<HeldSetAside>> | this command process's own report, said once on stderr as it ends (the CLI process is its own reader and writer)
+crates/root/compose/ctxloom-compose/src/daemon/flush.rs | static SAID: Mutex<Vec<HeldSetAside>> | this command process's own report, said once on stderr as it ends (the CLI process is its own reader and writer)
 crates/root/daemon/ctxloom-daemon/src/foreign.rs | written: Mutex<BTreeMap | the recording store of one foreign plan, read back by that plan's own reads within one call, then written as one sequence
 crates/root/daemon/ctxloom-daemon/src/foreign.rs | order: Mutex<Vec<String> | the recording store's order of writes within one call, as above
 crates/core/application/deps-application/src/fakes.rs | Mutex< | test fakes (this crate's fakes.rs): they record the calls a test asserts on

@@ -7,9 +7,9 @@ use coded_diagnostic::Diagnostic;
 #[cfg(feature = "purge")]
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use daemon_api::{CallError, ChildWrites, Launch, SessionReads, Written};
+use daemon_api_client::{CallError, ChildWrites, Launch, SessionReads, Written};
 #[cfg(feature = "purge")]
-use daemon_api::{Removed, SessionRemovals};
+use daemon_api_client::{Removed, SessionRemovals};
 use daemon_proto::v1;
 use isolation_application::{IsolationError, WorktreeUse};
 use presentation::{write_json, Format};
@@ -668,7 +668,7 @@ async fn remove<R: SessionRemovals>(
         .worktrees
         .as_ref()
         .filter(|w| !w.worktrees.is_empty())
-        .filter(|_| !matches!(why, Some(daemon_api::RemovalRejection::Session(_))))
+        .filter(|_| !matches!(why, Some(daemon_api_client::RemovalRejection::Session(_))))
         .map(report_of);
     wrote(match format {
         Format::Json => write_json(out, &plan),
@@ -862,7 +862,7 @@ async fn transcript_list<R: SessionReads>(
         .collect();
     if let (Some(asked), true) = (harp, rows.is_empty()) {
         return Err(call_failure(CallError::Refused(
-            daemon_api::Rejection::Api(daemon_api::ApiRejection::SessionNotFound {
+            daemon_api_client::Rejection::Api(daemon_api_client::ApiRejection::SessionNotFound {
                 name: asked.to_string(),
             }),
         )));

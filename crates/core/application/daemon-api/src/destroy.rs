@@ -49,8 +49,8 @@ use sessions_application::{
     DEFAULT_RETENTION_DAYS, REMOVE_VERB,
 };
 
-use crate::refusal::{ApiError, ApiRefusal};
 use crate::server::{invalid, Answer, Api, EVERY_PROJECT};
+use daemon_api_contract::{ApiError, ApiRefusal};
 
 /// A project's places a removal reaches, by its directory (the root's):
 /// its sessions' files and locks, its scratch worktrees, its configuration.

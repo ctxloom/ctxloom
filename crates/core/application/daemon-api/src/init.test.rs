@@ -11,7 +11,7 @@ use super::{
     companion_answers, derived_id, error_notice, given_of, installed_of, need_of, project_of,
     tree_of, with_checkout,
 };
-use crate::refusal::{ApiError, ApiRefusal};
+use daemon_api_contract::{ApiError, ApiRefusal};
 
 #[test]
 fn test_every_need_init_asks_is_optional_and_keeps_its_kind() {
@@ -235,7 +235,7 @@ fn test_a_write_init_could_not_make_is_said_in_its_own_words() {
     let failed = error_notice(&ApiError::Failed {
         detail: "disk full".to_string(),
     });
-    assert_eq!(failed.code, "daemon-api-failed");
+    assert_eq!(failed.code, "daemon-api-contract-failed");
     assert!(failed.text.contains("disk full"), "{failed:?}");
 }
 

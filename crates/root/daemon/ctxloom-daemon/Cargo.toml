@@ -8,17 +8,16 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-ctxloom-wiring.workspace = true
+ctxloom-compose.workspace = true
 coded-diagnostic.workspace = true
 angzarr-embedded.workspace = true
 presentation.workspace = true
 isolation-ports.workspace = true
 config-files.workspace = true
 content-fs.workspace = true
-ctxloom-cli.workspace = true
 cache-files.workspace = true
 reclaim-application.workspace = true
-setup-cli.workspace = true
+setup-api.workspace = true
 ctxloom-ports.workspace = true
 library.workspace = true
 library-application.workspace = true
@@ -26,15 +25,13 @@ library-application.workspace = true
 library-api.workspace = true
 deps.workspace = true
 deps-application.workspace = true
-deps-cli.workspace = true
 deps-files.workspace = true
 deps-ports.workspace = true
 setup-application.workspace = true
-surface-cli.workspace = true
+surface-api.workspace = true
 surface-files.workspace = true
 surface-ports.workspace = true
 engine-claude.workspace = true
-hook-cli.workspace = true
 hook-listener.workspace = true
 hook-tls.workspace = true
 cli-support.workspace = true
@@ -120,7 +117,7 @@ fixture-program.workspace = true
 # Builds this crate's own `test-support` feature for its tests (the seed, bind
 # and session tests need it) without turning it on for the `ctxloom` binary:
 # the feature adds code here and changes no trait another crate implements.
-ctxloom-wiring = { workspace = true, features = ["test-support"] }
+ctxloom-compose = { workspace = true, features = ["test-support"] }
 angzarr-embedded = { workspace = true, features = ["test-support"] }
 tokio = { workspace = true, features = ["macros", "rt"] }
 deps-application = { workspace = true, features = ["test-support"] }
@@ -132,7 +129,6 @@ os = { workspace = true, features = ["test-support"] }
 [features]
 # `session destroy`, served by the daemon (owner rulings 94, 94b, 98).
 purge = [
-    "ctxloom-wiring/purge",
     "daemon-api-grpc/purge",
     "daemon-api/purge",
     "ctxloom-store-sqlite/purge",
@@ -141,9 +137,8 @@ purge = [
     "angzarr-embedded/purge",
 ]
 test-support = [
-    "ctxloom-wiring/test-support",
+    "ctxloom-compose/test-support",
     "ctxloom-store-sqlite/test-support",
-    "ctxloom-cli/test-support",
     "library-application/test-support",
     "engine-claude/test-support",
 ]

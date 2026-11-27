@@ -247,9 +247,9 @@ pub(super) fn read_transcript(w: &World, harp: &str) -> Vec<Value> {
     );
     if ran.code != 0 {
         // The daemon's read (owner, H3 follow-up): a session with none is
-        // refused `daemon-api-transcript-empty`.
+        // refused `daemon-api-contract-transcript-empty`.
         assert!(
-            ran.stderr.contains("daemon-api-transcript-empty"),
+            ran.stderr.contains("daemon-api-contract-transcript-empty"),
             "the transcript could not be read: {}",
             ran.said()
         );

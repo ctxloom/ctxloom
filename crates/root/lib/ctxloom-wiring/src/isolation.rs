@@ -79,7 +79,7 @@ pub fn container(
     let containers = Containers::new(
         HostRuntimes::from_env(wiring.fs(), Arc::clone(env)),
         Engines {
-            names: crate::commands::engines().names(),
+            names: crate::compose::engines().names(),
             library: Rc::clone(&library),
             flags: flags.clone(),
         },

@@ -5,8 +5,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use super::{logger, served_exit};
-use ctxloom_wiring::daemon::spawn_waits_on;
-use ctxloom_wiring::daemon::{caller_env, caller_temp, caller_wiring};
+use ctxloom_compose::daemon::{caller_env, caller_temp, caller_wiring, spawn_waits_on};
 
 // The daemon cluster's cap (owner ruling, 2026-11-18): `daemon serve` that
 // lost the single-instance lock to another daemon is a decline (20, a lock
@@ -213,14 +212,14 @@ fn a_childs_plan_reads_the_bundles_installed_from_remotes() {
 
 use super::hosted_engines;
 use ::process_env::EnvSnapshot;
-use ctxloom_wiring::Wiring;
+use ctxloom_compose::Wiring;
 
 // T18: the daemon hosts a child on claude or opencode, each by its name;
 // OD-58: they are the engines granted every urgency, so a child adapter
 // added here is granted there too.
 #[test]
 fn the_daemon_hosts_children_on_claude_and_opencode() {
-    let env = EnvSnapshot::of([(ctxloom_wiring::fixtures::home_var(), "/nowhere")]);
+    let env = EnvSnapshot::of([(ctxloom_compose::fixtures::home_var(), "/nowhere")]);
     let wiring = Wiring::new(std::sync::Arc::new(env)).unwrap();
     let names: Vec<String> = hosted_engines(&wiring, "ctxloom")
         .iter()
@@ -263,23 +262,26 @@ fn prepared(engine: &dyn run_ports::Engine) -> Vec<(String, String)> {
 // and opencode seeds her recent models (ruling 167).
 #[test]
 fn the_hosted_engines_are_composed_as_every_launchs_are() {
-    let dir = ctxloom_wiring::fixtures::root();
+    let dir = ctxloom_compose::fixtures::root();
     let home = dir.root().join("home");
     let state = dir.root().join("state");
-    ctxloom_wiring::fixtures::mkdirs(home.join(".claude"));
-    ctxloom_wiring::fixtures::mkdirs(state.join("opencode"));
-    ctxloom_wiring::fixtures::put_mode(
+    ctxloom_compose::fixtures::mkdirs(home.join(".claude"));
+    ctxloom_compose::fixtures::mkdirs(state.join("opencode"));
+    ctxloom_compose::fixtures::put_mode(
         home.join(".claude/settings.json"),
         r#"{"theme": "hers-alone"}"#,
         0o644,
     );
-    ctxloom_wiring::fixtures::put_mode(
+    ctxloom_compose::fixtures::put_mode(
         state.join("opencode/model.json"),
         r#"{"recent":["hers"]}"#,
         0o644,
     );
     let env = EnvSnapshot::of([
-        (ctxloom_wiring::fixtures::home_var(), home.to_str().unwrap()),
+        (
+            ctxloom_compose::fixtures::home_var(),
+            home.to_str().unwrap(),
+        ),
         ("XDG_STATE_HOME", state.to_str().unwrap()),
     ]);
     let wiring = Wiring::new(std::sync::Arc::new(env)).unwrap();

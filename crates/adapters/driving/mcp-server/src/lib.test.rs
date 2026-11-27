@@ -63,14 +63,14 @@ fn a_tools_error_is_its_code_then_its_words() {
 /// No daemon: a test of what the server answers without one.
 struct Nowhere;
 
-impl daemon_api::Daemons for Nowhere {
+impl daemon_api_client::Daemons for Nowhere {
     type Api = Never;
 
-    async fn serving(&self) -> Result<Option<Never>, daemon_api::Unreached> {
+    async fn serving(&self) -> Result<Option<Never>, daemon_api_client::Unreached> {
         unreachable!("the list reaches no daemon")
     }
 
-    async fn reach(&self) -> Result<Never, daemon_api::Unreached> {
+    async fn reach(&self) -> Result<Never, daemon_api_client::Unreached> {
         unreachable!("the list reaches no daemon")
     }
 }
@@ -78,53 +78,53 @@ impl daemon_api::Daemons for Nowhere {
 /// A daemon API never made.
 struct Never;
 
-impl daemon_api::DaemonApi for Never {
+impl daemon_api_client::DaemonApi for Never {
     async fn get_daemon(
         &self,
         _: daemon_proto::v1::GetDaemonRequest,
-    ) -> Result<daemon_proto::v1::Daemon, daemon_api::Called> {
+    ) -> Result<daemon_proto::v1::Daemon, daemon_api_client::Called> {
         unreachable!()
     }
     async fn stop_daemon(
         &self,
         _: daemon_proto::v1::StopDaemonRequest,
-    ) -> Result<daemon_proto::v1::Daemon, daemon_api::Called> {
+    ) -> Result<daemon_proto::v1::Daemon, daemon_api_client::Called> {
         unreachable!()
     }
     async fn resolve_project(
         &self,
         _: daemon_proto::v1::ResolveProjectRequest,
-    ) -> Result<daemon_proto::v1::Project, daemon_api::Called> {
+    ) -> Result<daemon_proto::v1::Project, daemon_api_client::Called> {
         unreachable!()
     }
     async fn get_project(
         &self,
         _: daemon_proto::v1::GetProjectRequest,
-    ) -> Result<daemon_proto::v1::Project, daemon_api::Called> {
+    ) -> Result<daemon_proto::v1::Project, daemon_api_client::Called> {
         unreachable!()
     }
     async fn get_session(
         &self,
         _: daemon_proto::v1::GetSessionRequest,
-    ) -> Result<daemon_proto::v1::Session, daemon_api::Called> {
+    ) -> Result<daemon_proto::v1::Session, daemon_api_client::Called> {
         unreachable!()
     }
     async fn list_sessions(
         &self,
         _: daemon_proto::v1::ListSessionsRequest,
-    ) -> Result<daemon_proto::v1::ListSessionsResponse, daemon_api::Called> {
+    ) -> Result<daemon_proto::v1::ListSessionsResponse, daemon_api_client::Called> {
         unreachable!()
     }
     async fn search_sessions(
         &self,
         _: daemon_proto::v1::SearchSessionsRequest,
-    ) -> Result<daemon_proto::v1::ListSessionsResponse, daemon_api::Called> {
+    ) -> Result<daemon_proto::v1::ListSessionsResponse, daemon_api_client::Called> {
         unreachable!()
     }
 }
 
 fn server() -> super::Server<Nowhere> {
-    let caller = daemon_api::Caller::new(
+    let caller = daemon_api_client::Caller::new(
         Nowhere,
         "projects/calm-quiet-heron/sessions/amber-quiet-heron",
         daemon_proto::v1::Caller::default(),
@@ -172,7 +172,7 @@ fn a_server_without_message_notes_gives_no_instructions() {
 async fn the_server_answers_the_handshake_and_its_list_over_its_transport() {
     use rmcp::ServiceExt;
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-    let caller = daemon_api::Caller::new(
+    let caller = daemon_api_client::Caller::new(
         Nowhere,
         "projects/calm-quiet-heron/sessions/amber-quiet-heron",
         daemon_proto::v1::Caller::default(),
@@ -235,7 +235,7 @@ async fn the_server_answers_the_handshake_and_its_list_over_its_transport() {
 async fn a_server_saying_its_errors_says_them_so() {
     use rmcp::ServiceExt;
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-    let caller = daemon_api::Caller::new(
+    let caller = daemon_api_client::Caller::new(
         Nowhere,
         "projects/calm-quiet-heron/sessions/amber-quiet-heron",
         daemon_proto::v1::Caller::default(),
@@ -291,65 +291,65 @@ struct Asking {
     settled: Option<daemon_proto::v1::Approval>,
 }
 
-impl daemon_api::Daemons for Asking {
+impl daemon_api_client::Daemons for Asking {
     type Api = Asking;
 
-    async fn serving(&self) -> Result<Option<Asking>, daemon_api::Unreached> {
+    async fn serving(&self) -> Result<Option<Asking>, daemon_api_client::Unreached> {
         unreachable!()
     }
 
-    async fn reach(&self) -> Result<Asking, daemon_api::Unreached> {
+    async fn reach(&self) -> Result<Asking, daemon_api_client::Unreached> {
         Ok(self.clone())
     }
 }
 
-impl daemon_api::DaemonApi for Asking {
+impl daemon_api_client::DaemonApi for Asking {
     async fn get_daemon(
         &self,
         _: daemon_proto::v1::GetDaemonRequest,
-    ) -> Result<daemon_proto::v1::Daemon, daemon_api::Called> {
+    ) -> Result<daemon_proto::v1::Daemon, daemon_api_client::Called> {
         unreachable!()
     }
     async fn stop_daemon(
         &self,
         _: daemon_proto::v1::StopDaemonRequest,
-    ) -> Result<daemon_proto::v1::Daemon, daemon_api::Called> {
+    ) -> Result<daemon_proto::v1::Daemon, daemon_api_client::Called> {
         unreachable!()
     }
     async fn resolve_project(
         &self,
         _: daemon_proto::v1::ResolveProjectRequest,
-    ) -> Result<daemon_proto::v1::Project, daemon_api::Called> {
+    ) -> Result<daemon_proto::v1::Project, daemon_api_client::Called> {
         unreachable!()
     }
     async fn get_project(
         &self,
         _: daemon_proto::v1::GetProjectRequest,
-    ) -> Result<daemon_proto::v1::Project, daemon_api::Called> {
+    ) -> Result<daemon_proto::v1::Project, daemon_api_client::Called> {
         unreachable!()
     }
     async fn get_session(
         &self,
         _: daemon_proto::v1::GetSessionRequest,
-    ) -> Result<daemon_proto::v1::Session, daemon_api::Called> {
+    ) -> Result<daemon_proto::v1::Session, daemon_api_client::Called> {
         unreachable!()
     }
     async fn list_sessions(
         &self,
         _: daemon_proto::v1::ListSessionsRequest,
-    ) -> Result<daemon_proto::v1::ListSessionsResponse, daemon_api::Called> {
+    ) -> Result<daemon_proto::v1::ListSessionsResponse, daemon_api_client::Called> {
         unreachable!()
     }
     async fn search_sessions(
         &self,
         _: daemon_proto::v1::SearchSessionsRequest,
-    ) -> Result<daemon_proto::v1::ListSessionsResponse, daemon_api::Called> {
+    ) -> Result<daemon_proto::v1::ListSessionsResponse, daemon_api_client::Called> {
         unreachable!()
     }
     async fn create_approval(
         &self,
         r: daemon_proto::v1::CreateApprovalRequest,
-    ) -> Result<daemon_proto::v1::Approval, daemon_api::Called> {
+    ) -> Result<daemon_proto::v1::Approval, daemon_api_client::Called> {
         self.seen.lock().unwrap().calls.push(format!(
             "create {} {} {}",
             r.tool_name, r.engine_request_id, r.input_json
@@ -359,8 +359,8 @@ impl daemon_api::DaemonApi for Asking {
     async fn wait_approval(
         &self,
         r: daemon_proto::v1::WaitApprovalRequest,
-        until: daemon_api::Until,
-    ) -> Result<daemon_proto::v1::Approval, daemon_api::Called> {
+        until: daemon_api_client::Until,
+    ) -> Result<daemon_proto::v1::Approval, daemon_api_client::Called> {
         self.seen
             .lock()
             .unwrap()
@@ -371,7 +371,10 @@ impl daemon_api::DaemonApi for Asking {
             None => std::future::pending().await,
         }
     }
-    async fn handle(&self, book: daemon_api::CommandBook) -> Result<bool, daemon_api::Called> {
+    async fn handle(
+        &self,
+        book: daemon_api_client::CommandBook,
+    ) -> Result<bool, daemon_api_client::Called> {
         use prost::Message as _;
         let fact = match book.page.and_then(|p| p.body) {
             Some(angzarr_embedded::v1::command_page::Body::Fact(fact)) => fact,
@@ -398,11 +401,11 @@ fn approval(state: &str, kind: &str, option: &str) -> daemon_proto::v1::Approval
         option: option.to_string(),
         option_kind: kind.to_string(),
         timeout_seconds: 300,
-        ask_time: Some(daemon_api::Until {
+        ask_time: Some(daemon_api_client::Until {
             seconds: 1000,
             nanos: 0,
         }),
-        expire_time: Some(daemon_api::Until {
+        expire_time: Some(daemon_api_client::Until {
             seconds: 1300,
             nanos: 0,
         }),
@@ -428,7 +431,7 @@ impl Engine {
     async fn of(daemons: Asking) -> Engine {
         use rmcp::ServiceExt;
         use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-        let caller = daemon_api::Caller::new(
+        let caller = daemon_api_client::Caller::new(
             daemons,
             "projects/calm-quiet-heron/sessions/brisk-copper-moth",
             daemon_proto::v1::Caller::default(),

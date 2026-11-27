@@ -79,7 +79,7 @@ pub fn watch_library(
         let api = reach
             .reach()
             .await
-            .map_err(|unreached| called(daemon_api::CallError::Unreached(unreached)))?;
+            .map_err(|unreached| called(daemon_api_client::CallError::Unreached(unreached)))?;
         let mut changes = api
             .watch_library(v1::WatchLibraryRequest {
                 parent: parent.clone(),

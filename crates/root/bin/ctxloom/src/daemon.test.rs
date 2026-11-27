@@ -1587,7 +1587,7 @@ const OLDER_STAMP: &str = "v0.0.1-abc0";
 // OD-61/OD-62 (owner, 2026-11-15: one ctxloom version runs at a time),
 // end to end: a daemon of an older version hosting an idle child is met by
 // a command of this (newer) version. Nothing drains it: the command is
-// refused, `daemon-api-version-skew` (exit 48), naming both stamps and
+// refused, `daemon-api-client-version-skew` (exit 48), naming both stamps and
 // the child, its fix the plain stop; the older daemon still serves, and
 // its child is not ended.
 #[test]
@@ -1634,7 +1634,7 @@ fn a_newer_command_meeting_a_busy_older_daemon_is_refused_and_drains_nothing() {
 
     let refused = world.run(&["session", "show", CHILD, "--format", "json"]);
     assert_eq!(refused.code, 48, "{}\n{}", refused.said(), world.log());
-    for part in ["daemon-api-version-skew", OLDER_STAMP, CHILD] {
+    for part in ["daemon-api-client-version-skew", OLDER_STAMP, CHILD] {
         assert!(refused.stderr.contains(part), "{part}: {}", refused.said());
     }
     assert!(
@@ -2136,7 +2136,7 @@ fn a_bare_shutdown_drains_within_the_configured_timeout() {
 
 // Owner, 2026-11-15: a SIGTERM to the daemon is a drain within its
 // configured timeout. From then on it refuses new invocations
-// (`daemon-api-draining`, exit 48) while `daemon status` still answers; a
+// (`daemon-api-contract-draining`, exit 48) while `daemon status` still answers; a
 // change to `daemon.drain_timeout` written meanwhile lands (the config is
 // no client of the daemon), and the drain in progress honours it.
 #[test]
@@ -2157,7 +2157,7 @@ fn a_sigterm_drains_the_daemon_and_a_changed_timeout_is_the_drains() {
     let refused = world.run(&["session", "list", "--format", "json"]);
     assert_eq!(refused.code, 48, "{}", refused.said());
     assert!(
-        refused.stderr.contains("daemon-api-draining"),
+        refused.stderr.contains("daemon-api-contract-draining"),
         "{}",
         refused.said()
     );

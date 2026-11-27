@@ -422,11 +422,11 @@ pub(crate) fn worktrees_text(
 ///
 /// The assistant's pieces are joined into messages and each message is
 /// placed under the prompt of its own turn, by the one joiner and placer
-/// `ctxloom top` shares (`daemon_api::conversation`): arrival order is not
+/// `ctxloom top` shares (`daemon_api_client::conversation`): arrival order is not
 /// turn order, since the engine's Stop and MessageDisplay hooks are separate
 /// processes.
 pub(crate) fn conversation_text(entries: &[v1::LogEntry], out: &mut dyn Write) -> io::Result<()> {
-    use daemon_api::conversation::{join, place, Said};
+    use daemon_api_client::conversation::{join, place, Said};
     use v1::log_entry::Entry;
     for said in place(join(entries)) {
         match said {

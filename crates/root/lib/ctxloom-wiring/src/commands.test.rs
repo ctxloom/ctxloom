@@ -2,6 +2,9 @@
 //! `bundle`, and the remote and dependency ones.
 
 use super::*;
+use crate::compose::{engines, DepsPuller, SetupRefresh};
+use deps_application::{ProjectRefresh, Refresh};
+use setup_application::Puller;
 
 use presentation::Format;
 
@@ -14,8 +17,8 @@ fn verbs(noun: &Command) -> Vec<String> {
 #[test]
 fn test_the_nouns_are_the_librarys_and_the_dependency_ones() {
     let nouns = Commands::new(
-        Arc::new(crate::tests::host_snapshot()),
-        crate::tests::VERSION,
+        Arc::new(crate::fixtures::host_snapshot()),
+        crate::fixtures::VERSION,
     )
     .nouns();
     let names: Vec<&str> = nouns.iter().map(Command::get_name).collect();
@@ -28,8 +31,8 @@ fn test_the_nouns_are_the_librarys_and_the_dependency_ones() {
 #[test]
 fn test_only_the_bundle_noun_gains_the_publishing_verbs() {
     let nouns = Commands::new(
-        Arc::new(crate::tests::host_snapshot()),
-        crate::tests::VERSION,
+        Arc::new(crate::fixtures::host_snapshot()),
+        crate::fixtures::VERSION,
     )
     .nouns();
     let find = |name: &str| nouns.iter().find(|n| n.get_name() == name).expect(name);
@@ -48,7 +51,7 @@ fn test_only_the_bundle_noun_gains_the_publishing_verbs() {
     }
 }
 
-pub(crate) use crate::fixtures::World;
+pub(crate) use crate::fixtures::{world_without_programs, World, WorldCommands};
 
 pub(crate) use crate::fixtures::{run_line, try_line};
 
@@ -329,45 +332,3 @@ fn test_a_bundle_publishing_verb_is_run_by_the_dependency_commands() {
         failure.cause
     );
 }
-
-/// A world in which no engine's program can be found, so nothing is launched.
-pub(crate) fn world_without_programs(name: &str) -> World {
-    let mut world = World::new(name);
-    let empty = world.dir.join("no-programs");
-    crate::fixtures::mkdirs(empty.clone());
-    world.set("PATH", empty);
-    crate::fixtures::mkdirs(world.dir.join("work/.ctxloom"));
-    crate::fixtures::put_mode(
-        world.dir.join("work/.ctxloom/config.yaml"),
-        "schema_version: 9\nagents:\n  dev:\n    engine: claude-code\n    profiles: [dev]\n    runtime: host\ndefault_agent: dev\n",
-        0o644,
-    );
-    let bundles = world.dir.join("work/.ctxloom/content/bundles/v2");
-    for (rel, text) in [
-        ("demo/bundle.yaml", "schema_version: 4\nversion: 1.0.0\n"),
-        ("demo/fragments/rules.md", "RULES"),
-        ("project/bundle.yaml", "schema_version: 4\nversion: 1.0.0\n"),
-        ("project/profiles/dev.yaml", "bundles: [demo]\n"),
-    ] {
-        let path = bundles.join(rel);
-        crate::fixtures::mkdirs(path.parent().unwrap());
-        crate::fixtures::put_mode(path, text, 0o644);
-    }
-    world
-}
-
-// `run --one-shot` is the daemon's (U4, T7): its refusals (an engine nobody
-// drives, no prompt beside no credential, rulings 73, 73b) are held by the
-// binary's acceptance tests (run.feature), as a dry run's are: the command
-// reaches the daemon, which an in-process test cannot spawn (its program is
-// the test harness).
-
-// Without `--one-shot` it is the human's session, prepared by the daemon
-// and started by the command as its frontend (U5): its refusals (an engine
-// nobody drives) are held by the binary's acceptance tests, for the same
-// reason.
-
-// `--dry-run` stays the library's (the plan printed, nothing run, its
-// detailed code 1) is held by the binary's `library_cli_run.test.rs`: every
-// dry run reaches the daemon (owner ruling 2026-11-14), which an in-process
-// test cannot spawn (its program is the test harness).

@@ -11,41 +11,9 @@
 //! stdout and never the exit code.
 
 use coded_diagnostic::Diagnostic;
-use setup_application::HookAnswer;
+use setup_application::{NotRecorded, Recording, Unrecorded};
 
 use crate::{HookService, HookWarning, Outcome};
-
-/// One observation that was not recorded.
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct NotRecorded {
-    /// The fact's external id.
-    pub what: String,
-    /// The delivery's text (unavailable, timed out, refused ...).
-    pub why: String,
-}
-
-/// One observation the hook did not record now (s4-Q14, H2).
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub enum Unrecorded {
-    /// Dropped: neither recorded nor held.
-    Dropped(NotRecorded),
-    /// Kept in the session's hold, for `why` (the delivery's or the
-    /// daemon's text).
-    Held {
-        what: String,
-        harp: String,
-        why: String,
-    },
-    /// Kept in the session's hold behind the facts it already holds, so the
-    /// session's facts are recorded in the order they happened.
-    HeldBehind { what: String, harp: String },
-}
-
-impl From<NotRecorded> for Unrecorded {
-    fn from(dropped: NotRecorded) -> Unrecorded {
-        Unrecorded::Dropped(dropped)
-    }
-}
 
 impl From<Unrecorded> for HookWarning {
     fn from(unrecorded: Unrecorded) -> HookWarning {
@@ -57,14 +25,6 @@ impl From<Unrecorded> for HookWarning {
             Unrecorded::HeldBehind { what, harp } => HookWarning::HeldBehind { what, harp },
         }
     }
-}
-
-/// What records the hook's observations: the application's, behind the hook.
-pub trait Recording {
-    /// Record what `answer.event` holds for the session `harp`, within the
-    /// hook's own delivery budget for `native`. Returns what was not
-    /// recorded now.
-    fn record(&self, native: &str, harp: &str, answer: &HookAnswer) -> Vec<Unrecorded>;
 }
 
 /// [`crate::execute`], then record the observation. `statusline` and an

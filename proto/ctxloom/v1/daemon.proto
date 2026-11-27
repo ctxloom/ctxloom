@@ -2481,7 +2481,7 @@ message PlanStale {
 
 // An apply whose etag is not a number, so no preview answered it (step 10b
 // U3, protos.md §1.1: the etag is a resource's last sequence, a decimal).
-// `daemon-api-etag-invalid`.
+// `daemon-api-contract-etag-invalid`.
 message EtagInvalid {
   option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
 

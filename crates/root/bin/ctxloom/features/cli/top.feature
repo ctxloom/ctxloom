@@ -581,7 +581,7 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
       Given a directory that is in no ctxloom project
       When I run "ctxloom top brisk-copper-moth --format json"
       Then the command exits with code 48
-      And the refusal is "daemon-api-project-unknown"
+      And the refusal is "daemon-api-contract-project-unknown"
 
     Scenario: A session of another project is watched by its full name
       # new: DRAFT; `projects/{p}/sessions/{s}` is a spelling of the scope.

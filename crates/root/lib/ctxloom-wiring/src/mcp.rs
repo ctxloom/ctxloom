@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use cli_support::Exit;
 use ctxloom_cli::Failure;
-use daemon_api::{Caller, Daemons, Unreached};
+use daemon_api_client::{Caller, Daemons, Unreached};
 use presentation::Catalog;
 use process_env::EnvSnapshot;
 

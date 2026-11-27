@@ -26,7 +26,7 @@ const LIBRARY: usize = 500;
 const ROUNDS: usize = 40;
 
 fn path() -> String {
-    ctxloom_wiring::fixtures::host_snapshot()
+    ctxloom_compose::fixtures::host_snapshot()
         .utf8("PATH")
         .unwrap_or_default()
         .to_string()
@@ -94,7 +94,7 @@ fn quantiles(mut times: Vec<Duration>) -> (Duration, Duration, Duration) {
 
 #[test]
 fn a_reconcile_on_a_large_repository_is_within_its_budget() {
-    let asked = ctxloom_wiring::fixtures::host_snapshot()
+    let asked = ctxloom_compose::fixtures::host_snapshot()
         .utf8("LIBRARY_BENCH")
         .map(str::to_string);
     if asked.as_deref() != Some("reconcile") {

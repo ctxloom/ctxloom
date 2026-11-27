@@ -1,0 +1,48 @@
+[package]
+name = "daemon-api-client"
+version = "0.1.0"
+description = "The daemon API's client half: a command, a session's MCP server or a hook as the daemon's client (the session reads, the library's reads and writes, the child verbs, trust, approvals, the wake), and the version-skew rule. Depends on the shared vocabulary (daemon-api-contract), never on the server (daemon-api)"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+pending-approvals.workspace = true
+coded-diagnostic.workspace = true
+angzarr-embedded.workspace = true
+daemon-ports.workspace = true
+daemon-proto.workspace = true
+exit-code.workspace = true
+library-api.workspace = true
+prost.workspace = true
+run-ports.workspace = true
+setup-application.workspace = true
+runs.workspace = true
+session-index.workspace = true
+session-policies.workspace = true
+session-ports.workspace = true
+trust.workspace = true
+approvals.workspace = true
+sessions.workspace = true
+sessions-application.workspace = true
+sessions-proto.workspace = true
+uuid.workspace = true
+daemon-api-contract.workspace = true
+
+[dev-dependencies]
+angzarr-yaml.workspace = true
+library-application = { workspace = true, features = ["test-support"] }
+deps-application = { workspace = true, features = ["test-support"] }
+angzarr-embedded = { workspace = true, features = ["test-support"] }
+mutants.workspace = true
+run-ports = { workspace = true, features = ["test-support"] }
+tokio = { workspace = true, features = ["macros", "rt"] }
+prost-types.workspace = true
+trust-proto.workspace = true
+approvals-proto.workspace = true
+[features]
+test-support = []
+
+[lints]
+workspace = true

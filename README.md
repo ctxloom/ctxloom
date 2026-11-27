@@ -69,7 +69,7 @@ urgencies:
 A hosted child takes all three. A primary session (the one running in your
 terminal) takes `inform` and `wake`, never `steer`. A wake reaches a primary
 only while its ctxloom MCP server is connected (a session started with
-`--no-context` has none): otherwise it is refused, `daemon-api-wake-inform-only`,
+`--no-context` has none): otherwise it is refused, `daemon-api-contract-wake-inform-only`,
 and `inform` is the fix. A wake is a nudge: the messages are delivered when the
 session's next prompt starts, as added context. Any other session takes an
 `inform` alone.

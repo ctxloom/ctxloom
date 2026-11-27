@@ -5790,9 +5790,15 @@ fn nothing_imported(w: &mut World) {
         OLD_BYTES,
         "left as it was"
     );
+    // The daemon refuses the project at its resolution (ONE WRITER), so the
+    // one store exists (the daemon's own); nothing of the old one is in it.
     assert!(
-        !crate::tests::files::exists(home.join(".ctxloom/ctxloom.db")),
-        "no store was made from it"
+        !crate::tests::files::exists(
+            home.join(".ctxloom/projects")
+                .join(OLD_PROJECT)
+                .join("ctxloom.db-wal")
+        ),
+        "the old store was not opened"
     );
 }
 

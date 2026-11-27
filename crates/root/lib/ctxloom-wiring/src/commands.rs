@@ -4,78 +4,22 @@
 //! relocate them), and the library reads the remotes through the dependency
 //! use cases, so both are built together.
 
-use cli_support::Exit;
-use std::io::Write;
-use std::path::PathBuf;
-use std::rc::Rc;
-use std::sync::Arc;
-
-use clap::Command;
-use content_fs::ContentFs;
-use ctxloom_cli::{Call, Extension, Failure};
-use deps::forge;
-use deps::registry::Registry;
-use deps_application::{Deps, ProjectRefresh, Refresh, RefreshEngine, RefusedKind};
-use deps_files::ProjectFiles;
-use deps_ports::DepsFiles;
-use forge_github::GitHub;
-use presentation::Catalog;
-use process_env::EnvSnapshot;
-use remote_git::GitRemotes;
-use setup_application::{MaterializeRequest, Puller, Setup};
-use surface_files::SurfaceFiles;
-use surface_ports::Registry as Engines;
-
+use crate::compose::{build_deps, build_setup};
 use crate::sessions::{self, NOUNS as SESSION_NOUNS};
 use crate::setup::{SetupUseCases, NOUNS as SETUP_NOUNS};
 use crate::{LibError, LibraryCommands, Sessions, Wiring};
-
+use clap::Command;
+use cli_support::Exit;
+use ctxloom_cli::{Call, Extension, Failure};
+use deps_application::Deps;
+use presentation::Catalog;
+use process_env::EnvSnapshot;
+use setup_application::Setup;
+use std::io::Write;
+use std::rc::Rc;
+use std::sync::Arc;
 /// The nouns the dependency commands own outright.
 const OWN_NOUNS: [&str; 2] = ["remote", "deps"];
-
-/// The dependency use cases over the process's home, working directory and
-/// project.
-pub fn build_deps(wiring: &Wiring) -> Result<Deps, LibError> {
-    let (_, app) = wiring.locate();
-    let files = Arc::new(ProjectFiles::new(wiring.fs(), app.path.clone()));
-    build_deps_over(wiring, files.clone(), files)
-}
-
-/// The dependency use cases over `store`, the deps files they read and
-/// write (a recording one in the daemon, step 10c U4); `files` the
-/// project's own, which a clone's token is looked up in.
-pub fn build_deps_over(
-    wiring: &Wiring,
-    store: Arc<dyn DepsFiles>,
-    files: Arc<ProjectFiles>,
-) -> Result<Deps, LibError> {
-    let env = Arc::clone(wiring.env());
-    let (_, app) = wiring.locate();
-    Ok(Deps::new(
-        Arc::new(git_remotes(wiring, files)),
-        store,
-        Arc::new(ContentFs::new(wiring.fs(), &app.path)),
-    )
-    .with_forge(Arc::new(GitHub::with_env(move |name| {
-        env.utf8(name).map(String::from)
-    }))))
-}
-
-/// The remotes over git, in `wiring`'s environment (the caller's, in the
-/// daemon: step 10c U4), cloned under its project's cache; a clone's token
-/// looked up in `files`' registry.
-pub fn git_remotes(wiring: &Wiring, files: Arc<ProjectFiles>) -> GitRemotes {
-    let env = Arc::clone(wiring.env());
-    let (_, app) = wiring.locate();
-    GitRemotes::new(wiring.fs(), app.path.join("cache/repos"), Arc::clone(&env)).with_credentials(
-        Arc::new({
-            let env = Arc::clone(&env);
-            move |name| env.utf8(name).map(String::from)
-        }),
-        token_vars(files),
-    )
-}
-
 /// `run --one-shot`, or `run` (the human's session): the user's daemon plans
 /// and records it, this command its client (U4) or its frontend (U5). A
 /// one-shot's prompt piped on standard input is read only where nothing else
@@ -95,7 +39,6 @@ fn one_shot(
     }
     run_cli::run(&mut uses, run, call, catalog, &mut piped_prompt, out, err)
 }
-
 /// The text piped on standard input, none where it is a terminal.
 // Reads the process's own stdin, which a unit test cannot feed or make a terminal.
 #[cfg_attr(test, mutants::skip)]
@@ -104,110 +47,8 @@ fn piped_prompt() -> Option<String> {
     let stdin = std::io::stdin();
     (!stdin.is_terminal()).then(|| std::io::read_to_string(stdin).unwrap_or_default())
 }
-
 /// The nouns the surface commands own outright.
 const SURFACE_NOUNS: [&str; 3] = ["manage", "materialize", "util"];
-
-/// The dependency pull `manage install` ends with.
-pub struct DepsPuller(pub Rc<Deps>);
-
-impl Puller for DepsPuller {
-    fn pull(&self) -> Result<u64, String> {
-        let pulled = self.0.pull(false, true);
-        match pulled.result {
-            Ok(report) if report.errors == 0 => Ok(report.installed),
-            Ok(report) => Err(format!("{} could not be installed", report.errors)),
-            Err(e) => Err(coded_diagnostic::Diagnostic::code(&e).to_string()),
-        }
-    }
-}
-
-/// The project refresh a consented pull ends with, through `materialize`:
-/// into the project's directory, with the context of an engine whose context
-/// rides the launch left alone. Without consent it is a dry run, and answers
-/// only what would change.
-pub struct SetupRefresh<'a> {
-    pub setup: &'a Setup,
-    pub flags: library_application::Flags,
-}
-
-impl ProjectRefresh for SetupRefresh<'_> {
-    fn refresh(&self, write: bool) -> Result<Refresh, Box<dyn coded_diagnostic::Diagnostic>> {
-        let done = self
-            .setup
-            .materialize(&MaterializeRequest {
-                yes: true,
-                dry_run: !write,
-                leave_launch_context: true,
-                flags: self.flags.clone(),
-                ..MaterializeRequest::default()
-            })
-            .map_err(|e| Box::new(e) as Box<dyn coded_diagnostic::Diagnostic>)?;
-        let result = done.value;
-        if write {
-            if let Some(first) = result.failures.into_iter().next() {
-                return Err(Box::new(first));
-            }
-            return Ok(Refresh {
-                target: result.target,
-                engines: Vec::new(),
-            });
-        }
-        Ok(Refresh {
-            target: result.target,
-            engines: result
-                .engines
-                .into_iter()
-                .map(|e| RefreshEngine {
-                    engine: e.engine,
-                    wrote: e.wrote,
-                    released: e.released,
-                    refused: e
-                        .refused
-                        .into_iter()
-                        .map(|r| RefusedKind {
-                            kind: r.kind,
-                            cause: Box::new(r.cause),
-                        })
-                        .collect(),
-                })
-                .collect(),
-        })
-    }
-}
-
-/// The engines composed in: claude (the default), then opencode. Under
-/// `test-support` the mock and its home-keyed, lossy and skill-less variants
-/// follow them; a build without it registers no mock (ruling 52). Each one's
-/// callbacks run the running binary, by its file name (owner ruling 163).
-pub fn engines() -> Engines {
-    let program = &crate::program::running().name;
-    #[cfg_attr(not(feature = "test-support"), expect(unused_mut))]
-    let mut composed: Vec<Box<dyn surface_ports::EngineSurfaces>> = vec![
-        Box::new(engine_claude::Claude::calling(program)),
-        Box::new(engine_opencode::Opencode::calling(program)),
-    ];
-    #[cfg(feature = "test-support")]
-    composed.extend([
-        Box::new(engine_mock::Mock::standard().calling(program))
-            as Box<dyn surface_ports::EngineSurfaces>,
-        Box::new(engine_mock::Mock::home_keyed().calling(program)),
-        Box::new(engine_mock::Mock::lossy().calling(program)),
-        Box::new(engine_mock::Mock::no_skills().calling(program)),
-    ]);
-    Engines::new(composed)
-}
-
-/// The setup use cases over the process's home, working directory and
-/// project.
-pub fn build_setup(wiring: &Wiring, deps: Rc<Deps>) -> Result<Setup, LibError> {
-    let files = Arc::new(SurfaceFiles::new(
-        wiring.fs(),
-        wiring.home().join(".ctxloom/records"),
-    ));
-    build_setup_over(wiring, deps, files)
-}
-
 /// `setup`, its hooks reading the library and their contexts through the
 /// daemon, as the client stamped `stamp` (a hook process's own setup).
 pub fn with_hook_clients(setup: Setup, wiring: &Wiring, stamp: &str) -> Setup {
@@ -224,40 +65,8 @@ pub fn with_hook_clients(setup: Setup, wiring: &Wiring, stamp: &str) -> Setup {
             crate::hook_messages::DaemonHookContexts::starting_now(Arc::clone(wiring.env()), stamp),
         ))
 }
-
-/// The setup use cases over `files`, the surface store they deliver
-/// through (a recording one in the daemon, step 10c U10).
-pub fn build_setup_over(
-    wiring: &Wiring,
-    deps: Rc<Deps>,
-    files: Arc<SurfaceFiles>,
-) -> Result<Setup, LibError> {
-    let fs = wiring.fs();
-    let cwd = wiring.env().cwd().unwrap_or_else(|_| PathBuf::from("."));
-    let (_, app) = wiring.locate();
-    let project_dir = match app.source {
-        ctxloom_ports::Source::Project => {
-            app.path.parent().map_or_else(|| cwd.clone(), PathBuf::from)
-        }
-        ctxloom_ports::Source::Home => cwd.clone(),
-    };
-    let library = crate::library::build_over(wiring, deps.clone())?;
-    Ok(Setup::new(
-        library,
-        engines(),
-        files.clone(),
-        Arc::new(config_files::ScaffoldFs::new(fs, &project_dir)),
-        project_dir.display().to_string(),
-        cwd.display().to_string(),
-    )
-    .with_os(wiring.os_name())
-    .with_foreign(files)
-    .with_puller(Rc::new(DepsPuller(deps))))
-}
-
 /// The engines' callbacks that answer through the setup use cases.
 pub struct Hooks<'a>(&'a Setup);
-
 impl hook_cli::HookService for Hooks<'_> {
     fn execute(
         &self,
@@ -275,24 +84,6 @@ impl hook_cli::HookService for Hooks<'_> {
         self.0.acknowledge(offered)
     }
 }
-
-/// The variables a clone address's token is read from: the forge the
-/// registry (or the built-in rules) binds the address to says so, the same
-/// answer the API calls get. A registry that cannot be read is an empty one
-/// here: the clone then goes with the user's own git credentials, and the
-/// commands that need the registry report it.
-fn token_vars(files: Arc<ProjectFiles>) -> remote_git::TokenVars {
-    Arc::new(move |url| {
-        let registry = files
-            .read_registry()
-            .ok()
-            .flatten()
-            .and_then(|text| Registry::decode(&text, &files.registry_path()).ok())
-            .unwrap_or_else(Registry::empty);
-        forge::resolve(url, "", &registry).token_vars()
-    })
-}
-
 /// Every command of the program, wired when one first needs the home.
 pub struct Commands {
     /// The environment the process was launched in, read once.
@@ -303,20 +94,18 @@ pub struct Commands {
     /// The sessions use cases, built when a command first needs them.
     pub sessions: Option<Sessions>,
     /// The daemon's composition, handed in by the binary.
-    hosting: crate::daemon::Hosting,
+    entry: crate::daemon::DaemonEntry,
     /// The diagnostics beyond the wiring's and the command line's that
     /// `ctxloom test diagnostics` lists: the composition root's to name.
     #[cfg(feature = "test-support")]
     samples: crate::Samples,
 }
-
 struct Wired {
     deps: Rc<Deps>,
     library: LibraryCommands,
     surface: Setup,
     setup: SetupUseCases,
 }
-
 impl Commands {
     /// The commands over `env`, of the binary stamped `version`.
     pub fn new(env: Arc<EnvSnapshot>, version: &str) -> Commands {
@@ -325,20 +114,19 @@ impl Commands {
             version: version.to_string(),
             wired: None,
             sessions: None,
-            hosting: crate::daemon::Hosting::NONE,
+            entry: crate::daemon::DaemonEntry::NONE,
             #[cfg(feature = "test-support")]
             samples: Vec::new,
         }
     }
 
-    /// The daemon's composition (`ctxloom-daemon`'s [`Hosting`]): what runs
-    /// `daemon serve`, refuses a legacy store and hosts the store's test
-    /// commands. The binary hands it in, so the CLI's parse stays here.
+    /// The daemon's composition (`ctxloom-daemon`'s [`DaemonEntry`]): what runs
+    /// `daemon serve` and hosts the store's test commands. The binary hands it in, so the CLI's parse stays here.
     ///
-    /// [`Hosting`]: crate::daemon::Hosting
+    /// [`DaemonEntry`]: crate::daemon::DaemonEntry
     #[must_use]
-    pub fn hosted_by(mut self, hosting: crate::daemon::Hosting) -> Commands {
-        self.hosting = hosting;
+    pub fn entered_by(mut self, entry: crate::daemon::DaemonEntry) -> Commands {
+        self.entry = entry;
         self
     }
 
@@ -379,7 +167,6 @@ impl Commands {
             .unwrap_or_else(|| unreachable!("just built")))
     }
 }
-
 impl Commands {
     /// A setup command: `auth`, `clean`, `doctor` or `init`.
     fn setup(
@@ -417,7 +204,6 @@ impl Commands {
         setup_cli::run(&uses, noun, call, catalog, out, err)
     }
 }
-
 impl Extension for Commands {
     fn nouns(&self) -> Vec<Command> {
         let mut nouns: Vec<Command> = library_cli::nouns()
@@ -444,7 +230,7 @@ impl Extension for Commands {
         nouns.extend(setup_cli::nouns());
         nouns.extend(container_cli::nouns());
         nouns.extend(sessions::nouns());
-        nouns.push(crate::daemon::noun());
+        nouns.push(crate::daemon::cli::noun());
         nouns.push(crate::daemon::shutdown::noun());
         #[cfg(feature = "test-support")]
         nouns.push(crate::test_commands::noun());
@@ -494,7 +280,6 @@ impl Extension for Commands {
         ran
     }
 }
-
 impl Commands {
     /// The nouns about ctxloom's own process (the test commands, the daemon,
     /// shutdown, the MCP server), answered before any project is looked at;
@@ -512,15 +297,15 @@ impl Commands {
             return Some(crate::test_commands::run(
                 || Wiring::new(env),
                 &self.version,
-                (self.samples, self.hosting.store_tests),
+                (self.samples, self.entry.store_tests),
                 call,
                 catalog,
                 out,
             ));
         }
         if noun == crate::daemon::NOUN {
-            return Some(crate::daemon::run(
-                self.hosting.serve,
+            return Some(crate::daemon::cli::run(
+                self.entry.serve,
                 &self.env,
                 &self.version,
                 call,
@@ -560,15 +345,6 @@ impl Commands {
     ) -> Result<Exit, Failure> {
         if let Some(ran) = self.run_host_noun(noun, call, catalog, out) {
             return ran;
-        }
-        // A hook answers its engine whatever the store (it never fails the
-        // engine); every other command in a project that still has a store
-        // of its own is refused (T17, S48).
-        let hook = SESSION_NOUNS.contains(&noun) && noun != "session";
-        if !hook {
-            if let Ok(wiring) = Wiring::new(Arc::clone(&self.env)) {
-                (self.hosting.per_project_guard)(&wiring)?;
-            }
         }
         if noun == "container" {
             return crate::isolation::container(&self.env, call, catalog, out);
@@ -634,7 +410,6 @@ impl Commands {
         )
     }
 }
-
 #[cfg(test)]
 #[path = "commands.test.rs"]
 pub mod tests;

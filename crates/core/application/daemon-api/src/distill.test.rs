@@ -14,8 +14,8 @@ use library_application::{AppError, ItemKind};
 use run_application::{Answer, Done, Placement, RunError};
 
 use super::*;
-use crate::refusal::ApiRefusal;
 use crate::server::tests::{now, World};
+use daemon_api_contract::ApiRefusal;
 
 const RUN: &str = "0195f0a4-7b1e-7000-8000-000000000001";
 
@@ -119,7 +119,7 @@ fn test_a_write_not_made_ends_the_run_in_its_own_words() {
         detail: "the store".to_string(),
     };
     let ended = unwritten(&broke);
-    assert_eq!(ended.code(), "daemon-api-failed");
+    assert_eq!(ended.code(), "daemon-api-contract-failed");
     assert_eq!(ended.exit(), Exit::FAILED);
 }
 
@@ -166,6 +166,6 @@ fn test_an_answer_with_no_daemon_left_to_write_it_fails() {
         },
     ));
     let error = ended.result.expect_err("not written");
-    assert_eq!(error.code(), "daemon-api-failed");
+    assert_eq!(error.code(), "daemon-api-contract-failed");
     assert_eq!(error.exit(), Exit::FAILED);
 }

@@ -85,25 +85,75 @@ the architecture; there is no other table of crates.
 - `adapters/support`: infrastructure driven adapters share, depending on no
   other workspace crate, each listed in `arch-rules.toml`'s `[classes]
   support` (step 10, G9: `git-cli`, the one git runner).
-- `adapters/driving`: the CLI (and later gRPC, MCP): translation only.
+- `adapters/driving`: the frontends (the CLIs, `mcp-server`, `hook-cli`):
+  translation only.
+- `adapters/serving`: the BACKEND's own servers (`daemon-api-grpc`, the
+  daemon's gRPC service; `hook-listener`, its listener for hooks): what
+  receives calls at the daemon, so the daemon's composition may depend on them
+  where it may not depend on a frontend (owner ruling 2026-11-27).
+- The daemon API is three crates in `core/application` (owner ruling
+  2026-11-27, plan backend-below-frontend step 7): `daemon-api-contract`, the
+  shared vocabulary both sides speak (the typed refusals and their mapping in
+  both directions, `ApiError`, `rejection_of`, the one launch to the wire, the
+  library write requests' target and id); `daemon-api` (the SERVER: `Api`, the
+  hosting ports, the destroy, every use case the daemon serves); and
+  `daemon-api-client` (the CLIENT half: `Client`, `Caller`, `CallError`,
+  `reconcile`, the user's trust and approvals, the wake). The server and the
+  client each depend on the contract and never on each other; a frontend sees
+  the contract and the client (class `@api`), never the server. Diagnostics are
+  `daemon-api-contract-*`, `daemon-api-client-*` and `daemon-api-*` (the
+  server's: `start-up-incomplete`, `handing-over`), a hard migrate.
+- `root/compose`: the composition BOTH halves share (`ctxloom-compose`, owner
+  ruling 2026-11-27, plan backend-below-frontend step 6): the `Wiring` and the
+  ports over their default adapters (`compose`, `library_build`, `setup`,
+  `oneshot`, `frontend`, `capture`, the hook daemon's reach), the `daemon`
+  module (`Reach`, `ensure`, `files`, `flush`, `runtime`, `drain`, `Pace`,
+  `DaemonEntry`, `caller_wiring`, `account_home`, ...), `StoreVerb`, `SeedArgs`
+  and `StoreTest` (what the binary hands the daemon's entry), `LibError` and the
+  fixtures of tests. It names no driving adapter (no `*-cli`), no store and no
+  kernel (`arch-rules.toml`), so `root/daemon` and `root/lib` both depend on it
+  and neither on the other. Its diagnostics are `ctxloom-compose-*` (renamed from
+  `ctxloom-wiring-*`, a hard migrate, owner 2026-11-27). A test harness is
+  never spawned as the daemon: nextest's `guard-homes` sets `CTXLOOM_TEST_HARNESS`
+  for every test and a test-support build's `own_executable` then names none
+  (`daemon::HARNESS_VARIABLE`; a plain build never reads it; `cfg(test)` is per
+  crate and could not say it, owner ruling 2026-11-27).
 - `root/lib`: the CLI's composition as a library (`ctxloom-wiring`): a CLIENT
   of the daemon. It opens no store and hosts no kernel (`arch-rules.toml`
-  lists neither `adapters/store` nor `adapters/kernel` for it). Its
-  `daemon/` module is the client half (`Reach`, `ensure`, `resolve`, the
-  hook daemon, `flush`, `heard`, `shutdown`, `watch`) beside what both
-  halves share (`files`, `runtime`, `Pace`, `caller_wiring`).
+  lists neither `adapters/store` nor `adapters/kernel` for it). It holds what
+  names a frontend crate: the command line (`Commands`, the nouns' services
+  over the daemon, `top`, `mcp`, the `daemon` and `shutdown` verbs, the hidden
+  `test` noun), and re-exports `ctxloom-compose` so every path through
+  `ctxloom_wiring` still names what it did. Its diagnostics are
+  `ctxloom-wiring-shutdown-*`.
 - `root/daemon`: the daemon's composition (`ctxloom-daemon`): the store, the
   kernel (`core_link`), the scheduler, the listener and the hosted runs and
-  terminals, `daemon serve`. It depends on `ctxloom-wiring`, never the
-  reverse. The binary hands it to the command line: `ctxloom_wiring::
-  Commands::hosted_by(ctxloom_daemon::hosting())` carries `daemon serve`
-  (`Hosting::serve`, called with the verb's `Pace`), the guard that refuses a
-  project with a legacy store of its own (`Hosting::per_project_guard`) and,
-  under test-support, the hidden `test` commands that read or write the store
-  (`Hosting::store_tests`, run for a `StoreVerb`: `open-store`,
+  terminals, `daemon serve`. It depends on `ctxloom-compose` and on no frontend
+  (no `adapters/driving` crate, not `ctxloom-wiring`: `arch-rules.toml`). The binary hands it to the command line: `ctxloom_wiring::
+  Commands::entered_by(ctxloom_daemon::entry())` carries `daemon serve`
+  (`DaemonEntry::serve`, called with the verb's `Pace`) and, under test-support, the hidden `test` commands that read or write the store
+  (`DaemonEntry::store_tests`, run for a `StoreVerb`: `open-store`,
   `seed-session`, `session-events`, `library-events`, `record`,
   `seed-rehosts`, `session-name`), so the CLI parse stays in one place.
-  Built without `hosted_by`, `daemon serve` fails and no store command runs.
+  Built without `entered_by`, `daemon serve` fails and no store command runs.
+  The API it serves is built by one chain in `serve.rs`; each user-facing
+  feature (a verb and the RPC behind it) is one module of the crate with a
+  small struct implementing its daemon-api port (`imports.rs`, `foreign.rs`,
+  `deps.rs`, `setup_reads.rs`, `hand_offs.rs`): no trait, registry or routing
+  table above that (owner ruling 2026-11-26). What a feature needs
+  (the edge, the home, a clock, another feature's port) is supplied to it as
+  its dependencies are everywhere in this repository: by constructor or by a
+  builder (inversion of control at the composition root), never looked up.
+- A BACKEND NEVER DEPENDS ON A FRONTEND CRATE (owner ruling 2026-11-27,
+  "shared below both"): a frontend (the `*-cli` crates, `mcp-server`,
+  `hook-cli`, `ctxloom-wiring`) depends on backends, never the reverse. The
+  mapping between a use case's result and the API's message is the area's
+  `*-api` crate in `core/application` (`library-api`, `setup-api`,
+  `surface-api`), which both the daemon and the CLI depend on.
+  What both share is `ctxloom-compose` (`root/compose`), and `arch-rules.toml`
+  forbids `root/daemon` and the core any edge to `adapters/driving` or
+  `root/lib`. The plan that removed each edge is
+  `.plan/backend-below-frontend.plan.md`.
 - `root/bin`: the `ctxloom` binary, the composition root of both.
 
 Slice S0 made `ctxloom-store-sqlite` (`adapters/store`), `ctxloom-cli` (driving),
@@ -382,8 +432,8 @@ and worktrees (path, verdict) (`removal_etag`); at her terminal session-cli
 asks it (`session_cli::Asking`) and her yes is
 `SessionRemovals::apply_removal`, the preview's etag and her answer. An
 apply that names an etag is refused, before anything is destroyed,
-`daemon-api-needs-unanswered` (`ctxloom.v1.NeedsUnanswered`) without a
-confirmed answer and `daemon-api-plan-stale` (`ctxloom.v1.PlanStale`,
+`daemon-api-contract-needs-unanswered` (`ctxloom.v1.NeedsUnanswered`) without a
+confirmed answer and `daemon-api-contract-plan-stale` (`ctxloom.v1.PlanStale`,
 ABORTED) when its plan now tags otherwise; a retry whose session is gone is
 answered as before. ctxloom's MCP server is an eliciting client (rmcp's
 `elicitation` feature): each need of a preview is a form elicitation
@@ -411,7 +461,7 @@ b1445adf). An edit's preview with no text given probes (the daemon's
 `AnsweredEditor::probing`): it plans the file its apply would write, for
 that file's etag, and still asks the Edit need; the CLI's `fragment|command
 edit` sends that etag with its apply. An etag that is not a number is
-refused `daemon-api-etag-invalid` (`ctxloom.v1.EtagInvalid`,
+refused `daemon-api-contract-etag-invalid` (`ctxloom.v1.EtagInvalid`,
 INVALID_ARGUMENT, exit 48; its text a draft the owner delegated).
 `--body` (fragment|command create and edit) and `config set <key> <value>
 [--home]` (one key, coerced as an override and judged by the schema at
@@ -466,8 +516,9 @@ plumbing (`write_requests!`: cwd, env, globals), through setup-cli's
 (`daemon_api::SetupReads`, `ctxloom-daemon`'s `setup_reads`, through
 `caller_wiring`), the project's trust its own (`init prompt`'s
 `Flags.trusted`, never asked back), and the CLI reads the answer back
-into the report it always printed (setup-cli's and surface-cli's
-`wire`), so with no daemon each fails, exit 32, diagnosing nothing in
+into the report it always printed (`setup-api`'s `wire` for doctor and
+`auth status`, `surface-api`'s for the surfaces: backend crates both the
+daemon and the CLI crates depend on), so with no daemon each fails, exit 32, diagnosing nothing in
 process (QUESTIONS 8). doctor's rows hold owned text
 (`doctor_checks::Check`'s `marker` and `name`, auth's `Row` `mode` and
 `usable_by` are `String`s) so the client rebuilds them. `manage gitignore
@@ -1071,7 +1122,7 @@ command is the bare FILE NAME of the running binary (owner rulings 163, 164;
 `ctxloom` for a binary of that name, which is what `just install`
 installs): claude's hooks and statusline, at rest and in a session
 home, and opencode's plugin's `COMMAND` all run it. The wiring resolves it
-ONCE (`ctxloom-wiring`'s `program::running`, from `std::env::current_exe`,
+ONCE (`ctxloom-compose`'s `program::running`, from `std::env::current_exe`,
 which on Linux is `/proc/self/exe`, a symlink's target and never the link; the
 platform's executable suffix, `std::env::consts::EXE_SUFFIX`, stripped in any
 case, so `ctxloom.exe` is `ctxloom` and every written hook, statusline and
@@ -1230,7 +1281,7 @@ between the plan and its start report leaves its run lock FREE: the next
 sweep (or the adoption) ends the run `launch-orphaned`.
 
 A run asked to stop stops its engine first (ruling 114): for the whole run
-`ctxloom-wiring`'s `signals` hears SIGHUP, SIGINT and SIGTERM
+`ctxloom-compose`'s `signals` hears SIGHUP, SIGINT and SIGTERM
 (`os::Os::signals`, each named), so none ends ctxloom by its default and
 orphans the engine. A one-shot stops on any of the three; the session on
 SIGHUP or SIGTERM only (a SIGINT is the terminal's Ctrl-C, which reaches the
@@ -1343,7 +1394,7 @@ Revisit trigger: agents run in containers (a per-container bearer and real
 scopes return there; angzarr's `Gate`/`Allowlist`/`Principal` seam and
 `bind_for` are kept for it). A one-shot child's model can read the same
 environment, so it can write any session.
-The run is driven on a multi-thread runtime (`ctxloom-wiring`'s `run_runtime`,
+The run is driven on a multi-thread runtime (`ctxloom-compose`'s `run_runtime`,
 one worker), because `Running::finish` blocks the driving thread.
 A turn's wait PARKS a thread of the blocking pool and never an async worker
 (owner, 2026-11-19): the launcher waits through `run_ports::Parks`
@@ -1744,12 +1795,14 @@ re-assembled context at its next hook, ONCE per batch:
   changed fragments, whole (asked of the library by the owed paths), else
   a pointer to `ctxloom context assemble`, else nothing (still owed).
 
-Step 10 U11's forcing checks are the binary's `workspace.test.rs`:
-`test_no_cli_crate_depends_on_an_application_crate_but_the_departures` (no
-`*-cli` driving crate's `[dependencies]` names a `crates/core/application`
-crate; today's 23 edges are `CLI_APPLICATION_DEPARTURES`, each with what it
-is used for, because step 10a U2's deletion of them is not done; a new edge
-or a stale entry fails) and
+A frontend (a driving adapter) sees the areas' API crates (`@api`: `library-api`,
+`setup-api`, `surface-api`), the wire types and the presentation crates, and
+no other application crate unless `arch-rules.toml` lists the edge as an
+exception with what it is used for (owner ruling 2026-11-27; the binary's
+`CLI_APPLICATION_DEPARTURES` and its test were that rule's first home, step
+10 U11, and are gone: the 25 edges are exceptions there, each one a stale
+failure once its edge goes). Step 10 U11's other forcing check is the binary's
+`workspace.test.rs`:
 `test_nothing_in_the_daemon_opens_a_library_tree_outside_the_observation`
 (the daemon's root sources, `ctxloom-daemon`'s `src/`, and the wiring's `oneshot.rs` and
 `frontend.rs`, open a library, `library::build(`, `library::build_over(`,
@@ -1866,6 +1919,50 @@ legacy code):
   on the store adapter or the kernel host; `root/daemon` (`ctxloom-daemon`) and
   `root/bin` may. The binary hosts both programs in one executable, so the
   shape cannot keep a CLI PROCESS from the store: that is G1.
+
+### No side channels: the direction, and what is ruled (owner, 2026-11-26)
+
+Every guard above removes one way two components talk other than by a message
+(a command, a fact, an event on a stream, or an RPC of the daemon's API). The
+direction is to remove them all; this is the inventory, each with where it
+stands. RULED means the owner decided it and a gate holds it; NAMED means it
+exists, is described elsewhere in this file, and is not yet ruled (a question
+for the owner, not a debt anyone may add to).
+
+- A second connection to the store, or a kernel in a CLI process. RULED, G1
+  (`just lint-one-writer`).
+- An in-memory table, condvar, channel or closure handed from one component
+  to another. RULED, G3 (`just lint-handoffs`); the 11 rows left each end in
+  P3, P4 or P5.
+- One half of the daemon's code reaching into the other through the whole
+  public surface. RULED and built: what both halves share is `ctxloom-compose`, below both
+  (`root/compose`), and the daemon imports nothing from the CLI's wiring.
+- The command line handing the daemon's composition to itself through
+  function pointers (`DaemonEntry`, named for what it is: the entry points into the daemon the
+  CLI is given, all supplied by `ctxloom-daemon`; not `daemon_api::Hosting`, a
+  different thing). RULED: it stays a plain struct, not a trait. Its
+  `per_project_guard` is gone (the daemon refuses a legacy store at
+  `ResolveProject`, above). Its `store_tests` are the daemon's own (`ctxloom-daemon`'s
+  `store_tests`); `StoreVerb` and `SeedArgs` live in `ctxloom-compose`.
+- The daemon's features wired by hand in one long chain. RULED: not
+  abstracted; a feature stays one module with a plain constructor (above).
+  Foreign writes, setup reads and deps writes each borrow the CLI's
+  composition: `caller_wiring` (a per-call `Wiring` of the caller) and
+  `ctxloom_compose::compose::{build_deps, build_setup_over}` and
+  `setup::SetupUseCases::build`, which the in-process CLI builds too
+  (`compose.rs`): RULED, a shared composition, `ctxloom-compose`.
+- Files and variables the processes use to signal each other: the test
+  switch files in the daemon directory (`test-die-at`, `test-hold-alarms`,
+  `test-start-up-fails`, `test-deaf-to-stop`, ...) and `CTXLOOM_TEST_*`
+  variables (test-support only, never in a plain build); `shutdown`'s
+  `<pid>.stop` and `<pid>.notice` files beside a frontend's lock; a hook's
+  hold (`fact-spool`); the hand-off files of a hosted child. All NAMED: each
+  carries data from one process to another by a file rather than by a
+  message, and none is yet ruled keep or replace.
+- Configuration by environment (`CTXLOOM_DAEMON_ROOT`, `CTXLOOM_ROOT`, the
+  caller's whole environment in `Caller.env`). NAMED: the `Caller` message
+  carries it by design (owner ruling 2026-11-18); the variables a daemon is
+  started with are the part to rule on.
 
 ## A refusal is a typed message; its status lives in the proto alone
 
@@ -2226,7 +2323,7 @@ config`, the additive `RestartReason`; only `operator` is emitted so far,
 by `ctxloom session restart <harp> [--note]`, `Caller::restart`, a command
 through the coordinator like `session stop`, keyed
 `restart:<session>:<incarnation>:operator`; a terminal session is refused
-client-side, `daemon-api-primary-not-hosted`: its engine is its `ctxloom
+client-side, `daemon-api-contract-primary-not-hosted`: its engine is its `ctxloom
 run`'s) records `RestartOwed{reason, incarnation, note}` for the OPEN
 incarnation, once: a request while one is owed records nothing, whatever
 its reason; refused `sessions-no-session`, `sessions-session-closed`,
@@ -2301,7 +2398,7 @@ public certificate (DER), the user bearer, the pid, the binary's FULL
 versionator stamp (M3; the stamp `ctxloom version` says, threaded from the
 binary, never `CARGO_PKG_VERSION`) and the ctxloom home it serves (field 8;
 a file naming none is unreadable). A client whose ctxloom home is not the
-serving daemon's is refused before it does anything, `ctxloom-wiring-daemon-
+serving daemon's is refused before it does anything, `ctxloom-compose-daemon-
 other-home` (exit 48, naming both homes, its fix the daemon's home or a
 `daemon stop` from it), and never served by a second daemon (`daemon
 status`, `daemon stop`, `daemon resolve` and the child verbs; a hook's rediscovery passes
@@ -2362,8 +2459,8 @@ rulings s4-Q1, s4-Q13). The user's `session launch <owner> [--name]
 [--agent] [--engine] ["<task>"]`, `session send <harp> {inform|wake|steer}
 <text> [--id]`, `session clear <harp>` and `session close <harp>`
 (`session-cli`'s `is_child`/`child`) are clients of the daemon, as the
-USER: `daemon_api::Caller::user` over the project the command resolved
-(`daemon::child_caller`; outside a project `daemon-api-project-unknown`,
+USER: `daemon_api_client::Caller::user` over the project the command resolved
+(`daemon::child_caller`; outside a project `daemon-api-contract-project-unknown`,
 exit 48), each the session domain's command through `HandleSync`,
 `requester` none, keyed by an id minted once per call (`--id` is a
 message's), so its retry on a new daemon is a DUPLICATE; parsed before any
@@ -2388,7 +2485,7 @@ owner the calling session, its harp minted when it names none,
 lock `launch-<child>`, `daemon_api::launch_lock_name`, under
 `<home>/.ctxloom/runs/`, the platform's file lock taken at once or not at
 all, so a second launch of one child meanwhile is refused
-`daemon-api-launch-in-progress`) from before its `CreateHandOff` to after
+`daemon-api-contract-launch-in-progress`) from before its `CreateHandOff` to after
 its `LaunchChild`; its `LaunchChild` (keyed `launch:<owner>:<child>`, the delegation limit
 `daemon_api::DELEGATION_LIMIT`, 16), and a refused `LaunchChild` is followed
 by `DeleteHandOff` (kept while an open session holds it). The child's
@@ -2471,7 +2568,7 @@ locks, a session's directory and checkout) passes one gate first,
 daemon-api's `Api::creating` (owner ruling 2026-11-17): once the home is gone
 (`Hosting::home_gone`, `ctxloom-daemon`'s `Shared` asking `DaemonFiles::gone_home`)
 it is refused `ctxloom.v1.DaemonHomeGone` (FAILED_PRECONDITION,
-`daemon-api-home-gone`, its fix: run the command again), nothing planned or
+`daemon-api-contract-home-gone`, its fix: run the command again), nothing planned or
 written, and the loop exits on its next round on the same look; a launch the
 loop makes itself (a `LaunchChild`'s) follows the round's own look
 (`why_it_exits`). Accepted residual: a call already past the gate, or a
@@ -2484,7 +2581,7 @@ within `SPAWN_WAIT`, eight seconds: S16's ten (`HOOK_BOUND`) less a
 delivery's two (`DELIVERY_MARGIN`). It watches the daemon it spawned: once
 that one has exited, the wait goes on only when it declined because another
 daemon holds the single-instance lock (`daemon serve` exits 48,
-`ctxloom-wiring-daemon-instance-held`, `spawn_waits_on`), and any other exit
+`ctxloom-compose-daemon-instance-held`, `spawn_waits_on`), and any other exit
 (it could not start) ends the wait at once; it used to wait out the eight
 seconds for a daemon that had died (owner ruling 2026-11-18, the daemon
 cluster's cap). A stale file is left for the new daemon
@@ -2538,7 +2635,7 @@ one-shots, read live from `OneShots` at each call (askew-glitter: a one-shot
 ends on its own thread, its client told its reply in the same change, so a
 `StopDaemon` asked right after its reply never counts it); the old stop
 FILE is gone (`daemon stop` is `StopDaemon`). The gRPC edge is
-`adapters/driving/daemon-api-grpc` (tonic stubs generated by
+`adapters/serving/daemon-api-grpc` (tonic stubs generated by
 `daemon-proto`'s `server`/`client` features, tonic-prost-build, messages
 extern-pathed onto its prost types). Every message is also its proto3 JSON
 (OQ-21, owner 2026-11-13): `daemon-proto`'s build compiles the messages a
@@ -2669,14 +2766,14 @@ VERSION SKEW (M3; owner OD-61/OD-62, 2026-11-15: ONE ctxloom version runs
 at a time, and nothing drains a daemon for its version): a client whose
 stamp is not the serving daemon's asks it (`GetDaemon`); hosting nothing,
 it is stopped (a plain `StopDaemon`), waited out and the client starts its
-own; hosting live runs, the command is refused, `daemon-api-version-skew`
+own; hosting live runs, the command is refused, `daemon-api-client-version-skew`
 (`SkewError::Mismatch`, exit 48, naming both stamps and the harps, fix
 `ctxloom daemon stop`, `--even-if-live` ending what it hosts), whatever the
 two versions. Nothing passes one version's work to another's: a newer
 client's automatic drain, H-Q6's hook nudge, the successor version
 (`StopDaemonRequest.version`, field 4, `Daemon.draining_for`, field 10, and
 `DaemonDraining.successor`, field 2, all reserved), `daemon-api-version-skew-busy`
-and `daemon-api-draining` on this path are gone; a hook held for an older
+and `daemon-api-contract-draining` on this path are gone; a hook held for an older
 daemon only holds. An
 install stops every running ctxloom first (SHUTDOWN, below). `daemon resolve` reconciles
 first, and the child verbs as every client reaching through `Reach` does;
@@ -2726,7 +2823,7 @@ busy child as it is steered. The draining daemon
 `daemon status`) refuses every new call but `GetDaemon`, `StopDaemon` and the
 project's names (`ResolveProject`, `GetProject`: a command that only names
 its project, as a config change's json does, starts no work and lands) with
-the typed `DaemonDraining` (`daemon-api-draining`, naming its stamp and
+the typed `DaemonDraining` (`daemon-api-contract-draining`, naming its stamp and
 what it hosts, wording a DRAFT; `Api::open`): new runs and launches
 (`CreateRun`, `CreateHandOff`), the session reads and destroys, the
 transcript and the assembly; the hooks' facts and the frontends' reports
@@ -2887,7 +2984,7 @@ statusline count"). An ask no longer waiting is never told. The count is the
 statusline's: ctxloom's claude statusline (`hook claude-code execute
 statusline`, `hook_cli::statusline`) appends `⚠ <n> ask(s) waiting: ctxloom
 top` after the rest of its line, nothing when none wait (a DRAFT wording).
-`ctxloom_wiring::hook_asks::waiting` asks the project's waiting asks of
+`ctxloom_compose::hook_asks::waiting` asks the project's waiting asks of
 `CTXLOOM_SESSION`'s project (`ListApprovals` with no root) of a daemon already
 serving (`daemon::hook_daemon_serving`; the statusline never starts one),
 within `ASK_WITHIN` (2 s, under the hook's bound: the engine redraws often and
@@ -3058,7 +3155,7 @@ envelope. `top` hears SIGINT, SIGTERM and SIGHUP for its whole life
 (`DaemonTop::stopped`) and ends on the first, 128 plus its number. Where no
 project exists the watch opens again each second, so a project made there
 later is listed (as `session_changed` lines), and a session named by its harp
-alone is refused `daemon-api-project-unknown`.
+alone is refused `daemon-api-contract-project-unknown`.
 
 Test-support: `--poll-ms` (a test daemon's round period) lets a scenario prove
 a change arrives by push alone; the harness hosts a second engine's child with
@@ -3147,7 +3244,7 @@ A child may work in ANOTHER project (step 8 Q1, D8): `session launch <owner>
 `project` (relative to the session's `CTXLOOM_ROOT`, Q-C). The caller resolves
 the directory (`Caller::resolving`, the wiring's `daemon::project_resolver`: a
 command run there, its `CTXLOOM_ROOT` dropped; a directory in no ctxloom
-project is `daemon-api-project-unknown`, exit 48) and registers it
+project is `daemon-api-contract-project-unknown`, exit 48) and registers it
 (`ResolveProject`); the child is named in that project,
 `CreateHandOffRequest.project` names it, and the daemon refuses an untrusted
 one, `sessions-untrusted-target`, before anything is planned or written, else
@@ -3225,7 +3322,7 @@ told the API each round through `Hosting::asker`, else the live one-shot it
 hosts as it was placed (U6, D7: `run_application::Placement`'s `agent`,
 `approval_timeout` and `interactive`, `OneShots::asker`; the human's
 terminal session is no asker, S28); a session it does not
-host is `daemon-api-session-not-hosted`; idempotent on (session, request
+host is `daemon-api-contract-session-not-hosted`; idempotent on (session, request
 id); read back from the ask's own stream), `GetApproval` (unknown:
 `approvals-approval-unknown`), `ListApprovals` (a project's asks, oldest
 first, under a root, waiting) and `WaitApproval` (answered once settled,
@@ -3255,8 +3352,8 @@ is answered `{}` by the server's own reader of its input
 texts.md §6; its words, claude's option labels and `trust`'s text
 are session-cli's catalog, `session_cli::text::Text`, ruling after U4); `session approvals answer <ask|harp> <option>
 ["<message>"] [--yes]` names an ask by its name, or by its asking session's
-harp while exactly one waits (`daemon-api-approval-ambiguous` naming each,
-`daemon-api-approval-none-waiting`: client-side), and sends
+harp while exactly one waits (`daemon-api-contract-approval-ambiguous` naming each,
+`daemon-api-contract-approval-none-waiting`: client-side), and sends
 `AnswerApproval` through `HandleSync` on `pending-approvals`; a refusal the
 coordinator names by type alone is said with the ask as the daemon has it.
 An `allow-always` of a claude ask writes its rule into the asking agent's
@@ -3270,7 +3367,7 @@ kept); the preview names the file. Q3's order: the ask checked
 waiting, the rule written, then the ask answered; off a terminal without
 `--yes` it previews (exit 17 under `--detailed-exitcode`), at one it asks
 `[y/N]`; a rule written for an ask settled meanwhile stays,
-`daemon-api-approval-rule-kept` (exit 48). A new session's chosen name may not begin `ask-`
+`daemon-api-contract-approval-rule-kept` (exit 48). A new session's chosen name may not begin `ask-`
 (`sessions::validate_session_name`, `sessions-harp-invalid` reason
 `reserved`, refused by the caller before anything is written); an existing
 one keeps its name (Q-B).
@@ -3541,7 +3638,7 @@ leave its client out. The daemon REFUSES a client whose stamp is not its
 own, whatever its kind (`Calls::admit`, `daemon_api::admit`, asked by the
 gRPC edge's `answer` for every request whose type carries a `Caller`,
 before its use case): the typed `ClientVersionMismatch`
-(failed-precondition), `daemon-api-client-version`, exit 48, its fix
+(failed-precondition), `daemon-api-contract-client-version`, exit 48, its fix
 `ctxloom daemon stop`; a request with no client names no version and is
 refused alike. Under test-support a spawned daemon is given its client's
 `CTXLOOM_TEST_STAMP`. A launch runs the CLIENT's program, not the daemon's
@@ -3807,12 +3904,18 @@ resource name (slice 2 re-root, above), so nothing routes by file: there is no `
 write for a project still makes its `~/.ctxloom/projects/<id>/` directory,
 which taskloom's registry lists projects by; ctxloom keeps nothing in it. A
 project that still has a store of its OWN there (`projects/<id>/ctxloom.db`,
-from before) is refused per command (T17, S48): exit 48,
-`ctxloom-store-sqlite-per-project-store`, its fix naming the file to remove;
-nothing is imported (accepted cost: that history is lost), and the file is
-left as it is. Hooks are not refused (a hook never fails its engine); the
-store port refuses it too, for whatever reaches a store past the command
-line.
+from before) is refused (T17, S48) by the DAEMON, at the project's resolution
+(`ResolveProject`, owner ruling 2026-11-26: the CLI no longer inspects a store
+file; `daemon_api::LegacyStores`, `ctxloom-daemon`'s `LegacyStores` over
+`Stores::refuse_per_project`, `Api::refusing_legacy_stores`): the typed
+refusal `ctxloom.v1.PerProjectStore` (FAILED_PRECONDITION), exit 48,
+`daemon-api-contract-per-project-store`, its fix naming the file to remove; nothing is
+imported (accepted cost: that history is lost), and the file is left as it
+is. A hook never resolves a project (it delivers its facts to the daemon by
+`CTXLOOM_SESSION`), so it is never refused and never fails its engine. The
+store is ONE per user, every project's streams in it (T14), so the daemon's
+start has no single project to test: the check is per project, at each
+resolution, and the old per-project files are never opened.
 The store is its owner's alone (owner ruling 2026-11-12): every open, to
 write or to read, sets the store's directory, ctxloom's home `.ctxloom`, 0700
 and its file, `-wal` and `-shm` 0600 (the opener's, so `ctxloom-store-sqlite`
@@ -3826,9 +3929,10 @@ angzarr-embedded's `SqliteStore::close` waits for the connection's close, so
 the last close's checkpoint and the log's removal are over when it returns
 (dropped, they are left to sqlx's detached thread, which an exiting process
 need not let run). `SqliteStores` holds the one store, closes a read's before
-it reopens it to write, and `SqliteStores::close` closes the one it holds; the wiring closes the sessions use cases' stores after every `session`
-command (`Sessions::close`; a failed close fails a command
-that had not), the seed's and `test open-store`'s, a run's at its end, and
+it reopens it to write, and `SqliteStores::close` closes the one it holds. No
+CLI command opens a store (ONE WRITER), so none closes one; the daemon's
+test-support commands close theirs (the seed's and `test open-store`'s), a
+run's at its end, and
 the daemon's at its exit (after the launcher, the edge and the listener,
 the read models it kept of those its kernel registers are let go too: each
 holds the store through its gap fill, `StoreFill`), and on a start that
@@ -4016,7 +4120,7 @@ ones (`lib.rs`'s dispatch and prelude, `api.rs`, `write.rs`'s helpers,
 name's parent comes from `library_cli::Names`, asked only when a json
 answer prints one (`run --dry-run`, below, asks always; a read the daemon
 serves, step 10a U2, reaches it text or json): the wiring's is the daemon's
-`ResolveProject` (`daemon_api::Client::library_parent`, the wiring's
+`ResolveProject` (`daemon_api_client::Client::library_parent`, the wiring's
 `daemon::library_parent`; OQ-2, so a json answer may start the daemon), or
 `users/me` outside a project, where no daemon is asked (OQ-3). ONE
 project resolver serves every command (owner ruling 2026-11-13): runs,
@@ -4032,13 +4136,13 @@ the working directory). THE PROJECT ROOT AND THE DAEMON ROOT ARE TWO THINGS
 (owner ruling 2026-11-22): the project root is `CTXLOOM_ROOT`, or its flag
 form, the global `--root[=<dir>]` (`--root=<dir>` names it, a bare `--root`
 makes the user's home directory the project root; the flag wins over the
-variable; `ctxloom_wiring::root_flag::applied` puts it in the environment
+variable; `ctxloom_compose::root_flag::applied` puts it in the environment
 snapshot as `CTXLOOM_ROOT` before anything is wired, so the daemon, which
 reads the caller's whole environment, sees it); the daemon root is
 `CTXLOOM_DAEMON_ROOT` (the store, the daemon's directory, the `users/me` library),
 or its flag form, the global `--daemon-root=<dir>` (a value is required; relative
 to the working directory; the flag wins over the variable;
-`ctxloom_wiring::root_flag::daemon_root_applied`, as `applied` does for the
+`ctxloom_compose::root_flag::daemon_root_applied`, as `applied` does for the
 project root). The variable named `CTXLOOM` plus `_HOME` before it is retired, a hard migrate with no alias, and a
 workspace test holds the sources free of it (the per-verb `--home`, the home
 CONFIG layer, and the account's home keep their words). The walk never
@@ -4046,13 +4150,12 @@ adopts the user's home's `.ctxloom` nor the daemon root's as a project
 (`Surroundings::user_home`, `home`); only an explicit root does. A run
 (`client_one_shot`, `client_terminal`) where no project is found, no root is
 named and no git root is above the working directory is refused
-`ctxloom-wiring-project-root-needed` (exit 48, its fix naming `--root`, the
+`ctxloom-compose-project-root-needed` (exit 48, its fix naming `--root`, the
 wording a DRAFT); `init` there makes the project in the working directory.
 The per-verb `--home` of `config set` and `agent create|edit` is the home
 CONFIG layer, unrelated. `agent create|edit`'s root selection per surface kind is `--surface-root
 kind=root` (it was `--root`, which the global took; hard migrate, no alias). It is the registry's `Environment.root`
-(`Wiring::environment`), which the run, the sessions use cases, the
-daemon client's `registration()` and the names' `library_registration()`
+(`Wiring::environment`), which the run, the daemon client's `registration()` and the names' `library_registration()`
 (the same, but `users/me` outside a ctxloom project) all use, so a
 subdirectory names its root's project and a monorepo subfolder with a
 `.ctxloom` of its own is a project of its own (accepted cost: its runs move
@@ -4069,13 +4172,13 @@ names); outside a ctxloom project the parent is `users/me` and nothing is
 written. A DRY RUN NEVER MINTS (owner: "dry run should *not* mint"): its
 names source is `Minting::Never` (`library::minting`: the library's `run`
 noun is the dry run alone), which in a project nothing has named is
-refused, `ctxloom-wiring-project-unnamed` (exit 48, its fix `ctxloom
+refused, `ctxloom-compose-project-unnamed` (exit 48, its fix `ctxloom
 init`), though the dry run asks `Names::named_parent`, which answers none
 there. A
 session listing or search in a project with no id (or wherever no id is
 bound) names no project and lists nothing, asking no daemon
-(`daemon_api::Client::unnamed`), and a `session show|remove` of one is
-`daemon-api-project-unknown`. The test harness's "an initialized ctxloom
+(`daemon_api_client::Client::unnamed`), and a `session show|remove` of one is
+`daemon-api-contract-project-unknown`. The test harness's "an initialized ctxloom
 project" (`Project::initialized`, `with_editor`, a fixture's `.ctxloom`) carries
 the id init mints (`Project::named`); `Project::configured` has none. Converted:
 the `engine` noun (the worked example): `engine list` is
@@ -4200,7 +4303,7 @@ only. `run --dry-run` is `CreateRun` with `validate_only`, its json the
 named under the project the daemon names. EVERY dry run asks the daemon
 (owner rulings 2026-11-14: "dry run *absolutely* calls (and spawns, if
 necessary) a daemon", then text or json, named project or not), before it
-plans: `daemon_api::Client::named_parent` resolves a project's parent, and
+plans: `daemon_api_client::Client::named_parent` resolves a project's parent, and
 where there is nothing to resolve (outside a project, or one nothing has
 named) reaches the daemon and asks `GetDaemon`, so a daemon not running is
 started, and one that cannot be is the client's `daemon-ports-not-started`
@@ -4319,7 +4422,7 @@ pending wakes, its outstanding wake) and repeats it every 5 s, so a gone
 watcher is noticed. A primary takes `Wake` (never `Steer`) only while
 watched (`session_policies::supported(session, wakeable)`, `GetSession`'s
 `wakeable`); a wake to one nobody watches (a `--no-context` session has no
-ctxloom server) is refused client-side, `daemon-api-wake-inform-only`.
+ctxloom server) is refused client-side, `daemon-api-contract-wake-inform-only`.
 `session show` says `wake: sent, not answered`. The wire is undocumented:
 `just validate-wake-claude` (no gate) re-measures it on each claude bump;
 on 2.1.325 a non-descendant's post is NOT refused. The post is the platform's
@@ -4337,8 +4440,8 @@ editor` (an edit: nothing was edited) or `-no-editor-template` (a create: its
 template was stored as it is), each with a `-fix` (run it in a terminal, or
 the verb's non-interactive form: `--body` for a fragment or command); the
 exit and `applied` are as before. A `session stop` or `restart` of a session
-with no owner whose state is ENDED is `daemon-api-run-ended` (resume it with
-`ctxloom run --session`); `daemon-api-primary-not-hosted` is the live terminal
+with no owner whose state is ENDED is `daemon-api-contract-run-ended` (resume it with
+`ctxloom run --session`); `daemon-api-contract-primary-not-hosted` is the live terminal
 session's alone.
 
 ## What an engine cannot carry (M6, j002000)
@@ -4346,7 +4449,7 @@ session's alone.
 An engine's word on what it cannot carry is its surface half's
 `EngineSurfaces::hook_losses` (the unified hook events it has no form for,
 each with why), handed to the library as data by the composition root
-(`Library::with_hook_losses`, from `commands::engines()`, the mocks
+(`Library::with_hook_losses`, from `compose::engines()`, the mocks
 included under `test-support`). A profile's hook on such an event is LOST
 on that engine (ctxloom's own callbacks are not the profile's):
 `library_application::NotCarried {engine, surface: hooks, event, reason}`.
@@ -4395,7 +4498,7 @@ library's `bundle` noun and owns `remote` and `deps`.
 - JSON is the API's (OD-40, B4, owner rulings on the B4 draft of
   2026-11-13): every `remote`, `deps` and `bundle push|move` json answer is
   the proto3 JSON of its `ctxloom.v1` message (library.proto), mapped from
-  deps-application's views at deps-cli's edge and named under the parent the
+  deps-application's views by `library_api::deps_wire` (a backend crate; deps-cli prints and reads back) and named under the parent the
   wiring's `DaemonNames` gives (`deps_cli::Names`; `projects/{harp}`, or
   `users/me`). A Remote is `<parent>/remotes/<r>`, a Dependency
   `<parent>/dependencies/<16 hex of SHA-256 of its identity>`
@@ -4653,7 +4756,7 @@ A final answer (`Refused`, `Parked`) is never held (said, not recorded).
 A hold at its bound, or one that cannot be used, drops the fact, said as
 `hook-cli-not-recorded`. The wording of `hook-cli-held` and
 `-held-behind` is a draft, the owner's to approve (H-Q10). A COMMAND
-flushes too (unit H3, `ctxloom-wiring`'s `daemon::flush`): any ctxloom
+flushes too (unit H3, `ctxloom-compose`'s `daemon::flush`): any ctxloom
 command that reaches the daemon (`daemon::Reach`, its `serving` and
 `reach`) first delivers what EVERY session's hold under its home holds,
 once a process (`on_the_way_in`), through the daemon's listener with the
@@ -4669,7 +4772,7 @@ parks, or one addressed to a session the daemon has no record of, or one
 that is no fact of its hold's session, goes to the hold's set-aside part, as corruption does (run-ports' `Fate::SetAside`,
 `Batch::settle_fates`; fact-spool writes its frames as the next
 `<root>.held.corrupt-<n>`), a hook's flush and a command's alike; a command
-says it ONCE a session as it ends, `ctxloom-wiring-held-set-aside` (the
+says it ONCE a session as it ends, `ctxloom-compose-held-set-aside` (the
 session's harp, how many, each reason once; `daemon::flush::take_said`,
 said by `Commands::run`; the wording a draft, the owner's to approve).
 A capture fact addressed to a session the daemon has no record of (its
@@ -4688,7 +4791,7 @@ read includes what was held. Every
 session's, not only its project's: the daemon and its one store serve the
 home, and a hold names its session only inside its records. The `daemon`
 noun's own `status`, `stop` and `resolve` deliver none (`Reach::observing`:
-they look and change nothing). The frontend (slice 4 U5, `ctxloom-wiring`'s
+they look and change nothing). The frontend (slice 4 U5, `ctxloom-compose`'s
 `frontend.rs`) flushes at its start (its reach's flush on the way in) and
 again once its exit is reported (`daemon::flush::flush_holds(&wiring,
 stamp)`: the daemon serving the home, none started; what it set aside said
@@ -4723,7 +4826,7 @@ session's record says for good which fact is missing there, and when; the
 transcript's entry is the `gap` arm (`dropped`, `why`, `dropped_at`), and its text `gap: 1 fact not recorded (<id>, dropped at
 <time>: <why>)` (the wording a draft, the owner's to approve). The in-process `EdgeSink` is for tests and the run's own
 facts, and the daemon's start-up flush (above). A unit test's executable never spawns itself as the daemon
-(`SPAWNS_ITSELF`). The session's end is NOT captured (owner 2026-11-15):
+(`CTXLOOM_TEST_HARNESS`, set by nextest's `guard-homes`, read by test-support builds only). The session's end is NOT captured (owner 2026-11-15):
 it is its run's end (`IncarnationEnded`) and its lock's verdict.
 A TOOL CALL'S INPUT IS NEVER STORED WHOLE (owner 2026-11-24, narrowed 2026-11-25, below: ToolCalled was two
 thirds of an owner's event bodies, Write and Edit inputs holding whole
@@ -4904,7 +5007,7 @@ tool beside the crate (`mcp-server/tools/<tool>.md`), embedded by
 `include_str!` at compile time and offered without the file's closing
 newline (nothing is read at run time). `approval_prompt` (OD-1) is not
 offered until it is built. Each tool is
-a call of `daemon_api::Caller`, a SESSION as the daemon's client. Its
+a call of `daemon_api_client::Caller`, a SESSION as the daemon's client. Its
 project is its name's (`projects/{p}`, OD-2), never resolved from a cwd.
 Its reads are the service's (`GetTranscript` and `AssembleContext` are now
 served: the transcript from the warm index, refused `TranscriptEmpty` with
@@ -4928,7 +5031,7 @@ drain: its loop ticks no new child, its discovery is withdrawn, and its
 listener's stop answers the calls in flight within `STOP_GRACE`), waits it
 out, starts its own and is answered there; a busy one (or one that refuses
 the stop for its runs, `DaemonHosting`), or one of an older or the same
-version, refuses the call `daemon-api-version-skew`, naming both stamps,
+version, refuses the call `daemon-api-client-version-skew`, naming both stamps,
 and is asked no drain. Under test-support, a
 `test-die-after-apply` file in the daemon's directory kills the daemon once
 a client's `HandleSync` is applied and before it answers

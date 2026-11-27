@@ -7,13 +7,13 @@ use clap::Command;
 use ctxloom_cli::{Call, Extension};
 use presentation::{Catalog, Format};
 
-use crate::commands::tests::World;
+use crate::commands::tests::{World, WorldCommands};
 use crate::Commands;
 
 fn commands() -> Commands {
     Commands::new(
-        Arc::new(crate::tests::host_snapshot()),
-        crate::tests::VERSION,
+        Arc::new(crate::fixtures::host_snapshot()),
+        crate::fixtures::VERSION,
     )
 }
 
@@ -95,7 +95,7 @@ fn test_only_y_or_yes_is_a_yes_to_trust() {
 
 /// An environment of `vars` alone.
 fn env_of(vars: &[(&str, &str)]) -> process_env::EnvSnapshot {
-    let base = crate::tests::host_snapshot();
+    let base = crate::fixtures::host_snapshot();
     process_env::EnvSnapshot::from_parts(
         base.flavor(),
         Ok(base.temp_dir().to_path_buf()),

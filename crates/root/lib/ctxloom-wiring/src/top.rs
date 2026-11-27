@@ -63,7 +63,7 @@ fn failure(called: daemon_ports::Called) -> session_cli::Failure {
             name: missing.name,
         });
     }
-    session_cli::Failure::of(daemon_api::CallError::from(called))
+    session_cli::Failure::of(daemon_api_client::CallError::from(called))
 }
 
 impl session_cli::TopSource for DaemonTop<'_> {
@@ -84,9 +84,11 @@ impl session_cli::TopSource for DaemonTop<'_> {
                     .cwd()
                     .map(|cwd| cwd.display().to_string())
                     .unwrap_or_default();
-                return Err(session_cli::Failure::of(daemon_api::CallError::Refused(
-                    daemon_api::Rejection::Api(daemon_api::ApiRejection::ProjectUnknown { cwd }),
-                )));
+                return Err(session_cli::Failure::of(
+                    daemon_api_client::CallError::Refused(daemon_api_client::Rejection::Api(
+                        daemon_api_client::ApiRejection::ProjectUnknown { cwd },
+                    )),
+                ));
             }
         }
         let reach = Reach::new(self.wiring, &self.stamp);

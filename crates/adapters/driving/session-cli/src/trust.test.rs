@@ -4,7 +4,7 @@
 use std::cell::RefCell;
 
 use clap::FromArgMatches;
-use daemon_api::{CallError, TrustWrites, Trusted};
+use daemon_api_client::{CallError, TrustWrites, Trusted};
 use daemon_proto::v1;
 use presentation::Format;
 

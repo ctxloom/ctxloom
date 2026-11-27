@@ -16,9 +16,9 @@ use daemon_proto::v1;
 use daemon_proto::Carries as _;
 use run_ports::Edge;
 
-use crate::refusal::ApiError;
 use crate::server::Api;
 use crate::RunStream;
+use daemon_api_contract::ApiError;
 
 /// The run's resource name under the session's project:
 /// `projects/{project}/runs/{run}`.
@@ -85,7 +85,7 @@ impl<E: Edge> Api<E> {
                 name: run_name(&placed.name, &placed.run),
                 engine: crate::runs::engine_name(&request.parent, &placed.engine),
                 session: placed.name,
-                launch: Some(crate::launch::to_wire(&launch)),
+                launch: Some(daemon_api_contract::launch::to_wire(&launch)),
                 ..run
             },
             TerminalCreated::Ended(events) => {

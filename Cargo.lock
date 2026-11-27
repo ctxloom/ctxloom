@@ -1018,6 +1018,8 @@ dependencies = [
  "ctxloom-wiring",
  "cucumber",
  "daemon-api",
+ "daemon-api-client",
+ "daemon-api-contract",
  "daemon-client",
  "daemon-ports",
  "daemon-proto",
@@ -1082,6 +1084,94 @@ dependencies = [
 ]
 
 [[package]]
+name = "ctxloom-compose"
+version = "0.1.0"
+dependencies = [
+ "angzarr-embedded",
+ "angzarr-yaml",
+ "approvals",
+ "auth-application",
+ "clap",
+ "cli-support",
+ "coded-diagnostic",
+ "companion-probe",
+ "config-files",
+ "container-runtime",
+ "content-fs",
+ "credentials",
+ "ctxloom-compose",
+ "ctxloom-ports",
+ "daemon-api",
+ "daemon-api-client",
+ "daemon-api-contract",
+ "daemon-application",
+ "daemon-client",
+ "daemon-ports",
+ "daemon-proto",
+ "deps",
+ "deps-application",
+ "deps-files",
+ "deps-ports",
+ "doctor-checks",
+ "duration-text",
+ "editor-process",
+ "engine-claude",
+ "engine-mock",
+ "engine-opencode",
+ "fact-spool",
+ "file-lock",
+ "file-system",
+ "fixture-program",
+ "forge-github",
+ "harp-core",
+ "harp-names",
+ "hook-listener",
+ "hook-sink-grpc",
+ "hook-tls",
+ "host-launcher",
+ "init-application",
+ "isolation-application",
+ "isolation-ports",
+ "library",
+ "library-api",
+ "library-application",
+ "library-tree",
+ "liveness",
+ "mutants",
+ "os",
+ "ports",
+ "presentation",
+ "process-env",
+ "project-dir",
+ "project-registry",
+ "prost",
+ "reclaim-application",
+ "remote-git",
+ "run-application",
+ "run-launcher",
+ "run-ports",
+ "runs",
+ "runs-application",
+ "scheduler",
+ "scheduler-loop",
+ "serde",
+ "serde_json",
+ "session-files",
+ "session-ports",
+ "sessions",
+ "sessions-application",
+ "setup-application",
+ "surface-files",
+ "surface-ports",
+ "system",
+ "tasks-ports",
+ "tokio",
+ "trust",
+ "uuid",
+ "worktree-git",
+]
+
+[[package]]
 name = "ctxloom-daemon"
 version = "0.1.0"
 dependencies = [
@@ -1094,11 +1184,10 @@ dependencies = [
  "config-files",
  "content-fs",
  "credentials",
- "ctxloom-cli",
+ "ctxloom-compose",
  "ctxloom-daemon",
  "ctxloom-ports",
  "ctxloom-store-sqlite",
- "ctxloom-wiring",
  "daemon-api",
  "daemon-api-grpc",
  "daemon-application",
@@ -1106,7 +1195,6 @@ dependencies = [
  "daemon-proto",
  "deps",
  "deps-application",
- "deps-cli",
  "deps-files",
  "deps-ports",
  "duration-text",
@@ -1118,7 +1206,6 @@ dependencies = [
  "fixture-program",
  "harp-names",
  "held-projection",
- "hook-cli",
  "hook-listener",
  "hook-tls",
  "host-launcher",
@@ -1161,9 +1248,9 @@ dependencies = [
  "session-timeline",
  "sessions",
  "sessions-application",
+ "setup-api",
  "setup-application",
- "setup-cli",
- "surface-cli",
+ "surface-api",
  "surface-files",
  "surface-ports",
  "system",
@@ -1215,9 +1302,10 @@ dependencies = [
  "content-fs",
  "credentials",
  "ctxloom-cli",
+ "ctxloom-compose",
  "ctxloom-ports",
  "ctxloom-wiring",
- "daemon-api",
+ "daemon-api-client",
  "daemon-application",
  "daemon-client",
  "daemon-ports",
@@ -1363,6 +1451,7 @@ dependencies = [
  "coded-diagnostic",
  "ctxloom-ports",
  "daemon-api",
+ "daemon-api-contract",
  "daemon-application",
  "daemon-board",
  "daemon-ports",
@@ -1401,6 +1490,71 @@ dependencies = [
  "trust-index",
  "trust-proto",
  "uuid",
+]
+
+[[package]]
+name = "daemon-api-client"
+version = "0.1.0"
+dependencies = [
+ "angzarr-embedded",
+ "angzarr-yaml",
+ "approvals",
+ "approvals-proto",
+ "coded-diagnostic",
+ "daemon-api-contract",
+ "daemon-ports",
+ "daemon-proto",
+ "deps-application",
+ "exit-code",
+ "library-api",
+ "library-application",
+ "mutants",
+ "pending-approvals",
+ "prost",
+ "prost-types",
+ "run-ports",
+ "runs",
+ "session-index",
+ "session-policies",
+ "session-ports",
+ "sessions",
+ "sessions-application",
+ "sessions-proto",
+ "setup-application",
+ "tokio",
+ "trust",
+ "trust-proto",
+ "uuid",
+]
+
+[[package]]
+name = "daemon-api-contract"
+version = "0.1.0"
+dependencies = [
+ "angzarr-embedded",
+ "angzarr-yaml",
+ "approvals",
+ "approvals-proto",
+ "coded-diagnostic",
+ "daemon-ports",
+ "daemon-proto",
+ "deps-application",
+ "exit-code",
+ "library",
+ "library-application",
+ "library-tree",
+ "mutants",
+ "prost",
+ "prost-types",
+ "run-application",
+ "run-ports",
+ "runs",
+ "sessions",
+ "sessions-application",
+ "sessions-proto",
+ "tokio",
+ "trust",
+ "trust-proto",
 ]
 
 [[package]]
@@ -3166,6 +3320,7 @@ name = "library-api"
 version = "0.1.0"
 dependencies = [
  "angzarr-embedded",
+ "cli-support",
  "coded-diagnostic",
  "ctxloom-ports",
  "daemon-proto",
@@ -3176,6 +3331,7 @@ dependencies = [
  "library-domain-proto",
  "library-tree",
  "mutants",
+ "presentation",
  "prost",
  "run-application",
  "run-ports",
@@ -3364,7 +3520,7 @@ dependencies = [
  "approvals-proto",
  "clap",
  "coded-diagnostic",
- "daemon-api",
+ "daemon-api-client",
  "daemon-proto",
  "duration-text",
  "mutants",
@@ -4956,7 +5112,7 @@ dependencies = [
  "cli-support",
  "coded-diagnostic",
  "crossterm",
- "daemon-api",
+ "daemon-api-client",
  "daemon-proto",
  "duration-text",
  "isolation-application",
@@ -5083,6 +5239,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "setup-api"
+version = "0.1.0"
+dependencies = [
+ "auth-application",
+ "daemon-proto",
+ "doctor-checks",
+ "serde_json",
+]
+
+[[package]]
 name = "setup-application"
 version = "0.1.0"
 dependencies = [
@@ -5120,6 +5286,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sessions-application",
+ "setup-api",
 ]
 
 [[package]]
@@ -5537,6 +5704,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
+name = "surface-api"
+version = "0.1.0"
+dependencies = [
+ "coded-diagnostic",
+ "daemon-proto",
+ "library-application",
+ "setup-application",
+]
+
+[[package]]
 name = "surface-cli"
 version = "0.1.0"
 dependencies = [
@@ -5550,6 +5727,7 @@ dependencies = [
  "serde",
  "serde_json",
  "setup-application",
+ "surface-api",
  "surface-ports",
 ]
 

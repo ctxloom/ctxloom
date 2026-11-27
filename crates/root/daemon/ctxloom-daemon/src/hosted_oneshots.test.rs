@@ -47,8 +47,8 @@ fn every_runs_launcher_parks_its_turns() {
         .enable_all()
         .build()
         .unwrap();
-    let dir = ctxloom_wiring::fixtures::root();
-    let fs = ctxloom_wiring::fixtures::fs();
+    let dir = ctxloom_compose::fixtures::root();
+    let fs = ctxloom_compose::fixtures::fs();
     let core = runtime.block_on(async {
         let store = ctxloom_store_sqlite::Stores::new(Arc::clone(&fs), dir.root().join("home"))
             .open()
@@ -73,7 +73,7 @@ fn every_runs_launcher_parks_its_turns() {
         None,
         Arc::new(::process_env::EnvSnapshot::of(Vec::<(&str, &str)>::new())),
     ));
-    let equipped = ctxloom_wiring::oneshot::equipped(bare, (&locks, workspaces, "linux"));
+    let equipped = ctxloom_compose::oneshot::equipped(bare, (&locks, workspaces, "linux"));
     assert!(equipped.parks_turns());
     drop(equipped);
     runtime.block_on(core.close()).unwrap();

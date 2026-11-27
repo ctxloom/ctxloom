@@ -9,7 +9,7 @@ use super::LibraryCommands;
 
 #[test]
 fn the_nouns_are_the_library_clis() {
-    let commands = LibraryCommands::new(Arc::new(crate::tests::host_snapshot()));
+    let commands = LibraryCommands::new(Arc::new(crate::fixtures::host_snapshot()));
     let ours: Vec<String> = commands
         .nouns()
         .iter()
@@ -52,7 +52,7 @@ fn the_composed_library_has_the_built_in_bundles_unless_the_tests_withhold_them(
 // they say of it (opencode's word on a missing model) is said.
 #[test]
 fn the_plan_is_shown_to_the_engines_the_run_drives() {
-    let names: Vec<String> = super::advising_engines()
+    let names: Vec<String> = crate::library_build::advising_engines()
         .iter()
         .map(|engine| engine.name().to_string())
         .collect();

@@ -33,8 +33,8 @@ use daemon_proto::v1;
 use daemon_proto::Carries as _;
 use sessions::{ProjectName, SessionName};
 
-use crate::refusal::{ApiError, ApiRefusal};
 use crate::server::{invalid, Api};
+use daemon_api_contract::{ApiError, ApiRefusal};
 
 /// What a hand-off is made for: the child of a project.
 #[derive(Clone, PartialEq, Eq)]

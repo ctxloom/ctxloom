@@ -6,7 +6,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use daemon_api::{Called, CommandBook, Synced};
+use daemon_api_client::{Called, CommandBook, Synced};
 use daemon_proto::v1;
 
 use crate::wake::{keep_awake, Wakes};
@@ -29,22 +29,22 @@ struct Daemon {
     refusing: bool,
 }
 
-impl daemon_api::Daemons for Daemon {
+impl daemon_api_client::Daemons for Daemon {
     type Api = Daemon;
 
-    async fn serving(&self) -> Result<Option<Daemon>, daemon_api::Unreached> {
+    async fn serving(&self) -> Result<Option<Daemon>, daemon_api_client::Unreached> {
         Ok(Some(self.clone()))
     }
 
-    async fn reach(&self) -> Result<Daemon, daemon_api::Unreached> {
+    async fn reach(&self) -> Result<Daemon, daemon_api_client::Unreached> {
         Ok(self.clone())
     }
 }
 
 struct Fed(tokio::sync::mpsc::UnboundedReceiver<v1::SessionSignal>);
 
-impl daemon_api::SessionSignals for Fed {
-    fn next(&mut self) -> daemon_api::NextSignal<'_> {
+impl daemon_api_client::SessionSignals for Fed {
+    fn next(&mut self) -> daemon_api_client::NextSignal<'_> {
         Box::pin(async move { self.0.recv().await.map(Ok) })
     }
 }
@@ -59,7 +59,7 @@ macro_rules! never {
     };
 }
 
-impl daemon_api::DaemonApi for Daemon {
+impl daemon_api_client::DaemonApi for Daemon {
     never!(
         get_daemon(GetDaemonRequest) -> Daemon,
         stop_daemon(StopDaemonRequest) -> Daemon,
@@ -80,7 +80,7 @@ impl daemon_api::DaemonApi for Daemon {
     async fn watch_session(
         &self,
         request: v1::WatchSessionRequest,
-    ) -> Result<Box<dyn daemon_api::SessionSignals>, Called> {
+    ) -> Result<Box<dyn daemon_api_client::SessionSignals>, Called> {
         assert_eq!(request.name, ME, "its own session");
         match self.feed.lock().unwrap().take() {
             Some(feed) => Ok(Box::new(Fed(feed))),
@@ -124,7 +124,7 @@ struct Socket {
     failing: bool,
 }
 
-impl daemon_api::WakePost for Socket {
+impl daemon_api_client::WakePost for Socket {
     fn post(&self, line: &str) -> Result<(), String> {
         if self.failing {
             return Err("no listener".to_string());
@@ -175,8 +175,9 @@ fn started(refusing: bool, failing: bool) -> World {
         feed: Arc::new(Mutex::new(Some(fed))),
         refusing,
     };
-    let caller = daemon_api::Caller::new(daemon, ME, v1::Caller::default(), Box::new(String::new))
-        .unwrap_or_else(|_| panic!("a name"));
+    let caller =
+        daemon_api_client::Caller::new(daemon, ME, v1::Caller::default(), Box::new(String::new))
+            .unwrap_or_else(|_| panic!("a name"));
     let wakes = Wakes {
         post: Arc::new(Socket {
             seen: Arc::clone(&seen),
@@ -194,7 +195,7 @@ async fn a_pending_wake_is_issued_then_posted() {
     world.signal(&["m1"], "");
     settle().await;
     assert_eq!(world.commands(), ["IssueWake"]);
-    assert_eq!(world.posted(), [daemon_api::wake_line(N1)]);
+    assert_eq!(world.posted(), [daemon_api_client::wake_line(N1)]);
 }
 
 // Not answered in its time: disarmed, its messages left for the next
@@ -206,7 +207,7 @@ async fn a_wake_not_answered_in_its_time_is_disarmed() {
     settle().await;
     world.signal(&["m1"], N1);
     settle().await;
-    tokio::time::advance(daemon_api::DISARM_AFTER - Duration::from_secs(1)).await;
+    tokio::time::advance(daemon_api_client::DISARM_AFTER - Duration::from_secs(1)).await;
     settle().await;
     assert_eq!(world.commands(), ["IssueWake"], "not yet");
     tokio::time::advance(Duration::from_secs(1)).await;
@@ -224,7 +225,7 @@ async fn a_wake_answered_before_its_time_is_not_disarmed() {
     settle().await;
     world.signal(&[], "");
     settle().await;
-    tokio::time::advance(daemon_api::DISARM_AFTER * 2).await;
+    tokio::time::advance(daemon_api_client::DISARM_AFTER * 2).await;
     settle().await;
     assert_eq!(world.commands(), ["IssueWake"]);
 }

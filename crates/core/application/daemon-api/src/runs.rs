@@ -14,8 +14,8 @@ use daemon_proto::Carries as _;
 use run_ports::Edge;
 use sessions::ProjectName;
 
-use crate::refusal::{ApiError, ApiRefusal};
 use crate::server::{invalid, Api};
+use daemon_api_contract::{ApiError, ApiRefusal};
 
 /// A hosted run's events, as `WatchRun` streams them: each in order, waited
 /// for, until its end (the API's edge runs it on a blocking thread).

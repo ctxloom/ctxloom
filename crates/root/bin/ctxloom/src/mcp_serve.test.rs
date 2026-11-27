@@ -471,7 +471,7 @@ fn test_transcript_show_answers_the_lines_delivered_so_far() {
     assert!(
         none["content"][0]["text"]
             .as_str()
-            .is_some_and(|text| text.contains("daemon-api-transcript-empty")),
+            .is_some_and(|text| text.contains("daemon-api-contract-transcript-empty")),
         "{none}"
     );
     let (code, err) = mcp.finish();

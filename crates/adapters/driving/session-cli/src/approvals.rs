@@ -6,18 +6,18 @@
 //! ctxloom session approvals answer <ask|harp> <option> ["<message>"] [--yes]
 //! ```
 //!
-//! Each is a client of the daemon ([`daemon_api::ApprovalAnswers`]). An
+//! Each is a client of the daemon ([`daemon_api_client::ApprovalAnswers`]). An
 //! `allow-always` of a claude ask also writes its rule into the asking
 //! agent's permissions in the config ([`AlwaysRules`], owner Q3): the ask is
 //! checked waiting, the rule written, then the ask answered; off a terminal
 //! without `--yes` it previews and changes nothing (exit 17 under
 //! `--detailed-exitcode`), at a terminal it asks first. A rule written for
 //! an ask that was settled before its answer reached it stays, and is said
-//! (`daemon-api-approval-rule-kept`, exit 48).
+//! (`daemon-api-contract-approval-rule-kept`, exit 48).
 
 use std::io::Write;
 
-use daemon_api::{
+use daemon_api_client::{
     settled_of, settled_refusal, ApiRejection, ApprovalAnswers, CallError, Rejection,
 };
 use daemon_proto::v1;
@@ -130,7 +130,7 @@ async fn answered<A: ApprovalAnswers>(
     out: &mut dyn Write,
 ) -> Result<Done, Failure> {
     let approval = answers.approval(&args.target).await.map_err(call_failure)?;
-    let ask = daemon_api::ask_of(&approval).to_string();
+    let ask = daemon_api_client::ask_of(&approval).to_string();
     let message = args.message.clone().unwrap_or_default();
     let always = approval
         .options
@@ -256,7 +256,7 @@ fn listing_text(listed: &v1::ListApprovalsResponse, out: &mut dyn Write) -> std:
         return writeln!(out, "{}", Text::NoneWaiting.said());
     }
     for approval in &listed.approvals {
-        let ask = daemon_api::ask_of(approval);
+        let ask = daemon_api_client::ask_of(approval);
         let asks = Text::Asks {
             child: harp_of(&approval.child).to_string(),
             tool: approval.tool_name.clone(),

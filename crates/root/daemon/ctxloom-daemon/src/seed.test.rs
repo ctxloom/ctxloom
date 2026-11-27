@@ -7,7 +7,7 @@ use crate::fixtures::fs;
 use crate::seed::Seed;
 use crate::store_tests::Harness;
 use crate::TestError;
-use ctxloom_wiring::fixtures::World;
+use ctxloom_compose::fixtures::World;
 
 const HARP: &str = "jolly-mute-magma";
 

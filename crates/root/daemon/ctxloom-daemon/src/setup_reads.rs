@@ -44,28 +44,28 @@ impl daemon_api::SetupReads for SetupReaders {
         if ask == SetupRead::InitPrompt {
             return init_prompt(&wiring, flags);
         }
-        let deps = Rc::new(ctxloom_wiring::commands::build_deps(&wiring).map_err(|e| failed(&e))?);
+        let deps = Rc::new(ctxloom_compose::compose::build_deps(&wiring).map_err(|e| failed(&e))?);
         Ok(match ask {
             SetupRead::Doctor { deps: only } => {
-                let uses = ctxloom_wiring::setup::SetupUseCases::build(&wiring, &self.stamp)
+                let uses = ctxloom_compose::setup::SetupUseCases::build(&wiring, &self.stamp)
                     .map_err(|e| failed(&e))?;
                 SetupAnswer::Doctor(v1::RunDoctorResponse {
-                    checks: setup_cli::wire::checks(&uses.doctor.report(only)),
+                    checks: setup_api::wire::checks(&uses.doctor.report(only)),
                     ..v1::RunDoctorResponse::default()
                 })
             }
             SetupRead::AuthStatus => {
-                let uses = ctxloom_wiring::setup::SetupUseCases::build(&wiring, &self.stamp)
+                let uses = ctxloom_compose::setup::SetupUseCases::build(&wiring, &self.stamp)
                     .map_err(|e| failed(&e))?;
                 let rows = uses.auth.status(&uses.doctor.layer_texts());
                 SetupAnswer::AuthStatus(v1::GetAuthStatusResponse {
-                    rows: setup_cli::wire::auth_rows(&rows),
+                    rows: setup_api::wire::auth_rows(&rows),
                     ..v1::GetAuthStatusResponse::default()
                 })
             }
             SetupRead::CheckManage => {
                 let setup =
-                    ctxloom_wiring::commands::build_setup(&wiring, deps).map_err(|e| failed(&e))?;
+                    ctxloom_compose::compose::build_setup(&wiring, deps).map_err(|e| failed(&e))?;
                 let done = setup.check(flags).map_err(|e| {
                     let exit = e.exit();
                     refused(&e, exit)
@@ -76,7 +76,7 @@ impl daemon_api::SetupReads for SetupReaders {
                         .iter()
                         .map(run_application::client::notice_of)
                         .collect(),
-                    ..surface_cli::wire::checked(&done.value)
+                    ..surface_api::wire::checked(&done.value)
                 })
             }
             SetupRead::InitPrompt => unreachable!("answered above"),
@@ -92,7 +92,8 @@ fn init_prompt(
     flags: &library_application::Flags,
 ) -> Result<SetupAnswer, ApiError> {
     use cli_support::ExitClass;
-    let library = ctxloom_wiring::library::build(wiring).map_err(|e| ApiError::diagnosed(&e))?;
+    let library =
+        ctxloom_compose::library_build::build(wiring).map_err(|e| ApiError::diagnosed(&e))?;
     let read = library.operational_prompt(flags, library::builtin::SETUP_INTERVIEW_NAME);
     let text = read.result.map_err(|e| {
         let exit = e.exit();

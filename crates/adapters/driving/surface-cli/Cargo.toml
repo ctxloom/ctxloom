@@ -17,6 +17,7 @@ library-api.workspace = true
 library-application.workspace = true
 serde.workspace = true
 setup-application.workspace = true
+surface-api.workspace = true
 
 [dev-dependencies]
 presentation = { workspace = true, features = ["test-support"] }

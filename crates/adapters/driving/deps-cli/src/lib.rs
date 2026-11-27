@@ -14,11 +14,9 @@
 mod api;
 mod bundle;
 mod commands;
-mod dependency;
 mod pins;
 mod read_back;
 mod refresh;
-mod remote;
 mod text;
 mod written;
 
@@ -35,14 +33,6 @@ use presentation::{Catalog, Format};
 use serde::Serialize;
 
 pub use commands::{bundle_verbs, is_bundle_verb, nouns};
-
-/// The answers as their API messages, for the daemon that serves the
-/// writes (step 10c U4): the same messages this CLI prints as json.
-pub mod wire {
-    pub use crate::dependency::{pulled, upgraded};
-    pub use crate::refresh::{view, Skipped};
-    pub use crate::remote::{created, defaulted, edited, removed};
-}
 
 /// The program's name, for the warnings.
 const PROG: &str = "ctxloom";
@@ -509,7 +499,7 @@ fn discover(
     respond(
         cx,
         out,
-        |_| remote::discovered(&found),
+        |_| library_api::deps_wire::remote::discovered(&found),
         |out| text::discovered(out, &found, &query),
     )
 }
@@ -547,7 +537,10 @@ fn dependencies(
             let notices = std::mem::take(&mut answered.notices);
             let refused = answered.refresh_refusal.take();
             let report = written::pulled(&answered);
-            let skipped = answered.skipped_refresh.as_ref().map(refresh::from_message);
+            let skipped = answered
+                .skipped_refresh
+                .as_ref()
+                .map(library_api::deps_wire::refresh::from_message);
             written(cx, (out, err), &notices, &answered, |out| {
                 text::pull(out, &report)?;
                 skipped.as_ref().map_or(Ok(()), |skipped| {
@@ -602,7 +595,7 @@ fn dependencies(
                         deps: Vec::new(),
                         count: 0,
                     });
-                    dependency::held(parent, &result, &listing)
+                    library_api::deps_wire::dependency::held(parent, &result, &listing)
                 },
                 |out| text::hold(out, &result),
             )?;
@@ -623,7 +616,7 @@ fn check(
         respond(
             cx,
             out,
-            |parent| dependency::checked_one(parent, &checked),
+            |parent| library_api::deps_wire::dependency::checked_one(parent, &checked),
             |out| text::check_reference(out, &checked),
         )?;
         return Ok(Exit::OK);
@@ -642,7 +635,7 @@ fn check(
     respond(
         cx,
         out,
-        |parent| dependency::checked(parent, &report),
+        |parent| library_api::deps_wire::dependency::checked(parent, &report),
         |out| text::check(out, &report),
     )?;
     Ok(Exit::OK)

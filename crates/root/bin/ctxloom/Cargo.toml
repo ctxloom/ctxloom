@@ -39,6 +39,8 @@ run-cli.workspace = true
 hook-listener.workspace = true
 hook-tls.workspace = true
 daemon-api.workspace = true
+daemon-api-contract.workspace = true
+daemon-api-client.workspace = true
 daemon-ports.workspace = true
 setup-application.workspace = true
 surface-ports.workspace = true
@@ -100,6 +102,8 @@ test-support = [
     "hook-listener/test-support",
     "hook-tls/test-support",
     "daemon-api/test-support",
+    "daemon-api-contract/test-support",
+    "daemon-api-client/test-support",
     "daemon-ports/test-support",
 ]
 

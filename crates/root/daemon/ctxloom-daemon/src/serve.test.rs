@@ -609,7 +609,7 @@ fn a_childs_checkout_is_made_with_git_in_its_launchers_environment() {
     let (home, project) = (dir.join("home"), dir.join("work"));
     fixtures::mkdirs(&home);
     fixtures::mkdirs(&project);
-    let base = ctxloom_wiring::fixtures::host_snapshot();
+    let base = ctxloom_compose::fixtures::host_snapshot();
     let daemon_env = Arc::new(process_env::EnvSnapshot::from_parts(
         base.flavor(),
         Ok(home.clone()),

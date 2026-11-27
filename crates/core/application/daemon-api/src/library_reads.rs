@@ -25,8 +25,8 @@ use library_application::{AppError, Flags, Library, Outcome};
 use run_ports::Edge;
 use sessions::ProjectName;
 
-use crate::refusal::{ApiError, ApiRefusal};
 use crate::server::Api;
+use daemon_api_contract::{ApiError, ApiRefusal};
 
 /// The library, as a process at a directory opens it (the root's).
 pub trait Libraries: Send + Sync {
@@ -112,7 +112,7 @@ pub(crate) fn pairs(env: Option<&v1::EnvVars>) -> Vec<(String, String)> {
 
 /// A use case's error as the read's answer: its refusal or failure.
 pub(crate) fn read_error(error: &AppError) -> ApiError {
-    crate::refusal::app_error(error)
+    daemon_api_contract::app_error(error)
 }
 
 impl<E: Edge> Api<E> {
@@ -178,7 +178,7 @@ impl<E: Edge> Api<E> {
         }));
         let answer = outcome
             .result
-            .map_err(|error| crate::refusal::deps_error(&error))?;
+            .map_err(|error| daemon_api_contract::deps_error(&error))?;
         Ok(daemon_ports::Read {
             answer,
             notices: said,

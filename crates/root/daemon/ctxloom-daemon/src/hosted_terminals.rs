@@ -1,7 +1,7 @@
 //! What prepares the daemon's interactive sessions (U5): each on a thread of
 //! its own, over the daemon's ONE store (its core shared), in the environment
 //! and directory its client sent (S7). Its frontend is the `ctxloom run`
-//! command (`ctxloom_wiring::frontend`), which starts the prepared TUI.
+//! command (`ctxloom_compose::frontend`), which starts the prepared TUI.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -10,8 +10,8 @@ use std::time::{Duration, Instant};
 use angzarr_embedded::angzarr_store_sqlite::SqliteStore;
 use angzarr_embedded::v1::{event_page, Cover, Uuid};
 use angzarr_embedded::Payload;
-use ctxloom_wiring::frontend::SESSION_STACK;
-use ctxloom_wiring::oneshot::{runs_over, Driven};
+use ctxloom_compose::frontend::SESSION_STACK;
+use ctxloom_compose::oneshot::{runs_over, Driven};
 use daemon_application::{
     FrontendReports, Frontended, HostRequest, Seen, TerminalHost, TerminalTold, Waits,
 };

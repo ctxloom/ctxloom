@@ -48,7 +48,7 @@ Feature: session restart — the daemon restarts a child's engine and resumes it
       And a session "amber-quiet-heron" that is still running
       When I run "ctxloom session restart amber-quiet-heron"
       Then the command exits with code 48
-      And the refusal is "daemon-api-primary-not-hosted"
+      And the refusal is "daemon-api-contract-primary-not-hosted"
 
     Scenario: A session nobody recorded is refused
       # new: session restart.

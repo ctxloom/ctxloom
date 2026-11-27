@@ -2,7 +2,7 @@
 //! `ctxloom mcp serve`, hidden: an engine starts it over stdio, nobody types
 //! it. It holds no store and no state: each tool is a call of the daemon's
 //! client use cases for the session whose engine started it
-//! ([`daemon_api::Caller`]), whose resource name is its identity, inherited
+//! ([`daemon_api_client::Caller`]), whose resource name is its identity, inherited
 //! from the engine's environment (`CTXLOOM_SESSION`), never written in the
 //! engine's MCP config.
 //!
@@ -17,7 +17,7 @@
 //!   the diagnostic's code and words; never a protocol error.
 //! - `child_launch` launches the session's own child through the daemon's
 //!   `CreateHandOff` (slice 4 U3, s4-Q1), its harp minted when it names
-//!   none ([`daemon_api::Caller::naming`]);
+//!   none ([`daemon_api_client::Caller::naming`]);
 //! - `approval_prompt` (step 8 U4, S27) is a claude engine's permission
 //!   prompt: the ask recorded by the daemon (`CreateApproval`), waited on
 //!   (`WaitApproval`, under a deadline of its own) and answered in claude's
@@ -37,7 +37,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use coded_diagnostic::{code, Arg, Diagnostic};
-use daemon_api::{Caller, Daemons};
+use daemon_api_client::{Caller, Daemons};
 use rmcp::model::{
     CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, Implementation,
     ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerConfig,
@@ -213,7 +213,7 @@ where
         context: &RequestContext<RoleServer>,
     ) -> Result<Vec<String>, tools::Refused> {
         let refused = |e: tools::ToolArgs| -> tools::Refused { Box::new(e) };
-        let failed = |e: daemon_api::CallError| -> tools::Refused { Box::new(e) };
+        let failed = |e: daemon_api_client::CallError| -> tools::Refused { Box::new(e) };
         let tool = tools::APPROVAL_PROMPT;
         let tool_name = tools::text(tool, args, "tool_name").map_err(refused)?;
         let request_id = tools::text(tool, args, "tool_use_id").map_err(refused)?;

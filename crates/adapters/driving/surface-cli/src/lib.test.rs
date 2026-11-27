@@ -261,7 +261,7 @@ mod commands_run {
             },
         };
         let mut err = Vec::new();
-        let foreign = crate::wire::InProcess {
+        let foreign = crate::InProcess {
             setup: &world.setup,
             notice_of: &said,
         };
@@ -308,7 +308,7 @@ mod commands_run {
         };
         let failure = run(
             &world.setup,
-            &crate::wire::InProcess {
+            &crate::InProcess {
                 setup: &world.setup,
                 notice_of: &said,
             },
@@ -350,7 +350,7 @@ mod commands_run {
         let mut out = Vec::new();
         run(
             &world.setup,
-            &crate::wire::InProcess {
+            &crate::InProcess {
                 setup: &world.setup,
                 notice_of: &said,
             },
@@ -366,7 +366,7 @@ mod commands_run {
         let mut out = Vec::new();
         run(
             &world.setup,
-            &crate::wire::InProcess {
+            &crate::InProcess {
                 setup: &world.setup,
                 notice_of: &said,
             },
@@ -536,7 +536,7 @@ mod commands_run {
         let (mut out, mut err) = (Vec::new(), Vec::new());
         let exit = run(
             &world.setup,
-            &crate::wire::InProcess {
+            &crate::InProcess {
                 setup: &world.setup,
                 notice_of: &said,
             },
@@ -677,7 +677,7 @@ mod commands_run {
         let mut out = Vec::new();
         let failure = run(
             &world.setup,
-            &crate::wire::InProcess {
+            &crate::InProcess {
                 setup: &world.setup,
                 notice_of: &said,
             },
@@ -754,7 +754,7 @@ mod commands_run {
             let setup = world(CONFIG).setup.with_foreign(files.clone());
             let matches = parse(line);
             let (_, sub) = matches.subcommand().expect("util");
-            let foreign = crate::wire::InProcess {
+            let foreign = crate::InProcess {
                 setup: &setup,
                 notice_of: &said,
             };
@@ -796,7 +796,7 @@ mod commands_run {
             let setup = world(CONFIG).setup;
             let matches = parse(WRITE);
             let (_, sub) = matches.subcommand().unwrap();
-            let foreign = crate::wire::InProcess {
+            let foreign = crate::InProcess {
                 setup: &setup,
                 notice_of: &said,
             };
@@ -816,7 +816,7 @@ mod commands_run {
             let matches = parse(&["util"]);
             let (_, sub) = matches.subcommand().unwrap();
             let setup = world(CONFIG).setup;
-            let foreign = crate::wire::InProcess {
+            let foreign = crate::InProcess {
                 setup: &setup,
                 notice_of: &said,
             };

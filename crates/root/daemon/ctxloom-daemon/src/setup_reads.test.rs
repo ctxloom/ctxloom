@@ -3,7 +3,7 @@
 use daemon_api::{SetupAnswer, SetupRead, SetupReads};
 
 use super::SetupReaders;
-use ctxloom_wiring::fixtures::World;
+use ctxloom_compose::fixtures::World;
 
 fn readers(world: &World) -> SetupReaders {
     let temp = world.dir().join("tmp");

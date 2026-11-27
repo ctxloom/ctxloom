@@ -34,15 +34,12 @@
 //! binary on a decline.
 
 use std::io::Write;
-use std::path::Path;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use clap::{Arg as ClapArg, Command};
 use cli_support::Exit;
+use cli_support::Failure;
 use coded_diagnostic::{code, Arg, Diagnostic};
-use ctxloom_cli::{Call, Failure};
-use file_system::Fs;
 use liveness::FrontendLocks;
 use presentation::{render, Format, Render};
 use serde::Serialize;
@@ -50,11 +47,26 @@ use serde::Serialize;
 use run_ports::{HeldFacts, HoldError};
 use runs_application::Undelivered;
 
+use super::drain::{configured_drain_timeout, notice_text};
 use super::{
-    block_on, called, client_reaching, files_of, flush, output, own_stamp, serving, serving_here,
-    Reach,
+    block_on, called, client_reaching, files_of, flush, own_stamp, serving, serving_here, Reach,
 };
 use crate::Wiring;
+
+/// The command with the library's global flags.
+type Call<'a> = cli_support::Call<'a, library_application::Flags>;
+
+/// The answer written, or why it was not.
+fn output(written: std::io::Result<()>) -> Result<(), Failure> {
+    written.map_err(|e| {
+        Failure::new(
+            crate::LibError::Output {
+                detail: e.to_string(),
+            },
+            Exit::FAILED,
+        )
+    })
+}
 
 /// The noun.
 pub const NOUN: &str = "shutdown";
@@ -78,23 +90,6 @@ const FLUSH_WAIT: Duration = Duration::from_secs(30);
 
 /// How often what still runs is looked at.
 const LOOK: Duration = Duration::from_millis(100);
-
-/// What a live frontend's human is told when a drain starts (owner,
-/// 2026-11-15, OD-63; a DRAFT wording): it will be stopped once `left` has
-/// passed.
-pub fn notice_text(left: Duration) -> String {
-    format!(
-        "ctxloom is shutting down: this session will be stopped in {}; finish and exit",
-        duration_text::format_exact(left)
-    )
-}
-
-/// Seconds since the epoch, on this host's clock.
-pub fn epoch_seconds() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |since| since.as_secs())
-}
 
 /// The noun as the command line has it.
 pub fn noun() -> Command {
@@ -168,26 +163,6 @@ pub fn samples() -> Vec<Box<dyn Diagnostic>> {
             holds: "amber-swift-owl (3 facts)".to_string(),
         }),
     ]
-}
-
-/// The home config's `daemon.drain_timeout` (owner, 2026-11-15), read
-/// afresh, as a command reads the home layer: none when it is not said, or
-/// the config does not read.
-pub fn configured_drain_timeout(fs: &Arc<dyn Fs>, home: &Path) -> Option<Duration> {
-    let app = config_files::AppDir {
-        path: home.join(".ctxloom"),
-        source: ctxloom_ports::Source::Home,
-        ignored_root: None,
-    };
-    let files = config_files::ConfigFilesFs::new(Arc::clone(fs), app, home);
-    library_application::load_config(
-        &files,
-        &[],
-        &library_application::Flags::default(),
-        &mut Vec::new(),
-    )
-    .ok()?
-    .drain_timeout()
 }
 
 /// The holds of `held` that still hold a live record (owner, 2026-11-16:
@@ -472,7 +447,7 @@ impl Shutdown<'_> {
     }
 
     /// A client of the daemon serving, starting none.
-    fn client(&self) -> daemon_api::Client<Reach<'_>> {
+    fn client(&self) -> daemon_api_client::Client<Reach<'_>> {
         client_reaching(self.wiring, Reach::new(self.wiring, self.stamp).observing())
     }
 

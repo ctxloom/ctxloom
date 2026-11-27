@@ -108,7 +108,7 @@ struct TopAnswering<'a, A> {
     runtime: tokio::runtime::Runtime,
 }
 
-impl<A: daemon_api::ApprovalAnswers> session_cli::TopAnswers for TopAnswering<'_, A> {
+impl<A: daemon_api_client::ApprovalAnswers> session_cli::TopAnswers for TopAnswering<'_, A> {
     fn preview(
         &self,
         ask: &daemon_proto::v1::Approval,
@@ -138,7 +138,7 @@ impl<A: daemon_api::ApprovalAnswers> session_cli::TopAnswers for TopAnswering<'_
         option: &str,
         write_rule: bool,
     ) -> Result<String, String> {
-        let ask_id = daemon_api::ask_of(ask).to_string();
+        let ask_id = daemon_api_client::ask_of(ask).to_string();
         let answers = match self.answers.get_or_init(|| (self.make)()) {
             Ok(answers) => answers,
             Err(why) => return Err(why.clone()),
@@ -151,7 +151,7 @@ impl<A: daemon_api::ApprovalAnswers> session_cli::TopAnswers for TopAnswering<'_
                 .runtime
                 .block_on(answers.approval(&ask_id))
                 .map_err(|error| self.catalog.message(&error))?;
-            if let Some(settled) = daemon_api::settled_refusal(&current) {
+            if let Some(settled) = daemon_api_client::settled_refusal(&current) {
                 return Err(self.catalog.message(&settled));
             }
             let rule = ask
@@ -173,18 +173,18 @@ impl<A: daemon_api::ApprovalAnswers> session_cli::TopAnswers for TopAnswering<'_
         }
         match self.runtime.block_on(answers.answer(ask, option, "")) {
             Ok(_) => Ok(format!("{ask_id}: answered {option}")),
-            Err(error) => Err(match (daemon_api::settled_of(&error), kept) {
+            Err(error) => Err(match (daemon_api_client::settled_of(&error), kept) {
                 // The rule written for an ask settled meanwhile stays, and is said.
-                (Some((ask_id, how)), Some(plan)) => {
-                    self.catalog.message(&daemon_api::CallError::Refused(
-                        daemon_api::Rejection::Api(daemon_api::ApiRejection::ApprovalRuleKept {
+                (Some((ask_id, how)), Some(plan)) => self.catalog.message(
+                    &daemon_api_client::CallError::Refused(daemon_api_client::Rejection::Api(
+                        daemon_api_client::ApiRejection::ApprovalRuleKept {
                             ask_id,
                             how,
                             rule: plan.rule,
                             path: plan.path,
-                        }),
-                    ))
-                }
+                        },
+                    )),
+                ),
                 (Some((ask_id, how)), None) => format!("{ask_id} was already settled, {how}"),
                 _ => self.catalog.message(&error),
             }),
@@ -551,7 +551,7 @@ fn said(
 /// `session remove|sweep` on the daemon's client: a `purge`
 /// build's alone.
 #[cfg(feature = "purge")]
-fn destroy<R: daemon_api::SessionRemovals>(
+fn destroy<R: daemon_api_client::SessionRemovals>(
     command: &session_cli::Session,
     client: &R,
     (holds, asking): (

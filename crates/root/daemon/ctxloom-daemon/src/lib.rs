@@ -1,7 +1,7 @@
 //! The daemon: the store's one writer. Its composition (the store, the
 //! kernel, the scheduler, the listener, the hosted runs and terminals) is
 //! served by `ctxloom daemon serve`; the binary hands it to the command
-//! line ([`hosting`]), whose wiring (`ctxloom-wiring`) is a client of it and
+//! line ([`entry`]), whose wiring (`ctxloom-wiring`) is a client of it and
 //! opens no store.
 
 mod core_link;
@@ -38,29 +38,33 @@ use std::sync::Arc;
 
 use ::process_env::EnvSnapshot;
 use cli_support::Exit;
-use ctxloom_cli::Failure;
-use ctxloom_wiring::daemon::files::DaemonFiles;
+use cli_support::Failure;
+use ctxloom_compose::daemon::files::DaemonFiles;
 use file_system::{Fs, Open};
 use os::Mode;
 
 // What the CLI's wiring exposes of the daemon (its client half, the shared
 // files) and of itself: the server half builds on them as its own.
-use ctxloom_wiring::daemon::*;
-#[cfg(test)]
-use ctxloom_wiring::fixtures;
-#[cfg(test)]
-use ctxloom_wiring::run_id;
+use ctxloom_compose::daemon::{
+    account_home, caller_env, caller_wiring, clock_offset, daemon_home, drain, failed, files,
+    files_of, flush, instance_lock, library_parent_if_named, own_stamp, runtime, DaemonEntry, Pace,
+    DAEMON_STACK,
+};
 #[cfg(feature = "test-support")]
-use ctxloom_wiring::{checkout_harp, checkout_tree, Minting, SeedArgs, TestError};
-use ctxloom_wiring::{fresh_project_harps, registry, session_name, LibError, Wiring};
+use ctxloom_compose::daemon::{LIFELINE_VARIABLE, START_VARIABLE};
+#[cfg(test)]
+use ctxloom_compose::fixtures;
+#[cfg(test)]
+use ctxloom_compose::run_id;
+#[cfg(feature = "test-support")]
+use ctxloom_compose::{checkout_harp, checkout_tree, Minting, SeedArgs, TestError};
+use ctxloom_compose::{fresh_project_harps, registry, session_name, LibError, Wiring};
 
 /// The daemon's composition as the command line takes it (handed in by the
-/// binary): `daemon serve`, the guard against a project's legacy store and,
-/// under `test-support`, the hidden commands that read or write the store.
-pub fn hosting() -> Hosting {
-    Hosting {
+/// binary): `daemon serve` and, under `test-support`, the hidden commands that read or write the store.
+pub fn entry() -> DaemonEntry {
+    DaemonEntry {
         serve,
-        per_project_guard,
         #[cfg(feature = "test-support")]
         store_tests: store_tests::run,
     }
@@ -71,6 +75,7 @@ pub fn catalog_sources() -> Vec<presentation::Source> {
     vec![
         ctxloom_store_sqlite::EN_US,
         ctxloom_store_sqlite::OPENER_EN_US,
+        daemon_api::EN_US,
     ]
 }
 
@@ -88,20 +93,19 @@ pub fn serve(env: &Arc<EnvSnapshot>, stamp: &str, pace: Pace) -> Result<Exit, Fa
     be_the_daemon(&wiring, env, stamp, &files, pace)
 }
 
-/// Refused where the project `wiring` is in still has a store of its own
-/// from before the one store (T17, S48: per command; nothing is imported).
-/// Nothing is refused outside a project, nor where the project cannot be
-/// told: the command says what is wrong then.
-fn per_project_guard(wiring: &Wiring) -> Result<(), Failure> {
-    use ports::ProjectIdentity as _;
-    let mut identity =
-        ctxloom_wiring::registry(wiring.fs(), wiring.environment(), harp_names::HarpNames);
-    let Ok(Some(project)) = identity.for_read(None) else {
-        return Ok(());
-    };
-    ctxloom_store_sqlite::Stores::new(wiring.fs(), wiring.home().to_path_buf())
-        .refuse_per_project(&project.id)
-        .map_err(|refused| Failure::new(refused, Exit::REFUSED))
+/// A project's store from before the one store (T17, S48), as the daemon's
+/// resolution of the project refuses it: nothing is read from it or imported.
+pub(crate) struct LegacyStores {
+    pub(crate) stores: ctxloom_store_sqlite::Stores,
+}
+
+impl daemon_api::LegacyStores for LegacyStores {
+    fn held(&self, project_id: &str) -> Option<String> {
+        match self.stores.refuse_per_project(project_id) {
+            Err(ctxloom_store_sqlite::StoreOpenError::PerProjectStore { path }) => Some(path),
+            _ => None,
+        }
+    }
 }
 
 /// The engines the daemon hosts a child on (T18), each its `Engine` beside
@@ -111,8 +115,8 @@ fn per_project_guard(wiring: &Wiring) -> Result<(), Failure> {
 /// one session-setup path): calling `program`, over `wiring`'s user's own
 /// settings.
 pub fn hosted_engines(wiring: &Wiring, program: &str) -> Vec<daemon_application::HostedEngine> {
-    let ctxloom_wiring::oneshot::LaunchEngines { claude, opencode } =
-        ctxloom_wiring::oneshot::launch_engines(wiring, program);
+    let ctxloom_compose::oneshot::LaunchEngines { claude, opencode } =
+        ctxloom_compose::oneshot::launch_engines(wiring, program);
     // Each launch composed anew (T21): her settings read at that launch,
     // where her launcher finds them, never once at the daemon's start.
     let home = wiring.home().to_path_buf();
@@ -195,7 +199,7 @@ pub(crate) fn be_the_daemon(
         user_home: wiring.user_home(),
         // Composed as every launch's engines are (the one session-setup
         // path): calling this binary, over her own settings.
-        engines: hosted_engines(wiring, &ctxloom_wiring::program::running().name),
+        engines: hosted_engines(wiring, &ctxloom_compose::program::running().name),
         // The environment its children's checkouts' git runs in.
         env: Arc::clone(wiring.env()),
     };
@@ -334,7 +338,7 @@ pub(crate) fn launch_engines_for(
     temp: &Path,
     launcher: &BTreeMap<String, String>,
     program: &str,
-) -> ctxloom_wiring::oneshot::LaunchEngines {
+) -> ctxloom_compose::oneshot::LaunchEngines {
     let flavor = os::host().flavor();
     let mut vars: Vec<(OsString, OsString)> = launcher
         .iter()
@@ -351,7 +355,7 @@ pub(crate) fn launch_engines_for(
         EnvSnapshot::from_parts(flavor, Ok(home.to_path_buf()), temp.to_path_buf(), vars);
     let wiring = Wiring::at(Arc::new(snapshot), home.to_path_buf())
         .with_user_home(user_home.map(Path::to_path_buf));
-    ctxloom_wiring::oneshot::launch_engines(&wiring, program)
+    ctxloom_compose::oneshot::launch_engines(&wiring, program)
 }
 /// The user's git identity in the child's project at `project_dir` (owner
 /// ruling 112), asked of git as a CLI run asks it: in her own environment,
@@ -379,7 +383,7 @@ pub(crate) fn child_git_user(
         vars,
     );
     let wiring = Wiring::new(Arc::new(snapshot)).ok()?;
-    ctxloom_wiring::oneshot::git_user(&wiring, Path::new(project_dir))
+    ctxloom_compose::oneshot::git_user(&wiring, Path::new(project_dir))
 }
 /// The plan of a child of the project at `project_dir` (D18, D-N46): that
 /// project's dry run, for `agent` (empty: its default) on the child's
@@ -429,7 +433,7 @@ pub(crate) fn child_output_root(
             || library_application::OUTPUT_DIR_DEFAULT.to_string(),
             |settings| settings.output_dir,
         );
-    let root = ctxloom_wiring::oneshot::output_root(Path::new(project_dir), &written);
+    let root = ctxloom_compose::oneshot::output_root(Path::new(project_dir), &written);
     Ok(root.display().to_string())
 }
 /// The library of the project at `project_dir`, as a ctxloom process
@@ -449,7 +453,7 @@ fn child_library(
             .map(|(name, value)| (name.as_str(), value.as_str())),
     );
     let code = |e: &dyn coded_diagnostic::Diagnostic| e.code().to_string();
-    ctxloom_wiring::library::build(&wiring).map_err(|e| code(&e))
+    ctxloom_compose::library_build::build(&wiring).map_err(|e| code(&e))
 }
 
 #[cfg(test)]

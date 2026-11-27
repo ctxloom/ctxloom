@@ -10,8 +10,8 @@ use daemon_proto::v1;
 use run_ports::Edge;
 use sessions::{SessionName, SessionState};
 
-use crate::refusal::{ApiError, ApiRefusal};
 use crate::server::{invalid, Api};
+use daemon_api_contract::{ApiError, ApiRefusal};
 
 /// A watched session's signals, as `WatchSession` streams them: the one it
 /// opened with, then each change, and the same again each keepalive;

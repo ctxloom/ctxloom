@@ -35,3 +35,10 @@ for name in CTXLOOM_DAEMON_ROOT CLAUDE_CONFIG_DIR OPENCODE_CONFIG_DIR \
     XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME; do
     echo "$name=$guard"
 done >> "$NEXTEST_ENV"
+
+# A test run declares itself a harness (owner ruling 2026-11-27, after a unit
+# test's executable spawned itself as the daemon recursively): a test-support
+# build never spawns its own executable as the daemon while this is set
+# (ctxloom-compose's `daemon::HARNESS_VARIABLE`). The acceptance tests clear
+# their child's environment, so a real binary under test never sees it.
+echo "CTXLOOM_TEST_HARNESS=1" >> "$NEXTEST_ENV"

@@ -24,6 +24,7 @@ mod manage;
 mod materialize;
 mod materialize_diff;
 mod owner_voice;
+mod recording;
 
 use std::rc::Rc;
 use std::sync::Arc;
@@ -50,6 +51,7 @@ pub use materialize::{
     EngineOutcome, MaterializeRequest, MaterializeResult, NotCarried, SurfaceSpec,
 };
 pub use materialize_diff::{DiffRequest, MaterializeDiff};
+pub use recording::{NotRecorded, Recording, Unrecorded};
 
 /// What a command came to besides its answer: the notices it raised.
 #[derive(Debug)]

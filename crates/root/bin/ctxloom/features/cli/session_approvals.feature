@@ -181,7 +181,7 @@ Feature: session approvals — a child's permission ask, answered by the user
       And I note the ask named by "approvals[1].name" as "the second ask"
       When I run "ctxloom session approvals answer brisk-copper-moth allow-once"
       Then the command exits with code 48
-      And the refusal is "daemon-api-approval-ambiguous"
+      And the refusal is "daemon-api-contract-approval-ambiguous"
       And the output contains "{the first ask}"
       And the output contains "{the second ask}"
       When I run "ctxloom session approvals answer {the first ask} allow-once"
@@ -195,7 +195,7 @@ Feature: session approvals — a child's permission ask, answered by the user
       And a child "brisk-copper-moth" of "amber-quiet-heron" that is open and idle
       When I run "ctxloom session approvals answer brisk-copper-moth allow-once"
       Then the command exits with code 48
-      And the refusal is "daemon-api-approval-none-waiting"
+      And the refusal is "daemon-api-contract-approval-none-waiting"
       And the output contains "brisk-copper-moth"
 
     Scenario: An answer naming an option the ask does not offer is refused, and the ask still waits

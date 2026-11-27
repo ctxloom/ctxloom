@@ -106,7 +106,7 @@ fn a_pulls_answer_reads_back_as_its_report() {
             }],
         }),
     };
-    let answered = crate::dependency::pulled("projects/p", &report, None);
+    let answered = library_api::deps_wire::dependency::pulled("projects/p", &report, None);
     assert_eq!(pulled(&answered), report);
     let empty = PullReport {
         status: "empty",
@@ -126,7 +126,7 @@ fn a_pulls_answer_reads_back_as_its_report() {
         message: String::new(),
         reconcile: None,
     };
-    let answered = crate::dependency::pulled("projects/p", &empty, None);
+    let answered = library_api::deps_wire::dependency::pulled("projects/p", &empty, None);
     assert_eq!(pulled(&answered), empty);
     let done = PullReport {
         status: "completed",
@@ -136,7 +136,7 @@ fn a_pulls_answer_reads_back_as_its_report() {
         skipped: vec![sync("k", "skipped")],
         ..empty
     };
-    let answered = crate::dependency::pulled("projects/p", &done, None);
+    let answered = library_api::deps_wire::dependency::pulled("projects/p", &done, None);
     assert_eq!(pulled(&answered), done);
 }
 
@@ -151,7 +151,7 @@ fn an_upgrades_answer_reads_back_as_its_report() {
             nothing_declared: applied,
             removed: vec!["gone".to_string()],
         };
-        let answered = crate::dependency::upgraded(&report, None);
+        let answered = library_api::deps_wire::dependency::upgraded(&report, None);
         assert_eq!(upgraded(&answered), report, "applied {applied}");
     }
 }

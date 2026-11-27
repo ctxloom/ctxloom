@@ -87,7 +87,7 @@ impl From<SeedArgs> for Seed {
 impl Harness<'_> {
     /// The project registry the seed resolves its project through.
     fn identity(&self) -> project_registry::ProjectRegistry<harp_names::HarpNames> {
-        ctxloom_wiring::registry(self.fs(), self.environment(), harp_names::HarpNames)
+        ctxloom_compose::registry(self.fs(), self.environment(), harp_names::HarpNames)
     }
 
     /// The seed's own handle on the store.
@@ -408,14 +408,14 @@ impl Harness<'_> {
     /// Where a seeded session's output goes: where a run's would
     /// (`<project>/<output.dir>/<harp>`, owner rulings 89, 106).
     fn seed_output_dir(&self, harp: &str) -> Result<std::path::PathBuf, TestError> {
-        let library = ctxloom_wiring::library::build(self).map_err(seed_error)?;
+        let library = ctxloom_compose::library_build::build(self).map_err(seed_error)?;
         let written = library
             .run_settings(&library_application::Flags::default())
             .map_or_else(
                 || library_application::OUTPUT_DIR_DEFAULT.to_string(),
                 |s| s.output_dir,
             );
-        Ok(ctxloom_wiring::oneshot::output_root(&self.project_dir(), &written).join(harp))
+        Ok(ctxloom_compose::oneshot::output_root(&self.project_dir(), &written).join(harp))
     }
 
     /// The files a fixture writes beside a session: its lock and authored

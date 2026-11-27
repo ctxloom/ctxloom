@@ -191,35 +191,35 @@ fn a_messages_text_is_its_json() {
 #[derive(Clone, Default)]
 struct Launching(std::sync::Arc<std::sync::Mutex<Vec<String>>>);
 
-impl daemon_api::Daemons for Launching {
+impl daemon_api_client::Daemons for Launching {
     type Api = Launching;
 
-    async fn serving(&self) -> Result<Option<Launching>, daemon_api::Unreached> {
+    async fn serving(&self) -> Result<Option<Launching>, daemon_api_client::Unreached> {
         Ok(Some(self.clone()))
     }
 
-    async fn reach(&self) -> Result<Launching, daemon_api::Unreached> {
+    async fn reach(&self) -> Result<Launching, daemon_api_client::Unreached> {
         Ok(self.clone())
     }
 }
 
-impl daemon_api::DaemonApi for Launching {
+impl daemon_api_client::DaemonApi for Launching {
     async fn get_daemon(
         &self,
         _: daemon_proto::v1::GetDaemonRequest,
-    ) -> Result<daemon_proto::v1::Daemon, daemon_api::Called> {
+    ) -> Result<daemon_proto::v1::Daemon, daemon_api_client::Called> {
         unreachable!()
     }
     async fn stop_daemon(
         &self,
         _: daemon_proto::v1::StopDaemonRequest,
-    ) -> Result<daemon_proto::v1::Daemon, daemon_api::Called> {
+    ) -> Result<daemon_proto::v1::Daemon, daemon_api_client::Called> {
         unreachable!()
     }
     async fn resolve_project(
         &self,
         r: daemon_proto::v1::ResolveProjectRequest,
-    ) -> Result<daemon_proto::v1::Project, daemon_api::Called> {
+    ) -> Result<daemon_proto::v1::Project, daemon_api_client::Called> {
         self.0.lock().unwrap().push(format!("resolve {}", r.root));
         Ok(daemon_proto::v1::Project {
             name: "projects/bold-api-pine".to_string(),
@@ -231,7 +231,7 @@ impl daemon_api::DaemonApi for Launching {
     async fn get_trust(
         &self,
         r: daemon_proto::v1::GetTrustRequest,
-    ) -> Result<daemon_proto::v1::Trust, daemon_api::Called> {
+    ) -> Result<daemon_proto::v1::Trust, daemon_api_client::Called> {
         Ok(daemon_proto::v1::Trust {
             name: r.name,
             trusted: true,
@@ -241,7 +241,7 @@ impl daemon_api::DaemonApi for Launching {
     async fn get_project(
         &self,
         r: daemon_proto::v1::GetProjectRequest,
-    ) -> Result<daemon_proto::v1::Project, daemon_api::Called> {
+    ) -> Result<daemon_proto::v1::Project, daemon_api_client::Called> {
         Ok(daemon_proto::v1::Project {
             name: r.name,
             uid: "calm-otter".to_string(),
@@ -251,7 +251,7 @@ impl daemon_api::DaemonApi for Launching {
     async fn get_session(
         &self,
         r: daemon_proto::v1::GetSessionRequest,
-    ) -> Result<daemon_proto::v1::Session, daemon_api::Called> {
+    ) -> Result<daemon_proto::v1::Session, daemon_api_client::Called> {
         // D16: `tall-oak-crow` holds a child of its own.
         let children = match r.name.ends_with("/sessions/tall-oak-crow") {
             true => vec!["projects/calm-quiet-heron/sessions/olive-quiet-finch".to_string()],
@@ -266,19 +266,19 @@ impl daemon_api::DaemonApi for Launching {
     async fn list_sessions(
         &self,
         _: daemon_proto::v1::ListSessionsRequest,
-    ) -> Result<daemon_proto::v1::ListSessionsResponse, daemon_api::Called> {
+    ) -> Result<daemon_proto::v1::ListSessionsResponse, daemon_api_client::Called> {
         unreachable!()
     }
     async fn search_sessions(
         &self,
         _: daemon_proto::v1::SearchSessionsRequest,
-    ) -> Result<daemon_proto::v1::ListSessionsResponse, daemon_api::Called> {
+    ) -> Result<daemon_proto::v1::ListSessionsResponse, daemon_api_client::Called> {
         unreachable!()
     }
     async fn create_hand_off(
         &self,
         r: daemon_proto::v1::CreateHandOffRequest,
-    ) -> Result<daemon_proto::v1::HandOff, daemon_api::Called> {
+    ) -> Result<daemon_proto::v1::HandOff, daemon_api_client::Called> {
         self.0
             .lock()
             .unwrap()
@@ -291,11 +291,11 @@ impl daemon_api::DaemonApi for Launching {
     }
     async fn handle_sync(
         &self,
-        _: daemon_api::CommandBook,
+        _: daemon_api_client::CommandBook,
         _: Vec<String>,
-    ) -> Result<daemon_api::Synced, daemon_api::Called> {
+    ) -> Result<daemon_api_client::Synced, daemon_api_client::Called> {
         self.0.lock().unwrap().push("write".to_string());
-        Ok(daemon_api::Synced {
+        Ok(daemon_api_client::Synced {
             applied: true,
             projections: Vec::new(),
         })
@@ -308,7 +308,7 @@ impl daemon_api::DaemonApi for Launching {
 #[tokio::test]
 async fn child_launch_launches_the_sessions_own_child() {
     let daemons = Launching::default();
-    let caller = daemon_api::Caller::new(
+    let caller = daemon_api_client::Caller::new(
         daemons.clone(),
         "projects/calm-quiet-heron/sessions/amber-quiet-heron",
         daemon_proto::v1::Caller::default(),
@@ -359,7 +359,7 @@ async fn child_launch_with_a_project_launches_the_child_there() {
     let daemons = Launching::default();
     let resolved = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let seen = std::sync::Arc::clone(&resolved);
-    let caller = daemon_api::Caller::new(
+    let caller = daemon_api_client::Caller::new(
         daemons.clone(),
         "projects/calm-quiet-heron/sessions/amber-quiet-heron",
         daemon_proto::v1::Caller::default(),
@@ -432,8 +432,8 @@ impl super::Elicit for Engine {
     }
 }
 
-fn session_caller(daemons: &Launching) -> daemon_api::Caller<Launching> {
-    daemon_api::Caller::new(
+fn session_caller(daemons: &Launching) -> daemon_api_client::Caller<Launching> {
+    daemon_api_client::Caller::new(
         daemons.clone(),
         "projects/calm-quiet-heron/sessions/amber-quiet-heron",
         daemon_proto::v1::Caller::default(),

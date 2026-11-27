@@ -8,7 +8,7 @@ use ctxloom_ports::{Failure, Put, TreeFiles, UserFiles};
 use setup_application::{EngineOutcome, MaterializeResult, NotCarried, UninstallReport};
 
 use super::{notice_of, Recording};
-use surface_cli::wire::{materialized, uninstalled};
+use surface_api::wire::{materialized, uninstalled};
 
 #[test]
 fn a_materialize_report_is_said_field_for_field_its_failures_in_its_errors_too() {
@@ -156,7 +156,7 @@ fn recording_user_files_write_nothing_and_read_back_what_they_recorded() {
 #[test]
 fn a_manage_check_report_reads_back_field_for_field() {
     use setup_application::{BackendStatus, CheckReport, SurfaceCurrency};
-    use surface_cli::wire::{check_report, checked};
+    use surface_api::wire::{check_report, checked};
     let made = CheckReport {
         work_dir: "/work/demo".to_string(),
         manage_statusline: true,
@@ -186,7 +186,7 @@ fn a_manage_check_report_reads_back_field_for_field() {
 #[test]
 fn a_gitignore_report_reads_back_field_for_field() {
     use setup_application::GitignoreReport;
-    use surface_cli::wire::{gitignore_installed, gitignore_report};
+    use surface_api::wire::{gitignore_installed, gitignore_report};
     let made = GitignoreReport {
         status: "updated".to_string(),
         path: "/work/demo/.gitignore".to_string(),

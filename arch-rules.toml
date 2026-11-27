@@ -14,7 +14,7 @@ layout = "crates"
 
 # The roles whose dev-dependency edges are examined, more leniently: the same
 # table, but a finding is a warning (it fails only under --deny-warnings).
-dev_checked = ["adapters/driven", "adapters/driving"]
+dev_checked = ["adapters/driven", "adapters/driving", "adapters/serving"]
 
 [classes]
 # The driving adapters' shared presentation crates: domain-free, and what the
@@ -24,6 +24,12 @@ presentation = ["presentation", "*-presentation"]
 # (step 10, G9: git-cli, the one git runner of remote-git and
 # worktree-git).
 support = ["git-cli"]
+# The areas' API crates (owner ruling 2026-11-27): the backend's messages and
+# their mapping, and the daemon API's shared vocabulary and client half
+# (daemon-api-contract, daemon-api-client; never the server, daemon-api),
+# which a frontend (a driving adapter) may see; every other
+# application crate it uses is a listed exception below, with its reason.
+api = ["library-api", "setup-api", "surface-api", "daemon-api-contract", "daemon-api-client"]
 
 [roles."core/wire"]
 allow = ["core/wire"]
@@ -71,8 +77,17 @@ rule = "a support crate depends on no other workspace crate"
 # core/wire (owner M7, slice 2): the generated types are pure data, what an
 # API edge (the daemon's gRPC service, its client's CLI) renders and takes;
 # they hold no behaviour of the core.
-allow = ["core/application", "core/wire", "@presentation"]
-rule = "a driving adapter sees only the application layer, the wire types and the presentation crates, never another adapter"
+allow = ["core/wire", "@api", "@presentation"]
+rule = "a frontend sees the areas' API crates (@api), the wire types and the presentation crates, never another adapter and no other application crate but a listed exception"
+
+# The backend's own servers (owner ruling 2026-11-27, plan
+# backend-below-frontend step 0): what receives calls at the daemon (its gRPC
+# service, its hook listener), as a driving adapter does, but a part of the
+# BACKEND, so the daemon's composition may depend on them and no frontend rule
+# applies to them. Never another adapter.
+[roles."adapters/serving"]
+allow = ["core/application", "core/wire", "core/ports", "core/domain", "@presentation"]
+rule = "a serving adapter is the backend's own server: it sees the application layer, the ports, the domains it dispatches to and the wire types, never another adapter"
 
 # The composition root (the binaries and their wiring library) may depend on
 # anything; nothing else lists either, so nothing but the root depends on the
@@ -91,11 +106,20 @@ allow = ["*"]
 # the store; that is clippy's `disallowed-methods` (clippy.toml, "ONE WRITER")
 # and `just lint-one-writer`.
 [roles."root/daemon"]
-allow = ["*"]
-rule = "the daemon's composition: with the binary, the only crate that depends on the store adapter and the kernel host"
+allow = ["core/*", "adapters/store", "adapters/kernel", "adapters/driven", "adapters/serving", "adapters/support", "root/compose", "@presentation"]
+rule = "the daemon's composition: with the binary, the only crate that depends on the store adapter and the kernel host; a backend never depends on a frontend, so neither a driving adapter (adapters/driving) nor the CLI's wiring (root/lib) is listed"
+
+# What both halves compose from (plan backend-below-frontend, step 6, owner
+# rulings 2026-11-27): the Wiring, its ports over their default adapters, the
+# daemon's contract (DaemonEntry, the files, the client half's reach) and the
+# shared fixtures. Below both `root/lib` and `root/daemon`, so it names no
+# driving adapter (no CLI crate) and no store or kernel.
+[roles."root/compose"]
+allow = ["core/*", "adapters/driven", "adapters/serving", "adapters/support", "@presentation"]
+rule = "the shared composition sits below both halves: no frontend (adapters/driving), no store adapter, no kernel host, and neither half's composition"
 
 [roles."root/lib"]
-allow = ["core/*", "adapters/driving", "adapters/driven", "adapters/support", "@presentation"]
+allow = ["core/*", "adapters/driving", "adapters/serving", "adapters/driven", "adapters/support", "root/compose", "@presentation"]
 rule = "the CLI's composition is a client of the daemon: no store adapter (adapters/store) and no kernel host (adapters/kernel), neither listed here"
 
 # A known departure, kept as debt: from, to, optionally kind ("normal",
@@ -152,34 +176,10 @@ kind = "dev"
 reason = "test-only: mints the certificate the fake daemon is served with, by the same mint the daemon uses"
 
 [[exception]]
-from = "daemon-api-grpc"
-to = "run-ports"
-kind = "dev"
-reason = "test-only: builds the user bearer the gate is made from, as the daemon mints it"
-
-[[exception]]
 from = "hook-listener"
 to = "embedded-edge"
 kind = "dev"
 reason = "test-only: the end-to-end test serves the real kernel through the edge adapter"
-
-[[exception]]
-from = "hook-listener"
-to = "run-ports"
-kind = "dev"
-reason = "test-only: builds the bearer, the token source and the socket path the run's ports define"
-
-[[exception]]
-from = "hook-listener"
-to = "runs"
-kind = "dev"
-reason = "test-only: registers the runs aggregate and builds the facts its domain defines"
-
-[[exception]]
-from = "hook-listener"
-to = "sessions"
-kind = "dev"
-reason = "test-only: registers the sessions aggregate and builds the facts and commands its domain defines"
 
 # session-cli depends on itself, as a dev-dependency, with `purge`
 # (rulings 94b, 98, 99): the destroy compiles only under that feature, and the
@@ -200,3 +200,103 @@ from = "daemon-api-grpc"
 to = "daemon-api-grpc"
 kind = "dev"
 reason = "test-only: the crate's own tests compile the served destroy (M5) through a self dev-dependency, so no feature rule is needed and the plain daemon answers UNIMPLEMENTED"
+
+# A frontend's dependencies on application crates other than the API crates:
+# each a departure from "the CLI is request and render", kept as debt with what
+# it is used for (moved here from the binary's workspace test, owner ruling
+# 2026-11-27); one that matches no finding is stale and fails.
+[[exception]]
+from = "container-cli"
+to = "isolation-application"
+reason = "its error and container rows, rendered"
+
+[[exception]]
+from = "ctxloom-cli"
+to = "library-application"
+reason = "the global `Flags` it parses"
+
+[[exception]]
+from = "deps-cli"
+to = "deps-application"
+reason = "the rows it renders and its catalog"
+
+[[exception]]
+from = "hook-cli"
+to = "setup-application"
+reason = "`HookAnswer`, what a hook answers its engine"
+
+[[exception]]
+from = "library-cli"
+to = "library-application"
+reason = "`Flags`, `SourcedValue`, `AgentSettings` and hints, rendered"
+
+[[exception]]
+from = "run-cli"
+to = "library-application"
+reason = "its catalog (`EN_US`)"
+
+[[exception]]
+from = "run-cli"
+to = "run-application"
+reason = "the run's use case, in process"
+
+[[exception]]
+from = "session-cli"
+to = "isolation-application"
+reason = "worktree verdicts and rows, rendered"
+
+[[exception]]
+from = "session-cli"
+to = "reclaim-application"
+reason = "holds and `parse_age`"
+
+[[exception]]
+from = "session-cli"
+to = "sessions-application"
+reason = "timestamps, urgencies and classes"
+
+[[exception]]
+from = "setup-cli"
+to = "auth-application"
+reason = "auth rows and their catalog"
+
+[[exception]]
+from = "setup-cli"
+to = "deps-application"
+reason = "deps' errors and notices"
+
+[[exception]]
+from = "setup-cli"
+to = "doctor-checks"
+reason = "doctor's `Report`"
+
+[[exception]]
+from = "setup-cli"
+to = "init-application"
+reason = "init's companions and prompts ports"
+
+[[exception]]
+from = "setup-cli"
+to = "reclaim-application"
+reason = "clean's `CleanReport`"
+
+[[exception]]
+from = "setup-cli"
+to = "sessions-application"
+reason = "its errors and catalog"
+
+[[exception]]
+from = "surface-cli"
+to = "library-application"
+reason = "the global `Flags`"
+
+[[exception]]
+from = "surface-cli"
+to = "setup-application"
+reason = "materialize's diff and the hooks' status, rendered"
+
+[[exception]]
+from = "deps-cli"
+to = "run-application"
+kind = "dev"
+reason = "test-only: a served write's notices as the daemon flattens them (step 10c U4)"

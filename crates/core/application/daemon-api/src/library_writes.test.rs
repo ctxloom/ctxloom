@@ -163,7 +163,7 @@ fn test_an_operation_that_made_nothing_is_the_domain_s_refusal() {
     use ctxloom_ports::Operated;
     assert!(super::not_made(Operated::Done).is_none());
     let code = |operated| match super::not_made(operated) {
-        Some(crate::refusal::ApiError::Refused(refusal)) => refusal
+        Some(daemon_api_contract::ApiError::Refused(refusal)) => refusal
             .refusal
             .type_url
             .rsplit('.')
@@ -193,7 +193,7 @@ fn test_an_operation_that_made_nothing_is_the_domain_s_refusal() {
 fn test_an_etag_that_is_not_a_number_is_refused_as_an_invalid_argument() {
     use super::seen_sequence;
     use daemon_proto::Refusal as _;
-    let Err(crate::refusal::ApiError::Refused(refusal)) = seen_sequence("abc", 9) else {
+    let Err(daemon_api_contract::ApiError::Refused(refusal)) = seen_sequence("abc", 9) else {
         panic!("not refused")
     };
     assert_eq!(refusal.code, daemon_proto::v1::EtagInvalid::REFUSAL_STATUS);
@@ -201,7 +201,7 @@ fn test_an_etag_that_is_not_a_number_is_refused_as_an_invalid_argument() {
     assert_eq!(invalid.etag, "abc");
     assert!(matches!(
         seen_sequence("-1", 9),
-        Err(crate::refusal::ApiError::Refused(_))
+        Err(daemon_api_contract::ApiError::Refused(_))
     ));
 }
 

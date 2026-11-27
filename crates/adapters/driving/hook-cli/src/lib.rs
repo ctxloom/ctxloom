@@ -24,7 +24,7 @@ mod hud;
 use clap::{Args, Command, Subcommand};
 use coded_diagnostic::Diagnostic;
 
-pub use capture::{execute_recording, NotRecorded, Recording, Unrecorded};
+pub use capture::execute_recording;
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{HookError, HookWarning, EN_US};
@@ -33,6 +33,7 @@ pub use hud::{
     asks_waiting, bar_color, context_bar, hud, render, StatusPayload, CYAN, DIM, GREEN, RED, RESET,
     YELLOW,
 };
+pub use setup_application::{NotRecorded, Recording, Unrecorded};
 
 /// The `hook` noun, shaped for mounting on the command line: hidden.
 pub fn noun() -> Command {

@@ -7,8 +7,9 @@
 //! the setup [`nouns`] and, given the matches of one, [`run`]s it.
 
 mod commands;
+mod in_process;
 mod text;
-pub mod wire;
+pub use in_process::InProcess;
 
 use cli_support::{Exit, ExitClass};
 use std::io::{self, Read, Write};
@@ -293,7 +294,7 @@ fn manage(
                     ..v1::InstallGitignoreRequest::default()
                 })?;
                 say_v1(cx, &answered.notices, err);
-                let report = wire::gitignore_report(&answered);
+                let report = surface_api::wire::gitignore_report(&answered);
                 emit(cx, out, &report, |w| text::gitignore(w, &report))?;
             }
         }
@@ -319,7 +320,7 @@ fn check(cx: &Context<'_>, out: &mut dyn Write, err: &mut dyn Write) -> Result<(
         ..v1::CheckManageRequest::default()
     })?;
     say_v1(cx, &answered.notices, err);
-    let report = wire::check_report(&answered);
+    let report = surface_api::wire::check_report(&answered);
     emit(cx, out, &report, |w| text::check(w, &report))
 }
 

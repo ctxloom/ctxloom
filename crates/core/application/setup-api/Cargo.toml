@@ -1,0 +1,19 @@
+[package]
+name = "setup-api"
+version = "0.1.0"
+description = "The setup reads as the API says them: doctor's report and auth status's rows as their messages, and back (the daemon says its answers in them; the CLI reads them back)"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+auth-application.workspace = true
+daemon-proto.workspace = true
+doctor-checks.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

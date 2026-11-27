@@ -8,9 +8,9 @@
 use daemon_proto::v1;
 use run_ports::Edge;
 
-use crate::library_writes::LibraryWriteRequest;
-use crate::refusal::ApiError;
 use crate::server::Api;
+use daemon_api_contract::ApiError;
+use daemon_api_contract::LibraryWriteRequest;
 
 /// A setup read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

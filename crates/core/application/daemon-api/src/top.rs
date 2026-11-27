@@ -19,8 +19,8 @@ use session_index::{SessionIndexes, SessionRecord};
 use session_timeline::{Entry, SessionTimelines};
 use sessions::{ProjectName, SessionName};
 
-use crate::refusal::{ApiError, ApiRefusal};
 use crate::server::{invalid, state_resource, Api, SessionStates, EVERY_PROJECT};
+use daemon_api_contract::{ApiError, ApiRefusal};
 
 /// How long after a wake the watch waits before each look again.
 const SETTLE: [Duration; 3] = [

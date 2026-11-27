@@ -62,7 +62,7 @@ struct Wired {
 impl Wired {
     fn new(env: Arc<EnvSnapshot>, version: &str) -> Wired {
         let library =
-            ctxloom_wiring::Commands::new(env, version).hosted_by(ctxloom_daemon::hosting());
+            ctxloom_wiring::Commands::new(env, version).entered_by(ctxloom_daemon::entry());
         // The test-only commands list every diagnostic of the binary.
         #[cfg(feature = "test-support")]
         let library = library.with_diagnostic_samples(diagnostic_samples);
@@ -116,6 +116,8 @@ fn diagnostic_samples() -> Vec<Box<dyn coded_diagnostic::Diagnostic>> {
     all.extend(hook_listener::diagnostic_samples());
     all.extend(hook_tls::diagnostic_samples());
     all.extend(daemon_api::diagnostic_samples());
+    all.extend(daemon_api_contract::diagnostic_samples());
+    all.extend(daemon_api_client::diagnostic_samples());
     all.extend(daemon_ports::diagnostic_samples());
     all
 }

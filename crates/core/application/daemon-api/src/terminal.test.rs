@@ -150,7 +150,10 @@ async fn a_terminal_run_is_prepared_in_its_project_and_answered_with_its_launch(
     assert_eq!(run.agent, "dev");
     assert!(run.end.is_none());
     let wired = run.launch.expect("its launch");
-    assert_eq!(crate::launch::from_wire(&wired), Some(launch()));
+    assert_eq!(
+        daemon_api_contract::launch::from_wire(&wired),
+        Some(launch())
+    );
     let request = rig.asked.lock().unwrap()[0].clone();
     let project = request.project.expect("its project");
     assert_eq!(

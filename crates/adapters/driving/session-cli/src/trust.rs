@@ -7,7 +7,7 @@
 //! ctxloom trust list
 //! ```
 //!
-//! Each is a client of the user's daemon ([`daemon_api::TrustWrites`]). The
+//! Each is a client of the user's daemon ([`daemon_api_client::TrustWrites`]). The
 //! preview is `GetTrust`: what trusting the project would allow, and the
 //! etag of it. At a terminal the human is asked, `[y/N]`, and her yes sends
 //! the grant naming that etag; off one the preview is printed and nothing
@@ -18,7 +18,7 @@
 use std::io::Write;
 
 use clap::{Args, Command, Subcommand};
-use daemon_api::{TrustWrites, Trusted};
+use daemon_api_client::{TrustWrites, Trusted};
 use daemon_proto::v1;
 use presentation::{write_json, Format};
 

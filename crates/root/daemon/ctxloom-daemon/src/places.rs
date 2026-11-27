@@ -41,7 +41,7 @@ use worktree_git::GitWorkspaces;
 
 use crate::Wiring;
 #[cfg(feature = "purge")]
-use ctxloom_wiring::SweepSettings;
+use ctxloom_compose::SweepSettings;
 
 /// A project's places, over this process's filesystem, ctxloom's `home`
 /// and the temporary root.
@@ -184,7 +184,7 @@ pub(crate) struct TreeHarps(pub(crate) Arc<dyn Fs>);
 
 impl library_api::CheckoutHarps for TreeHarps {
     fn harp(&self, tree: &str) -> Result<String, ctxloom_ports::Failure> {
-        ctxloom_wiring::checkout::mint_checkout_harp(
+        ctxloom_compose::checkout::mint_checkout_harp(
             self.0.as_ref(),
             std::path::Path::new(tree),
             crate::session_name,
@@ -264,7 +264,7 @@ impl daemon_api::Libraries for ProjectLibraries {
             dir.to_string()
         };
         let wiring = self.at(&at, env);
-        let library = ctxloom_wiring::library::build(&wiring).map_err(|e| failed(&e))?;
+        let library = ctxloom_compose::library_build::build(&wiring).map_err(|e| failed(&e))?;
         read(&library);
         Ok(())
     }
@@ -281,7 +281,7 @@ impl daemon_api::Libraries for ProjectLibraries {
             dir.to_string()
         };
         let wiring = self.at(&at, env);
-        let deps = ctxloom_wiring::commands::build_deps(&wiring).map_err(|e| ApiError::Failed {
+        let deps = ctxloom_compose::compose::build_deps(&wiring).map_err(|e| ApiError::Failed {
             detail: coded_diagnostic::Diagnostic::code(&e).to_string(),
         })?;
         read(&deps);
@@ -306,7 +306,7 @@ impl daemon_api::Trusts for ProjectTrusts {
         let failed = |e: &dyn coded_diagnostic::Diagnostic| ApiError::Failed {
             detail: e.code().to_string(),
         };
-        let library = ctxloom_wiring::library::build(&wiring).map_err(|e| failed(&e))?;
+        let library = ctxloom_compose::library_build::build(&wiring).map_err(|e| failed(&e))?;
         let held = library.trust_settings().map_err(|e| failed(&e))?;
         Ok(held
             .into_iter()
@@ -352,7 +352,7 @@ impl daemon_application::owed::SessionTrees for LibraryTrees {
             for dir in dirs {
                 let app = dir.join(".ctxloom");
                 if let Ok(Some(checkout)) =
-                    ctxloom_wiring::checkout::checkout_harp(self.fs.as_ref(), &app)
+                    ctxloom_compose::checkout::checkout_harp(self.fs.as_ref(), &app)
                 {
                     let tree = format!("projects/{project}/checkouts/{checkout}/library");
                     if !trees.contains(&tree) {

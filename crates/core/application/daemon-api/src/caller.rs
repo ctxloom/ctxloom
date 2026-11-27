@@ -203,6 +203,23 @@ fn closed_refusal(target: &SessionName) -> Called {
     }
 }
 
+/// A write's refusal as the session domain's, where the session is one
+/// nobody recorded: the aggregate's `NoSession` names no session (the
+/// coordinator's status carries a typed refusal's type alone), so it is said
+/// as `SessionUnknown` of the harp this client wrote to.
+fn known(error: CallError, target: &SessionName) -> CallError {
+    match error {
+        CallError::Refused(Rejection::Sessions(sessions::SessionRejection::NoSession)) => {
+            CallError::Refused(Rejection::Sessions(
+                sessions::SessionRejection::SessionUnknown {
+                    harp: target.harp().to_string(),
+                },
+            ))
+        }
+        other => other,
+    }
+}
+
 /// The urgency `word` names (`inform`, `wake`, `steer`).
 pub fn urgency_of(word: &str) -> Option<Urgency> {
     match word {
@@ -655,6 +672,74 @@ impl<D: Daemons> Caller<D> {
         })
     }
 
+    /// One `keep` of `target` on `api`: the command, keyed by the call (a session nobody
+    /// recorded is the domain's `SessionUnknown`).
+    async fn kept(
+        &self,
+        api: &D::Api,
+        target: &SessionName,
+        kept: bool,
+        key: &str,
+    ) -> Result<(v1::Session, bool), Called> {
+        self.write(api, target, &sessions::SetKept { kept }, key)
+            .await
+    }
+
+    /// `session keep [--undo]` (ONE WRITER): the command `SetKept` sent to
+    /// the daemon as the user, under an id minted once for the call, so a
+    /// retry on a new daemon is its duplicate and a second call is not.
+    pub async fn keep(&self, target: &str, kept: bool) -> Result<Written, CallError> {
+        let name = self.target(target)?;
+        let call = (self.ids)();
+        let key = format!("keep:{}:{call}", name.uid());
+        let (session, applied) = on_daemon!(self, |api| self.kept(api, &name, kept, &key).await)
+            .map_err(|error| known(error, &name))?;
+        Ok(Written {
+            session,
+            id: call,
+            applied,
+        })
+    }
+
+    /// One `rename` of `target` on `api`, as [`Caller::kept`].
+    async fn titled(
+        &self,
+        api: &D::Api,
+        target: &SessionName,
+        title: &str,
+        key: &str,
+    ) -> Result<(v1::Session, bool), Called> {
+        let command = sessions::SetSessionTitle {
+            title: title.to_string(),
+        };
+        self.write(api, target, &command, key).await
+    }
+
+    /// `session rename <harp> <title>` (ONE WRITER): the command
+    /// `SetSessionTitle` sent to the daemon as the user, under an id minted
+    /// once for the call.
+    pub async fn title(&self, target: &str, title: &str) -> Result<Written, CallError> {
+        let name = self.target(target)?;
+        let call = (self.ids)();
+        let key = format!("title:{}:{call}", name.uid());
+        let (session, applied) = on_daemon!(self, |api| self.titled(api, &name, title, &key).await)
+            .map_err(|error| known(error, &name))?;
+        Ok(Written {
+            session,
+            id: call,
+            applied,
+        })
+    }
+
+    /// `session import` (ONE WRITER): Go's sessions imported by the daemon,
+    /// under an id minted for the call.
+    pub async fn import(&self) -> Result<v1::ImportSessionsResponse, CallError> {
+        let request = v1::ImportSessionsRequest {
+            request_id: (self.ids)(),
+        };
+        on_daemon!(self, |api| api.import_sessions(request.clone()).await)
+    }
+
     /// `session stop` (S19, OD-57): the run `target` is on now asked to
     /// stop, keyed by that run; the session stays open.
     pub async fn stop(&self, target: &str) -> Result<Written, CallError> {
@@ -996,6 +1081,15 @@ pub trait ChildWrites {
     /// `session stop`: `target`'s current run stopped, `target` left open.
     async fn stop(&self, target: &str) -> Result<Written, CallError>;
 
+    /// `session import`: Go's sessions imported by the daemon.
+    async fn import(&self) -> Result<v1::ImportSessionsResponse, CallError>;
+
+    /// `session keep`: `target`'s transcript marked kept, or released.
+    async fn keep(&self, target: &str, kept: bool) -> Result<Written, CallError>;
+
+    /// `session rename`: `target`'s title set.
+    async fn title(&self, target: &str, title: &str) -> Result<Written, CallError>;
+
     /// `session restart`: `target`'s engine restarted with resume, at the end
     /// of its turn in flight.
     async fn restart(&self, target: &str, note: &str) -> Result<Written, CallError>;
@@ -1026,6 +1120,18 @@ impl<D: Daemons> ChildWrites for Caller<D> {
 
     async fn stop(&self, target: &str) -> Result<Written, CallError> {
         Caller::stop(self, target).await
+    }
+
+    async fn import(&self) -> Result<v1::ImportSessionsResponse, CallError> {
+        Caller::import(self).await
+    }
+
+    async fn keep(&self, target: &str, kept: bool) -> Result<Written, CallError> {
+        Caller::keep(self, target, kept).await
+    }
+
+    async fn title(&self, target: &str, title: &str) -> Result<Written, CallError> {
+        Caller::title(self, target, title).await
     }
 
     async fn restart(&self, target: &str, note: &str) -> Result<Written, CallError> {

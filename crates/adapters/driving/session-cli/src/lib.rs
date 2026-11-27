@@ -1,6 +1,6 @@
 //! The `session` commands (the driving adapter): arguments parsed into use
 //! cases, answers rendered as json or text. It sees only the application
-//! layer ([`SessionService`]).
+//! layer.
 //!
 //! ```text
 //! ctxloom session                          (bare: lists)

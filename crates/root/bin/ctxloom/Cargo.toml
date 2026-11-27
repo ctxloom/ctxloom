@@ -23,7 +23,7 @@ content-fs.workspace = true
 editor-process.workspace = true
 ctxloom-cli.workspace = true
 ctxloom-wiring.workspace = true
-ctxloom-store-sqlite.workspace = true
+ctxloom-daemon.workspace = true
 file-lock.workspace = true
 library.workspace = true
 library-application.workspace = true
@@ -57,7 +57,7 @@ project-dir.workspace = true
 # `session remove` (and `sweep`), the destroy of a whole session (owner
 # rulings 94, 94b, 98): off in a plain build, where the verbs are unknown (scripts/plain-destroy-check.sh,
 # run by `just build`). The acceptance tests build the binary with it.
-session-destroy = ["ctxloom-wiring/session-destroy"]
+session-destroy = ["ctxloom-wiring/session-destroy", "ctxloom-daemon/session-destroy"]
 # The test-only commands (`ctxloom test ...`): the exit ladder, the --format
 # matrix, the error envelope, every diagnostic, the id mints and the store
 # open, reached through the binary because S0 has no real command that does
@@ -65,7 +65,7 @@ session-destroy = ["ctxloom-wiring/session-destroy"]
 test-support = [
     "ctxloom-cli/test-support",
     "ctxloom-wiring/test-support",
-    "ctxloom-store-sqlite/test-support",
+    "ctxloom-daemon/test-support",
     "project-dir/test-support",
     "duration-text/test-support",
     "library/test-support",

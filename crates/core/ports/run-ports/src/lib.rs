@@ -12,6 +12,7 @@
 mod argv;
 mod bind;
 mod child;
+mod closed;
 mod discovery;
 mod edge;
 mod engine;
@@ -42,6 +43,7 @@ pub use child::{
     ChildControl, ChildEngine, ChildError, ChildMessage, ChildObservation, ChildPermissions,
     ChildSpec, Ended, Queued, StartedChild, Urgency,
 };
+pub use closed::{is_closed, since_closed};
 pub use discovery::{
     Discovery, DAEMON_CERT_LIFETIME_SECONDS, DAEMON_DIR, DAEMON_LOCK_FILE, DISCOVERY_FILE,
     DISCOVERY_FORMAT,

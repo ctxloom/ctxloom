@@ -17,6 +17,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use angzarr_embedded::angzarr_ports::tombstone;
 use angzarr_embedded::angzarr_router::error::CodedError;
 use angzarr_embedded::angzarr_router::hpb::{ProjectRequest, ProjectResponse};
 use angzarr_embedded::v1::{event_page, Cover, EventBook};
@@ -176,21 +177,21 @@ impl LibraryCheckout {
         LibraryCheckout::default()
     }
 
-    /// Fold `book`, one stream's events after the last projected of it: a
-    /// book from sequence 0 starts the stream afresh; a book with no event
-    /// and `next_sequence` 0 says the stream is gone, and it leaves the
+    /// Fold `book`, one stream's events after the last projected of it. A
+    /// tombstone (a purge's `StreamClosed`) closes the stream: it leaves the
     /// model. Another domain's book is none of its.
     pub fn project(&mut self, book: &EventBook) -> Result<(), PayloadError> {
         if book.cover.as_ref().map(|c| c.domain.as_str()) != Some(LIBRARY_DOMAIN) {
             return Ok(());
         }
         let root = root_of(book.cover.as_ref());
-        if book.pages.first().is_none_or(|page| page.sequence == 0) {
-            self.rows.remove(&root);
-            self.intents.retain(|_, known| known.root != root);
-            self.exports.retain(|_, (tree, _)| *tree != root);
-        }
         for page in &book.pages {
+            if tombstone::is(page) {
+                self.rows.remove(&root);
+                self.intents.retain(|_, known| known.root != root);
+                self.exports.retain(|_, (tree, _)| *tree != root);
+                continue;
+            }
             let Some(event_page::Body::Event(event)) = &page.body else {
                 continue;
             };

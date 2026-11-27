@@ -17,17 +17,17 @@ use setup_application::{HookCarried, HookContexts, Offered};
 use crate::hook_library::HookDaemons;
 
 /// The hook's session's one call over the user's daemon.
-pub(crate) struct DaemonHookContexts {
-    pub(crate) env: Arc<EnvSnapshot>,
+pub struct DaemonHookContexts {
+    pub env: Arc<EnvSnapshot>,
     /// The binary's stamp, which the daemon admits only when it is its own.
-    pub(crate) stamp: String,
+    pub stamp: String,
     /// When the hook's bound ends.
-    pub(crate) until: Instant,
+    pub until: Instant,
 }
 
 impl DaemonHookContexts {
     /// A hook's call, its bound starting now.
-    pub(crate) fn starting_now(env: Arc<EnvSnapshot>, stamp: &str) -> DaemonHookContexts {
+    pub fn starting_now(env: Arc<EnvSnapshot>, stamp: &str) -> DaemonHookContexts {
         DaemonHookContexts {
             env,
             stamp: stamp.to_string(),

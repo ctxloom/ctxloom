@@ -26,7 +26,7 @@ mod? dev '.dev'
 # equal to Cargo.toml's by `_arch-lint-ready`'s check) and installed once per
 # commit under CARGO_HOME (which every engine launch gives its children as the
 # user's own, while their HOME is a per-session one), shared by every worktree.
-arch_lint_rev := "dcb930d198706371d8e7496ec5ec35efb067b92f"
+arch_lint_rev := "e92609d8de072c2947438a0cc395548fba51aedf"
 arch_lint_root := env_var_or_default("CARGO_HOME", env_var("HOME") / ".cargo") / "ctxloom-arch-lint" / arch_lint_rev
 arch_lint := arch_lint_root / "bin/arch-lint"
 
@@ -379,7 +379,7 @@ _arch-lint-ready:
 [group('check')]
 [doc("Clippy, warnings denied, with the core's purity rules and the OS-cfg check")]
 [no-exit-message]
-lint: lint-arch lint-path-deps
+lint: lint-arch lint-path-deps lint-handoffs lint-one-writer
     #!/usr/bin/env bash
     set -euo pipefail
     root=$(grep '^excessive-nesting-threshold' {{TOP}}/clippy.toml)
@@ -400,6 +400,28 @@ lint: lint-arch lint-path-deps
     [ "${VERBOSE:-}" = 1 ] && terse=()
     exec just --justfile {{TOP}}/justfile _run lint workspace cargo \
         cargo clippy "${terse[@]}" --manifest-path {{TOP}}/Cargo.toml --workspace --all-targets -- -D warnings
+
+# No in-memory hand-off between components (owner ruling 2026-11-25: aggregates,
+# projectors and runners communicate exclusively by messages): ast-grep over
+# crates/core/application and crates/root refuses a lock around a collection,
+# a Condvar, a channel sender carrying a value and a boxed closure held as a
+# field, static or trait parameter, unless scripts/handoff-allow.txt lists it
+# with why (`debt:` for one to be replaced by a message). Part of `just lint`.
+[group('check')]
+[doc("No in-memory hand-off between components (ast-grep, allow list scripts/handoff-allow.txt)")]
+[no-exit-message]
+lint-handoffs:
+    @{{TOP}}/scripts/handoff-check.sh
+
+# The daemon is the store's one writer: clippy's disallowed-methods refuses a
+# kernel started or the store opened outside it, and an allowed site lives in
+# the daemon's crate or the store adapter, or is one test's own. Any other
+# site, and any leftover "P2 one-writer debt", fails. Part of `just lint`.
+[group('check')]
+[doc("No store open or kernel start outside the daemon (clippy expects live in ctxloom-daemon)")]
+[no-exit-message]
+lint-one-writer:
+    @{{TOP}}/scripts/one-writer-check.sh
 
 # No dependency, [patch] or [replace] entry reaches outside the repository by
 # path, and no .cargo/config.toml is tracked (scripts/path-deps-check.sh): it
@@ -657,7 +679,7 @@ trim-targets *args:
 
 # The self-tests of this repository's scripts against fixture trees.
 [group('check')]
-[doc("Self-tests of the scripts: drop-worktree, mutants-batch, mutants-verdict, memory cap, closeout, closeout-ratchet, ratchet-base, ltk rules, output budget, tests exit, test-staged, scratch-tree lock, machine-wide test lock, exec-mode check, path deps, vendored googleapis, mcp-env probe, install shutdown, trim-targets, land-sweep")]
+[doc("Self-tests of the scripts: drop-worktree, mutants-batch, mutants-verdict, memory cap, closeout, closeout-ratchet, ratchet-base, ltk rules, output budget, tests exit, test-staged, scratch-tree lock, machine-wide test lock, exec-mode check, handoff check, one-writer debt check, path deps, vendored googleapis, mcp-env probe, install shutdown, trim-targets, land-sweep")]
 [no-exit-message]
 selftest:
     @{{TOP}}/scripts/drop-worktree.selftest.sh
@@ -675,6 +697,8 @@ selftest:
     @{{TOP}}/scripts/scratch-tree-lock.selftest.sh
     @{{TOP}}/scripts/tests-lock.selftest.sh
     @{{TOP}}/scripts/exec-mode-check.selftest.sh
+    @{{TOP}}/scripts/handoff-check.selftest.sh
+    @{{TOP}}/scripts/one-writer-check.selftest.sh
     @if [ -e {{TOP}}/.dev ]; then just dev::selftest; fi
     @{{TOP}}/scripts/path-deps-check.selftest.sh
     @{{TOP}}/scripts/vendor-googleapis.selftest.sh

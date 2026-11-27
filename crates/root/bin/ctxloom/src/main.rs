@@ -30,6 +30,7 @@ const EN_US: (&str, &str) = (
 /// The binary's en-US catalog: every crate's own.
 fn catalog() -> Result<Catalog, presentation::CatalogError> {
     let mut sources = ctxloom_wiring::catalog_sources();
+    sources.extend(ctxloom_daemon::catalog_sources());
     sources.extend([
         ctxloom_cli::EN_US,
         session_cli::EN_US,
@@ -60,7 +61,8 @@ struct Wired {
 
 impl Wired {
     fn new(env: Arc<EnvSnapshot>, version: &str) -> Wired {
-        let library = ctxloom_wiring::Commands::new(env, version);
+        let library =
+            ctxloom_wiring::Commands::new(env, version).hosted_by(ctxloom_daemon::hosting());
         // The test-only commands list every diagnostic of the binary.
         #[cfg(feature = "test-support")]
         let library = library.with_diagnostic_samples(diagnostic_samples);
@@ -79,7 +81,7 @@ impl Services for Wired {
 #[cfg(feature = "test-support")]
 fn diagnostic_samples() -> Vec<Box<dyn coded_diagnostic::Diagnostic>> {
     let mut all = unstamped::diagnostic_samples();
-    all.extend(ctxloom_store_sqlite::diagnostic_samples());
+    all.extend(ctxloom_daemon::diagnostic_samples());
     all.extend(project_dir::diagnostic_samples());
     all.extend(duration_text::diagnostic_samples());
     all.extend(library::diagnostic_samples());

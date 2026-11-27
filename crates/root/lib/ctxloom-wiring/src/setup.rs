@@ -11,7 +11,7 @@ use doctor_checks::{Doctor, GitIdentity};
 use crate::{LibError, ProcessEnv, Wiring};
 
 /// The nouns these commands own.
-pub(crate) const NOUNS: [&str; 4] = ["auth", "clean", "doctor", "init"];
+pub const NOUNS: [&str; 4] = ["auth", "clean", "doctor", "init"];
 
 /// The identity git commits with in the directory ctxloom was run in, asked
 /// of git as a session home's is (`oneshot::identity_git`: her environment,
@@ -29,14 +29,14 @@ impl GitIdentity for GitIdentityIn {
 }
 
 /// The setup use cases, built together.
-pub(crate) struct SetupUseCases {
-    pub(crate) auth: Auth,
-    pub(crate) doctor: Doctor,
+pub struct SetupUseCases {
+    pub auth: Auth,
+    pub doctor: Doctor,
 }
 
 impl SetupUseCases {
     /// The use cases of the binary stamped `version` (doctor reports it).
-    pub(crate) fn build(wiring: &Wiring, version: &str) -> Result<SetupUseCases, LibError> {
+    pub fn build(wiring: &Wiring, version: &str) -> Result<SetupUseCases, LibError> {
         let fs = wiring.fs();
         let home = wiring.home().to_path_buf();
         let (around, app) = wiring.locate();
@@ -133,7 +133,7 @@ impl SetupUseCases {
 
 /// Each bundle in the old layout (step 10c U5, D15), its refusal and the
 /// move that migrates it, in the library's en-US words.
-pub(crate) fn said_old_layouts(found: &[library::BundleError]) -> Vec<(String, String)> {
+pub fn said_old_layouts(found: &[library::BundleError]) -> Vec<(String, String)> {
     use coded_diagnostic::Diagnostic;
     let Ok(catalog) = presentation::Catalog::en_us(&[library::EN_US]) else {
         return Vec::new();

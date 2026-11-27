@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use angzarr_embedded::angzarr_ports::BoxFuture;
+use angzarr_embedded::angzarr_ports::{tombstone, BoxFuture};
 use angzarr_embedded::angzarr_proto::v1::event_meta::Causation;
 use angzarr_embedded::angzarr_proto::v1::{EventMeta, FactCause};
 use angzarr_embedded::angzarr_router::hpb::ProjectRequest;
@@ -25,14 +25,14 @@ impl Model for Pages {
 
     fn project(&mut self, book: &EventBook) -> Result<(), PayloadError> {
         let root = book.cover.as_ref().unwrap().root.as_ref().unwrap().value[0];
-        if book.pages.is_empty() {
-            self.gone.push(root);
+        for page in &book.pages {
+            if tombstone::is(page) {
+                self.folded.retain(|(r, _)| *r != root);
+                self.gone.push(root);
+            } else {
+                self.folded.push((root, page.sequence));
+            }
         }
-        if book.pages.first().is_some_and(|p| p.sequence == 0) {
-            self.folded.retain(|(r, _)| *r != root);
-        }
-        self.folded
-            .extend(book.pages.iter().map(|page| (root, page.sequence)));
         Ok(())
     }
 
@@ -115,26 +115,55 @@ fn the_projection_is_the_models_view_of_the_books_stream() {
     assert_eq!(view.value, [3]);
 }
 
-// A stream purged and written again starts at 0 with another first event:
-// it is folded afresh.
+// A purge keeps the stream and leaves a tombstone: the book holding it
+// restarts the stream there, the pages below it (deleted) owed nothing, and
+// what follows is folded after it.
 #[test]
-fn a_stream_written_again_is_folded_afresh() {
+fn a_stream_closed_by_a_tombstone_is_folded_afresh_from_it() {
     let held = Held::<Pages>::default();
     hand(&held, book(1, 0..3, "a"));
-    hand(&held, book(1, 0..1, "b"));
-    assert_eq!(folded(&held), [(1, 0)]);
+    let mut again = book(1, 3..3, "b");
+    again.pages.push(tombstone::page(3));
+    again.pages.push(page(4, "b"));
+    again.next_sequence = 5;
+    hand(&held, again);
+    assert_eq!(held.lock().gone, [1], "the model was told of the tombstone");
+    assert_eq!(folded(&held), [(1, 4)]);
 }
 
-// A gone stream (no page, next 0) is forgotten, and a stream written on its
-// cover after it is folded from 0.
+// A tombstone ahead of where the fold is (the events between are deleted)
+// owes no gap: it is the next event of the stream, handed with no fill.
 #[test]
-fn a_gone_stream_is_forgotten() {
-    let held = Held::<Pages>::default();
+fn a_tombstone_past_the_fold_is_no_gap() {
+    let store = Arc::new(Store {
+        reads: Mutex::new(Vec::new()),
+        fails: false,
+    });
+    let held = Held::<Pages>::new(Some(store.clone()));
     hand(&held, book(1, 0..2, "a"));
-    hand(&held, book(1, 0..0, "a"));
-    assert_eq!(held.lock().gone, [1]);
-    hand(&held, book(1, 0..1, "a"));
-    assert_eq!(held.lock().folded.last(), Some(&(1, 0)));
+    let mut closed = book(1, 5..5, "a");
+    closed.pages.push(tombstone::page(5));
+    closed.next_sequence = 6;
+    hand(&held, closed);
+    assert!(store.reads.lock().unwrap().is_empty(), "nothing filled");
+    assert_eq!(folded(&held), Vec::<(u8, u64)>::new());
+    hand(&held, book(1, 6..7, "a"));
+    assert_eq!(folded(&held), [(1, 6)], "folded after the tombstone");
+}
+
+// A tombstone already folded (the other driver handed it) is passed over,
+// and resets nothing a second time.
+#[test]
+fn a_tombstone_folded_already_is_passed_over() {
+    let held = Held::<Pages>::default();
+    let mut closed = book(1, 0..0, "a");
+    closed.pages.push(tombstone::page(0));
+    closed.next_sequence = 1;
+    hand(&held, closed.clone());
+    hand(&held, book(1, 1..2, "a"));
+    hand(&held, closed);
+    assert_eq!(held.lock().gone, [1], "told once");
+    assert_eq!(folded(&held), [(1, 1)]);
 }
 
 // Without a fill, a book past where the fold is waits for the catch-up,
@@ -207,10 +236,10 @@ fn the_projector_is_named_by_its_model() {
     assert_eq!(Held::<Pages>::default().name(), "pages");
 }
 
-// A first page no store recorded (no cause, no instant) tells nothing: a
-// book from 0 of it is folded afresh, as the projector port says.
+// A page no store recorded (no cause, no instant) is folded once: the
+// sequence alone says where the fold is.
 #[test]
-fn a_book_from_0_with_no_record_of_its_first_event_is_folded_afresh() {
+fn a_book_of_pages_no_store_recorded_is_folded_once() {
     let held = Held::<Pages>::default();
     let bare = |n: u64| EventBook {
         cover: Some(cover(1)),
@@ -226,7 +255,7 @@ fn a_book_from_0_with_no_record_of_its_first_event_is_folded_afresh() {
     };
     hand(&held, bare(2));
     hand(&held, bare(1));
-    assert_eq!(folded(&held), [(1, 0)]);
+    assert_eq!(folded(&held), [(1, 0), (1, 1)]);
 }
 
 /// A model that counts every page it is handed and never starts afresh.
@@ -251,34 +280,13 @@ fn hand_counted(held: &Held<Counted>, book: EventBook) {
 }
 
 // A book from 0 handed again (the catch-up after the kernel) reaches the
-// model only for what it was not handed: its first event's record tells it
-// is the same stream.
+// model only for what it was not handed.
 #[test]
 fn a_stream_handed_again_from_0_reaches_the_model_once() {
     let held = Held::<Counted>::default();
     hand_counted(&held, book(1, 0..2, "a"));
     hand_counted(&held, book(1, 0..3, "a"));
     assert_eq!(counted(&held), 3);
-}
-
-// A first event with a cause but no instant (or the other way) still tells
-// the stream apart: only one with neither is unknown.
-#[test]
-fn a_first_event_with_either_record_is_known() {
-    for (cause, instant) in [(true, false), (false, true)] {
-        let held = Held::<Counted>::default();
-        let mut first = book(1, 0..2, "a");
-        let meta = first.pages[0].meta.as_mut().unwrap();
-        if !cause {
-            meta.causation = None;
-        }
-        if !instant {
-            meta.recorded_at = None;
-        }
-        hand_counted(&held, first.clone());
-        hand_counted(&held, first);
-        assert_eq!(counted(&held), 2, "cause {cause}, instant {instant}");
-    }
 }
 
 // An event the model cannot read is the port's bug, naming its type.

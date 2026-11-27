@@ -163,6 +163,8 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
         | command                             |
         | ctxloom session list                |
         | ctxloom session show amber-swift-owl |
+        | ctxloom session transcript list     |
+        | ctxloom session transcript list amber-swift-owl |
         | ctxloom bundle list                 |
         | ctxloom fragment list               |
         | ctxloom context assemble            |
@@ -214,6 +216,10 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
         | ctxloom bundle export demo exported                            |
         | ctxloom clean --yes                                            |
         | ctxloom session remove amber-swift-owl --yes                   |
+        | ctxloom session keep amber-swift-owl                           |
+        | ctxloom session keep amber-swift-owl --undo                    |
+        | ctxloom session rename amber-swift-owl "the auth refactor"     |
+        | ctxloom session import                                         |
         | ctxloom remote create origin file:///tmp/acceptance-remote.git --forge git |
         | ctxloom deps pull                                              |
         | ctxloom deps upgrade --yes                                     |
@@ -603,6 +609,8 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
         | write                                                       |
         | ctxloom session send brisk-copper-moth wake "check the tests" |
         | ctxloom session close brisk-copper-moth                     |
+        | ctxloom session keep brisk-copper-moth                      |
+        | ctxloom session rename brisk-copper-moth "the auth refactor" |
         | ctxloom bundle create notes --description "my notes"        |
         | ctxloom config set engines.claude-code.command claude-beta  |
 
@@ -616,6 +624,93 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
       And the command started a new daemon and sent the write once more, under the same id
       And the write was applied once, and its second delivery was a duplicate
       And the file "exported/notes/bundle.yaml" exists
+
+  Rule: Every write to the store is a command sent to the daemon, and no command opens the store
+
+    ONE WRITER (owner ruling 2026-11-25). The daemon is the only process that
+    writes the user's store, and the only one that opens it. `session keep`,
+    `session rename`, `session import` and the naming of a project are its
+    clients as `session launch` and `session close` are: the command reaches
+    the daemon (started if none serves), sends the session domain's command
+    through the coordinator as the user, under an id it minted for the call
+    (so a retry on a new daemon is a DUPLICATE, "A write is sent once more",
+    above), and prints what the daemon answers. A refusal is the domain's own
+    words, exit 48. With no daemon to reach or start the command fails (32)
+    and opens nothing: there is no fallback to a store of its own. A
+    `session transcript list` is a read of the daemon's warm session index
+    (`ListSessions`, `has_transcript`), as `session list` is.
+
+    Under test-support the daemon's log says each command it takes through its
+    coordinator, `handled <CommandType>` (the message's name as its domain
+    declares it), as it says each service call, `served <path>`.
+
+    Scenario Outline: A session write with no daemon serving starts one, and the daemon handles the command
+      # new: ONE WRITER; replaces the CLI's own kernel on the one store.
+      Given an initialized ctxloom project
+      And a finished session "amber-swift-owl" with a transcript
+      And no ctxloom daemon is serving for this home
+      When I run '<write>'
+      Then the command succeeds
+      And a ctxloom daemon serves for this home, started detached in a session of its own
+      And the daemon's log says it handled the command "<command>" once
+
+      Examples:
+        | write                                                      | command         |
+        | ctxloom session keep amber-swift-owl                       | SetKept         |
+        | ctxloom session rename amber-swift-owl "the auth refactor" | SetSessionTitle |
+
+    Scenario: Importing Go's sessions is the daemon's: it names the project, claims each name and records each session
+      # new: ONE WRITER; the import and the naming of its project were a kernel of the CLI's.
+      Given an initialized ctxloom project with a recorded session "brisk-copper-moth"
+      And Go's ctxloom left a session "amber-swift-owl" in its home for this project
+      And no ctxloom daemon is serving for this home
+      When I run "ctxloom session import --format json"
+      Then the command succeeds
+      And the output reports "imported[0].harp" as "amber-swift-owl"
+      And a ctxloom daemon serves for this home, started detached in a session of its own
+      And the daemon's log says it handled the command "MintSession" once
+
+    Scenario: A refusal of the session domain is said in its own words, as the daemon answered it
+      # new: ONE WRITER; the refusal crosses as its type, never as the CLI's own check.
+      Given an initialized ctxloom project
+      When I run 'ctxloom session rename no-such-harp "a title"'
+      Then the command exits with code 48
+      And the output contains "there is no session named no-such-harp"
+      And the daemon's log says it handled the command "SetSessionTitle" once
+
+    Scenario: The same write run twice is two commands, each under an id of its own, and the second changes nothing
+      # new: ONE WRITER; an id is minted once per call, never one per write, so a second call is not a duplicate of the first.
+      Given an initialized ctxloom project
+      And a finished session "amber-swift-owl" with a transcript
+      When I run "ctxloom session keep amber-swift-owl"
+      And I run "ctxloom session keep amber-swift-owl"
+      Then the command succeeds
+      And the daemon's log says it handled the command "SetKept" 2 times
+      And the session "amber-swift-owl" recorded 1 "KeptChanged" events
+
+    Scenario: The transcript listing is the daemon's warm index, and starts a daemon when none serves
+      # new: ONE WRITER; `transcript list` folded its own index from the store file.
+      Given an initialized ctxloom project
+      And a recorded session "amber-swift-owl" for backend "claude-code"
+      And no ctxloom daemon is serving for this home
+      When I run "ctxloom session transcript list --format json"
+      Then the command succeeds
+      And a ctxloom daemon serves for this home, started detached in a session of its own
+      And the daemon's log says it served "ListSessions"
+      And the output contains "amber-swift-owl"
+
+    Scenario: A hosted one-shot's commands are the daemon's, handled once through its own edge
+      # new: ONE WRITER; a project nothing has named is named by the daemon's edge (never a second connection to the store).
+      Given Alice has a project that has never used ctxloom
+      And Alice has exported her assistant's token
+      And Alice has set ctxloom up in her project
+      And no ctxloom daemon is serving for Alice
+      When Alice asks her assistant one thing, which her daemon runs:
+        """
+        ctxloom run --one-shot "Run the shell command: echo hi"
+        """
+      Then the command succeeds
+      And the daemon's log says it handled the command "EnqueueRun" once
 
   Rule: The preview carries the questions, and the apply answers them
 

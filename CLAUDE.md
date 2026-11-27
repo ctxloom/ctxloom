@@ -78,15 +78,35 @@ the architecture; there is no other table of crates.
 - `core/read-model`: projectors: the query side.
 - `core/ports`: traits the core needs from outside.
 - `core/application`: command and query handlers.
-- `adapters/driven`: port implementations (stores, clock, git).
+- `adapters/driven`: port implementations (clock, git, the files).
+- `adapters/store`: the store adapter (`ctxloom-store-sqlite`); only
+  `root/daemon` and the binary depend on it.
+- `adapters/kernel`: the kernel host adapter (`embedded-edge`); likewise.
 - `adapters/support`: infrastructure driven adapters share, depending on no
   other workspace crate, each listed in `arch-rules.toml`'s `[classes]
   support` (step 10, G9: `git-cli`, the one git runner).
 - `adapters/driving`: the CLI (and later gRPC, MCP): translation only.
-- `root/lib`: the composition root's wiring as a library (`ctxloom-wiring`).
-- `root/bin`: the `ctxloom` binary, the composition root.
+- `root/lib`: the CLI's composition as a library (`ctxloom-wiring`): a CLIENT
+  of the daemon. It opens no store and hosts no kernel (`arch-rules.toml`
+  lists neither `adapters/store` nor `adapters/kernel` for it). Its
+  `daemon/` module is the client half (`Reach`, `ensure`, `resolve`, the
+  hook daemon, `flush`, `heard`, `shutdown`, `watch`) beside what both
+  halves share (`files`, `runtime`, `Pace`, `caller_wiring`).
+- `root/daemon`: the daemon's composition (`ctxloom-daemon`): the store, the
+  kernel (`core_link`), the scheduler, the listener and the hosted runs and
+  terminals, `daemon serve`. It depends on `ctxloom-wiring`, never the
+  reverse. The binary hands it to the command line: `ctxloom_wiring::
+  Commands::hosted_by(ctxloom_daemon::hosting())` carries `daemon serve`
+  (`Hosting::serve`, called with the verb's `Pace`), the guard that refuses a
+  project with a legacy store of its own (`Hosting::per_project_guard`) and,
+  under test-support, the hidden `test` commands that read or write the store
+  (`Hosting::store_tests`, run for a `StoreVerb`: `open-store`,
+  `seed-session`, `session-events`, `library-events`, `record`,
+  `seed-rehosts`, `session-name`), so the CLI parse stays in one place.
+  Built without `hosted_by`, `daemon serve` fails and no store command runs.
+- `root/bin`: the `ctxloom` binary, the composition root of both.
 
-Slice S0 made `ctxloom-store-sqlite` (driven), `ctxloom-cli` (driving),
+Slice S0 made `ctxloom-store-sqlite` (`adapters/store`), `ctxloom-cli` (driving),
 `ctxloom-wiring` (wiring) and the `ctxloom` binary. Slice S1 (library read side)
 adds:
 
@@ -409,7 +429,7 @@ Other tools' files are the daemon's too (step 10c U10, L15, T26):
 (`Materialize`, `UninstallManage`, `RunDoctor` with `fix`; additive RPCs;
 `surface_cli::Foreign`, setup-cli's `DoctorFixing`, the wiring's
 `DaemonServed`). The daemon runs the use case where the caller stands
-(`daemon_api::ForeignPlans`, the wiring's `daemon::foreign`) over a
+(`daemon_api::ForeignPlans`, `ctxloom-daemon`'s `foreign`) over a
 RECORDING store that writes nothing (`SurfaceFiles::recording`, its own
 reads seeing what it recorded; the doctor's `writing_through` recording
 user files), then writes what it recorded as ONE sequence on the
@@ -443,7 +463,7 @@ prompt` (`GetInitPrompt`), additive RPCs riding `library_writes!`'s
 plumbing (`write_requests!`: cwd, env, globals), through setup-cli's
 `SetupReading` and `surface_cli::Foreign::check` (the wiring's
 `DaemonServed`). The daemon runs each use case where the caller stands
-(`daemon_api::SetupReads`, the wiring's `daemon::setup_reads`, through
+(`daemon_api::SetupReads`, `ctxloom-daemon`'s `setup_reads`, through
 `caller_wiring`), the project's trust its own (`init prompt`'s
 `Flags.trusted`, never asked back), and the CLI reads the answer back
 into the report it always printed (setup-cli's and surface-cli's
@@ -485,7 +505,7 @@ protos.md §1.2, L9): `remote create|edit|remove|default` (`CreateRemote`,
 deps-cli's `Served` writes (`deps_cli::served_writes!`, the wiring's
 `DaemonServed`), its text read back from the answer (deps-cli's
 `written`). The daemon plans each where the caller stands
-(`daemon_api::DepsPlans`, the wiring's `daemon::deps`): the deps use case
+(`daemon_api::DepsPlans`, `ctxloom-daemon`'s `deps`): the deps use case
 in a wiring of the caller's directory and ENVIRONMENT, so git runs on the
 caller's `PATH` with its `HOME` and credentials (`GIT_*` scrubbed by
 remote-git as ever), over a RECORDING store
@@ -676,8 +696,22 @@ each run stream UUIDv5(session, 1..=n) are purged from the store, each
 guarded by the head just read (retried on a conflict), then the trash slot
 is removed (`Operation::Purge`), so none is left; the name's claim is kept,
 and the daemon's warm
-session index, pending messages and board are told the streams are gone
+session index, pending messages and board are handed the streams as the
+store now holds them, each ending in the purge's tombstone
 (the board its runs' too, so a destroyed session leaves no board row).
+A PURGE KEEPS THE STREAM (angzarr-ports' `tombstone`, its event
+`StreamClosed`): it deletes the events and appends one tombstone at the next
+sequence, so sequences never restart and the stream stays listed. A stream is
+dense from 0 or from its latest tombstone, and DESTROYED means its last event
+is a tombstone (`run_ports::is_closed`; a stream never written is not). What
+folds a stream restarts at a tombstone: an aggregate's state is the default
+again (the kernel does it, and an aggregate decides "exists" on its FOLDED
+state, never on the router's `had_prior_events`, which a tombstone leaves
+true: `session mint`, `run enqueue`), every read model resets that stream at
+it (`tombstone::is` in each `project`, `held-projection`'s `admit` owing a
+tombstone ahead of the fold no gap), and a reader that folds raw pages starts
+after the last (`run_ports::since_closed`). No fold may fail to decode
+`StreamClosed`.
 Before the purge each child the session holds is closed and its owner
 forgets it (`session_policies::destroy`, keyed commands through the core). Its scratch
 worktrees go first, in ONE safe order both verbs share
@@ -1052,10 +1086,10 @@ nothing minted or started), and calls `CreateRun{ONE_SHOT}` with the line's
 whole request (`CreateRunRequest`'s prompt, agent, engine, profile,
 fragments, tags, command, workspace, `no_context`, session), its whole
 environment (S7) and its working directory (`cwd`). The daemon hosts it
-(`daemon_application::OneShots`, its root's `oneshot::HostedOneShots`): on
+(`daemon_application::OneShots`, `ctxloom-daemon`'s `hosted_oneshots::HostedOneShots`): on
 a thread of its own, `Runs::one_shot` over the daemon's ONE store (its core
 shared, `InProcessCore::share`), in a wiring built from the client's
-environment and directory (`oneshot::hosted_wiring`), so it is planned, its
+environment and directory (`ctxloom-daemon`'s `hosted_oneshots::hosted_wiring`), so it is planned, its
 dependencies pulled (`sync.on_run`), enqueued (ruling 73), named, minted,
 locked (the session's lock and the run's are the DAEMON's), placed and its
 engine's TURN command (`claude -p`, `opencode run`) driven through the one
@@ -1087,15 +1121,15 @@ is the session's FRONTEND (`run_application::frontend`, wired by
 project resolved by the daemon, the daemon reached (none can be:
 `daemon-ports-not-started`, exit 32, nothing planned or minted), and
 `CreateRun{TERMINAL}` sent as a one-shot's is. The daemon prepares it
-(`daemon_application::Terminals`, its root's `frontend::HostedTerminals`):
+(`daemon_application::Terminals`, `ctxloom-daemon`'s `hosted_terminals::HostedTerminals`):
 on a thread of its own (a 16 MiB stack: the whole run is driven on it),
 `Runs::interactive` over the ONE store in the client's wiring, planned,
 enqueued, named, minted and set up exactly as before, its runner
 `daemon_application::Frontended`: the one `Launch` (with the session lock's
 path, `Launch.session_lock`) handed to the client in `Run.launch` (the
 user's environment crosses to her own client in that answer alone; a read,
-`GetRun`, carries none), then the run's stream read (`frontend::
-StoreReports`, every `POLL`) for the frontend's start report (at most
+`GetRun`, carries none), then the run's stream read (`ctxloom-daemon`'s
+`hosted_terminals::StoreReports`, every `POLL`) for the frontend's start report (at most
 `START_WITHIN`, 60 s, else the launch failed) and its exit report. The
 session's lock is the FRONTEND's (the daemon's `Runs` takes none): taken
 before the TUI starts (held by another: refused, `RecordLaunchFailed` reported,
@@ -1275,7 +1309,7 @@ the URL's host. The private key lives in memory in
 `run_ports::HookCertificate` (whose `Debug` withholds it) and goes to
 `hook-listener`'s `TlsIdentity` and nowhere else: never journaled, logged, in
 an environment or in an error. The listener's limits are angzarr's generic
-`Listener` defaults (angzarr `8dc7da9a`; `hook-listener` sets none): a TLS
+`Listener` defaults (angzarr `329a8b21`; `hook-listener` sets none): a TLS
 handshake within 10 s, an HTTP/2 keepalive ping every 60 s answered within
 20 s, a connection closed after 1 h plus a 30 s grace (never zero: a zero
 grace is `ListenError::ZeroConnectionAgeGrace` at bind, which
@@ -1695,7 +1729,7 @@ crate; today's 23 edges are `CLI_APPLICATION_DEPARTURES`, each with what it
 is used for, because step 10a U2's deletion of them is not done; a new edge
 or a stale entry fails) and
 `test_nothing_in_the_daemon_opens_a_library_tree_outside_the_observation`
-(the daemon's root sources, `ctxloom-wiring`'s `daemon/`, `oneshot.rs` and
+(the daemon's root sources, `ctxloom-daemon`'s `src/`, and the wiring's `oneshot.rs` and
 `frontend.rs`, open a library, `library::build(`, `library::build_over(`,
 `build_setup(`, `build_setup_over(`, only at `DAEMON_LIBRARY_OPENS`' files and counts, each
 reached through the observation or a stated departure; daemon-api and
@@ -1742,6 +1776,74 @@ The rules:
 - Entities are aggregates; anything listed is a projector's read model,
   never an aggregate. There is no commit position, fork point or global
   position anywhere (a test greps the sources for them).
+
+## One writer, and no in-memory hand-offs (owner ruling 2026-11-25)
+
+The daemon is the store's ONE writer. Every write is a command or fact sent
+to its coordinator (its own components write through `core.edge()`); no CLI
+process starts an angzarr kernel or opens the store. Aggregates, projectors
+and runners communicate by messages alone, as if in different processes. Three
+guards, all in `just lint`, each hard-failing (no ceiling, no allowance for
+legacy code):
+
+- G1, clippy `disallowed-methods` (root `clippy.toml` and
+  `crates/core/clippy.toml`, kept equal): `angzarr_embedded::Kernel::new`,
+  `angzarr_embedded_host::App::builder`, `ctxloom_store_sqlite::Stores::{open,
+  open_for,open_existing}` and `session_ports::ProjectStores::{open,
+  open_existing}`. An allowed site (`#[expect(clippy::disallowed_methods,
+  reason = "...")]`) lives in `crates/root/daemon/ctxloom-daemon` (the
+  composition, and its test-support `seed`, `record` and `library_events`,
+  which write the store as the composition does, before any daemon serves) or
+  in the store adapter that opens it. A test that needs a kernel or store of
+  its own allows it on its own function (`#[allow(clippy::disallowed_methods,
+  reason = "a test kernel or store of its own")]`), never a module; a test
+  double's in-memory kernel says so in its reason. `just lint-one-writer`
+  (`scripts/one-writer-check.sh`) fails an allowed site anywhere else, and
+  any leftover `P2 one-writer debt` reason. The in-process sessions `Service`
+  (`SessionService`, its read, write and orchestration paths) is gone from
+  sessions-application with its tests; `session worktrees` is the one `session`
+  verb still run in the CLI's process (`Sessions` holds only the worktrees).
+  Built (P2 units b to d): `session keep|keep --undo|rename` send `SetKept`
+  and `SetSessionTitle` through the coordinator as the user (`Caller::keep`,
+  `Caller::title`, `ChildWrites`), under an id minted once per call, so a
+  retry is a DUPLICATE and a second call is not; an unknown session is the
+  domain's `sessions-session-unknown`. `session import` is the additive RPC
+  `ImportSessions` (daemon.proto; callerless): the daemon reads Go's
+  directories of the account (its registry, `GoDirs`) and sends every command
+  of the import (the project's naming and claim, each session's name claim,
+  `MintSession`, the bind, rotations, keep, end) through its own core's edge:
+  sessions-application's `Importer` only plans, and sends through its
+  `Dispatch` port (`dispatch.rs`), which the daemon implements over
+  `run_ports::Edge` (ctxloom-daemon's `imports.rs`, `EdgeDispatch`; the `Imports` port
+  of daemon-api). `session transcript list` is `ListSessions` with the
+  additive `ListSessionsRequest.transcripts`, each `Session` then carrying
+  `transcript_captured` (28) and `transcript_bytes` (29). A hosted one-shot's
+  project that nothing has named is named through the daemon's edge
+  (`sessions_application::name_through`), never a second connection to the
+  store. The scenarios are `features/cli/daemon.feature`, "Every write to the
+  store is a command sent to the daemon". Under test-support the daemon's log
+  says `handled <CommandType>` for each command its edge RECEIVES, applied or
+  refused (`EmbeddedEdge::hearing`, set in ctxloom-daemon's `serve.rs`; the steps read
+  it), as it says `served <path>` for each service call.
+- G3, `just lint-handoffs` (`scripts/handoff-check.sh`, ast-grep rules in
+  `scripts/handoff-rules/`): in `crates/core/application` and `crates/root`
+  (not `*.test.rs`), a struct field or static that is a `Mutex|RwLock` around
+  a `BTreeMap|HashMap|Vec|VecDeque`, a `Condvar`, a `Sender<T>` with a
+  non-unit `T`, or a `Box|Arc|Rc<dyn Fn*>` (also in a trait's signature) is
+  refused unless `scripts/handoff-allow.txt` lists it with why: `debt:` for a
+  hand-off the design replaces (naming its inventory row,
+  `.plan/messages-only.plan.md`, and ending with the phase that removes it,
+  P3, P4 or P5: an entry naming P2 or no phase fails), else the runner's own
+  state. Today 34 hits:
+  11 debt, 23 runner state or test fakes. An entry that covers nothing fails.
+  Heuristic: it errs loud and misses other shapes (`Mutex<Option<..>>`, a
+  `Held` handle). Self-tests: `scripts/handoff-check.selftest.sh`,
+  `scripts/one-writer-check.selftest.sh` (`just selftest`).
+- G2, `arch-rules.toml`: `root/lib` (`ctxloom-wiring`) lists neither
+  `adapters/store` nor `adapters/kernel`, so the CLI's composition cannot depend
+  on the store adapter or the kernel host; `root/daemon` (`ctxloom-daemon`) and
+  `root/bin` may. The binary hosts both programs in one executable, so the
+  shape cannot keep a CLI PROCESS from the store: that is G1.
 
 ## A refusal is a typed message; its status lives in the proto alone
 
@@ -1839,20 +1941,20 @@ The lock holds ONE `angzarr-embedded`, `angzarr-proto`, `angzarr-ports`,
 repository (angzarr, rust-support) at ONE commit
 (`test_every_crate_of_one_repository_is_locked_at_one_commit`). Every pin in
 `Cargo.toml` is a full commit. The angzarr pins are one commit of one
-repository, `8dc7da9a` of github.com/angzarr-io/angzarr (core, `angzarr-embedded`
+repository, `329a8b21` of github.com/angzarr-io/angzarr (core, `angzarr-embedded`
 and its router, `angzarr-build` and `angzarr-codegen`, the store and
 `sqlite-store-opener`; `angzarr-coordinator-grpc`'s `tls` feature, which
 `hook-listener` enables, is `Listener::tls`). angzarr owns no `diagnostic`,
 `presentation` or platform crate any more: the generic substrate is
-rust-support's (`dcb930d1` of github.com/benjaminabbitt/rust-support):
+rust-support's (`e92609d8` of github.com/benjaminabbitt/rust-support):
 `coded-diagnostic` (the `Diagnostic` trait, `code!`, `Report`, the catalogs),
 `presentation`, `test-dir`, and the platform crates `os`, `file-system` and
-`file-lock`. taskloom's crates (`68328343`) are built on the same angzarr and
+`file-lock`. taskloom's crates (`b0fa4fed`) are built on the same angzarr and
 the same rust-support, so moving one moves all: the lock holds ONE
 `Diagnostic` trait, which every error of every crate implements, because two
-do not compose. 8dc7da9a is the angzarr commit taskloom pins (a second angzarr
+do not compose. 329a8b21 is the angzarr commit taskloom pins (a second angzarr
 rev in the lock would be a second copy of every angzarr crate); harp-core is
-`45d05e96` of github.com/benjaminabbitt/harp. Diagnostic args are typed on
+`8144ec98` of github.com/benjaminabbitt/harp. angzarr-store pulls in the git source github.com/angzarr-io/angzarr-project (`deny.toml` allows it). Diagnostic args are typed on
 the wire (`Diagnostic.typed_args`: text, int, uint, nested; proto maps are
 `BTreeMap`). rust-support's
 crates are `Apache-2.0 OR BSD-3-Clause`; the angzarr runtime crates
@@ -2038,14 +2140,14 @@ nothing of it. Then `tick` catches up the read models,
 plans each project on the board (`session-policies`), and takes the steps
 (launch, start, feed, clear, end), recording what each child said as its
 run's facts. Its ports: the engine registry (`HostedEngine`, an `Engine`
-beside its `ChildEngine`, resolved by NAME; the wiring's `hosted_engines(wiring, program)`
+beside its `ChildEngine`, resolved by NAME; `ctxloom-daemon`'s `hosted_engines(wiring, program)`
 composes claude and opencode, and nothing in the launcher names an adapter),
 `ChildPlans` (the child's project's dry run on its own engine, and her git identity there), `HandOffs`,
 `ChildHomes` (its session directories, and its session's lock),
 `ChildWorkspaces` (`Daemon::placing`: the project's worktree-git
 workspaces), `Ears` (the root pumps each child's observations off a thread:
 no thread in the core), `RunLocks`, `TokenSource` and the edge.
-`ctxloom-wiring/src/daemon/serve.rs` only composes it, with the single-instance lock,
+`ctxloom-daemon`'s `serve.rs` only composes it, with the single-instance lock,
 the runtime, the store and its core, the listener, the discovery file and
 the pace. The start's sweep runs BEFORE the daemon is advertised (its
 discovery file published), so the first command that finds a new daemon
@@ -2216,10 +2318,10 @@ is `none` (no workspaces, its mint records none) until its request carries
 one. The daemon reaches the
 child's project through `ChildHomes::records` (the same
 `run_ports::SessionRecords`, `session-files`' `SessionDirs`) and her git
-identity through `ChildPlans::git_user` (the wiring's `child_git_user`: git
+identity through `ChildPlans::git_user` (`ctxloom-daemon`'s `child_git_user`: git
 in the project, in her launcher's environment with her home, the
 account's, as `HOME`). The hosted engines are composed as every launch's
-are (`oneshot::launch_engines`, `commands::hosted_engines(wiring, program)`):
+are (`oneshot::launch_engines`, `ctxloom-daemon`'s `hosted_engines(wiring, program)`):
 calling the running program (ruling 163), claude over her own
 `settings.json` (ruling 169), opencode seeding her `model.json` (ruling 167)
 and over her config, each read AT EVERY LAUNCH (T21): a hosted engine is
@@ -2253,7 +2355,7 @@ typed refusals: `sessions-session-closed`, `sessions-session-unknown`,
 `runs-no-credential`, ...), exit 48. A send's urgency is judged on the
 target's engine (`session_policies::supported`, OD-58): a hosted child on
 an engine with a child adapter, `session_policies::CHILD_ENGINES`
-(claude-code and opencode; the wiring's `hosted_engines` is held to it by
+(claude-code and opencode; `ctxloom-daemon`'s `hosted_engines` is held to it by
 its test), takes inform, wake and steer, and is woken by its children's
 notices; any other session takes an inform alone
 (`sessions-urgency-unsupported`). The hidden `daemon
@@ -2345,7 +2447,7 @@ test's own place. A call that would create files under its home
 (`CreateRun`, `CreateHandOff`: hand-offs and their `.launching` marks, run
 locks, a session's directory and checkout) passes one gate first,
 daemon-api's `Api::creating` (owner ruling 2026-11-17): once the home is gone
-(`Hosting::home_gone`, the wiring's `Shared` asking `DaemonFiles::gone_home`)
+(`Hosting::home_gone`, `ctxloom-daemon`'s `Shared` asking `DaemonFiles::gone_home`)
 it is refused `ctxloom.v1.DaemonHomeGone` (FAILED_PRECONDITION,
 `daemon-api-home-gone`, its fix: run the command again), nothing planned or
 written, and the loop exits on its next round on the same look; a launch the
@@ -2409,7 +2511,7 @@ runs, unless `even_if_live`, which ends them first, S12), `ResolveProject`,
 the WARM `session-index` the kernel keeps (a session's state its lock's,
 `SessionStates`); never by replaying the store per call. What the loop
 knows (its endpoint, the runs it hosts, its idle time, a stop asked) is the
-`Hosting` port, the wiring's `Shared`, told at each round, except its
+`Hosting` port, `ctxloom-daemon`'s `Shared`, told at each round, except its
 one-shots, read live from `OneShots` at each call (askew-glitter: a one-shot
 ends on its own thread, its client told its reply in the same change, so a
 `StopDaemon` asked right after its reply never counts it); the old stop
@@ -2442,13 +2544,13 @@ in `google.rpc.Status.details`; a failure is INTERNAL. `DeleteSession` and
 2026-11-12: `daemon-api-grpc`'s feature of that name, which the wiring's
 turns on; the crate dev-depends on itself with it, as `session-cli` does):
 `Api::delete_session` and `Api::sweep_sessions` (`daemon-api`'s `destroy`),
-over their own ports, `Purges` (the one store, the wiring's `StorePurges`
+over their own ports, `Purges` (the one store, `ctxloom-daemon`'s `StorePurges`
 over `InProcessCore::store_handle`, a holder let go with the listener before
 the close) and `Places` (a session's project by its directory: its session
 directories and locks, its worktrees with git in the caller's environment
 (`env`, S7), its checkouts under the account's ctxloom home by the
 session's project id (`Places::worktrees`, `isolation_ports::worktrees_root`),
-its configuration read from its REGISTERED root, the wiring's
+its configuration read from its REGISTERED root, `ctxloom-daemon`'s
 `ProjectPlaces`); a sweep's purge age is the request's, else
 `session_purge_age` of its `project` (refused `AgeInvalid` when it is no
 age, `ConfigUnreadable` when the configuration does not read). Their
@@ -2459,7 +2561,7 @@ rows, counts, cutoff and each removal). Each carries the client's
 the SAME on its one retry on a new daemon). Nothing of a destroy is kept
 in memory (O2: `destroy::Applied` is gone): a retry of a removal still open
 resumes it; a retried `DeleteSession` whose session the store says is
-destroyed (its name claimed by it, its stream empty) is answered applied
+destroyed (its name claimed by it, its stream's last event a purge's tombstone) is answered applied
 from those facts, nothing counted (AIP-155's first response is not
 reproduced: its counts are gone with the session; accepted cost: a fresh
 `session remove --yes` of an already-destroyed session, which carries a
@@ -2577,7 +2679,7 @@ drain's, still timed from its start; else the daemon's default,
 --hand-over-seconds`, hidden, sets that default, a test's short one).
 Hosting nothing, the daemon exits at once, unless a live frontend of its
 home remains (owner ruling 2026-11-16, PREVENT the early drain exit; the
-wiring's `serve::stays_for`, `Staying`): a draining daemon then STAYS,
+`ctxloom-daemon`'s `serve::stays_for`, `Staying`): a draining daemon then STAYS,
 logged `draining: hosting nothing, it stays for the live frontends pid
 <n>`, so a frontend's last reports (its TUI's exit) always reach a
 daemon and are never held for want of one; it exits once no frontend is
@@ -2824,9 +2926,9 @@ nothing at start); the daemon's does (`start_with`, `Projectors::
 filled`). There is ONE fold per read model: `core/read-model/held-projection`'s
 `Held` is a shared handle, the same instance the kernel runs inline and the
 daemon's catch-up drives, each page folded once (one before where the fold
-is on its stream is passed over; a book from 0 with another first event is
-folded afresh; a book past where it is is a gap, read from the store first,
-else left for the catch-up).
+is on its stream is passed over; a book holding a tombstone at or past where
+the fold is restarts the stream there, nothing below it owed; a book past where
+it is is a gap, read from the store first, else left for the catch-up).
 
 ## `ctxloom top` (DRAFT texts; the owner's management view)
 
@@ -2953,7 +3055,7 @@ Granting what is trusted, or revoking what is not, records nothing; a trust
 lasts until `RevokeTrust` (S23). There is no remote trust (D5).
 
 The daemon serves `GetTrust` (what trusting the project would allow, read at
-its REGISTERED root through daemon-api's `Trusts` port, the wiring's
+its REGISTERED root through daemon-api's `Trusts` port, `ctxloom-daemon`'s
 `ProjectTrusts` over `Library::trust_settings`: the project layer's
 ruling-46 keys, from `strip_project_only`, which now returns each path with
 its value, and a project `ctxloom` bundle as `bundles/ctxloom`; sorted by
@@ -3037,7 +3139,7 @@ its hand-off is removed, as within one project. Its outputs are its OWN,
 as every session's (owner ruling 2026-11-16: one rule, its owner's
 project or another): the plan mints it with no output folder
 (session-policies' `launch`), and the daemon reads its project's
-`output.dir` there (`ChildPlans::output_root`, the wiring's
+`output.dir` there (`ChildPlans::output_root`, `ctxloom-daemon`'s
 `child_output_root`, with the env its launcher handed),
 `<its root>/<output.dir>/<its harp>`, never its owner's folder; one that
 cannot be read is a launch that failed (its owner told). The owner's side addresses it by
@@ -3190,12 +3292,12 @@ registry, which holds no policy), and no production CLI process starts an
 clients). Work a core without the consumers left owed waits for the
 daemon's next start (`core_link.test.rs`'s `resume_at_start`).
 The daemon's core also registers the due model (`Projectors::due`, the
-wiring's `scheduling::SchedulerDues`: `scheduler_due::Due` held by
+ctxloom-daemon's `scheduling::SchedulerDues`: `scheduler_due::Due` held by
 `held-projection`, so the kernel's inline fold and the loop's catch-up are
 ONE fold, each page once; `scheduler-loop`'s `SchedulerLoop::sharing` reads
 it through `scheduler_due::ReadsDue`). The daemon runs `SchedulerLoop::run`
-for its life on its runtime (`daemon/serve.rs`'s `scheduler_over`, the
-wiring's `scheduling::start`): on `core_link::SystemClock` (the clock each
+for its life on its runtime (`ctxloom-daemon`'s `serve.rs` `scheduler_over`, the
+ctxloom-daemon's `scheduling::start`): on `core_link::SystemClock` (the clock each
 call's sample reads), waiting `min(next due, the daemon's poll)` on the
 runtime's timer, cut short by any book the kernel folds into the due model
 (an alarm armed in process fires at once) and by the stop; it fires through
@@ -3321,7 +3423,7 @@ user.
 
 `core/application/library-api` is the daemon's library reads' crate. A
 tree is SEEN BY THE SCANNER, never by git (step 10c U13 rework, owner
-2026-11-18): `ctxloom_ports::LibraryScanner` (the wiring's `TreeScanner`,
+2026-11-18): `ctxloom_ports::LibraryScanner` (`ctxloom-daemon`'s `TreeScanner`,
 handed out by `Observers::scanner`, one per daemon) walks the library's
 paths (`ctxloom_ports::LIBRARY_PATHS`: `content/bundles/v2`, `config.yaml`,
 `remotes.yaml`, `lock.yaml`; L13) and hashes each file:
@@ -3341,14 +3443,14 @@ change attributed as before. Writes' intents and steps name content ids
 (`writes::intent_of` asks nothing; `left_by` and an export's manifest ask
 the scanner). No git is asked at all (the library is git-free, above).
 `Observations::observe(scanner, site)` observes a `Site` (a checkout's, or
-the home's), naming the checkout first (`CheckoutHarps`: the wiring's
+the home's), naming the checkout first (`CheckoutHarps`: `ctxloom-daemon`'s
 `TreeHarps`, `mint_checkout_harp`), reconciling against the kernel's `library-checkout`
 (projected inline, so the next read sees the last one's), and records the
 fact through the edge (`observation_book`); no lock is held across the
 recording: one sight twice against one state is a DUPLICATE, and one
 against a moved state records what it adds (forced in `observe.test.rs`).
 `observe_read` is a read's whole step: the project's checkout, then the
-home's library when it has one (`Observers`: the wiring's `CallerGits`,
+home's library when it has one (`Observers`: `ctxloom-daemon`'s `CallerGits`,
 the daemon's one scanner and the home); it says no notice of its own now
 (its `notices` plumbing is kept, empty).
 `library_api::names` is the library's resource naming, one copy
@@ -3493,7 +3595,7 @@ built:
   is served by a row in each. The deps reads are the same, over their own
   tables: `library_api::deps_served!` (`library_api::deps::$method(deps,
   parent, request)`, `Api::deps_read`, over the `Libraries` port's
-  `read_deps`, the wiring's `ProjectLibraries` opening the project's
+  `read_deps`, `ctxloom-daemon`'s `ProjectLibraries` opening the project's
   `Deps`) and deps-cli's `served_reads!` (its `Served`, which the wiring's
   `DaemonServed` implements too); `Api::library_read` and `deps_read`
   share one `read_site` (parent, directory, environment, flags,
@@ -3515,7 +3617,7 @@ built:
   its own; `root`, when given, its `CTXLOOM_ROOT` over the caller's. The
   library reads' `ProjectLibraries`, the trust read's `ProjectTrusts`, the
   sweep's settings, a child's plan (`child_library`) and a hosted run
-  (`oneshot::hosted_wiring`) are all made over it;
+  (`hosted_oneshots::hosted_wiring`) are all made over it;
   and every library is built as a run's is (owner 2026-11-21):
   `library::build(wiring)` makes the dependency use cases itself and
   `library::build_over(wiring, remotes)` takes a caller's, neither optional,

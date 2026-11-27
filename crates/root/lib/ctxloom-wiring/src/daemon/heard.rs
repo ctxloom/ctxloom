@@ -30,7 +30,7 @@ static HEARD: Mutex<Heard> = Mutex::new(Heard {
 /// Keep `notices`, those this process has not heard before, to be said as
 /// the command ends: every answer of the daemon's carries its standing
 /// warnings, so most are heard many times.
-pub(crate) fn hear(notices: Vec<v1::Notice>) {
+pub fn hear(notices: Vec<v1::Notice>) {
     if let Ok(mut heard) = HEARD.lock() {
         for notice in notices {
             if !heard.ever.contains(&notice) {
@@ -44,7 +44,7 @@ pub(crate) fn hear(notices: Vec<v1::Notice>) {
 /// What this process heard and has not said yet, taken: the command says
 /// each once, on stderr, as it ends, in its own code and args (rendered by
 /// the command's catalog).
-pub(crate) fn take_heard() -> Vec<coded_diagnostic::Report> {
+pub fn take_heard() -> Vec<coded_diagnostic::Report> {
     HEARD
         .lock()
         .map(|mut heard| std::mem::take(&mut heard.unsaid))

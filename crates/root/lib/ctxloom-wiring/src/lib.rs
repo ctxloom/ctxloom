@@ -8,64 +8,46 @@
 //! - [`Wiring`]: the process's home and filesystem, and the project stores
 //!   opened over them.
 
-mod capture;
-mod checkout;
-mod commands;
-mod core_link;
-mod daemon;
-mod error;
-mod frontend;
-mod frontend_asks;
-mod hook_asks;
-mod hook_library;
-mod hook_messages;
-mod interview;
-mod isolation;
-mod library;
+pub mod capture;
+pub mod checkout;
+pub mod commands;
+pub mod daemon;
+pub mod error;
+pub mod frontend;
+pub mod frontend_asks;
+pub mod hook_asks;
+pub mod hook_library;
+pub mod hook_messages;
+pub mod interview;
+pub mod isolation;
+pub mod library;
+pub mod mcp;
+pub mod oneshot;
+pub mod process_env;
+pub mod program;
+pub mod rebind;
+pub mod root_flag;
+pub mod sessions;
+pub mod setup;
+pub mod signals;
+pub mod sweep_config;
 #[cfg(feature = "test-support")]
-mod library_events;
-mod mcp;
-mod oneshot;
-mod process_env;
-mod program;
-mod rebind;
+pub mod test_commands;
 #[cfg(feature = "test-support")]
-mod record;
-mod root_flag;
-mod scheduling;
-#[cfg(feature = "test-support")]
-mod seed;
-mod sessions;
-mod setup;
-mod signals;
-mod sweep_config;
-#[cfg(feature = "test-support")]
-mod test_commands;
-#[cfg(feature = "test-support")]
-mod test_error;
-mod top;
+pub mod test_error;
+pub mod top;
 
-use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use ::process_env::EnvSnapshot;
-use angzarr_embedded::StoreError;
 use config_files::{find_app_dir, AppDir, Surroundings};
-use ctxloom_store_sqlite::{OpenError, SqliteStores, StoreOpenError, Stores};
 use file_system::{Fs, Os};
 use harp_names::HarpNames;
 use isolation_application::{IsolationError, Report, WorktreeUse, Worktrees};
 use liveness::LockFiles;
 use ports::{Names, ProjectIdentity};
 use project_registry::{Environment, ProjectRegistry};
-use session_files::GoDirs;
-use sessions_application::{
-    AppError, BindRequest, Bound, ImportReport, ImportRequest, ImportService, Importer,
-    KeepRequest, Kept, ListQuery, SearchQuery, Service, SessionService, ShowQuery, TranscriptQuery,
-    TranscriptRow, View,
-};
-use system::System;
 
 use crate::library::PathSearch;
 use uuid::Uuid;
@@ -77,21 +59,14 @@ pub use capture::{
 };
 pub use checkout::{checkout_file, checkout_harp, checkout_tree, mint_checkout_harp};
 pub use commands::{engines, Commands, Hooks};
-pub use core_link::{
-    AlarmConsumer, CoreStores, InProcessCore, Projectors, SharedCore, SystemClock, Unclosed,
-    ALARM_CONSUMERS,
-};
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{LibError, EN_US};
 pub use library::LibraryCommands;
 pub use process_env::ProcessEnv;
-pub use scheduling::SchedulerDues;
-#[cfg(feature = "test-support")]
-pub use seed::Seed;
 pub use sweep_config::SweepSettings;
 #[cfg(feature = "test-support")]
-pub use test_commands::Samples;
+pub use test_commands::{Samples, SeedArgs, StoreTest, StoreVerb};
 #[cfg(feature = "test-support")]
 pub use test_error::TestError;
 
@@ -101,14 +76,10 @@ pub use test_error::TestError;
 /// outside `.ctxloom` and `~/.ctxloom` (leaving is deleting them). A project
 /// that already has taskloom's root `.project-id` is read and adopted into
 /// this marker; markers that disagree are refused (`marker-conflict`).
-pub(crate) const PROJECT_MARKER: &str = ".ctxloom/project-id";
+pub const PROJECT_MARKER: &str = ".ctxloom/project-id";
 
 /// The project registry, its marker at [`PROJECT_MARKER`].
-pub(crate) fn registry<N>(
-    fs: Arc<dyn Fs>,
-    environment: Environment,
-    names: N,
-) -> ProjectRegistry<N> {
+pub fn registry<N>(fs: Arc<dyn Fs>, environment: Environment, names: N) -> ProjectRegistry<N> {
     ProjectRegistry::new(fs, environment, names)
         .with_marker(PROJECT_MARKER)
         .expect("PROJECT_MARKER is a relative path of plain names")
@@ -136,7 +107,7 @@ impl ports::Names for Minted {
 const PROJECT_HARP_TRIES: usize = 3;
 
 /// Fresh harps a project may be named with, tried in order.
-pub(crate) fn fresh_project_harps() -> Vec<String> {
+pub fn fresh_project_harps() -> Vec<String> {
     (0..PROJECT_HARP_TRIES).map(|_| session_name()).collect()
 }
 
@@ -155,98 +126,17 @@ pub fn run_id(session: &str, incarnation: u64) -> Result<Uuid, LibError> {
     Ok(Uuid::new_v5(&namespace, incarnation.to_string().as_bytes()))
 }
 
-/// The sessions use cases over their default adapters: the project registry
-/// (taskloom's, so a project is the same one in both programs), the project's
-/// SQLite store, the session directories, the lock files, and the system's
-/// clock, ids and timer.
-pub type SessionUseCases =
-    Service<ProjectRegistry<HarpNames>, SqliteStores, LockFiles, System, System>;
-
-/// The import over the same adapters, and Go's session directories.
-pub type ImportUseCase = Importer<ProjectRegistry<HarpNames>, SqliteStores, GoDirs, System, System>;
-
-/// Everything the `session` commands and the session hooks call: the sessions
-/// use cases and the import, one value to the command line.
+/// What the `session` commands run in this process: the scratch worktrees
+/// sessions left behind (S11). Everything else a session command does is the
+/// daemon's, which this process reaches as a client.
 pub struct Sessions {
-    pub use_cases: SessionUseCases,
-    pub importer: ImportUseCase,
     /// The scratch worktrees sessions left behind (S11).
     pub worktrees: Worktrees<GitWorkspaces, LockFiles>,
-}
-
-impl Sessions {
-    /// Close the stores the use cases hold, each waited for (ruling 131), so
-    /// a command exits with its store's log checkpointed into the file:
-    /// dropped, a store is closed on the driver's thread whenever that runs,
-    /// which a process that exits first never lets it do. Both are closed
-    /// whatever the first says; the first failure is answered.
-    pub async fn close(&mut self) -> Result<(), StoreError> {
-        let used = self.use_cases.stores.close().await;
-        let imported = self.importer.stores.close().await;
-        used.and(imported)
-    }
 }
 
 impl WorktreeUse for Sessions {
     fn worktrees(&mut self, harp: Option<&str>, apply: bool) -> Result<Report, IsolationError> {
         self.worktrees.worktrees(harp, apply)
-    }
-}
-
-impl SessionService for Sessions {
-    async fn list(&mut self, query: ListQuery) -> Result<Vec<View>, AppError> {
-        self.use_cases.list(query).await
-    }
-
-    async fn search(&mut self, query: SearchQuery) -> Result<Vec<View>, AppError> {
-        self.use_cases.search(query).await
-    }
-
-    async fn show(&mut self, query: ShowQuery) -> Result<View, AppError> {
-        self.use_cases.show(query).await
-    }
-
-    async fn keep(&mut self, request: KeepRequest) -> Result<Kept, AppError> {
-        self.use_cases.keep(request).await
-    }
-
-    async fn set_title(
-        &mut self,
-        request: sessions_application::TitleRequest,
-    ) -> Result<sessions_application::Titled, AppError> {
-        self.use_cases.set_title(request).await
-    }
-
-    async fn transcripts(
-        &mut self,
-        query: TranscriptQuery,
-    ) -> Result<Vec<TranscriptRow>, AppError> {
-        self.use_cases.transcripts(query).await
-    }
-
-    async fn transcript(
-        &mut self,
-        harp: &str,
-    ) -> Result<Vec<daemon_proto::v1::LogEntry>, AppError> {
-        self.use_cases.transcript(harp).await
-    }
-
-    async fn bind(&mut self, request: BindRequest) -> Result<Bound, AppError> {
-        self.use_cases.bind(request).await
-    }
-}
-
-impl ImportService for Sessions {
-    /// The import, a project it writes to named with fresh harps when it
-    /// has none (slice 2 M1).
-    async fn import(&mut self, request: ImportRequest) -> Result<ImportReport, AppError> {
-        let request = match request.project_harps.is_empty() {
-            true => ImportRequest {
-                project_harps: fresh_project_harps(),
-            },
-            false => request,
-        };
-        self.importer.import(request).await
     }
 }
 
@@ -266,10 +156,8 @@ pub fn catalog_sources() -> Vec<presentation::Source> {
         project_registry::EN_US,
         project_dir::EN_US,
         duration_text::EN_US,
-        ctxloom_store_sqlite::EN_US,
         daemon_api::EN_US,
         daemon_ports::EN_US,
-        ctxloom_store_sqlite::OPENER_EN_US,
         session_files::EN_US,
         mcp_server::EN_US,
     ];
@@ -309,7 +197,7 @@ pub struct Wiring {
 /// "dry run should *not* mint"), so a dry run cannot reach the minting
 /// branch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Minting {
+pub enum Minting {
     AtRoot,
     Never,
 }
@@ -334,7 +222,7 @@ impl Wiring {
 
     /// The wiring over `env` with ctxloom's home `home`, resolved by the
     /// caller (the user daemon's is the account's, never its HOME).
-    pub(crate) fn at(env: Arc<EnvSnapshot>, home: PathBuf) -> Wiring {
+    pub fn at(env: Arc<EnvSnapshot>, home: PathBuf) -> Wiring {
         let host = os::host();
         let fs = match env.cwd().and_then(|cwd| Os::new(host.clone(), &cwd)) {
             Ok(fs) => fs,
@@ -351,15 +239,15 @@ impl Wiring {
     /// The wiring, the user's own home `user_home` in place of the one its
     /// environment names (the user daemon's is the account's: it has no
     /// HOME of its own, M4).
-    pub(crate) fn with_user_home(self, user_home: Option<PathBuf>) -> Wiring {
+    pub fn with_user_home(self, user_home: Option<PathBuf>) -> Wiring {
         Wiring { user_home, ..self }
     }
 
-    pub(crate) fn fs(&self) -> Arc<dyn Fs> {
+    pub fn fs(&self) -> Arc<dyn Fs> {
         Arc::clone(&self.fs)
     }
 
-    pub(crate) fn home(&self) -> &std::path::Path {
+    pub fn home(&self) -> &std::path::Path {
         &self.home
     }
 
@@ -369,7 +257,7 @@ impl Wiring {
     /// account's ([`Wiring::with_user_home`]). The one place her home is
     /// resolved: her login, her claude and opencode settings, and the home a
     /// `session_home: host` engine is given are found under it.
-    pub(crate) fn user_home(&self) -> Option<PathBuf> {
+    pub fn user_home(&self) -> Option<PathBuf> {
         self.user_home.clone()
     }
 
@@ -377,7 +265,7 @@ impl Wiring {
     /// (`std::env::consts::OS`), as the environment's flavor says: `windows`
     /// for a Windows flavor (so a test can give one on any host), the host's
     /// own name otherwise.
-    pub(crate) fn os_name(&self) -> &'static str {
+    pub fn os_name(&self) -> &'static str {
         match self.env.flavor() {
             os::Flavor::Windows => run_ports::WINDOWS,
             os::Flavor::Unix => std::env::consts::OS,
@@ -385,13 +273,13 @@ impl Wiring {
     }
 
     /// The environment the process was launched in.
-    pub(crate) fn env(&self) -> &Arc<EnvSnapshot> {
+    pub fn env(&self) -> &Arc<EnvSnapshot> {
         &self.env
     }
 
     /// Where the process is: the root variable, the working directory, the
     /// home and the temporary root.
-    pub(crate) fn surroundings(&self) -> Surroundings {
+    pub fn surroundings(&self) -> Surroundings {
         Surroundings {
             root_env: self.env.utf8("CTXLOOM_ROOT").map(String::from),
             cwd: self.env.cwd().unwrap_or_else(|_| PathBuf::from(".")),
@@ -404,7 +292,7 @@ impl Wiring {
     /// The project directory: the one holding the app dir found (the home
     /// where there is no project). A session's directory is
     /// `<project>/.ctxloom/sessions/<harp>`.
-    pub(crate) fn project_dir(&self) -> PathBuf {
+    pub fn project_dir(&self) -> PathBuf {
         let app = self.locate().1;
         app.path
             .parent()
@@ -412,14 +300,14 @@ impl Wiring {
     }
 
     /// The surroundings, and the app dir found in them.
-    pub(crate) fn locate(&self) -> (Surroundings, AppDir) {
+    pub fn locate(&self) -> (Surroundings, AppDir) {
         let around = self.surroundings();
         let app = find_app_dir(self.fs.as_ref(), &around);
         (around, app)
     }
 
     /// The programs on the process's `PATH`, found through the filesystem.
-    pub(crate) fn path_search(&self) -> PathSearch {
+    pub fn path_search(&self) -> PathSearch {
         PathSearch {
             fs: Arc::clone(&self.fs),
             dirs: self.env.search_path(),
@@ -428,12 +316,11 @@ impl Wiring {
         }
     }
 
-    /// The sessions use cases over the default adapters, in this process's
-    /// home, for the project [`Wiring::environment`] resolves.
+    /// The `session` commands this process runs itself over the default
+    /// adapters, for the project [`Wiring::environment`] resolves.
     pub fn sessions(&self) -> Sessions {
         let environment = self.environment();
         let registry = || registry(Arc::clone(&self.fs), environment.clone(), HarpNames);
-        let stores = || SqliteStores::new(Arc::clone(&self.fs), self.home.clone());
         let project = self.project_dir();
         // The project's checkouts are under ctxloom's home, by its id (owner
         // ruling 2026-11-12, Q1); a directory that is no project, or whose id
@@ -444,20 +331,6 @@ impl Wiring {
             .flatten()
             .map(|known| isolation_ports::worktrees_root(&self.home, &known.id));
         Sessions {
-            use_cases: Service::new(
-                registry(),
-                stores(),
-                LockFiles::new(Arc::clone(&self.fs), project.clone()),
-                System,
-                System,
-            ),
-            importer: Importer::new(
-                registry(),
-                stores(),
-                GoDirs::new(Arc::clone(&self.fs), self.home.clone()),
-                System,
-                System,
-            ),
             worktrees: Worktrees::new(
                 GitWorkspaces::new(
                     Arc::clone(&self.fs),
@@ -475,7 +348,7 @@ impl Wiring {
     /// the working directory, or the one `CTXLOOM_ROOT` names, as every
     /// library read finds it ([`Wiring::locate`]). None where there is none
     /// but ctxloom's own home's.
-    pub(crate) fn ctxloom_project(&self) -> Option<PathBuf> {
+    pub fn ctxloom_project(&self) -> Option<PathBuf> {
         let (_, app) = self.locate();
         if !matches!(app.source, ctxloom_ports::Source::Project) {
             return None;
@@ -488,7 +361,7 @@ impl Wiring {
     /// no `CTXLOOM_ROOT` or `--root`, no `.ctxloom` of a project found by
     /// the walk, and no git root above the working directory. The user's
     /// home, and the daemon root, are never taken for one.
-    pub(crate) fn require_project_root(&self) -> Result<(), LibError> {
+    pub fn require_project_root(&self) -> Result<(), LibError> {
         let cwd = self.env.cwd().unwrap_or_else(|_| PathBuf::from("."));
         let named = self.env.non_empty("CTXLOOM_ROOT").is_some();
         if named
@@ -508,7 +381,7 @@ impl Wiring {
     /// `.ctxloom` up ([`Wiring::ctxloom_project`]); only where there is
     /// neither is the root the registry's own (the git top, else the working
     /// directory). The home, and the project id the process was given.
-    pub(crate) fn environment(&self) -> Environment {
+    pub fn environment(&self) -> Environment {
         Environment {
             home: Some(self.home.clone()),
             root: self
@@ -531,7 +404,7 @@ impl Wiring {
     /// run's names refuse (a dry run never mints, owner 2026-11-14). A
     /// command that must name its project mints instead
     /// ([`Wiring::naming_registration`]).
-    pub(crate) fn project(&self) -> Result<Option<ports::Project>, LibError> {
+    pub fn project(&self) -> Result<Option<ports::Project>, LibError> {
         use ports::ProjectIdentity as _;
         let mut identity = registry(Arc::clone(&self.fs), self.environment(), HarpNames);
         match identity.for_read(None).map_err(LibError::Project)? {
@@ -557,7 +430,7 @@ impl Wiring {
     /// and made again at its place: its `.ctxloom` is gone, so nothing else
     /// names the old project) is re-bound to `project_id`: the old binding
     /// is taken out first (owner ruling 2026-11-19, `rebind`).
-    pub(crate) fn bind_project(&self, project_id: &str) -> Result<ports::Project, LibError> {
+    pub fn bind_project(&self, project_id: &str) -> Result<ports::Project, LibError> {
         use ports::ProjectIdentity as _;
         if !project_id.is_empty() {
             let identity = registry(Arc::clone(&self.fs), self.environment(), HarpNames);
@@ -576,24 +449,11 @@ impl Wiring {
         .map_err(LibError::Project)
     }
 
-    pub(crate) fn mint_project(&self) -> Result<ports::Project, LibError> {
+    pub fn mint_project(&self) -> Result<ports::Project, LibError> {
         use ports::ProjectIdentity as _;
         registry(Arc::clone(&self.fs), self.environment(), HarpNames)
             .for_write(None)
             .map_err(LibError::Project)
-    }
-
-    /// Refused where the project this process is in still has a store of its
-    /// own from before the one store (T17, S48: per command; nothing is
-    /// imported). Nothing is refused outside a project, nor where the project
-    /// cannot be told: the command says what is wrong then.
-    pub fn refuse_per_project_store(&self) -> Result<(), StoreOpenError> {
-        use ports::ProjectIdentity as _;
-        let mut identity = registry(Arc::clone(&self.fs), self.environment(), HarpNames);
-        let Ok(Some(project)) = identity.for_read(None) else {
-            return Ok(());
-        };
-        Stores::new(Arc::clone(&self.fs), self.home.clone()).refuse_per_project(&project.id)
     }
 
     /// What this process registers with the daemon (owner, 2026-11-12,
@@ -604,7 +464,7 @@ impl Wiring {
     /// never minted, so `None` where none is bound and there is no ctxloom
     /// project, and `ctxloom-wiring-project-unnamed` where a ctxloom project
     /// is there that nothing has named.
-    pub(crate) fn registration(
+    pub fn registration(
         &self,
     ) -> Result<Option<daemon_proto::v1::ResolveProjectRequest>, LibError> {
         Ok(self.project()?.map(|project| self.registering(project)))
@@ -615,7 +475,7 @@ impl Wiring {
     /// fresh clone has none): [`Wiring::registration`]'s, but a ctxloom
     /// project nothing has named has its id minted at its resolved root
     /// first ([`Wiring::mint_project`]).
-    pub(crate) fn naming_registration(
+    pub fn naming_registration(
         &self,
     ) -> Result<Option<daemon_proto::v1::ResolveProjectRequest>, LibError> {
         match self.registration() {
@@ -633,7 +493,7 @@ impl Wiring {
     /// (OQ-2). `minting` says whether a project nothing has named gets its
     /// id (at its root, [`Wiring::naming_registration`]) or is refused
     /// (`Minting::Never`, a dry run's: owner, "dry run should *not* mint").
-    pub(crate) fn library_registration(
+    pub fn library_registration(
         &self,
         minting: Minting,
     ) -> Result<Option<daemon_proto::v1::ResolveProjectRequest>, LibError> {
@@ -662,70 +522,12 @@ impl Wiring {
             caller: None,
         }
     }
-
-    /// Name the project this process is in (S54), once, in the one store:
-    /// its harp, minted from fresh harps, or the one it has. Every command
-    /// that mints a session names its project first, at its resolution
-    /// (slice 2 M1: a run, a child's launch, an import, the test seed); the
-    /// daemon's `ResolveProject` is a later step's.
-    pub fn name_project(&self) -> Result<sessions_application::ProjectHarp, LibError> {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .map_err(|e: io::Error| LibError::NoRuntime {
-                detail: e.to_string(),
-            })?;
-        runtime.block_on(self.named_project())
-    }
-
-    /// [`Wiring::name_project`], on the caller's runtime.
-    pub async fn named_project(&self) -> Result<sessions_application::ProjectHarp, LibError> {
-        let mut sessions = self.sessions();
-        let named = sessions
-            .use_cases
-            .name_project(sessions_application::NameProjectRequest {
-                project: None,
-                harps: fresh_project_harps(),
-            })
-            .await
-            .map_err(|e| LibError::Project(coded_diagnostic::Report::of(&e)));
-        // Closed, not dropped (ruling 131).
-        let closed = sessions.close().await;
-        let named = named?;
-        closed.map_err(|e| LibError::Project(coded_diagnostic::Report::of(&e)))?;
-        Ok(named)
-    }
-
-    /// The one store opened (made, if need be) under the home for `project`
-    /// (T14), the path of its database; refused where the project still has
-    /// a store of its own (T17).
-    pub fn open_store(&self, project: &str) -> Result<PathBuf, LibError> {
-        let stores = Stores::new(Arc::clone(&self.fs), self.home.clone());
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .map_err(|e: io::Error| LibError::NoRuntime {
-                detail: e.to_string(),
-            })?;
-        // Closed, not dropped (ruling 131): the file holds the open's
-        // migrations, with no log beside it, when this returns.
-        runtime
-            .block_on(async {
-                let store = stores.open_for(project).await?;
-                store
-                    .close()
-                    .await
-                    .map_err(|e| StoreOpenError::Open(OpenError::Store(e)))
-            })
-            .map_err(LibError::Store)?;
-        Ok(stores.path())
-    }
 }
 
 #[cfg(test)]
 #[path = "lib.test.rs"]
 mod tests;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 #[path = "fixtures.test.rs"]
-mod fixtures;
+pub mod fixtures;

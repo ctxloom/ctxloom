@@ -227,20 +227,27 @@ impl<E: Edge> Removing<'_, E> {
         Ok(removal)
     }
 
-    /// Tell the warm read models the purged streams are gone (a book with
-    /// no page at sequence 0, as the projector port says a purge): the
-    /// session's to the index, the pending messages and the board, its
-    /// runs' to the board, which alone folds them.
+    /// Tell the warm read models the purged streams are closed: the book of
+    /// each stream as the store now holds it, which ends in the purge's
+    /// tombstone, the session's to the index, the pending messages and the
+    /// board, its runs' to the board, which alone folds them.
     async fn forget(&self, roots: &[(&str, Uuid)]) {
         for (domain, root) in roots {
+            let cover = Cover {
+                domain: (*domain).to_string(),
+                root: Some(root.clone()),
+                edition: None,
+            };
+            // A stream the store cannot be read for is caught up anyway.
+            let Ok(pages) = self.api.parts.edge.events(&cover, 0).await else {
+                continue;
+            };
             let request = ProjectRequest {
                 events: Some(EventBook {
-                    cover: Some(Cover {
-                        domain: (*domain).to_string(),
-                        root: Some(root.clone()),
-                        edition: None,
-                    }),
-                    ..EventBook::default()
+                    cover: Some(cover),
+                    next_sequence: pages.last().map_or(0, |page| page.sequence + 1),
+                    pages,
+                    snapshot: None,
                 }),
             };
             // A model that cannot fold it is caught up from the store anyway.
@@ -792,7 +799,8 @@ impl<E: Edge> Api<E> {
     /// A destroy retried after a restart (its request id's first result
     /// gone with the daemon that applied it), answered from the store's
     /// facts: the name claimed by its session, and the session's stream
-    /// empty, is a session destroyed; anything else names no session.
+    /// closed (its last event a purge's tombstone), is a session destroyed;
+    /// anything else names no session.
     async fn destroyed(
         &self,
         text: &str,
@@ -827,7 +835,7 @@ impl<E: Edge> Api<E> {
             .events(&cover(SESSION_DOMAIN), 0)
             .await
             .map_err(failed)?;
-        match claimed && session.is_empty() {
+        match claimed && run_ports::is_closed(&session) {
             true => Ok(v1::DeleteSessionResponse {
                 name: text.to_string(),
                 harp: name.harp().to_string(),

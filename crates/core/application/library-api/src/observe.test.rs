@@ -56,6 +56,10 @@ impl Edge for World {
         self.handle(book).await.map_err(Unserved::Failed)
     }
 
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "a test kernel or store of its own"
+    )]
     async fn handle(&self, book: CommandBook) -> Result<Answered, Failure<Rejected>> {
         *self.handled.lock().unwrap() += 1;
         if self.refusing.load(std::sync::atomic::Ordering::SeqCst) {

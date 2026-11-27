@@ -7,9 +7,8 @@
 //!
 //! The streams are caught up one at a time, in no order across them (there is
 //! no global position): a reader never assumes a run's stream was folded
-//! after its session's. A book from sequence 0 starts a stream afresh; a book
-//! with no event and `next_sequence` 0 says the stream is gone (purged), and
-//! it leaves the board.
+//! after its session's. A tombstone (a purge's `StreamClosed`) closes a stream:
+//! it leaves the board, and what follows starts afresh.
 //!
 //! It is HELD in memory ([`catch_up`] is a `CatchUp::new`), rebuilt from each
 //! stream's start by a daemon's first step. On the projector port it is a
@@ -22,6 +21,7 @@ mod hosting;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use angzarr_embedded::angzarr_ports::tombstone;
 use angzarr_embedded::angzarr_router::error::CodedError;
 use angzarr_embedded::angzarr_router::hpb::{ProjectRequest, ProjectResponse};
 use angzarr_embedded::v1::{event_page, Cover, EventBook};
@@ -151,25 +151,28 @@ impl Board {
         Board::default()
     }
 
-    /// Fold `book`, one stream's events after the last folded of it.
+    /// Fold `book`, one stream's events after the last folded of it. A
+    /// tombstone closes the stream: it leaves the board.
     pub fn project(&mut self, book: &EventBook) -> Result<(), PayloadError> {
         let domain = book.cover.as_ref().map_or("", |c| c.domain.as_str());
         let root = root_text(book);
-        let Some(first) = book.pages.first() else {
-            if book.next_sequence == 0 {
-                self.sessions.remove(&root);
-                self.runs.remove(&root);
-            }
+        if book.pages.is_empty() {
             return Ok(());
-        };
-        let fresh = first.sequence == 0;
+        }
         match domain {
             SESSION_DOMAIN => {
-                let mut session = match fresh {
-                    true => SessionFold::default(),
-                    false => self.sessions.remove(&root).unwrap_or_default(),
-                };
-                for (page, event) in events(book) {
+                let mut session = self.sessions.remove(&root).unwrap_or_default();
+                let mut closed = false;
+                for page in &book.pages {
+                    if tombstone::is(page) {
+                        session = SessionFold::default();
+                        closed = true;
+                        continue;
+                    }
+                    let Some(event_page::Body::Event(event)) = &page.body else {
+                        continue;
+                    };
+                    closed = false;
                     let at = PageContext {
                         cover: book.cover.as_ref(),
                         sequence: page.sequence,
@@ -179,14 +182,23 @@ impl Board {
                     session.fold(&event);
                     SessionAggregate::apply(&mut session.aggregate, &event, &at);
                 }
-                self.sessions.insert(root, session);
+                if !closed {
+                    self.sessions.insert(root, session);
+                }
             }
             RUN_DOMAIN => {
-                let mut run = match fresh {
-                    true => RunFold::default(),
-                    false => self.runs.remove(&root).unwrap_or_default(),
-                };
-                for (page, event) in events(book) {
+                let mut run = self.runs.remove(&root).unwrap_or_default();
+                let mut closed = false;
+                for page in &book.pages {
+                    if tombstone::is(page) {
+                        run = RunFold::default();
+                        closed = true;
+                        continue;
+                    }
+                    let Some(event_page::Body::Event(event)) = &page.body else {
+                        continue;
+                    };
+                    closed = false;
                     let event = RunEvent::from_any(event)?;
                     match &event {
                         RunEvent::TurnCompletedRecorded(done) => {
@@ -213,7 +225,9 @@ impl Board {
                     }
                     runs::apply(&mut run.state, &event, page.sequence);
                 }
-                self.runs.insert(root, run);
+                if !closed {
+                    self.runs.insert(root, run);
+                }
             }
             _ => {}
         }
@@ -280,17 +294,6 @@ impl Board {
     pub fn run(&self, session: &str, incarnation: u32) -> Option<&RunFold> {
         self.runs.get(&run_text(session, incarnation))
     }
-}
-
-/// The event pages of `book` and their bodies; a framework meta page is no
-/// domain's event.
-fn events(
-    book: &EventBook,
-) -> impl Iterator<Item = (&angzarr_embedded::v1::EventPage, &angzarr_embedded::Any)> {
-    book.pages.iter().filter_map(|page| match &page.body {
-        Some(event_page::Body::Event(event)) => Some((page, event)),
-        _ => None,
-    })
 }
 
 impl Model for Board {

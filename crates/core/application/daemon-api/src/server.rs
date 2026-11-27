@@ -180,6 +180,14 @@ pub trait Calls: Send + Sync {
         &self,
         request: v1::SweepSessionsRequest,
     ) -> Answer<'_, v1::SweepSessionsResponse>;
+    /// `ImportSessions` (ONE WRITER): an edge that serves none fails it.
+    fn import_sessions(
+        &self,
+        request: v1::ImportSessionsRequest,
+    ) -> Answer<'_, v1::ImportSessionsResponse> {
+        let _ = request;
+        Box::pin(async { Err(not_served("ImportSessions")) })
+    }
     /// `GetTranscript` (slice 3 step 5); an edge that serves none fails it.
     fn get_transcript(&self, request: v1::GetTranscriptRequest) -> Answer<'_, v1::Transcript> {
         let _ = request;
@@ -460,6 +468,16 @@ impl<E: Edge + 'static> Calls for Api<E> {
         Box::pin(async move {
             self.open()?;
             Api::delete_session(self, request).await
+        })
+    }
+
+    fn import_sessions(
+        &self,
+        request: v1::ImportSessionsRequest,
+    ) -> Answer<'_, v1::ImportSessionsResponse> {
+        Box::pin(async move {
+            self.open()?;
+            Api::import_sessions(self, request).await
         })
     }
 
@@ -963,6 +981,8 @@ pub struct Api<E> {
     /// Where a child's hand-off is planned and kept; none, `CreateHandOff`
     /// and `DeleteHandOff` fail.
     pub(crate) hand_offs: Option<Arc<dyn crate::HandOffs>>,
+    /// What imports Go's sessions (ONE WRITER); none, `ImportSessions` fails.
+    pub(crate) imports: Option<Arc<dyn crate::Imports>>,
     /// The interactive sessions the daemon prepares (U5); none, a TERMINAL
     /// `CreateRun` fails.
     pub(crate) terminals: Option<Arc<daemon_application::Terminals>>,
@@ -1022,6 +1042,7 @@ impl<E: Edge> Api<E> {
             parts,
             one_shots: None,
             hand_offs: None,
+            imports: None,
             terminals: None,
             trusting: None,
             approving: None,
@@ -1681,7 +1702,13 @@ impl<E: Edge> Api<E> {
             .into_iter()
             .filter(|(session, _)| in_state(session, request.state))
             .filter(|(_, view)| !request.has_transcript || view.captured.is_some())
-            .map(|(session, _)| session)
+            .map(|(mut session, view)| {
+                if request.transcripts {
+                    session.transcript_captured = view.captured.is_some();
+                    session.transcript_bytes = view.captured.as_ref().map_or(0, |c| c.bytes);
+                }
+                session
+            })
             .collect();
         Ok(v1::ListSessionsResponse {
             sessions,

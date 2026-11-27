@@ -4197,6 +4197,10 @@ fn session_write(w: &World) -> Written {
         Written::Session("MessageSent")
     } else if line.contains("session close") {
         Written::Session("SessionClosed")
+    } else if line.contains("session keep") {
+        Written::Session("KeptChanged")
+    } else if line.contains("session rename") {
+        Written::Session("TitleSet")
     } else if let Some(rest) = line.split("session remove ").nth(1) {
         Written::Removal(
             rest.split_whitespace()
@@ -4293,6 +4297,107 @@ fn applied_once(w: &mut World) {
         .filter(|e| kind != "MessageSent" || e["text"] == "check the tests")
         .count();
     assert_eq!(applied, 1, "{events:?}");
+}
+
+// ONE WRITER (owner ruling 2026-11-25): the daemon is the store's one writer.
+// Under test-support its log says each command it takes through its
+// coordinator, `handled <CommandType>`, as it says each service call,
+// `served <path>`; these steps read those lines. Written first, red: the log
+// does not say it yet, and a CLI process still opens the store for the
+// session writes.
+
+/// The commands the daemon's log says it handled, by type name, in order.
+fn handled_commands(w: &World) -> Vec<String> {
+    daemon_log_text(w)
+        .lines()
+        .filter_map(|line| line.split("handled ").nth(1))
+        .map(|rest| {
+            rest.split_whitespace()
+                .next()
+                .unwrap_or_default()
+                .to_string()
+        })
+        .collect()
+}
+
+#[then(expr = "the daemon's log says it handled the command {string} once")]
+fn handled_once(w: &mut World, command: String) {
+    handled_n(w, command, 1);
+}
+
+#[then(expr = "the daemon's log says it handled the command {string} {int} times")]
+fn handled_n(w: &mut World, command: String, times: usize) {
+    let handled = handled_commands(w);
+    assert_eq!(
+        handled.iter().filter(|c| **c == command).count(),
+        times,
+        "the daemon handled {command} {times} times; its log says {handled:?}: {}",
+        w.common.ran().said()
+    );
+}
+
+#[then(expr = "the daemon's log says it served {string}")]
+fn served_rpc(w: &mut World, rpc: String) {
+    let served: Vec<String> = daemon_log_text(w)
+        .lines()
+        .filter_map(|line| line.split("served /ctxloom.v1.Ctxloom/").nth(1))
+        .map(|rest| rest.trim().to_string())
+        .collect();
+    assert!(
+        served.contains(&rpc),
+        "the daemon served {rpc}; its log says {served:?}: {}",
+        w.common.ran().said()
+    );
+}
+
+#[then(expr = "the session {string} recorded {int} {string} events")]
+fn recorded_events(w: &mut World, harp: String, count: usize, kind: String) {
+    let events = session_events(w, &harp);
+    assert_eq!(count_of(&events, &kind), count, "{events:?}");
+}
+
+/// Go's three session sidecars, as Go lays them out (session.test.rs's).
+const GO_SIDECAR: &str = include_str!("../fixtures/go-sidecar/schema1.yaml");
+
+#[given(expr = "Go's ctxloom left a session {string} in its home for this project")]
+fn go_left_a_session(w: &mut World, harp: String) {
+    assert_eq!(harp, "amber-swift-owl", "the fixture is schema 1's session");
+    let work_root = files::canonical(w.common.project.dir());
+    // The project is one the registry holds (its index names the id of the
+    // directory the seed made, for this root): a project with a marker of
+    // its own is bound only when a command binds it.
+    w.before_run();
+    let registry = w.common.project.home().join(".ctxloom/projects");
+    if !files::exists(registry.join("index.yaml")) {
+        let id = files::children(&registry)
+            .into_iter()
+            .filter(|dir| files::is_dir(dir))
+            .find_map(|dir| dir.file_name().map(|n| n.to_string_lossy().to_string()))
+            .unwrap_or_else(|| {
+                panic!(
+                    "the seeded session made its project's directory under {}: {:?}",
+                    registry.display(),
+                    files::children(w.common.project.home().join(".ctxloom"))
+                )
+            });
+        files::put(
+            registry.join("index.yaml"),
+            format!(
+                "schema_version: 1\nprojects:\n  - project_id: {id}\n    path: {}\n    created_at: 2026-01-01T00:00:00Z\n    last_seen_at: 2026-01-01T00:00:00Z\n",
+                work_root.display()
+            ),
+        );
+    }
+    let body = GO_SIDECAR.replace("/work/proj", &work_root.display().to_string());
+    files::put(
+        w.common
+            .project
+            .home()
+            .join(".ctxloom/sessions")
+            .join(&harp)
+            .join("session.yaml"),
+        &body,
+    );
 }
 
 /// The question a session removal's preview asks (step 10c U11), as the

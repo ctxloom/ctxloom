@@ -17,17 +17,17 @@ use process_env::EnvSnapshot;
 use crate::Wiring;
 
 /// The noun the verb joins.
-pub(crate) const NOUN: &str = "mcp";
+pub const NOUN: &str = "mcp";
 
 /// Whether `noun verb` is `mcp serve`.
-pub(crate) fn is_serve(noun: &str, verb: &str) -> bool {
+pub fn is_serve(noun: &str, verb: &str) -> bool {
     noun == NOUN && verb == mcp_server::VERB
 }
 
 /// `mcp serve`: this process serves the session `CTXLOOM_SESSION` names
 /// until its input ends. With none named it is refused (exit 48), never
 /// served as the user.
-pub(crate) fn serve(
+pub fn serve(
     env: &Arc<EnvSnapshot>,
     stamp: &str,
     wakes: bool,

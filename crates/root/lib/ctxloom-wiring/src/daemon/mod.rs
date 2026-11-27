@@ -10,20 +10,16 @@
 //! `daemon launch|send|close|clear` are gone (owner ruling s4-Q13, hard
 //! migrate).
 
-mod deps;
-mod files;
-pub(crate) mod flush;
-mod foreign;
-pub(crate) mod heard;
-mod places;
-pub(crate) mod runtime;
-mod serve;
-mod setup_reads;
-pub(crate) mod shutdown;
+pub mod files;
+pub mod flush;
+pub mod heard;
+pub mod runtime;
+pub mod shutdown;
 #[cfg(feature = "test-support")]
-pub(crate) mod watch;
+pub mod watch;
 
-use std::collections::BTreeMap;
+use files::{instance_lock_path, DaemonFiles};
+
 use std::ffi::{OsStr, OsString};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -34,7 +30,7 @@ use clap::{Command, FromArgMatches, Subcommand};
 use cli_support::{Exit, ExitClass};
 use ctxloom_cli::{shaped, Call, CliError, Failure};
 use daemon_ports::{Daemons, Unreached};
-use file_system::{Fs, Open};
+use file_system::Open;
 use os::Mode;
 use presentation::{render, Catalog, Render};
 use process_env::EnvSnapshot;
@@ -42,10 +38,69 @@ use serde::Serialize;
 use sessions::ProjectName;
 
 use crate::{LibError, Wiring};
-use files::{instance_lock_path, DaemonFiles};
+
+/// How fast a daemon runs: its idle limit, how often it looks at its stores,
+/// and how long a drain waits for a busy child before it hands it over.
+#[derive(Clone, Copy, Debug)]
+pub struct Pace {
+    pub idle: Duration,
+    pub poll: Duration,
+    pub hand_over: Duration,
+}
+
+/// What `ctxloom daemon serve` runs: the daemon's composition
+/// (`ctxloom-daemon`'s `serve`), handed to the command line by the binary,
+/// which is the one composition root of both programs. The CLI's own wiring
+/// opens no store and starts no kernel: it only reaches the daemon.
+pub type Serve = fn(&Arc<EnvSnapshot>, &str, Pace) -> Result<Exit, Failure>;
+
+/// Refuses a command where the project this process is in still has a store
+/// of its own from before the one store (T17, S48). The store adapter knows
+/// where one would be, so the daemon's composition answers.
+pub type PerProjectGuard = fn(&Wiring) -> Result<(), Failure>;
+
+/// What the daemon's composition gives the command line, handed in by the
+/// binary (the composition root of both programs): `ctxloom-wiring` itself
+/// opens no store and hosts no kernel, so it cannot serve a daemon, name the
+/// store's legacy files or run the tests' store commands.
+#[derive(Clone, Copy)]
+pub struct Hosting {
+    pub serve: Serve,
+    pub per_project_guard: PerProjectGuard,
+    /// The hidden `test` commands that read or write the store.
+    #[cfg(feature = "test-support")]
+    pub store_tests: crate::test_commands::StoreTest,
+}
+
+impl Hosting {
+    /// No daemon composition: `daemon serve` fails, no legacy store is
+    /// refused, the store's test commands fail. What a command line built
+    /// without the daemon crate (a wiring test) has.
+    pub const NONE: Hosting = Hosting {
+        serve: no_daemon,
+        per_project_guard: |_| Ok(()),
+        #[cfg(feature = "test-support")]
+        store_tests: |_, _, _, _| {
+            Err(failed(LibError::NoRuntime {
+                detail: NO_DAEMON.to_string(),
+            }))
+        },
+    };
+}
+
+const NO_DAEMON: &str = "this command line was built without the daemon's composition";
+
+fn no_daemon(_: &Arc<EnvSnapshot>, _: &str, _: Pace) -> Result<Exit, Failure> {
+    Err(failed(LibError::NoRuntime {
+        detail: NO_DAEMON.to_string(),
+    }))
+}
+
+/// The stack the daemon serves on (a hosted session's is the same size).
+pub const DAEMON_STACK: usize = 16 * 1024 * 1024;
 
 /// The noun.
-pub(crate) const NOUN: &str = "daemon";
+pub const NOUN: &str = "daemon";
 
 /// The variables a spawned daemon is given of its spawner's (D-N45), as
 /// the platform compares names: how to find programs, temp space and locale,
@@ -58,18 +113,18 @@ const DAEMON_ENV: [&str; 4] = ["PATH", "TMPDIR", "LANG", "LC_ALL"];
 
 /// S16: how long a hook spends, in all, reaching a daemon (rediscovering
 /// it, or spawning one and waiting) and delivering, before it fails open.
-pub(crate) const HOOK_BOUND: Duration = Duration::from_secs(10);
+pub const HOOK_BOUND: Duration = Duration::from_secs(10);
 
 /// What a delivery is left of [`HOOK_BOUND`] after the longest spawn wait.
-pub(crate) const DELIVERY_MARGIN: Duration = Duration::from_secs(2);
+pub const DELIVERY_MARGIN: Duration = Duration::from_secs(2);
 
 /// How long a client waits for a daemon it spawned to answer its health
 /// check: what [`HOOK_BOUND`] leaves once a delivery has its margin.
-pub(crate) const SPAWN_WAIT: Duration = HOOK_BOUND.saturating_sub(DELIVERY_MARGIN);
+pub const SPAWN_WAIT: Duration = HOOK_BOUND.saturating_sub(DELIVERY_MARGIN);
 
 /// How long one health check of a daemon may take (a loopback TLS
 /// handshake and one call; a stale port refuses at once).
-pub(crate) const HEALTH_WAIT: Duration = Duration::from_secs(1);
+pub const HEALTH_WAIT: Duration = Duration::from_secs(1);
 
 /// The environment a spawned daemon is given of its spawner's `vars`
 /// (D-N45): what it needs to run, named as `flavor` compares names (so
@@ -111,13 +166,13 @@ fn daemon_env<N: AsRef<OsStr>, V: AsRef<OsStr>>(
 /// command starts. A bare integer or a negative span is refused, so a clock
 /// only ever moves on ([`clock_offset`]).
 #[cfg(feature = "test-support")]
-pub(crate) const CLOCK_OFFSET_VARIABLE: &str = "CTXLOOM_TEST_CLOCK_OFFSET";
+pub const CLOCK_OFFSET_VARIABLE: &str = "CTXLOOM_TEST_CLOCK_OFFSET";
 
 /// How far `env` moves the clocks on: nothing when unset, else the span it
 /// names. The ONE reader of [`CLOCK_OFFSET_VARIABLE`]; the shipped binary
 /// has no offset and never reads it.
 #[cfg(feature = "test-support")]
-pub(crate) fn clock_offset(
+pub fn clock_offset(
     env: &process_env::EnvSnapshot,
 ) -> Result<std::time::Duration, duration_text::DurationError> {
     match env.non_empty(CLOCK_OFFSET_VARIABLE) {
@@ -128,7 +183,7 @@ pub(crate) fn clock_offset(
 
 /// The shipped binary's clocks are the system's.
 #[cfg(not(feature = "test-support"))]
-pub(crate) fn clock_offset(
+pub fn clock_offset(
     _: &process_env::EnvSnapshot,
 ) -> Result<std::time::Duration, duration_text::DurationError> {
     Ok(std::time::Duration::ZERO)
@@ -141,13 +196,13 @@ pub(crate) fn clock_offset(
 /// it ends what it hosts and exits (`serve::Lifeline`). Passed on to a
 /// daemon a command starts. Read only under `test-support`.
 #[cfg(feature = "test-support")]
-pub(crate) const LIFELINE_VARIABLE: &str = "CTXLOOM_TEST_LIFELINE";
+pub const LIFELINE_VARIABLE: &str = "CTXLOOM_TEST_LIFELINE";
 
 /// The test-support variable naming the OS account's home, so a test's
 /// temporary home is the account's for the daemon (and a test can tell the
 /// account's home from a moved HOME). Read only under `test-support`.
 #[cfg(feature = "test-support")]
-pub(crate) const ACCOUNT_HOME_VARIABLE: &str = "CTXLOOM_TEST_ACCOUNT_HOME";
+pub const ACCOUNT_HOME_VARIABLE: &str = "CTXLOOM_TEST_ACCOUNT_HOME";
 
 /// The OS account's home, as the system keeps it (rust-support's
 /// `Os::user_home`: the account database's, never `HOME` or `USERPROFILE`,
@@ -155,7 +210,7 @@ pub(crate) const ACCOUNT_HOME_VARIABLE: &str = "CTXLOOM_TEST_ACCOUNT_HOME";
 /// the account has none. One daemon per OS USER: the single-instance lock
 /// and the daemon's own home are derived from it.
 #[cfg(not(feature = "test-support"))]
-pub(crate) fn account_home(_: &EnvSnapshot) -> Option<PathBuf> {
+pub fn account_home(_: &EnvSnapshot) -> Option<PathBuf> {
     os::host().user_home().ok()
 }
 
@@ -168,7 +223,7 @@ pub(crate) fn account_home(_: &EnvSnapshot) -> Option<PathBuf> {
 /// home does in a shipped binary, it finds them the daemon that started
 /// their engine (slice 4 U7: no run tells its hooks an endpoint of its own).
 #[cfg(feature = "test-support")]
-pub(crate) fn account_home(env: &EnvSnapshot) -> Option<PathBuf> {
+pub fn account_home(env: &EnvSnapshot) -> Option<PathBuf> {
     env.non_empty(ACCOUNT_HOME_VARIABLE)
         .or_else(|| env.non_empty(run_ports::DAEMON_ROOT_VARIABLE))
         .or_else(|| env.home())
@@ -178,11 +233,18 @@ pub(crate) fn account_home(env: &EnvSnapshot) -> Option<PathBuf> {
 /// The daemon's ctxloom home (M4): `CTXLOOM_DAEMON_ROOT` when it was given one
 /// (its spawner's, [`daemon_env`]), else the ACCOUNT's home, never its HOME:
 /// the daemon serves the account, whoever spawned it.
-pub(crate) fn daemon_home(env: &EnvSnapshot) -> Option<PathBuf> {
+pub fn daemon_home(env: &EnvSnapshot) -> Option<PathBuf> {
     env.non_empty(run_ports::DAEMON_ROOT_VARIABLE)
         .map(PathBuf::from)
         .or_else(|| account_home(env))
 }
+
+/// The test-support variable that makes the daemon's start die or deepen
+/// (CI on Windows, 2026-11-19): `panic` panics on the daemon's thread before
+/// it serves; `stack:<MiB>` uses that much of its stack first (more than
+/// the thread has overflows it). Passed on to a daemon a command starts.
+#[cfg(feature = "test-support")]
+pub const START_VARIABLE: &str = "CTXLOOM_TEST_DAEMON_START";
 
 /// The variable a client passes on as the spawned daemon's idle time, in
 /// seconds (the tests' short one).
@@ -220,7 +282,7 @@ enum DaemonVerb {
 }
 
 /// The noun, hidden from the help.
-pub(crate) fn noun() -> Command {
+pub fn noun() -> Command {
     shaped(DaemonVerb::augment_subcommands(
         Command::new(NOUN)
             .about("The user's daemon")
@@ -332,7 +394,7 @@ fn warned(warnings: &[daemon_proto::v1::Notice], catalog: &Catalog) -> Vec<Strin
         .collect()
 }
 
-fn failed(cause: impl coded_diagnostic::Diagnostic + 'static) -> Failure {
+pub fn failed(cause: impl coded_diagnostic::Diagnostic + 'static) -> Failure {
     Failure::new(cause, Exit::FAILED)
 }
 
@@ -345,7 +407,8 @@ fn output(written: std::io::Result<()>) -> Result<(), Failure> {
 }
 
 /// Run the `daemon` noun's verb.
-pub(crate) fn run(
+pub fn run(
+    serve: Serve,
     env: &Arc<EnvSnapshot>,
     stamp: &str,
     call: &Call<'_>,
@@ -359,26 +422,24 @@ pub(crate) fn run(
     let verb = DaemonVerb::from_arg_matches(matches)
         .unwrap_or_else(|_| unreachable!("the command line parsed {NOUN}"));
     let format = call.format();
-    // The daemon's home is the account's (M4), never its HOME; a client's
-    // is the one any command resolves.
-    let wiring = match verb {
-        DaemonVerb::Serve { .. } => daemon_wiring(env)?,
-        _ => Wiring::new(Arc::clone(env)).map_err(failed)?,
-    };
-    let files = files_of(&wiring);
+    // `daemon serve` is the daemon composition's, handed in by the binary
+    // (`Commands::with_serve`); every other verb is a client.
+    if let DaemonVerb::Serve {
+        idle_seconds,
+        poll_ms,
+        hand_over_seconds,
+    } = verb
+    {
+        let pace = Pace {
+            idle: Duration::from_secs(idle_seconds),
+            poll: Duration::from_millis(poll_ms.max(1)),
+            hand_over: Duration::from_secs(hand_over_seconds),
+        };
+        return serve(env, stamp, pace);
+    }
+    let wiring = Wiring::new(Arc::clone(env)).map_err(failed)?;
     match verb {
-        DaemonVerb::Serve {
-            idle_seconds,
-            poll_ms,
-            hand_over_seconds,
-        } => {
-            let pace = serve::Pace {
-                idle: Duration::from_secs(idle_seconds),
-                poll: Duration::from_millis(poll_ms.max(1)),
-                hand_over: Duration::from_secs(hand_over_seconds),
-            };
-            be_the_daemon(&wiring, env, stamp, &files, pace)
-        }
+        DaemonVerb::Serve { .. } => unreachable!("served above"),
         // Clients of the daemon (slice 2 step 6), answered here when none
         // serves (S14): neither starts one.
         // They look at the daemon and change nothing: no hold is delivered
@@ -463,7 +524,7 @@ fn hearing_client_of(
 }
 
 /// `future`, on a runtime of its own.
-fn block_on<T>(future: impl std::future::Future<Output = T>) -> Result<T, Failure> {
+pub fn block_on<T>(future: impl std::future::Future<Output = T>) -> Result<T, Failure> {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -476,7 +537,7 @@ fn block_on<T>(future: impl std::future::Future<Output = T>) -> Result<T, Failur
 }
 
 /// A client's call that came to nothing, as the command's failure.
-fn called(error: daemon_api::CallError) -> Failure {
+pub fn called(error: daemon_api::CallError) -> Failure {
     let exit = error.exit();
     Failure::new(error, exit)
 }
@@ -484,14 +545,14 @@ fn called(error: daemon_api::CallError) -> Failure {
 /// The stamp this client compares with the daemon's (M3): the binary's,
 /// or, under test-support, the one a test names.
 #[cfg(feature = "test-support")]
-pub(crate) fn own_stamp<'a>(env: &'a EnvSnapshot, stamp: &'a str) -> &'a str {
+pub fn own_stamp<'a>(env: &'a EnvSnapshot, stamp: &'a str) -> &'a str {
     env.utf8(STAMP_VARIABLE)
         .filter(|s| !s.is_empty())
         .unwrap_or(stamp)
 }
 
 #[cfg(not(feature = "test-support"))]
-pub(crate) fn own_stamp<'a>(_: &'a EnvSnapshot, stamp: &'a str) -> &'a str {
+pub fn own_stamp<'a>(_: &'a EnvSnapshot, stamp: &'a str) -> &'a str {
     stamp
 }
 
@@ -601,137 +662,6 @@ impl Render for Resolved {
     }
 }
 
-/// The daemon's wiring: its home [`daemon_home`]'s; refused, as any command
-/// with no home is, where there is none.
-fn daemon_wiring(env: &Arc<EnvSnapshot>) -> Result<Wiring, Failure> {
-    let home = daemon_home(env).ok_or_else(|| {
-        failed(LibError::NoHome {
-            variable: run_ports::DAEMON_ROOT_VARIABLE.to_string(),
-        })
-    })?;
-    Ok(Wiring::at(Arc::clone(env), home).with_user_home(account_home(env)))
-}
-
-/// `serve`: this process is the daemon until it exits.
-fn be_the_daemon(
-    wiring: &Wiring,
-    env: &EnvSnapshot,
-    stamp: &str,
-    files: &DaemonFiles,
-    pace: serve::Pace,
-) -> Result<Exit, Failure> {
-    let say = logger(wiring.fs(), files.log_path());
-    let place = serve::Place {
-        // The binary's; under test-support a test's own (a daemon of an
-        // older or newer version, s4-Q14's hold scenarios).
-        stamp: own_stamp(env, stamp).to_string(),
-        home: wiring.home().to_path_buf(),
-        instance_lock: instance_lock(wiring),
-        temp: env.temp_dir().to_path_buf(),
-        os: wiring.os_name().to_string(),
-        // Her own settings and login are the ACCOUNT's (the daemon has no
-        // HOME of its own, M4).
-        user_home: wiring.user_home(),
-        // Composed as every launch's engines are (the one session-setup
-        // path): calling this binary, over her own settings.
-        engines: crate::commands::hosted_engines(wiring, &crate::program::running().name),
-        // The environment its children's checkouts' git runs in.
-        env: Arc::clone(wiring.env()),
-    };
-    log_panics(wiring.fs(), files.log_path());
-    #[cfg(feature = "test-support")]
-    let start = env.utf8(START_VARIABLE).map(str::to_string);
-    let fs = wiring.fs();
-    // On a thread of its own, as each hosted session is: the process's main
-    // thread is the platform's to size (1 MiB on Windows), and the daemon's
-    // first round outgrew it in an unoptimized build (CI, 2026-11-19).
-    let serving = std::thread::Builder::new()
-        .name("ctxloom-daemon".to_string())
-        .stack_size(DAEMON_STACK)
-        .spawn(move || {
-            #[cfg(feature = "test-support")]
-            at_start(start.as_deref());
-            serve::serve(fs, place, pace, say)
-        });
-    let served = match serving {
-        // A panic is in the log already ([`log_panics`]).
-        Ok(serving) => serving
-            .join()
-            .unwrap_or_else(|_| Err(serve::Unserved::Failed("the daemon panicked".to_string()))),
-        Err(e) => Err(serve::Unserved::Failed(format!(
-            "the daemon's thread could not be started: {e}"
-        ))),
-    };
-    served_exit(served)
-}
-
-/// The stack the daemon serves on (a hosted session's is the same size).
-pub(crate) const DAEMON_STACK: usize = 16 * 1024 * 1024;
-
-/// Every panic of this daemon process is a line of its log at `path`, then
-/// told as before (to its stderr): a daemon that dies by panic says why
-/// even when its stderr is not the log (`daemon serve` run by hand).
-fn log_panics(fs: Arc<dyn Fs>, path: PathBuf) {
-    let say = std::sync::Mutex::new(logger(fs, path));
-    let told = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-        if let Ok(mut say) = say.lock() {
-            say(&format!("the daemon panicked: {info}"));
-        }
-        told(info);
-    }));
-}
-
-/// The test-support variable that makes the daemon's start die or deepen
-/// (CI on Windows, 2026-11-19): `panic` panics on the daemon's thread before
-/// it serves; `stack:<MiB>` uses that much of its stack first (more than
-/// the thread has overflows it). Passed on to a daemon a command starts.
-#[cfg(feature = "test-support")]
-pub(crate) const START_VARIABLE: &str = "CTXLOOM_TEST_DAEMON_START";
-
-/// What [`START_VARIABLE`] says to do at the daemon's start.
-#[cfg(feature = "test-support")]
-fn at_start(switch: Option<&str>) {
-    match switch {
-        Some("panic") => panic!("the test's daemon panics at its start"),
-        Some(other) => {
-            if let Some(mib) = other
-                .strip_prefix("stack:")
-                .and_then(|m| m.parse::<usize>().ok())
-            {
-                let base = 0u8;
-                std::hint::black_box(use_stack(std::ptr::addr_of!(base) as usize, mib << 20));
-            }
-        }
-        None => {}
-    }
-}
-
-/// Recurse until the stack below `base` is `bytes` deep (each frame holding
-/// a page the optimizer cannot drop).
-#[cfg(feature = "test-support")]
-fn use_stack(base: usize, bytes: usize) -> u8 {
-    let page = std::hint::black_box([1u8; 4096]);
-    if base.abs_diff(std::ptr::addr_of!(page) as usize) >= bytes {
-        return page[0];
-    }
-    use_stack(base, bytes).wrapping_add(std::hint::black_box(page)[7])
-}
-
-/// `daemon serve`'s exit: a daemon that lost the single-instance lock to
-/// another declines (20: a lock another process holds), which its spawner
-/// reads as another daemon to wait for ([`spawn_waits_on`]); one that could
-/// not serve failed (32).
-fn served_exit(served: Result<(), serve::Unserved>) -> Result<Exit, Failure> {
-    match served {
-        Ok(()) => Ok(Exit::OK),
-        Err(serve::Unserved::Held { lock }) => {
-            Err(Failure::of(LibError::DaemonInstanceHeld { lock }))
-        }
-        Err(serve::Unserved::Failed(detail)) => Err(failed(LibError::NoRuntime { detail })),
-    }
-}
-
 /// Whether a client waits on for a daemon to advertise itself once the one
 /// it spawned has exited with the status `code` (`None`: a signal's): only
 /// when that one lost the single-instance lock to another daemon, which is
@@ -739,7 +669,7 @@ fn served_exit(served: Result<(), serve::Unserved>) -> Result<Exit, Failure> {
 /// spawn, so the client stops waiting (the daemon cluster's cap, owner
 /// ruling 2026-11-18: it waited out all of [`SPAWN_WAIT`] for a daemon that
 /// had died at once).
-fn spawn_waits_on(code: Option<i32>) -> bool {
+pub fn spawn_waits_on(code: Option<i32>) -> bool {
     let held = LibError::DaemonInstanceHeld {
         lock: String::new(),
     };
@@ -749,7 +679,7 @@ fn spawn_waits_on(code: Option<i32>) -> bool {
 /// The single-instance lock of `wiring`'s ACCOUNT ([`instance_lock_path`]
 /// under [`account_home`], its ctxloom home where the account has none), a
 /// test's override first.
-pub(crate) fn instance_lock(wiring: &Wiring) -> PathBuf {
+pub fn instance_lock(wiring: &Wiring) -> PathBuf {
     let account = account_home(wiring.env());
     let base = account.as_deref().unwrap_or(wiring.home());
     instance_lock_path(base, instance_override(wiring.env()).as_deref())
@@ -770,7 +700,7 @@ fn instance_override(_: &EnvSnapshot) -> Option<PathBuf> {
 }
 
 /// The daemon files of `wiring`'s home, its account's single-instance lock.
-fn files_of(wiring: &Wiring) -> DaemonFiles {
+pub fn files_of(wiring: &Wiring) -> DaemonFiles {
     DaemonFiles::with_instance(wiring.fs(), wiring.home(), instance_lock(wiring))
 }
 
@@ -804,7 +734,7 @@ fn serving_here(
 /// slice 2 step 6): the discovery file's, if it is live (health) and this
 /// home's; else, for a call, one spawned and waited for (S16's bound), a
 /// daemon of another version stopped first when it is idle (M3).
-pub(crate) struct Reach<'a> {
+pub struct Reach<'a> {
     wiring: &'a Wiring,
     stamp: String,
     /// Whether this reach never ends what a daemon hosts (OD-3: a session's
@@ -824,7 +754,7 @@ pub(crate) struct Reach<'a> {
 impl<'a> Reach<'a> {
     /// The daemon of `wiring`'s home, as this client of stamp `stamp` (the
     /// binary's; a test's own under test-support) reaches it.
-    pub(crate) fn new(wiring: &'a Wiring, stamp: &str) -> Reach<'a> {
+    pub fn new(wiring: &'a Wiring, stamp: &str) -> Reach<'a> {
         Reach {
             wiring,
             stamp: own_stamp(wiring.env(), stamp).to_string(),
@@ -835,13 +765,13 @@ impl<'a> Reach<'a> {
     }
 
     /// The stamp this client compares with the daemon's (M3).
-    pub(crate) fn stamp(&self) -> &str {
+    pub fn stamp(&self) -> &str {
         &self.stamp
     }
 
     /// This reach as the `daemon` noun's own verbs make it (`status`,
     /// `stop`, `resolve`): it delivers no hold on its way in.
-    pub(crate) fn observing(self) -> Reach<'a> {
+    pub fn observing(self) -> Reach<'a> {
         Reach {
             flushes: false,
             ..self
@@ -850,7 +780,7 @@ impl<'a> Reach<'a> {
 
     /// This reach as `daemon status` makes it: the daemon's warnings are
     /// its answer, not heard to be said on stderr.
-    pub(crate) fn showing_warnings(self) -> Reach<'a> {
+    pub fn showing_warnings(self) -> Reach<'a> {
         Reach {
             hears: false,
             ..self
@@ -885,7 +815,7 @@ impl<'a> Reach<'a> {
     /// [`daemon_api::reconcile_session`]): an idle daemon of an older
     /// version stopped and replaced by this binary's, any other daemon of
     /// another stamp a typed mismatch, and nothing a daemon hosts ended.
-    pub(crate) fn never_stopping(self) -> Reach<'a> {
+    pub fn never_stopping(self) -> Reach<'a> {
         Reach {
             never_stops: true,
             ..self
@@ -982,7 +912,7 @@ impl Daemons for Reach<'_> {
 }
 
 /// The caller's whole environment, as a call to the daemon carries it (S7).
-pub(crate) fn env_vars(env: &EnvSnapshot) -> daemon_proto::v1::EnvVars {
+pub fn env_vars(env: &EnvSnapshot) -> daemon_proto::v1::EnvVars {
     daemon_proto::v1::EnvVars {
         vars: env
             .vars_utf8()
@@ -997,7 +927,7 @@ pub(crate) fn env_vars(env: &EnvSnapshot) -> daemon_proto::v1::EnvVars {
 /// runs for its hooks and leads its engine's `PATH` with), and its version
 /// stamp (`stamp`, a test's own under test-support), which the daemon
 /// admits only when it is its own.
-pub(crate) fn calling_client(
+pub fn calling_client(
     env: &EnvSnapshot,
     kind: daemon_proto::v1::client::Kind,
     stamp: &str,
@@ -1015,7 +945,7 @@ pub(crate) fn calling_client(
 /// it (owner, 2026-11-18): its working directory, its whole environment
 /// (S7) and [`calling_client`]; a command's own flags and presentable are its
 /// request's.
-pub(crate) fn caller_of(
+pub fn caller_of(
     env: &EnvSnapshot,
     kind: daemon_proto::v1::client::Kind,
     stamp: &str,
@@ -1037,7 +967,7 @@ pub(crate) fn caller_of(
 /// read names no project, so it mints none: owner ruling 2026-11-14); one
 /// that cannot be told is
 /// outside a project, as before.
-pub(crate) fn client<'a>(wiring: &'a Wiring, stamp: &str) -> daemon_api::Client<Reach<'a>> {
+pub fn client<'a>(wiring: &'a Wiring, stamp: &str) -> daemon_api::Client<Reach<'a>> {
     client_reaching(wiring, Reach::new(wiring, stamp))
 }
 
@@ -1134,7 +1064,7 @@ fn retrying<'a>(
 /// minted at its root, unless `minting` is a dry run's `Never`, which
 /// refuses it (owner ruling 2026-11-14). A call that fails fails the command
 /// in its own class.
-pub(crate) fn library_parent(
+pub fn library_parent(
     wiring: &Wiring,
     stamp: &str,
     minting: crate::Minting,
@@ -1153,7 +1083,7 @@ pub(crate) fn library_parent(
 /// The daemon is reached in every case, asked `GetDaemon` where there is
 /// nothing to resolve (`daemon_api::Client::named_parent`), so one that
 /// cannot be started fails the dry run as it fails every client's command.
-pub(crate) fn library_parent_if_named(
+pub fn library_parent_if_named(
     wiring: &Wiring,
     stamp: &str,
     minting: crate::Minting,
@@ -1178,7 +1108,7 @@ pub(crate) fn library_parent_if_named(
 /// never minted (owner ruling 2026-11-14: "dry run should *not* mint"); a
 /// ctxloom project nothing has named is asked unnamed, under `users/me`,
 /// and the daemon leaves its names unresolved.
-pub(crate) fn preview_client<'a>(
+pub fn preview_client<'a>(
     wiring: &'a Wiring,
     stamp: &str,
 ) -> Result<daemon_api::Client<Reach<'a>>, Failure> {
@@ -1201,7 +1131,7 @@ pub(crate) fn preview_client<'a>(
 /// The loadout of a run planned on `profile` (step 10c U13's seed): the
 /// profile as the daemon assembles it, its fragments' bundles.
 #[cfg(feature = "test-support")]
-pub(crate) fn profile_loadout(
+pub fn profile_loadout(
     wiring: &Wiring,
     stamp: &str,
     profile: &str,
@@ -1220,7 +1150,7 @@ pub(crate) fn profile_loadout(
     ))
 }
 
-pub(crate) fn library_client<'a>(
+pub fn library_client<'a>(
     wiring: &'a Wiring,
     stamp: &str,
 ) -> Result<daemon_api::Client<Reach<'a>>, Failure> {
@@ -1236,13 +1166,13 @@ pub(crate) fn library_client<'a>(
 /// This command's client of the daemon for a read of the home's alone
 /// (`loadout`, step 10a U2): asked under `users/me`, wherever it is run,
 /// so no project is registered, minted or observed for it.
-pub(crate) fn home_client<'a>(wiring: &'a Wiring, stamp: &str) -> daemon_api::Client<Reach<'a>> {
+pub fn home_client<'a>(wiring: &'a Wiring, stamp: &str) -> daemon_api::Client<Reach<'a>> {
     client_for(wiring, stamp, None)
 }
 
 /// A client call's answer, or the failure it ends the command in, in its
 /// own class.
-pub(crate) fn answered<T>(
+pub fn answered<T>(
     call: impl std::future::Future<Output = Result<T, daemon_api::CallError>>,
 ) -> Result<T, Failure> {
     block_on(call)?.map_err(called)
@@ -1262,7 +1192,7 @@ fn resolved_parent(
 /// (registered or rechecked, a daemon reached or started), each write's id
 /// minted per call, a launch that names no child minting its harp. Outside a
 /// project it is refused (exit 48).
-pub(crate) fn child_caller<'a>(
+pub fn child_caller<'a>(
     wiring: &'a Wiring,
     stamp: &str,
 ) -> Result<daemon_api::Caller<Reach<'a>>, Failure> {
@@ -1303,7 +1233,7 @@ pub(crate) fn child_caller<'a>(
 /// the library asks it where the answer decides something: ONE `GetTrust`
 /// of her daemon of this `stamp` (reached, or started), asked when the
 /// library asks. Outside a project, or with no answer, it is untrusted.
-pub(crate) fn trust_ask(wiring: &Wiring, stamp: &str) -> library_application::TrustAsk {
+pub fn trust_ask(wiring: &Wiring, stamp: &str) -> library_application::TrustAsk {
     let (env, stamp) = (Arc::clone(wiring.env()), stamp.to_string());
     std::rc::Rc::new(move || {
         let Ok(wiring) = Wiring::new(Arc::clone(&env)) else {
@@ -1325,7 +1255,7 @@ pub(crate) fn trust_ask(wiring: &Wiring, stamp: &str) -> library_application::Tr
 /// caller's `CTXLOOM_ROOT`), its id minted at its root where nothing has
 /// named it, as a launch's own project's is. A directory in no ctxloom
 /// project is refused, `daemon-api-project-unknown`.
-pub(crate) fn project_resolver(wiring: &Wiring, base: PathBuf) -> Arc<daemon_api::ProjectResolver> {
+pub fn project_resolver(wiring: &Wiring, base: PathBuf) -> Arc<daemon_api::ProjectResolver> {
     let env = Arc::clone(wiring.env());
     let home = wiring.home().to_path_buf();
     let user_home = wiring.user_home();
@@ -1364,7 +1294,7 @@ pub(crate) fn project_resolver(wiring: &Wiring, base: PathBuf) -> Arc<daemon_api
 /// `path` with its `.` and `..` taken out by their words alone: a
 /// project's directory named `../api` is the sibling `api`, never found by a
 /// walk up from `<project>/..` to the project itself.
-pub(crate) fn lexical(path: &Path) -> PathBuf {
+pub fn lexical(path: &Path) -> PathBuf {
     use std::path::Component;
     let mut out = PathBuf::new();
     for part in path.components() {
@@ -1383,35 +1313,13 @@ pub(crate) fn lexical(path: &Path) -> PathBuf {
 
 /// The launch locks a launch from `wiring`'s home holds (T6): its daemon's
 /// run locks, which its sweep probes.
-pub(crate) fn launch_locks(wiring: &Wiring) -> Arc<dyn run_ports::RunLocks> {
+pub fn launch_locks(wiring: &Wiring) -> Arc<dyn run_ports::RunLocks> {
     Arc::new(files_of(wiring).launch_locks())
 }
 
 /// A write's request id (S8): a fresh UUIDv7, unique per call.
-pub(crate) fn request_id() -> String {
+pub fn request_id() -> String {
     uuid::Uuid::now_v7().to_string()
-}
-
-/// A log line writer: each line appended with its time to `path`, opened
-/// once, here, as the daemon starts (its directory made first), through the
-/// file-system seam, and written through that handle for the daemon's life:
-/// never reopened or made again by its path (owner, 2026-11-17), so a line
-/// said once its home is gone (the user deleted her ctxloom home, j000100's
-/// exit) makes nothing there. A log that cannot be opened says nothing.
-/// Nothing it is given holds a secret.
-fn logger(fs: Arc<dyn Fs>, path: PathBuf) -> Box<dyn FnMut(&str) + Send> {
-    if let Some(dir) = path.parent() {
-        let _ = fs.create_dir_all(dir, Mode::from_bits(0o700));
-    }
-    let mut file = fs.open(&path, Open::Append(Mode::from_bits(0o600))).ok();
-    Box::new(move |line: &str| {
-        if let Some(file) = file.as_mut() {
-            let seconds = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |d| d.as_secs());
-            let _ = writeln!(file, "{seconds} {line}");
-        }
-    })
 }
 
 /// Whether the daemon `found` names is live (T16, M11): it answers the
@@ -1425,7 +1333,7 @@ fn live(found: &run_ports::Discovery) -> bool {
 /// this home its discovery file names, else one spawned and waited for, at
 /// most `wait`; none when none serves this home within it (none could be
 /// started, or the one serving serves another home).
-pub(crate) fn hook_daemon(env: &Arc<EnvSnapshot>, wait: Duration) -> Option<run_ports::Discovery> {
+pub fn hook_daemon(env: &Arc<EnvSnapshot>, wait: Duration) -> Option<run_ports::Discovery> {
     let wiring = Wiring::new(Arc::clone(env)).ok()?;
     let files = files_of(&wiring);
     if let Some(found) = serving(&wiring, &files).ok()? {
@@ -1439,7 +1347,7 @@ pub(crate) fn hook_daemon(env: &Arc<EnvSnapshot>, wait: Duration) -> Option<run_
 /// hook RPC: a health check is a TLS connection of its own): what a hook's
 /// one call asks first; reached unreachable, it probes ([`hook_daemon`]).
 /// None for a daemon of another home.
-pub(crate) fn hook_daemon_unprobed(env: &Arc<EnvSnapshot>) -> Option<run_ports::Discovery> {
+pub fn hook_daemon_unprobed(env: &Arc<EnvSnapshot>) -> Option<run_ports::Discovery> {
     let wiring = Wiring::new(Arc::clone(env)).ok()?;
     let found = files_of(&wiring).discovery()?;
     (found.home == wiring.home().display().to_string()).then_some(found)
@@ -1447,14 +1355,14 @@ pub(crate) fn hook_daemon_unprobed(env: &Arc<EnvSnapshot>) -> Option<run_ports::
 
 /// `discovery` published as `wiring`'s home's daemon's, for a test.
 #[cfg(test)]
-pub(crate) fn publish_for_test(wiring: &Wiring, discovery: &run_ports::Discovery) {
+pub fn publish_for_test(wiring: &Wiring, discovery: &run_ports::Discovery) {
     files_of(wiring).publish(discovery).unwrap();
 }
 
 /// The daemon a hook's library read asks when it may start none (its
 /// environment names an endpoint, OD-13): the live one of this home its
 /// discovery file names, else none.
-pub(crate) fn hook_daemon_serving(env: &Arc<EnvSnapshot>) -> Option<run_ports::Discovery> {
+pub fn hook_daemon_serving(env: &Arc<EnvSnapshot>) -> Option<run_ports::Discovery> {
     let wiring = Wiring::new(Arc::clone(env)).ok()?;
     let files = files_of(&wiring);
     serving(&wiring, &files).ok().flatten()
@@ -1600,9 +1508,9 @@ fn ensure_within(wiring: &Wiring, env: &EnvSnapshot, wait: Duration) -> Option<D
 /// How a daemon a client spawned died before it served: its exit status,
 /// as the platform says it, and the last lines of its log.
 #[derive(Debug, PartialEq)]
-pub(crate) struct Died {
-    pub(crate) status: String,
-    pub(crate) tail: String,
+pub struct Died {
+    pub status: String,
+    pub tail: String,
 }
 
 /// The lines of a daemon's log [`Died`] holds.
@@ -1615,91 +1523,6 @@ fn tail_of(text: &str, lines: usize) -> String {
     kept[kept.len().saturating_sub(lines)..].join("\n")
 }
 
-/// The variables that say where the user's own engine settings are (her
-/// claude config dir, her XDG bases): a launcher sends its own with the
-/// launch (S7), and the launch reads her settings there (T21), never from
-/// the daemon's environment; none of them is the child's.
-pub(crate) const SETTINGS_PLACES: [&str; 4] = [
-    "CLAUDE_CONFIG_DIR",
-    "XDG_CONFIG_HOME",
-    "XDG_DATA_HOME",
-    "XDG_STATE_HOME",
-];
-
-/// The places of [`SETTINGS_PLACES`] `caller` sets (keyed as the platform
-/// compares names).
-fn settings_places(caller: &BTreeMap<String, String>) -> BTreeMap<String, String> {
-    SETTINGS_PLACES
-        .iter()
-        .filter_map(|name| {
-            caller
-                .get(*name)
-                .filter(|value| !value.is_empty())
-                .map(|value| ((*name).to_string(), value.clone()))
-        })
-        .collect()
-}
-
-/// The engines a hosted child's launch is set up and started with (T21):
-/// composed as every launch's are (`oneshot::launch_engines`, calling
-/// `program`), over the user's own settings read NOW, where her launcher
-/// finds them (`launcher`, its [`SETTINGS_PLACES`]) under her home
-/// (`user_home`, the account's), with ctxloom's `home`.
-pub(crate) fn launch_engines_for(
-    home: &Path,
-    user_home: Option<&Path>,
-    temp: &Path,
-    launcher: &BTreeMap<String, String>,
-    program: &str,
-) -> crate::oneshot::LaunchEngines {
-    let flavor = os::host().flavor();
-    let mut vars: Vec<(OsString, OsString)> = launcher
-        .iter()
-        .filter(|(name, _)| SETTINGS_PLACES.contains(&name.as_str()))
-        .map(|(name, value)| (name.into(), value.into()))
-        .collect();
-    if let Some(user_home) = user_home {
-        vars.push((
-            flavor.home_var().into(),
-            user_home.as_os_str().to_os_string(),
-        ));
-    }
-    let snapshot =
-        EnvSnapshot::from_parts(flavor, Ok(home.to_path_buf()), temp.to_path_buf(), vars);
-    let wiring = Wiring::at(Arc::new(snapshot), home.to_path_buf())
-        .with_user_home(user_home.map(Path::to_path_buf));
-    crate::oneshot::launch_engines(&wiring, program)
-}
-
-/// The user's git identity in the child's project at `project_dir` (owner
-/// ruling 112), asked of git as a CLI run asks it: in her own environment,
-/// the one her launcher sent (`env`) with her home (`user_home`, the
-/// account's) as `HOME`. None when git knows neither part.
-pub(crate) fn child_git_user(
-    temp: &Path,
-    user_home: Option<&Path>,
-    project_dir: &str,
-    env: &BTreeMap<String, String>,
-) -> Option<run_ports::GitUser> {
-    let flavor = os::host().flavor();
-    let home_var = flavor.home_var();
-    let mut vars: Vec<(OsString, OsString)> = env
-        .iter()
-        .filter(|(name, _)| flavor.env_key(name) != flavor.env_key(home_var))
-        .map(|(name, value)| (name.into(), value.into()))
-        .collect();
-    let home = user_home?;
-    vars.push((home_var.into(), home.as_os_str().to_os_string()));
-    let snapshot = EnvSnapshot::from_parts(
-        flavor,
-        Ok(PathBuf::from(project_dir)),
-        temp.to_path_buf(),
-        vars,
-    );
-    let wiring = Wiring::new(Arc::new(snapshot)).ok()?;
-    crate::oneshot::git_user(&wiring, Path::new(project_dir))
-}
-
 /// The environment of a call the daemon serves (S7; step 10a U2, the ONE
 /// builder every per-call read and run is made over): the caller's `env`
 /// as a process at `dir` (its working directory) sees it, `root`, when
@@ -1707,7 +1530,7 @@ pub(crate) fn child_git_user(
 /// (as the platform compares names), its temporary directory the caller's
 /// ([`caller_temp`]; `temp`, the daemon's, only for a call with no
 /// environment).
-pub(crate) fn caller_env<'a>(
+pub fn caller_env<'a>(
     flavor: os::Flavor,
     temp: &Path,
     (dir, root): (&str, Option<&str>),
@@ -1725,18 +1548,13 @@ pub(crate) fn caller_env<'a>(
     }
     EnvSnapshot::from_parts(flavor, Ok(PathBuf::from(dir)), temp, vars)
 }
-
 /// The temporary directory of a call made in `vars` (owner, 2026-11-18):
 /// the CALLER's, as the platform's standard library reads it from an
 /// environment (unix: `TMPDIR`, else `/tmp`; Windows: `TMP`, `TEMP`,
 /// `USERPROFILE`, else the Windows directory), never the daemon's own. A
 /// call that carries no environment at all (the daemon's own work, no
 /// caller's) is the daemon's, `own`.
-pub(crate) fn caller_temp(
-    flavor: os::Flavor,
-    vars: &[(OsString, OsString)],
-    own: &Path,
-) -> PathBuf {
+pub fn caller_temp(flavor: os::Flavor, vars: &[(OsString, OsString)], own: &Path) -> PathBuf {
     if vars.is_empty() {
         return own.to_path_buf();
     }
@@ -1757,11 +1575,10 @@ pub(crate) fn caller_temp(
             .unwrap_or_else(|| own.to_path_buf()),
     }
 }
-
 /// The wiring of a call the daemon serves: [`caller_env`]'s process, with
 /// ctxloom's `home` as its home (the caller's own home stays its own, so her
 /// login and settings are found under it, M4).
-pub(crate) fn caller_wiring<'a>(
+pub fn caller_wiring<'a>(
     home: &Path,
     temp: &Path,
     place: (&str, Option<&str>),
@@ -1769,79 +1586,6 @@ pub(crate) fn caller_wiring<'a>(
 ) -> Wiring {
     let snapshot = caller_env(os::host().flavor(), temp, place, env);
     Wiring::at(Arc::new(snapshot), home.to_path_buf())
-}
-
-/// The plan of a child of the project at `project_dir` (D18, D-N46): that
-/// project's dry run, for `agent` (empty: its default) on the child's
-/// engine, read as a
-/// process in that project would, with `env` (the environment its launcher
-/// sent, S6) and ctxloom's `home`. Where it cannot be planned, the error's
-/// code.
-pub(crate) fn child_plan(
-    home: &Path,
-    temp: &Path,
-    engine: &str,
-    agent: &str,
-    project_dir: &str,
-    env: &BTreeMap<String, String>,
-    trusted: bool,
-) -> Result<library_application::Previewed, String> {
-    let library = child_library(home, temp, project_dir, env)?;
-    let request = library_application::RunRequest {
-        agent: agent.to_string(),
-        engine: engine.to_string(),
-        ..library_application::RunRequest::default()
-    };
-    let flags = library_application::Flags {
-        trusted,
-        ..library_application::Flags::default()
-    };
-    library
-        .dry_run(&flags, &request)
-        .result
-        .map_err(|e| coded_diagnostic::Diagnostic::code(&e).to_string())
-}
-
-/// The root of the session output folders of the project at
-/// `project_dir`, as a ctxloom process there reads its config with `env`
-/// (step 8 U2b: a child launched into it from another project keeps its
-/// outputs under it): `output.dir` against the project's root, its default
-/// where the config does not say or does not read, as a hosted run's is.
-pub(crate) fn child_output_root(
-    home: &Path,
-    temp: &Path,
-    project_dir: &str,
-    env: &BTreeMap<String, String>,
-) -> Result<String, String> {
-    let library = child_library(home, temp, project_dir, env)?;
-    let written = library
-        .run_settings(&library_application::Flags::default())
-        .map_or_else(
-            || library_application::OUTPUT_DIR_DEFAULT.to_string(),
-            |settings| settings.output_dir,
-        );
-    let root = crate::oneshot::output_root(Path::new(project_dir), &written);
-    Ok(root.display().to_string())
-}
-
-/// The library of the project at `project_dir`, as a ctxloom process
-/// there would build it: `env` with the project as its root and the
-/// daemon's home as its home.
-fn child_library(
-    home: &Path,
-    temp: &Path,
-    project_dir: &str,
-    env: &BTreeMap<String, String>,
-) -> Result<library_application::Library, String> {
-    let wiring = caller_wiring(
-        home,
-        temp,
-        (project_dir, Some(project_dir)),
-        env.iter()
-            .map(|(name, value)| (name.as_str(), value.as_str())),
-    );
-    let code = |e: &dyn coded_diagnostic::Diagnostic| e.code().to_string();
-    crate::library::build(&wiring).map_err(|e| code(&e))
 }
 
 #[cfg(test)]

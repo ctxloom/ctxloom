@@ -16,17 +16,17 @@ use crate::capture::DaemonReach;
 use crate::{Commands, HoldingRecording, HookRecording, HookSink, RunIds, Sessions, Wiring};
 
 /// The nouns these commands own.
-pub(crate) const NOUNS: [&str; 2] = ["session", "hook"];
+pub const NOUNS: [&str; 2] = ["session", "hook"];
 
 /// The trust noun (step 8 U1), session-cli's second: a client of the
 /// daemon, as the child verbs are.
-pub(crate) const TRUST_NOUN: &str = "trust";
+pub const TRUST_NOUN: &str = "trust";
 
 /// The top noun (DRAFT): a client of the daemon's `WatchTop`.
-pub(crate) const TOP_NOUN: &str = "top";
+pub const TOP_NOUN: &str = "top";
 
 /// The nouns, shaped like the command line's own.
-pub(crate) fn nouns() -> Vec<Command> {
+pub fn nouns() -> Vec<Command> {
     vec![
         shaped(session_cli::noun()),
         shaped(hook_cli::noun()),
@@ -38,8 +38,8 @@ pub(crate) fn nouns() -> Vec<Command> {
 /// The person at this process's terminal, asked yes or no (`[y/N]`: only
 /// `y` or `yes` is a yes); a terminal stood in under test-support
 /// (`CTXLOOM_TEST_TERMINAL`), its answers on standard input.
-pub(crate) struct TrustTerminal {
-    pub(crate) stood_in: bool,
+pub struct TrustTerminal {
+    pub stood_in: bool,
 }
 
 impl session_cli::Asking for TrustTerminal {
@@ -201,7 +201,7 @@ fn said_yes(line: &str) -> bool {
 /// The user's login as this process's environment says it (`USER`, else
 /// `LOGNAME`, else Windows' `USERNAME`): the actor a trust is recorded with
 /// (one principal; nothing stamps yet, D13). None said, empty.
-pub(crate) fn user_login(env: &process_env::EnvSnapshot) -> String {
+pub fn user_login(env: &process_env::EnvSnapshot) -> String {
     ["USER", "LOGNAME", "USERNAME"]
         .iter()
         .find_map(|name| {
@@ -244,63 +244,21 @@ impl Commands {
         }
     }
 
-    /// The sessions use cases let go, their stores closed and waited for
-    /// (ruling 131) before the process exits: dropped, a store's close is
-    /// left to the driver's thread, which the exit need not let run, and the
-    /// store's log would stay beside it. None built, nothing to close.
-    fn close_sessions(&mut self) -> Result<(), Box<dyn Diagnostic>> {
-        let Some(mut sessions) = self.sessions.take() else {
-            return Ok(());
-        };
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .map_err(|e| -> Box<dyn Diagnostic> {
-                Box::new(CliError::Output {
-                    detail: e.to_string(),
-                })
-            })?;
-        runtime
-            .block_on(sessions.close())
-            .map_err(|e| -> Box<dyn Diagnostic> { Box::new(e) })
-    }
-
-    /// `answer`, once the sessions' stores are closed: a close that fails is
-    /// said, and fails a command that had not (exit 17); beside a failure of
-    /// the command's own, which is answered, it is said as a warning.
-    fn closing(
-        &mut self,
-        answer: Result<Exit, Failure>,
-        format: Format,
-        catalog: &Catalog,
-        err: &mut dyn Write,
-    ) -> Result<Exit, Failure> {
-        match (self.close_sessions(), answer) {
-            (Ok(()), answer) => answer,
-            (Err(unclosed), Ok(_)) => Err(failed(unclosed)),
-            (Err(unclosed), Err(failure)) => {
-                say_warning(&*unclosed, PROG, format, catalog, err);
-                Err(failure)
-            }
-        }
-    }
-
     /// `session ...`: the command run on the sessions use cases, its notices
     /// and dead letters said beside its answer.
-    pub(crate) fn session(
+    pub fn session(
         &mut self,
         call: &Call<'_>,
         catalog: &Catalog,
         out: &mut dyn Write,
         err: &mut dyn Write,
     ) -> Result<Exit, Failure> {
-        let answer = self.session_on_use_cases(call, catalog, out, err);
-        self.closing(answer, call.format(), catalog, err)
+        self.session_on_use_cases(call, catalog, out, err)
     }
 
     /// `trust ...` (step 8 U1): the user's verdict on this project's own
     /// settings, through her daemon, asked at her terminal.
-    pub(crate) fn trust(
+    pub fn trust(
         &mut self,
         call: &Call<'_>,
         catalog: &Catalog,
@@ -339,7 +297,7 @@ impl Commands {
 
     /// `top ...` (DRAFT): what the daemon hosts, live, through her daemon's
     /// `WatchTop`; it starts no daemon and waits for one.
-    pub(crate) fn top(
+    pub fn top(
         &mut self,
         call: &Call<'_>,
         catalog: &Catalog,
@@ -458,8 +416,8 @@ impl Commands {
             };
             destroy(&command, &client, (&holds, &asking), format, out)
         } else {
-            let service = self.sessions().map_err(failed)?;
-            session_cli::run(&command, service, format, out)
+            let worktrees = self.sessions().map_err(failed)?;
+            session_cli::run(&command, worktrees, format, out)
         };
         said(ran, format, catalog, err)
     }
@@ -467,7 +425,7 @@ impl Commands {
     /// `hook ...`: an engine's callback. Stdout is the engine's input and
     /// only that; what a hook can foresee going wrong it warns of on the
     /// diagnostic channel and still succeeds. `input` is its payload.
-    pub(crate) fn hook(
+    pub fn hook(
         &mut self,
         input: &str,
         call: &Call<'_>,

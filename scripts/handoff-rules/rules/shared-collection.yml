@@ -1,0 +1,16 @@
+id: handoff-shared-collection
+language: rust
+severity: error
+message: A lock around a collection, held as a field or static, is an in-memory hand-off between components.
+note: >
+  Aggregates, projectors and runners communicate by messages (the store's
+  streams), never by a collection one holds and another reads. A runner's own
+  state is allowed with a reason in scripts/handoff-allow.txt; a hand-off is
+  debt there, naming the pattern that replaces it.
+rule:
+  any:
+    - kind: field_declaration
+    - kind: static_item
+  regex: '(Mutex|RwLock)\s*<\s*(BTreeMap|HashMap|Vec|VecDeque)\b'
+ignores:
+  - "**/*.test.rs"

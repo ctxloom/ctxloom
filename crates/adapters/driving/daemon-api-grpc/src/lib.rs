@@ -687,6 +687,16 @@ impl Ctxloom for Served {
         .await
     }
 
+    async fn import_sessions(
+        &self,
+        request: Request<v1::ImportSessionsRequest>,
+    ) -> Result<Response<v1::ImportSessionsResponse>, Status> {
+        self.answer(request, |calls, message| async move {
+            calls.import_sessions(message).await
+        })
+        .await
+    }
+
     #[cfg(feature = "session-destroy")]
     async fn sweep_sessions(
         &self,

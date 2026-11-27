@@ -202,25 +202,31 @@ fn a_closed_session_has_nothing_pending() {
     assert!(pending.owed().is_empty());
 }
 
-// Rebuildable like pending-launches: a book from 0 starts the stream afresh,
-// and a purged stream (no page, next_sequence 0) leaves.
+// A tombstone closes a stream: the session folded afresh after it holds only
+// what follows, and a closed run or session leaves.
 #[test]
-fn a_stream_rebuilt_or_purged_is_folded_afresh() {
+fn a_stream_closed_by_a_tombstone_is_folded_afresh() {
     let (m1, m2) = (message("m1", Urgency::Wake), message("m2", Urgency::Wake));
     let mut pending = Pending::new();
     pending
         .project(&on_session(1, 0, vec![sent(&m1), sent(&m2)]))
         .unwrap();
     pending.project(&on_run(1, 1, 0, &[&["m1"]])).unwrap();
-    pending.project(&on_session(1, 0, vec![sent(&m1)])).unwrap();
+    let mut again = on_session(1, 3, vec![sent(&m1)]);
+    again
+        .pages
+        .insert(0, angzarr_embedded::angzarr_ports::tombstone::page(2));
+    pending.project(&again).unwrap();
     assert!(pending.pending(&session(1).1).is_empty(), "m1 carried");
-    pending
-        .project(&book(RUN_DOMAIN, run_root(&session(1).1, 1), Vec::new()))
-        .unwrap();
+    let mut gone = book(RUN_DOMAIN, run_root(&session(1).1, 1), Vec::new());
+    gone.pages
+        .push(angzarr_embedded::angzarr_ports::tombstone::page(1));
+    pending.project(&gone).unwrap();
     assert_eq!(pending.pending(&session(1).1), vec![m1.clone()]);
-    pending
-        .project(&book(SESSION_DOMAIN, session(1).0, Vec::new()))
-        .unwrap();
+    let mut gone = book(SESSION_DOMAIN, session(1).0, Vec::new());
+    gone.pages
+        .push(angzarr_embedded::angzarr_ports::tombstone::page(4));
+    pending.project(&gone).unwrap();
     assert!(pending.pending(&session(1).1).is_empty());
 }
 

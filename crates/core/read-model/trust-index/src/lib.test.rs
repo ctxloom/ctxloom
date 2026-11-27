@@ -142,7 +142,7 @@ fn the_trusted_are_listed_by_name_whatever_order_they_came_in() {
 }
 
 #[test]
-fn a_book_from_sequence_zero_starts_the_stream_afresh() {
+fn a_tombstone_closes_the_stream() {
     let mut index = TrustIndex::new();
     index
         .project(&on(
@@ -152,9 +152,12 @@ fn a_book_from_sequence_zero_starts_the_stream_afresh() {
             vec![granted("amber", "alice")],
         ))
         .unwrap();
-    // The stream purged and written again: only what it holds now counts.
-    let mut again = on("amber", TRUST_DOMAIN, 0, vec![]);
-    again.next_sequence = 0;
+    // The stream purged: its tombstone closes it, and it holds no trust.
+    let mut again = on("amber", TRUST_DOMAIN, 1, vec![]);
+    again
+        .pages
+        .push(angzarr_embedded::angzarr_ports::tombstone::page(1));
+    again.next_sequence = 2;
     index.project(&again).unwrap();
     assert_eq!(index.named(&name("amber")), None);
 }

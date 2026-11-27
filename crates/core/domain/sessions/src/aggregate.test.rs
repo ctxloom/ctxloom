@@ -188,6 +188,19 @@ impl Session {
         }
     }
 
+    /// Purge the stream as the daemon's destroy does: its events go and a
+    /// tombstone is appended at its head.
+    pub(crate) fn purge(&self) -> u64 {
+        use angzarr_embedded::{EventStore, Purge, StreamRef};
+        let cover = cover();
+        let stream = StreamRef::try_from(&cover).unwrap();
+        let store = self.harness.store().inner();
+        let head = angzarr_embedded::testing::block_on_ready(EventStore::head(store, stream))
+            .unwrap()
+            .next_sequence;
+        angzarr_embedded::testing::block_on_ready(Purge::purge(store, stream, head)).unwrap()
+    }
+
     /// The pages stored, oldest first.
     pub(crate) fn pages(&self) -> Vec<EventPage> {
         self.harness.pages()

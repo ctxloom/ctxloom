@@ -9,16 +9,12 @@ use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cove
 use angzarr_embedded::{Kernel, OnRetryable, Payload, Sampled, StoreError, Timestamp};
 use coded_diagnostic::Report;
 use ports::{Project, ProjectIdentity};
-use session_ports::{GoSession, GoSessions, Liveness, LockState, ProjectStores};
-use sessions::{
-    BindEngineSession, MintSession, Origin, RecordEnd, SessionAggregate, SessionCommand,
-    SESSION_DOMAIN,
-};
+use session_ports::{GoSession, GoSessions, ProjectStores};
+use sessions::{MintSession, Origin, SessionAggregate, SessionCommand, SESSION_DOMAIN};
 
 /// Run a future whose every await is ready at once: the test support's.
 pub use angzarr_embedded::testing::block_on_ready as ready;
-/// The clock, ids and delay: the ports' stand-ins.
-pub use ports::testing::{FakeClock, FakeDelay};
+use ports::testing::FakeClock;
 
 pub fn project(id: &str) -> Project {
     Project {
@@ -116,16 +112,6 @@ impl ProjectStores for FakeStores {
     }
 }
 
-/// The lock of each harp; one not named is unproven.
-#[derive(Default)]
-pub struct FakeLiveness(pub BTreeMap<String, LockState>);
-
-impl Liveness for FakeLiveness {
-    fn lock_state(&mut self, harp: &str) -> LockState {
-        self.0.get(harp).copied().unwrap_or(LockState::Unproven)
-    }
-}
-
 /// The stream of the session with stable id `id`.
 pub fn cover(id: u8) -> Cover {
     Cover {
@@ -152,6 +138,10 @@ pub fn run(store: &MemoryStore, id: u8, seconds: i64, command: impl Into<Session
 }
 
 /// Send `book` to its session stream directly, sampled at `seconds`.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a test kernel or store of its own"
+)]
 fn run_book(store: &MemoryStore, seconds: i64, book: CommandBook) {
     let registry = crate::registry();
     let sampled = Sampled {
@@ -203,63 +193,6 @@ pub fn minted_in(
     );
 }
 
-pub fn bound(store: &MemoryStore, id: u8, at: i64, native_id: &str, transcript: &str) {
-    // A bind is a fact (owner ruling 2026-11-04, S5 review item 8).
-    run_book(
-        store,
-        at,
-        sessions::bind_book(
-            cover(id),
-            &BindEngineSession {
-                native_id: native_id.to_string(),
-                transcript_path: transcript.to_string(),
-                engine_version: None,
-            },
-        ),
-    );
-}
-
-pub fn ended(store: &MemoryStore, id: u8, at: i64, ended_at: i64) {
-    run(
-        store,
-        id,
-        at,
-        RecordEnd {
-            at: Timestamp {
-                seconds: ended_at,
-                nanos: 0,
-            },
-        },
-    );
-}
-
-/// A prompt the session's hooks delivered, at `at`: a capture fact on its
-/// stream, keyed as the hook keys it (owner ruling 87a: the store, not a
-/// file, is what a transcript is read from).
-pub fn captured(store: &MemoryStore, id: u8, at: i64, prompt_id: &str, prompt: &str) {
-    use angzarr_embedded::markup::DomainMessage;
-    use angzarr_embedded::v1::{Fact, FactOrigin};
-    let fact = sessions::RecordPromptSubmitted {
-        prompt_id: prompt_id.to_string(),
-        prompt: prompt.to_string(),
-        ..Default::default()
-    };
-    let book = CommandBook {
-        cover: Some(cover(id)),
-        page: Some(CommandPage {
-            body: Some(command_page::Body::Fact(Fact {
-                payload: Some(angzarr_embedded::Any::from_msg(&fact.to_wire()).unwrap()),
-                origin: Some(FactOrigin {
-                    external_id: format!("hook:prompt:{}:{prompt_id}", id_text(id)),
-                    description: String::new(),
-                }),
-            })),
-            ..CommandPage::default()
-        }),
-    };
-    run_book(store, at, book);
-}
-
 /// Go's session directories, as a test lays them out.
 #[derive(Default)]
 pub struct FakeGo(pub Vec<GoSession>);
@@ -278,78 +211,63 @@ pub fn project_at(id: &str, root: &str) -> Project {
     }
 }
 
-/// The claim stream of `harp` in project `project`.
-/// The claim stream of `harp` under the project harp `project` (its name's
-/// root, slice 2 B3).
-pub fn claim_cover(project: &str, harp: &str) -> Cover {
-    Cover {
-        domain: sessions::NAMES_DOMAIN.to_string(),
-        root: Some(sessions::SessionName::new(project, harp).unwrap().root()),
-        edition: None,
-    }
+/// The importer's way out, over in-memory stores: each command handled by a
+/// kernel of the test's own, as the daemon's core handles it for the real
+/// one. `stores` is where the streams are kept.
+#[derive(Default)]
+pub struct StoreDispatch {
+    pub stores: FakeStores,
+    pub clock: FakeClock,
+    pub sent: Vec<String>,
 }
 
-/// `session` (a UUID's text) takes the name `harp` of `project` in `store`
-/// directly, as a mint does; the kernel's answer.
-pub fn claim(
-    store: &MemoryStore,
-    project: &str,
-    harp: &str,
-    session: &str,
-) -> Result<(), Box<angzarr_embedded::Failure<angzarr_embedded::Rejected>>> {
-    let registry = crate::registry();
-    let command = sessions::NameClaimCommand::from(sessions::ClaimName {
-        project_id: project.to_string(),
-        harp: harp.to_string(),
-        session: session.to_string(),
-    });
-    let book = CommandBook {
-        cover: Some(claim_cover(project, harp)),
-        page: Some(CommandPage {
-            body: Some(command_page::Body::Command(Command {
-                payload: Some(command.to_any()),
-                handling: None,
+impl crate::Dispatch for StoreDispatch {
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "a test kernel or store of its own"
+    )]
+    async fn send(&mut self, project: &Project, book: CommandBook, id: &Uuid) -> crate::Sending {
+        use angzarr_embedded::Handled;
+        use ports::Clock;
+        let store = self.stores.open(project).await.expect("a store");
+        let registry = crate::registry();
+        let sampled = Sampled {
+            now: self.clock.now(),
+            command_id: id.clone(),
+        };
+        let domain = book.cover.as_ref().map(|c| c.domain.clone());
+        self.sent.extend(domain);
+        let handled = Kernel::new(&registry)
+            .on_retryable(OnRetryable::default())
+            .handle_any(store, book, &sampled)
+            .await;
+        match handled {
+            Ok(handled) => Ok(Ok(crate::Sent {
+                duplicate: matches!(handled, Handled::Duplicate(..)),
             })),
-            ..CommandPage::default()
-        }),
-    };
-    let sampled = Sampled {
-        now: Timestamp {
-            seconds: 1_700_000_000,
-            nanos: 0,
-        },
-        command_id: Uuid::from_bytes(
-            *uuid::Uuid::new_v5(
-                &uuid::Uuid::NAMESPACE_OID,
-                format!("{project}{harp}{session}").as_bytes(),
-            )
-            .as_bytes(),
-        ),
-    };
-    ready(
-        Kernel::new(&registry)
-            .on_retryable(OnRetryable {
-                max_retries: 0,
-                ..OnRetryable::default()
-            })
-            .handle::<sessions::NameClaimAggregate, _>(store, book, &sampled),
-    )
-    .map(drop)
-    .map_err(Box::new)
-}
+            Err(angzarr_embedded::Failure::Rejected(rejected)) => {
+                Ok(Err(crate::refused(&rejected)))
+            }
+            Err(failure) => Err(crate::dispatch::failed_unrun(&failure)),
+        }
+    }
 
-/// Who holds the name `harp` of `project` in `store`; empty while free.
-pub fn holder(store: &MemoryStore, project: &str, harp: &str) -> String {
-    let registry = crate::registry();
-    let (claim, _) = ready(
-        Kernel::new(&registry)
-            .load::<sessions::NameClaimAggregate, _>(store, &claim_cover(project, harp)),
-    )
-    .unwrap();
-    claim.state().state().session.clone()
-}
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "a test kernel or store of its own"
+    )]
+    async fn events(
+        &mut self,
+        project: &Project,
+        cover: &Cover,
+    ) -> Result<Vec<angzarr_embedded::v1::EventPage>, StoreError> {
+        use angzarr_embedded::{EventStore, StreamRef};
+        let store = self.stores.open(project).await?;
+        let stream = StreamRef::try_from(cover).expect("a stream");
+        Ok(store.read(stream, 0, None).await?.pages)
+    }
 
-/// The stable id text of the session on stream `id`.
-pub fn id_text(id: u8) -> String {
-    uuid::Uuid::from_bytes([id; 16]).to_string()
+    fn dead_letters(&mut self) -> Vec<crate::DeadLetter> {
+        Vec::new()
+    }
 }

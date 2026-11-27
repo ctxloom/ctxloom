@@ -13,16 +13,12 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::CoreStores;
-use angzarr_embedded::angzarr_store_sqlite::SqliteStore;
-use angzarr_embedded::Catalog;
 use coded_diagnostic::Report;
 use daemon_ports::Daemons;
-use embedded_edge::EmbeddedEdge;
 use file_system::Fs;
 use harp_names::HarpNames;
 use host_launcher::HostLauncher;
-use library_application::{Flags, Library, OUTPUT_DIR_DEFAULT};
+use library_application::{Flags, Library};
 use ports::{Names, Project, ProjectIdentity};
 use process_env::EnvSnapshot;
 use project_registry::Environment;
@@ -35,45 +31,11 @@ use runs_application::{AppError as CoreError, Enqueuer};
 use session_files::SessionDirs;
 
 use crate::signals;
-use crate::{InProcessCore, Wiring};
+use crate::Wiring;
 
 /// How long one turn has before its command, and everything it started, is
 /// killed.
-pub(crate) const TURN_DEADLINE: Duration = Duration::from_secs(30 * 60);
-
-impl Core for InProcessCore<SqliteStore> {
-    type Edge = EmbeddedEdge<CoreStores<SqliteStore>>;
-    type Store = SqliteStore;
-
-    fn edge(&self) -> Arc<Self::Edge> {
-        InProcessCore::edge(self)
-    }
-
-    fn store(&self) -> &SqliteStore {
-        InProcessCore::store(self)
-    }
-
-    fn catalog(&self) -> &Catalog {
-        InProcessCore::catalog(self)
-    }
-}
-
-impl Core for crate::SharedCore<SqliteStore> {
-    type Edge = EmbeddedEdge<CoreStores<SqliteStore>>;
-    type Store = SqliteStore;
-
-    fn edge(&self) -> Arc<Self::Edge> {
-        crate::SharedCore::edge(self)
-    }
-
-    fn store(&self) -> &SqliteStore {
-        crate::SharedCore::store(self)
-    }
-
-    fn catalog(&self) -> &Catalog {
-        crate::SharedCore::catalog(self)
-    }
-}
+pub const TURN_DEADLINE: Duration = Duration::from_secs(30 * 60);
 
 /// The project, already told: the identity the use case asks again.
 struct Told(Project);
@@ -99,7 +61,7 @@ impl ProjectIdentity for Told {
 /// The runs as this command asks them of the user's daemon: a one-shot as
 /// its client (U4), a session as its frontend (U5). The daemon plans each
 /// (its dependencies pulled when `sync.on_run` asks) and records it.
-pub(crate) struct OneShots<'a> {
+pub struct OneShots<'a> {
     wiring: &'a Wiring,
     /// This binary's stamp, which the daemon that hosts a one-shot must
     /// share (M3).
@@ -107,7 +69,7 @@ pub(crate) struct OneShots<'a> {
 }
 
 impl<'a> OneShots<'a> {
-    pub(crate) fn new(wiring: &'a Wiring) -> OneShots<'a> {
+    pub fn new(wiring: &'a Wiring) -> OneShots<'a> {
         OneShots {
             wiring,
             stamp: String::new(),
@@ -116,7 +78,7 @@ impl<'a> OneShots<'a> {
 
     /// The same, a one-shot hosted by a daemon of the stamp `stamp` (this
     /// binary's, M3).
-    pub(crate) fn stamped(mut self, stamp: &str) -> OneShots<'a> {
+    pub fn stamped(mut self, stamp: &str) -> OneShots<'a> {
         self.stamp = stamp.to_string();
         self
     }
@@ -133,16 +95,16 @@ fn unmade(cause: &dyn std::fmt::Display) -> RunError {
 /// host (a hosted one-shot's, the daemon's own), or by the frontend that
 /// asked (a terminal session's, U5: its runner hands the launch over, and
 /// the frontend takes the lock).
-pub(crate) struct Driven<L> {
-    pub(crate) runner: L,
-    pub(crate) locks: Box<dyn session_ports::SessionLock>,
+pub struct Driven<L> {
+    pub runner: L,
+    pub locks: Box<dyn session_ports::SessionLock>,
 }
 
 impl Driven<HostLauncher> {
     /// The engine started on this host, stopped by `stop`, each program
     /// found on its own PATH by the host's rules (PATHEXT on Windows); the
     /// session's lock taken here.
-    pub(crate) fn here(wiring: &Wiring, stop: host_launcher::Stop) -> Driven<HostLauncher> {
+    pub fn here(wiring: &Wiring, stop: host_launcher::Stop) -> Driven<HostLauncher> {
         Driven {
             runner: HostLauncher::stopped_by(stop).searching(wiring.fs()),
             locks: Box::new(liveness::LockFiles::new(wiring.fs(), wiring.project_dir())),
@@ -154,7 +116,7 @@ impl Driven<HostLauncher> {
 /// `project` (named `project_harp`), its engine started and its session's
 /// lock held as `driven` says, its callbacks running `program` (the
 /// client's, owner 2026-11-18) and its engine's `PATH` led by its directory.
-pub(crate) fn runs_over<K: Core, L: run_ports::RunnerLauncher>(
+pub fn runs_over<K: Core, L: run_ports::RunnerLauncher>(
     wiring: &Wiring,
     library: Library,
     output_dir: &str,
@@ -227,7 +189,7 @@ where
 /// thread, never an async worker (owner, 2026-11-19), and each command
 /// measured against this platform's command line before it is spawned (a
 /// terminal session's opening prompt is on it).
-pub(crate) fn equipped<E, L, R>(
+pub fn equipped<E, L, R>(
     launcher: Launcher<E, L, R>,
     (run_locks, workspaces, os): (
         &Arc<dyn run_ports::RunLocks>,
@@ -252,13 +214,13 @@ where
 /// one session-setup path): their callbacks run `program` (owner ruling
 /// 163), claude's settings start from hers (ruling 169), opencode seeds her
 /// recent models (ruling 167) and starts from her config (169).
-pub(crate) struct LaunchEngines {
-    pub(crate) claude: Arc<engine_claude::Claude>,
-    pub(crate) opencode: Arc<engine_opencode::Opencode>,
+pub struct LaunchEngines {
+    pub claude: Arc<engine_claude::Claude>,
+    pub opencode: Arc<engine_opencode::Opencode>,
 }
 
 /// [`LaunchEngines`] over `wiring`'s user, calling `program`.
-pub(crate) fn launch_engines(wiring: &Wiring, program: &str) -> LaunchEngines {
+pub fn launch_engines(wiring: &Wiring, program: &str) -> LaunchEngines {
     LaunchEngines {
         claude: Arc::new(
             engine_claude::Claude::calling(program)
@@ -279,7 +241,7 @@ const GIT_USER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(5)
 /// The git that is asked the user's identity: in the caller's own
 /// environment (her `HOME`, never ctxloom's home), under
 /// [`GIT_USER_DEADLINE`].
-pub(crate) fn identity_git(wiring: &Wiring) -> worktree_git::Git {
+pub fn identity_git(wiring: &Wiring) -> worktree_git::Git {
     worktree_git::Git::new(
         wiring.fs(),
         "git",
@@ -290,7 +252,7 @@ pub(crate) fn identity_git(wiring: &Wiring) -> worktree_git::Git {
 
 /// The user's git identity in the project (owner ruling 112), asked of git in
 /// the caller's own environment; none when git knows neither part.
-pub(crate) fn git_user(wiring: &Wiring, project_dir: &Path) -> Option<run_ports::GitUser> {
+pub fn git_user(wiring: &Wiring, project_dir: &Path) -> Option<run_ports::GitUser> {
     let user = identity_git(wiring).user(project_dir);
     (!user.name.is_empty() || !user.email.is_empty()).then_some(run_ports::GitUser {
         name: user.name,
@@ -303,7 +265,7 @@ pub(crate) fn git_user(wiring: &Wiring, project_dir: &Path) -> Option<run_ports:
 /// `$CLAUDE_CONFIG_DIR` when set, else `~/.claude` (her home as
 /// [`Wiring::user_home`] resolves it, `USERPROFILE` on Windows). No home, or
 /// no file, is none; a file there that does not read is told unread.
-pub(crate) fn claude_user_settings(wiring: &Wiring) -> Option<run_ports::UserSettings> {
+pub fn claude_user_settings(wiring: &Wiring) -> Option<run_ports::UserSettings> {
     let dir = match wiring.env().non_empty("CLAUDE_CONFIG_DIR") {
         Some(dir) => std::path::PathBuf::from(dir),
         None => wiring.user_home()?.join(".claude"),
@@ -315,7 +277,7 @@ pub(crate) fn claude_user_settings(wiring: &Wiring) -> Option<run_ports::UserSet
 /// claude's): where opencode reads it ([`engine_opencode::user_config_file`]),
 /// in the caller's environment, under her home as [`Wiring::user_home`]
 /// resolves it. No home, or no file, is none.
-pub(crate) fn opencode_user_config(wiring: &Wiring) -> Option<run_ports::UserSettings> {
+pub fn opencode_user_config(wiring: &Wiring) -> Option<run_ports::UserSettings> {
     let config = wiring
         .env()
         .non_empty("XDG_CONFIG_HOME")
@@ -346,7 +308,7 @@ fn user_settings(wiring: &Wiring, path: &Path) -> Option<run_ports::UserSettings
 /// (`USERPROFILE` on Windows). No home, no file, or one that does not read is
 /// none, said nothing of: opencode runs without it, as on a machine where it
 /// never ran.
-pub(crate) fn opencode_recent_models(wiring: &Wiring) -> Option<Vec<u8>> {
+pub fn opencode_recent_models(wiring: &Wiring) -> Option<Vec<u8>> {
     let env = wiring.env();
     let state = env.non_empty("XDG_STATE_HOME").and_then(|v| v.to_str());
     let home = wiring.user_home();
@@ -365,7 +327,7 @@ pub(crate) fn opencode_recent_models(wiring: &Wiring) -> Option<Vec<u8>> {
 /// uppercase, find the caller's variable whatever its spelling. The spelling
 /// is not kept: on Windows it means nothing to the engine, whose environment
 /// is looked up as case-insensitively as it was set.
-fn run_env(env: &EnvSnapshot, home: &Path) -> BTreeMap<String, String> {
+pub fn run_env(env: &EnvSnapshot, home: &Path) -> BTreeMap<String, String> {
     let flavor = env.flavor();
     let mut vars: BTreeMap<String, String> = env
         .vars_utf8()
@@ -382,7 +344,7 @@ fn run_env(env: &EnvSnapshot, home: &Path) -> BTreeMap<String, String> {
 /// The project the process is in: the one the registry already holds, else
 /// a new one named by `names` and marked in the project's `.ctxloom`
 /// ([`crate::PROJECT_MARKER`]), so a run writes nothing outside it.
-fn tell_project<N: Names>(
+pub fn tell_project<N: Names>(
     fs: Arc<dyn Fs>,
     environment: Environment,
     names: N,
@@ -393,7 +355,7 @@ fn tell_project<N: Names>(
 /// The root of the session output folders (owner rulings 89, 106):
 /// `output.dir` as `written`, against the project root unless absolute; each
 /// session's folder is `<root>/<harp>`. A trailing slash says nothing more.
-pub(crate) fn output_root(project_dir: &Path, written: &str) -> std::path::PathBuf {
+pub fn output_root(project_dir: &Path, written: &str) -> std::path::PathBuf {
     project_dir.join(
         Path::new(written)
             .components()
@@ -407,7 +369,7 @@ pub(crate) fn output_root(project_dir: &Path, written: &str) -> std::path::PathB
 /// remote unreachable) is said and the run goes on with what is installed:
 /// the plan judges what is still missing. What it installed is said; nothing
 /// installed, nothing said.
-pub(crate) fn sync_at_start(
+pub fn sync_at_start(
     on_run: library_application::OnRun,
     pull: impl FnOnce() -> Result<u64, String>,
 ) -> Vec<library_application::Notice> {
@@ -455,7 +417,7 @@ impl RunService for OneShots<'_> {
 /// followed (`run_application::client`), and each of SIGHUP, SIGINT and
 /// SIGTERM sent to the daemon as the run's stop (ruling 114). Nothing here
 /// opens the store or starts an engine (T1).
-pub(crate) fn client_one_shot(
+pub fn client_one_shot(
     wiring: &Wiring,
     stamp: &str,
     flags: &Flags,
@@ -520,7 +482,7 @@ pub(crate) fn client_one_shot(
 /// the daemon owns the model call as a run), followed to its end through
 /// the daemon of the stamp `stamp`, as a one-shot is: a signal heard asks
 /// the daemon to stop it.
-pub(crate) fn client_follow(
+pub fn client_follow(
     wiring: &Wiring,
     stamp: &str,
     run: &str,
@@ -576,7 +538,7 @@ pub(crate) fn client_follow(
 
 /// A command's failure, as the run's error: its diagnostic, exit and
 /// refusals, said as they were.
-pub(crate) fn failed(failure: cli_support::Failure) -> RunError {
+pub fn failed(failure: cli_support::Failure) -> RunError {
     RunError::Hosted(Box::new(run_application::HostedEnd {
         report: Report::of(&*failure.cause),
         exit: failure.exit,
@@ -635,236 +597,6 @@ fn heard_stops(
         }
     });
     (heard, Some(hearing), Vec::new())
-}
-
-/// What hosts the daemon's one-shots (U4, T7; owner s4-Q8): each on a
-/// thread of its own, the run use case's one-shot over the daemon's ONE
-/// store (its core shared), in the environment and working directory its
-/// client sent (S7), so it is planned, its dependencies pulled and its
-/// engine set up and driven exactly as a process there would. Its engine
-/// runs under the daemon; its session's lock and its run's are the
-/// daemon's.
-pub(crate) struct HostedOneShots {
-    pub(crate) core: crate::SharedCore<SqliteStore>,
-    /// The daemon's runtime, which each one-shot is driven on.
-    pub(crate) runtime: tokio::runtime::Handle,
-    /// ctxloom's home, the daemon's (a client's is the same, M11).
-    pub(crate) home: std::path::PathBuf,
-    pub(crate) temp: std::path::PathBuf,
-}
-
-/// A hosted one-shot's engine, stopped through its launcher's [`Stop`]
-/// (its tree asked to stop, killed after the grace).
-///
-/// [`Stop`]: host_launcher::Stop
-struct Stopping(host_launcher::Stop);
-
-impl daemon_application::OneShotControl for Stopping {
-    fn stop(&self) {
-        self.0.request();
-    }
-}
-
-impl daemon_application::OneShotHost for HostedOneShots {
-    // Spawns the thread a hosted one-shot runs on; the acceptance tests
-    // drive it (run.feature's daemon Rule, j002700).
-    #[cfg_attr(test, mutants::skip)]
-    fn host(
-        &self,
-        request: daemon_application::HostRequest,
-        told: daemon_application::Told,
-    ) -> Box<dyn daemon_application::OneShotControl> {
-        let stop = host_launcher::Stop::new();
-        let control = Box::new(Stopping(stop.clone()));
-        let core = self.core.clone();
-        let runtime = self.runtime.clone();
-        let (home, temp) = (self.home.clone(), self.temp.clone());
-        let spawned = std::thread::Builder::new()
-            .name("ctxloom-one-shot".to_string())
-            .spawn({
-                let told = told.clone();
-                move || {
-                    let hosted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        runtime.block_on(host_one_shot(
-                            core,
-                            (&home, &temp),
-                            request,
-                            stop,
-                            told.clone(),
-                        ))
-                    }));
-                    let panicked = || Done {
-                        result: Err(RunError::NotStarted {
-                            detail: "the daemon's one-shot panicked".to_string(),
-                        }),
-                        notices: Vec::new(),
-                    };
-                    let done = hosted.unwrap_or_else(|_| panicked());
-                    // Its end awaited on the daemon's runtime: what follows
-                    // from it (a distill's write, step 10b) is made there. A
-                    // reaction that panics is taken already, so the second
-                    // end is said as it is, and the run never stays open.
-                    let ended = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        runtime.block_on(told.done(done))
-                    }));
-                    if ended.is_err() {
-                        runtime.block_on(told.done(panicked()));
-                    }
-                }
-            });
-        if let Err(e) = spawned {
-            // On the caller's runtime, where nothing may block on it: a run
-            // that never started is answered at once, its reaction too
-            // (nothing follows from a failure but its end).
-            polled_once(told.done(Done {
-                result: Err(RunError::NotStarted {
-                    detail: format!("no thread for the one-shot: {e}"),
-                }),
-                notices: Vec::new(),
-            }));
-        }
-        control
-    }
-}
-
-/// Poll `future` once: what is answered at once is done; what would wait
-/// is dropped (the core's end of a run that never started waits on
-/// nothing).
-pub(crate) fn polled_once(future: impl std::future::Future<Output = ()>) {
-    let mut future = std::pin::pin!(future);
-    let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
-    let _ = future.as_mut().poll(&mut cx);
-}
-
-/// The wiring a hosted one-shot is planned and driven in: its client's
-/// environment and working directory (S7), with ctxloom's `home`.
-pub(crate) fn hosted_wiring(
-    home: &Path,
-    temp: &Path,
-    request: &daemon_application::HostRequest,
-) -> Wiring {
-    crate::daemon::caller_wiring(
-        home,
-        temp,
-        (&request.cwd, None),
-        request
-            .env
-            .iter()
-            .map(|(name, value)| (name.as_str(), value.as_str())),
-    )
-}
-
-/// What a run the daemon hosts is planned and driven in (a hosted
-/// one-shot's and a prepared session's alike): its client's wiring (S7), the
-/// library over it, where its outputs go, what the start's pull said, and
-/// its project, told and named.
-pub(crate) struct Hosted {
-    pub(crate) wiring: Wiring,
-    pub(crate) library: Library,
-    pub(crate) output_dir: String,
-    /// What the dependencies' pull at the run's start said (`sync.on_run`).
-    pub(crate) synced: Vec<library_application::Notice>,
-    pub(crate) project: (Project, String),
-    /// The program its callbacks run: its client's, else the daemon's own.
-    pub(crate) program: crate::program::Program,
-}
-
-/// The set-up of a run the daemon hosts for `request`: the dependencies
-/// pulled first when `sync.on_run` asks. What failed, and what was said
-/// before it did, otherwise.
-pub(crate) async fn hosted_setup(
-    (home, temp): (&Path, &Path),
-    request: &daemon_application::HostRequest,
-) -> Result<Hosted, (RunError, Vec<library_application::Notice>)> {
-    let wiring = hosted_wiring(home, temp, request);
-    let deps = match crate::commands::build_deps(&wiring) {
-        Ok(deps) => std::rc::Rc::new(deps),
-        Err(e) => return Err((RunError::Project(Report::of(&e)), Vec::new())),
-    };
-    let remotes: std::rc::Rc<dyn deps_ports::RemoteLibrary> = deps.clone();
-    let library = match crate::library::build_over(&wiring, remotes) {
-        Ok(library) => library,
-        Err(e) => return Err((RunError::Project(Report::of(&e)), Vec::new())),
-    };
-    let settings = library.run_settings(&request.flags);
-    let output_dir = settings
-        .as_ref()
-        .map_or_else(|| OUTPUT_DIR_DEFAULT.to_string(), |s| s.output_dir.clone());
-    // Before the run is planned, so the plan sees what was installed.
-    let synced = match &settings {
-        Some(settings) => {
-            let puller = crate::commands::DepsPuller(deps);
-            sync_at_start(settings.on_run, || setup_application::Puller::pull(&puller))
-        }
-        None => Vec::new(),
-    };
-    let project = match tell_project(wiring.fs(), wiring.environment(), HarpNames) {
-        Ok(project) => project,
-        Err(e) => return Err((RunError::Project(e), synced)),
-    };
-    // Named by the daemon at its client's resolution; a client outside a
-    // project's (its parent `users/me`) is named here.
-    let project_harp = match &request.project {
-        Some(named) => named.harp.clone(),
-        None => match wiring.named_project().await {
-            Ok(named) => named.harp,
-            Err(e) => return Err((RunError::Project(Report::of(&e)), synced)),
-        },
-    };
-    Ok(Hosted {
-        wiring,
-        library,
-        output_dir,
-        synced,
-        project: (project, project_harp),
-        program: crate::program::of_client(request.program.as_ref()),
-    })
-}
-
-/// One hosted one-shot, start to end (`Runs::one_shot` over the daemon's
-/// core, in its client's wiring): the dependencies pulled first when
-/// `sync.on_run` asks, its placement told as soon as it is placed.
-async fn host_one_shot(
-    core: crate::SharedCore<SqliteStore>,
-    places: (&Path, &Path),
-    request: daemon_application::HostRequest,
-    stop: host_launcher::Stop,
-    told: daemon_application::Told,
-) -> Done<Answer> {
-    let hosted = match hosted_setup(places, &request).await {
-        Ok(hosted) => hosted,
-        Err((error, notices)) => {
-            return Done {
-                result: Err(error),
-                notices,
-            }
-        }
-    };
-    let Hosted {
-        wiring,
-        library,
-        output_dir,
-        synced,
-        project,
-        program,
-    } = hosted;
-    let mut runs = runs_over(
-        &wiring,
-        library,
-        &output_dir,
-        Driven::here(&wiring, stop),
-        core,
-        project,
-        &program,
-    )
-    .telling(Box::new(move |placed| told.placed(placed)));
-    let mut done = runs.one_shot(&request.flags, &request.request).await;
-    // Every part of the run let go (its edges) before it is told over: the daemon closes its store once its one-shots have ended.
-    drop(runs);
-    let mut notices = synced;
-    notices.append(&mut done.notices);
-    done.notices = notices;
-    done
 }
 
 #[cfg(test)]

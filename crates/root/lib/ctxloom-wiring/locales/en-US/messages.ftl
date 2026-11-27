@@ -4,7 +4,6 @@
 ctxloom-wiring-no-home = there is no home directory: { $variable } is not set, nor is CTXLOOM_DAEMON_ROOT
 ctxloom-wiring-bad-session = { $session } is not a session id: { $ext_err_txt }
 ctxloom-wiring-no-runtime = cannot start a runtime to open the store: { $ext_err_txt }
-ctxloom-wiring-store = cannot open the project store: { $error }
 ctxloom-wiring-daemon-other-home = the user's daemon serves the ctxloom home { $daemon_home }, not this command's { $home }: there is one daemon per OS user
 ctxloom-wiring-project-unnamed = the project at { $root } has no project id yet, and a dry run never makes one
 ctxloom-wiring-project-unnamed-fix = run `ctxloom init` in { $root } to give the project its id

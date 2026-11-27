@@ -12,6 +12,7 @@
 use std::collections::BTreeMap;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
+use angzarr_embedded::angzarr_ports::tombstone;
 use angzarr_embedded::angzarr_router::error::CodedError;
 use angzarr_embedded::angzarr_router::hpb::{ProjectRequest, ProjectResponse};
 use angzarr_embedded::v1::{event_page, EventBook, Uuid};
@@ -51,9 +52,9 @@ impl Due {
     }
 
     /// Fold `book`, one scheduler stream's events after the last projected of
-    /// it, as the projector port hands it: a book from sequence 0 starts the
-    /// stream afresh; a book with no event and `next_sequence` 0 says the
-    /// stream is gone (purged), and its alarms leave the model.
+    /// it, as the projector port hands it. A tombstone (a purge's
+    /// `StreamClosed`) closes the stream: its alarms leave the model, and
+    /// what follows starts afresh.
     pub fn project(&mut self, book: &EventBook) -> Result<(), PayloadError> {
         let root = book
             .cover
@@ -61,17 +62,18 @@ impl Due {
             .and_then(|cover| cover.root.as_ref())
             .map(|root| root.value.to_vec())
             .unwrap_or_default();
-        let Some(first) = book.pages.first() else {
-            if book.next_sequence == 0 {
-                self.streams.remove(&root);
-            }
+        if book.pages.is_empty() {
             return Ok(());
-        };
-        let mut held = match first.sequence {
-            0 => (None, Armed::default()),
-            _ => self.streams.remove(&root).unwrap_or_default(),
-        };
+        }
+        let mut held = self.streams.remove(&root).unwrap_or_default();
+        let mut closed = false;
         for page in &book.pages {
+            if tombstone::is(page) {
+                held = (None, Armed::default());
+                closed = true;
+                continue;
+            }
+            closed = false;
             // A framework meta-event is no scheduler event: only a domain's
             // event is folded.
             let Some(event_page::Body::Event(event)) = &page.body else {
@@ -80,7 +82,9 @@ impl Due {
             let correlation = page.meta.as_ref().and_then(|m| m.correlation_id.clone());
             fold(&mut held, SchedulerEvent::from_any(event)?, correlation);
         }
-        self.streams.insert(root, held);
+        if !closed {
+            self.streams.insert(root, held);
+        }
         Ok(())
     }
 

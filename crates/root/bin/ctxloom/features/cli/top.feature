@@ -607,7 +607,8 @@ Feature: top — what the user's daemon hosts, live: a table of sessions, and th
       And I start "ctxloom top --format json" and read its output as it streams
       When a ctxloom daemon starts serving for this home, hosting a child "brisk-copper-moth" of "amber-quiet-heron"
       Then within 10 seconds a line has "snapshot" set
-      And that line reports "snapshot.sessions[name$=/sessions/brisk-copper-moth].state" as "LIVE"
+      # The daemon may snapshot before the child registers: then the session is a change.
+      And within 10 seconds a line reports the session "brisk-copper-moth" as "LIVE", in a snapshot or a change
 
     Scenario: On the screen, waiting is an empty inbox and a status line, then the inbox
       # new: DRAFT texts.

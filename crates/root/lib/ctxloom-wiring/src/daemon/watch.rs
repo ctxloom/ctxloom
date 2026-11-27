@@ -20,7 +20,7 @@ use crate::Wiring;
 /// (`external`, `intended`), its sequence and each path with its status
 /// (and a rename's `from_path`); a write's `request_id` and `verb` when it
 /// is one. Never content: the change carries none.
-pub(crate) fn change_line(change: &v1::LibraryChange) -> Value {
+pub fn change_line(change: &v1::LibraryChange) -> Value {
     let cause = match v1::library_change::Cause::try_from(change.cause) {
         Ok(v1::library_change::Cause::External) => "external",
         Ok(v1::library_change::Cause::Intended) => "intended",
@@ -63,7 +63,7 @@ fn output(written: std::io::Result<()>) -> Result<(), Failure> {
 
 /// Watch the cwd's project's library (the home's under `home`) through the
 /// daemon (started if none serves), printing to `out`.
-pub(crate) fn watch_library(
+pub fn watch_library(
     wiring: &Wiring,
     stamp: &str,
     home: bool,

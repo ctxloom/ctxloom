@@ -77,6 +77,10 @@ impl World {
         }
     }
 
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "a test kernel or store of its own"
+    )]
     fn kernel(&self) -> Kernel<'_> {
         Kernel::new(&self.registry).on_retryable(OnRetryable {
             max_retries: 0,
@@ -410,6 +414,10 @@ fn the_arming_correlation_runs_through_the_timer_to_the_target() {
     assert_eq!(correlation_of(&dummy[1]), Some(correlation), "delivered");
 }
 
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a test kernel or store of its own"
+)]
 #[test]
 fn an_alarm_whose_fact_fails_is_reported_and_stays_due() {
     // A fact the kernel cannot route fails: reported, not swallowed.
@@ -552,6 +560,10 @@ fn a_stream_the_model_cannot_read_is_reported_and_the_others_still_fire() {
     assert_eq!(fired_of(&tick), vec![(1, 100)]);
 }
 
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a test kernel or store of its own"
+)]
 #[test]
 fn a_crash_between_the_firing_and_its_delivery_is_delivered_once_by_resume() {
     // The scheduler records AlarmFired but no delivery policy is registered

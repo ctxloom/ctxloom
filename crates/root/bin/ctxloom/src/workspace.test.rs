@@ -145,7 +145,9 @@ fn check_one_repository_each(lock: &str) -> Result<(), String> {
 fn commits_of(lock: &str, repository: &str) -> Vec<String> {
     let mut commits: Vec<String> = git_packages(lock)
         .into_iter()
-        .filter(|(_, source)| source.contains(repository))
+        // The repository's own url, ended by its query: `angzarr` is not
+        // `angzarr-project`.
+        .filter(|(_, source)| source.contains(&format!("{repository}?")))
         .filter_map(|(_, source)| source.rsplit_once('#').map(|(_, c)| c.to_string()))
         .collect();
     commits.sort_unstable();
@@ -182,6 +184,16 @@ fn test_a_repository_locked_at_two_commits_is_refused() {
 [[package]]\nname = \"c\"\nsource = \"git+https://github.com/angzarr-io/angzarr?rev=3#3\"\n";
     let refused = check_one_rev_per_repository(lock).unwrap_err();
     assert!(refused.contains("rust-support"), "{refused}");
+}
+
+// A repository whose name another's begins with (angzarr, angzarr-project) is
+// its own: its crates are locked at the commit its own pin names.
+#[test]
+fn test_a_repository_named_by_a_prefix_of_another_is_judged_apart() {
+    let lock = "[[package]]\nname = \"a\"\nsource = \"git+https://github.com/angzarr-io/angzarr?rev=1#1\"\n\n\
+[[package]]\nname = \"p\"\nsource = \"git+https://github.com/angzarr-io/angzarr-project?rev=2#2\"\n\n\
+[[package]]\nname = \"r\"\nsource = \"git+https://github.com/benjaminabbitt/rust-support?rev=3#3\"\n";
+    assert_eq!(check_one_rev_per_repository(lock), Ok(()));
 }
 
 #[test]
@@ -653,6 +665,7 @@ const CALLERLESS_RPCS: &[&str] = &[
     "WatchTop",
     "ListWorktrees",
     "DeleteHandOff",
+    "ImportSessions",
     "GetRun",
     "WatchRun",
     "CreateApproval",
@@ -928,38 +941,44 @@ fn test_a_manifests_dependencies_are_its_dependencies_table_alone() {
 /// that moves, fails the check: the new open is to follow an observation.
 const DAEMON_LIBRARY_OPENS: &[(&str, usize, &str)] = &[
     (
-        "crates/root/lib/ctxloom-wiring/src/daemon/places.rs",
+        "crates/root/daemon/ctxloom-daemon/src/places.rs",
         2,
         "a library read's library, once `library_reads` observed its trees (`read_site`); \
          the trust preview's (`GetTrust`), once `get_trust` observed the project's tree at its \
          registered root",
     ),
     (
-        "crates/root/lib/ctxloom-wiring/src/daemon/setup_reads.rs",
+        "crates/root/daemon/ctxloom-daemon/src/setup_reads.rs",
         2,
         "a setup read's (doctor, auth status, init prompt), once `setup_read` observed its trees",
     ),
     (
-        "crates/root/lib/ctxloom-wiring/src/daemon/foreign.rs",
+        "crates/root/daemon/ctxloom-daemon/src/foreign.rs",
         1,
         "a foreign writer's, once `observe_trees` observed the tree it records in",
     ),
     (
-        "crates/root/lib/ctxloom-wiring/src/daemon/deps.rs",
+        "crates/root/daemon/ctxloom-daemon/src/deps.rs",
         1,
         "a dependency write's, once the write observed the tree it lands in",
     ),
     (
-        "crates/root/lib/ctxloom-wiring/src/daemon/mod.rs",
+        "crates/root/daemon/ctxloom-daemon/src/lib.rs",
         1,
         "a hosted child's plan at its hand-off, once `create_hand_off` observed its tree; \
          DEPARTURE: its plan and output root read again at each launch (the daemon loop's \
          `start`) are read unobserved: the loop has no observation to reach",
     ),
     (
-        "crates/root/lib/ctxloom-wiring/src/oneshot.rs",
+        "crates/root/daemon/ctxloom-daemon/src/hosted_oneshots.rs",
         1,
         "a hosted one-shot's or terminal run's plan, once `observe_for` observed its trees",
+    ),
+    (
+        "crates/root/daemon/ctxloom-daemon/src/seed.rs",
+        1,
+        "test-support only: the seed reads the project's run settings (its output directory) \
+         to place the planted session's files, beside a store no run reads",
     ),
 ];
 
@@ -985,17 +1004,20 @@ fn library_opens(text: &str) -> usize {
 }
 
 /// The rule (step 10 U11): nothing in the daemon reads a library tree
-/// outside the observation. The daemon's root sources (`ctxloom-wiring`'s
-/// `daemon/`, and the hosted runs' `oneshot.rs` and `frontend.rs`) open a
+/// outside the observation. The daemon's root sources (`ctxloom-daemon`'s
+/// sources, and the wiring's `oneshot.rs` and `frontend.rs`) open a
 /// library only where [`DAEMON_LIBRARY_OPENS`] lists; the core's daemon
 /// crates (daemon-api, daemon-application) open none at all (they reach a
 /// library through their ports, each observed first).
 #[test]
 fn test_nothing_in_the_daemon_opens_a_library_tree_outside_the_observation() {
     let root = super::repo_root();
-    let wiring = root.join("crates/root/lib/ctxloom-wiring/src");
     let mut sources = Vec::new();
-    files(&wiring.join("daemon"), &mut sources);
+    files(
+        &root.join("crates/root/daemon/ctxloom-daemon/src"),
+        &mut sources,
+    );
+    let wiring = root.join("crates/root/lib/ctxloom-wiring/src");
     sources.push(wiring.join("oneshot.rs"));
     sources.push(wiring.join("frontend.rs"));
     for core in ["daemon-api", "daemon-application"] {

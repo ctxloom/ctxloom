@@ -111,6 +111,10 @@ impl KernelEdge {
         self.samples.lock().unwrap().next_sample()
     }
 
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "a test kernel or store of its own"
+    )]
     async fn run(&self, book: CommandBook) -> Result<Answered, Failure<Rejected>> {
         let sampled = self.sample();
         let kernel = Kernel::new(&self.registry).on_retryable(OnRetryable {

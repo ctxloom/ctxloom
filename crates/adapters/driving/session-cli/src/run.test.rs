@@ -8,11 +8,7 @@ use clap::{Args, Command, FromArgMatches};
 use cli_support::Exit;
 use presentation::Format;
 use serde_json::{json, Value};
-use sessions_application::{
-    dead_letter_sample, AppError, BindRequest, Bound, ImportReport, ImportRequest, ImportService,
-    Imported, KeepRequest, Kept, Left, ListQuery, Refusal, SearchQuery, SessionService, ShowQuery,
-    TitleRequest, Titled, TranscriptQuery, TranscriptRow, View, Why,
-};
+use sessions_application::Refusal;
 
 use daemon_proto::v1;
 
@@ -29,18 +25,7 @@ fn ts(seconds: i64) -> sessions_application::Timestamp {
 /// What the fake answers with and what it was asked.
 #[derive(Default)]
 struct Fake {
-    views: Vec<View>,
-    rows: Vec<TranscriptRow>,
     transcript: Vec<v1::LogEntry>,
-    dead_letters: bool,
-    list: Vec<ListQuery>,
-    search: Vec<SearchQuery>,
-    show: Vec<ShowQuery>,
-    keep: Vec<KeepRequest>,
-    titled: Vec<TitleRequest>,
-    transcripts: Vec<TranscriptQuery>,
-    report: Option<ImportReport>,
-    imports: usize,
     wt_report: Option<isolation_application::Report>,
     /// What an applied worktree question answers, when it differs from the
     /// plan (`wt_report`): a removal's outcome.
@@ -79,76 +64,6 @@ impl isolation_application::WorktreeUse for Fake {
         answer.ok_or(isolation_application::IsolationError::NoSession {
             harp: harp.unwrap_or_default().to_string(),
         })
-    }
-}
-
-impl ImportService for Fake {
-    async fn import(&mut self, _request: ImportRequest) -> Result<ImportReport, AppError> {
-        self.imports += 1;
-        Ok(self.report.clone().unwrap_or_default())
-    }
-}
-
-impl SessionService for Fake {
-    async fn list(&mut self, query: ListQuery) -> Result<Vec<View>, AppError> {
-        self.list.push(query);
-        Ok(self.views.clone())
-    }
-
-    async fn search(&mut self, query: SearchQuery) -> Result<Vec<View>, AppError> {
-        self.search.push(query);
-        Ok(self.views.clone())
-    }
-
-    async fn show(&mut self, query: ShowQuery) -> Result<View, AppError> {
-        self.show.push(query.clone());
-        self.views
-            .first()
-            .cloned()
-            .ok_or(AppError::NoSession { harp: query.harp })
-    }
-
-    async fn keep(&mut self, request: KeepRequest) -> Result<Kept, AppError> {
-        self.keep.push(request.clone());
-        Ok(Kept {
-            harp: request.harp,
-            kept: request.keep,
-            changed: true,
-            dead_letters: if self.dead_letters {
-                vec![dead_letter_sample("sessions")]
-            } else {
-                Vec::new()
-            },
-        })
-    }
-
-    async fn set_title(&mut self, request: TitleRequest) -> Result<Titled, AppError> {
-        self.titled.push(request.clone());
-        if request.harp == "no-such-harp" {
-            return Err(AppError::NoSession { harp: request.harp });
-        }
-        Ok(Titled {
-            harp: request.harp,
-            title: request.title,
-            changed: true,
-            dead_letters: Vec::new(),
-        })
-    }
-
-    async fn transcripts(
-        &mut self,
-        query: TranscriptQuery,
-    ) -> Result<Vec<TranscriptRow>, AppError> {
-        self.transcripts.push(query);
-        Ok(self.rows.clone())
-    }
-
-    async fn transcript(&mut self, _harp: &str) -> Result<Vec<v1::LogEntry>, AppError> {
-        Ok(self.transcript.clone())
-    }
-
-    async fn bind(&mut self, _request: BindRequest) -> Result<Bound, AppError> {
-        Ok(Bound::Unchanged)
     }
 }
 
@@ -204,6 +119,20 @@ struct Reads {
 }
 
 impl daemon_api::SessionReads for Reads {
+    async fn list_transcripts(
+        &self,
+        all: bool,
+    ) -> Result<v1::ListSessionsResponse, daemon_api::CallError> {
+        self.asked.borrow_mut().push(format!("transcripts {all}"));
+        if let Some(refused) = &self.refuse {
+            return Err(refused.clone());
+        }
+        Ok(v1::ListSessionsResponse {
+            sessions: self.sessions.clone(),
+            ..v1::ListSessionsResponse::default()
+        })
+    }
+
     async fn list_sessions(
         &self,
         all: bool,
@@ -674,16 +603,16 @@ fn a_failed_call_is_the_commands_failure_with_its_exit_code() {
 // read reaches the daemon, so its flush runs first).
 #[test]
 fn only_list_search_show_and_transcript_show_are_the_daemons_reads() {
-    for words in [
-        &["keep", "a"][..],
-        &["rename", "a", "b"],
-        &["transcript"],
-        &["transcript", "list"],
-        &["import"],
-    ] {
+    for words in [&["keep", "a"][..], &["rename", "a", "b"], &["import"]] {
         assert!(!crate::is_read(&parsed(words)), "{words:?}");
     }
-    for words in [&["list"][..], &["show", "a"], &["transcript", "show", "a"]] {
+    for words in [
+        &["list"][..],
+        &["show", "a"],
+        &["transcript", "show", "a"],
+        &["transcript"],
+        &["transcript", "list"],
+    ] {
         assert!(crate::is_read(&parsed(words)), "{words:?}");
     }
 }
@@ -703,22 +632,23 @@ fn a_transcript_the_daemon_refuses_writes_nothing() {
 
 // ------------------------------------------------------------------------ keep
 
-// Go: runSessionKeep: `{harp, kept}`, and the two sentences.
+// Go: runSessionKeep: `{harp, kept}`, and the two sentences; ONE WRITER: a
+// command sent to the daemon, as the user, one per call.
 #[test]
 fn keep_and_undo_say_where_the_mark_stands() {
-    let mut fake = Fake::default();
-    let ran = go(&mut fake, Format::Json, &["keep", "amber-swift-owl"]);
+    let writes = Writes::default();
+    let ran = child_go(&writes, Format::Json, &["keep", "amber-swift-owl"]);
     assert_eq!(
-        json_of(&ran),
+        serde_json::from_str::<Value>(&ran.out).unwrap(),
         json!({"harp": "amber-swift-owl", "kept": true})
     );
-    let ran = go(&mut fake, Format::Text, &["keep", "amber-swift-owl"]);
+    let ran = child_go(&writes, Format::Text, &["keep", "amber-swift-owl"]);
     assert_eq!(
         ran.out,
         "amber-swift-owl is marked keep: its transcript is kept at any age\n"
     );
-    let ran = go(
-        &mut fake,
+    let ran = child_go(
+        &writes,
         Format::Text,
         &["keep", "amber-swift-owl", "--undo"],
     );
@@ -727,63 +657,44 @@ fn keep_and_undo_say_where_the_mark_stands() {
         "amber-swift-owl is no longer marked keep: its transcript is reclaimable once session_transcript_retention has passed since it ended\n"
     );
     assert_eq!(
-        fake.keep.iter().map(|k| k.keep).collect::<Vec<_>>(),
-        [true, true, false]
+        *writes.asked.lock().unwrap(),
+        [
+            "keep amber-swift-owl true",
+            "keep amber-swift-owl true",
+            "keep amber-swift-owl false"
+        ]
     );
-}
-
-#[test]
-fn dead_letters_are_said_loudly_beside_the_answer() {
-    let mut fake = Fake {
-        dead_letters: true,
-        ..Fake::default()
-    };
-    let done = go(&mut fake, Format::Json, &["keep", "amber-swift-owl"])
-        .result
-        .unwrap();
-    assert_eq!(done.lines.len(), 1);
-    assert!(done.lines[0].contains("DEAD_LETTER"), "{}", done.lines[0]);
 }
 
 // ---------------------------------------------------------------------- rename
 
 // S55 (owner, 2026-11-12, slice 2): `session rename <harp> <title>` sets the
-// title; the harp is permanent.
+// title; the harp is permanent. ONE WRITER: the command goes to the daemon.
 #[test]
 fn rename_sets_the_title_and_says_so() {
-    let mut fake = Fake::default();
-    let ran = go(
-        &mut fake,
+    let writes = Writes::default();
+    let ran = child_go(
+        &writes,
         Format::Json,
         &["rename", "amber-swift-owl", "the auth refactor"],
     );
     assert_eq!(
-        json_of(&ran),
+        serde_json::from_str::<Value>(&ran.out).unwrap(),
         json!({"harp": "amber-swift-owl", "title": "the auth refactor", "changed": true})
     );
-    assert_eq!(
-        fake.titled,
-        [TitleRequest {
-            project: None,
-            harp: "amber-swift-owl".to_string(),
-            title: "the auth refactor".to_string(),
-        }]
-    );
-    let ran = go(
-        &mut fake,
+    let ran = child_go(
+        &writes,
         Format::Text,
         &["rename", "amber-swift-owl", "the auth refactor"],
     );
     assert_eq!(ran.out, "amber-swift-owl: titled \"the auth refactor\"\n");
-}
-
-#[test]
-fn rename_of_a_session_nobody_recorded_fails_naming_it() {
-    let mut fake = Fake::default();
-    let failure = go(&mut fake, Format::Json, &["rename", "no-such-harp", "x"])
-        .result
-        .unwrap_err();
-    assert_eq!(failure.failure.exit, Exit::REFUSED);
+    assert_eq!(
+        *writes.asked.lock().unwrap(),
+        [
+            "title amber-swift-owl \"the auth refactor\"",
+            "title amber-swift-owl \"the auth refactor\""
+        ]
+    );
 }
 
 #[test]
@@ -1396,30 +1307,25 @@ fn a_removal_the_daemon_could_not_answer_fails() {
 
 // ------------------------------------------------------------------ transcript
 
-fn rows() -> Vec<TranscriptRow> {
-    vec![
-        TranscriptRow {
-            harp: "amber-swift-owl".to_string(),
-            captured: true,
-            bytes: 9,
-        },
-        TranscriptRow {
-            harp: "brisk-copper-moth".to_string(),
-            captured: false,
-            bytes: 0,
-        },
-    ]
+/// The sessions the daemon lists for `transcript list`: the first has a
+/// transcript of nine bytes, the second none.
+fn listed_with_transcripts() -> Reads {
+    let mut owl = session("amber-swift-owl", v1::session::State::Ended);
+    owl.transcript_captured = true;
+    owl.transcript_bytes = 9;
+    let moth = session("brisk-copper-moth", v1::session::State::Ended);
+    Reads {
+        sessions: vec![owl, moth],
+        ..Reads::default()
+    }
 }
 
-// Go: sessionTranscriptReport.
+// Go: sessionTranscriptReport; served by the daemon's listing.
 #[test]
 fn the_transcript_listing_names_every_session_captured_or_not() {
-    let mut fake = Fake {
-        rows: rows(),
-        ..Fake::default()
-    };
-    let doc = json_of(&go(
-        &mut fake,
+    let reads = listed_with_transcripts();
+    let doc = json_of(&read_go(
+        &reads,
         Format::Json,
         &["transcript", "list", "--all"],
     ));
@@ -1430,18 +1336,15 @@ fn the_transcript_listing_names_every_session_captured_or_not() {
             {"harp": "brisk-copper-moth", "captured": false, "bytes": 0},
         ]})
     );
-    assert!(fake.transcripts[0].all);
+    assert_eq!(*reads.asked.borrow(), ["transcripts true"]);
 }
 
 // session.feature: "A session with no captured transcript is still named": the
 // text says "false".
 #[test]
 fn the_transcript_table_says_false_for_an_uncaptured_one() {
-    let mut fake = Fake {
-        rows: rows(),
-        ..Fake::default()
-    };
-    let ran = go(&mut fake, Format::Text, &["transcript", "list"]);
+    let reads = listed_with_transcripts();
+    let ran = read_go(&reads, Format::Text, &["transcript", "list"]);
     let lines: Vec<&str> = ran.out.lines().collect();
     for header in ["HARP", "CAPTURED", "BYTES"] {
         assert!(lines[0].contains(header), "{header}: {}", lines[0]);
@@ -1455,25 +1358,30 @@ fn the_transcript_table_says_false_for_an_uncaptured_one() {
 
 #[test]
 fn the_bare_transcript_lists_and_names_the_harp_it_is_given() {
-    let mut fake = Fake {
-        rows: rows(),
-        ..Fake::default()
-    };
-    go(&mut fake, Format::Json, &["transcript"]);
-    go(
-        &mut fake,
+    let reads = listed_with_transcripts();
+    let all = json_of(&read_go(&reads, Format::Json, &["transcript"]));
+    assert_eq!(all["transcripts"].as_array().unwrap().len(), 2);
+    let one = json_of(&read_go(
+        &reads,
         Format::Json,
         &["transcript", "list", "amber-swift-owl"],
+    ));
+    assert_eq!(one["transcripts"].as_array().unwrap().len(), 1);
+    let unknown = read_go(
+        &reads,
+        Format::Json,
+        &["transcript", "list", "no-such-harp"],
     );
-    assert_eq!(fake.transcripts[0], TranscriptQuery::default());
-    assert_eq!(fake.transcripts[1].harp.as_deref(), Some("amber-swift-owl"));
+    let failure = unknown.result.unwrap_err();
+    assert_eq!(failure.failure.exit, Exit::REFUSED);
+    assert_eq!(failure.failure.cause.code(), "daemon-api-session-not-found");
 }
 
 #[test]
 fn an_empty_transcript_listing_is_the_placeholder() {
-    let mut fake = Fake::default();
+    let reads = Reads::default();
     assert_eq!(
-        go(&mut fake, Format::Text, &["transcript", "list"]).out,
+        read_go(&reads, Format::Text, &["transcript", "list"]).out,
         "(no sessions)\n"
     );
 }
@@ -1591,31 +1499,29 @@ fn the_retired_verbs_are_not_commands() {
 
 // ---------------------------------------------------------------------- import
 
-fn report() -> ImportReport {
-    ImportReport {
-        imported: vec![Imported {
+fn report() -> v1::ImportSessionsResponse {
+    v1::ImportSessionsResponse {
+        imported: vec![v1::import_sessions_response::Imported {
             harp: "amber-swift-owl".to_string(),
             project: "jolly-mute-magma".to_string(),
             id: "5f0c7a52-1111-5111-8111-000000000001".to_string(),
         }],
         already: vec!["brisk-copper-moth".to_string()],
-        left: vec![Left {
+        left: vec![v1::import_sessions_response::Left {
             harp: "calm-dusty-wren".to_string(),
-            why: Why::NoProject {
-                project_dir: "/work/elsewhere".to_string(),
-            },
+            code: "sessions-application-left-no-project".to_string(),
+            args: [("project_dir".to_string(), "/work/elsewhere".to_string())].into(),
         }],
-        dead_letters: Vec::new(),
     }
 }
 
 #[test]
 fn an_import_reports_what_it_imported_what_it_held_and_what_it_left() {
-    let mut fake = Fake {
-        report: Some(report()),
-        ..Fake::default()
+    let writes = Writes {
+        report: report(),
+        ..Writes::default()
     };
-    let doc = json_of(&go(&mut fake, Format::Json, &["import"]));
+    let doc = json_of(&child_go(&writes, Format::Json, &["import"]));
     assert_eq!(
         doc,
         json!({
@@ -1624,16 +1530,16 @@ fn an_import_reports_what_it_imported_what_it_held_and_what_it_left() {
             "left": [{"harp": "calm-dusty-wren", "code": "sessions-application-left-no-project", "args": {"project_dir": "/work/elsewhere"}}],
         })
     );
-    assert_eq!(fake.imports, 1);
+    assert_eq!(*writes.asked.lock().unwrap(), ["import"]);
 }
 
 #[test]
 fn an_import_in_text_counts_and_names_each_left_session() {
-    let mut fake = Fake {
-        report: Some(report()),
-        ..Fake::default()
+    let writes = Writes {
+        report: report(),
+        ..Writes::default()
     };
-    let ran = go(&mut fake, Format::Text, &["import"]);
+    let ran = child_go(&writes, Format::Text, &["import"]);
     let lines: Vec<&str> = ran.out.lines().collect();
     assert_eq!(lines[0], "imported 1, already held 1, left 1");
     assert!(
@@ -1646,9 +1552,9 @@ fn an_import_in_text_counts_and_names_each_left_session() {
 
 #[test]
 fn an_import_of_nothing_says_so() {
-    let mut fake = Fake::default();
+    let writes = Writes::default();
     assert_eq!(
-        go(&mut fake, Format::Text, &["import"]).out,
+        child_go(&writes, Format::Text, &["import"]).out,
         "imported 0, already held 0, left 0\n"
     );
 }
@@ -2475,6 +2381,8 @@ fn only_remove_and_sweep_are_destroys() {
 struct Writes {
     asked: std::sync::Mutex<Vec<String>>,
     duplicate: bool,
+    /// What an import answers.
+    report: v1::ImportSessionsResponse,
 }
 
 impl Writes {
@@ -2535,6 +2443,35 @@ impl daemon_api::ChildWrites for Writes {
             .unwrap()
             .push(format!("restart {target} {note:?}"));
         Ok(self.written(target, "uid"))
+    }
+
+    async fn import(&self) -> Result<v1::ImportSessionsResponse, daemon_api::CallError> {
+        self.asked.lock().unwrap().push("import".to_string());
+        Ok(self.report.clone())
+    }
+
+    async fn keep(
+        &self,
+        target: &str,
+        kept: bool,
+    ) -> Result<daemon_api::Written, daemon_api::CallError> {
+        self.asked
+            .lock()
+            .unwrap()
+            .push(format!("keep {target} {kept}"));
+        Ok(self.written(target, "keep-call"))
+    }
+
+    async fn title(
+        &self,
+        target: &str,
+        title: &str,
+    ) -> Result<daemon_api::Written, daemon_api::CallError> {
+        self.asked
+            .lock()
+            .unwrap()
+            .push(format!("title {target} {title:?}"));
+        Ok(self.written(target, "title-call"))
     }
 }
 
@@ -2710,6 +2647,23 @@ fn a_refused_child_verb_fails_as_its_refusal_says() {
             unreachable!()
         }
         async fn restart(
+            &self,
+            _: &str,
+            _: &str,
+        ) -> Result<daemon_api::Written, daemon_api::CallError> {
+            unreachable!()
+        }
+        async fn import(&self) -> Result<v1::ImportSessionsResponse, daemon_api::CallError> {
+            unreachable!()
+        }
+        async fn keep(
+            &self,
+            _: &str,
+            _: bool,
+        ) -> Result<daemon_api::Written, daemon_api::CallError> {
+            unreachable!()
+        }
+        async fn title(
             &self,
             _: &str,
             _: &str,

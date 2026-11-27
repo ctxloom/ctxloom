@@ -1,0 +1,15 @@
+id: handoff-condvar
+language: rust
+severity: error
+message: A condition variable held as a field or static is a wake channel between components.
+note: >
+  A wake is a fact the waiter follows from a position in the stream, never a
+  Condvar one thread signals and another waits on. A runner's own state is
+  allowed with a reason in scripts/handoff-allow.txt.
+rule:
+  any:
+    - kind: field_declaration
+    - kind: static_item
+  regex: '\bCondvar\b'
+ignores:
+  - "**/*.test.rs"

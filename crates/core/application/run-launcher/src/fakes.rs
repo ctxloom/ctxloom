@@ -85,6 +85,10 @@ impl Edge for TestEdge {
     }
 
     // A test double shipped for tests only; its tests are the callers', not its own.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a test fake's own in-memory kernel, never the store"
+    )]
     #[cfg_attr(test, mutants::skip)]
     async fn handle(&self, book: CommandBook) -> Result<Answered, Failure<Rejected>> {
         let sampled: Sampled = self.samples.lock().unwrap().next_sample();

@@ -20,6 +20,7 @@ use std::sync::Arc;
 
 use std::collections::BTreeMap;
 
+use angzarr_embedded::angzarr_ports::tombstone;
 use angzarr_embedded::angzarr_router::error::CodedError;
 use angzarr_embedded::angzarr_router::hpb::{ProjectRequest, ProjectResponse};
 use angzarr_embedded::v1::{event_page, Cover, EventBook};
@@ -192,10 +193,9 @@ fn recorded_of(page: &angzarr_embedded::v1::EventPage) -> Timestamp {
 }
 
 impl TimelineIndex {
-    /// Fold `book`, one stream's events after the last projected of it; a
-    /// book from sequence 0 starts the stream afresh, and a book with no
-    /// event and `next_sequence` 0 says the stream is gone. Another domain's
-    /// book is none of its.
+    /// Fold `book`, one stream's events after the last projected of it. A
+    /// tombstone (a purge's `StreamClosed`) closes the stream: what the
+    /// index held of it leaves. Another domain's book is none of its.
     pub fn project(&mut self, book: &EventBook) -> Result<(), PayloadError> {
         match book.cover.as_ref().map(|cover| cover.domain.as_str()) {
             Some(SESSION_DOMAIN) => self.project_session(book),
@@ -207,15 +207,12 @@ impl TimelineIndex {
     fn project_session(&mut self, book: &EventBook) -> Result<(), PayloadError> {
         let root = root_of(book);
         let id = uid_of(&root);
-        let fresh = book
-            .pages
-            .first()
-            .map_or(book.next_sequence == 0, |page| page.sequence == 0);
-        if fresh {
-            self.sessions.remove(&id);
-            self.transcripts.remove(&root);
-        }
         for page in &book.pages {
+            if tombstone::is(page) {
+                self.sessions.remove(&id);
+                self.transcripts.remove(&root);
+                continue;
+            }
             let Some(event_page::Body::Event(event)) = &page.body else {
                 continue;
             };
@@ -239,10 +236,11 @@ impl TimelineIndex {
 
     fn project_ask(&mut self, book: &EventBook) -> Result<(), PayloadError> {
         let root = root_of(book);
-        if book.pages.first().is_none_or(|page| page.sequence == 0) {
-            self.asks.remove(&root);
-        }
         for page in &book.pages {
+            if tombstone::is(page) {
+                self.asks.remove(&root);
+                continue;
+            }
             let Some(event_page::Body::Event(event)) = &page.body else {
                 continue;
             };

@@ -65,6 +65,10 @@ pub trait SessionReads {
         state: v1::session::State,
     ) -> Result<v1::ListSessionsResponse, CallError>;
 
+    /// `session transcript list`: this project's sessions (`all`: every
+    /// project's), each with whether its events hold a transcript and its size.
+    async fn list_transcripts(&self, all: bool) -> Result<v1::ListSessionsResponse, CallError>;
+
     /// `session search`: the sessions whose words match.
     async fn search_sessions(
         &self,
@@ -377,6 +381,21 @@ fn refused<T: daemon_proto::Refusal>(message: &T) -> Called {
 }
 
 impl<D: Daemons> SessionReads for Client<D> {
+    async fn list_transcripts(&self, all: bool) -> Result<v1::ListSessionsResponse, CallError> {
+        if self.nothing_recorded(all) {
+            return Ok(v1::ListSessionsResponse::default());
+        }
+        self.on_daemon(async |api: &D::Api| {
+            let request = v1::ListSessionsRequest {
+                parent: self.parent(api, all).await?,
+                transcripts: true,
+                ..v1::ListSessionsRequest::default()
+            };
+            api.list_sessions(request).await
+        })
+        .await
+    }
+
     async fn list_sessions(
         &self,
         all: bool,

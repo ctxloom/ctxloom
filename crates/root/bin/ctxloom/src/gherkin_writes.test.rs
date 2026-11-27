@@ -129,6 +129,7 @@ fn is_setup_write(line: &str) -> bool {
         || first("init") && words.len() == 1
         || first("manage") && words.iter().any(|w| w == "install")
         || first("materialize")
+        || first("session") && (second("keep") || second("rename") || second("import"))
         || first("doctor") && words.iter().any(|w| w == "--fix")
 }
 

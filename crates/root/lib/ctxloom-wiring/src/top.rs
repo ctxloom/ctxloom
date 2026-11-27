@@ -15,7 +15,7 @@ use crate::Wiring;
 const DAEMON_LOOK: Duration = Duration::from_millis(500);
 
 /// The daemon `top` watches through.
-pub(crate) struct DaemonTop<'a> {
+pub struct DaemonTop<'a> {
     wiring: &'a Wiring,
     stamp: String,
     runtime: Arc<tokio::runtime::Runtime>,
@@ -25,7 +25,7 @@ pub(crate) struct DaemonTop<'a> {
 }
 
 impl<'a> DaemonTop<'a> {
-    pub(crate) fn new(
+    pub fn new(
         wiring: &'a Wiring,
         stamp: &str,
     ) -> Result<DaemonTop<'a>, Box<dyn coded_diagnostic::Diagnostic>> {

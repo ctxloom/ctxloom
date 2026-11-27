@@ -20,25 +20,25 @@ use setup_application::{hook_skills, HookLibrary, HookSkill};
 use crate::Wiring;
 
 /// The user's daemon as a hook's library read reaches it, until `until`.
-pub(crate) struct HookDaemons {
-    pub(crate) env: Arc<EnvSnapshot>,
+pub struct HookDaemons {
+    pub env: Arc<EnvSnapshot>,
     /// The binary's stamp, which its every request names (the daemon
     /// admits only its own).
-    pub(crate) stamp: String,
-    pub(crate) until: Instant,
+    pub stamp: String,
+    pub until: Instant,
     /// Whether it may start one (none where the environment names an
     /// endpoint).
-    pub(crate) starts: bool,
+    pub starts: bool,
     /// Whether its first reach is the discovery file's daemon, asked with
     /// no health check (the lean hook RPC: a probe is a TLS connection of
     /// its own); a later reach (the first answered unreachable) probes.
-    pub(crate) trusts: std::sync::atomic::AtomicBool,
+    pub trusts: std::sync::atomic::AtomicBool,
 }
 
 impl HookDaemons {
     /// The daemon of a hook's one call (the lean hook RPC): its first
     /// reach trusts the discovery file.
-    pub(crate) fn trusting(
+    pub fn trusting(
         env: Arc<EnvSnapshot>,
         stamp: &str,
         until: Instant,
@@ -99,17 +99,17 @@ impl Daemons for HookDaemons {
 }
 
 /// The hooks' library reads over the user's daemon (O3).
-pub(crate) struct DaemonHookLibrary {
-    pub(crate) env: Arc<EnvSnapshot>,
+pub struct DaemonHookLibrary {
+    pub env: Arc<EnvSnapshot>,
     /// The binary's stamp, which the daemon admits only when it is its own.
-    pub(crate) stamp: String,
+    pub stamp: String,
     /// When the hook's bound ends.
-    pub(crate) until: Instant,
+    pub until: Instant,
 }
 
 impl DaemonHookLibrary {
     /// A hook's reads, its bound starting now.
-    pub(crate) fn starting_now(env: Arc<EnvSnapshot>, stamp: &str) -> DaemonHookLibrary {
+    pub fn starting_now(env: Arc<EnvSnapshot>, stamp: &str) -> DaemonHookLibrary {
         DaemonHookLibrary {
             env,
             stamp: stamp.to_string(),

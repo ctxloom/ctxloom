@@ -68,12 +68,7 @@ fn without_stale(fs: &dyn Fs, text: &str, root: &Path, keep: &str) -> Option<Str
 
 /// The home's index (under `home`) with `root`'s binding to any project but
 /// `keep` taken out, under the registry's lock; whether one was.
-pub(crate) fn unbind_stale(
-    fs: &dyn Fs,
-    home: &Path,
-    root: &Path,
-    keep: &str,
-) -> Result<bool, Report> {
+pub fn unbind_stale(fs: &dyn Fs, home: &Path, root: &Path, keep: &str) -> Result<bool, Report> {
     let path = index_path(home);
     let failed = |detail: String| {
         Report::of(&RegistryError::Io {

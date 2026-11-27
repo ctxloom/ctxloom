@@ -14,7 +14,7 @@ use daemon_proto::v1;
 /// bare `session approvals` lists. A one-shot is its own root and a
 /// sibling session's children have another, and a TUI's human answers
 /// them all. None for a name of another shape.
-pub(crate) fn project_listing(session: &str) -> Option<v1::ListApprovalsRequest> {
+pub fn project_listing(session: &str) -> Option<v1::ListApprovalsRequest> {
     let (project, _) = session.split_once("/sessions/")?;
     Some(v1::ListApprovalsRequest {
         parent: project.to_string(),
@@ -25,14 +25,14 @@ pub(crate) fn project_listing(session: &str) -> Option<v1::ListApprovalsRequest>
 
 /// The asks already told of, so that each is told once.
 #[derive(Default)]
-pub(crate) struct AsksTold(HashSet<String>);
+pub struct AsksTold(HashSet<String>);
 
 impl AsksTold {
     /// The asks in `waiting` not told of yet, by their own names, oldest
     /// first, now told of. One that is not waiting (the listing asks for
     /// those that are; a daemon that says otherwise is not believed) is
     /// never told.
-    pub(crate) fn news(&mut self, waiting: &[v1::Approval]) -> Vec<String> {
+    pub fn news(&mut self, waiting: &[v1::Approval]) -> Vec<String> {
         waiting
             .iter()
             .filter(|approval| approval.state == "waiting")
@@ -45,7 +45,7 @@ impl AsksTold {
 /// How many of `listed` are waiting: a daemon that lists one that is not
 /// (the listing asks for those that are) is not believed, as in
 /// [`AsksTold::news`].
-pub(crate) fn count_waiting(listed: &[v1::Approval]) -> u32 {
+pub fn count_waiting(listed: &[v1::Approval]) -> u32 {
     let waiting = listed.iter().filter(|a| a.state == "waiting").count();
     u32::try_from(waiting).unwrap_or(u32::MAX)
 }

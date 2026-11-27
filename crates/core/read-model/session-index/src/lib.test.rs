@@ -54,6 +54,10 @@ impl Project {
         self.run_book(index, sessions::bind_book(cover(id), &bind));
     }
 
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "a test kernel or store of its own"
+    )]
     fn run_book(&mut self, index: &mut Index, book: CommandBook) {
         self.seconds += 1;
         let sampled = Sampled {
@@ -649,6 +653,10 @@ fn a_record_carries_its_owner_its_close_and_the_children_it_holds() {
 // and it answers the command's session as its resource message, named by
 // its project's harp and its own (S42, S54); a catch-up of the same index
 // after it folds nothing twice.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a test kernel or store of its own"
+)]
 #[test]
 fn handle_sync_answers_the_session_as_its_resource_named_by_both_harps() {
     use prost::Message as _;
@@ -825,11 +833,11 @@ fn a_session_is_its_resource_with_its_owner_and_children_named() {
     assert!(!owner.kept && !owner.closed);
 }
 
-// A project stream gone (purged: no page at 0) takes its harp with it, and
-// a session's name is empty again; a book with no page that is not at 0
+// A project stream closed by a purge (its last page a tombstone) takes its
+// harp with it, and a session's name is empty again; a book with no page
 // changes nothing.
 #[test]
-fn a_gone_project_stream_takes_its_harp_with_it() {
+fn a_closed_project_stream_takes_its_harp_with_it() {
     let mut index = SessionIndex::new();
     let record = SessionRecord {
         project_id: "calm-otter".to_string(),
@@ -844,7 +852,11 @@ fn a_gone_project_stream_takes_its_harp_with_it() {
         index.name_of(&record),
         "projects/calm-quiet-heron/sessions/amber-swift-owl"
     );
-    index.project(&project_book(None, 0)).unwrap();
+    let mut closed = project_book(None, 2);
+    closed
+        .pages
+        .push(angzarr_embedded::angzarr_ports::tombstone::page(1));
+    index.project(&closed).unwrap();
     assert_eq!(index.name_of(&record), "");
 }
 

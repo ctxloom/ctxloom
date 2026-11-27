@@ -174,9 +174,9 @@ pub(crate) const TEST_BINARIES: &str = "test-binaries";
 /// `built` copied into [`TEST_BINARIES`] (`files::copy` writes whole and
 /// renames in, so a process running an older copy keeps it).
 fn kept_apart(built: &Path, profile_dir: &Path) -> PathBuf {
-    let kept = profile_dir
-        .join(TEST_BINARIES)
-        .join(built.file_name().expect("a file name"));
+    let dir = profile_dir.join(TEST_BINARIES);
+    files::mkdirs(&dir);
+    let kept = dir.join(built.file_name().expect("a file name"));
     files::copy(built, &kept);
     kept
 }
@@ -321,6 +321,11 @@ impl Env {
 
     /// Run `ctxloom args`.
     pub(crate) fn run(&self, args: &[&str]) -> Ran {
+        self.run_in(self.home(), args)
+    }
+
+    /// Run `ctxloom args` with `cwd` as its working directory.
+    pub(crate) fn run_in(&self, cwd: &Path, args: &[&str]) -> Ran {
         let mut command = Command::new(binary());
         command
             .args(args)
@@ -329,7 +334,7 @@ impl Env {
             .env("USERPROFILE", self.home())
             .env("TMPDIR", crate::tests::temp_root())
             .env(crate::tests::LIFELINE, crate::tests::lifeline())
-            .current_dir(self.home());
+            .current_dir(cwd);
         for name in ["PATH", "SystemRoot"] {
             if let Some(value) = crate::tests::host_var(name) {
                 command.env(name, value);

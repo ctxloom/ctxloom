@@ -18,7 +18,7 @@ use process_env::EnvSnapshot;
 const ASK_WITHIN: Duration = Duration::from_secs(2);
 
 /// The waiting asks of the project of the session `env` names.
-pub(crate) fn waiting(env: &Arc<EnvSnapshot>) -> u32 {
+pub fn waiting(env: &Arc<EnvSnapshot>) -> u32 {
     asked(env).unwrap_or(0)
 }
 

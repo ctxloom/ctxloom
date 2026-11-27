@@ -48,6 +48,17 @@ pub(crate) fn book(domain: &str, root: Uuid, first: u64, events: Vec<Any>) -> Ev
     }
 }
 
+/// A book a purge's tombstone at `at` opens, then `events` after it: what a
+/// stream purged and written again hands a reader.
+pub(crate) fn after_tombstone(domain: &str, root: Uuid, at: u64, events: Vec<Any>) -> EventBook {
+    let mut after = book(domain, root, at + 1, events);
+    after
+        .pages
+        .insert(0, angzarr_embedded::angzarr_ports::tombstone::page(at));
+    after.next_sequence = after.pages.last().map_or(at + 1, |p| p.sequence + 1);
+    after
+}
+
 pub(crate) fn minted(owner: Option<&str>) -> Vec<Any> {
     vec![
         SessionEvent::SessionMinted(SessionMinted {
@@ -132,7 +143,7 @@ fn a_session_is_folded_as_its_aggregate_folds_it() {
 }
 
 #[test]
-fn a_later_book_continues_the_stream_and_one_from_zero_starts_it_afresh() {
+fn a_later_book_continues_the_stream_and_one_after_a_tombstone_starts_it_afresh() {
     let mut board = Board::new();
     board
         .project(&book(SESSION_DOMAIN, root(), 0, minted(None)))
@@ -148,9 +159,12 @@ fn a_later_book_continues_the_stream_and_one_from_zero_starts_it_afresh() {
     assert!(state.closed);
     assert_eq!(state.harp, "kid-harp", "the earlier events still hold");
     board
-        .project(&book(SESSION_DOMAIN, root(), 0, minted(None)))
+        .project(&after_tombstone(SESSION_DOMAIN, root(), 3, minted(None)))
         .unwrap();
-    assert!(!board.session(ID).unwrap().closed, "folded afresh from 0");
+    assert!(
+        !board.session(ID).unwrap().closed,
+        "folded afresh after the tombstone"
+    );
 }
 
 #[test]
@@ -212,10 +226,10 @@ fn a_purged_stream_leaves_the_board() {
         .project(&book(RUN_DOMAIN, run_root(ID, 1), 0, run_events()))
         .unwrap();
     board
-        .project(&book(SESSION_DOMAIN, root(), 0, Vec::new()))
+        .project(&after_tombstone(SESSION_DOMAIN, root(), 3, Vec::new()))
         .unwrap();
     board
-        .project(&book(RUN_DOMAIN, run_root(ID, 1), 0, Vec::new()))
+        .project(&after_tombstone(RUN_DOMAIN, run_root(ID, 1), 5, Vec::new()))
         .unwrap();
     assert!(board.session(ID).is_none());
     assert!(board.run(ID, 1).is_none());
@@ -262,7 +276,7 @@ fn the_port_folds_what_a_catch_up_hands_it() {
         events: Some(book(
             SESSION_DOMAIN,
             root(),
-            0,
+            u64::try_from(minted(None).len()).unwrap(),
             vec![Any {
                 type_url: "type.googleapis.com/nothing.Known".to_string(),
                 value: vec![1],
@@ -326,9 +340,12 @@ fn a_session_keeps_its_launches_messages_and_clears() {
     assert!(board.clears("nobody").is_empty());
     assert!(board.launched("nobody").is_empty());
     board
-        .project(&book(SESSION_DOMAIN, root(), 0, minted(None)))
+        .project(&after_tombstone(SESSION_DOMAIN, root(), 9, minted(None)))
         .unwrap();
-    assert!(board.launched(ID).is_empty(), "folded afresh from 0");
+    assert!(
+        board.launched(ID).is_empty(),
+        "folded afresh after the tombstone"
+    );
 }
 
 // S32: the board's view of a session stream is its state as the session

@@ -111,8 +111,14 @@ impl RunAggregate {
 }
 
 /// The enqueue: once, on its own derived stream.
-fn decide_enqueue(ctx: &Context, cmd: EnqueueRun) -> Result<RunEnqueued, RunRejection> {
-    if ctx.command.had_prior_events {
+fn decide_enqueue(
+    enqueued: bool,
+    ctx: &Context,
+    cmd: EnqueueRun,
+) -> Result<RunEnqueued, RunRejection> {
+    // The folded state, never the router's `had_prior_events`: a purge's
+    // tombstone leaves a stream with an event and no run.
+    if enqueued {
         return Err(RunRejection::AlreadyEnqueued);
     }
     if ctx.root() != Some(&run_root(&cmd.session, cmd.incarnation)) {
@@ -328,7 +334,7 @@ impl RunAggregate {
         cmd: EnqueueRun,
         ctx: &Context,
     ) -> Result<RunEnqueued, Failed<Refuses<Self, EnqueueRun>>> {
-        decide_enqueue(ctx, cmd).map_err(enqueue_refusal)
+        decide_enqueue(self.enqueued(), ctx, cmd).map_err(enqueue_refusal)
     }
 
     /// Queue a turn: one in flight, a steer behind it interrupting it, and

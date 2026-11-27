@@ -1,0 +1,17 @@
+id: handoff-channel
+language: rust
+severity: error
+message: A channel sender carrying a value, held as a field or static, is an in-memory hand-off.
+note: >
+  A value one component hands another through a channel is a message that
+  belongs in a stream. A `Sender<()>` (a doorbell) is not flagged. A runner's
+  own plumbing is allowed with a reason in scripts/handoff-allow.txt.
+rule:
+  any:
+    - kind: field_declaration
+    - kind: static_item
+  regex: '\b(Sync|Unbounded)?Sender\s*<'
+  not:
+    regex: '\b(Sync|Unbounded)?Sender\s*<\s*\(\s*\)\s*>'
+ignores:
+  - "**/*.test.rs"

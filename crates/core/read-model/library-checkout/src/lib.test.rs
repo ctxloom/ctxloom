@@ -51,6 +51,17 @@ fn observed(baseline: bool, changes: &[(&str, &str)]) -> LibraryEvent {
 
 /// The tree's stream: `events` from `first` on, each caused by the fact
 /// `obs:<sequence>`.
+/// A book a purge's tombstone at `at` opens, then `events` after it: what a
+/// stream purged and written again hands a reader.
+fn after_tombstone(domain: &str, at: u64, events: Vec<LibraryEvent>) -> EventBook {
+    let mut after = on(domain, at + 1, events);
+    after
+        .pages
+        .insert(0, angzarr_embedded::angzarr_ports::tombstone::page(at));
+    after.next_sequence = after.pages.last().map_or(at + 1, |p| p.sequence + 1);
+    after
+}
+
 fn on(domain: &str, first: u64, events: Vec<LibraryEvent>) -> EventBook {
     let pages: Vec<EventPage> = (first..)
         .zip(events)
@@ -130,7 +141,7 @@ fn a_step_applied_moves_its_paths_tokens_as_the_aggregates_fold_does() {
 }
 
 #[test]
-fn a_book_from_sequence_zero_starts_the_stream_afresh() {
+fn a_tombstone_closes_the_stream_and_what_follows_starts_afresh() {
     let mut model = LibraryCheckout::new();
     model
         .project(&on(
@@ -139,12 +150,12 @@ fn a_book_from_sequence_zero_starts_the_stream_afresh() {
             vec![observed(true, &[(FILE, "f1")])],
         ))
         .unwrap();
-    let mut gone = on(LIBRARY_DOMAIN, 0, vec![]);
-    gone.next_sequence = 0;
-    model.project(&gone).unwrap();
+    model
+        .project(&after_tombstone(LIBRARY_DOMAIN, 9, vec![]))
+        .unwrap();
     assert!(model.tree(&tree_root(TREE)).is_none());
     model
-        .project(&on(LIBRARY_DOMAIN, 0, vec![observed(true, &[])]))
+        .project(&on(LIBRARY_DOMAIN, 10, vec![observed(true, &[])]))
         .unwrap();
     assert!(model.tree(&tree_root(TREE)).unwrap().resources.is_empty());
 }
@@ -262,7 +273,7 @@ fn an_intent_is_known_by_its_request_id_pending_then_done() {
 }
 
 #[test]
-fn an_intent_failed_is_known_failed_and_a_stream_started_afresh_forgets_it() {
+fn an_intent_failed_is_known_failed_and_a_stream_closed_by_a_tombstone_forgets_it() {
     use crate::End;
     let mut model = LibraryCheckout::new();
     let failed = LibraryEvent::ChangeFailed(library_tree::ChangeFailed {
@@ -279,13 +290,17 @@ fn an_intent_failed_is_known_failed_and_a_stream_started_afresh_forgets_it() {
         .unwrap();
     assert_eq!(model.intent("r-1").map(|k| k.end), Some(End::Failed));
     model
-        .project(&on(LIBRARY_DOMAIN, 0, vec![observed(true, &[])]))
+        .project(&after_tombstone(
+            LIBRARY_DOMAIN,
+            9,
+            vec![observed(true, &[])],
+        ))
         .unwrap();
     assert!(model.intent("r-1").is_none());
 }
 
 // AIP-155 (owner 2026-11-18, night): an export is known by its request id,
-// what it answered kept; a stream started afresh forgets it.
+// what it answered kept; a stream a tombstone closes forgets it.
 #[test]
 fn an_export_is_known_by_its_request_id_with_what_it_answered() {
     let mut model = LibraryCheckout::new();
@@ -307,7 +322,11 @@ fn an_export_is_known_by_its_request_id_with_what_it_answered() {
     assert_eq!(known.bundle, "demo");
     assert!(model.export("r-8").is_none());
     model
-        .project(&on(LIBRARY_DOMAIN, 0, vec![observed(true, &[])]))
+        .project(&after_tombstone(
+            LIBRARY_DOMAIN,
+            9,
+            vec![observed(true, &[])],
+        ))
         .unwrap();
     assert!(model.export("r-9").is_none());
 }

@@ -229,7 +229,7 @@ impl SessionIds for RunIds {
 /// The harp of the session `CTXLOOM_SESSION` names (`session`, its resource
 /// name: s3-Q3), as a hook and the statusline say it; empty where it names
 /// none.
-pub(crate) fn harp_of(session: Option<&str>) -> String {
+pub fn harp_of(session: Option<&str>) -> String {
     session
         .and_then(|name| sessions::SessionName::parse(name).ok())
         .map(|name| name.harp().to_string())
@@ -330,7 +330,7 @@ pub trait HookReach {
 
 /// The user's daemon as its discovery file names it, spawned when none
 /// serves ([`crate::daemon::hook_daemon`]).
-pub struct DaemonReach(pub(crate) Arc<process_env::EnvSnapshot>);
+pub struct DaemonReach(pub Arc<process_env::EnvSnapshot>);
 
 impl HookReach for DaemonReach {
     type Sink = GrpcSink;
@@ -361,7 +361,7 @@ impl HookClock for Deadline {
 /// A hook's recording when its environment names no endpoint (S16, s4-Q14
 /// H2): to the user's daemon, or into its session's hold.
 pub struct HoldingRecording<R: HookReach, H: HeldFacts, I: SessionIds> {
-    reach: R,
+    pub reach: R,
     held: H,
     ids: I,
     /// The hook's own versionator stamp.
@@ -396,14 +396,14 @@ impl<R: HookReach, H: HeldFacts, I: SessionIds> HoldingRecording<R, H, I> {
 
 /// How long a hook may take in all for `native`: S16's bound, or less where
 /// the engine gives the hook less ([`delivery_budget`]).
-pub(crate) fn hook_bound(native: &str) -> Duration {
+pub fn hook_bound(native: &str) -> Duration {
     crate::daemon::HOOK_BOUND.min(delivery_budget(native))
 }
 
 /// How long a hook whose bound ends at `deadline` waits for a daemon it
 /// spawned: what the bound leaves a delivery its margin of, and never more
 /// than a client's [`crate::daemon::SPAWN_WAIT`].
-pub(crate) fn spawn_wait(clock: &Deadline) -> Duration {
+pub fn spawn_wait(clock: &Deadline) -> Duration {
     clock
         .remaining()
         .saturating_sub(crate::daemon::DELIVERY_MARGIN)
@@ -498,7 +498,3 @@ fn held_text(why: &Why) -> String {
         Why::OutOfTime => "the hook's time ran out before it was delivered".to_string(),
     }
 }
-
-#[cfg(test)]
-#[path = "capture.test.rs"]
-mod tests;

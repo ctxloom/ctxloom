@@ -8,12 +8,11 @@
 //!
 //! - a page at or past where the fold is on its stream is folded; one before
 //!   it was folded already (the other driver handed it) and is passed over;
-//! - a book from sequence 0 whose first event is not the one the fold
-//!   started the stream with is a stream purged and written again: it is
-//!   folded afresh, as the projector port says (and so is one whose first
-//!   event carries no cause and no instant, which tells nothing);
-//! - a book with no page at `next_sequence` 0 is a stream gone: the fold
-//!   forgets it;
+//! - a book holding a tombstone (a purge's `StreamClosed`) at or past where
+//!   the fold is restarts the stream there: the pages before it are deleted
+//!   and none is owed, the model is handed the book from the tombstone on, and
+//!   resets at it (sequences never restart, so nothing else says a stream
+//!   was purged);
 //! - a book that starts past where the fold is (the kernel's inline book of
 //!   a stream another process wrote meanwhile) is a gap: the pages between
 //!   are read through [`Fill`], when one is given, and folded first; with
@@ -28,12 +27,12 @@ use std::collections::BTreeMap;
 use std::ops::Deref;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use angzarr_embedded::angzarr_ports::tombstone;
 use angzarr_embedded::angzarr_ports::BoxFuture;
-use angzarr_embedded::angzarr_proto::v1::event_meta::Causation;
 use angzarr_embedded::angzarr_router::error::CodedError;
 use angzarr_embedded::angzarr_router::hpb::{ProjectRequest, ProjectResponse};
 use angzarr_embedded::v1::{Cover, EventBook, EventPage};
-use angzarr_embedded::{Any, PayloadError, ProjectorHandler, StoreError, Timestamp};
+use angzarr_embedded::{Any, PayloadError, ProjectorHandler, StoreError};
 
 /// A read model a [`Held`] folds: its fold, one stream's book at a time as
 /// the projector port hands it, and its view of a stream.
@@ -41,9 +40,9 @@ pub trait Model: Default + Send + 'static {
     /// The projector's name: what a `HandleSync` names it by.
     const NAME: &'static str;
 
-    /// Fold `book`, one stream's events after the last folded of it: a book
-    /// from sequence 0 starts the stream afresh, a book with no page at
-    /// `next_sequence` 0 says it is gone.
+    /// Fold `book`, one stream's events after the last folded of it. A
+    /// tombstone page in it closes the stream: the model resets that stream
+    /// there, and what follows starts afresh.
     fn project(&mut self, book: &EventBook) -> Result<(), PayloadError>;
 
     /// What the model answers for `cover`'s stream as it stands: the
@@ -78,35 +77,9 @@ fn key(cover: &Cover) -> Key {
     )
 }
 
-/// What tells a stream from one written again on its cover: its first
-/// event's cause and instant (the sequence cannot: each starts at 0).
-#[derive(Clone, Debug, PartialEq)]
-struct Fingerprint {
-    cause: Option<Causation>,
-    recorded_at: Option<Timestamp>,
-}
-
-impl Fingerprint {
-    /// A page with no cause and no instant (one no store recorded) tells
-    /// nothing: a book from 0 of such pages is always folded afresh.
-    fn unknown(&self) -> bool {
-        self.cause.is_none() && self.recorded_at.is_none()
-    }
-
-    fn of(page: &EventPage) -> Fingerprint {
-        let meta = page.meta.as_ref();
-        Fingerprint {
-            cause: meta.and_then(|meta| meta.causation.clone()),
-            recorded_at: meta.and_then(|meta| meta.recorded_at),
-        }
-    }
-}
-
-/// Where the fold is on one stream.
+/// Where the fold is on one stream: the next sequence it is owed.
 #[derive(Clone, Debug)]
 struct Seen {
-    first: Fingerprint,
-    /// The next sequence it is owed.
     next: u64,
 }
 
@@ -134,37 +107,32 @@ impl<M: Model> Guarded<M> {
     fn admit(&mut self, book: &EventBook) -> Result<Admitted, PayloadError> {
         let cover = book.cover.clone().unwrap_or_default();
         let key = key(&cover);
-        let Some(first) = book.pages.first() else {
-            if book.next_sequence == 0 {
-                self.seen.remove(&key);
-                self.model.project(book)?;
-                self.folds += 1;
-            }
-            return Ok(Admitted::Folded);
-        };
-        let fingerprint = Fingerprint::of(first);
-        let afresh = first.sequence == 0
-            && (fingerprint.unknown()
-                || self
-                    .seen
-                    .get(&key)
-                    .is_none_or(|seen| seen.first != fingerprint));
-        let next = match afresh {
-            true => 0,
-            false => self.seen.get(&key).map_or(0, |seen| seen.next),
-        };
-        if first.sequence > next {
-            return Ok(Admitted::Gap {
-                from: next,
-                to: first.sequence,
-            });
-        }
-        let owed: Vec<EventPage> = book
+        let held = self.seen.get(&key).map_or(0, |seen| seen.next);
+        // The last tombstone not yet folded restarts the stream: what was
+        // below it is deleted, so nothing before it is owed.
+        let closed = book
             .pages
             .iter()
-            .filter(|page| page.sequence >= next)
-            .cloned()
-            .collect();
+            .rposition(|page| page.sequence >= held && tombstone::is(page));
+        let owed: Vec<EventPage> = match closed {
+            Some(at) => book.pages[at..].to_vec(),
+            None => {
+                let Some(first) = book.pages.first() else {
+                    return Ok(Admitted::Folded);
+                };
+                if first.sequence > held {
+                    return Ok(Admitted::Gap {
+                        from: held,
+                        to: first.sequence,
+                    });
+                }
+                book.pages
+                    .iter()
+                    .filter(|page| page.sequence >= held)
+                    .cloned()
+                    .collect()
+            }
+        };
         let Some(last) = owed.last().map(|page| page.sequence) else {
             return Ok(Admitted::Folded);
         };
@@ -176,20 +144,7 @@ impl<M: Model> Guarded<M> {
         };
         self.model.project(&trimmed)?;
         self.folds += 1;
-        let fingerprint = match afresh {
-            true => Fingerprint::of(first),
-            false => self
-                .seen
-                .get(&key)
-                .map_or_else(|| Fingerprint::of(first), |seen| seen.first.clone()),
-        };
-        self.seen.insert(
-            key,
-            Seen {
-                first: fingerprint,
-                next: last + 1,
-            },
-        );
+        self.seen.insert(key, Seen { next: last + 1 });
         Ok(Admitted::Folded)
     }
 }

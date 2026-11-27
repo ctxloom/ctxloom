@@ -19,10 +19,7 @@ const VARIABLE: &str = "CTXLOOM_ROOT";
 /// directory resolved against the working directory when relative; `None`
 /// (the flag omitted) leaves `env` as it is, and the flag, given, wins over
 /// a `CTXLOOM_ROOT` already set.
-pub(crate) fn applied(
-    env: &Arc<EnvSnapshot>,
-    given: Option<&str>,
-) -> Result<Arc<EnvSnapshot>, LibError> {
+pub fn applied(env: &Arc<EnvSnapshot>, given: Option<&str>) -> Result<Arc<EnvSnapshot>, LibError> {
     let Some(given) = given else {
         return Ok(Arc::clone(env));
     };
@@ -47,7 +44,7 @@ pub(crate) fn applied(
 /// is the flag's value, resolved against the working directory when
 /// relative; `None` leaves `env` as it is, and the flag, given, wins over a
 /// variable already set.
-pub(crate) fn daemon_root_applied(env: &Arc<EnvSnapshot>, given: Option<&str>) -> Arc<EnvSnapshot> {
+pub fn daemon_root_applied(env: &Arc<EnvSnapshot>, given: Option<&str>) -> Arc<EnvSnapshot> {
     let Some(given) = given else {
         return Arc::clone(env);
     };

@@ -17,12 +17,9 @@ use presentation::{write_json, Format};
 use reclaim_application::{destroys_held, ReclaimError, SessionHolds};
 #[cfg(feature = "session-destroy")]
 use sessions_application::Timestamp;
-use sessions_application::{
-    dead_letter_line, AppError, DeadLetter, ImportRequest, ImportService, KeepRequest,
-    RemovedNothing, SessionService, State, TitleRequest, TranscriptQuery, Urgency, STATES,
-};
 #[cfg(feature = "session-destroy")]
 use sessions_application::{DestroysAuthored, DestroysHeld, REMOVE_VERB};
+use sessions_application::{RemovedNothing, State, TranscriptRow, Urgency, STATES};
 
 use crate::render::{
     conversation_text, import_text, listing_text, session_text, transcripts_text, worktrees_text,
@@ -34,8 +31,8 @@ use crate::{
     RemoveArgs,
 };
 use crate::{
-    CliFault, ListArgs, RenameArgs, Session, SessionVerb, Transcript, TranscriptListArgs,
-    TranscriptVerb, UrgencyWord, Worktrees, WorktreesVerb,
+    CliFault, ListArgs, Session, SessionVerb, Transcript, TranscriptVerb, UrgencyWord, Worktrees,
+    WorktreesVerb,
 };
 
 /// A command that completed: what it says on the diagnostic channel besides
@@ -86,12 +83,7 @@ pub fn is_read(session: &Session) -> bool {
     matches!(
         &session.verb,
         None | Some(SessionVerb::List(_) | SessionVerb::Search(_) | SessionVerb::Show(_))
-    ) || matches!(
-        &session.verb,
-        Some(SessionVerb::Transcript(Transcript {
-            verb: Some(TranscriptVerb::Show(_))
-        }))
-    )
+    ) || matches!(&session.verb, Some(SessionVerb::Transcript(_)))
 }
 
 /// Whether `session`'s command is a destroy the daemon runs (`remove`,
@@ -180,6 +172,9 @@ pub fn is_child(session: &Session) -> bool {
                 | SessionVerb::Close(_)
                 | SessionVerb::Stop(_)
                 | SessionVerb::Restart(_)
+                | SessionVerb::Keep(_)
+                | SessionVerb::Rename(_)
+                | SessionVerb::Import
         )
     )
 }
@@ -202,6 +197,10 @@ pub fn child<W: ChildWrites>(
                 ext_err_txt: e.to_string(),
             })
         })?;
+    // The session's own writes answer as they always did, not as the session.
+    if let Some(done) = own_write(session, writes, &runtime, format, out)? {
+        return Ok(done);
+    }
     let (written, said) = runtime.block_on(async {
         match &session.verb {
             Some(SessionVerb::Launch(args)) => {
@@ -281,6 +280,68 @@ pub fn child<W: ChildWrites>(
             .push(Box::new(crate::error::AlreadyClosed { harp }));
     }
     Ok(done)
+}
+
+/// `keep` and `rename` (ONE WRITER: commands sent to the daemon as the user,
+/// each under an id minted for the call), answered as they always were
+/// rather than as the session; none for any other verb.
+fn own_write<W: ChildWrites>(
+    session: &Session,
+    writes: &W,
+    runtime: &tokio::runtime::Runtime,
+    format: Format,
+    out: &mut dyn Write,
+) -> Result<Option<Done>, Failure> {
+    match &session.verb {
+        Some(SessionVerb::Keep(args)) => {
+            let kept = !args.undo;
+            runtime
+                .block_on(writes.keep(&args.harp, kept))
+                .map_err(call_failure)?;
+            wrote(match format {
+                Format::Json => write_json(
+                    out,
+                    &KeepDoc {
+                        harp: args.harp.clone(),
+                        kept,
+                    },
+                ),
+                Format::Text if kept => writeln!(
+                    out,
+                    "{} is marked keep: its transcript is kept at any age",
+                    args.harp
+                ),
+                Format::Text => writeln!(
+                    out,
+                    "{} is no longer marked keep: its transcript is reclaimable once session_transcript_retention has passed since it ended",
+                    args.harp
+                ),
+            })?;
+            Ok(Some(Done::default()))
+        }
+        Some(SessionVerb::Import) => {
+            let report = runtime.block_on(writes.import()).map_err(call_failure)?;
+            wrote(match format {
+                Format::Json => write_json(out, &ImportDoc::of(&report)),
+                Format::Text => import_text(&report, out),
+            })?;
+            Ok(Some(Done::default()))
+        }
+        Some(SessionVerb::Rename(args)) => {
+            let written = runtime
+                .block_on(writes.title(&args.harp, &args.title))
+                .map_err(call_failure)?;
+            wrote(match format {
+                Format::Json => write_json(
+                    out,
+                    &TitleDoc::new(&args.harp, &args.title, written.applied),
+                ),
+                Format::Text => writeln!(out, "{}: titled {:?}", args.harp, args.title),
+            })?;
+            Ok(Some(Done::default()))
+        }
+        _ => Ok(None),
+    }
 }
 
 /// Whether `session`'s command is `close`.
@@ -363,6 +424,15 @@ pub fn read<R: SessionReads>(
                 })?;
                 Ok(Done::default())
             }
+            // `transcript list`, and the bare `transcript`: the daemon's
+            // listing, each session with whether its events hold a transcript.
+            Some(SessionVerb::Transcript(Transcript { verb })) => {
+                let (all, harp) = match verb {
+                    Some(TranscriptVerb::List(args)) => (args.all, args.harp.as_deref()),
+                    _ => (false, None),
+                };
+                transcript_list(reads, all, harp, format, out).await
+            }
             // The bare noun lists; any other verb is no read.
             _ => list(reads, &ListArgs::default(), format, out).await,
         }
@@ -376,7 +446,7 @@ fn json_line(entry: &v1::LogEntry) -> String {
 
 /// Run `session`'s command (one that is not a read, [`is_read`]) on
 /// `service`, writing its answer to `out`.
-pub fn run<S: SessionService + ImportService + WorktreeUse>(
+pub fn run<S: WorktreeUse>(
     session: &Session,
     service: &mut S,
     format: Format,
@@ -432,18 +502,6 @@ pub(crate) fn fault(fault: CliFault) -> Failure {
     Failure::new(fault, exit, Vec::new())
 }
 
-/// A use case's failure: its diagnostic, its exit code, and the dead letters
-/// its kernel calls answered.
-fn failure(error: AppError) -> Failure {
-    let exit = error.exit();
-    let lines = error
-        .dead_letters()
-        .iter()
-        .map(|l| dead_letter_line(&l.letter))
-        .collect();
-    Failure::new(error, exit, lines)
-}
-
 /// The answer written, or why it could not be.
 pub(crate) fn wrote(written: io::Result<()>) -> Result<(), Failure> {
     written.map_err(|e| {
@@ -465,18 +523,7 @@ fn state_of(word: Option<&String>) -> Result<Option<State>, Failure> {
     })
 }
 
-fn dead_letters(letters: &[DeadLetter]) -> Done {
-    Done {
-        notices: Vec::new(),
-        lines: letters
-            .iter()
-            .map(|l| dead_letter_line(&l.letter))
-            .collect(),
-        would_change: false,
-    }
-}
-
-async fn execute<S: SessionService + ImportService + WorktreeUse>(
+async fn execute<S: WorktreeUse>(
     session: &Session,
     service: &mut S,
     format: Format,
@@ -487,55 +534,18 @@ async fn execute<S: SessionService + ImportService + WorktreeUse>(
         None | Some(SessionVerb::List(_) | SessionVerb::Search(_) | SessionVerb::Show(_)) => {
             unreachable!("a read is the daemon's: session_cli::read")
         }
-        Some(SessionVerb::Rename(args)) => rename(service, args, format, out).await,
-        Some(SessionVerb::Keep(args)) => {
-            let kept = service
-                .keep(KeepRequest {
-                    project: None,
-                    harp: args.harp.clone(),
-                    keep: !args.undo,
-                })
-                .await
-                .map_err(failure)?;
-            wrote(match format {
-                Format::Json => write_json(
-                    out,
-                    &KeepDoc {
-                        harp: kept.harp.clone(),
-                        kept: kept.kept,
-                    },
-                ),
-                Format::Text if kept.kept => writeln!(
-                    out,
-                    "{} is marked keep: its transcript is kept at any age",
-                    kept.harp
-                ),
-                Format::Text => writeln!(
-                    out,
-                    "{} is no longer marked keep: its transcript is reclaimable once session_transcript_retention has passed since it ended",
-                    kept.harp
-                ),
-            })?;
-            Ok(dead_letters(&kept.dead_letters))
-        }
         // The daemon's: `destroy` runs them.
         #[cfg(feature = "session-destroy")]
         Some(SessionVerb::Remove(_) | SessionVerb::Sweep(_)) => {
             unreachable!("a destroy is the daemon's: session_cli::destroy")
         }
+        // The daemon's: `child` runs it.
         Some(SessionVerb::Import) => {
-            let report = service
-                .import(ImportRequest::default())
-                .await
-                .map_err(failure)?;
-            wrote(match format {
-                Format::Json => write_json(out, &ImportDoc::of(&report)),
-                Format::Text => import_text(&report, out),
-            })?;
-            Ok(dead_letters(&report.dead_letters))
+            unreachable!("an import is the daemon's: session_cli::child")
         }
-        Some(SessionVerb::Transcript(transcript)) => {
-            transcripts(service, transcript, format, out).await
+        // The daemon's: `read` runs them.
+        Some(SessionVerb::Transcript(_)) => {
+            unreachable!("a transcript verb is the daemon's: session_cli::read")
         }
         Some(SessionVerb::Worktrees(worktrees)) => worktree_verb(service, worktrees, format, out),
         // The daemon's: `child` runs them.
@@ -545,7 +555,9 @@ async fn execute<S: SessionService + ImportService + WorktreeUse>(
             | SessionVerb::Clear(_)
             | SessionVerb::Close(_)
             | SessionVerb::Stop(_)
-            | SessionVerb::Restart(_),
+            | SessionVerb::Restart(_)
+            | SessionVerb::Keep(_)
+            | SessionVerb::Rename(_),
         ) => unreachable!("a child verb is the daemon's: session_cli::child"),
         Some(SessionVerb::Approvals(_)) => {
             unreachable!("the asks are the daemon's: session_cli::approvals")
@@ -609,28 +621,6 @@ async fn list<R: SessionReads>(
         .await
         .map_err(call_failure)?;
     listing(&listed, format, out)
-}
-
-/// `session rename <harp> <title>` (S55): the title set; the harp stays.
-async fn rename<S: SessionService>(
-    service: &mut S,
-    args: &RenameArgs,
-    format: Format,
-    out: &mut dyn Write,
-) -> Result<Done, Failure> {
-    let titled = service
-        .set_title(TitleRequest {
-            project: None,
-            harp: args.harp.clone(),
-            title: args.title.clone(),
-        })
-        .await
-        .map_err(failure)?;
-    wrote(match format {
-        Format::Json => write_json(out, &TitleDoc::of(&titled)),
-        Format::Text => writeln!(out, "{}: titled {:?}", titled.harp, titled.title),
-    })?;
-    Ok(dead_letters(&titled.dead_letters))
 }
 
 /// `session remove`: the destroy (owner ruling 98, the session-destroy
@@ -849,34 +839,34 @@ fn reclaim_failure(error: ReclaimError) -> Failure {
     Failure::new(error, exit, Vec::new())
 }
 
-async fn transcripts<S: SessionService + WorktreeUse>(
-    service: &mut S,
-    transcript: &Transcript,
+/// `session transcript list`: the sessions the daemon lists, each with
+/// whether its events hold a transcript and its size; `harp` restricts it
+/// to one session, which must be one the daemon lists.
+async fn transcript_list<R: SessionReads>(
+    reads: &R,
+    all: bool,
+    harp: Option<&str>,
     format: Format,
     out: &mut dyn Write,
 ) -> Result<Done, Failure> {
-    match &transcript.verb {
-        None => transcript_list(service, &TranscriptListArgs::default(), format, out).await,
-        Some(TranscriptVerb::List(args)) => transcript_list(service, args, format, out).await,
-        // A daemon read ([`is_read`]): [`read`] runs it.
-        Some(TranscriptVerb::Show(_)) => unreachable!("transcript show is a daemon read"),
-    }
-}
-
-async fn transcript_list<S: SessionService>(
-    service: &mut S,
-    args: &TranscriptListArgs,
-    format: Format,
-    out: &mut dyn Write,
-) -> Result<Done, Failure> {
-    let rows = service
-        .transcripts(TranscriptQuery {
-            project: None,
-            all: args.all,
-            harp: args.harp.clone(),
+    let listed = reads.list_transcripts(all).await.map_err(call_failure)?;
+    let rows: Vec<TranscriptRow> = listed
+        .sessions
+        .iter()
+        .map(|session| TranscriptRow {
+            harp: harp_of(&session.name).to_string(),
+            captured: session.transcript_captured,
+            bytes: session.transcript_bytes,
         })
-        .await
-        .map_err(failure)?;
+        .filter(|row| harp.is_none_or(|asked| row.harp == asked))
+        .collect();
+    if let (Some(asked), true) = (harp, rows.is_empty()) {
+        return Err(call_failure(CallError::Refused(
+            daemon_api::Rejection::Api(daemon_api::ApiRejection::SessionNotFound {
+                name: asked.to_string(),
+            }),
+        )));
+    }
     wrote(match format {
         Format::Json => write_json(out, &TranscriptsDoc::of(&rows)),
         Format::Text => transcripts_text(&rows, out),

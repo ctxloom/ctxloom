@@ -45,11 +45,11 @@ use crate::Wiring;
 /// is several times slower (measured, not assumed). Owner
 /// ruling 2026-11-21. Pinned by `the_flush_bound_is_five_seconds` and
 /// `the_flush_bound_holds_ten_facts_at_a_slow_hosts_cost`.
-pub(crate) const FLUSH_BOUND: Duration = Duration::from_secs(5);
+pub const FLUSH_BOUND: Duration = Duration::from_secs(5);
 
 /// What a command's flush did.
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum Flushed {
+pub enum Flushed {
     /// No live daemon serves this home: nothing was delivered (none is
     /// started for a flush).
     NotServing,
@@ -67,7 +67,7 @@ pub(crate) enum Flushed {
 /// binary's; a test's own under test-support), within [`FLUSH_BOUND`].
 /// The frontend calls it at its start and its exit report (slice 4 U5);
 /// a command on its way in calls it through [`on_the_way_in`].
-pub(crate) fn flush_holds(wiring: &Wiring, stamp: &str) -> Flushed {
+pub fn flush_holds(wiring: &Wiring, stamp: &str) -> Flushed {
     let own = own_stamp(wiring.env(), stamp);
     match serving_here(wiring, &files_of(wiring)) {
         Ok(Some(found)) => flush_to(wiring, own, &found),
@@ -76,13 +76,13 @@ pub(crate) fn flush_holds(wiring: &Wiring, stamp: &str) -> Flushed {
 }
 
 /// [`flush_holds`] to the daemon `found` names, live and this home's.
-pub(crate) fn flush_to(wiring: &Wiring, own: &str, found: &run_ports::Discovery) -> Flushed {
+pub fn flush_to(wiring: &Wiring, own: &str, found: &run_ports::Discovery) -> Flushed {
     flush_within(wiring, own, found, FLUSH_BOUND)
 }
 
 /// [`flush_to`] within `bound` in all (`ctxloom shutdown`'s is longer than
 /// a command's on its way in).
-pub(crate) fn flush_within(
+pub fn flush_within(
     wiring: &Wiring,
     own: &str,
     found: &run_ports::Discovery,
@@ -96,7 +96,7 @@ pub(crate) fn flush_within(
 
 /// A command of stamp `own`'s flush of `held` to a daemon of stamp
 /// `daemon`, through `sink`, within `clock`'s time.
-pub(crate) fn flush_with<H, C, S>(held: &H, clock: &C, own: &str, daemon: &str, sink: &S) -> Flushed
+pub fn flush_with<H, C, S>(held: &H, clock: &C, own: &str, daemon: &str, sink: &S) -> Flushed
 where
     H: HeldFacts + ?Sized,
     C: HookClock + ?Sized,
@@ -126,12 +126,12 @@ where
 /// it cannot deliver (a record of a newer ctxloom, a hold in a format this
 /// one cannot read, one another process is taking) stays, and the sweep
 /// judges the run as before, said in the log.
-pub(crate) struct StartFlush<E: run_ports::Edge + 'static> {
-    pub(crate) fs: Arc<dyn file_system::Fs>,
-    pub(crate) home: std::path::PathBuf,
-    pub(crate) edge: Arc<E>,
+pub struct StartFlush<E: run_ports::Edge + 'static> {
+    pub fs: Arc<dyn file_system::Fs>,
+    pub home: std::path::PathBuf,
+    pub edge: Arc<E>,
     /// The daemon's own stamp (a test's under test-support).
-    pub(crate) stamp: String,
+    pub stamp: String,
 }
 
 impl<E: run_ports::Edge + 'static> daemon_application::StartHolds for StartFlush<E> {
@@ -184,7 +184,7 @@ fn start_flush<E: run_ports::Edge + 'static>(
 /// What a start-up flush did, as the daemon judges it: `empty`, whether
 /// the hold holds nothing now (a record a newer ctxloom held is left by a
 /// flush that says [`runs_application::Left::Nothing`]).
-pub(crate) fn held_flushed(
+pub fn held_flushed(
     flushed: &SessionFlush,
     empty: Result<bool, HoldError>,
 ) -> daemon_application::HoldFlushed {
@@ -216,15 +216,21 @@ pub(crate) fn held_flushed(
 static FLUSHED_ON_THE_WAY_IN: WayIn = WayIn::new();
 
 /// A once-a-process latch.
-pub(crate) struct WayIn(AtomicBool);
+pub struct WayIn(AtomicBool);
+
+impl Default for WayIn {
+    fn default() -> WayIn {
+        WayIn::new()
+    }
+}
 
 impl WayIn {
-    pub(crate) const fn new() -> WayIn {
+    pub const fn new() -> WayIn {
         WayIn(AtomicBool::new(false))
     }
 
     /// Whether this is the first time it is asked.
-    pub(crate) fn first(&self) -> bool {
+    pub fn first(&self) -> bool {
         !self.0.swap(true, Ordering::SeqCst)
     }
 }
@@ -232,7 +238,7 @@ impl WayIn {
 /// A command reaching the daemon `found` names, of stamp `own`: its flush
 /// of the home's holds, the first time this process reaches it; what it
 /// set aside is said when the command ends ([`take_said`]).
-pub(crate) fn on_the_way_in(wiring: &Wiring, own: &str, found: &run_ports::Discovery) {
+pub fn on_the_way_in(wiring: &Wiring, own: &str, found: &run_ports::Discovery) {
     if FLUSHED_ON_THE_WAY_IN.first() {
         let flushed = flush_to(wiring, own, found);
         to_say(notices(&flushed));
@@ -242,7 +248,7 @@ pub(crate) fn on_the_way_in(wiring: &Wiring, own: &str, found: &run_ports::Disco
 /// What this process's flush set aside, to be said once on stderr.
 static SAID: Mutex<Vec<HeldSetAside>> = Mutex::new(Vec::new());
 
-pub(crate) fn to_say(notices: Vec<HeldSetAside>) {
+pub fn to_say(notices: Vec<HeldSetAside>) {
     if let Ok(mut said) = SAID.lock() {
         said.extend(notices);
     }
@@ -250,7 +256,7 @@ pub(crate) fn to_say(notices: Vec<HeldSetAside>) {
 
 /// What this process's flush set aside and has not said yet, taken: the
 /// command says each once, on stderr, as it ends.
-pub(crate) fn take_said() -> Vec<HeldSetAside> {
+pub fn take_said() -> Vec<HeldSetAside> {
     SAID.lock()
         .map(|mut said| std::mem::take(&mut *said))
         .unwrap_or_default()
@@ -259,7 +265,7 @@ pub(crate) fn take_said() -> Vec<HeldSetAside> {
 /// What a flush set aside, one notice a session (PROPOSAL, the owner's to
 /// word): how many of its held facts, and why, the reasons in held order,
 /// each once.
-pub(crate) fn notices(flushed: &Flushed) -> Vec<HeldSetAside> {
+pub fn notices(flushed: &Flushed) -> Vec<HeldSetAside> {
     let Flushed::Done(done) = flushed else {
         return Vec::new();
     };
@@ -293,7 +299,7 @@ fn session_said(flushed: &SessionFlush) -> String {
 
 /// A hold's session as it is said: the harp of `session` (its resource
 /// name, as the hold's first fact names it), else the hold's `root`.
-pub(crate) fn harp_or_root(session: Option<&str>, root: &uuid::Uuid) -> String {
+pub fn harp_or_root(session: Option<&str>, root: &uuid::Uuid) -> String {
     session
         .and_then(|name| sessions::SessionName::parse(name).ok())
         .map_or_else(|| root.to_string(), |name| name.harp().to_string())
@@ -320,10 +326,10 @@ fn why_set_aside(outcome: &Outcome) -> String {
 /// the hold's set-aside part (H3). `session` is its harp where the hold
 /// names it, else its session root.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct HeldSetAside {
-    pub(crate) session: String,
-    pub(crate) count: u64,
-    pub(crate) why: String,
+pub struct HeldSetAside {
+    pub session: String,
+    pub count: u64,
+    pub why: String,
 }
 
 impl std::fmt::Display for HeldSetAside {
@@ -347,7 +353,3 @@ impl Diagnostic for HeldSetAside {
         ]
     }
 }
-
-#[cfg(test)]
-#[path = "flush.test.rs"]
-mod tests;

@@ -5427,10 +5427,16 @@ is the access time cargo's fingerprint read renews, about daily on a
 checkout whose cargo holds a `.cargo-lock` is kept, and said. Both are
 self-tested in `just selftest` (`scripts/trim-targets.selftest.sh`, which builds a fixture workspace and
 needs cargo-sweep; CI's Linux job installs it). No compiler cache is used,
-and `CARGO_INCREMENTAL` is cargo's default (owner ruling of 2026-11-16,
-after measuring: released sccache cannot share a workspace crate's compile
-between worktree paths), but in the ratchet base's tree, built with it off
-(below).
+and `CARGO_INCREMENTAL` is cargo's default in a long-lived checkout (owner
+ruling of 2026-11-16, after measuring: released sccache cannot share a
+workspace crate's compile between worktree paths). It is OFF in every
+throwaway tree (owner ruling of 2026-11-27, after an agent worktree's
+`target/` measured 67G, 39G of it incremental): the ratchet base's tree
+(below), the staged tree (`_staged-tree`, `CARGO_INCREMENTAL=0`), and the
+worktrees agents build in (their briefs export it). The workspace's own
+crates build with `debug = "line-tables-only"` (`[profile.dev]`, the test
+profile inheriting it; dependencies stay `debug = 0`): a backtrace keeps
+file:line, a debugger shows no variables.
 
 nextest's committed config is `.config/nextest.toml` (workspace-wide): each
 test in a process of its own; 12 tests at once (`test-threads`, measured on

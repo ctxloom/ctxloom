@@ -884,7 +884,10 @@ _scratch-tree source +recipe:
     # close-on-exec, so a recipe given it would hand it to everything it
     # starts, and a process that outlives the gate (a test's detached
     # daemon) would hold the next commit's gate (2026-11-15).
-    "${scrub[@]}" "CARGO_TARGET_DIR=$cache/staged-target" "GATE_LOG_DIR=$top/target/logs" just --justfile "$tree/justfile" "$@" 9>&-
+    # The staged tree is built once per commit and thrown away, so rustc's
+    # incremental cache (over half a target's size) is written and never
+    # read: off (2026-11-27, the owner's ruling).
+    "${scrub[@]}" "CARGO_TARGET_DIR=$cache/staged-target" "CARGO_INCREMENTAL=0" "GATE_LOG_DIR=$top/target/logs" just --justfile "$tree/justfile" "$@" 9>&-
 
 # The red-on-branches rule: red tests may be committed on any branch but the
 # default one, and never reach it. `test-commit` allows them off it;

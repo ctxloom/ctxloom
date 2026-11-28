@@ -269,8 +269,14 @@ excessive_nesting = "warn"
 # Dependencies are built without debug info (2026-11-18, the owner's
 # choice): a backtrace through them still names their functions (symbols
 # are kept), only their file:line and variables are gone; the workspace's
-# own crates keep full debug info. The test profile inherits it. The
-# release and ci-artifact profiles are their own and unaffected.
+# own crates keep line tables only (2026-11-27, the owner's ruling, after a
+# worktree's target/ measured 67G: 39G incremental, 26G of crates at full
+# debug info): a backtrace still names file:line, a debugger no longer shows
+# variables. The test profile inherits it. The release and ci-artifact
+# profiles are their own and unaffected.
+[profile.dev]
+debug = "line-tables-only"
+
 [profile.dev.package."*"]
 debug = 0
 

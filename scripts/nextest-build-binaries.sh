@@ -35,23 +35,40 @@ built() {
 # CTXLOOM_TEST_FLAVOUR (files.test.rs): `plain` builds without `purge`.
 features=test-support,purge
 [ "${CTXLOOM_TEST_FLAVOUR:-}" = plain ] && features=test-support
-ctxloom=$(built ctxloom --package ctxloom --features "$features")
 stub=$(built ctxloom-companion-stub --package stub-companion)
-for exe in "$ctxloom" "$stub"; do
-    if [ ! -x "$exe" ]; then
-        echo "nextest-build-binaries: cargo named no executable (got '$exe')" >&2
-        exit 1
-    fi
-done
 # `ctxloom` is run from a copy: <profile>/ctxloom is where any cargo build of
 # the package writes, and a plain one (`just build`'s, in this checkout while
 # a test run goes on) over it made the tests run a binary with no test-support,
 # whose account home is the real one, and reach the owner's real daemon.
-# (crates/root/bin/ctxloom/src/main.test.rs `TEST_BINARIES`.)
-kept="$(dirname "$ctxloom")/test-binaries"
-mkdir -p "$kept"
-cp "$ctxloom" "$kept/.ctxloom.$$"
-mv -f "$kept/.ctxloom.$$" "$kept/$(basename "$ctxloom")"
+# (crates/root/bin/ctxloom/src/main.test.rs `TEST_BINARIES`.) A plain build
+# can also land between this script's build and its copy, so the copy is
+# CHECKED: it must have the `test` noun only a test-support build has, else it
+# is built and copied again (three times), and the run fails rather than test
+# against a binary that is not the test build.
+copied=
+for attempt in 1 2 3; do
+    ctxloom=$(built ctxloom --package ctxloom --features "$features")
+    for exe in "$ctxloom" "$stub"; do
+        if [ ! -x "$exe" ]; then
+            echo "nextest-build-binaries: cargo named no executable (got '$exe')" >&2
+            exit 1
+        fi
+    done
+    kept="$(dirname "$ctxloom")/test-binaries"
+    mkdir -p "$kept"
+    cp "$ctxloom" "$kept/.ctxloom.$$"
+    if "$kept/.ctxloom.$$" test --help > /dev/null 2>&1; then
+        mv -f "$kept/.ctxloom.$$" "$kept/$(basename "$ctxloom")"
+        copied=yes
+        break
+    fi
+    rm -f "$kept/.ctxloom.$$"
+    echo "nextest-build-binaries: the built ctxloom has no test-support (a plain build over it?), building again ($attempt of 3)" >&2
+done
+if [ -z "$copied" ]; then
+    echo "nextest-build-binaries: no ctxloom with test-support could be kept: another build of the package is writing over it" >&2
+    exit 1
+fi
 ctxloom="$kept/$(basename "$ctxloom")"
 {
     echo "CTXLOOM_TEST_BINARY=$ctxloom"

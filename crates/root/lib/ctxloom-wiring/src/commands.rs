@@ -297,7 +297,7 @@ impl Commands {
             return Some(crate::test_commands::run(
                 || Wiring::new(env),
                 &self.version,
-                (self.samples, self.entry.store_tests),
+                (self.samples, self.entry.store_tests.hook()),
                 call,
                 catalog,
                 out,

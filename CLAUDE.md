@@ -2574,7 +2574,18 @@ loop makes itself (a `LaunchChild`'s) follows the round's own look
 (`why_it_exits`). Accepted residual: a call already past the gate, or a
 round already past its look, while the home is being removed can still make
 a file there. A replaced lock (its directory still there) is
-logged as ever. A client with no live
+logged as ever. A client that never starts a daemon (`daemon stop`, `status`, `shutdown`,
+the flush: `Daemons::serving`) is PATIENT with one that is advertised and
+still accepts connections (`compose`'s `listens`): its health check missing
+the first second (`HEALTH_WAIT`: a TLS handshake in a debug build on a loaded
+machine) is asked again up to `PATIENT_TRIES` (2) times within `PATIENT_WAIT`
+(3 s) before the daemon is called absent (`live_patiently`), so a missed first check cannot make `daemon stop` find
+"nothing to stop" and leave a live daemon running with its store open (the
+suspected cause of a setup step's wait for the store's WAL to go failing under
+the full suite's load; not reproduced). A daemon nothing listens for (a killed one's stale file) is
+absent at the first check, and the commands that start one (`reach`, the wait
+loop) keep the single check.
+A client with no live
 daemon spawns `ctxloom daemon serve` and waits for a live one to advertise
 itself (the one spawned or another client's, whichever took the single-instance lock)
 within `SPAWN_WAIT`, eight seconds: S16's ten (`HOOK_BOUND`) less a

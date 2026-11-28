@@ -55,9 +55,47 @@ pub type Serve = fn(&Arc<EnvSnapshot>, &str, Pace) -> Result<Exit, Failure>;
 #[derive(Clone, Copy)]
 pub struct DaemonEntry {
     pub serve: Serve,
-    /// The hidden `test` commands that read or write the store.
+    /// The hidden `test` commands that read or write the store: the field is
+    /// there in every build, so the daemon crate (whose `test-support` is its
+    /// own) and this crate (whose `test-support` a build of fewer crates than
+    /// the workspace's can turn on alone) always agree on the entry's shape;
+    /// what it holds is test-support's alone.
+    pub store_tests: StoreTests,
+}
+
+/// What the daemon's composition hands for the hidden `test` commands that
+/// read or write the store: nothing in a build without `test-support` (a
+/// zero-size struct, no hook and no store verb compiled in), the hook with it.
+#[derive(Clone, Copy)]
+pub struct StoreTests {
     #[cfg(feature = "test-support")]
-    pub store_tests: crate::store_verb::StoreTest,
+    hook: crate::store_verb::StoreTest,
+}
+
+impl StoreTests {
+    /// No store test commands: they fail.
+    pub const fn none() -> StoreTests {
+        StoreTests {
+            #[cfg(feature = "test-support")]
+            hook: |_, _, _, _| {
+                Err(failed(LibError::NoRuntime {
+                    detail: NO_DAEMON.to_string(),
+                }))
+            },
+        }
+    }
+
+    /// The daemon's own `hook`.
+    #[cfg(feature = "test-support")]
+    pub const fn of(hook: crate::store_verb::StoreTest) -> StoreTests {
+        StoreTests { hook }
+    }
+
+    /// What runs a store test command.
+    #[cfg(feature = "test-support")]
+    pub fn hook(&self) -> crate::store_verb::StoreTest {
+        self.hook
+    }
 }
 
 impl DaemonEntry {
@@ -66,12 +104,7 @@ impl DaemonEntry {
     /// without the daemon crate (a wiring test) has.
     pub const NONE: DaemonEntry = DaemonEntry {
         serve: no_daemon,
-        #[cfg(feature = "test-support")]
-        store_tests: |_, _, _, _| {
-            Err(failed(LibError::NoRuntime {
-                detail: NO_DAEMON.to_string(),
-            }))
-        },
+        store_tests: StoreTests::none(),
     };
 }
 
@@ -108,6 +141,19 @@ pub const DELIVERY_MARGIN: Duration = Duration::from_secs(2);
 /// How long a client waits for a daemon it spawned to answer its health
 /// check: what [`HOOK_BOUND`] leaves once a delivery has its margin.
 pub const SPAWN_WAIT: Duration = HOOK_BOUND.saturating_sub(DELIVERY_MARGIN);
+
+/// Whether the endpoint a discovery file names accepts a connection within
+/// [`HEALTH_WAIT`]: a stale file (a killed daemon's) names a port nothing
+/// listens on, so it is no daemon that holds the lock and does not answer.
+pub fn listens(found: &run_ports::Discovery) -> bool {
+    let address = found
+        .endpoint
+        .strip_prefix("https://")
+        .unwrap_or(&found.endpoint);
+    address
+        .parse::<std::net::SocketAddr>()
+        .is_ok_and(|addr| std::net::TcpStream::connect_timeout(&addr, HEALTH_WAIT).is_ok())
+}
 
 /// How long one health check of a daemon may take (a loopback TLS
 /// handshake and one call; a stale port refuses at once).
@@ -411,7 +457,29 @@ pub fn serving_here(
     wiring: &Wiring,
     files: &DaemonFiles,
 ) -> Result<Option<run_ports::Discovery>, LibError> {
-    let Some(found) = files.discovery().filter(live) else {
+    serving_by(wiring, files, live)
+}
+
+/// [`serving_here`] asking a daemon's health as [`live_patiently`] does.
+fn serving_patiently(
+    wiring: &Wiring,
+    files: &DaemonFiles,
+) -> Result<Option<run_ports::Discovery>, LibError> {
+    serving_by(wiring, files, |found| {
+        live_patiently(
+            found,
+            |found, within| hook_sink_grpc::serving(&found.endpoint, &found.cert, within),
+            listens,
+        )
+    })
+}
+
+fn serving_by(
+    wiring: &Wiring,
+    files: &DaemonFiles,
+    alive: impl Fn(&run_ports::Discovery) -> bool,
+) -> Result<Option<run_ports::Discovery>, LibError> {
+    let Some(found) = files.discovery().filter(|found| alive(found)) else {
         return Ok(None);
     };
     let home = wiring.home().display().to_string();
@@ -559,7 +627,7 @@ impl Daemons for Reach<'_> {
 
     async fn serving(&self) -> Result<Option<daemon_client::DaemonClient>, Unreached> {
         let files = files_of(self.wiring);
-        match serving_here(self.wiring, &files).map_err(declined)? {
+        match serving_patiently(self.wiring, &files).map_err(declined)? {
             Some(found) => Ok(Some(self.reached(&found))),
             None => Ok(None),
         }
@@ -1028,6 +1096,31 @@ pub fn request_id() -> String {
 /// [`HEALTH_WAIT`]. The single-instance lock says nothing of it.
 pub fn live(found: &run_ports::Discovery) -> bool {
     hook_sink_grpc::serving(&found.endpoint, &found.cert, HEALTH_WAIT)
+}
+
+/// How many more times, and for how long each, a daemon that is advertised
+/// and still accepts connections is asked its health when the first check
+/// ([`HEALTH_WAIT`]) misses, before a client that never starts one
+/// ([`Daemons::serving`]: `daemon stop`, `status`, `shutdown`) calls it absent:
+/// on a loaded machine the first check's second can be too short for a TLS
+/// handshake, and the daemon would be left running, store open.
+pub const PATIENT_TRIES: u32 = 2;
+
+/// How long each later ask of [`PATIENT_TRIES`] waits.
+pub const PATIENT_WAIT: Duration = Duration::from_secs(3);
+
+/// [`live`], then, for a daemon that accepts connections, again up to
+/// [`PATIENT_TRIES`] times within [`PATIENT_WAIT`]; `ask` is one health
+/// check within a time, `listening` whether its endpoint accepts.
+pub fn live_patiently(
+    found: &run_ports::Discovery,
+    mut ask: impl FnMut(&run_ports::Discovery, Duration) -> bool,
+    listening: impl Fn(&run_ports::Discovery) -> bool,
+) -> bool {
+    if ask(found, HEALTH_WAIT) {
+        return true;
+    }
+    (0..PATIENT_TRIES).any(|_| listening(found) && ask(found, PATIENT_WAIT))
 }
 
 /// The daemon a HOOK delivers to (S16, slice 4 §3.8 (ii)): the live one of

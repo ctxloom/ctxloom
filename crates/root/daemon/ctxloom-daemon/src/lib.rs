@@ -48,7 +48,7 @@ use os::Mode;
 use ctxloom_compose::daemon::{
     account_home, caller_env, caller_wiring, clock_offset, daemon_home, drain, failed, files,
     files_of, flush, instance_lock, library_parent_if_named, own_stamp, runtime, DaemonEntry, Pace,
-    DAEMON_STACK,
+    StoreTests, DAEMON_STACK,
 };
 #[cfg(feature = "test-support")]
 use ctxloom_compose::daemon::{LIFELINE_VARIABLE, START_VARIABLE};
@@ -66,7 +66,9 @@ pub fn entry() -> DaemonEntry {
     DaemonEntry {
         serve,
         #[cfg(feature = "test-support")]
-        store_tests: store_tests::run,
+        store_tests: StoreTests::of(store_tests::run),
+        #[cfg(not(feature = "test-support"))]
+        store_tests: StoreTests::none(),
     }
 }
 

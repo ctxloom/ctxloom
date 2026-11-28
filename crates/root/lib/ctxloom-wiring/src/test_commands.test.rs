@@ -106,7 +106,10 @@ fn an_answer_that_cannot_be_written_is_a_failure_with_exit_10() {
     let failed = run(
         || unreachable!("a session id needs no home"),
         "v0.0.0-test",
-        (Vec::new, crate::daemon::DaemonEntry::NONE.store_tests),
+        (
+            Vec::new,
+            crate::daemon::DaemonEntry::NONE.store_tests.hook(),
+        ),
         &call,
         &catalog,
         &mut Broken,

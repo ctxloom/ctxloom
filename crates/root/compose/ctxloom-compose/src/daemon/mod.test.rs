@@ -375,3 +375,93 @@ fn test_this_very_test_binary_is_never_the_executable_spawned_as_the_daemon() {
     );
     assert_eq!(own_executable(), None);
 }
+
+/// A discovery naming `endpoint`, the rest as a daemon's.
+fn advertising(endpoint: &str) -> run_ports::Discovery {
+    run_ports::Discovery {
+        stamp: "v0.1.0-abc1234".to_string(),
+        pid: 7,
+        endpoint: endpoint.to_string(),
+        cert: run_ports::PublicCert::from_der(vec![0x30, 0x00]).unwrap(),
+        bearer: run_ports::Token::from_bytes([7; 32]),
+        home: "/home/u".to_string(),
+    }
+}
+
+// A stale discovery file (a killed daemon's, left for the next one to
+// publish over) names a port nothing listens on, which a daemon that is
+// starting, or merely hung, is told apart from: only a daemon whose
+// endpoint still accepts connections can be one that holds the lock and does
+// not answer.
+#[test]
+fn an_advertised_endpoint_listens_only_while_something_accepts_on_it() {
+    use super::listens;
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let endpoint = format!("https://127.0.0.1:{port}");
+    assert!(listens(&advertising(&endpoint)), "it accepts");
+    drop(listener);
+    assert!(
+        !listens(&advertising(&endpoint)),
+        "nothing accepts any more"
+    );
+    assert!(!listens(&advertising("not an endpoint")), "no address");
+}
+
+fn found() -> run_ports::Discovery {
+    advertising("https://127.0.0.1:1")
+}
+
+// A daemon on a loaded machine can miss the first health check's second
+// (a TLS handshake in a debug build under load), and `daemon stop` and
+// `shutdown`, which never start one, then found "nothing to stop" and left
+// it running with its store open. A daemon that is advertised and still
+// accepts connections is asked again, longer, before it is called absent.
+#[test]
+fn a_listening_daemon_that_misses_the_first_check_is_asked_again_before_it_is_absent() {
+    use super::{live_patiently, HEALTH_WAIT, PATIENT_TRIES};
+    let mut asked = Vec::new();
+    let late = live_patiently(
+        &found(),
+        |_, within| {
+            asked.push(within);
+            asked.len() == 3
+        },
+        |_| true,
+    );
+    assert!(late, "it answered the third time");
+    assert_eq!(asked[0], HEALTH_WAIT, "the first check is the usual one");
+    assert!(asked[1] > HEALTH_WAIT, "the later ones wait longer");
+
+    let mut asked = 0;
+    assert!(!live_patiently(
+        &found(),
+        |_, _| {
+            asked += 1;
+            false
+        },
+        |_| true
+    ));
+    assert_eq!(asked, 1 + PATIENT_TRIES, "a bounded number of asks");
+}
+
+// Nothing listening (a killed daemon's stale file) is absent at the first
+// check: no wait on a port nobody holds.
+#[test]
+fn a_daemon_nothing_listens_for_is_absent_at_the_first_check() {
+    use super::live_patiently;
+    let mut asked = 0;
+    assert!(!live_patiently(
+        &found(),
+        |_, _| {
+            asked += 1;
+            false
+        },
+        |_| false
+    ));
+    assert_eq!(asked, 1);
+    assert!(
+        live_patiently(&found(), |_, _| true, |_| false),
+        "one that answers is live"
+    );
+}

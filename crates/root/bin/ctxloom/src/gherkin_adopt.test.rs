@@ -214,7 +214,10 @@ fn set_up(w: &mut World) {
     while files::exists(&wal) {
         assert!(
             std::time::Instant::now() < deadline,
-            "the stopped daemon never closed its store"
+            "the stopped daemon never closed its store; `daemon stop` said:\n{}\nits log:\n{}",
+            stopped.said(),
+            files::read(w.common.project.home().join(".ctxloom/daemon/daemon.log"))
+                .unwrap_or_default()
         );
         std::thread::sleep(std::time::Duration::from_millis(50));
     }

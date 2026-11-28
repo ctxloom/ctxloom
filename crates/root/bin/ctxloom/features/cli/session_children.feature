@@ -18,15 +18,13 @@ Feature: session launch, send, clear and close — a child of a session, run by 
     ctxloom session close <harp>
 
   WHAT A CHILD IS LAUNCHED WITH. The launching command sends its own
-  environment with the launch; the daemon keeps what the child may be given
+  environment with the launch; the daemon plans what the child may be given
   of it (the engine's allowlist, the engine block's `env`, the credential
-  source's variables, the permits) in a hand-off file, 0600 in the 0700
-  `~/.ctxloom/daemon/launch/`, named by the child's stable id. The file
-  lives as long as the child is open: each start of the child reads it,
-  including a start after a daemon restart, which resumes the child's own
-  conversation. It is deleted when the child is closed, and a file whose
-  child is no longer open is swept. The child sees only its environment,
-  never the file.
+  source's variables, the permits) and answers it SEALED to the project's key;
+  the command puts it on the owner's `LaunchChild`, so it rides the events
+  that record the launch. Nothing is kept in a file: each start of the child
+  reads the record, including a start after a daemon restart, which resumes
+  the child's own conversation. The child sees only its environment.
 
   IN ANOTHER PROJECT. `--project <dir>` launches the child to work in the
   ctxloom project at that directory (by default, the owner's own): its
@@ -62,7 +60,7 @@ Feature: session launch, send, clear and close — a child of a session, run by 
       Then the command succeeds
       And the output reports "name" containing "/sessions/brisk-copper-moth"
       And the child "brisk-copper-moth" of "amber-quiet-heron" ran its first turn on "review the change"
-      And the child's hand-off file is readable by its owner alone while the child is open
+      And no hand-off file is kept for "brisk-copper-moth"
 
     Scenario: A launch with --project runs the child in that project, under its owner
       # new: a child in another project (step 8: the cross-repository surface).
@@ -243,11 +241,3 @@ Feature: session launch, send, clear and close — a child of a session, run by 
       Then the command succeeds
       And the assistant on its terminal was asked to stop, then killed once its grace had passed
       And "amber-quiet-heron" is listed as closed
-
-    Scenario: A hand-off file whose child is no longer open is swept
-      # new: the sweep.
-      Given an initialized ctxloom project
-      And a hand-off file is left for a child that is no longer open
-      When I run "ctxloom session list"
-      Then the command succeeds
-      And no hand-off file was left behind

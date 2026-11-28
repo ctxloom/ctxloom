@@ -20,7 +20,7 @@ use sessions::Urgency;
 
 use crate::one_shot::{OneShots, STOP_SIGNAL};
 use crate::ports::{
-    ChildHomes, ChildPlans, ChildWorkspaces, Ears, HandOff, HandOffs, HostedEngine, Monotonic,
+    ChildHomes, ChildInputs, ChildPlans, ChildWorkspaces, Ears, HostedEngine, Monotonic,
 };
 use run_launcher::{Released, Releases, Sweeper, Swept};
 
@@ -86,42 +86,6 @@ struct Hosted {
     _session_lock: Option<HeldLock>,
     /// The checkout it works in, let go WIP-safe once it exits (s4-Q11).
     checkout: Option<Placed>,
-    /// What an ask of its engine is recorded with (step 8 U4).
-    asker: Asker,
-}
-
-/// What the daemon knows of a session it hosts that its engine's ask is
-/// recorded with (step 8 U4, D10): its run, its engine, the agent it was
-/// planned for and its engine's `approval_timeout`, read with its plan at
-/// its launch (T21).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Asker {
-    /// The session's stable id.
-    pub session: String,
-    /// Its run's root, as text.
-    pub run: String,
-    pub engine: String,
-    pub agent: String,
-    pub approval_timeout: std::time::Duration,
-}
-
-impl Asker {
-    /// The asker of the child at `at`, hosted on `engine`, its hand-off
-    /// `handed` and its plan `planned`: its agent the one it was launched
-    /// for, else the one its plan settled.
-    fn of(at: &RunAt, engine: &str, handed: &HandOff, planned: &Planned) -> Asker {
-        Asker {
-            session: at.session.clone(),
-            run: at.run(),
-            engine: engine.to_string(),
-            agent: [&handed.agent, &planned.agent]
-                .into_iter()
-                .find(|agent| !agent.is_empty())
-                .cloned()
-                .unwrap_or_default(),
-            approval_timeout: planned.settings.approval_timeout,
-        }
-    }
 }
 
 /// A hosted child's checkout: where the launch placed it, what it wrote
@@ -199,7 +163,7 @@ impl std::ops::Deref for Planned {
 struct Ready {
     engine: HostedEngine,
     child: Planned,
-    handed: HandOff,
+    handed: ChildInputs,
     run_lock: HeldLock,
     session_lock: HeldLock,
 }
@@ -250,7 +214,7 @@ pub struct Daemon<E: Edge> {
     pub(crate) edge: Arc<E>,
     engines: Vec<HostedEngine>,
     plans: Box<dyn ChildPlans>,
-    hand_offs: Box<dyn HandOffs>,
+    sealing: Arc<dyn run_ports::Sealing>,
     homes: Box<dyn ChildHomes>,
     ears: Box<dyn Ears>,
     pub(crate) run_locks: Arc<dyn RunLocks>,
@@ -267,10 +231,6 @@ pub struct Daemon<E: Edge> {
     /// positions in the store; none until [`Daemon::owing`].
     owed: Option<CatchUp<crate::owed::OwedContexts<E>>>,
     launches: CatchUp<PendingModel>,
-    /// Each hosted child's environment, by its session's stable id: its
-    /// launcher's, taken from the hand-off at its first start (S6, D-N45),
-    /// held for its life, dropped at its end. Never the daemon's own.
-    envs: BTreeMap<String, HandOff>,
     hosted: BTreeMap<String, Hosted>,
     done: BTreeSet<String>,
     /// Steps refused this time round: tried again once the store changes.
@@ -288,6 +248,8 @@ pub struct Daemon<E: Edge> {
     /// published each round, and a primary among them takes a wake; none,
     /// no session is watched.
     watches: Option<Arc<crate::SessionWatches>>,
+    /// Where a distill run's recorded answer is written (owner 2026-11-28).
+    distilling: Option<Arc<dyn crate::Distilling>>,
     /// Where a child works (s4-Q11); none, every child in its project.
     workspaces: Option<Arc<dyn ChildWorkspaces>>,
     /// Whether it hands what it hosts over to the next daemon (OD-3
@@ -331,7 +293,9 @@ pub struct Ports<E: Edge> {
     pub edge: Arc<E>,
     pub engines: Vec<HostedEngine>,
     pub plans: Box<dyn ChildPlans>,
-    pub hand_offs: Box<dyn HandOffs>,
+    /// Opens what a launch's record holds sealed (a child's environment):
+    /// the daemon's own key.
+    pub sealing: Arc<dyn run_ports::Sealing>,
     pub homes: Box<dyn ChildHomes>,
     pub ears: Box<dyn Ears>,
     pub run_locks: Arc<dyn RunLocks>,
@@ -348,6 +312,11 @@ pub(crate) fn child_urgency(message: Urgency, turn: TurnUrgency) -> run_ports::U
         (_, TurnUrgency::Steer) | (Urgency::Steer, _) => run_ports::Urgency::Steer,
         _ => run_ports::Urgency::Wake,
     }
+}
+
+/// The id of the owner a child's mint names, if it names one.
+fn owner_of(mint: &sessions::MintSession) -> Option<&str> {
+    mint.owner.as_ref().map(|owner| owner.session.as_str())
 }
 
 /// A run root's text as its stream's root.
@@ -397,7 +366,7 @@ impl<E: Edge> Daemon<E> {
             edge,
             engines,
             plans,
-            hand_offs,
+            sealing,
             homes,
             ears,
             run_locks,
@@ -409,7 +378,7 @@ impl<E: Edge> Daemon<E> {
             edge,
             engines,
             plans,
-            hand_offs,
+            sealing,
             homes,
             ears,
             run_locks,
@@ -424,7 +393,6 @@ impl<E: Edge> Daemon<E> {
             checkouts: library_checkout::caught_up(folds.checkouts),
             owed: None,
             launches: pending_launches::catch_up(),
-            envs: BTreeMap::new(),
             hosted: BTreeMap::new(),
             done: BTreeSet::new(),
             refused: BTreeSet::new(),
@@ -444,7 +412,36 @@ impl<E: Edge> Daemon<E> {
             adopted: BTreeMap::new(),
             start_holds: None,
             watches: None,
+            distilling: None,
         }
+    }
+
+    /// The daemon, writing each distill run's recorded answer through
+    /// `distilling` (a policy on the record: the board lists the runs due).
+    pub fn distilling(mut self, distilling: Arc<dyn crate::Distilling>) -> Daemon<E> {
+        self.distilling = Some(distilling);
+        self
+    }
+
+    /// The distill runs the board lists as answered and not yet written:
+    /// each written, its outcome recorded by the write itself, so a run
+    /// stays due until it is. Whether any was.
+    async fn write_distills(&mut self) -> bool {
+        let Some(distilling) = self.distilling.clone() else {
+            return false;
+        };
+        let due = self.board.projector().board().distills_due();
+        let mut busy = false;
+        for run in due {
+            let name = run.run.clone();
+            busy = true;
+            if let Err(why) = distilling.write(run).await {
+                if self.complained.insert(format!("distill:{name}")) {
+                    (self.say)(&format!("a distill's write not made: {why}"));
+                }
+            }
+        }
+        busy
     }
 
     /// The daemon, publishing each watched session's signal to `watches`
@@ -587,14 +584,6 @@ impl<E: Edge> Daemon<E> {
                     .collect()
             })
             .unwrap_or_default()
-    }
-
-    /// What each child it hosts asks with (step 8 U4), in run order.
-    pub fn askers(&self) -> Vec<Asker> {
-        self.hosted
-            .values()
-            .map(|hosted| hosted.asker.clone())
-            .collect()
     }
 
     /// The runs it hosts, each as its session's stable id and its run's
@@ -1088,14 +1077,11 @@ impl<E: Edge> Daemon<E> {
         }
         // What would wake each watched session now (the terminal wake).
         self.publish_signals();
-        // Once the board has caught up, so a child just launched is known.
-        if board.is_ok() {
-            self.sweep_hand_offs();
-        }
         // The Active to Idle edge of an agent owed a restart (step 10e Stage
         // 2a): its engine is ended, and its next incarnation resumed by the
         // plan's re-host once it has exited.
         busy |= self.restart_the_due(board.is_ok());
+        busy |= self.write_distills().await;
         if self.handing_over {
             busy |= self.guide_the_busy().await;
             busy |= self.end_the_idle();
@@ -1270,10 +1256,6 @@ impl<E: Edge> Daemon<E> {
                 None => Taken::Again,
             },
             Step::End { at, .. } => {
-                // The child is closed for good (T6): what it was launched
-                // with is let go, at rest too.
-                self.envs.remove(&at.session);
-                self.hand_offs.delete(&at.session);
                 if let Some(hosted) = self.hosted.get(&at.run()) {
                     let _ = hosted.control.end(END_GRACE);
                 }
@@ -1323,7 +1305,15 @@ impl<E: Edge> Daemon<E> {
                 .await;
             return Taken::Done;
         };
-        let handed = self.child_env(&at.session);
+        let handed = match self.child_inputs(&at.session, None) {
+            Ok(handed) => handed,
+            Err(error) => {
+                let code = coded_diagnostic::Diagnostic::code(&error).to_string();
+                (self.say)(&format!("{harp}: its launch inputs do not open: {code}"));
+                self.launch_refused(project_id, &at, &code).await;
+                return Taken::Done;
+            }
+        };
         let env = handed.env.clone();
         // The child's project's trust, as the daemon's index has it now
         // (step 8 U2): its own settings apply only once the user trusts it.
@@ -1358,6 +1348,21 @@ impl<E: Edge> Daemon<E> {
                 return Taken::Again;
             }
         };
+        // What its plan decided, recorded on its enqueue (owner ruling
+        // 2026-11-25): planned once, here, and every later step reads the
+        // record. A re-host is a new enqueue, planned anew (T21).
+        let spec = match self.child_spec(project_id, &at, start, (&hosted_engine, &child, &handed))
+        {
+            Ok(spec) => spec,
+            Err(error) => {
+                let code = coded_diagnostic::Diagnostic::code(&error).to_string();
+                (self.say)(&format!("{harp}: its launch cannot be recorded: {code}"));
+                drop(session_lock);
+                drop(lock);
+                self.launch_refused(project_id, &at, &code).await;
+                return Taken::Done;
+            }
+        };
         let enqueued = Enqueuer::new(Arc::clone(&self.edge))
             .enqueue(EnqueueRequest {
                 session: at.session.clone(),
@@ -1367,6 +1372,7 @@ impl<E: Edge> Daemon<E> {
                 launcher_lock: lock.path().to_string(),
                 // What it is given, journaled (step 9).
                 grant: Some(child.grant()),
+                spec: Some(spec),
             })
             .await;
         match enqueued {
@@ -1393,6 +1399,55 @@ impl<E: Edge> Daemon<E> {
             session_lock,
         };
         self.started(project_id, at, start, ready).await
+    }
+
+    /// The launch spec of the child `at` starts: what its plan decided, its
+    /// secrets (the environment it is started with) sealed.
+    fn child_spec(
+        &self,
+        project_id: &str,
+        at: &RunAt,
+        start: &Child<'_>,
+        (engine, planned, handed): (&HostedEngine, &Planned, &ChildInputs),
+    ) -> Result<runs::LaunchSpec, run_ports::SealingError> {
+        let name = self.name_of(project_id, start.harp);
+        let workspace = self.workspace_of(project_id, at, start.harp, planned, handed);
+        let program = handed.program.as_ref();
+        let order = run_launcher::Order {
+            harp: start.harp.to_string(),
+            engine: engine.name().to_string(),
+            context: planned.context.clone(),
+            prompt: String::new(),
+            env: self.child_environment(at, &name, &handed.env, program),
+            user_home: self.place.user_home.clone(),
+            cwd: Some(start.project_dir.to_string()),
+            workspace,
+            interactive: false,
+            model: planned.model.clone(),
+            effort: planned.effort.clone(),
+            permissions: planned.permissions.clone(),
+            settings: planned.settings.clone(),
+            owned: vec!["HOME".to_string(), "PATH".to_string()],
+            git_user: self.plans.git_user(start.project_dir, &handed.env),
+            resume: start.resume.clone(),
+            surfaces: planned.surfaces.clone(),
+        };
+        let program_dir = program
+            .map(|program| program.dir.as_str())
+            .filter(|dir| !dir.is_empty())
+            .or(self.place.program_dir.as_deref())
+            .unwrap_or_default();
+        run_launcher::spec_of(
+            &order,
+            run_launcher::Recording {
+                program_dir,
+                workspace_dir: &order.workspace.work_dir,
+                runtime: "host",
+                distill: None,
+                project: &handed.project,
+            },
+            self.sealing.as_ref(),
+        )
     }
 
     /// The child enqueued (`ready`), started and hosted: its engine started
@@ -1487,7 +1542,6 @@ impl<E: Edge> Daemon<E> {
             (self.say)(&format!("{harp}: its start not recorded: {error:?}"));
         }
         (self.say)(&format!("{harp}: started, pid {pid}"));
-        let asker = Asker::of(&at, hosted_engine.name(), &handed, &planned);
         self.host(
             child,
             transcripts,
@@ -1498,7 +1552,6 @@ impl<E: Edge> Daemon<E> {
                 session: Some(session_lock),
                 checkout,
             },
-            asker,
         );
         Taken::Done
     }
@@ -1508,7 +1561,7 @@ impl<E: Edge> Daemon<E> {
     /// launcher's environment (its hand-off); none where it cannot be
     /// planned (its start says why).
     fn axis_of(&mut self, session: &str, mint: &sessions::MintSession) -> Option<String> {
-        let handed = self.hand_offs.read(session)?;
+        let handed = self.child_inputs(session, owner_of(mint)).ok()?;
         let trusted = self.trusts.projector().index().trusts(&mint.project_id);
         let previewed = self
             .plans
@@ -1533,8 +1586,7 @@ impl<E: Edge> Daemon<E> {
     /// its harp.
     fn output_of(&self, session: &str, mint: &sessions::MintSession) -> Result<String, String> {
         let env = self
-            .hand_offs
-            .read(session)
+            .child_inputs(session, owner_of(mint))
             .map(|handed| handed.env)
             .unwrap_or_default();
         let root = self.plans.output_root(&mint.project_dir, &env)?;
@@ -1550,7 +1602,7 @@ impl<E: Edge> Daemon<E> {
         at: &RunAt,
         harp: &str,
         child: &Planned,
-        handed: &HandOff,
+        handed: &ChildInputs,
     ) -> run_launcher::Workspace {
         let board = self.board.projector().board();
         let recorded = board
@@ -1587,7 +1639,6 @@ impl<E: Edge> Daemon<E> {
         at: RunAt,
         who: Identity,
         locks: Locks,
-        asker: Asker,
     ) {
         let run = at.run();
         self.ears.listen(run.clone(), child.observations);
@@ -1602,7 +1653,6 @@ impl<E: Edge> Daemon<E> {
                 _lock: locks.run,
                 _session_lock: locks.session,
                 checkout: locks.checkout,
-                asker,
             },
         );
     }
@@ -1674,7 +1724,8 @@ impl<E: Edge> Daemon<E> {
             .plans
             .preview(engine.name(), agent, project_dir, env, trusted)?;
         let plan = &previewed.plan;
-        let agent = [&plan.agent, &plan.settings_agent]
+        let asked = agent.to_string();
+        let agent = [&asked, &plan.agent, &plan.settings_agent]
             .into_iter()
             .find(|agent| !agent.is_empty())
             .cloned()
@@ -1715,52 +1766,25 @@ impl<E: Edge> Daemon<E> {
         self.index.projector().notify();
     }
 
-    /// The environment the child `session` is started with: its hand-off,
-    /// READ at each start (T6: it lives as long as the child is open, so a
-    /// start after a daemon restart reads it too), else the one held, else
-    /// none at all (a child no launcher handed anything is judged with no
-    /// credential).
-    fn child_env(&mut self, session: &str) -> HandOff {
-        let handed = match self.hand_offs.read(session) {
-            Some(handed) => handed,
-            None => self.envs.get(session).cloned().unwrap_or_default(),
-        };
-        self.envs.insert(session.to_string(), handed.clone());
-        handed
-    }
-
-    /// Every hand-off no open session holds, deleted (T6, the owner's ruling
-    /// on U3), the board caught up: its child's session closed; or, a
-    /// session the board knows nothing of (neither a session nor an owner's
-    /// child), unless it is marked in launch and its launch's creator still
-    /// holds the launch lock (between its `CreateHandOff` and its
-    /// `LaunchChild`). A marked one a `LaunchChild` has recorded (its owner
-    /// holds the child) is claimed: its mark cleared.
-    fn sweep_hand_offs(&mut self) {
+    /// What the child `session` was launched with, as its owner's
+    /// `ChildLaunched` recorded it (T6: it lives as long as the stream, so a
+    /// start after a daemon restart, a re-host included, reads it too), its
+    /// sealed environment opened here; none at all for a child no launch
+    /// recorded one for (judged with no credential).
+    fn child_inputs(
+        &self,
+        session: &str,
+        owner: Option<&str>,
+    ) -> Result<ChildInputs, run_ports::SealingError> {
         let board = self.board.projector().board();
-        let launched = |id: &str| {
-            board.sessions().any(|(_, owner)| {
-                owner
-                    .children
-                    .iter()
-                    .any(|child| child.session.as_ref().is_some_and(|c| c.session == id))
-            })
+        // A child not minted yet is known by the owner its mint names.
+        let launched = match owner {
+            Some(owner) => board.launch_from(owner, session),
+            None => board.launch_of(session),
         };
-        for kept in self.hand_offs.list() {
-            let known = board.session(&kept.session);
-            let gone = match known {
-                Some(session) => session.closed,
-                None if launched(&kept.session) => false,
-                None => !(kept.marked && kept.creator_holds),
-            };
-            let hosted = self.hosted.values().any(|h| h.at.session == kept.session);
-            if gone && !hosted {
-                self.hand_offs.delete(&kept.session);
-                self.envs.remove(&kept.session);
-                (self.say)(&format!("{}: its hand-off swept", kept.session));
-            } else if !gone && kept.marked && (known.is_some() || launched(&kept.session)) {
-                self.hand_offs.claim(&kept.session);
-            }
+        match launched {
+            Some(launched) => ChildInputs::of_launched(launched, self.sealing.as_ref()),
+            None => Ok(ChildInputs::default()),
         }
     }
 
@@ -1805,7 +1829,7 @@ impl<E: Edge> Daemon<E> {
         engine: &HostedEngine,
         spawn: Spawn<'_>,
         child: &Planned,
-        handed: &HandOff,
+        handed: &ChildInputs,
     ) -> Result<
         (
             run_ports::StartedChild,
@@ -2014,6 +2038,7 @@ impl<E: Edge> Daemon<E> {
                         answer_ref: String::new(),
                         exit_code: 0,
                         message_ids,
+                        answer: String::new(),
                     })
                 }
                 TurnOutcome::Failed { class, detail, .. } => {

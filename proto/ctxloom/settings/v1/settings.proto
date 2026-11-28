@@ -1,0 +1,75 @@
+syntax = "proto3";
+
+// THE USER'S SETTINGS (P3, owner ruling 2026-11-25): the user's own engine
+// settings a launch lays over its session home (claude's `settings.json`,
+// opencode's config, opencode's `model.json`) are not the library's and not a
+// run's: they are the USER's, and change on their own. They are one stream
+// of their own, `users/me/settings`, recording each file's bytes when they
+// change (an observation, as the library tree's is); a launch reads them from
+// the stream and says which sequence it read (`LaunchSpec.user_settings_
+// sequence`), so another process, or another machine, launches with what the
+// user's files said then. Secrets inside them (an `env` of claude's settings
+// may hold a token) are SEALED, never dropped or refused.
+//
+// Compiled by `core/wire/user-settings-proto`; the aggregate is
+// `core/domain/user-settings`.
+package ctxloom.settings.v1;
+
+import "io/angzarr/v1/options.proto";
+
+message UserSettingsState {
+  option (io.angzarr.v1.component) = {
+    component_name: "user-settings"
+    aggregate: {domain: "user-settings"}
+  };
+
+  // The file kind to its latest recorded content id.
+  map<string, string> content_ids = 1;
+}
+
+enum SettingsKind {
+  SETTINGS_KIND_UNSPECIFIED = 0;
+  // `$CLAUDE_CONFIG_DIR/settings.json`, else `~/.claude/settings.json`.
+  CLAUDE_SETTINGS = 1;
+  // `$XDG_CONFIG_HOME/opencode/opencode.json`, else `~/.config/opencode/`.
+  OPENCODE_CONFIG = 2;
+  // `$XDG_STATE_HOME/opencode/model.json`, else `~/.local/state/opencode/`.
+  OPENCODE_MODEL = 3;
+}
+
+// What the daemon's scanner read of one settings file. Keyed
+// `settings:{kind}:{content id}`, so the same sight twice is a DUPLICATE.
+message RecordSettingsObserved {
+  option (io.angzarr.v1.fact) = {
+    component: "ctxloom.settings.v1.UserSettingsState"
+    emits: ["ctxloom.settings.v1.SettingsObserved"]
+  };
+
+  SettingsKind kind = 1;
+  // Absolute path as found (the places are the launcher's: `CLAUDE_CONFIG_DIR`
+  // and the XDG bases).
+  string path = 2;
+  // False: the file is not there (its earlier content is gone).
+  bool present = 3;
+  string content_id = 4;
+  // The file's bytes with each secret value replaced by its sealed form.
+  bytes content = 5;
+  repeated SealedSetting sealed = 6;
+}
+
+message SealedSetting {
+  string document_path = 1;
+  // The encoding of angzarr-sealed's `Sealed`.
+  bytes sealed = 2;
+}
+
+message SettingsObserved {
+  option (io.angzarr.v1.event) = {component: "ctxloom.settings.v1.UserSettingsState"};
+
+  SettingsKind kind = 1;
+  string path = 2;
+  bool present = 3;
+  string content_id = 4;
+  bytes content = 5;
+  repeated SealedSetting sealed = 6;
+}

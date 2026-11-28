@@ -61,7 +61,8 @@ fn every_runs_launcher_parks_its_turns() {
         host_launcher::HostLauncher::default(),
         session_files::SessionDirs::new(Arc::clone(&fs), dir.root().to_path_buf()),
         Vec::new(),
-        Arc::new(run_launcher::Orders::new()),
+        Arc::new(run_launcher::RunLockTable::new()),
+        Arc::new(run_ports::TestSealing),
         run_ports::Limits::new(std::time::Duration::from_secs(1)),
     );
     assert!(!bare.parks_turns(), "a new launcher parks nothing");

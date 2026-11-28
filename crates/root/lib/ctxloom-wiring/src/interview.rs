@@ -126,6 +126,7 @@ impl SetupSessions<'_> {
             },
             engine: String::new(),
             session: String::new(),
+            distill: None,
         };
         let done = OneShots::new(&wiring)
             .stamped(self.stamp)

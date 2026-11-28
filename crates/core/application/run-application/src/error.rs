@@ -45,6 +45,10 @@ pub enum RunError {
     /// prompt of more than one line: refused before the spawn, in run-ports'
     /// own words.
     BatchArguments(Box<run_ports::BatchArguments>),
+    /// A secret of the launch could not be sealed for the record (owner
+    /// ruling 2026-11-25): no seal key was given, or the sealing failed. In
+    /// run-ports' words, which name the variable to set.
+    Sealing(Box<run_ports::SealingError>),
     /// The engine's program is on no directory of its PATH: not started, in
     /// run-ports' words, which name what was looked for and where. A failure
     /// (10), as any command that could not be started.
@@ -107,6 +111,16 @@ impl ExitClass for RunError {
             | RunError::Resume(_)
             | RunError::TooLong(_)
             | RunError::BatchArguments(_) => Exit::REFUSED,
+            // No key, or one that is no key: the request cannot be sealed
+            // for the record, and the state forbids it.
+            RunError::Sealing(error)
+                if matches!(
+                    **error,
+                    run_ports::SealingError::NoKey { .. } | run_ports::SealingError::BadKey { .. }
+                ) =>
+            {
+                Exit::REFUSED
+            }
             RunError::Session(CoreError::Refused { .. }) => Exit::REFUSED,
             // Held by another process: the session or run is live (ruling
             // 152); a lock file not made is a failure, below.
@@ -170,6 +184,7 @@ impl Diagnostic for RunError {
             RunError::TooLong(refusal) => refusal.code(),
             RunError::BatchArguments(refusal) => refusal.code(),
             RunError::ProgramNotFound(missing) => missing.code(),
+            RunError::Sealing(error) => error.code(),
             RunError::Project(_) => code!("project"),
             RunError::Lock(_) => code!("lock"),
             RunError::Session(_) => code!("session"),
@@ -199,6 +214,7 @@ impl Diagnostic for RunError {
             RunError::TooLong(refusal) => refusal.args(),
             RunError::BatchArguments(refusal) => refusal.args(),
             RunError::ProgramNotFound(missing) => missing.args(),
+            RunError::Sealing(error) => error.args(),
             RunError::Project(report) => vec![("reason", report.code().into())],
             RunError::Lock(error) => vec![("reason", error.report().code().into())],
             RunError::Session(error) => vec![("reason", why(error).into())],

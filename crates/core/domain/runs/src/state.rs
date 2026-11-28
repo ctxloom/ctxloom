@@ -15,6 +15,8 @@ pub struct RunState {
     /// What the launcher said of the runner it started (runtime, workspace,
     /// pid), once it did.
     pub runner_started: Option<RunnerStartedRecorded>,
+    /// A terminal launch was prepared for the run's frontend.
+    pub launch_prepared: bool,
     /// The sequence of the `TurnQueued` event of the turn in flight (plan
     /// 4.3: the turn number is a per-stream position, the cause): the first
     /// of `turns`.
@@ -33,6 +35,13 @@ pub struct RunState {
     /// What the run was given, as its `RunEnqueued` journaled it (step 9):
     /// none on a run enqueued before the record existed.
     pub grant: Option<Grant>,
+    /// What the run is for when it is a distill's, as its `RunEnqueued`
+    /// recorded it (the spec's purpose).
+    pub distill: Option<crate::DistillPurpose>,
+    /// The answer of the last turn that completed.
+    pub answer: Option<String>,
+    /// A distill's answer was written, or refused, and recorded as such.
+    pub distill_written: bool,
 }
 
 /// A turn queued and not yet ended (S-b).
@@ -62,8 +71,10 @@ fn fold(state: &mut RunState, event: &RunEvent, sequence: u64) {
             state.incarnation = enqueued.incarnation;
             state.mode = Some(enqueued.mode);
             state.grant = enqueued.grant.clone();
+            state.distill = enqueued.spec.as_ref().and_then(|spec| spec.distill.clone());
         }
         RunEvent::RunnerAttachedRecorded(_) => state.runner_attached = true,
+        RunEvent::LaunchPrepared(_) => state.launch_prepared = true,
         RunEvent::RunnerStartedRecorded(started) => state.runner_started = Some(started.clone()),
         // The turn in flight is the sequence of its `TurnQueued` event (plan 4.3).
         RunEvent::TurnQueued(queued) => state.turns.push(OpenTurn {
@@ -79,8 +90,10 @@ fn fold(state: &mut RunState, event: &RunEvent, sequence: u64) {
         }
         RunEvent::TurnStartedRecorded(_) => {}
         RunEvent::TurnCompletedRecorded(completed) => {
+            state.answer = Some(completed.answer.clone());
             free_the_gate(state, completed.turn, &completed.message_ids);
         }
+        RunEvent::DistillWritten(_) => state.distill_written = true,
         RunEvent::TurnFailedRecorded(failed) => {
             free_the_gate(state, failed.turn, &failed.message_ids);
         }

@@ -129,6 +129,7 @@ pub fn asked_of(request: &v1::CreateRunRequest) -> (OneShot, Flags) {
         },
         engine: request.engine.clone(),
         session: request.session.clone(),
+        distill: None,
     };
     let flags = Flags {
         degraded: globals.degraded,

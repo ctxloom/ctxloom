@@ -19,11 +19,12 @@ use angzarr_embedded_macros::{aggregate, applies, handles_cmd, handles_fact};
 
 use crate::refusal::refuse;
 use crate::{
-    apply, run_root, EndCause, EnqueueRun, FinalReportedRecorded, QueueTurn, RecordFinalReported,
-    RecordLaunchFailed, RecordLaunchOrphaned, RecordRunExited, RecordRunnerAttached,
-    RecordRunnerLost, RecordRunnerStarted, RecordSummaryReported, RecordTurnCompleted,
-    RecordTurnFailed, RecordTurnStarted, RequestStop, RunCommand, RunEnded, RunEnqueued, RunEvent,
-    RunRejection, RunState, RunnerAttachedRecorded, RunnerStartedRecorded, StopRequested,
+    apply, run_root, DistillWritten, EndCause, EnqueueRun, FinalReportedRecorded, LaunchPrepared,
+    QueueTurn, RecordDistillWritten, RecordFinalReported, RecordLaunchFailed, RecordLaunchOrphaned,
+    RecordLaunchPrepared, RecordRunExited, RecordRunnerAttached, RecordRunnerLost,
+    RecordRunnerStarted, RecordSummaryReported, RecordTurnCompleted, RecordTurnFailed,
+    RecordTurnStarted, RequestStop, RunCommand, RunEnded, RunEnqueued, RunEvent, RunRejection,
+    RunState, RunnerAttachedRecorded, RunnerStartedRecorded, StopRequested,
     SummaryReportedRecorded, TurnCompletedRecorded, TurnFailedRecorded, TurnQueued,
     TurnStartedRecorded,
 };
@@ -51,6 +52,16 @@ impl RunAggregate {
     /// Whether an enqueue has been folded.
     fn enqueued(&self) -> bool {
         self.run.mode.is_some()
+    }
+
+    /// The turn a completed or failed fact ends: the open turn holding the
+    /// first of its messages (the stream's own number, never the runner's),
+    /// else the number the fact names (a turn of no message).
+    fn resolved_turn(&self, named: u64, message_ids: &[String]) -> u64 {
+        message_ids
+            .first()
+            .and_then(|id| self.run.turns.iter().find(|t| t.message_ids.contains(id)))
+            .map_or(named, |open| open.turn)
     }
 
     /// Whether the run can still take an observation: enqueued, not ended.
@@ -131,6 +142,7 @@ fn decide_enqueue(
         mode: cmd.mode,
         launcher_lock: cmd.launcher_lock,
         grant: cmd.grant,
+        spec: cmd.spec,
     })
 }
 
@@ -393,6 +405,49 @@ impl RunAggregate {
         }))
     }
 
+    /// The terminal launch prepared for the run's frontend: recorded once,
+    /// while the run is live.
+    #[handles_fact(RecordLaunchPrepared)]
+    fn launch_prepared(
+        &self,
+        fact: RecordLaunchPrepared,
+        ctx: &Context,
+    ) -> Result<FactEmit<Self>, Bug> {
+        let _ = ctx;
+        recorded(
+            (self.live() && !self.run.launch_prepared).then_some(LaunchPrepared {
+                launch: fact.launch,
+            }),
+        )
+    }
+
+    #[applies(LaunchPrepared)]
+    fn launch_prepared_recorded(&mut self, event: LaunchPrepared, page: &PageContext) {
+        apply(&mut self.run, &event.into(), page.sequence);
+    }
+
+    /// What a distill run's answer came to: recorded once, for a run whose
+    /// purpose is a distill's and that has an answer.
+    #[handles_fact(RecordDistillWritten)]
+    fn distill_written(
+        &self,
+        fact: RecordDistillWritten,
+        ctx: &Context,
+    ) -> Result<FactEmit<Self>, Bug> {
+        let _ = ctx;
+        let due =
+            self.run.distill.is_some() && self.run.answer.is_some() && !self.run.distill_written;
+        recorded(due.then_some(DistillWritten {
+            end: fact.end,
+            notices: fact.notices,
+        }))
+    }
+
+    #[applies(DistillWritten)]
+    fn distill_written_recorded(&mut self, event: DistillWritten, page: &PageContext) {
+        apply(&mut self.run, &event.into(), page.sequence);
+    }
+
     /// The launcher made the runner's process: recorded while the run is live.
     #[handles_fact(RecordRunnerStarted)]
     fn runner_started(
@@ -424,20 +479,23 @@ impl RunAggregate {
         ctx: &Context,
     ) -> Result<FactEmit<Self>, Bug> {
         let _ = ctx;
+        let turn = self.resolved_turn(fact.turn, &fact.message_ids);
         recorded(self.live().then_some(TurnCompletedRecorded {
-            turn: fact.turn,
+            turn,
             native_key: fact.native_key,
             answer_ref: fact.answer_ref,
             exit_code: fact.exit_code,
             message_ids: fact.message_ids,
+            answer: fact.answer,
         }))
     }
 
     #[handles_fact(RecordTurnFailed)]
     fn turn_failed(&self, fact: RecordTurnFailed, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
         let _ = ctx;
+        let turn = self.resolved_turn(fact.turn, &fact.message_ids);
         recorded(self.live().then_some(TurnFailedRecorded {
-            turn: fact.turn,
+            turn,
             class: fact.class,
             detail: fact.detail,
             message_ids: fact.message_ids,

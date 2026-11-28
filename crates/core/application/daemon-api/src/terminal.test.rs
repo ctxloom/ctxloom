@@ -59,16 +59,17 @@ impl TerminalHost for Scripted {
         if self.refuse {
             told.done(vec![notice("before"), end("runs-no-credential")]);
         } else {
-            told.prepared(
-                TerminalPlaced {
-                    run: ROOT.to_string(),
-                    name: SESSION.to_string(),
-                    engine: "claude-code".to_string(),
-                },
-                launch(),
-            );
+            told.prepared(TerminalPlaced {
+                run: ROOT.to_string(),
+                name: SESSION.to_string(),
+                engine: "claude-code".to_string(),
+            });
         }
         self.told.lock().unwrap().push(told);
+    }
+
+    fn launch_of(&self, _: &str) -> Option<run_ports::Launch> {
+        Some(launch())
     }
 }
 

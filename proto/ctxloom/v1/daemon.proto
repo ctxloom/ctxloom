@@ -6,7 +6,7 @@ syntax = "proto3";
 // ResolveProject, GetProject, GetSession, ListSessions, SearchSessions, and
 // in a `purge` build DeleteSession and SweepSessions; slice 3 adds
 // GetTranscript and AssembleContext (its fragments and tags); slice 4 adds
-// CreateHandOff and DeleteHandOff (a child's launch, U3), CreateRun for a
+// CreateHandOff (a child's launch, U3), CreateRun for a
 // ONE_SHOT run, GetRun and WatchRun (U4), and CreateRun for a TERMINAL run,
 // answered with its launch (U5); step 8 U1 adds GetTrust and ListTrusts, and
 // U4 CreateApproval, GetApproval, ListApprovals and WaitApproval; every
@@ -160,8 +160,7 @@ service Ctxloom {
   // (else its configured `daemon.drain_timeout`), refusing every NEW call
   // meanwhile (`DaemonDraining`), but serving calls on work it already
   // holds (OD-62 adjusted): GetDaemon, this, ResolveProject/GetProject,
-  // WatchRun of a run it hosts, DeleteHandOff of a hand-off made before the
-  // drain, and every approvals call (D6: CreateApproval, GetApproval,
+  // WatchRun of a run it hosts, and every approvals call (D6: CreateApproval, GetApproval,
   // ListApprovals, WaitApproval; an ask comes only from a session the
   // daemon already hosts), and exits once it hosts nothing. An ask left
   // waiting when the daemon goes is ended by its alarm under the next
@@ -251,10 +250,6 @@ service Ctxloom {
   // is gone (owner, 2026-11-17).
   rpc CreateHandOff(CreateHandOffRequest) returns (HandOff) {
     option (google.api.method_signature) = "parent,hand_off_id";
-  }
-  // A hand-off withdrawn: the `LaunchChild` it was created for was refused.
-  rpc DeleteHandOff(DeleteHandOffRequest) returns (HandOff) {
-    option (google.api.method_signature) = "name";
   }
   // (-- endregion --)
 
@@ -2044,16 +2039,12 @@ message CreateHandOffRequest {
   Caller caller = 98 [(google.api.field_behavior) = REQUIRED];
 }
 
-// A hand-off withdrawn, its `LaunchChild` refused.
-message DeleteHandOffRequest {
-  // `projects/{project}/handOffs/{child}`.
-  string name = 1 [(google.api.field_behavior) = REQUIRED, (google.api.resource_reference).type = "ctxloom.dev/HandOff"];
-  // The client's id for this write (AIP-155), sent again unchanged on the one
-  // retry (API Q13).
-  string request_id = 90 [(google.api.field_behavior) = OPTIONAL];
-}
-
-// The hand-off, by name only: its content never leaves the daemon.
+// The child's launch as the daemon has checked and planned it. NOTHING is
+// kept: the inputs the daemon read of the caller (its environment, the places
+// of its user's settings) come back for the caller to put on the owner's
+// `LaunchChild`, which records them (owner ruling 2026-11-25: the inputs of a
+// launch ride the event that records it). A secret comes back sealed to the
+// daemon's own key.
 message HandOff {
   option (google.api.resource) = {
     type: "ctxloom.dev/HandOff"
@@ -2071,6 +2062,20 @@ message HandOff {
   string engine = 2;
   // The project the child works in, `projects/{project}`.
   string project = 3;
+  // What the child may be given of the caller's environment, each value
+  // sealed to the daemon's key, for `LaunchChild.env`.
+  repeated HandOffValue env = 4;
+  // Where the caller finds its user's own settings (the variables that
+  // place them), for `LaunchChild.settings_places`; plain paths.
+  repeated HandOffValue launcher = 5;
+}
+
+// One variable of a child's launch: sealed when it may be a secret, plain
+// when it is not (a path).
+message HandOffValue {
+  string name = 1;
+  bytes sealed = 2;
+  string plain = 3;
 }
 
 // (-- endregion --)
@@ -2534,14 +2539,6 @@ message PerProjectStore {
 
   // The old store's file, to remove.
   string path = 1;
-}
-
-// A child whose hand-off is missing cannot be started again.
-message HandOffMissing {
-  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
-
-  // The child's harp.
-  string harp = 1;
 }
 
 // A resource name that is not one (`projects/{p}` or

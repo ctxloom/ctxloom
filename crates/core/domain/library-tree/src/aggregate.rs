@@ -209,7 +209,11 @@ impl LibraryAggregate {
     /// record already holds at the same oid (an observation made against
     /// an older state, whose base another has recorded since, or one that
     /// says again what was said). None when it adds nothing.
-    fn observation(&self, fact: RecordTreeObserved) -> Option<TreeObserved> {
+    fn observation(
+        &self,
+        fact: RecordTreeObserved,
+        contents: Vec<crate::FileContent>,
+    ) -> Option<TreeObserved> {
         let library = &self.library;
         if !library.name.is_empty() && fact.name != library.name {
             return None;
@@ -254,6 +258,7 @@ impl LibraryAggregate {
                 head_after: fact.head_after,
             }),
             intended: None,
+            contents: contents_of(&changes, contents),
             changes,
             dirty_after: fact.dirty_after,
             tree_after: fact.tree_after,
@@ -398,9 +403,51 @@ impl LibraryAggregate {
             Some((intent.request_id.clone(), intent.done, seen))
         })
     }
-}
 
-impl LibraryAggregate {
+    /// The observation of `fact`, with the bytes of the files the scanner
+    /// read anew (`contents`): those of the paths it records as added or
+    /// changed, never an unchanged file's or a deleted one's.
+    fn observe(
+        &self,
+        fact: RecordTreeObserved,
+        contents: Vec<crate::FileContent>,
+        ctx: &Context,
+    ) -> Result<FactEmit<Self>, Bug> {
+        let Some(mut observed) = self.observation(fact, contents) else {
+            return recorded(None::<TreeObserved>);
+        };
+        // A baseline, or a sight past a moved HEAD (a commit, a checkout),
+        // is the outside's: its cause is the commits.
+        let moved = observed
+            .external
+            .as_ref()
+            .is_some_and(|external| external.head_after != self.library.head);
+        if observed.baseline || moved {
+            return self.outside(observed, None, ctx);
+        }
+        let Some((request_id, step, seen)) = self.attributed(&observed.changes) else {
+            return self.outside(observed, None, ctx);
+        };
+        let whole = seen.len() == observed.changes.len()
+            && observed.tree_after == self.library.tree
+            && self.library.dirty_after(&seen)
+                == observed
+                    .dirty_after
+                    .iter()
+                    .map(|d| (d.path.clone(), d.oid.clone()))
+                    .collect();
+        if whole {
+            return recorded(Some(StepApplied {
+                request_id,
+                step,
+                observed: seen,
+            }));
+        }
+        observed.external = None;
+        observed.intended = Some(request_id.clone());
+        self.outside(observed, Some(&request_id), ctx)
+    }
+
     /// `observed` recorded, then every pending intent but `except` it
     /// overtakes superseded, by this observation's cause (step 10c U13).
     fn outside(
@@ -458,6 +505,25 @@ pub fn listing_changes(held: &BTreeMap<String, String>, found: &[DirtyPath]) -> 
 /// An event a fact records, or none.
 fn recorded<E: DomainMessage>(event: Option<E>) -> Result<FactEmit<LibraryAggregate>, Bug> {
     Ok(FactEmit::of(event.map(|event| pack_message(&event))))
+}
+
+/// The bytes the scanner read for the paths `changes` records as present
+/// after it (added, modified or the destination of a rename), each only when
+/// its content id is the change's: a deleted path has none.
+fn contents_of(
+    changes: &[crate::Change],
+    contents: Vec<crate::FileContent>,
+) -> Vec<crate::FileContent> {
+    contents
+        .into_iter()
+        .filter(|content| {
+            changes.iter().any(|change| {
+                change.path == content.path
+                    && change.status != ChangeStatus::Deleted
+                    && change.to_oid == content.content_id
+            })
+        })
+        .collect()
 }
 
 /// Names the anchor, and takes no snapshots: the stream is folded whole.
@@ -730,39 +796,7 @@ impl LibraryAggregate {
     /// else a `TreeObserved` caused by the intent.
     #[handles_fact(RecordTreeObserved)]
     fn observed(&self, fact: RecordTreeObserved, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
-        let Some(mut observed) = self.observation(fact) else {
-            return recorded(None::<TreeObserved>);
-        };
-        // A baseline, or a sight past a moved HEAD (a commit, a checkout),
-        // is the outside's: its cause is the commits.
-        let moved = observed
-            .external
-            .as_ref()
-            .is_some_and(|external| external.head_after != self.library.head);
-        if observed.baseline || moved {
-            return self.outside(observed, None, ctx);
-        }
-        let Some((request_id, step, seen)) = self.attributed(&observed.changes) else {
-            return self.outside(observed, None, ctx);
-        };
-        let whole = seen.len() == observed.changes.len()
-            && observed.tree_after == self.library.tree
-            && self.library.dirty_after(&seen)
-                == observed
-                    .dirty_after
-                    .iter()
-                    .map(|d| (d.path.clone(), d.oid.clone()))
-                    .collect();
-        if whole {
-            return recorded(Some(StepApplied {
-                request_id,
-                step,
-                observed: seen,
-            }));
-        }
-        observed.external = None;
-        observed.intended = Some(request_id.clone());
-        self.outside(observed, Some(&request_id), ctx)
+        self.observe(fact, Vec::new(), ctx)
     }
 
     /// RecordTreeListed (step 10c U13 rework, the scanner): every file the
@@ -790,7 +824,7 @@ impl LibraryAggregate {
             dirty_after: fact.files,
             baseline: false,
         };
-        self.observed(observed, ctx)
+        self.observe(observed, fact.contents, ctx)
     }
 
     /// A pending intent's next step done: what it left becomes its paths'

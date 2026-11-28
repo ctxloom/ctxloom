@@ -31,6 +31,7 @@ pub(super) fn started() -> Vec<Any> {
             mode: RunMode::Structured,
             launcher_lock: String::new(),
             grant: None,
+            spec: None,
         })),
         run_event(RunEvent::RunnerStartedRecorded(RunnerStartedRecorded {
             runtime: "host".to_string(),
@@ -56,6 +57,7 @@ pub(super) fn turn_completed(turn: u64) -> Any {
         answer_ref: String::new(),
         exit_code: 0,
         message_ids: vec!["m1".to_string()],
+        ..Default::default()
     }))
 }
 

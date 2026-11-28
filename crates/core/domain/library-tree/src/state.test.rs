@@ -39,6 +39,7 @@ fn observed(baseline: bool, changes: Vec<Change>, dirty: &[(&str, &str)]) -> Lib
             .collect(),
         tree_after: "t-1".to_string(),
         baseline,
+        ..Default::default()
     })
 }
 

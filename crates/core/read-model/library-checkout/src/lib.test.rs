@@ -46,6 +46,7 @@ fn observed(baseline: bool, changes: &[(&str, &str)]) -> LibraryEvent {
             .collect(),
         tree_after: "t-1".to_string(),
         baseline,
+        contents: Vec::new(),
     })
 }
 

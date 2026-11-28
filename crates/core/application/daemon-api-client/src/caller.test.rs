@@ -251,14 +251,16 @@ impl DaemonApi for Fake {
             name: format!("{}/handOffs/{}", r.parent, r.hand_off_id),
             engine,
             project: r.project,
-        })
-    }
-
-    async fn delete_hand_off(&self, r: v1::DeleteHandOffRequest) -> Result<v1::HandOff, Called> {
-        self.ask(&format!("withdraw {}", r.name));
-        Ok(v1::HandOff {
-            name: r.name,
-            ..v1::HandOff::default()
+            env: vec![v1::HandOffValue {
+                name: "TOKEN".to_string(),
+                sealed: b"sealed-by-the-daemon".to_vec(),
+                plain: String::new(),
+            }],
+            launcher: vec![v1::HandOffValue {
+                name: "CLAUDE_CONFIG_DIR".to_string(),
+                sealed: Vec::new(),
+                plain: "/home/a/.claude".to_string(),
+            }],
         })
     }
 
@@ -956,6 +958,27 @@ async fn a_launch_is_the_hand_off_then_the_owners_launch_child() {
     // Ruling 4: none asked, the engine the daemon planned it on (its
     // agent's).
     assert_eq!(launched.engine, "opencode");
+    // The launch's inputs ride it: the agent, the daemon's sealed values and
+    // the places of her settings as the daemon answered them.
+    assert_eq!(launched.agent, "dev");
+    let [token] = launched.env.as_slice() else {
+        panic!("one variable: {:?}", launched.env);
+    };
+    assert_eq!(
+        (
+            token.name.as_str(),
+            token.sealed.as_slice(),
+            token.plain.as_str()
+        ),
+        ("TOKEN", b"sealed-by-the-daemon".as_slice(), "")
+    );
+    let [places] = launched.settings_places.as_slice() else {
+        panic!("one place: {:?}", launched.settings_places);
+    };
+    assert_eq!(
+        (places.name.as_str(), places.plain.as_str()),
+        ("CLAUDE_CONFIG_DIR", "/home/a/.claude")
+    );
     let owner =
         sessions::SessionName::parse("projects/calm-quiet-heron/sessions/amber-quiet-heron")
             .unwrap();
@@ -1076,10 +1099,11 @@ async fn a_launch_naming_its_child_as_an_ask_is_refused_and_asks_nothing() {
     assert!(world.asked().is_empty(), "{:?}", world.asked());
 }
 
-// A refused LaunchChild takes its hand-off back: a refused launch leaves
-// nothing.
+// A refused LaunchChild leaves nothing to take back: the hand-off kept
+// nothing (its inputs ride the `LaunchChild` that was refused), and the
+// refusal is the sessions domain's own.
 #[tokio::test]
-async fn a_refused_launch_takes_its_hand_off_back() {
+async fn a_refused_launch_is_refused_in_the_sessions_domains_words() {
     let world = World::new();
     *world.refusing.lock().unwrap() = true;
     let caller = world.user(false);
@@ -1097,12 +1121,8 @@ async fn a_refused_launch_takes_its_hand_off_back() {
         rejection,
         sessions::SessionRejection::DelegationLimit { limit: 4, open: 4 }
     );
-    let child = sessions::SessionName::parse(CHILD).unwrap();
     assert!(
-        world.asked().contains(&format!(
-            "1:withdraw projects/calm-quiet-heron/handOffs/{}",
-            child.uid()
-        )),
+        !world.asked().iter().any(|asked| asked.contains("withdraw")),
         "{:?}",
         world.asked()
     );

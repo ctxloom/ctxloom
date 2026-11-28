@@ -5,8 +5,6 @@ use std::time::Duration;
 use file_system::Rooted;
 use run_ports::{Discovery, PublicCert, Token};
 
-use daemon_application::HandOff;
-
 use super::{instance_lock_path, DaemonFiles, Unheld};
 use crate::fixtures;
 
@@ -148,133 +146,15 @@ fn the_log_is_in_the_daemons_directory() {
 
 const CHILD: &str = "0b0b0b0b-0b0b-4b0b-8b0b-0b0b0b0b0b0b";
 
-fn env(pairs: &[(&str, &str)]) -> std::collections::BTreeMap<String, String> {
-    pairs
-        .iter()
-        .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
-        .collect()
-}
-
-// D-N45: a launcher's hand-off reads back whole, values with lines,
-// backslashes and `=` alike, with the agent its child is planned for; one
-// an older daemon wrote (format 2) reads as one for the default agent.
 #[test]
-fn a_hand_off_reads_back_what_was_written() {
-    let sent = env(&[
-        ("PATH", "/bin:/usr/bin"),
-        ("ODD", "a=b\\nc\nd\re\\"),
-        ("EMPTY", ""),
-    ]);
-    let handed = HandOff {
-        env: sent,
-        launcher: env(&[("CLAUDE_CONFIG_DIR", "/home/alice/.claude-work")]),
-        agent: "reviewer".to_string(),
-        program: None,
-    };
-    let text = super::encode_hand_off(&handed);
-    assert!(text.starts_with("ctxloom-launch-env 3\n"), "{text}");
-    assert_eq!(text.lines().count(), 6, "one line a variable: {text}");
-    assert!(
-        text.contains("\n@CLAUDE_CONFIG_DIR=/home/alice/.claude-work\n"),
-        "{text}"
-    );
-    assert!(text.ends_with("\n!agent=reviewer\n"), "{text}");
-    assert_eq!(super::decode_hand_off(&text), Some(handed));
-    assert_eq!(
-        super::decode_hand_off("ctxloom-launch-env 2\nA=b\n"),
-        Some(HandOff {
-            env: env(&[("A", "b")]),
-            ..HandOff::default()
-        })
-    );
-    let unnamed = HandOff {
-        env: env(&[("A", "b")]),
-        ..HandOff::default()
-    };
-    assert!(
-        !super::encode_hand_off(&unnamed).contains("!agent"),
-        "no agent, no line"
-    );
-    assert_eq!(super::decode_hand_off("other 1\nA=b\n"), None);
-    assert_eq!(super::decode_hand_off("ctxloom-launch-env 1\nA=b\n"), None);
-    assert_eq!(
-        super::decode_hand_off("ctxloom-launch-env 3\nnoequals\n"),
-        None
-    );
-    assert_eq!(
-        super::decode_hand_off("ctxloom-launch-env 3\nA=bad\\q\n"),
-        None
-    );
-    assert_eq!(
-        super::decode_hand_off("ctxloom-launch-env 3\nA=end\\\n"),
-        None
-    );
-}
-
-// T6: the hand-off is the user's alone (0600 in the 0700 launch
-// directory), READ and left for the child's life, deleted, and only ever
-// named by a child's UUID.
-#[test]
-fn a_hand_off_is_the_users_alone_and_read_for_the_childs_life() {
-    let (root, home) = home();
-    let files = files(&root, &home);
-    let sent = HandOff {
-        env: env(&[("ANTHROPIC_API_KEY", "k")]), // gitleaks:allow
-        ..HandOff::default()
-    };
-    files.hand_off(CHILD, &sent).unwrap();
-    let path = files.dir().join("launch").join(CHILD);
-    // Mode bits are unix's alone.
-    if os::host().flavor() == os::Flavor::Unix {
-        assert_eq!(
-            fixtures::fs().metadata(&path).unwrap().mode.unwrap().bits(),
-            0o600
-        );
-        assert_eq!(
-            fixtures::fs()
-                .metadata(&files.dir().join("launch"))
-                .unwrap()
-                .mode
-                .unwrap()
-                .bits(),
-            0o700
-        );
-    }
-    assert_eq!(files.read_hand_off(CHILD), Some(sent.clone()));
-    assert_eq!(files.read_hand_off(CHILD), Some(sent.clone()), "read again");
-    files.delete_hand_off(CHILD);
-    assert_eq!(files.read_hand_off(CHILD), None, "deleted");
-    assert!(!fixtures::fs().exists(&path).unwrap());
-    assert!(files.hand_off("../escape", &sent).is_err());
-    assert_eq!(files.read_hand_off("../escape"), None);
-}
-
-// T6 (the owner's ruling on U3): a launch's hand-off is written marked in
-// launch, listed with whether its creator still holds its launch lock,
-// claimed (its mark cleared, the hand-off kept), and deleted with its mark;
-// a file no UUID names is none.
-#[test]
-fn a_launchs_hand_off_is_marked_listed_by_its_creators_lock_claimed_and_deleted() {
+fn two_launches_of_one_child_cannot_both_hold_its_launch_lock() {
     use run_ports::RunLocks;
     let (root, home) = home();
     let files = files(&root, &home);
-    assert!(files.hand_offs().is_empty());
-    files.launching(CHILD, &HandOff::default()).unwrap();
-    fixtures::put_mode(files.dir().join("launch").join("not-a-child"), "x", 0o600);
-    let kept = |marked, creator_holds| daemon_application::Kept {
-        session: CHILD.to_string(),
-        marked,
-        creator_holds,
-    };
-    // No launch lock there: its creator let it go, or took none.
-    assert_eq!(files.hand_offs(), [kept(true, false)]);
-    // The sweep between Create and Launch: its creator holds the lock.
     let held = files
         .launch_locks()
         .hold_run(&daemon_api_client::launch_lock_name(CHILD))
         .unwrap();
-    assert_eq!(files.hand_offs(), [kept(true, true)]);
-    // Two launches of one child: the second cannot take the lock.
     assert!(matches!(
         files
             .launch_locks()
@@ -282,25 +162,12 @@ fn a_launchs_hand_off_is_marked_listed_by_its_creators_lock_claimed_and_deleted(
         Err(run_ports::LockError::Held(_))
     ));
     drop(held);
-    // A creator crashed mid-launch: its lock file is left, held by no one.
-    let lock = files
+    assert!(files
         .launch_locks()
-        .path(&daemon_api_client::launch_lock_name(CHILD));
-    fixtures::put_mode(&lock, "", 0o600);
-    assert_eq!(files.hand_offs(), [kept(true, false)], "proven gone");
-    files.claim_hand_off(CHILD);
-    assert_eq!(files.hand_offs(), [kept(false, false)], "claimed");
-    assert!(files.read_hand_off(CHILD).is_some(), "kept");
-    files.launching(CHILD, &HandOff::default()).unwrap();
-    files.delete_hand_off(CHILD);
-    assert!(files.hand_offs().is_empty(), "deleted with its mark");
-    let left = fixtures::entries(files.dir().join("launch"));
-    assert_eq!(left, [("not-a-child".to_string(), false)], "{left:?}");
+        .hold_run(&daemon_api_client::launch_lock_name(CHILD))
+        .is_ok());
 }
 
-// One daemon per OS account: the single-instance lock is where
-// `instance_lock_path` says, a test's override first, and the discovery file
-// is beside it; the rest stays under the ctxloom home.
 #[test]
 fn the_instance_lock_is_where_the_override_says_and_the_discovery_beside_it() {
     let (root, home) = home();

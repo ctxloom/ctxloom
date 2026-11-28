@@ -34,9 +34,10 @@
 //!   through the coordinator's `HandleSync`, the requester itself; or the
 //!   USER's child verbs (slice 4 U3: `session launch|send|clear|close`),
 //!   naming no requester;
-//! - `CreateHandOff` and `DeleteHandOff` (slice 4 U3, T6, S10): a child's
-//!   launch environment kept by the daemon ([`HandOffs`]), its owner and
-//!   credential checked first, so a refused launch writes nothing;
+//! - `CreateHandOff` (slice 4 U3, T6, S10): a child's
+//!   launch planned and checked ([`LaunchPlans`]), its owner and credential
+//!   first, and its environment sealed for the owner's `LaunchChild`; it
+//!   keeps nothing, so a refused launch writes nothing;
 //! - [`StartUpIncomplete`]: a daemon whose start-up catch-up or sweep
 //!   failed serves anyway and says so (OD-52), in `GetDaemon`'s
 //!   `Daemon.warnings`;
@@ -92,7 +93,7 @@ pub use deps_writes::{DepsAnswer, DepsAsk, DepsPlanned, DepsPlans, DepsTree};
 #[cfg(feature = "purge")]
 pub use destroy::{Places, Purges};
 pub use foreign::{ForeignAnswer, ForeignAsk, ForeignPlanned, ForeignPlans, ForeignPut};
-pub use hand_off::{FatalFinding, HandOffContent, HandOffs, HandingOff, Planned};
+pub use hand_off::{FatalFinding, HandOffContent, HandingOff, LaunchPlans, Planned};
 pub use hand_over::HandingOver;
 pub use imports::Imports;
 pub use legacy_stores::LegacyStores;

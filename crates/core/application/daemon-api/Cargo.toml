@@ -34,6 +34,8 @@ library-checkout.workspace = true
 library-tree.workspace = true
 pending-messages.workspace = true
 prost.workspace = true
+# The runtime the distill's watch waits on its run's stream through.
+tokio = { workspace = true, features = ["rt"] }
 # `session remove`'s one safe order, and the sweep's table, run here.
 reclaim-application.workspace = true
 run-application.workspace = true
@@ -81,7 +83,7 @@ sessions-application = { workspace = true, features = ["purge"] }
 daemon-api = { path = ".", features = ["purge"] }
 mutants.workspace = true
 run-ports = { workspace = true, features = ["test-support"] }
-tokio = { workspace = true, features = ["macros", "rt"] }
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }
 prost-types.workspace = true
 # The trust commands' wire form, which a test decodes a sent book's into.
 trust-proto.workspace = true

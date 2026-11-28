@@ -1,9 +1,9 @@
-//! A child's hand-off (T6, S10; daemon slice 4 U3): `CreateHandOff` and
-//! `DeleteHandOff`, served by the daemon.
+//! A child's launch, checked and planned (T6, S10; daemon slice 4 U3):
+//! `CreateHandOff`, served by the daemon.
 //!
 //! A launch hands the daemon the environment its child is launched with
 //! BEFORE the owner's `LaunchChild` is recorded. The daemon checks, in
-//! order and before it writes anything, so a refused launch leaves nothing:
+//! order, and keeps NOTHING, so a refused launch leaves nothing:
 //!
 //! 1. the owner: a session its warm index holds in the project, else the
 //!    sessions domain's `SessionUnknown` ("there is no session named ...");
@@ -13,19 +13,18 @@
 //! 3. the child's plan: its project's dry run on its engine (none asked: its
 //!    agent's configured one, the config's default engine for an agent
 //!    naming none, which the answer names) and agent, in the environment
-//!    the launch sent ([`HandOffs::plan`], the root's);
+//!    the launch sent ([`LaunchPlans::plan`], the root's);
 //! 4. its credential and its project's untrusted settings, as the child's
 //!    enqueue will judge them: the runs
 //!    aggregate's own pre-launch checks (`runs::pre_launch_refusal`, rulings
 //!    53, 73e), refused with the typed refusal the enqueue would answer
 //!    (`runs-no-credential`, `runs-file-only-credential`, ...).
 //!
-//! Only then is the hand-off written (0600, the root's [`HandOffs::write`]),
-//! marked in launch: the launch's creator holds its launch lock from before
-//! `CreateHandOff` to after its `LaunchChild`, which claims it, so the sweep
-//! keeps it meanwhile, and clears it once its creator is proven gone.
-//! A hand-off is withdrawn only while no open session holds it (a child its
-//! `LaunchChild` made is the daemon's to delete, at its close).
+//! Then it answers the launch's inputs back, the secrets among them sealed to
+//! its own key (owner ruling 2026-11-25: the inputs of a launch ride the
+//! event that records it): the caller puts them on the owner's `LaunchChild`,
+//! which records them, and every start of the child reads them from the
+//! stream. No file, no table of the daemon's memory.
 
 use std::collections::BTreeMap;
 
@@ -54,16 +53,13 @@ pub struct HandingOff {
     pub env: BTreeMap<String, String>,
 }
 
-/// What the child is handed: the environment it may be given, where its
-/// launcher finds its user's settings, and the agent it is planned for.
+/// What the child may be given: the environment it may be given and where
+/// its launcher finds its user's settings.
 #[derive(Clone, Default, PartialEq, Eq)]
 pub struct HandOffContent {
     pub env: BTreeMap<String, String>,
     pub launcher: BTreeMap<String, String>,
     pub agent: String,
-    /// The launching client's program (owner, 2026-11-18): what the child's
-    /// hooks run and its engine's `PATH` leads with; none, the daemon's own.
-    pub program: Option<daemon_application::Program>,
 }
 
 impl std::fmt::Debug for HandingOff {
@@ -87,7 +83,6 @@ impl std::fmt::Debug for HandOffContent {
             .field("env", &run_ports::RedactedEnv(&self.env))
             .field("launcher", &run_ports::RedactedEnv(&self.launcher))
             .field("agent", &self.agent)
-            .field("program", &self.program)
             .finish()
     }
 }
@@ -131,19 +126,11 @@ pub struct Planned {
     pub content: HandOffContent,
 }
 
-/// The hand-offs, outside the core: the root's.
-pub trait HandOffs: Send + Sync {
+/// The child's plan, outside the core: the root's.
+pub trait LaunchPlans: Send + Sync {
     /// The child's plan (its project's dry run); the plan's error code where
     /// it cannot be made.
     fn plan(&self, request: &HandingOff) -> Result<Planned, String>;
-
-    /// Write the hand-off of `child`, whole (0600), and mark it in launch:
-    /// the sweep keeps a marked hand-off while its launch's creator holds
-    /// its launch lock, until the `LaunchChild` it was made for claims it.
-    fn write(&self, child: &str, content: &HandOffContent) -> Result<(), String>;
-
-    /// Delete the hand-off of `child`, and its mark, if there are any.
-    fn delete(&self, child: &str) -> Result<(), String>;
 }
 
 /// The project a child works in: the one its launch named (`project`),
@@ -182,6 +169,43 @@ fn child_id(id: &str) -> Result<String, ApiError> {
         })
 }
 
+/// The inputs of a launch, back to the caller for the owner's `LaunchChild`:
+/// each value of the environment sealed to the target project's key and bound to its
+/// variable; where her settings are is no secret.
+fn answered(
+    content: &HandOffContent,
+    (sealing, project): (&dyn run_ports::Sealing, &str),
+) -> Result<(Vec<v1::HandOffValue>, Vec<v1::HandOffValue>), ApiError> {
+    let env = content
+        .env
+        .iter()
+        .map(|(name, value)| {
+            sealing
+                .seal(
+                    project,
+                    &daemon_application::child_env_field(name),
+                    value.as_bytes(),
+                )
+                .map(|sealed| v1::HandOffValue {
+                    name: name.clone(),
+                    sealed,
+                    plain: String::new(),
+                })
+                .map_err(ApiError::failed)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let launcher = content
+        .launcher
+        .iter()
+        .map(|(name, value)| v1::HandOffValue {
+            name: name.clone(),
+            sealed: Vec::new(),
+            plain: value.clone(),
+        })
+        .collect();
+    Ok((env, launcher))
+}
+
 fn failed(detail: String) -> ApiError {
     ApiError::Failed { detail }
 }
@@ -196,10 +220,14 @@ impl<E: run_ports::Edge> Api<E> {
         let project = ProjectName::parse(&request.parent)
             .map_err(|rejection| invalid(&request.parent, &rejection))?;
         let child = child_id(&request.hand_off_id)?;
-        let hand_offs = self
-            .hand_offs
+        let plans = self
+            .launch_plans
             .as_ref()
-            .ok_or_else(|| failed("this daemon makes no hand-off".to_string()))?;
+            .ok_or_else(|| failed("this daemon plans no launch".to_string()))?;
+        let sealing = self
+            .sealing
+            .as_ref()
+            .ok_or_else(|| failed("this daemon seals nothing".to_string()))?;
         self.parts.hosting.fresh().await;
         let (row, target, target_row, owner) = {
             let index = self.parts.index.index();
@@ -255,7 +283,7 @@ impl<E: run_ports::Edge> Api<E> {
                 .map(|var| (var.name, var.value))
                 .collect(),
         };
-        let planned = hand_offs.plan(&handing).map_err(|code| {
+        let planned = plans.plan(&handing).map_err(|code| {
             ApiError::from(ApiRefusal::of(&v1::ConfigUnreadable {
                 root: target_row.root.clone(),
                 detail: code,
@@ -274,58 +302,19 @@ impl<E: run_ports::Edge> Api<E> {
             launcher_lock: String::new(),
             grant: None,
             untrusted_settings: planned.untrusted_settings,
+            spec: None,
         };
         if let Some((refusal, status)) = runs::pre_launch_refusal(&checks) {
             return Err(ApiRefusal::typed(&refusal, status).into());
         }
-        let content = HandOffContent {
-            program: crate::program_of(request.caller_client()),
-            ..planned.content
-        };
-        hand_offs.write(&child, &content).map_err(failed)?;
+        let (env, launcher) =
+            answered(&planned.content, (sealing.as_ref(), &target_row.project_id))?;
         Ok(v1::HandOff {
             name: format!("{project}{HAND_OFFS}{child}"),
             engine: planned.engine,
             project: target.to_string(),
-        })
-    }
-
-    /// `DeleteHandOff`: the hand-off of a child no open session holds
-    /// deleted (a launch whose `LaunchChild` was refused); one an open
-    /// session holds is kept, its child's to the end.
-    pub async fn delete_hand_off(
-        &self,
-        request: v1::DeleteHandOffRequest,
-    ) -> Result<v1::HandOff, ApiError> {
-        let shape = || {
-            ApiError::from(ApiRefusal::of(&v1::NameInvalid {
-                name: request.name.clone(),
-                reason: "shape".to_string(),
-            }))
-        };
-        let (project, child) = request.name.split_once(HAND_OFFS).ok_or_else(shape)?;
-        ProjectName::parse(project).map_err(|rejection| invalid(project, &rejection))?;
-        let child = uuid::Uuid::parse_str(child)
-            .map_err(|_| shape())?
-            .hyphenated()
-            .to_string();
-        let hand_offs = self
-            .hand_offs
-            .as_ref()
-            .ok_or_else(|| failed("this daemon makes no hand-off".to_string()))?;
-        self.parts.hosting.fresh().await;
-        let open = self
-            .parts
-            .index
-            .index()
-            .find_by_id(&child)
-            .is_some_and(|record| !record.closed);
-        if !open {
-            hand_offs.delete(&child).map_err(failed)?;
-        }
-        Ok(v1::HandOff {
-            name: request.name,
-            ..v1::HandOff::default()
+            env,
+            launcher,
         })
     }
 }

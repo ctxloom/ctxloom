@@ -188,14 +188,6 @@ impl Calls for Scripted {
                 name: format!("{}/handOffs/{}", request.parent, request.hand_off_id),
                 engine: String::new(),
                 project: request.project,
-            })
-        })
-    }
-
-    fn delete_hand_off(&self, request: v1::DeleteHandOffRequest) -> Answer<'_, v1::HandOff> {
-        Box::pin(async move {
-            Ok(v1::HandOff {
-                name: request.name,
                 ..v1::HandOff::default()
             })
         })
@@ -951,18 +943,6 @@ async fn the_hand_offs_are_served() {
         .unwrap()
         .into_inner();
     assert_eq!(created.name, "projects/calm-otter/handOffs/c1");
-    let deleted = client
-        .delete_hand_off(with_bearer(
-            v1::DeleteHandOffRequest {
-                name: "projects/calm-otter/handOffs/c1".to_string(),
-                ..v1::DeleteHandOffRequest::default()
-            },
-            BEARER,
-        ))
-        .await
-        .unwrap()
-        .into_inner();
-    assert_eq!(deleted.name, "projects/calm-otter/handOffs/c1");
 }
 
 /// Scripted use cases whose daemon stands warning of `codes`, each a

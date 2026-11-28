@@ -19,6 +19,8 @@ library-application.workspace = true
 # The remotes' and the lock's use cases the deps reads are answered by (U2).
 deps-application.workspace = true
 serde_json.workspace = true
+# An MCP server's file, read to seal the values of its secrets.
+angzarr-yaml.workspace = true
 # A notice the daemon said, rebuilt from its code and flattened args.
 run-application.workspace = true
 # The library domain: its fact, its names, its fold and its refusals.

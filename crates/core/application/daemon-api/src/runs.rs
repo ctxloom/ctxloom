@@ -89,7 +89,7 @@ fn not_found(name: &str) -> ApiError {
     .into()
 }
 
-impl<E: Edge> Api<E> {
+impl<E: Edge + 'static> Api<E> {
     /// `CreateRun`, by its mode: a ONE_SHOT hosted; a TERMINAL run is U5's
     /// (its arm below is where it is built); a preview (`validate_only`) is
     /// the dry run's, planned here as a library read (step 10a U2).
@@ -199,11 +199,27 @@ impl<E: Edge> Api<E> {
         if let Some(watch) = self.watch_terminal(&request.name) {
             return Ok(watch);
         }
+        let run = run_of(&request.name);
         let watch = self
             .one_shots()?
-            .watch(run_of(&request.name))
+            .watch(run)
             .ok_or_else(|| not_found(&request.name))?;
-        Ok(Box::new(watch))
+        // A distill's run is watched past its own end, to what its answer
+        // came to (owner 2026-11-28).
+        let reference = self
+            .parts
+            .board
+            .board()
+            .run_of_root(run)
+            .and_then(|fold| fold.state.distill.as_ref().map(|d| d.reference.clone()));
+        Ok(match reference {
+            Some(reference) => Box::new(crate::distill::DistillWatch::new(
+                Box::new(watch),
+                Arc::clone(&self.parts.edge),
+                (run, &reference),
+            )),
+            None => Box::new(watch),
+        })
     }
 }
 

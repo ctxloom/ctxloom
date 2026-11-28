@@ -8,8 +8,8 @@
 //! terminal and reports its start and its exit as the run's facts.
 //!
 //! [`Frontended`] is that difference: the runner launcher the daemon's
-//! `Runs::interactive` drives. Its start hands the launch over
-//! ([`Told::prepared`]) and waits for the frontend's start report; its wait
+//! `Runs::interactive` drives. Its start records the launch on the run's
+//! stream ([`PreparedLaunches`]) and says it is ready ([`Told::prepared`]) and waits for the frontend's start report; its wait
 //! waits for the exit report. So everything the launcher and the run use
 //! case do around a terminal session (the `RecordRunnerStarted` and `RecordRunExited`
 //! it records, which the frontend's reports already made and are
@@ -60,6 +60,17 @@ pub type TerminalRequest = crate::HostRequest;
 /// `told`, and tells `told` its end.
 pub trait TerminalHost: Send + Sync {
     fn host(&self, request: TerminalRequest, told: Told);
+
+    /// The launch recorded on `run`'s stream for its frontend (its secrets
+    /// opened here); none when the stream holds none.
+    fn launch_of(&self, run: &str) -> Option<Launch>;
+}
+
+/// Where a prepared session's launch is recorded, for its frontend to read
+/// (owner 2026-11-28: the launch is a record, never a hand-off in memory):
+/// the run's stream, its secrets sealed to the project's key.
+pub trait PreparedLaunches: Send + Sync {
+    fn record(&self, launch: &Launch) -> Result<(), LaunchFailure>;
 }
 
 /// What the frontend's reports came to, as the run's and the session's
@@ -101,7 +112,7 @@ pub struct Placed {
 
 #[derive(Default)]
 struct State {
-    prepared: Option<(Placed, Launch)>,
+    prepared: Option<Placed>,
     events: Vec<v1::RunEvent>,
     ended: bool,
     /// Its frontend was told to stop.
@@ -130,10 +141,9 @@ impl Entry {
 pub struct Told(Arc<Entry>);
 
 impl Told {
-    /// Its launch is ready for its frontend.
-    pub fn prepared(&self, placed: Placed, launch: Launch) {
-        self.0
-            .change(|state| state.prepared = Some((placed, launch)));
+    /// Its launch is recorded, ready for its frontend.
+    pub fn prepared(&self, placed: Placed) {
+        self.0.change(|state| state.prepared = Some(placed));
     }
 
     /// Its frontend is to stop its TUI, for `reason`, once.
@@ -243,9 +253,19 @@ impl Terminals {
             state.prepared.clone()
         };
         let created = match prepared {
-            Some((placed, launch)) => {
+            Some(placed) => {
                 self.table().insert(placed.run.clone(), Arc::clone(&entry));
-                Created::Prepared(placed, Box::new(launch))
+                match self.host.launch_of(&placed.run) {
+                    Some(launch) => Created::Prepared(placed, Box::new(launch)),
+                    None => Created::Ended(vec![v1::RunEvent {
+                        event: Some(v1::run_event::Event::End(run_application::client::end_of(
+                            &run_application::RunError::NotStarted {
+                                detail: "the session's launch was not on its run's stream"
+                                    .to_string(),
+                            },
+                        ))),
+                    }]),
+                }
             }
             None => Created::Ended(entry.state().events.clone()),
         };
@@ -274,7 +294,7 @@ impl Terminals {
     pub fn get(&self, run: &str) -> Option<Placed> {
         let entry = self.table().get(run).cloned()?;
         let state = entry.state();
-        state.prepared.as_ref().map(|(placed, _)| placed.clone())
+        state.prepared.clone()
     }
 
     /// The events of `run`'s session, from its first.
@@ -316,6 +336,8 @@ pub struct Frontended {
     /// is rooted on.
     pub project_harp: String,
     pub reports: Arc<dyn FrontendReports>,
+    /// Where its launch is recorded for the frontend.
+    pub launches: Arc<dyn PreparedLaunches>,
     pub waits: Arc<dyn Waits>,
     pub locks: Arc<dyn RunLocks>,
     /// The project the session's lock is in.
@@ -354,6 +376,11 @@ impl RunnerLauncher for Frontended {
         }
         let mut launch = launch.clone();
         launch.session_lock = (self.lock_path)(&launch.at.harp);
+        // Its record is sealed to its project's key: the launch names the
+        // project (its harp) when the plan left it empty.
+        if launch.at.project_id.is_empty() {
+            launch.at.project_id.clone_from(&self.project_harp);
+        }
         let name = sessions::SessionName::new(&self.project_harp, &launch.at.harp)
             .map(|name| name.to_string())
             .unwrap_or_default();
@@ -363,7 +390,8 @@ impl RunnerLauncher for Frontended {
             engine: launch.engine.clone(),
         };
         let at = launch.at.clone();
-        self.told.prepared(placed, launch);
+        self.launches.record(&launch)?;
+        self.told.prepared(placed);
         let since = self.waits.elapsed();
         loop {
             let seen = self.reports.seen(&at);

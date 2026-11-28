@@ -23,7 +23,7 @@
 //! A launch (T6, S10) is `CreateHandOff` first, which the daemon refuses
 //! before it writes anything (an owner nobody recorded, a child with no
 //! credential), then the owner's `LaunchChild`; a refused `LaunchChild` is
-//! followed by `DeleteHandOff`, so a refused launch leaves nothing.
+//! which keeps nothing, so a refused launch leaves nothing.
 
 use std::sync::Arc;
 
@@ -849,11 +849,11 @@ impl<D: Daemons> Caller<D> {
     /// `child_launch`, `session launch` (T6, S10): a child of `launch`'s
     /// owner (none: this caller), its launch lock held (a second launch of
     /// it meanwhile refused), its environment handed to the daemon first
-    /// (`CreateHandOff`, refused before anything is written), then the
-    /// owner's `LaunchChild` on the engine the daemon planned it on, keyed
-    /// by the owner and the child, so its retry on a new daemon is one
-    /// launch. A refused `LaunchChild` takes its hand-off back
-    /// (`DeleteHandOff`). Answered with the child as the
+    /// (`CreateHandOff`, refused before anything is made), which answers
+    /// the launch's inputs, its secrets sealed; then the owner's
+    /// `LaunchChild` on the engine the daemon planned it on, recording them,
+    /// keyed by the owner and the child, so its retry on a new daemon is one
+    /// launch. Answered with the child as the
     /// daemon has it (as launched, until its daemon has minted it).
     pub async fn launch(&self, launch: &Launch) -> Result<Written, CallError> {
         let owner = match (&launch.owner, &self.me) {
@@ -957,20 +957,14 @@ impl<D: Daemons> Caller<D> {
             (true, false) => engine.to_string(),
             (true, true) => session_policies::CHILD_ENGINE.to_string(),
         };
-        let launched = self.launch_child(api, into, &engine, &launch.task).await;
-        let applied = match launched {
-            Ok(applied) => applied,
-            Err(refused @ Called::Refused { .. }) => {
-                let _ = api
-                    .delete_hand_off(v1::DeleteHandOffRequest {
-                        name: hand_off.name,
-                        request_id: request_id.to_string(),
-                    })
-                    .await;
-                return Err(refused);
-            }
-            Err(other) => return Err(other),
+        let inputs = LaunchInputs {
+            agent: launch.agent.clone(),
+            env: hand_off.env,
+            places: hand_off.launcher,
         };
+        let applied = self
+            .launch_child(api, into, &engine, (&launch.task, inputs))
+            .await?;
         let session = match self.read(api, child).await {
             Ok(session) => session,
             // Not minted yet: the child as launched.
@@ -995,7 +989,7 @@ impl<D: Daemons> Caller<D> {
         api: &D::Api,
         into: &LaunchInto<'_>,
         engine: &str,
-        task: &str,
+        (task, inputs): (&str, LaunchInputs),
     ) -> Result<bool, Called> {
         let (owner, child) = (into.owner, into.child);
         let own = api
@@ -1041,10 +1035,48 @@ impl<D: Daemons> Caller<D> {
             delegation_limit: DELEGATION_LIMIT,
             requester: self.requester(api).await?,
             prompt: task.to_string(),
+            agent: inputs.agent,
+            // The launching client's program (owner, 2026-11-18): what the
+            // child's hooks run and its engine's `PATH` leads with.
+            client_program: program_of(self.context.client.as_ref()),
+            settings_places: entries(inputs.places),
+            env: entries(inputs.env),
         };
         let key = format!("launch:{}:{}", owner.uid(), child.uid());
         Ok(self.write(api, owner, &command, &key).await?.1)
     }
+}
+
+/// The program the launching client runs, as its `Caller` named it: what a
+/// child's hooks run and its engine's `PATH` leads with; none named, none.
+fn program_of(client: Option<&v1::Client>) -> sessions::ChildProgram {
+    client
+        .filter(|client| !client.program.is_empty())
+        .map(|client| sessions::ChildProgram {
+            name: client.program.clone(),
+            directory: client.program_dir.clone(),
+        })
+        .unwrap_or_default()
+}
+
+/// What the daemon answered of a launch, for the owner's `LaunchChild`.
+struct LaunchInputs {
+    agent: String,
+    env: Vec<v1::HandOffValue>,
+    places: Vec<v1::HandOffValue>,
+}
+
+/// The values a launch answered as the entries the owner's `LaunchChild`
+/// records.
+fn entries(values: Vec<v1::HandOffValue>) -> Vec<sessions::ChildEnvEntry> {
+    values
+        .into_iter()
+        .map(|value| sessions::ChildEnvEntry {
+            name: value.name,
+            sealed: value.sealed,
+            plain: value.plain,
+        })
+        .collect()
 }
 
 /// A launch's owner and child, and the project it named (none: the

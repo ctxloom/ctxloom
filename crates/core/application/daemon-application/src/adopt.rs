@@ -219,7 +219,14 @@ impl<E: Edge> Daemon<E> {
                     mode: runs::RunMode::Interactive,
                     launcher_lock: adopted.launcher_lock.clone(),
                     project_dir: adopted.project_dir.clone(),
+                    project_id: String::new(),
                     harp: adopted.harp.clone(),
+                    spec: None,
+                    grant: None,
+                    engine: String::new(),
+                    workspace: None,
+                    agent: String::new(),
+                    resume: None,
                 }];
                 if let Err(why) = self.swept(&owed, &[]).await {
                     (self.say)(&format!("{}: its sweep failed: {why}", adopted.session));

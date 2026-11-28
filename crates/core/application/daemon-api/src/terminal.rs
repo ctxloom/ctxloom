@@ -32,7 +32,7 @@ fn run_of(name: &str) -> &str {
     name.rsplit('/').next().unwrap_or_default()
 }
 
-impl<E: Edge> Api<E> {
+impl<E: Edge + 'static> Api<E> {
     /// The daemon's terminal runs, or the failure of a daemon that prepares
     /// none.
     fn terminals(&self) -> Result<&Arc<Terminals>, ApiError> {

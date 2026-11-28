@@ -45,6 +45,95 @@ pub trait CheckoutHarps: Send + Sync {
     fn fresh(&self) -> String;
 }
 
+/// Whether `path` is an MCP server's file, whose header and environment
+/// values may be secrets: its bytes are recorded with each of them sealed.
+fn holds_secrets(path: &str) -> bool {
+    path.contains("/mcp/") && path.ends_with(".yaml")
+}
+
+/// The keys of an MCP server's document whose values are secrets.
+const SECRET_MAPS: [&str; 2] = ["env", "headers"];
+
+/// What stands in the content for a value that is sealed.
+const SEALED_IN_CONTENT: &str = "[sealed]";
+
+/// `bytes`, an MCP server's file, with each value of its `env` and `headers`
+/// replaced by [`SEALED_IN_CONTENT`] and sealed to the daemon's key, bound to
+/// its document path. None when the file is no mapping or any value cannot be
+/// sealed: it is then recorded by its content id alone, never in the clear.
+fn sealed_server(
+    bytes: &[u8],
+    (sealing, project): (&dyn run_ports::Sealing, &str),
+) -> Option<(Vec<u8>, Vec<library_tree::SealedField>)> {
+    use angzarr_yaml::Value;
+    let Value::Map(entries) = angzarr_yaml::parse(std::str::from_utf8(bytes).ok()?).ok()? else {
+        return None;
+    };
+    let mut sealed = Vec::new();
+    let mut out = Vec::new();
+    for (key, value) in entries {
+        let value = match (SECRET_MAPS.contains(&key.as_str()), value) {
+            (true, Value::Map(inner)) => {
+                let mut replaced = Vec::new();
+                for (name, secret) in inner {
+                    let Value::Scalar(plain) = secret else {
+                        return None;
+                    };
+                    let path = format!("{key}.{name}");
+                    let bound = sealing.seal(project, &path, plain.as_bytes()).ok()?;
+                    sealed.push(library_tree::SealedField {
+                        document_path: path,
+                        sealed: bound,
+                    });
+                    replaced.push((name, Value::Scalar(SEALED_IN_CONTENT.to_string())));
+                }
+                Value::Map(replaced)
+            }
+            (_, other) => other,
+        };
+        out.push((key, value));
+    }
+    Some((
+        angzarr_yaml::write(&Value::Map(out), usize::MAX).into_bytes(),
+        sealed,
+    ))
+}
+
+/// The bytes of the files `found` lists anew against `held` (path to content
+/// id as the record lists them): each file whose id the record does not hold,
+/// read by the scanner, a secret-bearing one left out.
+fn contents_of(
+    (scanner, sealing, project): (&dyn LibraryScanner, Option<&dyn run_ports::Sealing>, &str),
+    dir: &str,
+    held: &std::collections::BTreeMap<String, String>,
+    found: &std::collections::BTreeMap<String, String>,
+) -> Result<Vec<library_tree::FileContent>, ReadError> {
+    let anew: Vec<(&str, &str)> = found
+        .iter()
+        .filter(|(path, id)| {
+            held.get(*path) != Some(*id) && (!holds_secrets(path) || sealing.is_some())
+        })
+        .map(|(path, id)| (path.as_str(), id.as_str()))
+        .collect();
+    let mut bytes = scanner.read_files(dir, &anew).map_err(ReadError::Failed)?;
+    Ok(anew
+        .into_iter()
+        .filter_map(|(path, id)| {
+            let content = bytes.remove(path)?;
+            let (content, sealed_fields) = match (holds_secrets(path), sealing) {
+                (true, Some(sealing)) => sealed_server(&content, (sealing, project))?,
+                _ => (content, Vec::new()),
+            };
+            Some(library_tree::FileContent {
+                path: path.to_string(),
+                content_id: id.to_string(),
+                content,
+                sealed_fields,
+            })
+        })
+        .collect())
+}
+
 /// What a read's trees are seen by: the scanner, and the home whose library
 /// every read reads beside its project's.
 pub trait Observers: Send + Sync {
@@ -78,6 +167,15 @@ impl Site {
             project,
             root: root.to_string(),
             tree,
+        }
+    }
+
+    /// The project whose key seals the tree's secrets: the checkout's, none
+    /// for the home's library (which has no `.env`, so it seals nothing).
+    pub fn project(&self) -> &str {
+        match self {
+            Site::Checkout { project, .. } => project.harp(),
+            Site::Home { .. } => "",
         }
     }
 
@@ -130,6 +228,9 @@ pub struct Observations<E> {
     scanned: Mutex<std::collections::BTreeMap<String, i64>>,
     /// What the purge has seen of the clock's own progress (review 5).
     ticks: Mutex<Ticks>,
+    /// What an MCP server's secret values are sealed with; none, its file is
+    /// recorded by its content id alone.
+    sealing: Option<Arc<dyn run_ports::Sealing>>,
 }
 
 /// The longest stretch between two of the daemon's own purge checks that
@@ -186,6 +287,16 @@ impl<E: Edge> Observations<E> {
             clock: None,
             scanned: Mutex::new(std::collections::BTreeMap::new()),
             ticks: Mutex::new(Ticks::default()),
+            sealing: None,
+        }
+    }
+
+    /// These observations, an MCP server's secrets sealed by `sealing`.
+    #[must_use]
+    pub fn sealing(self, sealing: Arc<dyn run_ports::Sealing>) -> Observations<E> {
+        Observations {
+            sealing: Some(sealing),
+            ..self
         }
     }
 
@@ -325,6 +436,12 @@ impl<E: Edge> Observations<E> {
         };
         let files = scanner.scan(site.tree()).map_err(ReadError::Failed)?;
         if !listed_as_held(&held, &files) {
+            let contents = contents_of(
+                (scanner, self.sealing.as_deref(), site.project()),
+                site.tree(),
+                &held.listed(),
+                &files,
+            )?;
             let fact = RecordTreeListed {
                 name: tree.to_string(),
                 kind: tree.kind(),
@@ -333,6 +450,7 @@ impl<E: Edge> Observations<E> {
                     .into_iter()
                     .map(|(path, oid)| DirtyPath { path, oid })
                     .collect(),
+                contents,
             };
             self.edge
                 .handle(listing_book(&tree, &fact))

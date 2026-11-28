@@ -14,10 +14,9 @@
 //! owed), across a daemon's restart too. Nothing here reads a file or a
 //! clock.
 //!
-//! `daemon_application::Reaction` (distill's seam, 10b) reacts to a hosted
-//! run's OUTCOME; a library change is no run's, so this policy is a seam of
-//! its own beside it, in the same shape: what follows decided purely, made
-//! by the daemon.
+//! A library change is no run's outcome: this policy is a seam of its own
+//! beside the distill policy (a run's recorded answer), in the same shape:
+//! what follows decided purely, made by the daemon.
 
 use daemon_proto::v1;
 use sessions::SessionLoadout;

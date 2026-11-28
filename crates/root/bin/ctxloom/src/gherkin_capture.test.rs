@@ -689,6 +689,7 @@ fn fire_late(w: &World, event: &str, payload: &str) -> Ran {
         .env_clear()
         .env("TMPDIR", crate::tests::temp_root())
         .env(crate::tests::LIFELINE, crate::tests::lifeline())
+        .env(crate::tests::SEAL_KEY, crate::tests::SEAL_KEY_VALUE)
         .current_dir(w.common.project.dir())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

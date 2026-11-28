@@ -11,11 +11,12 @@ pub use core_link::{
 };
 mod deps;
 mod foreign;
-mod hand_offs;
 mod heartbeat;
 mod hosted_oneshots;
 mod hosted_terminals;
 mod imports;
+mod launch_plans;
+mod project_secrets;
 pub use imports::EdgeDispatch;
 mod places;
 mod scheduling;

@@ -43,6 +43,14 @@ pub(crate) fn temp_root() -> std::path::PathBuf {
 /// spawns (the wiring's `LIFELINE_VARIABLE`, test-support only).
 pub(crate) const LIFELINE: &str = "CTXLOOM_TEST_LIFELINE";
 
+/// The key of a project that has no `.env`, which every spawned `ctxloom` is
+/// given (test-support only: a project's key is otherwise its own `.env`'s,
+/// owner ruling 2026-11-27): a test's own, 64 hex digits, no secret of
+/// anyone's.
+pub(crate) const SEAL_KEY: &str = "CTXLOOM_TEST_SEAL_KEY";
+pub(crate) const SEAL_KEY_VALUE: &str =
+    "5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed"; // gitleaks:allow
+
 /// This test process's LIFELINE: a lock file it holds for its life, taken
 /// once, handed to every `ctxloom` it spawns ([`LIFELINE`]). A daemon a test
 /// starts (or that its command starts) that can take the lock has outlived
@@ -338,6 +346,7 @@ impl Env {
             .env("USERPROFILE", self.home())
             .env("TMPDIR", crate::tests::temp_root())
             .env(crate::tests::LIFELINE, crate::tests::lifeline())
+            .env(crate::tests::SEAL_KEY, crate::tests::SEAL_KEY_VALUE)
             .current_dir(cwd);
         for name in ["PATH", "SystemRoot"] {
             if let Some(value) = crate::tests::host_var(name) {
@@ -572,6 +581,9 @@ mod version;
 
 #[path = "workspace.test.rs"]
 mod workspace;
+
+#[path = "launch_spec.test.rs"]
+mod launch_spec;
 
 #[path = "gherkin_isolation.test.rs"]
 mod gherkin_isolation;

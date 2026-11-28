@@ -43,6 +43,7 @@ fn observed(changes: Vec<Change>) -> LibraryEvent {
         dirty_after: Vec::new(),
         tree_after: "t".to_string(),
         baseline: false,
+        contents: Vec::new(),
     })
 }
 

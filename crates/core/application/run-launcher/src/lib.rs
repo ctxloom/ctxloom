@@ -18,7 +18,8 @@ mod error;
 mod home;
 mod launch;
 mod launcher;
-mod orders;
+mod order;
+mod record;
 mod redelivered;
 mod workspace;
 
@@ -30,7 +31,8 @@ pub use launch::{
     launch_of, FindProgram, LaunchEngines, LaunchMade, LaunchRequest, NotLaunched, Unprepared,
 };
 pub use launcher::{Launched, Launcher, Outcome, Released, Releases, Sweeper, Swept};
-pub use orders::{Order, Orders};
+pub use order::{Order, RunLockTable};
+pub use record::{order_of, spec_of, RecordError, Recording};
 pub use redelivered::{
     redelivered_context, redelivered_within, ChangedFragment, ContextChangedOnly,
     ContextRedelivered, ContextTooLong, HOOK_CONTEXT_BUDGET,

@@ -23,6 +23,9 @@ publish = false
 # here; coded-diagnostic, the coded-error trait every crate implements, is
 # rust-support's, pinned below with the rest of its crates.
 angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr", rev = "ed19b7eecfd7c605a3a39edd1e4b02e8805a0ec8" }
+# The sealed message and its HPKE seal/open (owner ruling 2026-11-25): a
+# secret that rides a message is sealed to its project's key.
+angzarr-sealed = { git = "https://github.com/angzarr-io/angzarr", rev = "ed19b7eecfd7c605a3a39edd1e4b02e8805a0ec8" }
 # The markup macros the hand-written domains use (`#[aggregate]`), at the same
 # embedded rev, so the lock holds one angzarr-embedded.
 # The host: `App` and its exposure seam (`serve_in`), which the in-process
@@ -94,6 +97,8 @@ held-projection = { path = "crates/core/read-model/held-projection" }
 daemon-board = { path = "crates/core/read-model/daemon-board" }
 trust-proto = { path = "crates/core/wire/trust-proto" }
 trust = { path = "crates/core/domain/trust" }
+user-settings-proto = { path = "crates/core/wire/user-settings-proto" }
+user-settings = { path = "crates/core/domain/user-settings" }
 trust-index = { path = "crates/core/read-model/trust-index" }
 library-domain-proto = { path = "crates/core/wire/library-domain-proto" }
 library-tree = { path = "crates/core/domain/library-tree" }
@@ -106,6 +111,7 @@ session-timeline = { path = "crates/core/read-model/session-timeline" }
 run-ports = { path = "crates/core/ports/run-ports" }
 runs-application = { path = "crates/core/application/runs-application" }
 run-launcher = { path = "crates/core/application/run-launcher" }
+sealing-application = { path = "crates/core/application/sealing-application" }
 daemon-application = { path = "crates/core/application/daemon-application" }
 run-application = { path = "crates/core/application/run-application" }
 credentials = { path = "crates/adapters/driven/credentials" }
@@ -129,6 +135,7 @@ mcp-server = { path = "crates/adapters/driving/mcp-server" }
 hook-cli = { path = "crates/adapters/driving/hook-cli" }
 hook-listener = { path = "crates/adapters/serving/hook-listener" }
 hook-tls = { path = "crates/adapters/driven/hook-tls" }
+ctxloom-sealing = { path = "crates/adapters/driven/ctxloom-sealing" }
 run-cli = { path = "crates/adapters/driving/run-cli" }
 ctxloom-cli = { path = "crates/adapters/driving/ctxloom-cli" }
 config-files = { path = "crates/adapters/driven/config-files" }

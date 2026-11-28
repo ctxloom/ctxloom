@@ -40,6 +40,11 @@ message ProjectState {
   // request id. A removal done is dropped, so nothing of a removed session
   // stays here.
   map<string, OpenRemoval> removals = 6;
+  // The seal keys the project's launches have been sealed with (owner
+  // 2026-11-27): each key's id to its fingerprint, and the id of the current
+  // one. Never key material: a lost key is told by its id.
+  map<string, string> seal_keys = 7;
+  string current_seal_key = 8;
 }
 
 // A session's removal intended and not yet done (O2): its steps, in order,
@@ -62,6 +67,31 @@ message NameProject {
 
   string project_id = 1;
   string harp = 2;
+}
+
+// A seal key of the project was seen (owner 2026-11-27: the projects
+// aggregate holds the key ids, never the keys): its id (derived from its
+// public half) and a fingerprint of it, and whether it is the project's
+// current key. External id `sealkey:<project>:<key id>:<current>`, so a
+// resend is a DUPLICATE; recorded only when it adds a key or moves the
+// current one. Never refused.
+message RecordSealKeySeen {
+  option (io.angzarr.v1.fact) = {
+    component: "ctxloom.sessions.v1.ProjectState"
+    emits: ["ctxloom.sessions.v1.SealKeySeen"]
+  };
+
+  string key_id = 1;
+  string fingerprint = 2;
+  bool current = 3;
+}
+
+message SealKeySeen {
+  option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.ProjectState"};
+
+  string key_id = 1;
+  string fingerprint = 2;
+  bool current = 3;
 }
 
 message ProjectNamed {

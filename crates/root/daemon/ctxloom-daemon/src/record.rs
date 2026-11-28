@@ -64,6 +64,18 @@ fn row(any: &angzarr_embedded::Any) -> Value {
             runs::RunEvent::RunEnqueued(enqueued) => {
                 row["session"] = enqueued.session.into();
                 row["incarnation"] = enqueued.incarnation.into();
+                if let Some(grant) = enqueued.grant {
+                    row["grant"] = json!({
+                        "mcp_servers": grant.mcp_servers,
+                        "permissions": grant.permissions,
+                    });
+                }
+                if let Some(spec) = enqueued.spec {
+                    row["spec"] = spec_row(&spec);
+                }
+            }
+            runs::RunEvent::TurnCompletedRecorded(completed) => {
+                row["answer"] = completed.answer.into();
             }
             runs::RunEvent::RunEnded(ended) => {
                 row["cause"] = format!("{:?}", ended.cause).into();
@@ -76,6 +88,21 @@ fn row(any: &angzarr_embedded::Any) -> Value {
             }
             _ => {}
         }
+    } else if let Ok(user_settings::SettingsEvent::SettingsObserved(observed)) =
+        user_settings::SettingsEvent::from_any(any)
+    {
+        // The user's settings (P3): which file, where, and how many of its
+        // values were sealed; never the text (its secrets are sealed in it).
+        row["kind"] = match observed.kind {
+            user_settings::SettingsKind::ClaudeSettings => "CLAUDE_SETTINGS",
+            user_settings::SettingsKind::OpencodeConfig => "OPENCODE_CONFIG",
+            user_settings::SettingsKind::OpencodeModel => "OPENCODE_MODEL",
+        }
+        .into();
+        row["path"] = observed.path.into();
+        row["present"] = observed.present.into();
+        row["content_id"] = observed.content_id.into();
+        row["sealed"] = observed.sealed.len().into();
     } else if let Ok(event) = sessions::ProjectEvent::from_any(any) {
         // A session's removal on its project's stream (O2, step 10b U9).
         match event {
@@ -90,6 +117,35 @@ fn row(any: &angzarr_embedded::Any) -> Value {
             }
             _ => {}
         }
+    }
+    row
+}
+
+/// A launch spec as the record prints it: its settings and context in full,
+/// its environment by NAME (a value is sealed and never printed).
+fn spec_row(spec: &runs::LaunchSpec) -> Value {
+    let mut row = json!({
+        "model": spec.model,
+        "effort": spec.effort,
+        "session_home": spec.session_home,
+        "engine_command": spec.engine_command,
+        "auth_variables": spec.auth_variables,
+        "auth_file": spec.auth_file,
+        "env": spec.env.iter().map(|e| json!({"name": e.name})).collect::<Vec<_>>(),
+        "context": spec.context,
+        "prompt": spec.prompt,
+        "git_user": {"name": spec.git_user.name, "email": spec.git_user.email},
+        "runtime": spec.runtime,
+        "client_program": {
+            "name": spec.client_program.name,
+            "directory": spec.client_program.directory,
+        },
+    });
+    if let Some(seconds) = spec.approval_timeout_seconds {
+        row["approval_timeout_seconds"] = seconds.into();
+    }
+    if let Some(sequence) = spec.user_settings_sequence {
+        row["user_settings_sequence"] = sequence.into();
     }
     row
 }

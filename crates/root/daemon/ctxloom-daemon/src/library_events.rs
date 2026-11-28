@@ -73,8 +73,24 @@ fn step_row(step: &library_tree::Step) -> Value {
     json!({"kind": ""})
 }
 
+/// A file's recorded bytes as the reader prints them: the text of the bytes
+/// (lossy), their content id, and where each sealed value is in the document
+/// (never the sealed bytes).
+fn content_row(content: &library_tree::FileContent) -> Value {
+    json!({
+        "path": content.path,
+        "content_id": content.content_id,
+        "content": String::from_utf8_lossy(&content.content),
+        "sealed_fields": content
+            .sealed_fields
+            .iter()
+            .map(|field| field.document_path.clone())
+            .collect::<Vec<_>>(),
+    })
+}
+
 /// One page as the reader prints it: the event's type and its sequence,
-/// and what each kind names (never content: there is none to name).
+/// and what each kind names (a file's bytes among them, as text).
 pub(crate) fn event_row(page: &EventPage) -> Option<Value> {
     let Some(event_page::Body::Event(any)) = &page.body else {
         return None;
@@ -94,6 +110,9 @@ pub(crate) fn event_row(page: &EventPage) -> Option<Value> {
                 row["intended"] = intended.into();
             }
             row["changes"] = observed.changes.iter().map(change_row).collect();
+            if !observed.contents.is_empty() {
+                row["contents"] = observed.contents.iter().map(content_row).collect();
+            }
         }
         Ok(LibraryEvent::ChangeIntended(intended)) => {
             row["request_id"] = intended.intent.request_id.into();

@@ -5,85 +5,16 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use daemon_application::{ChildHomes, Ears, HandOffs};
+use daemon_application::{ChildHomes, Ears};
 use run_ports::{ChildObservation, Exit};
 
 use super::{
-    advertised, said, stays_for, step_of, why_it_exits, Advertised, HandOffFiles, Homes, Pumps,
-    Say, Workspaces,
+    advertised, said, stays_for, step_of, why_it_exits, Advertised, Homes, Pumps, Say, Workspaces,
 };
 use crate::files::DaemonFiles;
 use crate::fixtures;
 
 const SESSION: &str = "5f0c7a52-2222-5222-8222-000000000002";
-
-// T6: a child's hand-off is read at each start and left for its life,
-// listed while it is there, and deleted.
-#[test]
-fn a_hand_off_is_read_as_it_was_left_listed_and_deleted() {
-    let root = fixtures::root();
-    let home = root.root().join("home");
-    let files = DaemonFiles::new(fixtures::fs(), &home);
-    let handed = daemon_application::HandOff {
-        env: BTreeMap::from([("KEY".to_string(), "v".to_string())]),
-        launcher: BTreeMap::from([("XDG_CONFIG_HOME".to_string(), "/c".to_string())]),
-        agent: "reviewer".to_string(),
-        program: None,
-    };
-    files.hand_off(SESSION, &handed).unwrap();
-    let hand_offs = HandOffFiles(
-        DaemonFiles::new(fixtures::fs(), &home),
-        crate::files::HandedPrograms::default(),
-    );
-    assert_eq!(hand_offs.read(SESSION), Some(handed.clone()));
-    assert_eq!(hand_offs.read(SESSION), Some(handed.clone()), "read again");
-    let listed = hand_offs.list();
-    assert_eq!(listed.len(), 1);
-    assert_eq!(listed[0].session, SESSION);
-    assert!(!listed[0].marked, "no launch's");
-    hand_offs.claim(SESSION);
-    assert_eq!(hand_offs.read(SESSION), Some(handed), "a claim keeps it");
-    hand_offs.delete(SESSION);
-    assert_eq!(hand_offs.read(SESSION), None, "deleted");
-    assert!(hand_offs.list().is_empty());
-}
-
-// Owner, 2026-11-18: a hosted launch runs its launcher's program. The
-// daemon keeps it beside the hand-off, in memory (the file's format is
-// unchanged), so each read of the hand-off carries it until its delete.
-#[test]
-fn a_hand_off_is_read_with_its_launchers_program_until_deleted() {
-    let root = fixtures::root();
-    let home = root.root().join("home");
-    let files = DaemonFiles::new(fixtures::fs(), &home);
-    let handed = daemon_application::HandOff {
-        env: BTreeMap::from([("KEY".to_string(), "v".to_string())]),
-        ..daemon_application::HandOff::default()
-    };
-    files.hand_off(SESSION, &handed).unwrap();
-    let programs = crate::files::HandedPrograms::default();
-    let program = daemon_application::Program {
-        name: "ctxloom-dev".to_string(),
-        dir: "/opt/client/bin".to_string(),
-    };
-    programs.keep(SESSION, Some(program.clone()));
-    let hand_offs = HandOffFiles(DaemonFiles::new(fixtures::fs(), &home), programs.clone());
-    let read = hand_offs.read(SESSION).unwrap();
-    assert_eq!(read.program, Some(program));
-    assert_eq!(read.env, handed.env);
-    let text = fixtures::fs()
-        .read_to_string(
-            &home
-                .join(run_ports::DAEMON_DIR)
-                .join("launch")
-                .join(SESSION),
-        )
-        .expect("the hand-off file");
-    assert!(text.contains("KEY=v"), "{text}");
-    assert!(!text.contains("ctxloom-dev"), "never in the file: {text}");
-    hand_offs.delete(SESSION);
-    assert_eq!(programs.of(SESSION), None, "forgotten with its hand-off");
-}
 
 // A child's session home and its files are in its project's session
 // directory.
@@ -388,7 +319,7 @@ fn a_one_shot_that_ended_is_not_hosted_before_the_loops_next_round() {
         SESSION.to_string(),
         "0195f0a4-7b1e-7000-8000-000000000009".to_string(),
     );
-    shared.tell(vec![child], Vec::new(), std::time::Instant::now());
+    shared.tell(vec![child], std::time::Instant::now());
     assert_eq!(
         kinds(&shared.hosted()),
         [
@@ -397,7 +328,7 @@ fn a_one_shot_that_ended_is_not_hosted_before_the_loops_next_round() {
         ],
         "the round's child, and the one-shot live"
     );
-    crate::hosted_oneshots::polled_once(told.lock().unwrap()[0].done(run_application::Done {
+    told.lock().unwrap()[0].done(run_application::Done {
         result: Ok(run_application::Answer {
             harp: "harp-1".to_string(),
             session: SESSION.to_string(),
@@ -405,63 +336,12 @@ fn a_one_shot_that_ended_is_not_hosted_before_the_loops_next_round() {
             answer: "HELLO".to_string(),
         }),
         notices: Vec::new(),
-    }));
+    });
     assert_eq!(
         kinds(&shared.hosted()),
         [("000000000009", Kind::Child)],
         "the one-shot ended, with no round since"
     );
-}
-
-// Step 8 U4: an ask is recorded with what the round says of the session
-// that asks (its run, engine, agent and timeout); one it does not host has
-// none.
-#[test]
-fn an_asker_is_the_rounds_hosted_child_of_that_session() {
-    use daemon_api::Hosting;
-    let one_shots = Arc::new(daemon_application::OneShots::new(Box::new(Kept(Arc::new(
-        Mutex::new(Vec::new()),
-    )))));
-    let shared = super::Shared::new(
-        session_index::SessionIndexes::default(),
-        one_shots,
-        unsaid(),
-    );
-    let asker = |session: &str| daemon_application::Asker {
-        session: session.to_string(),
-        run: format!("run-of-{session}"),
-        engine: "claude-code".to_string(),
-        agent: "default".to_string(),
-        approval_timeout: std::time::Duration::from_secs(300),
-    };
-    assert_eq!(shared.asker("s-1"), None);
-    shared.tell(
-        Vec::new(),
-        vec![asker("s-1"), asker("s-2")],
-        std::time::Instant::now(),
-    );
-    assert_eq!(shared.asker("s-2"), Some(asker("s-2")));
-    assert_eq!(shared.asker("s-3"), None);
-}
-
-// Step 8 (D7): one-shots ask too, so a live one-shot the daemon hosts is an
-// asker beside the round's children.
-#[test]
-fn a_live_one_shot_is_an_asker_too() {
-    use daemon_api::Hosting;
-    let one_shots = Arc::new(daemon_application::OneShots::new(Box::new(Kept(Arc::new(
-        Mutex::new(Vec::new()),
-    )))));
-    let shared = super::Shared::new(
-        session_index::SessionIndexes::default(),
-        Arc::clone(&one_shots),
-        unsaid(),
-    );
-    assert_eq!(shared.asker(SESSION), None);
-    one_shots.create(daemon_application::HostRequest::default());
-    let asker = shared.asker(SESSION).expect("the one-shot asks");
-    assert_eq!(asker.run, "0195f0a4-7b1e-7000-8000-000000000001");
-    assert_eq!(asker.engine, "claude-code");
 }
 
 /// Each hosted run's root's last twelve digits, and its kind.

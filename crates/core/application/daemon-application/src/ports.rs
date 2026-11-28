@@ -34,7 +34,7 @@ pub struct HostedEngine {
     /// names the transcript of the native id there).
     pub transcripts: Transcripts,
     /// The engine each launch is composed with, from its launcher's places
-    /// ([`HandOff::launcher`]); none: `engine` and `child` as they are.
+    /// ([`ChildInputs::launcher`]); none: `engine` and `child` as they are.
     pub for_launch: Option<ForLaunch>,
 }
 
@@ -59,30 +59,80 @@ impl HostedEngine {
     }
 }
 
-/// What a child's launcher handed the daemon (D-N45, S7): the environment
-/// the child may be given, where the launcher finds its user's own settings
-/// (the variables that place them: `CLAUDE_CONFIG_DIR`, the XDG bases),
-/// which the launch reads her settings from and never hands the child, and
-/// the agent it is planned for (empty: the project's default).
+/// What a child was launched with, as its `ChildLaunched` recorded it (T6,
+/// S10; owner ruling 2026-11-25: the inputs of a launch ride the event the
+/// launch records, never a file or the daemon's memory): the environment the
+/// child may be given (its secrets sealed in the record, opened here), where
+/// the launcher finds its user's own settings (the variables that place
+/// them: `CLAUDE_CONFIG_DIR`, the XDG bases), which the launch reads her
+/// settings from and never hands the child, the agent it is planned for
+/// (empty: the project's default) and the launcher's program.
 #[derive(Clone, Default, PartialEq, Eq)]
-pub struct HandOff {
+pub struct ChildInputs {
     pub env: BTreeMap<String, String>,
     pub launcher: BTreeMap<String, String>,
     pub agent: String,
+    /// The child's project (its id): whose seal key opened its environment.
+    pub project: String,
     /// The launcher's program (owner, 2026-11-18): what the child's hooks
     /// run and its engine's `PATH` leads with; none, the daemon's own.
     pub program: Option<Program>,
 }
 
-impl std::fmt::Debug for HandOff {
+impl std::fmt::Debug for ChildInputs {
     /// Both maps by name alone: a value may be a credential.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("HandOff")
+        f.debug_struct("ChildInputs")
             .field("env", &run_ports::RedactedEnv(&self.env))
             .field("launcher", &run_ports::RedactedEnv(&self.launcher))
             .field("agent", &self.agent)
             .field("program", &self.program)
             .finish()
+    }
+}
+
+/// The field a child's environment value is sealed for: bound to its
+/// variable, so it cannot be moved to another.
+pub fn child_env_field(name: &str) -> String {
+    format!("child-env:{name}")
+}
+
+impl ChildInputs {
+    /// The inputs a `ChildLaunched` recorded, its sealed values opened with
+    /// `sealing`.
+    pub fn of_launched(
+        launched: &sessions::ChildLaunched,
+        sealing: &dyn run_ports::Sealing,
+    ) -> Result<ChildInputs, run_ports::SealingError> {
+        let project = launched
+            .child
+            .as_ref()
+            .map(|child| child.project_id.clone())
+            .unwrap_or_default();
+        let value = |entry: &sessions::ChildEnvEntry| -> Result<String, run_ports::SealingError> {
+            if entry.sealed.is_empty() {
+                return Ok(entry.plain.clone());
+            }
+            let plain = sealing.open(&project, &child_env_field(&entry.name), &entry.sealed)?;
+            Ok(String::from_utf8_lossy(&plain).into_owned())
+        };
+        let map = |entries: &[sessions::ChildEnvEntry]| -> Result<_, run_ports::SealingError> {
+            entries
+                .iter()
+                .map(|entry| Ok((entry.name.clone(), value(entry)?)))
+                .collect::<Result<BTreeMap<_, _>, _>>()
+        };
+        let program = &launched.client_program;
+        Ok(ChildInputs {
+            env: map(&launched.env)?,
+            launcher: map(&launched.settings_places)?,
+            agent: launched.agent.clone(),
+            project,
+            program: (!program.name.is_empty() || !program.directory.is_empty()).then(|| Program {
+                name: program.name.clone(),
+                dir: program.directory.clone(),
+            }),
+        })
     }
 }
 
@@ -97,19 +147,6 @@ pub struct Program {
     pub name: String,
     /// The directory it is in.
     pub dir: String,
-}
-
-/// A hand-off file there is, by its child's stable id.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Kept {
-    pub session: String,
-    /// Whether it is marked in launch: its `CreateHandOff` marked it, and no
-    /// `LaunchChild` has claimed it yet.
-    pub marked: bool,
-    /// Whether the creator of its launch is still there: it holds the
-    /// launch's lock (the platform's file lock, never a pid or a timer). A
-    /// mark whose creator is proven gone (a crash mid-launch) is cleared.
-    pub creator_holds: bool,
 }
 
 /// A child's plan: its project's dry run, as a ctxloom process in that
@@ -145,27 +182,6 @@ pub trait ChildPlans: Send + Sync {
         project_dir: &str,
         env: &BTreeMap<String, String>,
     ) -> Result<String, String>;
-}
-
-/// The hand-off files a child's environment is kept in for its life (T6;
-/// the 0600 files of `~/.ctxloom/daemon/launch/`, written by the daemon's
-/// `CreateHandOff`): READ at each start of the child, a start after a
-/// daemon restart included, deleted at its close, and swept when no open
-/// session holds one.
-pub trait HandOffs: Send + Sync {
-    /// The hand-off of `session`; none when there is none, or it does not
-    /// read.
-    fn read(&self, session: &str) -> Option<HandOff>;
-
-    /// The hand-off of `session` deleted, and its mark, if there are any.
-    fn delete(&self, session: &str);
-
-    /// The hand-off of `session` claimed by the `LaunchChild` it was made
-    /// for: its mark cleared, the hand-off kept.
-    fn claim(&self, session: &str);
-
-    /// Every hand-off file there is.
-    fn list(&self) -> Vec<Kept>;
 }
 
 /// The session directories of a child's project: the same port the one
@@ -266,3 +282,10 @@ impl HoldFlushed {
 #[cfg(test)]
 #[path = "ports.test.rs"]
 mod tests;
+
+/// Where a distill run's recorded answer is written as the item's distilled
+/// form, and what it came to recorded on the run (the root's, through the
+/// daemon API). An error is why it was not recorded: the run is due again.
+pub trait Distilling: Send + Sync {
+    fn write(&self, due: daemon_board::DistillDue) -> run_ports::BoxFuture<'_, Result<(), String>>;
+}

@@ -139,7 +139,7 @@ the architecture; there is no other table of crates.
   The API it serves is built by one chain in `serve.rs`; each user-facing
   feature (a verb and the RPC behind it) is one module of the crate with a
   small struct implementing its daemon-api port (`imports.rs`, `foreign.rs`,
-  `deps.rs`, `setup_reads.rs`, `hand_offs.rs`): no trait, registry or routing
+  `deps.rs`, `setup_reads.rs`, `launch_plans.rs`): no trait, registry or routing
   table above that (owner ruling 2026-11-26). What a feature needs
   (the edge, the home, a clock, another feature's port) is supplied to it as
   its dependencies are everywhere in this repository: by constructor or by a
@@ -884,7 +884,8 @@ forged closing element is data. At a terminal the reply is bare, and json is
 unchanged. A one-shot's run also journals the grant record a hosted child's
 does (`RunEnqueued.grant`, `run_application::hosted::grant_of`: the MCP
 servers carried and the permissions document), which `session show` prints;
-the human's terminal session journals none.
+the human's terminal session's run journals its grant too (owner ruling
+2026-11-25: the grant is the run's record whatever drives it).
 
 - `core/ports/run-ports` (`RunnerLauncher`, `Engine`, `SessionRecords`,
   `RunLocks`) and `core/read-model/pending-launches` (the runs still owed a
@@ -1199,8 +1200,12 @@ on a thread of its own (a 16 MiB stack: the whole run is driven on it),
 `Runs::interactive` over the ONE store in the client's wiring, planned,
 enqueued, named, minted and set up exactly as before, its runner
 `daemon_application::Frontended`: the one `Launch` (with the session lock's
-path, `Launch.session_lock`) handed to the client in `Run.launch` (the
-user's environment crosses to her own client in that answer alone; a read,
+path, `Launch.session_lock`) RECORDED on the run's stream (owner 2026-11-28:
+`RecordLaunchPrepared`, keyed `prepared:<run>`, event `LaunchPrepared`: the
+wire `Launch` encoded with its environment emptied, each value SEALED to the
+project's key; `hosted_terminals::StoreLaunches`), then read back from there
+(its secrets opened) and given to the client in `Run.launch` (the user's
+environment crosses to her own client in that answer alone; a read,
 `GetRun`, carries none), then the run's stream read (`ctxloom-daemon`'s
 `hosted_terminals::StoreReports`, every `POLL`) for the frontend's start report (at most
 `START_WITHIN`, 60 s, else the launch failed) and its exit report. The
@@ -1462,27 +1467,52 @@ child's run enqueue journals what the child was GIVEN (`RunEnqueued.grant`,
 has no context, and its permissions document; never a server's command or
 environment), and `session show` (text and json, `Session.grant`) says its
 latest run's, so a later `agent edit` changes only the next child's record;
-a one-shot journals none yet. `session show` also says how the latest run
+a one-shot's too. `session show` also says how the latest run
 failed (`Session.last_failure`: its last turn's class, `rate-limited`
 among them, or `launch-failed`, with a notice saying what to do); nothing
 retries a failed turn, `session send <harp> wake` resumes it. `session stop
 <harp>` asks the session's current run to stop (`runs.RequestStop`, keyed
 `stop:<session>:<n>`); the daemon's `Stop` step ends a hosted child's
 engine, its incarnation ends `stopped`, and the child stays open, its
-hand-off kept, for its next message. Each incarnation a child's run ended
+launch record kept, for its next message. Each incarnation a child's run ended
 is told to its open owner (`child <harp> ended its run <n>: <cause>`), but
 an end a re-host continues (orphaned, drained) and an idle reap. A hosted
 child's checkout is made with git in its LAUNCHER's environment (the
-hand-off's: her `GIT_*`, her `SSH_AUTH_SOCK`), a sweep's in the daemon's
+launch's: her `GIT_*`, her `SSH_AUTH_SOCK`, the sealed values opened by
+the daemon), a sweep's in the daemon's
 (`ChildWorkspaces::of`'s `env`). Not built: waking a terminal orchestrator
 (its informs stay pending in `session show`).
+
+THE LAUNCH IS A RECORD (P3; owner rulings 2026-11-25 and 2026-11-27). What
+decides how a run launches is decided once, at its enqueue, and recorded on
+the event that enqueue emits: `RunEnqueued.spec`, a `LaunchSpec` (the plan's
+model, effort, session home, approval timeout, engine command, auth, the
+context inline, the opening prompt, the surfaces it carries, the git user,
+the runtime, the client's program, the workspace directory, the engine's own
+environment by name with each secret VALUE sealed, the names the run owns, the
+user's home and, for a distill, its purpose) beside the grant. The launcher
+holds no order: it launches a run only once `pending-launches` says it is
+`launchable` (the run waits for its session's mint AND the loadout of its
+incarnation, in any cross-stream order, a tombstone forgetting both), reads
+what it needs from that record (`PendingLaunch`: the run, its spec, the mint's
+project directory, the incarnation's loadout and the bound native session) and
+opens the sealed values through `run_ports::Sealing`. A resume launches in
+the directory its session was minted in (`SessionMinted.project_dir`), not
+the caller's. A loadout that cannot be recorded fails the launch
+(`RecordLaunchFailed`). The turn facts carry the turn's answer
+(`TurnCompletedRecorded.answer`), the turn named by its message ids when the
+fact gives no number. A launch is only made by the process that claimed the
+run's own lock (`RunLockTable`, P5's lease work replaces it). Sealed values
+are `bytes` of the angzarr-sealed encoding on the wire.
 
 The locks a run is judged by (owner rulings 85, 86, 92, 93, defects 1 and 3;
 advisory file locks through the platform's `file-lock`, taken at once or not
 at all, never a pid). The run's OWN lock, `<home>/.ctxloom/runs/<run>.lock`
 (`liveness::RunLockFiles`), is taken before its enqueue is visible, journaled
 as `RunEnqueued.launcher_lock` (field 12, as in `EnqueueRun`), held in the
-`Orders` and let go once `RecordRunnerStarted` is recorded (or the launch failed);
+`RunLockTable` (the stand-in for P5's leases: which runs this process
+claimed) and let go once `RecordRunnerStarted` is recorded (or the launch
+failed);
 a terminal run's is its FRONTEND's instead (`runs/<request id>.lock`, taken
 before it asked; U5's start-report race, above);
 its file is removed as it is let go, so only a dead holder's is ever left (a
@@ -1617,7 +1647,7 @@ and `say_failure`). Fatal findings alone are the library's
 `library-application-startup-aborted`, as before; beside a refusal they are the
 plan's warnings, said beside it, and the exit is 49 (the most severe wins),
 else 48. A launch that carries them (a child's: `CreateHandOff`'s pre-check,
-`daemon_api::Planned::fatal`, filled by `ApiHandOffs::plan` from the plan's
+`daemon_api::Planned::fatal`, filled by `ApiLaunchPlans::plan` from the plan's
 `previewed.fatal`, and `LaunchChild`'s enqueue, `Evidence::fatal`) refuses with
 them in `LaunchRefusals.findings` (field 8; `RunRejection::LaunchRefused.findings`,
 the `LaunchFinding` diagnostic: `runs-fatal-finding` with its remedy as the
@@ -1671,7 +1701,7 @@ environment for each of the engine's child-credential names `N`
 environment holds non-empty (`run_ports::permits_for`; a permit the caller
 already set stays): claude withholds its own token from the `ctxloom mcp
 serve` it starts, which inherits the permit, so a `child_launch` call's
-environment carries it into the hand-off, and the child's credential evidence
+environment carries it into the launch's sealed environment, and the child's credential evidence
 counts the permit spelling (`run_application::credential::holds`). A child's
 turn, a one-shot and a hook carry none.
 A permit never
@@ -1825,7 +1855,7 @@ reached through the observation or a stated departure; daemon-api and
 daemon-application open none). A hosted one-shot and a terminal run observe
 their trees first (`Api::observe_for`), as a setup read does, and so do the
 trust preview (`GetTrust`, at the project's registered root) and a hosted
-child's hand-off (`CreateHandOff`, before its plan); the one departure is a
+child's pre-check (`CreateHandOff`, before its plan); the one departure is a
 hosted child's plan and output root read again at each launch (the daemon
 loop's `start`, which has no observation to reach). A plan's loadout
 (`run_application::loadout_of_plan`) names a local bundle by its directory
@@ -1981,7 +2011,7 @@ for the owner, not a debt anyone may add to).
   `test-start-up-fails`, `test-deaf-to-stop`, ...) and `CTXLOOM_TEST_*`
   variables (test-support only, never in a plain build); `shutdown`'s
   `<pid>.stop` and `<pid>.notice` files beside a frontend's lock; a hook's
-  hold (`fact-spool`); the hand-off files of a hosted child. All NAMED: each
+  hold (`fact-spool`). All NAMED: each
   carries data from one process to another by a file rather than by a
   message, and none is yet ruled keep or replace.
 - Configuration by environment (`CTXLOOM_DAEMON_ROOT`, `CTXLOOM_ROOT`, the
@@ -2286,7 +2316,7 @@ plans each project on the board (`session-policies`), and takes the steps
 run's facts. Its ports: the engine registry (`HostedEngine`, an `Engine`
 beside its `ChildEngine`, resolved by NAME; `ctxloom-daemon`'s `hosted_engines(wiring, program)`
 composes claude and opencode, and nothing in the launcher names an adapter),
-`ChildPlans` (the child's project's dry run on its own engine, and her git identity there), `HandOffs`,
+`ChildPlans` (the child's project's dry run on its own engine, and her git identity there),
 `ChildHomes` (its session directories, and its session's lock),
 `ChildWorkspaces` (`Daemon::placing`: the project's worktree-git
 workspaces), `Ears` (the root pumps each child's observations off a thread:
@@ -2318,7 +2348,7 @@ drain's hand-over is `cause: drain` (s4-Q5, `Step::Rehost.cause`), never
 counted nor refused for the budget. The re-hosted incarnation is the
 plan's ordinary start (`Step::Start.resume`, the session's bound native id
 from its second incarnation on: claude `--resume`), its environment read
-again from its hand-off (T6) and its settings written again from the
+again from the new launch's record (T21: its plan made at the enqueue, recorded as `RunEnqueued.spec`) and its settings written again from the
 user's config (T21). Never a one-shot (S8(a)) and never a primary. A hosted
 child FOLLOWS ITS AGENT'S `workspace` (owner s4-Q11): its axis is planned
 at its launch and recorded at its mint (`MintSession.workspace`), a re-host
@@ -2471,15 +2501,13 @@ calling the running program (ruling 163), claude over her own
 and over her config, each read AT EVERY LAUNCH (T21): a hosted engine is
 composed anew for each launch (`HostedEngine::for_launch`, the wiring's
 `daemon::launch_engines_for`), under the account's home, where the LAUNCHER
-finds her settings: a launch's hand-off keeps its caller's
+finds her settings: a child's launch keeps its caller's
 `daemon::SETTINGS_PLACES` (`CLAUDE_CONFIG_DIR`, `XDG_CONFIG_HOME`,
 `XDG_DATA_HOME`, `XDG_STATE_HOME`) beside the child's environment
-(`daemon_application::HandOff`'s `launcher`, a `@NAME=value` line each of
-the hand-off file, format 3, which adds the `!agent=<agent>` line; format 2
-reads as the default agent), never in it, and never the daemon's own
-environment.
+(`ChildLaunched.settings_places`, plain: no secret), never in it, and never
+the daemon's own environment.
 
-THE CHILD VERBS AND THE HAND-OFF (slice 4 U3: S2, S19, T6, S10; owner
+THE CHILD VERBS AND THE LAUNCH (slice 4 U3: S2, S19, T6, S10; owner
 rulings s4-Q1, s4-Q13). The user's `session launch <owner> [--name]
 [--agent] [--engine] ["<task>"]`, `session send <harp> {inform|wake|steer}
 <text> [--id]`, `session clear <harp>` and `session close <harp>`
@@ -2513,7 +2541,7 @@ all, so a second launch of one child meanwhile is refused
 `daemon-api-contract-launch-in-progress`) from before its `CreateHandOff` to after
 its `LaunchChild`; its `LaunchChild` (keyed `launch:<owner>:<child>`, the delegation limit
 `daemon_api::DELEGATION_LIMIT`, 16), and a refused `LaunchChild` is followed
-by `DeleteHandOff` (kept while an open session holds it). The child's
+by nothing: no hand-off is kept (P3). The child's
 engine is the one asked, else its AGENT's configured engine (an agent naming
 none, the config's default-engine rule): the daemon's plan resolves it, and
 `HandOff.engine` (field 2, additive) names it back for the `LaunchChild`. The daemon serves
@@ -2526,22 +2554,54 @@ for the agent on the engine, its agent's when none is named, in the
 launch's environment; one that cannot be made is `ConfigUnreadable`), and
 its credential as its enqueue will judge it (the runs aggregate's own
 checks, `runs::pre_launch_refusal`, refused with the typed refusal the
-enqueue would answer, under its message's status); then the hand-off is written MARKED IN LAUNCH (`<id>.launching` beside it,
-written first, so no launch's hand-off is ever there unmarked) and 0600 (in the 0700 `~/.ctxloom/daemon/launch/`, named by the child's
-stable id; what the child may be given of the environment is
-`engine_claude::launcher_environment`'s). The hand-off lives as long as the
-child is open (T6): READ at each of its starts (`HandOffs::read`, a start
-after a daemon restart included; there is no `take`), planned for the agent
-it names, deleted at the child's close (`Step::End`), and swept at each
-tick once the board has caught up (`Daemon::sweep_hand_offs`, owner's ruling
-on U3: tied to the launch, no timer and no pid): a file whose session the
-board holds closed is deleted; one no session knows of (neither a session
-nor an owner's child) is deleted at once unless it is marked and its
-creator still holds the launch lock (`Kept::creator_holds`, a probe of the
-lock: a crash mid-launch leaves a mark whose lock reads free, so it is
-cleared); a marked one a `LaunchChild` recorded (its owner holds the child)
-is CLAIMED, its mark cleared (`HandOffs::claim`); an open child's is kept.
-Accepted cost (T6): an API key lies at rest for the child's life. Not yet:
+enqueue would answer, under its message's status); then it answers, writing
+nothing: the child's launch inputs (owner rulings 2026-11-25 and 2026-11-27),
+which the CLIENT puts on the owner's `LaunchChild` (`ChildLaunched.agent`,
+`.client_program`, `.settings_places` and `.env`, the environment's values
+SEALED to the daemon's key, `run_ports::Sealing`, so no event holds one in
+the clear; what the child may be given of the environment is
+`engine_claude::launcher_environment`'s). The daemon reads them from the
+board (`Board::launch_of`), opens the sealed values, plans the child ONCE at
+its enqueue and records the plan as `RunEnqueued.spec` (a LaunchSpec); every
+later step reads the record. A re-host is a NEW enqueue, planned then
+(T21), from the same launch inputs (still on the session's `ChildLaunched`);
+the first run's record stands. There is no hand-off file, no `HandOffs`
+port, no claim sweep and no program cache (`HandedPrograms`). SEAL KEYS ARE PER PROJECT
+(owner rulings 2026-11-27, task threefold-canyon): the daemon holds one key
+set per project, sourced from that project's root `.env`
+(`CTXLOOM_SEAL_KEY`, 64 hex digits; `CTXLOOM_SEAL_KEY_PREVIOUS`,
+comma-separated, opened but never sealed to, for rotation), read ONLY once the
+project is trusted and never written. The layering (owner 2026-11-27): the
+`projects` aggregate records `RecordSealKeySeen{key_id, fingerprint, current}`
+(the ids of a project's keys, never key material; `ProjectRow` folds them);
+`run_ports::ProjectSecrets` gives a project's opaque `KeySet` (its `Debug`
+withholds the keys) from the evidence the application gathers first
+(`ProjectFacts`: the registered root and the trust), and `run_ports::Sealer`
+seals and opens with it; `ctxloom-sealing` holds the driven adapters,
+`DotenvSecrets` (the smallest `.env` reader) and `AngzarrSealer` (the OS
+random source); `sealing-application`'s `ProjectSealing` is the `Sealing` the
+use cases call, and tells a key set's ids once (`KeysSeen`, sent through the
+core's edge by `ctxloom-daemon`'s `project_secrets.rs`, which also holds the
+per-project key-set cache keyed by the `.env`'s stat: edge state, like the
+scanner's memo). A value sealed to a key the project's set no longer holds is
+`run-ports-sealing-unknown-key`, naming the key and the project. so a launch from a git worktree reads the LIVE project's file. Every seal and
+open names the project its value belongs to (`run_ports::Sealing`: the run's,
+the child's target project, a library tree's checkout; the user's settings
+stream is sealed with the launching project's; a project is told by its harp
+or its id alike); a project that is not
+trusted, has no `.env` or names no key refuses to seal or open
+(`run-ports-sealing-no-key`, exit 48, naming the project and its `.env`), a
+key that is no key is `run-ports-sealing-bad-key`, and nothing is ever
+written in the clear instead (a library tree's MCP file is then recorded by
+its content id alone, the home's library, which has no project, always). No
+seal key crosses to the detached daemon's environment (`daemon_env` passes
+none). Only the daemon seals and opens (`ctxloom-sealing`'s
+`ProjectSealing`, over angzarr-sealed: HPKE, each value bound to its
+field's name); a client only carries the bytes it was given. Under
+test-support alone, `CTXLOOM_TEST_SEAL_KEY` is the key of a project with no
+`.env` at all (the acceptance harness's projects have none and are not
+trusted); a project WITH a `.env` is judged by it as every project is.
+Accepted cost: a child's API key lies in the store, sealed, for the child's life. Not yet:
 a hosted child's workspace axis (s4-Q11), the root session's persisted
 launcher places for `child_launch` (s4-Q1; a session's call sends its
 engine's environment, whose settings places are its session home's). A
@@ -2588,8 +2648,8 @@ directory (`<home>/.ctxloom`, its store's) is gone (`DaemonFiles::home_gone`,
 OD-60), because the lock may be elsewhere: the account's, while
 `CTXLOOM_DAEMON_ROOT` names another home (`just install`'s `~/.ctxloom-rs`), or a
 test's own place. A call that would create files under its home
-(`CreateRun`, `CreateHandOff`: hand-offs and their `.launching` marks, run
-locks, a session's directory and checkout) passes one gate first,
+(`CreateRun`, `CreateHandOff`: run locks, a session's directory and
+checkout) passes one gate first,
 daemon-api's `Api::creating` (owner ruling 2026-11-17): once the home is gone
 (`Hosting::home_gone`, `ctxloom-daemon`'s `Shared` asking `DaemonFiles::gone_home`)
 it is refused `ctxloom.v1.DaemonHomeGone` (FAILED_PRECONDITION,
@@ -2893,13 +2953,12 @@ a client already started, which start none (OD-62 refuses NEW
 invocations): `WatchRun` (a one-shot's client watches its run only once
 `CreateRun` answered, so a drain asked in between refused it, exit 48, where
 the period's stop is 143; a frontend's watch of its run likewise; an
-unknown run is `RunNotFound`), `DeleteHandOff` (the withdrawal of a
-hand-off whose launch the drain refused), and a one-shot's `RequestStop`
+unknown run is `RunNotFound`), and a one-shot's `RequestStop`
 (the coordinator's `Handle`). Its loop hands over(`Daemon::hand_over`): it starts no child and delivers no message
 (`Step::delivers`; what is pending is the next daemon's), but the guidance
 below; each hosted child bound to its native session with no turn in
 flight (and no guidance of its own still pending) is ended once; its exit
-ends its incarnation `drained`, its hand-off KEPT; one-shots finish their
+ends its incarnation `drained`, its launch record kept; one-shots finish their
 turn, and one still running once the hand-over's period (below) has passed
 is stopped as `daemon stop --even-if-live` stops one (SIGTERM: its caller
 exits 143, `run-application-stopped` naming it), said in the log
@@ -2918,7 +2977,7 @@ hosted once the hand-over's period has passed on the daemon's clock
 (its timeout, above; `Daemon::clocked` over the `Monotonic` port, the
 root's its process's `Instant`, a test's a fake) is
 handed over AUTOMATICALLY (OD-54 (2)): ended once, its turn in flight cut,
-its incarnation `drained`, its hand-off kept, and said in the log
+its incarnation `drained`, its launch record kept, and said in the log
 (`<harp>: still busy after <n>s: its turn in flight cut, handed over`); no
 kill is offered. The next daemon re-hosts each such child, cause `drain`,
 resuming its conversation. TUIs are untouched. Accepted residuals: a child
@@ -3320,7 +3379,7 @@ and CLOSES its child there (the cascade, `cascade:<owner>:<child>`, sent to
 the child's project), the child's plan tells each turn it ends to its owner
 (`notice:...`, in the owner's project) and ends it on its owner when it
 closes (`child-ended:...`); its hosted run is ended, its engine exits and
-its hand-off is removed, as within one project. Its outputs are its OWN,
+its launch record is as within one project. Its outputs are its OWN,
 as every session's (owner ruling 2026-11-16: one rule, its owner's
 project or another): the plan mints it with no output folder
 (session-policies' `launch`), and the daemon reads its project's
@@ -3521,8 +3580,30 @@ each `CTXLOOM_DAEMON_ROOT` a stream of its own; `library_tree::TreeName`). `{c}`
 the checkout's harp in its `.ctxloom/state/checkout` (out of git, so a git
 worktree is a checkout of its own; L2): the wiring's `checkout_harp` reads
 it and mints nothing, `mint_checkout_harp` mints it once (`O_EXCL`, a file
-left empty re-minted), for U2's first read. Nothing holds a file's text, a
-config value or a key: paths, git object ids, statuses and request ids.
+left empty re-minted), for U2's first read. THE STREAM HOLDS THE CONTENT
+(owner ruling 2026-11-25, reversing the 2026-11-16 "git holds the content":
+"we'll need file and assembled context in the streams for cross platform";
+P3, `.plan/messages-only.design.md`; RULED, built by that work): beside each
+path's status and content id, a file's BYTES are recorded when its content
+changes (`FileContent` on `RecordTreeListed` and `TreeObserved`), never
+restated per read or per run, so a process that cannot see the disk rebuilds
+the library from the streams; a secret inside a recorded file (an MCP
+server's headers and environment) is SEALED (angzarr-sealed), never dropped
+or refused, and a large or binary file is recorded as it is. Built: the
+scanner reads the bytes of each file whose content id the record does not
+hold (`LibraryScanner::read_files`, only when the id still matches), the
+listing carries them as `RecordTreeListed.contents`, and the aggregate
+copies the changed paths' entries onto `TreeObserved.contents` (a deleted
+file has none). An MCP server's file (`.../mcp/<n>.yaml`) is recorded with
+each value of its `env` and `headers` replaced by `[sealed]` and sealed to
+the daemon's key bound to its document path (`headers.<name>`, named in
+`FileContent.sealed_fields`; `library_api::observe::sealed_server`); a
+daemon that cannot seal (no key) records the file by its content id alone,
+never in the clear, and the file's bytes are then not recorded until its
+content changes. A write of ctxloom's own is recorded as its intent and
+step (its bytes are the intent's, not a `contents` entry). The
+`library-checkout` fold keeps no bytes (nothing reads them yet: the
+rebuilding reader for another machine is not built).
 
 An observation is a FACT, `RecordTreeObserved`, keyed `obs:{tree}:
 {H(last_cause)}:{head}:{H(sorted dirty)}` (L4, `observation_key`, SHA-256
@@ -3705,13 +3786,12 @@ refused alike. Under test-support a spawned daemon is given its client's
 `CTXLOOM_TEST_STAMP`. A launch runs the CLIENT's program, not the daemon's
 `/proc/self/exe` (within ruling 37's same-user trust: the client can name
 nothing she could not run herself): a hosted one-shot's and a terminal
-run's `HostRequest.program`, a hosted child's `HandOff.program`
+run's `HostRequest.program`, a hosted child's `ChildLaunched.client_program`
 (`daemon_application::Program`, `daemon_api::program_of`), for its hooks'
 and statusline's command (`ForLaunch` composed with it) and to lead its
-engine's `PATH`; none named, the daemon's own. A child's program is kept
-beside its hand-off in the daemon's memory (`HandedPrograms`), never in the
-file (its format unchanged): a daemon started again between the hand-off
-and the launch runs its own. Not built (escalated): the CLI saying
+engine's `PATH`; none named, the daemon's own. A child's program is part of its launch's
+record (`LaunchSpec.client_program`), so a daemon started again runs the
+same one. Not built (escalated): the CLI saying
 `can_launch` only at a terminal; library-cli still says it can launch the
 editor everywhere, as the editing scenarios edit off a terminal.
 
@@ -4688,26 +4768,35 @@ number, ruling 114). Its stops are heard from BEFORE the distill call
 (`Served::hear_stops`, the wiring's `signals::CommandStops`, on a thread
 and runtime of its own), so one that arrives while the daemon starts the
 run is not taken by its default and is told to the follow as heard
-already. The run REACTS
-(`daemon_application::Reaction`, awaited in `Told::done` on the daemon's
-runtime, before its watchers see its end; the core spawns nothing): no
-answer is `library-application-distill-failed` (its cause the run's end);
-an answer is written as a served write (`Library::item_distilled`, one
-atomic Replace), under a request id KEYED by its run
-(`sessions::command_id("distill:<run>")`), so the outcome told twice is
-one write, a DUPLICATE, and against the etag the ask's preview answered
+already. The run carries a PURPOSE on its recorded spec
+(`LaunchSpec.distill`: the item, its kind, the digest of the source the model
+was sent, the form's etag at the ask and the directory the ask was made
+from), and the write is a POLICY on the recorded answer (owner 2026-11-28; no
+`Reaction` port, nothing in memory): the daemon's loop (`Daemon::tick`,
+`write_distills`) writes each run `daemon_board::Board::distills_due` lists
+(its purpose and its turn's answer recorded, its outcome not), through
+`Api::write_distilled`. An answer is written as a served write
+(`Library::item_distilled`, one atomic Replace), under a request id KEYED by
+its run (`sessions::command_id("distill:<run>")`), so the outcome told twice
+is one write, a DUPLICATE, and against the etag the ask's preview answered
 for the form's file, so a form edited meanwhile is refused stale
 (`PlanStale`). Its plan reads the item again: a source whose digest moved
 since the ask is `library-application-distill-source-moved` (typed
 `LibraryDistillSourceMoved`, ABORTED, exit 48; its text a DRAFT), and an
 answer under 2% of the source `library-application-distill-truncated`
 (exit 32): nothing is written, so the form there before is kept. What the
-write came to is the run's end, which the CLI says as the command's. The
-reaction is in memory as the one-shot is: a daemon that dies during the
-run loses it (the sweep's), and nothing follows. The write is made while
+write came to is recorded on the run's stream, `RecordDistillWritten` (event
+`DistillWritten`, keyed `distill:<run>`: the end its watchers are told, empty
+when written, and the notices the write said), and `WatchRun` of a distill
+run (`daemon_api::distill::DistillWatch`) holds the run's own end until it,
+then says the notices and the end it came to, which the CLI says as the
+command's; a run that came to no answer is `library-application-distill-
+failed`, its cause the run's end. A daemon that restarts mid-write finds the
+run due again from the record and writes it, once. 
+The write is made while
 the daemon drains too (`Api::write_planned`: it follows from work already
 taken), through the API as shared (`Api::shared`'s self handle). `bundle
-distill` is one run per item, each its own reaction (the plan's U13 notes
+distill` is one run per item, each its own run (the plan's U13 notes
 do not decide the shape; this is the simpler one): its items are read
 as `bundle show` reads them (`GetBundle` FULL), fragments then commands,
 each distilled and followed before the next; the first failure fails the

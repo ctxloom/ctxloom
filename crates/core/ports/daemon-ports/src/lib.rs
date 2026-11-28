@@ -295,16 +295,6 @@ pub trait DaemonApi: Send + Sync {
         async { Err(unserved("CreateHandOff")) }
     }
 
-    /// `DeleteHandOff`: a hand-off withdrawn, its `LaunchChild` refused.
-    /// The default is a daemon that does not serve it.
-    fn delete_hand_off(
-        &self,
-        request: v1::DeleteHandOffRequest,
-    ) -> impl Future<Output = Result<v1::HandOff, Called>> + Send {
-        let _ = request;
-        async { Err(unserved("DeleteHandOff")) }
-    }
-
     /// The coordinator's `HandleSync` (T16): `book`, a domain command under
     /// the id its page names, applied (or found applied: a DUPLICATE), and
     /// answered once each of `projectors` has projected its events, with

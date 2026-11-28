@@ -28,6 +28,7 @@ fn completed(turn: u64, of: &[&str]) -> RecordTurnCompleted {
         answer_ref: String::new(),
         exit_code: 0,
         message_ids: ids(of),
+        answer: String::new(),
     }
 }
 
@@ -205,4 +206,64 @@ fn the_gate_is_rebuilt_from_the_stream() {
     assert_eq!(state.turns.len(), 2);
     assert!(state.turns[0].interrupt_requested);
     assert_eq!(state.turns[1].message_ids, ids(&["m2"]));
+}
+
+// P3 (owner ruling 2026-11-25): the turn's ANSWER is recorded on the fact and
+// the event, so a caller follows the run's stream for it and the distill
+// reaction is a policy on it. RED: neither carries the answer yet.
+#[test]
+fn a_turn_completed_records_its_answer() {
+    let mut run = Run::enqueued();
+    run.command(queue(&["m1"], TurnUrgency::Wake)).unwrap();
+    let events = run.fact(
+        RecordTurnCompleted {
+            answer: "the reply".to_string(),
+            ..completed(1, &["m1"])
+        },
+        "turn:r:m1:completed",
+    );
+    let [RunEvent::TurnCompletedRecorded(done)] = events.as_slice() else {
+        panic!("one TurnCompletedRecorded: {events:?}");
+    };
+    assert_eq!(done.answer, "the reply");
+}
+
+// P3: the turn number is the aggregate's to resolve from the messages the
+// turn queued, never the runner's own map (a miss there silently dropped the
+// fact). A fact that names the messages and a wrong or missing number is
+// recorded under the open turn's.
+#[test]
+fn the_turn_number_is_resolved_from_the_turns_messages() {
+    for named in [0, 99] {
+        let mut run = Run::enqueued();
+        run.command(queue(&["m1"], TurnUrgency::Wake)).unwrap();
+        let events = run.fact(
+            completed(named, &["m1"]),
+            &format!("turn:r:m1:completed:{named}"),
+        );
+        let [RunEvent::TurnCompletedRecorded(done)] = events.as_slice() else {
+            panic!("one TurnCompletedRecorded: {events:?}");
+        };
+        assert_eq!(done.turn, 1, "the fact named turn {named}");
+        assert_eq!(run.state().turn_in_flight, None);
+    }
+}
+
+#[test]
+fn a_turn_failed_resolves_its_number_the_same_way() {
+    let mut run = Run::enqueued();
+    run.command(queue(&["m1"], TurnUrgency::Wake)).unwrap();
+    let events = run.fact(
+        RecordTurnFailed {
+            turn: 0,
+            class: TurnFailureClass::RunnerLost,
+            detail: String::new(),
+            message_ids: ids(&["m1"]),
+        },
+        "turn:r:m1:failed",
+    );
+    let [RunEvent::TurnFailedRecorded(failed)] = events.as_slice() else {
+        panic!("one TurnFailedRecorded: {events:?}");
+    };
+    assert_eq!(failed.turn, 1);
 }

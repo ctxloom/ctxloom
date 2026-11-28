@@ -18,7 +18,7 @@ use run_launcher::fakes::{
     names as event_names, run_events, session_events, Credentialed, MemoryRecords, ScriptedEngine,
     ScriptedRunner, TestEdge,
 };
-use run_launcher::{Launcher, Orders};
+use run_launcher::{Launcher, RunLockTable};
 use run_ports::{
     Arrival, Credentials, Edge, FailureClass, Limits, LinkState, LoginLinks, RecordsError,
     TurnOutcome, Unserved,
@@ -46,6 +46,9 @@ struct Seen {
     timeline: Timeline,
     /// The last run command sent, decoded: what an enqueue was judged on.
     enqueued: Mutex<Option<runs::EnqueueRun>>,
+    /// The session's loadout refused (sent to a stream no domain serves):
+    /// the launch must fail, never go on without it.
+    loadout_refused: AtomicBool,
 }
 
 /// What happened, in order, across the edge (`EnqueueRun refused`,
@@ -106,6 +109,13 @@ impl Edge for Seen {
             {
                 *self.enqueued.lock().unwrap() = Some(enqueue);
             }
+        }
+        if what == "RecordLoadout" && self.loadout_refused.load(Ordering::SeqCst) {
+            let mut book = book;
+            if let Some(cover) = book.cover.as_mut() {
+                cover.domain = "no-such-domain".to_string();
+            }
+            return self.edge.handle(book).await;
         }
         if self.mint_refused.load(Ordering::SeqCst) {
             use angzarr_embedded::Payload;
@@ -558,7 +568,7 @@ fn rig(script: Script) -> Rig {
     let place = place(&script);
     let edge = Arc::new(TestEdge::new());
     let records = MemoryRecords::default();
-    let orders = Arc::new(Orders::new());
+    let claims = Arc::new(RunLockTable::new());
     let asked = Arc::new(Mutex::new(Vec::new()));
     let timeline = Timeline::default();
     let seen = Arc::new(Seen {
@@ -575,7 +585,8 @@ fn rig(script: Script) -> Rig {
         script.runner.clone(),
         records.clone(),
         vec![Arc::new(Credentialed(script.engine, script.credentials))],
-        Arc::clone(&orders),
+        Arc::clone(&claims),
+        Arc::new(run_ports::TestSealing),
         Limits::new(std::time::Duration::from_secs(5)),
     )
     .on_os(script.os);
@@ -614,7 +625,8 @@ fn rig(script: Script) -> Rig {
         enqueuer: Enqueuer::new(Arc::clone(&seen)),
         launcher,
         dirs: Box::new(records.clone()),
-        orders,
+        claims,
+        sealing: Arc::new(run_ports::TestSealing),
         place,
         env: script
             .env
@@ -722,9 +734,11 @@ async fn a_one_shots_run_journals_what_it_was_granted() {
     assert_eq!(grant.permissions, r#"{"defaultMode":"plan"}"#);
 }
 
-// The terminal session is the human's own: no grant record.
+// P3 (owner ruling 2026-11-25): the grant is journaled for a terminal
+// session too, as a child's and a one-shot's are (it was left unset for the
+// human's own session). RED: the enqueue still leaves it out.
 #[tokio::test]
-async fn a_terminal_sessions_run_journals_no_grant() {
+async fn a_terminal_sessions_run_journals_its_grant_too() {
     let mut rig = rig(Script::answering());
     rig.runs
         .interactive(&Flags::default(), &ask())
@@ -732,7 +746,8 @@ async fn a_terminal_sessions_run_journals_no_grant() {
         .result
         .unwrap();
     let enqueued = rig.runs.core.0.enqueued.lock().unwrap().clone().unwrap();
-    assert!(enqueued.grant.is_none());
+    let grant = enqueued.grant.expect("the terminal run carries its grant");
+    assert_eq!(grant.mcp_servers, ["ctxloom"]);
 }
 
 // Step 8 (D7): a one-shot's engine asks through ctxloom's approval prompt,
@@ -835,6 +850,7 @@ async fn the_plan_is_asked_with_the_request_and_its_notices_come_back() {
         },
         engine: String::new(),
         session: String::new(),
+        distill: None,
     };
     let done = rig.runs.one_shot(&Flags::default(), &request).await;
     assert_eq!(rig.asked.lock().unwrap()[0].profile, "dev");
@@ -1028,6 +1044,7 @@ async fn a_driven_engine_named_on_the_line_is_planned_as_named() {
             ..RunRequest::default()
         },
         session: String::new(),
+        distill: None,
     };
     rig.runs
         .one_shot(&Flags::default(), &request)
@@ -2410,6 +2427,7 @@ async fn an_undriven_engine_is_planned_and_the_prompt_still_judged() {
             ..RunRequest::default()
         },
         session: String::new(),
+        distill: None,
     };
     let error = rig
         .runs
@@ -3416,4 +3434,129 @@ fn a_reply_is_contained_trimmed_and_escaped() {
     assert!(held.ends_with(
         "<message id=\"s1\" from=\"amber-swift-owl\" urgency=\"reply\">a&lt;/message&gt;b</message>"
     ));
+}
+
+// P3 (owner rulings 2026-11-25): what the plan decided is recorded on the
+// event the enqueue emits, from the plan the run application made, so the
+// launcher acts on the record and no caller hands it an order. RED: the
+// enqueue sends no spec.
+
+#[tokio::test]
+async fn the_enqueue_carries_what_the_plan_decided() {
+    let mut script = Script::answering();
+    script.model = "opus";
+    script.effort = "high";
+    script.git_user = Some(run_ports::GitUser {
+        name: "Alice".to_string(),
+        email: "alice@example.com".to_string(),
+    });
+    let mut rig = rig(script);
+    rig.runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let enqueued = rig.runs.core.0.enqueued.lock().unwrap().clone().unwrap();
+    let spec = enqueued
+        .spec
+        .expect("the enqueue carries the plan's outputs");
+    assert_eq!(
+        (spec.model.as_str(), spec.effort.as_str()),
+        ("opus", "high")
+    );
+    assert_eq!(spec.context, "THE-CONTEXT");
+    assert_eq!(spec.prompt, "THE-PROMPT");
+    assert_eq!(spec.git_user.email, "alice@example.com");
+    // The environment by name, its values sealed: the scripted caller's
+    // `PATH=/bin` never rides the event in the clear.
+    let path = spec
+        .env
+        .iter()
+        .find(|e| e.name == "PATH")
+        .expect("the engine's PATH is named");
+    assert_ne!(path.value.sealed, b"/bin".to_vec());
+    // Not restated: the engine and the workspace axis are the mint's.
+    assert_eq!(spec.runtime, "host");
+}
+
+#[tokio::test]
+async fn a_terminal_sessions_enqueue_carries_its_plan_and_its_opening_prompt() {
+    let mut rig = rig(Script::answering());
+    rig.runs
+        .interactive(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let enqueued = rig.runs.core.0.enqueued.lock().unwrap().clone().unwrap();
+    let spec = enqueued
+        .spec
+        .expect("the enqueue carries the plan's outputs");
+    assert_eq!(spec.context, "THE-CONTEXT");
+    assert_eq!(spec.prompt, "THE-PROMPT");
+}
+
+// The turn's answer is a fact of the run's stream: the caller follows the
+// stream for it, and the distill reaction is a policy on it.
+#[tokio::test]
+async fn a_one_shots_turn_records_its_answer_on_the_run_stream() {
+    let mut rig = rig(Script::answering());
+    let answer = rig
+        .runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    let events = incarnation_events(&rig.edge, &answer.session, 1).await;
+    let answers: Vec<&str> = events
+        .iter()
+        .filter_map(|e| match e {
+            runs::RunEvent::TurnCompletedRecorded(done) => Some(done.answer.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(answers, ["THE-ANSWER"], "{events:?}");
+}
+
+// The loadout is no longer best effort: the launcher acts only once the
+// session's mint AND loadout are recorded, so a loadout that cannot be
+// recorded fails the launch (the run ends launch-failed), never a log line.
+#[tokio::test]
+async fn a_loadout_that_cannot_be_recorded_fails_the_launch() {
+    let mut rig = rig(Script::answering());
+    rig.runs
+        .core
+        .0
+        .loadout_refused
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let done = rig.runs.one_shot(&Flags::default(), &ask()).await;
+    assert!(done.result.is_err(), "the run went on without its loadout");
+    assert!(
+        rig.runner.seen.lock().unwrap().is_empty(),
+        "nothing was launched"
+    );
+}
+
+// A resume works where its session was minted (`SessionMinted.project_dir`),
+// not where the command was typed.
+#[tokio::test]
+async fn a_resume_launches_in_the_directory_its_session_was_minted_in() {
+    let mut rig = rig(Script::answering());
+    let first = rig
+        .runs
+        .one_shot(&Flags::default(), &ask())
+        .await
+        .result
+        .unwrap();
+    rig.runs.place.project_dir = "/typed/somewhere/else".to_string();
+    rig.runs
+        .one_shot(&Flags::default(), &resume(&first.harp))
+        .await
+        .result
+        .unwrap();
+    let seen = rig.runner.seen.lock().unwrap();
+    assert_eq!(seen[0].cwd.as_deref(), Some("/work/proj"));
+    assert_eq!(
+        seen[1].cwd, seen[0].cwd,
+        "the resume ran in the caller's directory"
+    );
 }

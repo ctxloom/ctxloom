@@ -227,6 +227,7 @@ async fn two_reads_that_see_one_change_against_one_state_record_it_once() {
             path: BUNDLE.to_string(),
             oid: "b2".to_string(),
         }],
+        contents: Vec::new(),
     };
     for _ in 0..2 {
         under
@@ -833,4 +834,190 @@ async fn test_a_clock_set_back_and_restored_does_not_purge_a_slot_early() {
     now.store(trashed_at + 25 * 3_600, Ordering::SeqCst);
     observations.observe(&git, &site()).await.unwrap();
     assert!(purges.0.lock().unwrap().is_empty(), "a day and an hour old");
+}
+
+// P3 (owner 2026-11-25: the stream holds the files' bytes): what the scanner
+// reads anew rides the listing and is recorded on the observation, once per
+// change; an MCP server's file, which may hold a secret, is recorded with
+// each secret value sealed, or by its id alone where nothing can seal.
+struct Reading {
+    tree: Tree,
+    bytes: std::collections::BTreeMap<String, Vec<u8>>,
+}
+
+impl ctxloom_ports::LibraryScanner for Reading {
+    fn scan(
+        &self,
+        dir: &str,
+    ) -> Result<std::collections::BTreeMap<String, String>, ctxloom_ports::Failure> {
+        self.tree.scan(dir)
+    }
+
+    fn content_ids(
+        &self,
+        dir: &str,
+        paths: &[&str],
+    ) -> Result<std::collections::BTreeMap<String, String>, ctxloom_ports::Failure> {
+        self.tree.content_ids(dir, paths)
+    }
+
+    fn read_files(
+        &self,
+        _: &str,
+        paths: &[(&str, &str)],
+    ) -> Result<std::collections::BTreeMap<String, Vec<u8>>, ctxloom_ports::Failure> {
+        Ok(paths
+            .iter()
+            .filter_map(|(path, _)| Some((path.to_string(), self.bytes.get(*path)?.clone())))
+            .collect())
+    }
+}
+
+/// The `(path, bytes)` each observation of the tree recorded, in order.
+async fn recorded_contents(world: &World) -> Vec<Vec<(String, Vec<u8>)>> {
+    use angzarr_embedded::Payload;
+    events(world)
+        .await
+        .into_iter()
+        .filter_map(|page| match page.body {
+            Some(angzarr_embedded::v1::event_page::Body::Event(any)) => Some(any),
+            _ => None,
+        })
+        .filter_map(|any| match library_tree::LibraryEvent::from_any(&any) {
+            Ok(library_tree::LibraryEvent::TreeObserved(observed)) => Some(
+                observed
+                    .contents
+                    .into_iter()
+                    .map(|c| (c.path, c.content))
+                    .collect(),
+            ),
+            _ => None,
+        })
+        .collect()
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn the_bytes_of_a_changed_file_are_recorded_once_and_a_servers_file_is_not() {
+    const MCP: &str = "content/bundles/v2/demo/mcp/docs.yaml";
+    let under = under();
+    let reading = |bundle: &str, id: &str| Reading {
+        tree: Tree::default()
+            .file(BUNDLE, id)
+            .file("config.yaml", "c1")
+            .file(MCP, "m1"),
+        bytes: [
+            (BUNDLE.to_string(), bundle.as_bytes().to_vec()),
+            ("config.yaml".to_string(), b"cfg".to_vec()),
+            (
+                MCP.to_string(),
+                b"headers: {Authorization: SECRET}".to_vec(),
+            ),
+        ]
+        .into_iter()
+        .collect(),
+    };
+    under
+        .observations
+        .observe(&reading("one", "b1"), &site())
+        .await
+        .unwrap();
+    under
+        .observations
+        .observe(&reading("two", "b2"), &site())
+        .await
+        .unwrap();
+    let recorded = recorded_contents(&under.world).await;
+    assert_eq!(
+        recorded,
+        [
+            vec![
+                ("config.yaml".to_string(), b"cfg".to_vec()),
+                (BUNDLE.to_string(), b"one".to_vec()),
+            ],
+            vec![(BUNDLE.to_string(), b"two".to_vec())],
+        ],
+        "the baseline's files but the server's, then the changed file alone"
+    );
+}
+
+/// A sealing that cannot seal, as a daemon with no key.
+struct NoKey;
+
+impl run_ports::Sealing for NoKey {
+    fn seal(&self, _: &str, _: &str, _: &[u8]) -> Result<Vec<u8>, run_ports::SealingError> {
+        Err(run_ports::SealingError::NoKey {
+            project: "calm-otter".to_string(),
+            file: ".env".to_string(),
+        })
+    }
+
+    fn open(&self, _: &str, _: &str, _: &[u8]) -> Result<Vec<u8>, run_ports::SealingError> {
+        Err(run_ports::SealingError::NoKey {
+            project: "calm-otter".to_string(),
+            file: ".env".to_string(),
+        })
+    }
+}
+
+const SERVER: &str = "content/bundles/v2/demo/mcp/docs.yaml";
+
+fn serving() -> Reading {
+    Reading {
+        tree: Tree::default().file(SERVER, "m1"),
+        bytes: [(
+            SERVER.to_string(),
+            b"url: https://docs.example/mcp\nheaders:\n  Authorization: Bearer SECRET\n".to_vec(),
+        )]
+        .into_iter()
+        .collect(),
+    }
+}
+
+/// The contents every observation recorded, with their sealed fields.
+async fn recorded_files(world: &World) -> Vec<library_tree::FileContent> {
+    use angzarr_embedded::Payload;
+    events(world)
+        .await
+        .into_iter()
+        .filter_map(|page| match page.body {
+            Some(angzarr_embedded::v1::event_page::Body::Event(any)) => Some(any),
+            _ => None,
+        })
+        .filter_map(|any| match library_tree::LibraryEvent::from_any(&any) {
+            Ok(library_tree::LibraryEvent::TreeObserved(observed)) => Some(observed.contents),
+            _ => None,
+        })
+        .flatten()
+        .collect()
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn a_servers_secret_values_are_recorded_sealed_and_never_in_the_clear() {
+    let under = under();
+    let observations = under.observations.sealing(Arc::new(run_ports::TestSealing));
+    observations.observe(&serving(), &site()).await.unwrap();
+    let files = recorded_files(&under.world).await;
+    let [file] = files.as_slice() else {
+        panic!("one file: {files:?}");
+    };
+    assert_eq!(file.path, SERVER);
+    let text = String::from_utf8(file.content.clone()).unwrap();
+    assert!(!text.contains("SECRET"), "{text}");
+    assert!(text.contains("https://docs.example/mcp"), "{text}");
+    let [sealed] = file.sealed_fields.as_slice() else {
+        panic!("one sealed field: {:?}", file.sealed_fields);
+    };
+    assert_eq!(sealed.document_path, "headers.Authorization");
+    assert!(
+        !String::from_utf8_lossy(&sealed.sealed).contains("SECRET Bearer"),
+        "bound and sealed, not stored plain"
+    );
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn a_server_that_cannot_be_sealed_is_recorded_by_its_id_alone() {
+    let under = under();
+    let observations = under.observations.sealing(Arc::new(NoKey));
+    observations.observe(&serving(), &site()).await.unwrap();
+    assert!(recorded_files(&under.world).await.is_empty());
 }

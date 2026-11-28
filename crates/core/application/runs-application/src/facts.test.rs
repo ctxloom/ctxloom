@@ -62,6 +62,7 @@ fn a_turn_of_messages_is_identified_by_its_first_message() {
         answer_ref: String::new(),
         exit_code: 0,
         message_ids: ids.clone(),
+        answer: String::new(),
     });
     let failed = RunnerFact::TurnFailed(runs::RecordTurnFailed {
         turn: 9,
@@ -88,6 +89,7 @@ fn turn_facts_are_identified_by_run_and_turn() {
         answer_ref: String::new(),
         exit_code: 0,
         message_ids: Vec::new(),
+        answer: String::new(),
     });
     let failed = RunnerFact::TurnFailed(runs::RecordTurnFailed {
         turn: 4,

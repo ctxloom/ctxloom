@@ -271,6 +271,7 @@ fn listing(tree: &Tree, files: &[(&str, &str)]) -> crate::RecordTreeListed {
         kind: TreeKind::Checkout,
         base_cause: tree.library().last_cause,
         files: dirty(files),
+        contents: Vec::new(),
     }
 }
 
@@ -1581,3 +1582,103 @@ fn a_tree_installed_completes_its_create_and_ties_its_cache_path_to_its_sequence
     tree.fact(done(&request, 1, &[("lock.yaml", "l1")]), "done:1");
     assert!(tree.library().pending.is_empty());
 }
+
+// region file content (P3, owner 2026-11-25: "never a file's text was wrong;
+// we'll need file and assembled context in the streams for cross platform")
+
+/// A file's bytes as the scanner reads them.
+fn content(path: &str, content_id: &str, bytes: &str) -> crate::FileContent {
+    crate::FileContent {
+        path: path.to_string(),
+        content_id: content_id.to_string(),
+        content: bytes.as_bytes().to_vec(),
+        sealed_fields: Vec::new(),
+    }
+}
+
+/// `listing` with the bytes of the files the scanner read anew.
+fn listing_with(
+    tree: &Tree,
+    files: &[(&str, &str)],
+    contents: Vec<crate::FileContent>,
+) -> crate::RecordTreeListed {
+    crate::RecordTreeListed {
+        contents,
+        ..listing(tree, files)
+    }
+}
+
+// RED: the aggregate drops the bytes.
+#[test]
+fn test_an_observation_records_the_bytes_of_each_file_added_or_changed() {
+    let mut tree = Tree::new();
+    let first = listing_with(
+        &tree,
+        &[(YAML, "y1"), (FRAGMENT, "f1")],
+        vec![
+            content(YAML, "y1", "name: demo\n"),
+            content(FRAGMENT, "f1", "FRAGMENT-BODY-a\n"),
+        ],
+    );
+    let events = listed(&mut tree, first);
+    let [LibraryEvent::TreeObserved(baseline)] = &events[..] else {
+        panic!("one baseline: {events:?}")
+    };
+    let mut recorded: Vec<(&str, &[u8])> = baseline
+        .contents
+        .iter()
+        .map(|c| (c.path.as_str(), c.content.as_slice()))
+        .collect();
+    recorded.sort();
+    assert_eq!(
+        recorded,
+        // In path order: `.../demo/bundle.yaml` sorts before
+        // `.../demo/fragments/a.md`.
+        [
+            (YAML, b"name: demo\n".as_slice()),
+            (FRAGMENT, b"FRAGMENT-BODY-a\n".as_slice())
+        ]
+    );
+}
+
+// No duplication: a file's bytes are recorded when its content changes,
+// never restated per read: an unchanged file's entry in a later listing is
+// dropped, a changed one's kept, a deleted one has none.
+#[test]
+fn test_only_a_changed_files_bytes_are_recorded_again() {
+    let mut tree = Tree::new();
+    let first = listing_with(
+        &tree,
+        &[(YAML, "y1"), (FRAGMENT, "f1")],
+        vec![
+            content(YAML, "y1", "name: demo\n"),
+            content(FRAGMENT, "f1", "one\n"),
+        ],
+    );
+    listed(&mut tree, first);
+    // The scanner re-sends every byte it holds; the aggregate records the
+    // change alone.
+    let next = listing_with(
+        &tree,
+        &[(YAML, "y1"), (FRAGMENT, "f2")],
+        vec![
+            content(YAML, "y1", "name: demo\n"),
+            content(FRAGMENT, "f2", "two\n"),
+        ],
+    );
+    let events = listed(&mut tree, next);
+    let [LibraryEvent::TreeObserved(observed)] = &events[..] else {
+        panic!("one observation: {events:?}")
+    };
+    let paths: Vec<&str> = observed.contents.iter().map(|c| c.path.as_str()).collect();
+    assert_eq!(paths, [FRAGMENT], "the changed file alone");
+    assert_eq!(observed.contents[0].content_id, "f2");
+    let gone = listing_with(&tree, &[(FRAGMENT, "f2")], Vec::new());
+    let events = listed(&mut tree, gone);
+    let [LibraryEvent::TreeObserved(observed)] = &events[..] else {
+        panic!("one observation: {events:?}")
+    };
+    assert!(observed.contents.is_empty(), "a deleted file has no bytes");
+}
+
+// endregion

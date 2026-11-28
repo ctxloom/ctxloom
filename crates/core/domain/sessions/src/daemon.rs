@@ -187,6 +187,10 @@ pub(crate) fn child_launched(
         engine: launch.engine.clone(),
         depth: held.depth + 1,
         prompt: launch.prompt.clone(),
+        agent: launch.agent.clone(),
+        client_program: launch.client_program.clone(),
+        settings_places: launch.settings_places.clone(),
+        env: launch.env.clone(),
     })
 }
 

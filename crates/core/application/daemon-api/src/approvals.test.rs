@@ -5,6 +5,7 @@
 use std::sync::Arc;
 
 use angzarr_embedded::v1::{Cover, Uuid};
+use angzarr_embedded::CommandBookExt;
 use daemon_proto::v1;
 use run_ports::Edge;
 use sessions::{MintSession, Origin, SessionName};
@@ -29,22 +30,21 @@ fn uid(name: &str) -> String {
     SessionName::parse(name).unwrap().uid()
 }
 
-fn asker(timeout: u64) -> daemon_application::Asker {
-    daemon_application::Asker {
-        session: uid(CHILD_NAME),
-        run: "run-1".to_string(),
-        engine: "claude-code".to_string(),
-        agent: "default".to_string(),
-        approval_timeout: std::time::Duration::from_secs(timeout),
-    }
-}
-
 /// The project registered, its root session and that session's child
 /// minted, the child hosted asking with `timeout`, and the API over them
 /// offering `words`: the API and its pending approvals.
 async fn asking(
     f: &Fixture,
     timeout: u64,
+    words: Vec<&'static str>,
+) -> (Api<crate::server::tests::World>, PendingApprovals) {
+    asking_with(f, Some(timeout), words).await
+}
+
+/// As [`asking`], its run recorded only when `timeout` is given.
+async fn asking_with(
+    f: &Fixture,
+    timeout: Option<u64>,
     words: Vec<&'static str>,
 ) -> (Api<crate::server::tests::World>, PendingApprovals) {
     f.api.resolve_project(resolve(COMMIT, "")).await.unwrap();
@@ -74,13 +74,82 @@ async fn asking(
         .handle(sessions::keyed_book(cover, &mint, "mint:child"))
         .await
         .unwrap();
-    f.hosting.askers.lock().unwrap().push(asker(timeout));
+    if let Some(timeout) = timeout {
+        record_run(f, Some(timeout), "default").await;
+    }
     let index = PendingApprovals::default();
     let api = f.restarted().await.approving(Approving {
         index: index.clone(),
         names: Arc::new(Words(words)),
     });
     (api, index)
+}
+
+/// The child's run enqueued with a recorded spec (its `approval_timeout`, none
+/// recorded when `timeout` is none) and its loadout naming `agent`: what an
+/// ask reads.
+async fn record_run(f: &Fixture, timeout: Option<u64>, agent: &str) {
+    let session = uid(CHILD_NAME);
+    let spec = runs::LaunchSpec {
+        approval_timeout_seconds: timeout.map(|t| u32::try_from(t).unwrap()),
+        ..Default::default()
+    };
+    let enqueue = runs::EnqueueRun {
+        session: session.clone(),
+        incarnation: 1,
+        mode: runs::RunMode::Structured,
+        prompt_given: true,
+        engine: "claude-code".to_string(),
+        drivable_engines: vec!["claude-code".to_string()],
+        credential: runs::CredentialEvidence::default(),
+        fatal_findings: 0,
+        fatal: Vec::new(),
+        launcher_lock: String::new(),
+        untrusted_settings: Vec::new(),
+        grant: None,
+        spec: Some(spec),
+    };
+    let run_cover = Cover {
+        domain: runs::RUN_DOMAIN.to_string(),
+        root: Some(runs::run_root(&session, 1)),
+        edition: None,
+    };
+    f.world
+        .handle(angzarr_embedded::v1::CommandBook::command_of(
+            run_cover,
+            &runs::RunCommand::from(enqueue),
+        ))
+        .await
+        .unwrap();
+    let loadout = sessions::RecordLoadout {
+        loadout: sessions::SessionLoadout {
+            agent: agent.to_string(),
+            ..Default::default()
+        },
+        incarnation: 1,
+        covered: Vec::new(),
+    };
+    let session_cover = Cover {
+        domain: sessions::SESSION_DOMAIN.to_string(),
+        root: Some(SessionName::parse(CHILD_NAME).unwrap().root()),
+        edition: None,
+    };
+    f.world
+        .handle(sessions::fact_book(
+            session_cover,
+            &loadout,
+            &sessions::loadout_key(&session, 1),
+        ))
+        .await
+        .unwrap();
+}
+
+/// The child's first run's id, as an ask names it.
+fn run_id() -> String {
+    uuid::Uuid::from_slice(&runs::run_root(&uid(CHILD_NAME), 1).value)
+        .unwrap()
+        .hyphenated()
+        .to_string()
 }
 
 fn create(request_id: &str) -> v1::CreateApprovalRequest {
@@ -121,7 +190,7 @@ async fn an_ask_is_recorded_with_what_the_daemon_knows_and_named_under_its_root_
     assert_eq!(made.timeout_seconds, 300);
     assert_eq!(
         made.uid,
-        approvals::ask_root(&uid(CHILD_NAME), "run-1", "toolu_1")
+        approvals::ask_root(&uid(CHILD_NAME), &run_id(), "toolu_1")
             .hyphenated()
             .to_string()
     );
@@ -186,8 +255,7 @@ async fn an_ask_with_no_time_is_expired_at_once() {
 #[tokio::test]
 async fn an_ask_of_a_session_not_hosted_or_unknown_is_refused() {
     let f = fixture(vec!["calm-quiet-heron"]);
-    let (api, _) = asking(&f, 300, vec!["tidy-wren"]).await;
-    f.hosting.askers.lock().unwrap().clear();
+    let (api, _) = asking_with(&f, None, vec!["tidy-wren"]).await;
     let (_, hosted): (_, v1::SessionNotHosted) = refused(api.create_approval(create("t")).await);
     assert_eq!(hosted.name, CHILD_NAME);
     let mut nobody = create("t");
@@ -236,6 +304,20 @@ async fn an_ask_nobody_asked_is_refused_unknown_by_the_approvals_domain() {
             .await,
         );
     }
+}
+
+// An ask takes its run, engine, agent and approval timeout from the streams:
+// the run's recorded spec, the loadout's agent and the mint's engine. The
+// loop remembers nothing of the child.
+#[tokio::test]
+async fn an_ask_takes_its_run_engine_agent_and_timeout_from_the_record_not_the_loops_memory() {
+    let f = fixture(vec!["calm-quiet-heron"]);
+    let (api, _) = asking_with(&f, None, vec!["tidy-wren"]).await;
+    record_run(&f, Some(120), "reviewer").await;
+    let made = api.create_approval(create("toolu_9")).await.unwrap();
+    assert_eq!(made.timeout_seconds, 120, "the recorded spec's");
+    assert_eq!(made.agent, "reviewer", "the recorded loadout's");
+    assert_eq!(made.engine, "claude-code", "the recorded mint's");
 }
 
 /// A settling of the ask `made`, as its stream's next page.

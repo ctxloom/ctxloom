@@ -114,6 +114,7 @@ impl Rig {
             .env("HOME", self.project.home())
             .env("TMPDIR", crate::tests::temp_root())
             .env(crate::tests::LIFELINE, crate::tests::lifeline())
+            .env(crate::tests::SEAL_KEY, crate::tests::SEAL_KEY_VALUE)
             .output()
             .expect("git runs");
         assert!(output.status.success(), "git {args:?}: {output:?}");

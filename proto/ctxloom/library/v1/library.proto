@@ -23,11 +23,15 @@ syntax = "proto3";
 // (L13): `content/bundles/v2/**`, `config.yaml`, `remotes.yaml`,
 // `lock.yaml`; never `sessions/`, `state/` or `cache/`.
 //
-// GIT HOLDS THE CONTENT (the amendment, 2026-11-16). Nothing here holds a
-// file's text, a config value or a key: a change is a path, how it changed,
-// and git's object ids. ctxloom hashes nothing of its own; every id is
-// git's (`hash-object --path`, so the repository's filters and its hash
-// algorithm apply).
+// THE STREAM HOLDS THE CONTENT (owner 2026-11-25, reversing the 2026-11-16
+// amendment "git holds the content": "we'll need file and assembled context
+// in the streams for cross platform"). A change is a path, how it changed,
+// its content id (the SHA-256 of its bytes: ctxloom's digest, never git's)
+// AND the file's BYTES (`FileContent`), recorded when its content changes and
+// never restated per read or per run, so a process on another machine
+// rebuilds the library from the streams alone. A secret inside a recorded
+// file (an MCP server's headers and environment) is SEALED, never dropped or
+// refused; a large or binary file (a skill package) is recorded as it is.
 //
 // AN OBSERVATION IS A FACT (L5). Every read observes the tree first:
 //   - `rev-parse` for HEAD and the library's tree id;
@@ -218,6 +222,34 @@ message RecordTreeListed {
   // Was `optional Motion in_motion = 5` (gone: the library is git-free).
   reserved 5;
   reserved "in_motion";
+  // The BYTES of the files whose content the scanner read anew (P3, owner
+  // 2026-11-25): a file whose content id the state already holds is listed
+  // in `files` and has no entry here. The aggregate copies each changed
+  // path's entry onto the `TreeObserved` it records.
+  repeated FileContent contents = 6;
+}
+
+// A library file's bytes, recorded once when its content changes (the
+// stream is the library's content for a process that cannot see the disk). A
+// file that may hold a secret (an MCP server's `mcp/<n>.yaml`) is recorded
+// with its secret values SEALED: `content` then holds the file with each
+// secret's value replaced by its sealed form (`sealed_paths` names them, as
+// document paths), never the plain value. A large or binary file is recorded
+// as it is (compression is a later optimisation).
+message FileContent {
+  string path = 1;
+  // The content id of the ORIGINAL bytes (the SHA-256, as in `DirtyPath.oid`).
+  string content_id = 2;
+  bytes content = 3;
+  // The document paths whose values `content` holds sealed, each sealed to
+  // the daemon's key (the encoding of angzarr-sealed's `Sealed`).
+  // The sealed form is opaque bytes on this wire: only the daemon opens it.
+  repeated SealedField sealed_fields = 4;
+}
+
+message SealedField {
+  string document_path = 1;
+  bytes sealed = 2;
 }
 
 // 10b (owner 2026-11-18, night; AIP-155): a bundle of this tree was
@@ -293,7 +325,8 @@ message RecordTreeInstalled {
 // region commands (U0; first sent in 10b, U3)
 
 // What the application found before it sent the command; `decide` judges
-// it. Never a file's text.
+// it. Never a file's text: the file's bytes are the observation's
+// (`FileContent`), not evidence a command judges.
 message Evidence {
   // The tree still reads with the change applied (the plan's own check).
   bool tree_reads = 1;
@@ -488,6 +521,10 @@ message TreeObserved {
   // Was `optional Motion in_motion = 8` (gone: the library is git-free).
   reserved 8;
   reserved "in_motion";
+  // The bytes of each changed path that has content (an added or modified
+  // file; a deleted one has none): recorded once, at the change, with the
+  // path's `to_oid` as its `content_id` (P3).
+  repeated FileContent contents = 9;
 }
 
 // 10b: an intent, as recorded.

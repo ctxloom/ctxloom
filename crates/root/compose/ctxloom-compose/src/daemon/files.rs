@@ -1,9 +1,8 @@
 //! The user daemon's files (D-N23): at the OS account's place
 //! ([`instance_lock_path`]), the single-instance lock and the discovery file
-//! (0600) beside it; under the ctxloom home, the stop request, the log and
-//! each child's hand-off of its environment (0600; T6, S10: written by the
-//! daemon's `CreateHandOff`, read at each of the child's starts, deleted at
-//! its close, swept when no open session holds it). Every one through the
+//! (0600) beside it; under the ctxloom home, the stop request and the log.
+//! A hosted child's launch inputs are no file: they ride the event that
+//! records its launch (owner ruling 2026-11-25). Every file through the
 //! file-system seam, so a test's temporary home is the only place touched.
 
 use std::fs::File;
@@ -11,7 +10,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use daemon_application::HandOff;
 use file_lock::{take_current, take_once, until, LockError, Locked};
 use file_system::{Fs, Perms};
 use os::Mode;
@@ -19,26 +17,6 @@ use run_ports::{Discovery, DAEMON_DIR, DAEMON_LOCK_FILE, DISCOVERY_FILE};
 
 /// The daemon's log: what it says while nobody reads its stderr.
 pub const LOG_FILE: &str = "daemon.log";
-
-/// The directory of the launching clients' hand-offs, one file per child.
-const LAUNCH_DIR: &str = "launch";
-
-/// The first line of a hand-off.
-const HAND_OFF_HEADER: &str = "ctxloom-launch-env 3";
-
-/// The first line of a hand-off an older daemon wrote (no agent line): read
-/// as one for the project's default agent.
-const HAND_OFF_HEADER_2: &str = "ctxloom-launch-env 2";
-
-/// What marks a line of a hand-off as its launcher's place (no variable
-/// name starts with it).
-const LAUNCHER_MARK: char = '@';
-
-/// What marks a hand-off's line naming the agent its child is planned for.
-const AGENT_LINE: &str = "!agent";
-
-/// The extension of a hand-off's mark in launch (`<id>.launching`).
-const LAUNCHING: &str = "launching";
 
 /// The daemon's directory: the user's alone.
 const DIR_MODE: u32 = 0o700;
@@ -287,116 +265,9 @@ impl DaemonFiles {
         }
     }
 
-    /// Where the hand-off of the child `session` is; none for a name that is
-    /// not a UUID (it never names another path).
-    fn hand_off_path(&self, session: &str) -> Option<PathBuf> {
-        let id = uuid::Uuid::parse_str(session).ok()?;
-        Some(self.dir.join(LAUNCH_DIR).join(id.hyphenated().to_string()))
-    }
-
-    /// Keep `handed`, the environment the child `session` is started with
-    /// and where its launcher finds its user's settings (S6, S7, T6): 0600,
-    /// in the 0700 daemon directory, written whole.
-    pub fn hand_off(&self, session: &str, handed: &HandOff) -> std::io::Result<()> {
-        let path = self
-            .hand_off_path(session)
-            .ok_or_else(|| std::io::Error::other("a child's id is a UUID"))?;
-        let dir = self.dir.join(LAUNCH_DIR);
-        self.private_dir(&self.dir)?;
-        self.private_dir(&dir)?;
-        self.fs.write_atomic(
-            &path,
-            encode_hand_off(handed).as_bytes(),
-            Perms::Exact(Mode::from_bits(FILE_MODE)),
-        )
-    }
-
-    /// Where the mark of `session`'s hand-off is: beside it, `<id>.launching`.
-    fn mark_path(&self, session: &str) -> Option<PathBuf> {
-        let path = self.hand_off_path(session)?;
-        Some(path.with_extension(LAUNCHING))
-    }
-
-    /// Hand the daemon `handed` for the child `session`'s launch (T6, the
-    /// owner's ruling on U3): its mark first, then the hand-off, so no
-    /// hand-off of a launch is ever there unmarked.
-    pub fn launching(&self, session: &str, handed: &HandOff) -> std::io::Result<()> {
-        let mark = self
-            .mark_path(session)
-            .ok_or_else(|| std::io::Error::other("a child's id is a UUID"))?;
-        self.private_dir(&self.dir)?;
-        self.private_dir(&self.dir.join(LAUNCH_DIR))?;
-        self.fs
-            .write_atomic(&mark, b"", Perms::Exact(Mode::from_bits(FILE_MODE)))?;
-        self.hand_off(session, handed)
-    }
-
-    /// The hand-off of `session` claimed by its `LaunchChild`: its mark
-    /// cleared, the hand-off left.
-    pub fn claim_hand_off(&self, session: &str) {
-        if let Some(mark) = self.mark_path(session) {
-            let _ = self.fs.remove_file(&mark);
-        }
-    }
-
-    /// The hand-off of `session`, read and left where it is (T6: it lives as
-    /// long as the child is open). None when there is none, or it does not
-    /// read.
-    pub fn read_hand_off(&self, session: &str) -> Option<HandOff> {
-        let path = self.hand_off_path(session)?;
-        decode_hand_off(&self.fs.read_to_string(&path).ok()?)
-    }
-
-    /// Delete the hand-off of `session` (its child closed, its launch
-    /// refused, or swept).
-    pub fn delete_hand_off(&self, session: &str) {
-        if let Some(path) = self.hand_off_path(session) {
-            let _ = self.fs.remove_file(&path);
-        }
-        self.claim_hand_off(session);
-    }
-
     /// The run locks a launch's lock is among (`daemon_api_client::launch_lock_name`).
     pub fn launch_locks(&self) -> liveness::RunLockFiles {
         liveness::RunLockFiles::new(Arc::clone(&self.fs), self.home.clone())
-    }
-
-    /// Whether the creator of `session`'s launch still holds its launch
-    /// lock: its file there and not provably free (a probe never reads an
-    /// unreadable lock as free). None there: its creator let it go, or never
-    /// took one.
-    fn creator_holds(&self, session: &str) -> bool {
-        let locks = self.launch_locks();
-        let path = locks.path(&daemon_api_client::launch_lock_name(session));
-        self.fs.exists(&path).unwrap_or(true)
-            && run_ports::RunLocks::probe(&locks, &path.display().to_string())
-                != run_ports::LockProbe::Free
-    }
-
-    /// Every hand-off there is, by its child's stable id: whether it is
-    /// marked in launch, and whether its launch's creator still holds its
-    /// launch lock. A file not named by a UUID is no hand-off.
-    pub fn hand_offs(&self) -> Vec<daemon_application::Kept> {
-        let dir = self.dir.join(LAUNCH_DIR);
-        let Ok(entries) = self.fs.read_dir(&dir) else {
-            return Vec::new();
-        };
-        entries
-            .into_iter()
-            .filter_map(|entry| {
-                let name = entry.name.to_str()?.to_string();
-                let id = uuid::Uuid::parse_str(&name).ok()?.hyphenated().to_string();
-                (id == name).then_some(())?;
-                let marked = self
-                    .mark_path(&name)
-                    .is_some_and(|mark| self.fs.exists(&mark).unwrap_or(false));
-                Some(daemon_application::Kept {
-                    marked,
-                    creator_holds: marked && self.creator_holds(&name),
-                    session: name,
-                })
-            })
-            .collect()
     }
 
     /// The log file's path.
@@ -491,46 +362,6 @@ impl DaemonFiles {
     }
 }
 
-/// Each hosted launch's client program (owner, 2026-11-18: a launch runs
-/// the CLIENT's program for its hooks and leads its engine's `PATH` with its
-/// directory), by its child's id, from its `CreateHandOff` to its close: in
-/// the daemon's memory, never in the hand-off file (whose format is
-/// unchanged). A daemon started again between the two has none of them, and
-/// the child runs the daemon's own program, which the version rule makes the
-/// same version.
-#[derive(Clone, Default)]
-pub struct HandedPrograms(
-    Arc<std::sync::Mutex<std::collections::BTreeMap<String, daemon_application::Program>>>,
-);
-
-impl HandedPrograms {
-    /// Keep `program` for the child `child` (none: forget any kept).
-    pub fn keep(&self, child: &str, program: Option<daemon_application::Program>) {
-        let mut kept = self
-            .0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        match program {
-            Some(program) => kept.insert(child.to_string(), program),
-            None => kept.remove(child),
-        };
-    }
-
-    /// The program kept for the child `child`.
-    pub fn of(&self, child: &str) -> Option<daemon_application::Program> {
-        let kept = self
-            .0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        kept.get(child).cloned()
-    }
-
-    /// Forget the child `child`'s program.
-    pub fn forget(&self, child: &str) {
-        self.keep(child, None);
-    }
-}
-
 /// The kill switch's file, in the daemon's directory.
 #[cfg(feature = "test-support")]
 const DIE_AFTER_APPLY: &str = "test-die-after-apply";
@@ -562,70 +393,6 @@ const DEAF_TO_STOP: &str = "test-deaf-to-stop";
 /// The test-support wait of `ctxloom shutdown` for a daemon it stopped.
 #[cfg(feature = "test-support")]
 const SHUTDOWN_STOP_WAIT: &str = "test-shutdown-stop-wait";
-
-/// A hand-off's text: its header, then a `NAME=value` line per variable of
-/// the child's environment, a `@NAME=value` line per place of its
-/// launcher's and, for an agent named, a `!agent=<agent>` line, each value's
-/// backslashes, newlines and carriage returns escaped.
-pub fn encode_hand_off(handed: &HandOff) -> String {
-    let mut text = format!("{HAND_OFF_HEADER}\n");
-    let mut lines: Vec<(String, &str)> = handed
-        .env
-        .iter()
-        .map(|(name, value)| (name.clone(), value.as_str()))
-        .collect();
-    lines.extend(
-        handed
-            .launcher
-            .iter()
-            .map(|(name, value)| (format!("{LAUNCHER_MARK}{name}"), value.as_str())),
-    );
-    if !handed.agent.is_empty() {
-        lines.push((AGENT_LINE.to_string(), handed.agent.as_str()));
-    }
-    for (name, value) in lines {
-        let escaped = value
-            .replace('\\', "\\\\")
-            .replace('\n', "\\n")
-            .replace('\r', "\\r");
-        text.push_str(&format!("{name}={escaped}\n"));
-    }
-    text
-}
-
-/// What [`encode_hand_off`] wrote; none for anything else.
-pub fn decode_hand_off(text: &str) -> Option<HandOff> {
-    let mut lines = text.lines();
-    if !matches!(lines.next()?, HAND_OFF_HEADER | HAND_OFF_HEADER_2) {
-        return None;
-    }
-    let mut handed = HandOff::default();
-    for line in lines {
-        let (name, escaped) = line.split_once('=')?;
-        let mut value = String::new();
-        let mut chars = escaped.chars();
-        while let Some(c) = chars.next() {
-            match (c, c == '\\') {
-                (_, true) => match chars.next()? {
-                    'n' => value.push('\n'),
-                    'r' => value.push('\r'),
-                    '\\' => value.push('\\'),
-                    _ => return None,
-                },
-                (c, false) => value.push(c),
-            }
-        }
-        if name == AGENT_LINE {
-            handed.agent = value;
-            continue;
-        }
-        match name.strip_prefix(LAUNCHER_MARK) {
-            Some(place) => handed.launcher.insert(place.to_string(), value),
-            None => handed.env.insert(name.to_string(), value),
-        };
-    }
-    Some(handed)
-}
 
 #[cfg(test)]
 #[path = "files.test.rs"]

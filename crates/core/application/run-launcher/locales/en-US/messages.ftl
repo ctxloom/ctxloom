@@ -5,6 +5,8 @@ run-launcher-catch-up = the runs owed a runner could not be read from the store:
 run-launcher-record = a record of the session could not be written: { $ext_err_txt }
 run-launcher-fact = the launch could not be recorded: { $reason }
 run-launcher-bad-session = { $session } is not a session id
+run-launcher-no-spec = the run { $run } was enqueued with no launch spec recorded, so it cannot be launched
+run-launcher-unreadable = the launch spec of the run { $run } cannot be read: { $reason }
 # Step 10c U13 (texts.md §1, a DRAFT): the framing of a live session's
 # re-assembled context, handed to its engine at its next event.
 run-launcher-context-redelivered = ctxloom: your context changed while this session ran ({ $changed }). What follows replaces the context you were given when the session started; where the two differ, follow this one.

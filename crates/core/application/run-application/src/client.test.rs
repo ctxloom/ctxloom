@@ -45,6 +45,7 @@ fn asked() -> Asked {
             },
             engine: "claude-code".to_string(),
             session: "old-heron".to_string(),
+            distill: None,
         },
         request_id: "r1".to_string(),
         client: v1::Client {

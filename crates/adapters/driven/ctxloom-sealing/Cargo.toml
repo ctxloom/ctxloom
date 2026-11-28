@@ -1,0 +1,24 @@
+[package]
+name = "ctxloom-sealing"
+version = "0.1.0"
+description = "The sealing port over angzarr-sealed: the seal key is a process environment variable the composition reads and injects, and each secret is sealed to its public key"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+angzarr-sealed.workspace = true
+prost.workspace = true
+run-ports.workspace = true
+sha2.workspace = true
+hex.workspace = true
+file-system.workspace = true
+
+[dev-dependencies]
+os.workspace = true
+file-system = { workspace = true, features = ["test-support"] }
+mutants.workspace = true
+
+[lints]
+workspace = true

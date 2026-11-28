@@ -133,8 +133,6 @@ pub(crate) struct Loop {
     pub(crate) freshened: Mutex<u32>,
     /// Why its start-up catch-up failed, while it stands (OD-52).
     start_up: Mutex<Option<String>>,
-    /// The sessions it hosts, as their asks are recorded (step 8 U4).
-    pub(crate) askers: Mutex<Vec<daemon_application::Asker>>,
     /// What each read asking for a fresh round brings, in turn (a round's
     /// catch-up, as a test stands it in).
     pub(crate) rounds: Mutex<Vec<Box<dyn FnOnce() + Send>>>,
@@ -170,15 +168,6 @@ impl Hosting for Loop {
 
     fn hand_over_seconds(&self) -> u64 {
         300
-    }
-
-    fn asker(&self, session: &str) -> Option<daemon_application::Asker> {
-        self.askers
-            .lock()
-            .unwrap()
-            .iter()
-            .find(|asker| asker.session == session)
-            .cloned()
     }
 
     fn fresh(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
@@ -437,17 +426,6 @@ pub(crate) fn resolve(commit: &str, name: &str) -> v1::ResolveProjectRequest {
 /// At most this many of a watch's events are read: more is a watch that
 /// never ends.
 const WATCH_BOUND: usize = 16;
-
-/// `future`'s output, polled once: what a scripted host awaits (a
-/// one-shot's end) never waits on anything.
-pub(crate) fn now<F: std::future::Future>(future: F) -> F::Output {
-    let mut future = std::pin::pin!(future);
-    let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
-    match future.as_mut().poll(&mut cx) {
-        std::task::Poll::Ready(output) => output,
-        std::task::Poll::Pending => panic!("waited on something"),
-    }
-}
 
 /// A watch's events, read to its end, which must come within
 /// [`WATCH_BOUND`] of them. Bounded, as daemon-application's tests read
@@ -1053,6 +1031,7 @@ async fn get_session_says_what_its_latest_run_was_given_and_how_its_last_turn_fa
                     mcp_servers: vec!["ctxloom".to_string(), "review-tools".to_string()],
                     permissions: r#"{"defaultMode":"plan"}"#.to_string(),
                 }),
+                spec: None,
             }),
             runs::RunEvent::TurnQueued(runs::TurnQueued {
                 prompt_ref: String::new(),
@@ -1408,6 +1387,7 @@ pub(crate) fn observing(world: &World, gits: &Arc<Gits>) -> crate::Observing {
         operations: Arc::new(NoOperations),
         clock: Arc::new(|| 0),
         caches: Arc::new(NoCaches),
+        sealing: None,
     }
 }
 

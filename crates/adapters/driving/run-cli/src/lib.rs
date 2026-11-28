@@ -136,6 +136,7 @@ fn request_of(run: &ArgMatches, prompt: String) -> OneShot {
         },
         engine: one(run, "engine").unwrap_or_default(),
         session: one(run, "session").unwrap_or_default(),
+        distill: None,
     }
 }
 

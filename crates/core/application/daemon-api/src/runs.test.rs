@@ -8,7 +8,7 @@ use daemon_application::{HostRequest, OneShotControl, OneShotHost, OneShots, Tol
 use daemon_proto::v1;
 use run_application::{Answer, Done, Placement, RunError};
 
-use crate::server::tests::{fixture, now, refused, watched};
+use crate::server::tests::{fixture, refused, watched};
 use crate::ApiError;
 
 const ROOT: &str = "0195f0a4-7b1e-7000-8000-000000000001";
@@ -31,10 +31,10 @@ impl OneShotHost for Scripted {
     fn host(&self, request: HostRequest, told: Told) -> Box<dyn OneShotControl> {
         self.asked.lock().unwrap().push(request);
         if self.refuse {
-            now(told.done(Done {
+            told.done(Done {
                 result: Err(RunError::Refused(runs::RunRejection::NoPrompt)),
                 notices: vec![library_application::Notice::text("before")],
-            }));
+            });
         } else {
             told.placed(&Placement {
                 run: ROOT.to_string(),
@@ -44,7 +44,7 @@ impl OneShotHost for Scripted {
                 engine: "claude-code".to_string(),
                 ..Default::default()
             });
-            now(told.done(Done {
+            told.done(Done {
                 result: Ok(Answer {
                     harp: "amber-quiet-heron".to_string(),
                     session: "s".to_string(),
@@ -52,7 +52,7 @@ impl OneShotHost for Scripted {
                     answer: "HELLO".to_string(),
                 }),
                 notices: Vec::new(),
-            }));
+            });
         }
         Box::new(Nothing)
     }
@@ -299,10 +299,10 @@ async fn a_draining_daemon_serves_the_watch_of_a_run_it_already_hosts() {
         .map_err(|error| format!("{error:?}"))
         .expect("a draining daemon serves the watch of a run it hosts");
     assert!(hosted.stop(ROOT, "SIGTERM"));
-    now(told.lock().unwrap().take().expect("hosted").done(Done {
+    told.lock().unwrap().take().expect("hosted").done(Done {
         result: Err(RunError::EmptyAnswer),
         notices: Vec::new(),
-    }));
+    });
     let events = watched(watch);
     assert!(
         matches!(

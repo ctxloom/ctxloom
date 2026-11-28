@@ -11,7 +11,7 @@ use run_launcher::fakes::{uuid, TestEdge};
 use run_ports::{LockProbe, RunLocks};
 use runs::RunEvent;
 
-use crate::tests::{ended, events, mint, session_events, Deaf, NoHandOffs, NoHomes, Plans};
+use crate::tests::{ended, events, mint, session_events, Deaf, NoHomes, Plans};
 use crate::{Daemon, Folds, Place, Ports};
 
 const TUI: &str = "5f0c7a52-3333-5333-8333-000000000003";
@@ -140,7 +140,7 @@ impl Rig {
             edge: Arc::clone(&self.edge),
             engines: Vec::new(),
             plans: Box::new(Plans::default()),
-            hand_offs: Box::new(NoHandOffs),
+            sealing: std::sync::Arc::new(run_ports::TestSealing),
             homes: Box::new(NoHomes),
             ears: Box::new(Deaf),
             run_locks: Arc::new(self.locks.clone()),
@@ -178,6 +178,7 @@ impl Rig {
                 evidence: runs_application::Evidence::passing("claude-code"),
                 launcher_lock: FRONTEND_LOCK.to_string(),
                 grant: None,
+                spec: None,
             })
             .await
             .unwrap();

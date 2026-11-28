@@ -19,8 +19,9 @@ use crate::{
     ProjectRegistered, ProjectState, RegisterProject, SessionRejection, UnnamedProject,
 };
 use crate::{
-    KeepsSession, RecordRemovalStepDone, RemovalEvidence, RemovalStepDone, RemoveSession,
-    SessionKept, SessionLive, SessionLockHeld, SessionRemovalIntended, WithinRetention,
+    KeepsSession, RecordRemovalStepDone, RecordSealKeySeen, RemovalEvidence, RemovalStepDone,
+    RemoveSession, SealKeySeen, SessionKept, SessionLive, SessionLockHeld, SessionRemovalIntended,
+    WithinRetention,
 };
 
 /// A session removal's steps, in order (O2, step 10b U9): its worktrees
@@ -244,6 +245,28 @@ impl ProjectAggregate {
         Ok(Some(intended(request_of(ctx), cmd.harp)))
     }
 
+    /// A seal key of the project seen: recorded when it is new or becomes the
+    /// current one, nothing otherwise (a resend, a key already held).
+    #[handles_fact(RecordSealKeySeen)]
+    fn seal_key_seen(&self, fact: RecordSealKeySeen, ctx: &Context) -> Result<FactEmit<Self>, Bug> {
+        let _ = ctx;
+        let new = !self.project.seal_keys.contains_key(&fact.key_id);
+        let moves = fact.current && self.project.current_seal_key != fact.key_id;
+        Ok(FactEmit::of((new || moves).then(|| {
+            pack_message(&SealKeySeen {
+                key_id: fact.key_id,
+                fingerprint: fact.fingerprint,
+                current: fact.current,
+            })
+        })))
+    }
+
+    #[applies(SealKeySeen)]
+    fn seal_key_seen_applied(&mut self, event: SealKeySeen, page: &PageContext) {
+        let _ = page;
+        fold_project(&mut self.project, ProjectEvent::SealKeySeen(event));
+    }
+
     /// A removal's next step done: recorded for an open removal at that
     /// step, nothing otherwise (a redelivery, a step out of order).
     #[handles_fact(RecordRemovalStepDone)]
@@ -346,6 +369,12 @@ pub fn fold_project(state: &mut ProjectState, event: ProjectEvent) {
             if finished {
                 state.removals.remove(&done.request_id);
             }
+        }
+        ProjectEvent::SealKeySeen(seen) => {
+            if seen.current {
+                state.current_seal_key = seen.key_id.clone();
+            }
+            state.seal_keys.insert(seen.key_id, seen.fingerprint);
         }
         ProjectEvent::ProjectNamed(_)
         | ProjectEvent::ProjectRegistered(_)

@@ -104,6 +104,24 @@ fn a_unix_daemon_is_given_what_it_needs_and_no_credential() {
     assert_eq!(names(&given), expected);
 }
 
+// A project's seal key is its `.env`'s (owner ruling 2026-11-27): no
+// daemon-wide key crosses to the detached daemon, whatever the spawner's
+// environment holds; the test build's own variable alone passes.
+#[test]
+fn a_daemon_is_given_no_seal_key_of_the_spawners() {
+    let given = daemon_env(
+        os::Flavor::Unix,
+        vars(&[
+            ("CTXLOOM_SEAL_KEY", "k"),            // gitleaks:allow
+            ("CTXLOOM_SEAL_KEY_PREVIOUS", "p,q"), // gitleaks:allow
+            ("CTXLOOM_TEST_SEAL_KEY", "t"),       // gitleaks:allow
+            ("ANTHROPIC_API_KEY", "a key"),       // gitleaks:allow
+        ]),
+        None,
+    );
+    assert_eq!(names(&given), ["CTXLOOM_TEST_SEAL_KEY"]);
+}
+
 // The daemon's ctxloom home is its spawner's CTXLOOM_DAEMON_ROOT when it set one
 // (once, whatever the spawner's own variable said), and else none: the
 // daemon then serves the account's home.

@@ -349,10 +349,10 @@ fn sees_its_launchers_environment_and_its_projects_context(world: &World) {
     for never in ["spawner", "spawners-key", "SECRET_ELSE", "CTXLOOM_PERMIT_"] {
         assert!(!env.contains(never), "{never}: {env}");
     }
-    // T6: what the launcher sent is kept for the child's life, the user's
-    // alone, until its close.
+    // What the launcher sent rides the events that record the launch, sealed:
+    // no hand-off file is kept (P3).
     let handed = world.project.home().join(".ctxloom/daemon/launch");
-    assert_eq!(files::children(&handed).len(), 1, "the hand-off is kept");
+    assert_eq!(files::children(&handed).len(), 0, "no hand-off is kept");
     // D18: the child's context is its project's, as a one-shot child's.
     let context = world.of("context", CHILD).expect("the child had a context");
     assert!(context.contains("FRAGMENT-BODY-testing"), "{context}");
@@ -1857,7 +1857,11 @@ fn a_drain_steers_a_busy_child_to_end_its_turn_then_hands_it_over() {
         "the child ended"
     );
     let handed = world.project.home().join(".ctxloom/daemon/launch");
-    assert_eq!(files::children(&handed).len(), 1, "its hand-off is kept");
+    assert_eq!(
+        files::children(&handed).len(),
+        0,
+        "no hand-off file is kept"
+    );
     let log = world.log();
     assert!(
         log.contains(&format!("{CHILD}: a turn in flight: steered to end it")),

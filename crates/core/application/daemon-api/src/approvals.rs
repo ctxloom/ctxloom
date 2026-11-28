@@ -20,7 +20,7 @@
 use std::sync::Arc;
 
 use angzarr_embedded::v1::Cover;
-use angzarr_embedded::Failure;
+use angzarr_embedded::{Failure, Payload};
 use approvals::{
     ask_key, ask_name, ask_root, bounded, claude_options, fact_book, name_root, ApprovalName,
     ClaimApprovalName, RecordApprovalAsked, SessionRef, APPROVALS_DOMAIN, APPROVAL_NAMES_DOMAIN,
@@ -84,6 +84,15 @@ fn unknown(ask: &str) -> ApiError {
     })
 }
 
+/// What an ask is recorded with: the session's run, its engine and agent,
+/// and how long the ask waits.
+struct Asking {
+    run: String,
+    engine: String,
+    agent: String,
+    approval_timeout: std::time::Duration,
+}
+
 impl<E: Edge> Api<E> {
     /// Where its asks are; none, the approvals calls fail.
     fn approving_ports(&self) -> Result<&Approving, ApiError> {
@@ -142,7 +151,7 @@ impl<E: Edge> Api<E> {
             let project = index.project_harp(&root.project_id).map(str::to_string);
             (index.name_of(&record), index.name_of(&root), project)
         };
-        let asker = self.parts.hosting.asker(&request.session).ok_or_else(|| {
+        let asker = self.recorded_ask(&record).await?.ok_or_else(|| {
             ApiError::from(ApiRefusal::of(&v1::SessionNotHosted {
                 name: child_name.clone(),
             }))
@@ -196,6 +205,89 @@ impl<E: Edge> Api<E> {
             Err(other) => return Err(ApiError::failed(other)),
         }
         self.recorded(&cover).await
+    }
+
+    /// What an ask of `record`'s current run is recorded with, from what the streams record: the
+    /// run's spec for how long an ask waits, the session's mint for its
+    /// engine and its loadout for its agent. None when the session has no
+    /// run, or its run was enqueued with no recorded spec (a run from before
+    /// the record, or a one-shot the daemon still hosts in memory).
+    async fn recorded_ask(
+        &self,
+        record: &session_index::SessionRecord,
+    ) -> Result<Option<Asking>, ApiError> {
+        if record.incarnation == 0 {
+            return Ok(None);
+        }
+        let run = runs::run_root(&record.id, record.incarnation);
+        let cover = Cover {
+            domain: runs::RUN_DOMAIN.to_string(),
+            root: Some(run.clone()),
+            edition: None,
+        };
+        let pages = self
+            .parts
+            .edge
+            .events(&cover, 0)
+            .await
+            .map_err(ApiError::failed)?;
+        let mut spec = None;
+        for page in pages {
+            let Some(angzarr_embedded::v1::event_page::Body::Event(any)) = page.body else {
+                continue;
+            };
+            if let runs::RunEvent::RunEnqueued(enqueued) =
+                runs::RunEvent::from_any(&any).map_err(ApiError::failed)?
+            {
+                spec = enqueued.spec;
+            }
+        }
+        let Some(seconds) = spec.and_then(|spec| spec.approval_timeout_seconds) else {
+            return Ok(None);
+        };
+        Ok(Some(Asking {
+            run: uuid::Uuid::from_slice(&run.value)
+                .map(|id| id.hyphenated().to_string())
+                .unwrap_or_default(),
+            engine: record.engine.clone(),
+            agent: self.recorded_agent(record).await?,
+            approval_timeout: std::time::Duration::from_secs(u64::from(seconds)),
+        }))
+    }
+
+    /// The agent the loadout of `record`'s current incarnation recorded, read
+    /// from the session's own stream (the warm index may not have folded it
+    /// yet); empty when none was.
+    async fn recorded_agent(
+        &self,
+        record: &session_index::SessionRecord,
+    ) -> Result<String, ApiError> {
+        let root = uuid::Uuid::parse_str(&record.id).map_err(ApiError::failed)?;
+        let cover = Cover {
+            domain: sessions::SESSION_DOMAIN.to_string(),
+            root: Some(angzarr_embedded::v1::Uuid::from_bytes(*root.as_bytes())),
+            edition: None,
+        };
+        let pages = self
+            .parts
+            .edge
+            .events(&cover, 0)
+            .await
+            .map_err(ApiError::failed)?;
+        let mut agent = String::new();
+        for page in pages {
+            let Some(angzarr_embedded::v1::event_page::Body::Event(any)) = page.body else {
+                continue;
+            };
+            if let sessions::SessionEvent::LoadoutRecorded(recorded) =
+                sessions::SessionEvent::from_any(&any).map_err(ApiError::failed)?
+            {
+                if recorded.incarnation == record.incarnation {
+                    agent = recorded.loadout.agent;
+                }
+            }
+        }
+        Ok(agent)
     }
 
     /// The ask the stream `cover` names, as its own pages say it now (the

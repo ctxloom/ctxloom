@@ -182,3 +182,31 @@ fn a_scan_reads_nothing_through_a_link_above_a_library_path() {
         .unwrap()
         .is_empty());
 }
+
+// The bytes of the files a scan listed anew are read for the record, each
+// only while its content id is still the one the scan found: a file that
+// changed since is left out, and a path with no file is absent.
+#[test]
+fn read_files_returns_the_bytes_whose_id_is_still_current() {
+    let root = fixtures::root();
+    let tree = root.root().join(".ctxloom");
+    fixtures::mkdirs(&tree);
+    fixtures::put_mode(tree.join("config.yaml"), "schema_version: 8\n", 0o644);
+    fixtures::put_mode(tree.join("lock.yaml"), "changed since\n", 0o644);
+    let scanner = TreeScanner::new(fixtures::fs());
+    let current = library_tree::content_id(b"schema_version: 8\n");
+    let read = scanner
+        .read_files(
+            &tree.display().to_string(),
+            &[
+                ("config.yaml", current.as_str()),
+                ("lock.yaml", "an-older-id"),
+                ("gone.yaml", "x"),
+            ],
+        )
+        .unwrap();
+    assert_eq!(
+        read.into_iter().collect::<Vec<_>>(),
+        [("config.yaml".to_string(), b"schema_version: 8\n".to_vec())]
+    );
+}

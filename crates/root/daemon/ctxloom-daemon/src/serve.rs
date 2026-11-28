@@ -30,7 +30,7 @@ use angzarr_embedded::angzarr_store_sqlite::SqliteStore;
 use credentials::OsTokenSource;
 use ctxloom_store_sqlite::Stores;
 use daemon_application::{
-    ChildHomes, ChildPlans, Daemon, Ears, Folds, HandOffs, OneShots, Place as Told, Ports,
+    ChildHomes, ChildPlans, Daemon, Ears, Folds, OneShots, Place as Told, Ports,
 };
 use file_system::Fs;
 use hook_listener::{HookListener, TlsIdentity};
@@ -146,9 +146,12 @@ pub(crate) fn serve(
         #[cfg(feature = "test-support")]
         dies_at_steps(&core.edge(), &files, &say);
         // What the loop shares with the API's use cases (slice 2 step 5).
-        let one_shots = one_shots_over(&core, home, &temp);
+        // A project's seal key is its own `.env`'s, once it is trusted (owner
+        // ruling 2026-11-27): the daemon holds one key set per project.
+        let sealing = project_sealing(&fs, (&kept, &core.edge()), &env);
+        let one_shots = one_shots_over(&core, home, &temp, &sealing);
         let shared = shared_over(&kept, &one_shots, (&fs, home), pace);
-        let terminals = terminals_over(&core, home, &temp);
+        let terminals = terminals_over(&core, home, &temp, &sealing);
         // Listening for SIGTERM BEFORE it advertises: a signal sent as the
         // advertisement is seen must not meet the default disposition.
         let terminated = hear_terminate((&fs, home), &shared, &say);
@@ -159,7 +162,7 @@ pub(crate) fn serve(
             &kept,
             (os, user_home, stamp, pace, engines),
             (&files, &shared, &one_shots, &terminals),
-            (&say, &env),
+            (&say, &env, &sealing),
         )
         .await;
         let (listener, mut launcher, own) = match started {
@@ -168,7 +171,7 @@ pub(crate) fn serve(
                 // A start that fails before it serves closes its store as
                 // every exit does (ruling 131): what holds it is let go first.
                 cut(terminated).await;
-                drop((shared, kept, one_shots, terminals));
+                drop((shared, kept, one_shots, terminals, sealing));
                 said(&say, &format!("the start failed: {detail}"));
                 match core.close().await {
                     Ok(()) => said(&say, "the store is closed"),
@@ -225,6 +228,8 @@ pub(crate) fn serve(
         // the core) until its frontend reports: the store's close then says
         // so, and the frontend reports to the next daemon (S17).
         drop(terminals);
+        // The seal keys read the read models, which hold the store.
+        drop(sealing);
         said(&say, "exited");
         // Closed, not dropped (ruling 131).
         if let Err(unclosed) = core.close().await {
@@ -577,6 +582,7 @@ fn one_shots_over(
     core: &InProcessCore<SqliteStore>,
     home: &Path,
     temp: &Path,
+    sealing: &Arc<dyn run_ports::Sealing>,
 ) -> Arc<daemon_application::OneShots> {
     Arc::new(daemon_application::OneShots::new(Box::new(
         crate::hosted_oneshots::HostedOneShots {
@@ -584,6 +590,7 @@ fn one_shots_over(
             runtime: tokio::runtime::Handle::current(),
             home: home.to_path_buf(),
             temp: temp.to_path_buf(),
+            sealing: Arc::clone(sealing),
         },
     )))
 }
@@ -603,6 +610,7 @@ fn terminals_over(
     core: &InProcessCore<SqliteStore>,
     home: &Path,
     temp: &Path,
+    sealing: &Arc<dyn run_ports::Sealing>,
 ) -> Arc<daemon_application::Terminals> {
     Arc::new(daemon_application::Terminals::new(Box::new(
         crate::hosted_terminals::HostedTerminals {
@@ -610,6 +618,7 @@ fn terminals_over(
             runtime: tokio::runtime::Handle::current(),
             home: home.to_path_buf(),
             temp: temp.to_path_buf(),
+            sealing: Arc::clone(sealing),
         },
     )))
 }
@@ -632,7 +641,11 @@ async fn start(
         Vec<daemon_application::HostedEngine>,
     ),
     (files, shared, one_shots, terminals): Hosts<'_>,
-    (say, env): (&Say, &Arc<process_env::EnvSnapshot>),
+    (say, env, sealing): (
+        &Say,
+        &Arc<process_env::EnvSnapshot>,
+        &Arc<dyn run_ports::Sealing>,
+    ),
 ) -> Result<(HookListener, Daemon<CoreEdge>, Discovery), String> {
     let code = |e: &dyn coded_diagnostic::Diagnostic| e.code().to_string();
     let edge = core.edge();
@@ -644,8 +657,6 @@ async fn start(
     // The sessions their ctxloom MCP server watches (the terminal wake):
     // the API's `WatchSession` watches, the loop publishes each round.
     let watches = daemon_application::SessionWatches::new(daemon_application::KEEPALIVE);
-    // Each hosted launch's client program, from its hand-off to its close.
-    let handed = super::files::HandedPrograms::default();
     let api = daemon_api::Api::new(daemon_api::Parts {
         edge: Arc::clone(&edge),
         index: kept.index.clone().unwrap_or_default(),
@@ -682,10 +693,10 @@ async fn start(
         api,
         (fs, files, trash_clock(env)?),
         (home, temp, &stamp),
-        (&engines, terminals, kept),
-        &handed,
+        (&engines, terminals, kept, sealing),
         &edge,
     );
+    let distilling = Arc::clone(&calls);
     let listener = HookListener::serve_tcp_beside(
         coordinated(&edge, files),
         UserGate::new(&bearer),
@@ -712,10 +723,11 @@ async fn start(
         &edge,
         kept,
         (engines, user_home.clone(), env),
-        (told(home, os, user_home), &handed),
+        (told(home, os, user_home), sealing),
         Arc::clone(say),
     )
     .hosting_one_shots(Arc::clone(one_shots))
+    .distilling(Arc::new(DistillWrites(distilling)))
     .watching(watches);
     let launcher = timed(launcher, pace)
         // OD-59 (2), the ONE named exception to "the daemon never reads a
@@ -851,6 +863,48 @@ fn trusting(kept: &Projectors, (home, temp): (&Path, &Path)) -> daemon_api::Trus
     }
 }
 
+/// The daemon's sealing: each project's key set from its own `.env`, read
+/// once it is trusted and cached by the file's stat, the ids of its keys told
+/// to the project's stream through the core's own edge.
+fn project_sealing(
+    fs: &Arc<dyn Fs>,
+    (kept, edge): (&Projectors, &Arc<CoreEdge>),
+    env: &process_env::EnvSnapshot,
+) -> Arc<dyn run_ports::Sealing> {
+    let index = kept.index.clone().unwrap_or_default();
+    let secrets =
+        ctxloom_sealing::DotenvSecrets::new(Arc::clone(fs)).with_fallback(test_seal_key(env));
+    Arc::new(sealing_application::ProjectSealing::new(
+        Arc::new(super::project_secrets::Registered {
+            index: index.clone(),
+            trusts: kept.trusts.clone().unwrap_or_default(),
+        }),
+        Arc::new(super::project_secrets::Cached::new(
+            Arc::clone(fs),
+            Arc::new(secrets),
+        )),
+        Arc::new(ctxloom_sealing::AngzarrSealer),
+        Arc::new(super::project_secrets::Announcing {
+            edge: Arc::clone(edge),
+            index,
+            runtime: tokio::runtime::Handle::current(),
+        }),
+    ))
+}
+
+/// Under test-support, the key of a project with no `.env` (the harness's
+/// projects have none and are not trusted): `CTXLOOM_TEST_SEAL_KEY`; a plain
+/// build has none.
+#[cfg(feature = "test-support")]
+fn test_seal_key(env: &process_env::EnvSnapshot) -> Option<String> {
+    env.utf8("CTXLOOM_TEST_SEAL_KEY").map(str::to_string)
+}
+
+#[cfg(not(feature = "test-support"))]
+fn test_seal_key(_: &process_env::EnvSnapshot) -> Option<String> {
+    None
+}
+
 /// The API the daemon serves: `api`, a project's context assembled from its
 /// registered root (slice 3 step 6), and a child's hand-off planned, judged
 /// and kept here (slice 4 U3), over `home`, `temp` and the `engines` its
@@ -861,12 +915,12 @@ fn served(
     api: daemon_api::Api<CoreEdge>,
     (fs, files, clock): (&Arc<dyn Fs>, &DaemonFiles, library_api::Clock),
     (home, temp, stamp): (&Path, &Path, &str),
-    (engines, terminals, kept): (
+    (engines, terminals, kept, sealing): (
         &[daemon_application::HostedEngine],
         &Arc<daemon_application::Terminals>,
         &Projectors,
+        &Arc<dyn run_ports::Sealing>,
     ),
-    handed: &super::files::HandedPrograms,
     edge: &Arc<CoreEdge>,
 ) -> Arc<dyn daemon_api::Calls> {
     // Shared, so what follows from a run it hosts (a distill's write, step
@@ -894,12 +948,10 @@ fn served(
             .refusing_legacy_stores(Arc::new(crate::LegacyStores {
                 stores: Stores::new(Arc::clone(fs), home.to_path_buf()),
             }))
-            .handing_off(crate::hand_offs::api_hand_offs(
-                fs,
-                (home, temp),
-                engines,
-                handed,
-            ))
+            .handing_off(
+                crate::launch_plans::launch_plans((home, temp), engines),
+                Arc::clone(sealing),
+            )
             // Other tools' files, planned where the caller stands and
             // written as one sequence (step 10c U10).
             .writing_foreign(Arc::new(super::foreign::ForeignWriters {
@@ -944,6 +996,8 @@ fn served(
                 clock,
                 // `clean` measures a tree's cache (step 10b U9).
                 caches: Arc::new(super::places::TreeCaches(Arc::clone(fs))),
+                // An MCP server's secrets are sealed in the record.
+                sealing: Some(Arc::clone(sealing)),
             }),
     )
 }
@@ -1158,7 +1212,7 @@ fn launcher(
         Option<PathBuf>,
         &Arc<process_env::EnvSnapshot>,
     ),
-    (told, handed): (Told, &super::files::HandedPrograms),
+    (told, sealing): (Told, &Arc<dyn run_ports::Sealing>),
     say: Say,
 ) -> Daemon<CoreEdge> {
     Daemon::new(Ports {
@@ -1169,10 +1223,7 @@ fn launcher(
             temp: temp.to_path_buf(),
             user_home,
         }),
-        hand_offs: Box::new(HandOffFiles(
-            DaemonFiles::new(Arc::clone(fs), home),
-            handed.clone(),
-        )),
+        sealing: Arc::clone(sealing),
         homes: Box::new(Homes(Arc::clone(fs))),
         ears: Box::new(Pumps::new()),
         run_locks: Arc::new(liveness::RunLockFiles::new(
@@ -1258,7 +1309,7 @@ async fn run<E: run_ports::Edge>(
     let mut handing_over = false;
     let mut staying = Staying::for_the(frontends);
     loop {
-        shared.tell(launcher.hosted_runs(), launcher.askers(), quiet_since);
+        shared.tell(launcher.hosted_runs(), quiet_since);
         if let Some(why) = why_it_exits(files, own, held) {
             said(say, why);
             return Ok(());
@@ -1483,8 +1534,6 @@ struct Round {
     endpoint: String,
     /// Each hosted child's session id and run root.
     children: Vec<(String, String)>,
-    /// What each hosted child's ask is recorded with (step 8 U4).
-    askers: Vec<daemon_application::Asker>,
     quiet_since: Option<Instant>,
     /// Asked to stop; `true` to end what it hosts first.
     stop: Option<bool>,
@@ -1558,15 +1607,9 @@ impl Shared {
 
     /// What the round found it hosts: its children, each its session id
     /// and run root.
-    fn tell(
-        &self,
-        children: Vec<(String, String)>,
-        askers: Vec<daemon_application::Asker>,
-        quiet_since: Instant,
-    ) {
+    fn tell(&self, children: Vec<(String, String)>, quiet_since: Instant) {
         let mut round = self.round();
         round.children = children;
-        round.askers = askers;
         round.quiet_since = Some(quiet_since);
     }
 
@@ -1618,18 +1661,6 @@ impl daemon_api::Hosting for Shared {
                 }
             })
             .collect()
-    }
-
-    /// A hosted child's, else a live one-shot's (step 8, D7: one-shots ask
-    /// too).
-    fn asker(&self, session: &str) -> Option<daemon_application::Asker> {
-        let child = self
-            .round()
-            .askers
-            .iter()
-            .find(|asker| asker.session == session)
-            .cloned();
-        child.or_else(|| self.one_shots.asker(session))
     }
 
     fn idle_seconds(&self) -> u64 {
@@ -1846,32 +1877,18 @@ impl ChildPlans for Plans {
     }
 }
 
-/// The hand-off files under the daemon's directory (T6: read at each of
-/// the child's starts, deleted at its close, swept).
-/// Each read with the launching client's program, as the API kept it.
-struct HandOffFiles(DaemonFiles, super::files::HandedPrograms);
+/// The write a distill run's recorded answer is due, made by the daemon's
+/// own API (owner 2026-11-28).
+struct DistillWrites(Arc<dyn daemon_api::Calls>);
 
-impl HandOffs for HandOffFiles {
-    fn read(&self, session: &str) -> Option<daemon_application::HandOff> {
-        self.0
-            .read_hand_off(session)
-            .map(|handed| daemon_application::HandOff {
-                program: self.1.of(session),
-                ..handed
-            })
-    }
-
-    fn delete(&self, session: &str) {
-        self.1.forget(session);
-        self.0.delete_hand_off(session);
-    }
-
-    fn claim(&self, session: &str) {
-        self.0.claim_hand_off(session);
-    }
-
-    fn list(&self) -> Vec<daemon_application::Kept> {
-        self.0.hand_offs()
+impl daemon_application::Distilling for DistillWrites {
+    fn write(&self, due: daemon_board::DistillDue) -> run_ports::BoxFuture<'_, Result<(), String>> {
+        Box::pin(async move {
+            self.0
+                .write_distilled(due)
+                .await
+                .map_err(|error| format!("{error:?}"))
+        })
     }
 }
 

@@ -18,7 +18,9 @@ use run_ports::{
 use runs::{RunEvent, TurnUrgency};
 use sessions::{SessionEvent, SessionRef, Urgency};
 
-use crate::{ChildHomes, ChildPlans, Daemon, Ears, Folds, HandOffs, HostedEngine, Place, Ports};
+use crate::{
+    child_env_field, ChildHomes, ChildPlans, Daemon, Ears, Folds, HostedEngine, Place, Ports,
+};
 
 const OWNER: &str = "5f0c7a52-1111-5111-8111-000000000001";
 const CHILD: &str = "5f0c7a52-2222-5222-8222-000000000002";
@@ -254,49 +256,94 @@ impl ChildPlans for Plans {
     }
 }
 
-/// The child's hand-off (T6): read at each start, until it is deleted.
-struct Handed(Mutex<Option<crate::HandOff>>);
+/// What the child's LAUNCH records (T6, owner ruling 2026-11-25): its
+/// environment (sealed in the event), where its launcher finds its user's
+/// settings, its agent and the launcher's program. The owner's `LaunchChild`
+/// carries them; the daemon reads them back from the stream at each start.
+#[derive(Clone, Default)]
+struct Inputs {
+    env: BTreeMap<String, String>,
+    launcher: BTreeMap<String, String>,
+    agent: String,
+    program: Option<crate::Program>,
+}
 
-impl Handed {
-    /// A hand-off of the child's environment `env`, its launcher saying
+impl Inputs {
+    /// A launch of the child's environment `env`, its launcher saying
     /// nothing of its user's settings.
-    fn of(env: BTreeMap<String, String>) -> Handed {
-        Handed::with(env, BTreeMap::new())
+    fn of(env: BTreeMap<String, String>) -> Inputs {
+        Inputs::with(env, BTreeMap::new())
     }
 
-    /// A hand-off of `env` whose launcher ran `program`.
-    fn programmed(env: BTreeMap<String, String>, program: Option<crate::Program>) -> Handed {
-        Handed(Mutex::new(Some(crate::HandOff {
+    /// A launch of `env` whose launcher ran `program`.
+    fn programmed(env: BTreeMap<String, String>, program: Option<crate::Program>) -> Inputs {
+        Inputs {
             env,
             launcher: BTreeMap::new(),
             agent: String::new(),
             program,
-        })))
+        }
     }
 
-    fn with(env: BTreeMap<String, String>, launcher: BTreeMap<String, String>) -> Handed {
-        Handed(Mutex::new(Some(crate::HandOff {
+    fn with(env: BTreeMap<String, String>, launcher: BTreeMap<String, String>) -> Inputs {
+        Inputs {
             env,
             launcher,
             agent: String::new(),
             program: None,
-        })))
-    }
-}
-
-impl HandOffs for Handed {
-    fn read(&self, _: &str) -> Option<crate::HandOff> {
-        self.0.lock().unwrap().clone()
+        }
     }
 
-    fn delete(&self, _: &str) {
-        self.0.lock().unwrap().take();
+    /// The launch for the agent `reviewer`, its environment `SECRET=v`.
+    fn reviewing() -> Inputs {
+        Inputs {
+            env: BTreeMap::from([("SECRET".to_string(), "v".to_string())]),
+            agent: "reviewer".to_string(),
+            ..Inputs::default()
+        }
     }
 
-    fn claim(&self, _: &str) {}
-
-    fn list(&self) -> Vec<crate::Kept> {
-        Vec::new()
+    /// The owner's `LaunchChild` that records these inputs, its secrets
+    /// sealed as a launch seals them.
+    fn command(&self, child: &str, harp: &str) -> sessions::LaunchChild {
+        use run_ports::Sealing as _;
+        let sealed = |name: &String, value: &String| sessions::ChildEnvEntry {
+            name: name.clone(),
+            sealed: run_ports::TestSealing
+                .seal("calm-otter", &child_env_field(name), value.as_bytes())
+                .unwrap(),
+            plain: String::new(),
+        };
+        let plain = |name: &String, value: &String| sessions::ChildEnvEntry {
+            name: name.clone(),
+            sealed: Vec::new(),
+            plain: value.clone(),
+        };
+        sessions::LaunchChild {
+            child_project_id: "calm-otter".to_string(),
+            child_session: child.to_string(),
+            child_root: "/work".to_string(),
+            harp: harp.to_string(),
+            engine: ENGINE.to_string(),
+            trust: sessions::TargetTrust {
+                same_project: true,
+                trusted: true,
+            },
+            delegation_limit: 16,
+            requester: None,
+            prompt: String::new(),
+            agent: self.agent.clone(),
+            client_program: self
+                .program
+                .as_ref()
+                .map(|program| sessions::ChildProgram {
+                    name: program.name.clone(),
+                    directory: program.dir.clone(),
+                })
+                .unwrap_or_default(),
+            settings_places: self.launcher.iter().map(|(n, v)| plain(n, v)).collect(),
+            env: self.env.iter().map(|(n, v)| sealed(n, v)).collect(),
+        }
     }
 }
 
@@ -496,6 +543,10 @@ struct World {
     clock: Moving,
     /// What the daemon said in its log.
     said: Arc<Mutex<Vec<String>>>,
+    /// What each child launched through [`World::mint`] is launched with.
+    inputs: Inputs,
+    /// The distill writes the loop made, in order.
+    distilled: Arc<Mutex<Vec<daemon_board::DistillDue>>>,
 }
 
 /// A clock a test moves by hand: never the time of day.
@@ -524,23 +575,23 @@ impl World {
         World::built(
             plans,
             locks,
-            Box::new(Handed::of(BTreeMap::from([
+            Inputs::of(BTreeMap::from([
                 ("PATH".to_string(), "/usr/bin".to_string()),
                 ("SECRET".to_string(), "v".to_string()),
-            ]))),
+            ])),
         )
     }
 
-    /// A world whose children's hand-offs are `hand_offs`.
-    fn built(plans: Box<dyn ChildPlans>, locks: LockProbe, hand_offs: Box<dyn HandOffs>) -> World {
-        World::built_within(plans, locks, hand_offs, None)
+    /// A world whose children are launched with `inputs`.
+    fn built(plans: Box<dyn ChildPlans>, locks: LockProbe, inputs: Inputs) -> World {
+        World::built_within(plans, locks, inputs, None)
     }
 
     /// [`World::built`], its hand-over's period `period` when one is given.
     fn built_within(
         plans: Box<dyn ChildPlans>,
         locks: LockProbe,
-        hand_offs: Box<dyn HandOffs>,
+        inputs: Inputs,
         period: Option<std::time::Duration>,
     ) -> World {
         let edge = Arc::new(TestEdge::new());
@@ -549,6 +600,7 @@ impl World {
         let clock = Moving::default();
         let said = Arc::new(Mutex::new(Vec::new()));
         let log = Arc::clone(&said);
+        let distilled = Arc::new(Mutex::new(Vec::new()));
         let daemon = Daemon::new(Ports {
             edge: Arc::clone(&edge),
             engines: vec![HostedEngine {
@@ -558,7 +610,7 @@ impl World {
                 for_launch: None,
             }],
             plans,
-            hand_offs,
+            sealing: Arc::new(run_ports::TestSealing),
             homes: Box::new(homes.clone()),
             ears: Box::new(Listening::default()),
             run_locks: Arc::new(Locks(locks)),
@@ -571,7 +623,11 @@ impl World {
             folds: Folds::default(),
             say: Box::new(move |line: &str| log.lock().unwrap().push(line.to_string())),
         })
-        .clocked(Arc::new(clock.clone()));
+        .clocked(Arc::new(clock.clone()))
+        .distilling(Arc::new(Distilled {
+            edge: Arc::clone(&edge),
+            asked: Arc::clone(&distilled),
+        }));
         let daemon = match period {
             Some(period) => daemon.handing_over_within(period),
             None => daemon,
@@ -583,6 +639,8 @@ impl World {
             daemon,
             clock,
             said,
+            inputs,
+            distilled,
         }
     }
 
@@ -614,7 +672,17 @@ impl World {
         self.edge.handle(book).await.unwrap();
     }
 
-    async fn mint(&self, session: &str, harp: &str, owner: Option<&str>) {
+    /// `session` named `harp`: a child of `owner` is LAUNCHED by it, as the
+    /// daemon's launch makes it (its inputs on the owner's `ChildLaunched`,
+    /// its mint by the launch policy on the next ticks); one with no owner is
+    /// minted.
+    async fn mint(&mut self, session: &str, harp: &str, owner: Option<&str>) {
+        if let Some(owner) = owner {
+            self.handle(owner, self.inputs.command(session, harp)).await;
+            // The launch policy mints the child on the daemon's next round.
+            self.tick().await;
+            return;
+        }
         self.handle(
             session,
             sessions::MintSession {
@@ -762,6 +830,7 @@ async fn a_child_is_started_with_its_launchers_environment_and_the_runs_hooks() 
 /// home `user_home`, whose launcher sent `path` as its `PATH`.
 async fn started_on(os: &str, path: &str, user_home: Option<&str>) -> run_ports::ChildSpec {
     let mut world = World::new(Box::new(Plans));
+    world.inputs = Inputs::of(BTreeMap::from([("PATH".to_string(), path.to_string())]));
     world.daemon = Daemon::new(Ports {
         edge: Arc::clone(&world.edge),
         engines: vec![HostedEngine {
@@ -771,10 +840,7 @@ async fn started_on(os: &str, path: &str, user_home: Option<&str>) -> run_ports:
             for_launch: None,
         }],
         plans: Box::new(Plans),
-        hand_offs: Box::new(Handed::of(BTreeMap::from([(
-            "PATH".to_string(),
-            path.to_string(),
-        )]))),
+        sealing: Arc::new(run_ports::TestSealing),
         homes: Box::new(Homes::default()),
         ears: Box::new(Listening::default()),
         run_locks: Arc::new(Locks(LockProbe::Unproven)),
@@ -845,6 +911,11 @@ impl run_ports::RunnerLauncher for Finds {
 #[tokio::test]
 async fn a_hosted_childs_launch_has_its_program_found_and_its_permits_applied() {
     let mut world = World::new(Box::new(Plans));
+    world.inputs = Inputs::of(BTreeMap::from([
+        ("PATH".to_string(), "/usr/bin".to_string()),
+        ("CTXLOOM_PERMIT_ACME_TOKEN".to_string(), "acme".to_string()),
+        ("CTXLOOM_PERMIT_PATH".to_string(), "/evil".to_string()),
+    ]));
     world.daemon = Daemon::new(Ports {
         edge: Arc::clone(&world.edge),
         engines: vec![HostedEngine {
@@ -854,11 +925,7 @@ async fn a_hosted_childs_launch_has_its_program_found_and_its_permits_applied() 
             for_launch: None,
         }],
         plans: Box::new(Plans),
-        hand_offs: Box::new(Handed::of(BTreeMap::from([
-            ("PATH".to_string(), "/usr/bin".to_string()),
-            ("CTXLOOM_PERMIT_ACME_TOKEN".to_string(), "acme".to_string()),
-            ("CTXLOOM_PERMIT_PATH".to_string(), "/evil".to_string()),
-        ]))),
+        sealing: Arc::new(run_ports::TestSealing),
         homes: Box::new(Homes::default()),
         ears: Box::new(Listening::default()),
         run_locks: Arc::new(Locks(LockProbe::Unproven)),
@@ -1069,6 +1136,10 @@ async fn each_launch_is_composed_from_its_launchers_places() {
         "CLAUDE_CONFIG_DIR".to_string(),
         "/home/alice/.claude-work".to_string(),
     )]);
+    world.inputs = Inputs::with(
+        BTreeMap::from([("PATH".to_string(), "/usr/bin".to_string())]),
+        launcher.clone(),
+    );
     world.daemon = Daemon::new(Ports {
         edge: Arc::clone(&world.edge),
         engines: vec![HostedEngine {
@@ -1078,10 +1149,7 @@ async fn each_launch_is_composed_from_its_launchers_places() {
             for_launch: Some(for_launch),
         }],
         plans: Box::new(Plans),
-        hand_offs: Box::new(Handed::with(
-            BTreeMap::from([("PATH".to_string(), "/usr/bin".to_string())]),
-            launcher.clone(),
-        )),
+        sealing: Arc::new(run_ports::TestSealing),
         homes: Box::new(world.homes.clone()),
         ears: Box::new(Listening::default()),
         run_locks: Arc::new(Locks(LockProbe::Unproven)),
@@ -1134,6 +1202,10 @@ async fn launched_running(
             },
         )
     };
+    world.inputs = Inputs::programmed(
+        BTreeMap::from([("PATH".to_string(), "/usr/bin".to_string())]),
+        program,
+    );
     world.daemon = Daemon::new(Ports {
         edge: Arc::clone(&world.edge),
         engines: vec![HostedEngine {
@@ -1143,10 +1215,7 @@ async fn launched_running(
             for_launch: Some(for_launch),
         }],
         plans: Box::new(Plans),
-        hand_offs: Box::new(Handed::programmed(
-            BTreeMap::from([("PATH".to_string(), "/usr/bin".to_string())]),
-            program,
-        )),
+        sealing: Arc::new(run_ports::TestSealing),
         homes: Box::new(world.homes.clone()),
         ears: Box::new(Listening::default()),
         run_locks: Arc::new(Locks(LockProbe::Unproven)),
@@ -1385,6 +1454,10 @@ async fn an_owner_is_told_its_childs_launch_failed() {
                 delegation_limit: 1,
                 requester: None,
                 prompt: String::new(),
+                agent: String::new(),
+                client_program: Default::default(),
+                settings_places: Vec::new(),
+                env: Vec::new(),
             },
         )
         .await;
@@ -1449,38 +1522,7 @@ async fn a_hosted_child_is_live_and_never_swept_as_another_processs() {
     assert_eq!(world.daemon.hosting(), 1, "still hosted");
 }
 
-// ---- the hand-off for the child's life (slice 4 U3, T6)
-
-/// Hand-off files, in memory: each read and delete recorded, `listed`
-/// what a listing answers.
-#[derive(Clone, Default)]
-struct Files {
-    kept: Arc<Mutex<BTreeMap<String, crate::HandOff>>>,
-    reads: Arc<Mutex<Vec<String>>>,
-    deleted: Arc<Mutex<Vec<String>>>,
-    claimed: Arc<Mutex<Vec<String>>>,
-    listed: Arc<Mutex<Vec<crate::Kept>>>,
-}
-
-impl HandOffs for Files {
-    fn read(&self, session: &str) -> Option<crate::HandOff> {
-        self.reads.lock().unwrap().push(session.to_string());
-        self.kept.lock().unwrap().get(session).cloned()
-    }
-
-    fn delete(&self, session: &str) {
-        self.deleted.lock().unwrap().push(session.to_string());
-        self.kept.lock().unwrap().remove(session);
-    }
-
-    fn claim(&self, session: &str) {
-        self.claimed.lock().unwrap().push(session.to_string());
-    }
-
-    fn list(&self) -> Vec<crate::Kept> {
-        self.listed.lock().unwrap().clone()
-    }
-}
+// ---- the launch's inputs for the child's life (slice 4 U3, T6)
 
 /// `Plans`, recording the agent each plan was asked for.
 #[derive(Clone, Default)]
@@ -1516,31 +1558,17 @@ impl ChildPlans for ForAgent {
     }
 }
 
-/// A world whose child `kid` has a hand-off in `files`, for the agent
-/// `reviewer`, hosted.
-async fn hosting_from(files: &Files, plans: &ForAgent) -> World {
-    hosting_from_within(files, plans, None).await
+/// A world whose child `kid` is launched for the agent `reviewer`, hosted.
+async fn hosting_from(plans: &ForAgent) -> World {
+    hosting_from_within(plans, None).await
 }
 
 /// [`hosting_from`], its hand-over's period `period` when one is given.
-async fn hosting_from_within(
-    files: &Files,
-    plans: &ForAgent,
-    period: Option<std::time::Duration>,
-) -> World {
-    files.kept.lock().unwrap().insert(
-        CHILD.to_string(),
-        crate::HandOff {
-            env: BTreeMap::from([("SECRET".to_string(), "v".to_string())]),
-            launcher: BTreeMap::new(),
-            agent: "reviewer".to_string(),
-            program: None,
-        },
-    );
+async fn hosting_from_within(plans: &ForAgent, period: Option<std::time::Duration>) -> World {
     let mut world = World::built_within(
         Box::new(plans.clone()),
         LockProbe::Unproven,
-        Box::new(files.clone()),
+        Inputs::reviewing(),
         period,
     );
     world.name_project().await;
@@ -1551,23 +1579,23 @@ async fn hosting_from_within(
     world
 }
 
-// T6: a child's start READS its hand-off and leaves it for its life (a
-// start after a daemon restart reads it again); the child is planned for
-// the agent the hand-off names.
+// T6: a child's start READS what its launch recorded (a start after a daemon
+// restart reads it again); the child is planned for the agent the launch
+// names, and started with the environment it was launched with.
 #[tokio::test]
-async fn a_childs_start_reads_its_hand_off_and_leaves_it() {
-    let files = Files::default();
+async fn a_childs_start_reads_its_launch_from_the_record() {
     let plans = ForAgent::default();
-    let world = hosting_from(&files, &plans).await;
-    assert_eq!(*files.reads.lock().unwrap(), [CHILD.to_string()]);
-    assert!(files.deleted.lock().unwrap().is_empty(), "kept");
-    assert!(files.kept.lock().unwrap().contains_key(CHILD));
-    assert_eq!(*plans.0.lock().unwrap(), ["reviewer".to_string()]);
+    let world = hosting_from(&plans).await;
+    // Once to settle its workspace axis as it is minted, once to start it.
+    assert_eq!(
+        *plans.0.lock().unwrap(),
+        ["reviewer".to_string(), "reviewer".to_string()]
+    );
     let started = world.engine.started.lock().unwrap().clone();
     assert_eq!(
         started[0].env.get("SECRET").map(String::as_str),
         Some("v"),
-        "started with what it was handed"
+        "started with what it was launched with"
     );
 }
 
@@ -1576,9 +1604,8 @@ async fn a_childs_start_reads_its_hand_off_and_leaves_it() {
 // the child stays open, its hand-off kept for its next run.
 #[tokio::test]
 async fn a_hosted_childs_run_asked_to_stop_is_ended_and_the_child_stays_open() {
-    let files = Files::default();
     let plans = ForAgent::default();
-    let mut world = hosting_from(&files, &plans).await;
+    let mut world = hosting_from(&plans).await;
     world
         .edge
         .handle(CommandBook::command_of(
@@ -1622,148 +1649,6 @@ async fn a_hosted_childs_run_asked_to_stop_is_ended_and_the_child_stays_open() {
             .any(|event| matches!(event, SessionEvent::SessionClosed(_))),
         "the child stays open"
     );
-    assert!(
-        files.deleted.lock().unwrap().is_empty(),
-        "its hand-off kept"
-    );
-}
-
-// T6: a child closed for good has its hand-off deleted.
-#[tokio::test]
-async fn a_closed_childs_hand_off_is_deleted() {
-    let files = Files::default();
-    let plans = ForAgent::default();
-    let mut world = hosting_from(&files, &plans).await;
-    world
-        .handle(
-            CHILD,
-            sessions::CloseSession {
-                cause: "closed by the user".to_string(),
-                requester: None,
-            },
-        )
-        .await;
-    for _ in 0..3 {
-        world.tick().await;
-    }
-    assert!(
-        files.deleted.lock().unwrap().contains(&CHILD.to_string()),
-        "{:?}",
-        files.deleted.lock().unwrap()
-    );
-    assert!(!files.kept.lock().unwrap().contains_key(CHILD));
-}
-
-/// A hand-off of `session` as a listing has it.
-fn kept(session: &str, marked: bool, creator_holds: bool) -> crate::Kept {
-    crate::Kept {
-        session: session.to_string(),
-        marked,
-        creator_holds,
-    }
-}
-
-/// A child nothing launched yet.
-const UNLAUNCHED: &str = "5f0c7a52-1111-5111-8111-0000000000d1";
-
-/// The sweep over `listed`, the child `kid` hosted: what it deleted and
-/// what it claimed.
-async fn swept(listed: Vec<crate::Kept>) -> (Vec<String>, Vec<String>) {
-    let files = Files::default();
-    let plans = ForAgent::default();
-    let mut world = hosting_from(&files, &plans).await;
-    *files.listed.lock().unwrap() = listed;
-    world.tick().await;
-    let deleted = files.deleted.lock().unwrap().clone();
-    let claimed = files.claimed.lock().unwrap().clone();
-    (deleted, claimed)
-}
-
-// T6 (owner's ruling on U3): a hand-off that is not marked in launch and
-// that no session knows of is swept at once; an open child's is kept.
-#[tokio::test]
-async fn an_unmarked_hand_off_no_session_knows_is_swept_at_once() {
-    let (deleted, _) = swept(vec![
-        kept(UNLAUNCHED, false, false),
-        kept(CHILD, false, false),
-    ])
-    .await;
-    assert_eq!(deleted, [UNLAUNCHED.to_string()], "the open child's kept");
-}
-
-// The race of the sweep between `CreateHandOff` and `LaunchChild`, forced:
-// marked, its creator holding the launch lock, nothing recorded yet. Kept.
-#[tokio::test]
-async fn a_hand_off_in_launch_whose_creator_holds_it_is_kept() {
-    let (deleted, claimed) = swept(vec![kept(UNLAUNCHED, true, true)]).await;
-    assert!(deleted.is_empty(), "{deleted:?}");
-    assert!(claimed.is_empty(), "nothing launched it yet: {claimed:?}");
-}
-
-// The race of a creator crashing mid-launch, forced: marked, its launch
-// lock free. Its creator is proven gone, so it is swept.
-#[tokio::test]
-async fn a_hand_off_whose_creator_crashed_mid_launch_is_swept() {
-    let (deleted, _) = swept(vec![kept(UNLAUNCHED, true, false)]).await;
-    assert_eq!(deleted, [UNLAUNCHED.to_string()]);
-}
-
-// `LaunchChild` claims it: a marked hand-off of a child its owner holds
-// (launched, not minted yet) or of a session the board knows is claimed,
-// never swept, whatever its creator's lock says.
-#[tokio::test]
-async fn a_marked_hand_off_a_launch_recorded_is_claimed() {
-    let files = Files::default();
-    let plans = ForAgent::default();
-    let mut world = hosting_from(&files, &plans).await;
-    world
-        .handle(
-            OWNER,
-            sessions::LaunchChild {
-                child_project_id: "calm-otter".to_string(),
-                child_session: UNLAUNCHED.to_string(),
-                child_root: "/work".to_string(),
-                harp: "late-kid".to_string(),
-                engine: ENGINE.to_string(),
-                trust: sessions::TargetTrust {
-                    same_project: true,
-                    trusted: true,
-                },
-                delegation_limit: 4,
-                requester: None,
-                prompt: String::new(),
-            },
-        )
-        .await;
-    *files.listed.lock().unwrap() = vec![kept(UNLAUNCHED, true, false), kept(CHILD, true, false)];
-    world.tick().await;
-    let deleted = files.deleted.lock().unwrap().clone();
-    assert!(deleted.is_empty(), "{deleted:?}");
-    let claimed = files.claimed.lock().unwrap().clone();
-    assert!(claimed.contains(&UNLAUNCHED.to_string()), "{claimed:?}");
-    assert!(claimed.contains(&CHILD.to_string()), "{claimed:?}");
-}
-
-// A closed child's hand-off is swept whatever its mark.
-#[tokio::test]
-async fn a_closed_childs_hand_off_is_swept_whatever_its_mark() {
-    let files = Files::default();
-    let plans = ForAgent::default();
-    let mut world = hosting_from(&files, &plans).await;
-    let closed = "5f0c7a52-1111-5111-8111-0000000000c1";
-    world.mint(closed, "gone", Some(OWNER)).await;
-    world
-        .handle(
-            closed,
-            sessions::CloseSession {
-                cause: "done".to_string(),
-                requester: None,
-            },
-        )
-        .await;
-    *files.listed.lock().unwrap() = vec![kept(closed, true, true)];
-    world.tick().await;
-    assert_eq!(*files.deleted.lock().unwrap(), [closed.to_string()]);
 }
 
 // ---------------------------------------------------------------- U6
@@ -2009,7 +1894,8 @@ async fn a_hosted_child_is_planned_with_its_projects_trust() {
         world.mint(CHILD, "kid", Some(OWNER)).await;
         world.tick().await;
         assert_eq!(world.daemon.hosting(), 1, "hosted");
-        assert_eq!(*seen.lock().unwrap(), [grant]);
+        // Once to settle its workspace axis as it is minted, once to start it.
+        assert_eq!(*seen.lock().unwrap(), [grant, grant]);
     }
 }
 
@@ -2056,6 +1942,10 @@ async fn in_a_worktree(removal: isolation_ports::Removal) -> (World, Arc<Checkou
     let mut world = World::new(Box::new(WorktreePlans));
     let said: Log = Arc::default();
     let log = Arc::clone(&said);
+    world.inputs = Inputs::of(BTreeMap::from([(
+        "SSH_AUTH_SOCK".to_string(),
+        "/run/her-agent".to_string(),
+    )]));
     world.daemon = Daemon::new(Ports {
         edge: Arc::clone(&world.edge),
         engines: vec![HostedEngine {
@@ -2066,10 +1956,7 @@ async fn in_a_worktree(removal: isolation_ports::Removal) -> (World, Arc<Checkou
         }],
         plans: Box::new(WorktreePlans),
         // Her launcher's environment holds her ssh agent.
-        hand_offs: Box::new(Handed::of(BTreeMap::from([(
-            "SSH_AUTH_SOCK".to_string(),
-            "/run/her-agent".to_string(),
-        )]))),
+        sealing: Arc::new(run_ports::TestSealing),
         homes: Box::new(world.homes.clone()),
         ears: Box::new(Listening::default()),
         run_locks: Arc::new(Locks(LockProbe::Unproven)),
@@ -2086,23 +1973,7 @@ async fn in_a_worktree(removal: isolation_ports::Removal) -> (World, Arc<Checkou
     world.name_project().await;
     world.mint(OWNER, "boss", None).await;
     world
-        .handle(
-            OWNER,
-            sessions::LaunchChild {
-                child_project_id: "calm-otter".to_string(),
-                child_session: CHILD.to_string(),
-                child_root: "/work".to_string(),
-                harp: "kid".to_string(),
-                engine: ENGINE.to_string(),
-                trust: sessions::TargetTrust {
-                    same_project: true,
-                    trusted: true,
-                },
-                delegation_limit: 1,
-                requester: None,
-                prompt: String::new(),
-            },
-        )
+        .handle(OWNER, world.inputs.command(CHILD, "kid"))
         .await;
     for _ in 0..3 {
         world.tick().await;
@@ -2218,7 +2089,7 @@ async fn the_starts_sweep_releases_a_lost_childs_checkout_and_never_the_project(
         edge: Arc::clone(&edge),
         engines: Vec::new(),
         plans: Box::new(WorktreePlans),
-        hand_offs: Box::new(Handed::of(BTreeMap::new())),
+        sealing: Arc::new(run_ports::TestSealing),
         homes: Box::new(Homes::default()),
         ears: Box::new(Listening::default()),
         run_locks: Arc::new(Locks(LockProbe::Free)),
@@ -2247,6 +2118,11 @@ async fn the_starts_sweep_releases_a_lost_childs_checkout_and_never_the_project(
 /// A daemon started over `world`'s store, engine and session homes, after
 /// the world's own was killed, its locks probing as `locks`.
 fn restarted(world: &World, locks: LockProbe) -> Daemon<TestEdge> {
+    restarted_on(world, locks, Box::new(Plans))
+}
+
+/// [`restarted`], planning children with `plans`.
+fn restarted_on(world: &World, locks: LockProbe, plans: Box<dyn ChildPlans>) -> Daemon<TestEdge> {
     Daemon::new(Ports {
         edge: Arc::clone(&world.edge),
         engines: vec![HostedEngine {
@@ -2255,8 +2131,8 @@ fn restarted(world: &World, locks: LockProbe) -> Daemon<TestEdge> {
             transcripts: Arc::new(|_| None),
             for_launch: None,
         }],
-        plans: Box::new(Plans),
-        hand_offs: Box::new(Handed::of(BTreeMap::new())),
+        plans,
+        sealing: Arc::new(run_ports::TestSealing),
         homes: Box::new(world.homes.clone()),
         ears: Box::new(Listening::default()),
         run_locks: Arc::new(Locks(locks)),
@@ -2419,10 +2295,10 @@ async fn ended(world: &World, session: &str) -> Vec<(u32, String)> {
         .collect()
 }
 
-/// A hosted child bound to its engine's session `n1`, its hand-off in
-/// `files`, with no turn in flight.
-async fn idle_bound_child(files: &Files) -> World {
-    let mut world = hosting_from(files, &ForAgent::default()).await;
+/// A hosted child bound to its engine's session `n1`, with no turn in
+/// flight.
+async fn idle_bound_child() -> World {
+    let mut world = hosting_from(&ForAgent::default()).await;
     world.say(ChildObservation::Started {
         native_id: "n1".to_string(),
     });
@@ -2458,9 +2334,8 @@ fn wake(id: &str) -> sessions::SendMessage {
 // hand-off is KEPT for the daemon that re-hosts it, and, hosting nothing
 // more, it may exit.
 #[tokio::test]
-async fn a_draining_daemon_ends_an_idle_child_at_once_keeping_its_hand_off() {
-    let files = Files::default();
-    let mut world = idle_bound_child(&files).await;
+async fn a_draining_daemon_ends_an_idle_child_at_once_keeping_its_launch() {
+    let mut world = idle_bound_child().await;
     world.daemon.hand_over();
     world.tick().await;
     assert_eq!(world.engine.asked.lock().unwrap().ends, 1, "ended at once");
@@ -2470,11 +2345,6 @@ async fn a_draining_daemon_ends_an_idle_child_at_once_keeping_its_hand_off() {
     world.tick().await;
     assert_eq!(ended(&world, CHILD).await, [(1, "drained".to_string())]);
     assert_eq!(world.daemon.hosting(), 0, "it hosts nothing more");
-    assert!(
-        files.deleted.lock().unwrap().is_empty(),
-        "its hand-off kept"
-    );
-    assert!(files.kept.lock().unwrap().contains_key(CHILD));
 }
 
 /// The drain's guidance's id to the child's first run (OD-54).
@@ -2525,8 +2395,7 @@ async fn messages_sent(world: &World) -> Vec<(String, Urgency, String)> {
 // ended once the guidance's turn ends, and only then.
 #[tokio::test]
 async fn a_draining_daemon_steers_a_busy_child_and_ends_it_once_its_guidance_turn_ends() {
-    let files = Files::default();
-    let mut world = hosting_from(&files, &ForAgent::default()).await;
+    let mut world = hosting_from(&ForAgent::default()).await;
     busy_child(&mut world).await;
     world.daemon.hand_over();
     for _ in 0..3 {
@@ -2591,8 +2460,7 @@ async fn a_draining_daemon_steers_a_busy_child_and_ends_it_once_its_guidance_tur
 // OD-54 (1): an idle child is ended at once, given no guidance.
 #[tokio::test]
 async fn a_draining_daemon_gives_an_idle_child_no_guidance() {
-    let files = Files::default();
-    let mut world = idle_bound_child(&files).await;
+    let mut world = idle_bound_child().await;
     world.daemon.hand_over();
     for _ in 0..2 {
         world.tick().await;
@@ -2612,8 +2480,7 @@ async fn a_draining_daemon_gives_an_idle_child_no_guidance() {
 // then ended, so no guidance is left pending for the next daemon.
 #[tokio::test]
 async fn a_child_idle_before_its_guidance_was_delivered_is_given_it_before_it_is_ended() {
-    let files = Files::default();
-    let mut world = hosting_from(&files, &ForAgent::default()).await;
+    let mut world = hosting_from(&ForAgent::default()).await;
     busy_child(&mut world).await;
     world.daemon.hand_over();
     world.tick().await;
@@ -2655,8 +2522,7 @@ fn the_hand_over_period_is_five_minutes() {
 // daemon re-hosts it on its own conversation.
 #[tokio::test]
 async fn a_child_still_busy_after_the_period_is_handed_over_its_turn_cut() {
-    let files = Files::default();
-    let mut world = hosting_from(&files, &ForAgent::default()).await;
+    let mut world = hosting_from(&ForAgent::default()).await;
     busy_child(&mut world).await;
     world.daemon.hand_over();
     for _ in 0..3 {
@@ -2680,7 +2546,6 @@ async fn a_child_still_busy_after_the_period_is_handed_over_its_turn_cut() {
     world.say(exited());
     world.tick().await;
     assert_eq!(ended(&world, CHILD).await, [(1, "drained".to_string())]);
-    assert!(files.kept.lock().unwrap().contains_key(CHILD), "kept");
     world.daemon = restarted(&world, LockProbe::Free);
     world
         .daemon
@@ -2702,9 +2567,8 @@ async fn a_child_still_busy_after_the_period_is_handed_over_its_turn_cut() {
 // timed from the hand-over's start, not the daemon's.
 #[tokio::test]
 async fn the_hand_over_period_is_the_one_given_timed_from_the_hand_over() {
-    let files = Files::default();
     let period = std::time::Duration::from_secs(2);
-    let mut world = hosting_from_within(&files, &ForAgent::default(), Some(period)).await;
+    let mut world = hosting_from_within(&ForAgent::default(), Some(period)).await;
     busy_child(&mut world).await;
     world.clock.pass(std::time::Duration::from_secs(60));
     world.daemon.hand_over();
@@ -2722,8 +2586,7 @@ async fn the_hand_over_period_is_the_one_given_timed_from_the_hand_over() {
 #[tokio::test]
 async fn a_period_changed_during_the_drain_is_the_drains() {
     use std::time::Duration;
-    let files = Files::default();
-    let mut world = hosting_from(&files, &ForAgent::default()).await;
+    let mut world = hosting_from(&ForAgent::default()).await;
     busy_child(&mut world).await;
     world.daemon.hand_over();
     world.tick().await;
@@ -2755,8 +2618,7 @@ async fn a_period_changed_during_the_drain_is_the_drains() {
 // child steered, and when it is handed over at the latest.
 #[tokio::test]
 async fn a_draining_daemon_warns_at_once_of_each_busy_child() {
-    let files = Files::default();
-    let mut world = hosting_from(&files, &ForAgent::default()).await;
+    let mut world = hosting_from(&ForAgent::default()).await;
     busy_child(&mut world).await;
     world.daemon.hand_over();
     for _ in 0..3 {
@@ -2776,8 +2638,7 @@ async fn a_draining_daemon_warns_at_once_of_each_busy_child() {
 // the child is ended, not given a turn.
 #[tokio::test]
 async fn a_draining_daemon_delivers_no_message() {
-    let files = Files::default();
-    let mut world = idle_bound_child(&files).await;
+    let mut world = idle_bound_child().await;
     world.daemon.hand_over();
     world.handle(CHILD, wake("m-late")).await;
     for _ in 0..3 {
@@ -2801,8 +2662,7 @@ async fn a_draining_daemon_delivers_no_message() {
 // conversation.
 #[tokio::test]
 async fn the_next_daemon_rehosts_a_drained_child_resuming_its_conversation() {
-    let files = Files::default();
-    let mut world = idle_bound_child(&files).await;
+    let mut world = idle_bound_child().await;
     world.daemon.hand_over();
     world.tick().await;
     world.say(exited());
@@ -2830,8 +2690,7 @@ async fn the_next_daemon_rehosts_a_drained_child_resuming_its_conversation() {
 // incarnation ends `runner-exit`, and no daemon re-hosts it.
 #[tokio::test]
 async fn a_child_ended_by_an_escalation_is_not_handed_over() {
-    let files = Files::default();
-    let mut world = idle_bound_child(&files).await;
+    let mut world = idle_bound_child().await;
     world.daemon.end_all();
     world.say(exited());
     world.tick().await;
@@ -2877,6 +2736,8 @@ impl World {
             daemon,
             clock,
             said,
+            inputs,
+            distilled,
         } = self;
         World {
             daemon: daemon.hosting_one_shots(one_shots),
@@ -2885,6 +2746,8 @@ impl World {
             homes,
             clock,
             said,
+            inputs,
+            distilled,
         }
     }
 }
@@ -2900,7 +2763,7 @@ async fn a_one_shot_still_running_after_the_period_is_stopped() {
     let world = World::built_within(
         Box::new(Plans),
         LockProbe::Unproven,
-        Box::new(Handed::of(BTreeMap::new())),
+        Inputs::of(BTreeMap::new()),
         Some(period),
     );
     let stops = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -2993,17 +2856,13 @@ async fn launched_into(outputs: Outputs, project: &str, root: &str, same_project
             OWNER,
             sessions::LaunchChild {
                 child_project_id: project.to_string(),
-                child_session: CHILD.to_string(),
                 child_root: root.to_string(),
-                harp: "kid".to_string(),
-                engine: ENGINE.to_string(),
                 trust: sessions::TargetTrust {
                     same_project,
                     trusted: true,
                 },
                 delegation_limit: 1,
-                requester: None,
-                prompt: String::new(),
+                ..world.inputs.command(CHILD, "kid")
             },
         )
         .await;
@@ -3096,20 +2955,26 @@ async fn a_child_whose_projects_output_folder_cannot_be_read_is_not_launched() {
     );
 }
 
-// Step 8 U4: a hosted child asks as the agent it was launched for (its
-// hand-off's), on the engine it is hosted on.
+// Step 8 U4: a hosted child's loadout records the agent it was launched for,
+// where its asks read it.
 #[tokio::test]
-async fn a_hosted_child_asks_as_the_agent_its_hand_off_names() {
-    let files = Files::default();
+async fn a_hosted_child_records_the_agent_its_launch_names() {
     let plans = ForAgent::default();
-    let world = hosting_from(&files, &plans).await;
-    let askers = world.daemon.askers();
-    let [asker] = askers.as_slice() else {
-        panic!("one asker: {askers:?}");
-    };
-    assert_eq!(asker.session, CHILD);
-    assert_eq!(asker.engine, ENGINE);
-    assert_eq!(asker.agent, "reviewer");
+    let world = hosting_from(&plans).await;
+    assert_eq!(recorded_agent(&world).await, "reviewer");
+}
+
+/// The agent the child's recorded loadout names.
+async fn recorded_agent(world: &World) -> String {
+    world
+        .session_events(CHILD)
+        .await
+        .into_iter()
+        .find_map(|event| match event {
+            SessionEvent::LoadoutRecorded(recorded) => Some(recorded.loadout.agent),
+            _ => None,
+        })
+        .expect("a recorded loadout")
 }
 
 /// A plan of the child that settles the agent `dev`.
@@ -3142,17 +3007,16 @@ impl ChildPlans for DevPlans {
     }
 }
 
-// With no agent handed, a hosted child asks as the agent its plan settled.
+// With no agent handed, a hosted child's loadout names the agent its plan
+// settled.
 #[tokio::test]
-async fn a_hosted_child_with_no_handed_agent_asks_as_its_plans() {
+async fn a_hosted_child_with_no_handed_agent_records_its_plans() {
     let mut world = World::new(Box::new(DevPlans));
     world.name_project().await;
     world.mint(OWNER, "boss", None).await;
     world.mint(CHILD, "kid", Some(OWNER)).await;
     world.tick().await;
-    let askers = world.daemon.askers();
-    assert_eq!(askers.len(), 1, "{askers:?}");
-    assert_eq!(askers[0].agent, "dev");
+    assert_eq!(recorded_agent(&world).await, "dev");
 }
 
 // ------------------------------------------- a restart (step 10e Stage 2a)
@@ -3197,8 +3061,7 @@ fn handed_to_child(world: &World) -> Vec<(String, ChildUrgency)> {
 // ended `restarted`, the next owed for `restart` and started resuming `n1`.
 #[tokio::test]
 async fn a_restart_asked_of_an_idle_child_is_carried_out_at_once() {
-    let files = Files::default();
-    let mut world = idle_bound_child(&files).await;
+    let mut world = idle_bound_child().await;
     world.handle(CHILD, restart_request()).await;
     world.tick().await;
     assert_eq!(world.engine.asked.lock().unwrap().ends, 1, "ended at once");
@@ -3215,18 +3078,13 @@ async fn a_restart_asked_of_an_idle_child_is_carried_out_at_once() {
     assert_eq!(started.len(), 2, "started again");
     assert_eq!(started[1].resume.as_deref(), Some("n1"), "its conversation");
     assert_eq!(world.daemon.hosting(), 1);
-    assert!(
-        files.deleted.lock().unwrap().is_empty(),
-        "its hand-off kept"
-    );
 }
 
 // Active, it is PARKED: the turn in flight is never cut; the restart is
 // carried out at the turn's end.
 #[tokio::test]
 async fn a_restart_asked_of_a_busy_child_waits_for_its_turn_to_end() {
-    let files = Files::default();
-    let mut world = hosting_from(&files, &ForAgent::default()).await;
+    let mut world = hosting_from(&ForAgent::default()).await;
     busy_child(&mut world).await;
     world.handle(CHILD, restart_request()).await;
     settle(&mut world).await;
@@ -3254,8 +3112,7 @@ async fn a_restart_asked_of_a_busy_child_waits_for_its_turn_to_end() {
 // Asked twice, or replayed after it was carried out, it restarts once.
 #[tokio::test]
 async fn a_request_asked_twice_or_replayed_restarts_once() {
-    let files = Files::default();
-    let mut world = idle_bound_child(&files).await;
+    let mut world = idle_bound_child().await;
     let key = format!("restart:{CHILD}:1:operator");
     let keyed = || sessions::keyed_book(session_cover(CHILD), &restart_request(), &key);
     world.edge.handle(keyed()).await.unwrap();
@@ -3279,8 +3136,7 @@ async fn a_request_asked_twice_or_replayed_restarts_once() {
 // the restart owed proceeds.
 #[tokio::test]
 async fn an_engine_exit_without_a_turn_end_lets_a_parked_restart_proceed() {
-    let files = Files::default();
-    let mut world = hosting_from(&files, &ForAgent::default()).await;
+    let mut world = hosting_from(&ForAgent::default()).await;
     busy_child(&mut world).await;
     world.handle(CHILD, restart_request()).await;
     settle(&mut world).await;
@@ -3300,8 +3156,7 @@ async fn an_engine_exit_without_a_turn_end_lets_a_parked_restart_proceed() {
 // A parked agent does not block another's launch.
 #[tokio::test]
 async fn a_second_agents_launch_is_not_blocked_while_the_first_is_parked() {
-    let files = Files::default();
-    let mut world = hosting_from(&files, &ForAgent::default()).await;
+    let mut world = hosting_from(&ForAgent::default()).await;
     busy_child(&mut world).await;
     world.handle(CHILD, restart_request()).await;
     settle(&mut world).await;
@@ -3321,8 +3176,7 @@ async fn a_second_agents_launch_is_not_blocked_while_the_first_is_parked() {
 // turn.
 #[tokio::test]
 async fn a_parked_child_takes_a_steer_and_holds_an_inform_for_the_resumed_session() {
-    let files = Files::default();
-    let mut world = hosting_from(&files, &ForAgent::default()).await;
+    let mut world = hosting_from(&ForAgent::default()).await;
     busy_child(&mut world).await;
     world.handle(CHILD, restart_request()).await;
     world
@@ -3424,8 +3278,7 @@ async fn a_restart_owed_survives_the_daemon_and_is_honoured_once() {
 // restart of the new incarnation is a second restart.
 #[tokio::test]
 async fn a_restarted_child_can_be_restarted_again() {
-    let files = Files::default();
-    let mut world = idle_bound_child(&files).await;
+    let mut world = idle_bound_child().await;
     world.handle(CHILD, restart_request()).await;
     settle(&mut world).await;
     world.say(exited());
@@ -3459,8 +3312,7 @@ async fn a_restarted_child_can_be_restarted_again() {
 // re-hosts it, which resumes it for the cause `restart`.
 #[tokio::test]
 async fn a_draining_daemon_hands_a_child_owed_a_restart_over_and_restarts_none() {
-    let files = Files::default();
-    let mut world = idle_bound_child(&files).await;
+    let mut world = idle_bound_child().await;
     world.handle(CHILD, restart_request()).await;
     world.daemon.hand_over();
     settle(&mut world).await;
@@ -3497,8 +3349,7 @@ const PRIMARY: &str = "5f0c7a52-4444-5444-8444-000000000004";
 // child hosted here is ended in its stead.
 #[tokio::test]
 async fn a_restart_owed_to_an_engine_this_daemon_does_not_host_ends_no_other() {
-    let files = Files::default();
-    let mut world = idle_bound_child(&files).await;
+    let mut world = idle_bound_child().await;
     world.mint(PRIMARY, "prim", None).await;
     world
         .edge
@@ -3520,6 +3371,7 @@ async fn a_restart_owed_to_an_engine_this_daemon_does_not_host_ends_no_other() {
             evidence: runs_application::Evidence::passing(ENGINE),
             launcher_lock: "/h/.ctxloom/runs/p.lock".to_string(),
             grant: None,
+            spec: None,
         })
         .await
         .unwrap();
@@ -3555,4 +3407,253 @@ async fn a_restart_owed_to_an_engine_this_daemon_does_not_host_ends_no_other() {
         "nothing ended here"
     );
     assert_eq!(world.daemon.hosting(), 1);
+}
+
+// P3 (owner ruling 2026-11-25, "record the decision's outputs"): a hosted
+// child's enqueue records what its plan decided, so a start (and any process
+// that reads the stream) launches from the record, never from live config.
+// RED: `RunEnqueued.spec` is not filled.
+
+/// The spec the child's run was enqueued with.
+async fn spec_of(world: &World, incarnation: u32) -> runs::LaunchSpec {
+    world
+        .events_of_run(incarnation)
+        .await
+        .into_iter()
+        .find_map(|event| match event {
+            RunEvent::RunEnqueued(enqueued) => enqueued.spec,
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("run {incarnation} was enqueued with no launch spec"))
+}
+
+#[tokio::test]
+async fn a_hosted_childs_enqueue_records_what_its_plan_decided() {
+    let world = World::hosting().await;
+    let spec = spec_of(&world, 1).await;
+    assert_eq!(spec.model, "opus");
+    assert_eq!(spec.context, "THE-CONTEXT");
+    assert_eq!(
+        spec.git_user,
+        runs::GitIdentity {
+            name: "Alice".to_string(),
+            email: "alice@example.com".to_string(),
+        }
+    );
+    // The environment is recorded by NAME, each value sealed: no value of
+    // the hand-off (`SECRET=v`) rides the event in the clear.
+    let names: Vec<&str> = spec.env.iter().map(|e| e.name.as_str()).collect();
+    assert!(names.contains(&"SECRET"), "{names:?}");
+    for entry in &spec.env {
+        assert_ne!(entry.value.sealed, b"v".to_vec(), "{} is plain", entry.name);
+    }
+}
+
+// T21 kept: a re-host is a NEW enqueue, planned then, and recorded: the
+// first incarnation's record keeps what it launched with, the second's says
+// what the config said when it was enqueued. Nothing re-plans between an
+// enqueue and its start, so a start never differs from its record.
+struct Remodelled(String);
+
+impl ChildPlans for Remodelled {
+    fn output_root(
+        &self,
+        project_dir: &str,
+        env: &BTreeMap<String, String>,
+    ) -> Result<String, String> {
+        Plans.output_root(project_dir, env)
+    }
+
+    fn preview(
+        &self,
+        engine: &str,
+        agent: &str,
+        project_dir: &str,
+        env: &BTreeMap<String, String>,
+        trusted: bool,
+    ) -> Result<Previewed, String> {
+        let mut previewed = Plans.preview(engine, agent, project_dir, env, trusted)?;
+        previewed.plan.model = self.0.clone();
+        Ok(previewed)
+    }
+
+    fn git_user(
+        &self,
+        project_dir: &str,
+        env: &BTreeMap<String, String>,
+    ) -> Option<run_ports::GitUser> {
+        Plans.git_user(project_dir, env)
+    }
+}
+
+#[tokio::test]
+async fn a_rehost_after_a_config_edit_records_its_own_plan_and_leaves_the_first() {
+    let mut world = killed_with_a_bound_child().await;
+    world.daemon = restarted_on(
+        &world,
+        LockProbe::Free,
+        Box::new(Remodelled("sonnet".to_string())),
+    );
+    world
+        .daemon
+        .start_up(&world.edge.store, world.edge.catalog())
+        .await
+        .unwrap();
+    for _ in 0..3 {
+        world.tick().await;
+    }
+    assert_eq!(
+        spec_of(&world, 1).await.model,
+        "opus",
+        "what it launched with"
+    );
+    assert_eq!(spec_of(&world, 2).await.model, "sonnet", "the new plan's");
+}
+
+/// The distill write as the root makes it, in its record alone: what it was
+/// asked is kept, and its outcome (a written one) recorded on the run.
+struct Distilled {
+    edge: Arc<TestEdge>,
+    asked: Arc<Mutex<Vec<daemon_board::DistillDue>>>,
+}
+
+impl crate::Distilling for Distilled {
+    fn write(&self, due: daemon_board::DistillDue) -> run_ports::BoxFuture<'_, Result<(), String>> {
+        Box::pin(async move {
+            let root = uuid::Uuid::parse_str(&due.run).map_err(|e| e.to_string())?;
+            let cover = Cover {
+                domain: runs::RUN_DOMAIN.to_string(),
+                root: Some(angzarr_embedded::v1::Uuid::from_bytes(*root.as_bytes())),
+                edition: None,
+            };
+            let key = format!("distill:{}", due.run);
+            self.asked.lock().unwrap().push(due);
+            let fact = runs::RecordDistillWritten {
+                end: Vec::new(),
+                notices: Vec::new(),
+            };
+            self.edge
+                .handle(sessions::fact_book(cover, &fact, &key))
+                .await
+                .map(|_| ())
+                .map_err(|e| format!("{e:?}"))
+        })
+    }
+}
+
+const DISTILLER: &str = "5f0c7a52-4444-5444-8444-000000000004";
+
+/// A distill run's stream: enqueued with its purpose, one turn queued, and
+/// (when `answer` is given) completed with that answer.
+async fn distill_run(world: &World, answer: Option<&str>) -> Cover {
+    let cover = Cover {
+        domain: runs::RUN_DOMAIN.to_string(),
+        root: Some(runs::run_root(DISTILLER, 1)),
+        edition: None,
+    };
+    let enqueue = runs::EnqueueRun {
+        session: DISTILLER.to_string(),
+        incarnation: 1,
+        mode: runs::RunMode::Structured,
+        prompt_given: true,
+        engine: "claude-code".to_string(),
+        drivable_engines: vec!["claude-code".to_string()],
+        credential: runs::CredentialEvidence::default(),
+        fatal_findings: 0,
+        fatal: Vec::new(),
+        launcher_lock: String::new(),
+        untrusted_settings: Vec::new(),
+        grant: None,
+        spec: Some(runs::LaunchSpec {
+            distill: Some(runs::DistillPurpose {
+                reference: "projects/calm-quiet-heron/bundles/demo/fragments/x".to_string(),
+                kind: "fragment".to_string(),
+                digest: "d1".to_string(),
+                etag: "3".to_string(),
+                cwd: "/work".to_string(),
+            }),
+            ..Default::default()
+        }),
+    };
+    let queue = runs::QueueTurn {
+        prompt_ref: String::new(),
+        resume: false,
+        message_ids: Vec::new(),
+        urgency: TurnUrgency::Wake,
+    };
+    for command in [
+        runs::RunCommand::from(enqueue),
+        runs::RunCommand::from(queue),
+    ] {
+        world
+            .edge
+            .handle(CommandBook::command_of(cover.clone(), &command))
+            .await
+            .unwrap();
+    }
+    if let Some(answer) = answer {
+        let completed = runs::RecordTurnCompleted {
+            turn: 1,
+            answer: answer.to_string(),
+            ..Default::default()
+        };
+        world
+            .edge
+            .handle(sessions::fact_book(
+                cover.clone(),
+                &completed,
+                "turn:d:1:completed",
+            ))
+            .await
+            .unwrap();
+    }
+    cover
+}
+
+// Owner 2026-11-28: the loop writes a distill run once its answer is
+// recorded, and what it came to is recorded on the run's stream; a run with
+// no answer yet is not due, and one written is never written again.
+#[tokio::test]
+async fn a_distill_runs_recorded_answer_is_written_once_and_its_outcome_recorded() {
+    let mut world = World::new(Box::new(Plans));
+    let unanswered = distill_run(&world, None).await;
+    world.tick().await;
+    assert!(world.distilled.lock().unwrap().is_empty(), "no answer yet");
+    let completed = runs::RecordTurnCompleted {
+        turn: 1,
+        answer: "SHORT".to_string(),
+        ..Default::default()
+    };
+    world
+        .edge
+        .handle(sessions::fact_book(
+            unanswered.clone(),
+            &completed,
+            "turn:d:1:completed",
+        ))
+        .await
+        .unwrap();
+    world.tick().await;
+    {
+        let asked = world.distilled.lock().unwrap();
+        let [due] = asked.as_slice() else {
+            panic!("one write asked: {asked:?}");
+        };
+        assert_eq!(due.answer, "SHORT");
+        assert_eq!(due.purpose.digest, "d1");
+        assert_eq!(due.purpose.etag, "3");
+    }
+    let recorded: Vec<RunEvent> = events(&world.edge, &unanswered)
+        .await
+        .iter()
+        .map(|any| RunEvent::from_any(any).unwrap())
+        .collect();
+    assert!(
+        recorded
+            .iter()
+            .any(|event| matches!(event, RunEvent::DistillWritten(_))),
+        "its outcome is on the run's stream: {recorded:?}"
+    );
+    world.tick().await;
+    assert_eq!(world.distilled.lock().unwrap().len(), 1, "written once");
 }

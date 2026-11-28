@@ -1,8 +1,7 @@
-//! What a launch is told that the run's events do not say: the engine, the
-//! assembled context, the prompt and the environment of the caller. In one
-//! process the caller that enqueued the run places the order; the launcher,
-//! finding the run owed a runner, takes it. A run with no order here is
-//! another process's, and is left.
+//! What a launch is made from: the engine, the assembled context, the prompt
+//! and the environment of the caller. An [`Order`] is READ from the stream
+//! (`crate::record::order_of`: the run's recorded spec and its session's
+//! events), never handed to the launcher; it is a value, not a table.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -83,32 +82,29 @@ impl fmt::Debug for Order {
     }
 }
 
-/// The orders placed and not yet taken, by session id text and incarnation,
-/// and the run locks held for them (rulings 86, 92).
+/// The runs this process enqueued and has yet to start, by session id text
+/// and incarnation, with the run's own lock when this process holds it
+/// (rulings 86, 92). A run enqueued here is launched here, once the record
+/// says it may be (its mint and loadout); one not enqueued here is another
+/// process's and is left to the sweep. The lock is the process's own file
+/// lock, not a message: it lives until the runner is started. This is the
+/// lease P5 replaces with recorded facts.
 #[derive(Debug, Default)]
-pub struct Orders {
-    placed: Mutex<BTreeMap<(String, u32), Order>>,
-    locks: Mutex<BTreeMap<(String, u32), run_ports::HeldLock>>,
+pub struct RunLockTable {
+    held: Mutex<BTreeMap<(String, u32), Option<run_ports::HeldLock>>>,
 }
 
-impl Orders {
-    pub fn new() -> Orders {
-        Orders::default()
+impl RunLockTable {
+    pub fn new() -> RunLockTable {
+        RunLockTable::default()
     }
 
-    /// Place the order for `incarnation` of `session`, replacing one placed.
-    pub fn place(&self, session: &str, incarnation: u32, order: Order) {
-        self.placed
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert((session.to_string(), incarnation), order);
-    }
-
-    /// Hold `lock`, the run's own lock, for `incarnation` of `session`, until
-    /// [`Orders::release`]: the launcher lets it go once the runner is
-    /// started, or the launch failed.
-    pub fn hold(&self, session: &str, incarnation: u32, lock: run_ports::HeldLock) {
-        self.locks
+    /// This process enqueued `incarnation` of `session`: it holds `lock`,
+    /// the run's own lock, when it took one (a terminal's is its
+    /// frontend's), until [`RunLockTable::release`]: the launcher lets it go
+    /// once the runner is started, or the launch failed.
+    pub fn claim(&self, session: &str, incarnation: u32, lock: Option<run_ports::HeldLock>) {
+        self.held
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .insert((session.to_string(), incarnation), lock);
@@ -117,22 +113,23 @@ impl Orders {
     /// Let go of the run lock held for `incarnation` of `session`, if any.
     pub fn release(&self, session: &str, incarnation: u32) {
         let held = self
-            .locks
+            .held
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .remove(&(session.to_string(), incarnation));
         drop(held);
     }
 
-    /// Take the order, once: the launch that has it is the one that runs it.
-    pub fn take(&self, session: &str, incarnation: u32) -> Option<Order> {
-        self.placed
+    /// Whether this process enqueued `incarnation` of `session` and has yet
+    /// to start it.
+    pub fn holds(&self, session: &str, incarnation: u32) -> bool {
+        self.held
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .remove(&(session.to_string(), incarnation))
+            .contains_key(&(session.to_string(), incarnation))
     }
 }
 
 #[cfg(test)]
-#[path = "orders.test.rs"]
+#[path = "order.test.rs"]
 mod tests;

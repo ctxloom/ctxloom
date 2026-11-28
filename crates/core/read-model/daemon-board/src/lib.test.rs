@@ -93,6 +93,7 @@ fn run_events() -> Vec<Any> {
             mode: RunMode::Structured,
             launcher_lock: String::new(),
             grant: None,
+            spec: None,
         })
         .to_any(),
         RunEvent::TurnQueued(TurnQueued {
@@ -108,6 +109,7 @@ fn run_events() -> Vec<Any> {
             answer_ref: String::new(),
             exit_code: 0,
             message_ids: vec!["m1".to_string()],
+            ..Default::default()
         })
         .to_any(),
         RunEvent::TurnQueued(TurnQueued {
@@ -306,6 +308,7 @@ fn a_session_keeps_its_launches_messages_and_clears() {
         engine: "claude-code".to_string(),
         depth: 1,
         prompt: "port it".to_string(),
+        ..Default::default()
     };
     let mut events = minted(None);
     events.extend([
@@ -484,6 +487,7 @@ fn a_run_keeps_how_its_last_turn_failed_until_one_completes_and_its_ends_words()
             answer_ref: String::new(),
             exit_code: 0,
             message_ids: vec!["m3".to_string()],
+            ..Default::default()
         })
         .to_any(),
         RunEvent::RunEnded(runs::RunEnded {
@@ -497,4 +501,125 @@ fn a_run_keeps_how_its_last_turn_failed_until_one_completes_and_its_ends_words()
     let fold = board.run(ID, 1).unwrap();
     assert_eq!(fold.last_failure, None, "a later turn completed");
     assert_eq!(fold.end_detail, "program not found: claude");
+}
+
+// A child's launch inputs are its owner's `ChildLaunched`: the board finds the
+// latest one recorded for a child through the owner its mint names.
+#[test]
+fn a_childs_launch_is_the_latest_one_its_owner_recorded_for_it() {
+    const KID: &str = "0c0c0c0c-0c0c-0c0c-0c0c-0c0c0c0c0c0c";
+    let launched = |agent: &str| {
+        SessionEvent::ChildLaunched(ChildLaunched {
+            child: Some(SessionRef {
+                project_id: "calm-otter".to_string(),
+                session: KID.to_string(),
+            }),
+            harp: "kid-harp".to_string(),
+            agent: agent.to_string(),
+            ..Default::default()
+        })
+        .to_any()
+    };
+    let mut board = Board::new();
+    let mut owner = minted(None);
+    owner.extend([launched("first"), launched("second")]);
+    board
+        .project(&book(SESSION_DOMAIN, root(), 0, owner))
+        .unwrap();
+    assert!(board.launch_of(KID).is_none(), "its mint is not seen yet");
+    board
+        .project(&book(
+            SESSION_DOMAIN,
+            Uuid::from_bytes([0x0c; 16]),
+            0,
+            minted(Some(ID)),
+        ))
+        .unwrap();
+    assert_eq!(
+        board.launch_of(KID).map(|l| l.agent.as_str()),
+        Some("second")
+    );
+    assert!(board.launch_of(ID).is_none(), "an owner of nobody's");
+    assert!(board.launch_of("nobody").is_none());
+}
+
+fn distilling(answer: Option<&str>, written: bool) -> Board {
+    let mut events = vec![RunEvent::RunEnqueued(RunEnqueued {
+        session: ID.to_string(),
+        incarnation: 1,
+        mode: RunMode::OneShot,
+        launcher_lock: String::new(),
+        grant: None,
+        spec: Some(runs::LaunchSpec {
+            distill: Some(runs::DistillPurpose {
+                reference: "demo#fragments/x".to_string(),
+                kind: "fragment".to_string(),
+                digest: "d".to_string(),
+                etag: "1".to_string(),
+                cwd: "/work".to_string(),
+            }),
+            ..Default::default()
+        }),
+    })
+    .to_any()];
+    if let Some(answer) = answer {
+        events.push(
+            RunEvent::TurnQueued(TurnQueued {
+                prompt_ref: String::new(),
+                resume: false,
+                message_ids: Vec::new(),
+                urgency: TurnUrgency::Wake,
+            })
+            .to_any(),
+        );
+        events.push(
+            RunEvent::TurnCompletedRecorded(TurnCompletedRecorded {
+                turn: 1,
+                answer: answer.to_string(),
+                ..Default::default()
+            })
+            .to_any(),
+        );
+    }
+    if written {
+        events.push(
+            RunEvent::DistillWritten(runs::DistillWritten {
+                end: Vec::new(),
+                notices: Vec::new(),
+            })
+            .to_any(),
+        );
+    }
+    let mut board = Board::new();
+    board
+        .project(&book(RUN_DOMAIN, run_root(ID, 1), 0, events))
+        .unwrap();
+    board
+}
+
+// Owner 2026-11-28: a distill run whose answer is recorded and whose outcome
+// is not is due its write; one with no answer yet, one written, and an
+// ordinary run are not.
+#[test]
+fn a_distill_run_is_due_its_write_once_answered_and_until_its_outcome_is_recorded() {
+    assert!(
+        distilling(None, false).distills_due().is_empty(),
+        "no answer"
+    );
+    let due = distilling(Some("SHORT"), false).distills_due();
+    let [one] = due.as_slice() else {
+        panic!("one due: {due:?}");
+    };
+    assert_eq!(one.answer, "SHORT");
+    assert_eq!(one.purpose.reference, "demo#fragments/x");
+    assert_eq!(one.session, ID);
+    assert!(
+        distilling(Some("SHORT"), true).distills_due().is_empty(),
+        "written"
+    );
+    let mut plain = Board::new();
+    plain
+        .project(&book(RUN_DOMAIN, run_root(ID, 1), 0, run_events()))
+        .unwrap();
+    assert!(plain.distills_due().is_empty());
 }

@@ -283,7 +283,7 @@ pub(crate) struct ReadSite<'a> {
     pub(crate) said: Vec<v1::Notice>,
 }
 
-impl<E: Edge> Api<E> {
+impl<E: Edge + 'static> Api<E> {
     /// `CreateRun` with `validate_only`, `run --dry-run` (step 10a U2):
     /// the run planned as a library read is answered (its trees observed
     /// first, so a library outside git is refused), at the caller's
@@ -332,6 +332,7 @@ impl<E: Edge> Api<E> {
                 launcher_lock: String::new(),
                 grant: None,
                 untrusted_settings: plan.untrusted.clone(),
+                spec: None,
             };
             if let Some((refusal, status)) = runs::pre_launch_refusal(&checks) {
                 return Err(ApiRefusal::typed(&refusal, status).into());

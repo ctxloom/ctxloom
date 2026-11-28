@@ -287,6 +287,7 @@ impl World {
                 launcher_lock: String::new(),
                 grant: None,
                 untrusted_settings: Vec::new(),
+                spec: None,
             },
         ))
         .await

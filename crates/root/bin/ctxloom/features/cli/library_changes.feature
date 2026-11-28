@@ -203,8 +203,8 @@ Feature: library changes — the daemon records what changed in a library, once,
       And the output reports "events[0].baseline" as "true"
       And the output reports "events[0].changes" having "4" entries
 
-    Scenario: A baseline lists every file of the library, and none of their text
-      # new: L16, the baseline is one fact.
+    Scenario: A baseline lists every file of the library, with the bytes of each
+      # new: L16, the baseline is one fact; the stream holds the files' bytes (owner 2026-11-25).
       # DRAFT (step 10c U13 rework, the scanner; owner 2026-11-18): every file, committed or not.
       Given an initialized ctxloom project
       And a bundle "demo" exists
@@ -215,7 +215,7 @@ Feature: library changes — the daemon records what changed in a library, once,
       And the output reports "events[0].changes" having "4" entries
       And the output reports "events[0].changes[1].path" as "content/bundles/v2/demo/bundle.yaml"
       And the output reports "events[0].changes[1].status" as "added"
-      And the output does not contain "Add your content here"
+      And the output contains "Add your content here"
 
     Scenario: A fresh project's first record is init's own scaffold, then its baseline
       # new: DRAFT (owner, 2026-11-18, the library is git-free): replaces "A project with no commit yet is baselined on its untracked files, after init's own scaffold"; the scanner sees no commit or HEAD, and the scaffold's files are its step's, so its baseline lists no change of its own.
@@ -271,7 +271,7 @@ Feature: library changes — the daemon records what changed in a library, once,
       And the output reports "events[1].changes" having "1" entries
       And the output reports "events[1].changes[0].path" as "content/bundles/v2/demo/fragments/example.md"
       And the output reports "events[1].changes[0].status" as "modified"
-      And the output does not contain "Edited by hand"
+      And the output contains "Edited by hand"
 
     Scenario: A second edit of a file git already sees modified is recorded too
       # new: L8, the dirty paths' object ids, since `git status` says " M" for both edits;

@@ -25,7 +25,7 @@ use angzarr_embedded::v1::{Cover, Uuid};
 use angzarr_embedded::{Catalog, CommandBookExt, Failure, Payload, Processed, ReadStore, Store};
 use library_application::{AppError as PlanError, Flags, Notice, Outcome, Previewed, RunRequest};
 use ports::{Names, Project, ProjectIdentity};
-use run_launcher::{Launched, Launcher, Order, Orders, Outcome as Turn};
+use run_launcher::{Launched, Launcher, Order, Outcome as Turn, RunLockTable};
 use run_ports::{Edge, LoginLinks, RunnerLauncher, SessionRecords};
 use runs_application::{
     AppError as CoreError, EnqueueError, EnqueueRequest, Enqueued, Enqueuer, Evidence,
@@ -58,6 +58,10 @@ pub struct OneShot {
     /// `--session <harp>`: the session to resume (owner ruling 115); empty
     /// is a new session.
     pub session: String,
+    /// What the run is FOR when it is for more than its prompt: a distill's
+    /// item, recorded on the run's enqueue so its answer is written as the
+    /// item's distilled form by a policy on the recorded answer.
+    pub distill: Option<runs::DistillPurpose>,
 }
 
 /// What a one-shot answered.
@@ -207,7 +211,11 @@ pub struct Runs<K: Core, L: RunnerLauncher, R: SessionRecords> {
     pub(crate) enqueuer: Enqueuer<K::Edge>,
     pub(crate) launcher: Launcher<K::Edge, L, R>,
     pub(crate) dirs: Box<dyn SessionRecords>,
-    pub(crate) orders: Arc<Orders>,
+    pub(crate) claims: Arc<RunLockTable>,
+    pub(crate) sealing: Arc<dyn run_ports::Sealing>,
+    /// The user's settings files, recorded as their stream's facts at each
+    /// enqueue; none, no stream is touched and the spec names no sequence.
+    pub(crate) settings: Option<Arc<dyn run_ports::SettingsFiles>>,
     pub(crate) place: Place,
     pub(crate) env: BTreeMap<String, String>,
     pub(crate) links: Box<dyn LoginLinks>,
@@ -285,6 +293,9 @@ struct Resume {
     native_id: String,
     /// The workspace axis it was minted on (none recorded: `none`).
     workspace: String,
+    /// The directory it was minted in (`SessionMinted.project_dir`): a
+    /// resume works there, not where the command was typed.
+    project_dir: String,
 }
 
 /// The engine a run is on: the one asked for, else the plan's.
@@ -344,8 +355,12 @@ pub struct Parts<K: Core, L: RunnerLauncher, R: SessionRecords> {
     pub launcher: Launcher<K::Edge, L, R>,
     /// The session directories, asked whether a harp's exists (defect 3).
     pub dirs: Box<dyn SessionRecords>,
-    /// The orders the launcher takes: the same the launcher holds.
-    pub orders: Arc<Orders>,
+    /// The runs this process enqueues and so launches: the same the
+    /// launcher holds.
+    pub claims: Arc<RunLockTable>,
+    /// Seals the secrets of a launch for the record (the environment's
+    /// values, an MCP server's credentials); the launcher opens them.
+    pub sealing: Arc<dyn run_ports::Sealing>,
     pub place: Place,
     /// The caller's environment, of which an engine passes on what it allows.
     pub env: BTreeMap<String, String>,
@@ -380,7 +395,9 @@ where
             enqueuer: parts.enqueuer,
             launcher: parts.launcher,
             dirs: parts.dirs,
-            orders: parts.orders,
+            claims: parts.claims,
+            sealing: parts.sealing,
+            settings: None,
             place: parts.place,
             env: parts.env,
             links: parts.links,
@@ -400,6 +417,14 @@ where
     /// over and their own is taken, as before.
     pub fn held_by_frontend(&mut self, lock: Option<String>) {
         self.frontend_lock = lock.filter(|path| !path.is_empty());
+    }
+
+    /// The use cases, the user's settings files recorded through `files` at
+    /// each enqueue (owner ruling 2026-11-25: a stream of their own).
+    #[must_use]
+    pub fn observing_settings(mut self, files: Arc<dyn run_ports::SettingsFiles>) -> Runs<K, L, R> {
+        self.settings = Some(files);
+        self
     }
 
     /// The use cases, telling `told` where each run was placed, once it is
@@ -532,6 +557,7 @@ where
             engine: state.engine,
             native_id: state.native_id,
             workspace: state.workspace.unwrap_or_else(|| "none".to_string()),
+            project_dir: state.project_dir,
         })
     }
 
@@ -622,36 +648,30 @@ where
         let axis = run_launcher::Axis::of(&previewed.plan.axes.0);
         let (session, incarnation, chosen) =
             self.placing(resume.as_ref(), &engine, axis.word()).await?;
+        let placed = Placed {
+            harp: harp_of(resume.as_ref(), chosen.as_ref()),
+            project_dir: self.working_dir(resume.as_ref()),
+            resume: resume.as_ref().map(|resume| resume.native_id.clone()),
+            session,
+            incarnation,
+        };
         let enqueued = match self
-            .enqueue(
-                &previewed,
-                &session,
-                incarnation,
-                &engine,
-                &settings,
-                interactive,
-            )
+            .enqueue_recorded(&previewed, request, &placed, interactive)
             .await
         {
             Ok(enqueued) => enqueued,
             Err(error) => {
                 if matches!(error, RunError::Refused(_)) {
-                    // The plan's fatal findings, beside a refusal of other
-                    // checks, are said as warnings (the preview leaves them
-                    // to the refusal that lists them, which this one does
-                    // not).
-                    notices.extend(previewed.fatal.iter().map(|f| Notice::Finding {
-                        text: f.text.clone(),
-                        remedy: f.remedy.clone(),
-                    }));
+                    notices.extend(findings_beside_refusal(&previewed));
                 }
                 if resume.is_some() {
-                    self.incarnation_ended(&session, incarnation, LAUNCH_FAILED)
+                    self.incarnation_ended(&placed.session, incarnation, LAUNCH_FAILED)
                         .await;
                 }
                 return Err(error);
             }
         };
+        let session = placed.session.clone();
         let made = match (&resume, chosen) {
             (Some(resume), _) => Ok(resume.harp.clone()),
             (None, Some(chosen)) => {
@@ -671,8 +691,14 @@ where
             }
         };
         // What its plan draws on, recorded on its session (step 10c U13).
-        self.record_loadout(&session, incarnation, &previewed.plan)
-            .await;
+        if let Err(error) = self
+            .record_loadout(&session, incarnation, &previewed.plan)
+            .await
+        {
+            return Err(self
+                .abandon(&enqueued.run, &session, incarnation, true, error)
+                .await);
+        }
         let lock = match self.locks.hold(&harp) {
             Ok(lock) => lock,
             Err(lock) => {
@@ -683,19 +709,7 @@ where
             }
         };
         let agent = planned_agent(&previewed.plan);
-        let started = self.start(
-            previewed,
-            request,
-            interactive,
-            Placed {
-                session,
-                harp,
-                incarnation,
-                resume: resume.map(|resume| resume.native_id),
-            },
-            &enqueued,
-            lock,
-        );
+        let started = self.start(&previewed, request, placed, &enqueued, lock);
         let placement = Placement {
             run: text(&started.run),
             session: started.session.clone(),
@@ -844,12 +858,13 @@ where
     async fn enqueue(
         &mut self,
         previewed: &Previewed,
-        session: &str,
-        incarnation: u32,
+        placed: &Placed,
         engine: &str,
         settings: &run_ports::EngineSettings,
         interactive: bool,
+        spec: runs::LaunchSpec,
     ) -> Result<Enqueued, RunError> {
+        let (session, incarnation) = (placed.session.as_str(), placed.incarnation);
         let mode = if interactive {
             runs::RunMode::Interactive
         } else {
@@ -887,20 +902,20 @@ where
             mode,
             evidence,
             launcher_lock,
-            // What a one-shot is given, as a hosted child's launch journals
-            // it (owner ruling 2026-11-20); the human's terminal session is
-            // her own, and records none.
-            grant: (!interactive).then(|| {
-                crate::hosted::grant_of(
-                    &previewed.plan.surfaces,
-                    previewed.plan.permissions.as_deref(),
-                )
-            }),
+            // What the run is given, journaled for every kind alike.
+            grant: Some(crate::hosted::grant_of(
+                &previewed.plan.surfaces,
+                previewed.plan.permissions.as_deref(),
+            )),
+            spec: Some(spec),
         };
+        // This process enqueues the run, so it launches it: claimed before the
+        // enqueue is visible, holding the run's own lock until the runner is
+        // started (a frontend's is its own, and none is held here).
+        self.claims.claim(session, incarnation, own);
         let enqueued = self.enqueuer.enqueue(request).await;
-        if let (true, Some(lock)) = (enqueued.is_ok(), own) {
-            // Held until the launcher has started the runner.
-            self.orders.hold(session, incarnation, lock);
+        if enqueued.is_err() {
+            self.claims.release(session, incarnation);
         }
         enqueued.map_err(|error| match error {
             EnqueueError::Refused(runs::RunRejection::LaunchRefused { refusals, .. })
@@ -1050,7 +1065,7 @@ where
     ) -> RunError {
         let facts = runs_application::Facts::new(self.core.edge());
         let _ = facts.launch_failed(run, false, error.code()).await;
-        self.orders.release(session, incarnation);
+        self.claims.release(session, incarnation);
         // A resume's incarnation was owed before its run was enqueued: its
         // callers pass `minted` for it.
         if minted {
@@ -1060,27 +1075,50 @@ where
         error
     }
 
-    /// The order placed for the run enqueued and its session minted.
-    #[allow(clippy::too_many_arguments)]
+    /// Where the engine works: where a resumed session was minted, else the
+    /// project.
+    fn working_dir(&self, resume: Option<&Resume>) -> String {
+        resume
+            .map(|resume| resume.project_dir.clone())
+            .filter(|dir| !dir.is_empty())
+            .unwrap_or_else(|| self.place.project_dir.clone())
+    }
+
+    /// The run enqueued and its session minted, as the caller follows it.
     fn start(
         &mut self,
-        previewed: Previewed,
+        previewed: &Previewed,
         request: &OneShot,
-        interactive: bool,
         placed: Placed,
         enqueued: &Enqueued,
         lock: session_ports::Held,
     ) -> Started {
-        let Placed {
-            session,
-            harp,
-            incarnation,
-            resume,
-        } = placed;
-        let plan = previewed.plan;
+        Started {
+            session: placed.session,
+            harp: placed.harp,
+            engine: chosen_engine(&previewed.plan, request),
+            run: enqueued.run.clone(),
+            incarnation: placed.incarnation,
+            lock,
+        }
+    }
+
+    /// What the launch is made from, as the plan decided it: the engine, its
+    /// context and prompt, the environment naming the run and session, the
+    /// settings, the workspace, the surfaces. It is RECORDED on the run's
+    /// enqueue ([`Runs::enqueue_recorded`]) and read back from the stream by
+    /// the launcher; nothing is handed to it.
+    fn order_for(
+        &self,
+        previewed: &Previewed,
+        request: &OneShot,
+        placed: &Placed,
+        interactive: bool,
+    ) -> Order {
+        let plan = previewed.plan.clone();
         let engine = chosen_engine(&plan, request);
         let settings = settings_of(&plan, &engine);
-        let workspace = self.workspace(&plan, &harp);
+        let workspace = self.workspace(&plan, &placed.harp);
         // The engine's environment names its run and session (the terminal
         // session's and a one-shot child's alike, ruling 51), and the
         // caller's own hook variables, from a session it was started inside,
@@ -1108,46 +1146,81 @@ where
             env.insert("PATH".to_string(), path);
             owned.push("PATH".to_string());
         }
-        let run_text = text(&enqueued.run);
+        let run_text = text(&runs::run_root(&placed.session, placed.incarnation));
         // The engine's environment is the only thing a hook process is
         // given: the session by its resource name (s3-Q3), whose harp a
         // statusline shows and whose UUIDv5 a hook addresses its facts to.
         let name = self
-            .name_of(&harp)
+            .name_of(&placed.harp)
             .map(|name| name.to_string())
             .unwrap_or_default();
         run_ports::name_the_run(&mut env, &run_text, &name);
-        self.orders.place(
-            &session,
-            incarnation,
-            Order {
-                harp: harp.clone(),
-                engine: engine.clone(),
-                context: plan.context,
-                prompt: plan.prompt,
-                env,
-                user_home: self.place.user_home.clone(),
-                cwd: Some(self.place.project_dir.clone()),
-                workspace,
-                interactive,
-                model: plan.model,
-                effort: plan.effort,
-                permissions: plan.permissions,
-                settings,
-                owned,
-                git_user: self.git_user.clone(),
-                resume,
-                surfaces: run_ports::LaunchSurfaces(plan.surfaces),
-            },
-        );
-        Started {
-            session,
-            harp,
+        Order {
+            harp: placed.harp.clone(),
             engine,
-            run: enqueued.run.clone(),
-            incarnation,
-            lock,
+            context: plan.context,
+            prompt: plan.prompt,
+            env,
+            user_home: self.place.user_home.clone(),
+            cwd: Some(placed.project_dir.clone()),
+            workspace,
+            interactive,
+            model: plan.model,
+            effort: plan.effort,
+            permissions: plan.permissions,
+            settings,
+            owned,
+            git_user: self.git_user.clone(),
+            resume: placed.resume.clone(),
+            surfaces: run_ports::LaunchSurfaces(plan.surfaces),
         }
+    }
+
+    /// The run enqueued with its plan recorded on it: the order built, its
+    /// secrets sealed into the spec, this process claiming the run it
+    /// enqueues so its launcher is the one that launches it.
+    async fn enqueue_recorded(
+        &mut self,
+        previewed: &Previewed,
+        request: &OneShot,
+        placed: &Placed,
+        interactive: bool,
+    ) -> Result<Enqueued, RunError> {
+        let order = self.order_for(previewed, request, placed, interactive);
+        let user_settings_sequence = match &self.settings {
+            Some(files) => {
+                crate::settings_log::observed(
+                    self.core.edge().as_ref(),
+                    &files.read(),
+                    (self.sealing.as_ref(), &self.place.project_harp),
+                )
+                .await?
+            }
+            None => None,
+        };
+        let mut spec = run_launcher::spec_of(
+            &order,
+            run_launcher::Recording {
+                program_dir: &self.place.program_dir,
+                workspace_dir: &order.workspace.work_dir,
+                runtime: &previewed.plan.axes.1,
+                distill: request.distill.clone(),
+                project: &self.place.project_harp,
+            },
+            self.sealing.as_ref(),
+        )
+        .map_err(|error| RunError::Sealing(Box::new(error)))?;
+        spec.user_settings_sequence = user_settings_sequence;
+        let settings = settings_of(&previewed.plan, &order.engine);
+        self.enqueue(
+            previewed,
+            placed,
+            &order.engine,
+            &settings,
+            interactive,
+            spec,
+        )
+        .await
     }
 
     /// What the run asks of the workspace axis: the axis the plan settled
@@ -1319,17 +1392,19 @@ where
 
     /// The loadout of `plan` recorded as the incarnation `incarnation`'s of
     /// the session `session` (step 10c U13; keyed by both, so it is
-    /// recorded once). Best effort: one not recorded leaves the run as it
-    /// is, and a change is told the session at no hook.
+    /// recorded once). The launcher acts only once it is recorded, so a
+    /// loadout that cannot be fails the launch.
     async fn record_loadout(
         &self,
         session: &str,
         incarnation: u32,
         plan: &library_application::DryRun,
-    ) {
-        let Ok(id) = uuid::Uuid::parse_str(session) else {
-            return;
-        };
+    ) -> Result<(), RunError> {
+        let id = uuid::Uuid::parse_str(session).map_err(|e| {
+            RunError::Session(CoreError::Failed {
+                reason: e.to_string(),
+            })
+        })?;
         let cover = Cover {
             domain: SESSION_DOMAIN.to_string(),
             root: Some(Uuid::from_bytes(*id.as_bytes())),
@@ -1342,11 +1417,16 @@ where
             covered: Vec::new(),
         };
         let key = sessions::loadout_key(session, incarnation);
-        let _ = self
-            .core
+        self.core
             .edge()
             .handle(sessions::fact_book(cover, &fact, &key))
-            .await;
+            .await
+            .map(|_| ())
+            .map_err(|e| {
+                RunError::Session(CoreError::Failed {
+                    reason: e.to_string(),
+                })
+            })
     }
 
     /// The run's stream holds its end.
@@ -1375,6 +1455,16 @@ where
     }
 }
 
+/// The harp the run's session is named: the resumed session's, else the one
+/// chosen for the new one.
+fn harp_of(resume: Option<&Resume>, chosen: Option<&Chosen>) -> String {
+    match (resume, chosen) {
+        (Some(resume), _) => resume.harp.clone(),
+        (None, Some(chosen)) => chosen.harp.clone(),
+        (None, None) => String::new(),
+    }
+}
+
 /// Where a run's order is placed: its session, name and incarnation, and
 /// the engine's own session it resumes (none: a new one).
 struct Placed {
@@ -1382,6 +1472,19 @@ struct Placed {
     harp: String,
     incarnation: u32,
     resume: Option<String>,
+    /// The directory the engine runs in: where a resumed session was
+    /// minted, else the project's.
+    project_dir: String,
+}
+
+/// The plan's fatal findings, beside a refusal of other checks, are said as
+/// warnings (the preview leaves them to the refusal that lists them, which
+/// this one does not).
+fn findings_beside_refusal(previewed: &Previewed) -> impl Iterator<Item = Notice> + '_ {
+    previewed.fatal.iter().map(|f| Notice::Finding {
+        text: f.text.clone(),
+        remedy: f.remedy.clone(),
+    })
 }
 
 /// A command refused before it ran: its error, nothing noticed.

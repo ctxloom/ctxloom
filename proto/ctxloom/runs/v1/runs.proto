@@ -154,7 +154,182 @@ message EnqueueRun {
   // evidence like `fatal_findings`: carried into the refusal's `findings`,
   // never into `RunEnqueued`. May be empty where only the count is known.
   repeated FatalFinding fatal = 16;
+  // What the plan DECIDED (owner ruling 2026-11-25, P3): the launch spec,
+  // recorded on `RunEnqueued` as it is here, so the launcher acts on the
+  // record alone (`run_launcher::Orders` is deleted) and a projection can say
+  // what a run launched with. Numbered as in `RunEnqueued`. Unlike the
+  // evidence above it is journaled.
+  optional LaunchSpec spec = 17;
 }
+
+// region the launch spec (P3, owner rulings 2026-11-25)
+
+// The OUTPUTS of the plan that decided a run, recorded once, on the event the
+// decide emits (`RunEnqueued.spec`). "The events are what was actually
+// decided by the aggregate": a launcher, a projection or a process on another
+// machine reads what the run launched with from the stream, never from live
+// config, files, git or another component's memory.
+//
+// NO DUPLICATION: what an earlier event already recorded is NOT restated
+// here: the engine and the workspace axis (`SessionMinted`), the agent and
+// the library positions covered (`LoadoutRecorded`), the harp, the native
+// session id, the project root and output directory, the trust verdict.
+// A resume or a re-host is a NEW enqueue, planned then, so its spec says what
+// IT launched with (T21 holds: nothing is re-planned between an enqueue and
+// its start).
+message LaunchSpec {
+  // The settings the plan resolved, each as the launch passes it on; empty:
+  // none was said (the engine's own).
+  string model = 1;
+  string effort = 2;
+  // `session` or `host`.
+  string session_home = 3;
+  // The engine block's `approval_timeout` as seconds, 0 meaning `now`: an
+  // ask of this run's child takes it from here, not from the loop's memory.
+  optional uint32 approval_timeout_seconds = 4;
+  // The program the engine is run as (`engines.<e>.command`, else its name).
+  string engine_command = 5;
+  // The credential source the plan found, by NAMES alone: the variables any
+  // one of which authenticates, and the file's path when the source names
+  // one. Never a value.
+  repeated string auth_variables = 6;
+  string auth_file = 7;
+  // The environment the engine is given, by NAME; each value is sealed to
+  // the launcher's key (a credential may be among them).
+  repeated EnvEntry env = 8;
+  // The assembled context, INLINE (owner: not a content store, not a
+  // re-assembly), as the plan composed it.
+  string context = 9;
+  // The one-shot's or the terminal's opening prompt. A hosted child's is its
+  // `ChildLaunched` / `MessageSent`.
+  string prompt = 10;
+  LaunchSurfaces surfaces = 11;
+  // The user's git identity as git resolved it in the project, the session
+  // home's `.gitconfig`.
+  GitIdentity git_user = 12;
+  // What the run isolates by, as the plan settled it (`host`, a container).
+  string runtime = 13;
+  // The client's program (file name and directory), which leads the engine's
+  // `PATH` and is the hooks' command: `HandedPrograms` and the hand-off's
+  // program go.
+  ClientProgram client_program = 14;
+  // The user-settings positions the launch copied from: a launch reads the
+  // user's claude/opencode settings from the user-settings stream, and says
+  // which sequence it read.
+  optional uint64 user_settings_sequence = 15;
+  // The session's checkouts directory (`isolation_ports::session_worktrees`)
+  // the plan placed the workspace axis in; empty where there is none.
+  string workspace_dir = 16;
+  // The names of the caller's variables the engine block passes on besides
+  // the curated ones (`engines.<e>.env`); names alone.
+  repeated string engine_env = 17;
+  // What the run is FOR, when it is for more than its prompt: a distill's
+  // item, so the run's answer is written as its distilled form by a policy
+  // on the recorded answer (owner ruling 2026-11-27, option (a)).
+  optional DistillPurpose distill = 18;
+  // How the credential is found: `builtin` (the engine's own variables),
+  // `none`, `login` (the human's login shared) or `source` (the variables and
+  // file above).
+  string auth = 19;
+  // The names the run itself set in the environment for the engine, which no
+  // permit replaces (ruling 78b): `HOME`, and `PATH` once it leads with the
+  // client's program.
+  repeated string owned = 20;
+  // The user's own home as the composition root resolved it once (the
+  // platform's home variable); empty when unset.
+  string user_home = 21;
+}
+
+// A distill run's purpose: the item whose body the model was asked to
+// compress, the digest of the source it was sent and the etag of the form's
+// file at the ask (a form edited meanwhile is refused stale).
+message DistillPurpose {
+  // The item's reference as the write names it.
+  string reference = 1;
+  // `fragment` or `command`.
+  string kind = 2;
+  string digest = 3;
+  string etag = 4;
+  // The project's root the write is planned in (the directory its ask was
+  // made from), so a daemon that restarts can still make it.
+  string cwd = 5;
+}
+
+message EnvEntry {
+  string name = 1;
+  SealedValue value = 2;
+}
+
+// A secret as it rides a message (owner 2026-11-25: sealed, never refused or
+// dropped). `sealed` is the encoding of angzarr-sealed's
+// `io.angzarr.sealed.v1.Sealed` (key_id, algorithm, encapsulated key,
+// ciphertext). The field is opaque bytes here, so no ctxloom wire crate
+// imports angzarr's proto: only the daemon's sealing adapter decodes it.
+message SealedValue {
+  bytes sealed = 1;
+}
+
+message GitIdentity {
+  string name = 1;
+  string email = 2;
+}
+
+message ClientProgram {
+  // The running binary's file name (`ctxloom`) and its directory.
+  string name = 1;
+  string directory = 2;
+}
+
+// Everything a launch lays at rest in the session's home or carries on its
+// command line, as `surface_ports::Inputs` holds it (the run agent's
+// selection, the registered companions' loadouts included).
+message LaunchSurfaces {
+  // The bundles' authored hooks and ctxloom's own callbacks, as the JSON
+  // document the engine's surface reads (event to hooks).
+  string hooks_json = 1;
+  string statusline = 2;
+  repeated string deny_tools = 3;
+  repeated SurfaceCommand commands = 4;
+  repeated SurfaceSkill skills = 5;
+  repeated McpSpec mcp_servers = 6;
+  // A launch with no context (`run --no-context`): the engine is handed no
+  // MCP server at all, ctxloom's own included.
+  bool no_context = 7;
+}
+
+// A slash command: `<bundle>/<name>`, its description and its template.
+message SurfaceCommand {
+  string name = 1;
+  string description = 2;
+  string body = 3;
+}
+
+// An Agent Skill package: its name, description and every file, each path
+// below the skill's directory.
+message SurfaceSkill {
+  string name = 1;
+  string description = 2;
+  repeated SurfaceFile files = 3;
+}
+
+message SurfaceFile {
+  string path = 1;
+  bytes content = 2;
+  bool executable = 3;
+}
+
+// One MCP server as the launch writes it. The environment and the headers
+// may hold a secret: their values are sealed.
+message McpSpec {
+  string name = 1;
+  string command = 2;
+  repeated string args = 3;
+  string url = 4;
+  repeated EnvEntry env = 5;
+  repeated EnvEntry headers = 6;
+}
+
+// endregion
 
 // One fatal finding of a launch's plan, as the library said it: its text and
 // what to do about it (empty: nothing said). DRAFT wording is the library's.
@@ -276,11 +451,19 @@ message RecordTurnCompleted {
     emits: ["ctxloom.runs.v1.TurnCompletedRecorded"]
   };
 
+  // The turn's number; 0 with `message_ids` names it by them: the run
+  // aggregate resolves the number from the turn its messages queued (a
+  // runner keeps no message-to-turn map).
   uint64 turn = 1;
   string native_key = 2;
   string answer_ref = 3;
   int32 exit_code = 4;
   repeated string message_ids = 5;
+  // The turn's ANSWER, the reply text (P3, additive): the run's stream is
+  // where a caller reads it (`WatchRun`, `GetRun`) and where the distill
+  // reaction, now a policy on this fact, finds it. `answer_ref` stays for
+  // an answer kept elsewhere.
+  string answer = 6;
 }
 
 message RecordTurnFailed {
@@ -396,6 +579,9 @@ message RunEnqueued {
   // What the run was given, as its `EnqueueRun` said (step 9); unset on a
   // run enqueued before the record existed. Numbered as in `EnqueueRun`.
   optional Grant grant = 15;
+  // The plan's outputs (P3; `EnqueueRun.spec`, numbered alike). The grant is
+  // recorded for a terminal session too, and the spec for every run.
+  optional LaunchSpec spec = 17;
 }
 
 message RunnerAttachedRecorded {
@@ -403,6 +589,55 @@ message RunnerAttachedRecorded {
 
   string runner_id = 1;
   string protocol = 2;
+}
+
+// A terminal session's launch, prepared by the daemon for its frontend (owner
+// 2026-11-28: the launch is a record, not a hand-off in memory): the engine
+// process the frontend starts on the user's terminal. `launch` is the
+// encoding of `ctxloom.v1.Launch` with every environment value emptied; the
+// values are in `env`, each SEALED to the project's key (never in the
+// clear). Keyed `prepared:<run>`; recorded while the run is live, once.
+message RecordLaunchPrepared {
+  option (io.angzarr.v1.fact) = {
+    component: "ctxloom.runs.v1.RunState"
+    emits: ["ctxloom.runs.v1.LaunchPrepared"]
+  };
+
+  PreparedLaunch launch = 1;
+}
+
+message LaunchPrepared {
+  option (io.angzarr.v1.event) = {component: "ctxloom.runs.v1.RunState"};
+
+  PreparedLaunch launch = 1;
+}
+
+message PreparedLaunch {
+  bytes launch = 1;
+  repeated EnvEntry env = 2;
+}
+
+// What a distill run's answer came to (owner 2026-11-28): the policy on the
+// recorded answer wrote the item's distilled form, or was refused (the form
+// edited meanwhile, the source moved, an answer implausibly short). `end` is
+// the encoding of the `ctxloom.v1.RunEnd` the run's watchers are told (empty:
+// it was written, the run ended as its engine did) and `notices` those of
+// `ctxloom.v1.Notice` the write said. Keyed `distill:<run>`, once.
+message RecordDistillWritten {
+  option (io.angzarr.v1.fact) = {
+    component: "ctxloom.runs.v1.RunState"
+    emits: ["ctxloom.runs.v1.DistillWritten"]
+  };
+
+  bytes end = 1;
+  repeated bytes notices = 2;
+}
+
+message DistillWritten {
+  option (io.angzarr.v1.event) = {component: "ctxloom.runs.v1.RunState"};
+
+  bytes end = 1;
+  repeated bytes notices = 2;
 }
 
 message RunnerStartedRecorded {
@@ -446,11 +681,19 @@ message TurnStartedRecorded {
 message TurnCompletedRecorded {
   option (io.angzarr.v1.event) = {component: "ctxloom.runs.v1.RunState"};
 
+  // The turn's number; 0 with `message_ids` names it by them: the run
+  // aggregate resolves the number from the turn its messages queued (a
+  // runner keeps no message-to-turn map).
   uint64 turn = 1;
   string native_key = 2;
   string answer_ref = 3;
   int32 exit_code = 4;
   repeated string message_ids = 5;
+  // The turn's ANSWER, the reply text (P3, additive): the run's stream is
+  // where a caller reads it (`WatchRun`, `GetRun`) and where the distill
+  // reaction, now a policy on this fact, finds it. `answer_ref` stays for
+  // an answer kept elsewhere.
+  string answer = 6;
 }
 
 message TurnFailedRecorded {

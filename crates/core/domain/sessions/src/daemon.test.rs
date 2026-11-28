@@ -79,6 +79,10 @@ fn launch(child: &str, requester: Option<&str>) -> LaunchChild {
         delegation_limit: 4,
         requester: requester.map(at),
         prompt: "port the parser".to_string(),
+        agent: String::new(),
+        client_program: crate::ChildProgram::default(),
+        settings_places: Vec::new(),
+        env: Vec::new(),
     }
 }
 
@@ -348,6 +352,7 @@ fn a_launch_records_the_child_on_the_owner() {
             engine: "claude-code".to_string(),
             depth: 1,
             prompt: "port the parser".to_string(),
+            ..Default::default()
         })]
     );
     assert_eq!(
@@ -520,4 +525,42 @@ fn the_owner_link_and_the_close_round_trip_through_the_wire_form() {
     let state = owner.state();
     let wire = sessions_proto::v1::SessionState::from(state.clone());
     assert_eq!(crate::SessionState::try_from(wire).unwrap(), state);
+}
+
+// P3 (owner ruling 2026-11-25): what a launch decided and the child's starts
+// need rides the event the launch records, so the hand-off file, the
+// daemon's program cache and its environment cache go: a child started by a
+// daemon that never received the hand-off reads them from its stream. RED:
+// `ChildLaunched` drops them.
+#[test]
+fn a_launch_records_the_requested_agent_the_program_the_places_and_the_sealed_env() {
+    let mut owner = Session::minted();
+    let command = LaunchChild {
+        agent: "reviewer".to_string(),
+        client_program: crate::ChildProgram {
+            name: "ctxloom".to_string(),
+            directory: "/opt/ctxloom".to_string(),
+        },
+        settings_places: vec![crate::ChildEnvEntry {
+            name: "CLAUDE_CONFIG_DIR".to_string(),
+            plain: "/home/alice/.claude".to_string(),
+            sealed: Vec::new(),
+        }],
+        env: vec![crate::ChildEnvEntry {
+            name: "ANTHROPIC_API_KEY".to_string(),
+            sealed: b"sealed-to-the-daemons-key".to_vec(),
+            plain: String::new(),
+        }],
+        ..launch(CHILD, None)
+    };
+    let events = owner.run(command.clone()).unwrap();
+    let [SessionEvent::ChildLaunched(launched)] = &events[..] else {
+        panic!("one ChildLaunched: {events:?}");
+    };
+    assert_eq!(launched.agent, "reviewer");
+    assert_eq!(launched.client_program, command.client_program);
+    assert_eq!(launched.settings_places, command.settings_places);
+    assert_eq!(launched.env, command.env);
+    // A secret rides the message only sealed: no entry carries it plain.
+    assert!(launched.env.iter().all(|e| e.plain.is_empty()));
 }

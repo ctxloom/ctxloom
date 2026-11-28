@@ -1,0 +1,26 @@
+[package]
+name = "user-settings"
+version = "0.1.0"
+description = "The user-settings domain: the user's own engine settings files, observed as bytes and folded, one stream of their own"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+angzarr-embedded.workspace = true
+angzarr-embedded-macros.workspace = true
+prost.workspace = true
+# The stream's root is the UUIDv5 of its name, as every ctxloom root is.
+sessions.workspace = true
+user-settings-proto.workspace = true
+
+[build-dependencies]
+angzarr-build.workspace = true
+
+[dev-dependencies]
+angzarr-embedded = { workspace = true, features = ["test-support"] }
+mutants.workspace = true
+
+[lints]
+workspace = true

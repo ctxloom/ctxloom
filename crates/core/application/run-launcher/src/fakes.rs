@@ -23,7 +23,8 @@ use run_ports::{
 use runs::{RunEvent, RunMode};
 use sessions::{Origin, SessionEvent};
 
-use crate::{Order, Orders};
+use crate::{spec_of, Order, Recording, RunLockTable};
+use run_ports::TestSealing;
 
 pub const SESSION: &str = "5f0c7a52-1111-5111-8111-000000000001";
 pub const HARP: &str = "amber-swift-owl";
@@ -33,6 +34,9 @@ pub struct TestEdge {
     registry: Registry,
     pub store: MemoryStore,
     samples: Mutex<Samples>,
+    /// The order the run [`enqueued_by`] records is of, as the plan of that
+    /// run decided it: its mint's engine, its loadout, its spec.
+    pub recorded: Mutex<Option<Order>>,
 }
 
 impl Default for TestEdge {
@@ -69,6 +73,7 @@ impl TestEdge {
             registry,
             store: MemoryStore::default(),
             samples: Mutex::new(Samples::starting_at(1_000)),
+            recorded: Mutex::new(None),
         }
     }
 
@@ -159,29 +164,97 @@ pub async fn enqueued(edge: &TestEdge, session: &str, harp: &str) {
     enqueued_by(edge, session, harp, "").await;
 }
 
-/// [`enqueued`], its launcher holding the run lock at `launcher_lock` (rulings
-/// 86, 92; empty: none).
-pub async fn enqueued_by(edge: &TestEdge, session: &str, harp: &str, launcher_lock: &str) {
+/// The session's mint, its first incarnation's loadout and, for a resume, the
+/// engine's own session bound: what the record holds of a session before its
+/// run is launched.
+async fn session_recorded(edge: &TestEdge, session: &str, harp: &str, order: Option<&Order>) {
     let mint: sessions::SessionCommand = sessions::MintSession {
         harp: harp.to_string(),
         project_id: "calm-otter".to_string(),
-        project_dir: "/work/proj".to_string(),
+        project_dir: match order {
+            Some(order) => order.cwd.clone().unwrap_or_default(),
+            None => "/work/proj".to_string(),
+        },
         output_dir: format!("/out/{harp}"),
-        engine: "fake".to_string(),
+        engine: order
+            .as_ref()
+            .map_or_else(|| "fake".to_string(), |o| o.engine.clone()),
         origin: Origin::Oneshot,
         started_at: None,
         depth: 0,
         owner: None,
-        workspace: None,
+        workspace: order.map(|o| match o.workspace.axis {
+            crate::Axis::Worktree => "worktree".to_string(),
+            crate::Axis::None => "none".to_string(),
+        }),
     }
     .into();
     edge.handle(command_book(session_cover(session), mint.to_any()))
         .await
         .unwrap();
+    if let Some(order) = order {
+        let loadout = sessions::RecordLoadout {
+            loadout: sessions::SessionLoadout {
+                agent: order.workspace.agent.clone(),
+                ..Default::default()
+            },
+            incarnation: 1,
+            covered: Vec::new(),
+        };
+        edge.handle(sessions::fact_book(
+            session_cover(session),
+            &loadout,
+            &sessions::loadout_key(session, 1),
+        ))
+        .await
+        .unwrap();
+        if let Some(native) = &order.resume {
+            let bind = sessions::BindEngineSession {
+                native_id: native.clone(),
+                transcript_path: String::new(),
+                engine_version: None,
+            };
+            edge.handle(sessions::fact_book(
+                session_cover(session),
+                &bind,
+                &format!("bind:{session}:{native}"),
+            ))
+            .await
+            .unwrap();
+        }
+    }
+}
+
+/// [`enqueued`], its launcher holding the run lock at `launcher_lock` (rulings
+/// 86, 92; empty: none).
+pub async fn enqueued_by(edge: &TestEdge, session: &str, harp: &str, launcher_lock: &str) {
+    let order = edge.recorded.lock().unwrap().clone();
+    session_recorded(edge, session, harp, order.as_ref()).await;
+    let spec = order.as_ref().map(|order| {
+        spec_of(
+            order,
+            Recording {
+                program_dir: "",
+                workspace_dir: &order.workspace.work_dir,
+                runtime: "host",
+                distill: None,
+                project: "",
+            },
+            &TestSealing,
+        )
+        .expect("a test order is sealed")
+    });
+    let grant = order.as_ref().map(|order| runs::Grant {
+        mcp_servers: Vec::new(),
+        permissions: order.permissions.clone().unwrap_or_default(),
+    });
     let enqueue: runs::RunCommand = runs::EnqueueRun {
         session: session.to_string(),
         incarnation: 1,
-        mode: RunMode::OneShot,
+        mode: match order.as_ref().is_some_and(|o| o.interactive) {
+            true => RunMode::Interactive,
+            false => RunMode::OneShot,
+        },
         prompt_given: true,
         engine: "claude-code".to_string(),
         drivable_engines: vec!["claude-code".to_string()],
@@ -194,8 +267,9 @@ pub async fn enqueued_by(edge: &TestEdge, session: &str, harp: &str, launcher_lo
         fatal_findings: 0,
         fatal: Vec::new(),
         launcher_lock: launcher_lock.to_string(),
-        grant: None,
+        grant,
         untrusted_settings: Vec::new(),
+        spec,
     }
     .into();
     edge.handle(command_book(run_cover(session), enqueue.to_any()))
@@ -850,10 +924,53 @@ pub fn order(engine: &str) -> Order {
     }
 }
 
-pub fn orders_with(order: Order) -> Arc<Orders> {
-    let orders = Arc::new(Orders::new());
-    orders.place(SESSION, 1, order);
-    orders
+/// A launcher over `edge` for the run `placed` describes: the edge records
+/// that run's plan, the launcher claims it and seals with the test's sealing.
+pub fn launcher(
+    edge: Arc<TestEdge>,
+    runner: ScriptedRunner,
+    records: MemoryRecords,
+    engines: Vec<Arc<dyn Engine>>,
+    placed: Placed,
+) -> crate::Launcher<TestEdge, ScriptedRunner, MemoryRecords> {
+    *edge.recorded.lock().unwrap() = placed.order;
+    crate::Launcher::new(
+        edge,
+        runner,
+        records,
+        engines,
+        placed.claims,
+        Arc::new(TestSealing),
+        Limits::new(std::time::Duration::from_secs(5)),
+    )
+}
+
+/// The order a test's run is of, and the claim that makes the rig's launcher
+/// the one that launches it.
+pub struct Placed {
+    pub claims: Arc<RunLockTable>,
+    pub order: Option<Order>,
+}
+
+impl Placed {
+    /// A rig whose launcher claims no run: every run is another process's.
+    pub fn none() -> Placed {
+        Placed {
+            claims: Arc::new(RunLockTable::new()),
+            order: None,
+        }
+    }
+}
+
+/// `order` is the plan of the run [`enqueued`] records, which this process
+/// enqueued.
+pub fn orders_with(order: Order) -> Placed {
+    let claims = Arc::new(RunLockTable::new());
+    claims.claim(SESSION, 1, None);
+    Placed {
+        claims,
+        order: Some(order),
+    }
 }
 
 /// A workspaces port that answers every prepare as scripted and every

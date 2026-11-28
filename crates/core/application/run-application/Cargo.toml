@@ -28,6 +28,10 @@ sessions.workspace = true
 setup-application.workspace = true
 surface-ports.workspace = true
 uuid.workspace = true
+serde_json.workspace = true
+# The user's settings stream: its facts, and the content id a file is told by.
+user-settings.workspace = true
+library-tree.workspace = true
 
 [dev-dependencies]
 angzarr-embedded = { workspace = true, features = ["test-support"] }

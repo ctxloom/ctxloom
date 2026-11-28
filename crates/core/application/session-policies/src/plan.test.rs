@@ -95,6 +95,10 @@ fn launched(prompt: &str) -> SessionEvent {
         engine: CHILD_ENGINE.to_string(),
         depth: 1,
         prompt: prompt.to_string(),
+        agent: String::new(),
+        client_program: Default::default(),
+        settings_places: Vec::new(),
+        env: Vec::new(),
     })
 }
 
@@ -120,6 +124,7 @@ fn enqueued() -> RunEvent {
         mode: RunMode::Structured,
         launcher_lock: String::new(),
         grant: None,
+        spec: None,
     })
 }
 
@@ -306,6 +311,10 @@ fn a_child_in_another_project_is_minted_there_by_its_owners_plan() {
         engine: CHILD_ENGINE.to_string(),
         depth: 1,
         prompt: "x".to_string(),
+        agent: String::new(),
+        client_program: Default::default(),
+        settings_places: Vec::new(),
+        env: Vec::new(),
     });
     let steps = world.plan();
     assert_eq!(keys(&steps), [format!("mint:{OWNER}:{CHILD}")]);
@@ -606,6 +615,7 @@ fn each_turn_a_child_ended_is_told_to_its_owner() {
             answer_ref: String::new(),
             exit_code: 0,
             message_ids: vec!["m1".to_string()],
+            answer: String::new(),
         }),
         queued(&["m2"], TurnUrgency::Wake),
         RunEvent::TurnFailedRecorded(TurnFailedRecorded {
@@ -693,6 +703,7 @@ fn a_watched_primary_owner_is_woken_by_its_childs_notice() {
             answer_ref: String::new(),
             exit_code: 0,
             message_ids: vec!["m1".to_string()],
+            answer: String::new(),
         }),
     ]);
     world.wakeable.insert(OWNER.to_string());
@@ -721,6 +732,7 @@ fn a_rehosted_opencode_owner_is_woken_by_its_childs_notice() {
             answer_ref: String::new(),
             exit_code: 0,
             message_ids: vec!["m1".to_string()],
+            answer: String::new(),
         }),
     ]);
     let grand = "0b0b0b0b-0b0b-0b0b-0b0b-0b0b0b0b0b0b";
@@ -1026,6 +1038,7 @@ fn each_turn_a_child_in_another_project_ended_is_told_to_its_owner() {
             answer_ref: String::new(),
             exit_code: 0,
             message_ids: vec!["m1".to_string()],
+            answer: String::new(),
         }),
     ]);
     let key = format!("notice:{CHILD}:1:1");

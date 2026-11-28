@@ -544,6 +544,32 @@ impl ctxloom_ports::LibraryScanner for TreeScanner {
         Ok(found)
     }
 
+    fn read_files(
+        &self,
+        dir: &str,
+        paths: &[(&str, &str)],
+    ) -> Result<std::collections::BTreeMap<String, Vec<u8>>, ctxloom_ports::Failure> {
+        let root = std::path::Path::new(dir);
+        let mut read = std::collections::BTreeMap::new();
+        for (path, id) in paths {
+            if self
+                .through_link(root, path)
+                .map_err(|e| scan_failed(dir, &e))?
+            {
+                continue;
+            }
+            match self.fs.read(&root.join(path)) {
+                Ok(bytes) if library_tree::content_id(&bytes) == *id => {
+                    read.insert(path.to_string(), bytes);
+                }
+                Ok(_) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(scan_failed(dir, &e)),
+            }
+        }
+        Ok(read)
+    }
+
     fn forget(&self) {
         self.memo
             .lock()

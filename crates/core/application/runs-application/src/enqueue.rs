@@ -30,6 +30,9 @@ pub struct EnqueueRequest {
     /// What the run is given (step 9: the grant record, journaled): its MCP
     /// servers by name and its permissions document; none, no record.
     pub grant: Option<runs::Grant>,
+    /// What the plan decided, recorded on the event: the launcher acts on
+    /// it. None for a run whose launcher is handed its inputs another way.
+    pub spec: Option<runs::LaunchSpec>,
 }
 
 /// The evidence of a run's pre-launch checks, as the run application asked its
@@ -136,6 +139,7 @@ impl<E: Edge> Enqueuer<E> {
             launcher_lock: request.launcher_lock,
             untrusted_settings: request.evidence.untrusted_settings,
             grant: request.grant,
+            spec: request.spec,
         };
         let book = CommandBook::command_of(cover, &runs::RunCommand::from(enqueue));
         self.edge.handle(book).await.map_err(refused)?;

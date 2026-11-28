@@ -1,0 +1,18 @@
+[package]
+name = "sealing-application"
+version = "0.1.0"
+description = "Sealing for the launch use cases: a project's secrets sealed and opened through the ports of its keys, with the key ids told to its stream"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+run-ports.workspace = true
+
+[dev-dependencies]
+mutants.workspace = true
+run-ports = { workspace = true, features = ["test-support"] }
+
+[lints]
+workspace = true

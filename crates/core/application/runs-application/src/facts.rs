@@ -213,6 +213,7 @@ impl RunnerFact {
                 answer_ref: String::new(),
                 exit_code: 0,
                 message_ids: Vec::new(),
+                answer: String::new(),
             }),
             RunnerFact::TurnFailed(runs::RecordTurnFailed {
                 turn: 1,

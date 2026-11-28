@@ -160,6 +160,7 @@ fn enqueue() -> EnqueueRun {
         launcher_lock: launcher_lock(),
         untrusted_settings: Vec::new(),
         grant: None,
+        spec: None,
     }
 }
 
@@ -352,6 +353,7 @@ fn two_turns_of_one_runner_are_one_run_enqueued_and_one_run_ended() {
             answer_ref: String::new(),
             exit_code: 0,
             message_ids: Vec::new(),
+            ..Default::default()
         },
         "turn:r:1:completed",
     );
@@ -370,6 +372,7 @@ fn two_turns_of_one_runner_are_one_run_enqueued_and_one_run_ended() {
             answer_ref: String::new(),
             exit_code: 0,
             message_ids: Vec::new(),
+            ..Default::default()
         },
         "turn:r:3:completed",
     );
@@ -404,6 +407,7 @@ fn a_completed_turn_frees_the_gate() {
             answer_ref: String::new(),
             exit_code: 0,
             message_ids: Vec::new(),
+            ..Default::default()
         },
         "turn:r:1:completed",
     );
@@ -730,6 +734,7 @@ fn facts() -> Vec<(CommandBook, &'static str)> {
                     answer_ref: String::new(),
                     exit_code: 0,
                     message_ids: Vec::new(),
+                    ..Default::default()
                 },
                 "completed",
             ),
@@ -847,6 +852,28 @@ fn a_runner_starting_is_recorded_on_the_run_and_only_while_it_is_live() {
     // Never enqueued: nothing to record it on.
     let mut none = Run::new();
     assert!(none.fact(started(), "started:r").is_empty());
+}
+
+// Owner 2026-11-28: a terminal session's prepared launch is a fact of its
+// run, recorded once and only while the run is live.
+#[test]
+fn a_prepared_launch_is_recorded_once_and_only_while_the_run_is_live() {
+    let prepared = || crate::RecordLaunchPrepared {
+        launch: crate::PreparedLaunch {
+            launch: vec![1, 2, 3],
+            env: vec![crate::EnvEntry {
+                name: "TOKEN".to_string(),
+                value: crate::SealedValue { sealed: vec![9] },
+            }],
+        },
+    };
+    let mut run = Run::enqueued();
+    assert!(!run.state().launch_prepared);
+    assert_eq!(run.fact(prepared(), "prepared:r").len(), 1);
+    assert!(run.state().launch_prepared);
+    assert!(run.fact(prepared(), "prepared:r:again").is_empty(), "once");
+    let mut none = Run::new();
+    assert!(none.fact(prepared(), "prepared:r").is_empty());
 }
 
 // NEW-DESIGN: a command to a stream holding no run is refused, not decided on
@@ -1270,6 +1297,117 @@ fn the_pre_launch_refusal_holds_the_findings() {
     assert_eq!(findings[0].text, "t");
 }
 
+// P3 (owner ruling 2026-11-25, "record the decision's outputs"): the plan's
+// outputs are the event's, so a launcher, a projection or another machine
+// reads what a run launched with from the stream. RED: `decide` does not copy
+// the spec onto `RunEnqueued` yet.
+
+/// A spec as a plan makes it: every output decided once, one secret among
+/// the environment, sealed.
+fn launch_spec() -> crate::LaunchSpec {
+    crate::LaunchSpec {
+        model: "claude-sonnet-5".to_string(),
+        effort: "high".to_string(),
+        session_home: "session".to_string(),
+        approval_timeout_seconds: Some(300),
+        engine_command: "claude".to_string(),
+        auth_variables: vec!["ANTHROPIC_API_KEY".to_string()],
+        auth_file: String::new(),
+        env: vec![crate::EnvEntry {
+            name: "ANTHROPIC_API_KEY".to_string(),
+            value: crate::SealedValue {
+                sealed: b"sealed-to-the-launchers-key".to_vec(),
+            },
+        }],
+        context: "FRAGMENT-BODY-testing".to_string(),
+        prompt: "unicorn-prompt".to_string(),
+        surfaces: crate::LaunchSurfaces {
+            hooks_json: r#"{"PreToolUse":[]}"#.to_string(),
+            statusline: "ctxloom".to_string(),
+            deny_tools: vec!["Bash(rm:*)".to_string()],
+            mcp_servers: vec![crate::McpSpec {
+                name: "docs".to_string(),
+                url: "https://docs.example/mcp".to_string(),
+                headers: vec![crate::EnvEntry {
+                    name: "Authorization".to_string(),
+                    value: crate::SealedValue {
+                        sealed: b"sealed-header".to_vec(),
+                    },
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        },
+        git_user: crate::GitIdentity {
+            name: "Alice".to_string(),
+            email: "alice@example.com".to_string(),
+        },
+        runtime: "host".to_string(),
+        client_program: crate::ClientProgram {
+            name: "ctxloom".to_string(),
+            directory: "/opt/ctxloom".to_string(),
+        },
+        user_settings_sequence: Some(4),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn the_plans_outputs_are_recorded_on_the_event_the_enqueue_emits() {
+    let mut run = Run::new();
+    let events = run
+        .command(EnqueueRun {
+            spec: Some(launch_spec()),
+            ..enqueue()
+        })
+        .unwrap();
+    let [RunEvent::RunEnqueued(enqueued)] = events.as_slice() else {
+        panic!("one RunEnqueued: {events:?}");
+    };
+    assert_eq!(enqueued.spec, Some(launch_spec()));
+}
+
+// The terminal session's grant is journaled as a child's and a one-shot's is
+// (it was left unset for the human's session).
+#[test]
+fn a_terminal_runs_grant_and_spec_are_recorded_alike() {
+    let mut run = Run::new();
+    let events = run
+        .command(EnqueueRun {
+            mode: RunMode::Interactive,
+            grant: Some(grant()),
+            spec: Some(launch_spec()),
+            ..enqueue()
+        })
+        .unwrap();
+    let [RunEvent::RunEnqueued(enqueued)] = events.as_slice() else {
+        panic!("one RunEnqueued: {events:?}");
+    };
+    assert_eq!(enqueued.grant, Some(grant()));
+    assert_eq!(enqueued.spec, Some(launch_spec()));
+}
+
+// No duplication: the spec restates nothing an earlier event recorded (the
+// mint's engine and workspace axis, the loadout's agent): `EnqueueRun`'s
+// `engine` is evidence for the checks, and is not on the event.
+#[test]
+fn the_event_restates_no_evidence_and_no_earlier_decision() {
+    let mut run = Run::new();
+    let events = run
+        .command(EnqueueRun {
+            spec: Some(launch_spec()),
+            ..enqueue()
+        })
+        .unwrap();
+    let [RunEvent::RunEnqueued(enqueued)] = events.as_slice() else {
+        panic!("one RunEnqueued: {events:?}");
+    };
+    let spec = enqueued.spec.as_ref().expect("the spec is recorded");
+    // The spec has no engine, agent or workspace axis field to restate: the
+    // assertion that it is recorded is the red; the absence is the type's.
+    assert_eq!(spec.runtime, "host");
+}
+
 // A purge leaves a tombstone, which folds to the default state: a stream
 // whose last event is a tombstone holds no run, so an enqueue on it is the
 // first of a new run, not an AlreadyEnqueued.
@@ -1279,4 +1417,60 @@ fn an_enqueue_on_a_stream_closed_by_a_purge_is_accepted() {
     assert!(run.purge() > 0, "events deleted");
     run.command(enqueue()).expect("the stream holds no run");
     assert!(run.state().mode.is_some());
+}
+
+// Owner 2026-11-28: what a distill run's answer came to is a fact of its run,
+// recorded once, for a run whose spec says it is a distill's and that has an
+// answer; the fold says it is written.
+#[test]
+fn a_distills_outcome_is_recorded_once_for_an_answered_distill_run_alone() {
+    let outcome = || crate::RecordDistillWritten {
+        end: Vec::new(),
+        notices: Vec::new(),
+    };
+    let purposed = |run: &mut Run| {
+        let mut command = enqueue();
+        command.spec = Some(crate::LaunchSpec {
+            distill: Some(crate::DistillPurpose {
+                reference: "demo#fragments/x".to_string(),
+                kind: "fragment".to_string(),
+                digest: "d".to_string(),
+                etag: "1".to_string(),
+                cwd: "/work".to_string(),
+            }),
+            ..Default::default()
+        });
+        run.command(command).unwrap();
+    };
+    let mut run = Run::new();
+    purposed(&mut run);
+    assert!(
+        run.fact(outcome(), "distill:r").is_empty(),
+        "no answer yet: nothing to write"
+    );
+    run.command(queue_turn()).unwrap();
+    run.fact(
+        RecordTurnCompleted {
+            turn: 1,
+            answer: "COMPRESSED".to_string(),
+            ..Default::default()
+        },
+        "turn:r:1:completed",
+    );
+    assert_eq!(run.state().answer.as_deref(), Some("COMPRESSED"));
+    assert_eq!(run.fact(outcome(), "distill:r").len(), 1);
+    assert!(run.state().distill_written);
+    assert!(run.fact(outcome(), "distill:r:again").is_empty(), "once");
+    // An ordinary run's answer is no distill's.
+    let mut plain = Run::enqueued();
+    plain.command(queue_turn()).unwrap();
+    plain.fact(
+        RecordTurnCompleted {
+            turn: 1,
+            answer: "x".to_string(),
+            ..Default::default()
+        },
+        "turn:r:1:completed",
+    );
+    assert!(plain.fact(outcome(), "distill:r").is_empty());
 }

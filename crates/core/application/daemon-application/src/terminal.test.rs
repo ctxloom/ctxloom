@@ -13,8 +13,8 @@ use run_ports::{
 };
 
 use super::{
-    Created, FrontendReports, Frontended, Placed, Seen, TerminalHost, TerminalRequest, Terminals,
-    Told, Waits, START_WITHIN,
+    Created, FrontendReports, Frontended, Placed, PreparedLaunches, Seen, TerminalHost,
+    TerminalRequest, Terminals, Told, Waits, START_WITHIN,
 };
 
 /// Reports as the run's stream holds them at each read, in turn; the last
@@ -124,10 +124,25 @@ struct Host {
 impl TerminalHost for Arc<Host> {
     fn host(&self, _: TerminalRequest, told: Told) {
         match self.script.lock().unwrap().pop_front().flatten() {
-            Some(run) => told.prepared(placed(&run), launch()),
+            Some(run) => told.prepared(placed(&run)),
             None => told.done(vec![end(20)]),
         }
         self.told.lock().unwrap().push(told);
+    }
+
+    fn launch_of(&self, _: &str) -> Option<Launch> {
+        Some(launch())
+    }
+}
+
+/// The launches recorded, as the stream would hold them.
+#[derive(Default)]
+struct Recorded(Mutex<Vec<Launch>>);
+
+impl PreparedLaunches for Recorded {
+    fn record(&self, launch: &Launch) -> Result<(), LaunchFailure> {
+        self.0.lock().unwrap().push(launch.clone());
+        Ok(())
     }
 }
 
@@ -152,18 +167,29 @@ fn launch() -> Launch {
 }
 
 fn frontended(told: Told, reports: Arc<Script>, lock: LockProbe) -> (Frontended, Arc<Clock>) {
+    let (frontended, clock, _) = recording(told, reports, lock);
+    (frontended, clock)
+}
+
+fn recording(
+    told: Told,
+    reports: Arc<Script>,
+    lock: LockProbe,
+) -> (Frontended, Arc<Clock>, Arc<Recorded>) {
+    let recorded = Arc::new(Recorded::default());
     let clock = Arc::new(Clock::default());
     let frontended = Frontended {
         told,
         project_harp: "calm-quiet-otter".to_string(),
         reports,
+        launches: Arc::clone(&recorded) as Arc<dyn PreparedLaunches>,
         waits: Arc::clone(&clock) as Arc<dyn Waits>,
         locks: Arc::new(Locks(lock)),
         project_dir: "/work".to_string(),
         lock_path: Arc::new(|harp: &str| format!("/work/.ctxloom/sessions/{harp}/session.lock")),
         finder: Arc::new(Finder),
     };
-    (frontended, clock)
+    (frontended, clock, recorded)
 }
 
 fn limits() -> Limits {
@@ -196,13 +222,13 @@ fn exited(code: i32) -> Seen {
 fn test_the_launch_is_handed_over_with_the_session_lock_and_its_start_is_the_frontend_s_pid() {
     let told = told();
     let reports = Script::of(vec![Seen::default(), Seen::default(), started(4242)]);
-    let (frontended, clock) = frontended(told.clone(), reports, LockProbe::Held);
+    let (frontended, clock, recorded) = recording(told.clone(), reports, LockProbe::Held);
     let running = frontended.start(&launch(), &limits()).unwrap();
     assert_eq!(running.pid(), 4242);
     // It waited for the report, polling.
     assert_eq!(clock.elapsed(), super::POLL * 2);
     let state = told.0.state();
-    let (placed, handed) = state.prepared.clone().unwrap();
+    let placed = state.prepared.clone().unwrap();
     assert_eq!(
         placed,
         Placed {
@@ -213,7 +239,12 @@ fn test_the_launch_is_handed_over_with_the_session_lock_and_its_start_is_the_fro
     );
     let mut expected = launch();
     expected.session_lock = "/work/.ctxloom/sessions/amber-quiet-heron/session.lock".to_string();
-    assert_eq!(handed, expected);
+    expected.at.project_id = "calm-quiet-otter".to_string();
+    assert_eq!(
+        *recorded.0.lock().unwrap(),
+        [expected],
+        "recorded, not handed"
+    );
 }
 
 #[test]

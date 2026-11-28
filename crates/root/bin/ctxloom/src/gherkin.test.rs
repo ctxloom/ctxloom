@@ -282,6 +282,7 @@ impl World {
             .env("HOME", self.common.project.home())
             .env("TMPDIR", crate::tests::temp_root())
             .env(crate::tests::LIFELINE, crate::tests::lifeline())
+            .env(crate::tests::SEAL_KEY, crate::tests::SEAL_KEY_VALUE)
             .output()
             .expect("git runs");
         assert!(
@@ -470,6 +471,9 @@ mod library_changes;
 
 #[path = "gherkin_writes.test.rs"]
 mod writes;
+
+#[path = "gherkin_launch_spec.test.rs"]
+mod launch_spec;
 
 #[path = "gherkin_cli.test.rs"]
 mod cli;

@@ -10,13 +10,12 @@
 # that covers nothing fails: this list only shrinks.
 
 # --- debt: the hand-offs of the inventory --------------------------------------
-crates/core/application/run-launcher/src/orders.rs | placed: Mutex<BTreeMap | debt: Orders (the plan's payload handed to the launcher), replaced by the launch spec recorded on RunEnqueued and the launcher acting on pending-launches alone (pattern 1, P3)
-crates/core/application/run-launcher/src/orders.rs | locks: Mutex<BTreeMap | debt: Orders (the run's own lock handed to the launcher), replaced by the lease facts of pattern 3 (P5)
+crates/core/application/run-launcher/src/order.rs | held: Mutex<BTreeMap | debt: Orders (the run's own lock, and which runs this process enqueued), replaced by the lease facts of pattern 3 (P5)
 crates/core/application/daemon-application/src/one_shot.rs | table: Mutex<BTreeMap | debt: row 2, OneShots serves WatchRun and GetRun from an in-memory event list; replaced by a reader that tails the run's stream (pattern 2, P4)
 crates/core/application/daemon-application/src/one_shot.rs | ended: Mutex<VecDeque | debt: row 2, the table's ended entries kept in memory; gone with the table (pattern 2, P4)
 crates/core/application/daemon-application/src/one_shot.rs | changed: Condvar | debt: row 16, a wake channel for the watchers; replaced by tailing the stream from a position (pattern 2, P4)
-crates/core/application/daemon-application/src/terminal.rs | table: Mutex<BTreeMap | debt: row 6, Terminals hands the prepared Launch (command, env, cwd) from the use case to the API in memory; replaced by the launch spec recorded on the run (pattern 1, P3)
-crates/core/application/daemon-application/src/terminal.rs | ended: Mutex<VecDeque | debt: row 6, the table's ended entries kept in memory; gone with the table (pattern 1, P3)
+crates/core/application/daemon-application/src/terminal.rs | table: Mutex<BTreeMap | debt: row 2, Terminals keeps each prepared session's watch (its stop, its notices and end) in memory for GetRun, WatchRun and the idle count; the Launch itself is on the run's stream (P3); replaced by a reader that tails the run's stream (pattern 2, P4)
+crates/core/application/daemon-application/src/terminal.rs | ended: Mutex<VecDeque | debt: row 2, the table's ended entries kept in memory; gone with the table (pattern 2, P4)
 crates/core/application/daemon-application/src/terminal.rs | changed: Condvar | debt: row 16, a wake channel for the watchers; replaced by tailing the stream from a position (pattern 2, P4)
 crates/core/application/daemon-application/src/watches.rs | changed: Condvar | debt: row 5, SessionWatches counts open WatchSession calls in memory and "wakeable" changes the urgencies a send supports; replaced by a recorded watch-opened/closed fact (pattern 3, P5)
 crates/root/daemon/ctxloom-daemon/src/serve.rs | done: tokio::sync::watch::Sender<u64> | debt: row 14, Hosting::fresh waits for the loop's next round through an in-memory counter; a read waits on the projection's position instead (pattern 2, P4)
@@ -32,3 +31,4 @@ crates/root/daemon/ctxloom-daemon/src/foreign.rs | written: Mutex<BTreeMap | the
 crates/root/daemon/ctxloom-daemon/src/foreign.rs | order: Mutex<Vec<String> | the recording store's order of writes within one call, as above
 crates/core/application/deps-application/src/fakes.rs | Mutex< | test fakes (this crate's fakes.rs): they record the calls a test asserts on
 crates/core/application/run-launcher/src/fakes.rs | Mutex< | test fakes (this crate's fakes.rs): they record the calls a test asserts on
+crates/root/daemon/ctxloom-daemon/src/project_secrets.rs | sets: Mutex<BTreeMap | an edge cache of each project's key set keyed by its `.env`'s stat, as the scanner's memo is; read again when the file or the trust moves, never projector state and never handed to another component

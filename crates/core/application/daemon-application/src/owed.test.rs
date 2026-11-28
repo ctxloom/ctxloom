@@ -44,6 +44,7 @@ fn an_event_s_change_names_its_paths() {
         dirty_after: Vec::new(),
         tree_after: String::new(),
         baseline: false,
+        contents: Vec::new(),
     });
     let at = Timestamp {
         seconds: 3,

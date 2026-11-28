@@ -129,7 +129,12 @@ pub const NOUN: &str = "daemon";
 /// spawner's home or its confinement (`HOME`, `USERPROFILE`, `APPDATA`,
 /// `LOCALAPPDATA`, the XDG bases): the daemon's home is the ACCOUNT's (M4,
 /// one daemon per OS user), whoever spawned it.
-const DAEMON_ENV: [&str; 4] = ["PATH", "TMPDIR", "LANG", "LC_ALL"];
+///
+/// No seal key crosses (owner ruling 2026-11-27): each project's key is in
+/// its own `.env`, which the daemon reads once the project is trusted. The
+/// one exception is the test build's, `CTXLOOM_TEST_SEAL_KEY`, the key of a
+/// project with no `.env`; a plain build reads no such variable.
+const DAEMON_ENV: [&str; 5] = ["PATH", "TMPDIR", "LANG", "LC_ALL", "CTXLOOM_TEST_SEAL_KEY"];
 
 /// S16: how long a hook spends, in all, reaching a daemon (rediscovering
 /// it, or spawning one and waiting) and delivering, before it fails open.

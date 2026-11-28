@@ -13,12 +13,14 @@ use angzarr_embedded::Payload;
 use ctxloom_compose::frontend::SESSION_STACK;
 use ctxloom_compose::oneshot::{runs_over, Driven};
 use daemon_application::{
-    FrontendReports, Frontended, HostRequest, Seen, TerminalHost, TerminalTold, Waits,
+    FrontendReports, Frontended, HostRequest, PreparedLaunches, Seen, TerminalHost, TerminalTold,
+    Waits,
 };
 use daemon_proto::v1;
 use host_launcher::HostLauncher;
+use prost::Message as _;
 use run_application::{client, Done, Ended, RunError};
-use run_ports::{Edge, LaunchAt, LaunchFailure};
+use run_ports::{Edge, Launch, LaunchAt, LaunchFailure};
 use session_ports::{Held, LockError, SessionLock};
 
 use crate::hosted_oneshots::{hosted_setup, Hosted};
@@ -32,9 +34,25 @@ pub(crate) struct HostedTerminals {
     pub(crate) runtime: tokio::runtime::Handle,
     pub(crate) home: PathBuf,
     pub(crate) temp: PathBuf,
+    /// Seals the secrets of each run's record; the daemon's own key.
+    pub(crate) sealing: Arc<dyn run_ports::Sealing>,
+}
+
+impl HostedTerminals {
+    fn launches(&self) -> StoreLaunches<impl Edge + 'static> {
+        StoreLaunches {
+            edge: self.core.edge(),
+            runtime: self.runtime.clone(),
+            sealing: Arc::clone(&self.sealing),
+        }
+    }
 }
 
 impl TerminalHost for HostedTerminals {
+    fn launch_of(&self, run: &str) -> Option<Launch> {
+        self.launches().read(run)
+    }
+
     // Spawns the thread a prepared session runs on; the acceptance tests
     // drive it (run.feature's daemon Rule, j002700).
     #[cfg_attr(test, mutants::skip)]
@@ -42,6 +60,7 @@ impl TerminalHost for HostedTerminals {
         let core = self.core.clone();
         let runtime = self.runtime.clone();
         let (home, temp) = (self.home.clone(), self.temp.clone());
+        let sealing = Arc::clone(&self.sealing);
         let spawned = std::thread::Builder::new()
             .name("ctxloom-terminal".to_string())
             // A session's whole run is driven on it (the plan, the set-up,
@@ -55,7 +74,7 @@ impl TerminalHost for HostedTerminals {
                             core,
                             (&home, &temp),
                             request,
-                            told.clone(),
+                            (told.clone(), sealing),
                         )))
                     }));
                     let done = hosted.unwrap_or_else(|_| Done {
@@ -112,7 +131,7 @@ async fn host_terminal(
     core: crate::SharedCore<SqliteStore>,
     places: (&Path, &Path),
     request: HostRequest,
-    told: TerminalTold,
+    (told, sealing): (TerminalTold, Arc<dyn run_ports::Sealing>),
 ) -> Done<Ended> {
     let hosted = match hosted_setup(places, &request, &core.edge()).await {
         Ok(hosted) => hosted,
@@ -141,6 +160,11 @@ async fn host_terminal(
             edge: core.edge(),
             runtime: tokio::runtime::Handle::current(),
         }),
+        launches: Arc::new(StoreLaunches {
+            edge: core.edge(),
+            runtime: tokio::runtime::Handle::current(),
+            sealing: Arc::clone(&sealing),
+        }),
         waits: Arc::new(Waited(Instant::now())),
         locks: Arc::new(liveness::RunLockFiles::new(Arc::clone(&fs), places.0)),
         project_dir: project_dir.display().to_string(),
@@ -150,6 +174,7 @@ async fn host_terminal(
     let driven = Driven {
         runner,
         locks: Box::new(Unheld),
+        sealing,
     };
     let mut runs = runs_over(
         &wiring,
@@ -190,6 +215,96 @@ impl Waits for Waited {
 /// The frontend's reports as the daemon's store holds them: read from the
 /// run's stream and the session's, on the daemon's runtime, the session's
 /// thread waiting for the answer.
+/// The launch of a prepared session, on its run's stream: its environment's
+/// values sealed to the project's key, the rest the encoding of the wire's
+/// `Launch`.
+pub(crate) struct StoreLaunches<E> {
+    pub(crate) edge: Arc<E>,
+    pub(crate) runtime: tokio::runtime::Handle,
+    pub(crate) sealing: Arc<dyn run_ports::Sealing>,
+}
+
+/// What a value of the launch's environment is sealed for.
+fn env_field(name: &str) -> String {
+    format!("launch-env:{name}")
+}
+
+fn unrecorded(detail: impl ToString) -> LaunchFailure {
+    LaunchFailure {
+        deterministic: false,
+        detail: detail.to_string(),
+    }
+}
+
+impl<E: Edge + 'static> PreparedLaunches for StoreLaunches<E> {
+    fn record(&self, launch: &Launch) -> Result<(), LaunchFailure> {
+        let project = launch.at.project_id.as_str();
+        let mut wire = daemon_api_contract::launch::to_wire(launch);
+        let env = std::mem::take(&mut wire.env)
+            .into_iter()
+            .map(|var| {
+                let sealed =
+                    self.sealing
+                        .seal(project, &env_field(&var.name), var.value.as_bytes())?;
+                Ok(runs::EnvEntry {
+                    name: var.name,
+                    value: runs::SealedValue { sealed },
+                })
+            })
+            .collect::<Result<Vec<_>, run_ports::SealingError>>()
+            .map_err(unrecorded)?;
+        let fact = runs::RecordLaunchPrepared {
+            launch: runs::PreparedLaunch {
+                launch: wire.encode_to_vec(),
+                env,
+            },
+        };
+        let book = sessions::fact_book(
+            cover(runs::RUN_DOMAIN, &launch.at.run),
+            &fact,
+            &format!("prepared:{}", launch.at.run),
+        );
+        let edge = Arc::clone(&self.edge);
+        let (tell, heard) = std::sync::mpsc::channel();
+        self.runtime.spawn(async move {
+            let _ = tell.send(edge.handle(book).await.map(|_| ()).map_err(unrecorded));
+        });
+        heard
+            .recv()
+            .map_err(|_| unrecorded("the daemon's runtime ended"))?
+    }
+}
+
+impl<E: Edge + 'static> StoreLaunches<E> {
+    /// The launch `run`'s stream holds, its environment opened.
+    pub(crate) fn read(&self, run: &str) -> Option<Launch> {
+        let edge = Arc::clone(&self.edge);
+        let run_cover = cover(runs::RUN_DOMAIN, run);
+        let (tell, heard) = std::sync::mpsc::channel();
+        self.runtime.spawn(async move {
+            let _ = tell.send(edge.events(&run_cover, 0).await.unwrap_or_default());
+        });
+        let pages = heard.recv().ok()?;
+        let prepared = bodies(&pages).find_map(|any| match runs::RunEvent::from_any(any) {
+            Ok(runs::RunEvent::LaunchPrepared(prepared)) => Some(prepared.launch),
+            _ => None,
+        })?;
+        let mut wire = daemon_proto::v1::Launch::decode(prepared.launch.as_slice()).ok()?;
+        let project = wire.at.as_ref()?.project_id.clone();
+        for entry in prepared.env {
+            let plain = self
+                .sealing
+                .open(&project, &env_field(&entry.name), &entry.value.sealed)
+                .ok()?;
+            wire.env.push(daemon_proto::v1::EnvVar {
+                name: entry.name,
+                value: String::from_utf8_lossy(&plain).into_owned(),
+            });
+        }
+        daemon_api_contract::launch::from_wire(&wire)
+    }
+}
+
 struct StoreReports<E> {
     edge: Arc<E>,
     runtime: tokio::runtime::Handle,

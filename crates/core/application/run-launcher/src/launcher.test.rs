@@ -3,19 +3,15 @@
 
 use std::sync::{Arc, Mutex};
 
-use run_ports::{FailureClass, LaunchFailure, Limits, TurnLaunch, TurnOutcome};
+use run_ports::{FailureClass, LaunchFailure, TurnLaunch, TurnOutcome};
 use runs::{EndCause, RunEvent};
 use sessions::SessionEvent;
 
 use crate::fakes::{
     enqueued, enqueued_by, names, order, orders_with, run_events, session_events, MemoryRecords,
-    ScriptedEngine, ScriptedRunner, TestEdge, HARP, SESSION,
+    Placed, ScriptedEngine, ScriptedRunner, TestEdge, HARP, SESSION,
 };
-use crate::{Launched, Launcher, Orders, Outcome};
-
-fn limits() -> Limits {
-    Limits::new(std::time::Duration::from_secs(5))
-}
+use crate::{Launched, Launcher, Outcome};
 
 struct Rig {
     edge: Arc<TestEdge>,
@@ -24,20 +20,15 @@ struct Rig {
     records: MemoryRecords,
 }
 
-fn rig(
-    engine: impl run_ports::Engine + 'static,
-    runner: ScriptedRunner,
-    orders: Arc<Orders>,
-) -> Rig {
+fn rig(engine: impl run_ports::Engine + 'static, runner: ScriptedRunner, placed: Placed) -> Rig {
     let edge = Arc::new(TestEdge::new());
     let records = MemoryRecords::default();
-    let launcher = Launcher::new(
+    let launcher = crate::fakes::launcher(
         Arc::clone(&edge),
         runner.clone(),
         records.clone(),
         vec![Arc::new(engine)],
-        orders,
-        limits(),
+        placed,
     );
     Rig {
         edge,
@@ -490,7 +481,7 @@ async fn a_run_with_no_order_here_is_left_for_its_owner() {
     let mut rig = rig(
         ScriptedEngine::answering("A", None),
         ScriptedRunner::exits(0),
-        Arc::new(Orders::new()),
+        Placed::none(),
     );
     enqueued(&rig.edge, SESSION, HARP).await;
     assert!(rig.step().await.is_empty());
@@ -828,7 +819,7 @@ async fn an_order_names_the_engine_the_launcher_reports() {
     let rig = rig(
         ScriptedEngine::answering("A", None),
         ScriptedRunner::exits(0),
-        Arc::new(Orders::new()),
+        Placed::none(),
     );
     assert!(rig.launcher.drives("fake"));
     assert!(!rig.launcher.drives("claude-code"));
@@ -900,7 +891,7 @@ fn the_launcher_hands_on_the_credentials_of_the_engine_it_holds() {
         login_file: Some("login.json"),
         ..run_ports::Credentials::NONE
     };
-    let launcher = Launcher::new(
+    let launcher = crate::fakes::launcher(
         Arc::new(TestEdge::new()),
         ScriptedRunner::exits(0),
         MemoryRecords::default(),
@@ -908,8 +899,7 @@ fn the_launcher_hands_on_the_credentials_of_the_engine_it_holds() {
             ScriptedEngine::answering("a", None),
             asks,
         ))],
-        Arc::new(Orders::new()),
-        limits(),
+        Placed::none(),
     );
     assert_eq!(launcher.credentials("fake"), Some(asks));
     assert_eq!(launcher.credentials("other"), None);
@@ -1295,13 +1285,12 @@ fn another_process(
     edge: &Arc<TestEdge>,
     locks: Arc<Locks>,
 ) -> Launcher<TestEdge, ScriptedRunner, MemoryRecords> {
-    Launcher::new(
+    crate::fakes::launcher(
         Arc::clone(edge),
         ScriptedRunner::exits(0),
         MemoryRecords::default(),
         vec![Arc::new(ScriptedEngine::answering("A", None))],
-        Arc::new(Orders::new()),
-        limits(),
+        Placed::none(),
     )
     .with_locks(locks)
 }
@@ -1443,17 +1432,16 @@ async fn two_processes_that_find_the_same_orphan_record_it_once() {
 #[tokio::test]
 async fn a_run_whose_order_this_process_holds_is_launched_not_orphaned() {
     let edge = Arc::new(TestEdge::new());
-    enqueued_by(&edge, SESSION, HARP, RUN_LOCK).await;
     let runner = ScriptedRunner::exits(0);
-    let mut owner = Launcher::new(
+    let mut owner = crate::fakes::launcher(
         Arc::clone(&edge),
         runner.clone(),
         MemoryRecords::default(),
         vec![Arc::new(ScriptedEngine::answering("A", None))],
         orders_with(order("fake")),
-        limits(),
     )
     .with_locks(Locks::saying(Free, Free));
+    enqueued_by(&edge, SESSION, HARP, RUN_LOCK).await;
     let launched = owner.step(&edge.store, edge.catalog()).await.unwrap();
     assert_eq!(launched.len(), 1);
     assert_eq!(runner.seen.lock().unwrap().len(), 1);
@@ -1549,7 +1537,7 @@ async fn a_sweep_racing_a_normal_end_ends_the_run_once_by_its_exit() {
 
 /// A run lock held in the orders for `SESSION`'s first run: the flag says
 /// when it is let go.
-fn lock_held_in(orders: &Orders) -> Arc<std::sync::atomic::AtomicBool> {
+fn lock_held_in(placed: &Placed) -> Arc<std::sync::atomic::AtomicBool> {
     struct Guard(Arc<std::sync::atomic::AtomicBool>);
     impl Drop for Guard {
         fn drop(&mut self) {
@@ -1557,10 +1545,13 @@ fn lock_held_in(orders: &Orders) -> Arc<std::sync::atomic::AtomicBool> {
         }
     }
     let gone = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    orders.hold(
+    placed.claims.claim(
         SESSION,
         1,
-        run_ports::HeldLock::new(RUN_LOCK.to_string(), Guard(Arc::clone(&gone))),
+        Some(run_ports::HeldLock::new(
+            RUN_LOCK.to_string(),
+            Guard(Arc::clone(&gone)),
+        )),
     );
     gone
 }
@@ -1585,13 +1576,12 @@ async fn the_run_lock_is_let_go_once_the_runner_is_started() {
             }));
         }
         let edge = Arc::new(TestEdge::new());
-        let mut launcher = Launcher::new(
+        let mut launcher = crate::fakes::launcher(
             Arc::clone(&edge),
             runner,
             MemoryRecords::default(),
             vec![Arc::new(ScriptedEngine::answering("A", None))],
             orders,
-            limits(),
         );
         enqueued_by(&edge, SESSION, HARP, RUN_LOCK).await;
         launcher.step(&edge.store, edge.catalog()).await.unwrap();
@@ -1612,7 +1602,7 @@ async fn a_launch_that_never_started_lets_its_run_lock_go() {
         let orders = orders_with(asked);
         let gone = lock_held_in(&orders);
         let edge = Arc::new(TestEdge::new());
-        let mut launcher = Launcher::new(
+        let mut launcher = crate::fakes::launcher(
             Arc::clone(&edge),
             ScriptedRunner::answering(TurnLaunch::NotStarted(LaunchFailure {
                 deterministic: true,
@@ -1621,7 +1611,6 @@ async fn a_launch_that_never_started_lets_its_run_lock_go() {
             MemoryRecords::default(),
             vec![Arc::new(ScriptedEngine::answering("A", None))],
             orders,
-            limits(),
         );
         enqueued_by(&edge, SESSION, HARP, RUN_LOCK).await;
         launcher.step(&edge.store, edge.catalog()).await.unwrap();

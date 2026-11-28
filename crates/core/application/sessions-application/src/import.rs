@@ -324,6 +324,9 @@ impl<I, K: Dispatch + Send, G> Importer<I, K, G> {
 /// its command id.
 /// One step of an import: a command, or the bind, which is a fact (owner
 /// ruling 2026-11-04, S5 review item 8).
+// A command is the generated command enum, whose size is its largest
+// message's (`LaunchChild`); an import builds a few, once.
+#[allow(clippy::large_enum_variant)]
 enum Input {
     Command(SessionCommand),
     Bind(BindEngineSession),

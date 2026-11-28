@@ -16,6 +16,7 @@ fn request() -> EnqueueRequest {
         evidence: Evidence::passing("claude-code"),
         launcher_lock: "/home/u/.ctxloom/runs/run-1.lock".to_string(),
         grant: None,
+        spec: None,
     }
 }
 

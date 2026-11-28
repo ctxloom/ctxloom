@@ -22,6 +22,7 @@ pub mod frontend;
 mod hosted;
 mod loadout;
 mod one_shot;
+mod settings_log;
 
 pub use credential::{credential_evidence, links_on, share_login};
 #[cfg(any(test, feature = "test-support"))]

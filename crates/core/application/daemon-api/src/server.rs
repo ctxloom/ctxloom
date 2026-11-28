@@ -76,15 +76,6 @@ pub trait Hosting: Send + Sync {
     fn rounds(&self) -> u32 {
         0
     }
-    /// What the session `session` (its stable id), which it hosts, asks
-    /// with (step 8 U4): its run, engine, agent and `approval_timeout`, as
-    /// of the last round; none for a session it does not host.
-    // Equivalent: its one mutant (`None`) is this default body.
-    #[cfg_attr(test, mutants::skip)]
-    fn asker(&self, session: &str) -> Option<daemon_application::Asker> {
-        let _ = session;
-        None
-    }
 }
 
 /// What a library read observes first (step 10a U2): the trees as last
@@ -103,6 +94,9 @@ pub struct Observing {
     pub clock: library_api::Clock,
     /// A tree's regenerable cache, which `clean` measures (step 10b U9).
     pub caches: Arc<dyn crate::Caches>,
+    /// What an MCP server's secret values are sealed with in the record;
+    /// none, its file is recorded by its content id alone.
+    pub sealing: Option<Arc<dyn run_ports::Sealing>>,
 }
 
 /// A session's state now, from its liveness lock in its project.
@@ -194,11 +188,6 @@ pub trait Calls: Send + Sync {
     fn create_hand_off(&self, request: v1::CreateHandOffRequest) -> Answer<'_, v1::HandOff> {
         let _ = request;
         Box::pin(async { Err(not_served("CreateHandOff")) })
-    }
-    /// `DeleteHandOff` (slice 4 U3); as `GetTranscript`.
-    fn delete_hand_off(&self, request: v1::DeleteHandOffRequest) -> Answer<'_, v1::HandOff> {
-        let _ = request;
-        Box::pin(async { Err(not_served("DeleteHandOff")) })
     }
     /// `WatchLibrary` (step 10c G7): the named trees' changes from now on,
     /// drained by the poll each time `wake` is called (the catch-up's
@@ -292,6 +281,12 @@ pub trait Calls: Send + Sync {
     fn watch_run(&self, request: v1::WatchRunRequest) -> Answer<'_, crate::RunStream> {
         let _ = request;
         Box::pin(async { Err(not_served("WatchRun")) })
+    }
+    /// The write a distill run's recorded answer is due (the policy, owner
+    /// 2026-11-28): the daemon's loop sends each run the board lists.
+    fn write_distilled(&self, due: daemon_board::DistillDue) -> Answer<'_, ()> {
+        let _ = due;
+        Box::pin(async { Err(not_served("write_distilled")) })
     }
     /// `WatchSession` (the terminal wake): the session's signals, a stream
     /// the edge pumps from a blocking thread.
@@ -571,15 +566,15 @@ impl<E: Edge + 'static> Calls for Api<E> {
         Box::pin(Api::watch_run(self, request))
     }
 
+    fn write_distilled(&self, due: daemon_board::DistillDue) -> Answer<'_, ()> {
+        Box::pin(async move { Api::write_distilled(self, &due).await })
+    }
+
     fn create_hand_off(&self, request: v1::CreateHandOffRequest) -> Answer<'_, v1::HandOff> {
         Box::pin(async move {
             self.creating()?;
             Api::create_hand_off(self, request).await
         })
-    }
-
-    fn delete_hand_off(&self, request: v1::DeleteHandOffRequest) -> Answer<'_, v1::HandOff> {
-        Box::pin(Api::delete_hand_off(self, request))
     }
 
     fn create_approval(&self, request: v1::CreateApprovalRequest) -> Answer<'_, v1::Approval> {
@@ -984,7 +979,10 @@ pub struct Api<E> {
     pub(crate) one_shots: Option<Arc<daemon_application::OneShots>>,
     /// Where a child's hand-off is planned and kept; none, `CreateHandOff`
     /// and `DeleteHandOff` fail.
-    pub(crate) hand_offs: Option<Arc<dyn crate::HandOffs>>,
+    pub(crate) launch_plans: Option<Arc<dyn crate::LaunchPlans>>,
+    /// Seals what a launch's inputs hold that may be a secret, to the
+    /// daemon's own key.
+    pub(crate) sealing: Option<Arc<dyn run_ports::Sealing>>,
     /// What imports Go's sessions (ONE WRITER); none, `ImportSessions` fails.
     pub(crate) imports: Option<Arc<dyn crate::Imports>>,
     /// What refuses a project with a store of its own from before the one
@@ -1051,7 +1049,8 @@ impl<E: Edge> Api<E> {
             #[cfg(feature = "purge")]
             destroyers: None,
             one_shots: None,
-            hand_offs: None,
+            launch_plans: None,
+            sealing: None,
             imports: None,
             legacy_stores: None,
             terminals: None,
@@ -1161,6 +1160,10 @@ impl<E: Edge> Api<E> {
         )
         .sweeping(observing.operations)
         .purging(observing.clock);
+        let observations = match observing.sealing {
+            Some(sealing) => observations.sealing(sealing),
+            None => observations,
+        };
         Api {
             observing: Some((observations, observing.observers)),
             caches: Some(observing.caches),
@@ -1249,11 +1252,17 @@ impl<E: Edge> Api<E> {
         }
     }
 
-    /// The API, its children's hand-offs planned and kept by `hand_offs`.
+    /// The API, its children's launches planned by `plans`, their inputs
+    /// sealed by `sealing`.
     #[must_use]
-    pub fn handing_off(self, hand_offs: Arc<dyn crate::HandOffs>) -> Api<E> {
+    pub fn handing_off(
+        self,
+        plans: Arc<dyn crate::LaunchPlans>,
+        sealing: Arc<dyn run_ports::Sealing>,
+    ) -> Api<E> {
         Api {
-            hand_offs: Some(hand_offs),
+            launch_plans: Some(plans),
+            sealing: Some(sealing),
             ..self
         }
     }

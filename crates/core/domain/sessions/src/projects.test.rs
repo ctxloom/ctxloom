@@ -611,3 +611,56 @@ fn the_open_removals_round_trip_through_the_wire() {
     assert_eq!(wire.removals["r-1"].done, 1);
     assert_eq!(ProjectState::try_from(wire).unwrap(), project);
 }
+
+/// Record a seal key seen, as the application does: a fact keyed by project,
+/// key and whether it is current. What it recorded.
+fn key_seen(project: &mut Harness<ProjectAggregate>, key_id: &str, current: bool) -> usize {
+    use angzarr_embedded::markup::DomainMessage;
+    use angzarr_embedded::v1::{command_page, CommandBook, CommandPage, Fact, FactOrigin};
+    let fact = crate::RecordSealKeySeen {
+        key_id: key_id.to_string(),
+        fingerprint: format!("fp-{key_id}"),
+        current,
+    };
+    let book = CommandBook {
+        cover: Some(project.cover().clone()),
+        page: Some(CommandPage {
+            body: Some(command_page::Body::Fact(Fact {
+                payload: Some(angzarr_embedded::Any::from_msg(&fact.to_wire()).unwrap()),
+                origin: Some(FactOrigin {
+                    external_id: format!("sealkey:{PROJECT}:{key_id}:{current}"),
+                    description: String::new(),
+                }),
+            })),
+            ..CommandPage::default()
+        }),
+    };
+    match project
+        .when_book(book)
+        .handled()
+        .expect("a fact is never refused")
+    {
+        angzarr_embedded::Handled::Applied(recorded) => {
+            recorded.books().iter().map(|book| book.pages.len()).sum()
+        }
+        _ => 0,
+    }
+}
+
+// Owner 2026-11-27: the project's stream holds the ids of its seal keys and
+// which is current, never a key; a key seen again, or the current one told
+// again, records nothing.
+#[test]
+fn a_seal_key_seen_is_recorded_once_and_moves_the_current_one() {
+    let mut project = project();
+    assert_eq!(key_seen(&mut project, "k-1", true), 1, "a first key");
+    assert_eq!(key_seen(&mut project, "k-1", true), 0, "told again");
+    assert_eq!(key_seen(&mut project, "k-0", false), 1, "an earlier key");
+    assert_eq!(key_seen(&mut project, "k-0", false), 0, "told again");
+    assert_eq!(key_seen(&mut project, "k-0", true), 1, "made current");
+    let held = project.state();
+    let state = held.state();
+    assert_eq!(state.current_seal_key, "k-0");
+    assert_eq!(state.seal_keys.len(), 2);
+    assert_eq!(state.seal_keys["k-1"], "fp-k-1");
+}

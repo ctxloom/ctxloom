@@ -1172,6 +1172,7 @@ fn removes_at_terminal(w: &mut World, step: &cucumber::gherkin::Step) {
         .env("USERPROFILE", project.home())
         .env("TMPDIR", crate::tests::temp_root())
         .env(crate::tests::LIFELINE, crate::tests::lifeline())
+        .env(crate::tests::SEAL_KEY, crate::tests::SEAL_KEY_VALUE)
         .env("CTXLOOM_ROOT", project.dir())
         .env("CTXLOOM_TEST_TERMINAL", "1")
         .current_dir(project.dir())
@@ -2374,26 +2375,6 @@ fn grandchild_of(w: &mut World, owner: &str, child: &str, agent: Option<&str>) {
 }
 
 /// A child no session holds open: one nothing launched.
-const STALE_CHILD: &str = "0b0b0b0b-0b0b-4b0b-8b0b-0b0b0b0b0b0b";
-
-#[given("a hand-off file is left for a child that is no longer open")]
-fn stale_hand_off(w: &mut World) {
-    // Left by a launch whose child was never recorded, longer ago than a
-    // launch takes to record its child.
-    let path = launch_dir(w).join(STALE_CHILD);
-    files::put_mode(
-        &path,
-        "ctxloom-launch-env 3\nANTHROPIC_API_KEY=left\n",
-        0o600,
-    ); // gitleaks:allow
-    let old = std::time::SystemTime::now() - Duration::from_secs(3_600);
-    files::open_append(&path)
-        .and_then(|file| file.set_modified(old))
-        .expect("the hand-off is made old");
-    w.common
-        .set_env(IDLE_VARIABLE, SPAWNED_IDLE_SECONDS.to_string());
-}
-
 /// The test-support switch that fails the daemon's start-up catch-up
 /// (OD-52), its one line the why.
 const START_UP_FAILS: &str = "test-start-up-fails";
@@ -3840,34 +3821,6 @@ fn child_first_turn(w: &mut World, child: String, owner: String, text: String) {
         shown(w, &owner)["name"],
         "{shown_child}"
     );
-}
-
-#[then("the child's hand-off file is readable by its owner alone while the child is open")]
-fn hand_off_private(w: &mut World) {
-    let child = until(w, "the child minted", DAEMON_WAIT, |w| {
-        let ran = run_now(
-            w,
-            &["session", "show", "brisk-copper-moth", "--format", "json"],
-        );
-        (ran.code == 0).then(|| ran.json())
-    });
-    assert_ne!(child["closed"], Value::Bool(true), "open: {child}");
-    // The hand-off itself, not its mark in launch (claimed by its launch).
-    let kept: Vec<PathBuf> = hand_offs(w)
-        .into_iter()
-        .filter(|path| path.extension().is_none())
-        .collect();
-    let [path] = kept.as_slice() else {
-        panic!("one hand-off: {kept:?}");
-    };
-    assert_eq!(
-        path.file_name().and_then(|n| n.to_str()),
-        child["uid"].as_str(),
-        "named by the child's stable id"
-    );
-    if let Some(mode) = files::mode_of(path) {
-        assert_eq!(mode, 0o600, "{}", path.display());
-    }
 }
 
 #[then("no hand-off file was left behind")]

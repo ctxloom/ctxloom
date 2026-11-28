@@ -42,20 +42,20 @@ mod rehost;
 mod terminal;
 mod watches;
 
-pub use daemon::{Asker, Daemon, Folds, Place, Ports, Taken, HAND_OVER_PERIOD};
+pub use daemon::{Daemon, Folds, Place, Ports, Taken, HAND_OVER_PERIOD};
 pub use one_shot::{
-    Created, HostProject, HostRequest, Hosted, OneShotControl, OneShotHost, OneShots, Reacted,
-    Reaction, Told, Watch, STOP_GRACE_MS,
+    Created, HostProject, HostRequest, Hosted, OneShotControl, OneShotHost, OneShots, Told, Watch,
+    STOP_GRACE_MS,
 };
 pub use ports::{
-    ChildHomes, ChildPlans, ChildWorkspaces, Ears, ForLaunch, HandOff, HandOffs, HoldFlushed,
-    HostedEngine, Kept, Monotonic, Program, StartHolds, Transcripts,
+    child_env_field, ChildHomes, ChildInputs, ChildPlans, ChildWorkspaces, Distilling, Ears,
+    ForLaunch, HoldFlushed, HostedEngine, Monotonic, Program, StartHolds, Transcripts,
 };
 pub use run_launcher::{Sweeper, Swept};
 pub use terminal::{
-    Created as TerminalCreated, FrontendReports, Frontended, Placed as TerminalPlaced, Seen,
-    TerminalHost, TerminalRequest, Terminals, Told as TerminalTold, Waits, Watch as TerminalWatch,
-    POLL, START_WITHIN,
+    Created as TerminalCreated, FrontendReports, Frontended, Placed as TerminalPlaced,
+    PreparedLaunches, Seen, TerminalHost, TerminalRequest, Terminals, Told as TerminalTold, Waits,
+    Watch as TerminalWatch, POLL, START_WITHIN,
 };
 pub use watches::{signal_of, SessionWatch, SessionWatches, KEEPALIVE};
 

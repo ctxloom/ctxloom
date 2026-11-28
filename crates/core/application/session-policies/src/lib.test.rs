@@ -255,6 +255,10 @@ fn launched() -> ChildLaunched {
         engine: "opencode".to_string(),
         depth: 1,
         prompt: String::new(),
+        agent: String::new(),
+        client_program: Default::default(),
+        settings_places: Vec::new(),
+        env: Vec::new(),
     }
 }
 

@@ -29,11 +29,13 @@ mod login;
 mod permit;
 mod program;
 mod records;
+mod sealing;
 mod settings;
 mod sink;
 mod tls;
 mod token;
 mod tool_homes;
+mod user_files;
 mod version;
 mod wake;
 
@@ -81,6 +83,12 @@ pub use login::{LinkState, LoginLinks};
 pub use permit::{apply_permits, permits, permits_for, Ignored, Permits, PERMIT_PREFIX};
 pub use program::{check_batch_arguments, is_batch_file, BatchArguments, ProgramNotFound};
 pub use records::{check_rel, RecordsError, SessionRecords};
+#[cfg(any(test, feature = "test-support"))]
+pub use sealing::TestSealing;
+pub use sealing::{
+    KeyInfo, KeySet, KeysSeen, ProjectEvidence, ProjectFacts, ProjectSecrets, Sealer, Sealing,
+    SealingError,
+};
 pub use settings::{
     AuthSetting, CredentialPolicy, EngineSettings, SessionHome, APPROVAL_TIMEOUT_DEFAULT,
 };
@@ -88,6 +96,7 @@ pub use sink::{Delivery, FactSink, NO_SUCH_SESSION};
 pub use tls::{CertError, CertMint, CertNames, HookCertificate, PublicCert};
 pub use token::{Token, TokenError, TokenHash, TokenSource, EN_US};
 pub use tool_homes::{tool_homes, CARGO_HOME, NPM_CACHE, RUSTUP_HOME, TOOL_HOME_VARIABLES};
+pub use user_files::{SettingsFile, SettingsFileKind, SettingsFiles};
 pub use version::newer;
 pub use wake::{wake_line, wake_nonce, WakePost, NONCE_DIGITS};
 
@@ -96,6 +105,7 @@ pub use wake::{wake_line, wake_nonce, WakePost, NONCE_DIGITS};
 pub fn diagnostic_samples() -> Vec<Box<dyn coded_diagnostic::Diagnostic>> {
     let mut samples = token::diagnostic_samples();
     samples.extend(held::diagnostic_samples());
+    samples.extend(sealing::diagnostic_samples());
     samples.extend(hook::diagnostic_samples());
     samples.extend(bind::diagnostic_samples());
     samples.push(Box::new(CommandTooLong {

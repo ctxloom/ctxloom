@@ -548,16 +548,6 @@ impl Ctxloom for Served {
         .await
     }
 
-    async fn delete_hand_off(
-        &self,
-        request: Request<v1::DeleteHandOffRequest>,
-    ) -> Result<Response<v1::HandOff>, Status> {
-        self.answer(request, |calls, message| async move {
-            calls.delete_hand_off(message).await
-        })
-        .await
-    }
-
     /// The run's events, pumped from a blocking thread (each waited for
     /// there, M10) into the response stream, until its end or until the
     /// caller is gone; a caller that goes changes nothing of the run (owner

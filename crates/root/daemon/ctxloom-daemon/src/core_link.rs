@@ -381,6 +381,13 @@ where
         registry
             .aggregate::<LibraryAggregate>(LibraryAggregate::default)
             .expect("the library aggregate registers");
+        // The user's own engine settings (P3): one stream, written by the
+        // daemon's own edge alone, so it is exposed to nobody.
+        registry
+            .aggregate::<user_settings::SettingsAggregate>(
+                user_settings::SettingsAggregate::default,
+            )
+            .expect("the user-settings aggregate registers");
         // The permission asks and their names (step 8 U4): an answer and a
         // withdrawal are the user's, on loopback; the ask and its name's
         // claim are the daemon's own.

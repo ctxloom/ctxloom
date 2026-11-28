@@ -73,6 +73,17 @@ impl RunFold {
     }
 }
 
+/// A distill run whose answer waits to be written as the item's form.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DistillDue {
+    /// The run's stream root, as text.
+    pub run: String,
+    /// The session's id.
+    pub session: String,
+    pub purpose: runs::DistillPurpose,
+    pub answer: String,
+}
+
 /// A message a session was sent, as its `MessageSent` says.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Message {
@@ -256,6 +267,24 @@ impl Board {
             .map_or(&[], |session| session.launched.as_slice())
     }
 
+    /// The launch of `child` (its id): the latest `ChildLaunched` its owner
+    /// recorded for it, which carries the inputs its starts are made from
+    /// (its agent, the launcher's program and places, its sealed
+    /// environment). None for a child no launch is known for.
+    pub fn launch_of(&self, child: &str) -> Option<&ChildLaunched> {
+        let owner = self.session(child)?.owner.as_ref()?;
+        self.launch_from(&owner.session, child)
+    }
+
+    /// The launch of `child` its `owner` (an id) recorded: what the mint of a
+    /// child not yet minted is made from.
+    pub fn launch_from(&self, owner: &str, child: &str) -> Option<&ChildLaunched> {
+        self.launched(owner)
+            .iter()
+            .rev()
+            .find(|launched| launched.child.as_ref().is_some_and(|c| c.session == child))
+    }
+
     /// The message `message_id` sent to `session`.
     pub fn message(&self, session: &str, message_id: &str) -> Option<&Message> {
         self.sessions.get(session)?.messages.get(message_id)
@@ -288,6 +317,32 @@ impl Board {
     /// The session whose harp is `harp`.
     pub fn find(&self, harp: &str) -> Option<(&str, &SessionState)> {
         self.sessions().find(|(_, state)| state.harp == harp)
+    }
+
+    /// The distill runs whose answer is recorded and whose outcome is not: a
+    /// policy writes each (owner 2026-11-28), and a daemon that restarts
+    /// mid-write finds it here again.
+    pub fn distills_due(&self) -> Vec<DistillDue> {
+        self.runs
+            .iter()
+            .filter_map(|(run, fold)| {
+                let state = &fold.state;
+                match (&state.distill, &state.answer, state.distill_written) {
+                    (Some(purpose), Some(answer), false) => Some(DistillDue {
+                        run: run.clone(),
+                        session: state.session.clone(),
+                        purpose: purpose.clone(),
+                        answer: answer.clone(),
+                    }),
+                    _ => None,
+                }
+            })
+            .collect()
+    }
+
+    /// The run whose stream root is `root` (text), if the board holds it.
+    pub fn run_of_root(&self, root: &str) -> Option<&RunFold> {
+        self.runs.get(root)
     }
 
     /// The run of `session`'s `incarnation`, if its stream holds one.

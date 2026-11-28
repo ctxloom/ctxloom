@@ -50,7 +50,25 @@ pub struct PendingLaunch {
     /// runner lets its checkout go in this project once it ends, even when
     /// it was started and ended before it was ever listed as started.
     pub project_dir: String,
+    /// The session's project, by id (its mint's): whose seal key opens the
+    /// run's sealed values.
+    pub project_id: String,
     pub harp: String,
+    /// What the run's plan decided, as its `RunEnqueued` recorded it: the
+    /// launcher acts on this alone (P3: nothing is handed to the launcher).
+    /// None for a run enqueued before the record existed.
+    pub spec: Option<runs::LaunchSpec>,
+    /// What the run was given, as its enqueue recorded it (the permissions
+    /// document its engine is handed among it).
+    pub grant: Option<runs::Grant>,
+    /// What the session's own events say of the launch: its engine and
+    /// workspace axis (the mint's), the agent its incarnation's loadout
+    /// named, and the engine's own session it resumes (the one bound when the
+    /// incarnation is a later one). Empty until recorded.
+    pub engine: String,
+    pub workspace: Option<String>,
+    pub agent: String,
+    pub resume: Option<String>,
 }
 
 /// A run whose runner was started and that has not ended, with where its
@@ -84,18 +102,36 @@ pub struct Owed {
 #[derive(Clone, Debug)]
 enum Stage {
     /// Enqueued, no sign of a runner: its mode and its launcher's lock.
-    Waiting(RunMode, String),
+    Waiting(Box<Enqueued>),
     /// Its runner was started, and it has not ended: its launcher's lock.
     Started(String),
     /// It ended.
     Past,
 }
 
+/// A run as its enqueue recorded it.
+#[derive(Clone, Debug)]
+struct Enqueued {
+    mode: RunMode,
+    lock: String,
+    spec: Option<runs::LaunchSpec>,
+    grant: Option<runs::Grant>,
+}
+
 /// Where a session's lock is: its project directory and current harp.
 #[derive(Clone, Debug, Default)]
 struct Place {
     project_dir: String,
+    project_id: String,
     harp: String,
+    /// Whether the session's mint is folded.
+    minted: bool,
+    /// The agent each incarnation's loadout named.
+    loadouts: BTreeMap<u32, String>,
+    engine: String,
+    workspace: Option<String>,
+    /// The engine's own session last bound.
+    native_id: String,
 }
 
 /// (session text, incarnation): what a run and an owed incarnation share.
@@ -173,14 +209,21 @@ impl Pending {
                 let key = (enqueued.session, enqueued.incarnation);
                 self.owed.remove(&key);
                 self.keys.insert(root.to_vec(), key.clone());
-                self.runs
-                    .insert(key, Stage::Waiting(enqueued.mode, enqueued.launcher_lock));
+                self.runs.insert(
+                    key,
+                    Stage::Waiting(Box::new(Enqueued {
+                        mode: enqueued.mode,
+                        lock: enqueued.launcher_lock,
+                        spec: enqueued.spec,
+                        grant: enqueued.grant,
+                    })),
+                );
             }
             RunEvent::RunnerStartedRecorded(_) => {
                 if let Some(key) = self.keys.get(root) {
                     if let Some(stage @ Stage::Waiting(..)) = self.runs.get_mut(key) {
                         let lock = match stage {
-                            Stage::Waiting(_, lock) => std::mem::take(lock),
+                            Stage::Waiting(owed) => std::mem::take(&mut owed.lock),
                             _ => String::new(),
                         };
                         *stage = Stage::Started(lock);
@@ -205,13 +248,23 @@ impl Pending {
                 }
             }
             SessionEvent::SessionMinted(minted) => {
-                self.places.insert(
-                    text_of(root),
-                    Place {
-                        project_dir: minted.project_dir,
-                        harp: minted.harp,
-                    },
-                );
+                let place = self.places.entry(text_of(root)).or_default();
+                place.project_dir = minted.project_dir;
+                place.project_id = minted.project_id;
+                place.harp = minted.harp;
+                place.engine = minted.engine;
+                place.workspace = minted.workspace;
+                place.minted = true;
+            }
+            SessionEvent::LoadoutRecorded(recorded) => {
+                self.places
+                    .entry(text_of(root))
+                    .or_default()
+                    .loadouts
+                    .insert(recorded.incarnation, recorded.loadout.agent);
+            }
+            SessionEvent::EngineSessionBound(bound) => {
+                self.places.entry(text_of(root)).or_default().native_id = bound.native_id;
             }
             _ => {}
         }
@@ -222,19 +275,44 @@ impl Pending {
         self.runs
             .iter()
             .filter_map(|((session, incarnation), stage)| match stage {
-                Stage::Waiting(mode, lock) => {
+                Stage::Waiting(owed) => {
                     let place = self.places.get(session).cloned().unwrap_or_default();
+                    let resume = (!place.native_id.is_empty()).then(|| place.native_id.clone());
                     Some(PendingLaunch {
                         run: runs::run_root(session, *incarnation),
                         session: session.clone(),
                         incarnation: *incarnation,
-                        mode: *mode,
-                        launcher_lock: lock.clone(),
+                        mode: owed.mode,
+                        launcher_lock: owed.lock.clone(),
                         project_dir: place.project_dir,
+                        project_id: place.project_id,
                         harp: place.harp,
+                        spec: owed.spec.clone(),
+                        grant: owed.grant.clone(),
+                        engine: place.engine,
+                        workspace: place.workspace,
+                        agent: place.loadouts.get(incarnation).cloned().unwrap_or_default(),
+                        resume,
                     })
                 }
                 Stage::Started(_) | Stage::Past => None,
+            })
+            .collect()
+    }
+
+    /// The runs a launcher may act on now: owed a runner AND their session
+    /// has its mint and its loadout for the run's incarnation recorded
+    /// (P3, owner ruling 2026-11-25). The condition is on the FOLDED STATE of
+    /// the session's stream, never on delivery order: angzarr orders events
+    /// within a stream only, so the run's enqueue may be seen before, after
+    /// or between the session's mint and loadout.
+    pub fn launchable(&self) -> Vec<PendingLaunch> {
+        self.launches()
+            .into_iter()
+            .filter(|launch| {
+                self.places.get(&launch.session).is_some_and(|place| {
+                    place.minted && place.loadouts.contains_key(&launch.incarnation)
+                })
             })
             .collect()
     }

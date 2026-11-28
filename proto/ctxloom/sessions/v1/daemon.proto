@@ -150,6 +150,38 @@ message LaunchChild {
   // as a wake (message id `launch:<child>`); empty sends nothing, and the
   // child waits for its first message.
   string prompt = 9;
+  // What the launch DECIDED and the child's starts need (P3, owner ruling
+  // 2026-11-25), recorded on `ChildLaunched` as given: the hand-off file,
+  // `HandedPrograms` and the daemon's `envs` cache are deleted, so a child
+  // started by a daemon that did not receive its hand-off, or on another
+  // machine, reads them from its stream. Numbered as in `ChildLaunched`.
+  // The agent the launch REQUESTED (empty: the project's default).
+  string agent = 10;
+  // The launcher's program, which leads the child's `PATH` and is its hooks'
+  // command.
+  ChildProgram client_program = 11;
+  // The launcher's settings places (`CLAUDE_CONFIG_DIR`, the XDG bases):
+  // where its user settings are found, by name and value.
+  repeated ChildEnvEntry settings_places = 12;
+  // The launcher's environment as the child may be given it; each VALUE is
+  // sealed to the daemon's key (a credential may be among them).
+  repeated ChildEnvEntry env = 13;
+}
+
+// The launching client's program: file name and directory.
+message ChildProgram {
+  string name = 1;
+  string directory = 2;
+}
+
+// An environment variable of a child: its name, and its value as a secret
+// rides a message: sealed (`runs.v1.SealedValue`'s shape; the encoding of
+// angzarr-sealed's `Sealed`). A settings place is no secret and says its
+// value as `plain`.
+message ChildEnvEntry {
+  string name = 1;
+  bytes sealed = 2;
+  string plain = 3;
 }
 
 // The owner's child ended (its session closed): the owner stops holding it.
@@ -296,6 +328,11 @@ message ChildLaunched {
   uint32 depth = 5;
   // The child's first task, as the launch named it.
   string prompt = 6;
+  // As `LaunchChild`, numbered alike (P3).
+  string agent = 10;
+  ChildProgram client_program = 11;
+  repeated ChildEnvEntry settings_places = 12;
+  repeated ChildEnvEntry env = 13;
 }
 
 message ChildLaunchFailed {

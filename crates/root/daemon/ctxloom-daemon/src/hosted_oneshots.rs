@@ -68,6 +68,8 @@ pub(crate) struct HostedOneShots {
     /// ctxloom's home, the daemon's (a client's is the same, M11).
     pub(crate) home: std::path::PathBuf,
     pub(crate) temp: std::path::PathBuf,
+    /// Seals the secrets of each run's record; the daemon's own key.
+    pub(crate) sealing: Arc<dyn run_ports::Sealing>,
 }
 
 /// A hosted one-shot's engine, stopped through its launcher's [`Stop`]
@@ -96,8 +98,13 @@ impl daemon_application::OneShotHost for HostedOneShots {
         let core = self.core.clone();
         let runtime = self.runtime.clone();
         let (home, temp) = (self.home.clone(), self.temp.clone());
+        let sealing = Arc::clone(&self.sealing);
         let spawned = std::thread::Builder::new()
             .name("ctxloom-one-shot".to_string())
+            // The whole run is driven on it (the plan, the enqueue with its
+            // launch spec, the set-up, the launcher), as a terminal's is:
+            // more than a thread's default stack holds.
+            .stack_size(ctxloom_compose::frontend::SESSION_STACK)
             .spawn({
                 let told = told.clone();
                 move || {
@@ -107,7 +114,7 @@ impl daemon_application::OneShotHost for HostedOneShots {
                             (&home, &temp),
                             request,
                             stop,
-                            told.clone(),
+                            (told.clone(), sealing),
                         ))
                     }));
                     let panicked = || Done {
@@ -117,40 +124,19 @@ impl daemon_application::OneShotHost for HostedOneShots {
                         notices: Vec::new(),
                     };
                     let done = hosted.unwrap_or_else(|_| panicked());
-                    // Its end awaited on the daemon's runtime: what follows
-                    // from it (a distill's write, step 10b) is made there. A
-                    // reaction that panics is taken already, so the second
-                    // end is said as it is, and the run never stays open.
-                    let ended = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        runtime.block_on(told.done(done))
-                    }));
-                    if ended.is_err() {
-                        runtime.block_on(told.done(panicked()));
-                    }
+                    told.done(done);
                 }
             });
         if let Err(e) = spawned {
-            // On the caller's runtime, where nothing may block on it: a run
-            // that never started is answered at once, its reaction too
-            // (nothing follows from a failure but its end).
-            polled_once(told.done(Done {
+            told.done(Done {
                 result: Err(RunError::NotStarted {
                     detail: format!("no thread for the one-shot: {e}"),
                 }),
                 notices: Vec::new(),
-            }));
+            });
         }
         control
     }
-}
-
-/// Poll `future` once: what is answered at once is done; what would wait
-/// is dropped (the core's end of a run that never started waits on
-/// nothing).
-pub(crate) fn polled_once(future: impl std::future::Future<Output = ()>) {
-    let mut future = std::pin::pin!(future);
-    let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
-    let _ = future.as_mut().poll(&mut cx);
 }
 
 /// The wiring a hosted one-shot is planned and driven in: its client's
@@ -257,7 +243,7 @@ async fn host_one_shot(
     places: (&Path, &Path),
     request: daemon_application::HostRequest,
     stop: host_launcher::Stop,
-    told: daemon_application::Told,
+    (told, sealing): (daemon_application::Told, Arc<dyn run_ports::Sealing>),
 ) -> Done<Answer> {
     let hosted = match hosted_setup(places, &request, &core.edge()).await {
         Ok(hosted) => hosted,
@@ -280,7 +266,7 @@ async fn host_one_shot(
         &wiring,
         library,
         &output_dir,
-        Driven::here(&wiring, stop),
+        Driven::here(&wiring, stop, sealing),
         core,
         project,
         &program,

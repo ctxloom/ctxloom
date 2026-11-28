@@ -259,6 +259,10 @@ pub struct ProjectState {
     /// The session removals intended and not yet done, by request id (O2,
     /// step 10b U9).
     pub removals: std::collections::BTreeMap<String, OpenRemoval>,
+    /// The seal keys seen, by id, each with its fingerprint (never a key).
+    pub seal_keys: std::collections::BTreeMap<String, String>,
+    /// The id of the project's current seal key; empty until one is seen.
+    pub current_seal_key: String,
 }
 
 impl From<ProjectState> for sessions_proto::v1::ProjectState {
@@ -274,6 +278,8 @@ impl From<ProjectState> for sessions_proto::v1::ProjectState {
                 .into_iter()
                 .map(|(id, removal)| (id, removal.into()))
                 .collect(),
+            seal_keys: value.seal_keys.into_iter().collect(),
+            current_seal_key: value.current_seal_key,
         }
     }
 }
@@ -293,6 +299,8 @@ impl TryFrom<sessions_proto::v1::ProjectState> for ProjectState {
                 .into_iter()
                 .map(|(id, removal)| Ok((id, removal.try_into()?)))
                 .collect::<Result<_, WireError>>()?,
+            seal_keys: value.seal_keys.into_iter().collect(),
+            current_seal_key: value.current_seal_key,
         })
     }
 }

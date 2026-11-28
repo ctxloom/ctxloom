@@ -14,6 +14,12 @@ pub enum LaunchError {
     Fact { reason: String },
     /// A run names a session that is not an id.
     BadSession { session: String },
+    /// A run's enqueue records no launch spec: it was enqueued before the
+    /// record held one, and its launch is not made from nothing.
+    NoSpec { run: String },
+    /// A run's record holds what cannot be read back (a sealed value that
+    /// does not open, a hooks document that is no document).
+    Unreadable { run: String, reason: String },
 }
 
 impl fmt::Display for LaunchError {
@@ -29,6 +35,8 @@ impl Diagnostic for LaunchError {
             LaunchError::Record { .. } => code!("record"),
             LaunchError::Fact { .. } => code!("fact"),
             LaunchError::BadSession { .. } => code!("bad-session"),
+            LaunchError::NoSpec { .. } => code!("no-spec"),
+            LaunchError::Unreadable { .. } => code!("unreadable"),
         }
     }
 
@@ -39,6 +47,11 @@ impl Diagnostic for LaunchError {
             }
             LaunchError::Fact { reason } => vec![("reason", reason.as_str().into())],
             LaunchError::BadSession { session } => vec![("session", session.as_str().into())],
+            LaunchError::NoSpec { run } => vec![("run", run.as_str().into())],
+            LaunchError::Unreadable { run, reason } => vec![
+                ("run", run.as_str().into()),
+                ("reason", reason.as_str().into()),
+            ],
         }
     }
 }
@@ -64,6 +77,13 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         }),
         Box::new(LaunchError::BadSession {
             session: "x".to_string(),
+        }),
+        Box::new(LaunchError::NoSpec {
+            run: "r".to_string(),
+        }),
+        Box::new(LaunchError::Unreadable {
+            run: "r".to_string(),
+            reason: "does not open".to_string(),
         }),
         Box::new(crate::ContextRedelivered {
             changed: vec!["demo".to_string()],

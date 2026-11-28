@@ -9,6 +9,8 @@ publish.workspace = true
 
 [dependencies]
 ctxloom-compose.workspace = true
+ctxloom-sealing.workspace = true
+sealing-application.workspace = true
 coded-diagnostic.workspace = true
 angzarr-embedded.workspace = true
 presentation.workspace = true
@@ -70,6 +72,7 @@ trust-index.workspace = true
 # A library tree (step 10a U0): its aggregate, its wire types (the
 # checkout's view) and the model the daemon registers and keeps warm.
 library-tree.workspace = true
+user-settings.workspace = true
 library-domain-proto.workspace = true
 library-checkout.workspace = true
 # The permission asks (step 8 U4): registered in the kernel, read by the API.
@@ -99,6 +102,8 @@ angzarr-embedded-host.workspace = true
 # The seed, and the daemon's API (a session's lock state).
 session-ports.workspace = true
 daemon-proto.workspace = true
+prost.workspace = true
+daemon-api-contract.workspace = true
 # Each session's hold of capture facts (s4-Q14, H2): a hook holds there.
 fact-spool.workspace = true
 # The test-only commands' sample list and the daemon's answers.
@@ -112,7 +117,6 @@ ctxloom-daemon = { path = ".", features = ["test-support", "purge"] }
 scheduler-fixture.workspace = true
 scheduler-ports = { workspace = true, features = ["test-support"] }
 # A projection's view, decoded (S32).
-prost.workspace = true
 fixture-program.workspace = true
 # Builds this crate's own `test-support` feature for its tests (the seed, bind
 # and session tests need it) without turning it on for the `ctxloom` binary:

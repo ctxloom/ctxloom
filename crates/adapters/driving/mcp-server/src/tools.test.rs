@@ -287,6 +287,7 @@ impl daemon_api_client::DaemonApi for Launching {
             name: format!("{}/handOffs/{}", r.parent, r.hand_off_id),
             engine: String::new(),
             project: r.project,
+            ..daemon_proto::v1::HandOff::default()
         })
     }
     async fn handle_sync(

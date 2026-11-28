@@ -63,6 +63,7 @@ fn enqueued(n: u8, incarnation: u32, mode: RunMode) -> EventBook {
         mode,
         launcher_lock: lock_of(n),
         grant: None,
+        spec: None,
     });
     book(RUN_DOMAIN, root, vec![page(0, event.to_any())])
 }
@@ -128,7 +129,14 @@ fn an_enqueued_run_is_owed_a_runner() {
             mode: RunMode::OneShot,
             launcher_lock: lock_of(1),
             project_dir: String::new(),
+            project_id: String::new(),
             harp: String::new(),
+            spec: None,
+            grant: None,
+            engine: String::new(),
+            workspace: None,
+            agent: String::new(),
+            resume: None,
         }
     );
 }
@@ -261,6 +269,7 @@ fn a_stream_closed_by_a_tombstone_is_folded_afresh_after_it() {
         mode: RunMode::OneShot,
         launcher_lock: lock_of(1),
         grant: None,
+        spec: None,
     });
     model
         .project(&closed(
@@ -480,3 +489,179 @@ fn a_run_owed_a_runner_is_not_started() {
 
 #[path = "bus.test.rs"]
 mod bus;
+
+// P3 (owner ruling 2026-11-25): the launcher acts only once the run's session
+// has its mint AND its loadout recorded, and angzarr orders events within a
+// stream only (decision 14.35), so the condition is on FOLDED STATE and every
+// interleaving of the run's stream and the session's is forced here, never
+// waited for. RED: `launchable` lists a run on its enqueue alone.
+
+/// The loadout of session `n`'s `incarnation`, as the daemon records it.
+fn loadout(n: u8, incarnation: u32, sequence: u64) -> EventBook {
+    let (root, _) = session_root(n);
+    let event = SessionEvent::LoadoutRecorded(sessions::LoadoutRecorded {
+        loadout: sessions::SessionLoadout {
+            agent: "reviewer".to_string(),
+            ..Default::default()
+        },
+        incarnation,
+        covered: Vec::new(),
+    });
+    book(SESSION_DOMAIN, root, vec![page(sequence, event.to_any())])
+}
+
+fn mint_page_after(n: u8) -> EventBook {
+    // The mint is the session stream's first page; a loadout follows it.
+    minted(n, "kid")
+}
+
+fn launchable(model: &Pending) -> Vec<(u8, u32)> {
+    model
+        .launchable()
+        .into_iter()
+        .map(|l| (l.session.as_bytes()[1] - b'0', l.incarnation))
+        .collect()
+}
+
+#[test]
+fn a_run_enqueued_before_its_sessions_mint_and_loadout_waits() {
+    let model = fold(&[enqueued(1, 1, RunMode::Structured)]);
+    assert_eq!(pending(&model).len(), 1, "it is still owed a runner");
+    assert_eq!(launchable(&model), Vec::<(u8, u32)>::new());
+}
+
+#[test]
+fn a_run_whose_session_is_minted_but_has_no_loadout_waits() {
+    let model = fold(&[enqueued(1, 1, RunMode::Structured), mint_page_after(1)]);
+    assert_eq!(launchable(&model), Vec::<(u8, u32)>::new());
+}
+
+// Every order the three streams' books can arrive in launches the run, once
+// all three are folded: the enqueue is the run stream's, the mint and the
+// loadout the session stream's (its pages in order, within it).
+#[test]
+fn a_run_is_launchable_once_mint_and_loadout_are_folded_in_any_cross_stream_order() {
+    let run = || enqueued(1, 1, RunMode::Structured);
+    let session_first = || mint_page_after(1);
+    let orders: Vec<Vec<EventBook>> = vec![
+        vec![run(), session_first(), loadout(1, 1, 1)],
+        vec![session_first(), run(), loadout(1, 1, 1)],
+        vec![session_first(), loadout(1, 1, 1), run()],
+    ];
+    for books in orders {
+        let model = fold(&books);
+        assert_eq!(launchable(&model), vec![(1, 1)]);
+    }
+}
+
+// A loadout is of an incarnation: the first incarnation's does not launch the
+// second's run.
+#[test]
+fn a_loadout_of_another_incarnation_does_not_launch_the_run() {
+    let model = fold(&[
+        mint_page_after(1),
+        loadout(1, 1, 1),
+        enqueued(1, 2, RunMode::Structured),
+    ]);
+    assert_eq!(launchable(&model), Vec::<(u8, u32)>::new());
+    let model = fold(&[
+        mint_page_after(1),
+        loadout(1, 1, 1),
+        loadout(1, 2, 2),
+        enqueued(1, 2, RunMode::Structured),
+    ]);
+    assert_eq!(launchable(&model), vec![(1, 2)]);
+}
+
+// The launcher acts on the record alone: the listed launch carries the
+// spec its enqueue recorded.
+#[test]
+fn a_launchable_run_carries_the_spec_its_enqueue_recorded() {
+    let (_, session) = session_root(1);
+    let spec = runs::LaunchSpec {
+        model: "claude-sonnet-5".to_string(),
+        session_home: "session".to_string(),
+        context: "FRAGMENT-BODY-testing".to_string(),
+        ..Default::default()
+    };
+    let event = RunEvent::RunEnqueued(RunEnqueued {
+        session: session.clone(),
+        incarnation: 1,
+        mode: RunMode::Structured,
+        launcher_lock: lock_of(1),
+        grant: None,
+        spec: Some(spec.clone()),
+    });
+    let enqueue = book(
+        RUN_DOMAIN,
+        run_root(&session, 1),
+        vec![page(0, event.to_any())],
+    );
+    let model = fold(&[mint_page_after(1), loadout(1, 1, 1), enqueue]);
+    let launches = model.launchable();
+    assert_eq!(launches.len(), 1);
+    assert_eq!(launches[0].spec, Some(spec));
+}
+
+// A session purged (its stream closed by a tombstone) loses its mint and
+// loadout: its run is no longer launchable.
+#[test]
+fn a_session_stream_closed_by_a_purge_forgets_its_mint_and_loadout() {
+    let mut model = fold(&[
+        mint_page_after(1),
+        loadout(1, 1, 1),
+        enqueued(1, 1, RunMode::Structured),
+    ]);
+    assert_eq!(launchable(&model), vec![(1, 1)]);
+    let (root, _) = session_root(1);
+    model
+        .project(&closed(SESSION_DOMAIN, root, 2, vec![]))
+        .unwrap();
+    assert_eq!(launchable(&model), Vec::<(u8, u32)>::new());
+}
+
+// What the launcher needs besides the spec is the session's own events': the
+// mint's engine and workspace axis, the loadout's agent, and (a later
+// incarnation) the engine's own session bound; and the enqueue's grant.
+#[test]
+fn a_launchable_run_carries_what_the_sessions_events_say_of_the_launch() {
+    let (root, session) = session_root(1);
+    let bound = SessionEvent::EngineSessionBound(sessions::EngineSessionBound {
+        native_id: "native-1".to_string(),
+        transcript_path: String::new(),
+        engine_version: String::new(),
+        displaced: None,
+    });
+    let grant = runs::Grant {
+        mcp_servers: vec!["ctxloom".to_string()],
+        permissions: "{\"defaultMode\":\"plan\"}".to_string(),
+    };
+    let run = |incarnation| {
+        let event = RunEvent::RunEnqueued(RunEnqueued {
+            session: session.clone(),
+            incarnation,
+            mode: RunMode::Structured,
+            launcher_lock: lock_of(1),
+            grant: Some(grant.clone()),
+            spec: None,
+        });
+        book(
+            RUN_DOMAIN,
+            run_root(&session, incarnation),
+            vec![page(0, event.to_any())],
+        )
+    };
+    let first = fold(&[mint_page_after(1), loadout(1, 1, 1), run(1)]);
+    let launch = &first.launchable()[0];
+    assert_eq!(launch.engine, "fake");
+    assert_eq!(launch.agent, "reviewer");
+    assert_eq!(launch.grant, Some(grant.clone()));
+    assert_eq!(launch.resume, None, "the first incarnation resumes nothing");
+    let later = fold(&[
+        mint_page_after(1),
+        book(SESSION_DOMAIN, root, vec![page(1, bound.to_any())]),
+        loadout(1, 2, 2),
+        run(2),
+    ]);
+    assert_eq!(later.launchable()[0].resume.as_deref(), Some("native-1"));
+}

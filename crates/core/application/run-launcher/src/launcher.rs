@@ -31,7 +31,7 @@
 //! its prompts. The events carry no file reference (`answer_ref` is empty).
 //!
 //! The run's own lock (rulings 86, 92), which its enqueuer holds through the
-//! [`Orders`], is let go once `RecordRunnerStarted` is recorded (or the launch
+//! run lock table, is let go once `RecordRunnerStarted` is recorded (or the launch
 //! failed); from then on the session's lock is the run's evidence (ruling
 //! 93). A step also sweeps the runs other processes left: one still owed a
 //! runner whose own lock is free, and one started whose session's lock is
@@ -55,7 +55,8 @@ use runs_application::{Facts, Identity, RunnerFact};
 
 use crate::error::LaunchError;
 use crate::launch::{LaunchEngines, LaunchRequest, NotLaunched, Unprepared};
-use crate::orders::{Order, Orders};
+use crate::order::{Order, RunLockTable};
+use crate::record::{order_of, RecordError};
 use crate::workspace::Placement;
 
 /// The cause the session's incarnation ends with when its run's owner was
@@ -139,7 +140,8 @@ pub struct Launcher<E: Edge, L: RunnerLauncher, R: SessionRecords> {
     runner: L,
     records: R,
     engines: Vec<Arc<dyn Engine>>,
-    orders: Arc<Orders>,
+    claims: Arc<RunLockTable>,
+    sealing: Arc<dyn run_ports::Sealing>,
     limits: Limits,
     /// The OS name the commands are measured for (`std::env::consts::OS`,
     /// as the composition root takes it); none, nothing is measured.
@@ -162,7 +164,8 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         runner: L,
         records: R,
         engines: Vec<Arc<dyn Engine>>,
-        orders: Arc<Orders>,
+        claims: Arc<RunLockTable>,
+        sealing: Arc<dyn run_ports::Sealing>,
         limits: Limits,
     ) -> Launcher<E, L, R> {
         Launcher {
@@ -171,7 +174,8 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             runner,
             records,
             engines,
-            orders,
+            claims,
+            sealing,
             limits,
             os: String::new(),
             pending: catch_up(),
@@ -277,16 +281,31 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
                 ext_err_txt: failure.to_string(),
             });
         }
-        let (owed, started) = {
+        let (owed, launchable, started) = {
             let pending = self.pending.projector().pending();
-            (pending.launches(), pending.started())
+            (pending.launches(), pending.launchable(), pending.started())
         };
         let mut launched = Vec::new();
         let mut others = Vec::new();
         for launch in owed {
-            match self.orders.take(&launch.session, launch.incarnation) {
-                Some(order) => launched.push(self.launch(launch, order).await?),
-                None => others.push(launch),
+            if !self.claims.holds(&launch.session, launch.incarnation) {
+                others.push(launch);
+                continue;
+            }
+            // Ours, and launched once the record says it may be: its mint
+            // and its loadout are in the session's stream.
+            let ready = launchable
+                .iter()
+                .any(|l| l.run == launch.run && l.incarnation == launch.incarnation);
+            if ready {
+                let order = match order_of(&launch, self.sealing.as_ref()) {
+                    Ok(order) => order,
+                    Err(error) => {
+                        self.unrecorded(&launch, &error).await?;
+                        continue;
+                    }
+                };
+                launched.push(self.launch(launch, order).await?);
             }
         }
         if let Some(locks) = &self.locks {
@@ -295,6 +314,45 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
                 .await?;
         }
         Ok(launched)
+    }
+
+    /// A run whose record cannot be read back is ended launch-failed, naming
+    /// why, never launched from nothing.
+    async fn unrecorded(
+        &self,
+        launch: &PendingLaunch,
+        error: &RecordError,
+    ) -> Result<(), LaunchError> {
+        let run = uuid::Uuid::from_slice(&launch.run.value)
+            .map(|id| id.hyphenated().to_string())
+            .unwrap_or_default();
+        let reason = match error {
+            RecordError::NoSpec => {
+                return self
+                    .end_unrecorded(launch, LaunchError::NoSpec { run })
+                    .await
+            }
+            RecordError::Sealing(e) => e.to_string(),
+            RecordError::Hooks(why) => why.clone(),
+        };
+        self.end_unrecorded(launch, LaunchError::Unreadable { run, reason })
+            .await
+    }
+
+    async fn end_unrecorded(
+        &self,
+        launch: &PendingLaunch,
+        error: LaunchError,
+    ) -> Result<(), LaunchError> {
+        self.facts
+            .launch_failed(&launch.run, true, &error.to_string())
+            .await
+            .map(drop)
+            .map_err(|e| LaunchError::Fact {
+                reason: e.to_string(),
+            })?;
+        self.claims.release(&launch.session, launch.incarnation);
+        Ok(())
     }
 
     async fn launch(
@@ -368,7 +426,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         self.record(&who, runner_started(&order, cwd.as_deref(), running.pid()))
             .await?;
         // Started: the run's own lock has done its work (ruling 92).
-        self.orders.release(&launch.session, launch.incarnation);
+        self.claims.release(&launch.session, launch.incarnation);
         self.record(&who, turn_started()).await?;
         let output = match self.park(running).await {
             Ok(output) => output,
@@ -403,6 +461,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
                         answer_ref: String::new(),
                         exit_code: code,
                         message_ids: Vec::new(),
+                        answer: answer.clone(),
                     }),
                 )
                 .await?;
@@ -453,7 +512,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
         };
         self.record(who, runner_started(order, cwd, running.pid()))
             .await?;
-        self.orders.release(&who_session(who), who.incarnation);
+        self.claims.release(&who_session(who), who.incarnation);
         let output = match self.park(running).await {
             Ok(output) => output,
             Err(failure) => return self.never_started(who, failure, done).await,
@@ -494,7 +553,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
             }
         };
         self.not_started(who, true, &detail).await?;
-        self.orders.release(&launch.session, launch.incarnation);
+        self.claims.release(&launch.session, launch.incarnation);
         Ok(outcome)
     }
 
@@ -507,7 +566,7 @@ impl<E: Edge, L: RunnerLauncher, R: SessionRecords> Launcher<E, L, R> {
     ) -> Result<Launched, LaunchError> {
         self.not_started(who, failure.deterministic, &failure.detail)
             .await?;
-        self.orders.release(&who_session(who), who.incarnation);
+        self.claims.release(&who_session(who), who.incarnation);
         Ok(done(Outcome::NotStarted {
             detail: failure.detail,
         }))

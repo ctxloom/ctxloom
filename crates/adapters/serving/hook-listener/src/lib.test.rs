@@ -252,6 +252,7 @@ impl World {
                     evidence: runs_application::Evidence::passing("claude-code"),
                     launcher_lock: String::new(),
                     grant: None,
+                    spec: None,
                 })
                 .await
                 .unwrap();

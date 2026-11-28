@@ -569,13 +569,6 @@ impl DaemonApi for DaemonClient {
         )
     }
 
-    async fn delete_hand_off(
-        &self,
-        request: v1::DeleteHandOffRequest,
-    ) -> Result<v1::HandOff, Called> {
-        call!(self, delete_hand_off, "DeleteHandOff", request)
-    }
-
     async fn handle_sync(
         &self,
         book: CommandBook,

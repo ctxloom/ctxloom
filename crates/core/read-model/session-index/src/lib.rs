@@ -201,6 +201,11 @@ pub struct ProjectRow {
     pub root: String,
     pub git_common_dir: String,
     pub root_commit: String,
+    /// The seal keys of the project seen, by id with their fingerprints
+    /// (never a key), and the id of the current one: what a lost key is
+    /// told by.
+    pub seal_keys: std::collections::BTreeMap<String, String>,
+    pub current_seal_key: String,
 }
 
 /// One index of a project's sessions.
@@ -257,6 +262,14 @@ impl SessionIndex {
         self.projects.values().find(|row| row.harp == harp).cloned()
     }
 
+    /// The project whose id is `project_id`, as its stream registered it.
+    pub fn project_identified_by(&self, project_id: &str) -> Option<ProjectRow> {
+        self.projects
+            .values()
+            .find(|row| row.project_id == project_id)
+            .cloned()
+    }
+
     /// Fold a project stream's `book`: the harp it names its project with,
     /// and its registration.
     fn project_named(&mut self, root: Vec<u8>, book: &EventBook) -> Result<(), PayloadError> {
@@ -278,6 +291,8 @@ impl SessionIndex {
                 // The index keeps no removal (O2): the daemon reads them
                 // from the project's stream.
                 removals: Default::default(),
+                seal_keys: std::mem::take(&mut row.seal_keys),
+                current_seal_key: std::mem::take(&mut row.current_seal_key),
             };
             sessions::fold_project(&mut state, ProjectEvent::from_any(event)?);
             *row = ProjectRow {
@@ -286,6 +301,8 @@ impl SessionIndex {
                 root: state.root,
                 git_common_dir: state.git_common_dir,
                 root_commit: state.root_commit,
+                seal_keys: state.seal_keys,
+                current_seal_key: state.current_seal_key,
             };
         }
         Ok(())

@@ -25,7 +25,7 @@ use project_registry::Environment;
 use run_application::{
     Answer, Core, Done, Ended, OneShot, Parts, Place, RunError, RunService, Runs,
 };
-use run_launcher::{Launcher, Orders};
+use run_launcher::{Launcher, RunLockTable};
 use run_ports::{Engine, Limits};
 use runs_application::{AppError as CoreError, Enqueuer};
 use session_files::SessionDirs;
@@ -98,16 +98,24 @@ fn unmade(cause: &dyn std::fmt::Display) -> RunError {
 pub struct Driven<L> {
     pub runner: L,
     pub locks: Box<dyn session_ports::SessionLock>,
+    /// Seals a launch's secrets into its record and opens them again at the
+    /// launch; the key is the composition's to inject.
+    pub sealing: Arc<dyn run_ports::Sealing>,
 }
 
 impl Driven<HostLauncher> {
     /// The engine started on this host, stopped by `stop`, each program
     /// found on its own PATH by the host's rules (PATHEXT on Windows); the
     /// session's lock taken here.
-    pub fn here(wiring: &Wiring, stop: host_launcher::Stop) -> Driven<HostLauncher> {
+    pub fn here(
+        wiring: &Wiring,
+        stop: host_launcher::Stop,
+        sealing: Arc<dyn run_ports::Sealing>,
+    ) -> Driven<HostLauncher> {
         Driven {
             runner: HostLauncher::stopped_by(stop).searching(wiring.fs()),
             locks: Box::new(liveness::LockFiles::new(wiring.fs(), wiring.project_dir())),
+            sealing,
         }
     }
 }
@@ -128,9 +136,13 @@ pub fn runs_over<K: Core, L: run_ports::RunnerLauncher>(
 where
     K::Edge: 'static,
 {
-    let Driven { runner, locks } = driven;
+    let Driven {
+        runner,
+        locks,
+        sealing,
+    } = driven;
     let project_dir = wiring.project_dir();
-    let orders = Arc::new(Orders::new());
+    let claims = Arc::new(RunLockTable::new());
     // The engines' callbacks run the client's binary, by its file name, and
     // its directory leads their PATH (owner rulings 163, 2026-11-18).
     let LaunchEngines { claude, opencode } = launch_engines(wiring, &program.name);
@@ -152,7 +164,8 @@ where
         runner,
         SessionDirs::new(wiring.fs(), project_dir.clone()),
         vec![claude as Arc<dyn Engine>, opencode as Arc<dyn Engine>],
-        Arc::clone(&orders),
+        Arc::clone(&claims),
+        Arc::clone(&sealing),
         Limits::new(TURN_DEADLINE),
     );
     let launcher = equipped(launcher, (&run_locks, workspaces, wiring.os_name()));
@@ -166,7 +179,8 @@ where
         enqueuer,
         launcher,
         dirs: Box::new(SessionDirs::new(wiring.fs(), project_dir.clone())),
-        orders,
+        claims,
+        sealing,
         place: Place {
             project_dir: path_text(&project_dir),
             project_harp,
@@ -182,6 +196,7 @@ where
         run_locks,
         git_user: git_user(wiring, &project_dir),
     })
+    .observing_settings(Arc::new(UserFiles(user_files(wiring))))
 }
 
 /// The launcher as every run has it: the run locks other processes' runs are
@@ -602,3 +617,49 @@ fn heard_stops(
 #[cfg(test)]
 #[path = "oneshot.test.rs"]
 mod tests;
+
+/// The user's settings files as the caller's places name them, read once for
+/// a run: what its enqueue records on the user-settings stream.
+struct UserFiles(Vec<run_ports::SettingsFile>);
+
+impl run_ports::SettingsFiles for UserFiles {
+    fn read(&self) -> Vec<run_ports::SettingsFile> {
+        self.0.clone()
+    }
+}
+
+/// claude's settings, opencode's config and opencode's `model.json`, each
+/// where the caller's environment says, those that are there.
+fn user_files(wiring: &Wiring) -> Vec<run_ports::SettingsFile> {
+    use run_ports::SettingsFileKind;
+    let mut found = Vec::new();
+    for (kind, file) in [
+        (SettingsFileKind::Claude, claude_user_settings(wiring)),
+        (
+            SettingsFileKind::OpencodeConfig,
+            opencode_user_config(wiring),
+        ),
+    ] {
+        if let Some(file) = file {
+            found.push(run_ports::SettingsFile {
+                kind,
+                path: file.path,
+                bytes: file.bytes,
+            });
+        }
+    }
+    let env = wiring.env();
+    let state = env.non_empty("XDG_STATE_HOME").and_then(|v| v.to_str());
+    let home = wiring.user_home();
+    let home = home.as_deref().and_then(Path::to_str);
+    if let Some(path) = engine_opencode::user_model_file(home, state, wiring.os_name()) {
+        if let Ok(bytes) = wiring.fs().read(Path::new(&path)) {
+            found.push(run_ports::SettingsFile {
+                kind: SettingsFileKind::OpencodeModel,
+                path,
+                bytes: Some(bytes),
+            });
+        }
+    }
+    found
+}

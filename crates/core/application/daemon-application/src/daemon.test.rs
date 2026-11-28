@@ -16,9 +16,7 @@ use run_ports::{
 use runs::RunEvent;
 use sessions::{SessionEvent, SessionRef};
 
-use crate::{
-    ChildHomes, ChildPlans, Daemon, Ears, Folds, HandOffs, HostedEngine, Place, Ports, Swept,
-};
+use crate::{ChildHomes, ChildPlans, Daemon, Ears, Folds, HostedEngine, Place, Ports, Swept};
 
 const OWNER: &str = "5f0c7a52-1111-5111-8111-000000000001";
 const CHILD: &str = "5f0c7a52-2222-5222-8222-000000000002";
@@ -103,22 +101,6 @@ impl ChildPlans for Plans {
     }
 }
 
-pub(crate) struct NoHandOffs;
-
-impl HandOffs for NoHandOffs {
-    fn read(&self, _: &str) -> Option<crate::HandOff> {
-        None
-    }
-
-    fn delete(&self, _: &str) {}
-
-    fn claim(&self, _: &str) {}
-
-    fn list(&self) -> Vec<crate::Kept> {
-        Vec::new()
-    }
-}
-
 pub(crate) struct NoHomes;
 
 impl ChildHomes for NoHomes {
@@ -185,7 +167,7 @@ fn daemon_saying(
         edge: Arc::clone(edge),
         engines,
         plans: Box::new(plans),
-        hand_offs: Box::new(NoHandOffs),
+        sealing: std::sync::Arc::new(run_ports::TestSealing),
         homes: Box::new(NoHomes),
         ears: Box::new(Deaf),
         run_locks: Arc::new(Locks(locks)),
@@ -275,6 +257,7 @@ async fn the_start_sweeps_a_killed_daemons_child_and_ends_it_once() {
             evidence: runs_application::Evidence::passing("claude-code"),
             launcher_lock: RUN_LOCK.to_string(),
             grant: None,
+            spec: None,
         })
         .await
         .unwrap();
@@ -353,6 +336,7 @@ async fn a_run(edge: &Arc<TestEdge>, started: bool) {
             evidence: runs_application::Evidence::passing("claude-code"),
             launcher_lock: RUN_LOCK.to_string(),
             grant: None,
+            spec: None,
         })
         .await
         .unwrap();
@@ -442,6 +426,7 @@ async fn the_start_leaves_a_child_whose_host_holds_its_lock() {
             evidence: runs_application::Evidence::passing("claude-code"),
             launcher_lock: RUN_LOCK.to_string(),
             grant: None,
+            spec: None,
         })
         .await
         .unwrap();
@@ -558,6 +543,10 @@ async fn a_refused_first_task(edge: &Arc<TestEdge>) -> (Daemon<TestEdge>, Arc<Mu
             delegation_limit: 4,
             requester: None,
             prompt: "port the parser".to_string(),
+            agent: String::new(),
+            client_program: Default::default(),
+            settings_places: Vec::new(),
+            env: Vec::new(),
         }),
     )
     .await;
@@ -796,7 +785,7 @@ async fn a_fresh_daemon_holds_the_library_trees_observed_before_its_first_round(
         edge: Arc::clone(&edge),
         engines: vec![hosted("claude-code")],
         plans: Box::new(Plans::default()),
-        hand_offs: Box::new(NoHandOffs),
+        sealing: std::sync::Arc::new(run_ports::TestSealing),
         homes: Box::new(NoHomes),
         ears: Box::new(Deaf),
         run_locks: Arc::new(Locks(LockProbe::Free)),
@@ -881,7 +870,7 @@ async fn a_fresh_daemon_catches_every_read_model_up_before_its_first_round() {
         edge: Arc::clone(&edge),
         engines: vec![hosted("claude-code")],
         plans: Box::new(Plans::default()),
-        hand_offs: Box::new(NoHandOffs),
+        sealing: std::sync::Arc::new(run_ports::TestSealing),
         homes: Box::new(NoHomes),
         ears: Box::new(Deaf),
         run_locks: Arc::new(Locks(LockProbe::Free)),

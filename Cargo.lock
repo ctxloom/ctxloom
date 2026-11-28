@@ -324,6 +324,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "angzarr-sealed"
+version = "0.1.0"
+source = "git+https://github.com/angzarr-io/angzarr?rev=ed19b7eecfd7c605a3a39edd1e4b02e8805a0ec8#ed19b7eecfd7c605a3a39edd1e4b02e8805a0ec8"
+dependencies = [
+ "bytes",
+ "coded-diagnostic",
+ "prost",
+ "prost-build",
+ "ring",
+ "x25519-dalek",
+ "zeroize",
+]
+
+[[package]]
 name = "angzarr-store-sqlite"
 version = "0.1.0"
 source = "git+https://github.com/angzarr-io/angzarr?rev=ed19b7eecfd7c605a3a39edd1e4b02e8805a0ec8#ed19b7eecfd7c605a3a39edd1e4b02e8805a0ec8"
@@ -1187,8 +1201,10 @@ dependencies = [
  "ctxloom-compose",
  "ctxloom-daemon",
  "ctxloom-ports",
+ "ctxloom-sealing",
  "ctxloom-store-sqlite",
  "daemon-api",
+ "daemon-api-contract",
  "daemon-api-grpc",
  "daemon-application",
  "daemon-board",
@@ -1240,6 +1256,7 @@ dependencies = [
  "scheduler-fixture",
  "scheduler-loop",
  "scheduler-ports",
+ "sealing-application",
  "serde_json",
  "session-files",
  "session-index",
@@ -1257,6 +1274,7 @@ dependencies = [
  "tokio",
  "trust",
  "trust-index",
+ "user-settings",
  "uuid",
  "worktree-git",
 ]
@@ -1267,6 +1285,20 @@ version = "0.1.0"
 dependencies = [
  "coded-diagnostic",
  "mutants",
+]
+
+[[package]]
+name = "ctxloom-sealing"
+version = "0.1.0"
+dependencies = [
+ "angzarr-sealed",
+ "file-system",
+ "hex",
+ "mutants",
+ "os",
+ "prost",
+ "run-ports",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -1438,6 +1470,31 @@ dependencies = [
  "nom_locate",
  "regex",
  "regex-syntax 0.7.5",
+]
+
+[[package]]
+name = "curve25519-dalek"
+version = "4.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97fb8b7c4503de7d6ae7b42ab72a5a59857b4c937ec27a3d4539dba95b5ab2be"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.2.17",
+ "curve25519-dalek-derive",
+ "fiat-crypto",
+ "rustc_version",
+ "subtle",
+]
+
+[[package]]
+name = "curve25519-dalek-derive"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f46882e17999c6cc590af592290432be3bce0428cb0d5f8b6715e4dc7b383eb3"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -2042,7 +2099,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2091,6 +2148,12 @@ name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
+
+[[package]]
+name = "fiat-crypto"
+version = "0.2.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "28dea519a9695b9977216879a3ebfddf92f1c08c05d984f8996aecd6ecdc811d"
 
 [[package]]
 name = "file-lock"
@@ -3242,7 +3305,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cde48f36530cbd91b65f050101e6c056d6eb743cea2a8f0f19beef69c6742ff8"
 dependencies = [
  "scopeguard",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3320,6 +3383,7 @@ name = "library-api"
 version = "0.1.0"
 dependencies = [
  "angzarr-embedded",
+ "angzarr-yaml",
  "cli-support",
  "coded-diagnostic",
  "ctxloom-ports",
@@ -4134,8 +4198,8 @@ version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03da047801ff44bb6a4d407d4860c05fd70bb81714e6b2f3812603d5b145b042"
 dependencies = [
- "heck 0.4.1",
- "itertools 0.14.0",
+ "heck 0.5.0",
+ "itertools 0.13.0",
  "log",
  "multimap",
  "petgraph",
@@ -4154,7 +4218,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.13.0",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -4553,17 +4617,20 @@ dependencies = [
  "isolation-ports",
  "library",
  "library-application",
+ "library-tree",
  "mutants",
  "ports",
  "run-launcher",
  "run-ports",
  "runs",
  "runs-application",
+ "serde_json",
  "session-ports",
  "sessions",
  "setup-application",
  "surface-ports",
  "tokio",
+ "user-settings",
  "uuid",
 ]
 
@@ -4596,6 +4663,7 @@ dependencies = [
  "run-ports",
  "runs",
  "runs-application",
+ "serde_json",
  "sessions",
  "surface-ports",
  "tokio",
@@ -4707,7 +4775,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4943,6 +5011,14 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "sealing-application"
+version = "0.1.0"
+dependencies = [
+ "mutants",
+ "run-ports",
 ]
 
 [[package]]
@@ -5876,10 +5952,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5889,7 +5965,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "230a1b821ccbd75b185820a1f1ff7b14d21da1e442e22c0863ea5f08771a8874"
 dependencies = [
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6449,6 +6525,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "user-settings"
+version = "0.1.0"
+dependencies = [
+ "angzarr-build",
+ "angzarr-embedded",
+ "angzarr-embedded-macros",
+ "mutants",
+ "prost",
+ "sessions",
+ "user-settings-proto",
+]
+
+[[package]]
+name = "user-settings-proto"
+version = "0.1.0"
+dependencies = [
+ "angzarr-build",
+ "prost",
+ "prost-types",
+]
+
+[[package]]
 name = "utf8_iter"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6622,7 +6720,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6938,6 +7036,16 @@ name = "writeable"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
+
+[[package]]
+name = "x25519-dalek"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c7e468321c81fb07fa7f4c636c3972b9100f0346e5b6a9f2bd0603a52f7ed277"
+dependencies = [
+ "curve25519-dalek",
+ "rand_core 0.6.4",
+]
 
 [[package]]
 name = "yasna"

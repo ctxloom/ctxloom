@@ -17,6 +17,8 @@ run-ports.workspace = true
 runs.workspace = true
 runs-application.workspace = true
 sessions.workspace = true
+surface-ports.workspace = true
+serde_json.workspace = true
 # The test edge (`fakes`, test-support only) registers the trust aggregate
 # too, so a daemon's start-up catch-up of the trust index is tested over it:
 # no production code of the launcher reads trust.
@@ -29,7 +31,6 @@ uuid.workspace = true
 [dev-dependencies]
 trust.workspace = true
 library-tree.workspace = true
-surface-ports.workspace = true
 angzarr-embedded = { workspace = true, features = ["test-support"] }
 run-ports = { workspace = true, features = ["test-support"] }
 mutants.workspace = true
@@ -38,7 +39,7 @@ tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }
 [features]
 # `diagnostic_samples`, for other crates' catalog tests, and `fakes`: the
 # doubles over the kernel's in-memory store.
-test-support = ["angzarr-embedded/test-support", "dep:trust", "dep:library-tree"]
+test-support = ["angzarr-embedded/test-support", "run-ports/test-support", "dep:trust", "dep:library-tree"]
 
 [lints]
 workspace = true

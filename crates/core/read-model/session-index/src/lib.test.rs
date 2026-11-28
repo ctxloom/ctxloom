@@ -600,6 +600,7 @@ fn a_record_carries_its_owner_its_close_and_the_children_it_holds() {
         delegation_limit: 4,
         requester: None,
         prompt: String::new(),
+        ..Default::default()
     };
     let mut project = Project::new();
     let mut index = SessionIndex::catch_up();
@@ -783,6 +784,7 @@ fn a_session_is_its_resource_with_its_owner_and_children_named() {
             delegation_limit: 1,
             requester: None,
             prompt: String::new(),
+            ..Default::default()
         },
     );
     project.run(
@@ -970,6 +972,7 @@ fn a_project_is_found_by_its_harp_with_its_registration() {
             root: "/work/calm".to_string(),
             git_common_dir: "/work/calm/.git".to_string(),
             root_commit: "c0ffee".to_string(),
+            ..Default::default()
         }
     );
     assert_eq!(

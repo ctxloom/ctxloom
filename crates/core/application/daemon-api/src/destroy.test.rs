@@ -297,6 +297,7 @@ async fn a_run_of(world: &World, session: &str, root: uuid::Uuid) {
         mode: runs::RunMode::Structured,
         launcher_lock: String::new(),
         grant: None,
+        spec: None,
     });
     let page = angzarr_embedded::v1::EventPage {
         sequence: 0,
@@ -915,6 +916,10 @@ async fn launched_child(f: &Fixture, owner: &str, child: &str) {
         delegation_limit: 4,
         requester: None,
         prompt: String::new(),
+        agent: String::new(),
+        client_program: Default::default(),
+        settings_places: Vec::new(),
+        env: Vec::new(),
     };
     let book = sessions::keyed_book(cover_of(owner), &launch, &format!("launch:{child}"));
     f.world.handle(book).await.unwrap();

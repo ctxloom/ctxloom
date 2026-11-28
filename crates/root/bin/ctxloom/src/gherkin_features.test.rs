@@ -501,6 +501,7 @@ mod features {
             fragment,
             fragment_draft_premise,
             init,
+            launch_spec,
             library_changes,
             manage,
             materialize,

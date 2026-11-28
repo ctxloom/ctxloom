@@ -29,6 +29,19 @@ pub trait LibraryScanner: Send + Sync {
     /// a path with no file is left out: absent.
     fn content_ids(&self, dir: &str, paths: &[&str]) -> Result<BTreeMap<String, String>, Failure>;
 
+    /// The bytes of each of `paths` (relative to `dir`) as they are now,
+    /// each only when its content id is still the one `paths` names (a file
+    /// that changed between the scan and this read is left out: its next
+    /// scan lists it again). The default reads nothing.
+    fn read_files(
+        &self,
+        dir: &str,
+        paths: &[(&str, &str)],
+    ) -> Result<BTreeMap<String, Vec<u8>>, Failure> {
+        let _ = (dir, paths);
+        Ok(BTreeMap::new())
+    }
+
     /// Every memo dropped (`ctxloom context refresh`): the next scan hashes
     /// every file again.
     fn forget(&self) {}

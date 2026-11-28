@@ -24,6 +24,7 @@ mod generated {
     include!(concat!(env!("OUT_DIR"), "/ctxloom.sessions.v1.domain.rs"));
 }
 mod aggregate;
+mod context;
 mod daemon;
 mod harp;
 mod lifeline;
@@ -55,6 +56,7 @@ pub type ProjectNameCommand = ProjectNameStateCommand;
 pub type ProjectNameEvent = ProjectNameStateEvent;
 
 pub use aggregate::SessionAggregate;
+pub use context::{drawn_on, owes, touched, CONFIG_CHANGED};
 pub use daemon::{command_id, keyed_book, urgency_word};
 pub use generated::*;
 pub use harp::{validate, validate_session_name, RESERVED_PREFIX, RESERVED_REASON};
@@ -138,9 +140,18 @@ pub fn apply(state: &mut SessionState, event: &SessionEvent, recorded_at: Timest
         | SessionEvent::Compacted(_)
         | SessionEvent::ConversationCleared(_)
         | SessionEvent::CaptureGapped(_)
-        | SessionEvent::ContextRedelivered(_)
-        | SessionEvent::ContextOwed(_)
-        | SessionEvent::LoadoutRecorded(_) => {}
+        | SessionEvent::ContextOwed(_) => {}
+        // What the session's context covers: its loadout, and each
+        // re-assembly's positions (the session decides what a library change
+        // owes it on these).
+        SessionEvent::LoadoutRecorded(loadout) => {
+            state.context = Some(context::handed_by(loadout, recorded_at));
+        }
+        SessionEvent::ContextRedelivered(redelivered) => {
+            if let Some(context) = state.context.as_mut() {
+                context.cover(&redelivered.covered);
+            }
+        }
         // A run's end is when the session's last run ended (the proto's
         // RecordEnd: IncarnationEnded supersedes it), at its page's instant.
         SessionEvent::IncarnationEnded(_) => {
@@ -359,16 +370,11 @@ pub fn positions_text(positions: &[TreePosition]) -> String {
 }
 
 /// The external id of a change owed to `session` (step 10c U13 rework):
-/// `owed:<session>:<tree>@<sequence>`, so the projector's book handed again
-/// records it once.
+/// `owed:<session>:<tree>@<sequence>`, so a change told again (a book handed
+/// again, the store replayed, a change found when a loadout was recorded) is
+/// recorded once.
 pub fn owed_key(session: &str, tree: &str, sequence: u64) -> String {
     format!("owed:{session}:{tree}@{sequence}")
-}
-
-/// The external id of a change owed to `session` found when its loadout
-/// was handled (step 10c U13 rework): `owed-at-load:<session>:<tree>@<seq>`.
-pub fn owed_at_load_key(session: &str, tree: &str, sequence: u64) -> String {
-    format!("owed-at-load:{session}:{tree}@{sequence}")
 }
 
 /// The book that records `fact` on the session stream `cover` names, keyed

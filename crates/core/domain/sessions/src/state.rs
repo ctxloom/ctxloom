@@ -69,6 +69,10 @@ pub struct SessionState {
     /// The restart owed for its open incarnation (step 10e Stage 2a), until
     /// the next incarnation is owed; none when none is.
     pub restart_owed: Option<crate::RestartOwed>,
+    /// The context its loadout was handed, and where that stands: what the
+    /// session decides a library change owes it on; none until a loadout is
+    /// recorded.
+    pub context: Option<crate::ContextHanded>,
 }
 
 impl From<SessionState> for sessions_proto::v1::SessionState {
@@ -110,6 +114,7 @@ impl From<SessionState> for sessions_proto::v1::SessionState {
             restart_owed: value
                 .restart_owed
                 .map(sessions_proto::v1::RestartOwed::from),
+            context: value.context.map(sessions_proto::v1::ContextHanded::from),
         }
     }
 }
@@ -168,6 +173,10 @@ impl TryFrom<sessions_proto::v1::SessionState> for SessionState {
             restart_owed: value
                 .restart_owed
                 .map(crate::RestartOwed::try_from)
+                .transpose()?,
+            context: value
+                .context
+                .map(crate::ContextHanded::try_from)
                 .transpose()?,
         })
     }

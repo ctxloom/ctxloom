@@ -377,6 +377,33 @@ message RecordContextOwed {
   repeated string paths = 4;
 }
 
+// Owner ruling 2026-11-27: a library change the daemon's OwedContexts runner
+// tells a session that draws on its tree, as the change's event records it:
+// the tree, the event's sequence, every path it changed and the instant it
+// was recorded. The SESSION aggregate decides, on its own loadout and handed
+// positions (`SessionState.context`), whether it owes the session its
+// context: past the covered position of that tree (or, covering none there,
+// recorded after the loadout), and touching a bundle of the loadout (or the
+// tree's config). It then records `ContextOwed`, as `RecordContextOwed`
+// does; the runner decides nothing and holds no read model. external_id
+// `owed:<session>:<tree>@<sequence>` (or, for a change found when a loadout
+// was handled, `owed-at-load:<session>:<tree>@<sequence>`), so a book
+// handed again is a DUPLICATE. Never refused: a stream with no live session,
+// or none with a loadout, records nothing. Additive.
+message RecordLibraryChanged {
+  option (io.angzarr.v1.fact) = {
+    component: "ctxloom.sessions.v1.SessionState"
+    emits: ["ctxloom.sessions.v1.ContextOwed"]
+  };
+
+  string tree = 1;
+  uint64 sequence = 2;
+  // Every path (relative to the tree) the change changed, a rename's both.
+  repeated string paths = 3;
+  // The instant the change's event was recorded.
+  google.protobuf.Timestamp recorded = 4;
+}
+
 message ContextOwed {
   option (io.angzarr.v1.event) = {component: "ctxloom.sessions.v1.SessionState"};
 

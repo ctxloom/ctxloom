@@ -2,15 +2,7 @@
 
 use daemon_proto::v1;
 
-use super::{fragment_name, loadout_of_assembled, touched};
-
-fn loadout(bundles: &[&str]) -> sessions::SessionLoadout {
-    sessions::SessionLoadout {
-        agent: String::new(),
-        profiles: vec!["dev".to_string()],
-        bundles: bundles.iter().map(|b| b.to_string()).collect(),
-    }
-}
+use super::{fragment_name, loadout_of_assembled};
 
 fn paths(paths: &[&str]) -> Vec<String> {
     paths.iter().map(|p| p.to_string()).collect()
@@ -34,26 +26,6 @@ fn an_assemblys_loadout_names_its_fragments_bundles_held_back_ones_too() {
     let got = loadout_of_assembled("", &paths(&["dev"]), &assembled);
     assert_eq!(got.bundles, ["demo", "held"]);
     assert_eq!(got.profiles, ["dev"]);
-}
-
-// A change touches a loadout where one of its paths is in a bundle the
-// loadout names, or is the tree's config (in every loadout): named
-// sorted, each once; a change of another bundle touches nothing.
-#[test]
-fn a_change_touches_the_bundles_a_loadout_names_and_the_config() {
-    let dev = loadout(&["demo"]);
-    let demo = "content/bundles/v2/demo/fragments/example.md";
-    assert_eq!(touched(&dev, &paths(&[demo])), ["demo"]);
-    assert_eq!(
-        touched(&dev, &paths(&["config.yaml", demo, demo])),
-        ["config", "demo"]
-    );
-    assert!(touched(&dev, &paths(&["content/bundles/v2/other/bundle.yaml"])).is_empty());
-    assert!(
-        touched(&dev, &paths(&["content/bundles/v2/demox/bundle.yaml"])).is_empty(),
-        "a bundle named alike is another"
-    );
-    assert!(touched(&dev, &paths(&["remotes.yaml"])).is_empty());
 }
 
 // A changed path names its fragment under its tree's parent: a checkout's

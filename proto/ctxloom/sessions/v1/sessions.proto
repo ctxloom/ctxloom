@@ -92,6 +92,22 @@ message SessionState {
   // the next incarnation is owed (which closes it); absent when none is.
   // Additive.
   optional RestartOwed restart_owed = 31;
+  // Owner ruling 2026-11-27: the context its loadout was handed and where
+  // that stands, folded from its own `LoadoutRecorded` and
+  // `ContextRedelivered` events, so the session itself decides what a library
+  // change owes it; absent until a loadout is recorded. Additive.
+  optional ContextHanded context = 32;
+}
+
+// What a session's context covers (see `SessionState.context`).
+message ContextHanded {
+  // The bundles of its loadout: what a library change must touch to be owed.
+  repeated string bundles = 1;
+  // When its loadout was recorded: a tree it covers no position of is owed
+  // the changes recorded after it.
+  google.protobuf.Timestamp loaded_at = 2;
+  // Per tree, the last sequence its context covers.
+  repeated TreePosition covered = 3;
 }
 
 // Who a session was minted for (Go's Origin): an empty origin reads as a

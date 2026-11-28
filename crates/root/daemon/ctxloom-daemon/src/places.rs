@@ -329,23 +329,17 @@ mod reconcile_bench;
 /// home's. Read, never minted.
 pub(crate) struct LibraryTrees {
     pub(crate) fs: Arc<dyn Fs>,
-    pub(crate) index: session_index::SessionIndexes,
     /// ctxloom's home, whose `worktrees/` holds the sessions' checkouts.
     pub(crate) home: PathBuf,
 }
 
 impl daemon_application::owed::SessionTrees for LibraryTrees {
-    fn trees(&self, record: &session_index::SessionRecord) -> Vec<String> {
-        let project = self
-            .index
-            .index()
-            .project_harp(&record.project_id)
-            .map(str::to_string);
+    fn trees(&self, session: &sessions::SessionState, project_harp: Option<&str>) -> Vec<String> {
         let mut trees = Vec::new();
-        if let Some(project) = project {
+        if let Some(project) = project_harp {
             let checkouts =
-                isolation_ports::session_worktrees(&self.home, &record.project_id, &record.harp);
-            let mut dirs = vec![PathBuf::from(&record.project_dir)];
+                isolation_ports::session_worktrees(&self.home, &session.project_id, &session.harp);
+            let mut dirs = vec![PathBuf::from(&session.project_dir)];
             if let Ok(entries) = self.fs.read_dir(&checkouts) {
                 dirs.extend(entries.into_iter().map(|entry| checkouts.join(entry.name)));
             }

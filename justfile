@@ -410,7 +410,7 @@ _arch-lint-ready:
 [group('check')]
 [doc("Clippy, warnings denied, with the core's purity rules and the OS-cfg check")]
 [no-exit-message]
-lint: lint-arch lint-path-deps lint-handoffs lint-one-writer
+lint: lint-arch lint-path-deps lint-handoffs lint-one-writer lint-projectors
     #!/usr/bin/env bash
     set -euo pipefail
     root=$(grep '^excessive-nesting-threshold' {{TOP}}/clippy.toml)
@@ -453,6 +453,19 @@ lint-handoffs:
 [no-exit-message]
 lint-one-writer:
     @{{TOP}}/scripts/one-writer-check.sh
+
+# Projectors never communicate with each other (architecture rule 2):
+# ast-grep (scripts/projector-rules/) finds every `impl Model` and
+# `impl ProjectorHandler` type and refuses, in the file that defines it, the
+# name of another crate's projector, handle or read model, unless
+# scripts/projector-allow.txt lists it with why (`PENDING` for an open owner
+# ruling, noted on every run). Pure fold and value-type reuse passes. Part of
+# `just lint`.
+[group('check')]
+[doc("Projectors hold no other projector's handle or read model (ast-grep, allow list scripts/projector-allow.txt)")]
+[no-exit-message]
+lint-projectors:
+    @{{TOP}}/scripts/projector-check.sh
 
 # No dependency, [patch] or [replace] entry reaches outside the repository by
 # path, and no .cargo/config.toml is tracked (scripts/path-deps-check.sh): it
@@ -710,7 +723,7 @@ trim-targets *args:
 
 # The self-tests of this repository's scripts against fixture trees.
 [group('check')]
-[doc("Self-tests of the scripts: drop-worktree, mutants-batch, mutants-verdict, memory cap, closeout, closeout-ratchet, ratchet-base, ltk rules, output budget, tests exit, test-staged, scratch-tree lock, machine-wide test lock, exec-mode check, handoff check, one-writer debt check, path deps, vendored googleapis, mcp-env probe, install shutdown and guard, bare-HOME guard, trim-targets, land-sweep")]
+[doc("Self-tests of the scripts: drop-worktree, mutants-batch, mutants-verdict, memory cap, closeout, closeout-ratchet, ratchet-base, ltk rules, output budget, tests exit, test-staged, scratch-tree lock, machine-wide test lock, exec-mode check, handoff check, one-writer debt check, projector check, path deps, vendored googleapis, mcp-env probe, install shutdown and guard, bare-HOME guard, trim-targets, land-sweep")]
 [no-exit-message]
 selftest:
     @{{TOP}}/scripts/drop-worktree.selftest.sh
@@ -730,6 +743,7 @@ selftest:
     @{{TOP}}/scripts/exec-mode-check.selftest.sh
     @{{TOP}}/scripts/handoff-check.selftest.sh
     @{{TOP}}/scripts/one-writer-check.selftest.sh
+    @{{TOP}}/scripts/projector-check.selftest.sh
     @if [ -e {{TOP}}/.dev ]; then just dev::selftest; fi
     @{{TOP}}/scripts/path-deps-check.selftest.sh
     @{{TOP}}/scripts/vendor-googleapis.selftest.sh

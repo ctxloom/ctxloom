@@ -154,10 +154,6 @@ fn positions_are_one_text_whatever_their_order_and_keys_name_them() {
         crate::owed_key("s", "users/me/library", 4),
         "owed:s:users/me/library@4"
     );
-    assert_eq!(
-        crate::owed_at_load_key("s", "users/me/library", 4),
-        "owed-at-load:s:users/me/library@4"
-    );
 }
 
 // Step 10e Stage 2a: the owed restart is part of the session's wire state

@@ -19,19 +19,11 @@
 //! its own beside it, in the same shape: what follows decided purely, made
 //! by the daemon.
 
-use std::collections::BTreeSet;
-
 use daemon_proto::v1;
 use sessions::SessionLoadout;
 
 /// Where a bundle's directory is in its tree.
 const BUNDLES: &str = "content/bundles/v2/";
-
-/// The config file's path in its tree, which every loadout draws on.
-const CONFIG: &str = "config.yaml";
-
-/// What [`touched`] names a config change by.
-pub const CONFIG_CHANGED: &str = "config";
 
 /// `names` each once, in the order first named.
 fn once(names: impl IntoIterator<Item = String>) -> Vec<String> {
@@ -70,29 +62,6 @@ pub fn loadout_of_assembled(
         profiles: profiles.to_vec(),
         bundles: once(used.chain(held).filter_map(bundle_of_name)),
     }
-}
-
-/// What of `loadout` a change of `paths` (relative to its tree) touches:
-/// each bundle it names that a path is in, and [`CONFIG_CHANGED`] for the
-/// tree's config; sorted, each once. Empty: the change is none of its.
-pub fn touched(loadout: &SessionLoadout, paths: &[String]) -> Vec<String> {
-    let mut named = BTreeSet::new();
-    for path in paths {
-        if path == CONFIG {
-            named.insert(CONFIG_CHANGED.to_string());
-            continue;
-        }
-        let Some(bundle) = path
-            .strip_prefix(BUNDLES)
-            .and_then(|rest| rest.split('/').next())
-        else {
-            continue;
-        };
-        if loadout.bundles.iter().any(|named| named == bundle) {
-            named.insert(bundle.to_string());
-        }
-    }
-    named.into_iter().collect()
 }
 
 /// The resource name of the fragment at `path` (relative to its tree,

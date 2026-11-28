@@ -489,12 +489,7 @@ impl<E: Edge> Daemon<E> {
     /// catches up (step 10c U13 rework), each session's trees told by
     /// `trees`.
     pub fn owing(mut self, trees: Arc<dyn crate::owed::SessionTrees>) -> Daemon<E> {
-        let owed = crate::owed::OwedContexts::new(
-            Arc::clone(&self.edge),
-            self.index.projector().clone(),
-            self.checkouts.projector().clone(),
-            trees,
-        );
+        let owed = crate::owed::OwedContexts::new(Arc::clone(&self.edge), trees);
         self.owed = Some(crate::owed::caught_up(owed));
         self
     }
@@ -1656,7 +1651,7 @@ impl<E: Edge> Daemon<E> {
             .index()
             .project_harp(project_id)
             .map(|harp| format!("projects/{harp}/checkouts/"));
-        crate::owed::positions(&self.checkouts.projector().checkouts(), |tree| {
+        crate::positions::positions(&self.checkouts.projector().checkouts(), |tree| {
             tree == library_tree::HOME_TREE
                 || prefix
                     .as_ref()

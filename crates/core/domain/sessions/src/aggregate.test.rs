@@ -1200,6 +1200,165 @@ fn an_owed_change_is_recorded_on_a_live_session_once() {
     assert!(none.fact(fact, &key).is_empty());
 }
 
+// Owner ruling 2026-11-27: the SESSION aggregate decides what a library
+// change owes it, on its own folded loadout and handed positions; the daemon
+// only tells it the change (`RecordLibraryChanged`).
+const TREE: &str = "projects/p/checkouts/c/library";
+const DEMO: &str = "content/bundles/v2/demo/fragments/a.md";
+
+fn loaded(session: &mut Session, covered: &[(&str, u64)]) {
+    let fact = crate::RecordLoadout {
+        loadout: crate::SessionLoadout {
+            agent: "dev".to_string(),
+            profiles: vec!["dev".to_string()],
+            bundles: vec!["demo".to_string()],
+        },
+        incarnation: 1,
+        covered: covered
+            .iter()
+            .map(|(tree, sequence)| crate::TreePosition {
+                tree: tree.to_string(),
+                sequence: *sequence,
+            })
+            .collect(),
+    };
+    assert_eq!(session.fact(fact, "loadout:s:1").len(), 1);
+}
+
+fn changed(sequence: u64, paths: &[&str], recorded: i64) -> crate::RecordLibraryChanged {
+    crate::RecordLibraryChanged {
+        tree: TREE.to_string(),
+        sequence,
+        paths: paths.iter().map(|path| path.to_string()).collect(),
+        recorded: at(recorded),
+    }
+}
+
+fn owed(sequence: u64, bundles: &[&str], paths: &[&str]) -> SessionEvent {
+    SessionEvent::ContextOwed(crate::ContextOwed {
+        tree: TREE.to_string(),
+        sequence,
+        bundles: bundles.iter().map(|b| b.to_string()).collect(),
+        paths: paths.iter().map(|p| p.to_string()).collect(),
+    })
+}
+
+#[test]
+fn a_library_change_owes_a_session_whose_loadout_draws_on_it() {
+    let mut session = Session::minted();
+    loaded(&mut session, &[(TREE, 3)]);
+    let key = crate::owed_key("s", TREE, 4);
+    assert_eq!(
+        session.fact(
+            changed(4, &[DEMO, "content/bundles/v2/other/fragments/b.md"], 10),
+            &key
+        ),
+        [owed(4, &["demo"], &[DEMO])]
+    );
+}
+
+#[test]
+fn a_library_change_the_loadout_does_not_draw_on_owes_nothing() {
+    let mut session = Session::minted();
+    loaded(&mut session, &[(TREE, 3)]);
+    let other = "content/bundles/v2/other/fragments/b.md";
+    assert!(session
+        .fact(changed(4, &[other], 10), &crate::owed_key("s", TREE, 4))
+        .is_empty());
+}
+
+#[test]
+fn a_config_change_is_owed_to_every_loadout() {
+    let mut session = Session::minted();
+    loaded(&mut session, &[(TREE, 3)]);
+    let events = session.fact(
+        changed(4, &["config.yaml"], 10),
+        &crate::owed_key("s", TREE, 4),
+    );
+    let [SessionEvent::ContextOwed(owed)] = &events[..] else {
+        panic!("one owed event: {events:?}");
+    };
+    assert_eq!(owed.bundles, ["config"]);
+}
+
+#[test]
+fn a_library_change_the_handed_context_covers_owes_nothing() {
+    let mut session = Session::minted();
+    loaded(&mut session, &[(TREE, 5)]);
+    // At or below the position the context was assembled at: given already.
+    assert!(session
+        .fact(changed(5, &[DEMO], 10), &crate::owed_key("s", TREE, 5))
+        .is_empty());
+    assert!(session
+        .fact(changed(4, &[DEMO], 10), &crate::owed_key("s", TREE, 4))
+        .is_empty());
+    // Past it: owed.
+    assert_eq!(
+        session.fact(changed(6, &[DEMO], 10), &crate::owed_key("s", TREE, 6)),
+        [owed(6, &["demo"], &[DEMO])]
+    );
+}
+
+#[test]
+fn a_redelivery_moves_the_covered_position_a_change_is_judged_against() {
+    let mut session = Session::minted();
+    loaded(&mut session, &[(TREE, 3)]);
+    let redelivered = crate::RecordContextRedelivered {
+        bundles: vec!["demo".to_string()],
+        cause: "c".to_string(),
+        size: 1,
+        sha256: "x".to_string(),
+        carried_by: "UserPromptSubmit".to_string(),
+        covered: vec![crate::TreePosition {
+            tree: TREE.to_string(),
+            sequence: 8,
+        }],
+    };
+    assert_eq!(session.fact(redelivered, "reinject:s:h").len(), 1);
+    assert!(session
+        .fact(changed(7, &[DEMO], 10), &crate::owed_key("s", TREE, 7))
+        .is_empty());
+    assert_eq!(
+        session.fact(changed(9, &[DEMO], 10), &crate::owed_key("s", TREE, 9)),
+        [owed(9, &["demo"], &[DEMO])]
+    );
+}
+
+#[test]
+fn a_tree_the_context_covers_no_position_of_owes_what_was_recorded_after_the_loadout() {
+    let mut session = Session::minted();
+    loaded(&mut session, &[]);
+    // The loadout was recorded at second ~102 of the harness's clock.
+    assert!(session
+        .fact(changed(2, &[DEMO], 10), &crate::owed_key("s", TREE, 2))
+        .is_empty());
+    assert_eq!(
+        session.fact(changed(3, &[DEMO], 100_000), &crate::owed_key("s", TREE, 3)),
+        [owed(3, &["demo"], &[DEMO])]
+    );
+}
+
+#[test]
+fn a_replayed_library_change_is_a_duplicate() {
+    let mut session = Session::minted();
+    loaded(&mut session, &[(TREE, 3)]);
+    let key = crate::owed_key("s", TREE, 4);
+    assert_eq!(session.fact(changed(4, &[DEMO], 10), &key).len(), 1);
+    assert!(session.fact(changed(4, &[DEMO], 10), &key).is_empty());
+}
+
+#[test]
+fn a_library_change_owes_a_session_with_no_loadout_or_no_session_nothing() {
+    let mut session = Session::minted();
+    assert!(session
+        .fact(changed(4, &[DEMO], 10), &crate::owed_key("s", TREE, 4))
+        .is_empty());
+    let mut none = Session::new();
+    assert!(none
+        .fact(changed(4, &[DEMO], 10), &crate::owed_key("x", TREE, 4))
+        .is_empty());
+}
+
 // The engine extension point: what an adapter attached to an observation
 // reaches the event, beside the common fields and never in them.
 #[test]

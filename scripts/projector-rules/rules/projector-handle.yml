@@ -1,0 +1,12 @@
+id: projector-handle
+language: rust
+severity: hint
+message: A handle to a projector's read model.
+note: >
+  Discovery rule of scripts/projector-check.sh: a tuple struct whose field is
+  a held_projection::Held is the handle of the model it wraps.
+rule:
+  kind: struct_item
+  regex: 'struct\s+\w+\s*(<[^>]*>)?\s*\(\s*(pub(\([^)]*\))?\s+)?Held<'
+ignores:
+  - "**/*.test.rs"

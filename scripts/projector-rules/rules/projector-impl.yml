@@ -1,0 +1,14 @@
+id: projector-impl
+language: rust
+severity: hint
+message: A projector, a read model folded on the projector port.
+note: >
+  Discovery rule of scripts/projector-check.sh: an `impl Model for T`
+  (held-projection) or `impl ProjectorHandler for T` (angzarr) is a projector.
+rule:
+  kind: impl_item
+  has:
+    field: trait
+    regex: '(^|::)(Model|ProjectorHandler)$'
+ignores:
+  - "**/*.test.rs"

@@ -1158,7 +1158,6 @@ fn launcher(
     // (step 10c U13 rework).
     .owing(Arc::new(super::places::LibraryTrees {
         fs: Arc::clone(fs),
-        index: kept.index.clone().unwrap_or_default(),
         home: home.to_path_buf(),
     }))
     // A child's program found on its own PATH, as every launch's (T10).

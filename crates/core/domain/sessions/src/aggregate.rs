@@ -43,8 +43,8 @@ use crate::{
     AssistantTextShown, CaptureGapped, Compacted, ContextOwed, ContextRedelivered,
     ConversationCleared, LoadoutRecorded, PromptSubmitted, RecordAssistantText, RecordCaptureGap,
     RecordCompaction, RecordContextOwed, RecordContextRedelivered, RecordConversationCleared,
-    RecordLoadout, RecordPromptSubmitted, RecordToolCall, RecordTurnEnded, SessionEnded,
-    SessionReopened, ToolCalled, TurnEnded,
+    RecordLibraryChanged, RecordLoadout, RecordPromptSubmitted, RecordToolCall, RecordTurnEnded,
+    SessionEnded, SessionReopened, ToolCalled, TurnEnded,
 };
 
 /// The session aggregate: one session, folded from its stream.
@@ -626,6 +626,24 @@ impl SessionAggregate {
             bundles: fact.bundles,
             paths: fact.paths,
         }))
+    }
+
+    /// RecordLibraryChanged (owner ruling 2026-11-27): a library change the
+    /// daemon tells the session; the session decides, on its own loadout and
+    /// handed positions, whether it owes it, and records it as owed. Nothing
+    /// on a stream with no live session, or none with a loadout.
+    #[handles_fact(RecordLibraryChanged)]
+    fn library_changed(
+        &self,
+        fact: RecordLibraryChanged,
+        ctx: &Context,
+    ) -> Result<FactEmit<Self>, Bug> {
+        let _ = ctx;
+        record(
+            live(&self.session)
+                .ok()
+                .and_then(|held| crate::context::owed_by(held.context.as_ref(), &fact)),
+        )
     }
 
     #[handles_fact(RecordConversationCleared)]

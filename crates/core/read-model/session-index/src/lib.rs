@@ -132,12 +132,12 @@ impl Handed {
     /// one this context has not been given: past its covered position on
     /// that tree, or, covering none there, recorded after its loadout.
     pub fn owes(&self, tree: &str, sequence: u64, recorded: Timestamp) -> bool {
-        match self.covered.get(tree) {
-            Some(covered) => sequence > *covered,
-            None => {
-                (recorded.seconds, recorded.nanos) > (self.loaded_at.seconds, self.loaded_at.nanos)
-            }
-        }
+        sessions::owes(
+            self.covered.get(tree).copied(),
+            self.loaded_at,
+            sequence,
+            recorded,
+        )
     }
 
     /// The positions a delivery of everything owed now covers: each owed

@@ -1,17 +1,17 @@
-//! The owed contexts (step 10c U13 rework): the pure judgement, and the
-//! handler under a stored catch-up over an in-memory store.
+//! The owed contexts (step 10c U13 rework; owner ruling 2026-11-27): the
+//! runner tells each live session a library change on a tree it draws on
+//! (`RecordLibraryChanged`), and the SESSION decides, on its own loadout and
+//! handed positions, whether it owes it. Driven over the real session
+//! aggregate on an in-memory store.
 
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use angzarr_embedded::{CatchUp, Payload, Timestamp};
-use library_checkout::LibraryCheckouts;
-use run_launcher::fakes::{session_cover, session_events, uuid, TestEdge};
+use run_launcher::fakes::{session_cover, session_events, TestEdge};
 use run_ports::Edge;
-use session_index::{Handed, SessionIndexes, SessionRecord};
 use sessions::{SessionEvent, SessionLoadout};
 
-use super::{caught_up, change_of, owed_at_load, owed_by, Change, OwedContexts, SessionTrees};
+use super::{caught_up, change_of, OwedContexts, SessionTrees};
 
 const TREE: &str = "projects/p/checkouts/c/library";
 const OTHER: &str = "projects/p/checkouts/d/library";
@@ -24,166 +24,6 @@ fn loadout() -> SessionLoadout {
         profiles: vec!["dev".to_string()],
         bundles: vec!["demo".to_string()],
     }
-}
-
-fn change(tree: &str, sequence: u64, paths: &[&str]) -> Change {
-    Change {
-        tree: tree.to_string(),
-        sequence,
-        paths: paths.iter().map(|p| p.to_string()).collect(),
-        recorded: Timestamp {
-            seconds: 50,
-            nanos: 0,
-        },
-    }
-}
-
-/// A live session with its loadout, covering `covered`, loaded at 10.
-fn live(id: &str, covered: &[(&str, u64)]) -> SessionRecord {
-    SessionRecord {
-        id: id.to_string(),
-        loadout: Some(loadout()),
-        context: Some(Handed {
-            loaded_at: Timestamp {
-                seconds: 10,
-                nanos: 0,
-            },
-            covered: covered.iter().map(|(t, s)| (t.to_string(), *s)).collect(),
-            owed: Vec::new(),
-        }),
-        ..SessionRecord::default()
-    }
-}
-
-// A change is owed to each live session on its tree whose loadout it
-// touched and whose context does not cover it, with the bundles it touched.
-#[test]
-fn a_change_is_owed_to_the_live_sessions_it_touches_past_their_context() {
-    let on_tree = vec![TREE.to_string()];
-    let ended = SessionRecord {
-        ended_at: Some(Timestamp::default()),
-        ..live("ended", &[])
-    };
-    let sessions = vec![
-        (live("a", &[(TREE, 3)]), on_tree.clone()),
-        (live("covered", &[(TREE, 4)]), on_tree.clone()),
-        (live("elsewhere", &[]), vec![OTHER.to_string()]),
-        (ended, on_tree.clone()),
-        (
-            SessionRecord {
-                loadout: None,
-                ..live("unloaded", &[])
-            },
-            on_tree.clone(),
-        ),
-        // Covering no position there: owed when recorded after its loadout.
-        (live("fresh", &[]), on_tree),
-    ];
-    assert_eq!(
-        owed_by(
-            &change(
-                TREE,
-                4,
-                &[
-                    DEMO,
-                    "config.yaml",
-                    "content/bundles/v2/other/fragments/x.md"
-                ]
-            ),
-            &sessions
-        ),
-        vec![
-            (
-                "a".to_string(),
-                vec!["config".to_string(), "demo".to_string()],
-                vec!["config.yaml".to_string(), DEMO.to_string()],
-            ),
-            (
-                "fresh".to_string(),
-                vec!["config".to_string(), "demo".to_string()],
-                vec!["config.yaml".to_string(), DEMO.to_string()],
-            ),
-        ]
-    );
-    // A change none of its loadout names is owed to nobody.
-    assert!(owed_by(
-        &change(TREE, 5, &["content/bundles/v2/other/fragments/x.md"]),
-        &sessions
-    )
-    .is_empty());
-    // Recorded before the loadout of one covering no position: not owed.
-    let early = Change {
-        recorded: Timestamp {
-            seconds: 5,
-            nanos: 0,
-        },
-        ..change(TREE, 4, &[DEMO])
-    };
-    assert_eq!(
-        owed_by(&early, &sessions),
-        vec![(
-            "a".to_string(),
-            vec!["demo".to_string()],
-            vec![DEMO.to_string()]
-        )]
-    );
-}
-
-// A loadout is owed, at once, each path its trees changed past the
-// positions it covers that it touched: at the latest such sequence.
-// The order a hosted child's launch makes (CreateHandOff observes its
-// tree first): its config's change is observed apart and covered by its
-// loadout, then a change to its bundle ALONE is recorded past it. The
-// loadout is its plan's (canonical references), and that change is still
-// owed, with the bundle it touched.
-#[test]
-fn a_bundle_change_alone_is_owed_to_a_plans_loadout_past_a_covered_config_change() {
-    let plan = crate::reactions::loadout_of_plan(
-        "dev",
-        &["dev".to_string()],
-        &["ctxloom+local:demo#fragments/example".to_string()],
-    );
-    let record = SessionRecord {
-        loadout: Some(plan),
-        ..live("child", &[(TREE, 1)])
-    };
-    let sessions = vec![(record, vec![TREE.to_string()])];
-    assert!(owed_by(&change(TREE, 1, &["config.yaml"]), &sessions).is_empty());
-    let owed = owed_by(&change(TREE, 2, &[DEMO]), &sessions);
-    assert_eq!(
-        owed,
-        vec![(
-            "child".to_string(),
-            vec!["demo".to_string()],
-            vec![DEMO.to_string()]
-        )]
-    );
-}
-
-#[test]
-fn a_loadout_is_owed_what_changed_past_its_positions() {
-    let rows = |tree: &str| match tree {
-        TREE => vec![
-            (DEMO.to_string(), 6),
-            ("content/bundles/v2/other/fragments/x.md".to_string(), 9),
-            ("config.yaml".to_string(), 8),
-            ("content/bundles/v2/demo/fragments/old.md".to_string(), 2),
-        ],
-        _ => vec![(DEMO.to_string(), 1)],
-    };
-    let covered = BTreeMap::from([(TREE.to_string(), 4), (OTHER.to_string(), 1)]);
-    assert_eq!(
-        owed_at_load(&loadout(), &covered, rows),
-        vec![(
-            TREE.to_string(),
-            8,
-            vec!["config".to_string(), "demo".to_string()],
-            vec!["config.yaml".to_string(), DEMO.to_string()],
-        )],
-        "the latest touched path's sequence; an untouched later one counts not"
-    );
-    let all = BTreeMap::from([(TREE.to_string(), 9)]);
-    assert!(owed_at_load(&loadout(), &all, rows).is_empty());
 }
 
 // A library event's change: an observation's paths (a rename's both), a
@@ -233,12 +73,12 @@ fn an_event_s_change_names_its_paths() {
     assert_eq!(change_of(TREE, &failed, 2, at), None);
 }
 
-/// Every session draws on [`TREE`].
-struct OnTree;
+/// Every session draws on the trees it is built with.
+struct OnTrees(Vec<&'static str>);
 
-impl SessionTrees for OnTree {
-    fn trees(&self, _: &SessionRecord) -> Vec<String> {
-        vec![TREE.to_string()]
+impl SessionTrees for OnTrees {
+    fn trees(&self, _: &sessions::SessionState, _: Option<&str>) -> Vec<String> {
+        self.0.iter().map(|tree| tree.to_string()).collect()
     }
 }
 
@@ -335,48 +175,53 @@ async fn owed(edge: &TestEdge) -> Vec<(String, u64, Vec<String>, Vec<String>)> {
         .collect()
 }
 
-/// The folds a daemon's round catches up, and the handler over them.
+/// The handler over a catch-up, as a daemon's round runs it.
 struct Round {
     edge: Arc<TestEdge>,
-    index: CatchUp<SessionIndexes>,
-    checkouts: CatchUp<LibraryCheckouts>,
     owed: CatchUp<OwedContexts<TestEdge>>,
 }
 
 impl Round {
-    fn new(edge: &Arc<TestEdge>) -> Round {
-        let index = session_index::SessionIndex::caught_up(SessionIndexes::default());
-        let checkouts = library_checkout::caught_up(LibraryCheckouts::default());
-        let owed = caught_up(OwedContexts::new(
-            Arc::clone(edge),
-            index.projector().clone(),
-            checkouts.projector().clone(),
-            Arc::new(OnTree),
-        ));
+    fn on(edge: &Arc<TestEdge>, trees: &[&'static str]) -> Round {
         Round {
             edge: Arc::clone(edge),
-            index,
-            checkouts,
-            owed,
+            owed: caught_up(OwedContexts::new(
+                Arc::clone(edge),
+                Arc::new(OnTrees(trees.to_vec())),
+            )),
         }
     }
 
-    /// One round: the folds, then the handler, as `Daemon::tick` runs them.
+    fn new(edge: &Arc<TestEdge>) -> Round {
+        Round::on(edge, &[TREE])
+    }
+
+    /// One round: the handler over what the stores hold, as
+    /// `Daemon::tick` runs it.
     async fn run(&mut self) -> usize {
-        let (store, catalog) = (&self.edge.store, self.edge.catalog());
-        self.index.step(store, catalog).await.unwrap();
-        self.checkouts.step(store, catalog).await.unwrap();
-        let caught = self.owed.step(store, catalog).await.unwrap();
+        let caught = self
+            .owed
+            .step(&self.edge.store, self.edge.catalog())
+            .await
+            .unwrap();
         assert!(caught.failures().is_empty(), "{:?}", caught.failures());
-        self.index.step(store, catalog).await.unwrap();
         caught.handed().len()
     }
 }
 
-// The handler records, on each live session a change touches, what it is
-// owed: once, though a daemon after it catches up again (its positions are
-// the store's, so nothing is handed twice), and a change its context covers
-// is owed nothing. The session's index folds what is owed.
+/// The tree's last cause, which the next observation is made against.
+async fn tree_cause(edge: &TestEdge) -> String {
+    let mut checkouts = library_checkout::caught_up(library_checkout::LibraryCheckouts::default());
+    checkouts.step(&edge.store, edge.catalog()).await.unwrap();
+    let held = checkouts.projector().checkouts();
+    held.tree(&tree_name().root())
+        .map(|tree| tree.last_cause.clone())
+        .unwrap_or_default()
+}
+
+// The handler tells each live session a change touches; the SESSION records
+// what it is owed, once, though a daemon after it replays everything (every
+// fact is keyed, so a repeat is a DUPLICATE).
 #[tokio::test]
 async fn a_change_is_recorded_owed_once_on_the_session_it_touches() {
     let edge = Arc::new(TestEdge::new());
@@ -391,20 +236,13 @@ async fn a_change_is_recorded_owed_once_on_the_session_it_touches() {
         (first[0].0.as_str(), &first[0].2),
         (TREE, &vec!["demo".to_string()])
     );
-    let record = round
-        .index
-        .projector()
-        .index()
-        .find("amber-swift-owl")
-        .unwrap();
-    assert_eq!(record.context.unwrap().owed.len(), 1);
-    // Its own owed fact handed (it judges nothing of it); then another
-    // daemon's catch-up over the same store: its positions are the store's,
-    // so nothing is handed again.
+    assert_eq!(first[0].3, vec![DEMO.to_string()]);
+    // The same round again, then another daemon's replay of the whole store:
+    // nothing is recorded twice.
     round.run().await;
     let mut again = Round::new(&edge);
-    assert_eq!(again.run().await, 0, "nothing handed twice");
-    assert_eq!(owed(&edge).await, first);
+    again.run().await;
+    assert_eq!(owed(&edge).await, first, "nothing recorded twice");
     // A change of a path no loadout names: nothing owed.
     observe(
         &edge,
@@ -417,63 +255,56 @@ async fn a_change_is_recorded_owed_once_on_the_session_it_touches() {
     assert_eq!(owed(&edge).await, first);
 }
 
-/// The tree's last cause, which the next observation is made against.
-async fn tree_cause(edge: &TestEdge) -> String {
-    let checkouts = library_checkout::caught_up(LibraryCheckouts::default());
-    let mut checkouts = checkouts;
-    checkouts.step(&edge.store, edge.catalog()).await.unwrap();
-    let held = checkouts.projector().checkouts();
-    held.tree(&uuid_of_tree())
-        .map(|tree| tree.last_cause.clone())
-        .unwrap_or_default()
+// A session on another tree, one that is ended and one with no loadout are
+// told nothing it records.
+#[tokio::test]
+async fn a_change_on_a_tree_a_session_does_not_draw_on_owes_it_nothing() {
+    let edge = Arc::new(TestEdge::new());
+    minted(&edge, None).await;
+    let mut round = Round::on(&edge, &[OTHER]);
+    round.run().await;
+    observe(&edge, "", DEMO, "o1").await;
+    round.run().await;
+    assert!(owed(&edge).await.is_empty());
 }
 
-fn uuid_of_tree() -> angzarr_embedded::v1::Uuid {
-    tree_name().root()
+// A change the session's context covers is owed nothing: the session
+// decides it on the positions its own events hold.
+#[tokio::test]
+async fn a_change_the_context_covers_is_not_owed() {
+    let edge = Arc::new(TestEdge::new());
+    observe(&edge, "", DEMO, "o1").await;
+    // Planned past the tree's first sequence: it covers it.
+    minted(&edge, Some(0)).await;
+    let mut round = Round::new(&edge);
+    round.run().await;
+    assert!(owed(&edge).await.is_empty(), "{:?}", owed(&edge).await);
 }
 
 // A change recorded between a session's plan and its loadout (past the
-// positions the plan was assembled at) is owed at the loadout, though the
-// change's own book was handed before the session had a loadout.
+// positions the plan was assembled at) is owed at the loadout, whichever of
+// the two the handler meets first.
 #[tokio::test]
 async fn a_change_between_the_plan_and_the_loadout_is_owed_at_the_loadout() {
-    let edge = Arc::new(TestEdge::new());
-    let mut round = Round::new(&edge);
-    observe(&edge, "", "config.yaml", "o0").await;
-    round.run().await;
-    observe(&edge, &tree_cause(&edge).await, DEMO, "o1").await;
-    round.run().await;
-    // Planned at the tree's first sequence, recorded after the second.
-    minted(&edge, Some(0)).await;
-    round.run().await;
-    let owed = owed(&edge).await;
-    assert_eq!(owed.len(), 1, "{owed:?}");
-    assert_eq!(owed[0].0, TREE);
-    assert!(owed[0].1 > 0, "{owed:?}");
-    assert_eq!(owed[0].2, vec!["demo".to_string()]);
-    assert_eq!(owed[0].3, vec![DEMO.to_string()], "the paths it draws on");
-    let _ = uuid(SESSION);
-}
-
-// A loadout's positions: each wanted tree at its latest sequence that
-// changed a path; a tree not wanted is left out.
-#[tokio::test]
-async fn a_tree_s_position_is_its_latest_change() {
-    let edge = Arc::new(TestEdge::new());
-    let mut round = Round::new(&edge);
-    observe(&edge, "", "config.yaml", "o0").await;
-    round.run().await;
-    observe(&edge, &tree_cause(&edge).await, DEMO, "o1").await;
-    observe(&edge, &tree_cause(&edge).await, "config.yaml", "o2").await;
-    round.run().await;
-    let checkouts = round.checkouts.projector().checkouts();
-    let at = super::positions(&checkouts, |tree| tree == TREE);
-    assert_eq!(
-        at,
-        [sessions::TreePosition {
-            tree: TREE.to_string(),
-            sequence: 2,
-        }]
-    );
-    assert!(super::positions(&checkouts, |_| false).is_empty());
+    for library_first in [true, false] {
+        let edge = Arc::new(TestEdge::new());
+        let mut round = Round::new(&edge);
+        observe(&edge, "", "config.yaml", "o0").await;
+        round.run().await;
+        observe(&edge, &tree_cause(&edge).await, DEMO, "o1").await;
+        round.run().await;
+        // Planned at the tree's first sequence, recorded after the second.
+        minted(&edge, Some(0)).await;
+        if !library_first {
+            // A daemon that starts after both: it replays the store whole.
+            round = Round::new(&edge);
+        }
+        round.run().await;
+        let owed = owed(&edge).await;
+        assert_eq!(owed.len(), 1, "{library_first}: {owed:?}");
+        assert_eq!(owed[0].0, TREE);
+        assert!(owed[0].1 > 0, "{owed:?}");
+        assert_eq!(owed[0].2, vec!["demo".to_string()]);
+        assert_eq!(owed[0].3, vec![DEMO.to_string()], "the paths it draws on");
+    }
 }

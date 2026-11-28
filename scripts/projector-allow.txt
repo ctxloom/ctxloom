@@ -1,0 +1,8 @@
+# The allowed exceptions to `just lint-projectors` (scripts/projector-check.sh):
+# a projector naming another projector's handle or read model, which the
+# ast-grep rules (scripts/projector-rules/) find in a file that defines a
+# projector. One per line:
+#   <file> | <text of the hit> | <why>
+# `<why>` starts `PENDING` for an open question the owner has yet to rule on;
+# the check prints a note for each, so the debt stays visible. An entry that
+# covers nothing fails: this list only shrinks.

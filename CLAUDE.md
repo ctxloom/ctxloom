@@ -1750,13 +1750,26 @@ projection updates the worker agents"):
    outward: the runner sets or delivers what a session is owed, and the
    edge (a hook, or a stream) hands it to the engine. Built: the daemon's
    loop (`daemon_application::Daemon::tick`, the runner) steps
-   `daemon_application::owed::OwedContexts` under `CatchUp::stored` over
-   the library and sessions domains (positions under `owed-contexts`, so
-   a later daemon resumes and a re-handed book records nothing twice); it
-   records `RecordContextOwed` on each live session a change touches
-   (keyed `owed:<session>:<tree>@<seq>`), the session index folds it, and
-   the hook only COLLECTS (`RedeliverContext`). `WatchLibrary` is woken by
-   the fold itself (`LibraryCheckout::watch`), never polled.
+   `daemon_application::owed::OwedContexts` under `CatchUp::new` over the
+   library, sessions and projects domains. It holds no read model and decides
+   nothing (owner, 2026-11-27: the write side never reads a projection):
+   it folds, for itself, each library tree's paths with the sequence and
+   instant of the last event that named them, each session as the domain
+   folds it (`sessions::apply`: its loadout, what its context covers, whether
+   it ended) and each project's harp, rebuilt when a daemon starts as the
+   read models are, and tells each live session a change on a tree it draws
+   on as the fact `RecordLibraryChanged` (keyed `owed:<session>:<tree>@<seq>`,
+   so a book handed again, or the store replayed, records nothing twice).
+   The SESSION aggregate decides what it owes (its `library_changed` handler, on its
+   own `SessionState.context`: the loadout's bundles, when it was loaded and
+   the positions its re-assemblies covered; `sessions::owes`,
+   `sessions::touched`) and records the existing `ContextOwed` event; the
+   session index folds it, and the hook only COLLECTS (`RedeliverContext`).
+   `WatchLibrary` is woken by the fold itself (`LibraryCheckout::watch`),
+   never polled. `RecordLibraryChanged` is on the user allowlist as every
+   session fact is (the allowlist is read from the aggregate), though no
+   client sends it: it is the daemon's own, like `RecordContextOwed`, which
+   nothing sends any more but the aggregate still handles.
 6. A CACHE in front of an observation is the edge's (never projector
    state), keyed by stat; an invalidation (`ctxloom context refresh`,
    `Observations::forget`) wipes the memo, never the projection, and the
@@ -1774,9 +1787,10 @@ re-assembled context at its next hook, ONCE per batch:
   after the loadout is owed). The session index folds
   `session_index::Handed` (`loaded_at`, `covered`, `owed`: one
   `OwedChange {tree, sequence, bundles, paths}` per tree and sequence).
-  A loadout is also owed at once what its trees changed past its
-  positions (`owed-at-load:` keys), so a change between the plan and the
-  loadout is not lost.
+  A loadout is also told, when it is recorded, what its trees changed past
+  its positions (the same keys: the session records each change once), so a
+  change between the plan and the loadout is not lost; whichever of a change
+  and a loadout the runner meets last, the pair is judged.
 - COLLECTION (`daemon_api::Api::redeliver_context`, then `collect`): the
   positions it covers are read BEFORE the re-assembly, so a change recorded
   mid-delivery stays owed (the race forced in daemon-api's reactions
@@ -1914,6 +1928,17 @@ legacy code):
   Heuristic: it errs loud and misses other shapes (`Mutex<Option<..>>`, a
   `Held` handle). Self-tests: `scripts/handoff-check.selftest.sh`,
   `scripts/one-writer-check.selftest.sh` (`just selftest`).
+- G4, `just lint-projectors` (`scripts/projector-check.sh`, ast-grep rules in
+  `scripts/projector-rules/`): projectors never communicate with each other. A
+  projector is any type with `impl Model` (held-projection) or
+  `impl ProjectorHandler`, found in `crates/` by the rules (no list to keep);
+  in every non-test file that defines one, the name of a handle, read model
+  or handler type another crate owns (a field, parameter, body, import or
+  alias; a glob import from its crate) is refused unless
+  `scripts/projector-allow.txt` lists it with why (a `why` starting
+  `PENDING` is an open owner ruling, noted on every run; the list is empty
+  today). A pure fold or a value type is no projector's, so reusing it
+  passes. Self-test: `scripts/projector-check.selftest.sh` (`just selftest`).
 - G2, `arch-rules.toml`: `root/lib` (`ctxloom-wiring`) lists neither
   `adapters/store` nor `adapters/kernel`, so the CLI's composition cannot depend
   on the store adapter or the kernel host; `root/daemon` (`ctxloom-daemon`) and

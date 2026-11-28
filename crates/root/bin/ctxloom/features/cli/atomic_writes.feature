@@ -307,9 +307,22 @@ Feature: writes — every change to ctxloom's own trees is whole or absent, and 
         | ctxloom skill remove demo#skills/review --yes | content/bundles/v2/demo/skills/review |
         | ctxloom clean --yes                           | cache/context                         |
 
-    @purge
     Scenario Outline: A sequence that takes something to the trash leaves no trash once it ends
       # new: step 10 G12(a), a sequence's own trash is purged by its last step.
+      Given an initialized ctxloom project
+      And a bundle "notes" exists
+      And I run "ctxloom bundle export notes exported"
+      When I run '<command>'
+      Then the command succeeds
+      And nothing is left under ".ctxloom/state/trash"
+
+      Examples:
+        | command                                                      |
+        | ctxloom bundle import exported/notes --force --yes           |
+
+    @purge
+    Scenario Outline: A destroying sequence leaves no trash once it ends
+      # new: step 10 G12(a), a sequence's own trash is purged by its last step; `session remove` is a purge build's verb.
       Given an initialized ctxloom project
       And a finished session "amber-swift-owl" with a transcript
       And a bundle "notes" exists
@@ -321,7 +334,6 @@ Feature: writes — every change to ctxloom's own trees is whole or absent, and 
       Examples:
         | command                                                      |
         | ctxloom session remove amber-swift-owl --yes --even-if-live |
-        | ctxloom bundle import exported/notes --force --yes           |
 
     Scenario: A write killed after staging leaves nothing staged once the next daemon starts
       # new: S50, staging is swept at a daemon's start; the trash is not.
@@ -343,9 +355,22 @@ Feature: writes — every change to ctxloom's own trees is whole or absent, and 
       And a session "amber-swift-owl" that is still running
       Then its lock is "sessions/amber-swift-owl/session.lock", inside its directory
 
-    @purge
     Scenario Outline: A sequence killed between its steps converges when the command is run again
       # new: the crash-mid-sequence retry.
+      Given an initialized ctxloom project
+      And the daemon will be killed outright <between>
+      When I run '<command>'
+      And I run '<command>'
+      Then the command succeeds
+      And <outcome>
+
+      Examples:
+        | between                                          | command                                                    | outcome                                                                         |
+        | after the old bundle moved to trash, before the new one moved in | ctxloom bundle import exported/notes --force --yes          | the bundle "notes" is the imported one, whole, and no trash is left              |
+
+    @purge
+    Scenario Outline: A destroying sequence killed between its steps converges when the command is run again
+      # new: the crash-mid-sequence retry; `session remove` is a purge build's verb.
       Given an initialized ctxloom project
       And a finished session "amber-swift-owl" with a transcript
       And the daemon will be killed outright <between>
@@ -357,7 +382,6 @@ Feature: writes — every change to ctxloom's own trees is whole or absent, and 
       Examples:
         | between                                          | command                                                    | outcome                                                                         |
         | after the session's directory moved to trash, before the purge | ctxloom session remove amber-swift-owl --yes --even-if-live | nothing lists "amber-swift-owl", its streams are purged and no trash is left    |
-        | after the old bundle moved to trash, before the new one moved in | ctxloom bundle import exported/notes --force --yes          | the bundle "notes" is the imported one, whole, and no trash is left              |
 
     Scenario Outline: Another tool's files are written in steps that converge, whichever step is killed
       # new: the foreign-file writers (step 10 U10).

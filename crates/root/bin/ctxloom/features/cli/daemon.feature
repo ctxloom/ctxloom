@@ -189,7 +189,6 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
         | ctxloom daemon status         | 0    |
         | ctxloom daemon stop           | 0    |
 
-    @purge
     Scenario Outline: A write that cannot start a daemon fails, and changes no file
       # new: step 10 D17, the cannot-start rows per noun: no write falls back to the files.
       Given an initialized ctxloom project
@@ -216,13 +215,30 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
         | ctxloom config set engines.claude-code.command claude-beta     |
         | ctxloom bundle export demo exported                            |
         | ctxloom clean --yes                                            |
-        | ctxloom session remove amber-swift-owl --yes                   |
         | ctxloom session keep amber-swift-owl                           |
         | ctxloom session keep amber-swift-owl --undo                    |
         | ctxloom session rename amber-swift-owl "the auth refactor"     |
         | ctxloom session import                                         |
         | ctxloom remote create origin file:///tmp/acceptance-remote.git --forge git |
         | ctxloom deps pull                                              |
+
+    @purge
+    Scenario Outline: A destroy that cannot start a daemon fails, and changes no file
+      # new: step 10 D17, the cannot-start rows per noun: no write falls back to the files. `session remove` is the one row whose verb only a purge build has.
+      Given an initialized ctxloom project
+      And a bundle "demo" exists
+      And a finished session "amber-swift-owl" whose transcript retention has passed
+      And the project's changes are committed
+      And no ctxloom daemon can be started for this home
+      When I run '<write>'
+      Then the command exits with code 32
+      And the output contains "no ctxloom daemon could be started"
+      And git sees nothing changed in the project
+      And no project store was opened, and no engine was started
+
+      Examples:
+        | write                                                          |
+        | ctxloom session remove amber-swift-owl --yes                   |
         | ctxloom deps upgrade --yes                                     |
         | ctxloom init                                                   |
         | ctxloom manage install --engine claude-code --no-pull         |
@@ -715,9 +731,22 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
 
   Rule: The preview carries the questions, and the apply answers them
 
-    @purge
     Scenario Outline: Off a terminal, a preview applies nothing, and says with --detailed-exitcode whether it would change something
-      # new: the preview's exit codes.
+      # new: the preview's exit codes. The finished session is there for the step's check that nothing of hers was touched.
+      Given an initialized ctxloom project
+      And a finished session "amber-swift-owl" whose transcript retention has passed
+      And a bundle "notes" exists
+      When I run '<command>'
+      Then the command exits with code <code>
+      And nothing was applied, and the daemon answered the preview
+
+      Examples:
+        | command                                                 | code |
+        | ctxloom bundle remove notes --detailed-exitcode         | 17   |
+
+    @purge
+    Scenario Outline: Off a terminal, a session removal's preview applies nothing, and says with --detailed-exitcode whether it would change something
+      # new: the preview's exit codes; `session remove` is a purge build's verb.
       Given an initialized ctxloom project
       And a finished session "amber-swift-owl" whose transcript retention has passed
       And a bundle "notes" exists
@@ -729,7 +758,6 @@ Feature: daemon — the one per-user process every ctxloom command is a client o
         | command                                                 | code |
         | ctxloom session remove amber-swift-owl                  | 0    |
         | ctxloom session remove amber-swift-owl --detailed-exitcode | 17 |
-        | ctxloom bundle remove notes --detailed-exitcode         | 17   |
         | ctxloom session remove nobody-ever-ran --detailed-exitcode | 48 |
 
     @purge

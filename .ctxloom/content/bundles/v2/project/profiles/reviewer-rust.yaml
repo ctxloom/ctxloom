@@ -4,3 +4,4 @@ parents:
   - ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/code-review-base@branch:main#profiles/cr-thorough
 bundles:
   - ctxloom+local:project#fragments/ctxloom-architecture
+  - ctxloom+local:project#fragments/build-flavours

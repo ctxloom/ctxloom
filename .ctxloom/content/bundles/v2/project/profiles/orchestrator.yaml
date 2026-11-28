@@ -6,3 +6,4 @@ bundles:
   - ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/unattended
   - ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/taskloom
   - ctxloom+local:project#fragments/ctxloom-architecture
+  - ctxloom+local:project#fragments/build-flavours

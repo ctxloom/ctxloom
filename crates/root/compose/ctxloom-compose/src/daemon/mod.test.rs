@@ -5,8 +5,9 @@ use std::path::Path;
 
 use super::{
     account_home, clock_offset, daemon_env, daemon_home, declared_harness, instance_lock,
-    own_executable, request_id, tail_of, under_home, ACCOUNT_HOME_VARIABLE, CALL_WAIT,
-    CLOCK_OFFSET_VARIABLE, DELIVERY_MARGIN, DESTROY_WAIT, HOOK_BOUND, SPAWN_WAIT,
+    own_executable, request_id, tail_of, under_home, wait_for_daemon, Died, Probe, Waited,
+    ACCOUNT_HOME_VARIABLE, CALL_WAIT, CLOCK_OFFSET_VARIABLE, DELIVERY_MARGIN, DESTROY_WAIT,
+    HOOK_BOUND, SPAWN_WAIT,
 };
 
 fn vars(pairs: &[(&str, &str)]) -> Vec<(OsString, OsString)> {
@@ -374,6 +375,125 @@ fn test_this_very_test_binary_is_never_the_executable_spawned_as_the_daemon() {
         "run through nextest"
     );
     assert_eq!(own_executable(), None);
+}
+
+fn unserved(pid: Option<u32>) -> Probe {
+    Probe {
+        serving: false,
+        advertised: pid,
+    }
+}
+
+fn died(status: String) -> Died {
+    Died {
+        status,
+        tail: "held".to_string(),
+    }
+}
+
+fn exit(code: i32) -> Option<(Option<i32>, String)> {
+    Some((Some(code), format!("exit status: {code}")))
+}
+
+// A daemon holds the single-instance lock and advertises itself, but never
+// answers its health check: the spawned one exits 48, and the wait ends
+// once the holder has had its grace, naming the holder, not after the whole
+// wait.
+#[test]
+fn a_holder_that_advertises_and_never_answers_ends_the_wait_as_hung() {
+    let started = std::time::Instant::now();
+    let waited = wait_for_daemon(
+        started + std::time::Duration::from_secs(30),
+        std::time::Duration::from_millis(100),
+        || unserved(Some(4242)),
+        || exit(48),
+        died,
+    );
+    assert_eq!(waited, Waited::Hung { pid: 4242 });
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+}
+
+// The usual race: another client's daemon was still starting and answers
+// within the grace, so it is waited for and served.
+#[test]
+fn a_holder_that_answers_within_its_grace_is_served() {
+    let mut looks = 0;
+    let waited = wait_for_daemon(
+        std::time::Instant::now() + std::time::Duration::from_secs(30),
+        std::time::Duration::from_secs(5),
+        || {
+            looks += 1;
+            if looks < 5 {
+                unserved(Some(7))
+            } else {
+                Probe {
+                    serving: true,
+                    advertised: Some(7),
+                }
+            }
+        },
+        || exit(48),
+        died,
+    );
+    assert_eq!(waited, Waited::Serving);
+}
+
+// A holder never seen (nothing advertised) is no proven hung daemon: the
+// wait runs out as it always did.
+#[test]
+fn a_holder_never_visible_is_a_plain_timeout_at_the_end_of_the_wait() {
+    let waited = wait_for_daemon(
+        std::time::Instant::now() + std::time::Duration::from_millis(200),
+        std::time::Duration::from_millis(50),
+        || unserved(None),
+        || exit(48),
+        died,
+    );
+    assert_eq!(waited, Waited::TimedOut);
+}
+
+// An advertisement that changes holder restarts the grace: a stale file is
+// not a hung daemon.
+#[test]
+fn a_changing_advertisement_restarts_the_grace() {
+    let mut looks = 0u32;
+    let waited = wait_for_daemon(
+        std::time::Instant::now() + std::time::Duration::from_millis(300),
+        std::time::Duration::from_millis(150),
+        || {
+            looks += 1;
+            unserved(Some(looks))
+        },
+        || exit(48),
+        died,
+    );
+    assert_eq!(waited, Waited::TimedOut);
+}
+
+// A spawn that exited for another reason has no daemon coming: it died.
+#[test]
+fn a_spawn_that_died_otherwise_ends_the_wait_at_once() {
+    let waited = wait_for_daemon(
+        std::time::Instant::now() + std::time::Duration::from_secs(30),
+        std::time::Duration::from_secs(1),
+        || unserved(None),
+        || exit(101),
+        died,
+    );
+    assert_eq!(waited, Waited::Died(died("exit status: 101".to_string())));
+}
+
+// A spawn still running that never serves is the plain timeout.
+#[test]
+fn a_spawn_still_running_that_never_serves_times_out() {
+    let waited = wait_for_daemon(
+        std::time::Instant::now() + std::time::Duration::from_millis(100),
+        std::time::Duration::from_millis(10),
+        || unserved(Some(1)),
+        || None,
+        died,
+    );
+    assert_eq!(waited, Waited::TimedOut);
 }
 
 /// A discovery naming `endpoint`, the rest as a daemon's.

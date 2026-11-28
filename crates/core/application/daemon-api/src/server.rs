@@ -1364,6 +1364,7 @@ impl<E: Edge> Api<E> {
             warnings: self.warnings(),
             draining: self.parts.hosting.draining(),
             rounds: self.parts.hosting.rounds(),
+            health: v1::daemon::Health::Unspecified as i32,
         }
     }
 

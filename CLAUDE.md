@@ -1382,7 +1382,7 @@ the URL's host. The private key lives in memory in
 `run_ports::HookCertificate` (whose `Debug` withholds it) and goes to
 `hook-listener`'s `TlsIdentity` and nowhere else: never journaled, logged, in
 an environment or in an error. The listener's limits are angzarr's generic
-`Listener` defaults (angzarr `33528cf1`; `hook-listener` sets none): a TLS
+`Listener` defaults (angzarr `ed19b7ee`; `hook-listener` sets none): a TLS
 handshake within 10 s, an HTTP/2 keepalive ping every 60 s answered within
 20 s, a connection closed after 1 h plus a 30 s grace (never zero: a zero
 grace is `ListenError::ZeroConnectionAgeGrace` at bind, which
@@ -2085,7 +2085,7 @@ The lock holds ONE `angzarr-embedded`, `angzarr-proto`, `angzarr-ports`,
 repository (angzarr, rust-support) at ONE commit
 (`test_every_crate_of_one_repository_is_locked_at_one_commit`). Every pin in
 `Cargo.toml` is a full commit. The angzarr pins are one commit of one
-repository, `33528cf1` of github.com/angzarr-io/angzarr (core, `angzarr-embedded`
+repository, `ed19b7ee` of github.com/angzarr-io/angzarr (core, `angzarr-embedded`
 and its router, `angzarr-build` and `angzarr-codegen`, the store and
 `sqlite-store-opener`; `angzarr-coordinator-grpc`'s `tls` feature, which
 `hook-listener` enables, is `Listener::tls`). angzarr owns no `diagnostic`,
@@ -2093,10 +2093,10 @@ and its router, `angzarr-build` and `angzarr-codegen`, the store and
 rust-support's (`e92609d8` of github.com/benjaminabbitt/rust-support):
 `coded-diagnostic` (the `Diagnostic` trait, `code!`, `Report`, the catalogs),
 `presentation`, `test-dir`, and the platform crates `os`, `file-system` and
-`file-lock`. taskloom's crates (`7c94eeb3`) are built on the same angzarr and
+`file-lock`. taskloom's crates (`2aace57`) are built on the same angzarr and
 the same rust-support, so moving one moves all: the lock holds ONE
 `Diagnostic` trait, which every error of every crate implements, because two
-do not compose. 33528cf1 is the angzarr commit taskloom pins (a second angzarr
+do not compose. ed19b7ee is the angzarr commit taskloom pins (a second angzarr
 rev in the lock would be a second copy of every angzarr crate); harp-core is
 `8144ec98` of github.com/benjaminabbitt/harp. angzarr-store pulls in the git source github.com/angzarr-io/angzarr-project (`deny.toml` allows it). Diagnostic args are typed on
 the wire (`Diagnostic.typed_args`: text, int, uint, nested; proto maps are
@@ -2554,7 +2554,7 @@ measured (it carries no prompt: its turns are fed over the child's
 stream).
 
 A daemon is LIVE when it answers the standard `grpc.health.v1.Health`
-Check SERVING (T16, M11: `hook-sink-grpc`'s `serving`, tonic-health's
+Check SERVING (T16, M11; SERVING means its loop is making progress, below: `hook-sink-grpc`'s `serving`, tonic-health's
 client and messages, a direct dependency at the version the lock already
 held for angzarr's server, over TLS pinning the certificate the discovery
 file names, presenting no bearer, within the wiring's `HEALTH_WAIT`, one
@@ -2620,7 +2620,32 @@ daemon holds the single-instance lock (`daemon serve` exits 48,
 `ctxloom-compose-daemon-instance-held`, `spawn_waits_on`), and any other exit
 (it could not start) ends the wait at once; it used to wait out the eight
 seconds for a daemon that had died (owner ruling 2026-11-18, the daemon
-cluster's cap). A stale file is left for the new daemon
+cluster's cap). A holder of that lock that does not answer its health
+check is HUNG (ctxloom-compose's `wait_for_daemon`; `daemon status`'s report is the wiring's `cli.rs`): once the spawn has exited 48, a holder
+whose discovery file names the same pid and still does not answer (or
+answers NOT_SERVING) for `HUNG_GRACE` (2 s, so another client's daemon
+still starting is waited for) ends the wait as the refusal
+`ctxloom-compose-daemon-hung` (`LibError::DaemonHung`, exit 48 as the lock
+held is: the state forbids a daemon; wording a DRAFT) naming the holder's
+pid and its fix, `kill -TERM <pid>` then `kill -KILL`. A holder never seen
+(nothing advertised) is no proven hung daemon: the wait runs out as
+`daemon-ports-not-started`. `daemon status` of a daemon that holds the lock,
+is advertised, its endpoint accepts connections (`listens`: a killed daemon's stale file names a port nothing accepts on, and is nobody's, so neither this report nor the hung rule takes it for one) and it does not answer reports it (`Daemon.health` NOT_SERVING,
+filled by the client, with its pid, endpoint and stamp; text `NOT_SERVING:
+...`; the json stays `{"daemons": [...]}`) instead of "no ctxloom daemon is
+serving"; a stale discovery file whose lock is free reports none
+(`DaemonFiles::silent_holder`). `grpc.health.v1` says SERVING only while the
+daemon's LOOP makes progress (`ctxloom-daemon`'s `heartbeat.rs`): each round
+beats at its start and end (`Shared::round_starts`, `round_done`), and a
+watch task on the runtime's own async workers (never the blocking pool,
+which the API's use cases fill) sets the listener's health (`""`, through
+angzarr's `Running::health`, `HookListener::health`) NOT_SERVING once the
+beat is older than `heartbeat::stale_after(poll)`, `STALE_POLLS` (4) polls
+plus `ROUND_ALLOWANCE` (30 s), looked at every `LOOK_EVERY` (500 ms), and
+SERVING again once it beats. A deadlocked loop therefore reads NOT_SERVING;
+a runtime too starved to run the watch (async workers blocked) cannot
+answer the Check at all, which a client reads as not serving too. A round
+longer than the bound (a tick stuck past it) is called stale. A stale file is left for the new daemon
 to publish over. The spawned daemon's environment is `daemon_env`'s:
 `PATH`, `TMPDIR`, `LANG`, `LC_ALL` and `run_ports::WINDOWS_STARTUP_VARIABLES`,
 matched as the platform compares names (`os::Flavor::env_key`, so Windows'

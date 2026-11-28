@@ -781,6 +781,19 @@ message Daemon {
   // build's daemon alone (the harness's "the daemon's next round runs");
   // a count, so uint32 (OQ-12: JSON prints it as a number). Additive.
   uint32 rounds = 13;
+  // What `grpc.health.v1` says of the daemon, as the client that asked saw
+  // it: SERVING while its loop makes progress, NOT_SERVING for a daemon that
+  // holds the single-instance lock and advertises itself but does not answer
+  // its health check (hung). Told by `daemon status`, which fills it from its
+  // own check; a daemon's own `GetDaemon` leaves it unset. Additive.
+  Health health = 14;
+
+  // What `grpc.health.v1` answers.
+  enum Health {
+    HEALTH_UNSPECIFIED = 0;
+    SERVING = 1;
+    NOT_SERVING = 2;
+  }
 }
 
 // `daemon stop [--even-if-live] [--drain]`, `ctxloom shutdown [<duration>]`.

@@ -39,7 +39,7 @@ use runs_application::UserGate;
 use session_files::SessionDirs;
 
 use super::files::{DaemonFiles, Instance, Unheld};
-use crate::{InProcessCore, Pace, Projectors};
+use crate::{heartbeat, InProcessCore, Pace, Projectors};
 
 /// How long a daemon starting waits for the single-instance lock.
 const INSTANCE_WAIT: Duration = Duration::from_secs(5);
@@ -179,6 +179,7 @@ pub(crate) fn serve(
         };
         let endpoint = own.endpoint.clone();
         said(&say, &format!("serving at {endpoint}"));
+        let health = watching_health(&shared.heartbeat, &listener, pace);
         // Under test-support, held while `test-hold-at` names `serving`.
         #[cfg(feature = "test-support")]
         files.hold_at("serving");
@@ -195,6 +196,7 @@ pub(crate) fn serve(
             &say,
         )
         .await;
+        stop_watching_health(health).await;
         lifelong_ended(terminated, scheduler, &say).await;
         files.withdraw_own(&own);
         // Every holder of the store let go before the close (ruling 131):
@@ -239,6 +241,41 @@ pub(crate) fn serve(
     // ends with the process.
     runtime.shutdown_timeout(RUNTIME_END);
     served.map_err(Unserved::Failed)
+}
+
+/// `grpc.health.v1` says SERVING only while the loop makes progress
+/// (heartbeat.rs): watched on the runtime's own workers.
+fn watching_health(
+    heartbeat: &Arc<heartbeat::Heartbeat>,
+    listener: &HookListener,
+    pace: Pace,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(health_watch(Arc::clone(heartbeat), listener.health(), pace))
+}
+
+/// Stopped before the listener's shutdown sets NOT_SERVING, so a late look
+/// cannot set it back.
+async fn stop_watching_health(watch: tokio::task::JoinHandle<()>) {
+    heartbeat::stopped(watch).await;
+}
+
+/// Tell the listener's health service whether the loop beats: SERVING while
+/// its beat is younger than [`heartbeat::stale_after`] of the daemon's poll.
+async fn health_watch(
+    heartbeat: Arc<heartbeat::Heartbeat>,
+    health: hook_listener::Health,
+    pace: Pace,
+) {
+    heartbeat::watch(
+        &heartbeat,
+        heartbeat::stale_after(pace.poll),
+        heartbeat::LOOK_EVERY,
+        |status| {
+            let health = health.clone();
+            async move { health.set("", status).await }
+        },
+    )
+    .await;
 }
 
 /// How long the daemon's exit waits for its runtime's blocking tasks.
@@ -1426,6 +1463,8 @@ struct Shared {
     done: tokio::sync::watch::Sender<u64>,
     /// Wakes the loop for a round a read asked for.
     wake: tokio::sync::Notify,
+    /// The loop's progress, which `grpc.health.v1` says (heartbeat.rs).
+    heartbeat: Arc<crate::heartbeat::Heartbeat>,
     /// Why its start-up catch-up (or its sweep) failed, while no later one
     /// has succeeded (OD-52).
     start_up: Mutex<Option<String>>,
@@ -1481,6 +1520,7 @@ impl Shared {
             started: Mutex::new(0),
             done: tokio::sync::watch::Sender::new(0),
             wake: tokio::sync::Notify::new(),
+            heartbeat: Arc::default(),
             start_up: Mutex::new(None),
             home_gone: Box::new(|| None),
         }
@@ -1496,6 +1536,7 @@ impl Shared {
 
     /// A round starts: its number.
     fn round_starts(&self) -> u64 {
+        self.heartbeat.beat();
         let mut started = self.started.lock().unwrap_or_else(PoisonError::into_inner);
         *started += 1;
         *started
@@ -1503,6 +1544,7 @@ impl Shared {
 
     /// The round `round` is done: a read waiting for it answers.
     fn round_done(&self, round: u64) {
+        self.heartbeat.beat();
         self.done.send_replace(round);
     }
 

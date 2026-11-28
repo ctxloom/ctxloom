@@ -67,3 +67,26 @@ fn daemon_status_and_stop_json_are_a_list_of_daemons() {
         assert_eq!(json.as_object().unwrap().len(), 1, "only `daemons`: {json}");
     }
 }
+
+// `daemon status` of a daemon that holds the lock and does not answer its
+// health check says so, with its pid, instead of "no ctxloom daemon is
+// serving"; its json keeps the one `{"daemons": [...]}` schema.
+#[test]
+fn daemon_status_reports_a_not_serving_daemon_with_its_pid() {
+    use super::Status;
+    let daemon = daemon_proto::v1::Daemon {
+        pid: 4242,
+        endpoint: "https://127.0.0.1:4242".to_string(),
+        version: "v0.1.0-abc1234".to_string(),
+        health: daemon_proto::v1::daemon::Health::NotServing as i32,
+        ..daemon_proto::v1::Daemon::default()
+    };
+    let text = said_text(&Status(Some(daemon.clone()), Vec::new()));
+    assert!(text.contains("pid 4242"), "{text}");
+    assert!(text.contains("NOT_SERVING"), "{text}");
+    assert!(!text.contains("no ctxloom daemon is serving"), "{text}");
+    let json = said_json(&Status(Some(daemon), Vec::new()));
+    assert_eq!(json["daemons"][0]["pid"], 4242, "{json}");
+    assert_eq!(json["daemons"][0]["health"], "NOT_SERVING", "{json}");
+    assert_eq!(json.as_object().unwrap().len(), 1, "{json}");
+}

@@ -661,7 +661,10 @@ impl Daemons for Reach<'_> {
         match serving_here(self.wiring, &files).map_err(declined)? {
             Some(found) => Ok(self.reached(&found)),
             None => Err(match died {
-                Some(Died { status, tail }) => Unreached::Exited {
+                Some(NotServing::Hung { pid, lock }) => {
+                    declined(LibError::DaemonHung { pid, lock })
+                }
+                Some(NotServing::Died(Died { status, tail })) => Unreached::Exited {
                     log: self.log(&files),
                     status,
                     tail,
@@ -1213,14 +1216,14 @@ fn harness_declared() -> bool {
 /// is left for the new daemon to publish over. A daemon that cannot be
 /// spawned is not this command's failure (what it recorded stands; the next
 /// client spawns one).
-pub fn ensure(wiring: &Wiring, env: &EnvSnapshot) -> Option<Died> {
+pub fn ensure(wiring: &Wiring, env: &EnvSnapshot) -> Option<NotServing> {
     ensure_within(wiring, env, SPAWN_WAIT)
 }
 
 /// [`ensure`], waiting at most `wait` for a live daemon (a hook's is what
 /// its bound leaves); how the daemon it spawned died, when it exited before
 /// it served and no other is coming.
-pub fn ensure_within(wiring: &Wiring, env: &EnvSnapshot, wait: Duration) -> Option<Died> {
+pub fn ensure_within(wiring: &Wiring, env: &EnvSnapshot, wait: Duration) -> Option<NotServing> {
     let files = files_of(wiring);
     // A live daemon, this home's or (refused before the command ran)
     // another's: never a second.
@@ -1296,30 +1299,130 @@ pub fn ensure_within(wiring: &Wiring, env: &EnvSnapshot, wait: Duration) -> Opti
     let Ok(mut spawned) = os::process::spawn_detached(command) else {
         return None;
     };
-    let deadline = Instant::now() + wait;
-    let mut exited = false;
-    while Instant::now() < deadline {
-        if files.discovery().is_some_and(|found| live(&found)) {
-            return None;
-        }
-        // The daemon spawned has exited: unless another holds the lock (and
-        // advertises), none is coming, and the wait is over. Looked at once,
-        // after the discovery, so one that served and exited is seen first.
-        if !exited {
-            if let Ok(Some(status)) = spawned.try_wait() {
-                if !spawn_waits_on(status.code()) {
-                    let text = wiring.fs().read(&log).unwrap_or_default();
-                    return Some(Died {
-                        status: status.to_string(),
-                        tail: tail_of(&String::from_utf8_lossy(&text), DIED_TAIL),
-                    });
-                }
-                exited = true;
+    let waited = wait_for_daemon(
+        Instant::now() + wait,
+        HUNG_GRACE,
+        || {
+            let found = files.discovery();
+            let serving = found.as_ref().is_some_and(live);
+            // Advertised only while its endpoint accepts: a stale file is
+            // nobody's.
+            Probe {
+                serving,
+                advertised: found.filter(|f| !serving && listens(f)).map(|f| f.pid),
             }
+        },
+        || {
+            spawned
+                .try_wait()
+                .ok()
+                .flatten()
+                .map(|s| (s.code(), s.to_string()))
+        },
+        |status| {
+            let text = wiring.fs().read(&log).unwrap_or_default();
+            Died {
+                status,
+                tail: tail_of(&String::from_utf8_lossy(&text), DIED_TAIL),
+            }
+        },
+    );
+    match waited {
+        Waited::Serving | Waited::TimedOut => None,
+        Waited::Died(died) => Some(NotServing::Died(died)),
+        Waited::Hung { pid } => Some(NotServing::Hung {
+            pid,
+            lock: instance_lock(wiring).display().to_string(),
+        }),
+    }
+}
+
+/// How long a holder of the single-instance lock that advertises itself is
+/// given to answer its health check, once the daemon a client spawned has
+/// found the lock held, before it is called hung: the race of another
+/// client's daemon still starting is waited for, a daemon that stays
+/// silent past this is not.
+const HUNG_GRACE: Duration = Duration::from_secs(2);
+
+/// What one look at the daemon a client waits for finds.
+#[derive(Debug, Clone, Copy)]
+struct Probe {
+    /// Its advertised daemon answers the health check.
+    serving: bool,
+    /// The process id the discovery file names, if it is there and reads.
+    advertised: Option<u32>,
+}
+
+/// How a wait for a spawned daemon ended.
+#[derive(Debug, PartialEq)]
+enum Waited {
+    Serving,
+    /// The spawned daemon died, and no other is coming.
+    Died(Died),
+    /// The spawned daemon lost the lock to a holder that advertises itself
+    /// (`pid`: the discovery file's) and does not answer its health check.
+    Hung {
+        pid: u32,
+    },
+    /// The wait ran out with no daemon serving.
+    TimedOut,
+}
+
+/// Why no daemon serves after a client's spawn.
+#[derive(Debug, PartialEq)]
+pub enum NotServing {
+    Died(Died),
+    Hung { pid: u32, lock: String },
+}
+
+/// Wait until `deadline` for a daemon to serve (`probe`), the spawned
+/// one's exit (`exited`: its code, a signal's `None`, and its status text,
+/// once it has) deciding what the wait is for: an exit that is not the lost
+/// lock ([`spawn_waits_on`]) ends it at once as [`Waited::Died`]; the lost
+/// lock means another daemon holds it, which is waited for, and one that
+/// advertises itself yet does not answer for `grace` (the same
+/// advertisement all that time) is [`Waited::Hung`]; one never seen is a
+/// plain [`Waited::TimedOut`].
+fn wait_for_daemon(
+    deadline: Instant,
+    grace: Duration,
+    mut probe: impl FnMut() -> Probe,
+    mut exited: impl FnMut() -> Option<(Option<i32>, String)>,
+    died: impl FnOnce(String) -> Died,
+) -> Waited {
+    let mut lost_lock = false;
+    // The advertised holder that has not answered, and since when.
+    let mut silent: Option<(u32, Instant)> = None;
+    while Instant::now() < deadline {
+        let seen = probe();
+        if seen.serving {
+            return Waited::Serving;
+        }
+        // Looked at once, after the probe, so one that served and exited
+        // is seen first.
+        if !lost_lock {
+            if let Some((code, status)) = exited() {
+                if !spawn_waits_on(code) {
+                    return Waited::Died(died(status));
+                }
+                lost_lock = true;
+            }
+        }
+        if lost_lock {
+            silent = match (seen.advertised, silent) {
+                (Some(pid), Some((was, since))) if pid == was => {
+                    if since.elapsed() >= grace {
+                        return Waited::Hung { pid };
+                    }
+                    Some((was, since))
+                }
+                (Some(pid), _) => Some((pid, Instant::now())),
+                (None, _) => None,
+            };
         }
         std::thread::sleep(Duration::from_millis(20));
     }
-    None
+    Waited::TimedOut
 }
 
 /// How a daemon a client spawned died before it served: its exit status,

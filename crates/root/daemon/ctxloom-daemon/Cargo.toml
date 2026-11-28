@@ -53,7 +53,7 @@ process-env.workspace = true
 duration-text.workspace = true
 project-dir.workspace = true
 ports.workspace = true
-tokio = { workspace = true, features = ["rt-multi-thread", "net", "sync"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "net", "sync", "time"] }
 uuid.workspace = true
 sessions.workspace = true
 runs.workspace = true
@@ -119,7 +119,7 @@ fixture-program.workspace = true
 # the feature adds code here and changes no trait another crate implements.
 ctxloom-compose = { workspace = true, features = ["test-support"] }
 angzarr-embedded = { workspace = true, features = ["test-support"] }
-tokio = { workspace = true, features = ["macros", "rt"] }
+tokio = { workspace = true, features = ["macros", "rt", "time"] }
 deps-application = { workspace = true, features = ["test-support"] }
 mutants.workspace = true
 file-system = { workspace = true, features = ["test-support"] }

@@ -38,6 +38,11 @@ pub enum LibError {
     /// `daemon serve` found another daemon holding the account's
     /// single-instance lock: that one serves, and this one does not.
     DaemonInstanceHeld { lock: String },
+    /// A daemon holds the single-instance lock and does not answer its
+    /// health check (hung): no other can serve until it is stopped. `pid` is
+    /// the discovery file's. A decline (48), as the lock
+    /// held is: the state forbids a daemon, nothing a retry changes.
+    DaemonHung { pid: u32, lock: String },
     /// A library tree's checkout harp (`.ctxloom/state/checkout`, L2) could
     /// not be read, minted or written.
     Checkout { path: String, detail: String },
@@ -54,7 +59,8 @@ impl cli_support::ExitClass for LibError {
         match self {
             LibError::ProjectUnnamed { .. }
             | LibError::ProjectRootNeeded { .. }
-            | LibError::DaemonInstanceHeld { .. } => cli_support::Exit::REFUSED,
+            | LibError::DaemonInstanceHeld { .. }
+            | LibError::DaemonHung { .. } => cli_support::Exit::REFUSED,
             _ => cli_support::Exit::FAILED,
         }
     }
@@ -82,6 +88,7 @@ impl Diagnostic for LibError {
             LibError::Checkout { .. } => code!("checkout"),
             LibError::Scan { .. } => code!("scan"),
             LibError::DaemonInstanceHeld { .. } => code!("daemon-instance-held"),
+            LibError::DaemonHung { .. } => code!("daemon-hung"),
         }
     }
 
@@ -106,6 +113,10 @@ impl Diagnostic for LibError {
                 ("ext_err_txt", detail.as_str().into()),
             ],
             LibError::DaemonInstanceHeld { lock } => vec![("lock", lock.as_str().into())],
+            LibError::DaemonHung { pid, lock } => vec![
+                ("pid", pid.to_string().into()),
+                ("lock", lock.as_str().into()),
+            ],
         }
     }
 }
@@ -138,6 +149,10 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
             root: "/work/app".to_string(),
         }),
         Box::new(LibError::DaemonInstanceHeld {
+            lock: "/home/u/.ctxloom/daemon/daemon.lock".to_string(),
+        }),
+        Box::new(LibError::DaemonHung {
+            pid: 4242,
             lock: "/home/u/.ctxloom/daemon/daemon.lock".to_string(),
         }),
         Box::new(LibError::Checkout {

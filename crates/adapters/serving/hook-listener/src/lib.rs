@@ -39,6 +39,7 @@ use std::time::Duration;
 
 use angzarr_coordinator::{Coordinator, Gate};
 use angzarr_coordinator_grpc::{BoundEndpoint, Edge as Served, Listener, Running, Server};
+pub use angzarr_coordinator_grpc::{Health, HealthStatus};
 use angzarr_proto_transport_distributed::v1::command_handler_coordinator_service_server::CommandHandlerCoordinatorServiceServer;
 use runs_application::{Edge, EdgeCommands};
 use tonic::transport::{Identity, ServerTlsConfig};
@@ -183,6 +184,12 @@ impl HookListener {
     /// The address a TCP listener is bound to.
     pub fn local_addr(&self) -> std::net::SocketAddr {
         self.addr
+    }
+
+    /// The handle on the listener's `grpc.health.v1` service, for the daemon
+    /// to say whether it is really working (SERVING is set once bound).
+    pub fn health(&self) -> Health {
+        self.running.health()
     }
 
     /// What the TCP listener declares of its requests.

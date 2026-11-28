@@ -297,9 +297,6 @@ fn test_the_generated_proto3_json_is_byte_identical_to_the_hand_written() {
         idle_seconds: 1,
         idle_limit_seconds: 600,
         draining: true,
-        // A test build's alone (step 10c U13): no round, so neither form
-        // says one.
-        rounds: 0,
         warnings: vec![
             v1::Notice {
                 code: "daemon-api-start-up-incomplete".to_string(),
@@ -311,6 +308,8 @@ fn test_the_generated_proto3_json_is_byte_identical_to_the_hand_written() {
             },
             v1::Notice::default(),
         ],
+        // A test build's `rounds` and a client's `health`: none here.
+        ..v1::Daemon::default()
     };
     let removal = every_field_of_a_removal();
     // A plan: `applied` has presence (OQ-7), so its `false` is printed.

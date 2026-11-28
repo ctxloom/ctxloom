@@ -77,6 +77,7 @@ fn the_samples_are_the_same_whether_or_not_test_support_is_built() {
             "ctxloom-compose-project-root-needed",
             "ctxloom-compose-project-unnamed",
             "ctxloom-compose-daemon-instance-held",
+            "ctxloom-compose-daemon-hung",
             "ctxloom-compose-checkout",
             "ctxloom-compose-scan",
             "ctxloom-compose-held-set-aside",

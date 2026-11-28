@@ -384,3 +384,24 @@ fn the_home_is_gone_only_once_its_ctxloom_directory_is() {
         "the lock elsewhere is left"
     );
 }
+
+// A daemon that holds the lock and advertises itself but does not answer
+// its health check is the silent holder `daemon status` reports; one that
+// answers, one whose lock is free (a stale file left by a killed daemon)
+// and one that advertises nothing are not.
+#[test]
+fn a_silent_holder_is_an_advertised_daemon_that_holds_the_lock_and_does_not_answer() {
+    let (root, home) = home();
+    let files = files(&root, &home);
+    assert_eq!(files.silent_holder(|_| false), None, "nothing advertised");
+    files.publish(&sample()).unwrap();
+    assert_eq!(
+        files.silent_holder(|_| false),
+        None,
+        "its lock is free: a stale file"
+    );
+    let held = files.hold_instance(Duration::ZERO).expect("held");
+    assert_eq!(files.silent_holder(|_| true), None, "it answers");
+    assert_eq!(files.silent_holder(|_| false), Some(sample()));
+    drop(held);
+}

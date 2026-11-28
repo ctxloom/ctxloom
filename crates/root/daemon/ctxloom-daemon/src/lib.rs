@@ -12,6 +12,7 @@ pub use core_link::{
 mod deps;
 mod foreign;
 mod hand_offs;
+mod heartbeat;
 mod hosted_oneshots;
 mod hosted_terminals;
 mod imports;

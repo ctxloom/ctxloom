@@ -257,6 +257,23 @@ impl DaemonFiles {
         Discovery::decode(&bytes)
     }
 
+    /// The daemon that holds the single-instance lock, advertises itself
+    /// and does not answer its health check (`answers`): the discovery file
+    /// names it, the lock is held by another, and `answers` says no. None
+    /// for no file, a lock that is free (a file a killed daemon left), or a
+    /// daemon that answers. The lock is taken and let go at once, to see
+    /// whether it can be.
+    pub fn silent_holder(&self, answers: impl Fn(&Discovery) -> bool) -> Option<Discovery> {
+        let found = self.discovery()?;
+        if answers(&found) {
+            return None;
+        }
+        match self.take_instance(Duration::ZERO) {
+            Err(Unheld::Held { .. }) => Some(found),
+            _ => None,
+        }
+    }
+
     /// Withdraw the advertisement, whoever's it is.
     fn withdraw(&self) {
         let _ = self.fs.remove_file(&self.discovery_path());

@@ -89,6 +89,15 @@ impl Render for Status {
         let Some(daemon) = &self.0 else {
             return writeln!(out, "no ctxloom daemon is serving");
         };
+        // DRAFT text: a daemon that holds the lock and does not answer its
+        // health check (hung).
+        if daemon.health == daemon_proto::v1::daemon::Health::NotServing as i32 {
+            return writeln!(
+                out,
+                "NOT_SERVING: a ctxloom daemon (pid {}), ctxloom {}, holds the lock at {} but does not answer its health check; stop it with `kill -TERM {}`",
+                daemon.pid, daemon.version, daemon.endpoint, daemon.pid
+            );
+        }
         writeln!(
             out,
             "serving at {} (pid {}), ctxloom {}",
@@ -115,6 +124,23 @@ impl Render for Status {
         }
         Ok(())
     }
+}
+
+/// The daemon that holds the lock and advertises itself but does not answer
+/// its health check, as `daemon status` tells it: its pid, endpoint and stamp
+/// from the discovery file, its health NOT_SERVING.
+fn not_serving(
+    files: &ctxloom_compose::daemon::files::DaemonFiles,
+) -> Option<daemon_proto::v1::Daemon> {
+    let silent = files.silent_holder(|found| live(found) || !listens(found))?;
+    Some(daemon_proto::v1::Daemon {
+        name: "daemon".to_string(),
+        pid: silent.pid,
+        endpoint: silent.endpoint,
+        version: silent.stamp,
+        health: daemon_proto::v1::daemon::Health::NotServing as i32,
+        ..daemon_proto::v1::Daemon::default()
+    })
 }
 
 /// What `stop` answers (smoke 2026-11-19): the daemon it stopped, as the
@@ -212,6 +238,7 @@ pub(crate) fn run(
             // It shows the daemon's warnings itself (OD-52): it hears none.
             let reach = Reach::new(&wiring, stamp).observing().showing_warnings();
             let found = block_on(client_reaching(&wiring, reach).status())?.map_err(called)?;
+            let found = found.or_else(|| not_serving(&files_of(&wiring)));
             let warnings = found
                 .as_ref()
                 .map(|daemon| warned(&daemon.warnings, catalog))
@@ -259,11 +286,17 @@ fn resolve(
     )?;
     let died = ensure(wiring, env);
     let Some(found) = serving(wiring, &files)? else {
+        if let Some(NotServing::Hung { pid, lock }) = died {
+            return Err(Failure::new(
+                LibError::DaemonHung { pid, lock },
+                Exit::REFUSED,
+            ));
+        }
         let detail = match died {
-            Some(Died { status, tail }) => format!(
+            Some(NotServing::Died(Died { status, tail })) => format!(
                 "no ctxloom daemon could be started: the one started exited ({status}); the end of its log:\n{tail}"
             ),
-            None => "no ctxloom daemon could be started".to_string(),
+            _ => "no ctxloom daemon could be started".to_string(),
         };
         return Err(failed(LibError::NoRuntime { detail }));
     };

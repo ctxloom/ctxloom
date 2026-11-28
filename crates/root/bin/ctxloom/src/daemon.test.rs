@@ -782,9 +782,20 @@ fn a_daemon_that_holds_the_instance_lock_but_does_not_answer_is_not_serving() {
     let status = world.run(&["daemon", "status", "--format", "json"]);
     signal(daemon.id(), "-CONT");
     assert_eq!(status.code, 0, "{}", status.said());
+    // A stopped daemon still holds the instance lock and is advertised, so
+    // `daemon status` reports it NOT_SERVING with its pid rather than saying
+    // none serves (owner ruling 2026-11-27: a valid health check).
+    let daemons = status.json()["daemons"].clone();
     assert_eq!(
-        status.json(),
-        serde_json::json!({"daemons": []}),
+        daemons.as_array().map(Vec::len),
+        Some(1),
+        "{}",
+        status.said()
+    );
+    assert_eq!(daemons[0]["health"], "NOT_SERVING", "{}", status.said());
+    assert_eq!(
+        daemons[0]["pid"].as_u64(),
+        Some(u64::from(daemon.id())),
         "{}",
         status.said()
     );

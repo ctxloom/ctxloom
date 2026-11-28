@@ -19,6 +19,10 @@ ctxloom-compose-daemon-other-home-fix = run the command with the ctxloom home { 
 # The daemon cluster's cap (owner ruling 2026-11-18). DRAFT wording, the
 # owner's to approve: `daemon serve` that lost the single-instance lock.
 ctxloom-compose-daemon-instance-held = another ctxloom daemon holds this account's single-instance lock { $lock }, so this one does not serve
+# DRAFT wording, the owner's to approve: a daemon holds the single-instance
+# lock and does not answer its health check (hung), so none can start.
+ctxloom-compose-daemon-hung = a ctxloom daemon (pid { $pid }) holds the single-instance lock { $lock } but does not answer its health check, so no daemon can serve
+ctxloom-compose-daemon-hung-fix = stop that daemon with `kill -TERM { $pid }`, and `kill -KILL { $pid }` if it remains, then run the command again
 ctxloom-compose-seed = the test seed could not plant the session: { $ext_err_txt }
 ctxloom-compose-test-output = a test command's answer could not be written: { $ext_err_txt }
 ctxloom-compose-test-refused = the test command { $verb } refused, as it always does
